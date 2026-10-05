@@ -306,6 +306,7 @@ func TestWalletLegacyAliasRejectsUnrepresentablePositiveQWithoutChangingCredits(
 	require.NoError(t, db.First(&stored, user.Id).Error)
 	require.Equal(t, 1000, stored.Quota)
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.RequireFromString("0.5")))
+	persistCreditDenominationFixture(t, db)
 	data := walletMCPData(t, walletMCPCall(t, session, "wallet.balance", map[string]any{}, ""))
 	require.Equal(t, 0.5, data["quota_per_platform_credit"], "representable positive fractional legacy Q remains valid")
 	require.EqualValues(t, 1, data["credit_unit"])

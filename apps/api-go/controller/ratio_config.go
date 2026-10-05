@@ -29,7 +29,7 @@ func GetRatioConfig(c *gin.Context) {
 		return
 	}
 	c.Header("Cache-Control", "no-store")
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"success":                       true,
 		"pricing_schema_version":        model.PricingSchemaUSD,
 		"pricing_currency":              model.PricingCurrencyUSD,
@@ -40,5 +40,11 @@ func GetRatioConfig(c *gin.Context) {
 		"model_ratio_usd_per_million":   config.ModelRatioUSDPerMillion,
 		"message":                       "",
 		"data":                          data,
-	})
+		"model_ratio_unit":              "LEDGER_QUOTA_PER_TOKEN",
+	}
+	if err := addCreditUnitMetadata(response); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing currency units are unavailable"})
+		return
+	}
+	c.JSON(http.StatusOK, response)
 }

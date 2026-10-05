@@ -13,6 +13,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -48,6 +49,8 @@ type walletMCPTransferView struct {
 	ClaimedAt   int64  `json:"claimed_at,omitempty"`
 	CancelledAt int64  `json:"cancelled_at,omitempty"`
 	ShareURL    string `json:"share_url,omitempty"`
+	common.CreditDenomination
+	PublicCreditAmount string `json:"public_credit_amount"`
 }
 
 func walletMCPActor(request *mcp.CallToolRequest, write bool) (*model.User, error) {
@@ -93,7 +96,20 @@ func walletMCPURL(path string, query url.Values, fragment string) (string, error
 }
 
 func walletMCPView(transfer model.WalletTransfer) (walletMCPTransferView, error) {
-	view := walletMCPTransferView{ID: transfer.Id, Quota: transfer.Quota, Status: transfer.Status, CreatedAt: transfer.CreatedAt, ClaimedAt: transfer.ClaimedAt, CancelledAt: transfer.CancelledAt}
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return walletMCPTransferView{}, err
+	}
+	return walletMCPViewFor(transfer, units)
+}
+
+func walletMCPViewFor(transfer model.WalletTransfer, units common.CreditDenomination) (walletMCPTransferView, error) {
+	view := walletMCPTransferView{ID: transfer.Id, Quota: transfer.Quota, Status: transfer.Status, CreatedAt: transfer.CreatedAt, ClaimedAt: transfer.ClaimedAt, CancelledAt: transfer.CancelledAt, CreditDenomination: units}
+	public, err := units.ProjectLedgerQuota(int64(transfer.Quota))
+	if err != nil {
+		return walletMCPTransferView{}, err
+	}
+	view.PublicCreditAmount = public.String()
 	if transfer.Status == "pending" {
 		var err error
 		view.ShareURL, err = walletMCPURL("/transfer", nil, transfer.Token)
@@ -158,10 +174,23 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil || legacyValue <= 0 || math.IsNaN(legacyValue) || math.IsInf(legacyValue, 0) {
 				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
 			}
-			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: map[string]any{"schema_version": 2, "available_quota": user.Quota,
-				"available_credits": user.Quota, "currency_unit": "CREDIT", "credit_unit": 1,
+			units, err := model.CreditDenominationSnapshot()
+			if err != nil {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
+			public, err := units.ProjectLedgerQuota(int64(user.Quota))
+			if err != nil {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
+			data := gin.H{"schema_version": 2, "available_quota": user.Quota,
+				"available_credits": user.Quota, "available_credits_unit": common.LedgerQuotaUnit,
+				"public_available_credits": public.String(), "currency_unit": common.LedgerQuotaUnit, "credit_unit": 1,
 				"quota_per_platform_credit": legacyValue, "quota_per_platform_credit_unit": "LEGACY", "quota_per_platform_credit_deprecated": true,
-				"currency": "USD", "available_usd": value, "credits_per_usd": anchor.String(), "tool_price_quota": 0}}, nil
+				"currency": "USD", "available_usd": value, "credits_per_usd": anchor.String(), "tool_price_quota": 0}
+			for key, value := range creditUnitMetadataFieldsFor(units) {
+				data[key] = value
+			}
+			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: data}, nil
 		})
 
 	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", walletMCPTopupDescription, true, false, true),
@@ -192,9 +221,13 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, walletMCPError(err)
 			}
+			units, err := model.CreditDenominationSnapshot()
+			if err != nil {
+				return nil, walletMCPOutput{}, err
+			}
 			views := make([]walletMCPTransferView, 0, len(rows))
 			for _, row := range rows {
-				view, err := walletMCPView(row)
+				view, err := walletMCPViewFor(row, units)
 				if err != nil {
 					return nil, walletMCPOutput{}, err
 				}
@@ -209,7 +242,12 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}
-			if input.Quota <= 0 || common.ValidateWalletQuota(input.Quota) != nil {
+			units, err := model.CreditDenominationSnapshot()
+			if err != nil {
+				return nil, walletMCPOutput{}, err
+			}
+			quota := input.Quota
+			if quota <= 0 || common.ValidateWalletQuota(quota) != nil {
 				return nil, walletMCPOutput{}, model.ErrWalletTransferInvalid
 			}
 			// Validate the console origin before creating a hold.
@@ -220,16 +258,24 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}
-			message := fmt.Sprintf("Hold exactly %d wallet quota units from account %d and create a private transfer link? Available balance: %d quota. Anyone with this link or QR can claim the held amount. The MCP tool fee is 0; the transfer amount is held until claimed or cancelled.", input.Quota, user.Id, user.Quota)
+			public, err := units.ProjectLedgerQuota(int64(quota))
+			if err != nil {
+				return nil, walletMCPOutput{}, err
+			}
+			usd, err := common.CreditsToUSD(int64(quota))
+			if err != nil {
+				return nil, walletMCPOutput{}, err
+			}
+			message := fmt.Sprintf("Hold USD %s (about %s CREDIT) from account %d and create a private transfer link? Anyone with this link or QR can claim the held amount. The MCP tool fee is 0; the transfer amount is held until claimed or cancelled.", usd.String(), public.Round(8).String(), user.Id)
 			pending, operation, err := bountyMCPConfirmedOperation(request, user.Id, "wallet.transfer.create", payload, message)
 			if err != nil || pending != nil {
 				return pending, walletMCPOutput{}, err
 			}
-			transfer, err := model.CreateWalletTransferWithMCPConfirmation(user.Id, input.Quota, requestKey, user.AuthVersion, *operation)
+			transfer, err := model.CreateWalletTransferWithMCPConfirmation(user.Id, quota, requestKey, user.AuthVersion, *operation)
 			if err != nil {
 				return nil, walletMCPOutput{}, walletMCPError(err)
 			}
-			view, err := walletMCPView(*transfer)
+			view, err := walletMCPViewFor(*transfer, units)
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}

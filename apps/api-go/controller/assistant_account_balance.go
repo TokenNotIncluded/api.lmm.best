@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/model"
 )
 
 var errAssistantCurrencyProjectionUnavailable = errors.New("assistant currency amount cannot be represented")
@@ -52,5 +53,19 @@ func assistantWalletBalanceFields(quota int) map[string]any {
 	fields["credits_per_usd"] = anchor
 	fields["wallet_balance_status"] = "available"
 	fields["wallet_balance_usd"] = balanceUSD
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		fields["wallet_balance_status"] = "unavailable"
+		return fields
+	}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		fields[key] = value
+	}
+	public, err := units.ProjectLedgerQuota(int64(quota))
+	if err != nil {
+		fields["wallet_balance_status"] = "unavailable"
+		return fields
+	}
+	fields["wallet_balance_public_credits"] = public.String()
 	return fields
 }

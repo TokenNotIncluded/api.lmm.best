@@ -311,9 +311,9 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_new_user_gift",
-				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 LEGACY_CENTS, hundredths of one legacy pricing unit, preserving the existing Credit gift range. These are not US cents; explain the result using credit_amount or amount_usd. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
+				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 LEGACY_CENTS, hundredths of one legacy pricing unit, preserving the existing Credit gift range. These are not US cents; explain the result using public_credit_amount or amount_usd. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
 				Parameters: objectSchema(map[string]any{
-					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000, "description": "LEGACY_CENTS: hundredths of one legacy pricing unit, preserving the existing Credit gift range. Not US cents. The result reports actual credit_amount and amount_usd."},
+					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000, "description": "LEGACY_CENTS: hundredths of one legacy pricing unit, preserving the existing Credit gift range. Not US cents. The result reports public_credit_amount and amount_usd."},
 					"amount_unit":  map[string]any{"type": "string", "enum": []string{"LEGACY_CENTS"}, "description": "The retained amount_cents input uses LEGACY_CENTS only."},
 					"reason":       map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
 				}, []string{"amount_cents", "reason"}),
@@ -3093,10 +3093,12 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 	}
 	amounts := []int{user.AffQuota, user.AffHistoryQuota, common.QuotaForInviter, common.QuotaForInvitee}
 	usd := make([]any, len(amounts))
+	projectionUnavailable := false
 	for i, amount := range amounts {
 		converted, _, err := assistantFiatProjection(int64(amount))
 		if errors.Is(err, errAssistantCurrencyProjectionUnavailable) {
-			continue // Preserve the Credit rewards; an unrepresentable USD field is null.
+			projectionUnavailable = true
+			continue // Preserve the ledger rewards; an unrepresentable USD field is null.
 		}
 		if err != nil {
 			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
@@ -3120,6 +3122,26 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 		"promotional_rewards_eligible": !model.IsDisposableEmail(user.Email),
 		"payment_compliance_confirmed": operation_setting.IsPaymentComplianceConfirmed(),
 		"next_step":                    "Open the invitation page to generate or copy the current invitation code.",
+	}
+	result["legacy_reward_credit_unit"] = common.LedgerQuotaUnit
+	if projectionUnavailable {
+		result["public_credit_status"] = "unavailable"
+		return result
+	}
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+	}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		result[key] = value
+	}
+	result["legacy_reward_credit_unit"] = common.LedgerQuotaUnit
+	for i, key := range []string{"pending_reward_public_credits", "total_reward_public_credits", "reward_per_inviter_public_credits", "reward_per_invitee_public_credits"} {
+		amount, err := units.ProjectLedgerQuota(int64(amounts[i]))
+		if err != nil {
+			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+		}
+		result[key] = amount.String()
 	}
 	if model.IsDisposableEmail(user.Email) {
 		result["message"] = "Known disposable email domains are not eligible for new-account or invitation promotional credits. Use a durable email for legitimate referrals; ordinary account support and tool-based registration verification remain available."

@@ -27,6 +27,7 @@ func setupUserOnboardingTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	model.DB = db
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.TopUp{}))
+	persistCreditDenominationFixture(t, db)
 	t.Cleanup(func() {
 		model.DB = previousDB
 		common.RedisEnabled = previousRedisEnabled

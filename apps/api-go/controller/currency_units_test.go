@@ -42,11 +42,13 @@ func installStatusCurrencyFixture(t *testing.T) {
 		return settings.Group, settings.Model, nil
 	}
 	t.Cleanup(func() { assistantConfiguredRouteResolver = previous; getPricingCache = previousPricing })
+	setupTokenControllerTestDB(t)
 }
 
 func TestStatusCreditMetadataAndUnavailableFailsClosed(t *testing.T) {
 	installStatusCurrencyFixture(t)
 	installControllerCreditAnchor(t, 4375000)
+	persistCreditDenominationFixture(t, model.DB)
 	preserveCacheRuntimeHooks(t)
 	cacheReadinessError = func() error { return nil }
 	oldQ, oldFX, oldB := common.QuotaPerUnit, operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY

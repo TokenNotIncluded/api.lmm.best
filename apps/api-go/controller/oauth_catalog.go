@@ -79,9 +79,21 @@ func oauthBalancePayload(quota int) (gin.H, error) {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return nil, common.ErrCreditUnitsUnavailable
 	}
-	return gin.H{"schema_version": 2, "currency": "USD", "balance": value, "quota": quota,
-		"quota_unit": "CREDIT", "credit_unit": 1, "credits_per_usd": anchor.String(), "quota_per_unit": quotaPerUSD,
-		"updated_at": time.Now().Unix(), "authorization_limit": nil}, nil
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	credits, err := units.ProjectLedgerQuota(int64(quota))
+	if err != nil {
+		return nil, err
+	}
+	payload := gin.H{"schema_version": 2, "currency": "USD", "balance": value, "quota": quota,
+		"public_credit_balance": credits.String(), "credit_unit": 1, "credits_per_usd": anchor.String(), "quota_per_unit": quotaPerUSD,
+		"updated_at": time.Now().Unix(), "authorization_limit": nil}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		payload[key] = value
+	}
+	return payload, nil
 }
 
 func (h *OAuthHTTP) Activity(c *gin.Context) {

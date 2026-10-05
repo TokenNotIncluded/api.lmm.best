@@ -23,6 +23,9 @@ type assistantNewUserGiftResponse struct {
 	AmountUSD     *float64 `json:"amount_usd"`
 	Currency      string   `json:"currency"`
 	CreditsPerUSD *float64 `json:"credits_per_usd"`
+	common.CreditDenomination
+	CreditAmountUnit   string `json:"credit_amount_unit"`
+	PublicCreditAmount string `json:"public_credit_amount"`
 }
 
 func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any, error) {
@@ -32,7 +35,7 @@ func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any,
 	}
 	fields := map[string]any{
 		"amount_cents": amountCents, "amount_unit": "LEGACY_CENTS",
-		"credit_amount": credits, "amount_usd": nil,
+		"credit_amount": credits, "credit_amount_unit": common.LedgerQuotaUnit, "amount_usd": nil,
 		"currency": "USD", "credits_per_usd": nil,
 	}
 	usd, anchor, err := assistantFiatProjection(int64(credits))
@@ -43,6 +46,18 @@ func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any,
 		return nil, err
 	}
 	fields["amount_usd"], fields["credits_per_usd"] = usd, anchor
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		fields[key] = value
+	}
+	public, err := units.ProjectLedgerQuota(int64(credits))
+	if err != nil {
+		return nil, err
+	}
+	fields["public_credit_amount"] = public.String()
 	return fields, nil
 }
 
@@ -55,6 +70,15 @@ func assistantGiftResponse(gift *model.AssistantNewUserGift) (*assistantNewUserG
 		AssistantNewUserGift: gift, AmountUnit: "LEGACY_CENTS", CreditAmount: gift.Quota,
 		Currency: "USD",
 	}
+	response.CreditAmountUnit = common.LedgerQuotaUnit
+	// Reuse the same captured basis that produced public_credit_amount.
+	if version, ok := fields["credit_unit_schema_version"].(int); ok {
+		response.CreditDenomination = common.CreditDenomination{CreditUnitSchemaVersion: version,
+			QuotaUnit: fields["quota_unit"].(string), PublicCreditUnit: fields["public_credit_unit"].(string), LegacyCreditUnit: fields["legacy_credit_unit"].(string),
+			LedgerQuotaPerUSD: fields["ledger_quota_per_usd"].(float64), LedgerQuotaPerUSDExact: fields["ledger_quota_per_usd_exact"].(string),
+			PublicCreditsPerUSD: fields["public_credits_per_usd"].(float64), PublicCreditsPerUSDExact: fields["public_credits_per_usd_exact"].(string)}
+	}
+	response.PublicCreditAmount, _ = fields["public_credit_amount"].(string)
 	if value, ok := fields["amount_usd"].(float64); ok {
 		response.AmountUSD = &value
 	}
@@ -206,6 +230,6 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 		c.Set(assistantClientActionKey, action)
 	}
 	money["ok"], money["created"], money["status"], money["reason"] = true, created, gift.Status, gift.Reason
-	money["next_step"] = "The user claims an offered gift from the gift shown in the chat. Never claim it for them. amount_cents is LEGACY_CENTS; explain the gift using credit_amount or amount_usd."
+	money["next_step"] = "The user claims an offered gift from the gift shown in the chat. Never claim it for them. amount_cents is LEGACY_CENTS; explain the gift using public_credit_amount or amount_usd."
 	return money
 }

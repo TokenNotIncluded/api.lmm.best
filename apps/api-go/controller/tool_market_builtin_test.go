@@ -20,6 +20,10 @@ import (
 func setupToolMarketBuiltinControllerTest(t *testing.T) (*gorm.DB, model.User) {
 	t.Helper()
 	db, user, _ := setupOpenSourceBountyMCPControllerTest(t)
+	if _, err := common.LedgerQuotaPerUSD(); err != nil {
+		installIdentityCurrencyFixture(t)
+	}
+	persistCreditDenominationFixture(t, db)
 	require.NoError(t, db.AutoMigrate(&model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketEvent{}, &model.ToolMarketToken{}, &model.ToolMarketCall{}, &model.ToolMarketResult{}, &model.ToolMarketConfig{}, &model.ToolMarketBudget{}, &model.ToolMarketTransfer{}, &model.ToolMarketBuiltinContinuation{}))
 	require.NoError(t, EnsureToolMarketBuiltinCatalog(context.Background()))
 	return db, user

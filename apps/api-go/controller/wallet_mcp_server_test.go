@@ -45,6 +45,7 @@ func setupWalletMCPTest(t *testing.T) (*gorm.DB, model.User, model.User) {
 	conn.SetMaxOpenConns(1)
 	model.DB, model.LOG_DB = db, db
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.WalletTransfer{}, &model.OpenSourceBountyMCPConfirmation{}, &model.OpenSourceBountyMCPOperation{}))
+	persistCreditDenominationFixture(t, db)
 	user := model.User{Username: "wallet-owner", AffCode: "wallet-owner", Quota: 1000, Status: common.UserStatusEnabled, AuthVersion: 1}
 	other := model.User{Username: "wallet-other", AffCode: "wallet-other", Quota: 500, Status: common.UserStatusEnabled, AuthVersion: 1}
 	require.NoError(t, db.Create(&user).Error)
@@ -153,7 +154,8 @@ func TestWalletMCPRequiresExactGrantAndBoundConfirmation(t *testing.T) {
 	pending := walletMCPCall(t, session, "wallet.transfer.create", args, "")
 	require.True(t, pending.NeedsInput())
 	form := pending.InputRequests["confirmation"].(*mcp.ElicitParams)
-	require.Contains(t, form.Message, "exactly 300")
+	require.Contains(t, form.Message, "Hold USD")
+	require.NotContains(t, form.Message, "internal")
 	require.Contains(t, form.Message, "fee is 0")
 	var current model.User
 	require.NoError(t, db.First(&current, user.Id).Error)

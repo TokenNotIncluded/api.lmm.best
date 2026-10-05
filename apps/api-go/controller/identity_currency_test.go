@@ -123,9 +123,10 @@ func TestBalanceUSDProjectionRejectsDecimalOverflowAndKeepsNormalZero(t *testing
 	require.EqualValues(t, 0, balance["available_quota"])
 }
 
-func TestOAuthBalanceUsesFixedUSDAnchorAndRawOneCredit(t *testing.T) {
-	installIdentityCurrencyFixture(t)
+func TestOAuthBalanceUsesFixedUSDAnchorAndExplicitLedgerQuota(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	persistCreditDenominationFixture(t, db)
 	oldQ, oldFX, oldB := common.QuotaPerUnit, operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY
 	t.Cleanup(func() {
 		common.QuotaPerUnit, operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = oldQ, oldFX, oldB
@@ -137,7 +138,7 @@ func TestOAuthBalanceUsesFixedUSDAnchorAndRawOneCredit(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, 2, data["schema_version"])
 			require.Equal(t, "USD", data["currency"])
-			require.Equal(t, "CREDIT", data["quota_unit"])
+			require.Equal(t, common.LedgerQuotaUnit, data["quota_unit"])
 			require.Equal(t, raw, data["quota"])
 			require.Equal(t, 1, data["credit_unit"])
 			require.Equal(t, "3500000", data["credits_per_usd"])
@@ -170,7 +171,8 @@ func TestWalletMCPBalanceKeepsRawCreditsAndLegacyPrefillBridge(t *testing.T) {
 		require.EqualValues(t, 500000, data["quota_per_platform_credit"], "deprecated alias retains immutable LEGACY batch Q, independent of the live display calibration")
 		require.Equal(t, "LEGACY", data["quota_per_platform_credit_unit"])
 		require.Equal(t, true, data["quota_per_platform_credit_deprecated"])
-		require.Equal(t, "CREDIT", data["currency_unit"])
+		require.Equal(t, common.LedgerQuotaUnit, data["currency_unit"])
+		require.Equal(t, common.PublicCreditUnit, data["public_credit_unit"])
 		require.Equal(t, "USD", data["currency"])
 		require.Equal(t, "3500000", data["credits_per_usd"])
 		require.InDelta(t, float64(raw)/3500000, data["available_usd"], 1e-16)

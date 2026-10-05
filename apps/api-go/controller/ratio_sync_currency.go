@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
@@ -58,6 +59,15 @@ type PricingSyncMetadata struct {
 	PricingStorageBasis       string   `json:"pricing_storage_basis,omitempty"`
 	StorageBasis              string   `json:"storage_basis,omitempty"`
 	CreditsPerUSD             *float64 `json:"credits_per_usd,omitempty"`
+	LedgerQuotaPerUSD         *float64 `json:"ledger_quota_per_usd,omitempty"`
+	LedgerQuotaPerUSDExact    string   `json:"ledger_quota_per_usd_exact,omitempty"`
+	PublicCreditsPerUSD       *float64 `json:"public_credits_per_usd,omitempty"`
+	PublicCreditsPerUSDExact  string   `json:"public_credits_per_usd_exact,omitempty"`
+	LegacyCreditUnit          string   `json:"legacy_credit_unit,omitempty"`
+	CreditUnitSchemaVersion   *int     `json:"credit_unit_schema_version,omitempty"`
+	QuotaUnit                 string   `json:"quota_unit,omitempty"`
+	PublicCreditUnit          string   `json:"public_credit_unit,omitempty"`
+	ModelRatioUnit            string   `json:"model_ratio_unit,omitempty"`
 	LegacyPricingQuotaPerUnit *float64 `json:"legacy_pricing_quota_per_unit,omitempty"`
 	QuotaPerUnit              *float64 `json:"quota_per_unit,omitempty"`
 	LegacyPricingUnitsPerUSD  *float64 `json:"legacy_pricing_units_per_usd,omitempty"`
@@ -69,8 +79,51 @@ type pricingSyncUnits struct {
 	legacyUnitsPerUSD float64
 }
 
+func (metadata PricingSyncMetadata) hasDenominationMetadata() bool {
+	return metadata.LedgerQuotaPerUSD != nil || metadata.LedgerQuotaPerUSDExact != "" || metadata.PublicCreditsPerUSD != nil || metadata.PublicCreditsPerUSDExact != "" || metadata.CreditUnitSchemaVersion != nil || metadata.QuotaUnit != "" || metadata.PublicCreditUnit != "" || metadata.LegacyCreditUnit != ""
+}
+
 func syncSourceUnits(metadata PricingSyncMetadata) (pricingSyncUnits, error) {
 	units := pricingSyncUnits{creditsPerUSD: 500000, legacyUnitsPerUSD: 1}
+	if metadata.LedgerQuotaPerUSD != nil {
+		if !validSyncUnit(*metadata.LedgerQuotaPerUSD) || (metadata.CreditsPerUSD != nil && *metadata.CreditsPerUSD != *metadata.LedgerQuotaPerUSD) {
+			return units, fmt.Errorf("conflicting or invalid upstream ledger quota basis")
+		}
+		metadata.CreditsPerUSD = metadata.LedgerQuotaPerUSD
+	}
+	if metadata.hasDenominationMetadata() {
+		if metadata.CreditUnitSchemaVersion == nil || *metadata.CreditUnitSchemaVersion != common.PublicCreditUnitSchemaVersion || metadata.LedgerQuotaPerUSD == nil || metadata.PublicCreditsPerUSD == nil || metadata.QuotaUnit != common.LedgerQuotaUnit || metadata.PublicCreditUnit != common.PublicCreditUnit {
+			return units, fmt.Errorf("incomplete upstream credit denomination metadata")
+		}
+		if metadata.LegacyCreditUnit != "" && metadata.LegacyCreditUnit != common.LedgerQuotaUnit {
+			return units, fmt.Errorf("unsupported upstream legacy credit unit")
+		}
+		if !validSyncUnit(*metadata.PublicCreditsPerUSD) {
+			return units, fmt.Errorf("invalid upstream public credit denomination")
+		}
+		public := decimal.NewFromFloat(*metadata.PublicCreditsPerUSD)
+		if common.ValidatePublicCreditsPerUSD(public) != nil {
+			return units, fmt.Errorf("invalid upstream public credit denomination")
+		}
+		for _, pair := range []struct {
+			exact  string
+			number float64
+		}{
+			{metadata.LedgerQuotaPerUSDExact, *metadata.LedgerQuotaPerUSD},
+			{metadata.PublicCreditsPerUSDExact, *metadata.PublicCreditsPerUSD},
+		} {
+			if pair.exact == "" {
+				continue
+			}
+			value, err := decimal.NewFromString(pair.exact)
+			if err != nil || !value.IsPositive() || len(pair.exact) > 80 || value.Exponent() < -18 || value.Exponent() > 18 || value.InexactFloat64() != pair.number {
+				return units, fmt.Errorf("conflicting or invalid upstream exact credit basis")
+			}
+		}
+	}
+	if metadata.ModelRatioUnit != "" && metadata.ModelRatioUnit != "LEDGER_QUOTA_PER_TOKEN" {
+		return units, fmt.Errorf("unsupported upstream model ratio unit")
+	}
 	version := 0
 	for _, v := range []*int{metadata.PricingSchemaVersion, metadata.SchemaVersion} {
 		if v != nil {
@@ -107,7 +160,7 @@ func syncSourceUnits(metadata PricingSyncMetadata) (pricingSyncUnits, error) {
 	if units.canonical && currency != model.PricingCurrencyUSD {
 		return units, fmt.Errorf("schema 2 upstream prices must declare USD")
 	}
-	declared := version != 0 || currency != "" || basis != "" || metadata.CreditsPerUSD != nil || metadata.LegacyPricingQuotaPerUnit != nil || metadata.QuotaPerUnit != nil || metadata.LegacyPricingUnitsPerUSD != nil
+	declared := version != 0 || currency != "" || basis != "" || metadata.CreditsPerUSD != nil || metadata.hasDenominationMetadata() || metadata.ModelRatioUnit != "" || metadata.LegacyPricingQuotaPerUnit != nil || metadata.QuotaPerUnit != nil || metadata.LegacyPricingUnitsPerUSD != nil
 	if !declared {
 		return units, nil
 	}
@@ -422,7 +475,7 @@ func decodeUpstreamPricingData(bodyBytes []byte, targetK float64) (map[string]an
 		}
 		seenModels[row.ModelName] = true
 		rowUnits := units
-		if row.PricingSchemaVersion != nil || row.SchemaVersion != nil || row.PricingCurrency != "" || row.Currency != "" || row.PricingStorageBasis != "" || row.StorageBasis != "" || row.CreditsPerUSD != nil || row.LegacyPricingQuotaPerUnit != nil || row.QuotaPerUnit != nil || row.LegacyPricingUnitsPerUSD != nil {
+		if row.PricingSchemaVersion != nil || row.SchemaVersion != nil || row.PricingCurrency != "" || row.Currency != "" || row.PricingStorageBasis != "" || row.StorageBasis != "" || row.CreditsPerUSD != nil || row.hasDenominationMetadata() || row.ModelRatioUnit != "" || row.LegacyPricingQuotaPerUnit != nil || row.QuotaPerUnit != nil || row.LegacyPricingUnitsPerUSD != nil {
 			meta := row.PricingSyncMetadata
 			if meta.PricingSchemaVersion == nil && meta.SchemaVersion == nil {
 				meta.PricingSchemaVersion, meta.SchemaVersion = envelope.PricingSchemaVersion, envelope.SchemaVersion
@@ -435,6 +488,33 @@ func decodeUpstreamPricingData(bodyBytes []byte, targetK float64) (map[string]an
 			}
 			if meta.CreditsPerUSD == nil {
 				meta.CreditsPerUSD = envelope.CreditsPerUSD
+			}
+			if meta.LedgerQuotaPerUSD == nil {
+				meta.LedgerQuotaPerUSD = envelope.LedgerQuotaPerUSD
+			}
+			if meta.PublicCreditsPerUSD == nil {
+				meta.PublicCreditsPerUSD = envelope.PublicCreditsPerUSD
+			}
+			if meta.LedgerQuotaPerUSDExact == "" {
+				meta.LedgerQuotaPerUSDExact = envelope.LedgerQuotaPerUSDExact
+			}
+			if meta.PublicCreditsPerUSDExact == "" {
+				meta.PublicCreditsPerUSDExact = envelope.PublicCreditsPerUSDExact
+			}
+			if meta.LegacyCreditUnit == "" {
+				meta.LegacyCreditUnit = envelope.LegacyCreditUnit
+			}
+			if meta.CreditUnitSchemaVersion == nil {
+				meta.CreditUnitSchemaVersion = envelope.CreditUnitSchemaVersion
+			}
+			if meta.QuotaUnit == "" {
+				meta.QuotaUnit = envelope.QuotaUnit
+			}
+			if meta.PublicCreditUnit == "" {
+				meta.PublicCreditUnit = envelope.PublicCreditUnit
+			}
+			if meta.ModelRatioUnit == "" {
+				meta.ModelRatioUnit = envelope.ModelRatioUnit
 			}
 			if meta.LegacyPricingUnitsPerUSD == nil {
 				meta.LegacyPricingUnitsPerUSD = envelope.LegacyPricingUnitsPerUSD

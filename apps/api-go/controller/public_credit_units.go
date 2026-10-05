@@ -2,11 +2,12 @@ package controller
 
 import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
 )
 
 func creditUnitMetadataFields() (gin.H, error) {
-	units, err := common.CreditDenominationMetadata()
+	units, err := model.CreditDenominationSnapshot()
 	if err != nil {
 		return nil, err
 	}

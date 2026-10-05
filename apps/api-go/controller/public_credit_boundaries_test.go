@@ -15,6 +15,108 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestPublicCreditBalancesKeepRawLedgerAndFixedUSD(t *testing.T) {
+	db, user, _ := setupWalletMCPTest(t)
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3359744), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000)))
+	persistCreditDenominationFixture(t, db)
+	require.NoError(t, db.Model(&user).Update("quota", 3359744).Error)
+	for _, p := range []string{"100000", "200000"} {
+		require.NoError(t, db.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", p).Error)
+		require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)), "simulate another node's stale P")
+		oauth, err := oauthBalancePayload(3359744)
+		require.NoError(t, err)
+		require.Equal(t, float64(1), oauth["balance"])
+		require.Equal(t, 3359744, oauth["quota"])
+		require.Equal(t, common.LedgerQuotaUnit, oauth["quota_unit"])
+		require.Equal(t, p, oauth["public_credit_balance"])
+		assistant := assistantWalletBalanceFields(3359744)
+		require.Equal(t, float64(1), assistant["wallet_balance_usd"])
+		require.Equal(t, p, assistant["wallet_balance_public_credits"])
+		gift, err := assistantGiftResponse(&model.AssistantNewUserGift{Quota: 3359744})
+		require.NoError(t, err)
+		require.Equal(t, 3359744, gift.CreditAmount)
+		require.Equal(t, common.LedgerQuotaUnit, gift.CreditAmountUnit)
+		require.Equal(t, p, gift.PublicCreditAmount)
+		require.Equal(t, float64(1), *gift.AmountUSD)
+		session := walletMCPTestSession(t, user.Id, walletMCPTestExtra("z"))
+		balance := walletMCPData(t, walletMCPCall(t, session, "wallet.balance", map[string]any{}, ""))
+		require.Equal(t, p, balance["public_available_credits"])
+		require.Equal(t, common.LedgerQuotaUnit, balance["available_credits_unit"])
+		require.Equal(t, common.LedgerQuotaUnit, balance["currency_unit"])
+		require.Equal(t, common.PublicCreditUnit, balance["public_credit_unit"])
+		require.EqualValues(t, 1, balance["available_usd"])
+	}
+	var stored model.User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Equal(t, 3359744, stored.Quota)
+}
+
+func TestPublicCreditMCPLegacyInputAndBoundQuoteReplay(t *testing.T) {
+	db, user, _ := setupWalletMCPTest(t)
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3359744), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000)))
+	persistCreditDenominationFixture(t, db)
+	require.NoError(t, db.Model(&user).Update("quota", 6719488).Error)
+	session := walletMCPTestSession(t, user.Id, walletMCPTestExtra("y"))
+	args := map[string]any{"quota": 3359744}
+	pending := walletMCPCall(t, session, "wallet.transfer.create", args, "")
+	require.True(t, pending.NeedsInput())
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
+	created := walletMCPData(t, walletMCPCall(t, session, "wallet.transfer.create", args, pending.RequestState))
+	require.EqualValues(t, 3359744, created["quota"], "the original confirmation keeps its exact USD value")
+	require.Equal(t, "200000", created["public_credit_amount"], "response metadata uses the current denomination")
+	for i := 0; i < 3; i++ {
+		replayed := walletMCPData(t, walletMCPCall(t, session, "wallet.transfer.create", args, pending.RequestState))
+		require.Equal(t, created["share_url"], replayed["share_url"])
+	}
+	var stored model.User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Equal(t, 3359744, stored.Quota)
+	var count int64
+	require.NoError(t, db.Model(&model.WalletTransfer{}).Count(&count).Error)
+	require.EqualValues(t, 1, count)
+
+}
+
+func TestPublicCreditPricingSyncKeepsLedgerCalibrationAndRejectsPartialMetadata(t *testing.T) {
+	version, k, p, q, scale := 2, float64(3359744), float64(100000), float64(500000), float64(6.719488)
+	metadata := PricingSyncMetadata{SchemaVersion: &version, Currency: "USD", StorageBasis: model.PricingStorageLegacy, CreditsPerUSD: &k,
+		LedgerQuotaPerUSD: &k, LedgerQuotaPerUSDExact: "3359744", PublicCreditsPerUSD: &p, PublicCreditsPerUSDExact: "100000", CreditUnitSchemaVersion: &version,
+		QuotaUnit: common.LedgerQuotaUnit, PublicCreditUnit: common.PublicCreditUnit, LegacyCreditUnit: common.LedgerQuotaUnit, ModelRatioUnit: "LEDGER_QUOTA_PER_TOKEN", QuotaPerUnit: &q, LegacyPricingUnitsPerUSD: &scale}
+	data := map[string]any{"model_ratio": map[string]any{"fixture": 4.0316928}, "completion_ratio": map[string]any{"fixture": 5.0}, "model_price": map[string]any{"fixed": 2.0}, "billing_expr": map[string]any{"tiered": "p * 4"}}
+	units, err := syncSourceUnits(metadata)
+	require.NoError(t, err)
+	require.Equal(t, k, units.creditsPerUSD)
+	first, err := normalizeUpstreamSyncData(data, units, k)
+	require.NoError(t, err)
+	p = 200000
+	metadata.PublicCreditsPerUSDExact = "200000"
+	units, err = syncSourceUnits(metadata)
+	require.NoError(t, err)
+	second, err := normalizeUpstreamSyncData(data, units, k)
+	require.NoError(t, err)
+	require.Equal(t, first, second, "public denomination cannot change real model prices")
+	for _, mutate := range []func(*PricingSyncMetadata){
+		func(m *PricingSyncMetadata) { m.CreditUnitSchemaVersion = nil },
+		func(m *PricingSyncMetadata) { m.QuotaUnit = "CREDIT" },
+		func(m *PricingSyncMetadata) { m.PublicCreditUnit = "LEDGER_QUOTA" },
+		func(m *PricingSyncMetadata) { m.LedgerQuotaPerUSDExact = "100000" },
+		func(m *PricingSyncMetadata) { m.PublicCreditsPerUSDExact = "100000" },
+		func(m *PricingSyncMetadata) { m.ModelRatioUnit = "CREDIT_PER_TOKEN" },
+		func(m *PricingSyncMetadata) { m.LegacyCreditUnit = "CREDIT" },
+		func(m *PricingSyncMetadata) { wrong := float64(100000); m.CreditsPerUSD = &wrong },
+	} {
+		bad := metadata
+		mutate(&bad)
+		_, err := syncSourceUnits(bad)
+		require.Error(t, err)
+	}
+	encoded, err := json.Marshal(second)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "public_credits_per_usd")
+}
+
 func installPublicCreditBoundaryFixture(t *testing.T, ledger string) {
 	t.Helper()
 	oldLedger, oldErr := common.LedgerQuotaPerUSD()

@@ -278,7 +278,7 @@ func executeAssistantNewUserGiftStatusTool(c *gin.Context, userID int) map[strin
 		result["next_step"] = "The existing offered gift is ready for the user to claim from the gift card. Never claim it for them or evaluate it again."
 		if c != nil {
 			money := make(map[string]any)
-			for _, key := range []string{"amount_cents", "amount_unit", "credit_amount", "amount_usd", "currency", "credits_per_usd"} {
+			for _, key := range []string{"amount_cents", "amount_unit", "credit_amount", "credit_amount_unit", "public_credit_amount", "amount_usd", "currency", "credits_per_usd", "credit_unit_schema_version", "quota_unit", "public_credit_unit", "legacy_credit_unit", "ledger_quota_per_usd", "ledger_quota_per_usd_exact", "public_credits_per_usd", "public_credits_per_usd_exact"} {
 				money[key] = result[key]
 			}
 			money["type"], money["status"] = "new_user_gift", gift.Status

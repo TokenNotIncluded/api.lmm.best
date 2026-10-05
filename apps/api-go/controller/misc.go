@@ -119,6 +119,11 @@ func GetStatus(c *gin.Context) {
 		return
 	}
 
+	unitMetadata, unitErr := creditUnitMetadataFields()
+	if unitErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "ready": false, "message": "currency units are not ready"})
+		return
+	}
 	passkeySetting := system_setting.GetPasskeySettings()
 	assistantSettings := setting.GetAssistantSettings()
 	assistantGroup, assistantModel, routeErr := assistantConfiguredRouteResolver(assistantSettings)
@@ -255,6 +260,9 @@ func GetStatus(c *gin.Context) {
 		delete(data, "api_info")
 	}
 
+	for key, value := range unitMetadata {
+		data[key] = value
+	}
 	// Add enabled custom OAuth providers
 	customProviders := oauth.GetEnabledCustomProviders()
 	if len(customProviders) > 0 {

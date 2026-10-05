@@ -34,6 +34,7 @@ func setupAssistantCurrencyTest(t *testing.T) {
 	common.QuotaPerUnit = 500000
 	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 7, 1
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	setupTokenControllerTestDB(t)
 }
 
 func TestAssistantCurrencyWalletAndGiftUsePersistedCreditAmounts(t *testing.T) {

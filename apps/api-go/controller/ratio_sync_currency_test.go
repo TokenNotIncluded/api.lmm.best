@@ -78,6 +78,7 @@ func ratioSyncCurrencyFixture(t *testing.T, creditsPerUSD int64) *gorm.DB {
 	})
 	common.QuotaPerUnit = 500000
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(creditsPerUSD), decimal.NewFromInt(500000)))
+	require.NoError(t, db.Delete(&model.Option{}, "key IN ?", []string{model.CreditsPerUSDOptionKey, model.LegacyPricingQuotaPerUnitOptionKey, "QuotaPerUnit", model.PublicCreditsPerUSDOptionKey}).Error)
 	require.NoError(t, db.Create(&[]model.Option{
 		{Key: "QuotaPerUnit", Value: "500000"}, {Key: model.LegacyPricingQuotaPerUnitOptionKey, Value: "500000"},
 		{Key: model.CreditsPerUSDOptionKey, Value: strconv.FormatInt(creditsPerUSD, 10)},

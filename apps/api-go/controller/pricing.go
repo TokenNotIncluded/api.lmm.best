@@ -198,6 +198,10 @@ func buildPricingResponse(c *gin.Context, applyTrustDiscount bool) (int, gin.H) 
 		"auto_groups":                  service.GetUserAutoGroup(group),
 		"pricing_version":              "a42d372ccf0b5dd13ecf71203521f9d2",
 	}
+	if err := addCreditUnitMetadata(response); err != nil {
+		return http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing currency units are unavailable"}
+	}
+	response["model_ratio_unit"] = "LEDGER_QUOTA_PER_TOKEN"
 	if applyTrustDiscount && user != nil {
 		trust, err := model.GetTrustLevelInfoForUserBase(user)
 		if err != nil {

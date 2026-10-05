@@ -68,6 +68,19 @@ func (g *generator) refine(name string, c *contract) {
 	case "UpdateOption":
 		c.body["required"] = []string{"key", "value"}
 		c.notes = append(c.notes, "value is converted to a string by this route. For JSON-valued options such as ModelRatio, ModelPrice and CompletionRatio, send a JSON-encoded string, never a nested object. Read existing option values, merge only requested model entries, then validate with ValidateOptions and write related options with UpdateOptionsBulk. Locked model pricing changes are ignored with warnings; inspect warnings and locked_models before claiming a change was applied. Never unlock pricing unless explicitly requested by the administrator. For a single lock update, send key=ModelPriceLock, model=the exact model ID and value=an explicit boolean; this atomically preserves other models' locks. Prices are unlocked by default.")
+	case "PutPublicCreditUnitOptions":
+		_ = g.load("model")
+		schema, complete := g.schema(definition{ast.NewIdent("PublicCreditUnitUpdate"), &source{pkg: "model"}}, nil, map[string]bool{})
+		c.body = schema
+		c.body["required"] = []string{"credit_unit_schema_version", "public_credits_per_usd_exact", "expected_public_credits_per_usd_exact", "expected_ledger_quota_per_usd_exact"}
+		c.hasBody = true
+		c.unknown = !complete
+		if properties, ok := c.body["properties"].(map[string]any); ok {
+			if version, ok := properties["credit_unit_schema_version"].(map[string]any); ok {
+				version["enum"] = []int{2}
+			}
+		}
+		c.notes = append(c.notes, "Read GetPublicCreditUnitOptions first. public_credits_per_usd_exact is a positive whole number no greater than 9007199254740991 encoded as a string. Copy both expected exact bases from that snapshot. This changes only the public denomination and never the internal ledger or wallet USD value. A concurrent change returns 409; read a new snapshot before retrying. Do not fall back to generic UpdateOption when this versioned route is unavailable.")
 	case "UpdateOptionsBulk", "ValidateOptions":
 		c.body["required"] = []string{"values"}
 		c.notes = append(c.notes, "values is a non-empty map of option keys to STRING values, with at most 128 entries. JSON settings must be JSON-encoded strings. Read and merge existing pricing maps before replacement. ValidateOptions performs the same option validation without persisting; UpdateOptionsBulk writes the complete related set in one database transaction. Locked model pricing changes are ignored with warnings while unlocked entries still apply. Inspect warnings and locked_models and never unlock pricing unless explicitly requested by the administrator.")

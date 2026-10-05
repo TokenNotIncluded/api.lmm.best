@@ -61,9 +61,10 @@ func TestAssistantNewUserGiftStatusReadDoesNotConsumeOrModifyDecision(t *testing
 				}
 				encoded, err := json.Marshal(result)
 				require.NoError(t, err)
-				for _, hidden := range []string{"internal evaluation", "reason", "conversation_id", "user_id", "quota", "confirmation_token"} {
+				for _, hidden := range []string{"internal evaluation", "reason", "conversation_id", "user_id", "confirmation_token"} {
 					assert.NotContains(t, string(encoded), hidden)
 				}
+				assert.NotContains(t, result, "quota", "denomination metadata must not expose a raw quota field")
 				action, hasAction := c.Get(assistantClientActionKey)
 				assert.Equal(t, state == model.AssistantGiftOffered, hasAction)
 				if hasAction {

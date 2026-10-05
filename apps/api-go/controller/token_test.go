@@ -122,6 +122,7 @@ func setupTokenControllerTestDB(t *testing.T) *gorm.DB {
 
 	db := openTokenControllerTestDB(t)
 	migrateTokenControllerTestDB(t, db)
+	persistCreditDenominationFixture(t, db)
 	return db
 }
 
