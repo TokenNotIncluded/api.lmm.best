@@ -169,7 +169,7 @@ const paymentSchema = z.object({
   WaffoMerchantId: z.string(),
   WaffoCurrency: z.string(),
   WaffoUnitPrice: z.coerce.number().min(0),
-  WaffoMinTopUp: z.coerce.number().min(1),
+  WaffoMinTopUp: z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
   WaffoNotifyUrl: z.string(),
   WaffoReturnUrl: z.string(),
   WaffoPancakeMerchantID: z.string(),

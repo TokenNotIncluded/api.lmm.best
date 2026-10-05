@@ -53,6 +53,7 @@ const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
 const { useAuthStore } = await import('@/stores/auth-store')
 const { LegacyUsdMinimumInput } = await import('./legacy-usd-minimum-input')
 const { PaymentMethodDialog } = await import('./payment-method-dialog')
+const { WaffoSettingsSection } = await import('./waffo-settings-section')
 const originalConfig = useSystemConfigStore.getState().config
 const originalAuth = useAuthStore.getState().auth
 const i18n = createInstance()
@@ -362,16 +363,14 @@ test('LinuxDO direct pricing requires an explicit native unit before saving', as
 })
 
 test('literal non-terminating denomination retains the original minimum after editing it back', async () => {
-  useSystemConfigStore
-    .getState()
-    .setConfig({
-      currency: {
-        ...currencyConfig,
-        creditsPerUsd: 3359744,
-        creditsPerUsdExact: '3359744',
-        legacyPricingUnitsPerUsd: 6.719488,
-      },
-    })
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...currencyConfig,
+      creditsPerUsd: 3359744,
+      creditsPerUsdExact: '3359744',
+      legacyPricingUnitsPerUsd: 6.719488,
+    },
+  })
   const saved: number[] = []
   const ui = await render(<MinimumForm onSave={(value) => saved.push(value)} />)
   try {
@@ -388,6 +387,53 @@ test('literal non-terminating denomination retains the original minimum after ed
     await submit(form)
     assert.deepEqual(saved, [1])
     assert.equal(input.value, originalDisplay)
+  } finally {
+    await ui.close()
+  }
+})
+
+test('Waffo shows its integer minimum as actual USD and emits legacy integers for valid edits', async () => {
+  const changes: unknown[] = []
+  const values = {
+    WaffoEnabled: true,
+    WaffoApiKey: '',
+    WaffoPrivateKey: '',
+    WaffoPublicCert: '',
+    WaffoSandboxPublicCert: '',
+    WaffoSandboxApiKey: '',
+    WaffoSandboxPrivateKey: '',
+    WaffoSandbox: false,
+    WaffoMerchantId: '',
+    WaffoCurrency: 'USD',
+    WaffoUnitPrice: 1,
+    WaffoMinTopUp: 1,
+    WaffoNotifyUrl: '',
+    WaffoReturnUrl: '',
+    WaffoPayMethods: '[]',
+  }
+  const ui = await render(
+    <WaffoSettingsSection
+      values={values}
+      onValueChange={(key, value) => changes.push({ key, value })}
+      payMethods={[]}
+      onPayMethodsChange={() => undefined}
+    />
+  )
+  try {
+    assert.match(ui.container.textContent ?? '', /Minimum top-up \(USD\)/)
+    assert.match(
+      ui.container.textContent ?? '',
+      /fixed Credit denomination converts credited value to USD/
+    )
+    const input = [
+      ...ui.container.querySelectorAll<HTMLInputElement>(
+        'input[type="number"]'
+      ),
+    ].find((candidate) => candidate.value.startsWith('0.147058823529'))
+    assert.ok(input)
+    assert.deepEqual(changes, [])
+    await edit(input, '10')
+    assert.deepEqual(changes, [{ key: 'WaffoMinTopUp', value: 68 }])
   } finally {
     await ui.close()
   }
