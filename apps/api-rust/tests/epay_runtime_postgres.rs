@@ -597,6 +597,7 @@ async fn concurrent_replays_credit_coupon_and_referral_exactly_once() -> TestRes
 #[ignore = "requires LMM_EPAY_TEST_DATABASE_URL and LMM_EPAY_TEST_VALKEY_URL pointing to disposable services"]
 async fn logs_and_cache_are_post_commit_effects_and_failure_cannot_unpay_an_order() -> TestResult {
     let fixture = Harness::new().await;
+    fixture.checkout_settings().await;
     fixture.pending("logged", 7, 0).await;
     let valkey = redis::Client::open(std::env::var("LMM_EPAY_TEST_VALKEY_URL")?)?;
     let mut connection = valkey.get_multiplexed_async_connection().await?;
@@ -614,6 +615,7 @@ async fn logs_and_cache_are_post_commit_effects_and_failure_cannot_unpay_an_orde
             .unwrap(),
         Completion::Completed
     );
+    assert_eq!(fixture.quota(7).await, 5_000_000);
     assert_eq!(
         redis::cmd("EXISTS")
             .arg("user:7")
@@ -626,7 +628,7 @@ async fn logs_and_cache_are_post_commit_effects_and_failure_cannot_unpay_an_orde
         .await?;
     assert_eq!(
         log.get::<String, _>("content"),
-        "使用在线充值成功，充值金额: ＄10.000000 额度，支付金额：10.000000"
+        "使用在线充值成功，充值金额: 0.684932 USD，支付金额：10.000000"
     );
     assert_eq!(log.get::<String, _>("ip"), "203.0.113.9");
     let metadata: Value = serde_json::from_str(&log.get::<String, _>("other"))?;
@@ -649,6 +651,12 @@ async fn logs_and_cache_are_post_commit_effects_and_failure_cannot_unpay_an_orde
         Completion::Completed
     );
     assert_eq!(fixture.quota(7).await, 10_000_000);
+    let order = sqlx::query("SELECT status,credited_quota,settled_amount_micros FROM top_ups WHERE trade_no='broken-log'")
+        .fetch_one(&fixture.pg)
+        .await?;
+    assert_eq!(order.get::<String, _>("status"), "success");
+    assert_eq!(order.get::<i64, _>("credited_quota"), 5_000_000);
+    assert_eq!(order.get::<i64, _>("settled_amount_micros"), 10_000_000);
     assert_eq!(
         repository
             .complete_verified(&evidence("broken-log", "second-provider"), "{}")
