@@ -128,3 +128,12 @@ func TestPaymentRefundRebaseMissingAuditFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestExportWalletTopUpCreditRebaseFactsKeepsSourceAuthority(t *testing.T) {
+	facts := ExportWalletTopUpCreditRebaseFacts(&TopUp{PaymentProvider: PaymentProviderEpay, PaymentMethod: PaymentProviderEpay, CreditedQuota: 5_000_000, Money: 10})
+	require.True(t, facts.IsLegacyLinuxDOCreditTopUp)
+	require.Zero(t, facts.EffectiveCreditedQuota)
+	cash := ExportWalletTopUpCreditRebaseFacts(&TopUp{PaymentProvider: PaymentProviderEpay, PaymentMethod: PaymentProviderEpay, CreditedQuota: 5_000_000, ExpectedAmountMicros: 10_000_000, SettlementCurrency: "CNY"})
+	require.False(t, cash.IsLegacyLinuxDOCreditTopUp)
+	require.EqualValues(t, 5_000_000, cash.EffectiveCreditedQuota)
+}

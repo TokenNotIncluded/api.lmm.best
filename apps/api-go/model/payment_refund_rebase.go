@@ -84,8 +84,9 @@ func rebasedTopUpRefundDeltaTx(tx *gorm.DB, topUp *TopUp, creditedQuota, paidMic
 // read-only migration snapshot. Neither value comes from the user's displayed
 // fiat balance. The caller must snapshot all raw order facts in the same read.
 type WalletTopUpCreditRebaseFacts struct {
-	EffectiveCreditedQuota int64 `json:"effective_credited_quota"`
-	PaidAmountMicros       int64 `json:"paid_amount_micros"`
+	EffectiveCreditedQuota     int64 `json:"effective_credited_quota"`
+	PaidAmountMicros           int64 `json:"paid_amount_micros"`
+	IsLegacyLinuxDOCreditTopUp bool  `json:"is_legacy_linuxdo_credit_topup"`
 }
 
 func ExportWalletTopUpCreditRebaseFacts(topUp *TopUp) WalletTopUpCreditRebaseFacts {
@@ -96,7 +97,7 @@ func ExportWalletTopUpCreditRebaseFacts(topUp *TopUp) WalletTopUpCreditRebaseFac
 	if paid <= 0 {
 		paid = expectedTopUpAmountMicros(topUp)
 	}
-	return WalletTopUpCreditRebaseFacts{EffectiveCreditedQuota: normalizedTopUpCreditedQuota(topUp), PaidAmountMicros: paid}
+	return WalletTopUpCreditRebaseFacts{EffectiveCreditedQuota: normalizedTopUpCreditedQuota(topUp), PaidAmountMicros: paid, IsLegacyLinuxDOCreditTopUp: isLegacyLinuxDOCreditTopUp(topUp)}
 }
 
 // Integer arithmetic avoids decimal division precision near a half-credit tie.
