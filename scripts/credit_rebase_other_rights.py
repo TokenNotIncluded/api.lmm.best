@@ -17,6 +17,38 @@ SPECS = {
 ACTIVATION_INTS = ("user_id", "charge_quota", "refund_quota", "created_at", "updated_at", "refunded_at", "cancelled_at")
 ACTIVATION_TEXT = ("id", "order_id", "status", "cancel_reason")
 
+# Matched runtime work must be drained before changing its funding unit. These
+# guards are emitted independently of the optional future-right scope flag.
+OBLIGATIONS = {
+    "wallet_transfers_pending": ("wallet_transfers", "status='pending'"),
+    "tool_market_held": ("tool_market_calls", "settlement_status='held'"),
+    "tasks_unfinished": ("tasks", "COALESCE(status,'') NOT IN ('SUCCESS','FAILURE')"),
+    "tasks_refund_pending": ("tasks", "refund_status='PENDING' OR (status='FAILURE' AND COALESCE(refund_status,'')='' AND (quota<>0 OR refund_quota<>0) AND (submit_time<=0 OR submit_time>=1771718400))"),
+    "midjourney_unfinished": ("midjourneys", "progress<>'100%'"),
+    "subscription_reservations": ("subscription_pre_consume_records", "status IN ('consumed','settling')"),
+    "sms_unfinished": ("hero_sms_sms_orders", "status IN ('pending_provider','purchase_unknown','active','cancel_pending')"),
+    "email_orders_unfinished": ("hero_sms_email_orders", "status IN ('pending_provider','purchase_unknown','reconciling')"),
+    "email_activations_unfinished": ("hero_sms_email_activations", "status IN ('pending_provider','active','reconciling','cancel_pending')"),
+}
+
+
+def obligation_guards(schema):
+    return [f"IF EXISTS (SELECT 1 FROM {schema}.{table} WHERE {predicate}) THEN RAISE EXCEPTION 'credit migration blocked by {key}'; END IF;"
+            for key, (table, predicate) in OBLIGATIONS.items()]
+
+
+def obligation_locks(schema):
+    return ", " + ", ".join(f"{schema}.{table}" for table in sorted({spec[0] for spec in OBLIGATIONS.values()}))
+
+
+def validate_obligations(snapshot):
+    counts = snapshot.get("obligations")
+    if not isinstance(counts, dict) or set(counts) != set(OBLIGATIONS):
+        raise ValueError("complete explicit obligation counts are required")
+    if any(type(value) is not int or value != 0 for value in counts.values()):
+        raise ValueError("all matched funding/refund work must be drained before credit migration")
+    return dict(counts)
+
 
 def exact_source(row, ints, texts, bools=()):
     if not isinstance(row, dict) or set(row) != set(ints + texts + bools):
@@ -105,7 +137,7 @@ def prepare(snapshot, selected, scale, *, include=False):
 
 def sql(plan, schema, literal):
     if not plan.get("include_other_rights"):
-        return [], ""
+        return [], [], ""
     entries = plan["other_credit_bases"]
     selected = ",".join(str(uid) for uid in plan["user_ids"])
     at = plan["snapshot_at"]
@@ -150,4 +182,5 @@ def sql(plan, schema, literal):
         for source in sources:
             exact_source(source, ACTIVATION_INTS, ACTIVATION_TEXT)
             checks.append(guard("hero_sms_email_activations", source))
-    return checks, ", " + ", ".join(locks)
+    ddl = [f"ALTER TABLE {schema}.hero_sms_email_quota_ledgers ADD COLUMN IF NOT EXISTS original_amount_quota bigint;"]
+    return ddl, checks, ", " + ", ".join(locks)

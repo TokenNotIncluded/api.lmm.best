@@ -41,6 +41,8 @@ for index, (kind, (key, table, ints, texts, bools)) in enumerate(rights.SPECS.it
 activation = {field: 0 for field in rights.ACTIVATION_INTS} | {field: "" for field in rights.ACTIVATION_TEXT}
 activation.update(id="terminal-activation", order_id="historical-email", user_id=1, charge_quota=6_710_463, status="completed")
 snapshot["other_rights"]["hero_sms_email_activations"] = [activation]
+snapshot["obligations"] = {key: 0 for key in rights.OBLIGATIONS}
+assert rights.validate_obligations(snapshot) == snapshot["obligations"]
 
 plan = {"user_ids": [1], "include_other_rights": True, "snapshot_at": 100,
         "divisor": "6.710363", "rounding": "half-away-from-zero"}
@@ -91,6 +93,7 @@ try:
         fixtures.append((table, row))
     columns = [f'"{f}" bigint' for f in rights.ACTIVATION_INTS] + [f'"{f}" text' for f in rights.ACTIVATION_TEXT]
     ok(base, input="CREATE TABLE fixture_more.hero_sms_email_activations (" + ",".join(columns) + "); CREATE TABLE fixture_more.hero_sms_email_quota_ledgers (id bigint,order_id text,entry_type text,amount_quota bigint);")
+    ok(base, input="CREATE TABLE fixture_more.wallet_transfers (status text); CREATE TABLE fixture_more.tool_market_calls (settlement_status text); CREATE TABLE fixture_more.tasks (status text,refund_status text,quota bigint,refund_quota bigint,submit_time bigint); CREATE TABLE fixture_more.midjourneys (progress text); CREATE TABLE fixture_more.subscription_pre_consume_records (status text); CREATE TABLE fixture_more.hero_sms_sms_orders (status text);")
     fixtures.append(("hero_sms_email_activations", activation))
 
     def reset():
@@ -101,8 +104,9 @@ try:
         ok(base, input="INSERT INTO fixture_more.hero_sms_email_quota_ledgers VALUES (5,'historical-email','refund',100);")
 
     def transaction(current_plan=plan):
-        checks, locks = rights.sql(current_plan, "fixture_more", literal)
-        return "BEGIN; SET LOCAL standard_conforming_strings=on; LOCK TABLE fixture_more.users" + locks + " IN ACCESS EXCLUSIVE MODE; INSERT INTO fixture_more.wallet_credit_rebases VALUES ('fixture'," + literal(json.dumps(current_plan)) + "::jsonb); UPDATE fixture_more.users SET quota=1000000; DO $fixture_more$ BEGIN " + " ".join(checks) + " END $fixture_more$; COMMIT;"
+        ddl, checks, locks = rights.sql(current_plan, "fixture_more", literal)
+        checks += rights.obligation_guards("fixture_more")
+        return "BEGIN; SET LOCAL standard_conforming_strings=on; LOCK TABLE fixture_more.users" + locks + rights.obligation_locks("fixture_more") + " IN ACCESS EXCLUSIVE MODE; " + " ".join(ddl) + " INSERT INTO fixture_more.wallet_credit_rebases VALUES ('fixture'," + literal(json.dumps(current_plan)) + "::jsonb); UPDATE fixture_more.users SET quota=1000000; DO $fixture_more$ BEGIN " + " ".join(checks) + " END $fixture_more$; COMMIT;"
 
     reset()
     exported = json.loads(ok(base + ["-v", "target_schema=fixture_more", "-v", "snapshot_at=100", "-f", str(Path(__file__).with_name("export-credit-rebase-other-rights-private.sql"))]))
@@ -129,6 +133,19 @@ try:
     incomplete = copy.deepcopy(plan)
     incomplete["other_credit_bases"] = [b for b in incomplete["other_credit_bases"] if b["kind"] != "public_relay_tip_pool"]
     assert run(base, input=transaction(incomplete)).returncode != 0
+    assert ok(base, input="SELECT quota FROM fixture_more.users;") == "6710363"
+    for insert in ("INSERT INTO fixture_more.tasks VALUES ('FAILURE','',6,0,1771718400);", "INSERT INTO fixture_more.midjourneys VALUES ('90%');"):
+        reset()
+        ok(base, input=insert)
+        assert run(base, input=transaction()).returncode != 0
+        assert ok(base, input="SELECT quota FROM fixture_more.users;") == "6710363"
+        assert ok(base, input="SELECT count(*) FROM fixture_more.wallet_credit_rebases;") == "0"
+        ok(base, input="TRUNCATE fixture_more.tasks,fixture_more.midjourneys;")
+    # Optional future-right mode cannot switch off the independent blockers.
+    reset()
+    ok(base, input="INSERT INTO fixture_more.midjourneys VALUES ('90%');")
+    no_rights = plan | {"include_other_rights": False, "other_credit_bases": []}
+    assert run(base, input=transaction(no_rights)).returncode != 0
     assert ok(base, input="SELECT quota FROM fixture_more.users;") == "6710363"
     print("Other-rights isolated PostgreSQL passed: exact private export, unchanged source facts, zero rounding, full-count guards, 8 conflict rollbacks.")
 finally:

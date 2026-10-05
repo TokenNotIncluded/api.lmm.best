@@ -41,7 +41,17 @@ tips AS (
         a.refunded_at,a.cancelled_at,a.status,a.cancel_reason
  FROM :"target_schema".hero_sms_email_activations a JOIN email_orders o ON o.id=a.order_id
 )
-SELECT jsonb_build_object('snapshot_at',(SELECT at FROM frozen),'other_rights',jsonb_build_object(
+SELECT jsonb_build_object('snapshot_at',(SELECT at FROM frozen),'obligations',jsonb_build_object(
+ 'wallet_transfers_pending',(SELECT count(*) FROM :"target_schema".wallet_transfers WHERE status='pending'),
+ 'tool_market_held',(SELECT count(*) FROM :"target_schema".tool_market_calls WHERE settlement_status='held'),
+ 'tasks_unfinished',(SELECT count(*) FROM :"target_schema".tasks WHERE COALESCE(status,'') NOT IN ('SUCCESS','FAILURE')),
+ 'tasks_refund_pending',(SELECT count(*) FROM :"target_schema".tasks WHERE refund_status='PENDING' OR (status='FAILURE' AND COALESCE(refund_status,'')='' AND (quota<>0 OR refund_quota<>0) AND (submit_time<=0 OR submit_time>=1771718400))),
+ 'midjourney_unfinished',(SELECT count(*) FROM :"target_schema".midjourneys WHERE progress<>'100%'),
+ 'subscription_reservations',(SELECT count(*) FROM :"target_schema".subscription_pre_consume_records WHERE status IN ('consumed','settling')),
+ 'sms_unfinished',(SELECT count(*) FROM :"target_schema".hero_sms_sms_orders WHERE status IN ('pending_provider','purchase_unknown','active','cancel_pending')),
+ 'email_orders_unfinished',(SELECT count(*) FROM :"target_schema".hero_sms_email_orders WHERE status IN ('pending_provider','purchase_unknown','reconciling')),
+ 'email_activations_unfinished',(SELECT count(*) FROM :"target_schema".hero_sms_email_activations WHERE status IN ('pending_provider','active','reconciling','cancel_pending'))),
+ 'other_rights',jsonb_build_object(
  'public_relay_tip_pools',COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM tips r),'[]'::jsonb),
  'assistant_gifts',COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM assistant_gifts r),'[]'::jsonb),
  'grant_gifts',COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM gifts r),'[]'::jsonb),

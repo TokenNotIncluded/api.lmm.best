@@ -37,6 +37,17 @@ SELECT 'task' AS scope, status, refund_status, COUNT(*) AS rows,
        COALESCE(SUM(quota),0) AS current_credit,
        COALESCE(SUM(refund_quota),0) AS refund_credit
 FROM :"target_schema".tasks GROUP BY status,refund_status;
+-- Exact delayed-refund match from GetUnrefundedFailedTasks; a failed task is
+-- not necessarily financially terminal even when no PENDING marker exists yet.
+SELECT 'task_delayed_refund_blocker' AS scope, COUNT(*) AS rows,
+       COALESCE(SUM(CASE WHEN refund_quota>0 THEN refund_quota ELSE quota END),0) AS credit
+FROM :"target_schema".tasks
+WHERE refund_status='PENDING' OR
+ (status='FAILURE' AND COALESCE(refund_status,'')='' AND (quota<>0 OR refund_quota<>0)
+  AND (submit_time<=0 OR submit_time>=1771718400));
+SELECT 'midjourney_unfinished_blocker' AS scope, COUNT(*) AS rows,
+       COALESCE(SUM(quota),0) AS credit
+FROM :"target_schema".midjourneys WHERE progress<>'100%';
 SELECT 'subscription_reservation' AS scope, status, recovery_state, COUNT(*) AS rows,
        COALESCE(SUM(pre_consumed),0) AS subscription_reserved_credit,
        COALESCE(SUM(wallet_consumed),0) AS wallet_credit,
@@ -56,6 +67,12 @@ SELECT 'sms_order' AS scope, status, complaint_status, COUNT(*) AS rows,
        COALESCE(SUM(charge_quota),0) AS charged_credit,
        COALESCE(SUM(refunded_quota),0) AS refunded_credit
 FROM :"target_schema".hero_sms_sms_orders GROUP BY status,complaint_status;
+SELECT 'email_order' AS scope, status, COUNT(*) AS rows,
+       COALESCE(SUM(charge_quota-refunded_quota),0) AS possible_future_refund_credit
+FROM :"target_schema".hero_sms_email_orders GROUP BY status;
+SELECT 'email_activation' AS scope, status, COUNT(*) AS rows,
+       COALESCE(SUM(charge_quota),0) AS original_charge_credit
+FROM :"target_schema".hero_sms_email_activations GROUP BY status;
 SELECT 'referral_reward' AS scope, status, COUNT(*) AS rows,
        COALESCE(SUM(quota),0) AS original_reward_credit,
        COALESCE(SUM(revoked_quota),0) AS original_revoked_credit,

@@ -132,3 +132,24 @@ func TestMissingFutureGiftBasisRejectsOldGrantButAllowsNewSource(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 100, claim.Quota)
 }
+
+func TestFutureGiftRoundedZeroKeepsSourceAndCannotCreditTwice(t *testing.T) {
+	db := setupGiftTestDB(t)
+	now := time.Now().Unix()
+	user := createGiftTestUser(t, "zero-corrected-gift", 0, 0)
+	item := createTestGift(t, 1, now-100, now+1000, 0, 0)
+	putFutureCreditAudit(t, db, []int{user.Id}, now, []map[string]any{{"kind": "grant_gift", "source_id": strconv.Itoa(item.Id), "user_id": 0, "original_quota": 1, "rebased_quota": 0, "source": map[string]any{"quota": 1}}})
+	claim, replay, err := ClaimGift(user.Id, item.Id)
+	require.NoError(t, err)
+	require.False(t, replay)
+	require.Zero(t, claim.Quota)
+	_, replay, err = ClaimGift(user.Id, item.Id)
+	require.NoError(t, err)
+	require.True(t, replay)
+	var current User
+	require.NoError(t, db.First(&current, user.Id).Error)
+	require.Zero(t, current.Quota)
+	var stored Gift
+	require.NoError(t, db.First(&stored, item.Id).Error)
+	require.Equal(t, 1, stored.Quota)
+}
