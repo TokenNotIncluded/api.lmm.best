@@ -45,6 +45,7 @@ import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
 import { pricingBaseCopy } from './pricing-base-copy.mjs'
 import { profileShareCopy } from './profile-share-copy.mjs'
+import { publicCreditDisplayCopy } from './public-credit-display-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
@@ -13063,6 +13064,10 @@ for (const [locale, values] of Object.entries(walletDisplayCopy)) {
 }
 
 for (const [locale, values] of Object.entries(pricingBaseCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(publicCreditDisplayCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

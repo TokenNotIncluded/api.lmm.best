@@ -39,6 +39,11 @@ export type UpdateOptionRequest = {
   key: string
   value: string | boolean | number
   model?: string
+  /** Public display option uses the v2 guarded endpoint, never the generic setter. */
+  publicCreditUnitBaseline?: {
+    publicCreditsPerUsd: number
+    ledgerQuotaPerUsd: number
+  }
 }
 
 export type UpdateOptionResponse = {
@@ -395,6 +400,7 @@ export type BillingSettings = {
   'developer_access_setting.paid_activation_enabled': boolean
   'developer_access_setting.paid_activation_min_amount': number
   QuotaPerUnit: number
+  PublicCreditsPerUSD: string
   USDExchangeRate: number
   TopUpPlatformUnitsPerCNY: number
   'general_setting.quota_display_type': string

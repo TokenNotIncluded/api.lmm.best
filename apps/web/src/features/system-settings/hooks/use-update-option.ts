@@ -26,6 +26,7 @@ import { toast } from 'sonner'
 import { getServerErrorToastId } from '@/lib/server-error-message'
 
 import { updateSystemOption, updateSystemOptions } from '../api'
+import { updatePublicCreditUnitOption } from '../general/public-credit-unit'
 import type { UpdateOptionRequest, UpdateOptionResponse } from '../types'
 import { showOptionUpdateToast } from '../utils/option-update-toast'
 import { getSettingsErrorMessage } from '../utils/settings-error-message'
@@ -37,6 +38,7 @@ const STATUS_RELATED_KEYS = new Set([
   'Notice',
   'LogConsumeEnabled',
   'QuotaPerUnit',
+  'PublicCreditsPerUSD',
   'USDExchangeRate',
   'DisplayInCurrencyEnabled',
   'DisplayTokenStatEnabled',
@@ -186,7 +188,11 @@ export function useUpdateOption() {
   return useMutation({
     retry: false,
     mutationFn: async (request: UpdateOptionRequest) =>
-      acceptSettingsSave(await updateSystemOption(request, { silent: true })),
+      acceptSettingsSave(
+        request.key === 'PublicCreditsPerUSD'
+          ? await updatePublicCreditUnitOption(request)
+          : await updateSystemOption(request, { silent: true })
+      ),
     onSuccess: (data, variables) =>
       refreshAcknowledgedOptions(queryClient, data, [variables.key]),
     onError: reportSaveFailure,

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { parseCurrencyDisplayType } from '@/lib/currency'
 
+import { parsePublicCreditOption } from '../general/public-credit-unit'
 import type { BillingSettings } from '../types'
 import { lazyNamedSection } from '../utils/lazy-section'
 import { createSectionRegistry } from '../utils/section-registry'
@@ -116,6 +117,9 @@ const BILLING_SECTIONS = [
       <PricingSection
         defaultValues={{
           QuotaPerUnit: settings.QuotaPerUnit,
+          PublicCreditsPerUSD: parsePublicCreditOption(
+            settings.PublicCreditsPerUSD
+          ),
           USDExchangeRate: settings.USDExchangeRate,
           TopUpPlatformUnitsPerCNY: settings.TopUpPlatformUnitsPerCNY ?? 1,
           DisplayInCurrencyEnabled: settings.DisplayInCurrencyEnabled,

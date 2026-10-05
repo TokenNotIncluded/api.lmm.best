@@ -83,6 +83,21 @@ useSystemConfigStore.getState().setConfig({
 const { SettingsPageProvider } =
   await import('../components/settings-page-context')
 const { PricingSection } = await import('./pricing-section')
+const { mapStatusDataToConfig } = await import('@/hooks/use-system-config')
+const { useWalletCurrency } = await import('@/hooks/use-wallet-currency')
+const { formatQuotaInCurrency } = await import('@/lib/currency')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
+
+function CurrencyProbe() {
+  const money = useWalletCurrency()
+  return (
+    <div>
+      <span data-credit-balance>{money.formatQuota(3359744)}</span>
+      <span data-usd-balance>{formatQuotaInCurrency(3359744, 'USD')}</span>
+    </div>
+  )
+}
 
 type PricingDefaults = ComponentProps<typeof PricingSection>['defaultValues']
 
@@ -147,7 +162,7 @@ function exchangeRatePayload(currency: string, rate: number) {
   }
 }
 
-async function renderPricing(defaultValues: PricingDefaults) {
+async function renderPricing(defaultValues: PricingDefaults, probe = false) {
   const container = document.createElement('div')
   const actionsContainer = document.createElement('div')
   const titleStatusContainer = document.createElement('span')
@@ -167,6 +182,7 @@ async function renderPricing(defaultValues: PricingDefaults) {
             titleStatusContainer={titleStatusContainer}
           >
             <PricingSection defaultValues={defaultValues} />
+            {probe ? <CurrencyProbe /> : null}
           </SettingsPageProvider>
         </I18nextProvider>
       </QueryClientProvider>
@@ -398,5 +414,181 @@ test('does not overwrite the existing rate when sync fails', async () => {
   } finally {
     api.get = originalGet
     await rendered.cleanup()
+  }
+})
+
+const publicMetadata = (publicCredits = 100000) => ({
+  currency_unit: 'credit',
+  credit_unit_schema_version: 2,
+  credits_per_usd: 3359744,
+  credits_per_usd_exact: '3359744',
+  ledger_quota_per_usd: 3359744,
+  ledger_quota_per_usd_exact: '3359744',
+  public_credits_per_usd: publicCredits,
+  public_credits_per_usd_exact: String(publicCredits),
+  quota_unit: 'LEDGER_QUOTA',
+  public_credit_unit: 'CREDIT',
+  legacy_credit_unit: 'LEDGER_QUOTA',
+  cny_per_usd: '6.719488',
+  quota_per_unit: 500000,
+})
+async function enterPublicCredits(container: HTMLElement, value: string) {
+  const input = container.querySelector<HTMLInputElement>(
+    'input[name="PublicCreditsPerUSD"]'
+  )
+  assert.ok(input)
+  const setValue = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setValue)
+  await act(async () => {
+    setValue.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+}
+async function submitPricing(container: HTMLElement) {
+  const form = container.querySelector('form')
+  assert.ok(form)
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  })
+}
+
+test('normal pricing form saves guarded public credits and updates credit balances while USD and raw ledger stay fixed', async () => {
+  const originalGet = api.get,
+    originalPut = api.put
+  const originalConfig = useSystemConfigStore.getState().config
+  const preference = useWalletCurrencyPreferenceStore.getState().preference
+  useSystemConfigStore
+    .getState()
+    .setConfig(mapStatusDataToConfig(publicMetadata()))
+  useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  const writes: Array<{ url: string; body: unknown }> = []
+  let saved = 100000
+  api.get = (async (url: string) => {
+    assert.ok(url === '/api/option/public-credit-unit' || url === '/api/status')
+    return { data: { success: true, data: publicMetadata(saved) } }
+  }) as typeof api.get
+  api.put = (async (
+    url: string,
+    body: { public_credits_per_usd_exact: string }
+  ) => {
+    writes.push({ url, body })
+    saved = Number(body.public_credits_per_usd_exact)
+    return { data: { success: true, data: publicMetadata(saved) } }
+  }) as typeof api.put
+  const rendered = await renderPricing(
+    pricingDefaults('USD', { PublicCreditsPerUSD: 100000 }),
+    true
+  )
+  try {
+    const input = rendered.container.querySelector<HTMLInputElement>(
+      '#public-credits-per-usd'
+    )
+    assert.ok(input)
+    assert.equal(input.disabled, false)
+    assert.equal(input.value, '100000')
+    assert.equal(
+      rendered.container.querySelector('[data-credit-balance]')?.textContent,
+      '100,000 Credits'
+    )
+    await enterPublicCredits(rendered.container, '200000')
+    assert.match(rendered.titleStatusContainer.textContent || '', /Unsaved/)
+    await submitPricing(rendered.container)
+    assert.equal(writes.length, 1)
+    assert.deepEqual(writes[0], {
+      url: '/api/option/public-credit-unit',
+      body: {
+        credit_unit_schema_version: 2,
+        public_credits_per_usd_exact: '200000',
+        expected_public_credits_per_usd_exact: '100000',
+        expected_ledger_quota_per_usd_exact: '3359744',
+      },
+    })
+    assert.equal(
+      rendered.container.querySelector('[data-credit-balance]')?.textContent,
+      '200,000 Credits'
+    )
+    assert.equal(
+      rendered.container.querySelector('[data-usd-balance]')?.textContent,
+      '1 USD'
+    )
+    assert.equal(
+      rendered.container.querySelector<HTMLInputElement>('#credits-per-usd')
+        ?.value,
+      '3359744'
+    )
+    assert.equal(
+      useSystemConfigStore.getState().config.currency.creditsPerUsd,
+      3359744
+    )
+    assert.equal(rendered.titleStatusContainer.textContent, '')
+  } finally {
+    await rendered.cleanup()
+    api.get = originalGet
+    api.put = originalPut
+    useSystemConfigStore.setState({ config: originalConfig })
+    useWalletCurrencyPreferenceStore.getState().setPreference(preference)
+  }
+})
+
+test('old servers and missing options expose no invented editable public denomination', async () => {
+  const originalConfig = useSystemConfigStore.getState().config
+  for (const [metadata, option] of [
+    [{ currency_unit: 'credit', credits_per_usd: 3359744 }, undefined],
+    [publicMetadata(), undefined],
+  ] as const) {
+    useSystemConfigStore.getState().setConfig(mapStatusDataToConfig(metadata))
+    const rendered = await renderPricing(
+      pricingDefaults('USD', { PublicCreditsPerUSD: option })
+    )
+    try {
+      const input = rendered.container.querySelector<HTMLInputElement>(
+        '#public-credits-per-usd'
+      )
+      assert.ok(input)
+      assert.equal(input.disabled, true)
+      assert.equal(input.value, '')
+      assert.match(
+        rendered.container.textContent || '',
+        /unavailable on this server/
+      )
+    } finally {
+      await rendered.cleanup()
+    }
+  }
+  useSystemConfigStore.setState({ config: originalConfig })
+})
+
+test('fractional public denomination is rejected by the real form without a write', async () => {
+  const originalConfig = useSystemConfigStore.getState().config,
+    originalPut = api.put
+  useSystemConfigStore
+    .getState()
+    .setConfig(mapStatusDataToConfig(publicMetadata()))
+  let writes = 0
+  api.put = (async () => {
+    writes++
+    return { data: { success: true } }
+  }) as typeof api.put
+  const rendered = await renderPricing(
+    pricingDefaults('USD', { PublicCreditsPerUSD: 100000 })
+  )
+  try {
+    await enterPublicCredits(rendered.container, '100000.5')
+    await submitPricing(rendered.container)
+    assert.equal(writes, 0)
+    assert.match(
+      rendered.container.textContent || '',
+      /must be a positive whole number/
+    )
+  } finally {
+    await rendered.cleanup()
+    api.put = originalPut
+    useSystemConfigStore.setState({ config: originalConfig })
   }
 })
