@@ -417,7 +417,7 @@ export function SubscriptionsMutateDrawer({
                       </FormControl>
                       <FormDescription>
                         {t(
-                          'Real fiat list price; gateways convert it to their settlement currency and wallet payments debit the equivalent platform units.'
+                          'Real fiat list price; gateways convert it to their settlement currency and wallet payments debit the equivalent credits.'
                         )}
                       </FormDescription>
                       <FormMessage />
@@ -447,7 +447,7 @@ export function SubscriptionsMutateDrawer({
                       </Select>
                       <FormDescription>
                         {t(
-                          'This is real fiat, not the dollar-like platform balance unit.'
+                          'Payments use real fiat. Wallet balances are stored in credits.'
                         )}
                       </FormDescription>
                       <FormMessage />
