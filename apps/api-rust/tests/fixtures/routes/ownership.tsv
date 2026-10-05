@@ -1,3 +1,4 @@
+# Frozen legacy baseline ownership; current-only routes use current-go-only-ownership.tsv.
 # priority	match	pattern	owner	class	access	streaming	contract
 100	exact	/v1/realtime	go	relay	authenticated	websocket	no retry; drain required
 90	prefix	/v1/dashboard/	go	billing	read-only	no	compatibility surface; never classify as relay stream
@@ -11,6 +12,3 @@
 50	prefix	/suno/	go	task-relay	mixed	no	relay auth and body limits
 50	prefix	/pg/	go	playground	write	streaming	relay auth and body limits
 50	prefix	/jimeng/	go	task-relay	write	no	official API query dispatch
-60	exact	/api/option/pricing	go	control-plane	root-only	no	schema2 USD pricing; CAS and existing price locks; legacy storage retained
-60	exact	/api/option/pricing/validate	go	control-plane	root-only	no	schema2 USD pricing; CAS and existing price locks; legacy storage retained
-60	exact	/api/option/pricing/bulk	go	control-plane	root-only	no	schema2 USD pricing; CAS and existing price locks; legacy storage retained

@@ -450,6 +450,8 @@ jobs:
             bash apps/api-rust/tests/scripts/check-complete-route-coverage.sh
           run_check go-route-manifest \
             bash apps/api-rust/tests/scripts/check-go-route-manifest.sh
+          run_check current-go-only-ownership-tests \
+            python3 -B apps/api-rust/tests/scripts/test-current-go-only-ownership.py
           run_check complete-route-coverage-tests \
             bash apps/api-rust/tests/scripts/test-check-complete-route-coverage.sh
           run_check fixture-contract \
