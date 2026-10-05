@@ -121,12 +121,10 @@ test('real wallet hooks accept the review raw catalog and keep quote ISO indepen
       { currency: 'CREDIT', input: '3500000', output: '3,500,000 Credits' },
     ]) {
       await act(async () =>
-        useAuthStore
-          .getState()
-          .auth.setUser({
-            ...user,
-            setting: { wallet_display_currency: example.currency },
-          })
+        useAuthStore.getState().auth.setUser({
+          ...user,
+          setting: { wallet_display_currency: example.currency },
+        })
       )
       assert.equal(
         container.querySelector<HTMLInputElement>('input')?.value,
