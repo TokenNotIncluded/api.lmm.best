@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm/clause"
@@ -20,10 +21,12 @@ func setupCreditUnitsDB(t *testing.T) {
 	previousLegacy, _ := common.LegacyPricingQuotaPerUnit()
 	previousQ := common.QuotaPerUnit
 	previousOptionMap := common.OptionMap
+	previousFX, previousB := operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY
 	common.OptionMap = map[string]string{}
 	t.Cleanup(func() {
 		common.QuotaPerUnit = previousQ
 		common.OptionMap = previousOptionMap
+		operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = previousFX, previousB
 		if err != nil {
 			common.ClearCreditsPerUSD()
 		} else {
