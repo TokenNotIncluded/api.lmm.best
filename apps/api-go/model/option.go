@@ -319,6 +319,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == CreditsPerUSDOptionKey {
+		return errors.New("credits per USD is immutable and cannot be changed through options")
+	}
 	if setting.IsModerationOption(key) {
 		return validateModerationOptionValues(DB, map[string]string{key: value})
 	}
