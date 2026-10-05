@@ -56,6 +56,104 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
+// Synthetic captured basis: 500000 ledger units / USD, 100000 public Credits / USD.
+function publicAmount(value: unknown): string {
+  const raw = typeof value === 'string' ? Number(value) : value
+  if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 0) {
+    return 'invalid'
+  }
+  const scaled = BigInt(raw) * 2n
+  const whole = scaled / 10n
+  const fraction = scaled % 10n
+  return whole.toString() + (fraction ? `.${fraction}` : '')
+}
+
+function wireCatalog(payMethods: unknown, extra: Record<string, unknown>) {
+  const legacy: Record<string, unknown> = {
+    credit_metadata_available: true,
+    credit_metadata_version: 1,
+    credit_amount_options: [5000000, 10000000, 25000000],
+    credit_discount: {},
+    credit_min_topup: 500000,
+    stripe_credit_min_topup: 5000000,
+    waffo_credit_min_topup: 0,
+    pancake_credit_min_topup: 0,
+    stripe_credit_max_topup: 5000000000,
+    waffo_credit_max_topup: null,
+    pancake_credit_max_topup: null,
+    enable_online_topup: true,
+    enable_stripe_topup: true,
+    min_topup: 1,
+    stripe_min_topup: 10,
+    amount_options: [10, 20, 50],
+    discount: {},
+    ...extra,
+  }
+  const metadata: Record<string, unknown> = {
+    credit_unit_schema_version: 2,
+    quota_unit: 'LEDGER_QUOTA',
+    legacy_credit_unit: 'LEDGER_QUOTA',
+    public_credit_unit: 'CREDIT',
+    ledger_quota_per_usd: 500000,
+    ledger_quota_per_usd_exact: '500000',
+    public_credits_per_usd: 100000,
+    public_credits_per_usd_exact: '100000',
+    public_credit_metadata_version: 2,
+    public_credit_amount_unit: 'CREDIT',
+    ledger_quota_amount_options: legacy.credit_amount_options,
+    public_credit_amount_options: Array.isArray(legacy.credit_amount_options)
+      ? legacy.credit_amount_options.map(publicAmount)
+      : [],
+    ledger_quota_discount: legacy.credit_discount,
+    public_credit_discount: Object.fromEntries(
+      Object.entries(legacy.credit_discount as object).map(([raw, rate]) => [
+        publicAmount(raw),
+        rate,
+      ])
+    ),
+  }
+  for (const prefix of ['', 'stripe_', 'waffo_', 'pancake_']) {
+    for (const limit of ['min', 'max']) {
+      if (!prefix && limit === 'max') continue
+      const raw = legacy[`${prefix}credit_${limit}_topup`]
+      metadata[`${prefix}ledger_quota_${limit}_topup`] = raw
+      metadata[`${prefix}public_credit_${limit}_topup`] =
+        raw === null ? null : publicAmount(raw)
+    }
+  }
+  const parsed: unknown =
+    typeof payMethods === 'string' ? JSON.parse(payMethods) : payMethods
+  const methods = Array.isArray(parsed)
+    ? parsed.map((method: unknown) => {
+        if (!method || typeof method !== 'object') return method
+        const row = method as Record<string, unknown>
+        const minimum = String(row.min_topup_credit ?? legacy.credit_min_topup)
+        const maximum = row.max_topup_credit
+        return {
+          ...row,
+          credit_amount_unit: 'LEDGER_QUOTA',
+          min_topup_credit: minimum,
+          min_topup_ledger_quota: minimum,
+          min_topup_public_credit: publicAmount(minimum),
+          ...(maximum === undefined
+            ? {}
+            : {
+                max_topup_credit: String(maximum),
+                max_topup_ledger_quota: String(maximum),
+                max_topup_public_credit: publicAmount(maximum),
+              }),
+        }
+      })
+    : parsed
+  return {
+    ...legacy,
+    ...metadata,
+    pay_methods:
+      typeof payMethods === 'string' ? JSON.stringify(methods) : methods,
+    ...extra,
+  }
+}
+
 async function loadTopupInfo(
   payMethods: unknown,
   extra: Record<string, unknown> = {}
@@ -69,26 +167,7 @@ async function loadTopupInfo(
       statusText: 'OK',
       data: {
         success: true,
-        data: {
-          credit_metadata_version: 1,
-          credit_amount_options: [5000000, 10000000, 25000000],
-          credit_discount: {},
-          credit_min_topup: 500000,
-          stripe_credit_min_topup: 5000000,
-          waffo_credit_min_topup: 0,
-          pancake_credit_min_topup: 0,
-          stripe_credit_max_topup: 5000000000,
-          waffo_credit_max_topup: null,
-          pancake_credit_max_topup: null,
-          enable_online_topup: true,
-          enable_stripe_topup: true,
-          min_topup: 1,
-          stripe_min_topup: 10,
-          amount_options: [10, 20, 50],
-          discount: {},
-          pay_methods: payMethods,
-          ...extra,
-        },
+        data: wireCatalog(payMethods, extra),
       },
     }
   }
@@ -217,9 +296,16 @@ test('keeps raw catalogs exact even when legacy aliases cannot round-trip', asyn
 test('missing or invalid raw metadata disables editable money without disabling fixed products', async () => {
   for (const extra of [
     { credit_metadata_version: undefined },
+    { credit_metadata_available: undefined },
+    { credit_metadata_available: 'true' },
     { credit_metadata_available: false },
     { credit_amount_options: undefined },
     { credit_min_topup: Number.MAX_SAFE_INTEGER + 1 },
+    { public_credit_metadata_version: undefined },
+    { credit_unit_schema_version: 3 },
+    { quota_unit: 'CREDIT' },
+    { public_credits_per_usd_exact: '200000' },
+    { public_credit_amount_options: ['1', '2', '5'] },
   ]) {
     const info = await loadTopupInfo([{ name: 'Card', type: 'card' }], {
       ...extra,
@@ -307,9 +393,13 @@ test('complete dedicated aliases override stale synthetic rows and include the S
   assert.equal(getPaymentMaxTopupQuota(info.pay_methods[0]), 3000000000)
   assert.equal(getPaymentMinTopupQuota(info.pay_methods[1]), 3500000)
   assert.equal(getPaymentMaxTopupQuota(info.pay_methods[1]), 8750000)
+  assert.equal(info.pay_methods[0].max_topup_ledger_quota, '3000000000')
+  assert.equal(info.pay_methods[0].max_topup_public_credit, '600000000')
+  assert.equal(info.pay_methods[1].min_topup_ledger_quota, '3500000')
+  assert.equal(info.pay_methods[1].min_topup_public_credit, '700000')
 })
 
-test('missing dedicated max metadata disables only that provider; explicit null stays usable', async () => {
+test('partial dedicated caps disable editable money; explicit null preserves unlimited providers', async () => {
   for (const provider of ['stripe', 'waffo', 'pancake'] as const) {
     for (const maximum of [undefined, -1, Number.MAX_SAFE_INTEGER + 1]) {
       const info = await loadTopupInfo(
@@ -324,13 +414,11 @@ test('missing dedicated max metadata disables only that provider; explicit null 
           [`${provider}_credit_max_topup`]: maximum,
         }
       )
-      assert.equal(info.enable_online_topup, true)
-      const flag = {
-        stripe: 'enable_stripe_topup',
-        waffo: 'enable_waffo_topup',
-        pancake: 'enable_waffo_pancake_topup',
-      } as const
-      assert.equal(info[flag[provider]], false)
+      assert.equal(info.enable_online_topup, false)
+      assert.equal(info.enable_stripe_topup, false)
+      assert.equal(info.enable_waffo_topup, false)
+      assert.equal(info.enable_waffo_pancake_topup, false)
+      assert.deepEqual(info.pay_methods, [])
     }
   }
   const invalidStripe = await loadTopupInfo([], {

@@ -39,15 +39,37 @@ export interface ApiResponse<T = unknown> {
  */
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
-export type AmountResponse = ApiResponse<string> & {
-  settlement_currency?: string
-  original_settlement_amount?: string
-  savings_settlement_amount?: string
-  amount_unit?: 'LEGACY' | 'USD' | 'CNY' | 'CREDIT'
-  credited_quota?: number
-  credit_amount?: number
-  legacy_batch_units?: string
+export interface CreditUnitMetadata {
+  credit_unit_schema_version: number
+  quota_unit: string
+  public_credit_unit: string
+  legacy_credit_unit: string
+  ledger_quota_per_usd: number
+  ledger_quota_per_usd_exact: string
+  public_credits_per_usd: number
+  public_credits_per_usd_exact: string
 }
+
+export interface CreditAmountMetadata extends Partial<CreditUnitMetadata> {
+  credited_quota?: number
+  /** Compatibility alias; this is immutable raw ledger quota. */
+  credit_amount?: number
+  credit_amount_unit?: 'LEDGER_QUOTA'
+  public_credit_amount?: string
+  public_credit_amount_unit?: 'CREDIT'
+  public_credit_metadata_version?: number
+}
+
+export type AmountResponse = ApiResponse<string> &
+  CreditAmountMetadata & {
+    settlement_currency?: string
+    /** Optional same-currency breakdown; validate its version and basis before display. */
+    settlement_quote?: unknown
+    original_settlement_amount?: string
+    savings_settlement_amount?: string
+    amount_unit?: 'LEGACY' | 'USD' | 'CNY' | 'CREDIT' | 'LEDGER_QUOTA'
+    legacy_batch_units?: string
+  }
 export type DiscountCodeResponse = ApiResponse<{
   code: string
   discount_percent: number
@@ -127,6 +149,11 @@ export interface PaymentMethod {
   /** Server-normalized legacy batch policy, independent of display units. */
   min_topup_credit?: string | number
   max_topup_credit?: string | number
+  min_topup_ledger_quota?: string
+  max_topup_ledger_quota?: string
+  min_topup_public_credit?: string
+  max_topup_public_credit?: string
+  credit_amount_unit?: 'LEDGER_QUOTA'
   legacy_min_topup?: string | number
   legacy_max_topup_amount?: string | number
   min_topup_unit?: 'USD' | 'LEGACY'
@@ -175,11 +202,31 @@ export interface WaffoPayMethod {
 /**
  * Topup configuration information
  */
-export interface TopupInfo {
-  /** Explicit unit of compatibility catalogs. The hook replaces these with versioned raw-credit catalogs. */
+export interface TopupInfo extends Partial<CreditUnitMetadata> {
+  /** Internal compatibility catalog label; CREDIT here retains raw ledger integers. */
   amount_unit?: 'LEGACY' | 'CREDIT'
   credit_metadata_available?: boolean
   credit_metadata_version?: number
+  public_credit_metadata_version?: number
+  public_credit_amount_unit?: 'CREDIT'
+  ledger_quota_amount_options?: number[]
+  public_credit_amount_options?: string[]
+  ledger_quota_discount?: Record<string, number>
+  public_credit_discount?: Record<string, number>
+  ledger_quota_min_topup?: number
+  stripe_ledger_quota_min_topup?: number
+  waffo_ledger_quota_min_topup?: number
+  pancake_ledger_quota_min_topup?: number
+  stripe_ledger_quota_max_topup?: number | null
+  waffo_ledger_quota_max_topup?: number | null
+  pancake_ledger_quota_max_topup?: number | null
+  public_credit_min_topup?: string
+  stripe_public_credit_min_topup?: string
+  waffo_public_credit_min_topup?: string
+  pancake_public_credit_min_topup?: string
+  stripe_public_credit_max_topup?: string | null
+  waffo_public_credit_max_topup?: string | null
+  pancake_public_credit_max_topup?: string | null
   credit_amount_options?: number[]
   credit_discount?: Record<number, number>
   credit_min_topup?: number
@@ -327,7 +374,26 @@ export interface AmountRequest {
   discount_code?: string
 }
 
-/** New money routes accept raw, positive safe-integer Credits only. */
+/** Historical Credit* callers supply raw ledger integers, never public CREDIT projections. */
+export interface LedgerQuotaRequestUnit {
+  amount_unit: 'LEDGER_QUOTA'
+  credit_metadata_version: 2
+  expected_public_credits_per_usd_exact?: never
+}
+export interface PublicCreditRequestUnit {
+  amount_unit: 'CREDIT'
+  credit_metadata_version: 2
+  expected_public_credits_per_usd_exact: string
+}
+export type CreditWireRequestUnit =
+  | {
+      amount_unit?: 'CREDIT'
+      credit_metadata_version?: never
+      expected_public_credits_per_usd_exact?: never
+    }
+  | LedgerQuotaRequestUnit
+  | PublicCreditRequestUnit
+
 export type CreditAmountRequest = Omit<AmountRequest, 'amount_unit'> & {
   amount_unit?: 'CREDIT'
 }
@@ -338,6 +404,24 @@ export type CreditWaffoPaymentRequest = Omit<
   WaffoPaymentRequest,
   'amount_unit'
 > & { amount_unit?: 'CREDIT' }
+
+export type VersionedCreditAmountRequest = Omit<AmountRequest, 'amount_unit'> &
+  (LedgerQuotaRequestUnit | PublicCreditRequestUnit)
+export type VersionedCreditPaymentRequest = Omit<
+  PaymentRequest,
+  'amount_unit'
+> &
+  (LedgerQuotaRequestUnit | PublicCreditRequestUnit)
+export type VersionedCreditWaffoPaymentRequest = Omit<
+  WaffoPaymentRequest,
+  'amount_unit'
+> &
+  (LedgerQuotaRequestUnit | PublicCreditRequestUnit)
+export type VersionedCreditPancakePaymentRequest = Omit<
+  WaffoPancakePaymentRequest,
+  'amount_unit'
+> &
+  (LedgerQuotaRequestUnit | PublicCreditRequestUnit)
 export type CreditPancakePaymentRequest = Omit<
   WaffoPancakePaymentRequest,
   'amount_unit'

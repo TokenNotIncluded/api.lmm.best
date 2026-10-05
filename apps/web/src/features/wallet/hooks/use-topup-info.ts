@@ -25,6 +25,10 @@ import {
   getMinTopupAmount,
   getDedicatedPaymentLimits,
 } from '../lib'
+import {
+  creditProjection,
+  hasCompletePublicCreditCatalog,
+} from '../lib/topup-credit-metadata'
 import type {
   TopupInfo,
   PresetAmount,
@@ -104,6 +108,26 @@ function parsePaymentMethods(
         max_topup_amount: parseStringOrNumber(item.max_topup_amount),
         min_topup_credit: parseStringOrNumber(item.min_topup_credit),
         max_topup_credit: parseStringOrNumber(item.max_topup_credit),
+        min_topup_ledger_quota:
+          typeof item.min_topup_ledger_quota === 'string'
+            ? item.min_topup_ledger_quota
+            : undefined,
+        max_topup_ledger_quota:
+          typeof item.max_topup_ledger_quota === 'string'
+            ? item.max_topup_ledger_quota
+            : undefined,
+        min_topup_public_credit:
+          typeof item.min_topup_public_credit === 'string'
+            ? item.min_topup_public_credit
+            : undefined,
+        max_topup_public_credit:
+          typeof item.max_topup_public_credit === 'string'
+            ? item.max_topup_public_credit
+            : undefined,
+        credit_amount_unit:
+          item.credit_amount_unit === 'LEDGER_QUOTA'
+            ? 'LEDGER_QUOTA'
+            : undefined,
         legacy_min_topup: parseStringOrNumber(item.legacy_min_topup),
         legacy_max_topup_amount: parseStringOrNumber(
           item.legacy_max_topup_amount
@@ -230,34 +254,20 @@ export function useTopupInfo() {
         return
       }
 
-      // New money routes require their exact raw-credit catalog. Old servers
-      // must not fall back to a legacy float amount or an old payment endpoint.
+      // Public projection strings are display-only; grants and discounts keep
+      // their paired legacy ledger integers. Partial/v1 metadata cannot enable v2 money.
       const raw = response.data
       const isQuota = (value: unknown): value is number =>
         typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-      const creditMetadataReady =
-        raw.credit_metadata_available !== false &&
-        raw.credit_metadata_version === 1 &&
-        Array.isArray(raw.credit_amount_options) &&
-        raw.credit_amount_options.every(
-          (value) => isQuota(value) && value > 0
-        ) &&
-        raw.credit_discount !== null &&
-        typeof raw.credit_discount === 'object' &&
-        !Array.isArray(raw.credit_discount) &&
-        [
-          raw.credit_min_topup,
-          raw.stripe_credit_min_topup,
-          raw.waffo_credit_min_topup,
-          raw.pancake_credit_min_topup,
-        ].every(isQuota)
+      const creditMetadataReady = hasCompletePublicCreditCatalog(raw)
+      const project = creditMetadataReady ? creditProjection(raw) : null
       const amountOptions =
-        creditMetadataReady && Array.isArray(raw.credit_amount_options)
-          ? raw.credit_amount_options
+        creditMetadataReady && Array.isArray(raw.ledger_quota_amount_options)
+          ? raw.ledger_quota_amount_options
           : []
       const discountCatalog = creditMetadataReady
         ? Object.fromEntries(
-            Object.entries(parseDiscountMap(raw.credit_discount)).filter(
+            Object.entries(parseDiscountMap(raw.ledger_quota_discount)).filter(
               ([key]) => Number.isSafeInteger(Number(key)) && Number(key) > 0
             )
           )
@@ -292,16 +302,26 @@ export function useTopupInfo() {
                       ...method,
                       min_topup_credit: limits.minimum,
                       max_topup_credit: limits.maximum ?? undefined,
+                      min_topup_ledger_quota: String(limits.minimum),
+                      max_topup_ledger_quota:
+                        limits.maximum === null
+                          ? undefined
+                          : String(limits.maximum),
+                      min_topup_public_credit: project?.(limits.minimum),
+                      max_topup_public_credit:
+                        limits.maximum === null
+                          ? undefined
+                          : project?.(limits.maximum),
                     }
                   : method
               }
             )
           : [],
         amount_unit: 'CREDIT',
-        min_topup: minimum(raw.credit_min_topup),
-        stripe_min_topup: minimum(raw.stripe_credit_min_topup),
-        waffo_min_topup: minimum(raw.waffo_credit_min_topup),
-        waffo_pancake_min_topup: minimum(raw.pancake_credit_min_topup),
+        min_topup: minimum(raw.ledger_quota_min_topup),
+        stripe_min_topup: minimum(raw.stripe_ledger_quota_min_topup),
+        waffo_min_topup: minimum(raw.waffo_ledger_quota_min_topup),
+        waffo_pancake_min_topup: minimum(raw.pancake_ledger_quota_min_topup),
         amount_options: amountOptions.filter(
           (quota) => Number.isSafeInteger(quota) && quota > 0
         ),
