@@ -123,6 +123,7 @@ export interface LogOtherData {
   pricing_currency_basis?: 'legacy_pricing_unit' | 'USD'
   pricing_unit_credits_per_unit?: number
   tool_pricing_unit_credits_per_unit?: number
+  audio_input_pricing_unit_credits_per_unit?: number
   model_ratio_usd_per_million_multiplier?: number
   pricing_credits_per_usd?: number
   billing_expr_currency_basis?: 'legacy_pricing_unit' | 'USD'

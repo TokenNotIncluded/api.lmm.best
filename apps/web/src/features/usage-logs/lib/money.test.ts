@@ -11,6 +11,7 @@ import type { UsageLog } from '../data/schema'
 import {
   buildLogCopyText,
   formatLogPrice,
+  formatLogAddonPrice,
   formatLogTokenPrice,
   logExpressionCurrency,
   type LogCurrencyFormatter,
@@ -169,4 +170,25 @@ describe('log monetary snapshots', () => {
     assert.doesNotMatch(copy, /0\.2 USD|0\.4 USD/)
     assert.match(copy, /web_search: 2x \(2 USD\/1K\)/)
   })
+})
+
+test('audio addon prices use their own frozen unit rather than a separately captured tool scale', () => {
+  const other = {
+    tool_pricing_unit_credits_per_unit: 500000,
+    audio_input_pricing_unit_credits_per_unit: 1000000,
+  }
+  assert.equal(formatLogAddonPrice(7, other, formatter('USD')), '1 USD')
+  assert.equal(
+    formatLogAddonPrice(7, other, formatter('USD'), 'audio'),
+    '2 USD'
+  )
+  assert.equal(
+    formatLogAddonPrice(7, other, formatter('CNY'), 'audio'),
+    '14 CNY'
+  )
+  assert.match(
+    formatLogAddonPrice(7, other, formatter('CREDIT'), 'audio'),
+    /^7,000,000 /
+  )
+  assert.equal(formatLogAddonPrice(7, {}, formatter('USD'), 'audio'), '-')
 })

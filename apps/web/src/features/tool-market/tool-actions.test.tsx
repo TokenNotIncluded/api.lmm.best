@@ -3,7 +3,7 @@ Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -57,6 +57,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { marketAPI, MarketAPIError } = await import('./api')
 const { CallDialog, GrantDialog, CallResult } = await import('./tool-actions')
+const { resetMarketCurrencyTest, useWalletCurrencyPreferenceStore } =
+  await import('./currency-test-support')
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -236,7 +238,12 @@ async function advancedArguments(q = 'original query') {
   await setValue(input, JSON.stringify({ q }))
   return input
 }
-const runLabel = 'Run for up to 0.25 credits'
+const runLabel = 'Run for up to 0.03571429 USD'
+
+beforeEach(async () => {
+  resetMarketCurrencyTest()
+  await i18n.changeLanguage('en')
+})
 
 afterEach(async () => {
   for (const { root, cache } of rendered.splice(0)) {
@@ -250,6 +257,60 @@ afterEach(async () => {
   document.body.replaceChildren()
 })
 after(() => dom.close())
+
+test('grant currency and language changes preserve the exact one-credit payload', async () => {
+  let payload: Parameters<typeof marketAPI.grant>[0] | undefined
+  marketAPI.grant = async (input) => {
+    payload = input
+    return grant
+  }
+  marketAPI.install = async () => null
+  await mount('grant')
+  const input = element<HTMLInputElement>('#grant-total')
+  await act(async () => {
+    useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  })
+  assert.equal(input.value, String(tool.price_quota))
+  assert.equal(input.step, '1')
+  await setValue(input, '1')
+  await act(async () => {
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  })
+  assert.equal(input.value, '0.000000285714285714285714285715')
+  assert.equal(input.step, 'any')
+  await act(async () => {
+    useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+    await i18n.changeLanguage('zh-CN')
+  })
+  assert.equal(input.value, '0.000002')
+  await act(async () => {
+    await i18n.changeLanguage('en')
+  })
+  assert.equal(input.value, '0.000002')
+  assert.match(document.body.textContent ?? '', /Total spending limit \(CNY\)/)
+  await click(button('Add and authorize tool'))
+  await waitFor(() => payload !== undefined)
+  assert.equal(payload?.max_total_quota, 1)
+  assert.equal(payload?.max_price_quota, tool.price_quota)
+})
+
+test('invalid grant drafts stay blocked after a currency switch', async () => {
+  let requests = 0
+  marketAPI.grant = async () => {
+    requests++
+    return grant
+  }
+  await mount('grant')
+  const input = element<HTMLInputElement>('#grant-total')
+  await setValue(input, '0.000000000000000000000000000001')
+  assert.equal(button('Add and authorize tool').disabled, true)
+  await act(async () => {
+    useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  })
+  assert.equal(input.value, '')
+  assert.equal(button('Add and authorize tool').disabled, true)
+  assert.equal(requests, 0)
+})
 
 test('adding a tool requires explicit confirmation and grants before loading the exact client version', async () => {
   const operations: { kind: string; input: unknown }[] = []

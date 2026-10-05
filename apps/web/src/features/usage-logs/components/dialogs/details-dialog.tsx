@@ -83,6 +83,7 @@ import {
 import {
   buildLogCopyText,
   formatLogPrice,
+  formatLogAddonPrice,
   formatLogTokenPrice,
   logExpressionCurrency,
 } from '../../lib/money'
@@ -267,14 +268,7 @@ function BillingBreakdown(props: {
   const fmtPrice = (amount: number) =>
     formatLogPrice(amount, other, currency, isTieredExpr)
   const fmtAbsolutePrice = (amount: number) =>
-    formatLogPrice(
-      amount,
-      {
-        ...other,
-        pricing_unit_credits_per_unit: other.tool_pricing_unit_credits_per_unit,
-      },
-      currency
-    )
+    formatLogAddonPrice(amount, other, currency)
   const structuredTools = other.tool_surcharges ?? []
   const fmtTokenPrice = (multiplier: number) =>
     formatLogTokenPrice(other.model_ratio ?? 0, multiplier, currency)
@@ -446,7 +440,12 @@ function BillingBreakdown(props: {
   if (other.audio_input_seperate_price && other.audio_input_price) {
     rows.push({
       label: t('Audio Input Price'),
-      value: fmtAbsolutePrice(other.audio_input_price),
+      value: formatLogAddonPrice(
+        other.audio_input_price,
+        other,
+        currency,
+        'audio'
+      ),
     })
   }
 

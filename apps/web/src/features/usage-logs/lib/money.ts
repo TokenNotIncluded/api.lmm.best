@@ -52,6 +52,27 @@ export function formatLogPrice(
   return '-'
 }
 
+/** Separate audio and tool charges can capture different legacy settlement units. */
+export function formatLogAddonPrice(
+  amount: number,
+  other: LogOtherData,
+  currency: LogCurrencyFormatter,
+  kind: 'tool' | 'audio' = 'tool'
+): string {
+  return formatLogPrice(
+    amount,
+    {
+      ...other,
+      pricing_unit_credits_per_unit:
+        kind === 'audio'
+          ? (other.audio_input_pricing_unit_credits_per_unit ??
+            other.tool_pricing_unit_credits_per_unit)
+          : other.tool_pricing_unit_credits_per_unit,
+    },
+    currency
+  )
+}
+
 /** Historical expressions without a frozen scale cannot safely expose prices. */
 export function logExpressionCurrency(
   other: LogOtherData,
