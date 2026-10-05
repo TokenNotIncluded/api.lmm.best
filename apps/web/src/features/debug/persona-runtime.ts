@@ -734,15 +734,20 @@ const debugAdapter: AxiosAdapter = async (config) => {
           'Invalid local preview balance display currency'
         )
       }
+      const settings = activeUser().setting
       preferences.setting = JSON.stringify({
-        ...JSON.parse(activeUser().setting || '{}'),
+        ...(typeof settings === 'string'
+          ? JSON.parse(settings || '{}')
+          : settings || {}),
         wallet_display_currency: data.wallet_display_currency,
       })
     }
     if (data.language !== undefined) {
       if (
         typeof data.language !== 'string' ||
-        !['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi'].includes(data.language)
+        !['en', 'zh', 'zh-TW', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi'].includes(
+          data.language
+        )
       ) {
         rejectRequest(config, 400, 'Invalid local preview language')
       }

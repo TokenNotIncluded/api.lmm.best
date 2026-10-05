@@ -143,6 +143,16 @@ describe('wallet display setting card', () => {
     const rendered = await renderCard()
     try {
       assert.match(
+        rendered.container.querySelector('[role="combobox"]')?.textContent ??
+          '',
+        /Follow language/
+      )
+      assert.doesNotMatch(
+        rendered.container.querySelector('[role="combobox"]')?.textContent ??
+          '',
+        /Loading/
+      )
+      assert.match(
         rendered.container.textContent ?? '',
         /Following language: USD/
       )

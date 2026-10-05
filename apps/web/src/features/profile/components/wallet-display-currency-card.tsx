@@ -119,7 +119,12 @@ function WalletDisplayCurrencyField({
               aria-busy={preference.saving}
               className='h-11 w-full sm:h-9 sm:min-w-48'
             >
-              <SelectValue placeholder={t('Loading...')} />
+              <SelectValue placeholder={t('Loading...')}>
+                {preference.available
+                  ? options.find((option) => option.value === preference.value)
+                      ?.label
+                  : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent alignItemWithTrigger={false}>
               <SelectGroup>
