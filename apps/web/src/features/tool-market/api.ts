@@ -41,6 +41,7 @@ export type MarketSummary = {
   pricing?: string
   min_price_quota?: number
   max_price_quota?: number
+  metered_tools?: number
 }
 export type MarketTool = {
   tool_id: string
@@ -51,6 +52,10 @@ export type MarketTool = {
   output_schema: string
   permissions: string
   price_quota: number
+
+  billing_mode?: 'input_tokens' | ''
+  input_token_price_quota?: number
+  max_input_tokens?: number
 }
 export type MarketDetail = {
   service: MarketService
@@ -78,6 +83,10 @@ export type ToolInput = {
   output_schema_json?: string
   permissions: string[]
   price_quota: number
+
+  billing_mode?: 'input_tokens' | ''
+  input_token_price_quota?: number
+  max_input_tokens?: number
 }
 export type DraftInput = {
   name: string

@@ -690,6 +690,13 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		data = []byte(`{"isError":true,"content":[{"type":"text","text":"Remote result exceeds the supported limit."}]}`)
 		errorCode = "TOOL_MARKET_INVALID_RESULT"
 	}
+	if success && execution.Tool.BillingMode == "input_tokens" {
+		tokens, usageErr := model.ToolMarketInputTokenUsage(data)
+		if usageErr != nil || tokens > execution.Tool.MaxInputTokens {
+			success, errorCode = false, "TOOL_MARKET_INVALID_RESULT"
+			data = []byte(`{"isError":true,"content":[{"type":"text","text":"The remote MCP service returned invalid usage."}]}`)
+		}
+	}
 	if err := model.RecordToolMarketResult(call.ID, success, data); err != nil {
 		return nil, err
 	}
