@@ -43,14 +43,14 @@ impl TokenQueryState {
         self.runtime = Some(runtime);
         self
     }
-    async fn option(&self, key: &str) -> Result<Option<String>, sqlx::Error> {
+    async fn options(&self) -> Result<std::collections::BTreeMap<String, String>, sqlx::Error> {
         if let Some(runtime) = &self.runtime {
-            return Ok(runtime.snapshot().await.get(key).cloned());
+            return Ok(runtime.snapshot().await);
         }
-        sqlx::query_scalar("SELECT value FROM options WHERE key=$1")
-            .bind(key)
-            .fetch_optional(&self.pg)
+        sqlx::query_as::<_, (String, String)>("SELECT key,COALESCE(value,'') FROM options")
+            .fetch_all(&self.pg)
             .await
+            .map(|rows| rows.into_iter().collect())
     }
 }
 pub fn router(state: TokenQueryState) -> Router {
@@ -261,28 +261,27 @@ async fn query(state: TokenQueryState, request: Request, prices: bool) -> Respon
             "quota_query_unavailable",
         ))
     };
-    let rate = match state.option("QuotaPerUnit").await {
-        Ok(raw) => raw.unwrap_or_else(|| "500000".into()).parse::<f64>().ok(),
-        Err(_) => None,
-    };
-    let Some(rate) = rate.filter(|value| value.is_finite() && *value > 0.0) else {
-        return unavailable();
-    };
-    let enabled = match state.option("LogConsumeEnabled").await {
-        Ok(None) => true,
-        Ok(Some(value)) => value == "true",
+    let options = match state.options().await {
+        Ok(options) => options,
         Err(_) => return unavailable(),
     };
+    let basis = match pricing::currency_basis(&state, &options).await {
+        Ok(Some(basis)) => basis,
+        _ => return unavailable(),
+    };
+    let enabled = options
+        .get("LogConsumeEnabled")
+        .is_none_or(|value| value == "true");
     let today = if enabled {
         match sqlx::query_scalar::<_,String>("SELECT COALESCE(SUM(quota),0)::TEXT FROM logs WHERE user_id=$1 AND token_id=$2 AND type=2 AND created_at >= $3 AND created_at <= $4").bind(owner).bind(id).bind(now-now.rem_euclid(86400)).bind(now).fetch_one(&state.log_pg).await{Ok(sum)=>Some(sum),Err(_)=>return unavailable()}
     } else {
         None
     };
     // NUMERIC keeps integer sums exact and reproduces decimal.Div's 16-place
-    // rounding before float conversion. The explicit denominator scale covers
-    // the entire finite f64 range, including positive subnormal quota units.
-    let amounts=sqlx::query("SELECT CASE WHEN $4 THEN NULL ELSE ROUND($1::TEXT::NUMERIC/$3::TEXT::NUMERIC(1000,500),16)::DOUBLE PRECISION END AS remaining,ROUND($2::TEXT::NUMERIC/$3::TEXT::NUMERIC(1000,500),16)::DOUBLE PRECISION AS used_total,CASE WHEN $4 THEN NULL ELSE ROUND(($1::TEXT::NUMERIC+$2::TEXT::NUMERIC)/$3::TEXT::NUMERIC(1000,500),16)::DOUBLE PRECISION END AS total_quota,ROUND($5::TEXT::NUMERIC/$3::TEXT::NUMERIC(1000,500),16)::DOUBLE PRECISION AS used_today")
-        .bind(remaining.to_string()).bind(used.to_string()).bind(rate.to_string()).bind(unlimited).bind(today).fetch_one(&state.pg).await;
+    // rounding before float conversion. The durable USD anchor is independent
+    // of live exchange rates and the retained legacy pricing calibration.
+    let amounts=sqlx::query("SELECT CASE WHEN $4 THEN NULL ELSE ROUND($1::TEXT::NUMERIC(1000,500)/$3::TEXT::NUMERIC,16)::DOUBLE PRECISION END AS remaining,ROUND($2::TEXT::NUMERIC(1000,500)/$3::TEXT::NUMERIC,16)::DOUBLE PRECISION AS used_total,CASE WHEN $4 THEN NULL ELSE ROUND(($1::TEXT::NUMERIC(1000,500)+$2::TEXT::NUMERIC)/$3::TEXT::NUMERIC,16)::DOUBLE PRECISION END AS total_quota,ROUND($5::TEXT::NUMERIC(1000,500)/$3::TEXT::NUMERIC,16)::DOUBLE PRECISION AS used_today")
+        .bind(remaining.to_string()).bind(used.to_string()).bind(basis.usd()).bind(unlimited).bind(today).fetch_one(&state.pg).await;
     let amounts = match amounts {
         Ok(row) => row,
         Err(_) => return unavailable(),

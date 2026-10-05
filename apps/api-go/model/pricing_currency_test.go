@@ -5,9 +5,11 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
+	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"maps"
+	"math"
 	"testing"
 )
 
@@ -47,6 +49,66 @@ func TestUSDModelRatioLiteralQuotesIgnoreLegacyCalibration(t *testing.T) {
 			require.Equal(t, 1.25, rows[0].ModelRatio)
 			require.Equal(t, 2.0, rows[0].CompletionRatio)
 		})
+	}
+}
+
+func TestUSDExpressionRejectsUnrepresentableLegacyScale(t *testing.T) {
+	pricingCurrencyFixture(t, 100, 1e-80)
+	_, err := common.CreditsPerUSD()
+	require.NoError(t, err, "the persisted positive K remains valid")
+	for _, expr := range []string{"p * 2 + c * 4", "v1:p > 100 ? 2 : 1"} {
+		quote, err := USDExpression(expr)
+		require.ErrorContains(t, err, "legacy price scale is outside the representable range")
+		require.Empty(t, quote, "never publish a USD expression divided by zero")
+	}
+}
+
+func TestUSDOutputPriceRejectsUnrepresentablePositiveProduct(t *testing.T) {
+	pricingCurrencyFixture(t, 500000, 3500000)
+	for _, completion := range []float64{-1, math.NaN(), math.Inf(1), math.SmallestNonzeroFloat64} {
+		quote, err := NormalizePricingUSD([]Pricing{{ModelName: "vendor/priced", ModelRatio: 1, CompletionRatio: completion}})
+		require.ErrorContains(t, err, "price product is outside the representable range")
+		require.Nil(t, quote)
+	}
+	for _, pricing := range []Pricing{{ModelRatio: 0, CompletionRatio: 1}, {ModelRatio: 1, CompletionRatio: 0}} {
+		quote, err := NormalizePricingUSD([]Pricing{pricing})
+		require.NoError(t, err, "an explicitly configured free rate remains valid")
+		require.Zero(t, *quote[0].OutputPrice)
+	}
+	for _, factors := range [][2]float64{{-1, -1}, {math.SmallestNonzeroFloat64, 0.1}, {math.MaxFloat64, 2}} {
+		_, err := USDPriceProduct(factors[0], factors[1])
+		require.Error(t, err)
+	}
+	_, err := ModelRatioUSDPerMillion(1e-80)
+	require.ErrorContains(t, err, "price is outside the representable range")
+	_, err = LegacyPricingAmountUSD(1e-80)
+	require.ErrorContains(t, err, "price is outside the representable range")
+	price, err := ModelRatioUSDPerMillion(0)
+	require.NoError(t, err)
+	require.Zero(t, price)
+}
+
+func TestUSDModalityAndCacheProductsUseTheSameMoneyGuard(t *testing.T) {
+	pricingCurrencyFixture(t, 500000, 3500000)
+	for _, ratio := range []float64{-1, math.SmallestNonzeroFloat64} {
+		for _, pricing := range []Pricing{{ImageRatio: &ratio}, {AudioRatio: &ratio}, {AudioCompletionRatio: &ratio}} {
+			pricing.ModelRatio, pricing.CompletionRatio = 1, 1
+			quote, err := NormalizePricingUSD([]Pricing{pricing})
+			require.Error(t, err)
+			require.Nil(t, quote)
+		}
+	}
+	oldRead, oldWrite := ratio_setting.CacheRatio2JSONString(), ratio_setting.CreateCacheRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(oldRead))
+		require.NoError(t, ratio_setting.UpdateCreateCacheRatioByJSONString(oldWrite))
+	})
+	for _, cache := range []struct{ read, write string }{{`{"usd-cache":5e-324}`, `{"usd-cache":1}`}, {`{"usd-cache":1}`, `{"usd-cache":5e-324}`}} {
+		require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(cache.read))
+		require.NoError(t, ratio_setting.UpdateCreateCacheRatioByJSONString(cache.write))
+		quote, err := NormalizePricingUSD([]Pricing{{ModelName: "usd-cache", ModelRatio: 1, CompletionRatio: 1}})
+		require.Error(t, err)
+		require.Nil(t, quote)
 	}
 }
 func TestUSDPriceReadSavePreservesAllLegacyBytesAndLocks(t *testing.T) {

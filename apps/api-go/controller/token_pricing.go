@@ -75,7 +75,11 @@ func tokenPricingEntries(catalog []model.Pricing, groups modelListGroups, limite
 				entry.Expression = usdExpr
 			} else if price, configured := ratio_setting.GetModelPrice(name, false); configured {
 				entry.BillingMode, entry.Unit = "per_request", "request"
-				cost, err := model.LegacyPricingAmountUSD(price * ratio)
+				amount, err := model.USDPriceProduct(price, ratio)
+				if err != nil {
+					continue
+				}
+				cost, err := model.LegacyPricingAmountUSD(amount)
 				if err != nil {
 					continue
 				}
@@ -89,11 +93,18 @@ func tokenPricingEntries(catalog []model.Pricing, groups modelListGroups, limite
 				entry.CompletionRatio = ratio_setting.GetCompletionRatio(name)
 				entry.CacheRatio, _ = ratio_setting.GetCacheRatio(name)
 				entry.CreateCacheRatio, _ = ratio_setting.GetCreateCacheRatio(name)
-				input, err := model.ModelRatioUSDPerMillion(entry.ModelRatio * ratio)
+				amount, err := model.USDPriceProduct(entry.ModelRatio, ratio)
 				if err != nil {
 					continue
 				}
-				output := input * entry.CompletionRatio
+				input, err := model.ModelRatioUSDPerMillion(amount)
+				if err != nil {
+					continue
+				}
+				output, err := model.USDPriceProduct(input, entry.CompletionRatio)
+				if err != nil {
+					continue
+				}
 				entry.InputPrice, entry.OutputPrice = &input, &output
 			}
 			result = append(result, entry)

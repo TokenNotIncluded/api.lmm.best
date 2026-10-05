@@ -25,7 +25,11 @@ func ModelRatioUSDPerMillion(ratio float64) (float64, error) {
 	if ratio < 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
 		return 0, fmt.Errorf("invalid model ratio")
 	}
-	return pricingFiniteFloat(decimal.NewFromFloat(ratio).Mul(decimal.NewFromInt(1_000_000)).DivRound(anchor, 64))
+	price, err := pricingFiniteFloat(decimal.NewFromFloat(ratio).Mul(decimal.NewFromInt(1_000_000)).DivRound(anchor, 64))
+	if price == 0 && ratio > 0 {
+		return 0, fmt.Errorf("price is outside the representable range")
+	}
+	return price, err
 }
 
 func LegacyPricingAmountUSD(amount float64) (float64, error) {
@@ -43,7 +47,11 @@ func LegacyPricingAmountUSD(amount float64) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return pricingFiniteFloat(decimal.NewFromFloat(amount).Mul(baseline).DivRound(anchor, 64))
+	price, err := pricingFiniteFloat(decimal.NewFromFloat(amount).Mul(baseline).DivRound(anchor, 64))
+	if price == 0 && amount > 0 {
+		return 0, fmt.Errorf("price is outside the representable range")
+	}
+	return price, err
 }
 
 func pricingFiniteFloat(value decimal.Decimal) (float64, error) {
@@ -52,6 +60,16 @@ func pricingFiniteFloat(value decimal.Decimal) (float64, error) {
 		return 0, fmt.Errorf("price is outside the representable range")
 	}
 	return result, nil
+}
+
+// USDPriceProduct preserves explicitly free rates, while rejecting invalid
+// factors and positive products that underflow to a fake free USD price.
+func USDPriceProduct(input, completion float64) (float64, error) {
+	output := input * completion
+	if input < 0 || completion < 0 || math.IsNaN(input) || math.IsNaN(completion) || math.IsInf(input, 0) || math.IsInf(completion, 0) || math.IsNaN(output) || math.IsInf(output, 0) || (input > 0 && completion > 0 && output == 0) {
+		return 0, fmt.Errorf("price product is outside the representable range")
+	}
+	return output, nil
 }
 
 // USDExpression scales the entire monetary result. Tier conditions, request
@@ -72,6 +90,9 @@ func USDExpression(expr string) (string, error) {
 		return "", err
 	}
 	scale := anchor.DivRound(baseline, 64)
+	if !scale.IsPositive() {
+		return "", fmt.Errorf("legacy price scale is outside the representable range")
+	}
 	return wrapPricingExpression(expr, "/", scale.String()), nil
 }
 
@@ -107,21 +128,31 @@ func NormalizePricingUSD(pricing []Pricing) ([]Pricing, error) {
 		if err != nil {
 			return nil, err
 		}
-		output := input * p.CompletionRatio
-		if math.IsNaN(output) || math.IsInf(output, 0) || output < 0 {
-			return nil, fmt.Errorf("invalid completion price")
+		output, err := USDPriceProduct(input, p.CompletionRatio)
+		if err != nil {
+			return nil, err
 		}
 		p.InputPrice, p.OutputPrice = &input, &output
 		cache, _ := ratio_setting.GetCacheRatio(p.ModelName)
 		create, _ := ratio_setting.GetCreateCacheRatio(p.ModelName)
-		read, write := input*cache, input*create
+		read, err := USDPriceProduct(input, cache)
+		if err != nil {
+			return nil, err
+		}
+		write, err := USDPriceProduct(input, create)
+		if err != nil {
+			return nil, err
+		}
 		p.CacheReadPrice, p.CacheWritePrice = &read, &write
 		for _, field := range []struct {
 			ratio *float64
 			price **float64
 		}{{p.ImageRatio, &p.ImagePrice}, {p.AudioRatio, &p.AudioInputPrice}, {p.AudioCompletionRatio, &p.AudioOutputPrice}} {
 			if field.ratio != nil {
-				v := input * *field.ratio
+				v, err := USDPriceProduct(input, *field.ratio)
+				if err != nil {
+					return nil, err
+				}
 				*field.price = &v
 			}
 		}

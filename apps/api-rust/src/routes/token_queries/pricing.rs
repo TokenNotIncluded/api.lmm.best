@@ -36,6 +36,70 @@ fn context_error() -> Response {
 fn price_error() -> Response {
     failure(StatusCode::SERVICE_UNAVAILABLE, "pricing unavailable")
 }
+
+fn price_product(left: f64, right: f64) -> Result<f64, Response> {
+    let product = left * right;
+    if !left.is_finite()
+        || !right.is_finite()
+        || left < 0.0
+        || right < 0.0
+        || !product.is_finite()
+        || (left > 0.0 && right > 0.0 && product == 0.0)
+    {
+        return Err(price_error());
+    }
+    Ok(product)
+}
+
+pub(super) struct CurrencyBasis {
+    usd: String,
+    legacy: String,
+    scale: String,
+}
+
+// Read only the migration's durable K/Q pair. Live FX and recharge promotions
+// never supply a fallback denominator for a response labelled USD.
+pub(super) async fn currency_basis(
+    state: &TokenQueryState,
+    options: &BTreeMap<String, String>,
+) -> Result<Option<CurrencyBasis>, sqlx::Error> {
+    let (Some(usd), Some(legacy)) = (
+        options.get("CreditsPerUSD"),
+        options.get("LegacyPricingQuotaPerUnit"),
+    ) else {
+        return Ok(None);
+    };
+    let current = options.get("QuotaPerUnit").map_or("500000", String::as_str);
+    let row = sqlx::query_as::<_, (bool, String)>(
+        "SELECT $1::TEXT::NUMERIC>0 AND $1::TEXT::NUMERIC<=9007199254740991 AND $2::TEXT::NUMERIC>0 AND $2::TEXT::NUMERIC<=9007199254740991 AND $2::TEXT::NUMERIC=$3::TEXT::NUMERIC AND ROUND($1::TEXT::NUMERIC/$2::TEXT::NUMERIC(1000,500),64)>0,trim_scale(ROUND($1::TEXT::NUMERIC/$2::TEXT::NUMERIC(1000,500),64))::TEXT",
+    )
+    .bind(usd)
+    .bind(legacy)
+    .bind(current)
+    .fetch_one(&state.pg)
+    .await?;
+    Ok(row.0.then(|| CurrencyBasis {
+        usd: usd.clone(),
+        legacy: legacy.clone(),
+        scale: row.1,
+    }))
+}
+
+impl CurrencyBasis {
+    pub(super) fn usd(&self) -> &str {
+        &self.usd
+    }
+
+    fn expression(&self, expression: &str) -> String {
+        if expression.trim().is_empty() {
+            return expression.to_owned();
+        }
+        let (prefix, body) = expression
+            .strip_prefix("v1:")
+            .map_or(("", expression), |body| ("v1:", body));
+        format!("{prefix}({body}) / ({})", self.scale)
+    }
+}
 fn object(
     options: &BTreeMap<String, String>,
     key: &str,
@@ -230,19 +294,18 @@ pub(super) async fn response(
     if requested.len() > 512 {
         return failure(StatusCode::BAD_REQUEST, "model query is too long");
     }
-    let unit = match context.options.get("QuotaPerUnit") {
-        Some(value) => match value.parse::<f64>() {
-            Ok(value) => value,
-            Err(_) => return price_error(),
-        },
-        None => 500000.0,
-    };
-    if !unit.is_finite() || unit <= 0.0 {
-        return price_error();
-    }
     let discount = match discount(state, token, &context).await {
         Ok(value) => value,
         Err(response) => return response,
+    };
+    let basis = match currency_basis(state, &context.options).await {
+        Ok(Some(basis)) => basis,
+        _ => {
+            return failure(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "pricing currency units unavailable",
+            );
+        }
     };
     // Parse each saved map once per request. Parsing a full model catalogue
     // for every model would make this list endpoint quadratic in catalogue size.
@@ -280,6 +343,7 @@ pub(super) async fn response(
     }
     let limits = token.model_limits.split(',').collect::<BTreeSet<_>>();
     let mut result = Vec::new();
+    let mut conversions = Vec::<(usize, &'static str, String, bool)>::new();
     for (name, enabled_groups) in catalog {
         if !requested.is_empty() && requested != name {
             continue;
@@ -315,7 +379,7 @@ pub(super) async fn response(
                     .map_err(|_| price_error())?
                     .and_then(|value| value.get(group).and_then(Value::as_f64));
                 let ratio = special.unwrap_or(ordinary) * discount;
-                let mut entry = json!({"model":name,"group":group,"currency":"USD","group_ratio":finite_number(ratio)?,"trust_discount_ratio":finite_number(discount)?});
+                let mut entry = json!({"pricing_schema_version":2,"model":name,"group":group,"currency":"USD","group_ratio":finite_number(ratio)?,"trust_discount_ratio":finite_number(discount)?});
                 let expression = lookup(&context, "billing_setting.billing_mode", &name)
                     .map_err(|_| price_error())?
                     .is_some_and(|value| value == "tiered_expr");
@@ -329,12 +393,13 @@ pub(super) async fn response(
                     entry["billing_mode"] = json!("tiered_expr");
                     entry["unit"] = json!("expression");
                     if !expression.is_empty() {
-                        entry["billing_expression"] = json!(expression);
+                        entry["billing_expression"] = json!(basis.expression(&expression));
                     }
                 } else if let Some(price) = number(&context, "ModelPrice", matched)? {
                     entry["billing_mode"] = json!("per_request");
                     entry["unit"] = json!("request");
-                    entry["request_price"] = finite_number(price * ratio)?;
+                    let amount = price_product(price, ratio)?;
+                    conversions.push((result.len(), "request_price", amount.to_string(), false));
                 } else {
                     let Some(model) = number(&context, "ModelRatio", matched)? else {
                         return Ok(None);
@@ -360,9 +425,8 @@ pub(super) async fn response(
                             entry[key] = finite_number(value)?;
                         }
                     }
-                    let input = model * ratio * 1_000_000.0 / unit;
-                    entry["input_price"] = finite_number(input)?;
-                    entry["output_price"] = finite_number(input * completion)?;
+                    let amount = price_product(model, ratio)?;
+                    conversions.push((result.len(), "input_price", amount.to_string(), true));
                 }
                 Ok(Some(entry))
             })();
@@ -376,9 +440,54 @@ pub(super) async fn response(
     if !requested.is_empty() && result.is_empty() {
         return failure(StatusCode::NOT_FOUND, "model not available");
     }
+    // Match Go's decimal.NewFromFloat -> Mul -> DivRound(64) -> float64
+    // conversion in one batch, including values outside rust_decimal's range.
+    let amounts = conversions
+        .iter()
+        .map(|(_, _, amount, _)| amount.clone())
+        .collect::<Vec<_>>();
+    let per_token = conversions
+        .iter()
+        .map(|(_, _, _, per_token)| *per_token)
+        .collect::<Vec<_>>();
+    let prices = match sqlx::query_scalar::<_, f64>(
+        "SELECT ROUND(amount::NUMERIC(1000,500)*CASE WHEN per_token THEN 1000000::NUMERIC ELSE $3::TEXT::NUMERIC END/$4::TEXT::NUMERIC,64)::DOUBLE PRECISION FROM UNNEST($1::TEXT[],$2::BOOLEAN[]) WITH ORDINALITY AS prices(amount,per_token,ordinal) ORDER BY ordinal",
+    )
+    .bind(amounts)
+    .bind(per_token)
+    .bind(&basis.legacy)
+    .bind(&basis.usd)
+    .fetch_all(&state.pg)
+    .await {
+        Ok(prices) => prices,
+        Err(_) => return price_error(),
+    };
+    if prices.len() != conversions.len() {
+        return price_error();
+    }
+    for ((index, field, amount, per_token), price) in conversions.into_iter().zip(prices) {
+        if price == 0.0 && amount.parse::<f64>().is_ok_and(|amount| amount != 0.0) {
+            return price_error();
+        }
+        result[index][field] = match finite_number(price) {
+            Ok(price) => price,
+            Err(response) => return response,
+        };
+        if per_token {
+            let completion = result[index]["completion_ratio"].as_f64().unwrap_or(0.0);
+            let output = match price_product(price, completion) {
+                Ok(output) => output,
+                Err(response) => return response,
+            };
+            result[index]["output_price"] = match finite_number(output) {
+                Ok(price) => price,
+                Err(response) => return response,
+            };
+        }
+    }
     pricing_json(
         StatusCode::OK,
-        json!({"success":true,"data":result,"updated_at":Utc::now().timestamp(),"scope":"token","price_basis":"configured_base_rates","final_cost_depends_on_usage":true}),
+        json!({"success":true,"data":result,"updated_at":Utc::now().timestamp(),"scope":"token","pricing_schema_version":2,"pricing_currency":"USD","price_basis":"configured_base_rates","final_cost_depends_on_usage":true}),
     )
 }
 
@@ -447,6 +556,35 @@ fn pricing_json(status: StatusCode, body: Value) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn monetary_products_reject_underflow_negative_factors_and_keep_explicit_zero() {
+        for (left, right) in [
+            (f64::from_bits(1), 0.1),
+            (0.2857142857142857, f64::from_bits(1)),
+            (-1.0, -1.0),
+            (f64::MAX, 2.0),
+        ] {
+            assert!(price_product(left, right).is_err());
+        }
+        assert_eq!(price_product(0.0, 1.0).unwrap(), 0.0);
+        assert_eq!(price_product(1.0, 0.0).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn usd_expression_preserves_version_and_conditions() {
+        let basis = CurrencyBasis {
+            usd: "3500000".into(),
+            legacy: "500000".into(),
+            scale: "7".into(),
+        };
+        assert_eq!(basis.expression("p * 2 + c * 4"), "(p * 2 + c * 4) / (7)");
+        assert_eq!(
+            basis.expression("v1:p > 100 ? 2 : 1"),
+            "v1:(p > 100 ? 2 : 1) / (7)"
+        );
+        assert_eq!(basis.expression(" "), " ");
+    }
 
     #[test]
     fn floats_keep_current_go_decimal_and_exponent_spelling() {
