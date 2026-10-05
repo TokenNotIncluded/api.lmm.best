@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { legacyPlatformAmountToQuota } from '@/lib/currency'
 import type { WaffoPancakeCheckoutOptions } from '@/lib/waffo-pancake-checkout'
 
 import {
@@ -421,6 +422,19 @@ export function getTopupRecordPlatformAmount(
   return Number.isSafeInteger(micros) && Number(micros) > 0
     ? Number(micros) / 1_000_000
     : record.amount
+}
+
+/** Immutable credited quota wins over a historical legacy batch projection. */
+export function getTopupRecordQuota(
+  record: Pick<
+    TopupRecord,
+    'credited_quota' | 'amount' | 'platform_amount_micros'
+  >
+): number {
+  return Number.isSafeInteger(record.credited_quota) &&
+    Number(record.credited_quota) > 0
+    ? Number(record.credited_quota)
+    : legacyPlatformAmountToQuota(getTopupRecordPlatformAmount(record))
 }
 
 /**

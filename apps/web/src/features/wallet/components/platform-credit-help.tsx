@@ -17,8 +17,6 @@ import {
 } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 
-import { visiblePlatformCredit } from '../lib/platform-credit-display'
-
 export function PlatformCreditHelp({ className }: { className?: string }) {
   const { t } = useTranslation()
 
@@ -28,7 +26,7 @@ export function PlatformCreditHelp({ className }: { className?: string }) {
         render={
           <button
             type='button'
-            aria-label={t('Platform credit')}
+            aria-label={t('Wallet balance')}
             className={cn(
               'text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/60 pointer-events-auto inline-flex size-7 items-center justify-center rounded-full text-xs font-semibold leading-none outline-none focus-visible:ring-2',
               className
@@ -45,11 +43,11 @@ export function PlatformCreditHelp({ className }: { className?: string }) {
         className='max-w-[calc(100vw-1.5rem)] gap-1.5 rounded-xl border p-3 shadow-lg'
       >
         <PopoverTitle className='text-sm font-semibold'>
-          {t('Platform credit')}
+          {t('Wallet balance')}
         </PopoverTitle>
         <PopoverDescription className='text-xs leading-5'>
           {t(
-            'Platform credit is your usage balance. The checkout shows the actual payment separately, with its settlement currency.'
+            'Your balance is stored in credits. Display currency does not change the amount charged at checkout.'
           )}
         </PopoverDescription>
       </PopoverContent>
@@ -64,12 +62,11 @@ export function PlatformCreditAmount({
   value: string
   className?: string
 }) {
-  const { t } = useTranslation()
   if (value === '-') return <span className={className}>{value}</span>
 
   return (
     <span className={cn('inline-flex items-baseline', className)}>
-      <span>{visiblePlatformCredit(value, t('Platform'))}</span>
+      <span>{value}</span>
       <PlatformCreditHelp />
     </span>
   )

@@ -61,7 +61,7 @@ export function useWaffoPayment() {
         setProcessing(true)
         checkout = reservePaymentCheckout()
         const response = await requestWaffoPayment({
-          amount: Math.floor(topupAmount),
+          amount: topupAmount,
           pay_method_index: payMethodIndex,
           ...(discountCode ? { discount_code: discountCode } : {}),
         })

@@ -15,6 +15,7 @@ import {
   calculateSettlementAmount,
   getPaymentMaxTopup,
   getPaymentMaxTopupAmount,
+  getPaymentMinTopupAmount,
   getPaymentSettlementMetadata,
   getPaymentTopupRatio,
 } from '../lib/payment-unit'
@@ -55,7 +56,10 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
-async function loadTopupInfo(payMethods: unknown) {
+async function loadTopupInfo(
+  payMethods: unknown,
+  extra: Record<string, unknown> = {}
+) {
   api.defaults.adapter = async (config) => {
     assert.equal(config.url, '/api/user/topup/info')
     return {
@@ -73,6 +77,7 @@ async function loadTopupInfo(payMethods: unknown) {
           amount_options: [10, 20, 50],
           discount: {},
           pay_methods: payMethods,
+          ...extra,
         },
       },
     }
@@ -183,4 +188,61 @@ test('keeps incomplete preferred rates visible to settlement validation instead 
 
   assert.equal(topupInfo.pay_methods.length, 1)
   assert.equal(getPaymentSettlementMetadata(topupInfo.pay_methods[0]), null)
+})
+
+test('prefers normalized legacy presets and converts a labelled raw-credit fallback exactly once', async () => {
+  const { useSystemConfigStore } = await import('@/stores/system-config-store')
+  const original = useSystemConfigStore.getState().config
+  useSystemConfigStore.setState((state) => ({
+    config: {
+      ...state.config,
+      currency: { ...state.config.currency, quotaPerUnit: 500000 },
+    },
+  }))
+  try {
+    const normalized = await loadTopupInfo([], {
+      amount_unit: 'CREDIT',
+      amount_options: [500000],
+      discount: { 500000: 0.9 },
+      legacy_amount_unit: 'LEGACY',
+      legacy_amount_options: [1],
+      legacy_discount: { 1: 0.9 },
+    })
+    assert.deepEqual(normalized.amount_options, [1])
+    assert.deepEqual(normalized.discount, { 1: 0.9 })
+    assert.equal(normalized.amount_unit, 'LEGACY')
+    const fallback = await loadTopupInfo([], {
+      amount_unit: 'CREDIT',
+      amount_options: [1, 500000],
+      discount: { 500000: 0.9 },
+    })
+    assert.deepEqual(fallback.amount_options, [0.000002, 1])
+    assert.deepEqual(fallback.discount, { 1: 0.9 })
+    const batch = await loadTopupInfo([], {
+      amount_unit: 'LEGACY',
+      amount_options: [1],
+      discount: { 1: 0.9 },
+    })
+    assert.deepEqual(batch.amount_options, [1])
+    assert.deepEqual(batch.discount, { 1: 0.9 })
+  } finally {
+    useSystemConfigStore.setState({ config: original })
+  }
+})
+
+test('uses authoritative legacy method limits when the compatibility catalog is in raw Credits', async () => {
+  const info = await loadTopupInfo([
+    {
+      name: 'Card',
+      type: 'card',
+      min_topup: 1,
+      min_topup_unit: 'USD',
+      legacy_min_topup: '6.8',
+      max_topup_amount: '8500000',
+      max_topup_amount_unit: 'CREDIT',
+      legacy_max_topup_amount: '17',
+    },
+  ])
+  assert.equal(getPaymentMinTopupAmount(info.pay_methods[0]), 6.8)
+  assert.equal(getPaymentMaxTopupAmount(info.pay_methods[0]), 17)
 })

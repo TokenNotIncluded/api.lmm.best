@@ -23,6 +23,11 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  validateDiscountCode,
+  calculateAmount,
+  calculateStripeAmount,
+  calculateWaffoAmount,
+  calculateWaffoPancakeAmount,
   requestPayment,
   requestStripePayment,
   requestCreemPayment,
@@ -140,4 +145,56 @@ test('a late gateway response cannot bind a receipt after account switch', async
   await response
   assert.equal(readPendingTopups(7)[0]?.tradeNo, undefined)
   assert.deepEqual(readPendingTopups(8), [])
+})
+
+test('quote and checkout keep fractional legacy batches explicit, with the payment ISO unchanged', async () => {
+  const captured: Array<{ url: string; body: Record<string, unknown> }> = []
+  api.post = (async (url: string, body: Record<string, unknown>) => {
+    captured.push({ url, body })
+    return { data: { success: true, data: '0.01' } }
+  }) as typeof api.post
+  const amount = 0.000002 // Exactly one raw Credit at QPU=500000.
+  await calculateAmount({ amount, payment_method: 'alipay' })
+  await calculateStripeAmount({ amount })
+  await calculateWaffoAmount({ amount })
+  await calculateWaffoPancakeAmount({ amount })
+  await requestPayment({ amount, payment_method: 'alipay' })
+  await requestStripePayment({ amount, payment_method: 'stripe' })
+  await requestWaffoPayment({ amount })
+  await requestWaffoPancakePayment({
+    amount,
+    settlement_amount: '0.01',
+    settlement_currency: 'USD',
+  })
+  assert.equal(captured.length, 8)
+  for (const call of captured) {
+    assert.equal(call.body.amount, 0.000002, call.url)
+    assert.equal(call.body.amount_unit, 'LEGACY', call.url)
+  }
+  assert.equal(captured.at(-1)?.body.settlement_amount, '0.01')
+  assert.equal(captured.at(-1)?.body.settlement_currency, 'USD')
+})
+
+test('discount validation uses the same fractional batch unit as quote and checkout', async () => {
+  let body: unknown
+  api.post = (async (_url: string, request: unknown) => {
+    body = request
+    return {
+      data: {
+        success: true,
+        data: { code: 'SAVE', discount_percent: 10, min_amount: 3500000 },
+      },
+    }
+  }) as typeof api.post
+  await validateDiscountCode({
+    code: 'SAVE',
+    amount: 7.3,
+    payment_method: 'card',
+  })
+  assert.deepEqual(body, {
+    code: 'SAVE',
+    amount: 7.3,
+    payment_method: 'card',
+    amount_unit: 'LEGACY',
+  })
 })

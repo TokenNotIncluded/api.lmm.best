@@ -14,8 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { visiblePlatformCredit } from '@/features/wallet/lib/platform-credit-display'
-import { formatQuota } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -28,8 +27,9 @@ export function AccountBalanceBadge({
   compactMobile?: boolean
 }) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const quota = useAuthStore((state) => state.auth.user?.quota ?? 0)
-  const balance = visiblePlatformCredit(formatQuota(quota), t('Platform'))
+  const balance = formatQuota(quota)
 
   return (
     <>
@@ -61,7 +61,7 @@ export function AccountBalanceBadge({
               <button
                 type='button'
                 className='text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mt-1 inline-flex size-5 items-center justify-center rounded-full text-[10px] font-semibold outline-none focus-visible:ring-[3px]'
-                aria-label={t('Platform credit')}
+                aria-label={t('Wallet balance')}
               />
             }
           >
@@ -69,7 +69,7 @@ export function AccountBalanceBadge({
           </TooltipTrigger>
           <TooltipContent side='bottom' className='max-w-72 leading-5'>
             {t(
-              'Platform credit is your usage balance. The checkout shows the actual payment separately, with its settlement currency.'
+              'Your balance is stored in credits. Display currency does not change the amount charged at checkout.'
             )}
           </TooltipContent>
         </Tooltip>

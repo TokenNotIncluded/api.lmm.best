@@ -15,17 +15,11 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type React from 'react'
 
-import enLocale from '@/i18n/locales/en.json'
-import frLocale from '@/i18n/locales/fr.json'
-import jaLocale from '@/i18n/locales/ja.json'
-import ruLocale from '@/i18n/locales/ru.json'
-import viLocale from '@/i18n/locales/vi.json'
-import zhTWLocale from '@/i18n/locales/zh-TW.json'
 import zhLocale from '@/i18n/locales/zh.json'
 
 const domWindow = new Window({ url: 'https://console.example.test/wallet' })
@@ -75,7 +69,16 @@ await i18n.use(initReactI18next).init({
   lng: 'en',
   resources: {
     en: { translation: {} },
-    zh: { translation: zhLocale.translation },
+    zh: {
+      translation: {
+        ...zhLocale.translation,
+        'Top-up amount': '充值金额',
+        'Credited balance': '到账额度',
+        'Wallet balance': '钱包余额',
+        'Your balance is stored in credits. Display currency does not change the amount charged at checkout.':
+          '余额按 credit 保存，切换显示币种不影响结算时的实际支付金额。',
+      },
+    },
   },
 })
 
@@ -86,6 +89,8 @@ const { useTopupInfo } = await import('../hooks/use-topup-info')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { PaymentConfirmDialog } =
   await import('./dialogs/payment-confirm-dialog')
 const { formatCreditBalance, formatPaymentAmount } = await import('../lib')
@@ -100,6 +105,19 @@ const originalGet = api.get
 const originalPost = api.post
 // oxlint-disable-next-line no-console -- The test captures and restores the expected production error log.
 const originalConsoleError = console.error
+
+async function editInput(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushEffects()
+  })
+}
 
 async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 20))
@@ -124,6 +142,7 @@ function TopupInfoProbe() {
 }
 
 function setCnyBillingCurrency() {
+  useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
   useSystemConfigStore.setState((state) => ({
     config: {
       ...state.config,
@@ -131,18 +150,29 @@ function setCnyBillingCurrency() {
         ...state.config.currency,
         quotaDisplayType: 'CNY',
         usdExchangeRate: 7,
+        currencyUnit: 'credit',
+        creditsPerUsd: 3500000,
+        creditsPerUsdExact: '3500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
       },
     },
   }))
 }
 
 function setUsdBillingCurrency() {
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
   useSystemConfigStore.setState((state) => ({
     config: {
       ...state.config,
       currency: {
         ...state.config.currency,
         quotaDisplayType: 'USD',
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
       },
     },
   }))
@@ -153,6 +183,8 @@ type Rendered = {
   root: ReturnType<typeof createRoot>
 }
 
+const mounted = new Set<Rendered>()
+
 async function render(node: React.ReactNode): Promise<Rendered> {
   const container = document.createElement('div')
   document.body.append(container)
@@ -162,15 +194,23 @@ async function render(node: React.ReactNode): Promise<Rendered> {
     root.render(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>)
   })
 
-  return { container, root }
+  const rendered = { container, root }
+  mounted.add(rendered)
+  return rendered
 }
 
 async function unmount(rendered: Rendered) {
   await act(async () => rendered.root.unmount())
   rendered.container.remove()
+  mounted.delete(rendered)
 }
 
-afterEach(() => {
+beforeEach(() => {
+  setUsdBillingCurrency()
+})
+
+afterEach(async () => {
+  for (const rendered of mounted) await unmount(rendered)
   api.get = originalGet
   api.post = originalPost
   // oxlint-disable-next-line no-console -- Restore the original logger after every test.
@@ -320,33 +360,11 @@ describe('wallet payment clarity', () => {
     queryClient.clear()
   })
 
-  test('keeps both platform credit labels non-fiat in every locale', () => {
-    const locales = [
-      ['en', enLocale],
-      ['zh', zhLocale],
-      ['zh-TW', zhTWLocale],
-      ['fr', frLocale],
-      ['ja', jaLocale],
-      ['ru', ruLocale],
-      ['vi', viLocale],
-    ] as const
-
-    for (const [locale, messages] of locales) {
-      for (const key of [
-        'Platform credit',
-        'Custom platform credit',
-      ] as const) {
-        const value = messages.translation[key]
-        assert.equal(value.includes('$'), false, `${locale}: ${key}`)
-      }
-    }
-  })
-
   test('renders Chinese platform title, preset card, and input addon without a dollar symbol', async () => {
     await i18n.changeLanguage('zh')
     setCnyBillingCurrency()
 
-    assert.equal(formatCreditBalance(6.8), '6.8 (Platform)')
+    assert.equal(formatCreditBalance(6.8), '6.8 CNY')
     assert.equal(formatCreditBalance(Number.NaN), '-')
     assert.equal(formatCreditBalance(6.8).includes('$'), false)
     assert.equal(formatPaymentAmount(1, 'USD'), '1 USD')
@@ -378,25 +396,25 @@ describe('wallet payment clarity', () => {
     ]
     assert.equal(
       [...rendered.container.querySelectorAll('label')].some(
-        (label) => label.textContent === '平台额度'
+        (label) => label.textContent === '到账额度'
       ),
       true
     )
     assert.equal(
       rendered.container.querySelector('label[for="topup-amount"]')
         ?.textContent,
-      '自定义平台额度'
+      '充值金额 (CNY)'
     )
     assert.equal(
       presetCard
         ?.querySelector('[data-slot="wallet-credit-value"]')
         ?.textContent?.trim(),
-      '10'
+      '10 CNY'
     )
     assert.equal(presetCard?.textContent?.includes('$'), false)
     assert.deepEqual(
       addons.map((addon) => addon.textContent),
-      ['?']
+      ['CNY?']
     )
     assert.equal(
       addons.some((addon) => addon.textContent?.includes('$')),
@@ -404,7 +422,7 @@ describe('wallet payment clarity', () => {
     )
     assert.equal(text.includes('$'), false)
     const creditHelp = rendered.container.querySelector<HTMLButtonElement>(
-      'button[aria-label="平台额度"]'
+      'button[aria-label="钱包余额"]'
     )
     assert.ok(creditHelp)
     await act(async () => {
@@ -413,7 +431,7 @@ describe('wallet payment clarity', () => {
     })
     assert.equal(
       document.body.textContent?.includes(
-        '平台额度是用于服务消耗的余额。结算页面会单独列出实际付款金额及结算币种。'
+        '余额按 credit 保存，切换显示币种不影响结算时的实际支付金额。'
       ),
       true
     )
@@ -452,7 +470,7 @@ describe('wallet payment clarity', () => {
 
     const rendered = await render(<Harness />)
     const increase = rendered.container.querySelector(
-      'button[aria-label="Increase platform credit"]'
+      'button[aria-label="Increase amount"]'
     )
     assert.ok(increase)
     const down = new Event('pointerdown', { bubbles: true })
@@ -652,7 +670,7 @@ describe('wallet payment clarity', () => {
       const confirmationText = document.body.textContent ?? ''
       assert.equal(confirmButton?.disabled, true)
       assert.equal(confirmationText.includes('Payment unavailable'), true)
-      assert.equal(confirmationText.includes('0 USD'), false)
+      assert.equal(confirmationText.includes('Amount due: 0 USD'), false)
       assert.equal(confirmationText.includes('NaN'), false)
       assert.equal(confirmationText.includes('Infinity'), false)
       await unmount(confirmation)
@@ -732,14 +750,14 @@ describe('wallet payment clarity', () => {
     const text = recharge.container.textContent ?? ''
     assert.ok(
       recharge.container.querySelector(
-        '[aria-label="Preset amount: 6.8 (Platform). Actual payment: 1 USD. Original payment: 1 USD. Platform discount 0%"]'
+        '[aria-label="Preset amount: 6.8 CNY. Actual payment: 1 USD. Original payment: 1 USD. Platform discount 0%"]'
       )
     )
     assert.equal(
       recharge.container
         .querySelector('button[aria-pressed] [data-slot="wallet-credit-value"]')
         ?.textContent?.trim(),
-      '6.8'
+      '6.8 CNY'
     )
     assert.equal(text.includes('Estimated payment: 1 USD'), true)
     assert.equal(text.includes('Amount due: 1 USD (actual payment)'), true)
@@ -748,7 +766,7 @@ describe('wallet payment clarity', () => {
       recharge.container.querySelector('#topup-amount')?.getAttribute('min'),
       '6.8'
     )
-    assert.equal(text.includes('1 USD / 6.8 (Platform)'), true)
+    assert.equal(text.includes('1 USD / 6.8 CNY'), true)
     await unmount(recharge)
 
     const confirmation = await render(
@@ -765,7 +783,7 @@ describe('wallet payment clarity', () => {
       />
     )
     assert.equal(
-      document.body.textContent?.includes('Credit 6.8; pay 1 USD'),
+      document.body.textContent?.includes('Credit 6.8 CNY; pay 1 USD'),
       true
     )
     assert.equal(document.body.textContent?.includes('$1'), false)
@@ -806,18 +824,18 @@ describe('wallet payment clarity', () => {
     const text = rendered.container.textContent ?? ''
     assert.ok(
       rendered.container.querySelector(
-        '[aria-label="Preset amount: 6.8 (Platform). Actual payment: 6.8 CNY. Original payment: 6.8 CNY. Platform discount 0%"]'
+        '[aria-label="Preset amount: 6.8 USD. Actual payment: 6.8 CNY. Original payment: 6.8 CNY. Platform discount 0%"]'
       )
     )
     assert.equal(
       rendered.container
         .querySelector('button[aria-pressed] [data-slot="wallet-credit-value"]')
         ?.textContent?.trim(),
-      '6.8'
+      '6.8 USD'
     )
     assert.equal(text.includes('Estimated payment: 6.8 CNY'), true)
     assert.equal(text.includes('Amount due: 6.8 CNY (actual payment)'), true)
-    assert.equal(text.includes('6.8 CNY / 6.8 (Platform)'), true)
+    assert.equal(text.includes('6.8 CNY / 6.8 USD'), true)
     await unmount(rendered)
   })
 
@@ -845,7 +863,7 @@ describe('wallet payment clarity', () => {
     )
 
     const noDiscountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: 100 (Platform). Actual payment: 540 CNY. Original payment: 540 CNY. Platform discount 0%"]'
+      '[aria-label="Preset amount: 100 CNY. Actual payment: 540 CNY. Original payment: 540 CNY. Platform discount 0%"]'
     )
     assert.ok(noDiscountPreset)
     assert.equal(
@@ -860,7 +878,7 @@ describe('wallet payment clarity', () => {
     )
 
     const discountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: 200 (Platform). Actual payment: 864 CNY. Original payment: 1,080 CNY. Platform discount 20%. Discount applied 216 CNY"]'
+      '[aria-label="Preset amount: 200 CNY. Actual payment: 864 CNY. Original payment: 1,080 CNY. Platform discount 20%. Discount applied 216 CNY"]'
     )
     assert.ok(discountPreset)
     assert.equal(
@@ -877,7 +895,7 @@ describe('wallet payment clarity', () => {
     assert.equal(
       rendered.container.querySelector('label[for="topup-amount"]')
         ?.textContent,
-      'Custom platform credit'
+      'Top-up amount (CNY)'
     )
     assert.equal(
       rendered.container.querySelector('#topup-amount-description')
@@ -1017,7 +1035,7 @@ describe('wallet payment clarity', () => {
     assert.equal(
       rendered.container.querySelector('label[for="topup-amount"]')
         ?.textContent,
-      'Custom platform credit'
+      'Top-up amount (USD)'
     )
     assert.equal(
       rendered.container.querySelector('#topup-amount')?.getAttribute('value'),
@@ -1031,7 +1049,7 @@ describe('wallet payment clarity', () => {
       ]
         .map((addon) => addon.textContent)
         .slice(0, 2),
-      ['?']
+      ['USD?']
     )
     assert.equal(
       rendered.container.textContent?.includes(
@@ -1090,7 +1108,7 @@ describe('wallet payment clarity', () => {
       true
     )
     assert.equal(
-      recharge.container.textContent?.includes('10 LDC / (Platform)'),
+      recharge.container.textContent?.includes('10 LDC / 1 USD'),
       true
     )
     assert.equal(
@@ -1114,7 +1132,7 @@ describe('wallet payment clarity', () => {
     )
 
     assert.equal(
-      document.body.textContent?.includes('Credit 1; pay 0.56 LDC'),
+      document.body.textContent?.includes('Credit 1 USD; pay 0.56 LDC'),
       true
     )
     await unmount(confirmation)
@@ -1159,7 +1177,7 @@ describe('wallet payment clarity', () => {
     assert.equal(methodButton?.textContent?.includes('Maximum: 20'), true)
     assert.equal(
       methodButton?.getAttribute('title'),
-      'Maximum platform credit per payment: 20'
+      'Maximum credited balance per payment: 20 USD'
     )
 
     await unmount(rendered)
@@ -1210,7 +1228,10 @@ describe('wallet payment clarity', () => {
         await act(async () => button.click())
         assert.equal(selected, true)
       } else {
-        assert.equal(button.title, 'Maximum platform credit per payment: 17')
+        assert.equal(
+          button.title,
+          'Maximum credited balance per payment: 17 CNY'
+        )
       }
       await unmount(rendered)
     }
@@ -1278,7 +1299,7 @@ describe('wallet payment clarity', () => {
       true
     )
     assert.equal(
-      rendered.container.textContent?.includes('5.4 CNY / (Platform)'),
+      rendered.container.textContent?.includes('5.4 CNY / 1 USD'),
       true
     )
     await unmount(rendered)
@@ -1309,7 +1330,7 @@ describe('wallet payment clarity', () => {
     assert.equal(pageText.includes('Destination'), true)
     assert.equal(pageText.includes('Balance credited'), true)
     assert.equal(pageText.includes('You top up'), true)
-    assert.equal(pageText.includes('1?'), true)
+    assert.equal(pageText.includes('1 USD?'), true)
     assert.equal(pageText.includes('(Platform)'), false)
     assert.equal(pageText.includes('$'), false)
     assert.equal(pageText.includes('0.15 USD'), true)
@@ -1426,7 +1447,7 @@ describe('wallet payment clarity', () => {
       rendered.container
         .querySelector('#topup-amount')
         ?.getAttribute('aria-label'),
-      '自定义平台额度'
+      '充值金额 (CNY)'
     )
     assert.equal(
       rendered.container.textContent?.includes(
@@ -1524,4 +1545,210 @@ describe('wallet payment clarity', () => {
 
     await unmount(rendered)
   })
+})
+
+test('one Credit survives currency switches and quote requests keep their original denomination', async () => {
+  await i18n.changeLanguage('en')
+  useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  useSystemConfigStore.setState((state) => ({
+    config: {
+      ...state.config,
+      currency: {
+        ...state.config.currency,
+        currencyUnit: 'credit',
+        quotaPerUnit: 500000,
+        creditsPerUsd: 3400000,
+        creditsPerUsdExact: '3400000',
+        cnyPerUsd: 6.8,
+        cnyPerUsdExact: '6.8',
+      },
+    },
+  }))
+  const requests: Array<Record<string, unknown>> = []
+  api.post = (async (_url: string, body: Record<string, unknown>) => {
+    requests.push(body)
+    return {
+      data: {
+        success: true,
+        data: '0.01',
+        credited_quota: 1,
+        settlement_currency: 'USD',
+      },
+    }
+  }) as typeof api.post
+  const { calculateAmount } = await import('../api')
+  const method = {
+    name: 'Card',
+    type: 'card',
+    settlement_currency: 'CNY',
+    platform_units_per_usd: '6.8',
+    settlement_units_per_usd: '1',
+  }
+  function Harness() {
+    const [batch, setBatch] = useState(0.000002)
+    return (
+      <>
+        <RechargeFormCard
+          topupInfo={{ ...topupInfo, min_topup: 0, pay_methods: [method] }}
+          presetAmounts={[]}
+          selectedPreset={null}
+          onSelectPreset={() => undefined}
+          topupAmount={batch}
+          onTopupAmountChange={(value) => {
+            setBatch(value)
+            void calculateAmount({ amount: value, payment_method: 'card' })
+          }}
+          paymentAmount={0.01}
+          paymentCurrency='USD'
+          selectedPaymentMethod={method}
+          calculating={false}
+          onPaymentMethodSelect={() => undefined}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+        <PaymentConfirmDialog
+          open
+          onOpenChange={() => undefined}
+          onConfirm={() => undefined}
+          topupAmount={batch}
+          creditedQuota={1}
+          paymentAmount={0.01}
+          paymentCurrency='USD'
+          paymentMethod={method}
+          calculating={false}
+          processing={false}
+        />
+      </>
+    )
+  }
+  const rendered = await render(<Harness />)
+  const input =
+    rendered.container.querySelector<HTMLInputElement>('#topup-amount')
+  assert.ok(input)
+  assert.equal(input.value, '1')
+  assert.ok(document.body.textContent?.includes('1 Credits'))
+  for (const preference of ['USD', 'CNY', 'CREDIT'] as const) {
+    await act(async () => {
+      useWalletCurrencyPreferenceStore.getState().setPreference(preference)
+    })
+    assert.ok(Number(input.value) > 0)
+    assert.ok(
+      document.body.textContent?.includes('0.01 USD'),
+      'checkout fiat remains USD'
+    )
+    assert.equal(
+      requests.length,
+      0,
+      'a display preference is not a new recharge selection'
+    )
+  }
+  await editInput(input, '2')
+  assert.deepEqual(requests, [
+    { amount: 0.000004, payment_method: 'card', amount_unit: 'LEGACY' },
+  ])
+  await act(async () => {
+    useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+  })
+  assert.equal(input.value, '0.000004') // Two Credits, not two CNY.
+  await editInput(input, '1')
+  assert.deepEqual(requests.at(-1), {
+    amount: 1,
+    payment_method: 'card',
+    amount_unit: 'LEGACY',
+  })
+  await act(async () => {
+    useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  })
+  assert.equal(input.value, '500000')
+  assert.equal(requests.length, 2)
+  assert.ok(document.body.textContent?.includes('0.01 USD'))
+  await unmount(rendered)
+})
+
+test('a one-Credit private transfer keeps raw quota when its display currency changes', async () => {
+  await i18n.changeLanguage('en')
+  useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  const { WalletTransfers } = await import('../transfers/wallet-transfers')
+  const bodies: Array<Record<string, unknown>> = []
+  api.get = (async () => ({
+    data: { success: true, data: [] },
+  })) as typeof api.get
+  api.post = (async (url, body: Record<string, unknown>) => {
+    assert.equal(url, '/api/wallet-transfer')
+    bodies.push(body)
+    return {
+      data: {
+        success: true,
+        data: {
+          id: 1,
+          token: 'a'.repeat(64),
+          quota: 1,
+          status: 'pending',
+          created_at: 1,
+          claimed_at: 0,
+          cancelled_at: 0,
+          recipient_id: 0,
+          recipient_username: '',
+          recipient_name: '',
+          recipient_email: '',
+        },
+      },
+    }
+  }) as typeof api.post
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const rendered = await render(
+    <QueryClientProvider client={client}>
+      <WalletTransfers
+        userID={7}
+        balance={5}
+        onBalanceChange={async () => undefined}
+      />
+    </QueryClientProvider>
+  )
+  const open = [...rendered.container.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Transfer'
+  )
+  assert.ok(open)
+  await act(async () => {
+    open.click()
+    await flushEffects()
+  })
+  const input = document.querySelector<HTMLInputElement>('#transfer-amount')
+  assert.ok(input)
+  const create = [...document.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Create transfer link'
+  )
+  assert.ok(create)
+  await editInput(input, '1.5')
+  assert.equal(
+    create.disabled,
+    true,
+    'fractional raw Credits are not silently rounded'
+  )
+  await editInput(input, '1')
+  assert.equal(create.disabled, false)
+  await act(async () =>
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  )
+  assert.equal(input.value, '0.000002')
+  await act(async () =>
+    useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  )
+  assert.equal(input.value, '1')
+  assert.equal(bodies.length, 0)
+  await act(async () => {
+    create.click()
+    await flushEffects()
+  })
+  assert.equal(bodies.length, 1)
+  assert.equal(bodies[0].quota, 1)
+  assert.equal(typeof bodies[0].request_key, 'string')
+  assert.equal(Object.hasOwn(bodies[0], 'amount'), false)
+  await unmount(rendered)
+  client.clear()
 })

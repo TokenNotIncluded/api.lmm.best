@@ -12,7 +12,7 @@ import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import { getUserBillingHistory, isApiSuccess } from '../api'
 import type { WalletCloudSuccess } from '../components/wallet-token-cloud'
-import { getTopupRecordPlatformAmount } from '../lib/payment'
+import { getTopupRecordQuota } from '../lib/payment'
 import {
   TOPUP_CLOUD_EVENT,
   topupCloudStorageKey,
@@ -167,7 +167,7 @@ export function useTopupCloudSuccess({
           ) {
             continue
           }
-          const credited = getTopupRecordPlatformAmount(record)
+          const credited = getTopupRecordQuota(record) / quotaPerUnit
           if (!Number.isFinite(credited) || credited <= 0) continue
           confirmedRef.current = intent
           setSuccess({

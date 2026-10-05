@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback } from 'react'
 
+import { quotaToLegacyPlatformAmount } from '@/lib/currency'
+
 import { getTopupInfo } from '../api'
 import {
   generatePresetAmounts,
@@ -68,7 +70,7 @@ function parsePaymentMethods(
       (item): item is Record<string, unknown> =>
         !!item && typeof item === 'object'
     )
-    .map((item) => {
+    .map((item): PaymentMethod => {
       const rawMinTopup = Number(item.min_topup)
       const normalizedMinTopup = Number.isFinite(rawMinTopup) ? rawMinTopup : 0
       const type = typeof item.type === 'string' ? item.type : ''
@@ -101,6 +103,22 @@ function parsePaymentMethods(
         topup_ratio: parseStringOrNumber(item.topup_ratio),
         max_topup: parseStringOrNumber(item.max_topup),
         max_topup_amount: parseStringOrNumber(item.max_topup_amount),
+        legacy_min_topup: parseStringOrNumber(item.legacy_min_topup),
+        legacy_max_topup_amount: parseStringOrNumber(
+          item.legacy_max_topup_amount
+        ),
+        min_topup_unit:
+          item.min_topup_unit === 'USD'
+            ? 'USD'
+            : item.min_topup_unit === 'LEGACY'
+              ? 'LEGACY'
+              : undefined,
+        max_topup_amount_unit:
+          item.max_topup_amount_unit === 'CREDIT'
+            ? 'CREDIT'
+            : item.max_topup_amount_unit === 'LEGACY'
+              ? 'LEGACY'
+              : undefined,
         min_topup:
           type === 'stripe' && normalizedMinTopup <= 0
             ? stripeMinTopup
@@ -217,6 +235,32 @@ export function useTopupInfo() {
         return
       }
 
+      // New servers expose explicit legacy-batch fields while preserving raw
+      // CREDIT catalogs for old clients. Convert a labelled fallback only once.
+      const creditCatalog = response.data.amount_unit === 'CREDIT'
+      const amountOptions =
+        response.data.legacy_amount_options !== undefined
+          ? parseAmountOptions(response.data.legacy_amount_options)
+          : parseAmountOptions(response.data.amount_options)
+              .map((value) =>
+                creditCatalog ? quotaToLegacyPlatformAmount(value) : value
+              )
+              .filter((value) => Number.isFinite(value) && value > 0)
+      const discountCatalog =
+        response.data.legacy_discount !== undefined
+          ? parseDiscountMap(response.data.legacy_discount)
+          : Object.fromEntries(
+              Object.entries(parseDiscountMap(response.data.discount)).flatMap(
+                ([key, value]) => {
+                  const amount = creditCatalog
+                    ? quotaToLegacyPlatformAmount(Number(key))
+                    : Number(key)
+                  return Number.isFinite(amount) && amount > 0
+                    ? [[amount, value]]
+                    : []
+                }
+              )
+            )
       const processedData: TopupInfo = {
         ...response.data,
         topup_group_ratio: (() => {
@@ -227,8 +271,9 @@ export function useTopupInfo() {
           response.data.pay_methods,
           response.data.stripe_min_topup
         ),
-        amount_options: parseAmountOptions(response.data.amount_options),
-        discount: parseDiscountMap(response.data.discount),
+        amount_unit: 'LEGACY',
+        amount_options: amountOptions,
+        discount: discountCatalog,
         creem_products: parseCreemProducts(response.data.creem_products),
         waffo_pay_methods: parseWaffoPayMethods(
           response.data.waffo_pay_methods

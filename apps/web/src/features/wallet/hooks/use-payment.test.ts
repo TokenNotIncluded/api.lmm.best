@@ -20,7 +20,11 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { PAYMENT_TYPES } from '../constants'
-import { isPositivePaymentAmount, requestPaymentAmount } from './use-payment'
+import {
+  isPositivePaymentAmount,
+  requestPaymentAmount,
+  requestPaymentQuote,
+} from './use-payment'
 
 describe('payment amount routing', () => {
   test('rejects missing, non-finite, and zero checkout amounts', () => {
@@ -46,7 +50,9 @@ describe('payment amount routing', () => {
       waffoPancake: async () => ({ success: true, data: '0' }),
     })
 
-    assert.deepEqual(requests, [{ amount: 10, payment_method: 'epay' }])
+    assert.deepEqual(requests, [
+      { amount: 10, amount_unit: 'LEGACY', payment_method: 'epay' },
+    ])
   })
 
   test('does not add a regular gateway field when calculators share a function', async () => {
@@ -66,7 +72,7 @@ describe('payment amount routing', () => {
       waffoPancake: sharedCalculator,
     })
 
-    assert.deepEqual(requests, [{ amount: 10 }])
+    assert.deepEqual(requests, [{ amount: 10, amount_unit: 'LEGACY' }])
   })
 
   test('uses the dedicated Waffo amount calculator', async () => {
@@ -93,4 +99,25 @@ describe('payment amount routing', () => {
     assert.equal(amount, 18.75)
     assert.deepEqual(calls, ['waffo:120'])
   })
+})
+
+test('uses authoritative credited quota without treating it as the payment amount', async () => {
+  const quote = await requestPaymentQuote(0.000002, 'card', {
+    regular: async (request) => {
+      assert.equal(request.amount, 0.000002)
+      assert.equal(request.amount_unit, 'LEGACY')
+      return {
+        success: true,
+        data: '0.01',
+        settlement_currency: 'USD',
+        credited_quota: 1,
+      }
+    },
+    stripe: async () => ({ success: false }),
+    waffo: async () => ({ success: false }),
+    waffoPancake: async () => ({ success: false }),
+  })
+  assert.equal(quote.amount, 0.01)
+  assert.equal(quote.creditedQuota, 1)
+  assert.equal(quote.paymentCurrency, 'USD')
 })

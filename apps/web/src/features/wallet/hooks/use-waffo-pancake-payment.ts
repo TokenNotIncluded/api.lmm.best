@@ -88,7 +88,7 @@ export function useWaffoPancakePayment() {
       try {
         const interfaceLanguage = i18next.resolvedLanguage || i18next.language
         const response = await requestWaffoPancakePayment({
-          amount: Math.floor(topupAmount),
+          amount: topupAmount,
           ...expectedSettlement(quote),
           checkout_region:
             checkoutOptions?.checkout_region ??

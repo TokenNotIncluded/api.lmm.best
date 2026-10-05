@@ -16,6 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  displayAmountToQuota,
+  quotaToLegacyPlatformAmount,
+} from '@/lib/currency'
 import { usesDedicatedPaymentPricing } from '@/lib/payment-pricing'
 
 import type { PaymentMethod } from '../types'
@@ -75,7 +79,35 @@ export function getPaymentMaxTopup(
 export function getPaymentMaxTopupAmount(
   paymentMethod?: PaymentMethod
 ): number | null {
-  return parsePositiveDecimal(paymentMethod?.max_topup_amount)
+  if (paymentMethod?.legacy_max_topup_amount !== undefined) {
+    return parsePositiveDecimal(paymentMethod.legacy_max_topup_amount)
+  }
+  const maximum = parsePositiveDecimal(paymentMethod?.max_topup_amount)
+  if (maximum !== null && paymentMethod?.max_topup_amount_unit === 'CREDIT') {
+    return parsePositiveDecimal(quotaToLegacyPlatformAmount(maximum))
+  }
+  return maximum
+}
+
+/** Minimum in legacy batch units, matching the server's checkout policy. */
+export function getPaymentMinTopupAmount(
+  paymentMethod?: PaymentMethod
+): number {
+  if (paymentMethod?.legacy_min_topup !== undefined) {
+    const minimum = Number(paymentMethod.legacy_min_topup)
+    return Number.isFinite(minimum) && minimum >= 0
+      ? minimum
+      : Number.POSITIVE_INFINITY
+  }
+  const minimum = paymentMethod?.min_topup ?? 0
+  if (!Number.isFinite(minimum) || minimum < 0) return Number.POSITIVE_INFINITY
+  if (minimum > 0 && paymentMethod?.min_topup_unit === 'USD') {
+    const converted = quotaToLegacyPlatformAmount(
+      displayAmountToQuota(minimum, 'USD')
+    )
+    return Number.isFinite(converted) ? converted : Number.POSITIVE_INFINITY
+  }
+  return minimum
 }
 
 /**
@@ -222,11 +254,25 @@ export function getPaymentSettlementUnit(
 export function formatPaymentSettlementRate(
   paymentMethod?: PaymentMethod,
   platformCurrencyLabel = 'USD',
-  includeDedicated = false
+  includeDedicated = false,
+  formatCreditAmount?: (legacyBatch: number) => string
 ): string | null {
   const metadata = getPaymentSettlementMetadata(paymentMethod, includeDedicated)
   if (!metadata) return null
 
+  if (formatCreditAmount) {
+    const denominator =
+      metadata.source === 'explicit-usd-rates'
+        ? metadata.platformUnitsPerUsd
+        : 1
+    const settlementRate = formatRate(
+      metadata.source === 'explicit-usd-rates'
+        ? paymentMethod?.settlement_units_per_usd
+        : paymentMethod?.unit_price,
+      metadata.settlementUnitsPerUsd
+    )
+    return `${settlementRate} ${metadata.currencyCode} / ${formatCreditAmount(denominator)}`
+  }
   if (metadata.source !== 'explicit-usd-rates') {
     return `${formatRate(paymentMethod?.unit_price, metadata.settlementUnitsPerUsd)} ${metadata.currencyCode} / ${platformCurrencyLabel}`
   }

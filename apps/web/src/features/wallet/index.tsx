@@ -218,6 +218,8 @@ function WalletCheckout(props: WalletProps) {
   )
   const {
     amount: paymentAmount,
+    creditedQuota,
+    paymentCurrency,
     calculating,
     processing,
     lastQuoteErrorRef,
@@ -1035,6 +1037,7 @@ function WalletCheckout(props: WalletProps) {
                   topupAmount={topupAmount}
                   onTopupAmountChange={handleTopupAmountChange}
                   paymentAmount={paymentAmount}
+                  paymentCurrency={paymentCurrency}
                   settlementQuote={settlementQuote}
                   selectedPaymentMethod={selectedPaymentMethod}
                   calculating={calculating || discountApplying}
@@ -1153,11 +1156,13 @@ function WalletCheckout(props: WalletProps) {
       </SectionPageLayout>
 
       <PaymentConfirmDialog
+        creditedQuota={creditedQuota}
         open={confirmDialogOpen}
         onOpenChange={setConfirmDialogOpen}
         onConfirm={handlePaymentConfirm}
         topupAmount={topupAmount}
         paymentAmount={paymentAmount}
+        paymentCurrency={paymentCurrency}
         settlementQuote={settlementQuote}
         paymentMethod={selectedPaymentMethod}
         calculating={calculating || discountApplying}

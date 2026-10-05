@@ -41,23 +41,20 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import {
-  useSystemConfigStore,
-  DEFAULT_CURRENCY_CONFIG,
-} from '@/stores/system-config-store'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import {
-  formatTransferQuota,
   cancelTransfer,
   createTransfer,
   listTransfers,
   transferLink,
-  transferQuota,
   type WalletTransfer,
 } from './api'
 
 export function TransferShare({ transfer }: { transfer: WalletTransfer }) {
   const { t } = useTranslation()
+  const currency = useWalletCurrency()
+  const formatTransferQuota = currency.formatQuota
   const link = transferLink(transfer.token)
   const qr = useRef<HTMLDivElement>(null)
   const [copying, setCopying] = useState(false)
@@ -167,17 +164,22 @@ export function WalletTransfers({
   onBalanceChange: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const currency = useWalletCurrency()
+  const formatTransferQuota = currency.formatQuota
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [amount, setAmount] = useState('')
+  const currencyKey = JSON.stringify([currency.currency, currency.config])
+  const [amountQuota, setAmountQuota] = useState<number | null>(null)
+  const [draft, setDraft] = useState({ currencyKey, value: '' })
+  const amount =
+    draft.currencyKey === currencyKey
+      ? draft.value
+      : amountQuota === null
+        ? ''
+        : currency.quotaToInput(amountQuota)
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID())
   const [share, setShare] = useState<WalletTransfer | null>(null)
-  const configured = useSystemConfigStore(
-    (state) => state.config.currency.quotaPerUnit
-  )
-  const quotaPerUnit =
-    configured > 0 ? configured : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
-  const quota = transferQuota(amount, quotaPerUnit)
+  const quota = amountQuota
   const key = ['wallet-transfers', userID]
   const history = useInfiniteQuery({
     queryKey: key,
@@ -202,7 +204,8 @@ export function WalletTransfers({
     },
     onSuccess: async (transfer) => {
       setShare(transfer)
-      setAmount('')
+      setAmountQuota(null)
+      setDraft({ currencyKey, value: '' })
       setRequestKey(crypto.randomUUID())
       await refresh()
     },
@@ -256,15 +259,20 @@ export function WalletTransfers({
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor='transfer-amount'>
-                  {t('Transfer amount (platform credits)')}
+                  {t('Transfer Amount')} ({currency.label})
                 </FieldLabel>
                 <Input
                   id='transfer-amount'
                   inputMode='decimal'
                   value={amount}
-                  disabled={create.isPending}
+                  disabled={create.isPending || currency.quotaToInput(1) === ''}
                   onChange={(event) => {
-                    setAmount(event.target.value)
+                    const value = event.target.value
+                    const parsed = currency.amountToQuota(value)
+                    setAmountQuota(
+                      Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+                    )
+                    setDraft({ currencyKey, value })
                     setRequestKey(crypto.randomUUID())
                   }}
                   aria-invalid={amount !== '' && (!quota || quota > balance)}

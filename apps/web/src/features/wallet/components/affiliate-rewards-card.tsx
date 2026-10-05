@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuota } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import type { UserWalletData } from '../types'
 import { AffiliateInviteDialog } from './affiliate-invite-dialog'
@@ -45,6 +45,7 @@ export function AffiliateRewardsCard({
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   if (loading) {
     return (
       <Card data-card-hover='false' className='bg-muted/20 py-0'>

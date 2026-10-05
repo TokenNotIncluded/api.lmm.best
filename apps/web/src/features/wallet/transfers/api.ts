@@ -95,6 +95,7 @@ export const claimTransfer = (token: string) =>
 // credential to the API in a body, never in a URL or analytics event.
 export const transferLink = (token: string) =>
   `${window.location.origin}/transfer#${token}`
+/** Legacy batch conversion; new wallet inputs use the captured display-currency hook. */
 export function transferQuota(
   amount: string,
   quotaPerUnit: number

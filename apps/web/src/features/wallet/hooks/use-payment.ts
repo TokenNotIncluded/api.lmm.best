@@ -77,6 +77,8 @@ export async function requestPaymentQuote(
   amount: number
   settlementQuote: SettlementQuote | null
   errorReason?: string
+  creditedQuota?: number
+  paymentCurrency?: string
 }> {
   // Keep the old third-argument calculators form working for callers outside
   // the wallet while allowing the wallet to pass a discount code.
@@ -104,11 +106,13 @@ export async function requestPaymentQuote(
   const request = usesRegularCalculator
     ? {
         amount: topupAmount,
+        amount_unit: 'LEGACY' as const,
         payment_method: paymentType,
         ...(discountCode ? { discount_code: discountCode } : {}),
       }
     : {
         amount: topupAmount,
+        amount_unit: 'LEGACY' as const,
         ...(discountCode ? { discount_code: discountCode } : {}),
       }
   let response: AmountResponse
@@ -160,6 +164,11 @@ export async function requestPaymentQuote(
       errorReason: extractErrorReason(response),
     }
   }
+  const credit =
+    Number.isSafeInteger(response.credited_quota) &&
+    (response.credited_quota ?? -1) >= 0
+      ? { creditedQuota: response.credited_quota }
+      : {}
   if (isWaffoPancakePayment(paymentType)) {
     const settlementQuote = parseSettlementQuote({
       amount: response.data,
@@ -168,14 +177,22 @@ export async function requestPaymentQuote(
       savingsAmount: response.savings_settlement_amount,
     })
     return settlementQuote
-      ? { amount: Number(settlementQuote.amount), settlementQuote }
+      ? { amount: Number(settlementQuote.amount), settlementQuote, ...credit }
       : {
           amount: 0,
           settlementQuote: null,
           errorReason: extractErrorReason(response),
         }
   }
-  return { amount: Number.parseFloat(response.data), settlementQuote: null }
+  const settlementCurrency = response.settlement_currency?.trim().toUpperCase()
+  return {
+    ...(settlementCurrency && /^[A-Z]{3}$/.test(settlementCurrency)
+      ? { paymentCurrency: settlementCurrency }
+      : {}),
+    amount: Number.parseFloat(response.data),
+    settlementQuote: null,
+    ...credit,
+  }
 }
 
 export async function requestPaymentAmount(
@@ -192,6 +209,8 @@ export function usePayment() {
     scope: string
     amount: number
     settlementQuote: SettlementQuote | null
+    creditedQuota?: number
+    paymentCurrency?: string
   } | null>(null)
   const amount = quote?.scope === scope ? quote.amount : 0
   const settlementQuote = quote?.scope === scope ? quote.settlementQuote : null
@@ -275,7 +294,7 @@ export function usePayment() {
         setProcessing(true)
 
         const isStripe = isStripePayment(paymentType)
-        const amount = Math.floor(topupAmount)
+        const amount = topupAmount
         checkout = reservePaymentCheckout()
 
         const response = isStripe
@@ -339,6 +358,8 @@ export function usePayment() {
 
   return {
     amount,
+    creditedQuota: quote?.scope === scope ? quote.creditedQuota : undefined,
+    paymentCurrency: quote?.scope === scope ? quote.paymentCurrency : undefined,
     calculating,
     processing,
     quoteError,

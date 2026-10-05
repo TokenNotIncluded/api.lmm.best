@@ -30,10 +30,10 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { formatTimestampToDate } from '@/lib/format'
 import type { TrustLevelTier } from '@/stores/auth-store'
 
-import { formatPlatformCreditBalance as formatPlatformCreditBalanceBase } from '../lib'
 import type { UserWalletData } from '../types'
 
 interface TrustLevelPanelProps {
@@ -73,8 +73,8 @@ export function TrustLevelPanel({
   loading = false,
 }: TrustLevelPanelProps) {
   const { t } = useTranslation()
-  const formatPlatformCreditBalance = (amount: number) =>
-    formatPlatformCreditBalanceBase(amount, t('Platform'))
+  const { formatLegacyAmount: formatPlatformCreditBalance } =
+    useWalletCurrency()
   const info = user?.trust_level_info
   const tiers = user?.trust_level_tiers ?? []
 
@@ -105,11 +105,14 @@ export function TrustLevelPanel({
   const previousAmount = currentTier?.min_paid_amount ?? 0
   const nextAmount = nextTier?.min_paid_amount ?? previousAmount
   const amountRange = Math.max(nextAmount - previousAmount, 1)
-  const creditedAmountUSD = info?.paid_amount ?? 0
+  const creditedLegacyAmount = info?.paid_amount ?? 0
   const progress = info?.next_level
     ? Math.min(
         100,
-        Math.max(0, ((creditedAmountUSD - previousAmount) / amountRange) * 100)
+        Math.max(
+          0,
+          ((creditedLegacyAmount - previousAmount) / amountRange) * 100
+        )
       )
     : 100
   const roleAssigned = currentLevel >= 5
@@ -177,12 +180,12 @@ export function TrustLevelPanel({
             <Progress value={progress} className='h-2' />
             <div className='text-muted-foreground flex flex-wrap justify-between gap-x-4 gap-y-1 text-[11px] leading-4'>
               <span>
-                {t('Eligible credited amount (USD)')}:{' '}
-                {formatPlatformCreditBalance(creditedAmountUSD)}
+                {t('Eligible credited balance')}:{' '}
+                {formatPlatformCreditBalance(creditedLegacyAmount)}
               </span>
               {info?.amount_to_next_level != null && info.next_level && (
                 <span>
-                  {t('{{amount}} credited USD needed for L{{level}}', {
+                  {t('{{amount}} needed for L{{level}}', {
                     amount: formatPlatformCreditBalance(
                       info.amount_to_next_level
                     ),

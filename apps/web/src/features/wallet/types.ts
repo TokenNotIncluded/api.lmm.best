@@ -43,6 +43,10 @@ export type AmountResponse = ApiResponse<string> & {
   settlement_currency?: string
   original_settlement_amount?: string
   savings_settlement_amount?: string
+  amount_unit?: 'LEGACY' | 'USD' | 'CNY' | 'CREDIT'
+  credited_quota?: number
+  credit_amount?: number
+  legacy_batch_units?: string
 }
 export type DiscountCodeResponse = ApiResponse<{
   code: string
@@ -120,6 +124,11 @@ export interface PaymentMethod {
   color?: string
   /** Optional administrator-provided instructions shown on the selector. */
   description?: string
+  /** Server-normalized legacy batch policy, independent of display units. */
+  legacy_min_topup?: string | number
+  legacy_max_topup_amount?: string | number
+  min_topup_unit?: 'USD' | 'LEGACY'
+  max_topup_amount_unit?: 'CREDIT' | 'LEGACY'
   /** Minimum topup amount for this payment method */
   min_topup?: number
   /** Maximum credited USD allowed in one payment for this method. */
@@ -130,7 +139,7 @@ export interface PaymentMethod {
   icon?: string
   /** Explicit ISO/code unit charged by the gateway, for example USD or CNY. */
   settlement_currency?: string
-  /** Platform credit units represented by 1 real USD in the settlement contract. */
+  /** Legacy recharge batches represented by 1 real USD in the settlement contract. */
   platform_units_per_usd?: string | number
   /** Gateway settlement units represented by 1 real USD. */
   settlement_units_per_usd?: string | number
@@ -165,6 +174,11 @@ export interface WaffoPayMethod {
  * Topup configuration information
  */
 export interface TopupInfo {
+  /** Explicit unit of compatibility catalogs. The hook normalizes these to LEGACY. */
+  amount_unit?: 'LEGACY' | 'CREDIT'
+  legacy_amount_unit?: 'LEGACY'
+  legacy_amount_options?: number[]
+  legacy_discount?: Record<number, number>
   /** Whether this account has completed the paid developer-access activation. */
   developer_access_granted?: boolean
   /** Whether activation is required before normal console access. */
@@ -197,7 +211,7 @@ export interface TopupInfo {
   enable_waffo_topup?: boolean
   /** Fiat settlement currency used by Waffo. */
   waffo_currency?: string
-  /** Fiat amount charged for one platform dollar by Waffo. */
+  /** Fiat amount charged for one legacy recharge batch by Waffo. */
   waffo_unit_price?: number | string
   /** Available Waffo payment methods */
   waffo_pay_methods?: WaffoPayMethod[]
@@ -245,6 +259,8 @@ export interface RedemptionRequest {
  * Payment request parameters
  */
 export interface PaymentRequest {
+  /** Explicit legacy batch unit; display currency never changes this request. */
+  amount_unit?: 'LEGACY'
   /** Topup amount */
   amount: number
   /** Payment method identifier */
@@ -257,6 +273,8 @@ export interface PaymentRequest {
  * Waffo payment request parameters
  */
 export interface WaffoPaymentRequest {
+  /** Explicit legacy batch unit; display currency never changes this request. */
+  amount_unit?: 'LEGACY'
   /** Topup amount */
   amount: number
   /** Optional server-side Waffo payment method index */
@@ -268,6 +286,8 @@ export interface WaffoPaymentRequest {
  * Waffo Pancake payment request parameters
  */
 export interface WaffoPancakePaymentRequest {
+  /** Explicit legacy batch unit; display currency never changes this request. */
+  amount_unit?: 'LEGACY'
   settlement_currency?: 'CNY' | 'USD'
   settlement_amount?: string
   /** Topup amount */
@@ -283,6 +303,8 @@ export interface WaffoPancakePaymentRequest {
  * Amount calculation request
  */
 export interface AmountRequest {
+  /** Explicit legacy batch unit; display currency never changes this request. */
+  amount_unit?: 'LEGACY'
   /** Topup amount to calculate */
   amount: number
   /** Gateway selected for a regular Epay amount calculation. */
@@ -339,9 +361,13 @@ export interface TopupRecord {
   id: number
   /** User ID */
   user_id: number
-  /** Deprecated integer projection of the platform amount. */
+  /** Immutable raw credit snapshot when available. */
+  credited_quota?: number
+  /** Immutable gateway settlement currency. */
+  settlement_currency?: string
+  /** Deprecated integer projection of the legacy recharge batch amount. */
   amount: number
-  /** Exact platform amount snapshot in millionths for fractional top-ups. */
+  /** Exact legacy recharge batch snapshot in millionths for fractional top-ups. */
   platform_amount_micros?: number
   /** Payment amount (actual fiat money paid) */
   money: number

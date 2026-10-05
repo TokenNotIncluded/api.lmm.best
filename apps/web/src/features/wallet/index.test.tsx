@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type React from 'react'
@@ -97,6 +97,27 @@ const { PaymentConfirmDialog } =
 const { usePayment } = await import('./hooks/use-payment')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
+const originalConfig = useSystemConfigStore.getState().config
+beforeEach(() => {
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  useSystemConfigStore.setState((state) => ({
+    config: {
+      ...state.config,
+      currency: {
+        ...state.config.currency,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+        quotaPerUnit: 500000,
+      },
+    },
+  }))
+})
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
@@ -152,7 +173,10 @@ afterEach(async () => {
   window.localStorage.removeItem('wallet-topup-cloud:7')
   window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
 })
-after(() => domWindow.close())
+after(() => {
+  useSystemConfigStore.setState({ config: originalConfig })
+  domWindow.close()
+})
 
 test('a superseded quote cannot approve checkout while the latest quote is pending', async () => {
   let payment!: ReturnType<typeof usePayment>
@@ -229,6 +253,7 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   await act(async () => validations[2].resolve(validDiscount))
   assert.deepEqual(quotes.at(-1), {
     amount: 100,
+    amount_unit: 'LEGACY',
     payment_method: 'alipay',
     discount_code: 'SAVE',
   })
@@ -238,7 +263,7 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   )
   const confirmation = document.querySelector('[role="alertdialog"]')
   assert.ok(confirmation)
-  assert.ok(confirmation.textContent?.includes('100?'))
+  assert.ok(confirmation.textContent?.includes('100 USD?'))
   assert.ok(confirmation.textContent?.includes('90 CNY'))
   queryClient.clear()
 })
@@ -420,6 +445,7 @@ test('a checkout link revalidates a changed payment method and waits for its dis
   assert.deepEqual(validations[1].request, {
     code: 'save',
     amount: 10,
+    amount_unit: 'LEGACY',
     payment_method: 'wxpay',
   })
   await act(async () => validations[0].response.resolve(validDiscount))
@@ -428,6 +454,7 @@ test('a checkout link revalidates a changed payment method and waits for its dis
   await act(async () => validations[1].response.resolve(validDiscount))
   assert.deepEqual(quotes.at(-1), {
     amount: 10,
+    amount_unit: 'LEGACY',
     payment_method: 'wxpay',
     discount_code: 'SAVE',
   })
@@ -700,12 +727,13 @@ for (const currency of ['CNY', 'USD'] as const) {
     await act(async () => paymentButton().click())
     const dialog = document.querySelector('[role="alertdialog"]')
     assert.ok(dialog?.textContent?.includes(`63.0700 ${currency}`))
-    assert.ok(dialog?.textContent?.includes('10?'))
+    assert.ok(dialog?.textContent?.includes('10 USD?'))
     await act(async () => confirmButton().click())
     assert.deepEqual(requests.at(-1), {
       url: '/api/user/waffo-pancake/pay',
       body: {
         amount: 10,
+        amount_unit: 'LEGACY',
         settlement_amount: '63.0700',
         settlement_currency: currency,
         checkout_region: 'global',
@@ -843,7 +871,7 @@ for (const currency of ['CNY', 'USD'] as const) {
     const text =
       document.querySelector('[role="alertdialog"]')?.textContent ?? ''
     assert.ok(text.includes(`12.3400 ${currency}`))
-    assert.ok(text.includes('100?'))
+    assert.ok(text.includes('100 USD?'))
     assert.equal(text.includes('999'), false)
     assert.equal(confirmButton().disabled, false)
   })
@@ -904,7 +932,7 @@ test('fixed gateway confirmation ignores the unrelated Pancake settlement quote'
   const text = document.querySelector('[role="alertdialog"]')?.textContent ?? ''
   assert.ok(text.includes('70 CNY'))
   assert.equal(text.includes('12.3400'), false)
-  assert.equal(text.includes('USD'), false)
+  assert.equal(text.includes('70 USD'), false)
 })
 
 test('editing a coupon invalidates its pending Pancake quote before the coupon response can approve it', async () => {
@@ -1134,6 +1162,7 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
     assert.equal(waffoPayRequests.length, 1)
     assert.deepEqual(waffoPayRequests[0].body, {
       amount: 10,
+      amount_unit: 'LEGACY',
       pay_method_index: 1,
     })
     assert.equal(popup.location.href, 'https://waffo.example.test/pay')
@@ -1576,4 +1605,58 @@ test('duplicate and malformed MCP top-up amounts keep the normal wallet default'
     assert.equal(document.querySelector('[role="alertdialog"]'), null)
     queryClient.clear()
   }
+})
+
+test('changing only wallet display currency preserves a pending checkout and its exact payment request', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const requests: Array<{ url: unknown; body: Record<string, unknown> }> = []
+  api.post = (async (url, body: Record<string, unknown>) => {
+    requests.push({ url, body })
+    if (url === '/api/user/waffo-pancake/amount') {
+      return quoteResponse('12.3400', 'USD')
+    }
+    assert.equal(url, '/api/user/waffo-pancake/pay')
+    return { data: { success: false, message: 'mock checkout rejected' } }
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(false, {
+    topupInfo: pancakeTopup,
+  })
+  await act(async () => paymentButton().click())
+  const dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(dialog)
+  const before = requests.length
+  for (const preference of ['CNY', 'CREDIT', 'USD'] as const) {
+    await act(async () => {
+      const auth = useAuthStore.getState().auth
+      assert.ok(auth.user)
+      auth.setUser({
+        ...auth.user,
+        setting: { wallet_display_currency: preference },
+      })
+    })
+    assert.equal(document.querySelector('[role="alertdialog"]'), dialog)
+    assert.ok(dialog.textContent?.includes('12.3400 USD'))
+    assert.equal(
+      requests.length,
+      before,
+      'display preferences never recalculate the order'
+    )
+  }
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+    '10'
+  )
+  await act(async () => confirmButton().click())
+  assert.deepEqual(requests.at(-1), {
+    url: '/api/user/waffo-pancake/pay',
+    body: {
+      amount: 10,
+      amount_unit: 'LEGACY',
+      settlement_amount: '12.3400',
+      settlement_currency: 'USD',
+      checkout_region: 'global',
+      checkout_language: 'en',
+    },
+  })
+  queryClient.clear()
 })

@@ -21,7 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
-import { formatNumber } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { formatCreemPrice } from '../../lib/format'
 import type { CreemProduct } from '../../types'
@@ -44,6 +44,7 @@ export function CreemConfirmDialog({
   neutralMode = false,
 }: CreemConfirmDialogProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
 
   if (!product) return null
 
@@ -89,7 +90,7 @@ export function CreemConfirmDialog({
         {!neutralMode ? (
           <div className='flex items-center justify-between'>
             <span className='text-muted-foreground'>{t('Quota')}</span>
-            <span className='font-medium'>{formatNumber(product.quota)}</span>
+            <span className='font-medium'>{formatQuota(product.quota)}</span>
           </div>
         ) : null}
       </div>

@@ -109,9 +109,13 @@ export async function validateDiscountCode(request: {
   amount: number
   payment_method?: string
 }): Promise<DiscountCodeResponse> {
-  const res = await api.post('/api/user/discount-code/validate', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/discount-code/validate',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -121,9 +125,13 @@ export async function validateDiscountCode(request: {
 export async function calculateAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
-  const res = await api.post('/api/user/amount', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/amount',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -133,9 +141,13 @@ export async function calculateAmount(
 export async function calculateStripeAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
-  const res = await api.post('/api/user/stripe/amount', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/stripe/amount',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -145,9 +157,13 @@ export async function calculateStripeAmount(
 export async function calculateWaffoAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
-  const res = await api.post('/api/user/waffo/amount', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/waffo/amount',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -158,9 +174,13 @@ export async function requestPayment(
   request: PaymentRequest
 ): Promise<PaymentResponse> {
   return checkoutRequest(async () => {
-    const res = await api.post('/api/user/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    const res = await api.post(
+      '/api/user/pay',
+      { ...request, amount_unit: 'LEGACY' },
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
     const legacyUrl = Reflect.get(res, 'url')
     return {
       ...res.data,
@@ -177,9 +197,13 @@ export async function requestStripePayment(
   request: PaymentRequest
 ): Promise<StripePaymentResponse> {
   return checkoutRequest(async () => {
-    const res = await api.post('/api/user/stripe/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    const res = await api.post(
+      '/api/user/stripe/pay',
+      { ...request, amount_unit: 'LEGACY' },
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
     return res.data
   })
 }
@@ -205,9 +229,13 @@ export async function requestWaffoPayment(
   request: WaffoPaymentRequest
 ): Promise<WaffoPaymentResponse> {
   return checkoutRequest(async () => {
-    const res = await api.post('/api/user/waffo/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    const res = await api.post(
+      '/api/user/waffo/pay',
+      { ...request, amount_unit: 'LEGACY' },
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
     return res.data
   })
 }
@@ -218,9 +246,13 @@ export async function requestWaffoPayment(
 export async function calculateWaffoPancakeAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
-  const res = await api.post('/api/user/waffo-pancake/amount', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/waffo-pancake/amount',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -231,9 +263,13 @@ export async function requestWaffoPancakePayment(
   request: WaffoPancakePaymentRequest
 ): Promise<WaffoPancakePaymentResponse> {
   return checkoutRequest(async () => {
-    const res = await api.post('/api/user/waffo-pancake/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    const res = await api.post(
+      '/api/user/waffo-pancake/pay',
+      { ...request, amount_unit: 'LEGACY' },
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
     return res.data
   })
 }

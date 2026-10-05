@@ -33,10 +33,10 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import {
-  formatCreditBalance as formatPlatformCreditBalanceBase,
   formatPaymentAmount,
   formatSettlementAmount,
   getPaymentIcon,
@@ -45,7 +45,6 @@ import {
   isWaffoPancakePayment,
 } from '../../lib'
 import { discountCodeSavings } from '../../lib/discount-state'
-import { visiblePlatformCredit } from '../../lib/platform-credit-display'
 import {
   formatSettlementQuote,
   parseSettlementQuote,
@@ -58,7 +57,9 @@ interface PaymentConfirmDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
+  creditedQuota?: number
   topupAmount: number
+  paymentCurrency?: string
   paymentAmount: number
   settlementQuote?: SettlementQuote | null
   paymentMethod: PaymentMethod | undefined
@@ -75,7 +76,9 @@ export function PaymentConfirmDialog({
   onOpenChange,
   onConfirm,
   topupAmount,
+  creditedQuota,
   paymentAmount,
+  paymentCurrency,
   settlementQuote,
   paymentMethod,
   calculating,
@@ -86,8 +89,12 @@ export function PaymentConfirmDialog({
   neutralMode = false,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
-  const formatPlatformCreditBalance = (amount: number) =>
-    formatPlatformCreditBalanceBase(amount, t('Platform'))
+  const { formatLegacyAmount: formatPlatformCreditBalance, formatQuota } =
+    useWalletCurrency()
+  const creditedBalance =
+    creditedQuota === undefined
+      ? formatPlatformCreditBalance(topupAmount)
+      : formatQuota(creditedQuota)
   const usesSettlementQuote = isWaffoPancakePayment(paymentMethod?.type ?? '')
   const quote = parseSettlementQuote(settlementQuote)
   const hasPaymentAmount = usesSettlementQuote
@@ -117,9 +124,11 @@ export function PaymentConfirmDialog({
           ? formatSettlementQuote(quote)
           : formatPaymentAmount(amount, quote.currency)
         : t('Payment unavailable')
-      : settlementUnit
-        ? formatSettlementAmount(amount, settlementUnit.label)
-        : formatPaymentAmount(amount, 'USD')
+      : paymentCurrency
+        ? formatPaymentAmount(amount, paymentCurrency)
+        : settlementUnit
+          ? formatSettlementAmount(amount, settlementUnit.label)
+          : formatPaymentAmount(amount, 'USD')
   const paymentMethodLabel = neutralMode
     ? t('Payment Method')
     : paymentMethod?.name
@@ -153,9 +162,7 @@ export function PaymentConfirmDialog({
               {t('Balance credited')}
             </span>
             <span className='text-lg font-semibold'>
-              <PlatformCreditAmount
-                value={formatPlatformCreditBalance(topupAmount)}
-              />
+              <PlatformCreditAmount value={creditedBalance} />
             </span>
           </div>
 
@@ -225,10 +232,7 @@ export function PaymentConfirmDialog({
           {(settlementUnit || quote) && !calculating && hasPaymentAmount && (
             <div className='bg-muted/50 rounded-lg border p-3 text-sm'>
               {t('Credit {{amount}}; pay {{payment}}', {
-                amount: visiblePlatformCredit(
-                  formatPlatformCreditBalance(topupAmount),
-                  t('Platform')
-                ),
+                amount: creditedBalance,
                 payment: formatSelectedPaymentAmount(effectivePaymentAmount),
               })}
             </div>
