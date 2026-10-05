@@ -29,7 +29,7 @@ python3 scripts/fingerprint-credit-rebase-original-tables.py stage \
   --receipt /private/work/original-after-sql.receipt.json
 ```
 
-Use `--stage before` for the baseline. Run stage SQL with `psql -X -qAt -F '\t'`;
+Use `--stage before` for the baseline. Run stage SQL with `psql -X -qAt`;
 only qualified table name, row count and SHA256 are selected. The metadata guard,
 independent stage assertions, and fingerprints share one repeatable-read,
 read-only transaction. Foreign tables and RLS-filtered reads fail closed.
