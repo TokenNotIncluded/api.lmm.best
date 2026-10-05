@@ -46,6 +46,8 @@ const STATUS_RELATED_KEYS = new Set([
   'oidc.display_name',
   'OAuthRegisterEnabled',
   'ModerationEnabled',
+  'ModerationPolicyScope',
+  'ModerationSafetyIdentifierEnabled',
   'ModerationGroup',
   'ModerationModel',
   'ModerationGroupPolicies',

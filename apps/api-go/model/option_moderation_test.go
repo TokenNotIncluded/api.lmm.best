@@ -83,8 +83,10 @@ func TestModerationOptionsValidateAndPublishCompleteCandidate(t *testing.T) {
 		setting.ModerationEnabledOptionKey: "true", setting.ModerationGroupOptionKey: "review-official",
 		setting.ModerationModelOptionKey:            "omni-moderation-2024-09-26",
 		setting.AssistantModerationEnabledOptionKey: "true", setting.AssistantModerationGroupOptionKey: "review-official",
-		setting.AssistantModerationModelOptionKey: setting.DefaultModerationModel,
-		setting.ModerationGroupPoliciesOptionKey:  `{"premium":{"mode":"strict","category_fines_usd":{"hate":0.5}},"default":{"mode":"tolerant"}}`,
+		setting.AssistantModerationModelOptionKey:          setting.DefaultModerationModel,
+		setting.ModerationGroupPoliciesOptionKey:           `{"premium":{"mode":"strict","category_fines_usd":{"hate":0.5}},"default":{"mode":"tolerant"}}`,
+		setting.ModerationPolicyScopeOptionKey:             setting.ModerationPolicyScopeRequestGroup,
+		setting.ModerationSafetyIdentifierEnabledOptionKey: "true",
 	}
 	require.NoError(t, ValidateOptionValues(values))
 	require.False(t, setting.GetModerationSettings().Enabled)
@@ -92,6 +94,8 @@ func TestModerationOptionsValidateAndPublishCompleteCandidate(t *testing.T) {
 	runtime := setting.GetModerationSettings()
 	require.True(t, runtime.Enabled)
 	require.True(t, runtime.AssistantEnabled)
+	require.True(t, runtime.SafetyIdentifierEnabled)
+	require.Equal(t, setting.ModerationPolicyScopeRequestGroup, runtime.PolicyScope)
 	require.Equal(t, "review-official", runtime.Group)
 	require.Equal(t, "omni-moderation-2024-09-26", runtime.Model)
 	stored, err := ReadModerationSettingsContext(context.Background())
@@ -106,6 +110,20 @@ func TestModerationOptionsValidateAndPublishCompleteCandidate(t *testing.T) {
 	var count int64
 	require.NoError(t, DB.Model(&Option{}).Where("key = ?", "Notice").Count(&count).Error)
 	require.Zero(t, count)
+}
+
+func TestModerationAssistantOnlyOptionWritePreservesScopeAndIdentitySwitch(t *testing.T) {
+	setupModerationOptionTest(t)
+	require.NoError(t, UpdateOptionsBulk(map[string]string{
+		setting.ModerationPolicyScopeOptionKey:             setting.ModerationPolicyScopeRequestGroup,
+		setting.ModerationSafetyIdentifierEnabledOptionKey: "true",
+	}))
+	require.NoError(t, UpdateOptionsBulk(map[string]string{setting.AssistantModerationEnabledOptionKey: "false"}))
+	stored, err := ReadModerationSettingsContext(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, setting.ModerationPolicyScopeRequestGroup, stored.PolicyScope)
+	require.True(t, stored.SafetyIdentifierEnabled)
+	require.False(t, stored.AssistantEnabled)
 }
 
 func TestModerationOptionsRollbackLeavesRuntimeAndStorageDisabled(t *testing.T) {

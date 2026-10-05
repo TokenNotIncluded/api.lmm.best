@@ -50,6 +50,9 @@ type ModerationJob struct {
 	Source                    string `json:"source" gorm:"type:varchar(24);not null;index"`
 	RequestID                 string `json:"request_id" gorm:"type:varchar(128);not null;index"`
 	Group                     string `json:"group" gorm:"type:varchar(64);not null;index"`
+	PolicyScope               string `json:"-" gorm:"type:varchar(24);not null;default:account_group"`
+	PolicyGroup               string `json:"-" gorm:"type:varchar(64);not null;default:''"`
+	RelayGroup                string `json:"-" gorm:"type:varchar(64);not null;default:''"`
 	ReviewGroup               string `json:"review_group" gorm:"type:varchar(64);not null"`
 	ReviewModel               string `json:"review_model" gorm:"type:varchar(128);not null"`
 	InputDigest               string `json:"input_digest" gorm:"type:char(64);not null"`
@@ -96,6 +99,26 @@ func moderationSourceValid(source string) bool {
 	return source == ModerationSourceRelayInput || source == ModerationSourceAssistantInput || source == ModerationSourceAssistantOutput
 }
 
+// CurrentPolicy rejects work captured under a different scope or subject.
+// Historical rows without the added columns retain the account-group meaning.
+func (job ModerationJob) CurrentPolicy(settings setting.ModerationSettings) (setting.ModerationGroupPolicy, bool) {
+	if !moderationSourceValid(job.Source) {
+		return setting.ModerationGroupPolicy{Mode: setting.ModerationModeOff}, false
+	}
+	capturedScope, capturedGroup := job.PolicyScope, job.PolicyGroup
+	if capturedScope == "" {
+		capturedScope = setting.ModerationPolicyScopeAccountGroup
+	}
+	if capturedGroup == "" && capturedScope == setting.ModerationPolicyScopeAccountGroup {
+		capturedGroup = job.Group
+	}
+	scope, group, policy, configured := setting.ResolveModerationRequestPolicy(settings, job.Group, job.RelayGroup, job.Source != ModerationSourceRelayInput)
+	if scope != capturedScope || group != capturedGroup {
+		return setting.ModerationGroupPolicy{Mode: setting.ModerationModeOff}, false
+	}
+	return policy, configured
+}
+
 // Even a bounded, redacted message remains private user content. Gorm's
 // default error/slow-query trace interpolates INSERT values, so every queue
 // operation uses a separate silent session. Workers report stable error codes
@@ -119,6 +142,20 @@ func EnqueueModerationJob(ctx context.Context, job *ModerationJob) (bool, error)
 	}
 	job.RequestID = strings.TrimSpace(job.RequestID)
 	job.Group = strings.TrimSpace(job.Group)
+	job.PolicyScope = strings.TrimSpace(job.PolicyScope)
+	job.PolicyGroup = strings.TrimSpace(job.PolicyGroup)
+	job.RelayGroup = strings.TrimSpace(job.RelayGroup)
+	if job.PolicyScope == "" {
+		job.PolicyScope = setting.ModerationPolicyScopeAccountGroup
+	}
+	if job.PolicyGroup == "" && job.PolicyScope == setting.ModerationPolicyScopeAccountGroup {
+		job.PolicyGroup = job.Group
+	}
+	if !setting.IsModerationPolicyScope(job.PolicyScope) || len(job.PolicyGroup) > 64 || len(job.RelayGroup) > 64 ||
+		(job.PolicyScope == setting.ModerationPolicyScopeAccountGroup && job.PolicyGroup != job.Group) ||
+		(job.PolicyScope == setting.ModerationPolicyScopeRequestGroup && (job.Source != ModerationSourceRelayInput || job.RelayGroup == "" || job.PolicyGroup != job.RelayGroup)) {
+		return false, ErrModerationJobInvalid
+	}
 	job.ReviewGroup = strings.TrimSpace(job.ReviewGroup)
 	job.ReviewModel = strings.TrimSpace(job.ReviewModel)
 	if job.RequestID == "" || len(job.RequestID) > 128 || job.Group == "" || len(job.Group) > 64 || len(job.ReviewGroup) > 64 || job.ReviewModel == "" || len(job.ReviewModel) > 128 {
@@ -410,7 +447,7 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 	}
 	var cacheUser int
 	err = moderationDB(ctx).Transaction(func(tx *gorm.DB) error {
-		// This row lock is shared with all seven option writers and must be
+		// This row lock is shared with all moderation option writers and must be
 		// acquired before task/user locks. It fences policy changes across nodes.
 		settings, err := LockModerationSettings(tx)
 		if err != nil {
@@ -450,7 +487,7 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 		if job.Source == ModerationSourceAssistantInput || job.Source == ModerationSourceAssistantOutput {
 			enabled = settings.AssistantEnabled
 		}
-		policy, configured := setting.ResolveModerationPolicy(settings, job.Group)
+		policy, configured := job.CurrentPolicy(settings)
 		if !enabled || !configured || policy.Mode == setting.ModerationModeOff || user.Group != job.Group || user.Status != common.UserStatusEnabled || completion.CurrentMode == setting.ModerationModeOff || job.InputTruncated {
 			return tx.Model(&job).Updates(map[string]any{"status": ModerationJobCancelled, "payload": "", "lease_owner": "", "lease_until": 0, "completed_at": completion.Now, "updated_at": completion.Now, "error_message": "review policy disabled or subject group changed"}).Error
 		}

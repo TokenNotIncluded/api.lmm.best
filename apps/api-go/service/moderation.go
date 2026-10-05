@@ -45,7 +45,9 @@ type ModerationSubmission struct {
 	Source    string
 	RequestID string
 	Group     string
-	Text      string
+	// RelayGroup is supplied only by authenticated routing context, never JSON.
+	RelayGroup string
+	Text       string
 }
 
 var moderationWakeup = make(chan struct{}, 1)
@@ -69,7 +71,7 @@ func QueueModeration(ctx context.Context, submission ModerationSubmission) error
 	if !moderationSourceEnabled(settings, submission.Source) {
 		return nil
 	}
-	policy, ok := setting.ResolveModerationPolicy(settings, strings.TrimSpace(submission.Group))
+	policyScope, policyGroup, policy, ok := setting.ResolveModerationRequestPolicy(settings, submission.Group, submission.RelayGroup, submission.Source != ModerationSourceRelayInput)
 	if !ok || policy.Mode == setting.ModerationModeOff {
 		return nil
 	}
@@ -103,6 +105,7 @@ func QueueModeration(ctx context.Context, submission ModerationSubmission) error
 	created, err := model.EnqueueModerationJob(ctx, &model.ModerationJob{
 		UserID: submission.UserID, Source: submission.Source, RequestID: strings.TrimSpace(submission.RequestID),
 		Group: strings.TrimSpace(submission.Group), ReviewGroup: reviewGroup, ReviewModel: reviewModel,
+		PolicyScope: policyScope, PolicyGroup: policyGroup, RelayGroup: strings.TrimSpace(submission.RelayGroup),
 		InputDigest: hex.EncodeToString(digest[:]), Payload: text, CapturedMode: policy.Mode,
 		CapturedCategoryFinesJSON: string(fines),
 		CapturedAmountCurrency:    setting.ResolveModerationAmountCurrency(policy.AmountCurrency),
@@ -190,7 +193,7 @@ func processModerationJob(parent context.Context, owner string, job *model.Moder
 		retryModerationJob(parent, owner, job, "moderation_settings_unavailable")
 		return
 	}
-	policy, enabled := setting.ResolveModerationPolicy(settings, job.Group)
+	policy, enabled := job.CurrentPolicy(settings)
 	if !moderationSourceEnabled(settings, job.Source) || !enabled || policy.Mode == setting.ModerationModeOff {
 		cancelModerationJob(parent, owner, job, "moderation_disabled")
 		return
@@ -247,7 +250,7 @@ func moderationDispatchAllowed(ctx context.Context, job *model.ModerationJob) er
 	if err != nil {
 		return errors.New("moderation_settings_unavailable")
 	}
-	policy, configured := setting.ResolveModerationPolicy(settings, job.Group)
+	policy, configured := job.CurrentPolicy(settings)
 	if !moderationSourceEnabled(settings, job.Source) || !configured || policy.Mode == setting.ModerationModeOff {
 		return errors.New("moderation_disabled")
 	}

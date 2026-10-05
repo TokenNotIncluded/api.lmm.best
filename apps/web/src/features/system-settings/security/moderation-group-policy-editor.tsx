@@ -86,7 +86,7 @@ export function ModerationGroupPolicyEditor(props: {
       ) : null}
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Policies apply to the user’s account group. Every group starts off; the routing group does not select which users are reviewed.'
+          'Group policies follow the selected API review scope. Assistant reviews always use the account group. The review routing group only selects the moderation channel.'
         )}
       </p>
       {groups.map((group, index) => {

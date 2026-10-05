@@ -85,6 +85,79 @@ func flaggedModerationCompletion() ModerationCompletion {
 	return ModerationCompletion{Flagged: true, Categories: []string{"hate", "violence"}, Scores: map[string]float64{"hate": .8, "violence": .9}, ResponseModel: setting.DefaultModerationModel, CurrentMode: setting.ModerationModeStrict, CategoryFinesUSD: map[string]float64{"violence": 2, "hate": 1}}
 }
 
+func TestModerationCapturedScopeMustMatchCurrentScopeEvenForSameGroup(t *testing.T) {
+	db, user := setupModerationEffectsTestDB(t)
+	job := moderationTestJob(user.Id, "scope-change", ModerationSourceRelayInput, "strict")
+	job.RelayGroup = "default"
+	claimed := claimModerationTestJob(t, job, "scope-worker")
+	require.Equal(t, setting.ModerationPolicyScopeAccountGroup, claimed.PolicyScope)
+	require.NoError(t, db.Model(&Option{}).Where("key = ?", setting.ModerationPolicyScopeOptionKey).Update("value", setting.ModerationPolicyScopeRequestGroup).Error)
+	require.NoError(t, CompleteModerationJob(context.Background(), claimed.ID, "scope-worker", flaggedModerationCompletion()))
+	var result ModerationJob
+	require.NoError(t, db.First(&result, claimed.ID).Error)
+	require.Equal(t, ModerationJobCancelled, result.Status)
+	require.Empty(t, result.Payload)
+	require.Zero(t, result.ChargedQuota)
+	var stored User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Equal(t, user.Quota, stored.Quota)
+	var notices int64
+	require.NoError(t, db.Model(&ModerationNotice{}).Count(&notices).Error)
+	require.Zero(t, notices)
+}
+
+func TestModerationRequestPolicyRetainsAccountSubjectAndTolerantNeverCharges(t *testing.T) {
+	db, user := setupModerationEffectsTestDB(t)
+	settings := setting.DefaultModerationSettings()
+	settings.Enabled, settings.AssistantEnabled = true, true
+	settings.PolicyScope = setting.ModerationPolicyScopeRequestGroup
+	settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{
+		"route-one": {Mode: setting.ModerationModeTolerant, CategoryFinesUSD: map[string]float64{"violence": 2}},
+	}
+	for key, value := range settings.OptionValues() {
+		require.NoError(t, db.Model(&Option{}).Where("key = ?", key).Update("value", value).Error)
+	}
+	job := moderationTestJob(user.Id, "request-warning", ModerationSourceRelayInput, "strict")
+	job.PolicyScope, job.PolicyGroup, job.RelayGroup = settings.PolicyScope, "route-one", "route-one"
+	claimed := claimModerationTestJob(t, job, "scope-worker")
+	require.Equal(t, "default", claimed.Group)
+	require.Equal(t, "route-one", claimed.PolicyGroup)
+	require.NoError(t, CompleteModerationJob(context.Background(), claimed.ID, "scope-worker", flaggedModerationCompletion()))
+	var result ModerationJob
+	require.NoError(t, db.First(&result, claimed.ID).Error)
+	require.Equal(t, ModerationJobCompleted, result.Status)
+	require.Zero(t, result.ChargedQuota)
+	var stored User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Equal(t, user.Quota, stored.Quota)
+	var fees int64
+	require.NoError(t, db.Model(&ViolationFeeRecord{}).Count(&fees).Error)
+	require.Zero(t, fees)
+	var notice ModerationNotice
+	require.NoError(t, db.First(&notice).Error)
+	require.Equal(t, setting.ModerationModeTolerant, notice.Mode)
+}
+
+func TestModerationHistoricalScopeAndAssistantAlwaysUseAccountPolicy(t *testing.T) {
+	settings := setting.DefaultModerationSettings()
+	settings.PolicyScope = setting.ModerationPolicyScopeRequestGroup
+	settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{
+		"default":   {Mode: setting.ModerationModeTolerant},
+		"route-one": {Mode: setting.ModerationModeStrict},
+	}
+	job := ModerationJob{Source: ModerationSourceAssistantInput, Group: "default", RelayGroup: "route-one"}
+	policy, configured := job.CurrentPolicy(settings)
+	require.True(t, configured)
+	require.Equal(t, setting.ModerationModeTolerant, policy.Mode)
+	job.Source = ModerationSourceRelayInput
+	_, configured = job.CurrentPolicy(settings)
+	require.False(t, configured, "an old account-scope API job cannot gain request-scope authority")
+	settings.PolicyScope = setting.ModerationPolicyScopeAccountGroup
+	policy, configured = job.CurrentPolicy(settings)
+	require.True(t, configured)
+	require.Equal(t, setting.ModerationModeTolerant, policy.Mode)
+}
+
 func TestModerationWritesDoNotLogPrivatePayloadOnFailure(t *testing.T) {
 	db, user := setupModerationEffectsTestDB(t)
 	require.NoError(t, db.Exec(`CREATE TRIGGER moderation_test_reject BEFORE INSERT ON moderation_jobs BEGIN SELECT RAISE(ABORT, 'fixture write failed'); END;`).Error)

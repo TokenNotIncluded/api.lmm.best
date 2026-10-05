@@ -605,7 +605,7 @@ func readModerationSettings(db *gorm.DB) (setting.ModerationSettings, error) {
 	return settings, nil
 }
 
-// ReadModerationSettingsContext reads exactly the seven moderation options.
+// ReadModerationSettingsContext reads the complete moderation option set.
 // It is used before HTTP dispatch so a stale node cannot submit newly disabled
 // content, and holds no database lock during the upstream request.
 func ReadModerationSettingsContext(ctx context.Context) (setting.ModerationSettings, error) {

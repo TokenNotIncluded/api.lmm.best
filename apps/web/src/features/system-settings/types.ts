@@ -508,6 +508,8 @@ export type OperationsSettings = {
 
 export type SecuritySettings = {
   ModerationEnabled: boolean
+  ModerationPolicyScope: 'account_group' | 'request_group'
+  ModerationSafetyIdentifierEnabled: boolean
   ModerationGroup: string
   ModerationModel: 'omni-moderation-latest' | 'omni-moderation-2024-09-26'
   ModerationGroupPolicies: string

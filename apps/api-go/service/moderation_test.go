@@ -217,6 +217,90 @@ func TestModerationDefaultDisabledDoesNotEnqueue(t *testing.T) {
 	require.Zero(t, count)
 }
 
+func TestModerationQueueCapturesConfiguredScopeWithoutRequestGroupFallback(t *testing.T) {
+	for _, test := range []struct {
+		name, scope, source, relayGroup, policyGroup string
+		enqueued                                     bool
+	}{
+		{"default account", setting.ModerationPolicyScopeAccountGroup, ModerationSourceRelayInput, "route-one", "default", true},
+		{"request route", setting.ModerationPolicyScopeRequestGroup, ModerationSourceRelayInput, "route-one", "route-one", true},
+		{"other request off", setting.ModerationPolicyScopeRequestGroup, ModerationSourceRelayInput, "other-route", "", false},
+		{"missing request off", setting.ModerationPolicyScopeRequestGroup, ModerationSourceRelayInput, "", "", false},
+		{"assistant account", setting.ModerationPolicyScopeRequestGroup, ModerationSourceAssistantInput, "route-one", "default", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, userID := setupAssistantFundingTestDB(t, 1000)
+			require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModerationJob{}))
+			settings := setting.DefaultModerationSettings()
+			settings.Enabled, settings.AssistantEnabled = true, true
+			settings.PolicyScope = test.scope
+			settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{
+				"default":   {Mode: setting.ModerationModeTolerant},
+				"route-one": {Mode: setting.ModerationModeTolerant},
+			}
+			for key, value := range settings.OptionValues() {
+				require.NoError(t, db.Create(&model.Option{Key: key, Value: value}).Error)
+			}
+			require.NoError(t, QueueModeration(context.Background(), ModerationSubmission{
+				UserID: userID, Source: test.source, RequestID: "scope-test", Group: "default", RelayGroup: test.relayGroup, Text: "text",
+			}))
+			var jobs []model.ModerationJob
+			require.NoError(t, db.Find(&jobs).Error)
+			if !test.enqueued {
+				require.Empty(t, jobs)
+				return
+			}
+			require.Len(t, jobs, 1)
+			require.Equal(t, "default", jobs[0].Group)
+			require.Equal(t, test.policyGroup, jobs[0].PolicyGroup)
+			expectedScope := test.scope
+			if test.source != ModerationSourceRelayInput {
+				expectedScope = setting.ModerationPolicyScopeAccountGroup
+			}
+			require.Equal(t, expectedScope, jobs[0].PolicyScope)
+			require.Equal(t, test.relayGroup, jobs[0].RelayGroup)
+		})
+	}
+}
+
+func TestModerationScopeChangeCancelsBeforeNextProviderBatch(t *testing.T) {
+	for _, changeBeforeFirst := range []bool{true, false} {
+		t.Run(map[bool]string{true: "before first batch", false: "between batches"}[changeBeforeFirst], func(t *testing.T) {
+			db, job := setupModerationPipelineJob(t, strings.Repeat("界", 32_000)+"tail-risk-marker")
+			job.RelayGroup = "default"
+			require.NoError(t, db.Model(job).Update("relay_group", "default").Error)
+			changeScope := func() {
+				require.NoError(t, db.Model(&model.Option{}).Where("key = ?", setting.ModerationPolicyScopeOptionKey).Update("value", setting.ModerationPolicyScopeRequestGroup).Error)
+			}
+			if changeBeforeFirst {
+				changeScope()
+			}
+			previous := moderationHTTPClient
+			requests := 0
+			moderationHTTPClient = &http.Client{Transport: moderationRoundTripper(func(request *http.Request) (*http.Response, error) {
+				requests++
+				changeScope()
+				return offlineModerationBatchResponse(t, request, true), nil
+			})}
+			t.Cleanup(func() { moderationHTTPClient = previous })
+			processModerationJob(context.Background(), "pipeline-test-worker", job)
+			if changeBeforeFirst {
+				require.Zero(t, requests)
+			} else {
+				require.Equal(t, 1, requests)
+			}
+			var stored model.ModerationJob
+			require.NoError(t, db.First(&stored, job.ID).Error)
+			require.Equal(t, model.ModerationJobCancelled, stored.Status)
+			require.Empty(t, stored.Payload)
+			require.Zero(t, stored.ChargedQuota)
+			var notices int64
+			require.NoError(t, db.Model(&model.ModerationNotice{}).Count(&notices).Error)
+			require.Zero(t, notices)
+		})
+	}
+}
+
 func setupModerationPipelineJob(t *testing.T, text string) (*gorm.DB, *model.ModerationJob) {
 	t.Helper()
 	db, userID := setupAssistantFundingTestDB(t, 1000)

@@ -62,6 +62,9 @@ const SECURITY_SECTIONS = [
       <ModerationSettingsSection
         defaultValues={{
           ModerationEnabled: settings.ModerationEnabled,
+          ModerationPolicyScope: settings.ModerationPolicyScope,
+          ModerationSafetyIdentifierEnabled:
+            settings.ModerationSafetyIdentifierEnabled,
           ModerationGroup: settings.ModerationGroup,
           ModerationModel: settings.ModerationModel,
           ModerationGroupPolicies: settings.ModerationGroupPolicies,

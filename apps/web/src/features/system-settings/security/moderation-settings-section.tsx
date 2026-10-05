@@ -22,6 +22,14 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 
 import { getSystemGroups } from '../api'
@@ -151,6 +159,74 @@ export function ModerationSettingsSection({
                   <Switch
                     checked={field.value}
                     onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+                <FormMessage />
+              </SettingsSwitchItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='ModerationPolicyScope'
+            render={({ field }) => (
+              <FormItem className='lg:col-span-2'>
+                <FormLabel>{t('API review policy scope')}</FormLabel>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={updateOptions.isPending}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue>
+                        {t(
+                          field.value === 'request_group'
+                            ? 'Request group'
+                            : 'Account group'
+                        )}
+                      </SelectValue>
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value='account_group'>
+                        {t('Account group')}
+                      </SelectItem>
+                      <SelectItem value='request_group'>
+                        {t('Request group')}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  {t(
+                    'Account group uses the user’s account group. Request group uses the trusted group selected for the API request; a missing request group stays off. Changing scope cancels queued API reviews. Assistant reviews always use account groups with the same policy map.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='ModerationSafetyIdentifierEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Enable private upstream safety identifiers')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Send a stable private user identifier with supported official OpenAI requests when review is enabled for the selected group policy. Raw user IDs and email addresses are not sent. Disabled by default.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={updateOptions.isPending}
                   />
                 </FormControl>
                 <FormMessage />
