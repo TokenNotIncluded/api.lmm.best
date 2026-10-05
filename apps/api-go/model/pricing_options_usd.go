@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"reflect"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -19,36 +20,56 @@ import (
 var ErrPricingRevisionConflict = errors.New("pricing changed; reload current prices before saving")
 var ErrPricingUnitsStale = errors.New("pricing currency cache does not match stored calibration; wait for settings reload")
 
-// The legacy default is the old compiled calibration when no option exists.
-// A shared DB row lock also catches an old rolling node writing the option.
+// The durable baseline is mandatory after initialization. The shared DB row
+// lock also catches an old rolling node writing the current calibration.
 func validateAuthoritativePricingUnits(db *gorm.DB) error {
 	if db == nil {
 		return common.ErrCreditUnitsUnavailable
 	}
-	var rows []Option
-	if err := db.Clauses(clause.Locking{Strength: "SHARE"}).Where("key IN ?", []string{"QuotaPerUnit", CreditsPerUSDOptionKey}).Find(&rows).Error; err != nil {
+	if math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) || common.QuotaPerUnit <= 0 {
+		return ErrPricingUnitsStale
+	}
+	// Acquire the shared calibration fence first, matching initializer and
+	// ordinary option writers' QPU-before-price-policy lock ordering.
+	var calibration Option
+	if err := db.Clauses(clause.Locking{Strength: "SHARE"}).Where("key = ?", "QuotaPerUnit").First(&calibration).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrPricingUnitsStale
+		}
 		return err
 	}
-	legacy := decimal.NewFromInt(500000)
-	var durableAnchor decimal.Decimal
-	anchorFound := false
+	legacy, err := decimal.NewFromString(calibration.Value)
+	if err != nil || !legacy.IsPositive() {
+		return ErrPricingUnitsStale
+	}
+	var rows []Option
+	if err := db.Clauses(clause.Locking{Strength: "SHARE"}).Where("key IN ?", []string{CreditsPerUSDOptionKey, LegacyPricingQuotaPerUnitOptionKey}).Find(&rows).Error; err != nil {
+		return err
+	}
+	var durableAnchor, durableBaseline decimal.Decimal
+	anchorFound, baselineFound := false, false
 	for _, row := range rows {
 		value, err := decimal.NewFromString(row.Value)
 		if err != nil || !value.IsPositive() {
 			return ErrPricingUnitsStale
 		}
-		if row.Key == "QuotaPerUnit" {
-			legacy = value
-		} else {
+		if row.Key == CreditsPerUSDOptionKey {
 			durableAnchor = value
 			anchorFound = true
+		} else {
+			durableBaseline = value
+			baselineFound = true
 		}
 	}
 	anchor, err := common.CreditsPerUSD()
 	if err != nil || !anchorFound {
 		return common.ErrCreditUnitsUnavailable
 	}
-	if !anchor.Equal(durableAnchor) || !legacy.Equal(decimal.NewFromFloat(common.QuotaPerUnit)) {
+	baseline, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil || !baselineFound {
+		return common.ErrCreditUnitsUnavailable
+	}
+	if !anchor.Equal(durableAnchor) || !baseline.Equal(durableBaseline) || !legacy.Equal(durableBaseline) || !legacy.Equal(decimal.NewFromFloat(common.QuotaPerUnit)) {
 		return ErrPricingUnitsStale
 	}
 	return nil
@@ -104,10 +125,14 @@ func priceSnapshotRevision(values map[string]string) (string, error) {
 	if _, err = common.LegacyPricingUnitsPerUSD(); err != nil {
 		return "", err
 	}
+	baseline, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return "", err
+	}
 	encoded, err := json.Marshal(struct {
 		Values                       map[string]string
 		Anchor, LegacyCreditsPerUnit string
-	}{values, anchor.String(), decimal.NewFromFloat(common.QuotaPerUnit).String()})
+	}{values, anchor.String(), baseline.String()})
 	if err != nil {
 		return "", err
 	}
@@ -140,7 +165,11 @@ func usdPriceConfig(values map[string]string) (USDPriceConfig, error) {
 	if _, err = common.LegacyPricingUnitsPerUSD(); err != nil {
 		return USDPriceConfig{}, err
 	}
-	scale := anchor.DivRound(decimal.NewFromFloat(common.QuotaPerUnit), 64)
+	baseline, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return USDPriceConfig{}, err
+	}
+	scale := anchor.DivRound(baseline, 64)
 	revision, err := priceSnapshotRevision(values)
 	if err != nil {
 		return USDPriceConfig{}, err
@@ -168,7 +197,7 @@ func usdPriceConfig(values map[string]string) (USDPriceConfig, error) {
 				if err != nil || amount.IsNegative() {
 					return USDPriceConfig{}, fmt.Errorf("invalid %s price for %s", key, name)
 				}
-				usd := amount.Mul(decimal.NewFromFloat(common.QuotaPerUnit)).DivRound(anchor, 64)
+				usd := amount.Mul(baseline).DivRound(anchor, 64)
 				if _, err := pricingFiniteFloat(usd); err != nil {
 					return USDPriceConfig{}, err
 				}
@@ -211,7 +240,11 @@ func convertUSDPriceValues(request USDPriceUpdate, current map[string]string) (m
 	if err != nil {
 		return nil, err
 	}
-	scale := anchor.DivRound(decimal.NewFromFloat(common.QuotaPerUnit), 64)
+	baseline, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return nil, err
+	}
+	scale := anchor.DivRound(baseline, 64)
 	accepted := make(map[string]string)
 	for key, text := range request.Values {
 		proposed, err := rawPriceMap(text)
@@ -239,7 +272,7 @@ func convertUSDPriceValues(request USDPriceUpdate, current map[string]string) (m
 				if err != nil || usd.IsNegative() {
 					return nil, fmt.Errorf("invalid USD %s for %s", key, name)
 				}
-				legacy := usd.Mul(anchor).DivRound(decimal.NewFromFloat(common.QuotaPerUnit), 64)
+				legacy := usd.Mul(anchor).DivRound(baseline, 64)
 				if _, err := pricingFiniteFloat(legacy); err != nil {
 					return nil, err
 				}

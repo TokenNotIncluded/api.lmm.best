@@ -27,6 +27,15 @@ func pricingCurrencyFixture(t *testing.T, q, k float64) {
 	})
 }
 
+func persistPricingCurrencyFixture(t *testing.T) {
+	t.Helper()
+	anchor, err := common.CreditsPerUSD()
+	require.NoError(t, err)
+	baseline, err := common.LegacyPricingQuotaPerUnit()
+	require.NoError(t, err)
+	require.NoError(t, DB.Create(&[]Option{{Key: CreditsPerUSDOptionKey, Value: anchor.String()}, {Key: LegacyPricingQuotaPerUnitOptionKey, Value: baseline.String()}, {Key: "QuotaPerUnit", Value: baseline.String()}}).Error)
+}
+
 func TestUSDModelRatioLiteralQuotesIgnoreLegacyCalibration(t *testing.T) {
 	for _, q := range []float64{500000, 1000000, 3000000} {
 		t.Run(decimal.NewFromFloat(q).String(), func(t *testing.T) {
@@ -55,8 +64,7 @@ func TestUSDPriceReadSavePreservesAllLegacyBytesAndLocks(t *testing.T) {
 	for k, v := range raw {
 		require.NoError(t, DB.Create(&Option{Key: k, Value: v}).Error)
 	}
-	anchor, _ := common.CreditsPerUSD()
-	require.NoError(t, DB.Create(&Option{Key: CreditsPerUSDOptionKey, Value: anchor.String()}).Error)
+	persistPricingCurrencyFixture(t)
 	before, e := GetUSDPriceConfig()
 	require.NoError(t, e)
 	r := USDPriceUpdate{SchemaVersion: 2, Currency: "USD", ExpectedRevision: before.Revision, Values: maps.Clone(before.Values)}
@@ -82,8 +90,7 @@ func TestUSDPriceEditPreservesEntriesAndRejectsStaleRevision(t *testing.T) {
 	for k, v := range raw {
 		require.NoError(t, DB.Create(&Option{Key: k, Value: v}).Error)
 	}
-	anchor, _ := common.CreditsPerUSD()
-	require.NoError(t, DB.Create(&Option{Key: CreditsPerUSDOptionKey, Value: anchor.String()}).Error)
+	persistPricingCurrencyFixture(t)
 	before, e := GetUSDPriceConfig()
 	require.NoError(t, e)
 	entries, e := rawPriceMap(before.Values["ModelPrice"])
@@ -180,8 +187,7 @@ func TestUSDPriceCASRejectsDifferentNodeCalibration(t *testing.T) {
 	for key, value := range priceOptionSnapshot() {
 		require.NoError(t, DB.Create(&Option{Key: key, Value: value}).Error)
 	}
-	require.NoError(t, DB.Create(&Option{Key: CreditsPerUSDOptionKey, Value: "3500000"}).Error)
-	require.NoError(t, DB.Create(&Option{Key: "QuotaPerUnit", Value: "500000"}).Error)
+	persistPricingCurrencyFixture(t)
 	before, err := GetUSDPriceConfig()
 	require.NoError(t, err)
 	// Node B (or an old rolling binary) changes the durable scale while A stays stale.
@@ -192,6 +198,12 @@ func TestUSDPriceCASRejectsDifferentNodeCalibration(t *testing.T) {
 	require.Equal(t, before.Values["ModelPrice"], persistedPriceOption(t, "ModelPrice"))
 	_, err = GetUSDPriceConfig()
 	require.ErrorIs(t, err, ErrPricingUnitsStale)
+	// Even B's locally matching QPU cannot redefine the durable baseline.
+	common.QuotaPerUnit = 1000000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(1000000)))
+	_, _, err = UpdateUSDPriceConfig(request)
+	require.ErrorIs(t, err, ErrPricingUnitsStale)
+	require.Equal(t, before.Values["ModelPrice"], persistedPriceOption(t, "ModelPrice"))
 }
 
 func TestUSDExpressionPreservesVersionAndRequestRules(t *testing.T) {
@@ -223,7 +235,7 @@ func TestUSDExpressionVersionedReadSaveAndEdit(t *testing.T) {
 	for key, value := range raw {
 		require.NoError(t, DB.Create(&Option{Key: key, Value: value}).Error)
 	}
-	require.NoError(t, DB.Create(&Option{Key: CreditsPerUSDOptionKey, Value: "7000000"}).Error)
+	persistPricingCurrencyFixture(t)
 	before, err := GetUSDPriceConfig()
 	require.NoError(t, err)
 	request := USDPriceUpdate{SchemaVersion: 2, Currency: "USD", ExpectedRevision: before.Revision, Values: maps.Clone(before.Values)}

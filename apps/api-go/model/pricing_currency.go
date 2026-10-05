@@ -39,7 +39,11 @@ func LegacyPricingAmountUSD(amount float64) (float64, error) {
 	if amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
 		return 0, fmt.Errorf("invalid legacy price")
 	}
-	return pricingFiniteFloat(decimal.NewFromFloat(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).DivRound(anchor, 64))
+	baseline, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return 0, err
+	}
+	return pricingFiniteFloat(decimal.NewFromFloat(amount).Mul(baseline).DivRound(anchor, 64))
 }
 
 func pricingFiniteFloat(value decimal.Decimal) (float64, error) {
@@ -63,7 +67,11 @@ func USDExpression(expr string) (string, error) {
 	if _, err = common.LegacyPricingUnitsPerUSD(); err != nil {
 		return "", err
 	}
-	scale := anchor.DivRound(decimal.NewFromFloat(common.QuotaPerUnit), 64)
+	baseline, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return "", err
+	}
+	scale := anchor.DivRound(baseline, 64)
 	return wrapPricingExpression(expr, "/", scale.String()), nil
 }
 

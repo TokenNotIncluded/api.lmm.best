@@ -44,7 +44,10 @@ legacy `/api/option/bulk` or PUT with a USD value.
 
 The revision covers all twelve retained maps, the immutable USD anchor and
 legacy calibration. The USD writer checks authoritative database calibration
-under the pricing transaction lock and rejects stale node caches. Existing
+under the pricing transaction lock and rejects stale node caches. QPU is frozen
+after currency initialization; the durable `LegacyPricingQuotaPerUnit` baseline,
+stored QPU, fixed K and local cache must agree. The USD transaction locks QPU
+before the shared price-policy row, matching other currency writers. Existing
 model price locks still preserve locked values before validation. Unchanged
 canonical values reuse the original stored JSON number/expression; unchanged
 whole maps skip writes, so GET-to-save preserves stored bytes and debit.
@@ -66,5 +69,7 @@ tiers and raw debit stay unchanged. Token-rate display uses
 `model_ratio_usd_per_million_multiplier=1000000/K` independently of legacy QPU.
 Each structured tool surcharge also records its own legacy currency basis and
 calibration because an additional tool charge can use a different calibration
-from a frozen expression. Missing historical calibration does not authorize
+from a frozen expression. Classic extra prices have
+`tool_pricing_unit_credits_per_unit`; separate audio also has its own
+`audio_input_pricing_unit_credits_per_unit`. Missing historical calibration does not authorize
 assuming today's calibration. Actual total USD is always charged credits / K.
