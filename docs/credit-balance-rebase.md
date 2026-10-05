@@ -3,7 +3,7 @@
 credit（数据库整数 quota）是唯一余额真相源。1 USD 永远对应 500000 credit。
 纠正历史「充值 1 人民币当成 1 美元」约定，应按确认的精确除数缩减指定用户的当前 credit 余额；不得从显示金额反算钱包，不得修改模型价格或 USD/credit 换算锚点。
 
-`6.8` 只是说明例子，不是已批准的执行参数。当前汇率、旧 CreditsPerUSD 等设置也不能擅自替代确认的迁移除数。
+用户已确认迁移除数采用维护冻结时生产配置 `USDExchangeRate`，必须重新读取并锁定该原始字符串；`6.8` 仅是文档示例。快照 options.USDExchangeRate 必须与显式 --divisor 精确数值相同，SQL 事务再次核对并保留该配置，审计记录 fx_source。绝不能从旧 CreditsPerUSD / 500000 反推除数。
 
 ## 离线预览
 
@@ -15,6 +15,7 @@ credit（数据库整数 quota）是唯一余额真相源。1 USD 永远对应 5
 {
   "version": 1,
   "target": {"database": "实际数据库名", "schema": "实际schema名", "system_identifier": "实际PostgreSQL集群整数标识"},
+  "options": {"USDExchangeRate": "6.8"},
   "applied_migration_ids": [],
   "users": [{"id": 1, "quota": 500000000, "aff_quota": 680}],
   "topups": [],
@@ -68,6 +69,7 @@ python scripts/preview-credit-balance-rebase.py \
 ```json
 {
   "options": {
+    "USDExchangeRate": "6.8",
     "CreditsPerUSD": "3359744",
     "PublicCreditsPerUSD": "100000",
     "LegacyPricingQuotaPerUnit": "500000",

@@ -36,7 +36,7 @@ try:
     ok(base, input="""
 CREATE SCHEMA fixture_money;
 CREATE TABLE fixture_money.options (key text PRIMARY KEY,value text);
-INSERT INTO fixture_money.options VALUES ('CreditsPerUSD','3359744'),('PublicCreditsPerUSD','100000'),('LegacyPricingQuotaPerUnit','500000'),('QuotaPerUnit','500000');
+INSERT INTO fixture_money.options VALUES ('USDExchangeRate','6.8'),('CreditsPerUSD','3359744'),('PublicCreditsPerUSD','100000'),('LegacyPricingQuotaPerUnit','500000'),('QuotaPerUnit','500000');
 CREATE TABLE fixture_money.top_ups (id bigint PRIMARY KEY,user_id bigint,status text,credited_quota bigint,amount bigint,platform_amount_micros bigint,settled_amount_micros bigint,expected_amount_micros bigint,refunded_quota bigint,refunded_amount_micros bigint,money double precision,payment_provider text,payment_method text,settlement_currency text);
 INSERT INTO fixture_money.top_ups VALUES (20,1,'success',6800,0,0,1000,1000,680,100,0.001,'stripe','stripe','USD');
 CREATE TABLE fixture_money.users (id bigint PRIMARY KEY, quota bigint, aff_quota bigint, used_quota bigint);
@@ -50,7 +50,7 @@ INSERT INTO fixture_money.tokens VALUES (10,1,680,false);
                 "topups": [{"id":20,"user_id":1,"status":"success","credited_quota":6800,"amount":0,"platform_amount_micros":0,"settled_amount_micros":1000,"expected_amount_micros":1000,"refunded_quota":680,"refunded_amount_micros":100,"money":"0.001","payment_provider":"stripe","payment_method":"stripe","settlement_currency":"USD","effective_credited_quota":6800,"paid_amount_micros":1000}],
                 "users": [{"id": 1, "quota": 500000000}, {"id": 2, "quota": -86911}],
                 "tokens": [{"id": 10, "user_id": 1, "remain_quota": 680, "unlimited_quota": False}],
-                "options": {"CreditsPerUSD": "3359744", "PublicCreditsPerUSD": "100000",
+                "options": {"USDExchangeRate":"6.8", "CreditsPerUSD": "3359744", "PublicCreditsPerUSD": "100000",
                             "LegacyPricingQuotaPerUnit": "500000", "QuotaPerUnit": "500000"},
                 "price_review": {"status": "verified", "evidence": "synthetic $credit_rebase$ quote ' and slash \\ fixture",
                                  "option_corrections": []}}
@@ -66,7 +66,7 @@ INSERT INTO fixture_money.tokens VALUES (10,1,680,false);
     def reset():
         ok(base, input="""
 TRUNCATE fixture_money.wallet_topup_credit_rebases, fixture_money.wallet_credit_rebases;
-UPDATE fixture_money.options SET value=CASE WHEN key='CreditsPerUSD' THEN '3359744' WHEN key='PublicCreditsPerUSD' THEN '100000' ELSE '500000' END;
+UPDATE fixture_money.options SET value=CASE WHEN key='USDExchangeRate' THEN '6.8' WHEN key='CreditsPerUSD' THEN '3359744' WHEN key='PublicCreditsPerUSD' THEN '100000' ELSE '500000' END;
 UPDATE fixture_money.users SET quota=CASE WHEN id=1 THEN 500000000 ELSE -86911 END;
 UPDATE fixture_money.tokens SET user_id=1, remain_quota=680;
 UPDATE fixture_money.top_ups SET refunded_quota=680;
@@ -93,7 +93,8 @@ UPDATE fixture_money.top_ups SET refunded_quota=680;
     for conflict in ["UPDATE fixture_money.users SET quota=-86910 WHERE id=2;",
                      "UPDATE fixture_money.options SET value='unexpected-anchor' WHERE key='CreditsPerUSD';",
                      "UPDATE fixture_money.tokens SET user_id=2 WHERE id=10;",
-                     "UPDATE fixture_money.top_ups SET refunded_quota=681 WHERE id=20;"]:
+                     "UPDATE fixture_money.top_ups SET refunded_quota=681 WHERE id=20;",
+                     "UPDATE fixture_money.options SET value='6.710363' WHERE key='USDExchangeRate';"]:
         reset()
         ok(base, input=conflict)
         before = wallet()

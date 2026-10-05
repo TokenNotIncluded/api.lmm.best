@@ -31,6 +31,9 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,18})?", divisor_text):
         raise ValueError("divisor must be an explicit positive decimal, not a float or expression")
     divisor = Fraction(divisor_text)
+    fx = snapshot.get("options", {}).get("USDExchangeRate") if isinstance(snapshot, dict) else None
+    if not isinstance(fx, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,18})?", fx) or Fraction(fx) != divisor:
+        raise ValueError("divisor must exactly match the frozen production USDExchangeRate option")
     if divisor <= 1:
         raise ValueError("divisor must be greater than 1 for a balance reduction")
     if rounding not in ("half-away-from-zero", "toward-zero"):
@@ -113,13 +116,17 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             if not isinstance(correction.get("before"), str) or not isinstance(correction.get("after"), str):
                 raise ValueError("price correction before/after must be exact option strings")
             option_entries.append({"key": key, "before": correction["before"], "after": correction["after"]})
-    option_guards = []
+    option_guards = [{"key": "USDExchangeRate", "value": fx, "absent": False}]
     if restore_fixed_anchors:
         unchanged = review.get("unchanged_option_values", {})
         absent = review.get("absent_unchanged_options", [])
         if not isinstance(unchanged, dict) or not isinstance(absent, list):
             raise ValueError("price preservation guards must be mapping and list")
         for key, value in unchanged.items():
+            if key == "USDExchangeRate":
+                if value != fx:
+                    raise ValueError("FX preservation guard conflicts with frozen source")
+                continue
             if not isinstance(key, str) or not isinstance(value, str) or "\x00" in key or "\x00" in value:
                 raise ValueError("invalid unchanged option guard")
             option_guards.append({"key": key, "value": value, "absent": False})
@@ -168,6 +175,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             "migration_id": migration_id, "target": dict(target), "source_sha256": source_digest,
             "usd_credit_conversion": 500000, "divisor": divisor_text,
             "exact_factor": {"numerator": divisor.denominator, "denominator": divisor.numerator},
+            "fx_source": {"kind": "frozen_production_option", "key": "USDExchangeRate", "value": fx},
             "rounding": rounding, "user_ids": sorted(selected),
             "include_affiliate": include_affiliate, "include_token_limits": include_token_limits,
             "price_review_evidence": snapshot.get("price_review", {}).get("evidence") if restore_fixed_anchors else None,
