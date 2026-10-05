@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+
 import {
   parsePublicCreditOption,
   updatePublicCreditUnitOption,
@@ -31,6 +32,6 @@ test('a changed display denomination fails before any network write', async () =
         publicCreditsPerUsd: 500000,
         ledgerQuotaPerUsd: 500000,
       },
-    }),
+    })
   )
 })

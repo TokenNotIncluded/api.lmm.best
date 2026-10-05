@@ -120,7 +120,7 @@ test('rejects old, partial, unknown and mixed-basis metadata instead of using le
   ]) {
     assert.equal(
       hasCompletePublicCreditCatalog({ ...catalog, ...override }),
-      false,
+      false
     )
   }
 })
@@ -138,7 +138,7 @@ test('method raw limits and public projections must be paired; unlimited caps ne
         ...catalog,
         pay_methods: [{ ...catalog.pay_methods[0], ...override }],
       }),
-      false,
+      false
     )
   }
   assert.equal(
@@ -146,7 +146,7 @@ test('method raw limits and public projections must be paired; unlimited caps ne
       ...catalog,
       pay_methods: JSON.stringify(catalog.pay_methods),
     }),
-    true,
+    true
   )
 })
 
@@ -182,9 +182,9 @@ test('successful grant metadata identifies the immutable quota and captured publ
         public_credit_amount: '3.2',
       },
       undefined,
-      3,
+      3
     ),
-    false,
+    false
   )
   for (const override of [
     { public_credit_amount: '4' },
