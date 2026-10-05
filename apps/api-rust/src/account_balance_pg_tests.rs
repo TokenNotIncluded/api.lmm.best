@@ -139,12 +139,19 @@ async fn durable_balance_defaults_revocation_and_read_only_contract() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    let (status, body) = query(&app).await;
     assert_eq!(
-        status, 200,
-        "missing QuotaPerUnit must use Go's 500000 default: {body}"
+        query(&app).await,
+        (
+            503,
+            json!({"valid":false,"error":"account_balance_unavailable"})
+        ),
+        "an absent immutable basis must never use a 1:1 platform USD fallback"
     );
-    assert_eq!(body["remaining"], 2.5);
+    sqlx::query("INSERT INTO options VALUES ('CreditsPerUSD','3500000'), ('LegacyPricingQuotaPerUnit','500000')")
+        .execute(&pool).await.unwrap();
+    let (status, body) = query(&app).await;
+    assert_eq!(status, 200, "saved basis and default runtime Q: {body}");
+    assert_eq!(body["remaining"], 0.3571428571428571);
     assert_eq!(body["currency"], "USD");
     assert_eq!(body["scope"], "account");
     assert_eq!(body["consistency"], "persisted_snapshot");
@@ -174,8 +181,33 @@ async fn durable_balance_defaults_revocation_and_read_only_contract() {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO options VALUES ('QuotaPerUnit',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value")
-            .bind(vector["unit"].to_string()).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM options")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (key, value) in [
+            (
+                "CreditsPerUSD",
+                vector["credits_per_usd"].as_str().map(str::to_owned),
+            ),
+            (
+                "LegacyPricingQuotaPerUnit",
+                vector["legacy_unit"].as_str().map(str::to_owned),
+            ),
+            ("QuotaPerUnit", Some(vector["unit"].to_string())),
+            ("USDExchangeRate", vector["fx"].as_str().map(str::to_owned)),
+        ] {
+            if let Some(value) = value {
+                sqlx::query("INSERT INTO options VALUES ($1,$2)")
+                    .bind(key)
+                    .bind(value)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+        }
+        let before: Value = sqlx::query_scalar("SELECT json_build_object('user',to_jsonb(users),'token',to_jsonb(tokens)) FROM users CROSS JOIN tokens WHERE tokens.id=1")
+            .fetch_one(&pool).await.unwrap();
         let (status, mut body) = query(&app).await;
         assert_eq!(
             u64::from(status),
@@ -195,6 +227,13 @@ async fn durable_balance_defaults_revocation_and_read_only_contract() {
         } else {
             assert_eq!(body, json!({"valid":false,"error":vector["error"]}));
         }
+        let after: Value = sqlx::query_scalar("SELECT json_build_object('user',to_jsonb(users),'token',to_jsonb(tokens)) FROM users CROSS JOIN tokens WHERE tokens.id=1")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            before, after,
+            "{} balance reads must not write wallet or token state",
+            vector["name"]
+        );
     }
     sqlx::query("DELETE FROM options")
         .execute(&pool)
@@ -204,7 +243,9 @@ async fn durable_balance_defaults_revocation_and_read_only_contract() {
         .execute(&pool)
         .await
         .unwrap();
-    for (quota, remaining) in [(0_i64, 0.0), (-625000, -1.25)] {
+    sqlx::query("INSERT INTO options VALUES ('CreditsPerUSD','3500000'), ('LegacyPricingQuotaPerUnit','500000')")
+        .execute(&pool).await.unwrap();
+    for (quota, remaining) in [(0_i64, 0.0), (-3500000, -1.0)] {
         sqlx::query("UPDATE users SET quota=$1")
             .bind(quota)
             .execute(&pool)
@@ -217,11 +258,20 @@ async fn durable_balance_defaults_revocation_and_read_only_contract() {
             .unwrap();
         assert_eq!(persisted, quota);
     }
-    sqlx::query("INSERT INTO options VALUES ('QuotaPerUnit', '100'), ('QuotaDisplayType', 'CNY')")
+    sqlx::query("INSERT INTO options VALUES ('QuotaPerUnit', '500000'), ('QuotaDisplayType', 'CNY'), ('USDExchangeRate','7')")
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(query(&app).await.1["remaining"], -6250.0);
+    assert_eq!(query(&app).await.1["remaining"], -1.0);
+    sqlx::query("UPDATE options SET value='9.9' WHERE key='USDExchangeRate'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        query(&app).await.1["remaining"],
+        -1.0,
+        "FX changes do not alter a USD balance"
+    );
     for invalid in ["", "0", "-1", "NaN", "inf", "invalid"] {
         sqlx::query("UPDATE options SET value=$1 WHERE key='QuotaPerUnit'")
             .bind(invalid)

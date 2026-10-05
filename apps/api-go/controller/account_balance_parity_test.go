@@ -10,9 +10,26 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
+
+func preserveAccountBalanceBasis(t *testing.T) {
+	t.Helper()
+	previous, previousErr := common.CreditsPerUSD()
+	previousLegacy, _ := common.LegacyPricingQuotaPerUnit()
+	previousUnit, previousFX := common.QuotaPerUnit, operation_setting.USDExchangeRate
+	t.Cleanup(func() {
+		common.QuotaPerUnit, operation_setting.USDExchangeRate = previousUnit, previousFX
+		if previousErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(previous, previousLegacy))
+		}
+	})
+}
 
 // The Rust durable HTTP test consumes this same fixture. Keep expectations
 // independent of either adapter; timestamps are checked before normalization.
@@ -23,6 +40,9 @@ func TestAccountBalanceSharedParityVectors(t *testing.T) {
 		Name           string  `json:"name"`
 		Quota          int     `json:"quota"`
 		Unit           float64 `json:"unit"`
+		Anchor         *string `json:"credits_per_usd"`
+		Legacy         *string `json:"legacy_unit"`
+		FX             string  `json:"fx"`
 		Grant          bool    `json:"grant"`
 		Status         int     `json:"status"`
 		ExpectedStatus int     `json:"expected_status"`
@@ -32,8 +52,7 @@ func TestAccountBalanceSharedParityVectors(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &cases))
 	db := setupManageUserTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Token{}))
-	oldUnit := common.QuotaPerUnit
-	t.Cleanup(func() { common.QuotaPerUnit = oldUnit })
+	preserveAccountBalanceBasis(t)
 	user := model.User{Username: "shared-balance-owner", Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
 	token := model.Token{UserId: user.Id, Key: "shared-balance-key", ExpiredTime: -1, UnlimitedQuota: true, UsedQuota: 98765, AccessedTime: 123}
@@ -43,8 +62,25 @@ func TestAccountBalanceSharedParityVectors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			common.QuotaPerUnit = tc.Unit
+			common.ClearCreditsPerUSD()
+			if tc.Anchor != nil && tc.Legacy != nil {
+				anchor, anchorErr := decimal.NewFromString(*tc.Anchor)
+				legacy, legacyErr := decimal.NewFromString(*tc.Legacy)
+				if anchorErr == nil && legacyErr == nil {
+					// Invalid persisted bases are rejected by initialization. The
+					// endpoint must refuse the resulting unavailable basis.
+					_ = common.SetCreditCurrencyBasis(anchor, legacy)
+				}
+			}
+			fx, fxErr := decimal.NewFromString(tc.FX)
+			require.NoError(t, fxErr)
+			operation_setting.USDExchangeRate = fx.InexactFloat64()
 			require.NoError(t, db.Model(&user).Update("quota", tc.Quota).Error)
 			require.NoError(t, db.Model(&token).Updates(map[string]any{"status": tc.Status, "account_balance_read": tc.Grant}).Error)
+			var beforeUser model.User
+			var beforeToken model.Token
+			require.NoError(t, db.First(&beforeUser, user.Id).Error)
+			require.NoError(t, db.First(&beforeToken, token.Id).Error)
 			r := httptest.NewRequest("GET", "/v1/balance", nil)
 			r.Header.Set("Authorization", "Bearer sk-"+token.Key)
 			w := httptest.NewRecorder()
@@ -62,10 +98,15 @@ func TestAccountBalanceSharedParityVectors(t *testing.T) {
 			} else {
 				require.Equal(t, map[string]any{"valid": false, "error": tc.Error}, body)
 			}
+			var storedUser model.User
+			require.NoError(t, db.First(&storedUser, user.Id).Error)
+			require.Equal(t, tc.Quota, storedUser.Quota, "balance reads must not alter wallet credits")
+			require.Equal(t, beforeUser, storedUser, "balance reads must not write user state")
 			var stored model.Token
 			require.NoError(t, db.First(&stored, token.Id).Error)
 			require.Equal(t, int64(123), stored.AccessedTime)
 			require.Equal(t, 98765, stored.UsedQuota)
+			require.Equal(t, beforeToken, stored, "balance reads must not write token state")
 		})
 	}
 }
