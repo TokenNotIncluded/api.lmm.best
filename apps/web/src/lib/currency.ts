@@ -40,6 +40,8 @@ export interface CurrencyFormatOptions {
   compact?: boolean
   showSymbol?: boolean
   locale?: Intl.LocalesArgument
+  /** Captured translation supplied by reactive consumers. */
+  creditLabel?: string
 }
 
 type Rational = { numerator: bigint; denominator: bigint }
@@ -174,7 +176,7 @@ function decimal(value: number | string): Rational | null {
 
 function rate(value: number | undefined, exact?: string): Rational | null {
   if (!Number.isFinite(value) || !value || value <= 0) return null
-  const parsed = decimal(exact || value)
+  const parsed = decimal(exact && Number(exact) === value ? exact : value)
   return parsed && parsed.numerator > 0n ? parsed : null
 }
 
@@ -356,7 +358,7 @@ export function formatCreditAmount(
   const number = numberText(quota, options, true)
   return options?.showSymbol === false
     ? number
-    : `${number} ${i18n.t('Credits')}`
+    : `${number} ${options?.creditLabel ?? i18n.t('Credits')}`
 }
 
 /** Amount is already in this fiat currency. Formatting never converts it. */
@@ -383,14 +385,19 @@ export function formatUSDInCurrency(
     return formatFiatCurrencyAmount(amountUSD, 'USD', options)
   }
   if (currency === 'CREDIT') {
-    const value = amountUSD * Number(config.creditsPerUsd)
-    if (!Number.isFinite(config.creditsPerUsd) || !Number.isFinite(value)) {
+    const value = amountUSD * positive(config.creditsPerUsd)
+    if (
+      !Number.isFinite(positive(config.creditsPerUsd)) ||
+      !Number.isFinite(value)
+    ) {
       return '-'
     }
     const text = numberText(value, options)
-    return options?.showSymbol === false ? text : `${text} ${i18n.t('Credits')}`
+    return options?.showSymbol === false
+      ? text
+      : `${text} ${options?.creditLabel ?? i18n.t('Credits')}`
   }
-  const fx = config.cnyPerUsd
+  const fx = positive(config.cnyPerUsd)
   return Number.isFinite(fx)
     ? formatFiatCurrencyAmount(amountUSD * Number(fx), 'CNY', options)
     : '-'
@@ -476,3 +483,8 @@ export function getPlatformCurrencyLabel(
 export function isCurrencyDisplayEnabled(): boolean {
   return getWalletDisplayCurrency() !== 'CREDIT'
 }
+
+export type {
+  WalletDisplayCurrency,
+  WalletDisplayCurrencyPreference,
+} from '@/stores/wallet-currency-preference-store'

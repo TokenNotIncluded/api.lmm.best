@@ -57,7 +57,8 @@ export function useWalletCurrency() {
       : anonymousPreference
   )
   const currency = resolveWalletDisplayCurrency(preference, language)
-  const label = currency === 'CREDIT' ? t('Credits') : currency
+  const creditLabel = t('Credits')
+  const label = currency === 'CREDIT' ? creditLabel : currency
   const [pending, setPending] = useState<{
     key: string
     error: string | null
@@ -140,6 +141,7 @@ export function useWalletCurrency() {
     ): CurrencyFormatOptions => ({
       ...options,
       locale: options?.locale ?? displayLocale,
+      creditLabel: options?.creditLabel ?? creditLabel,
     })
     return {
       config,
@@ -169,11 +171,11 @@ export function useWalletCurrency() {
           config
         ),
     }
-  }, [currencyConfig, currency, preference, label, language])
-  return {
-    ...snapshot,
-    setPreference,
-    saving: pending?.key === key && pending.saving,
-    error: pending?.key === key ? pending.error : null,
-  }
+  }, [currencyConfig, currency, preference, label, language, creditLabel])
+  const saving = Boolean(pending?.key === key && pending.saving)
+  const error = pending?.key === key ? pending.error : null
+  return useMemo(
+    () => ({ ...snapshot, setPreference, saving, error }),
+    [snapshot, setPreference, saving, error]
+  )
 }

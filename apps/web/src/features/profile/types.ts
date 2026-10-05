@@ -20,6 +20,8 @@ For commercial licensing, please contact support@quantumnous.com
 // Profile Type Definitions
 // ============================================================================
 
+import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
+
 /**
  * Generic API response
  */
@@ -183,6 +185,8 @@ export interface UserSettings {
   language?: string
   /** Customer fiat preference, independent of quota display and credits */
   settlement_currency?: SettlementCurrencyPreference
+  /** Balance/quota display unit; empty follows the current interface language. */
+  wallet_display_currency?: WalletDisplayCurrencyPreference
   /** How this user's usage appears on the public leaderboard */
   usage_leaderboard_visibility?: UsageLeaderboardVisibility
   /** L1+ only: bypass IP/region access policy when a valid API key is used */
