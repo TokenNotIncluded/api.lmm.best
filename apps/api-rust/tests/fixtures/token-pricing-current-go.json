@@ -4,6 +4,7 @@
       "discount": 0.97,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -19,6 +20,7 @@
           "output_price": 19.4
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "default",
           "currency": "USD",
@@ -34,6 +36,7 @@
           "output_price": 3.88
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "default",
           "currency": "USD",
@@ -49,6 +52,7 @@
           "output_price": 7.2749999999999995
         },
         {
+          "pricing_schema_version": 2,
           "model": "image",
           "group": "default",
           "currency": "USD",
@@ -59,6 +63,7 @@
           "request_price": 0.0388
         },
         {
+          "pricing_schema_version": 2,
           "model": "tier",
           "group": "default",
           "currency": "USD",
@@ -66,9 +71,10 @@
           "unit": "expression",
           "group_ratio": 0.97,
           "trust_discount_ratio": 0.97,
-          "billing_expression": "p * 2 + c * 4"
+          "billing_expression": "(p * 2 + c * 4) / (1)"
         },
         {
+          "pricing_schema_version": 2,
           "model": "vendor/claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -84,6 +90,7 @@
           "output_price": 27.16
         },
         {
+          "pricing_schema_version": 2,
           "model": "zero",
           "group": "default",
           "currency": "USD",
@@ -111,6 +118,7 @@
       "discount": 0.94,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -126,6 +134,7 @@
           "output_price": 9.399999999999999
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "default",
           "currency": "USD",
@@ -141,6 +150,7 @@
           "output_price": 1.88
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "default",
           "currency": "USD",
@@ -156,6 +166,7 @@
           "output_price": 3.5249999999999995
         },
         {
+          "pricing_schema_version": 2,
           "model": "image",
           "group": "default",
           "currency": "USD",
@@ -166,6 +177,7 @@
           "request_price": 0.0188
         },
         {
+          "pricing_schema_version": 2,
           "model": "tier",
           "group": "default",
           "currency": "USD",
@@ -173,9 +185,10 @@
           "unit": "expression",
           "group_ratio": 0.47,
           "trust_discount_ratio": 0.94,
-          "billing_expression": "p * 2 + c * 4"
+          "billing_expression": "(p * 2 + c * 4) / (1)"
         },
         {
+          "pricing_schema_version": 2,
           "model": "vendor/claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -191,6 +204,7 @@
           "output_price": 13.16
         },
         {
+          "pricing_schema_version": 2,
           "model": "zero",
           "group": "default",
           "currency": "USD",
@@ -218,6 +232,7 @@
       "discount": 1,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -233,6 +248,7 @@
           "output_price": 20
         },
         {
+          "pricing_schema_version": 2,
           "model": "claude-3-5-sonnet",
           "group": "private",
           "currency": "USD",
@@ -248,6 +264,7 @@
           "output_price": 60
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "default",
           "currency": "USD",
@@ -263,6 +280,7 @@
           "output_price": 4
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "private",
           "currency": "USD",
@@ -278,6 +296,7 @@
           "output_price": 12
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "default",
           "currency": "USD",
@@ -293,6 +312,7 @@
           "output_price": 7.5
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "private",
           "currency": "USD",
@@ -308,6 +328,7 @@
           "output_price": 22.5
         },
         {
+          "pricing_schema_version": 2,
           "model": "image",
           "group": "default",
           "currency": "USD",
@@ -318,6 +339,7 @@
           "request_price": 0.04
         },
         {
+          "pricing_schema_version": 2,
           "model": "image",
           "group": "private",
           "currency": "USD",
@@ -328,6 +350,7 @@
           "request_price": 0.12
         },
         {
+          "pricing_schema_version": 2,
           "model": "secret",
           "group": "private",
           "currency": "USD",
@@ -343,6 +366,7 @@
           "output_price": 12
         },
         {
+          "pricing_schema_version": 2,
           "model": "tier",
           "group": "default",
           "currency": "USD",
@@ -350,9 +374,10 @@
           "unit": "expression",
           "group_ratio": 1,
           "trust_discount_ratio": 1,
-          "billing_expression": "p * 2 + c * 4"
+          "billing_expression": "(p * 2 + c * 4) / (1)"
         },
         {
+          "pricing_schema_version": 2,
           "model": "tier",
           "group": "private",
           "currency": "USD",
@@ -360,9 +385,10 @@
           "unit": "expression",
           "group_ratio": 3,
           "trust_discount_ratio": 1,
-          "billing_expression": "p * 2 + c * 4"
+          "billing_expression": "(p * 2 + c * 4) / (1)"
         },
         {
+          "pricing_schema_version": 2,
           "model": "vendor/claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -378,6 +404,7 @@
           "output_price": 28
         },
         {
+          "pricing_schema_version": 2,
           "model": "vendor/claude-3-5-sonnet",
           "group": "private",
           "currency": "USD",
@@ -393,6 +420,7 @@
           "output_price": 84
         },
         {
+          "pricing_schema_version": 2,
           "model": "zero",
           "group": "default",
           "currency": "USD",
@@ -407,6 +435,7 @@
           "output_price": 0
         },
         {
+          "pricing_schema_version": 2,
           "model": "zero",
           "group": "private",
           "currency": "USD",
@@ -435,6 +464,7 @@
       "discount": 1,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "default",
           "currency": "USD",
@@ -465,6 +495,7 @@
       "discount": 1,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "default",
           "currency": "USD",
@@ -495,6 +526,7 @@
       "discount": 0.97,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "tier",
           "group": "default",
           "currency": "USD",
@@ -502,7 +534,7 @@
           "unit": "expression",
           "group_ratio": 0.485,
           "trust_discount_ratio": 0.97,
-          "billing_expression": "p * 2 + c * 4"
+          "billing_expression": "(p * 2 + c * 4) / (1)"
         }
       ],
       "groups": [
@@ -708,6 +740,8 @@
     "CacheRatio": "{\"gpt-4o\":0.5,\"claude-3-5-sonnet\":0.1}",
     "CompletionRatio": "{\"gpt-4o\":3,\"claude-3-5-sonnet\":7,\"vendor/claude-3-5-sonnet\":7}",
     "CreateCacheRatio": "{\"claude-3-5-sonnet\":1.25}",
+    "CreditsPerUSD": "500000",
+    "LegacyPricingQuotaPerUnit": "500000",
     "ModelPrice": "{\"image\":0.04}",
     "ModelRatio": "{\"gpt-4o\":1.25,\"secret\":2,\"zero\":0,\"claude-3-5-sonnet\":2,\"vendor/claude-3-5-sonnet\":2,\"gpt-4-gizmo-*\":1}",
     "QuotaPerUnit": "500000",

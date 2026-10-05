@@ -133,6 +133,7 @@ impl Fixture {
     async fn pricing_schema(&self) {
         sqlx::raw_sql("ALTER TABLE users ADD COLUMN \"group\" TEXT DEFAULT 'default',ADD COLUMN role BIGINT DEFAULT 1,ADD COLUMN trust_level_override BIGINT DEFAULT 2,ADD COLUMN created_at BIGINT DEFAULT 0,ADD COLUMN last_api_activity_at BIGINT DEFAULT 0,ADD COLUMN console_activated_at BIGINT DEFAULT 0;ALTER TABLE tokens ADD COLUMN \"group\" TEXT DEFAULT '',ADD COLUMN auto_groups TEXT DEFAULT '',ADD COLUMN model_limits_enabled BOOLEAN DEFAULT FALSE,ADD COLUMN model_limits TEXT DEFAULT '';CREATE TABLE models(id BIGSERIAL PRIMARY KEY,model_name TEXT,status BIGINT DEFAULT 1,name_rule BIGINT DEFAULT 0,deleted_at TIMESTAMPTZ);CREATE TABLE abilities(model TEXT,\"group\" TEXT,channel_id BIGINT,enabled BOOLEAN);CREATE TABLE top_ups(user_id BIGINT,status TEXT,credited_quota BIGINT,amount BIGINT,settled_amount_micros BIGINT,expected_amount_micros BIGINT,money DOUBLE PRECISION,payment_provider TEXT,payment_method TEXT,settlement_currency TEXT,create_time BIGINT,complete_time BIGINT);")
             .execute(&self.pg).await.unwrap();
+        sqlx::query("INSERT INTO options(key,value) VALUES('CreditsPerUSD','500000'),('LegacyPricingQuotaPerUnit','500000') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").execute(&self.pg).await.unwrap();
     }
 }
 
@@ -242,6 +243,35 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
     )
     .await;
     assert_eq!(changed["data"][0]["model_ratio"], 2.5);
+    sqlx::query("UPDATE users SET \"group\"='default',trust_level_override=2 WHERE id=1")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO options(key,value) VALUES('CreditsPerUSD','4000000'),('QuotaPerUnit','900000'),('USDExchangeRate','99') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").execute(&fixture.pg).await.unwrap();
+    let calibrated = body(
+        fixture
+            .app()
+            .oneshot(request("/v1/pricing?model=gpt-4o", "Bearer query-key"))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(calibrated["data"][0]["input_price"], 0.60625);
+    assert_eq!(calibrated["pricing_schema_version"], 2);
+    sqlx::query("DELETE FROM options WHERE key='CreditsPerUSD'")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    let unavailable = fixture
+        .app()
+        .oneshot(request("/v1/pricing?model=gpt-4o", "Bearer query-key"))
+        .await
+        .unwrap();
+    assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        body(unavailable).await["message"],
+        "pricing currency units unavailable"
+    );
     fixture.cleanup().await;
 }
 
@@ -369,7 +399,8 @@ async fn token_pricing_uses_shared_credited_trust_facts_and_excludes_internal_cr
     )
     .await;
     assert_eq!(quote["data"][0]["trust_discount_ratio"], 0.94);
-    assert_eq!(quote["data"][0]["input_price"], 940.0);
+    // USD prices use the immutable Credit anchor, even when legacy QuotaPerUnit changes.
+    assert_eq!(quote["data"][0]["input_price"], 1.88);
     sqlx::query("UPDATE top_ups SET status='refunded' WHERE payment_provider='stripe'")
         .execute(&fixture.pg)
         .await
