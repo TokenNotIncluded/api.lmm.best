@@ -153,12 +153,18 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if math.IsNaN(value) || math.IsInf(value, 0) {
 				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
 			}
+			legacy, err := common.LegacyPricingQuotaPerUnit()
+			legacyValue := legacy.InexactFloat64()
+			if err != nil || legacyValue <= 0 || math.IsNaN(legacyValue) || math.IsInf(legacyValue, 0) {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
 			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: map[string]any{"schema_version": 2, "available_quota": user.Quota,
-				"available_credits": user.Quota, "currency_unit": "CREDIT", "credit_unit": 1, "quota_per_platform_credit": 1,
+				"available_credits": user.Quota, "currency_unit": "CREDIT", "credit_unit": 1,
+				"quota_per_platform_credit": legacyValue, "quota_per_platform_credit_unit": "LEGACY", "quota_per_platform_credit_deprecated": true,
 				"currency": "USD", "available_usd": value, "credits_per_usd": anchor.String(), "tool_price_quota": 0}}, nil
 		})
 
-	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", "Open the official wallet with a bounded whole legacy batch amount prefilled. The wallet converts this compatibility amount to credits. The user chooses a payment method and confirms there; this is not a payment-provider checkout, successful payment or balance credit. The MCP call is free.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", walletMCPTopupDescription, true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input walletMCPTopupInput) (*mcp.CallToolResult, walletMCPOutput, error) {
 			if _, err := walletMCPActor(request, false); err != nil {
 				return nil, walletMCPOutput{}, err

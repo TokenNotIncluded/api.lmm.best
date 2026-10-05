@@ -76,6 +76,9 @@ func ListToolMarket(c *gin.Context) {
 
 func GetToolMarket(c *gin.Context) {
 	detail, err := model.GetToolMarketDetail(c.GetInt("id"), c.Param("id"), false)
+	if err == nil {
+		detail, err = walletCurrentCatalogPresentation(c.Request.Context(), detail)
+	}
 	toolMarketRespond(c, detail, err)
 }
 
