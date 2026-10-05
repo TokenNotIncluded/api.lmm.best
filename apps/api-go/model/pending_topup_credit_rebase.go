@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"math"
 	"strconv"
@@ -84,6 +85,8 @@ func pendingTopUpSettlementQuotaTx(tx *gorm.DB, topUp *TopUp) (int64, error) {
 		var plan struct {
 			MigrationID    string                    `json:"migration_id"`
 			IncludePending bool                      `json:"include_pending_topups"`
+			UserIDs        *[]int                    `json:"user_ids"`
+			OrphanUserIDs  []int                     `json:"orphan_pending_user_ids"`
 			Bases          *[]pendingTopUpCreditBase `json:"pending_bases"`
 			Blocked        []struct {
 				pendingTopUpCreditBase
@@ -94,11 +97,27 @@ func pendingTopUpSettlementQuotaTx(tx *gorm.DB, topUp *TopUp) (int64, error) {
 		if json.Unmarshal([]byte(audit.Plan), &plan) != nil || audit.MigrationID == "" || plan.MigrationID != audit.MigrationID {
 			return 0, ErrInvalidTopUpQuota
 		}
-		if plan.IncludePending && plan.Bases == nil {
+		if plan.IncludePending && (plan.Bases == nil || plan.UserIDs == nil) {
 			return 0, ErrInvalidTopUpQuota
+		}
+		users, orphans, orphanOwners := map[int]bool{}, map[int]bool{}, map[int]bool{}
+		if plan.UserIDs != nil {
+			for _, id := range *plan.UserIDs {
+				if id <= 0 || users[id] {
+					return 0, ErrInvalidTopUpQuota
+				}
+				users[id] = true
+			}
+		}
+		for _, id := range plan.OrphanUserIDs {
+			if id <= 0 || users[id] || orphans[id] || !plan.IncludePending {
+				return 0, ErrInvalidTopUpQuota
+			}
+			orphans[id] = true
 		}
 		for _, blocked := range plan.Blocked {
 			if blocked.TopUpID <= 0 || blocked.UserID <= 0 || blocked.Source.ID != blocked.TopUpID ||
+				!plan.IncludePending || !users[blocked.UserID] || blocked.ownerMissingAtSnapshot() || !blocked.ownerFlagValid() ||
 				blocked.Source.UserID != blocked.UserID || blocked.OriginalQuota != 0 || blocked.EffectiveQuota != 0 ||
 				blocked.Source.EffectiveQuota != 0 || blocked.FutureSettlement != "blocked_until_separate_audited_payment_reconciliation" ||
 				(blocked.Reason != "legacy_noncash_without_immutable_grant" && blocked.Reason != "authority_zero_not_settleable") {
@@ -113,7 +132,15 @@ func pendingTopUpSettlementQuotaTx(tx *gorm.DB, topUp *TopUp) (int64, error) {
 			bases = *plan.Bases
 		}
 		for _, base := range bases {
-			if !base.valid() {
+			if !plan.IncludePending || !base.valid() {
+				return 0, ErrInvalidTopUpQuota
+			}
+			if base.ownerMissingAtSnapshot() {
+				if !orphans[base.UserID] || users[base.UserID] {
+					return 0, ErrInvalidTopUpQuota
+				}
+				orphanOwners[base.UserID] = true
+			} else if !users[base.UserID] || orphans[base.UserID] {
 				return 0, ErrInvalidTopUpQuota
 			}
 			if base.TopUpID != topUp.Id {
@@ -125,6 +152,9 @@ func pendingTopUpSettlementQuotaTx(tx *gorm.DB, topUp *TopUp) (int64, error) {
 				return 0, ErrInvalidTopUpQuota
 			}
 			matched = true
+		}
+		if len(orphanOwners) != len(orphans) {
+			return 0, ErrInvalidTopUpQuota
 		}
 	}
 	if topUp.PendingCreditRebaseKey != "" && !matched {
@@ -150,7 +180,10 @@ type pendingTopUpCreditBase struct {
 	UserID         int   `json:"user_id"`
 	OriginalQuota  int64 `json:"original_credited_quota"`
 	EffectiveQuota int64 `json:"effective_credited_quota"`
-	Source         struct {
+	// This is frozen parent-plan evidence, never a check of the current user
+	// table. A formally restored owner can later receive the corrected grant.
+	OwnerMissingAtSnapshot json.RawMessage `json:"owner_missing_at_snapshot"`
+	Source                 struct {
 		ID                           int     `json:"id"`
 		UserID                       int     `json:"user_id"`
 		EffectiveQuota               int64   `json:"effective_credited_quota"`
@@ -173,6 +206,15 @@ type pendingTopUpCreditBase struct {
 	} `json:"source"`
 }
 
+func (base *pendingTopUpCreditBase) ownerFlagValid() bool {
+	value := bytes.TrimSpace(base.OwnerMissingAtSnapshot)
+	return len(value) == 0 || bytes.Equal(value, []byte("false")) || bytes.Equal(value, []byte("true"))
+}
+
+func (base *pendingTopUpCreditBase) ownerMissingAtSnapshot() bool {
+	return bytes.Equal(bytes.TrimSpace(base.OwnerMissingAtSnapshot), []byte("true"))
+}
+
 func pendingTopUpRecoverable(status, provider, failureReason string) bool {
 	return status == common.TopUpStatusPending || (status == common.TopUpStatusFailed &&
 		provider == PaymentProviderWaffoPancake && failureReason == string(PaymentOrderFailureCheckoutTimeout))
@@ -180,7 +222,7 @@ func pendingTopUpRecoverable(status, provider, failureReason string) bool {
 
 func (base *pendingTopUpCreditBase) valid() bool {
 	source := &base.Source
-	if base.TopUpID <= 0 || base.UserID <= 0 || source.ID != base.TopUpID || source.UserID != base.UserID ||
+	if base.TopUpID <= 0 || base.UserID <= 0 || !base.ownerFlagValid() || source.ID != base.TopUpID || source.UserID != base.UserID ||
 		base.OriginalQuota <= 0 || source.EffectiveQuota != base.OriginalQuota || base.EffectiveQuota <= 0 ||
 		base.EffectiveQuota > base.OriginalQuota || source.CreditedQuota == nil || source.Amount == nil ||
 		source.PlatformAmountMicros == nil || source.ExpectedAmountMicros == nil || source.SettledAmountMicros == nil ||
@@ -189,6 +231,11 @@ func (base *pendingTopUpCreditBase) valid() bool {
 		source.PendingCreditRebaseKey == nil || source.PendingCreditRebaseOriginal == nil || source.PendingCreditRebaseEffective == nil ||
 		*source.PendingCreditRebaseKey != "" || *source.PendingCreditRebaseOriginal != 0 || *source.PendingCreditRebaseEffective != 0 ||
 		!pendingTopUpRecoverable(source.Status, *source.PaymentProvider, source.FailureReasonCode) {
+		return false
+	}
+	if base.ownerMissingAtSnapshot() && (source.Status != common.TopUpStatusFailed || *source.PaymentProvider != PaymentProviderWaffoPancake ||
+		source.FailureReasonCode != string(PaymentOrderFailureCheckoutTimeout) || *source.CreditedQuota <= 0 || *source.ExpectedAmountMicros <= 0 ||
+		*source.SettledAmountMicros != 0 || *source.RefundedQuota != 0 || *source.RefundedAmountMicros != 0) {
 		return false
 	}
 	money, err := strconv.ParseFloat(*source.Money, 64)
