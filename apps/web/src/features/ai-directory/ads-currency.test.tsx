@@ -282,7 +282,7 @@ test('historical public and moderation prices follow charged quota, language and
   assert.equal(bids.length, 0)
 })
 
-test('unknown K and FX leave actual charge unavailable instead of treating historical bids as USD', async () => {
+test('unknown K blocks public credit and USD display while unknown FX blocks CNY display', async () => {
   await render()
   await act(async () =>
     useSystemConfigStore.getState().setConfig({
@@ -295,7 +295,8 @@ test('unknown K and FX leave actual charge unavailable instead of treating histo
   )
   assert.match(container.textContent ?? '', /Paid: -/)
   await select('Credits')
-  assert.match(container.textContent ?? '', /Paid: 500,000 Credits/)
+  assert.match(container.textContent ?? '', /Paid: -/)
+  assert.doesNotMatch(container.textContent ?? '', /Paid: 500,000 Credits/)
   await select('CNY')
   await act(async () =>
     useSystemConfigStore.getState().setConfig({
@@ -309,6 +310,44 @@ test('unknown K and FX leave actual charge unavailable instead of treating histo
     })
   )
   assert.match(container.textContent ?? '', /Paid: -/)
+})
+
+test('public credit denomination updates a paid receipt without changing its USD amount or ledger charge', async () => {
+  await render()
+  await act(async () =>
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...useSystemConfigStore.getState().config.currency,
+        creditUnitSchemaVersion: 2,
+        ledgerQuotaPerUsd: 3_500_000,
+        ledgerQuotaPerUsdExact: '3500000',
+        publicCreditsPerUsd: 100_000,
+        publicCreditsPerUsdExact: '100000',
+        quotaUnit: 'LEDGER_QUOTA',
+        publicCreditUnit: 'CREDIT',
+      },
+    })
+  )
+  assert.match(container.textContent ?? '', /Paid: 0\.142857 USD/)
+  await select('Credits')
+  assert.match(container.textContent ?? '', /Paid: 14,285\.71 Credits/)
+  assert.doesNotMatch(container.textContent ?? '', /Paid: 500,000 Credits/)
+  await act(async () =>
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...useSystemConfigStore.getState().config.currency,
+        publicCreditsPerUsd: 200_000,
+        publicCreditsPerUsdExact: '200000',
+        cnyPerUsd: 0,
+        cnyPerUsdExact: '',
+      },
+    })
+  )
+  assert.match(container.textContent ?? '', /Paid: 28,571\.43 Credits/)
+  await select('USD')
+  assert.match(container.textContent ?? '', /Paid: 0\.142857 USD/)
+  assert.equal(historicalAd.charged_quota, 500_000)
+  assert.equal(bids.length, 0)
 })
 
 test('a one-dollar bid submits 100 USD cents and the server charge while its display uses CNY or Credits', async () => {
