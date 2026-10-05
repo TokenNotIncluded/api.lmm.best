@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -133,7 +134,7 @@ func withTopUpCreditAmountFields(fields gin.H, credits int64, snapshots ...commo
 	if len(snapshots) > 0 {
 		units = snapshots[0]
 	} else {
-		units, err = common.CreditDenominationMetadata()
+		units, err = model.CreditDenominationSnapshot()
 	}
 	if err != nil {
 		return fields

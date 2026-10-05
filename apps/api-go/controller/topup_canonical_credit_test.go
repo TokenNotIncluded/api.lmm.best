@@ -23,6 +23,7 @@ func canonicalCreditTestConfig(t *testing.T, quotaPerBatch int64) {
 	confirmPaymentComplianceForTest(t)
 	common.QuotaPerUnit = float64(quotaPerBatch)
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(quotaPerBatch)))
+	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.MinTopUp = 0
 	setting.StripeMinTopUp, setting.WaffoMinTopUp, setting.WaffoPancakeMinTopUp = 0, 0, 0
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}

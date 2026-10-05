@@ -269,7 +269,7 @@ type topUpPublicCreditPolicy struct{ minimum, maximum string }
 // Do not round them to an integer and feed them back into a quote: a changed
 // denomination usually cannot represent an existing catalog grant exactly.
 func topUpPublicDenominationMetadata(legacy gin.H, policies []topUpMethodCreditPolicy) (gin.H, []topUpPublicCreditPolicy, error) {
-	units, err := common.CreditDenominationMetadata()
+	units, err := model.CreditDenominationSnapshot()
 	if err != nil {
 		return nil, nil, err
 	}

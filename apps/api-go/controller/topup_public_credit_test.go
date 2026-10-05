@@ -42,6 +42,7 @@ func publicTopUpCreditTestConfig(t *testing.T, public string) {
 	canonicalCreditTestConfig(t, 500000)
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3359744), decimal.NewFromInt(500000)))
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.RequireFromString(public)))
+	persistCreditDenominationFixture(t, model.DB)
 }
 
 func TestPublicTopUpCreditVersionedUnitsPreserveLegacyQuota(t *testing.T) {
@@ -105,6 +106,7 @@ func TestPublicTopUpCreditRejectsUnknownUnitsVersionsAndUnsafeConversion(t *test
 		require.False(t, called, body)
 	}
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000000)))
+	persistCreditDenominationFixture(t, model.DB)
 	response := publicCreditRequest(t, func(c *gin.Context) { t.Fatal("positive public dust cannot grant zero ledger quota") }, 0,
 		`{"amount":1,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"100000000"}`)
 	require.Equal(t, http.StatusBadRequest, response.Code)
@@ -120,6 +122,7 @@ func TestPublicTopUpCreditExpectedDenominationRejectsStaleCheckout(t *testing.T)
 		// A concurrent denomination update must not alter this request's grant
 		// or mix its response amount with another metadata generation.
 		require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(200000)))
+		persistCreditDenominationFixture(t, model.DB)
 		c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, gin.H{}, "CREDIT", amount.LegacyBatch, amount.CreditedQuota, "USD"))
 	}, 0, body)
 	require.Equal(t, http.StatusOK, response.Code)
@@ -238,6 +241,7 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	publicTopUpCreditTestConfig(t, "100000")
 	if postgres {
 		openAssistantKeyPostgresHarness(t)
+		persistCreditDenominationFixture(t, model.DB)
 		levelOne := model.TrustLevelMinUser + 1
 		require.NoError(t, model.DB.Create(&model.User{Id: 705, Username: "public-topup-user", Password: "not-used-in-test",
 			Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "PUB705", TrustLevelOverride: &levelOne}).Error)
@@ -286,6 +290,7 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	require.Equal(t, "33597440", order.DiscountQualifyingAmount)
 	require.Equal(t, "CREDIT", order.DiscountQualifyingUnit, "historical coupon unit retains its ledger quota contract")
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(250000)))
+	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.USDExchangeRate = 9
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
 	settlement := model.ExternalTopUpSettlement{TradeNo: order.TradeNo, PaymentProvider: model.PaymentProviderEpay,
@@ -311,4 +316,62 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	require.EqualValues(t, 33597440, order.CreditedQuota)
 	require.EqualValues(t, 56700000, order.ExpectedAmountMicros)
 	require.EqualValues(t, 16798720, order.RefundedQuota)
+}
+
+func TestPublicTopUpCreditReadsOtherNodeDurableDenominationImmediately(t *testing.T) {
+	publicTopUpCreditTestConfig(t, "100000")
+	// Another node has saved P; this process still holds the old local cache.
+	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
+	cached, err := common.PublicCreditsPerUSD()
+	require.NoError(t, err)
+	require.Equal(t, "100000", cached.String())
+	response := publicCreditRequest(t, func(c *gin.Context) {
+		amount, ok := canonicalTopUpCredit(c)
+		require.True(t, ok)
+		require.EqualValues(t, 1679872, amount.CreditedQuota)
+		c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, gin.H{}, "CREDIT", amount.LegacyBatch, amount.CreditedQuota, "USD"))
+	}, 0, `{"amount":100000,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"200000"}`)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var decoded struct {
+		PublicExact  string `json:"public_credits_per_usd_exact"`
+		PublicAmount string `json:"public_credit_amount"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &decoded))
+	require.Equal(t, "200000", decoded.PublicExact)
+	require.Equal(t, "100000", decoded.PublicAmount)
+	metadata, err := topUpCreditMetadata(nil)
+	require.NoError(t, err)
+	require.Equal(t, "200000", metadata["public_credits_per_usd_exact"])
+}
+
+func TestPublicTopUpCreditInvalidDurableConfigurationDoesNotUseStaleCache(t *testing.T) {
+	for _, tc := range []struct{ name, key, value string }{
+		{"missing ledger basis", model.CreditsPerUSDOptionKey, ""},
+		{"missing legacy scale", model.LegacyPricingQuotaPerUnitOptionKey, ""},
+		{"missing active scale", "QuotaPerUnit", ""},
+		{"ledger mismatch", model.CreditsPerUSDOptionKey, "3359745"},
+		{"active scale mismatch", "QuotaPerUnit", "300000"},
+		{"zero public denomination", model.PublicCreditsPerUSDOptionKey, "0"},
+		{"fractional public denomination", model.PublicCreditsPerUSDOptionKey, "100000.5"},
+		{"unsafe public denomination", model.PublicCreditsPerUSDOptionKey, "9007199254740992"},
+		{"database failure", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			publicTopUpCreditTestConfig(t, "100000")
+			if tc.key == "" {
+				require.NoError(t, model.DB.Migrator().DropTable(&model.Option{}))
+			} else if tc.value == "" {
+				require.NoError(t, model.DB.Delete(&model.Option{}, "key = ?", tc.key).Error)
+			} else {
+				require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", tc.key).Update("value", tc.value).Error)
+			}
+			response := publicCreditRequest(t, func(c *gin.Context) { t.Fatal("unverified durable basis must not reach a quote or order") }, 0,
+				`{"amount":100000,"amount_unit":"LEDGER_QUOTA","credit_metadata_version":2}`)
+			require.Equal(t, http.StatusServiceUnavailable, response.Code, response.Body.String())
+			info := withTopUpPublicCreditMetadata(gin.H{"pay_methods": []map[string]string{}}).(gin.H)
+			require.Equal(t, false, info["credit_metadata_available"])
+			require.NotContains(t, info, "public_credits_per_usd_exact")
+			require.NotContains(t, info, "public_credit_amount_options")
+		})
+	}
 }

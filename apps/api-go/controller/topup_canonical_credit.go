@@ -95,7 +95,7 @@ func requireVersionedTopUpCredit(c *gin.Context, requiredVersion int) {
 	}
 	var units common.CreditDenomination
 	if version == 2 {
-		units, err = common.CreditDenominationMetadata()
+		units, err = model.CreditDenominationSnapshot()
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "error", "data": "充值额度配置无效"})
 			return

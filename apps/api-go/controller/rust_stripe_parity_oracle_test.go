@@ -32,10 +32,16 @@ func preserveRustStripeOraclePricing(t *testing.T) {
 	previousQuota := common.QuotaPerUnit
 	previousCredits, previousErr := common.CreditsPerUSD()
 	previousLegacy, previousLegacyErr := common.LegacyPricingQuotaPerUnit()
+	previousPublic, previousPublicErr := common.PublicCreditsPerUSD()
 	// Restore the complete immutable basis after preserveChannelPricing's
 	// cleanup, including a legacy calibration different from the live setting.
 	t.Cleanup(func() {
 		common.QuotaPerUnit = previousQuota
+		if previousPublicErr != nil || (previousErr == nil && previousPublic.Equal(previousCredits)) {
+			common.ClearPublicCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetPublicCreditsPerUSD(previousPublic))
+		}
 		if previousErr != nil {
 			common.ClearCreditsPerUSD()
 		} else {
@@ -50,6 +56,7 @@ func preserveRustStripeOraclePricing(t *testing.T) {
 	// The shared Stripe fixture starts at 7.3 CNY/USD and bonus 2. Install
 	// its literal initialization anchor instead of the generic 6.8/1 fixture.
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(7300000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000)))
 }
 
 func TestRustStripeOraclePricingRestoresCurrencyBasis(t *testing.T) {
@@ -97,6 +104,14 @@ func TestRustStripeCurrentGoOracle(t *testing.T) {
 	preservePaymentGatewaySettings(t)
 	confirmPaymentComplianceForTest(t)
 	setupTopupInfoUser(t, 7, "default")
+	persistCreditDenominationFixture(t, model.DB)
+	var optionRows []model.Option
+	require.NoError(t, model.DB.Where("key IN ?", []string{model.CreditsPerUSDOptionKey, model.LegacyPricingQuotaPerUnitOptionKey, "QuotaPerUnit", model.PublicCreditsPerUSDOptionKey}).Find(&optionRows).Error)
+	require.Len(t, optionRows, 4)
+	currencyOptions := make(map[string]string, 4)
+	for _, row := range optionRows {
+		currencyOptions[row.Key] = row.Value
+	}
 	previousLog, previousInviter := model.LOG_DB, common.QuotaForInviter
 	previousServer := system_setting.ServerAddress
 	previousPromotion := setting.StripePromotionCodesEnabled
@@ -165,7 +180,16 @@ func TestRustStripeCurrentGoOracle(t *testing.T) {
 	quoteContext.Request = httptest.NewRequest("POST", "/api/user/stripe/amount", strings.NewReader(`{"amount":14.600001}`))
 	quoteContext.Request.Header.Set("Content-Type", "application/json")
 	RequestStripeAmount(quoteContext)
-	require.JSONEq(t, `{"message":"success","data":"1.00","amount_unit":"LEGACY","currency_unit":"credit","credit_amount":7300000,"credited_quota":7300000,"legacy_batch_units":"14.600001","settlement_currency":"USD"}`, quoteWriter.Body.String())
+	require.JSONEq(t, `{
+		"message":"success","data":"1.00","amount_unit":"LEGACY","currency_unit":"credit",
+		"credit_amount":7300000,"credited_quota":7300000,"legacy_batch_units":"14.600001","settlement_currency":"USD",
+		"credit_amount_unit":"LEDGER_QUOTA","credit_unit_schema_version":2,"quota_unit":"LEDGER_QUOTA",
+		"public_credit_unit":"CREDIT","legacy_credit_unit":"LEDGER_QUOTA","ledger_quota_per_usd":7300000,
+		"ledger_quota_per_usd_exact":"7300000","public_credits_per_usd":100000,"public_credits_per_usd_exact":"100000",
+		"public_credit_amount":"100000","public_credit_amount_unit":"CREDIT","public_credit_metadata_version":2
+	}`, quoteWriter.Body.String())
+	var quoteResponse map[string]any
+	require.NoError(t, json.Unmarshal(quoteWriter.Body.Bytes(), &quoteResponse))
 	requestBody := `{"amount":14.6,"payment_method":"stripe"}`
 	writer := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(writer)
@@ -235,7 +259,7 @@ func TestRustStripeCurrentGoOracle(t *testing.T) {
 	require.NoError(t, model.DB.Model(&model.Log{}).Where("type=6").Count(&refundLogs).Error)
 	goldenPayload := `{"id":"evt_fixed","type":"checkout.session.completed","data":{"object":{"id":"cs_fixed"}}}`
 	goldenTimestamp := time.Unix(1700000000, 0)
-	result := map[string]any{"request": json.RawMessage(requestBody), "response": response, "checkout_fields": fields, "persisted_before_checkout": persisted, "amount": order.Amount, "platform_amount_micros": order.PlatformAmountMicros, "credited_quota": order.CreditedQuota, "expected_amount_micros": order.ExpectedAmountMicros, "settled_amount_micros": order.SettledAmountMicros, "currency": order.SettlementCurrency, "callback_statuses": statuses, "wallet_after_payment": walletAfterPayment, "topup_logs": topupLogs, "refund_statuses": refundStatuses, "partial_wallet": partialQuota, "final_wallet": payer.Quota, "refunded_amount_micros": order.RefundedAmountMicros, "refunded_quota": order.RefundedQuota, "inviter_aff_quota": inviter.AffQuota, "refund_ledger_count": ledgers, "refund_logs": refundLogs, "payer_email": payer.Email, "stripe_customer": payer.StripeCustomer, "signature_payload": goldenPayload, "signature_header": fmt.Sprintf("t=%d,v1=%s", goldenTimestamp.Unix(), hex.EncodeToString(webhook.ComputeSignature(goldenTimestamp, []byte(goldenPayload), "whsec_fixture")))}
+	result := map[string]any{"quote_response": quoteResponse, "currency_options": currencyOptions, "request": json.RawMessage(requestBody), "response": response, "checkout_fields": fields, "persisted_before_checkout": persisted, "amount": order.Amount, "platform_amount_micros": order.PlatformAmountMicros, "credited_quota": order.CreditedQuota, "expected_amount_micros": order.ExpectedAmountMicros, "settled_amount_micros": order.SettledAmountMicros, "currency": order.SettlementCurrency, "callback_statuses": statuses, "wallet_after_payment": walletAfterPayment, "topup_logs": topupLogs, "refund_statuses": refundStatuses, "partial_wallet": partialQuota, "final_wallet": payer.Quota, "refunded_amount_micros": order.RefundedAmountMicros, "refunded_quota": order.RefundedQuota, "inviter_aff_quota": inviter.AffQuota, "refund_ledger_count": ledgers, "refund_logs": refundLogs, "payer_email": payer.Email, "stripe_customer": payer.StripeCustomer, "signature_payload": goldenPayload, "signature_header": fmt.Sprintf("t=%d,v1=%s", goldenTimestamp.Unix(), hex.EncodeToString(webhook.ComputeSignature(goldenTimestamp, []byte(goldenPayload), "whsec_fixture")))}
 	encoded, err := json.MarshalIndent(result, "", "  ")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(output, append(encoded, '\n'), 0600))

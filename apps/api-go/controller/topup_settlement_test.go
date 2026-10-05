@@ -194,6 +194,7 @@ func configureNeutralTopUpInfoTest(t *testing.T) {
 	operation_setting.PayMethods = []map[string]string{{
 		"name": "LDC", "type": "epay", "product_id": "prod-secret",
 	}}
+	persistCreditDenominationFixture(t, model.DB)
 }
 
 func TestGetTopUpInfoReturnsNeutralDataWhenDeveloperAccessIsDenied(t *testing.T) {

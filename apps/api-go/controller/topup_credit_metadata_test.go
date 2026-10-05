@@ -10,15 +10,20 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func preserveTopUpCreditMetadataConfig(t *testing.T) {
 	t.Helper()
 	previousAnchor, previousAnchorErr := common.CreditsPerUSD()
+	previousPublic, previousPublicErr := common.PublicCreditsPerUSD()
 	previousLegacy, previousLegacyErr := common.LegacyPricingQuotaPerUnit()
 	previousRuntimeQ := common.QuotaPerUnit
+	previousDB := model.DB
+	previousDatabaseType := common.MainDatabaseType()
 	general := operation_setting.GetGeneralSetting()
 	previousDisplay := general.QuotaDisplayType
 	previousFX := operation_setting.USDExchangeRate
@@ -32,10 +37,17 @@ func preserveTopUpCreditMetadataConfig(t *testing.T) {
 	previousPancakeMinimum := setting.WaffoPancakeMinTopUp
 	t.Cleanup(func() {
 		common.QuotaPerUnit = previousRuntimeQ
+		model.DB = previousDB
+		common.SetMainDatabaseType(previousDatabaseType)
 		if previousAnchorErr != nil || previousLegacyErr != nil {
 			common.ClearCreditsPerUSD()
 		} else {
 			require.NoError(t, common.SetCreditCurrencyBasis(previousAnchor, previousLegacy))
+		}
+		if previousPublicErr != nil || (previousAnchorErr == nil && previousPublic.Equal(previousAnchor)) {
+			common.ClearPublicCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetPublicCreditsPerUSD(previousPublic))
 		}
 		general.QuotaDisplayType = previousDisplay
 		operation_setting.USDExchangeRate = previousFX
@@ -60,6 +72,16 @@ func preserveTopUpCreditMetadataConfig(t *testing.T) {
 	setting.StripeMinTopUp = 2
 	setting.WaffoMinTopUp = 3
 	setting.WaffoPancakeMinTopUp = 4
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	model.DB = db
+	persistCreditDenominationFixture(t, db)
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		require.NoError(t, sqlDB.Close())
+	})
 }
 
 func cloneTopUpCreditMetadataMethods(methods []map[string]string) []map[string]string {
@@ -165,6 +187,7 @@ func TestTopUpCreditMetadataRoundsUSDDirectlyToCredits(t *testing.T) {
 	operation_setting.MinTopUp = 0
 	common.QuotaPerUnit = 300000
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(300000)))
+	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.PayMethods = []map[string]string{
 		{"name": "One-credit minimum", "type": "min-one", "min_topup": "0.0000002"},
 		{"name": "Two-credit minimum", "type": "min-two", "min_topup": "0.0000003"},
@@ -186,6 +209,7 @@ func TestTopUpCreditMetadataRoundsFractionalLegacyScaleAtLedgerBoundary(t *testi
 	preserveTopUpCreditMetadataConfig(t)
 	common.QuotaPerUnit = 1.25
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.RequireFromString("1.25")))
+	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1: 0.9, 10: 1.2}
 	methods := []map[string]string{{
 		"name": "Automatic", "type": "stripe", "min_topup": "1.1",
@@ -204,6 +228,7 @@ func TestTopUpCreditMetadataDedicatedAliasesContainCompletePolicies(t *testing.T
 	preserveTopUpCreditMetadataConfig(t)
 	common.QuotaPerUnit = 300000
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(300000)))
+	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.MinTopUp = 20
 	operation_setting.PayMethods = []map[string]string{
 		{"name": "Waffo first", "type": model.PaymentMethodWaffo, "min_topup": "1", "max_topup": "5"},
@@ -260,6 +285,7 @@ func TestTopUpCreditMetadataStripeMaximumUsesMostRestrictiveCap(t *testing.T) {
 	preserveTopUpCreditMetadataConfig(t)
 	common.QuotaPerUnit = 300000
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(300000)))
+	persistCreditDenominationFixture(t, model.DB)
 	for _, tc := range []struct {
 		name, configuredMaximum string
 		maximum                 int64
@@ -404,6 +430,7 @@ func TestTopUpCreditMetadataRejectsInvalidConfigurationWithoutPartialMutation(t 
 		{"conflicting rounded discount thresholds", func(t *testing.T, _ []map[string]string) {
 			common.QuotaPerUnit = 0.25
 			require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.RequireFromString("0.25")))
+			persistCreditDenominationFixture(t, model.DB)
 			operation_setting.GetPaymentSetting().AmountOptions = []int{4}
 			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{4: 0.9, 5: 0.8}
 		}},

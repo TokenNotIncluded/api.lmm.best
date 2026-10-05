@@ -62,6 +62,7 @@ func preserveChannelPricing(t *testing.T) {
 
 func setupTopupInfoUser(t *testing.T, id int, group string) {
 	t.Helper()
+	installIdentityCurrencyFixture(t)
 	previousDB := model.DB
 	previousDatabaseType := common.MainDatabaseType()
 	previousRedisEnabled := common.RedisEnabled
@@ -71,6 +72,7 @@ func setupTopupInfoUser(t *testing.T, id int, group string) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}))
 	model.DB = db
+	persistCreditDenominationFixture(t, db)
 	levelOne := model.TrustLevelMinUser + 1
 	require.NoError(t, db.Create(&model.User{
 		Id:                 id,
