@@ -50,7 +50,7 @@ INSERT INTO fixture_money.tokens VALUES (10,1,680,false);
 ALTER TABLE fixture_money.users ADD COLUMN request_count bigint DEFAULT 0,ADD COLUMN aff_history bigint DEFAULT 0,ADD COLUMN aff_count bigint DEFAULT 0,ADD COLUMN status bigint DEFAULT 1,ADD COLUMN deleted_at timestamptz;
 ALTER TABLE fixture_money.tokens ADD COLUMN used_quota bigint DEFAULT 0,ADD COLUMN status bigint DEFAULT 1,ADD COLUMN created_time bigint DEFAULT 0,ADD COLUMN accessed_time bigint DEFAULT 0,ADD COLUMN expired_time bigint DEFAULT -1,ADD COLUMN deleted_at timestamptz;
 """)
-    snapshot = {"version": 1, "applied_migration_ids": [],
+    snapshot = {"version": 1, "snapshot_state":"frozen_writers_stopped", "applied_migration_ids": [],
                 "target": {"database": "postgres", "schema": "fixture_money",
                            "system_identifier": ok(base, input="SELECT system_identifier FROM pg_control_system();")},
                 "topups": [{"id":20,"user_id":1,"status":"success","credited_quota":6800,"amount":0,"platform_amount_micros":0,"settled_amount_micros":1000,"expected_amount_micros":1000,"refunded_quota":680,"refunded_amount_micros":100,"money":"0.001","payment_provider":"stripe","payment_method":"stripe","settlement_currency":"USD","effective_credited_quota":6800,"paid_amount_micros":1000,"is_legacy_linuxdo_credit_topup":False}],
@@ -168,6 +168,13 @@ TRUNCATE fixture_money.open_source_bounty_disputes;
 
     sql = render()
     original = wallet()
+    for state in ("unspecified","provisional_live_not_frozen"):
+        unfrozen=copy.deepcopy(snapshot)
+        unfrozen["snapshot_state"]=state
+        rejected=run(base,input=render(unfrozen))
+        assert rejected.returncode != 0 and "frozen_writers_stopped attestation required" in rejected.stderr
+        assert wallet()==original
+        assert ok(base,input="SELECT to_regclass('fixture_money.wallet_credit_rebases') IS NULL;")=="t"
     for field, wrong in [("database", "wrong_database"), ("system_identifier", "0"), ("schema", "wrong_schema")]:
         bad = copy.deepcopy(snapshot)
         bad["target"][field] = wrong

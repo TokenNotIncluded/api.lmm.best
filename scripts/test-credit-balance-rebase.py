@@ -163,6 +163,19 @@ class RebaseTests(unittest.TestCase):
         self.assertEqual(plan["business_plan_sha256"],cloned["business_plan_sha256"])
         self.assertEqual(plan["business_source_sha256"],cloned["business_source_sha256"])
 
+    def test_production_sql_requires_explicit_frozen_writer_attestation(self):
+        for state in ("unspecified", "provisional_live_not_frozen", "frozen_writers_stopped"):
+            snapshot=copy.deepcopy(self.snapshot)
+            snapshot["snapshot_state"]=state
+            plan=r.make_plan(snapshot,**self.kw,restore_fixed_anchors=True)
+            sql=r.postgres_sql(plan)
+            if state=="frozen_writers_stopped":
+                self.assertEqual(plan["production_apply_supported"],"reviewed_postgres_sql_only")
+                self.assertNotIn("RAISE EXCEPTION 'review-only credit rebase SQL",sql)
+            else:
+                self.assertIs(plan["production_apply_supported"],False)
+                self.assertLess(sql.index("RAISE EXCEPTION 'review-only credit rebase SQL"),sql.index("LOCK TABLE"))
+
     def test_obligations_cannot_be_skipped_with_other_scope_disabled(self):
         snapshot = copy.deepcopy(self.snapshot)
         snapshot["obligations"]["tasks_refund_pending"] = 1

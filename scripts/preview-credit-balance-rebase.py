@@ -226,7 +226,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             "entries": entries, "refund_bases": refund_bases, "noncash_topups": noncash_topups, "option_guards": option_guards, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
                 k: sum(e[k] for e in entries if e["table"] == "users" and e["field"] == "quota")
                 for k in ("before_credit", "after_credit", "delta_credit")},
-            "production_apply_supported": "reviewed_postgres_sql_only" if restore_fixed_anchors and snapshot_state!="provisional_live_not_frozen" else False,
+            "production_apply_supported": "reviewed_postgres_sql_only" if restore_fixed_anchors and snapshot_state=="frozen_writers_stopped" else False,
             "required_before_apply": ["Confirm affected users, exact divisor, rounding and non-wallet rights scope",
                 "Stop all writers; drain reservations, pending settlement and refunds",
                 "Resolve pending legacy payment callbacks and escrow rights",
@@ -266,6 +266,14 @@ def postgres_sql(plan):
     delimiter = "$credit_rebase_" + plan["plan_sha256"] + "$"
     while delimiter in plan_json:
         delimiter = delimiter[:-1] + "x$"
+    freeze_guard = ""
+    if plan.get("snapshot_state") != "frozen_writers_stopped":
+        freeze_guard = f"""DO {delimiter}
+BEGIN
+    RAISE EXCEPTION 'review-only credit rebase SQL: frozen_writers_stopped attestation required';
+END
+{delimiter};
+"""
     updates = []
     for e in plan["entries"]:
         # All table/column identifiers come exclusively from make_plan's allowlist.
@@ -347,6 +355,7 @@ SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '60s';
 SET LOCAL standard_conforming_strings = on;
 SET LOCAL search_path = pg_catalog;
+{freeze_guard}
 DO {delimiter}
 BEGIN
     IF pg_catalog.current_database() <> {database} THEN RAISE EXCEPTION 'target database mismatch'; END IF;

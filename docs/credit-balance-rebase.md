@@ -204,6 +204,8 @@ SQL 明确锁定全部套餐、订单、catalog、付款和退款表，核对全
 
 正式快照使用 `scripts/export-credit-rebase-frozen-private.sql`：同一个 REPEATABLE READ READ ONLY 事务导出目标 cluster/database/schema/OID、全部用户（含软删）、全部 token（含无限额）、成功/可恢复待支付 topup、全部权益/套餐/邀请、金融定价原字符串及审计 id。审计表尚不存在时只读探测返回空 id 列表，不创建表。所有金融来源列明确列出，排除身份凭证和 provider payload。
 
+只有明确的 `snapshot_state=frozen_writers_stopped` 才支持执行联合 SQL。生产仍写入的 `provisional_live_not_frozen` 和未声明的 `unspecified` 可生成供审阅的 SQL，但事务第一条业务前检查直接抛错，任何余额、DDL 或审计均不执行。真实隔离克隆演练也须先确认克隆无写入，再明确声明冻结状态并重新生成计划和摘要；不能靠改 SQL 注释或目标身份解除这一门槛。
+
 从 api-go 模块目录运行 `go run -p 1 /absolute/path/scripts/enrich-credit-rebase-facts-private.go --input PRIVATE_RAW --output PRIVATE_NEW`，只对文件中的成功与待支付 topup 调用现有 Go authority，并保留原始 facts。工具没有数据库初始化、连接或执行 SQL，输出新文件以 0600 创建并 fsync，拒绝覆盖旧文件。原始 `QuotaPerUnit` 仅用于还原旧 authority 的归一化行为，不能改变迁移的永久 500000 USD anchor 或冻结 FX 除数。
 
 `user_sources/token_sources` 记录完整钱包与 token 的金融/使用历史、归属、状态和软删标记。联合 SQL 要求两份数组完整；只读 CAS/count 比较 used_quota、request_count、aff_history、时间戳及无限额 flag，不更新任何历史字段。快照选项中所有不写入的金融定价原字符串均受保留保护，恢复候选的 before 必须与同一冻结快照精确一致。
