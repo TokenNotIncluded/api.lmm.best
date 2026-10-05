@@ -263,11 +263,11 @@ beforeEach(async () => {
     currency: {
       ...originalConfig.currency,
       currencyUnit: 'credit',
-      creditsPerUsd: 100_000,
-      creditsPerUsdExact: '100000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
-      legacyPricingUnitsPerUsd: 14,
+      legacyPricingUnitsPerUsd: 1,
     },
   })
   api.get = (async (url: string) => {
@@ -331,12 +331,12 @@ for (const {
   },
   {
     currency: 'CREDIT',
-    input: '400,000 Credits',
-    output: '2,000,000 Credits',
-    cache: '40,000 Credits',
-    estimate: '8,000 Credits',
-    perRequest: '1,800 Credits',
-    perMonth: '5,400,000 Credits',
+    input: '2,000,000 Credits',
+    output: '10,000,000 Credits',
+    cache: '200,000 Credits',
+    estimate: '40,000 Credits',
+    perRequest: '9,000 Credits',
+    perMonth: '27,000,000 Credits',
   },
 ] as const) {
   test(`public ${currency} quotes stay at base rates while groups only filter availability`, async () => {
