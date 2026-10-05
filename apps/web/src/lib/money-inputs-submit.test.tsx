@@ -130,17 +130,15 @@ function button(text: string) {
 }
 async function render(component: 'subscription' | 'bounty') {
   const requests: Array<{ url: string; data: Record<string, unknown> }> = []
-  useSystemConfigStore
-    .getState()
-    .setConfig({
-      currency: {
-        ...DEFAULT_CURRENCY_CONFIG,
-        currencyUnit: 'credit',
-        creditsPerUsd: 3000000,
-        cnyPerUsd: 7.2,
-        legacyPricingUnitsPerUsd: 6,
-      },
-    })
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 3000000,
+      cnyPerUsd: 7.2,
+      legacyPricingUnitsPerUsd: 6,
+    },
+  })
   useWalletCurrencyPreferenceStore.getState().setPreference('USD')
   api.get = (async (url: string) => {
     let data: unknown = []

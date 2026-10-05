@@ -93,17 +93,15 @@ async function change(input: HTMLInputElement, text: string) {
   })
 }
 async function renderEditor(value: string, scale = 5) {
-  useSystemConfigStore
-    .getState()
-    .setConfig({
-      currency: {
-        ...DEFAULT_CURRENCY_CONFIG,
-        currencyUnit: 'credit',
-        creditsPerUsd: scale * 500000,
-        cnyPerUsd: 7.2,
-        legacyPricingUnitsPerUsd: scale,
-      },
-    })
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: scale * 500000,
+      cnyPerUsd: 7.2,
+      legacyPricingUnitsPerUsd: scale,
+    },
+  })
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)

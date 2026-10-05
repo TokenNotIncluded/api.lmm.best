@@ -110,20 +110,18 @@ after(() => domWindow.close())
 
 describe('AssistantLeadsPanel', () => {
   test('prioritizes pending work and moves a completed task to history', async () => {
-    useSystemConfigStore
-      .getState()
-      .setConfig({
-        currency: {
-          ...DEFAULT_CURRENCY_CONFIG,
-          currencyUnit: 'credit',
-          creditsPerUsd: 3000000,
-          creditsPerUsdExact: '3000000',
-          cnyPerUsd: 7.2,
-          cnyPerUsdExact: '7.2',
-          legacyPricingUnitsPerUsd: 30,
-          quotaPerUnit: 100000,
-        },
-      })
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        currencyUnit: 'credit',
+        creditsPerUsd: 3000000,
+        creditsPerUsdExact: '3000000',
+        cnyPerUsd: 7.2,
+        cnyPerUsdExact: '7.2',
+        legacyPricingUnitsPerUsd: 30,
+        quotaPerUnit: 100000,
+      },
+    })
     useWalletCurrencyPreferenceStore.getState().setPreference('USD')
     let pending = [
       {
