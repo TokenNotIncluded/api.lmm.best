@@ -54,8 +54,24 @@ INSERT INTO fixture_money.tokens VALUES (10,1,680,false);
                             "LegacyPricingQuotaPerUnit": "500000", "QuotaPerUnit": "500000"},
                 "price_review": {"status": "verified", "evidence": "synthetic $credit_rebase$ quote ' and slash \\ fixture",
                                  "option_corrections": []}}
+    from credit_rebase_entitlements import SPECS
+    def entity_source(table, **overrides):
+        row = {key: 0 for key in SPECS[table]["int"]}
+        row.update({key: "" for key in SPECS[table]["text"]})
+        row.update({key: None for key in SPECS[table]["null"]})
+        return row | overrides
+    red = entity_source("redemptions", id=30, user_id=1, quota=680, status=1, reward_type="quota")
+    bounty = entity_source("open_source_bounty_projects", id=50, owner_user_id=1, escrow_quota=6800, reward_quota=680, net_reward_quota=612, platform_fee_quota=68, status="published")
+    challenge = entity_source("open_source_bounty_challenges", id=60, project_id=50, participant_user_id=2, reward_quota=612, tip_quota=125, status="accepted")
+    for table, row in [("redemptions", red), ("open_source_bounty_projects", bounty), ("open_source_bounty_challenges", challenge)]:
+        spec = SPECS[table]
+        columns = ["id bigint PRIMARY KEY"] + [key + " bigint" for key in spec["int"]] + [key + " text" for key in spec["text"]] + [key + " timestamptz" for key in spec["null"]]
+        values = ["NULL" if value is None else r.sql_literal(value) if isinstance(value, str) else str(value) for value in row.values()]
+        ok(base, input=f"CREATE TABLE fixture_money.{table} (" + ",".join(columns) + "); INSERT INTO fixture_money." + table + " (" + ",".join(row.keys()) + ") VALUES (" + ",".join(values) + ");")
+    snapshot["snapshot_at"] = 100
+    snapshot["entities"] = {"redemptions":[red], "bounty_projects":[bounty], "bounty_challenges":[challenge]}
     kw = dict(divisor_text="6.8", migration_id="fixture-v1", user_ids=[1, 2],
-              rounding="half-away-from-zero", restore_fixed_anchors=True, include_token_limits=True)
+              rounding="half-away-from-zero", restore_fixed_anchors=True, include_token_limits=True, include_redemptions=True, include_bounties=True)
 
     def render(source=snapshot, **overrides):
         return r.postgres_sql(r.make_plan(source, **(kw | overrides)))
@@ -70,6 +86,10 @@ UPDATE fixture_money.options SET value=CASE WHEN key='USDExchangeRate' THEN '6.8
 UPDATE fixture_money.users SET quota=CASE WHEN id=1 THEN 500000000 ELSE -86911 END;
 UPDATE fixture_money.tokens SET user_id=1, remain_quota=680;
 UPDATE fixture_money.top_ups SET refunded_quota=680;
+UPDATE fixture_money.redemptions SET quota=680,user_id=1;
+UPDATE fixture_money.open_source_bounty_projects SET escrow_quota=6800,reward_quota=680,net_reward_quota=612,updated_at=0;
+UPDATE fixture_money.open_source_bounty_challenges SET reward_quota=612,participant_user_id=2;
+
 """)
 
     sql = render()
@@ -81,6 +101,9 @@ UPDATE fixture_money.top_ups SET refunded_quota=680;
         assert wallet() == original
     ok(base, input=sql)
     assert ok(base, input="SELECT refundable_quota FROM fixture_money.wallet_topup_credit_rebases WHERE top_up_id=20;") == "900"
+    assert ok(base, input="SELECT quota FROM fixture_money.redemptions WHERE id=30;") == "100"
+    assert ok(base, input="SELECT escrow_quota,platform_fee_quota FROM fixture_money.open_source_bounty_projects WHERE id=50;") == "1000|68"
+    assert ok(base, input="SELECT reward_quota,tip_quota FROM fixture_money.open_source_bounty_challenges WHERE id=60;") == "90|125"
     first = wallet()
     assert first == "1|73529412|123\n2|-12781|45", first
     assert ok(base, input="SELECT count(*) FROM fixture_money.options WHERE value='500000';") == "4"
@@ -94,7 +117,10 @@ UPDATE fixture_money.top_ups SET refunded_quota=680;
                      "UPDATE fixture_money.options SET value='unexpected-anchor' WHERE key='CreditsPerUSD';",
                      "UPDATE fixture_money.tokens SET user_id=2 WHERE id=10;",
                      "UPDATE fixture_money.top_ups SET refunded_quota=681 WHERE id=20;",
-                     "UPDATE fixture_money.options SET value='6.710363' WHERE key='USDExchangeRate';"]:
+                     "UPDATE fixture_money.options SET value='6.710363' WHERE key='USDExchangeRate';",
+                     "UPDATE fixture_money.redemptions SET user_id=2 WHERE id=30;",
+                     "UPDATE fixture_money.open_source_bounty_projects SET updated_at=1 WHERE id=50;",
+                     "UPDATE fixture_money.open_source_bounty_challenges SET participant_user_id=1 WHERE id=60;"]:
         reset()
         ok(base, input=conflict)
         before = wallet()

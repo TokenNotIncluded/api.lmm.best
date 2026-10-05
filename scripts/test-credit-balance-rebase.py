@@ -55,6 +55,28 @@ class RebaseTests(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 r.make_plan(snapshot, **(self.kw | overrides))
 
+    def test_explicit_future_entitlements_preserve_paid_history(self):
+        from credit_rebase_entitlements import SPECS
+        snapshot = copy.deepcopy(self.snapshot)
+        def source(table, **overrides):
+            row = {key: 0 for key in SPECS[table]["int"]}
+            row.update({key: "" for key in SPECS[table]["text"]})
+            row.update({key: None for key in SPECS[table]["null"]})
+            return row | overrides
+        snapshot["snapshot_at"] = 100
+        snapshot["entities"] = {
+            "redemptions": [source("redemptions", id=30, user_id=1, quota=680, status=1, reward_type="quota")],
+            "bounty_projects": [source("open_source_bounty_projects", id=50, owner_user_id=1, escrow_quota=6800, reward_quota=680, net_reward_quota=612, platform_fee_quota=68, status="published")],
+            "bounty_challenges": [source("open_source_bounty_challenges", id=60, project_id=50, participant_user_id=2, reward_quota=612, tip_quota=125, status="accepted")]}
+        plan = r.make_plan(snapshot, **self.kw, include_redemptions=True, include_bounties=True)
+        self.assertEqual(len(plan["entity_updates"]), 3)
+        for e in plan["entity_updates"]:
+            self.assertNotIn("tip_quota", e["updates"])
+            self.assertNotIn("platform_fee_quota", e["updates"])
+        snapshot["entities"]["bounty_challenges"][0]["paid_at"] = 1
+        with self.assertRaises(ValueError):
+            r.make_plan(snapshot, **self.kw, include_bounties=True)
+
     def test_divisor_is_frozen_production_fx(self):
         bad = copy.deepcopy(self.snapshot)
         bad["options"]["USDExchangeRate"] = "6.710363"

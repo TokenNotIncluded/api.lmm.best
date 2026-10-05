@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import sys
+from credit_rebase_entitlements import make_entities, render_entities
 
 MAX_QUOTA = (1 << 53) - 1
 
@@ -27,7 +28,7 @@ def scale_credit(value, divisor, rounding):
 
 
 def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
-              include_affiliate=False, include_token_limits=False, restore_fixed_anchors=False):
+              include_affiliate=False, include_token_limits=False, restore_fixed_anchors=False, include_redemptions=False, include_bounties=False):
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,18})?", divisor_text):
         raise ValueError("divisor must be an explicit positive decimal, not a float or expression")
     divisor = Fraction(divisor_text)
@@ -171,6 +172,8 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 entries[-1]["user_id"] = uid
     entries.sort(key=lambda e: (e["table"], e["id"], e["field"]))
     source_digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    entity_updates = make_entities(snapshot, selected, lambda value: scale_credit(value, divisor, rounding),
+                                   include_redemptions=include_redemptions, include_bounties=include_bounties)
     plan = {"version": 1, "kind": "offline_credit_balance_rebase_preview",
             "migration_id": migration_id, "target": dict(target), "source_sha256": source_digest,
             "usd_credit_conversion": 500000, "divisor": divisor_text,
@@ -179,6 +182,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             "rounding": rounding, "user_ids": sorted(selected),
             "include_affiliate": include_affiliate, "include_token_limits": include_token_limits,
             "price_review_evidence": snapshot.get("price_review", {}).get("evidence") if restore_fixed_anchors else None,
+            "entity_updates": entity_updates, "include_redemptions": include_redemptions, "include_bounties": include_bounties, "snapshot_at": snapshot.get("snapshot_at"),
             "entries": entries, "refund_bases": refund_bases, "option_guards": option_guards, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
                 k: sum(e[k] for e in entries if e["table"] == "users" and e["field"] == "quota")
                 for k in ("before_credit", "after_credit", "delta_credit")},
@@ -251,6 +255,10 @@ def postgres_sql(plan):
     refund_checks.insert(0, f"IF (SELECT count(*) FROM {schema}.top_ups WHERE status='success' AND user_id=ANY(ARRAY[{user_ids}]::bigint[]) AND (credited_quota<>0 OR amount<>0)) <> {expected_count} THEN RAISE EXCEPTION 'paid wallet topup snapshot incomplete'; END IF;")
     refund_checks_sql = "\n".join(refund_checks)
     refund_inserts_sql = "\n".join(refund_inserts)
+    entity_checks, entity_statements, entity_locks = render_entities(plan, schema, sql_literal)
+    refund_checks.extend(entity_checks)
+    refund_checks_sql = "\n".join(refund_checks)
+    updates.extend(entity_statements)
     affiliate_lock = f", {schema}.referral_rewards" if plan["include_affiliate"] else ""
     if plan["include_affiliate"]:
         refund_checks.append(f"IF EXISTS (SELECT 1 FROM {schema}.referral_rewards WHERE inviter_id=ANY(ARRAY[{user_ids}]::bigint[])) THEN RAISE EXCEPTION 'historical referral clawback/restore bases require adaptation'; END IF;")
@@ -274,7 +282,7 @@ BEGIN
 END
 {delimiter};
 SELECT pg_advisory_xact_lock(500000, 680001);
-LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options, {schema}.top_ups{affiliate_lock} IN ACCESS EXCLUSIVE MODE;
+LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options, {schema}.top_ups{affiliate_lock}{entity_locks} IN ACCESS EXCLUSIVE MODE;
 CREATE TABLE IF NOT EXISTS {schema}.wallet_credit_rebases (
     migration_id text PRIMARY KEY,
     plan_sha256 text NOT NULL,
@@ -328,6 +336,8 @@ def main():
     parser.add_argument("--rounding", required=True, choices=("half-away-from-zero", "toward-zero"))
     parser.add_argument("--include-affiliate", action="store_true")
     parser.add_argument("--include-token-limits", action="store_true")
+    parser.add_argument("--include-redemptions", action="store_true")
+    parser.add_argument("--include-bounties", action="store_true")
     parser.add_argument("--restore-fixed-anchors", action="store_true", help="Combine anchors and independently reviewed price corrections")
     parser.add_argument("--emit-postgres-sql", action="store_true", help="Render SQL only; never execute it")
     parser.add_argument("--reviewed-plan-sha256", help="Exact hash from a previously reviewed JSON preview")
@@ -336,7 +346,8 @@ def main():
         snapshot = json.loads(args.snapshot.read_text(), parse_constant=lambda s: (_ for _ in ()).throw(ValueError(s)))
         plan = make_plan(snapshot, divisor_text=args.divisor, migration_id=args.migration_id,
                          user_ids=args.user_id, rounding=args.rounding,
-                         include_affiliate=args.include_affiliate, include_token_limits=args.include_token_limits, restore_fixed_anchors=args.restore_fixed_anchors)
+                         include_affiliate=args.include_affiliate, include_token_limits=args.include_token_limits, restore_fixed_anchors=args.restore_fixed_anchors,
+                         include_redemptions=args.include_redemptions, include_bounties=args.include_bounties)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(2, f"error: {error}\n")
     if args.emit_postgres_sql:
