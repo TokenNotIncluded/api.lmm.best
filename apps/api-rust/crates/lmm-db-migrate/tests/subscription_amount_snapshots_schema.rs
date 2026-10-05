@@ -4,6 +4,8 @@ use postgres::{Client, NoTls};
 const MIGRATION_SQL: &str =
     include_str!("../../../migrations/0018_subscription_amount_snapshots.sql");
 
+type SubscriptionAmountRow = (i64, i64, i64, Option<i64>, Option<i64>);
+
 #[test]
 #[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
 fn subscription_amount_snapshots_preserve_null_zero_and_existing_balances() {
@@ -52,7 +54,7 @@ fn subscription_amount_snapshots_preserve_null_zero_and_existing_balances() {
         .unwrap();
     transaction.batch_execute(&sql).unwrap();
     verify_subscription_amount_snapshots_schema(&mut transaction, &schema).unwrap();
-    let amounts: Vec<(i64, i64, i64, Option<i64>, Option<i64>)> = transaction
+    let amounts: Vec<SubscriptionAmountRow> = transaction
         .query(
             &format!(
                 "SELECT id,amount_total,amount_used,reset_amount,renewal_amount \
