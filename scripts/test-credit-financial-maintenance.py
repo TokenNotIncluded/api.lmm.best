@@ -266,7 +266,9 @@ class ControllerTests(unittest.TestCase):
 class RealCloneTests(unittest.TestCase):
     def test_full_archive_restore_owned_clone_identity_and_readonly_verification(self):
         self.assertNotEqual(os.geteuid(), 0)
-        with tempfile.TemporaryDirectory(prefix='cr-pg-', dir=Path.home()/'.cache') as temporary:
+        cache = Path.home()/'.cache'
+        cache.mkdir(mode=0o700, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='cr-pg-', dir=cache) as temporary:
             base = Path(temporary)
             origin, socket, work = base/'origin', base/'origin-socket', base/'controller'
             socket.mkdir(mode=0o700)
