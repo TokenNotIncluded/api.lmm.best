@@ -8,7 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use chrono::Utc;
-use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde_json::{Value, json};
 use sqlx::Row;
 use std::collections::{BTreeMap, BTreeSet};
@@ -35,6 +35,79 @@ fn context_error() -> Response {
 }
 fn price_error() -> Response {
     failure(StatusCode::SERVICE_UNAVAILABLE, "pricing unavailable")
+}
+// Immutable Credit calibration is independent of the current fiat FX.
+struct CurrencyUnits {
+    anchor: Decimal,
+    baseline: Decimal,
+}
+impl CurrencyUnits {
+    fn from_options(options: &BTreeMap<String, String>) -> Result<Self, Response> {
+        let positive = |key: &str, fallback: Option<&str>| {
+            options
+                .get(key)
+                .map(String::as_str)
+                .or(fallback)
+                .and_then(|value| Decimal::from_str_exact(value).ok())
+                .filter(|value| *value > Decimal::ZERO)
+                .ok_or_else(|| {
+                    failure(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "pricing currency units unavailable",
+                    )
+                })
+        };
+        Ok(Self {
+            anchor: positive("CreditsPerUSD", None)?,
+            baseline: positive(
+                "LegacyPricingQuotaPerUnit",
+                options
+                    .get("QuotaPerUnit")
+                    .map(String::as_str)
+                    .or(Some("500000")),
+            )?,
+        })
+    }
+    fn price(&self, amount: f64, legacy: bool) -> Result<Value, Response> {
+        if !amount.is_finite() || amount < 0.0 {
+            return Err(price_error());
+        }
+        let raw = float_json(amount);
+        let decimal = Decimal::from_str_exact(&raw)
+            .or_else(|_| Decimal::from_scientific(&raw))
+            .map_err(|_| price_error())?;
+        let numerator = if legacy {
+            decimal.checked_mul(self.baseline).ok_or_else(price_error)?
+        } else {
+            decimal
+                .checked_mul(Decimal::from(1_000_000))
+                .ok_or_else(price_error)?
+        };
+        let result = numerator
+            .checked_div(self.anchor)
+            .and_then(|v| v.to_f64())
+            .ok_or_else(price_error)?;
+        if result == 0.0 && amount != 0.0 {
+            return Err(price_error());
+        }
+        finite_number(result)
+    }
+    fn expression(&self, expression: &str) -> Result<String, Response> {
+        let scale = self
+            .anchor
+            .checked_div(self.baseline)
+            .ok_or_else(price_error)?
+            .normalize();
+        if scale <= Decimal::ZERO {
+            return Err(price_error());
+        }
+        let (prefix, body) = if let Some(body) = expression.strip_prefix("v1:") {
+            ("v1:", body)
+        } else {
+            ("", expression)
+        };
+        Ok(format!("{prefix}({body}) / ({scale})"))
+    }
 }
 fn object(
     options: &BTreeMap<String, String>,
@@ -240,6 +313,10 @@ pub(super) async fn response(
     if !unit.is_finite() || unit <= 0.0 {
         return price_error();
     }
+    let currency = match CurrencyUnits::from_options(&context.options) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
     let discount = match discount(state, token, &context).await {
         Ok(value) => value,
         Err(response) => return response,
@@ -315,7 +392,7 @@ pub(super) async fn response(
                     .map_err(|_| price_error())?
                     .and_then(|value| value.get(group).and_then(Value::as_f64));
                 let ratio = special.unwrap_or(ordinary) * discount;
-                let mut entry = json!({"model":name,"group":group,"currency":"USD","group_ratio":finite_number(ratio)?,"trust_discount_ratio":finite_number(discount)?});
+                let mut entry = json!({"pricing_schema_version":2,"model":name,"group":group,"currency":"USD","group_ratio":finite_number(ratio)?,"trust_discount_ratio":finite_number(discount)?});
                 let expression = lookup(&context, "billing_setting.billing_mode", &name)
                     .map_err(|_| price_error())?
                     .is_some_and(|value| value == "tiered_expr");
@@ -329,12 +406,12 @@ pub(super) async fn response(
                     entry["billing_mode"] = json!("tiered_expr");
                     entry["unit"] = json!("expression");
                     if !expression.is_empty() {
-                        entry["billing_expression"] = json!(expression);
+                        entry["billing_expression"] = json!(currency.expression(&expression)?);
                     }
                 } else if let Some(price) = number(&context, "ModelPrice", matched)? {
                     entry["billing_mode"] = json!("per_request");
                     entry["unit"] = json!("request");
-                    entry["request_price"] = finite_number(price * ratio)?;
+                    entry["request_price"] = currency.price(price * ratio, true)?;
                 } else {
                     let Some(model) = number(&context, "ModelRatio", matched)? else {
                         return Ok(None);
@@ -360,8 +437,9 @@ pub(super) async fn response(
                             entry[key] = finite_number(value)?;
                         }
                     }
-                    let input = model * ratio * 1_000_000.0 / unit;
-                    entry["input_price"] = finite_number(input)?;
+                    let input = currency.price(model * ratio, false)?;
+                    entry["input_price"] = input.clone();
+                    let input = input.as_f64().ok_or_else(price_error)?;
                     entry["output_price"] = finite_number(input * completion)?;
                 }
                 Ok(Some(entry))
@@ -378,7 +456,7 @@ pub(super) async fn response(
     }
     pricing_json(
         StatusCode::OK,
-        json!({"success":true,"data":result,"updated_at":Utc::now().timestamp(),"scope":"token","price_basis":"configured_base_rates","final_cost_depends_on_usage":true}),
+        json!({"success":true,"data":result,"updated_at":Utc::now().timestamp(),"scope":"token","pricing_schema_version":2,"pricing_currency":"USD","price_basis":"configured_base_rates","final_cost_depends_on_usage":true}),
     )
 }
 
@@ -447,6 +525,37 @@ fn pricing_json(status: StatusCode, body: Value) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn immutable_currency_anchor_normalizes_prices_and_preserves_expressions() {
+        let mut options = BTreeMap::from([
+            ("CreditsPerUSD".into(), "4000000".into()),
+            ("LegacyPricingQuotaPerUnit".into(), "500000".into()),
+            ("USDExchangeRate".into(), "7.3".into()),
+        ]);
+        let units =
+            CurrencyUnits::from_options(&options).unwrap_or_else(|_| panic!("valid currency"));
+        assert_eq!(
+            units.price(1.25, false).unwrap_or(Value::Null),
+            json!(0.3125)
+        );
+        assert_eq!(units.price(0.04, true).unwrap_or(Value::Null), json!(0.005));
+        assert_eq!(
+            units.expression("v1:p * 2 + c * 4").ok().as_deref(),
+            Some("v1:(p * 2 + c * 4) / (8)")
+        );
+        options.insert("USDExchangeRate".into(), "99".into());
+        let changed =
+            CurrencyUnits::from_options(&options).unwrap_or_else(|_| panic!("valid currency"));
+        assert_eq!(
+            changed.price(1.25, false).unwrap_or(Value::Null),
+            json!(0.3125)
+        );
+        options.remove("CreditsPerUSD");
+        assert!(CurrencyUnits::from_options(&options).is_err());
+        options.insert("CreditsPerUSD".into(), "NaN".into());
+        assert!(CurrencyUnits::from_options(&options).is_err());
+    }
 
     #[test]
     fn floats_keep_current_go_decimal_and_exponent_spelling() {

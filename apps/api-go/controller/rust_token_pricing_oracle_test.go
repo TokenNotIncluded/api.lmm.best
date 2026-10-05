@@ -19,6 +19,7 @@ func TestRustTokenPricingCurrentGoOracle(t *testing.T) {
 	if output == "" {
 		t.Skip("explicit current Go token pricing export was not selected")
 	}
+	preservePaymentCreditAnchor(t, "500000")
 	previous := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { previous[key] = value; return nil }))
 	oldUnit := common.QuotaPerUnit
@@ -35,6 +36,8 @@ func TestRustTokenPricingCurrentGoOracle(t *testing.T) {
 	})
 	options := map[string]string{
 		"QuotaPerUnit":                          "500000",
+		"CreditsPerUSD":                         "500000",
+		"LegacyPricingQuotaPerUnit":             "500000",
 		"ModelRatio":                            `{"gpt-4o":1.25,"secret":2,"zero":0,"claude-3-5-sonnet":2,"vendor/claude-3-5-sonnet":2,"gpt-4-gizmo-*":1}`,
 		"CacheRatio":                            `{"gpt-4o":0.5,"claude-3-5-sonnet":0.1}`,
 		"CreateCacheRatio":                      `{"claude-3-5-sonnet":1.25}`,
