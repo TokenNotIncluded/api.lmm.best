@@ -58,37 +58,22 @@ func LedgerQuotaToPublicCredits(quota int64) (decimal.Decimal, error) {
 	if quota < MinWalletQuota || quota > MaxWalletQuota {
 		return decimal.Zero, errors.New("ledger quota is outside the safe wallet domain")
 	}
-	ledger, err := LedgerQuotaPerUSD()
+	units, err := CreditDenominationMetadata()
 	if err != nil {
 		return decimal.Zero, err
 	}
-	public, err := PublicCreditsPerUSD()
-	if err != nil {
-		return decimal.Zero, err
-	}
-	return decimal.NewFromInt(quota).Mul(public).DivRound(ledger, 64), nil
+	return units.ProjectLedgerQuota(quota)
 }
 
 // PublicCreditsToLedgerQuota belongs only to explicitly versioned CREDIT
 // input boundaries. Existing quota inputs and paid-order integers never pass
 // through it. Positive fractional ledger dust is floored, never overgranted.
 func PublicCreditsToLedgerQuota(amount decimal.Decimal) (int64, error) {
-	if amount.IsNegative() || amount.Exponent() < -18 || amount.Exponent() > 18 || len(amount.Coefficient().String()) > 80 {
-		return 0, errors.New("public credit amount is invalid")
-	}
-	ledger, err := LedgerQuotaPerUSD()
+	units, err := CreditDenominationMetadata()
 	if err != nil {
 		return 0, err
 	}
-	public, err := PublicCreditsPerUSD()
-	if err != nil {
-		return 0, err
-	}
-	quotient, _ := amount.Mul(ledger).QuoRem(public, 0)
-	if quotient.GreaterThan(decimal.NewFromInt(MaxWalletQuota)) || (amount.IsPositive() && !quotient.IsPositive()) {
-		return 0, errors.New("public credit amount is outside the representable ledger domain")
-	}
-	return quotient.IntPart(), nil
+	return units.ResolvePublicCredits(amount)
 }
 
 // CreditDenomination identifies compatibility quota fields independently of
@@ -119,4 +104,58 @@ func CreditDenominationMetadata() (CreditDenomination, error) {
 		return CreditDenomination{}, ErrCreditUnitsUnavailable
 	}
 	return CreditDenomination{CreditUnitSchemaVersion: PublicCreditUnitSchemaVersion, QuotaUnit: LedgerQuotaUnit, PublicCreditUnit: PublicCreditUnit, LegacyCreditUnit: LedgerQuotaUnit, LedgerQuotaPerUSD: l, LedgerQuotaPerUSDExact: ledger.String(), PublicCreditsPerUSD: p, PublicCreditsPerUSDExact: public.String()}, nil
+}
+
+// ProjectLedgerQuota uses one captured denomination for a complete response.
+// An administrator changing PublicCreditsPerUSD cannot mix one response's
+// public amount with another generation's metadata.
+func (units CreditDenomination) ProjectLedgerQuota(quota int64) (decimal.Decimal, error) {
+	if quota < MinWalletQuota || quota > MaxWalletQuota {
+		return decimal.Zero, errors.New("ledger quota is outside the safe wallet domain")
+	}
+	ledger, public, err := units.basis()
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return decimal.NewFromInt(quota).Mul(public).DivRound(ledger, 64), nil
+}
+
+func (units CreditDenomination) ResolvePublicCredits(amount decimal.Decimal) (int64, error) {
+	if amount.IsNegative() || amount.Exponent() < -18 || amount.Exponent() > 18 || len(amount.Coefficient().String()) > 80 {
+		return 0, errors.New("public credit amount is invalid")
+	}
+	ledger, public, err := units.basis()
+	if err != nil {
+		return 0, err
+	}
+	quotient, _ := amount.Mul(ledger).QuoRem(public, 0)
+	if quotient.GreaterThan(decimal.NewFromInt(MaxWalletQuota)) || (amount.IsPositive() && !quotient.IsPositive()) {
+		return 0, errors.New("public credit amount is outside the representable ledger domain")
+	}
+	return quotient.IntPart(), nil
+}
+
+func (units CreditDenomination) basis() (decimal.Decimal, decimal.Decimal, error) {
+	invalid := func() (decimal.Decimal, decimal.Decimal, error) {
+		return decimal.Zero, decimal.Zero, ErrCreditUnitsUnavailable
+	}
+	if units.CreditUnitSchemaVersion != PublicCreditUnitSchemaVersion || units.QuotaUnit != LedgerQuotaUnit || units.PublicCreditUnit != PublicCreditUnit || units.LegacyCreditUnit != LedgerQuotaUnit {
+		return invalid()
+	}
+	parse := func(raw string, number float64) (decimal.Decimal, bool) {
+		if len(raw) == 0 || len(raw) > 80 || number <= 0 || math.IsNaN(number) || math.IsInf(number, 0) {
+			return decimal.Zero, false
+		}
+		value, err := decimal.NewFromString(raw)
+		if err != nil || value.Exponent() < -18 || value.Exponent() > 18 || !value.IsPositive() || value.GreaterThan(decimal.NewFromInt(MaxWalletQuota)) || value.InexactFloat64() != number {
+			return decimal.Zero, false
+		}
+		return value, true
+	}
+	ledger, ledgerOK := parse(units.LedgerQuotaPerUSDExact, units.LedgerQuotaPerUSD)
+	public, publicOK := parse(units.PublicCreditsPerUSDExact, units.PublicCreditsPerUSD)
+	if !ledgerOK || !publicOK {
+		return invalid()
+	}
+	return ledger, public, nil
 }

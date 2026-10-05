@@ -93,3 +93,28 @@ func TestPublicCreditProjectionKeepsFractionalAndSignedAmounts(t *testing.T) {
 	_, err = LedgerQuotaToPublicCredits(1)
 	require.ErrorIs(t, err, ErrCreditUnitsUnavailable)
 }
+
+func TestCapturedPublicBasisStaysCoherentAcrossOptionChanges(t *testing.T) {
+	preservePublicCreditFixture(t)
+	require.NoError(t, SetPublicCreditsPerUSD(decimal.NewFromInt(100000)))
+	units, err := CreditDenominationMetadata()
+	require.NoError(t, err)
+	require.NoError(t, SetPublicCreditsPerUSD(decimal.NewFromInt(200000)))
+	amount, err := units.ProjectLedgerQuota(3359744)
+	require.NoError(t, err)
+	require.Equal(t, "100000", amount.String())
+	quota, err := units.ResolvePublicCredits(decimal.NewFromInt(100000))
+	require.NoError(t, err)
+	require.Equal(t, int64(3359744), quota)
+	current, err := LedgerQuotaToPublicCredits(3359744)
+	require.NoError(t, err)
+	require.Equal(t, "200000", current.String())
+	bad := units
+	bad.PublicCreditsPerUSDExact = "200000"
+	_, err = bad.ProjectLedgerQuota(1)
+	require.ErrorIs(t, err, ErrCreditUnitsUnavailable)
+	bad = units
+	bad.QuotaUnit = PublicCreditUnit
+	_, err = bad.ResolvePublicCredits(decimal.NewFromInt(1))
+	require.ErrorIs(t, err, ErrCreditUnitsUnavailable)
+}

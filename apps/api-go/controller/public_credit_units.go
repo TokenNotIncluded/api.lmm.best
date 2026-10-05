@@ -10,6 +10,10 @@ func creditUnitMetadataFields() (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
+	return creditUnitMetadataFieldsFor(units), nil
+}
+
+func creditUnitMetadataFieldsFor(units common.CreditDenomination) gin.H {
 	return gin.H{
 		"credit_unit_schema_version":   units.CreditUnitSchemaVersion,
 		"quota_unit":                   units.QuotaUnit,
@@ -19,7 +23,7 @@ func creditUnitMetadataFields() (gin.H, error) {
 		"ledger_quota_per_usd_exact":   units.LedgerQuotaPerUSDExact,
 		"public_credits_per_usd":       units.PublicCreditsPerUSD,
 		"public_credits_per_usd_exact": units.PublicCreditsPerUSDExact,
-	}, nil
+	}
 }
 
 func addCreditUnitMetadata(fields gin.H) error {
