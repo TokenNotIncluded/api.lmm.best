@@ -17,11 +17,17 @@ func setupCreditUnitsDB(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&Option{}, &TopUp{}))
 	previous, err := common.CreditsPerUSD()
+	previousLegacy, _ := common.LegacyPricingQuotaPerUnit()
+	previousQ := common.QuotaPerUnit
+	previousOptionMap := common.OptionMap
+	common.OptionMap = map[string]string{}
 	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQ
+		common.OptionMap = previousOptionMap
 		if err != nil {
 			common.ClearCreditsPerUSD()
 		} else {
-			require.NoError(t, common.SetCreditsPerUSD(previous))
+			require.NoError(t, common.SetCreditCurrencyBasis(previous, previousLegacy))
 		}
 	})
 	common.ClearCreditsPerUSD()
@@ -64,6 +70,41 @@ func TestCreditUnitsInitializationFixedAndPreservesHistory(t *testing.T) {
 	var fx Option
 	require.NoError(t, DB.First(&fx, "key = ?", "USDExchangeRate").Error)
 	require.Equal(t, "8", fx.Value, "immutable-anchor rejection rolls back all supplied options")
+	require.Error(t, UpdateOption("QuotaPerUnit", "1000000"))
+	require.Error(t, UpdateOptionsBulk(map[string]string{"QuotaPerUnit": "1000000", "USDExchangeRate": "9"}))
+	require.NoError(t, UpdateOption("QuotaPerUnit", "500000.0"), "numeric-equivalent legacy calibration remains idempotent")
+	var calibration Option
+	require.NoError(t, DB.Where("key = ?", LegacyPricingQuotaPerUnitOptionKey).First(&calibration).Error)
+	require.Equal(t, "500000", calibration.Value)
+	require.Error(t, UpdateOption(LegacyPricingQuotaPerUnitOptionKey, "500000"), "baseline cannot be edited even through ordinary options")
+}
+
+func TestCreditUnitsLegacyCalibrationFreezeAndDriftDetection(t *testing.T) {
+	setupCreditUnitsDB(t)
+	require.NoError(t, UpdateOption("QuotaPerUnit", "750000"), "before initialization the existing calibration remains configurable")
+	require.NoError(t, InitializeCreditUnits(t.Context()))
+	anchor, err := common.CreditsPerUSD()
+	require.NoError(t, err)
+	require.Equal(t, "6562500", anchor.String())
+	legacy, err := common.LegacyPricingQuotaPerUnit()
+	require.NoError(t, err)
+	require.Equal(t, "750000", legacy.String())
+	require.Error(t, UpdateOption("QuotaPerUnit", "500000"))
+	// Simulate an older binary bypassing the new option guard. New startup
+	// verification must detect the authoritative calibration drift.
+	require.NoError(t, DB.Model(&Option{}).Where("key = ?", "QuotaPerUnit").Update("value", "1000000").Error)
+	require.Error(t, updateOptionMap("QuotaPerUnit", "1000000"))
+	require.Equal(t, float64(750000), common.QuotaPerUnit)
+	snapshot, refreshErr := RefreshOptionsSnapshot(t.Context())
+	require.NoError(t, refreshErr)
+	require.Equal(t, float64(750000), common.QuotaPerUnit, "old-binary DB changes cannot alter the running node's actual debit scale on refresh")
+	require.Equal(t, "750000", snapshot["QuotaPerUnit"])
+	canonical, bridgeErr := common.LegacyAmountToUSD(decimal.NewFromInt(7))
+	require.NoError(t, bridgeErr)
+	require.Equal(t, "0.8", canonical.String())
+	require.Error(t, VerifyCreditUnits(t.Context()))
+	_, err = common.CreditsPerUSD()
+	require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
 }
 
 func TestCreditUnitsConcurrentInitialization(t *testing.T) {
@@ -136,11 +177,14 @@ func TestCreditUnitsPostgresConcurrentInitialization(t *testing.T) {
 	t.Cleanup(func() { DB = previousDB })
 	usePostgresDatabaseType(t)
 	previous, previousErr := common.CreditsPerUSD()
+	previousLegacy, _ := common.LegacyPricingQuotaPerUnit()
+	previousQ := common.QuotaPerUnit
 	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQ
 		if previousErr != nil {
 			common.ClearCreditsPerUSD()
 		} else {
-			require.NoError(t, common.SetCreditsPerUSD(previous))
+			require.NoError(t, common.SetCreditCurrencyBasis(previous, previousLegacy))
 		}
 	})
 	common.ClearCreditsPerUSD()
@@ -178,4 +222,50 @@ func TestCreditUnitsPostgresConcurrentInitialization(t *testing.T) {
 	anchor, err := common.CreditsPerUSD()
 	require.NoError(t, err)
 	require.Equal(t, "4375000", anchor.String())
+}
+
+func TestCreditUnitsPostgresCalibrationInitializationFence(t *testing.T) {
+	db := openIsolatedPostgresCacheTestDB(t, &Option{})
+	previousDB, previousMap, previousQ := DB, common.OptionMap, common.QuotaPerUnit
+	previous, previousErr := common.CreditsPerUSD()
+	previousLegacy, _ := common.LegacyPricingQuotaPerUnit()
+	DB, common.OptionMap = db, map[string]string{}
+	usePostgresDatabaseType(t)
+	t.Cleanup(func() {
+		DB, common.OptionMap, common.QuotaPerUnit = previousDB, previousMap, previousQ
+		if previousErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(previous, previousLegacy))
+		}
+	})
+	for key, value := range map[string]string{"QuotaPerUnit": "500000", "USDExchangeRate": "7", "TopUpPlatformUnitsPerCNY": "1.25"} {
+		require.NoError(t, db.Create(&Option{Key: key, Value: value}).Error)
+	}
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	var initErr, updateErr error
+	wait.Add(2)
+	go func() { defer wait.Done(); <-start; initErr = InitializeCreditUnits(t.Context()) }()
+	go func() { defer wait.Done(); <-start; updateErr = UpdateOption("QuotaPerUnit", "1000000") }()
+	close(start)
+	wait.Wait()
+	require.NoError(t, initErr)
+	require.NoError(t, VerifyCreditUnits(t.Context()))
+	anchor, err := common.CreditsPerUSD()
+	require.NoError(t, err)
+	baseline, err := common.LegacyPricingQuotaPerUnit()
+	require.NoError(t, err)
+	if updateErr == nil {
+		require.Equal(t, "1000000", baseline.String())
+		require.Equal(t, "8750000", anchor.String())
+	} else {
+		require.ErrorContains(t, updateErr, "immutable")
+		require.Equal(t, "500000", baseline.String())
+		require.Equal(t, "4375000", anchor.String())
+	}
+	require.Error(t, UpdateOptionsBulk(map[string]string{"QuotaPerUnit": "2000000", "USDExchangeRate": "99"}))
+	var rate Option
+	require.NoError(t, db.Where("key = ?", "USDExchangeRate").First(&rate).Error)
+	require.Equal(t, "7", rate.Value)
 }

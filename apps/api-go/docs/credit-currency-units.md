@@ -10,6 +10,18 @@ financial ledger entries are not rewritten. Retained legacy price tables use
 `CreditsPerUSD / QuotaPerUnit` to expose equivalent real USD prices. Subsequent
 exchange-rate or recharge-setting edits do not change the anchor.
 
+`LegacyPricingQuotaPerUnit` captures the retained pricing calibration in the
+same transaction. After initialization, ordinary and bulk option writes may
+only re-save the numerically identical `QuotaPerUnit`; they cannot change it.
+The baseline itself is read-only. Canonical USD bridges reject a node whose
+runtime calibration differs from this baseline, and startup verification
+rejects authoritative database drift (including writes by older binaries).
+Runtime settings refresh also refuses a mismatched calibration and preserves
+the running node's fixed debit scale instead of applying an older writer's edit.
+This prevents a USD price edit on one node from being charged using another
+node's different legacy scale. No new pricing change should be made through
+an older binary while the fleet is rolling between currency versions.
+
 Before starting a new binary in verify mode, run its normal `migrate --apply`
 command against the intended database. Apply mode initializes the option;
 `migrate --verify` and verify-mode server startup only read and validate it.

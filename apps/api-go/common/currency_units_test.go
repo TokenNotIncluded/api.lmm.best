@@ -11,11 +11,12 @@ import (
 func preserveCreditAnchor(t *testing.T) {
 	t.Helper()
 	previous, err := CreditsPerUSD()
+	previousLegacy, _ := LegacyPricingQuotaPerUnit()
 	t.Cleanup(func() {
 		if err != nil {
 			ClearCreditsPerUSD()
 		} else {
-			require.NoError(t, SetCreditsPerUSD(previous))
+			require.NoError(t, SetCreditCurrencyBasis(previous, previousLegacy))
 		}
 	})
 }
@@ -62,4 +63,10 @@ func TestCreditUnitsTrueFiatAndLegacyBridge(t *testing.T) {
 	QuotaPerUnit = math.NaN()
 	_, err = LegacyPricingUnitsPerUSD()
 	require.Error(t, err)
+	QuotaPerUnit = 1000000
+	_, err = LegacyAmountToUSD(decimal.NewFromInt(1))
+	require.Error(t, err, "stale runtime calibration must not silently quote a different USD price")
+	legacy, err = LegacyPricingQuotaPerUnit()
+	require.NoError(t, err)
+	require.Equal(t, "500000", legacy.String(), "runtime changes cannot change the captured legacy baseline")
 }

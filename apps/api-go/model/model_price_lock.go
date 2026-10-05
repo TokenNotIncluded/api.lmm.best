@@ -330,6 +330,9 @@ func updateOptionsWithPriceLocksUSD(values map[string]string, lockModel string, 
 	var pricingSnapshot map[string]string
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCreditUnitOptionChanges(tx, values); err != nil {
+			return err
+		}
 		if usd != nil {
 			if err := validateAuthoritativePricingUnits(tx); err != nil {
 				return err

@@ -14,6 +14,7 @@ import (
 )
 
 const CreditsPerUSDOptionKey = "CreditsPerUSD"
+const LegacyPricingQuotaPerUnitOptionKey = "LegacyPricingQuotaPerUnit"
 
 // InitializeCreditUnits creates the immutable anchor without rewriting any
 // balance, price, paid order, pending order or refund snapshot. The unique
@@ -37,12 +38,23 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 		common.ClearCreditsPerUSD()
 		return common.ErrCreditUnitsUnavailable
 	}
-	var anchor decimal.Decimal
+	var anchor, legacy decimal.Decimal
 	var err error
 	for attempt := 0; attempt < 6; attempt++ {
 		err = DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if allowCreate {
+				// The legacy calibration row is also the cross-node fence for
+				// administrators racing the first currency initialization.
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: "QuotaPerUnit", Value: "500000"}).Error; err != nil {
+					return err
+				}
+				var calibration Option
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("key = ?", "QuotaPerUnit").First(&calibration).Error; err != nil {
+					return err
+				}
+			}
 			var options []Option
-			keys := []string{CreditsPerUSDOptionKey, "QuotaPerUnit", "USDExchangeRate", "TopUpPlatformUnitsPerCNY"}
+			keys := []string{CreditsPerUSDOptionKey, LegacyPricingQuotaPerUnitOptionKey, "QuotaPerUnit", "USDExchangeRate", "TopUpPlatformUnitsPerCNY"}
 			// A single authoritative snapshot avoids mixing different nodes' caches.
 			query := tx
 			if allowCreate {
@@ -66,35 +78,73 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 			if value, exists := values[CreditsPerUSDOptionKey]; exists {
 				var err error
 				anchor, err = parseCreditAnchor(value)
-				return err
-			}
-			if !allowCreate {
-				return common.ErrCreditUnitsUnavailable
-			}
-			candidate := decimal.NewFromInt(1)
-			for _, key := range keys[1:] {
-				value, err := parsePositiveCreditRate(values[key])
 				if err != nil {
-					return fmt.Errorf("invalid %s for credit initialization: %w", key, err)
+					return err
 				}
-				candidate = candidate.Mul(value)
+			} else {
+				if !allowCreate {
+					return common.ErrCreditUnitsUnavailable
+				}
+				candidate := decimal.NewFromInt(1)
+				for _, key := range []string{"QuotaPerUnit", "USDExchangeRate", "TopUpPlatformUnitsPerCNY"} {
+					value, err := parsePositiveCreditRate(values[key])
+					if err != nil {
+						return fmt.Errorf("invalid %s for credit initialization: %w", key, err)
+					}
+					candidate = candidate.Mul(value)
+				}
+				if _, err := parseCreditAnchor(candidate.String()); err != nil {
+					return err
+				}
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: CreditsPerUSDOptionKey, Value: candidate.String()}).Error; err != nil {
+					return err
+				}
+				var winner Option
+				if err := tx.Where("key = ?", CreditsPerUSDOptionKey).First(&winner).Error; err != nil {
+					return err
+				}
+				var err error
+				anchor, err = parseCreditAnchor(winner.Value)
+				if err != nil {
+					return err
+				}
 			}
-			if _, err := parseCreditAnchor(candidate.String()); err != nil {
-				return err
-			}
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: CreditsPerUSDOptionKey, Value: candidate.String()}).Error; err != nil {
-				return err
-			}
-			var winner Option
-			if err := tx.Where("key = ?", CreditsPerUSDOptionKey).First(&winner).Error; err != nil {
-				return err
+			if _, exists := values[LegacyPricingQuotaPerUnitOptionKey]; !exists {
+				if !allowCreate {
+					return common.ErrCreditUnitsUnavailable
+				}
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: LegacyPricingQuotaPerUnitOptionKey, Value: values["QuotaPerUnit"]}).Error; err != nil {
+					return err
+				}
+				var baseline Option
+				if err := tx.Where("key = ?", LegacyPricingQuotaPerUnitOptionKey).First(&baseline).Error; err != nil {
+					return err
+				}
+				values[LegacyPricingQuotaPerUnitOptionKey] = baseline.Value
 			}
 			var err error
-			anchor, err = parseCreditAnchor(winner.Value)
-			return err
+			legacy, err = parsePositiveCreditRate(values[LegacyPricingQuotaPerUnitOptionKey])
+			if err != nil {
+				return err
+			}
+			current, err := parsePositiveCreditRate(values["QuotaPerUnit"])
+			if err != nil || !current.Equal(legacy) {
+				return errors.New("legacy pricing calibration differs from immutable credit currency basis")
+			}
+			return nil
 		})
 		if err == nil {
-			return common.SetCreditsPerUSD(anchor)
+			if err := common.SetCreditCurrencyBasis(anchor, legacy); err != nil {
+				common.ClearCreditsPerUSD()
+				return err
+			}
+			common.OptionMapRWMutex.Lock()
+			common.QuotaPerUnit = legacy.InexactFloat64()
+			if common.OptionMap != nil {
+				common.OptionMap["QuotaPerUnit"] = legacy.String()
+			}
+			common.OptionMapRWMutex.Unlock()
+			return nil
 		}
 		if !isCreditInitBusy(err) {
 			break
@@ -110,6 +160,51 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 	}
 	common.ClearCreditsPerUSD()
 	return fmt.Errorf("initialize credit currency units: %w", err)
+}
+
+// lockCreditUnitOptionChanges shares the initialization calibration fence.
+// A bulk write cannot slip a new pricing scale in after the anchor is created.
+func lockCreditUnitOptionChanges(tx *gorm.DB, values map[string]string) error {
+	value, changes := values["QuotaPerUnit"]
+	if !changes {
+		return nil
+	}
+	candidate, err := parsePositiveCreditRate(value)
+	if err != nil {
+		return err
+	}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: "QuotaPerUnit", Value: "500000"}).Error; err != nil {
+		return err
+	}
+	var calibration Option
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("key = ?", "QuotaPerUnit").First(&calibration).Error; err != nil {
+		return err
+	}
+	var options []Option
+	if err := tx.Where("key IN ?", []string{CreditsPerUSDOptionKey, LegacyPricingQuotaPerUnitOptionKey}).Find(&options).Error; err != nil {
+		return err
+	}
+	var hasAnchor bool
+	var baseline string
+	for _, option := range options {
+		if option.Key == CreditsPerUSDOptionKey {
+			hasAnchor = true
+		}
+		if option.Key == LegacyPricingQuotaPerUnitOptionKey {
+			baseline = option.Value
+		}
+	}
+	if !hasAnchor {
+		return nil
+	}
+	fixed, err := parsePositiveCreditRate(baseline)
+	if err != nil {
+		return errors.New("immutable legacy pricing calibration is unavailable; run migrate --apply")
+	}
+	if !candidate.Equal(fixed) {
+		return errors.New("legacy QuotaPerUnit is immutable after credit currency initialization")
+	}
+	return nil
 }
 
 func parsePositiveCreditRate(value string) (decimal.Decimal, error) {
