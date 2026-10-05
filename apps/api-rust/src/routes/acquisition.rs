@@ -1,7 +1,9 @@
 //! Current-Go consent, attribution and promotion-link foundation.
 mod data;
 mod store;
-pub use data::{Input, Link, Visit, label, normalize, self_report, visitor_hash};
+pub use data::{
+    Input, Link, Visit, correction_reason, label, normalize, self_report, visitor_hash,
+};
 pub use store::{Error, PgAcquisitionStore};
 
 use super::legacy_http::{
@@ -60,6 +62,10 @@ pub fn router(state: AcquisitionState) -> Router {
         .route("/api/admin/acquisition/links/{id}", delete(delete_link))
         .route("/api/admin/acquisition/links/{id}/preview", get(preview))
         .route("/api/admin/acquisition/lookback", put(lookback))
+        .route(
+            "/api/admin/acquisition/users/{id}/corrections",
+            get(corrections).post(save_correction),
+        )
         .with_state(state)
 }
 #[derive(Clone, Copy)]
@@ -75,12 +81,20 @@ enum Op {
     DeleteLink,
     Preview,
     Lookback,
+    Corrections,
+    SaveCorrection,
 }
 impl Op {
     fn admin(self) -> bool {
         matches!(
             self,
-            Self::Links | Self::SaveLink | Self::DeleteLink | Self::Preview | Self::Lookback
+            Self::Links
+                | Self::SaveLink
+                | Self::DeleteLink
+                | Self::Preview
+                | Self::Lookback
+                | Self::Corrections
+                | Self::SaveCorrection
         )
     }
     fn optional(self) -> bool {
@@ -105,6 +119,8 @@ handler!(save_link, SaveLink);
 handler!(delete_link, DeleteLink);
 handler!(preview, Preview);
 handler!(lookback, Lookback);
+handler!(corrections, Corrections);
+handler!(save_correction, SaveCorrection);
 fn no_cache(mut response: Response) -> Response {
     response.headers_mut().insert(
         header::CACHE_CONTROL,
@@ -121,6 +137,12 @@ fn no_cache(mut response: Response) -> Response {
 fn failure(error: Error) -> Response {
     let message = match error {
         Error::Invalid(message) => message.to_owned(),
+        Error::Conflict(message) => {
+            return legacy_json(
+                StatusCode::CONFLICT,
+                json!({"success":false,"message":message}),
+            );
+        }
         Error::Database(sqlx::Error::RowNotFound) => "record not found".into(),
         Error::Database(error) => {
             if let Some(db) = error.as_database_error() {
@@ -241,14 +263,17 @@ async fn dispatch(state: AcquisitionState, request: Request, op: Op) -> Response
     }
     if op.admin() {
         let user = actor.as_ref().expect("admin");
-        let action = if matches!(op, Op::Links | Op::Preview) {
-            "read"
-        } else {
-            "write"
+        let actions: &[&str] = match op {
+            Op::Links | Op::Preview => &["read"],
+            Op::Corrections => &["details"],
+            Op::SaveCorrection => &["details", "write"],
+            _ => &["write"],
         };
-        match state.store.permission(user.id, user.role, action).await {
-            Ok(true) => {}
-            _ => {
+        for action in actions {
+            if !matches!(
+                state.store.permission(user.id, user.role, action).await,
+                Ok(true)
+            ) {
                 return no_cache(legacy_json(
                     StatusCode::FORBIDDEN,
                     json!({"success":false,"message":if request.headers().get(header::ACCEPT_LANGUAGE).and_then(|v|v.to_str().ok()).is_some_and(|v|v.starts_with("zh")){"无权进行此操作，权限不足"}else{"Insufficient permissions"}}),
@@ -331,6 +356,38 @@ async fn execute(
             Err(e) => failure(e),
         };
     }
+    let correction_target = if matches!(op, Op::Corrections | Op::SaveCorrection) {
+        let target = request
+            .uri()
+            .path()
+            .trim_end_matches("/corrections")
+            .rsplit('/')
+            .next()
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value > 0);
+        let Some(target) = target else {
+            return legacy_empty_response(StatusCode::BAD_REQUEST, None);
+        };
+        let target_role = match state.store.target_role(target).await {
+            Ok(Some(role)) => role,
+            Ok(None) | Err(Error::Database(sqlx::Error::RowNotFound)) => {
+                return legacy_empty_response(StatusCode::NOT_FOUND, None);
+            }
+            Err(error) => return failure(error),
+        };
+        if target_role >= 10 || (role < 100 && role <= target_role) {
+            return legacy_empty_response(StatusCode::FORBIDDEN, None);
+        }
+        if matches!(op, Op::Corrections) {
+            return match state.store.corrections(target).await {
+                Ok(value) => success(value),
+                Err(error) => failure(error),
+            };
+        }
+        Some(target)
+    } else {
+        None
+    };
     if matches!(op, Op::Preview) {
         let id = request
             .uri()
@@ -400,6 +457,8 @@ async fn execute(
     let Some(input) = parsed else {
         return if matches!(op, Op::Visit) {
             legacy_empty_response(StatusCode::NO_CONTENT, None)
+        } else if matches!(op, Op::SaveCorrection) {
+            legacy_empty_response(StatusCode::BAD_REQUEST, None)
         } else {
             failure(INVALID.into())
         };
@@ -453,6 +512,16 @@ async fn execute(
                     success(json!({"days":days}))
                 }
                 Err(e) => failure(e),
+            }
+        }
+        Op::SaveCorrection => {
+            match state
+                .store
+                .save_correction(correction_target.expect("validated target"), user_id, input)
+                .await
+            {
+                Ok(value) => success(value),
+                Err(error) => failure(error),
             }
         }
         _ => unreachable!(),

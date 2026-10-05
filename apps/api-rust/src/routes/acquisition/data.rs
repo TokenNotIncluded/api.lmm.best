@@ -48,14 +48,13 @@ impl<'de> Deserialize<'de> for Input {
                         })
                         .collect::<String>();
                     let value = match key.as_str() {
-                        "consent_version" | "created_at" | "deleted_at" | "days" => {
-                            map.next_value::<Option<i64>>()?.map(Value::from)
-                        }
+                        "consent_version" | "created_at" | "deleted_at" | "days"
+                        | "expected_revision" => map.next_value::<Option<i64>>()?.map(Value::from),
                         "consent" | "test" | "archived" => {
                             map.next_value::<Option<bool>>()?.map(Value::from)
                         }
                         "id" | "name" | "source" | "medium" | "campaign" | "content" | "target"
-                        | "landing" | "referrer" | "link_id" | "nonce" | "detail" => {
+                        | "landing" | "referrer" | "link_id" | "nonce" | "detail" | "reason" => {
                             map.next_value::<Option<String>>()?.map(Value::from)
                         }
                         _ => {
@@ -296,24 +295,45 @@ pub fn normalize(input: &Input, own_hosts: &[&str], now: i64) -> Result<Visit, &
     Ok(result)
 }
 pub fn self_report(source: &str, detail: &str) -> Result<String, &'static str> {
-    static SECRET: OnceLock<regex::Regex> = OnceLock::new();
-    let pattern=SECRET.get_or_init(||regex::Regex::new(r"(?i)(https?://|sk-[a-z0-9_-]{8,}|bearer\s+|(?:api[_-]?key|password|token|secret)\s*[:=])").unwrap());
     let detail = detail.trim();
     if !matches!(
         source,
         "search" | "community" | "social" | "documentation" | "friend" | "client" | "ai" | "other"
     ) || detail.chars().count() > 160
         || detail.contains(['\r', '\n', '\0'])
-        || pattern.is_match(detail)
+        || contains_secret(detail)
     {
         return Err(INVALID);
     }
     Ok(detail.into())
 }
 
+fn contains_secret(value: &str) -> bool {
+    static SECRET: OnceLock<regex::Regex> = OnceLock::new();
+    SECRET
+        .get_or_init(|| {
+            regex::Regex::new(
+                r"(?i)(https?://|sk-[a-z0-9_-]{8,}|bearer\s+|(?:api[_-]?key|password|token|secret)\s*[:=])",
+            )
+            .unwrap()
+        })
+        .is_match(value)
+}
+
+pub fn correction_reason(reason: &str) -> Result<String, &'static str> {
+    let reason = reason.trim();
+    if !(3..=300).contains(&reason.chars().count())
+        || reason.contains(['\r', '\n', '\0', '@'])
+        || contains_secret(reason)
+    {
+        return Err(INVALID);
+    }
+    Ok(reason.into())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Input, normalize, self_report};
+    use super::{Input, correction_reason, normalize, self_report};
     use serde_json::json;
 
     #[test]
@@ -355,5 +375,12 @@ mod tests {
         let input: Input = serde_json::from_value(value).unwrap();
         assert!(normalize(&input, &[], 123).is_err());
         assert!(self_report("community", "token=private").is_err());
+        assert_eq!(
+            correction_reason("  verified source  ").unwrap(),
+            "verified source"
+        );
+        for reason in ["no", "person@example.com", "token=private"] {
+            assert!(correction_reason(reason).is_err());
+        }
     }
 }

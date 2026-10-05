@@ -5,9 +5,11 @@ DELETE	/api/admin/acquisition/links/:id	compatibility	apps/api-rust/src/routes/a
 GET	/api/acquisition/self-report	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition attribution and consent routes introduced after the frozen legacy route inventory
 GET	/api/admin/acquisition/links	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition attribution and consent routes introduced after the frozen legacy route inventory
 GET	/api/admin/acquisition/links/:id/preview	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition attribution and consent routes introduced after the frozen legacy route inventory
+GET	/api/admin/acquisition/users/:id/corrections	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition correction routes introduced after the frozen legacy route inventory
 POST	/api/acquisition/consent	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition attribution and consent routes introduced after the frozen legacy route inventory
 POST	/api/acquisition/visit	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition attribution and consent routes introduced after the frozen legacy route inventory
 POST	/api/admin/acquisition/links	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition attribution and consent routes introduced after the frozen legacy route inventory
+POST	/api/admin/acquisition/users/:id/corrections	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition correction routes introduced after the frozen legacy route inventory
 PUT	/api/acquisition/self-report	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition attribution and consent routes introduced after the frozen legacy route inventory
 PUT	/api/admin/acquisition/lookback	compatibility	apps/api-rust/src/routes/acquisition.rs	current Go acquisition attribution and consent routes introduced after the frozen legacy route inventory
 GET	/v1/balance	compatibility	apps/api-rust/src/routes/public_catalog.rs	owner-authorized account balance introduced in current Go by PR 304 after the frozen baseline
