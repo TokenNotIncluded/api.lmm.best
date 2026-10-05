@@ -230,7 +230,10 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 			provider = "LMM built-in tool. Tool invocation is free; confirmed image generation, transfers and bounty funding retain their normal costs."
 		}
 		pricing := fmt.Sprintf("%d quota per successful tool call", execution.Tool.PriceQuota)
-		if execution.Tool.BillingMode == "input_tokens" {
+		if execution.Tool.BillingMode == "metered" {
+			rules, _ := json.Marshal(execution.Tool.BillingRules)
+			pricing = fmt.Sprintf("platform-verified usage with rules %s; reserve at most %d quota", rules, execution.Tool.PriceQuota)
+		} else if execution.Tool.BillingMode == "input_tokens" {
 			pricing = fmt.Sprintf("%d quota per million actual input tokens; reserve at most %d quota", execution.Tool.InputTokenPriceQuota, execution.Tool.PriceQuota)
 		}
 		server.AddTool(&mcp.Tool{Name: "market_tool_" + strings.ReplaceAll(execution.Tool.ToolID, "-", ""), Title: execution.Version.Name + " / " + execution.Tool.Name,

@@ -34,6 +34,8 @@ import {
   type StoredEditorCredentials,
   type ToolDefinitionChanges,
 } from './service-editor-utils'
+import { maximumUsageQuota } from './usage-pricing'
+import { UsagePricingEditor } from './usage-pricing-editor'
 
 export function ServiceEditor({
   initial: initialDetail,
@@ -87,6 +89,8 @@ export function ServiceEditor({
         billing_mode: tool.billing_mode,
         input_token_price_quota: tool.input_token_price_quota,
         max_input_tokens: tool.max_input_tokens,
+        billing_rules: tool.billing_rules,
+        available_metering_metrics: tool.available_metering_metrics,
       })) ?? []
   )
   const [selected, setSelected] = useState<string[]>(
@@ -105,16 +109,18 @@ export function ServiceEditor({
     )
   )
   const [billingModes, setBillingModes] = useState<
-    Record<string, 'free' | 'paid' | 'input_tokens'>
+    Record<string, 'free' | 'paid' | 'input_tokens' | 'metered'>
   >(() =>
     Object.fromEntries(
       tools.map((tool) => [
         tool.name,
-        tool.billing_mode === 'input_tokens'
-          ? 'input_tokens'
-          : tool.price_quota > 0
-            ? 'paid'
-            : 'free',
+        tool.billing_mode === 'metered'
+          ? 'metered'
+          : tool.billing_mode === 'input_tokens'
+            ? 'input_tokens'
+            : tool.price_quota > 0
+              ? 'paid'
+              : 'free',
       ])
     )
   )
@@ -174,6 +180,9 @@ export function ServiceEditor({
   const priceQuotas: Record<string, number | undefined> = Object.fromEntries(
     tools.map((tool) => {
       try {
+        if (billingModes[tool.name] === 'metered') {
+          return [tool.name, maximumUsageQuota(tool.billing_rules ?? [])]
+        }
         const raw = prices[tool.name] ?? '0'
         const quota = marketQuota(raw, Number)
         if (billingModes[tool.name] !== 'free' ? quota <= 0 : quota !== 0) {
@@ -195,9 +204,19 @@ export function ServiceEditor({
       }
     })
   )
-  const hasInvalidPrice = selected.some(
-    (name) => priceQuotas[name] === undefined
-  )
+  const hasInvalidPrice = selected.some((name) => {
+    const tool = tools.find((item) => item.name === name)
+    const mode = billingModes[name]
+    return (
+      priceQuotas[name] === undefined ||
+      (mode === 'input_tokens' &&
+        !tool?.available_metering_metrics?.includes('input_tokens')) ||
+      (mode === 'metered' &&
+        (tool?.billing_rules ?? []).some(
+          (rule) => !tool?.available_metering_metrics?.includes(rule.metric)
+        ))
+    )
+  })
   const credentialChoice = () =>
     editorCredentialWrite({
       mode: authMode,
@@ -319,9 +338,18 @@ export function ServiceEditor({
           .filter((tool) => selected.includes(tool.name))
           .map((tool) => ({
             ...tool,
+            available_metering_metrics: undefined,
             price_quota: priceQuotas[tool.name] ?? 0,
             billing_mode:
-              billingModes[tool.name] === 'input_tokens' ? 'input_tokens' : '',
+              billingModes[tool.name] === 'metered'
+                ? 'metered'
+                : billingModes[tool.name] === 'input_tokens'
+                  ? 'input_tokens'
+                  : '',
+            billing_rules:
+              billingModes[tool.name] === 'metered'
+                ? tool.billing_rules
+                : undefined,
             input_token_price_quota:
               billingModes[tool.name] === 'input_tokens'
                 ? marketQuota(prices[tool.name] ?? '0', Number)
@@ -673,11 +701,13 @@ export function ServiceEditor({
                           disabled={pending}
                           onChange={(event) => {
                             const mode =
-                              event.target.value === 'input_tokens'
-                                ? 'input_tokens'
-                                : event.target.value === 'paid'
-                                  ? 'paid'
-                                  : 'free'
+                              event.target.value === 'metered'
+                                ? 'metered'
+                                : event.target.value === 'input_tokens'
+                                  ? 'input_tokens'
+                                  : event.target.value === 'paid'
+                                    ? 'paid'
+                                    : 'free'
                             setBillingModes((current) => ({
                               ...current,
                               [tool.name]: mode,
@@ -697,90 +727,130 @@ export function ServiceEditor({
                         >
                           <option value='free'>{t('Free tool')}</option>
                           <option value='paid'>{t('Paid tool')}</option>
-                          <option value='input_tokens'>
+                          <option
+                            value='input_tokens'
+                            disabled={
+                              !tool.available_metering_metrics?.includes(
+                                'input_tokens'
+                              )
+                            }
+                          >
                             {t('Input token usage')}
+                          </option>
+                          <option
+                            value='metered'
+                            disabled={!tool.available_metering_metrics?.length}
+                          >
+                            {t('Combined usage pricing')}
                           </option>
                         </select>
                       </Field>
-                      <Field>
-                        <FieldLabel htmlFor={`price-${tool.name}`}>
-                          {t(
-                            billingModes[tool.name] === 'input_tokens'
-                              ? 'Price per million input tokens'
-                              : 'Price per successful call'
-                          )}{' '}
-                          ({label})
-                        </FieldLabel>
-                        <Input
-                          id={`price-${tool.name}`}
-                          inputMode='decimal'
-                          type='number'
-                          min='0'
-                          step={step}
-                          value={
-                            priceDrafts[tool.name]?.key === inputCurrencyKey
-                              ? priceDrafts[tool.name].input
-                              : prices[tool.name] === ''
-                                ? ''
-                                : quotaToInput(Number(prices[tool.name] ?? '0'))
-                          }
-                          aria-invalid={priceQuota === undefined}
-                          disabled={pending}
-                          onChange={(e) => {
-                            const raw = e.target.value
-                            setPriceDrafts((current) => ({
-                              ...current,
-                              [tool.name]: {
-                                key: inputCurrencyKey,
-                                input: raw,
-                              },
-                            }))
-                            let quota = ''
-                            try {
-                              quota = String(marketQuota(raw, amountToQuota))
-                            } catch {
-                              /* Invalid draft cannot be submitted. */
+                      {billingModes[tool.name] !== 'metered' && (
+                        <Field>
+                          <FieldLabel htmlFor={`price-${tool.name}`}>
+                            {t(
+                              billingModes[tool.name] === 'input_tokens'
+                                ? 'Price per million input tokens'
+                                : 'Price per successful call'
+                            )}{' '}
+                            ({label})
+                          </FieldLabel>
+                          <Input
+                            id={`price-${tool.name}`}
+                            inputMode='decimal'
+                            type='number'
+                            min='0'
+                            step={step}
+                            value={
+                              priceDrafts[tool.name]?.key === inputCurrencyKey
+                                ? priceDrafts[tool.name].input
+                                : prices[tool.name] === ''
+                                  ? ''
+                                  : quotaToInput(
+                                      Number(prices[tool.name] ?? '0')
+                                    )
                             }
-                            setPrices((current) => ({
-                              ...current,
-                              [tool.name]: quota,
-                            }))
-                            if (
-                              Number(raw) > 0 &&
-                              billingModes[tool.name] !== 'input_tokens'
-                            ) {
-                              setBillingModes((current) => ({
+                            aria-invalid={priceQuota === undefined}
+                            disabled={pending}
+                            onChange={(e) => {
+                              const raw = e.target.value
+                              setPriceDrafts((current) => ({
                                 ...current,
-                                [tool.name]: 'paid',
+                                [tool.name]: {
+                                  key: inputCurrencyKey,
+                                  input: raw,
+                                },
                               }))
-                            }
-                          }}
+                              let quota = ''
+                              try {
+                                quota = String(marketQuota(raw, amountToQuota))
+                              } catch {
+                                /* Invalid draft cannot be submitted. */
+                              }
+                              setPrices((current) => ({
+                                ...current,
+                                [tool.name]: quota,
+                              }))
+                              if (
+                                Number(raw) > 0 &&
+                                billingModes[tool.name] !== 'input_tokens'
+                              ) {
+                                setBillingModes((current) => ({
+                                  ...current,
+                                  [tool.name]: 'paid',
+                                }))
+                              }
+                            }}
+                          />
+                          {billingModes[tool.name] !== 'free' &&
+                            priceQuota === undefined && (
+                              <FieldDescription className='text-destructive'>
+                                {t('Enter a positive price for a paid tool.')}
+                              </FieldDescription>
+                            )}
+                          {billingModes[tool.name] !== 'input_tokens' &&
+                            priceQuota !== undefined &&
+                            feeBps !== undefined &&
+                            Number.isSafeInteger(feeBps) &&
+                            feeBps >= 0 &&
+                            feeBps <= 10000 && (
+                              <FieldDescription>
+                                {t(
+                                  'You receive {{amount}} per successful call after the {{fee}}% platform fee.',
+                                  {
+                                    amount: formatQuota(
+                                      marketNetQuota(priceQuota, feeBps)
+                                    ),
+                                    fee: feeBps / 100,
+                                  }
+                                )}
+                              </FieldDescription>
+                            )}
+                        </Field>
+                      )}
+                      {!tool.available_metering_metrics?.length && (
+                        <p className='text-muted-foreground col-span-full text-sm'>
+                          {t(
+                            'Usage pricing requires a platform-controlled meter. Unverified tool reports cannot be billed.'
+                          )}
+                        </p>
+                      )}
+                      {billingModes[tool.name] === 'metered' && (
+                        <UsagePricingEditor
+                          rules={tool.billing_rules ?? []}
+                          metrics={tool.available_metering_metrics ?? []}
+                          disabled={pending}
+                          onChange={(rules) =>
+                            setTools((current) =>
+                              current.map((item) =>
+                                item.name === tool.name
+                                  ? { ...item, billing_rules: rules }
+                                  : item
+                              )
+                            )
+                          }
                         />
-                        {billingModes[tool.name] !== 'free' &&
-                          priceQuota === undefined && (
-                            <FieldDescription className='text-destructive'>
-                              {t('Enter a positive price for a paid tool.')}
-                            </FieldDescription>
-                          )}
-                        {billingModes[tool.name] !== 'input_tokens' &&
-                          priceQuota !== undefined &&
-                          feeBps !== undefined &&
-                          Number.isSafeInteger(feeBps) &&
-                          feeBps >= 0 &&
-                          feeBps <= 10000 && (
-                            <FieldDescription>
-                              {t(
-                                'You receive {{amount}} per successful call after the {{fee}}% platform fee.',
-                                {
-                                  amount: formatQuota(
-                                    marketNetQuota(priceQuota, feeBps)
-                                  ),
-                                  fee: feeBps / 100,
-                                }
-                              )}
-                            </FieldDescription>
-                          )}
-                      </Field>
+                      )}
                       {billingModes[tool.name] === 'input_tokens' && (
                         <Field>
                           <FieldLabel htmlFor={`token-limit-${tool.name}`}>

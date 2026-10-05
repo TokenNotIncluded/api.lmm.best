@@ -598,7 +598,11 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		}
 		return GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
 	}
-	result, callErr := session.CallTool(ctx, &mcp.CallToolParams{Name: execution.Tool.Name, Arguments: arguments})
+	params := &mcp.CallToolParams{Name: execution.Tool.Name, Arguments: arguments}
+	if call.BillingMode != "" {
+		params.Meta = mcp.Meta{"lmm_metering": model.ToolMarketMeteringContext(*call)}
+	}
+	result, callErr := session.CallTool(ctx, params)
 	if errors.Is(callErr, ErrMarketRemoteAuth) {
 		// The remote explicitly rejected authentication. This is a failed call,
 		// not an uncertain transport outcome requiring a frozen balance.
@@ -690,11 +694,10 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		data = []byte(`{"isError":true,"content":[{"type":"text","text":"Remote result exceeds the supported limit."}]}`)
 		errorCode = "TOOL_MARKET_INVALID_RESULT"
 	}
-	if success && execution.Tool.BillingMode == "input_tokens" {
-		tokens, usageErr := model.ToolMarketInputTokenUsage(data)
-		if usageErr != nil || tokens > execution.Tool.MaxInputTokens {
-			success, errorCode = false, "TOOL_MARKET_INVALID_RESULT"
-			data = []byte(`{"isError":true,"content":[{"type":"text","text":"The remote MCP service returned invalid usage."}]}`)
+	if success && call.BillingMode != "" {
+		if _, usageErr := model.VerifyToolMarketMeteringResult(model.DB, *call, data); usageErr != nil {
+			success, errorCode = false, "TOOL_MARKET_INVALID_METERING"
+			data = []byte(`{"isError":true,"content":[{"type":"text","text":"The remote MCP service returned unverifiable metering."}]}`)
 		}
 	}
 	if err := model.RecordToolMarketResult(call.ID, success, data); err != nil {

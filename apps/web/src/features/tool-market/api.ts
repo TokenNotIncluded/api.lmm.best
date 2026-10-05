@@ -43,6 +43,11 @@ export type MarketSummary = {
   max_price_quota?: number
   metered_tools?: number
 }
+export type BillingRule = {
+  metric: string
+  rate_quota: number
+  max_quantity: number
+}
 export type MarketTool = {
   tool_id: string
   version_id: string
@@ -53,7 +58,9 @@ export type MarketTool = {
   permissions: string
   price_quota: number
 
-  billing_mode?: 'input_tokens' | ''
+  billing_mode?: 'input_tokens' | 'metered' | ''
+  billing_rules?: BillingRule[]
+  available_metering_metrics?: string[]
   input_token_price_quota?: number
   max_input_tokens?: number
 }
@@ -84,7 +91,9 @@ export type ToolInput = {
   permissions: string[]
   price_quota: number
 
-  billing_mode?: 'input_tokens' | ''
+  billing_mode?: 'input_tokens' | 'metered' | ''
+  billing_rules?: BillingRule[]
+  available_metering_metrics?: string[]
   input_token_price_quota?: number
   max_input_tokens?: number
 }
@@ -123,6 +132,7 @@ export type MarketToken = {
   revoked_at: number
 }
 export type MarketCall = {
+  usage_quantities?: Record<string, number>
   id: string
   service_id: string
   tool_id: string

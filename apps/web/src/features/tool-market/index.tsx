@@ -59,6 +59,7 @@ import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
 import { ServiceEditor } from './service-editor'
 import { CallDialog, CallResult, GrantDialog } from './tool-actions'
+import { usagePriceLabel, usageQuantityLabel } from './usage-pricing'
 
 /** A small icon paired with the status text, so state reads at a glance. */
 function MarketStatusIcon({ value }: { value: string }) {
@@ -783,17 +784,19 @@ function ToolMarketWorkspace() {
                                 {tool.name}
                               </h4>
                               <p className='text-sm font-medium tabular-nums'>
-                                {tool.billing_mode === 'input_tokens'
-                                  ? t('{{amount}} per million input tokens', {
-                                      amount: formatQuota(
-                                        tool.input_token_price_quota ?? 0
-                                      ),
-                                    })
-                                  : tool.price_quota === 0
-                                    ? t('Free tool')
-                                    : t('{{amount}} per successful call', {
-                                        amount: formatQuota(tool.price_quota),
-                                      })}
+                                {tool.billing_mode === 'metered'
+                                  ? usagePriceLabel(tool, formatQuota, t)
+                                  : tool.billing_mode === 'input_tokens'
+                                    ? t('{{amount}} per million input tokens', {
+                                        amount: formatQuota(
+                                          tool.input_token_price_quota ?? 0
+                                        ),
+                                      })
+                                    : tool.price_quota === 0
+                                      ? t('Free tool')
+                                      : t('{{amount}} per successful call', {
+                                          amount: formatQuota(tool.price_quota),
+                                        })}
                               </p>
                             </div>
                             <p className='text-muted-foreground max-w-[70ch] text-sm leading-6 break-words whitespace-pre-wrap'>
@@ -865,18 +868,21 @@ function ToolMarketWorkspace() {
                                       })
                                     }
                                   >
-                                    {tool.billing_mode === 'input_tokens'
-                                      ? t(
-                                          '{{amount}} per million input tokens',
-                                          {
-                                            amount: formatQuota(
-                                              tool.input_token_price_quota ?? 0
-                                            ),
-                                          }
-                                        )
-                                      : tool.price_quota === 0
-                                        ? t('Run free tool')
-                                        : t('Run tool')}
+                                    {tool.billing_mode === 'metered'
+                                      ? usagePriceLabel(tool, formatQuota, t)
+                                      : tool.billing_mode === 'input_tokens'
+                                        ? t(
+                                            '{{amount}} per million input tokens',
+                                            {
+                                              amount: formatQuota(
+                                                tool.input_token_price_quota ??
+                                                  0
+                                              ),
+                                            }
+                                          )
+                                        : tool.price_quota === 0
+                                          ? t('Run free tool')
+                                          : t('Run tool')}
                                   </Button>
                                 )}
                                 {grant && (
@@ -1301,6 +1307,12 @@ function ToolMarketWorkspace() {
                                 : item.price_quota
                             )}
                           </p>
+                          {item.usage_quantities && (
+                            <p className='text-muted-foreground'>
+                              {t('Verified usage')}:{' '}
+                              {usageQuantityLabel(item.usage_quantities, t)}
+                            </p>
+                          )}
                         </div>
                         <Button
                           variant='outline'
