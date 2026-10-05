@@ -11,6 +11,3 @@
 50	prefix	/suno/	go	task-relay	mixed	no	relay auth and body limits
 50	prefix	/pg/	go	playground	write	streaming	relay auth and body limits
 50	prefix	/jimeng/	go	task-relay	write	no	official API query dispatch
-60	exact	/api/option/pricing	go	control-plane	root-only	no	schema2 USD pricing; CAS and existing price locks; legacy storage retained
-60	exact	/api/option/pricing/validate	go	control-plane	root-only	no	schema2 USD pricing; CAS and existing price locks; legacy storage retained
-60	exact	/api/option/pricing/bulk	go	control-plane	root-only	no	schema2 USD pricing; CAS and existing price locks; legacy storage retained
