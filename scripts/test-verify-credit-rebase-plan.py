@@ -312,6 +312,11 @@ class OfflineVerifierTests(unittest.TestCase):
         seal(bad)
         with self.assertRaises(ValueError):
             v.postgres_verification_sql(bad,"before")
+        bad = copy.deepcopy(plan)
+        bad["pending_bases"][-1]["source"]["expected_amount_micros"] = 0
+        seal(bad)
+        with self.assertRaises(ValueError):
+            v.postgres_verification_sql(bad,"before")
 
     def test_typed_restorations_only_include_declared_updates(self):
         rows = v.planned_restorations(orphan_case_plan())
@@ -324,6 +329,20 @@ class OfflineVerifierTests(unittest.TestCase):
         pending = indexed[("top_ups",'{"id": 24}')]
         self.assertEqual(set(pending),{"pending_credit_rebase_key","pending_credit_rebase_original_quota","pending_credit_rebase_effective_quota"})
         self.assertNotIn("credited_quota",pending)
+
+    def test_declared_audit_rows_are_exact_records(self):
+        plan = orphan_case_plan()
+        rows = v.declared_audit_rows(plan)
+        self.assertEqual(len(rows),4)
+        parent = rows[0]
+        self.assertEqual(parent["key"],{"migration_id":plan["migration_id"]})
+        self.assertEqual(parent["fields"]["plan"],plan)
+        self.assertEqual(parent["field_types"],{"plan":"jsonb"})
+        self.assertIn("applied_at",parent["dynamic_fields"])
+        for row in rows[1:]:
+            self.assertEqual(len(row["key"]),1)
+            self.assertNotIn("migration_id",row["key"])
+            self.assertEqual(row["fields"]["migration_id"],plan["migration_id"])
         plan = fixture_plan()
         plan["option_guards"][0]["value"] = "6.80"
         seal(plan)

@@ -420,7 +420,7 @@ def _postgres_verification_sql(plan, stage):
         if b["top_up_id"] != s["id"] or b["user_id"] != s["user_id"] or b["original_credited_quota"] != s["effective_credited_quota"]:
             raise ValueError("pending child basis disagrees with source authority")
         if b.get("owner_missing_at_snapshot") is True:
-            if b in plan["blocked_pending_bases"] or b["user_id"] not in plan.get("orphan_pending_user_ids", []) or not plan.get("snapshot_all_users") or s["status"] != "failed" or s["payment_provider"] != "waffo_pancake" or s["failure_reason_code"] != "checkout_timeout" or s["settled_amount_micros"] != 0 or s["refunded_quota"] != 0 or s["refunded_amount_micros"] != 0 or b["original_credited_quota"] <= 0 or b["effective_credited_quota"] <= 0:
+            if b in plan["blocked_pending_bases"] or b["user_id"] not in plan.get("orphan_pending_user_ids", []) or not plan.get("snapshot_all_users") or s["status"] != "failed" or s["payment_provider"] != "waffo_pancake" or s["failure_reason_code"] != "checkout_timeout" or s["credited_quota"] <= 0 or s["expected_amount_micros"] <= 0 or s["settled_amount_micros"] != 0 or s["refunded_quota"] != 0 or s["refunded_amount_micros"] != 0 or b["original_credited_quota"] <= 0 or b["effective_credited_quota"] <= 0:
                 raise ValueError("orphan pending payment exceeds explicitly authorized frozen scope")
             seen_orphan_owners.add(b["user_id"])
             count("users", "r.id=" + str(exact_int(b["user_id"])), 0, "orphan pending owner must remain absent")
@@ -737,6 +737,7 @@ def _postgres_verification_sql(plan, stage):
         assert_true(f"pg_catalog.to_regclass({audit_name}) IS NOT NULL", "migration audit table")
         guard("wallet_credit_rebases", {"migration_id": plan["migration_id"], "plan_sha256": plan["plan_sha256"]}, {"migration_id", "plan_sha256"})
         assert_true(f"(SELECT plan FROM {schema}.wallet_credit_rebases WHERE migration_id={mid}) = {literal(canonical(plan))}::jsonb", "complete parent audit plan and child bases")
+        assert_true(f"(SELECT applied_at IS NOT NULL AND isfinite(applied_at) AND applied_at >= to_timestamp({exact_int(plan['snapshot_at'])}) AND applied_at <= transaction_timestamp() FROM {schema}.wallet_credit_rebases WHERE migration_id={mid})", "parent audit timestamp within frozen verification interval")
         count("wallet_credit_rebases", f"EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.plan->'user_ids') u(id) WHERE u.id::bigint=ANY({selected}))", 1, "single selected-user migration")
     else:
         checks.append(f"IF pg_catalog.to_regclass({audit_name}) IS NOT NULL THEN\n"
@@ -813,6 +814,27 @@ def planned_restorations(plan):
         if e["grant_source_kind"] == "frozen_order_plan_snapshot":
             add("subscription_orders", "id", e["id"], {"plan_snapshot":{"before":e["source"]["plan_snapshot"], "after":e["plan_snapshot"]}})
     return [rows[key] for key in sorted(rows,key=lambda key:(key[0],key[1],canonical(key[2]))) if rows[key]["fields"]]
+
+
+def declared_audit_rows(plan):
+    """Exact new audit rows which full-table after fingerprints may exclude.
+
+    The stage after SQL verifies each complete field projection and exactly one
+    row; before SQL rejects each primary-key collision and migration collision.
+    `field_types` marks the only structured SQL value, the parent's JSONB plan.
+    Parent applied_at is dynamic: stage SQL constrains its finite timestamptz to
+    [frozen snapshot_at, verification transaction_timestamp()], not a made-up
+    fixed value. Every pre-existing historical audit row must remain in hashes.
+    """
+    _postgres_verification_sql(plan, "after")
+    rows = [{"table":"wallet_credit_rebases", "key":{"migration_id":plan["migration_id"]}, "fields":{"migration_id":plan["migration_id"], "plan_sha256":plan["plan_sha256"], "plan":plan}, "field_types":{"plan":"jsonb"}, "dynamic_fields":{"applied_at":"stage_guarded_finite_frozen_interval"}}]
+    for key,table,fields,primary in (("refund_bases", "wallet_topup_credit_rebases", TOPUP_BASIS_COLUMNS, "top_up_id"), ("referral_bases", "wallet_referral_credit_rebases", REFERRAL_BASIS_COLUMNS, "reward_id"), ("subscription_refund_bases", "subscription_order_credit_rebases", SUB_BASIS_COLUMNS, "subscription_order_id")):
+        for basis in plan[key]:
+            values = {field:basis[field] for field in sorted(fields)} | {"migration_id":plan["migration_id"]}
+            if key == "referral_bases":
+                values |= {"divisor":plan["divisor"], "rounding":plan["rounding"]}
+            rows.append({"table":table, "key":{primary:basis[primary]}, "fields":values})
+    return rows
 
 
 def summary(plan, stage=None):
