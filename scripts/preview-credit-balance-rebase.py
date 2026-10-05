@@ -50,6 +50,9 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
     selected = {integer(i, "user id", positive=True) for i in user_ids}
     if not isinstance(snapshot, dict) or snapshot.get("version") != 1:
         raise ValueError("snapshot version must be 1")
+    snapshot_state = snapshot.get("snapshot_state","unspecified")
+    if snapshot_state not in ("unspecified","provisional_live_not_frozen","frozen_writers_stopped"):
+        raise ValueError("invalid snapshot state attestation")
     obligations = other_rights.validate_obligations(snapshot)
     target = snapshot.get("target")
     if not isinstance(target, dict):
@@ -208,6 +211,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
     subscription_plan = make_subscriptions(snapshot, selected, lambda value: scale_credit(value, divisor, rounding), include=include_subscriptions)
     other_credit_bases = other_rights.prepare(snapshot,selected,lambda value:scale_credit(value,divisor,rounding),include=include_other_rights)
     plan = {"version": 1, "kind": "offline_credit_balance_rebase_preview",
+            "snapshot_state":snapshot_state,
             "migration_id": migration_id, "target": dict(target), "source_sha256": source_digest,
             "business_source_sha256":business_source_digest,"user_sources":user_sources,"token_sources":token_sources,"has_complete_history":has_complete_history,
             "obligations":obligations,
@@ -222,7 +226,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
             "entries": entries, "refund_bases": refund_bases, "noncash_topups": noncash_topups, "option_guards": option_guards, "option_entries": option_entries, "restore_fixed_anchors": restore_fixed_anchors, "wallet_totals": {
                 k: sum(e[k] for e in entries if e["table"] == "users" and e["field"] == "quota")
                 for k in ("before_credit", "after_credit", "delta_credit")},
-            "production_apply_supported": "reviewed_postgres_sql_only" if restore_fixed_anchors else False,
+            "production_apply_supported": "reviewed_postgres_sql_only" if restore_fixed_anchors and snapshot_state!="provisional_live_not_frozen" else False,
             "required_before_apply": ["Confirm affected users, exact divisor, rounding and non-wallet rights scope",
                 "Stop all writers; drain reservations, pending settlement and refunds",
                 "Resolve pending legacy payment callbacks and escrow rights",
@@ -335,6 +339,7 @@ def postgres_sql(plan):
     refund_inserts_sql += "\n" + "\n".join(auxiliary_inserts)
     statements = "\n".join(updates)
     return f"""-- OFFLINE operation: reviewed plan; stop ALL writers and drain/cache reset first.
+-- Snapshot state: {plan["snapshot_state"]}
 -- No application startup or deployment hook may execute this artifact.
 \\set ON_ERROR_STOP on
 BEGIN;
