@@ -79,7 +79,7 @@ func TestSupersededCleanupCannotSkipRetentionOrReplacementProofs(t *testing.T) {
 }
 
 func TestFinancialCleanupProofStreamsLargePGDMPAndRejectsChangedArchive(t *testing.T) {
-	root, err := os.MkdirTemp(filepath.Join(os.Getenv("HOME"), ".cache"), "cleanup-archive-")
+	root, err := os.MkdirTemp(maintenanceFixtureCache(t), "cleanup-archive-")
 	if err != nil {
 		t.Fatal(err)
 	}

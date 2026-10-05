@@ -18,6 +18,12 @@ spec.loader.exec_module(guardian)
 
 class GuardianTests(unittest.TestCase):
     @staticmethod
+    def fixture_cache():
+        cache = Path.home() / '.cache'
+        cache.mkdir(mode=0o700, exist_ok=True)
+        return cache
+
+    @staticmethod
     def private_file(path, content):
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         path.write_bytes(content if isinstance(content, bytes) else json.dumps(content).encode())
@@ -26,7 +32,7 @@ class GuardianTests(unittest.TestCase):
 
     @contextmanager
     def running_guardian(self, tool='native'):
-        with tempfile.TemporaryDirectory(prefix='guardian-seal-', dir=Path.home() / '.cache') as directory:
+        with tempfile.TemporaryDirectory(prefix='guardian-seal-', dir=self.fixture_cache()) as directory:
             root = Path(directory)
             paths = {name: str(root / (name + '.lock')) for name in guardian.LOCKS}
             prepared = {'format': 'lmm-credit-transition-prepare-v1', 'transition_id': 'fixture',
@@ -229,7 +235,7 @@ class GuardianTests(unittest.TestCase):
                 self.assert_three_locks_held(paths)
 
     def test_same_open_description_survives_client_crash_and_freezes_three_owners(self):
-        cache = Path.home() / '.cache'
+        cache = self.fixture_cache()
         with tempfile.TemporaryDirectory(prefix='guardian-test-', dir=cache) as directory:
             root = Path(directory)
             uid = os.getuid()
@@ -285,7 +291,7 @@ class GuardianTests(unittest.TestCase):
                     process.terminate(); process.join(5)
 
     def test_bound_metadata_rejects_replaced_file_and_unsafe_mode(self):
-        with tempfile.TemporaryDirectory(prefix='guardian-binding-', dir=Path.home() / '.cache') as directory:
+        with tempfile.TemporaryDirectory(prefix='guardian-binding-', dir=self.fixture_cache()) as directory:
             path = Path(directory) / 'binding'
             path.write_bytes(b'bound'); path.chmod(0o600)
             expected = hashlib.sha256(path.read_bytes()).hexdigest()

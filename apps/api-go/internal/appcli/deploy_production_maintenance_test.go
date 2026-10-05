@@ -13,9 +13,18 @@ import (
 	"testing"
 )
 
+func maintenanceFixtureCache(t *testing.T) string {
+	t.Helper()
+	cache := filepath.Join(os.Getenv("HOME"), ".cache")
+	if err := os.MkdirAll(cache, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return cache
+}
+
 func maintenanceBindingFixture(t *testing.T, stage string) (*productionRuntime, productionWorkspace, *productionMaintenanceHandoff) {
 	t.Helper()
-	root, err := os.MkdirTemp(filepath.Join(os.Getenv("HOME"), ".cache"), "maintenance-binding-")
+	root, err := os.MkdirTemp(maintenanceFixtureCache(t), "maintenance-binding-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +238,7 @@ func TestMaintenancePrearmFailureKeepsItsTransaction(t *testing.T) {
 }
 
 func TestMaintenanceReaderRejectsRootOnlyAndUnreadableParents(t *testing.T) {
-	root, err := os.MkdirTemp(filepath.Join(os.Getenv("HOME"), ".cache"), "maintenance-reader-")
+	root, err := os.MkdirTemp(maintenanceFixtureCache(t), "maintenance-reader-")
 	if err != nil {
 		t.Fatal(err)
 	}

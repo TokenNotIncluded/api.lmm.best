@@ -140,7 +140,9 @@ class CleanupTests(unittest.TestCase):
     def setUp(self):
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
-        self.base = Path(self.stack.enter_context(tempfile.TemporaryDirectory(dir=Path.home() / '.cache')))
+        cache = Path.home() / '.cache'
+        cache.mkdir(mode=0o700, exist_ok=True)
+        self.base = Path(self.stack.enter_context(tempfile.TemporaryDirectory(dir=cache)))
         self.uid = os.getuid()
         self.now = time.time()
         self.stack.enter_context(patch.object(deploy.time, 'time', return_value=self.now))
