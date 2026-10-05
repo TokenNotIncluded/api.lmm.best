@@ -80,7 +80,7 @@ ALTER TABLE fixture_money.tokens ADD COLUMN used_quota bigint DEFAULT 0,ADD COLU
         row.update({key: "" for key in SPECS[table]["text"]})
         row.update({key: None for key in SPECS[table]["null"]})
         return row | overrides
-    red = entity_source("redemptions", id=30, user_id=1, quota=680, status=1, reward_type="quota")
+    red = entity_source("redemptions", id=30, user_id=1, quota=680, status=1, reward_type=None)
     bounty = entity_source("open_source_bounty_projects", id=50, owner_user_id=1, escrow_quota=6800, reward_quota=680, net_reward_quota=612, platform_fee_quota=68, status="published")
     challenge = entity_source("open_source_bounty_challenges", id=60, project_id=50, participant_user_id=2, reward_quota=612, tip_quota=125, status="accepted")
     for table, row in [("redemptions", red), ("open_source_bounty_projects", bounty), ("open_source_bounty_challenges", challenge)]:
@@ -124,6 +124,7 @@ ALTER TABLE fixture_money.tokens ADD COLUMN used_quota bigint DEFAULT 0,ADD COLU
     assert len(exported["users"]) == 2 and len(exported["user_sources"]) == 2
     assert len(exported["topups"]) == 2 and len(exported["pending_topups"]) == 3
     assert len(exported["subscription_orders"]) == 3 and exported["applied_migration_ids"] == []
+    assert exported["entities"]["redemptions"][0]["reward_type"] is None
     kw = dict(divisor_text="6.8", migration_id="fixture-v1", user_ids=[1, 2],
               rounding="half-away-from-zero", restore_fixed_anchors=True, include_token_limits=True, include_affiliate=True, include_pending_topups=True, include_redemptions=True, include_bounties=True,include_subscriptions=True,include_other_rights=True)
 
