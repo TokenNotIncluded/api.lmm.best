@@ -473,7 +473,9 @@ export function SponsoredDirectorySection() {
       <div className='ai-sponsored-heading'>
         <div>
           <h2 id='ai-sponsored-heading'>{t('Sponsored websites')}</h2>
-          <p>{t('Paid placements are labeled and ranked by the amount paid.')}</p>
+          <p>
+            {t('Paid placements are labeled and ranked by the amount paid.')}
+          </p>
         </div>
         <div className='flex flex-wrap items-center gap-2'>
           <DirectoryAdCurrencyControl />
