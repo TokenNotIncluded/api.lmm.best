@@ -54,6 +54,10 @@ impl Harness {
             ("MinTopUp", "1"),
             ("USDExchangeRate", "7.3"),
             ("TopUpPlatformUnitsPerCNY", "2"),
+            ("QuotaPerUnit", "500000"),
+            ("CreditsPerUSD", "7300000"),
+            ("LegacyPricingQuotaPerUnit", "500000"),
+            ("PublicCreditsPerUSD", "100000"),
         ] {
             self.option(key, value).await;
         }

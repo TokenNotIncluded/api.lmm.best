@@ -552,16 +552,7 @@ fn catalog_audit_route(
 }
 
 async fn catalog_log_quota(pg: &PgPool, quota: i64) -> String {
-    let quota_per_unit =
-        sqlx::query_scalar::<_, String>("SELECT value FROM options WHERE key = 'QuotaPerUnit'")
-            .fetch_optional(pg)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|value| value.parse::<f64>().ok())
-            .filter(|value| value.is_finite() && *value > 0.0)
-            .unwrap_or(500_000.0);
-    format!("＄{:.6} 额度", quota as f64 / quota_per_unit)
+    super::topup::format_quota(pg, quota, true).await
 }
 
 impl PgCatalogProvider {

@@ -647,6 +647,7 @@ fn amount_routes() -> Router<StripeCreemState> {
 }
 
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StripePayRequest {
     #[serde(default, deserialize_with = "null_i64_is_zero")]
     amount: i64,
@@ -658,6 +659,7 @@ struct StripePayRequest {
     cancel_url: String,
 }
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreemPayRequest {
     #[serde(default, deserialize_with = "null_string_is_empty")]
     product_id: String,
@@ -1108,6 +1110,34 @@ mod tests {
     use tower::ServiceExt;
 
     type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+    #[test]
+    fn versioned_credit_input_is_rejected_by_legacy_provider_routes() {
+        for body in [
+            r#"{"amount":1,"schema_version":2,"unit":"CREDIT"}"#,
+            r#"{"amount":1,"schema_version":null}"#,
+            r#"{"amount":1,"unit":"LEDGER_QUOTA"}"#,
+            r#"{"amount":1,"expected_public_credits_per_usd_exact":"100000"}"#,
+        ] {
+            assert!(serde_json::from_str::<StripePayRequest>(body).is_err());
+        }
+        assert!(
+            serde_json::from_str::<StripePayRequest>(r#"{"amount":1,"payment_method":"stripe"}"#)
+                .is_ok()
+        );
+        assert!(
+            serde_json::from_str::<CreemPayRequest>(
+                r#"{"product_id":"fixture","schema_version":2,"unit":"CREDIT"}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<CreemPayRequest>(
+                r#"{"product_id":"fixture","payment_method":"creem"}"#
+            )
+            .is_ok()
+        );
+    }
 
     fn test_error(message: &'static str) -> Box<dyn Error> {
         Box::new(io::Error::other(message))

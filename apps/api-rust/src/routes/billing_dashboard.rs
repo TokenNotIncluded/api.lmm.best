@@ -25,7 +25,10 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
 
-use crate::RequestContext;
+use crate::{
+    RequestContext,
+    public_credit_units::{CreditDenominationMetadata, PublicCreditDenomination},
+};
 
 const DEFAULT_QUOTA_PER_UNIT: i64 = 500_000;
 const MAX_WALLET_QUOTA: i64 = 9_007_199_254_740_991;
@@ -159,6 +162,7 @@ pub struct BillingDashboardSettings {
     pub quota_display: QuotaDisplay,
     pub quota_per_unit: Decimal,
     pub credits_per_usd: Option<Decimal>,
+    pub public_credits_per_usd: Option<Decimal>,
     pub legacy_pricing_quota_per_unit: Option<Decimal>,
     pub usd_exchange_rate: f64,
 }
@@ -171,6 +175,7 @@ impl Default for BillingDashboardSettings {
             quota_display: QuotaDisplay::Usd,
             quota_per_unit: Decimal::from(DEFAULT_QUOTA_PER_UNIT),
             credits_per_usd: None,
+            public_credits_per_usd: None,
             legacy_pricing_quota_per_unit: None,
             usd_exchange_rate: DEFAULT_USD_EXCHANGE_RATE,
         }
@@ -219,7 +224,7 @@ impl BillingDashboardStore for PgBillingDashboardStore {
     async fn settings(&self) -> Result<BillingDashboardSettings, BillingDashboardStoreError> {
         let rows = sqlx::query(
             "SELECT key, value FROM options \
-             WHERE key IN ('QuotaPerUnit', 'CreditsPerUSD', 'LegacyPricingQuotaPerUnit', \
+             WHERE key IN ('QuotaPerUnit', 'CreditsPerUSD', 'LegacyPricingQuotaPerUnit', 'PublicCreditsPerUSD', \
                            'USDExchangeRate', \
                            'general_setting.quota_display_type', 'general_setting', \
                            'DisplayTokenStatEnabled')",
@@ -240,7 +245,10 @@ impl BillingDashboardStore for PgBillingDashboardStore {
             let value = value.ok_or({
                 if matches!(
                     key.as_str(),
-                    "QuotaPerUnit" | "CreditsPerUSD" | "LegacyPricingQuotaPerUnit"
+                    "QuotaPerUnit"
+                        | "CreditsPerUSD"
+                        | "LegacyPricingQuotaPerUnit"
+                        | "PublicCreditsPerUSD"
                 ) {
                     BillingDashboardStoreError::CurrencyUnavailable
                 } else {
@@ -250,6 +258,9 @@ impl BillingDashboardStore for PgBillingDashboardStore {
             match key.as_str() {
                 "QuotaPerUnit" => settings.quota_per_unit = parse_credit_rate(&value)?,
                 "CreditsPerUSD" => settings.credits_per_usd = Some(parse_credit_rate(&value)?),
+                "PublicCreditsPerUSD" => {
+                    settings.public_credits_per_usd = Some(parse_credit_rate(&value)?)
+                }
                 "LegacyPricingQuotaPerUnit" => {
                     settings.legacy_pricing_quota_per_unit = Some(parse_credit_rate(&value)?);
                 }
@@ -273,6 +284,7 @@ impl BillingDashboardStore for PgBillingDashboardStore {
             settings.quota_display = display;
         }
         validated_credit_basis(settings)?;
+        public_credit_denomination(settings)?;
         Ok(settings)
     }
 
@@ -337,6 +349,10 @@ async fn subscription(State(state): State<BillingDashboardState>, request: Reque
         Ok(anchor) => anchor,
         Err(_) => return currency_error(),
     };
+    let credit_units = match public_credit_denomination(settings) {
+        Ok(units) => units.metadata().clone(),
+        Err(_) => return currency_error(),
+    };
     let (remain, used) = match quota_for(&state, principal, settings).await {
         Ok(quota) => quota,
         Err(_) => return legacy_error("billing unavailable", "upstream_error"),
@@ -351,6 +367,7 @@ async fn subscription(State(state): State<BillingDashboardState>, request: Reque
         }
     };
     Json(OpenAiSubscription {
+        credit_units,
         object: "billing_subscription",
         has_payment_method: true,
         soft_limit_usd: amount,
@@ -377,6 +394,10 @@ async fn usage(State(state): State<BillingDashboardState>, request: Request) -> 
         Ok(anchor) => anchor,
         Err(_) => return currency_error(),
     };
+    let credit_units = match public_credit_denomination(settings) {
+        Ok(units) => units.metadata().clone(),
+        Err(_) => return currency_error(),
+    };
     let (_, used) = match quota_for(&state, principal, settings).await {
         Ok(quota) => quota,
         Err(_) => return legacy_error("billing unavailable", "new_api_error"),
@@ -390,6 +411,7 @@ async fn usage(State(state): State<BillingDashboardState>, request: Request) -> 
         return currency_error();
     }
     Json(OpenAiUsage {
+        credit_units,
         object: "list",
         total_usage,
     })
@@ -514,6 +536,41 @@ fn validated_credit_basis(
     Ok(anchor)
 }
 
+fn public_credit_denomination(
+    settings: BillingDashboardSettings,
+) -> Result<PublicCreditDenomination, BillingDashboardStoreError> {
+    let mut options = std::collections::BTreeMap::from([
+        (
+            "QuotaPerUnit".to_owned(),
+            settings.quota_per_unit.normalize().to_string(),
+        ),
+        (
+            "CreditsPerUSD".to_owned(),
+            settings
+                .credits_per_usd
+                .ok_or(BillingDashboardStoreError::CurrencyUnavailable)?
+                .normalize()
+                .to_string(),
+        ),
+        (
+            "LegacyPricingQuotaPerUnit".to_owned(),
+            settings
+                .legacy_pricing_quota_per_unit
+                .ok_or(BillingDashboardStoreError::CurrencyUnavailable)?
+                .normalize()
+                .to_string(),
+        ),
+    ]);
+    if let Some(public) = settings.public_credits_per_usd {
+        options.insert(
+            "PublicCreditsPerUSD".to_owned(),
+            public.normalize().to_string(),
+        );
+    }
+    PublicCreditDenomination::from_options(&options)
+        .map_err(|_| BillingDashboardStoreError::CurrencyUnavailable)
+}
+
 fn currency_error() -> Response {
     Json(json!({"error": {
         "message": "credit currency units are unavailable", "type": "billing_unavailable",
@@ -545,6 +602,8 @@ fn parse_aggregate_display_type(value: &str) -> Option<QuotaDisplay> {
 
 #[derive(Serialize)]
 struct OpenAiSubscription {
+    #[serde(flatten)]
+    credit_units: CreditDenominationMetadata,
     object: &'static str,
     has_payment_method: bool,
     soft_limit_usd: f64,
@@ -555,6 +614,8 @@ struct OpenAiSubscription {
 
 #[derive(Serialize)]
 struct OpenAiUsage {
+    #[serde(flatten)]
+    credit_units: CreditDenominationMetadata,
     object: &'static str,
     total_usage: f64,
 }
@@ -806,6 +867,24 @@ mod tests {
         ))
     }
 
+    fn legacy_billing_fields(mut body: Value) -> Value {
+        for key in [
+            "credit_unit_schema_version",
+            "quota_unit",
+            "public_credit_unit",
+            "legacy_credit_unit",
+            "ledger_quota_per_usd",
+            "ledger_quota_per_usd_exact",
+            "public_credits_per_usd",
+            "public_credits_per_usd_exact",
+        ] {
+            body.as_object_mut()
+                .expect("billing response object")
+                .remove(key);
+        }
+        body
+    }
+
     fn rejected_router(store: CountingStore) -> Router {
         billing_dashboard_router(BillingDashboardState::new(
             Arc::new(store),
@@ -830,7 +909,7 @@ mod tests {
         .map_err(|error| test_error(format!("dispatch subscription request: {error}")))?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            response_json(response, "subscription").await?,
+            legacy_billing_fields(response_json(response, "subscription").await?),
             json!({
                 "object": "billing_subscription",
                 "has_payment_method": true,
@@ -862,7 +941,7 @@ mod tests {
         .map_err(|error| test_error(format!("dispatch usage request: {error}")))?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            response_json(response, "usage").await?,
+            legacy_billing_fields(response_json(response, "usage").await?),
             json!({"object": "list", "total_usage": 50.0})
         );
         Ok(())
@@ -889,6 +968,59 @@ mod tests {
             legacy_pricing_quota_per_unit: Some(Decimal::from(500_000)),
             ..BillingDashboardSettings::default()
         }
+    }
+
+    #[tokio::test]
+    async fn public_credit_setting_changes_metadata_without_repricing_usd() -> TestResult {
+        let mut previous = None;
+        for public in [100_000, 200_000] {
+            let settings = BillingDashboardSettings {
+                public_credits_per_usd: Some(Decimal::from(public)),
+                ..canonical_settings()
+            };
+            let app = router_with_principal(
+                settings,
+                BillingDashboardPrincipal {
+                    token_id: 1,
+                    user_id: 2,
+                    remain_quota: 3_500_000,
+                    used_quota: 7_000_000,
+                    unlimited_quota: false,
+                    expired_time: -1,
+                },
+                (0, 0),
+            );
+            for path in [
+                "/dashboard/billing/subscription",
+                "/dashboard/billing/usage",
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(Request::get(path).body(Body::empty())?)
+                    .await?;
+                let body = response_json(response, path).await?;
+                assert_eq!(body["public_credits_per_usd_exact"], public.to_string());
+                assert_eq!(body["ledger_quota_per_usd_exact"], "3500000");
+                assert_eq!(body["quota_unit"], "LEDGER_QUOTA");
+                assert_eq!(body["public_credit_unit"], "CREDIT");
+                if path.ends_with("subscription") {
+                    assert_eq!(body["hard_limit_usd"], 3.0);
+                    let legacy = legacy_billing_fields(body);
+                    if let Some(previous) = &previous {
+                        assert_eq!(previous, &legacy);
+                    }
+                    previous = Some(legacy);
+                } else {
+                    assert_eq!(body["total_usage"], 200.0);
+                }
+            }
+        }
+        let invalid = BillingDashboardSettings {
+            public_credits_per_usd: Some(Decimal::new(15, 1)),
+            ..canonical_settings()
+        };
+        assert!(public_credit_denomination(invalid).is_err());
+        Ok(())
     }
 
     #[test]
@@ -1028,12 +1160,15 @@ mod tests {
                         let body = response_json(response, path).await?;
                         if path.ends_with("subscription") {
                             assert_eq!(
-                                body,
+                                legacy_billing_fields(body),
                                 json!({"object":"billing_subscription", "has_payment_method":true,
                                 "soft_limit_usd":1.0, "hard_limit_usd":1.0, "system_hard_limit_usd":1.0, "access_until":0})
                             );
                         } else {
-                            assert_eq!(body, json!({"object":"list", "total_usage":100.0}));
+                            assert_eq!(
+                                legacy_billing_fields(body),
+                                json!({"object":"list", "total_usage":100.0})
+                            );
                         }
                     }
                 }

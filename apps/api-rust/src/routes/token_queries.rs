@@ -6,7 +6,12 @@ use super::{
     legacy_http::legacy_json, public_catalog::AccountBalanceRateLimiter,
     system_config::ProcessRuntimeOptions,
 };
-use crate::{ClientIpKey, RequestContext, auth::CriticalRateLimitOutcome, legacy_empty_response};
+use crate::{
+    ClientIpKey, RequestContext,
+    auth::CriticalRateLimitOutcome,
+    legacy_empty_response,
+    public_credit_units::{PUBLIC_CREDIT_OPTION_KEYS, PublicCreditDenomination},
+};
 use axum::{
     Router,
     extract::{Request, State},
@@ -45,12 +50,33 @@ impl TokenQueryState {
     }
     async fn options(&self) -> Result<std::collections::BTreeMap<String, String>, sqlx::Error> {
         if let Some(runtime) = &self.runtime {
-            return Ok(runtime.snapshot().await);
+            let mut options = runtime.snapshot().await;
+            self.refresh_credit_options(&mut options).await?;
+            return Ok(options);
         }
         sqlx::query_as::<_, (String, String)>("SELECT key,COALESCE(value,'') FROM options")
             .fetch_all(&self.pg)
             .await
             .map(|rows| rows.into_iter().collect())
+    }
+
+    // A local process cache may lag another node's public denomination change.
+    // Replace all four basis keys together from one durable database snapshot.
+    async fn refresh_credit_options(
+        &self,
+        options: &mut std::collections::BTreeMap<String, String>,
+    ) -> Result<(), sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT key,COALESCE(value,'') FROM options WHERE key=ANY($1)",
+        )
+        .bind(&PUBLIC_CREDIT_OPTION_KEYS[..])
+        .fetch_all(&self.pg)
+        .await?;
+        for key in PUBLIC_CREDIT_OPTION_KEYS {
+            options.remove(key);
+        }
+        options.extend(rows);
+        Ok(())
     }
 }
 pub fn router(state: TokenQueryState) -> Router {
@@ -269,6 +295,18 @@ async fn query(state: TokenQueryState, request: Request, prices: bool) -> Respon
         Ok(Some(basis)) => basis,
         _ => return unavailable(),
     };
+    let public_units = match PublicCreditDenomination::from_options(&options) {
+        Ok(units) => units,
+        Err(_) => return unavailable(),
+    };
+    let public_balance = match public_units.project_ledger_quota(remaining) {
+        Ok(amount) => (!unlimited).then_some(amount),
+        Err(_) => return unavailable(),
+    };
+    let public_used = match public_units.project_ledger_quota(used) {
+        Ok(amount) => amount,
+        Err(_) => return unavailable(),
+    };
     let enabled = options
         .get("LogConsumeEnabled")
         .is_none_or(|value| value == "true");
@@ -298,8 +336,13 @@ async fn query(state: TokenQueryState, request: Request, prices: bool) -> Respon
         Ok(values) => values,
         Err(_) => return unavailable(),
     };
-    controller(legacy_json(
-        StatusCode::OK,
-        json!({"valid":true,"currency":"USD","remaining":remaining,"used_today":used_today,"used_total":used_total,"total_quota":total,"unlimited":unlimited,"updated_at":now,"scope":"token","day_timezone":"UTC","used_today_source":"retained_consumption_logs","consistency":"persisted_snapshot"}),
-    ))
+    let mut body = json!({"valid":true,"currency":"USD","remaining":remaining,"used_today":used_today,"used_total":used_total,"total_quota":total,"unlimited":unlimited,"updated_at":now,"scope":"token","day_timezone":"UTC","used_today_source":"retained_consumption_logs","consistency":"persisted_snapshot", "public_credit_balance":public_balance,"public_credit_used":public_used});
+    if let Ok(serde_json::Value::Object(metadata)) = serde_json::to_value(public_units.metadata()) {
+        body.as_object_mut()
+            .expect("token response object")
+            .extend(metadata);
+    } else {
+        return unavailable();
+    }
+    controller(legacy_json(StatusCode::OK, body))
 }

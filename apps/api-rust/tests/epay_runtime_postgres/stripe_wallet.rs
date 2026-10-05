@@ -853,6 +853,15 @@ async fn stripe_current_go_checkout_settlement_and_refund_reference_matches() ->
         serde_json::from_str(include_str!("../fixtures/stripe-current-go-output.json"))?
     };
     let harness = StripeHarness::new().await;
+    for (key, value) in reference["currency_options"]
+        .as_object()
+        .expect("actual Go currency options")
+    {
+        harness
+            .fixture
+            .option(key, value.as_str().expect("currency option string"))
+            .await;
+    }
     harness
         .fixture
         .option("StripePromotionCodesEnabled", "true")
@@ -863,15 +872,7 @@ async fn stripe_current_go_checkout_settlement_and_refund_reference_matches() ->
         .header("content-type", "application/json")
         .body(Body::from(r#"{"amount":14.600001}"#))?;
     let quote: Value = serde_json::from_str(&http_body(harness.app.clone(), quote).await)?;
-    assert_eq!(
-        quote,
-        json!({
-            "message": "success", "data": "1.00",
-            "amount_unit": "LEGACY", "currency_unit": "credit",
-            "credited_quota": 7_300_000, "credit_amount": 7_300_000,
-            "legacy_batch_units": "14.600001", "settlement_currency": "USD",
-        })
-    );
+    assert_eq!(quote, reference["quote_response"]);
     let mut response = harness.pay(reference["request"].clone()).await;
     let trade = harness.trade().await;
     let mut expected = reference["response"].clone();

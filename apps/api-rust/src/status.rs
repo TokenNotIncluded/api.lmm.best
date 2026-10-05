@@ -1,6 +1,9 @@
 //! PostgreSQL-authoritative implementation of the legacy `GET /api/status` contract.
 
-use crate::auth::DashboardAuth;
+use crate::{
+    auth::DashboardAuth,
+    public_credit_units::{CreditDenominationMetadata, PublicCreditDenomination},
+};
 use async_trait::async_trait;
 use axum::{
     Json,
@@ -280,6 +283,11 @@ struct StatusData {
     docs_link: String,
     #[serde(serialize_with = "serialize_legacy_number")]
     quota_per_unit: f64,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    credit_units: Option<CreditDenominationMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    credits_per_usd: Option<f64>,
+    public_credit_status: &'static str,
     display_in_currency: bool,
     quota_display_type: String,
     custom_currency_symbol: String,
@@ -355,6 +363,17 @@ where
 
 impl StatusData {
     fn from_snapshot(snapshot: StatusSnapshot, version: &str, start_time: i64) -> Self {
+        let credit_units = PublicCreditDenomination::from_options(&snapshot.options)
+            .ok()
+            .map(|units| units.metadata().clone());
+        let credits_per_usd = credit_units
+            .as_ref()
+            .map(|units| units.ledger_quota_per_usd);
+        let public_credit_status = if credit_units.is_some() {
+            "available"
+        } else {
+            "unavailable"
+        };
         let options = Options(snapshot.options);
         let server_address = options.string("ServerAddress", DEFAULT_SERVER_ADDRESS);
         let quota_display_type = options.quota_display_type();
@@ -406,6 +425,9 @@ impl StatusData {
             0.0
         };
         Self {
+            credit_units,
+            credits_per_usd,
+            public_credit_status,
             version: version.to_owned(),
             start_time,
             email_verification: options.boolean("EmailVerificationEnabled", false),
@@ -602,6 +624,7 @@ mod tests {
         // historical provider-specific value in the frozen fixture.
         expected["data"]["price"] = json!(7.3_f64);
         expected["data"]["stripe_unit_price"] = json!(1.0_f64 / 7.3_f64);
+        expected["data"]["public_credit_status"] = json!("unavailable");
         assert_eq!(actual, expected);
         Ok(())
     }
@@ -629,6 +652,41 @@ mod tests {
         let body: Value = serde_json::from_slice(&body)?;
         assert_eq!(body["success"], false);
         assert_eq!(body["message"], "系统状态暂时不可用");
+        Ok(())
+    }
+
+    #[test]
+    fn public_credit_metadata_preserves_legacy_ledger_alias_and_frozen_snapshot() -> TestResult {
+        let mut snapshot = default_snapshot();
+        snapshot.options.extend(BTreeMap::from([
+            ("CreditsPerUSD".to_owned(), "3359744".to_owned()),
+            ("LegacyPricingQuotaPerUnit".to_owned(), "500000".to_owned()),
+            ("PublicCreditsPerUSD".to_owned(), "100000".to_owned()),
+        ]));
+        let first = StatusData::from_snapshot(snapshot.clone(), DEFAULT_VERSION, 0);
+        snapshot
+            .options
+            .insert("PublicCreditsPerUSD".to_owned(), "200000".to_owned());
+        let second = serde_json::to_value(StatusData::from_snapshot(
+            snapshot.clone(),
+            DEFAULT_VERSION,
+            0,
+        ))?;
+        let first = serde_json::to_value(first)?;
+        assert_eq!(first["public_credit_status"], "available");
+        assert_eq!(first["credits_per_usd"], 3359744.0);
+        assert_eq!(first["ledger_quota_per_usd_exact"], "3359744");
+        assert_eq!(first["public_credits_per_usd_exact"], "100000");
+        assert_eq!(second["public_credits_per_usd_exact"], "200000");
+        assert_eq!(second["credits_per_usd"], first["credits_per_usd"]);
+        snapshot
+            .options
+            .insert("PublicCreditsPerUSD".to_owned(), "1.5".to_owned());
+        let invalid =
+            serde_json::to_value(StatusData::from_snapshot(snapshot, DEFAULT_VERSION, 0))?;
+        assert_eq!(invalid["public_credit_status"], "unavailable");
+        assert!(invalid.get("public_credits_per_usd").is_none());
+        assert!(invalid.get("credits_per_usd").is_none());
         Ok(())
     }
 

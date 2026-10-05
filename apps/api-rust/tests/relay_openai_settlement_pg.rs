@@ -2,7 +2,7 @@
 //! boundary. Run with tests/scripts/with-local-services.py and --include-ignored.
 
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -19,6 +19,7 @@ use axum::{
 };
 use futures_util::{FutureExt, StreamExt, stream};
 use lmm_api_rs::{
+    public_credit_units::PublicCreditDenomination,
     relay_http::{RelayHttpClient, RelayTimeoutConfig},
     routes::relay_openai::{
         OpenAiRelayHttpState, OpenAiUpstreamClient, PgOpenAiRelayService, RelayReconcilePolicy,
@@ -250,6 +251,17 @@ impl Fixture {
         Ok(())
     }
 
+    async fn public_credit_denomination(&self) -> TestResult<PublicCreditDenomination> {
+        let options: BTreeMap<String, String> = sqlx::query_as::<_, (String, String)>(
+            "SELECT key,value FROM options WHERE key IN ('CreditsPerUSD','LegacyPricingQuotaPerUnit','QuotaPerUnit','PublicCreditsPerUSD')",
+        )
+        .fetch_all(&self.pg)
+        .await?
+        .into_iter()
+        .collect();
+        Ok(PublicCreditDenomination::from_options(&options)?)
+    }
+
     async fn wallet_state(&self) -> TestResult<Value> {
         let (wallet,token,used):(i64,i64,i64)=sqlx::query_as("SELECT u.quota,t.remain_quota,t.used_quota FROM users u JOIN tokens t ON t.user_id=u.id WHERE u.id=1 AND t.id=11")
             .fetch_one(&self.pg).await?;
@@ -401,6 +413,253 @@ async fn streaming_usage_settles_after_terminal_with_frozen_price_and_real_count
             .fetch_one(&fixture.pg)
             .await?;
     assert_eq!(log, (250, 100, 50));
+    fixture.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn public_credit_denomination_change_preserves_frozen_stream_settlement_and_replay_fence()
+-> TestResult {
+    let fixture = Fixture::new(true).await?;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&fixture.pg)
+        .await?;
+    assert_eq!(schema, fixture.schema);
+    fixture
+        .set_options(&json!({
+            "CreditsPerUSD":"3359744",
+            "LegacyPricingQuotaPerUnit":"500000",
+            "QuotaPerUnit":"500000",
+            "PublicCreditsPerUSD":"100000",
+        }))
+        .await?;
+    let captured = fixture.public_credit_denomination().await?;
+    let request_id = "public-denomination-stream";
+    let response = fixture.request(request_id, true).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(fixture.balance().await?, (9990, 0, 0));
+    assert_eq!(
+        fixture.wallet_state().await?,
+        json!({"wallet":9990,"token":9990,"used":10})
+    );
+    let (expected, wallet_reserved, token_reserved, status, frozen_price):
+        (i64, i64, i64, String, Value) = sqlx::query_as(
+        "SELECT expected_quota,wallet_reserved,token_reserved,status,price_snapshot FROM relay_settlement_records WHERE request_id=$1",
+    )
+    .bind(request_id)
+    .fetch_one(&fixture.pg)
+    .await?;
+    assert_eq!((expected, wallet_reserved, token_reserved), (10, 10, 10));
+    assert_eq!(status, "reserved");
+    assert_eq!(frozen_price["model_ratio"], "2");
+    assert_eq!(frozen_price["completion_ratio"], "3");
+    assert_eq!(frozen_price["group_ratio"], "0.5");
+    assert_eq!(frozen_price["quota_unit"], "500000");
+    assert_eq!(frozen_price["reservation"], 10);
+
+    // Poll a genuine provider chunk before changing only the public display
+    // denomination. The model rates and ledger reserve are already frozen.
+    let mut body = response.into_body().into_data_stream();
+    fixture
+        .event(json!({"type":"response.created","response":{"status":"in_progress"}}))
+        .await?;
+    let started = timeout(Duration::from_secs(3), body.next())
+        .await?
+        .ok_or_else(|| std::io::Error::other("missing response.created chunk"))??;
+    assert!(String::from_utf8_lossy(&started).contains("response.created"));
+    assert_eq!(
+        sqlx::query("UPDATE options SET value='200000' WHERE key='PublicCreditsPerUSD'")
+            .execute(&fixture.pg)
+            .await?
+            .rows_affected(),
+        1
+    );
+    let unchanged: (i64, i64, i64, Value) = sqlx::query_as(
+        "SELECT expected_quota,wallet_reserved,token_reserved,price_snapshot FROM relay_settlement_records WHERE request_id=$1",
+    )
+    .bind(request_id)
+    .fetch_one(&fixture.pg)
+    .await?;
+    assert_eq!(unchanged, (10, 10, 10, frozen_price.clone()));
+    let current = fixture.public_credit_denomination().await?;
+    assert_eq!(captured.metadata().ledger_quota_per_usd_exact, "3359744");
+    assert_eq!(current.metadata().ledger_quota_per_usd_exact, "3359744");
+    assert_eq!(captured.metadata().public_credits_per_usd_exact, "100000");
+    assert_eq!(current.metadata().public_credits_per_usd_exact, "200000");
+    assert_eq!(captured.project_ledger_quota(3_359_744)?, "100000");
+    assert_eq!(current.project_ledger_quota(3_359_744)?, "200000");
+    assert_eq!(
+        fixture.request(request_id, true).await?.status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(fixture.balance().await?, (9990, 0, 0));
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+
+    fixture.event(json!({"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":100,"output_tokens":50}}})).await?;
+    let terminal = timeout(Duration::from_secs(3), body.next())
+        .await?
+        .ok_or_else(|| std::io::Error::other("missing response.completed chunk"))??;
+    assert!(String::from_utf8_lossy(&terminal).contains("response.completed"));
+    assert!(
+        timeout(Duration::from_secs(3), body.next())
+            .await?
+            .is_none()
+    );
+    fixture.settled(250, 1).await?;
+    let (expected, wallet_reserved, token_reserved, actual, wallet_settled, status, price):
+        (i64, i64, i64, i64, i64, String, Value) = sqlx::query_as(
+        "SELECT expected_quota,wallet_reserved,token_reserved,actual_quota,wallet_settled,status,price_snapshot FROM relay_settlement_records WHERE request_id=$1",
+    )
+    .bind(request_id)
+    .fetch_one(&fixture.pg)
+    .await?;
+    assert_eq!((expected, wallet_reserved, token_reserved), (10, 10, 10));
+    assert_eq!((actual, wallet_settled), (250, 250));
+    assert_eq!(status, "settled");
+    assert_eq!(price, frozen_price);
+    let log: (i64, i64, i64) = sqlx::query_as(
+        "SELECT quota,prompt_tokens,completion_tokens FROM logs WHERE request_id=$1 AND type=2",
+    )
+    .bind(request_id)
+    .fetch_one(&fixture.pg)
+    .await?;
+    assert_eq!(log, (250, 100, 50));
+    for _ in 0..3 {
+        assert_eq!(
+            fixture.request(request_id, true).await?.status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            fixture
+                .service
+                .reconcile_settlements(10)
+                .await
+                .map_err(|error| std::io::Error::other(error.message))?,
+            0
+        );
+        fixture.settled(250, 1).await?;
+    }
+    let records: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM relay_settlement_records WHERE request_id=$1")
+            .bind(request_id)
+            .fetch_one(&fixture.pg)
+            .await?;
+    assert_eq!(records, 1);
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    fixture.cleanup().await
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn public_credit_denomination_change_refunds_raw_reservation_exactly_once() -> TestResult {
+    let fixture = Fixture::new(true).await?;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&fixture.pg)
+        .await?;
+    assert_eq!(schema, fixture.schema);
+    fixture
+        .set_options(&json!({
+            "CreditsPerUSD":"3359744",
+            "LegacyPricingQuotaPerUnit":"500000",
+            "QuotaPerUnit":"500000",
+            "PublicCreditsPerUSD":"100000",
+        }))
+        .await?;
+    let captured = fixture.public_credit_denomination().await?;
+    let request_id = "public-denomination-refund";
+    let response = fixture.request(request_id, true).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(fixture.balance().await?, (9990, 0, 0));
+    let (expected, wallet_reserved, token_reserved, frozen_price): (i64, i64, i64, Value) =
+        sqlx::query_as(
+            "SELECT expected_quota,wallet_reserved,token_reserved,price_snapshot FROM relay_settlement_records WHERE request_id=$1",
+        )
+        .bind(request_id)
+        .fetch_one(&fixture.pg)
+        .await?;
+    assert_eq!((expected, wallet_reserved, token_reserved), (10, 10, 10));
+    assert_eq!(
+        sqlx::query("UPDATE options SET value='200000' WHERE key='PublicCreditsPerUSD'")
+            .execute(&fixture.pg)
+            .await?
+            .rows_affected(),
+        1
+    );
+    let unchanged: (i64, i64, i64, Value) = sqlx::query_as(
+        "SELECT expected_quota,wallet_reserved,token_reserved,price_snapshot FROM relay_settlement_records WHERE request_id=$1",
+    )
+    .bind(request_id)
+    .fetch_one(&fixture.pg)
+    .await?;
+    assert_eq!(unchanged, (10, 10, 10, frozen_price.clone()));
+    let current = fixture.public_credit_denomination().await?;
+    assert_eq!(captured.metadata().ledger_quota_per_usd_exact, "3359744");
+    assert_eq!(current.metadata().ledger_quota_per_usd_exact, "3359744");
+    assert_eq!(captured.metadata().public_credits_per_usd_exact, "100000");
+    assert_eq!(current.metadata().public_credits_per_usd_exact, "200000");
+    assert_eq!(captured.project_ledger_quota(3_359_744)?, "100000");
+    assert_eq!(current.project_ledger_quota(3_359_744)?, "200000");
+
+    // No provider chunk was observed, so cancellation must return precisely
+    // the original raw reserve rather than project it through the new P.
+    drop(response);
+    assert!(
+        fixture
+            .tracker
+            .drain_until(tokio::time::Instant::now() + Duration::from_secs(3))
+            .await
+    );
+    fixture.settled(0, 0).await?;
+    for _ in 0..3 {
+        assert_eq!(
+            fixture
+                .service
+                .reconcile_settlements(10)
+                .await
+                .map_err(|error| std::io::Error::other(error.message))?,
+            0
+        );
+        fixture.settled(0, 0).await?;
+    }
+
+    // Refunded IDs are intentionally retryable. A second attempt under the
+    // new denomination still reserves/refunds the same raw ten ledger units.
+    let _retry_wire = fixture.queue_turn().await;
+    let retry = fixture.request(request_id, true).await?;
+    assert_eq!(retry.status(), StatusCode::OK);
+    assert_eq!(fixture.balance().await?, (9990, 0, 0));
+    assert_eq!(
+        fixture.wallet_state().await?,
+        json!({"wallet":9990,"token":9990,"used":10})
+    );
+    drop(retry);
+    assert!(
+        fixture
+            .tracker
+            .drain_until(tokio::time::Instant::now() + Duration::from_secs(3))
+            .await
+    );
+    fixture.settled(0, 0).await?;
+    let records: Vec<(i64, i64, i64, i64, i64, String, Value)> = sqlx::query_as(
+        "SELECT expected_quota,wallet_reserved,token_reserved,actual_quota,wallet_settled,status,price_snapshot FROM relay_settlement_records WHERE request_id=$1",
+    )
+    .bind(request_id)
+    .fetch_all(&fixture.pg)
+    .await?;
+    assert_eq!(records.len(), 2);
+    for (expected, wallet_reserved, token_reserved, actual, wallet_settled, status, price) in
+        records
+    {
+        assert_eq!((expected, wallet_reserved, token_reserved), (10, 10, 10));
+        assert_eq!((actual, wallet_settled), (0, 0));
+        assert_eq!(status, "refunded");
+        assert_eq!(price, frozen_price);
+    }
+    let logs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM logs")
+        .fetch_one(&fixture.pg)
+        .await?;
+    assert_eq!(logs, 0);
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 2);
     fixture.cleanup().await
 }
 

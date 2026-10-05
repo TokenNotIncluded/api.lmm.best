@@ -1102,41 +1102,15 @@ async fn format_topup_quota(pool: &PgPool, quota: i64) -> String {
     format_quota(pool, quota, false).await
 }
 
-pub(super) async fn format_quota(pool: &PgPool, quota: i64, include_unit: bool) -> String {
+pub(super) async fn format_quota(pool: &PgPool, quota: i64, _include_unit: bool) -> String {
     let options = read_options(pool).await.unwrap_or_default();
-    let quota_per_unit = options
-        .get("QuotaPerUnit")
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|value| value.is_finite())
-        .unwrap_or(DEFAULT_QUOTA_PER_UNIT);
-    let (display_type, custom_symbol, custom_rate) = quota_display_settings(&options);
-    let usd = quota as f64 / quota_per_unit;
-    match display_type.as_str() {
-        "CNY" => {
-            let exchange_rate = options
-                .get("USDExchangeRate")
-                .and_then(|value| value.parse::<f64>().ok())
-                .filter(|value| value.is_finite())
-                .unwrap_or(7.3);
-            format!(
-                "¥{:.6}{}",
-                usd * exchange_rate,
-                if include_unit { " 额度" } else { "" }
-            )
-        }
-        "CUSTOM" => {
-            format!(
-                "{custom_symbol}{:.6}{}",
-                usd * custom_rate,
-                if include_unit { " 额度" } else { "" }
-            )
-        }
-        "TOKENS" if include_unit => format!("{quota} 点额度"),
-        "TOKENS" => quota.to_string(),
-        _ => format!("＄{usd:.6}{}", if include_unit { " 额度" } else { "" }),
-    }
+    options
+        .get("CreditsPerUSD")
+        .and_then(|anchor| crate::public_credit_units::format_ledger_usd(quota, anchor).ok())
+        .unwrap_or_else(|| "USD unavailable".to_owned())
 }
 
+#[cfg(test)]
 fn quota_display_settings(options: &HashMap<String, String>) -> (String, String, f64) {
     let general = options
         .get("general_setting")

@@ -1,4 +1,5 @@
 use super::{TokenFacts, TokenQueryState};
+use crate::public_credit_units::PublicCreditDenomination;
 use crate::routes::{
     legacy_http::legacy_json,
     relay_openai::billing::{completion_default, option_entry},
@@ -135,16 +136,7 @@ pub(super) async fn context(
     }
     let row=sqlx::query("SELECT COALESCE(\"group\",'') AS user_group,COALESCE(role,0)::BIGINT AS role,to_jsonb(users)->>'trust_level_override' AS override_level,COALESCE((to_jsonb(users)->>'created_at')::BIGINT,0) AS created_at,COALESCE((to_jsonb(users)->>'last_api_activity_at')::BIGINT,0) AS last_api_at,COALESCE((to_jsonb(users)->>'console_activated_at')::BIGINT,0) AS console_activated_at FROM users WHERE id=$1 AND deleted_at IS NULL")
         .bind(token.user_id).fetch_optional(&state.pg).await.map_err(|_|context_error())?.ok_or_else(context_error)?;
-    let mut options = if let Some(runtime) = &state.runtime {
-        runtime.snapshot().await
-    } else {
-        sqlx::query_as::<_, (String, String)>("SELECT key,COALESCE(value,'') FROM options")
-            .fetch_all(&state.pg)
-            .await
-            .map_err(|_| context_error())?
-            .into_iter()
-            .collect()
-    };
+    let mut options = state.options().await.map_err(|_| context_error())?;
     for (source, target) in [
         ("group_ratio_setting.group_ratio", "GroupRatio"),
         ("group_ratio_setting.group_group_ratio", "GroupGroupRatio"),
@@ -301,6 +293,15 @@ pub(super) async fn response(
     let basis = match currency_basis(state, &context.options).await {
         Ok(Some(basis)) => basis,
         _ => {
+            return failure(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "pricing currency units unavailable",
+            );
+        }
+    };
+    let public_units = match PublicCreditDenomination::from_options(&context.options) {
+        Ok(units) => units,
+        Err(_) => {
             return failure(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "pricing currency units unavailable",
@@ -485,10 +486,15 @@ pub(super) async fn response(
             };
         }
     }
-    pricing_json(
-        StatusCode::OK,
-        json!({"success":true,"data":result,"updated_at":Utc::now().timestamp(),"scope":"token","pricing_schema_version":2,"pricing_currency":"USD","price_basis":"configured_base_rates","final_cost_depends_on_usage":true}),
-    )
+    let mut body = json!({"success":true,"data":result,"updated_at":Utc::now().timestamp(),"scope":"token","pricing_schema_version":2,"pricing_currency":"USD","price_basis":"configured_base_rates","final_cost_depends_on_usage":true});
+    match serde_json::to_value(public_units.metadata()) {
+        Ok(Value::Object(metadata)) => body
+            .as_object_mut()
+            .expect("pricing response object")
+            .extend(metadata),
+        _ => return price_error(),
+    }
+    pricing_json(StatusCode::OK, body)
 }
 
 // encoding/json formats float64 using the shortest decimal at [1e-6,1e21)

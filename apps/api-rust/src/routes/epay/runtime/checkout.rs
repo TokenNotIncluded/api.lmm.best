@@ -1,6 +1,7 @@
 //! Current Go ePay pricing, per-method access and coupon reservation rules.
 
 use super::*;
+use crate::public_credit_units::PublicCreditDenomination;
 use rust_decimal::RoundingStrategy;
 
 type Method = BTreeMap<String, String>;
@@ -93,19 +94,32 @@ impl PgEpayRepository {
         &self,
         input: CreateTopup,
     ) -> Result<QuotedTopup, TopupError> {
-        self.quote_currency(input, None).await
+        self.quote_currency(input, None)
+            .await
+            .map(|(quote, _)| quote)
     }
 
-    pub(crate) async fn quote_stripe(&self, input: CreateTopup) -> Result<QuotedTopup, TopupError> {
-        self.quote_currency(input, Some("USD")).await
+    pub(crate) async fn quote_stripe(
+        &self,
+        input: CreateTopup,
+    ) -> Result<(QuotedTopup, PublicCreditDenomination), TopupError> {
+        let (quote, denomination) = self.quote_currency(input, Some("USD")).await?;
+        Ok((
+            quote,
+            denomination.ok_or_else(|| message("定价货币单位不可用"))?,
+        ))
     }
 
     async fn quote_currency(
         &self,
         input: CreateTopup,
         dedicated_currency: Option<&str>,
-    ) -> Result<QuotedTopup, TopupError> {
+    ) -> Result<(QuotedTopup, Option<PublicCreditDenomination>), TopupError> {
         let values = options(&self.pg).await?;
+        let denomination = dedicated_currency
+            .map(|_| PublicCreditDenomination::from_options(&values))
+            .transpose()
+            .map_err(|_| message("定价货币单位不可用"))?;
         let methods = methods(&values)?;
         let user: Value = sqlx::query_scalar(
             "SELECT to_jsonb(u) FROM users u WHERE id=$1 AND deleted_at IS NULL",
@@ -292,16 +306,19 @@ impl PgEpayRepository {
         }
         snapshot.expected_amount_micros =
             monetary_micros(&money.to_string()).map_err(|_| message("支付金额无效"))?;
-        Ok(QuotedTopup {
-            user_id: input.user_id,
-            requested_amount: input.amount,
-            amount_unit: if tokens { "CREDIT" } else { "LEGACY" },
-            stored_amount,
-            money: format!("{money:.2}"),
-            payment_method: input.payment_method,
-            provider: input.provider,
-            snapshot,
-        })
+        Ok((
+            QuotedTopup {
+                user_id: input.user_id,
+                requested_amount: input.amount,
+                amount_unit: if tokens { "CREDIT" } else { "LEGACY" },
+                stored_amount,
+                money: format!("{money:.2}"),
+                payment_method: input.payment_method,
+                provider: input.provider,
+                snapshot,
+            },
+            denomination,
+        ))
     }
 
     pub(super) async fn persist_pending(&self, order: PendingTopup) -> Result<(), TopupError> {

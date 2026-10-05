@@ -110,5 +110,6 @@ pub mod routes;
 #[cfg(test)]
 pub(crate) mod model_delete_candidate;
 
+pub mod public_credit_units;
 /// Legacy-compatible public system status route.
 pub mod status;

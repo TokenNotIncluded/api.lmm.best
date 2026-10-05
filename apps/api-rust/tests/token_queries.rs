@@ -10,9 +10,78 @@ use lmm_api_rs::{
         public_catalog::{
             AccountBalanceRateLimiter, PublicCatalogStoreError, ValkeyAccountBalanceRateLimiter,
         },
+        system_config::ProcessRuntimeOptions,
         token_queries::{TokenQueryState, router},
     },
 };
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn public_denomination_refreshes_both_node_caches_without_repricing_or_ledger_writes() {
+    let fixture = Fixture::new().await;
+    fixture.pricing_schema().await;
+    sqlx::raw_sql("UPDATE options SET value='3359744' WHERE key='CreditsPerUSD';UPDATE options SET value='500000' WHERE key IN ('QuotaPerUnit','LegacyPricingQuotaPerUnit');INSERT INTO options VALUES('PublicCreditsPerUSD','100000'),('ModelRatio','{\"priced\":2}'),('ModelPrice','{}');INSERT INTO models(model_name) VALUES('priced');INSERT INTO abilities VALUES('priced','default',1,TRUE);UPDATE tokens SET remain_quota=3359744,used_quota=6719488 WHERE id=11")
+        .execute(&fixture.pg).await.unwrap();
+    let cached: BTreeMap<String, String> = sqlx::query_as("SELECT key,value FROM options")
+        .fetch_all(&fixture.pg)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+    let stale_a = Arc::new(ProcessRuntimeOptions::new(cached.clone()));
+    let mut stale_b_options = cached;
+    stale_b_options.insert("PublicCreditsPerUSD".into(), "99999".into());
+    let stale_b = Arc::new(ProcessRuntimeOptions::new(stale_b_options));
+    let apps = [stale_a.clone(), stale_b.clone()].map(|runtime| {
+        router(
+            TokenQueryState::new(fixture.pg.clone(), Arc::new(Allowed::default()))
+                .with_runtime_options(runtime),
+        )
+    });
+    let before = fixture.ledger_snapshot().await;
+    let mut prior_price = None;
+    for public in [100_000, 200_000] {
+        sqlx::query("UPDATE options SET value=$1 WHERE key='PublicCreditsPerUSD'")
+            .bind(public.to_string())
+            .execute(&fixture.pg)
+            .await
+            .unwrap();
+        for app in &apps {
+            let response = app
+                .clone()
+                .oneshot(request("/v1/usage", "Bearer query-key"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let usage = body(response).await;
+            assert_eq!(usage["remaining"], 1.0);
+            assert_eq!(usage["used_total"], 2.0);
+            assert_eq!(usage["public_credit_balance"], public.to_string());
+            assert_eq!(usage["public_credit_used"], (public * 2).to_string());
+            assert_eq!(usage["public_credits_per_usd_exact"], public.to_string());
+            assert_eq!(usage["ledger_quota_per_usd_exact"], "3359744");
+            assert_eq!(usage["quota_unit"], "LEDGER_QUOTA");
+            let response = app
+                .clone()
+                .oneshot(request("/v1/pricing?model=priced", "Bearer query-key"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let price = body(response).await;
+            assert_eq!(price["pricing_currency"], "USD");
+            assert_eq!(price["public_credits_per_usd_exact"], public.to_string());
+            assert_eq!(price["ledger_quota_per_usd_exact"], "3359744");
+            if let Some(prior) = &prior_price {
+                assert_eq!(prior, &price["data"]);
+            }
+            prior_price = Some(price["data"].clone());
+        }
+    }
+    assert_eq!(stale_a.snapshot().await["PublicCreditsPerUSD"], "100000");
+    assert_eq!(stale_b.snapshot().await["PublicCreditsPerUSD"], "99999");
+    assert_eq!(before, fixture.ledger_snapshot().await);
+    fixture.cleanup().await;
+}
 use serde_json::{Value, json, value::RawValue};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{

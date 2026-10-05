@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive, Zero};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 pub const MAX_WALLET_QUOTA: i64 = (1_i64 << 53) - 1;
@@ -20,6 +20,34 @@ pub const PUBLIC_CREDIT_OPTION_KEYS: [&str; 4] = [
     "PublicCreditsPerUSD",
 ];
 const PROJECTION_PRECISION: u32 = 64;
+
+/// New monetary log text is always real USD. Public P and UI/FX preferences
+/// never participate; a missing durable ledger basis is explicitly unavailable.
+pub fn format_ledger_usd(quota: i64, ledger_per_usd: &str) -> Result<String, PublicCreditError> {
+    if !(-MAX_WALLET_QUOTA..=MAX_WALLET_QUOTA).contains(&quota) {
+        return Err(PublicCreditError::InvalidAmount);
+    }
+    let ledger = ExactDecimal::parse(ledger_per_usd, 80)
+        .and_then(ExactDecimal::positive_safe_rate)
+        .map_err(|_| PublicCreditError::UnitsUnavailable)?;
+    let (ledger_num, ledger_den) = ledger.ratio();
+    let scaled = round_quotient_away(
+        BigInt::from(quota) * ledger_den * BigInt::from(10_u8).pow(PROJECTION_PRECISION),
+        ledger_num,
+    );
+    let six = round_quotient_away(
+        scaled.clone(),
+        BigInt::from(10_u8).pow(PROJECTION_PRECISION - 6),
+    );
+    let text = if !scaled.is_zero() && six.is_zero() {
+        format_scaled(scaled, PROJECTION_PRECISION as usize)
+    } else {
+        let canonical = format_scaled(six, 6);
+        let (integer, fractional) = canonical.split_once('.').unwrap_or((&canonical, ""));
+        format!("{integer}.{fractional:0<6}")
+    };
+    Ok(format!("{text} USD"))
+}
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum PublicCreditError {
@@ -39,10 +67,27 @@ pub struct CreditDenominationMetadata {
     pub quota_unit: &'static str,
     pub public_credit_unit: &'static str,
     pub legacy_credit_unit: &'static str,
+    #[serde(serialize_with = "serialize_compatibility_rate")]
     pub ledger_quota_per_usd: f64,
     pub ledger_quota_per_usd_exact: String,
+    #[serde(serialize_with = "serialize_compatibility_rate")]
     pub public_credits_per_usd: f64,
     pub public_credits_per_usd_exact: String,
+}
+
+fn serialize_compatibility_rate<S: Serializer>(
+    value: &f64,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    if value.is_finite()
+        && value.fract() == 0.0
+        && *value >= 0.0
+        && *value <= MAX_WALLET_QUOTA as f64
+    {
+        serializer.serialize_i64(*value as i64)
+    } else {
+        serializer.serialize_f64(*value)
+    }
 }
 
 /// An immutable request-local basis, shared by input resolution and receipts.
@@ -631,5 +676,26 @@ mod tests {
                 BigInt::from(expected)
             );
         }
+    }
+
+    #[test]
+    fn usd_log_text_uses_immutable_ledger_basis_and_preserves_small_nonzero_amounts() {
+        assert_eq!(
+            format_ledger_usd(7_300_000, "7300000").unwrap(),
+            "1.000000 USD"
+        );
+        assert_eq!(
+            format_ledger_usd(-7_300_000, "7300000").unwrap(),
+            "-1.000000 USD"
+        );
+        assert_eq!(format_ledger_usd(0, "7300000").unwrap(), "0.000000 USD");
+        assert_eq!(
+            format_ledger_usd(1, "7300000").unwrap(),
+            "0.0000001369863013698630136986301369863013698630136986301369863014 USD"
+        );
+        assert!(format_ledger_usd(1, "").is_err());
+        assert!(format_ledger_usd(1, "0").is_err());
+        // This API accepts no PublicP, UI display preference, or FX input.
+        assert_eq!(format_ledger_usd(1, "500000").unwrap(), "0.000002 USD");
     }
 }
