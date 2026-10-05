@@ -56,6 +56,15 @@ const rows = [
     'Chưa thể quy đổi credit',
   ],
   [
+    'The service is temporarily unavailable. Please try again later.',
+    '服务暂时不可用，请稍后重试。',
+    '服務暫時無法使用，請稍後再試。',
+    'Le service est temporairement indisponible. Réessayez plus tard.',
+    'サービスを一時的に利用できません。しばらくしてからもう一度お試しください。',
+    'Сервис временно недоступен. Повторите попытку позже.',
+    'Dịch vụ tạm thời không khả dụng. Vui lòng thử lại sau.',
+  ],
+  [
     'Credits are the smallest balance unit and are independent of model tokens.',
     'credit 是余额的最小单位，与模型 token 无关。',
     'credit 是餘額的最小單位，與模型 token 無關。',
@@ -649,6 +658,24 @@ const rows = [
     '結果が未精算のため、{{amount}} は {{time}} まで確保されたままです。再実行せず、このリクエストの状態を確認してください。',
     'Расчёт по результату ещё не завершён. {{amount}} остаются зарезервированными до {{time}}. Проверьте этот запрос, не запускайте его повторно.',
     'Kết quả chưa được quyết toán. {{amount}} vẫn được tạm giữ đến {{time}}. Kiểm tra yêu cầu này thay vì khởi chạy lại.',
+  ],
+  [
+    'Temporary SMS purchases require a balance of at least {{amount}}',
+    '购买临时短信至少需要 {{amount}} 的余额',
+    '購買臨時簡訊至少需要 {{amount}} 的餘額',
+    'Les achats de SMS temporaires nécessitent un solde d’au moins {{amount}}',
+    '一時 SMS の購入には {{amount}} 以上の残高が必要です',
+    'Для покупки временных SMS требуется баланс не менее {{amount}}',
+    'Mua SMS tạm thời cần số dư ít nhất {{amount}}',
+  ],
+  [
+    'Minimum balance: {{minimum}}. Current balance: {{balance}}.',
+    '最低余额：{{minimum}}。当前余额：{{balance}}。',
+    '最低餘額：{{minimum}}。目前餘額：{{balance}}。',
+    'Solde minimal : {{minimum}}. Solde actuel : {{balance}}.',
+    '最低残高：{{minimum}}。現在の残高：{{balance}}。',
+    'Минимальный баланс: {{minimum}}. Текущий баланс: {{balance}}.',
+    'Số dư tối thiểu: {{minimum}}. Số dư hiện tại: {{balance}}.',
   ],
 ]
 
