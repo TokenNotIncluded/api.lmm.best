@@ -39,6 +39,8 @@ else:
 listing = "--list" in args
 if os.environ.get("LMM_SUITE_GUARD_CARGO_MODE") == "omit-model-diagnostics" and target == "relay_openai_settlement_pg":
     names = [name for name in names if not name.startswith("provider_response_model_diagnostics_")]
+if os.environ.get("LMM_SUITE_GUARD_CARGO_MODE") == "omit-public-denomination":
+    names = [name for name in names if not name.startswith(("public_credit_denomination_change_", "public_denomination_refreshes_"))]
 oracles = {key:value for key,value in os.environ.items() if key.endswith("_GO_ORACLE_OUTPUT") or key in ("LMM_RELAY_FUNDING_GO_VECTORS", "LMM_RELAY_PRICE_GO_VECTORS")}
 with open(os.environ["LMM_SUITE_GUARD_TRACE"], "a") as trace:
     trace.write(json.dumps({"command":"cargo", "target":target, "listing":listing, "names":names,
@@ -154,12 +156,16 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
                 self.assertTrue(commands)
                 self.assertTrue(all(event["target"] == target or (suite == "relay-settlement" and event["target"] == "lib") for event in commands))
                 expected = [(True,5),(True,1),(False,1),(False,5)] if suite == "catalog" else [(True,len(commands[0]["names"])),(False,len(commands[0]["names"]))]
-                if suite == "relay-settlement": expected = [(True,36),(False,36),(True,1),(False,1)]
+                if suite == "token-queries": expected = [(True,7),(False,7)]
+                if suite == "relay-settlement": expected = [(True,38),(False,38),(True,1),(False,1)]
                 self.assertEqual([(event["listing"],len(event["names"])) for event in commands],expected)
                 if suite == "relay-settlement":
-                    required = {"provider_response_model_diagnostics_preserve_wire_quota_and_ledger", "provider_response_model_diagnostics_survive_settlement_recovery", "responses_missing_usage_output_and_reported_zero_settle_over_real_http"}
+                    required = {"provider_response_model_diagnostics_preserve_wire_quota_and_ledger", "provider_response_model_diagnostics_survive_settlement_recovery", "responses_missing_usage_output_and_reported_zero_settle_over_real_http", "public_credit_denomination_change_preserves_frozen_stream_settlement_and_replay_fence", "public_credit_denomination_change_refunds_raw_reservation_exactly_once"}
                     for command in commands[:2]:
                         self.assertTrue(required.issubset(command["names"]))
+                if suite == "token-queries":
+                    for command in commands:
+                        self.assertIn("public_denomination_refreshes_both_node_caches_without_repricing_or_ledger_writes", command["names"])
                 if suite == "stripe":
                     self.assertEqual(len(commands[0]["names"]), 12)
                     self.assertTrue(all(name.startswith("stripe_wallet::") for name in commands[0]["names"]))
@@ -172,6 +178,14 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout+result.stderr)
         self.assertIn("required integration test count mismatch", result.stderr)
         self.assertFalse(any(event["command"] == "cargo" and not event["listing"] for event in self.events()))
+
+    def test_public_denomination_regressions_cannot_be_omitted(self):
+        for suite in ("token-queries", "relay-settlement"):
+            with self.subTest(suite=suite):
+                result = self.run_suite(suite, LMM_SUITE_GUARD_CARGO_MODE="omit-public-denomination")
+                self.assertNotEqual(result.returncode, 0, result.stdout+result.stderr)
+                self.assertIn("required integration test count mismatch", result.stderr)
+                self.assertFalse(any(event["command"] == "cargo" and not event["listing"] for event in self.events()))
 
     def test_fresh_current_go_exports_replace_all_inherited_oracle_paths(self):
         for suite in ("epay", "stripe", "catalog", "token-queries", "relay-settlement"):
