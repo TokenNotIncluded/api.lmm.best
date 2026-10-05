@@ -73,7 +73,10 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 			// Current fiat FX and the retained price scale must still be usable
 			// when the immutable anchor already exists. Malformed durable values
 			// cannot silently inherit a cache's unrelated default on restart.
-			for _, key := range []string{"QuotaPerUnit", "USDExchangeRate"} {
+			if _, err := parseFixedCreditRate("QuotaPerUnit", values["QuotaPerUnit"]); err != nil {
+				return err
+			}
+			for _, key := range []string{"USDExchangeRate"} {
 				if _, err := parsePositiveCreditRate(values[key]); err != nil {
 					return fmt.Errorf("invalid %s for credit initialization: %w", key, err)
 				}
@@ -140,11 +143,11 @@ func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 				publicConfigured = false
 			}
 			var err error
-			legacy, err = parsePositiveCreditRate(values[LegacyPricingQuotaPerUnitOptionKey])
+			legacy, err = parseFixedCreditRate(LegacyPricingQuotaPerUnitOptionKey, values[LegacyPricingQuotaPerUnitOptionKey])
 			if err != nil {
 				return err
 			}
-			current, err := parsePositiveCreditRate(values["QuotaPerUnit"])
+			current, err := parseFixedCreditRate("QuotaPerUnit", values["QuotaPerUnit"])
 			if err != nil || !current.Equal(legacy) {
 				return errors.New("legacy pricing calibration differs from immutable credit currency basis")
 			}
@@ -195,7 +198,7 @@ func lockCreditUnitOptionChanges(tx *gorm.DB, values map[string]string) error {
 	if !changes {
 		return nil
 	}
-	candidate, err := parsePositiveCreditRate(value)
+	candidate, err := parseFixedCreditRate("QuotaPerUnit", value)
 	if err != nil {
 		return err
 	}
@@ -223,7 +226,7 @@ func lockCreditUnitOptionChanges(tx *gorm.DB, values map[string]string) error {
 	if !hasAnchor {
 		return nil
 	}
-	fixed, err := parsePositiveCreditRate(baseline)
+	fixed, err := parseFixedCreditRate(LegacyPricingQuotaPerUnitOptionKey, baseline)
 	if err != nil {
 		return errors.New("immutable legacy pricing calibration is unavailable; run migrate --apply")
 	}
@@ -246,14 +249,18 @@ func parsePositiveCreditRate(value string) (decimal.Decimal, error) {
 }
 
 func parseCreditAnchor(value string) (decimal.Decimal, error) {
-	anchor, err := parsePositiveCreditRate(value)
+	return parseFixedCreditRate(CreditsPerUSDOptionKey, value)
+}
+
+func parseFixedCreditRate(key, value string) (decimal.Decimal, error) {
+	rate, err := parsePositiveCreditRate(value)
 	if err != nil {
 		return decimal.Zero, err
 	}
-	if !anchor.Equal(decimal.NewFromInt(common.FixedCreditsPerUSD)) {
-		return decimal.Zero, fmt.Errorf("CreditsPerUSD must be fixed at 500000; existing value %s requires an explicit audited credit-balance migration; startup does not rewrite balances", anchor.String())
+	if !rate.Equal(decimal.NewFromInt(common.FixedCreditsPerUSD)) {
+		return decimal.Zero, fmt.Errorf("%s must be fixed at 500000; existing value %s requires an explicit audited credit-balance migration; startup does not rewrite balances", key, rate.String())
 	}
-	return anchor, common.ValidateCreditsPerUSD(anchor)
+	return rate, nil
 }
 
 func isCreditInitBusy(err error) bool {

@@ -319,6 +319,10 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == "QuotaPerUnit" {
+		_, err := parseFixedCreditRate(key, value)
+		return err
+	}
 	if key == PublicCreditsPerUSDOptionKey {
 		_, err := parsePublicCreditRate(value)
 		return err
@@ -934,7 +938,7 @@ func updateOptionMap(key string, value string) (err error) {
 		}
 	}
 	if key == "QuotaPerUnit" {
-		candidate, parseErr := parsePositiveCreditRate(value)
+		candidate, parseErr := parseFixedCreditRate("QuotaPerUnit", value)
 		if parseErr != nil {
 			return parseErr
 		}

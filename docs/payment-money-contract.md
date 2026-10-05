@@ -16,7 +16,9 @@ This document defines the units used by wallet top-ups and subscription payments
 
 Credits are independent of model tokens. There is no platform dollar, and one CNY is never defined to be one USD. The platform contract is always 1 USD = 500000 credits. Fiat FX applies only when converting between USD and CNY.
 
-Initialization persists `K = 500000`, independently of `R` and
+Initialization requires `CreditsPerUSD`, `QuotaPerUnit`,
+`LegacyPricingQuotaPerUnit`, and `PublicCreditsPerUSD` to be fixed at 500000.
+It persists `K = 500000`, independently of `R` and
 `TopUpPlatformUnitsPerCNY`. CREDIT display uses the exact integer wallet balance;
 `PublicCreditsPerUSD` is a compatibility option fixed at 500000, not a second
 adjustable denomination. Existing non-500000 anchors fail startup verification

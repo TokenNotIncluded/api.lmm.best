@@ -89,27 +89,27 @@ func TestCreditUnitsInitializationFixedAndPreservesHistory(t *testing.T) {
 
 func TestCreditUnitsLegacyCalibrationFreezeAndDriftDetection(t *testing.T) {
 	setupCreditUnitsDB(t)
-	require.NoError(t, UpdateOption("QuotaPerUnit", "750000"), "before initialization the existing calibration remains configurable")
+	require.Error(t, UpdateOption("QuotaPerUnit", "750000"), "the fixed USD scale cannot change before initialization either")
 	require.NoError(t, InitializeCreditUnits(t.Context()))
 	anchor, err := common.CreditsPerUSD()
 	require.NoError(t, err)
 	require.Equal(t, "500000", anchor.String())
 	legacy, err := common.LegacyPricingQuotaPerUnit()
 	require.NoError(t, err)
-	require.Equal(t, "750000", legacy.String())
-	require.Error(t, UpdateOption("QuotaPerUnit", "500000"))
+	require.Equal(t, "500000", legacy.String())
+	require.NoError(t, UpdateOption("QuotaPerUnit", "500000"))
 	// Simulate an older binary bypassing the new option guard. New startup
 	// verification must detect the authoritative calibration drift.
 	require.NoError(t, DB.Model(&Option{}).Where("key = ?", "QuotaPerUnit").Update("value", "1000000").Error)
 	require.Error(t, updateOptionMap("QuotaPerUnit", "1000000"))
-	require.Equal(t, float64(750000), common.QuotaPerUnit)
+	require.Equal(t, float64(500000), common.QuotaPerUnit)
 	snapshot, refreshErr := RefreshOptionsSnapshot(t.Context())
 	require.NoError(t, refreshErr)
-	require.Equal(t, float64(750000), common.QuotaPerUnit, "old-binary DB changes cannot alter the running node's actual debit scale on refresh")
-	require.Equal(t, "750000", snapshot["QuotaPerUnit"])
+	require.Equal(t, float64(500000), common.QuotaPerUnit, "old-binary DB changes cannot alter the running node's actual debit scale on refresh")
+	require.Equal(t, "500000", snapshot["QuotaPerUnit"])
 	canonical, bridgeErr := common.LegacyAmountToUSD(decimal.NewFromInt(7))
 	require.NoError(t, bridgeErr)
-	require.Equal(t, "10.5", canonical.String())
+	require.Equal(t, "7", canonical.String())
 	require.Error(t, VerifyCreditUnits(t.Context()))
 	_, err = common.CreditsPerUSD()
 	require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
@@ -264,14 +264,9 @@ func TestCreditUnitsPostgresCalibrationInitializationFence(t *testing.T) {
 	require.NoError(t, err)
 	baseline, err := common.LegacyPricingQuotaPerUnit()
 	require.NoError(t, err)
-	if updateErr == nil {
-		require.Equal(t, "1000000", baseline.String())
-		require.Equal(t, "500000", anchor.String())
-	} else {
-		require.ErrorContains(t, updateErr, "immutable")
-		require.Equal(t, "500000", baseline.String())
-		require.Equal(t, "500000", anchor.String())
-	}
+	require.ErrorContains(t, updateErr, "fixed at 500000")
+	require.Equal(t, "500000", baseline.String())
+	require.Equal(t, "500000", anchor.String())
 	require.Error(t, UpdateOptionsBulk(map[string]string{"QuotaPerUnit": "2000000", "USDExchangeRate": "99"}))
 	var rate Option
 	require.NoError(t, db.Where("key = ?", "USDExchangeRate").First(&rate).Error)
@@ -299,4 +294,46 @@ func TestCreditUnitsRejectsOldAnchorWithoutChangingBalances(t *testing.T) {
 			require.Zero(t, count, "failed initialization rolls back option creation")
 		})
 	}
+}
+
+func TestCreditUnitsRejectNonfixedDurablePricingScales(t *testing.T) {
+	for _, key := range []string{"QuotaPerUnit", LegacyPricingQuotaPerUnitOptionKey} {
+		for _, bad := range []string{"300000", "1.25", "750000"} {
+			t.Run(key+"/"+bad, func(t *testing.T) {
+				setupCreditUnitsDB(t)
+				require.NoError(t, InitializeCreditUnits(t.Context()))
+				user := User{Username: "wrong-durable-units", Quota: 987654, Password: "password"}
+				require.NoError(t, DB.Create(&user).Error)
+				require.NoError(t, DB.Model(&Option{}).Where("key = ?", key).Update("value", bad).Error)
+				_, err := CreditDenominationSnapshot()
+				require.Error(t, err, "public money metadata must reject a wrong durable scale even when process cache is unchanged")
+				for _, initialize := range []func(context.Context) error{InitializeCreditUnits, VerifyCreditUnits} {
+					require.ErrorContains(t, initialize(t.Context()), "explicit audited credit-balance migration")
+				}
+				var stored User
+				require.NoError(t, DB.First(&stored, user.Id).Error)
+				require.Equal(t, user.Quota, stored.Quota)
+				var row Option
+				require.NoError(t, DB.First(&row, "key = ?", key).Error)
+				require.Equal(t, bad, row.Value, "initialization must not silently repair an existing scale")
+			})
+		}
+	}
+	t.Run("fresh-nonfixed-current", func(t *testing.T) {
+		setupCreditUnitsDB(t)
+		require.NoError(t, DB.Model(&Option{}).Where("key = ?", "QuotaPerUnit").Update("value", "300000").Error)
+		require.ErrorContains(t, InitializeCreditUnits(t.Context()), "explicit audited credit-balance migration")
+		var count int64
+		require.NoError(t, DB.Model(&Option{}).Where("key IN ?", []string{CreditsPerUSDOptionKey, LegacyPricingQuotaPerUnitOptionKey, PublicCreditsPerUSDOptionKey}).Count(&count).Error)
+		require.Zero(t, count)
+	})
+	t.Run("coherent-but-wrong-durable-and-cache", func(t *testing.T) {
+		setupCreditUnitsDB(t)
+		require.NoError(t, InitializeCreditUnits(t.Context()))
+		require.NoError(t, DB.Model(&Option{}).Where("key IN ?", []string{"QuotaPerUnit", LegacyPricingQuotaPerUnitOptionKey}).Update("value", "300000").Error)
+		require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(300000)))
+		common.QuotaPerUnit = 300000
+		_, err := CreditDenominationSnapshot()
+		require.Error(t, err, "agreement between stale cache and durable values cannot authorize an altered scale")
+	})
 }

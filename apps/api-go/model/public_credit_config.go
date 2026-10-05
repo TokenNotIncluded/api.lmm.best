@@ -46,11 +46,11 @@ func CreditDenominationSnapshotForDB(db *gorm.DB) (common.CreditDenomination, er
 	if err != nil {
 		return common.CreditDenomination{}, common.ErrCreditUnitsUnavailable
 	}
-	legacy, err := parsePositiveCreditRate(values[LegacyPricingQuotaPerUnitOptionKey])
+	legacy, err := parseFixedCreditRate(LegacyPricingQuotaPerUnitOptionKey, values[LegacyPricingQuotaPerUnitOptionKey])
 	if err != nil {
 		return common.CreditDenomination{}, common.ErrCreditUnitsUnavailable
 	}
-	current, err := parsePositiveCreditRate(values["QuotaPerUnit"])
+	current, err := parseFixedCreditRate("QuotaPerUnit", values["QuotaPerUnit"])
 	if err != nil || !current.Equal(legacy) {
 		return common.CreditDenomination{}, ErrPricingUnitsStale
 	}

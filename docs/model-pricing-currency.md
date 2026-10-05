@@ -47,8 +47,8 @@ legacy `/api/option/bulk` or PUT with a USD value.
 
 The revision covers all twelve retained maps, the immutable USD anchor and
 legacy calibration. The USD writer checks authoritative database calibration
-under the pricing transaction lock and rejects stale node caches. QPU is frozen
-after currency initialization; the durable `LegacyPricingQuotaPerUnit` baseline,
+under the pricing transaction lock and rejects stale node caches. QPU and its durable legacy baseline are fixed at 500000, including before
+currency initialization; the durable `LegacyPricingQuotaPerUnit` baseline,
 stored QPU, fixed K and local cache must agree. The USD transaction locks QPU
 before the shared price-policy row, matching other currency writers. Existing
 model price locks still preserve locked values before validation. Unchanged
