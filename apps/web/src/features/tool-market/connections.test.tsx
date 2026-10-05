@@ -180,11 +180,11 @@ test('editing a one-credit budget preserves raw quota across account currency ch
   await waitFor(() => container.textContent?.includes('Edit budget') === true)
   await act(async () => button(container, 'Edit budget').click())
   const input = element<HTMLInputElement>(container, '#budget-limit')
-  assert.equal(input.value, '0.000000285714285714285714285715')
+  assert.equal(input.value, '0.000002')
   for (const [currency, expected] of [
-    ['CNY', '0.000002'],
+    ['CNY', '0.000014'],
     ['CREDIT', '1'],
-    ['USD', '0.000000285714285714285714285715'],
+    ['USD', '0.000002'],
   ]) {
     await act(async () => {
       const auth = useAuthStore.getState().auth

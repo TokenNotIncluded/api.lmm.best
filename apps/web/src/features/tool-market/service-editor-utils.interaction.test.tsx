@@ -337,9 +337,9 @@ test('each discovered tool can be priced independently and switching back to fre
     }
     await view.select('#billing-mode-search', 'paid')
     assert.equal(view.button('Save draft').disabled, true)
-    await view.input('#price-search', '1')
+    await view.input('#price-search', '7')
     await view.select('#billing-mode-new_tool', 'paid')
-    await view.input('#price-new_tool', '0.000002')
+    await view.input('#price-new_tool', '0.000014')
     await view.click('Save draft')
     assert.equal(requests.drafts.length, 1)
     assert.deepEqual(
@@ -409,15 +409,15 @@ test('net earnings use the current platform fee and refreshing definitions prese
   try {
     await readNewService(view)
     await view.select('#billing-mode-search', 'paid')
-    await view.input('#price-search', '1')
+    await view.input('#price-search', '7')
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.9 CNY per successful call after the 10% platform fee\./
+      /You receive 6\.3 CNY per successful call after the 10% platform fee\./
     )
     await view.rerenderFee(2500)
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.75 CNY per successful call after the 25% platform fee\./
+      /You receive 5\.25 CNY per successful call after the 25% platform fee\./
     )
     await view.click('Read tool definitions')
     assert.equal(
@@ -427,11 +427,11 @@ test('net earnings use the current platform fee and refreshing definitions prese
     )
     assert.equal(
       view.container.querySelector<HTMLInputElement>('#price-search')?.value,
-      '1'
+      '7'
     )
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.75 CNY per successful call after the 25% platform fee\./
+      /You receive 5\.25 CNY per successful call after the 25% platform fee\./
     )
     await view.click('Save draft')
     assert.equal(requests.drafts.length, 1)
@@ -494,7 +494,7 @@ test('editor preserves owner policy, requires review, and retries credential wri
     })
     assert.equal(
       view.container.querySelector<HTMLInputElement>('#price-search')?.value,
-      '0.05'
+      '0.35'
     )
     assert.equal(
       view.container.querySelector<HTMLInputElement>('input#select-search')
@@ -879,7 +879,7 @@ test('metered pricing keeps the actual input rate and a separate refundable cap 
   try {
     await view.click('Read tool definitions')
     await view.select('#billing-mode-search', 'input_tokens')
-    await view.input('#price-search', '2.94')
+    await view.input('#price-search', '20.58')
     await view.input('#token-limit-search', '65536')
     await view.click('Read tool definitions')
     await acknowledgePricingDefinitions(view)
@@ -915,7 +915,7 @@ test('ordinary publishers can select tool-reported usage pricing without provide
       false
     )
     await view.select('#billing-mode-search', 'input_tokens')
-    await view.input('#price-search', '2.94')
+    await view.input('#price-search', '20.58')
     assert.equal(view.button('Save draft').disabled, false)
   } finally {
     await view.dispose()
@@ -966,7 +966,7 @@ test('changing the display unit mid-editor retains one-credit prices and metered
   try {
     await view.click('Read tool definitions')
     await view.select('#billing-mode-search', 'input_tokens')
-    await view.input('#price-search', '2.94')
+    await view.input('#price-search', '20.58')
     await view.input('#token-limit-search', '65536')
     await act(async () =>
       view.container
@@ -975,7 +975,7 @@ test('changing the display unit mid-editor retains one-credit prices and metered
     )
     await acknowledgePricingDefinitions(view)
     await view.select('#billing-mode-new_tool', 'paid')
-    await view.input('#price-new_tool', '0.000002')
+    await view.input('#price-new_tool', '0.000014')
     for (const unit of ['USD', 'CREDIT', 'CNY'] as const) {
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference(unit)
@@ -988,15 +988,11 @@ test('changing the display unit mid-editor retains one-credit prices and metered
       assert.ok(smallest)
       assert.equal(
         rate.value,
-        unit === 'USD' ? '0.42' : unit === 'CREDIT' ? '1470000' : '2.94'
+        unit === 'USD' ? '2.94' : unit === 'CREDIT' ? '1470000' : '20.58'
       )
       assert.equal(
         smallest.value,
-        unit === 'USD'
-          ? '0.000000285714285714285714285715'
-          : unit === 'CREDIT'
-            ? '1'
-            : '0.000002'
+        unit === 'USD' ? '0.000002' : unit === 'CREDIT' ? '1' : '0.000014'
       )
       assert.equal(view.button('Save draft').disabled, false)
     }
@@ -1091,11 +1087,11 @@ test('usage rate currency switches reproject the chosen Credits and retain the r
   try {
     await view.click('Read tool definitions')
     await acknowledgePricingDefinitions(view)
-    await view.input(usageRateSelector, '0.01')
+    await view.input(usageRateSelector, '0.07')
     for (const [currency, expected] of [
-      ['USD', '0.001428571428571428571428571429'],
+      ['USD', '0.01'],
       ['CREDIT', '5000'],
-      ['CNY', '0.01'],
+      ['CNY', '0.07'],
     ] as const) {
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference(currency)

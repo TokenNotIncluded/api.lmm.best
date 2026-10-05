@@ -622,7 +622,7 @@ test('editing a published service opens the existing authored draft without repl
   const price = [...container.querySelectorAll<HTMLInputElement>('input')].find(
     (input) => input.id === `price-${draft.tools[0].name}`
   )
-  assert.equal(price?.value, '0.75')
+  assert.equal(price?.value, '5.25')
   assert.equal(
     container.querySelector<HTMLSelectElement>('#market-visibility')?.value,
     'shared'
@@ -806,13 +806,13 @@ test('catalog prices react to wallet units and rates while keeping native credit
   stubNavigation([priced])
   const { container } = await mount()
   await waitFor(() =>
-    (container.textContent ?? '').includes('7 CNY per successful call')
+    (container.textContent ?? '').includes('49 CNY per successful call')
   )
   const { useSystemConfigStore } = await import('@/stores/system-config-store')
   for (const [unit, expected] of [
-    ['USD', '1 USD'],
+    ['USD', '7 USD'],
     ['CREDIT', '3,500,000 Credits'],
-    ['CNY', '7 CNY'],
+    ['CNY', '49 CNY'],
   ] as const) {
     await act(async () => {
       const auth = useAuthStore.getState().auth
@@ -837,7 +837,7 @@ test('catalog prices react to wallet units and rates while keeping native credit
     })
   })
   await waitFor(() =>
-    (container.textContent ?? '').includes('14 CNY per successful call')
+    (container.textContent ?? '').includes('98 CNY per successful call')
   )
   assert.equal(priced.tools[0].price_quota, 3500000)
 })
