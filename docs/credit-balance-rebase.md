@@ -159,7 +159,7 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 - 未完成充值：区分确实未付与已付但回调迟到。确实未付可取消重新报价；已付应先按已约定事实结算进旧钱包，再纳入停写后的余额纠正，或者明确迁移订单待到账权益。旧订单直接改 status 不是退款，也不能借此吞掉真实支付。
 - 可用兑换码：对仍能入钱包的 `redemptions.quota` 同比缩减并逐条审计；已兑换的 quota 保留历史。红包 claimed_by 只表示拿到了码，尚可用的码仍要处理。折扣比例/reset券不缩减。
 - 已发布悬赏：保留参与者工作与状态；迁移剩余 escrow 和未支付 reward 权益，而不是为了清理全部关掉。校验每个项目剩余池足够其有效未支付承诺，分配整数舍入尾差；project 的 net_reward/gross_reward 是未来报价配置，需要明确改；已收 platform_fee、已付挑战 reward、tip_quota 和 ledgers 是历史，不改。`TipOpenSourceBounty` 已即时扣发双方钱包，tip_quota 不是待发奖金。
-- 活跃订阅：独立套餐额度不是 wallet。如果决定缩减套餐的剩余 credit，保留 amount_used，设置 amount_total = 原 amount_used + round(原剩余额度 / divisor)，并联动下一次续费/reset来源 plan.total_amount，防止恢复旧额度。若决定保留已售套餐权益，则明确保留全部套餐/reset/退款口径，不能只改其中一半。
+- 已售订阅：用户已确认尚未使用的套餐点数一起纠正。保留 amount_used，设置 amount_total = 原 amount_used + round(max(原 amount_total-amount_used,0) / divisor)，以双 nullable 的 reset_amount/renewal_amount 分别记录本期 grant 和原完整售出 grant，防止重置或续费恢复旧额度。
 - 邀请权益：ReferralReward quota/revoked/penalty 是旧单位历史，会在退款追索或误封恢复中再次影响 aff_quota。联合 SQL 的 `--include-affiliate` 保存完整 earned/revoked `referrals` 快照，在 `wallet_referral_credit_rebases` 写入同比纠正后的撤销/处罚/恢复基准；历史 Reward 不改。必须同步部署消费这些基准的运行时代码。
 
 ## 显式兑换码与悬赏扩展
@@ -179,3 +179,17 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 有限 token 的归属、余额、`unlimited_quota=false` 与完整数量均受事务保护。无限额 token 不写入。
 
 `scripts/export-credit-rebase-rights-private.sql` 只读导出缺失权益字段，不含凭证或 provider payload。输出须保存在私有文件，不向终端打印。待支付 topup 的派生事实仍须用现有 Go authority enrich；补导结果不能替代停写后同一快照的最终全量导出。
+
+待入账 scope 还包含 Waffo Pancake `failed` 且 `failure_reason_code=checkout_timeout` 的可恢复钱包报价；原运行时允许它们被迟到支付回调恢复，必须同步保存纠正基准。其他 failed 钱包订单不混入。订阅的 failed checkout 是终态，仍只迁移 pending 报价。
+
+## 已售套餐、本期重置、完整续费与退款
+
+`--include-subscriptions` 要求 `subscriptions/subscription_orders/subscription_plans/subscription_payment_events/subscription_payment_refunds` 完整数组，字段清单以 `credit_rebase_subscriptions.py` 常量为准。已售套餐和仍 active 的旧余额购套餐一起保留在父审计。双 nullable 原值必须均为 NULL，发现任意已有值即拒绝不完整或重复纠正。
+
+有限套餐本期上限设为 `old_used + round(max(old_total-old_used,0)/divisor)`；`reset_amount=round(old_total/divisor)`；`renewal_amount=round(original sold plan_snapshot.total_amount/divisor)`。原余额购或管理员绑定且没有支付订单的合同，完整 grant 来自自身原 `amount_total`。已用消费事实不改；递增 quota_version 并更新 updated_at 使旧预览失效。明确的非 NULL 零 grant 表示有限套餐已耗尽；原无限套餐双 NULL 保持无限。
+
+未来 catalog 的 `total_amount` 和 pending 订单 `plan_snapshot.total_amount` 同比纠正，真实价格、支付金额、已完成订单快照不改。有限未来报价若舍入为零则拒绝，因为旧创建入口把零解释为无限。pending 缺少原始快照时拒绝，不能拿今天 catalog 当历史售出报价。
+
+有未退实付金额的已售合同在同事务写入 `subscription_order_credit_rebases`，绑定订单、合同、用户、支付周期/到期、纠正后的 version、原始付款与退款事实。本期剩余额和重置 grant 独立记录；未来退款使用此基准，实际撤回剩余额与名义削减本期 grant 分开累计，完整续费 grant 保持。原本期额度加历史 refunded_quota 必须等于冻结售出快照 grant，不一致时拒绝。必须同步发布使用父/子审计的退款代码，审计丢失不能默默恢复旧单位退款。
+
+SQL 明确锁定全部套餐、订单、catalog、付款和退款表，核对全量数量及每条归属、状态、时间戳、quota_version、原始快照和实付事实；任意不符整个钱包/权益/价格事务回滚。父审计保存全部原 facts 和新 grants，已付奖励及历史使用量不在写入白名单。

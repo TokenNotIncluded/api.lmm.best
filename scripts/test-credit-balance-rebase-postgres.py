@@ -81,8 +81,28 @@ INSERT INTO fixture_money.tokens VALUES (10,1,680,false);
         ok(base, input=f"CREATE TABLE fixture_money.{table} (" + ",".join(columns) + "); INSERT INTO fixture_money." + table + " (" + ",".join(row.keys()) + ") VALUES (" + ",".join(values) + ");")
     snapshot["snapshot_at"] = 100
     snapshot["entities"] = {"redemptions":[red], "bounty_projects":[bounty], "bounty_challenges":[challenge]}
+    import credit_rebase_subscriptions as subscriptions
+    def subscription_source(ints,texts,**overrides):
+        return {key:0 for key in ints} | {key:"" for key in texts} | overrides
+    sold = subscription_source(subscriptions.SUB_INT,subscriptions.SUB_TEXT,id=70,user_id=1,plan_id=4,amount_total=6800,amount_used=6120,status="active",source="order",end_time=200,reset_amount=None,renewal_amount=None)
+    order = subscription_source(subscriptions.ORDER_INT,subscriptions.ORDER_TEXT,id=80,user_id=1,plan_id=4,user_subscription_id=70,status="success",money="0.01",expected_amount_micros=10000,plan_snapshot='{"id":4,"total_amount":6800,"waffo_pancake_product_type":"one_time"}')
+    pending_order = order | {"id":81,"user_subscription_id":0,"status":"pending"}
+    catalog = subscription_source(subscriptions.PLAN_INT,subscriptions.PLAN_TEXT,id=4,total_amount=6800,price_amount="0.01",enabled=True)
+    snapshot.update(subscriptions=[sold],subscription_orders=[order,pending_order],subscription_plans=[catalog],subscription_payment_events=[],subscription_payment_refunds=[])
+    for table,ints,texts,nullable,booleans,sources in [
+        ("user_subscriptions",subscriptions.SUB_INT,subscriptions.SUB_TEXT,(),(),[sold]),
+        ("subscription_orders",subscriptions.ORDER_INT,subscriptions.ORDER_TEXT,(),(),[order,pending_order]),
+        ("subscription_plans",subscriptions.PLAN_INT,subscriptions.PLAN_TEXT,(),("enabled",),[catalog]),
+        ("subscription_payment_events",subscriptions.PAYMENT_INT,subscriptions.PAYMENT_TEXT,("period_start","period_end"),(),[]),
+        ("subscription_payment_refunds",subscriptions.REFUND_INT,subscriptions.REFUND_TEXT,(),(),[])]:
+        columns = ["id bigint PRIMARY KEY"] + [key + " bigint" for key in ints+nullable] + [key + (" double precision" if key=="money" else " numeric" if key=="price_amount" else " text") for key in texts] + [key + " boolean" for key in booleans]
+        ok(base,input=f"CREATE TABLE fixture_money.{table} (" + ",".join(columns) + ");")
+        for source in sources:
+            original = {key:value for key,value in source.items() if key not in ("reset_amount","renewal_amount")}
+            values = ["NULL" if value is None else "true" if value is True else "false" if value is False else r.sql_literal(value) if isinstance(value,str) else str(value) for value in original.values()]
+            ok(base,input=f"INSERT INTO fixture_money.{table} (" + ",".join(original) + ") VALUES (" + ",".join(values) + ");")
     kw = dict(divisor_text="6.8", migration_id="fixture-v1", user_ids=[1, 2],
-              rounding="half-away-from-zero", restore_fixed_anchors=True, include_token_limits=True, include_affiliate=True, include_pending_topups=True, include_redemptions=True, include_bounties=True)
+              rounding="half-away-from-zero", restore_fixed_anchors=True, include_token_limits=True, include_affiliate=True, include_pending_topups=True, include_redemptions=True, include_bounties=True,include_subscriptions=True)
 
     def render(source=snapshot, **overrides):
         return r.postgres_sql(r.make_plan(source, **(kw | overrides)))
@@ -92,7 +112,7 @@ INSERT INTO fixture_money.tokens VALUES (10,1,680,false);
 
     def reset():
         ok(base, input="""
-TRUNCATE fixture_money.wallet_referral_credit_rebases, fixture_money.wallet_topup_credit_rebases, fixture_money.wallet_credit_rebases;
+TRUNCATE fixture_money.subscription_order_credit_rebases, fixture_money.wallet_referral_credit_rebases, fixture_money.wallet_topup_credit_rebases, fixture_money.wallet_credit_rebases;
 UPDATE fixture_money.options SET value=CASE WHEN key='USDExchangeRate' THEN '6.8' WHEN key='CreditsPerUSD' THEN '3359744' WHEN key='PublicCreditsPerUSD' THEN '100000' ELSE '500000' END;
 UPDATE fixture_money.users SET aff_quota=CASE WHEN id=1 THEN 680 ELSE 0 END;
 UPDATE fixture_money.users SET quota=CASE WHEN id=1 THEN 500000000 ELSE -86911 END;
@@ -105,8 +125,11 @@ UPDATE fixture_money.referral_rewards SET revision=1;
 UPDATE fixture_money.redemptions SET quota=680,user_id=1;
 UPDATE fixture_money.open_source_bounty_projects SET escrow_quota=6800,reward_quota=680,net_reward_quota=612,updated_at=0;
 UPDATE fixture_money.open_source_bounty_challenges SET reward_quota=612,participant_user_id=2;
+UPDATE fixture_money.user_subscriptions SET amount_total=6800,amount_used=6120,reset_amount=NULL,renewal_amount=NULL,quota_version=0,updated_at=0,user_id=1;
+UPDATE fixture_money.subscription_plans SET total_amount=6800,updated_at=0;
 
 """)
+        ok(base,input="UPDATE fixture_money.subscription_orders SET plan_snapshot=" + r.sql_literal(order["plan_snapshot"]) + ";")
 
     sql = render()
     original = wallet()
@@ -122,6 +145,11 @@ UPDATE fixture_money.open_source_bounty_challenges SET reward_quota=612,particip
     assert ok(base, input="SELECT reward_quota,tip_quota FROM fixture_money.open_source_bounty_challenges WHERE id=60;") == "90|125"
     assert ok(base,input="SELECT rebased_quota,rebased_revoked_quota,rebased_penalty_quota,rounding FROM fixture_money.wallet_referral_credit_rebases;") == "100|100|10|half-away-from-zero"
     assert ok(base,input="SELECT pending_credit_rebase_original_quota,pending_credit_rebase_effective_quota,credited_quota FROM fixture_money.top_ups WHERE id=21;") == "680|100|680"
+    assert ok(base,input="SELECT amount_total,amount_used,reset_amount,renewal_amount,quota_version FROM fixture_money.user_subscriptions;") == "6220|6120|1000|1000|1"
+    assert ok(base,input="SELECT original_credit_quota,refundable_quota,reset_quota,original_quota_version FROM fixture_money.subscription_order_credit_rebases;") == "6800|100|1000|1"
+    assert ok(base,input="SELECT total_amount FROM fixture_money.subscription_plans;") == "1000"
+    assert ok(base,input="SELECT plan_snapshot::jsonb->>'total_amount' FROM fixture_money.subscription_orders WHERE id=81;") == "1000"
+    assert ok(base,input="SELECT plan_snapshot::jsonb->>'total_amount' FROM fixture_money.subscription_orders WHERE id=80;") == "6800"
     first = wallet()
     assert first == "1|73529412|123\n2|-12781|45", first
     assert ok(base, input="SELECT count(*) FROM fixture_money.options WHERE value='500000';") == "4"
@@ -144,6 +172,11 @@ UPDATE fixture_money.open_source_bounty_challenges SET reward_quota=612,particip
                      "UPDATE fixture_money.referral_rewards SET revision=2 WHERE id=9;",
                      "UPDATE fixture_money.top_ups SET payment_provider='stripe' WHERE id=22;",
                      "UPDATE fixture_money.top_ups SET expected_amount_micros=1 WHERE id=22;",
+                     "UPDATE fixture_money.user_subscriptions SET reset_amount=1 WHERE id=70;",
+                     "UPDATE fixture_money.user_subscriptions SET user_id=2 WHERE id=70;",
+                     "UPDATE fixture_money.user_subscriptions SET quota_version=1 WHERE id=70;",
+                     "UPDATE fixture_money.subscription_orders SET plan_snapshot='{}' WHERE id=80;",
+                     "UPDATE fixture_money.subscription_plans SET total_amount=6801 WHERE id=4;",
                      "UPDATE fixture_money.top_ups SET pending_credit_rebase_key='other' WHERE id=21;"]:
         reset()
         ok(base, input=conflict)
@@ -151,6 +184,14 @@ UPDATE fixture_money.open_source_bounty_challenges SET reward_quota=612,particip
         assert run(base, input=sql).returncode != 0
         assert wallet() == before
         assert ok(base, input="SELECT count(*) FROM fixture_money.wallet_credit_rebases;") == "0"
+    for key in ("pending_topups","referrals","topups","tokens","subscription_plans"):
+        reset()
+        incomplete = copy.deepcopy(snapshot)
+        incomplete[key] = []
+        before = wallet()
+        assert run(base,input=render(incomplete)).returncode != 0, key
+        assert wallet() == before
+        assert ok(base,input="SELECT count(*) FROM fixture_money.wallet_credit_rebases;") == "0"
     print("Isolated PostgreSQL passed: non-public schema, target identity, delimiter data, four fixed anchors, token ownership, negative debt, idempotency, all conflict rollbacks.")
 finally:
     ok(["pg_ctl", "-D", str(data), "-m", "immediate", "-w", "stop"])

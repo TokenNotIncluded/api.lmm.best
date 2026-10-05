@@ -9,6 +9,7 @@ import re
 import sys
 from credit_rebase_auxiliary import legacy_noncash, legacy_noncash_sql, make_auxiliary, render_auxiliary
 from credit_rebase_entitlements import make_entities, render_entities
+from credit_rebase_subscriptions import make_subscriptions, render_subscriptions
 
 MAX_QUOTA = (1 << 53) - 1
 
@@ -29,7 +30,7 @@ def scale_credit(value, divisor, rounding):
 
 
 def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
-              include_affiliate=False, include_token_limits=False, restore_fixed_anchors=False, include_redemptions=False, include_bounties=False, include_pending_topups=False):
+              include_affiliate=False, include_token_limits=False, restore_fixed_anchors=False, include_redemptions=False, include_bounties=False, include_pending_topups=False, include_subscriptions=False):
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,18})?", divisor_text):
         raise ValueError("divisor must be an explicit positive decimal, not a float or expression")
     divisor = Fraction(divisor_text)
@@ -181,13 +182,14 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                                    include_redemptions=include_redemptions, include_bounties=include_bounties)
     pending_bases, referral_bases = make_auxiliary(snapshot, selected, lambda value: scale_credit(value, divisor, rounding),
         include_pending=include_pending_topups, include_affiliate=include_affiliate and restore_fixed_anchors)
+    subscription_plan = make_subscriptions(snapshot, selected, lambda value: scale_credit(value, divisor, rounding), include=include_subscriptions)
     plan = {"version": 1, "kind": "offline_credit_balance_rebase_preview",
             "migration_id": migration_id, "target": dict(target), "source_sha256": source_digest,
             "usd_credit_conversion": 500000, "divisor": divisor_text,
             "exact_factor": {"numerator": divisor.denominator, "denominator": divisor.numerator},
             "fx_source": {"kind": "frozen_production_option", "key": "USDExchangeRate", "value": fx},
             "rounding": rounding, "user_ids": sorted(selected),
-            "include_affiliate": include_affiliate, "include_token_limits": include_token_limits,
+            "include_affiliate": include_affiliate, "include_token_limits": include_token_limits, "include_subscriptions": include_subscriptions,
             "price_review_evidence": snapshot.get("price_review", {}).get("evidence") if restore_fixed_anchors else None,
             "pending_bases": pending_bases, "referral_bases": referral_bases, "include_pending_topups": include_pending_topups,
             "entity_updates": entity_updates, "include_redemptions": include_redemptions, "include_bounties": include_bounties, "snapshot_at": snapshot.get("snapshot_at"),
@@ -201,6 +203,7 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 "Back up database and verify restore; persist unique migration audit and before/after values atomically",
                 "Compare every planned before value; abort transaction on any mismatch",
                 "Invalidate affected user/token caches before reopening writers"]}
+    plan.update(subscription_plan)
     plan["plan_sha256"] = hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return plan
 
@@ -276,6 +279,12 @@ def postgres_sql(plan):
     refund_checks_sql = "\n".join(refund_checks)
     updates.extend(entity_statements)
     auxiliary_ddl, auxiliary_checks, auxiliary_updates, auxiliary_inserts, auxiliary_locks = render_auxiliary(plan, schema, sql_literal)
+    sub_ddl, sub_checks, sub_updates, sub_inserts, sub_locks = render_subscriptions(plan, schema, sql_literal)
+    auxiliary_ddl += sub_ddl
+    auxiliary_checks += sub_checks
+    auxiliary_updates += sub_updates
+    auxiliary_inserts += sub_inserts
+    auxiliary_locks += sub_locks
     auxiliary_ddl_sql = "\n".join(auxiliary_ddl)
     refund_checks.extend(auxiliary_checks)
     refund_checks_sql = "\n".join(refund_checks)
@@ -357,6 +366,7 @@ def main():
     parser.add_argument("--include-token-limits", action="store_true")
     parser.add_argument("--include-redemptions", action="store_true")
     parser.add_argument("--include-pending-topups", action="store_true")
+    parser.add_argument("--include-subscriptions", action="store_true")
     parser.add_argument("--include-bounties", action="store_true")
     parser.add_argument("--restore-fixed-anchors", action="store_true", help="Combine anchors and independently reviewed price corrections")
     parser.add_argument("--emit-postgres-sql", action="store_true", help="Render SQL only; never execute it")
@@ -367,7 +377,7 @@ def main():
         plan = make_plan(snapshot, divisor_text=args.divisor, migration_id=args.migration_id,
                          user_ids=args.user_id, rounding=args.rounding,
                          include_affiliate=args.include_affiliate, include_token_limits=args.include_token_limits, restore_fixed_anchors=args.restore_fixed_anchors,
-                         include_redemptions=args.include_redemptions, include_bounties=args.include_bounties, include_pending_topups=args.include_pending_topups)
+                         include_redemptions=args.include_redemptions, include_bounties=args.include_bounties, include_pending_topups=args.include_pending_topups, include_subscriptions=args.include_subscriptions)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(2, f"error: {error}\n")
     if args.emit_postgres_sql:

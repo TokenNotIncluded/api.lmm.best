@@ -18,6 +18,8 @@ class RebaseTests(unittest.TestCase):
             {"id": 2, "user_id": 1, "remain_quota": 680, "unlimited_quota": True}]}
         self.snapshot["topups"] = []
         self.snapshot["referrals"] = []
+        for key in ("subscriptions", "subscription_orders", "subscription_plans", "subscription_payment_events", "subscription_payment_refunds"):
+            self.snapshot[key] = []
         self.snapshot["target"] = {"database": "fixture", "schema": "fixture_money", "system_identifier": "123456"}
         self.snapshot["options"] = {"USDExchangeRate": "6.8","CreditsPerUSD": "3359744", "PublicCreditsPerUSD": "100000", "LegacyPricingQuotaPerUnit": "500000", "QuotaPerUnit": "500000"}
         self.snapshot["price_review"] = {"status": "verified", "evidence": "synthetic fixture without synced prices", "option_corrections": []}
@@ -109,6 +111,51 @@ class RebaseTests(unittest.TestCase):
             r.make_plan(bad, **self.kw)
         plan = r.make_plan(self.snapshot, **(self.kw | {"divisor_text": "6.80"}))
         self.assertEqual(plan["fx_source"]["value"], "6.8")
+
+    def subscription_fixture(self):
+        import credit_rebase_subscriptions as s
+        snapshot = copy.deepcopy(self.snapshot)
+        def row(ints,texts,**overrides):
+            return {key:0 for key in ints} | {key:"" for key in texts} | overrides
+        snapshot["snapshot_at"] = 100
+        snapshot["subscriptions"] = [row(s.SUB_INT,s.SUB_TEXT,id=70,user_id=1,plan_id=4,amount_total=6800,amount_used=6120,status="active",source="order",end_time=200,reset_amount=None,renewal_amount=None)]
+        snapshot["subscription_orders"] = [row(s.ORDER_INT,s.ORDER_TEXT,id=80,user_id=1,plan_id=4,user_subscription_id=70,status="success",money="0.01",expected_amount_micros=10000,plan_snapshot='{"id":4,"total_amount":6800,"waffo_pancake_product_type":"one_time"}')]
+        snapshot["subscription_plans"] = [row(s.PLAN_INT,s.PLAN_TEXT,id=4,total_amount=6800,price_amount="0.01",enabled=True)]
+        return snapshot
+
+    def test_sold_subscription_current_reset_renewal_and_pending_sources(self):
+        snapshot = self.subscription_fixture()
+        old = copy.deepcopy(snapshot)
+        snapshot["subscription_orders"].append(snapshot["subscription_orders"][0] | {"id":81,"user_subscription_id":0,"status":"pending"})
+        plan = r.make_plan(snapshot, **self.kw, restore_fixed_anchors=True, include_subscriptions=True)
+        sub = plan["subscriptions"][0]
+        self.assertEqual((sub["amount_total"],sub["reset_amount"],sub["renewal_amount"],sub["quota_version"]),(6220,1000,1000,1))
+        self.assertEqual(plan["subscription_refund_bases"][0]["refundable_quota"],100)
+        self.assertEqual(plan["subscription_refund_bases"][0]["original_credit_quota"],6800)
+        self.assertIn('"total_amount":1000',plan["subscription_order_updates"][0]["plan_snapshot"])
+        self.assertEqual(snapshot["subscriptions"],old["subscriptions"])
+        sql = r.postgres_sql(plan)
+        self.assertNotIn("SET amount_used",sql)
+        self.assertIn("subscription_order_credit_rebases",sql)
+
+    def test_subscription_grants_nullable_zero_and_ambiguous_sources(self):
+        snapshot = self.subscription_fixture()
+        snapshot["subscriptions"][0]["reset_amount"] = 1000
+        with self.assertRaises(ValueError):
+            r.make_plan(snapshot,**self.kw,include_subscriptions=True)
+        snapshot = self.subscription_fixture()
+        snapshot["subscriptions"][0].update(amount_total=1,amount_used=1)
+        snapshot["subscription_orders"][0]["plan_snapshot"] = '{"id":4,"total_amount":1}'
+        sub = r.make_plan(snapshot,**self.kw,include_subscriptions=True)["subscriptions"][0]
+        self.assertEqual((sub["amount_total"],sub["reset_amount"],sub["renewal_amount"]),(1,0,0))
+        snapshot["subscription_orders"][0]["status"] = "pending"
+        snapshot["subscription_orders"][0]["user_subscription_id"] = 0
+        with self.assertRaises(ValueError):
+            r.make_plan(snapshot,**self.kw,include_subscriptions=True)
+        snapshot = self.subscription_fixture()
+        snapshot["subscription_orders"][0]["plan_snapshot"] = ""
+        with self.assertRaises(ValueError):
+            r.make_plan(snapshot,**self.kw,include_subscriptions=True)
 
     def test_fixed_anchor_requires_price_review_and_sql_requires_combined_plan(self):
         with self.assertRaises(ValueError):
