@@ -118,6 +118,7 @@ func migrateTokenControllerTestDB(t *testing.T, db *gorm.DB) {
 
 func setupTokenControllerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	installIdentityCurrencyFixture(t)
 
 	db := openTokenControllerTestDB(t)
 	migrateTokenControllerTestDB(t, db)

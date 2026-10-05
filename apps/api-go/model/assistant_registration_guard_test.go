@@ -12,6 +12,7 @@ import (
 
 func setupRegistrationGuard(t *testing.T) *gorm.DB {
 	t.Helper()
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	db := setupAssistantGiftTestDB(t)
 	require.NoError(t, db.AutoMigrate(&Option{}, &DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSupportRequest{}))
 	return db

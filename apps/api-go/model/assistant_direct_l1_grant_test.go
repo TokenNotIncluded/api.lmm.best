@@ -12,6 +12,7 @@ import (
 
 func setupAssistantDirectL1GrantTest(t *testing.T) (*User, *AssistantConversation) {
 	t.Helper()
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(RegistrationGuardMigrationModels()...))
 	require.NoError(t, db.AutoMigrate(&AssistantNewUserGift{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}))

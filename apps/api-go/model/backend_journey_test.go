@@ -54,6 +54,7 @@ func TestBackendJourneyL0FilterMatchesLiveActivationPolicy(t *testing.T) {
 	oldSettings := *settings
 	oldLocal := LocalAcceptanceDeveloperAccessEnabled()
 	common.QuotaPerUnit = 500000
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	SetLocalAcceptanceDeveloperAccess(false)
 	t.Cleanup(func() {
 		common.QuotaPerUnit = oldQuota
@@ -143,6 +144,7 @@ func TestBackendJourneyL0ThresholdRoundsTheCumulativeCredit(t *testing.T) {
 	})
 	settings.PaidActivationEnabled, settings.PaidActivationMinAmount = true, 0.000001
 	common.QuotaPerUnit = 3000000
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	user := User{Username: "rounding", Password: "unused", AffCode: "rounding", Role: common.RoleCommonUser}
 	require.NoError(t, db.Create(&user).Error)
 	for i := 0; i < 2; i++ {

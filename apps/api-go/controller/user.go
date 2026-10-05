@@ -644,12 +644,14 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 			// The client shows how far a recharge still has to go before it
 			// unlocks the console on its own, so it needs the same threshold
 			// the server judges against rather than a hardcoded copy.
-			"paid_activation_enabled":    developerAccess.PaidActivationEnabled,
-			"paid_activation_min_amount": developerAccess.PaidActivationMinAmount,
-			"credential_complete":        onboarding.CredentialComplete,
-			"api_key_created":            onboarding.APIKeyCreated,
-			"first_request_complete":     onboarding.FirstRequestComplete,
-			"stage":                      onboarding.Stage,
+			"paid_activation_enabled":             developerAccess.PaidActivationEnabled,
+			"paid_activation_min_amount":          developerAccess.PaidActivationMinAmount,
+			"paid_activation_min_amount_currency": model.LegacyPaidPolicyCurrency,
+			"paid_activation_min_amount_usd":      model.LegacyPolicyAmountUSD(developerAccess.PaidActivationMinAmount),
+			"credential_complete":                 onboarding.CredentialComplete,
+			"api_key_created":                     onboarding.APIKeyCreated,
+			"first_request_complete":              onboarding.FirstRequestComplete,
+			"stage":                               onboarding.Stage,
 		},
 		"sidebar_modules": userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":     permissions,

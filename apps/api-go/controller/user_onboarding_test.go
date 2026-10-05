@@ -19,6 +19,7 @@ import (
 
 func setupUserOnboardingTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	installIdentityCurrencyFixture(t)
 	previousDB := model.DB
 	previousRedisEnabled := common.RedisEnabled
 	common.RedisEnabled = false
@@ -172,6 +173,7 @@ func (counter *selfTopUpQueryCounter) Trace(ctx context.Context, begin time.Time
 }
 
 func TestBuildSelfUserDataDoesNotDuplicateTopUpAggregate(t *testing.T) {
+	installIdentityCurrencyFixture(t)
 	previousDB := model.DB
 	previousRedisEnabled := common.RedisEnabled
 	common.RedisEnabled = false

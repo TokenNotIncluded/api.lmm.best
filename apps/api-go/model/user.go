@@ -616,14 +616,19 @@ func applyL0UserFilterWithPolicy(tx *gorm.DB, query *gorm.DB, policy DeveloperAc
 	ordinaryL0 := "users.trust_level_override IS NULL AND users.console_activated_at = 0"
 	args := []interface{}{TrustLevelMinUser + 1, TrustLevelMaxUser}
 	if policy.paidActivationEnabled {
-		expression, expressionArgs := positiveNormalizedCreditedQuotaSQL()
+		expression, expressionArgs, legacyQuota, err := legacyPaidPolicyCreditedQuotaSQL()
+		if err != nil {
+			query.AddError(err)
+			return query
+		}
 		paid := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{}).
 			Select("1").Where("top_ups.user_id = users.id")).
 			Where("("+expression+") > 0", expressionArgs...)
 		if policy.paidActivationMinMicros > 0 {
 			// Sum before rounding, just like the authoritative access snapshot.
+			// This is the immutable legacy policy Q, not the USD anchor K.
 			// Floating division and single-argument ROUND work on all three DBs.
-			havingArgs := append(append([]interface{}{}, expressionArgs...), common.QuotaPerUnit, policy.paidActivationMinMicros)
+			havingArgs := append(append([]interface{}{}, expressionArgs...), legacyQuota.InexactFloat64(), policy.paidActivationMinMicros)
 			paid = paid.Group("top_ups.user_id").Having(
 				"ROUND(SUM("+expression+") * 1000000.0 / NULLIF(?, 0)) >= ?", havingArgs...)
 		}

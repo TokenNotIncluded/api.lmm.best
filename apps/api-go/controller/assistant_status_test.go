@@ -93,6 +93,7 @@ func TestGetAssistantStatusFailsClosedWhenTrustLevelReadFails(t *testing.T) {
 }
 
 func TestGetAssistantStatusFailsClosedWhenDeveloperAccessReadFails(t *testing.T) {
+	installIdentityCurrencyFixture(t)
 	db := openTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}))
 	user := model.User{

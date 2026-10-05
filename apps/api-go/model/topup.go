@@ -745,7 +745,10 @@ func paidTopUpFactsWithTx(tx *gorm.DB, userId int, lockFacts bool) (paidTopUpFac
 		return paidTopUpFacts{}, gorm.ErrInvalidDB
 	}
 
-	creditedQuotaExpression, creditedQuotaArgs := positiveNormalizedCreditedQuotaSQL()
+	creditedQuotaExpression, creditedQuotaArgs, legacyQuota, err := legacyPaidPolicyCreditedQuotaSQL()
+	if err != nil {
+		return paidTopUpFacts{}, err
+	}
 	query := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{})).
 		Where("user_id = ?", userId).
 		Where("("+creditedQuotaExpression+") > 0", creditedQuotaArgs...)
@@ -770,11 +773,27 @@ func paidTopUpFactsWithTx(tx *gorm.DB, userId int, lockFacts bool) (paidTopUpFac
 	for _, row := range rows {
 		creditedQuota += row.CreditedQuota
 	}
-	facts.AmountMicros = creditedQuotaToUSDMicros(creditedQuota)
+	facts.AmountMicros = creditedQuotaToLegacyPolicyMicros(creditedQuota, legacyQuota)
 	return facts, nil
 }
 
 func positiveNormalizedCreditedQuotaSQL() (string, []interface{}) {
+	return positiveNormalizedCreditedQuotaSQLForScale(common.QuotaPerUnit)
+}
+
+// Historical access policy uses the frozen Q for both missing-snapshot legacy
+// orders and its threshold denominator. Live display/FX settings never rewrite
+// paid history or move the access boundary.
+func legacyPaidPolicyCreditedQuotaSQL() (string, []interface{}, decimal.Decimal, error) {
+	legacy, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return "", nil, decimal.Zero, err
+	}
+	expression, args := positiveNormalizedCreditedQuotaSQLForScale(legacy.InexactFloat64())
+	return expression, args, legacy, nil
+}
+
+func positiveNormalizedCreditedQuotaSQLForScale(quotaPerUnit float64) (string, []interface{}) {
 	expression := "CASE WHEN NOT (COALESCE(payment_provider, '') IN ? OR (COALESCE(payment_provider, '') = '' AND COALESCE(payment_method, '') IN ?)) THEN 0 " +
 		"WHEN credited_quota > 0 THEN credited_quota " +
 		"WHEN payment_provider = ? OR payment_method = ? THEN amount " +
@@ -788,7 +807,7 @@ func positiveNormalizedCreditedQuotaSQL() (string, []interface{}) {
 		[]string{PaymentProviderEpay, PaymentProviderStripe, PaymentProviderWaffo, PaymentProviderWaffoPancake},
 		[]string{PaymentMethodStripe, PaymentMethodWaffo, PaymentMethodWaffoPancake},
 		[]string{"alipay", "wxpay"},
-		common.QuotaPerUnit,
+		quotaPerUnit,
 	}
 }
 

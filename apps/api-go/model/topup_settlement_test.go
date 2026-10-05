@@ -35,6 +35,7 @@ func TestStandardTopUpCreditedQuotaRejectsInt64OverflowWithoutWrapping(t *testin
 
 func setupExternalTopUpSettlementDB(t *testing.T, maxOpenConnections int) *gorm.DB {
 	t.Helper()
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB := DB
 	previousDatabaseType := common.MainDatabaseType()
 	databasePath := filepath.Join(t.TempDir(), "settlement.db")

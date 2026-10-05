@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -25,11 +24,11 @@ type walletMCPOutput struct {
 }
 
 type walletMCPTopupInput struct {
-	Amount int `json:"amount" jsonschema:"Positive whole platform-credit amount, at most 1000000. This only prefills the official wallet; the user must choose and confirm payment there."`
+	Amount int `json:"amount" jsonschema:"Positive whole legacy batch amount, at most 1000000. This is not raw wallet credits or USD. This only prefills the official wallet; the user must choose and confirm payment there."`
 }
 
 type walletMCPTransferInput struct {
-	Quota int `json:"quota" jsonschema:"Positive integer wallet quota units to hold for the recipient. Inspect wallet.balance for quota_per_platform_credit. The exact amount requires user confirmation."`
+	Quota int `json:"quota" jsonschema:"Positive integer wallet credits to hold for the recipient. One credit is one raw quota unit. The exact amount requires user confirmation."`
 }
 
 type walletMCPCancelInput struct {
@@ -141,13 +140,20 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}
-			if math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) || common.QuotaPerUnit <= 0 {
+			anchor, err := common.CreditsPerUSD()
+			if err != nil {
 				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
 			}
-			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: map[string]any{"available_quota": user.Quota, "quota_per_platform_credit": common.QuotaPerUnit, "tool_price_quota": 0}}, nil
+			usd, err := common.CreditsToUSD(int64(user.Quota))
+			if err != nil {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
+			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: map[string]any{"schema_version": 2, "available_quota": user.Quota,
+				"available_credits": user.Quota, "currency_unit": "CREDIT", "credit_unit": 1, "quota_per_platform_credit": 1,
+				"currency": "USD", "available_usd": usd.InexactFloat64(), "credits_per_usd": anchor.String(), "tool_price_quota": 0}}, nil
 		})
 
-	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", "Open the official wallet with a bounded whole platform-credit amount prefilled. The user chooses a payment method and confirms there; this is not a payment-provider checkout, successful payment or balance credit. The MCP call is free.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", "Open the official wallet with a bounded whole legacy batch amount prefilled. The wallet converts this compatibility amount to credits. The user chooses a payment method and confirms there; this is not a payment-provider checkout, successful payment or balance credit. The MCP call is free.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input walletMCPTopupInput) (*mcp.CallToolResult, walletMCPOutput, error) {
 			if _, err := walletMCPActor(request, false); err != nil {
 				return nil, walletMCPOutput{}, err
@@ -159,7 +165,7 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}
-			return walletMCPLinkResult(walletMCPOutput{Message: "Review the amount and choose a payment method in your wallet. No payment has been created or charged.", Data: map[string]any{"url": link, "platform_credit_amount": input.Amount, "payment_confirmation_required": true, "tool_price_quota": 0}}, link)
+			return walletMCPLinkResult(walletMCPOutput{Message: "Review the legacy batch amount and choose a payment method in your wallet. No payment has been created or charged.", Data: map[string]any{"url": link, "amount_unit": "LEGACY", "legacy_batch_amount": input.Amount, "platform_credit_amount": input.Amount, "payment_confirmation_required": true, "tool_price_quota": 0}}, link)
 		})
 
 	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.transfers.list", "Read your wallet transfers", "Read up to 50 of your own transfer statuses. Pending links and QR codes are bearer credentials: share only with the intended recipient. Recipient contact details are not returned.", true, false, true),

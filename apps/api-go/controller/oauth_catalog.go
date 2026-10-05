@@ -53,12 +53,26 @@ func (h *OAuthHTTP) Balance(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var balance *float64
-	if common.QuotaPerUnit > 0 {
-		value := float64(user.Quota) / common.QuotaPerUnit
-		balance = &value
+	payload, err := oauthBalancePayload(user.Quota)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "temporarily_unavailable"})
+		return
 	}
-	c.JSON(200, gin.H{"schema_version": 1, "currency": "platform_credit", "balance": balance, "quota": user.Quota, "quota_per_unit": common.QuotaPerUnit, "updated_at": time.Now().Unix(), "authorization_limit": nil})
+	c.JSON(http.StatusOK, payload)
+}
+
+func oauthBalancePayload(quota int) (gin.H, error) {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		return nil, err
+	}
+	usd, err := common.CreditsToUSD(int64(quota))
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{"schema_version": 2, "currency": "USD", "balance": usd.InexactFloat64(), "quota": quota,
+		"quota_unit": "CREDIT", "credit_unit": 1, "credits_per_usd": anchor.String(), "quota_per_unit": anchor.InexactFloat64(),
+		"updated_at": time.Now().Unix(), "authorization_limit": nil}, nil
 }
 
 func (h *OAuthHTTP) Activity(c *gin.Context) {

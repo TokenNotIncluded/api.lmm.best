@@ -31,6 +31,7 @@ import (
 
 func setupWalletMCPTest(t *testing.T) (*gorm.DB, model.User, model.User) {
 	t.Helper()
+	installIdentityCurrencyFixture(t)
 	previousDB, previousLogDB, previousRedis := model.DB, model.LOG_DB, common.RedisEnabled
 	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
 	previousAddress := system_setting.ServerAddress

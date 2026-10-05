@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -27,6 +28,7 @@ const (
 	// eviction only causes a fresh aggregate query on the next access.
 	paidTopUpAggregateCacheMaxEntries = 16_384
 	paidTopUpAggregateCacheMaxBytes   = 2 << 20
+	LegacyPaidPolicyCurrency          = "legacy_pricing_unit"
 )
 
 var trustLevelThresholds = [...]float64{0, 0, 100, 500, 2000}
@@ -47,23 +49,28 @@ type TrustLevelInfo struct {
 	Level          int  `json:"level"`
 	AutomaticLevel int  `json:"automatic_level"`
 	OverrideLevel  *int `json:"override_level"`
-	// PaidAmount is the eligible API credit amount in USD. It intentionally
-	// does not represent the gateway's settlement amount.
-	PaidAmount           float64  `json:"paid_amount"`
-	DiscountRatio        float64  `json:"discount_ratio"`
-	DiscountPercent      float64  `json:"discount_percent"`
-	NextLevel            *int     `json:"next_level"`
-	NextLevelPaidAmount  *float64 `json:"next_level_paid_amount"`
-	AmountToNextLevel    *float64 `json:"amount_to_next_level"`
-	NextDecayAt          *int64   `json:"next_decay_at"`
-	InactivityDecaySteps int      `json:"inactivity_decay_steps"`
-	DecayPeriodDays      int      `json:"decay_period_days"`
-	Overridden           bool     `json:"overridden"`
+	// PaidAmount retains the historical policy units Q, not USD or gateway cash.
+	PaidAmount             float64  `json:"paid_amount"`
+	PaidAmountCurrency     string   `json:"paid_amount_currency"`
+	PaidAmountUSD          *float64 `json:"paid_amount_usd"`
+	DiscountRatio          float64  `json:"discount_ratio"`
+	DiscountPercent        float64  `json:"discount_percent"`
+	NextLevel              *int     `json:"next_level"`
+	NextLevelPaidAmount    *float64 `json:"next_level_paid_amount"`
+	NextLevelPaidAmountUSD *float64 `json:"next_level_paid_amount_usd"`
+	AmountToNextLevel      *float64 `json:"amount_to_next_level"`
+	AmountToNextLevelUSD   *float64 `json:"amount_to_next_level_usd"`
+	NextDecayAt            *int64   `json:"next_decay_at"`
+	InactivityDecaySteps   int      `json:"inactivity_decay_steps"`
+	DecayPeriodDays        int      `json:"decay_period_days"`
+	Overridden             bool     `json:"overridden"`
 }
 
 type TrustLevelTier struct {
 	Level                   int      `json:"level"`
 	MinPaidAmount           float64  `json:"min_paid_amount"`
+	MinPaidAmountCurrency   string   `json:"min_paid_amount_currency"`
+	MinPaidAmountUSD        *float64 `json:"min_paid_amount_usd"`
 	RequiresSuccessfulTopUp bool     `json:"requires_successful_top_up"`
 	DiscountPercent         float64  `json:"discount_percent"`
 	Benefits                []string `json:"benefits"`
@@ -86,8 +93,10 @@ func trustLevelTier(level int) TrustLevelTier {
 	}
 	benefits := append([]string(nil), trustLevelBenefits[level]...)
 	return TrustLevelTier{
-		Level:         level,
-		MinPaidAmount: trustLevelThresholds[level],
+		Level:                 level,
+		MinPaidAmount:         trustLevelThresholds[level],
+		MinPaidAmountCurrency: LegacyPaidPolicyCurrency,
+		MinPaidAmountUSD:      LegacyPolicyAmountUSD(trustLevelThresholds[level]),
 		// L1 can be reached through a successful top-up or an approved
 		// administrator unlock request, so payment is not a prerequisite.
 		RequiresSuccessfulTopUp: false,
@@ -127,10 +136,11 @@ func GetTrustLevelTierViews(viewerLevel int) []TrustLevelTier {
 }
 
 type paidTopUpAggregate struct {
-	// PaidAmountMicros stores eligible credited API balance in USD micros, not
-	// the amount charged by the external payment provider.
+	// PaidAmountMicros retains historical legacy-policy micros (credits / Q),
+	// not USD micros or the amount charged by the payment provider.
 	PaidAmountMicros   int64
 	PaidAmount         float64
+	CreditedQuota      float64
 	LastPaidCompleteAt int64
 	// PaidRows counts the qualifying real-money recharges. It is kept next to
 	// the amount so a cached aggregate can be re-judged against the current
@@ -165,7 +175,7 @@ var paidTopUpAggregateCache = cachex.NewByteCache[cachedPaidTopUpAggregate](
 	paidTopUpAggregateCacheMaxEntries,
 	paidTopUpAggregateCacheMaxBytes,
 	func(key string, _ cachedPaidTopUpAggregate) int64 {
-		return int64(len(key) + 48)
+		return int64(len(key) + 56)
 	},
 )
 
@@ -239,6 +249,8 @@ func EvaluateTrustLevelWithActivation(role int, overrideLevel *int, paidAmount f
 		AutomaticLevel:       automaticLevel,
 		OverrideLevel:        overrideLevel,
 		PaidAmount:           paidAmount,
+		PaidAmountCurrency:   LegacyPaidPolicyCurrency,
+		PaidAmountUSD:        LegacyPolicyAmountUSD(paidAmount),
 		DiscountRatio:        trustLevelDiscountRatios[effectiveLevel],
 		DiscountPercent:      (1 - trustLevelDiscountRatios[effectiveLevel]) * 100,
 		NextDecayAt:          nextDecayAt,
@@ -255,18 +267,22 @@ func EvaluateTrustLevelWithActivation(role int, overrideLevel *int, paidAmount f
 		}
 		info.NextLevel = &next
 		info.NextLevelPaidAmount = &threshold
+		info.NextLevelPaidAmountUSD = LegacyPolicyAmountUSD(threshold)
 		info.AmountToNextLevel = &remaining
+		info.AmountToNextLevelUSD = LegacyPolicyAmountUSD(remaining)
 	}
 	return info
 }
 
 func administratorTrustLevelInfo(level int) TrustLevelInfo {
 	return TrustLevelInfo{
-		Level:           level,
-		AutomaticLevel:  level,
-		DiscountRatio:   trustLevelDiscountRatios[TrustLevelMaxUser],
-		DiscountPercent: (1 - trustLevelDiscountRatios[TrustLevelMaxUser]) * 100,
-		DecayPeriodDays: int(trustLevelDecayPeriod / (24 * time.Hour)),
+		Level:              level,
+		AutomaticLevel:     level,
+		PaidAmountCurrency: LegacyPaidPolicyCurrency,
+		PaidAmountUSD:      LegacyPolicyAmountUSD(0),
+		DiscountRatio:      trustLevelDiscountRatios[TrustLevelMaxUser],
+		DiscountPercent:    (1 - trustLevelDiscountRatios[TrustLevelMaxUser]) * 100,
+		DecayPeriodDays:    int(trustLevelDecayPeriod / (24 * time.Hour)),
 	}
 }
 
@@ -286,6 +302,12 @@ func getPaidTopUpAggregates(userIDs []int) (map[int]paidTopUpAggregate, error) {
 }
 
 func getPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map[int]paidTopUpAggregate, error) {
+	if len(userIDs) == 0 {
+		return map[int]paidTopUpAggregate{}, nil
+	}
+	if _, err := common.LegacyPricingQuotaPerUnit(); err != nil {
+		return nil, err
+	}
 	result := make(map[int]paidTopUpAggregate, len(userIDs))
 	missing := make([]int, 0, len(userIDs))
 	seen := make(map[int]struct{}, len(userIDs))
@@ -371,7 +393,10 @@ func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map
 	}
 	var summaries []paidTopUpSummary
 	activityExpression := "CASE WHEN complete_time > 0 THEN complete_time ELSE create_time END"
-	creditedQuotaExpression, creditedQuotaArgs := positiveNormalizedCreditedQuotaSQL()
+	creditedQuotaExpression, creditedQuotaArgs, legacyQuota, err := legacyPaidPolicyCreditedQuotaSQL()
+	if err != nil {
+		return nil, err
+	}
 	selectClause := "user_id, " +
 		"COALESCE(SUM(" + creditedQuotaExpression + "), 0) AS credited_quota, " +
 		"COALESCE(MAX(" + activityExpression + "), 0) AS last_paid_complete_at, " +
@@ -385,10 +410,11 @@ func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map
 		return nil, err
 	}
 	for _, summary := range summaries {
-		paidAmountMicros := creditedQuotaToUSDMicros(summary.CreditedQuota)
+		paidAmountMicros := creditedQuotaToLegacyPolicyMicros(summary.CreditedQuota, legacyQuota)
 		result[summary.UserId] = paidTopUpAggregate{
 			PaidAmountMicros:   paidAmountMicros,
 			PaidAmount:         float64(paidAmountMicros) / 1_000_000,
+			CreditedQuota:      summary.CreditedQuota,
 			LastPaidCompleteAt: summary.LastPaidCompleteAt,
 			PaidRows:           summary.ActivationCompleteRows,
 		}
@@ -396,15 +422,51 @@ func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map
 	return result, nil
 }
 
-func creditedQuotaToUSDMicros(creditedQuota float64) int64 {
-	if creditedQuota <= 0 || common.QuotaPerUnit <= 0 {
+func creditedQuotaToLegacyPolicyMicros(creditedQuota float64, legacyQuota decimal.Decimal) int64 {
+	if creditedQuota <= 0 || !legacyQuota.IsPositive() {
 		return 0
 	}
 	return decimal.NewFromFloat(creditedQuota).
-		Div(decimal.NewFromFloat(common.QuotaPerUnit)).
+		Div(legacyQuota).
 		Mul(decimal.NewFromInt(1_000_000)).
 		Round(0).
 		IntPart()
+}
+
+// LegacyPolicyAmountUSD adds a truthful display projection without rewriting
+// historical policy thresholds or changing trust/activation decisions. A
+// missing basis remains null, including for zero amounts.
+func LegacyPolicyAmountUSD(amount float64) *float64 {
+	if math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return nil
+	}
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		return nil
+	}
+	legacy, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return nil
+	}
+	value := decimal.NewFromFloat(amount).Mul(legacy).Div(anchor).InexactFloat64()
+	return &value
+}
+
+// The USD payment display uses the unrounded credited sum. Policy micros may
+// round a single credit to zero; that rounding must not erase real USD value.
+func (aggregate paidTopUpAggregate) withUSDDisplay(info TrustLevelInfo) TrustLevelInfo {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		info.PaidAmountUSD, info.AmountToNextLevelUSD = nil, nil
+		return info
+	}
+	value := decimal.NewFromFloat(aggregate.CreditedQuota).Div(anchor).InexactFloat64()
+	info.PaidAmountUSD = &value
+	if info.NextLevelPaidAmountUSD != nil {
+		remaining := math.Max(0, *info.NextLevelPaidAmountUSD-value)
+		info.AmountToNextLevelUSD = &remaining
+	}
+	return info
 }
 
 func invalidatePaidTopUpAggregate(userID int) {
@@ -453,7 +515,7 @@ func GetTrustLevelInfoForUser(user *User) (TrustLevelInfo, error) {
 	}
 	anchor := trustActivityAnchor(user.CreatedAt, user.LastAPIActivityAt, aggregate.LastPaidCompleteAt)
 	paidActivationComplete := aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy())
-	return EvaluateTrustLevelWithActivation(user.Role, user.TrustLevelOverride, aggregate.PaidAmount, paidActivationComplete || user.ConsoleActivatedAt > 0, anchor, time.Now().Unix()), nil
+	return aggregate.withUSDDisplay(EvaluateTrustLevelWithActivation(user.Role, user.TrustLevelOverride, aggregate.PaidAmount, paidActivationComplete || user.ConsoleActivatedAt > 0, anchor, time.Now().Unix())), nil
 }
 
 // GetFreshTrustLevelInfoForUser bypasses the bounded discount cache for
@@ -543,9 +605,9 @@ func GetFreshUserAccessSnapshot(user *User) (UserAccessSnapshot, error) {
 	activationComplete := paidActivationComplete || user.ConsoleActivatedAt > 0
 	anchor := trustActivityAnchor(user.CreatedAt, user.LastAPIActivityAt, aggregate.LastPaidCompleteAt)
 	return UserAccessSnapshot{
-		TrustLevel: EvaluateTrustLevelWithActivation(
+		TrustLevel: aggregate.withUSDDisplay(EvaluateTrustLevelWithActivation(
 			user.Role, nil, aggregate.PaidAmount, activationComplete, anchor, time.Now().Unix(),
-		),
+		)),
 		DeveloperAccess:        ordinaryDeveloperAccessStateWithPolicy(paidActivationComplete, user.ConsoleActivatedAt > 0, policy),
 		PaidAmountMicros:       aggregate.PaidAmountMicros,
 		LastPaidCompleteAt:     aggregate.LastPaidCompleteAt,
@@ -569,7 +631,7 @@ func GetTrustLevelInfoForUserBase(user *UserBase) (TrustLevelInfo, error) {
 	}
 	anchor := trustActivityAnchor(user.CreatedAt, user.LastAPIActivityAt, aggregate.LastPaidCompleteAt)
 	paidActivationComplete := aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy())
-	return EvaluateTrustLevelWithActivation(user.Role, user.TrustLevelOverride, aggregate.PaidAmount, paidActivationComplete || user.ConsoleActivatedAt > 0, anchor, time.Now().Unix()), nil
+	return aggregate.withUSDDisplay(EvaluateTrustLevelWithActivation(user.Role, user.TrustLevelOverride, aggregate.PaidAmount, paidActivationComplete || user.ConsoleActivatedAt > 0, anchor, time.Now().Unix())), nil
 }
 
 func GetTrustLevelInfoByUserID(userID int) (TrustLevelInfo, error) {
@@ -732,14 +794,14 @@ func EnrichUsersTrustLevelsContext(ctx context.Context, users []*User) error {
 		} else {
 			aggregate := aggregates[user.Id]
 			anchor := trustActivityAnchor(user.CreatedAt, user.LastAPIActivityAt, aggregate.LastPaidCompleteAt)
-			info = EvaluateTrustLevelWithActivation(
+			info = aggregate.withUSDDisplay(EvaluateTrustLevelWithActivation(
 				user.Role,
 				user.TrustLevelOverride,
 				aggregate.PaidAmount,
 				aggregate.paidActivationComplete(policy) || user.ConsoleActivatedAt > 0,
 				anchor,
 				now,
-			)
+			))
 		}
 		user.TrustLevelInfo = &info
 	}

@@ -129,6 +129,7 @@ func TestEvaluateTrustLevelInvalidOrdinaryOverrideFailsClosed(t *testing.T) {
 }
 
 func TestGetTrustLevelInfoUsesCompletedExternalTopUps(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB := DB
 	previousRedis := common.RedisEnabled
 	common.RedisEnabled = false
@@ -235,6 +236,7 @@ func TestLocalAcceptanceDeveloperAccessPreservesPaidActivationFact(t *testing.T)
 }
 
 func TestFreshUserAccessSnapshotUsesOneBoundedAggregateQuery(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB := DB
 	baseLogger := logger.Default.LogMode(logger.Silent)
 	counter := &topUpQueryCounter{Interface: baseLogger}
@@ -264,6 +266,7 @@ func TestFreshUserAccessSnapshotUsesOneBoundedAggregateQuery(t *testing.T) {
 }
 
 func TestManualConsoleActivationUnlocksL1WithoutPaidTopUp(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB := DB
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))), &gorm.Config{})
 	require.NoError(t, err)
@@ -288,6 +291,7 @@ func TestManualConsoleActivationUnlocksL1WithoutPaidTopUp(t *testing.T) {
 }
 
 func TestEnrichUsersTrustLevelsQueriesOnlyOrdinaryUsersWithoutOverrides(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB := DB
 	counter := &topUpQueryCounter{Interface: logger.Default.LogMode(logger.Silent)}
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))), &gorm.Config{Logger: counter})
@@ -329,6 +333,7 @@ func TestEnrichUsersTrustLevelsQueriesOnlyOrdinaryUsersWithoutOverrides(t *testi
 }
 
 func TestEnrichUsersTrustLevelsHonorsConsoleActivation(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB := DB
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))), &gorm.Config{})
 	require.NoError(t, err)

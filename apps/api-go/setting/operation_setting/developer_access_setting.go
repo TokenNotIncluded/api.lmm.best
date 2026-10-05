@@ -13,8 +13,9 @@ type DeveloperAccessSetting struct {
 	// PaidActivationEnabled lets a qualifying real-money recharge grant access
 	// without review. Turning it off routes every account through review.
 	PaidActivationEnabled bool `json:"paid_activation_enabled"`
-	// PaidActivationMinAmount is the cumulative credited amount in USD the
-	// account has to reach. Zero keeps the historical behaviour where any
+	// PaidActivationMinAmount is the cumulative credited legacy policy amount
+	// (credits / immutable Q) an account has to reach, not USD. Existing
+	// thresholds retain this basis. Zero keeps the historical behaviour where any
 	// successful real-money recharge qualifies.
 	PaidActivationMinAmount float64 `json:"paid_activation_min_amount"`
 }
@@ -33,7 +34,7 @@ func GetDeveloperAccessSetting() *DeveloperAccessSetting {
 }
 
 // PaidActivationMinAmountMicros normalizes the configured threshold into the
-// USD micros the payment aggregates are measured in. A negative or otherwise
+// legacy policy micros the payment aggregates are measured in. A negative or otherwise
 // unusable value degrades to "any successful recharge" instead of locking the
 // boundary shut on a typo.
 func PaidActivationMinAmountMicros() int64 {
