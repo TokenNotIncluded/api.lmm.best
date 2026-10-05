@@ -243,7 +243,11 @@ export function displayAmountToQuota(
 ): number {
   let rational = decimal(amount)
   if (!rational) return Number.NaN
-  if (currency === 'CREDIT') return safeInteger(rational)
+  if (currency === 'CREDIT') {
+    return rational.numerator % rational.denominator === 0n
+      ? safeInteger(rational)
+      : Number.NaN
+  }
   const denomination = rate(config.creditsPerUsd, config.creditsPerUsdExact)
   if (!denomination) return Number.NaN
   if (currency === 'CNY') {

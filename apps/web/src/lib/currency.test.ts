@@ -135,8 +135,9 @@ test('invalid rates and unsafe amounts cannot fall back to 1:1', () => {
 test('decimal writes floor exactly and preserve signed raw quota', () => {
   assert.equal(displayAmountToQuota('0.0000001', 'USD'), 0)
   assert.equal(displayAmountToQuota('0.1', 'USD'), 365000)
-  assert.equal(displayAmountToQuota('1.9', 'CREDIT'), 1)
-  assert.equal(displayAmountToQuota('-1.1', 'CREDIT'), -2)
+  assert.ok(Number.isNaN(displayAmountToQuota('1.9', 'CREDIT')))
+  assert.ok(Number.isNaN(displayAmountToQuota('-1.1', 'CREDIT')))
+  assert.equal(displayAmountToQuota('-1', 'CREDIT'), -1)
 })
 test('one Credit and max-safe balances survive exact editable round trips', () => {
   useSystemConfigStore.getState().setConfig({
