@@ -15,6 +15,7 @@ import (
 )
 
 func TestQuotaQueryScopeAndReadOnly(t *testing.T) {
+	installControllerCreditAnchor(t, 100)
 	db := setupManageUserTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Token{}))
 	oldUnit, oldLogs := common.QuotaPerUnit, common.LogConsumeEnabled

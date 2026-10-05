@@ -57,12 +57,15 @@ func LegacyPricingUnitsPerUSD() (decimal.Decimal, error) {
 }
 
 func LegacyAmountToUSD(amount decimal.Decimal) (decimal.Decimal, error) {
-	_, err := LegacyPricingUnitsPerUSD()
+	anchor, err := CreditsPerUSD()
 	if err != nil {
 		return decimal.Zero, err
 	}
-	anchor, _ := CreditsPerUSD()
-	return amount.Mul(decimal.NewFromFloat(QuotaPerUnit)).Div(anchor), nil
+	legacyUnit := QuotaPerUnit
+	if math.IsNaN(legacyUnit) || math.IsInf(legacyUnit, 0) || legacyUnit <= 0 {
+		return decimal.Zero, errors.New("legacy pricing scale is invalid")
+	}
+	return amount.Mul(decimal.NewFromFloat(legacyUnit)).Div(anchor), nil
 }
 
 func USDToLegacyAmount(amount decimal.Decimal) (decimal.Decimal, error) {

@@ -486,8 +486,14 @@ func InitResources() (returnErr error) {
 		}
 	}
 	model.InitOptionMap()
-	if err := model.InitializeCreditUnits(context.Background()); err != nil {
-		return err
+	if migrationSession.Applies() {
+		if err := model.InitializeCreditUnits(context.Background()); err != nil {
+			return err
+		}
+	} else {
+		if err := model.VerifyCreditUnits(context.Background()); err != nil {
+			return err
+		}
 	}
 	if common.IsMasterNode && migrationSession.Applies() {
 		if err := controller.EnsureToolMarketBuiltinCatalog(context.Background()); err != nil {

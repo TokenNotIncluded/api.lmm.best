@@ -13,7 +13,11 @@ import (
 // lock. Concurrent language and currency saves cannot erase each other, and
 // unknown future settings survive rather than being lost in DTO reserialization.
 func UpdateUserLocalePreferences(userID int, language, currency *string) error {
-	if userID <= 0 || (language == nil && currency == nil) {
+	return UpdateUserCurrencyPreferences(userID, language, currency, nil)
+}
+
+func UpdateUserCurrencyPreferences(userID int, language, currency, display *string) error {
+	if userID <= 0 || (language == nil && currency == nil && display == nil) {
 		return errors.New("invalid locale preference update")
 	}
 	if language != nil && len(*language) > 64 {
@@ -25,6 +29,13 @@ func UpdateUserLocalePreferences(userID int, language, currency *string) error {
 			return err
 		}
 		currency = &normalized
+	}
+	if display != nil {
+		normalized, err := dto.NormalizeWalletDisplayCurrencyPreference(*display)
+		if err != nil {
+			return err
+		}
+		display = &normalized
 	}
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		var user User
@@ -45,6 +56,9 @@ func UpdateUserLocalePreferences(userID int, language, currency *string) error {
 		}
 		if currency != nil {
 			values["settlement_currency"], _ = json.Marshal(*currency)
+		}
+		if display != nil {
+			values["wallet_display_currency"], _ = json.Marshal(*display)
 		}
 		encoded, err := json.Marshal(values)
 		if err != nil {
@@ -77,6 +91,7 @@ func UpdateUserSettingPreservingLocale(userID int, setting dto.UserSetting) erro
 		}
 		setting.Language = current.Language
 		setting.SettlementCurrency = current.SettlementCurrency
+		setting.WalletDisplayCurrency = current.WalletDisplayCurrency
 		encoded, err := json.Marshal(setting)
 		if err != nil {
 			return err

@@ -4,8 +4,8 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
-	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 func GetSubscription(c *gin.Context) {
@@ -40,21 +40,14 @@ func GetSubscription(c *gin.Context) {
 	if expiredTime <= 0 {
 		expiredTime = 0
 	}
-	quota := remainQuota + usedQuota
-	amount := float64(quota)
-	// OpenAI 兼容接口中的 *_USD 字段含义保持“额度单位”对应值：
-	// 我们将其解释为以“站点展示类型”为准：
-	// - USD: 直接除以 QuotaPerUnit
-	// - CNY: 先转 USD 再乘汇率
-	// - TOKENS: 直接使用 tokens 数量
-	switch operation_setting.GetQuotaDisplayType() {
-	case operation_setting.QuotaDisplayTypeCNY:
-		amount = amount / common.QuotaPerUnit * operation_setting.USDExchangeRate
-	case operation_setting.QuotaDisplayTypeTokens:
-		// amount 保持 tokens 数值
-	default:
-		amount = amount / common.QuotaPerUnit
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		writeBillingOpenAIError(c, err, "billing_unavailable")
+		return
 	}
+	// OpenAI's USD fields always represent real USD, regardless of UI display.
+	quota := decimal.NewFromInt(int64(remainQuota)).Add(decimal.NewFromInt(int64(usedQuota)))
+	amount, _ := quota.Div(anchor).Float64()
 	if token != nil && token.UnlimitedQuota {
 		amount = 100000000
 	}
@@ -90,15 +83,12 @@ func GetUsage(c *gin.Context) {
 			return
 		}
 	}
-	amount := float64(quota)
-	switch operation_setting.GetQuotaDisplayType() {
-	case operation_setting.QuotaDisplayTypeCNY:
-		amount = amount / common.QuotaPerUnit * operation_setting.USDExchangeRate
-	case operation_setting.QuotaDisplayTypeTokens:
-		// tokens 保持原值
-	default:
-		amount = amount / common.QuotaPerUnit
+	usd, err := common.CreditsToUSD(int64(quota))
+	if err != nil {
+		writeBillingOpenAIError(c, err, "billing_unavailable")
+		return
 	}
+	amount, _ := usd.Float64()
 	usage := OpenAIUsageResponse{
 		Object:     "list",
 		TotalUsage: amount * 100,

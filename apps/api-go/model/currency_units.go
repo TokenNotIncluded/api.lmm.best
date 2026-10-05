@@ -19,6 +19,20 @@ const CreditsPerUSDOptionKey = "CreditsPerUSD"
 // balance, price, paid order, pending order or refund snapshot. The unique
 // option key chooses one winner if multiple nodes start simultaneously.
 func InitializeCreditUnits(ctx context.Context) error {
+	return initializeCreditUnits(ctx, true)
+}
+
+// VerifyCreditUnits preserves read-only startup/migration verification. A
+// missing anchor must be prepared by an apply-mode node before serving money.
+func VerifyCreditUnits(ctx context.Context) error {
+	err := initializeCreditUnits(ctx, false)
+	if errors.Is(err, common.ErrCreditUnitsUnavailable) {
+		return fmt.Errorf("credit currency initialization required; run migrate --apply: %w", err)
+	}
+	return err
+}
+
+func initializeCreditUnits(ctx context.Context, allowCreate bool) error {
 	if DB == nil {
 		common.ClearCreditsPerUSD()
 		return common.ErrCreditUnitsUnavailable
@@ -30,17 +44,32 @@ func InitializeCreditUnits(ctx context.Context) error {
 			var options []Option
 			keys := []string{CreditsPerUSDOptionKey, "QuotaPerUnit", "USDExchangeRate", "TopUpPlatformUnitsPerCNY"}
 			// A single authoritative snapshot avoids mixing different nodes' caches.
-			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("key IN ?", keys).Find(&options).Error; err != nil {
+			query := tx
+			if allowCreate {
+				query = query.Clauses(clause.Locking{Strength: "SHARE"})
+			}
+			if err := query.Where("key IN ?", keys).Find(&options).Error; err != nil {
 				return err
 			}
 			values := map[string]string{"QuotaPerUnit": "500000", "USDExchangeRate": "7.3", "TopUpPlatformUnitsPerCNY": "1"}
 			for _, option := range options {
 				values[option.Key] = option.Value
 			}
+			// Current fiat FX and the retained price scale must still be usable
+			// when the immutable anchor already exists. Malformed durable values
+			// cannot silently inherit a cache's unrelated default on restart.
+			for _, key := range []string{"QuotaPerUnit", "USDExchangeRate"} {
+				if _, err := parsePositiveCreditRate(values[key]); err != nil {
+					return fmt.Errorf("invalid %s for credit initialization: %w", key, err)
+				}
+			}
 			if value, exists := values[CreditsPerUSDOptionKey]; exists {
 				var err error
 				anchor, err = parseCreditAnchor(value)
 				return err
+			}
+			if !allowCreate {
+				return common.ErrCreditUnitsUnavailable
 			}
 			candidate := decimal.NewFromInt(1)
 			for _, key := range keys[1:] {
@@ -67,7 +96,7 @@ func InitializeCreditUnits(ctx context.Context) error {
 		if err == nil {
 			return common.SetCreditsPerUSD(anchor)
 		}
-		if DB.Dialector.Name() != "sqlite" || !isCreditInitBusy(err) {
+		if !isCreditInitBusy(err) {
 			break
 		}
 		timer := time.NewTimer(time.Duration(attempt+1) * 10 * time.Millisecond)
@@ -105,5 +134,7 @@ func parseCreditAnchor(value string) (decimal.Decimal, error) {
 
 func isCreditInitBusy(err error) bool {
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked") || strings.Contains(message, "sqlite_busy")
+	return strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked") || strings.Contains(message, "sqlite_busy") ||
+		strings.Contains(message, "deadlock") || strings.Contains(message, "serialization failure") ||
+		strings.Contains(message, "sqlstate 40001") || strings.Contains(message, "sqlstate 40p01") || strings.Contains(message, "lock wait timeout")
 }

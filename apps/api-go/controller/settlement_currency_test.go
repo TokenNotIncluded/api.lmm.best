@@ -76,11 +76,12 @@ func TestConcurrentLocaleUpdatesPreserveExplicitCurrency(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 	user := model.User{Username: "concurrent-fiat-preferences", Status: common.UserStatusEnabled, Setting: `{"record_ip_log":true}`}
 	require.NoError(t, db.Create(&user).Error)
-	language, currency := "en", "CNY"
+	language, currency, display := "en", "CNY", "CREDIT"
 	var wg sync.WaitGroup
-	errors := make(chan error, 2)
+	errors := make(chan error, 3)
 	wg.Go(func() { errors <- model.UpdateUserLocalePreferences(user.Id, &language, nil) })
 	wg.Go(func() { errors <- model.UpdateUserLocalePreferences(user.Id, nil, &currency) })
+	wg.Go(func() { errors <- model.UpdateUserCurrencyPreferences(user.Id, nil, nil, &display) })
 	wg.Wait()
 	close(errors)
 	for err := range errors {
@@ -89,5 +90,6 @@ func TestConcurrentLocaleUpdatesPreserveExplicitCurrency(t *testing.T) {
 	require.NoError(t, db.First(&user, user.Id).Error)
 	require.Equal(t, "CNY", userSettlementCurrency(&user, "en"))
 	require.Equal(t, "en", user.GetSetting().Language)
+	require.Equal(t, "CREDIT", user.GetSetting().WalletDisplayCurrency)
 	require.True(t, user.GetSetting().RecordIpLog)
 }
