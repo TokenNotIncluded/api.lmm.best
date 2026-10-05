@@ -62,6 +62,18 @@ pending AS (
  SELECT id,total_amount,created_at,updated_at,enabled,archived_at,
         price_amount::text,currency,quota_reset_period,quota_reset_custom_seconds
  FROM :"target_schema".subscription_plans
+), subscription_payment_events AS (
+ SELECT id,subscription_order_id,payment_provider,provider_event_id,
+        provider_transaction_id,settlement_currency,settlement_amount_micros,
+        period_start,period_end,created_time
+ FROM :"target_schema".subscription_payment_events
+ WHERE subscription_order_id IN (SELECT id FROM subscription_orders)
+), subscription_payment_refunds AS (
+ SELECT id,subscription_order_id,subscription_payment_event_id,payment_provider,
+        provider_event_id,currency,amount_micros,quota_revoked,
+        finance_ledger_entry_id,created_time
+ FROM :"target_schema".subscription_payment_refunds
+ WHERE subscription_order_id IN (SELECT id FROM subscription_orders)
 )
 SELECT jsonb_build_object(
  'snapshot_at',(SELECT at FROM frozen),
@@ -73,7 +85,9 @@ SELECT jsonb_build_object(
    'bounty_challenges',COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM challenges c),'[]'::jsonb)),
  'subscriptions',COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM subscriptions s),'[]'::jsonb),
  'subscription_orders',COALESCE((SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM subscription_orders o),'[]'::jsonb),
- 'subscription_plans',COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM subscription_plans p),'[]'::jsonb));
+ 'subscription_plans',COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM subscription_plans p),'[]'::jsonb),
+ 'subscription_payment_events',COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM subscription_payment_events p),'[]'::jsonb),
+ 'subscription_payment_refunds',COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM subscription_payment_refunds r),'[]'::jsonb));
 ROLLBACK;
 -- pending_topups must also be enriched by ExportWalletTopUpCreditRebaseFacts.
 -- Re-export every wallet/topup/options/right together after writers are frozen;
