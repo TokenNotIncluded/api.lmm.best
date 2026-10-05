@@ -37,8 +37,12 @@ the business plan hash sealed after the final freeze.
 
 Each node records those identity fields, `service=lmm-api.service`,
 `writers=["lmm-api.service"]`, immutable remote `artifacts`, an immutable base
-unstopped `handoff`, `prepare_config`, `receipt_directory`, and origin `probes`.
-The base handoff and preparation config must appear in `artifacts`. The current
+unstopped prebridge `handoff`, unstopped post `post_intent`, `prepare_config`,
+`receipt_directory`, and origin `probes`. All three files must appear in
+`artifacts`. The post intent is only for normal plan/staging; activation always
+requires actual confirmed bridge stop evidence. It has the same stable
+transition/provider/config/socket identity without a fake previous writer.
+The current
 production writer inventory is Arch `arch-dmit` and Ubuntu `dmit-ubuntu`, each
 with its own old PID/invocation/version and master jobs in the same cgroup.
 The independent Ubuntu SQLite `go-lmm-best-api.service` is outside this
@@ -48,7 +52,7 @@ The exact supported node `commands` are:
 
 | Operation | Formal owner action |
 | --- | --- |
-| `guardian_start` | Root supervised guardian `serve` with the base handoff |
+| `guardian_start` | Start a root-preprovisioned sealed guardian unit with the base handoff |
 | `guardian_inspect` | Guardian `inspect` |
 | `capture`, `close`, `stop` | Normal `maintenance-capture`, `maintenance-close`, `maintenance-stop` |
 | `capture_status` | Normal capture-workspace status |
@@ -66,6 +70,7 @@ Every command is `{argv:[absolute executable,literal args...],
 timeout_seconds:1..3600}`. Review and seal the exact formal CLI invocations;
 do not put shell wrappers or financial SQL in node commands. Placeholders are
 `{base_handoff_path}`, `{base_handoff_sha256}`, `{handoff_path}`,
+`{post_intent_path}`, `{post_intent_sha256}`,
 `{handoff_sha256}`, `{handoff_output_path}`, `{all_closed_path}`,
 `{all_closed_sha256}`, `{global_confirmation_path}`,
 `{global_confirmation_sha256}`, `{receipt_path}`, `{receipt_sha256}`. The
@@ -82,6 +87,9 @@ It verifies actual stopped unit/cgroup/process and immutable capture,
 environment/journal evidence under a real guardian lease. It writes a new
 handoff; the stable transition/intent/provider/prepare identity never changes.
 The coordinator persists each returned handoff binding before continuing.
+Use the prebridge base for `seal_prebridge` and the post staging intent for
+`seal_post`. Normal status proves the latter's stopped-only refinement against
+the original immutable staged plan; it does not modify that plan or state.
 
 Native confirmation uses its normal 120-second observation. Standalone
 `post_confirm` and `prebridge_confirm` must include normal `confirm --wait`,
@@ -110,6 +118,12 @@ inspection alone uses the peer administrator to see every DB client. Full
 reviewed `offhost_copy` and `offhost_verify`; copy receives the archive on stdin
 and must safely accept repeat transport of the same bytes. Verify returns
 `backup_sha256,size_bytes`. Keep verified archive copies outside cleanup roots.
+The coordinator additionally publishes `full-financial-backup.receipt.json`:
+`lmm-credit-financial-backup-v1` binds transition/intent/provider/source, actual
+database identity, full-database/custom-format/ownership-preserved flags, archive
+hash and byte size, and the original guardian/three-lock bindings. Formal
+cleanup requires this exact root receipt and actual archive, including database
+identity, rather than treating an arbitrary PGDMP header/hash as a full backup.
 
 All public/origin `probes` are `{url,body_sha256}` and require exact HTTP 503
 body `lmm-credit-transition:<transition_id>`. No forwarded health shortcut is
@@ -200,7 +214,9 @@ stopped last, with their original PID/invocation verified, never by unlinking
 lock paths. An optional reviewed node `cleanup` command runs after all releases
 and before guardian shutdown; it uses formal `--superseded-by`,
 `--retain-rollback`, financial backup and `--execute` gates. It retains current,
-compatible N-1 and financial backup, and receives `{backup_sha256}`.
+compatible N-1 and financial backup, and receives `{backup_sha256}`,
+`{financial_backup_receipt_path}` and `{financial_backup_receipt_sha256}`.
+Cleanup holds all three real guardian lock descriptions until it finishes.
 
 ## Interrupted operations
 

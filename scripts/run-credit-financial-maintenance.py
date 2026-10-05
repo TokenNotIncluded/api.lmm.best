@@ -141,7 +141,7 @@ def validate_plan(plan):
             path(binding['path'])
             require(HEX.fullmatch(binding['sha256']), 'remote-artifact-digest')
         require(node['artifacts'] and node['probes'], 'node-artifact-and-origin-probes-required')
-        for key in ('handoff', 'prepare_config'):
+        for key in ('handoff', 'post_intent', 'prepare_config'):
             binding = node[key]
             require(binding in node['artifacts'], 'base-handoff-and-prepare-config-must-be-bound-artifacts')
         path(node['receipt_directory'])
@@ -232,7 +232,9 @@ class Controller:
         current = self.state.get('stopped_handoffs', {}).get(node['name'], node.get('handoff', {}))
         substitutions = {'handoff_path': current.get('path', ''), 'handoff_sha256': current.get('sha256', ''),
                          'base_handoff_path': node.get('handoff', {}).get('path', ''),
-                         'base_handoff_sha256': node.get('handoff', {}).get('sha256', '')}
+                         'base_handoff_sha256': node.get('handoff', {}).get('sha256', ''),
+                         'post_intent_path': node.get('post_intent', {}).get('path', ''),
+                         'post_intent_sha256': node.get('post_intent', {}).get('sha256', '')}
         substitutions.update(variables or {})
         output = self.execute(node['name'] + '-' + operation, node['commands'][operation], node=node, body=body, variables=substitutions)
         value = decode(output)
@@ -292,6 +294,19 @@ class Controller:
             # binding. Later inspections cannot silently replace the guard.
             self.persist(self.state['phase'], guardian_generations=generations, guardian_lock_bindings=bindings)
 
+    def initial_guardians(self):
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                self.guardians()
+                return
+            except GateFailed:
+                if 'guardian_lock_bindings' in self.state or time.monotonic() >= deadline:
+                    raise
+                # Root's preprovisioned simple unit may have started without
+                # yet binding its socket. Only read-only proof is retried.
+                time.sleep(0.5)
+
     def stopped(self):
         for node in self.plan['nodes']:
             value = self.node_operation(node, 'writer_inspect')
@@ -343,10 +358,11 @@ class Controller:
     def prepare(self):
         require(self.state['phase'] == 'NEW', 'prepare-must-not-replay')
         self.verify_artifacts()
-        self.persist('CAPTURE_INTENT')
+        self.persist('CAPTURE_INTENT', capture_dispatched=False)
         for node in self.plan['nodes']:
             self.execute(node['name'] + '-guardian-start', node['commands']['guardian_start'], node=node)
-        self.guardians()
+        self.initial_guardians()
+        self.persist('CAPTURE_INTENT', capture_dispatched=True)
         captures = []
         for node in self.plan['nodes']:
             captures.append(self.node_operation(node, 'capture', 'CAPTURED'))
@@ -591,7 +607,8 @@ class Controller:
                         receipt.get('verifier_sha256') == self.plan['verifier']['sha256'] and
                         receipt.get('sql_sha256') == sql_binding['sha256'] and type(receipt.get('table_count')) is int and
                         receipt['table_count'] > 0, 'original-fingerprint-receipt-binding-mismatch')
-                sql_output, receipt_output = self.work/('generated-original-'+key+'.sql'), self.work/('generated-original-'+key+'.receipt.json')
+                generation = 'generated-original-'+key+'-'+str(time.time_ns())
+                sql_output, receipt_output = self.work/(generation+'.sql'), self.work/(generation+'.receipt.json')
                 self.execute('render-original-'+key, {'argv': ['/usr/bin/python3', self.plan['fingerprint_generator']['path'], 'stage',
                     '--inventory', fingerprint['inventory']['path'], '--plan', seal[plan_key]['path'], '--stage', mode,
                     '--verifier', self.plan['verifier']['path'], '--output', str(sql_output), '--receipt', str(receipt_output)], 'timeout_seconds': 120})
@@ -831,7 +848,16 @@ class Controller:
 
     def resume(self):
         phase = self.state['phase']
-        if phase == 'FULL_BACKUP_COPY_INTENT':
+        if phase == 'CAPTURE_INTENT' and self.state.get('capture_dispatched') is False:
+            self.verify_artifacts()
+            for node in self.plan['nodes']:
+                self.execute(node['name']+'-guardian-start', node['commands']['guardian_start'], node=node)
+            self.initial_guardians()
+            self.persist('CAPTURE_INTENT', capture_dispatched=True)
+            captures = [self.node_operation(node, 'capture', 'CAPTURED') for node in self.plan['nodes']]
+            self.persist('CAPTURED', captures_sha256=digest(encode(captures)))
+            self.continue_preparation()
+        elif phase == 'FULL_BACKUP_COPY_INTENT':
             self.finish_backup()
         elif phase == 'POST_DEPLOYMENT_INTENT':
             self.verify_artifacts()
