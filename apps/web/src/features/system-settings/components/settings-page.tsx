@@ -44,12 +44,15 @@ For commercial licensing, please contact support@quantumnous.com
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
 import { PageFooterPortal } from '@/components/layout/components/page-footer'
+import { LoadingState } from '@/components/loading-state'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 
 import './settings-workspace.css'
-import { LoadingState } from '@/components/loading-state'
+import { Button } from '@/components/ui/button'
 
 import { useSystemOptions, getOptionValue } from '../hooks/use-system-options'
 import type { SystemOption } from '../types'
+import { getSettingsErrorMessage } from '../utils/settings-error-message'
 import { SettingsPageProvider } from './settings-page-context'
 import { SettingsBreadcrumb, SettingsSearch } from './settings-search'
 
@@ -154,7 +157,8 @@ export function SettingsPage<
   resolveSettings,
 }: SettingsPageProps<TSettings, TSectionId, TExtraArgs>) {
   const { t } = useTranslation()
-  const { data, isLoading, isError, refetch } = useSystemOptions()
+  const { data, isLoading, isError, error, isFetching, refetch } =
+    useSystemOptions()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const params = useParams({ from: routePath as any })
   const activeSection = (params?.section ?? defaultSection) as TSectionId
@@ -170,7 +174,7 @@ export function SettingsPage<
       : baseSettings
   }, [data?.data, defaultSettings, resolveSettings])
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
       <SettingsPageFrame title={t(sectionMeta.titleKey)}>
         <LoadingState message={t(loadingMessage)} />
@@ -178,12 +182,15 @@ export function SettingsPage<
     )
   }
 
-  if (isError) {
+  if (isError && !data) {
     return (
       <SettingsPageFrame title={t(sectionMeta.titleKey)}>
         <ErrorState
           title={t('Unable to load settings')}
-          description={t('Your settings have not been changed. Try again.')}
+          description={getSettingsErrorMessage(
+            error,
+            t('Failed to load settings')
+          )}
           onRetry={() => {
             void refetch()
           }}
@@ -200,6 +207,33 @@ export function SettingsPage<
 
   return (
     <SettingsPageFrame title={t(sectionMeta.titleKey)}>
+      {isError ? (
+        <Alert className='mb-4'>
+          <AlertTitle>{t('Unable to refresh settings')}</AlertTitle>
+          <AlertDescription>
+            <p>
+              {t(
+                'The last loaded settings and your current edits are still available.'
+              )}
+            </p>
+            <p>
+              {getSettingsErrorMessage(error, t('Failed to load settings'))}
+            </p>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='mt-2 min-h-11 sm:min-h-9'
+              disabled={isFetching}
+              onClick={() => {
+                void refetch()
+              }}
+            >
+              {t('Retry')}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <Suspense fallback={<LoadingState message={t(loadingMessage)} />}>
         {sectionContent}
       </Suspense>

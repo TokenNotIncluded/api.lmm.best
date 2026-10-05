@@ -23,9 +23,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
+import { getServerErrorToastId } from '@/lib/server-error-message'
+
 import { updateSystemOption, updateSystemOptions } from '../api'
-import type { UpdateOptionRequest } from '../types'
+import type { UpdateOptionRequest, UpdateOptionResponse } from '../types'
 import { showOptionUpdateToast } from '../utils/option-update-toast'
+import { getSettingsErrorMessage } from '../utils/settings-error-message'
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = new Set([
@@ -89,13 +92,11 @@ async function invalidateOptionQueries(
   keys: Iterable<string>
 ) {
   const changedKeys = [...keys]
-  const refreshes = [
-    queryClient.invalidateQueries({ queryKey: ['system-options'] }),
-  ]
+  const invalidate = (queryKey: string[]) =>
+    queryClient.invalidateQueries({ queryKey }, { throwOnError: true })
+  const refreshes = [invalidate(['system-options'])]
   if (changedKeys.some((key) => key.startsWith('Assistant'))) {
-    refreshes.push(
-      queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
-    )
+    refreshes.push(invalidate(['assistant-status']))
   }
   if (
     changedKeys.some(
@@ -104,75 +105,100 @@ async function invalidateOptionQueries(
     )
   ) {
     refreshes.push(
-      queryClient.invalidateQueries({ queryKey: ['security-policy'] }),
-      queryClient.invalidateQueries({ queryKey: ['admin-security-policy'] }),
-      queryClient.invalidateQueries({
-        queryKey: ['moderation-routing-models'],
-      }),
-      queryClient.invalidateQueries({ queryKey: ['admin-moderation-reviews'] }),
-      queryClient.invalidateQueries({ queryKey: ['admin-moderation-stats'] })
+      invalidate(['security-policy']),
+      invalidate(['admin-security-policy']),
+      invalidate(['moderation-routing-models']),
+      invalidate(['admin-moderation-reviews']),
+      invalidate(['admin-moderation-stats'])
     )
   }
   if (changedKeys.includes('AIDirectoryLinks')) {
-    refreshes.push(
-      queryClient.invalidateQueries({ queryKey: ['ai-directory'] })
-    )
+    refreshes.push(invalidate(['ai-directory']))
   }
   if (changedKeys.includes('RSSFeeds')) {
-    refreshes.push(queryClient.invalidateQueries({ queryKey: ['rss'] }))
+    refreshes.push(invalidate(['rss']))
   }
   if (changedKeys.includes('AssistantPreConversationPresets')) {
-    refreshes.push(
-      queryClient.invalidateQueries({
-        queryKey: ['assistant-pre-conversation-presets'],
-      })
-    )
+    refreshes.push(invalidate(['assistant-pre-conversation-presets']))
   }
-  await Promise.all(refreshes)
   if (changedKeys.some((key) => STATUS_RELATED_KEYS.has(key))) {
-    queryClient.invalidateQueries({ queryKey: ['status'] })
+    refreshes.push(invalidate(['status']))
     try {
       window.localStorage.removeItem('status')
     } catch {
       /* empty */
     }
   }
+  await Promise.all(refreshes)
+}
+
+let nextSaveToast = 0
+
+function acceptSettingsSave(response: UpdateOptionResponse) {
+  if (!response.success) {
+    throw Object.assign(
+      new Error(response.message || i18next.t('Failed to update setting')),
+      {
+        response: { data: response },
+      }
+    )
+  }
+  return response
+}
+
+function refreshAcknowledgedOptions(
+  queryClient: ReturnType<typeof useQueryClient>,
+  response: UpdateOptionResponse,
+  keys: Iterable<string>
+) {
+  const id = `settings-save-${++nextSaveToast}`
+  showOptionUpdateToast(response, i18next.t('Setting updated successfully'), {
+    id,
+  })
+  // Refreshing has its own outcome. Never reject an acknowledged write or
+  // make a caller repeat it because a subsequent read is unavailable.
+  void invalidateOptionQueries(queryClient, keys).catch((error: unknown) => {
+    toast.warning(
+      i18next.t('Settings saved, but refreshing failed: {{reason}}', {
+        reason: getSettingsErrorMessage(
+          error,
+          i18next.t('Failed to load settings')
+        ),
+      }),
+      { id, description: response.warnings?.join('\n') }
+    )
+  })
+}
+
+function reportSaveFailure(error: unknown) {
+  toast.error(
+    getSettingsErrorMessage(error, i18next.t('Failed to update setting')),
+    {
+      id: getServerErrorToastId(error) ?? undefined,
+    }
+  )
 }
 
 export function useUpdateOption() {
   const queryClient = useQueryClient()
-
   return useMutation({
-    mutationFn: (request: UpdateOptionRequest) => updateSystemOption(request),
-    onSuccess: async (data, variables) => {
-      if (data.success) {
-        await invalidateOptionQueries(queryClient, [variables.key])
-        showOptionUpdateToast(data, i18next.t('Setting updated successfully'))
-      } else {
-        toast.error(data.message || i18next.t('Failed to update setting'))
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || i18next.t('Failed to update setting'))
-    },
+    retry: false,
+    mutationFn: async (request: UpdateOptionRequest) =>
+      acceptSettingsSave(await updateSystemOption(request, { silent: true })),
+    onSuccess: (data, variables) =>
+      refreshAcknowledgedOptions(queryClient, data, [variables.key]),
+    onError: reportSaveFailure,
   })
 }
 
 export function useUpdateOptions() {
   const queryClient = useQueryClient()
-
   return useMutation({
-    mutationFn: (values: Record<string, string>) => updateSystemOptions(values),
-    onSuccess: async (data, variables) => {
-      if (data.success) {
-        await invalidateOptionQueries(queryClient, Object.keys(variables))
-        showOptionUpdateToast(data, i18next.t('Setting updated successfully'))
-      } else {
-        toast.error(data.message || i18next.t('Failed to update setting'))
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || i18next.t('Failed to update setting'))
-    },
+    retry: false,
+    mutationFn: async (values: Record<string, string>) =>
+      acceptSettingsSave(await updateSystemOptions(values, { silent: true })),
+    onSuccess: (data, variables) =>
+      refreshAcknowledgedOptions(queryClient, data, Object.keys(variables)),
+    onError: reportSaveFailure,
   })
 }

@@ -30,12 +30,14 @@ import * as z from 'zod'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ErrorState } from '@/components/error-state'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { getServerErrorToastId } from '@/lib/server-error-message'
 
 import { getSystemOptions, resetModelRatios, updateSystemOption } from '../api'
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { positiveIntegerSchema } from '../utils/numeric-field'
 import { showOptionUpdateToast } from '../utils/option-update-toast'
+import { getSettingsErrorMessage } from '../utils/settings-error-message'
 import { GroupRatioForm } from './group-ratio-form'
 import { isValidGroupWarnings } from './group-warning-validation'
 import {
@@ -44,6 +46,11 @@ import {
   updateModelPricingConfig,
   useModelPricingConfig,
 } from './model-pricing-api'
+import {
+  acceptModelPricingSave,
+  modelPricingFormSnapshot,
+  type ModelPricingSaveReceipt,
+} from './model-pricing-save'
 import { ModelPricingUnitsContext } from './model-pricing-units'
 import { ModelRatioForm } from './model-ratio-form'
 import { ToolPriceSettings } from './tool-price-settings'
@@ -179,6 +186,12 @@ export function RatioSettingsCard({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [exposeRatioEnabled, setExposeRatioEnabled] = useState(
+    legacyModelDefaults.ExposeRatioEnabled
+  )
+  useEffect(() => {
+    setExposeRatioEnabled(legacyModelDefaults.ExposeRatioEnabled)
+  }, [legacyModelDefaults.ExposeRatioEnabled])
   const needsUsdPricing = visibleTabs.some((tab) => tab !== 'groups')
   const pricingQuery = useModelPricingConfig(needsUsdPricing)
   const modelDefaults = useMemo<ModelFormValues>(() => {
@@ -194,23 +207,40 @@ export function RatioSettingsCard({
       AudioCompletionRatio: values?.AudioCompletionRatio || '{}',
       BillingMode: values?.['billing_setting.billing_mode'] || '{}',
       BillingExpr: values?.['billing_setting.billing_expr'] || '{}',
-      ExposeRatioEnabled: legacyModelDefaults.ExposeRatioEnabled,
+      ExposeRatioEnabled: exposeRatioEnabled,
     }
-  }, [pricingQuery.data, legacyModelDefaults.ExposeRatioEnabled])
+  }, [pricingQuery.data, exposeRatioEnabled])
 
   const resetMutation = useMutation({
     mutationFn: resetModelRatios,
     onSuccess: async (data) => {
       if (data.success) {
-        await reloadModelValues()
-        showOptionUpdateToast(data, t('Model prices reset successfully'))
         setConfirmOpen(false)
+        try {
+          await reloadModelValues()
+          showOptionUpdateToast(data, t('Model prices reset successfully'))
+        } catch (error) {
+          toast.warning(
+            t('Settings saved, but refreshing failed: {{reason}}', {
+              reason: getSettingsErrorMessage(
+                error,
+                t('Failed to load settings')
+              ),
+            }),
+            { id: getServerErrorToastId(error) }
+          )
+        }
       } else {
         toast.error(data.message || t('Failed to reset model ratios'))
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || t('Failed to reset model ratios'))
+      toast.error(
+        getSettingsErrorMessage(error, t('Failed to reset model ratios')),
+        {
+          id: getServerErrorToastId(error),
+        }
+      )
     },
   })
 
@@ -320,57 +350,131 @@ export function RatioSettingsCard({
     if (!unchanged) applyModelDefaults(modelDefaults)
   }, [applyModelDefaults, modelDefaults])
 
+  const acceptSavedModelValues = useCallback(
+    (
+      config: ModelPricingSaveReceipt['data'],
+      exposure = modelNormalizedDefaults.current.ExposeRatioEnabled
+    ) => {
+      queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, config)
+      setExposeRatioEnabled(exposure)
+      applyModelDefaults(modelPricingFormSnapshot(config, exposure))
+    },
+    [applyModelDefaults, queryClient]
+  )
+
   const reloadModelValues = useCallback(async () => {
-    await queryClient.cancelQueries({ queryKey: ['system-options'] })
-    const response = await getSystemOptions()
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey: ['system-options'] }),
+      queryClient.cancelQueries({ queryKey: MODEL_PRICING_QUERY_KEY }),
+    ])
+    const [response, config] = await Promise.all([
+      getSystemOptions({ silent: true }),
+      getModelPricingConfig({ silent: true }),
+    ])
     if (!response.success) {
       throw new Error(response.message || t('Failed to load settings'))
     }
-    const config = await getModelPricingConfig()
-    queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, config)
-    const values = config.values
-    applyModelDefaults({
-      ...modelDefaults,
-      ...Object.fromEntries(
-        Object.entries(values).filter(([key]) => key in modelDefaults)
-      ),
-      BillingMode: values['billing_setting.billing_mode'],
-      BillingExpr: values['billing_setting.billing_expr'],
-    })
+    const exposure = response.data.find(
+      ({ key }) => key === 'ExposeRatioEnabled'
+    )?.value
+    acceptSavedModelValues(
+      config,
+      exposure === undefined
+        ? modelNormalizedDefaults.current.ExposeRatioEnabled
+        : exposure === 'true'
+    )
     queryClient.setQueryData(['system-options'], response)
-  }, [applyModelDefaults, modelDefaults, queryClient, t])
+  }, [acceptSavedModelValues, queryClient, t])
 
   const modelUpdateMutation = useMutation({
+    retry: false,
     mutationFn: async (values: Record<string, string>) => {
       const config = pricingQuery.data
-      if (!config || pricingQuery.isError) {
+      if (!config) {
         throw new Error(t('Failed to load USD model prices'))
       }
       const { ExposeRatioEnabled, ...prices } = values
-      const response = Object.keys(prices).length
-        ? await updateModelPricingConfig(config, prices)
-        : { success: true, message: '', data: config }
+      const pricesChanged = Object.keys(prices).length > 0
+      await queryClient.cancelQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
+      const response: ModelPricingSaveReceipt = pricesChanged
+        ? await updateModelPricingConfig(config, prices, false, {
+            silent: true,
+          })
+        : { success: true as const, message: '', data: config }
+      // Apply the server's locked-model filtering and actual stored values as
+      // soon as the price POST commits, before any independent follow-up.
+      if (pricesChanged) acceptSavedModelValues(response.data)
+      let acceptedExposure = modelNormalizedDefaults.current.ExposeRatioEnabled
+      let visibilityError: unknown
       if (ExposeRatioEnabled !== undefined) {
-        const exposeResponse = await updateSystemOption({
-          key: 'ExposeRatioEnabled',
-          value: ExposeRatioEnabled,
-        })
-        if (!exposeResponse.success) {
-          throw new Error(
-            exposeResponse.message || t('Failed to update setting')
+        try {
+          const exposeResponse = await updateSystemOption(
+            {
+              key: 'ExposeRatioEnabled',
+              value: ExposeRatioEnabled,
+            },
+            { silent: true }
           )
+          if (!exposeResponse.success) {
+            throw new Error(
+              exposeResponse.message || t('Failed to update setting')
+            )
+          }
+          acceptedExposure = ExposeRatioEnabled === 'true'
+        } catch (error) {
+          if (!pricesChanged) throw error
+          visibilityError = error
         }
       }
-      queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, response.data)
-      return response
+      return { ...response, acceptedExposure, visibilityError }
     },
     onSuccess: async (response) => {
-      await reloadModelValues()
-      showOptionUpdateToast(response, t('Setting updated successfully'))
+      const { refreshError } = await acceptModelPricingSave(
+        response,
+        (config) => acceptSavedModelValues(config, response.acceptedExposure),
+        reloadModelValues
+      )
+      const warnings = response.warnings ? [...response.warnings] : []
+      if (response.visibilityError) {
+        warnings.push(
+          t(
+            'Model prices saved, but updating price visibility failed: {{reason}}',
+            {
+              reason: getSettingsErrorMessage(
+                response.visibilityError,
+                t('Failed to update setting')
+              ),
+            }
+          )
+        )
+      }
+      if (refreshError) {
+        warnings.push(
+          t('Settings saved, but refreshing failed: {{reason}}', {
+            reason: getSettingsErrorMessage(
+              refreshError,
+              t('Failed to load settings')
+            ),
+          })
+        )
+      }
+      if (warnings.length) {
+        toast.warning(warnings.join('\n'), {
+          id:
+            getServerErrorToastId(refreshError) ??
+            getServerErrorToastId(response.visibilityError),
+        })
+      } else {
+        showOptionUpdateToast(response, t('Setting updated successfully'))
+      }
     },
     onError: (error: Error) => {
-      void queryClient.invalidateQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
-      toast.error(error.message || t('Failed to update setting'))
+      toast.error(
+        getSettingsErrorMessage(error, t('Failed to update setting')),
+        {
+          id: getServerErrorToastId(error) ?? undefined,
+        }
+      )
     },
   })
 
@@ -447,12 +551,13 @@ export function RatioSettingsCard({
   const defaultTab = visibleTabs[0] ?? 'models'
 
   const renderTabContent = (tab: RatioTabId) => {
-    if (tab !== 'groups' && (pricingQuery.isError || !pricingQuery.data)) {
+    if (tab !== 'groups' && !pricingQuery.data) {
       return pricingQuery.isError ? (
         <ErrorState
           title={t('Failed to load USD model prices')}
-          description={t(
-            'Update the server to use the USD pricing editor, then retry.'
+          description={getSettingsErrorMessage(
+            pricingQuery.error,
+            t('Failed to load USD model prices')
           )}
           onRetry={() => {
             void pricingQuery.refetch()

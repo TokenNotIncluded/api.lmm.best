@@ -117,3 +117,29 @@ test('legacy unit snapshots cannot enter a USD editor', () => {
     )
   }
 })
+
+test('silent writes still reject a business failure and preserve its reason', async () => {
+  const original = api.post
+  let requests = 0
+  api.post = (async (_url: string, _body: unknown, options: unknown) => {
+    requests++
+    assert.deepEqual(options, {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+    return {
+      data: { success: false, message: 'Model pricing revision changed' },
+    }
+  }) as typeof api.post
+  try {
+    await assert.rejects(
+      updateModelPricingConfig(fixture(), { ModelPrice: '{"free":0}' }, false, {
+        silent: true,
+      }),
+      /Model pricing revision changed/
+    )
+    assert.equal(requests, 1)
+  } finally {
+    api.post = original
+  }
+})

@@ -67,15 +67,22 @@ export function acceptModelPricingResponse(response: ModelPricingResponse) {
   return config
 }
 
-export async function getModelPricingConfig() {
-  const response = await api.get<ModelPricingResponse>('/api/option/pricing')
+export async function getModelPricingConfig(
+  options: { silent?: boolean } = {}
+) {
+  const response = await api.get<ModelPricingResponse>(
+    '/api/option/pricing',
+    options.silent
+      ? { skipBusinessError: true, skipErrorHandler: true }
+      : undefined
+  )
   return acceptModelPricingResponse(response.data)
 }
 
 export function useModelPricingConfig(enabled = true) {
   return useQuery({
     queryKey: MODEL_PRICING_QUERY_KEY,
-    queryFn: getModelPricingConfig,
+    queryFn: () => getModelPricingConfig({ silent: true }),
     enabled,
     retry: false,
     staleTime: 0,
@@ -104,11 +111,15 @@ export function buildUsdPricingRequest(
 export async function updateModelPricingConfig(
   config: ModelPricingConfig,
   values: Record<string, string>,
-  validateOnly = false
+  validateOnly = false,
+  options: { silent?: boolean } = {}
 ) {
   const response = await api.post<ModelPricingResponse>(
     `/api/option/pricing/${validateOnly ? 'validate' : 'bulk'}`,
-    buildUsdPricingRequest(config, values)
+    buildUsdPricingRequest(config, values),
+    options.silent
+      ? { skipBusinessError: true, skipErrorHandler: true }
+      : undefined
   )
   const accepted = acceptModelPricingResponse(response.data)
   return {
