@@ -17,7 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import { formatPlatformAmount } from '@/lib/currency'
+import {
+  formatUSDInCurrency,
+  getCurrencyDisplay,
+  getWalletDisplayCurrency,
+  type CurrencyFormatOptions,
+} from '@/lib/currency'
 
 import type {
   HeroSmsActivation,
@@ -126,14 +131,37 @@ function normalizeCreateResult(raw: unknown): HeroSmsCreateActivationsResult {
   }
 }
 
-export function formatHeroSmsPlatformAmount(value: number) {
+interface HeroSmsPriceCurrency {
+  config: { quotaPerUnit: number; creditsPerUsd?: number }
+  formatUSD: (amount: number, options?: CurrencyFormatOptions) => string
+}
+
+/** HeroSMS customer_price_usd is a legacy quote; settlement separately ceils raw Credits. */
+export function formatHeroSmsPlatformAmount(
+  value: number,
+  currency?: HeroSmsPriceCurrency
+) {
   if (!Number.isFinite(value)) return '—'
-  return formatPlatformAmount(value, {
-    locale: 'en-US',
+  const config = currency?.config ?? getCurrencyDisplay().config
+  if (
+    !Number.isFinite(config.quotaPerUnit) ||
+    config.quotaPerUnit <= 0 ||
+    !Number.isFinite(config.creditsPerUsd) ||
+    Number(config.creditsPerUsd) <= 0
+  ) {
+    return '-'
+  }
+  // Do not pass this continuous quote through the integral ledger conversion:
+  // 0.000011 * 500000 is 5.5 quoted Credits, while charge_quota is 6.
+  const usd = (value * config.quotaPerUnit) / Number(config.creditsPerUsd)
+  const options = {
     abbreviate: false,
-    digitsLarge: 2,
+    digitsLarge: 8,
     digitsSmall: 8,
-  })
+  }
+  return currency
+    ? currency.formatUSD(usd, options)
+    : formatUSDInCurrency(usd, getWalletDisplayCurrency(), options)
 }
 
 export function createHeroSmsIdempotencyKey() {

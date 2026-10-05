@@ -27,6 +27,7 @@ export interface HeroSmsProduct {
   id: number | string
   domain: string
   site: string
+  /** Legacy quote units; actual ledger settlement is the integer charge_quota. */
   customer_price_usd: number
   charge_quota: number
   count: number

@@ -35,6 +35,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { formatQuota } from '@/lib/format'
 
@@ -314,6 +315,7 @@ export function UnlimitedQuotaBadge(props: UnlimitedQuotaBadgeProps) {
 }
 
 export function ApiKeyUsedQuota({ used }: { used: number }) {
+  const { formatQuota } = useWalletCurrency()
   return (
     <span data-api-key-used-quota className='font-medium tabular-nums'>
       {formatQuota(used)}

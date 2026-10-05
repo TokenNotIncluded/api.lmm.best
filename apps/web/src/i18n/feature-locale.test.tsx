@@ -5,12 +5,64 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { createInstance } from 'i18next'
+import type { ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
 
 import { SmsBalanceNotice } from '@/features/email-activations/sms-balance-notice'
 import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
 import type { BountyChallenge } from '@/features/open-source-bounties/types'
+import { useAuthStore } from '@/stores/auth-store'
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
+import { useWalletCurrencyPreferenceStore } from '@/stores/wallet-currency-preference-store'
+
+function renderSmsCurrencyFixture(element: ReactElement) {
+  const originalUser = useAuthStore.getState().auth.user
+  const originalCurrency = useSystemConfigStore.getState().config.currency
+  const originalPreference =
+    useWalletCurrencyPreferenceStore.getState().preference
+  const authState = useAuthStore.getInitialState()
+  const configState = useSystemConfigStore.getInitialState()
+  const preferenceState = useWalletCurrencyPreferenceStore.getInitialState()
+  const authSnapshot = authState.auth
+  const configSnapshot = configState.config
+  const preferenceSnapshot = preferenceState.preference
+  try {
+    useAuthStore.getState().auth.setUser(null)
+    useWalletCurrencyPreferenceStore.getState().setPreference('')
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        currencyUnit: 'credit',
+        creditsPerUsd: 3_500_000,
+        creditsPerUsdExact: '3500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+        legacyPricingUnitsPerUsd: 7,
+        quotaPerUnit: 500_000,
+      },
+    })
+    // SSR reads the initial Zustand snapshot, so supply the same complete
+    // denomination fixture that the mounted application reads from live state.
+    authState.auth = useAuthStore.getState().auth
+    configState.config = useSystemConfigStore.getState().config
+    preferenceState.preference =
+      useWalletCurrencyPreferenceStore.getState().preference
+    return renderToStaticMarkup(element)
+  } finally {
+    authState.auth = authSnapshot
+    configState.config = configSnapshot
+    preferenceState.preference = preferenceSnapshot
+    useAuthStore.getState().auth.setUser(originalUser)
+    useSystemConfigStore.getState().setConfig({ currency: originalCurrency })
+    useWalletCurrencyPreferenceStore
+      .getState()
+      .setPreference(originalPreference)
+  }
+}
 
 const challenge: BountyChallenge = {
   id: 1,
@@ -68,22 +120,24 @@ for (const [language, locale] of [
       resources: {},
       interpolation: { escapeValue: false },
     })
-    const html = renderToStaticMarkup(
+    const html = renderSmsCurrencyFixture(
       <I18nextProvider i18n={i18n}>
         <SmsBalanceNotice
           status='below-minimum'
-          balanceUSD={1.25}
+          balanceQuota={625_000}
           isLoading={false}
           isRefreshing={false}
           onRefresh={() => {}}
         />
       </I18nextProvider>
     )
+    const currency = language === 'zhCN' || language === 'zhTW' ? 'CNY' : 'USD'
     const balance = new Intl.NumberFormat(locale, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 6,
-    }).format(1.25)
-    assert.ok(html.includes(`Current balance: USD ${balance}`))
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 8,
+    }).format(currency === 'CNY' ? 1.25 : 625_000 / 3_500_000)
+    assert.ok(html.includes(`Current balance: ${balance} ${currency}`))
+    assert.ok(!html.includes('{{balance}}'))
     assert.ok(html.includes('Refresh balance'))
   })
 }

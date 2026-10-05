@@ -287,9 +287,38 @@ test('vertical tabs expose the correct orientation and keep inactive drafts', as
 
 test('low-balance SMS notice renders in every supported interface language', async () => {
   const { renderToStaticMarkup } = await import('react-dom/server')
-  const { INTERFACE_LANGUAGE_OPTIONS } = await import('@/i18n/languages')
+  const { INTERFACE_LANGUAGE_OPTIONS, toIntlLocale } =
+    await import('@/i18n/languages')
   const { SmsBalanceNotice } =
     await import('@/features/email-activations/sms-balance-notice')
+  const { useAuthStore } = await import('@/stores/auth-store')
+  const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+    await import('@/stores/system-config-store')
+  const { useWalletCurrencyPreferenceStore } =
+    await import('@/stores/wallet-currency-preference-store')
+  // SSR consumes Zustand's initial snapshot. Supply a complete backend
+  // denomination and anonymous default preference, then restore all snapshots.
+  const authState = useAuthStore.getInitialState()
+  const configState = useSystemConfigStore.getInitialState()
+  const preferenceState = useWalletCurrencyPreferenceStore.getInitialState()
+  const originalAuth = authState.auth
+  const originalConfig = configState.config
+  const originalPreference = preferenceState.preference
+  authState.auth = { ...originalAuth, user: null }
+  configState.config = {
+    ...originalConfig,
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 3_500_000,
+      creditsPerUsdExact: '3500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+      legacyPricingUnitsPerUsd: 7,
+      quotaPerUnit: 500_000,
+    },
+  }
+  preferenceState.preference = ''
   try {
     for (const code of [
       ...INTERFACE_LANGUAGE_OPTIONS.map((item) => item.code),
@@ -300,7 +329,7 @@ test('low-balance SMS notice renders in every supported interface language', asy
         <I18nextProvider i18n={i18n}>
           <SmsBalanceNotice
             status='below-minimum'
-            balanceUSD={1}
+            balanceQuota={625_000}
             isLoading={false}
             isRefreshing={false}
             onRefresh={() => undefined}
@@ -309,8 +338,17 @@ test('low-balance SMS notice renders in every supported interface language', asy
       )
       assert.ok(html.includes('role="status"'), code)
       assert.ok(html.includes('Existing orders can still'), code)
+      const currency = code === 'zhCN' || code === 'zhTW' ? 'CNY' : 'USD'
+      const balance = new Intl.NumberFormat(toIntlLocale(code), {
+        maximumFractionDigits: 8,
+      }).format(currency === 'CNY' ? 1.25 : 625_000 / 3_500_000)
+      assert.ok(html.includes(`Current balance: ${balance} ${currency}`), code)
+      assert.ok(!html.includes('Current balance: -'), code)
     }
   } finally {
+    authState.auth = originalAuth
+    configState.config = originalConfig
+    preferenceState.preference = originalPreference
     await i18n.changeLanguage('en')
   }
 })

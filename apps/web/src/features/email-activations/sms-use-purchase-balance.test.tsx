@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -58,6 +58,10 @@ const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useSmsPurchaseBalance } = await import('./sms-use-purchase-balance')
 const { HeroSmsSmsActivationPanel } = await import('./sms-activation-panel')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { createInstance } = await import('i18next')
 const { I18nextProvider } = await import('react-i18next')
 const i18n = createInstance()
@@ -161,6 +165,21 @@ async function mount(panel = false) {
   }
 }
 
+beforeEach(() => {
+  useWalletCurrencyPreferenceStore.getState().setPreference('')
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 3500000,
+      creditsPerUsdExact: '3500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+      quotaPerUnit: 500000,
+    },
+  })
+})
+
 afterEach(() => {
   api.get = originalGet
   api.post = originalPost
@@ -219,7 +238,7 @@ function mockPanelApi(self: () => Promise<ReturnType<typeof response>>) {
 
 describe('SMS purchase controls', () => {
   for (const language of ['en', 'zhCN', 'zhTW', 'invalid_locale']) {
-    test(`entry and confirmation survive ${language} and recover at exactly USD 10`, async () => {
+    test(`entry and confirmation survive ${language} and recover at the unchanged 5,000,000-credit boundary`, async () => {
       await i18n.changeLanguage(language)
       login(1)
       mockPanelApi(async () => response(1, 5_000_000))
@@ -245,7 +264,9 @@ describe('SMS purchase controls', () => {
         assert.match(
           document.getElementById('sms-confirm-balance-notice')?.textContent ??
             '',
-          /Current balance: USD 9\.999998/
+          language === 'zhCN' || language === 'zhTW'
+            ? /Current balance: 9\.999998 CNY/
+            : /Current balance: 1\.42857114 USD/
         )
         mockPanelApi(async () => {
           throw new Error('offline')
@@ -312,7 +333,7 @@ describe('SMS purchase controls', () => {
 })
 
 describe('SMS purchase balance session and settlement isolation', () => {
-  test('starts unknown despite stored quota and permits exactly USD 10 after verification', async () => {
+  test('starts unknown despite stored quota and permits the existing raw credit boundary after verification', async () => {
     login(1)
     const pending = deferred<ReturnType<typeof response>>()
     api.get = (() => pending.promise) as typeof api.get
@@ -323,7 +344,7 @@ describe('SMS purchase balance session and settlement isolation', () => {
       assert.equal(initialBalance.canPurchase, false)
       pending.resolve(response(1, 5_000_000))
       await settle(() => probe.balance.canPurchase)
-      assert.equal(probe.balance.balanceUSD, 10)
+      assert.equal(probe.balance.balanceQuota, 5000000)
       await act(async () => probe.balance.recordQuota(4_999_999))
       await settle(() => probe.balance.status === 'below-minimum')
       assert.equal(probe.balance.canPurchase, false)

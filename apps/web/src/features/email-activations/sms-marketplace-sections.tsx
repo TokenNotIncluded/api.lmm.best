@@ -22,7 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import { Delete02Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Minus, Plus, RefreshCw } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -38,7 +38,8 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 
-import { formatHeroSmsPlatformAmount, parseHeroSmsError } from './api.js'
+import { parseHeroSmsError } from './api.js'
+import { heroSmsInputToPrice, heroSmsPriceToInput } from './price-input'
 import type {
   HeroSmsSmsCountry,
   HeroSmsSmsOffer,
@@ -52,6 +53,7 @@ import {
   HERO_SMS_MAX_QUANTITY,
   type HeroSmsFavoritePair,
 } from './sms-selection.js'
+import { useHeroSmsCurrency } from './use-hero-sms-currency'
 
 interface SmsFavoritesPageProps {
   favorites: HeroSmsFavoritePair[]
@@ -182,6 +184,17 @@ export function SmsPriceTierPicker({
   onBidPriceChange,
 }: SmsPriceTierPickerProps) {
   const { t } = useTranslation()
+  const { formatPrice, currency, config, label } = useHeroSmsCurrency()
+  const inputKey = `${currency}:${heroSmsPriceToInput('1', currency, config)}`
+  const [bidDraft, setBidDraft] = useState<{
+    key: string
+    input: string
+    canonical: string
+  }>()
+  const bidInput =
+    bidDraft?.key === inputKey && bidDraft.canonical === bidPrice
+      ? bidDraft.input
+      : heroSmsPriceToInput(bidPrice, currency, config)
   const tiers = useMemo(
     () =>
       [...(offer?.tiers ?? [])].sort(
@@ -226,7 +239,7 @@ export function SmsPriceTierPicker({
             >
               <RadioGroupItem id={id} value={tier.customer_price_usd} />
               <span className='min-w-0 flex-1 text-sm font-medium tabular-nums'>
-                ≤ {formatHeroSmsPlatformAmount(Number(tier.customer_price_usd))}
+                ≤ {formatPrice(Number(tier.customer_price_usd))}
               </span>
               <span className='text-muted-foreground text-xs tabular-nums'>
                 {t('{{count}} available', { count: tier.inventory })}
@@ -241,20 +254,25 @@ export function SmsPriceTierPicker({
           >
             <RadioGroupItem id='hero-sms-custom-bid' value='__custom_bid__' />
             <span className='text-sm font-medium'>
-              {t('Custom maximum bid')}
+              {t('Custom maximum bid')} ({label})
             </span>
           </Label>
           <Input
-            aria-label={t('Maximum unit price')}
+            aria-label={`${t('Maximum unit price')} (${label})`}
             type='number'
             inputMode='decimal'
-            min='0.000001'
-            step='0.000001'
-            value={bidPrice}
+            min='0'
+            step='any'
+            value={bidInput}
             className='h-8 w-28 text-right tabular-nums'
             placeholder='0.00'
             onFocus={() => onBidEnabledChange(true)}
-            onChange={(event) => onBidPriceChange(event.target.value)}
+            onChange={(event) => {
+              const input = event.target.value
+              const canonical = heroSmsInputToPrice(input, currency, config)
+              setBidDraft({ key: inputKey, input, canonical })
+              onBidPriceChange(canonical)
+            }}
             onWheel={(event) => event.currentTarget.blur()}
           />
         </div>
@@ -409,6 +427,7 @@ export function SmsQuoteSummary({
   onRefresh,
 }: SmsQuoteSummaryProps) {
   const { t } = useTranslation()
+  const { formatPrice } = useHeroSmsCurrency()
   if (isFetching) return <Skeleton className='h-24 w-full' />
   if (offer) {
     const unitPrice = Number(offer.customer_price_usd)
@@ -423,13 +442,13 @@ export function SmsQuoteSummary({
             {t('Maximum unit price')}
           </p>
           <p className='mt-1 font-medium tabular-nums'>
-            {formatHeroSmsPlatformAmount(unitPrice)}
+            {formatPrice(unitPrice)}
           </p>
         </div>
         <div>
           <p className='text-muted-foreground text-xs'>{t('Maximum total')}</p>
           <p className='mt-1 font-semibold tabular-nums'>
-            {formatHeroSmsPlatformAmount(unitPrice * quantity)}
+            {formatPrice(unitPrice * quantity)}
           </p>
         </div>
       </div>

@@ -48,6 +48,7 @@ export interface HeroSmsSmsService {
 export interface HeroSmsSmsPriceTier {
   id: string
   inventory: number
+  /** Legacy quote units; actual ledger settlement is the integer charge_quota. */
   customer_price_usd: string
   charge_quota: number
 }
@@ -58,6 +59,7 @@ export interface HeroSmsSmsOffer {
   service: string
   operator: string
   inventory: number
+  /** Legacy quote units; actual ledger settlement is the integer charge_quota. */
   customer_price_usd: string
   charge_quota: number
   bid?: boolean
@@ -80,6 +82,7 @@ export interface HeroSmsSmsOrder {
   service: string
   operator: string
   status: string
+  /** Legacy quote units; actual ledger settlement is the integer charge_quota. */
   customer_price_usd: string
   charge_quota: number
   refunded_quota: number
