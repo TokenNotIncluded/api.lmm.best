@@ -116,9 +116,9 @@ test('real wallet hooks accept the review raw catalog and keep quote ISO indepen
       [5000000, 25000000, 50000000, 100000000]
     )
     for (const example of [
-      { currency: 'USD', input: '1', output: '1 USD' },
-      { currency: 'CNY', input: '7', output: '7 CNY' },
-      { currency: 'CREDIT', input: '100000', output: '100,000 Credits' },
+      { currency: 'USD', input: '7', output: '7 USD' },
+      { currency: 'CNY', input: '49', output: '49 CNY' },
+      { currency: 'CREDIT', input: '3500000', output: '3,500,000 Credits' },
     ]) {
       await act(async () =>
         useAuthStore.getState().auth.setUser({
@@ -139,7 +139,7 @@ test('real wallet hooks accept the review raw catalog and keep quote ISO indepen
         amount: quota,
         payment_method: 'alipay',
       })
-      assert.equal(quote.data, '7.00')
+      assert.equal(quote.data, '49.00')
       assert.equal(quote.settlement_currency, 'CNY')
       assert.equal(quote.credited_quota, 3500000)
       assert.equal(quote.amount_unit, 'LEDGER_QUOTA')

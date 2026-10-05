@@ -343,7 +343,7 @@ describe('persona debug runtime', () => {
     setActiveDebugPersona('l1')
     const status = (await api.get('/api/status')).data.data
     assert.equal(status.currency_unit, 'credit')
-    assert.equal(status.credits_per_usd, 3500000)
+    assert.equal(status.credits_per_usd, 500000)
     assert.equal(status.cny_per_usd, 7)
     const before = (await api.get('/api/user/self')).data.data
     for (const currency of ['CNY', 'USD', 'CREDIT', '']) {

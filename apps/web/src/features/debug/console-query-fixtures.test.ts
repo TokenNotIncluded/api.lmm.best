@@ -78,25 +78,25 @@ test('four synthetic raw-credit quote routes return native pricing ISO without p
     {
       path: '/api/user/topup/currency/v2/amount',
       currency: 'CNY',
-      nativeAmount: '14.00',
+      nativeAmount: '98.00',
       payment_method: 'alipay',
     },
     {
       path: '/api/user/topup/currency/v2/stripe/amount',
       currency: 'USD',
-      nativeAmount: '2.00',
+      nativeAmount: '14.00',
       payment_method: undefined,
     },
     {
       path: '/api/user/topup/currency/v2/waffo/amount',
       currency: 'USD',
-      nativeAmount: '2.00',
+      nativeAmount: '14.00',
       payment_method: undefined,
     },
     {
       path: '/api/user/topup/currency/v2/waffo-pancake/amount',
       currency: 'USD',
-      nativeAmount: '2.00',
+      nativeAmount: '14.00',
       payment_method: undefined,
     },
   ]) {
@@ -112,7 +112,7 @@ test('four synthetic raw-credit quote routes return native pricing ISO without p
     const response = await wrapped(request)
     assert.equal(response.status, 200)
     assert.ok(hasCompleteCreditGrant(response.data, 7000000))
-    assert.equal(response.data.public_credit_amount, '200000')
+    assert.equal(response.data.public_credit_amount, '7000000')
     const {
       success,
       data,
@@ -157,7 +157,7 @@ test('four synthetic raw-credit quote routes return native pricing ISO without p
   }
   const minimum = (await wrapped(smallest)).data
   assert.ok(hasCompleteCreditGrant(minimum, 1))
-  assert.equal(minimum.data, '0.000000285714285714285714285714')
+  assert.equal(minimum.data, '0.000002')
   assert.equal(minimum.settlement_currency, 'USD')
   assert.equal(minimum.credited_quota, 1)
   assert.equal(minimum.amount_unit, 'LEDGER_QUOTA')
@@ -261,7 +261,7 @@ test('raw-credit preview body guards reject invalid, legacy, remote and mutation
   )
 })
 
-test('normal preview preset and coupon controls expose only synthetic same-ISO 100→90→72 quotes', async () => {
+test('normal preview preset and coupon controls expose only synthetic same-ISO 700→630→504 quotes', async () => {
   const wrapped = withConsoleQueryFixtures(async () => {
     throw new Error('blocked')
   })
@@ -274,13 +274,13 @@ test('normal preview preset and coupon controls expose only synthetic same-ISO 1
   const request = config('/api/user/topup/currency/v2/amount', 'post')
   request.data = baseBody
   const preset = (await wrapped(request)).data
-  assert.equal(preset.data, '90.00')
+  assert.equal(preset.data, '630.00')
   assert.deepEqual(preset.settlement_quote, {
     schema_version: 1,
     currency: 'CNY',
-    original_amount: '100.00',
-    paid_amount: '90.00',
-    savings_amount: '10.00',
+    original_amount: '700.00',
+    paid_amount: '630.00',
+    savings_amount: '70.00',
     discount_percent: '10.00',
     basis: 'amount_preset_and_code',
   })
@@ -309,13 +309,13 @@ test('normal preview preset and coupon controls expose only synthetic same-ISO 1
   })
   request.data = { ...baseBody, discount_code: 'PREVIEW20' }
   const combined = (await wrapped(request)).data
-  assert.equal(combined.data, '72.00')
+  assert.equal(combined.data, '504.00')
   assert.deepEqual(combined.settlement_quote, {
     schema_version: 1,
     currency: 'CNY',
-    original_amount: '100.00',
-    paid_amount: '72.00',
-    savings_amount: '28.00',
+    original_amount: '700.00',
+    paid_amount: '504.00',
+    savings_amount: '196.00',
     discount_percent: '28.00',
     basis: 'amount_preset_and_code',
   })
@@ -363,13 +363,13 @@ test('the real coupon API accepts the local Alipay method and returns the matchi
       payment_method: 'alipay',
       discount_code: validated.data.code,
     })
-    assert.equal(quote.data, '72.00')
+    assert.equal(quote.data, '504.00')
     assert.deepEqual(quote.settlement_quote, {
       schema_version: 1,
       currency: 'CNY',
-      original_amount: '100.00',
-      paid_amount: '72.00',
-      savings_amount: '28.00',
+      original_amount: '700.00',
+      paid_amount: '504.00',
+      savings_amount: '196.00',
       discount_percent: '28.00',
       basis: 'amount_preset_and_code',
     })
