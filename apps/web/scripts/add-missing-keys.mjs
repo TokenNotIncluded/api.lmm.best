@@ -29,6 +29,7 @@ import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
 import { balanceQueryCopy } from './balance-query-copy.mjs'
 import { codewhaleGuideCopy } from './codewhale-guide-copy.mjs'
+import { creditCurrencyCopy } from './credit-currency-copy.mjs'
 import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
@@ -13038,6 +13039,10 @@ for (const [locale, values] of Object.entries(nativeBillingCopy)) {
 }
 
 for (const [locale, values] of Object.entries(moderationCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(creditCurrencyCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

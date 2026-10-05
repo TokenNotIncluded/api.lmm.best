@@ -71,17 +71,15 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
-useSystemConfigStore
-  .getState()
-  .setConfig({
-    currency: {
-      ...useSystemConfigStore.getState().config.currency,
-      currencyUnit: 'credit',
-      creditsPerUsd: 3500000,
-      creditsPerUsdExact: '3500000',
-      cnyPerUsd: 7,
-    },
-  })
+useSystemConfigStore.getState().setConfig({
+  currency: {
+    ...useSystemConfigStore.getState().config.currency,
+    currencyUnit: 'credit',
+    creditsPerUsd: 3500000,
+    creditsPerUsdExact: '3500000',
+    cnyPerUsd: 7,
+  },
+})
 const { SettingsPageProvider } =
   await import('../components/settings-page-context')
 const { PricingSection } = await import('./pricing-section')
