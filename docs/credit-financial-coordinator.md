@@ -128,6 +128,15 @@ identity, rather than treating an arbitrary PGDMP header/hash as a full backup.
 All public/origin `probes` are `{url,body_sha256}` and require exact HTTP 503
 body `lmm-credit-transition:<transition_id>`. No forwarded health shortcut is
 accepted as preparation readiness. `public_probes` cannot be empty.
+For a node whose origin requires the public TLS hostname, bind its verified
+numeric address in optional `probe_resolve_address`. The controller then uses
+fixed `curl -q --resolve api.lmm.best:443:ADDRESS` probes for that node, preserving
+Host, SNI and normal certificate verification without DNS or redirect fallback.
+Only HTTPS `/api/status` and `/v1/models` on that hostname are supported by this
+transport. The verified address must reach the node's actual admission entry;
+an unrelated backend response is not evidence of the node's writer or barrier.
+Public edge probes remain independent. Neither a stopped backend's loopback
+port nor an origin URL with an invalid certificate can replace admission proof.
 
 `clone` is `{database:"credit_rebase_clone_<id>",role:"lmm_api",
 schema:<same production schema>,port:<private local port>}`. There is no clone

@@ -10,6 +10,7 @@ import argparse
 import fcntl
 import hashlib
 import importlib.util
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -141,6 +142,9 @@ def validate_plan(plan):
             path(binding['path'])
             require(HEX.fullmatch(binding['sha256']), 'remote-artifact-digest')
         require(node['artifacts'] and node['probes'], 'node-artifact-and-origin-probes-required')
+        if 'probe_resolve_address' in node:
+            for probe in node['probes']:
+                resolved_probe_operation(probe, node['probe_resolve_address'])
         for key in ('handoff', 'post_intent', 'prepare_config'):
             binding = node[key]
             require(binding in node['artifacts'], 'base-handoff-and-prepare-config-must-be-bound-artifacts')
@@ -179,6 +183,27 @@ def validate_plan(plan):
     for operation in plan['backup_commands'].values():
         validate_operation(operation)
     return plan
+
+
+def resolved_probe_operation(probe, address):
+    require(isinstance(address, str), 'origin-probe-address-required')
+    try:
+        parsed_address = ipaddress.ip_address(address)
+    except ValueError:
+        raise GateFailed('origin-probe-address-invalid') from None
+    require(str(parsed_address) == address and not (parsed_address.is_unspecified or
+            parsed_address.is_loopback or parsed_address.is_multicast), 'origin-probe-address-invalid')
+    url = urllib.parse.urlsplit(probe['url'])
+    require(url.scheme == 'https' and url.hostname == 'api.lmm.best' and url.port in (None, 443) and
+            url.username is None and url.password is None and not url.query and not url.fragment and
+            url.path in ('/api/status', '/v1/models'), 'origin-probe-tls-url-required')
+    resolved = '[' + address + ']' if parsed_address.version == 6 else address
+    # Preserve the URL hostname for Host, SNI and certificate verification.
+    # -q prevents a local curlrc from changing the reviewed probe behavior.
+    return {'argv': ['/usr/bin/curl', '-q', '--noproxy', '*', '--silent', '--show-error', '--max-time', '10',
+                     '--max-filesize', '8192', '--proto', '=https', '--max-redirs', '0',
+                     '--resolve', 'api.lmm.best:443:' + resolved, '--write-out', '\n%{{http_code}}', probe['url']],
+            'timeout_seconds': 15}
 
 
 def validate_operation(operation):
@@ -258,11 +283,20 @@ class Controller:
                 output = self.execute(node['name'] + '-artifact-' + str(index),
                     {'argv': ['/usr/bin/sha256sum', '--', artifact['path']], 'timeout_seconds': 30}, node=node)
                 require(output.decode().split()[0] == artifact['sha256'], 'remote-artifact-changed')
-            output = self.execute(node['name'] + '-hostname', {'argv': ['/usr/bin/hostname'], 'timeout_seconds': 30}, node=node)
+            output = self.execute(node['name'] + '-hostname', {'argv': ['/usr/bin/python3', '-c', 'import socket; print(socket.gethostname())'], 'timeout_seconds': 30}, node=node)
             require(output.decode().strip() == node['hostname'], 'target-hostname-changed')
 
     def barriers(self):
-        for probe in self.plan['public_probes'] + [probe for node in self.plan['nodes'] for probe in node['probes']]:
+        probes = [(None, index, probe) for index, probe in enumerate(self.plan['public_probes'])]
+        probes += [(node, index, probe) for node in self.plan['nodes'] for index, probe in enumerate(node['probes'])]
+        for node, index, probe in probes:
+            if node is not None and 'probe_resolve_address' in node:
+                output = self.execute(node['name'] + '-origin-barrier-' + str(index),
+                    resolved_probe_operation(probe, node['probe_resolve_address']))
+                body, separator, status = output.rpartition(b'\n')
+                require(separator and status == b'503' and len(body) <= 8192 and
+                        digest(body) == probe['body_sha256'], 'admission-is-not-closed')
+                continue
             try:
                 with urllib.request.urlopen(probe['url'], timeout=10) as response:
                     code, body = response.status, response.read(8193)

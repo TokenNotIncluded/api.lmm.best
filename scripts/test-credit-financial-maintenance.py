@@ -4,9 +4,11 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location('financial_runner', Path(__file__).with_name('run-credit-financial-maintenance.py'))
 runner = importlib.util.module_from_spec(spec)
@@ -91,6 +93,68 @@ class ControllerTests(unittest.TestCase):
 
     def tearDown(self):
         self.temporary.cleanup()
+
+    def test_origin_barriers_bind_each_node_address_with_verified_tls(self):
+        body = b'lmm-credit-transition:episode-1'
+        probe = {'url': 'https://api.lmm.best/api/status', 'body_sha256': runner.digest(body)}
+        self.controller.plan['public_probes'] = []
+        addresses = ('192.0.2.1', '192.0.2.2')
+        for node, address in zip(self.controller.plan['nodes'], addresses):
+            node.update(probes=[probe], probe_resolve_address=address)
+        observed = []
+        def executor(argv, **options):
+            observed.append(argv)
+            self.assertEqual(argv[0:2], ['/usr/bin/curl', '-q'])
+            self.assertEqual(argv[-1], probe['url'])
+            self.assertEqual(argv[argv.index('--noproxy')+1], '*')
+            self.assertEqual(argv[argv.index('--write-out')+1], '\n%{http_code}')
+            self.assertNotIn('-k', argv)
+            self.assertNotIn('--insecure', argv)
+            self.assertNotIn('--location', argv)
+            return subprocess.CompletedProcess(argv, 0, body+b'\n503', b'')
+        self.controller.executor = executor
+        runner.Controller.barriers(self.controller)
+        self.assertEqual([argv[argv.index('--resolve')+1] for argv in observed],
+                         ['api.lmm.best:443:'+address for address in addresses])
+        self.assertEqual(len(list(self.work.glob('*origin-barrier*.log'))), 2)
+
+    def test_origin_barrier_rejects_tls_failure_and_wrong_body(self):
+        body = b'lmm-credit-transition:episode-1'
+        self.controller.plan['public_probes'] = []
+        self.controller.plan['nodes'] = [dict(self.controller.plan['nodes'][0], probe_resolve_address='192.0.2.1',
+            probes=[{'url': 'https://api.lmm.best/api/status', 'body_sha256': runner.digest(body)}])]
+        for code, output in ((60, b''), (0, body+b'\n200'), (0, b'wrong\n503'), (0, b'x'*8193+b'\n503')):
+            self.controller.executor = lambda argv, **options: subprocess.CompletedProcess(argv, code, output, b'')
+            with self.assertRaises(runner.GateFailed):
+                runner.Controller.barriers(self.controller)
+        self.assertNotIn('production-financial-dispatch', self.controller.calls)
+
+    def test_origin_probe_requires_exact_address_and_hostname(self):
+        probe = {'url': 'https://api.lmm.best/api/status'}
+        for address in ('node.example', '127.0.0.1', '0.0.0.0', '224.0.0.1', 123):
+            with self.assertRaises(runner.GateFailed):
+                runner.resolved_probe_operation(probe, address)
+        for url in ('http://api.lmm.best/api/status', 'https://192.0.2.1/api/status',
+                    'https://api.lmm.best:8443/api/status', 'https://user@api.lmm.best/api/status',
+                    'https://api.lmm.best/api/status?token=secret', 'https://api.lmm.best/other'):
+            with self.assertRaises(runner.GateFailed):
+                runner.resolved_probe_operation({'url': url}, '192.0.2.1')
+
+    def test_hostname_inventory_uses_mandatory_python_and_rejects_wrong_host(self):
+        for key in ('controller', 'intent', 'generator', 'verifier', 'fingerprint_generator'):
+            self.controller.plan[key] = {'path': '/sealed/'+key, 'sha256': '1'*64}
+        self.controller.plan['generator_helpers'] = []
+        self.controller.plan['nodes'] = [dict(self.controller.plan['nodes'][0], hostname='arch-dmit', artifacts=[])]
+        def executor(argv, **options):
+            self.assertEqual(argv[:3], ['/usr/bin/ssh', '-T', 'arch'])
+            self.assertEqual(shlex.split(argv[3]), ['/usr/bin/python3', '-c', 'import socket; print(socket.gethostname())'])
+            return subprocess.CompletedProcess(argv, 0, b'arch-dmit\n', b'')
+        self.controller.executor = executor
+        with mock.patch.object(runner, 'read_bound', return_value=b''):
+            runner.Controller.verify_artifacts(self.controller)
+            self.controller.plan['nodes'][0]['hostname'] = 'wrong-host'
+            with self.assertRaises(runner.GateFailed):
+                runner.Controller.verify_artifacts(self.controller)
 
     def test_dispatch_intent_is_durable_before_sql_and_never_replayed(self):
         self.controller.persist('REHEARSED')
