@@ -78,6 +78,8 @@ func validateAuthoritativePricingUnits(db *gorm.DB) error {
 // This endpoint is separate from legacy /option writers so an old binary
 // cannot silently accept a USD payload as legacy pricing units.
 type USDPriceConfig struct {
+	common.CreditDenomination
+	ModelRatioUnit           string             `json:"model_ratio_unit"`
 	SchemaVersion            int                `json:"schema_version"`
 	Currency                 string             `json:"currency"`
 	StorageBasis             string             `json:"storage_basis"`
@@ -175,6 +177,11 @@ func usdPriceConfig(values map[string]string) (USDPriceConfig, error) {
 		return USDPriceConfig{}, err
 	}
 	result := USDPriceConfig{SchemaVersion: PricingSchemaUSD, Currency: PricingCurrencyUSD, StorageBasis: PricingStorageLegacy, Revision: revision, CreditsPerUSD: anchor.InexactFloat64(), LegacyPricingUnitsPerUSD: scale.InexactFloat64(), ModelRatioUSDPerMillion: decimal.NewFromInt(1_000_000).DivRound(anchor, 64).InexactFloat64(), Values: maps.Clone(values)}
+	result.CreditDenomination, err = common.CreditDenominationMetadata()
+	if err != nil {
+		return USDPriceConfig{}, err
+	}
+	result.ModelRatioUnit = "LEDGER_QUOTA_PER_TOKEN"
 	result.ToolPriceDefaults = make(map[string]float64)
 	for name, price := range operation_setting.GetToolPriceDefaultsCopy() {
 		usd, err := LegacyPricingAmountUSD(price)
@@ -318,7 +325,12 @@ func GetUSDPriceConfig() (USDPriceConfig, error) {
 		if err != nil {
 			return err
 		}
+		units, err := CreditDenominationSnapshotForDB(tx)
+		if err != nil {
+			return err
+		}
 		result, err = usdPriceConfig(values)
+		result.CreditDenomination = units
 		return err
 	})
 	return result, err
@@ -352,7 +364,12 @@ func ValidateUSDPriceConfig(request USDPriceUpdate) (USDPriceConfig, OptionUpdat
 	}
 	preview := maps.Clone(current)
 	maps.Copy(preview, accepted)
+	units, err := CreditDenominationSnapshot()
+	if err != nil {
+		return USDPriceConfig{}, result, err
+	}
 	config, err := usdPriceConfig(preview)
+	config.CreditDenomination = units
 	return config, result, err
 }
 
@@ -364,6 +381,11 @@ func UpdateUSDPriceConfig(request USDPriceUpdate) (USDPriceConfig, OptionUpdateR
 	if err != nil {
 		return USDPriceConfig{}, result, err
 	}
+	units, err := CreditDenominationSnapshot()
+	if err != nil {
+		return USDPriceConfig{}, result, err
+	}
 	config, err := usdPriceConfig(result.Pricing)
+	config.CreditDenomination = units
 	return config, result, err
 }

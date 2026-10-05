@@ -21,7 +21,7 @@ var publicCreditsPerUSD atomic.Pointer[decimal.Decimal]
 func LedgerQuotaPerUSD() (decimal.Decimal, error) { return CreditsPerUSD() }
 
 func ValidatePublicCreditsPerUSD(value decimal.Decimal) error {
-	if !value.IsPositive() || !value.IsInteger() || value.GreaterThan(decimal.NewFromInt(MaxWalletQuota)) {
+	if value.Exponent() < -18 || value.Exponent() > 18 || len(value.Coefficient().String()) > 80 || !value.IsPositive() || !value.IsInteger() || value.GreaterThan(decimal.NewFromInt(MaxWalletQuota)) {
 		return errors.New("public credits per USD must be a positive safe integer")
 	}
 	return nil
@@ -99,11 +99,21 @@ func CreditDenominationMetadata() (CreditDenomination, error) {
 	if err != nil {
 		return CreditDenomination{}, err
 	}
+	return CreditDenominationFromBasis(ledger, public)
+}
+
+// CreditDenominationFromBasis captures an authoritative basis without changing
+// process configuration. Callers can project a full response from this snapshot.
+func CreditDenominationFromBasis(ledger, public decimal.Decimal) (CreditDenomination, error) {
 	l, p := ledger.InexactFloat64(), public.InexactFloat64()
 	if l <= 0 || p <= 0 || math.IsNaN(l) || math.IsNaN(p) || math.IsInf(l, 0) || math.IsInf(p, 0) {
 		return CreditDenomination{}, ErrCreditUnitsUnavailable
 	}
-	return CreditDenomination{CreditUnitSchemaVersion: PublicCreditUnitSchemaVersion, QuotaUnit: LedgerQuotaUnit, PublicCreditUnit: PublicCreditUnit, LegacyCreditUnit: LedgerQuotaUnit, LedgerQuotaPerUSD: l, LedgerQuotaPerUSDExact: ledger.String(), PublicCreditsPerUSD: p, PublicCreditsPerUSDExact: public.String()}, nil
+	units := CreditDenomination{CreditUnitSchemaVersion: PublicCreditUnitSchemaVersion, QuotaUnit: LedgerQuotaUnit, PublicCreditUnit: PublicCreditUnit, LegacyCreditUnit: LedgerQuotaUnit, LedgerQuotaPerUSD: l, LedgerQuotaPerUSDExact: ledger.String(), PublicCreditsPerUSD: p, PublicCreditsPerUSDExact: public.String()}
+	if _, _, err := units.basis(); err != nil {
+		return CreditDenomination{}, err
+	}
+	return units, nil
 }
 
 // ProjectLedgerQuota uses one captured denomination for a complete response.

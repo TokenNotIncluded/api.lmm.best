@@ -469,6 +469,8 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.GET("/pricing", middleware.DisableCache(), controller.GetUSDPriceOptions)
+			optionRoute.GET("/public-credit-unit", middleware.DisableCache(), controller.GetPublicCreditUnitOptions)
+			optionRoute.PUT("/public-credit-unit", middleware.DisableCache(), middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.PutPublicCreditUnitOptions)
 			optionRoute.POST("/pricing/validate", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.USDPriceOptionsValidate)
 			optionRoute.POST("/pricing/bulk", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), controller.USDPriceOptionsBulk)
 			optionRoute.GET("/updates", middleware.DisableCache(), controller.GetUpdates)

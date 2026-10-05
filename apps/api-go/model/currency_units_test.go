@@ -19,6 +19,7 @@ func setupCreditUnitsDB(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&Option{}, &TopUp{}))
 	previous, err := common.CreditsPerUSD()
 	previousLegacy, _ := common.LegacyPricingQuotaPerUnit()
+	previousPublic, previousPublicErr := common.PublicCreditsPerUSD()
 	previousQ := common.QuotaPerUnit
 	previousOptionMap := common.OptionMap
 	previousFX, previousB := operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY
@@ -27,10 +28,14 @@ func setupCreditUnitsDB(t *testing.T) {
 		common.QuotaPerUnit = previousQ
 		common.OptionMap = previousOptionMap
 		operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = previousFX, previousB
+		common.ClearPublicCreditsPerUSD()
 		if err != nil {
 			common.ClearCreditsPerUSD()
 		} else {
 			require.NoError(t, common.SetCreditCurrencyBasis(previous, previousLegacy))
+			if previousPublicErr == nil && !previousPublic.Equal(previous) {
+				require.NoError(t, common.SetPublicCreditsPerUSD(previousPublic))
+			}
 		}
 	})
 	common.ClearCreditsPerUSD()
