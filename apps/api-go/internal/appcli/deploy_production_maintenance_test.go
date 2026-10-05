@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,5 +169,81 @@ func TestMaintenanceControllerResultMatchesRunnerContract(t *testing.T) {
 	result := releaseControllerResult(productionReleasePlan{MaintenanceHandoff: h}, productionReleaseControllerState{Phase: productionMaintenanceConfirmedPhase, MaintenanceConfirmation: true})
 	if result.Phase != productionMaintenanceConfirmedPhase || result.Status != result.Phase || result.ProviderSHA256 != h.ProviderSHA256 || result.TransitionIntentSHA256 != h.TransitionIntentSHA256 || !result.MaintenanceConfirmation {
 		t.Fatalf("result=%+v", result)
+	}
+}
+
+type maintenanceDispatchStateRunner struct {
+	fallback productionCommandRunner
+	load     string
+}
+
+func (runner maintenanceDispatchStateRunner) Run(ctx context.Context, command productionCommand) ([]byte, error) {
+	if command.Name == commandSystemctl && len(command.Args) > 1 && command.Args[0] == "show" && command.Args[1] == "--property=LoadState" {
+		return []byte(runner.load), nil
+	}
+	return runner.fallback.Run(ctx, command)
+}
+
+func TestMaintenanceStatusProvesAbsentDispatchAndStagedArtifacts(t *testing.T) {
+	for _, failure := range []string{"", "unit", "manifest", "attempt", "package", "plan"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newProductionFixture(t)
+			h := &productionMaintenanceHandoff{Format: productionMaintenanceHandoffFormat, Stage: "prebridge", DeploymentTool: "native", TransitionID: "transition", TransitionIntentSHA256: strings.Repeat("a", 64), ProviderSHA256: f.options.ProbeBinarySHA256, SHA256: strings.Repeat("b", 64), Path: "/sealed/handoff.json"}
+			f.runtime.maintenanceHandoff = h
+			f.runtime.guardianLease = io.NopCloser(strings.NewReader(""))
+			load := "not-found"
+			if failure == "unit" {
+				load = "loaded"
+			}
+			f.runtime.runner = maintenanceDispatchStateRunner{f.runner, load}
+			plan := testProductionReleasePlan(t, t.TempDir())
+			plan.DeploymentID = f.workspace.id
+			plan.MaintenanceHandoff = h
+			plan.GoCandidate.PackagePath = f.options.GoPackage
+			plan.GoCandidate.PackageSHA256 = f.options.GoPackageSHA256
+			plan.GoCandidate.PayloadSHA256 = h.ProviderSHA256
+			plan.GoRollback.PackagePath = f.options.GoRollbackPackage
+			plan.GoRollback.PackageSHA256 = f.options.GoRollbackSHA256
+			plan.WebCandidate.PackagePath = f.options.WebPackage
+			plan.WebCandidate.PackageSHA256 = f.options.WebPackageSHA256
+			plan.WebRollback = plan.WebCandidate
+			plan.ProbeBinary.SHA256 = h.ProviderSHA256
+			plan.OperatorBinary = plan.ProbeBinary
+			content, err := canonicalProductionReleasePlan(plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(f.workspace.stagingDir, productionReleasePlanFilename)
+			if err := os.WriteFile(path, content, 0600); err != nil {
+				t.Fatal(err)
+			}
+			digest, err := sha256File(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch failure {
+			case "manifest":
+				os.WriteFile(f.workspace.manifestPath, []byte("intent"), 0600)
+			case "attempt":
+				os.Mkdir(filepath.Join(f.workspace.stateDir, "maintenance-failed-attempt-old"), 0700)
+			case "package":
+				os.WriteFile(f.options.GoPackage, []byte("tampered"), 0700)
+			case "plan":
+				os.WriteFile(path, append(content, '\n'), 0600)
+			}
+			status, err := f.runtime.maintenanceUndispatchedStatus(context.Background(), f.workspace, productionTransactionOptions{StagedPlanPath: path, StagedPlanSHA256: digest})
+			if failure != "" {
+				if err == nil {
+					t.Fatalf("accepted %s dispatch ambiguity", failure)
+				}
+				return
+			}
+			if err != nil || status.Phase != "NOT_DISPATCHED" || !status.DispatchVerifiedAbsent || status.PlanSHA256 != digest || status.HandoffSHA256 != h.SHA256 {
+				t.Fatalf("status=%+v err=%v", status, err)
+			}
+			if _, err := os.Lstat(f.workspace.statusPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("readonly absent status wrote state")
+			}
+		})
 	}
 }

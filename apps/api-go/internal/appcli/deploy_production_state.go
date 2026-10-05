@@ -288,6 +288,7 @@ type productionRuntime struct {
 	billingConnections            func() (int, error)
 	billingExecutableSHA256       func(int) (string, error)
 	maintenanceProcessEnvironment func(int) ([]byte, error)
+	cleanupProcessReferences      func(string) (bool, error)
 	paths                         productionPaths
 	runner                        productionCommandRunner
 	now                           func() time.Time
@@ -312,6 +313,8 @@ func defaultProductionRuntime() *productionRuntime {
 }
 
 type productionTransactionOptions struct {
+	StagedPlanPath           string
+	StagedPlanSHA256         string
 	MaintenanceHandoffPath   string
 	MaintenanceHandoffSHA256 string
 	GlobalConfirmationPath   string
@@ -748,6 +751,9 @@ func readSafeRegularFile(path string, maximum int64) ([]byte, error) {
 }
 
 type productionStatus struct {
+	HandoffSHA256          string `json:"handoff_sha256,omitempty"`
+	PlanSHA256             string `json:"plan_sha256,omitempty"`
+	DispatchVerifiedAbsent bool   `json:"dispatch_verified_absent,omitempty"`
 	ProviderSHA256         string `json:"provider_sha256,omitempty"`
 	MaintenanceStage       string `json:"maintenance_stage,omitempty"`
 	TransitionID           string `json:"transition_id,omitempty"`
@@ -819,6 +825,10 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
 	flags.StringVar(&options.MaintenanceHandoffPath, "maintenance-handoff", "", "root-owned immutable maintenance handoff")
 	flags.StringVar(&options.MaintenanceHandoffSHA256, "maintenance-handoff-sha256", "", "exact maintenance handoff SHA-256")
+	if action == "status" {
+		flags.StringVar(&options.StagedPlanPath, "staged-plan", "", "immutable plan staged inside the target workspace for absent-dispatch proof")
+		flags.StringVar(&options.StagedPlanSHA256, "staged-plan-sha256", "", "immutable staged plan SHA-256")
+	}
 	if action == "maintenance-release" {
 		flags.StringVar(&options.GlobalConfirmationPath, "global-confirmation", "", "root-owned global owner confirmation receipt")
 		flags.StringVar(&options.GlobalConfirmationSHA256, "global-confirmation-sha256", "", "exact global confirmation SHA-256")
@@ -994,6 +1004,11 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 			}
 		}
 	}
+	if options.Action == "status" && runtime.maintenanceHandoff != nil {
+		if status, terminal, err := runtime.readTerminalMaintenanceStatus(ctx, workspace); terminal || err != nil {
+			return status, err
+		}
+	}
 	lock, err := runtime.acquireGlobalLock(ctx)
 	if err != nil {
 		return productionStatus{}, err
@@ -1008,7 +1023,14 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 	case "maintenance-stop":
 		return runtime.maintenanceStop(ctx, workspace, options.AllAdmissionClosedPath, options.AllAdmissionClosedSHA256)
 	case "status":
-		return runtime.readStatus(workspace)
+		status, err := runtime.readStatus(workspace)
+		if err == nil {
+			return status, nil
+		}
+		if errors.Is(err, os.ErrNotExist) && runtime.maintenanceHandoff != nil {
+			return runtime.maintenanceUndispatchedStatus(ctx, workspace, options)
+		}
+		return productionStatus{}, err
 	case "confirm":
 		return runtime.confirm(ctx, workspace)
 	case "rollback":
@@ -1154,6 +1176,7 @@ func (runtime *productionRuntime) writeStatus(workspace productionWorkspace, sta
 		status.TransitionID = runtime.maintenanceHandoff.TransitionID
 		status.TransitionIntentSHA256 = runtime.maintenanceHandoff.TransitionIntentSHA256
 		status.ProviderSHA256 = runtime.maintenanceHandoff.ProviderSHA256
+		status.HandoffSHA256 = runtime.maintenanceHandoff.SHA256
 	}
 	status.Format = productionStatusFormat
 	status.DeploymentID = workspace.id

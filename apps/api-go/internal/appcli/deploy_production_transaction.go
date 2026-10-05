@@ -1405,11 +1405,32 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		return fail(fmt.Errorf("rolled-back release probes failed: %w", err))
 	}
 	rolledBack := productionStatus{Phase: "ROLLED_BACK", Version: manifest.OldVersion, Previous: manifest.ExpectedVersion, Reason: reason}
+	if runtime.maintenancePost() {
+		// Post rollback reinstalls the exact same compatible bridge provider.
+		// Re-observe its new invocation before it may participate in global release.
+		baseline, err := runtime.readServiceRestarts(ctx)
+		if err != nil {
+			return fail(err)
+		}
+		manifest.ServiceRestartBaseline = baseline
+		manifest.ObservationStartedUTC = utcSecond(runtime.now())
+		if err := runtime.writeManifest(workspace, manifest); err != nil {
+			return fail(err)
+		}
+		if err := runtime.observe(ctx, workspace, manifest, time.Duration(manifest.ObservationSeconds)*time.Second); err != nil {
+			return fail(err)
+		}
+		rolledBack.Phase = productionMaintenanceConfirmedPhase
+		rolledBack.MaintenanceConfirmation = true
+		rolledBack.Reason = "compatible-post-rollback-reobserved; " + reason
+	}
 	if err := runtime.writeStatus(workspace, rolledBack); err != nil {
 		return fail(err)
 	}
-	if err := runtime.finalizeTransactionFiles(workspace); err != nil {
-		return fail(err)
+	if !runtime.maintenancePost() {
+		if err := runtime.finalizeTransactionFiles(workspace); err != nil {
+			return fail(err)
+		}
 	}
 	return runtime.readStatus(workspace)
 }

@@ -3,6 +3,8 @@ package appcli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,11 +18,116 @@ import (
 	"strings"
 )
 
+func (runtime *productionRuntime) maintenanceUndispatchedStatus(ctx context.Context, workspace productionWorkspace, options productionTransactionOptions) (productionStatus, error) {
+	if runtime.guardianLease == nil || options.StagedPlanPath != filepath.Join(workspace.stagingDir, productionReleasePlanFilename) || !productionSHA256Pattern.MatchString(options.StagedPlanSHA256) {
+		return productionStatus{}, errors.New("absent maintenance status requires the exact staged plan and guardian lease")
+	}
+	if err := runtime.validateTransactionLock(workspace); err != nil {
+		return productionStatus{}, err
+	}
+	evidence, err := runtime.productionDispatchEvidence(ctx, workspace.root, productionActivationUnit(workspace.id))
+	if err != nil {
+		return productionStatus{}, err
+	}
+	if productionDispatchHasEvidence(evidence) {
+		return productionStatus{}, errors.New("maintenance activation has evidence but no readable owner status; owner repair is required")
+	}
+	entries, err := os.ReadDir(workspace.stateDir)
+	if err != nil {
+		return productionStatus{}, err
+	}
+	for _, entry := range entries {
+		if entry.Name() != "maintenance-transfer.json" {
+			return productionStatus{}, errors.New("undispatched workspace retains owner mutation or failed-attempt evidence")
+		}
+	}
+	content, err := readPrivateRegularFile(options.StagedPlanPath, 2<<20)
+	if err != nil {
+		return productionStatus{}, err
+	}
+	digest := sha256.Sum256(content)
+	if hex.EncodeToString(digest[:]) != options.StagedPlanSHA256 {
+		return productionStatus{}, errors.New("staged maintenance plan changed")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	var plan productionReleasePlan
+	if err := decoder.Decode(&plan); err != nil {
+		return productionStatus{}, err
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return productionStatus{}, errors.New("staged maintenance plan has trailing JSON")
+	}
+	if err := validateProductionReleasePlan(plan); err != nil {
+		return productionStatus{}, err
+	}
+	canonical, err := canonicalProductionReleasePlan(plan)
+	if err != nil || !bytes.Equal(canonical, content) {
+		return productionStatus{}, errors.New("staged maintenance plan is not canonical")
+	}
+	h := runtime.maintenanceHandoff
+	if plan.DeploymentID != workspace.id || plan.MaintenanceHandoff == nil || plan.MaintenanceHandoff.SHA256 != h.SHA256 || plan.MaintenanceHandoff.TransitionID != h.TransitionID || plan.MaintenanceHandoff.TransitionIntentSHA256 != h.TransitionIntentSHA256 || plan.ProbeBinary.SHA256 != h.ProviderSHA256 {
+		return productionStatus{}, errors.New("staged maintenance plan differs from the frozen handoff")
+	}
+	for _, artifact := range []productionReleasePackagePlan{plan.GoCandidate, plan.GoRollback, plan.WebCandidate, plan.WebRollback} {
+		if err := runtime.validateStagedFile(workspace, filepath.Join(workspace.stagingDir, filepath.Base(artifact.PackagePath)), artifact.PackageSHA256, "undispatched package"); err != nil {
+			return productionStatus{}, err
+		}
+	}
+	if _, err := runtime.validateCandidateEntrypoint(workspace, filepath.Join(workspace.stagingDir, backendGoName), h.ProviderSHA256); err != nil {
+		return productionStatus{}, err
+	}
+	if h.StoppedWriter != nil {
+		if err := runtime.validateStoppedMaintenanceWriter(ctx); err != nil {
+			return productionStatus{}, err
+		}
+	}
+	return productionStatus{Format: productionStatusFormat, DeploymentID: workspace.id, Phase: "NOT_DISPATCHED", PlanSHA256: options.StagedPlanSHA256, HandoffSHA256: h.SHA256, DispatchVerifiedAbsent: true, MaintenanceStage: h.Stage, TransitionID: h.TransitionID, TransitionIntentSHA256: h.TransitionIntentSHA256, ProviderSHA256: h.ProviderSHA256, Version: plan.ExpectedVersion}, nil
+}
+
 const productionMaintenanceHandoffFormat = "lmm-credit-maintenance-handoff-v1"
 const productionMaintenanceLockProtocol = "lmm-maintenance-deploy-lock-v1"
 const productionMaintenanceConfirmedPhase = "MAINTENANCE_CONFIRMED"
 const productionMaintenanceDropIn = "90-credit-transition-prepare.conf"
 const productionMaintenanceReaderGroup = "lmm-credit-transition"
+
+func (runtime *productionRuntime) readTerminalMaintenanceStatus(ctx context.Context, workspace productionWorkspace) (productionStatus, bool, error) {
+	status, err := runtime.readStatus(workspace)
+	if errors.Is(err, os.ErrNotExist) {
+		return productionStatus{}, false, nil
+	}
+	if err != nil {
+		return productionStatus{}, false, err
+	}
+	if status.Phase != "CONFIRMED" || !status.MaintenanceAdmissionReopened {
+		return productionStatus{}, false, nil
+	}
+	h := runtime.maintenanceHandoff
+	manifest, err := runtime.readManifest(workspace)
+	if err != nil {
+		return productionStatus{}, true, err
+	}
+	if h == nil || h.Stage != "post" || manifest.MaintenanceHandoff == nil || manifest.MaintenanceHandoff.SHA256 != h.SHA256 || status.TransitionID != h.TransitionID || status.TransitionIntentSHA256 != h.TransitionIntentSHA256 || status.ProviderSHA256 != h.ProviderSHA256 {
+		return productionStatus{}, true, errors.New("terminal owner status differs from its exact post handoff")
+	}
+	installed, err := sha256File(runtime.paths.InstalledBinary)
+	if err != nil || installed != h.ProviderSHA256 {
+		return productionStatus{}, true, errors.New("terminal confirmed provider identity changed")
+	}
+	if err := runtime.verifyManifestInstalled(ctx, manifest, false); err != nil {
+		return productionStatus{}, true, err
+	}
+	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.NewTarget, manifest.Frontend.NewIndexSHA256); err != nil {
+		return productionStatus{}, true, err
+	}
+	if _, err := runtime.probeStatus(ctx, runtime.paths.InstalledBinary, runtime.paths.LocalBaseURL, manifest.ExpectedVersion); err != nil {
+		return productionStatus{}, true, err
+	}
+	if err := runtime.probeLive(ctx, runtime.paths.InstalledBinary); err != nil {
+		return productionStatus{}, true, err
+	}
+	return status, true, nil
+}
 
 // DynamicUser cannot read a root-only plan. Require an explicitly provisioned
 // static reader group instead of changing the runner's sealed file permissions.

@@ -24,6 +24,10 @@ func maintenanceFileIDs(info os.FileInfo) (uint32, uint32, bool) {
 }
 
 func receiveMaintenanceLock(ctx context.Context, h *productionMaintenanceHandoff, lockPath string, owner uint32) (*os.File, net.Conn, error) {
+	return receiveMaintenanceLockForPaths(ctx, h, lockPath, owner, map[string]string{"native": lockPath, "systemd": "/var/lib/lmm-api-deploy-systemd/lock", "frontend": "/srv/lmm-api-frontend/.release.lock"})
+}
+
+func receiveMaintenanceLockForPaths(ctx context.Context, h *productionMaintenanceHandoff, lockPath string, owner uint32, expectedPaths map[string]string) (*os.File, net.Conn, error) {
 	connection, err := (&net.Dialer{Timeout: 125 * time.Second}).DialContext(ctx, "unix", h.GuardianSocket)
 	if err != nil {
 		return nil, nil, err
@@ -88,6 +92,12 @@ func receiveMaintenanceLock(ctx context.Context, h *productionMaintenanceHandoff
 		}
 	}()
 	var reply struct {
+		Locks []struct {
+			Path   string `json:"path"`
+			Device uint64 `json:"device"`
+			Inode  uint64 `json:"inode"`
+			Held   bool   `json:"held"`
+		} `json:"locks"`
 		GuardianPID   int    `json:"guardian_pid"`
 		Protocol      string `json:"protocol"`
 		HandoffSHA256 string `json:"handoff_sha256"`
@@ -95,6 +105,42 @@ func receiveMaintenanceLock(ctx context.Context, h *productionMaintenanceHandoff
 	}
 	if json.Unmarshal(body[:n], &reply) != nil || reply.GuardianPID != int(peer.Pid) || reply.Protocol != productionMaintenanceLockProtocol || reply.HandoffSHA256 != h.SHA256 || reply.TransitionID != h.TransitionID {
 		return nil, nil, errors.New("guardian lock receipt differs from immutable handoff")
+	}
+	if len(reply.Locks) != 3 || len(expectedPaths) != 3 {
+		return nil, nil, errors.New("guardian must freeze all three normal owner locks")
+	}
+	seen := map[string]bool{}
+	for _, lock := range reply.Locks {
+		known := false
+		for _, path := range expectedPaths {
+			if path == lock.Path {
+				known = true
+			}
+		}
+		if !known || seen[lock.Path] || !lock.Held {
+			return nil, nil, errors.New("guardian frozen lock metadata differs from normal owner paths")
+		}
+		seen[lock.Path] = true
+		metadata, err := os.Lstat(lock.Path)
+		if err != nil {
+			return nil, nil, err
+		}
+		stat, ok := metadata.Sys().(*syscall.Stat_t)
+		if !ok || !metadata.Mode().IsRegular() || stat.Uid != owner || stat.Nlink != 1 || uint64(stat.Dev) != lock.Device || stat.Ino != lock.Inode {
+			return nil, nil, errors.New("guardian frozen lock inode changed")
+		}
+		check, err := unix.Open(lock.Path, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return nil, nil, err
+		}
+		err = unix.Flock(check, unix.LOCK_EX|unix.LOCK_NB)
+		_ = unix.Close(check)
+		if err == nil {
+			return nil, nil, errors.New("guardian freeze is independently acquirable")
+		}
+		if err != unix.EWOULDBLOCK && err != unix.EAGAIN {
+			return nil, nil, err
+		}
 	}
 	info, err := file.Stat()
 	if err != nil {

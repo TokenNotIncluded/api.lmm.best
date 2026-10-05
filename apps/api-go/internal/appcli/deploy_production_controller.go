@@ -38,6 +38,7 @@ type productionReleaseControllerOptions struct {
 }
 
 type productionReleaseControllerState struct {
+	DispatchVerifiedAbsent       bool      `json:"dispatch_verified_absent,omitempty"`
 	MaintenanceConfirmation      bool      `json:"maintenance_confirmation,omitempty"`
 	MaintenanceAdmissionReopened bool      `json:"maintenance_admission_reopened,omitempty"`
 	CaptureReceiptPath           string    `json:"capture_receipt_path,omitempty"`
@@ -59,6 +60,7 @@ type productionReleaseControllerState struct {
 }
 
 type productionReleaseControllerResult struct {
+	DispatchVerifiedAbsent       bool   `json:"dispatch_verified_absent,omitempty"`
 	ProviderSHA256               string `json:"provider_sha256,omitempty"`
 	Phase                        string `json:"phase,omitempty"`
 	TransitionID                 string `json:"transition_id,omitempty"`
@@ -312,6 +314,7 @@ func (runtime *productionReleaseRuntime) promote(ctx context.Context, options pr
 		}
 	}
 	if state.Phase == productionReleasePhaseStaged ||
+		(state.Phase == "NOT_DISPATCHED" && state.DispatchVerifiedAbsent) ||
 		state.Phase == productionReleasePhaseBackupsReady ||
 		state.Phase == productionReleasePhaseActivationDispatched {
 		if err := runtime.dispatchProductionActivation(ctx, plan, &state); err != nil {
@@ -415,6 +418,7 @@ func (runtime *productionReleaseRuntime) remoteCandidateCommand(ctx context.Cont
 }
 
 func persistRemoteReleaseControllerStatus(plan productionReleasePlan, state *productionReleaseControllerState, status productionStatus, now time.Time) error {
+	state.DispatchVerifiedAbsent = status.DispatchVerifiedAbsent
 	state.MaintenanceConfirmation = status.MaintenanceConfirmation
 	state.MaintenanceAdmissionReopened = status.MaintenanceAdmissionReopened
 	state.CaptureReceiptPath = status.CaptureReceiptPath
@@ -642,8 +646,11 @@ func (runtime *productionReleaseRuntime) readRemoteReleaseStatus(ctx context.Con
 	if err != nil {
 		return productionStatus{}, err
 	}
-	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		operator, "operator", "production", "status", "--workspace", state.RemoteWorkspace)
+	arguments := []string{operator, "operator", "production", "status", "--workspace", state.RemoteWorkspace}
+	if plan.MaintenanceHandoff != nil {
+		arguments = append(arguments, "--maintenance-handoff", productionRemoteHandoffPath(*plan.MaintenanceHandoff), "--maintenance-handoff-sha256", plan.MaintenanceHandoff.SHA256, "--staged-plan", filepath.Join(state.RemoteWorkspace, "staging", productionReleasePlanFilename), "--staged-plan-sha256", state.PlanSHA256)
+	}
+	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, arguments...)
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("read production release status: %w", err)
 	}
@@ -1228,6 +1235,7 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 		"AWAITING_CONFIRMATION":             true,
 		productionMaintenanceConfirmedPhase: true,
 		"MAINTENANCE_PREARM_FAILED":         true,
+		"NOT_DISPATCHED":                    true,
 		"CAPTURED":                          true, "ADMISSION_CLOSED": true, "FROZEN": true,
 		"CONFIRMED":         true,
 		"ROLLED_BACK":       true,
@@ -1271,7 +1279,8 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 
 func releaseControllerResult(plan productionReleasePlan, state productionReleaseControllerState) productionReleaseControllerResult {
 	result := productionReleaseControllerResult{
-		Phase: state.Phase, MaintenanceConfirmation: state.MaintenanceConfirmation, MaintenanceAdmissionReopened: state.MaintenanceAdmissionReopened, CaptureReceiptPath: state.CaptureReceiptPath, CaptureReceiptSHA256: state.CaptureReceiptSHA256,
+		DispatchVerifiedAbsent: state.DispatchVerifiedAbsent,
+		Phase:                  state.Phase, MaintenanceConfirmation: state.MaintenanceConfirmation, MaintenanceAdmissionReopened: state.MaintenanceAdmissionReopened, CaptureReceiptPath: state.CaptureReceiptPath, CaptureReceiptSHA256: state.CaptureReceiptSHA256,
 		DeploymentID:     plan.DeploymentID,
 		PlanSHA256:       state.PlanSHA256,
 		Version:          plan.ExpectedVersion,
