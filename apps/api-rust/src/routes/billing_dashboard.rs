@@ -20,13 +20,15 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
 
 use crate::RequestContext;
 
-const DEFAULT_QUOTA_PER_UNIT: f64 = 500_000.0;
+const DEFAULT_QUOTA_PER_UNIT: i64 = 500_000;
+const MAX_WALLET_QUOTA: i64 = 9_007_199_254_740_991;
 const DEFAULT_USD_EXCHANGE_RATE: f64 = 7.3;
 
 /// The authenticated API-token context used by the legacy handlers.
@@ -155,7 +157,9 @@ pub enum QuotaDisplay {
 pub struct BillingDashboardSettings {
     pub display_token_stat_enabled: bool,
     pub quota_display: QuotaDisplay,
-    pub quota_per_unit: f64,
+    pub quota_per_unit: Decimal,
+    pub credits_per_usd: Option<Decimal>,
+    pub legacy_pricing_quota_per_unit: Option<Decimal>,
     pub usd_exchange_rate: f64,
 }
 
@@ -165,7 +169,9 @@ impl Default for BillingDashboardSettings {
             // `common.DisplayTokenStatEnabled` defaults to true in Go.
             display_token_stat_enabled: true,
             quota_display: QuotaDisplay::Usd,
-            quota_per_unit: DEFAULT_QUOTA_PER_UNIT,
+            quota_per_unit: Decimal::from(DEFAULT_QUOTA_PER_UNIT),
+            credits_per_usd: None,
+            legacy_pricing_quota_per_unit: None,
             usd_exchange_rate: DEFAULT_USD_EXCHANGE_RATE,
         }
     }
@@ -174,7 +180,19 @@ impl Default for BillingDashboardSettings {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BillingDashboardStoreError {
     Unavailable,
+    CurrencyUnavailable,
 }
+
+impl std::fmt::Display for BillingDashboardStoreError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Unavailable => "billing store unavailable",
+            Self::CurrencyUnavailable => "credit currency units are unavailable",
+        })
+    }
+}
+
+impl std::error::Error for BillingDashboardStoreError {}
 
 /// Durable data used by the two legacy handlers.
 #[async_trait]
@@ -201,7 +219,8 @@ impl BillingDashboardStore for PgBillingDashboardStore {
     async fn settings(&self) -> Result<BillingDashboardSettings, BillingDashboardStoreError> {
         let rows = sqlx::query(
             "SELECT key, value FROM options \
-             WHERE key IN ('QuotaPerUnit', 'USDExchangeRate', \
+             WHERE key IN ('QuotaPerUnit', 'CreditsPerUSD', 'LegacyPricingQuotaPerUnit', \
+                           'USDExchangeRate', \
                            'general_setting.quota_display_type', 'general_setting', \
                            'DisplayTokenStatEnabled')",
         )
@@ -215,14 +234,24 @@ impl BillingDashboardStore for PgBillingDashboardStore {
             let key: String = row
                 .try_get("key")
                 .map_err(|_| BillingDashboardStoreError::Unavailable)?;
-            let value: String = row
+            let value: Option<String> = row
                 .try_get("value")
                 .map_err(|_| BillingDashboardStoreError::Unavailable)?;
+            let value = value.ok_or_else(|| {
+                if matches!(
+                    key.as_str(),
+                    "QuotaPerUnit" | "CreditsPerUSD" | "LegacyPricingQuotaPerUnit"
+                ) {
+                    BillingDashboardStoreError::CurrencyUnavailable
+                } else {
+                    BillingDashboardStoreError::Unavailable
+                }
+            })?;
             match key.as_str() {
-                "QuotaPerUnit" => {
-                    if let Some(value) = positive_finite(&value) {
-                        settings.quota_per_unit = value;
-                    }
+                "QuotaPerUnit" => settings.quota_per_unit = parse_credit_rate(&value)?,
+                "CreditsPerUSD" => settings.credits_per_usd = Some(parse_credit_rate(&value)?),
+                "LegacyPricingQuotaPerUnit" => {
+                    settings.legacy_pricing_quota_per_unit = Some(parse_credit_rate(&value)?);
                 }
                 "USDExchangeRate" => {
                     if let Some(value) = positive_finite(&value) {
@@ -243,6 +272,7 @@ impl BillingDashboardStore for PgBillingDashboardStore {
         if let Some(display) = dotted_display.or(aggregate_display) {
             settings.quota_display = display;
         }
+        validated_credit_basis(settings)?;
         Ok(settings)
     }
 
@@ -298,7 +328,14 @@ async fn subscription(State(state): State<BillingDashboardState>, request: Reque
     };
     let settings = match state.store.settings().await {
         Ok(settings) => settings,
-        Err(_) => return legacy_error("billing unavailable", "upstream_error"),
+        Err(BillingDashboardStoreError::CurrencyUnavailable) => return currency_error(),
+        Err(BillingDashboardStoreError::Unavailable) => {
+            return legacy_error("billing unavailable", "upstream_error");
+        }
+    };
+    let anchor = match validated_credit_basis(settings) {
+        Ok(anchor) => anchor,
+        Err(_) => return currency_error(),
     };
     let (remain, used) = match quota_for(&state, principal, settings).await {
         Ok(quota) => quota,
@@ -307,7 +344,11 @@ async fn subscription(State(state): State<BillingDashboardState>, request: Reque
     let amount = if principal.unlimited_quota && settings.display_token_stat_enabled {
         100_000_000.0
     } else {
-        display_amount(remain.saturating_add(used), settings)
+        let credits = i128::from(remain) + i128::from(used);
+        match real_usd_amount(credits, anchor) {
+            Ok(amount) => amount,
+            Err(_) => return currency_error(),
+        }
     };
     Json(OpenAiSubscription {
         object: "billing_subscription",
@@ -327,15 +368,30 @@ async fn usage(State(state): State<BillingDashboardState>, request: Request) -> 
     };
     let settings = match state.store.settings().await {
         Ok(settings) => settings,
-        Err(_) => return legacy_error("billing unavailable", "new_api_error"),
+        Err(BillingDashboardStoreError::CurrencyUnavailable) => return currency_error(),
+        Err(BillingDashboardStoreError::Unavailable) => {
+            return legacy_error("billing unavailable", "new_api_error");
+        }
+    };
+    let anchor = match validated_credit_basis(settings) {
+        Ok(anchor) => anchor,
+        Err(_) => return currency_error(),
     };
     let (_, used) = match quota_for(&state, principal, settings).await {
         Ok(quota) => quota,
         Err(_) => return legacy_error("billing unavailable", "new_api_error"),
     };
+    let amount = match real_usd_amount(i128::from(used), anchor) {
+        Ok(amount) => amount,
+        Err(_) => return currency_error(),
+    };
+    let total_usage = amount * 100.0;
+    if !total_usage.is_finite() {
+        return currency_error();
+    }
     Json(OpenAiUsage {
         object: "list",
-        total_usage: display_amount(used, settings) * 100.0,
+        total_usage,
     })
     .into_response()
 }
@@ -352,13 +408,118 @@ async fn quota_for(
     }
 }
 
-fn display_amount(quota: i64, settings: BillingDashboardSettings) -> f64 {
-    let amount = quota as f64;
-    match settings.quota_display {
-        QuotaDisplay::Cny => amount / settings.quota_per_unit * settings.usd_exchange_rate,
-        QuotaDisplay::Tokens => amount,
-        QuotaDisplay::Usd => amount / settings.quota_per_unit,
+// These protocol fields are always real USD; UI display and FX are unrelated.
+fn real_usd_amount(credits: i128, anchor: Decimal) -> Result<f64, BillingDashboardStoreError> {
+    let denominator = u128::try_from(anchor.mantissa())
+        .ok()
+        .filter(|denominator| *denominator > 0)
+        .ok_or(BillingDashboardStoreError::CurrencyUnavailable)?;
+    let numerator = credits.unsigned_abs();
+    let mut remainder = numerator % denominator;
+    let mut digits = (numerator / denominator).to_string().into_bytes();
+    // Exact long division: multiplying a 96-bit Decimal mantissa remainder by
+    // ten fits u128. Generate the anchor scale's integer digits and exactly 16
+    // fraction digits, then round ONCE using the next digit. A preliminary
+    // Decimal division would double-round near a half-unit boundary.
+    for _ in 0..anchor.scale() + 16 {
+        remainder *= 10;
+        digits.push(
+            b'0' + u8::try_from(remainder / denominator)
+                .map_err(|_| BillingDashboardStoreError::CurrencyUnavailable)?,
+        );
+        remainder %= denominator;
     }
+    if remainder * 10 / denominator >= 5 {
+        let mut carry = true;
+        for digit in digits.iter_mut().rev() {
+            if *digit == b'9' {
+                *digit = b'0';
+            } else {
+                *digit += 1;
+                carry = false;
+                break;
+            }
+        }
+        if carry {
+            digits.insert(0, b'1');
+        }
+    }
+    let integer_length = digits.len() - 16;
+    digits.insert(integer_length, b'.');
+    if credits < 0 {
+        digits.insert(0, b'-');
+    }
+    let amount = std::str::from_utf8(&digits)
+        .ok()
+        .and_then(|amount| amount.parse::<f64>().ok())
+        .filter(|amount| amount.is_finite() && (credits == 0 || *amount != 0.0))
+        .ok_or(BillingDashboardStoreError::CurrencyUnavailable)?;
+    Ok(amount)
+}
+
+fn parse_credit_rate(raw: &str) -> Result<Decimal, BillingDashboardStoreError> {
+    let value = raw.trim();
+    if value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || b"+-.eE".contains(&byte))
+    {
+        return Err(BillingDashboardStoreError::CurrencyUnavailable);
+    }
+    // Never let decimal parsing round away a tiny persisted calibration drift.
+    let mantissa = value.split(['e', 'E']).next().unwrap_or_default();
+    Decimal::from_str_exact(mantissa)
+        .map_err(|_| BillingDashboardStoreError::CurrencyUnavailable)?;
+    let value = Decimal::from_str_exact(value)
+        .or_else(|_| Decimal::from_scientific(value))
+        .map_err(|_| BillingDashboardStoreError::CurrencyUnavailable)?;
+    if value <= Decimal::ZERO || value > Decimal::from(MAX_WALLET_QUOTA) {
+        return Err(BillingDashboardStoreError::CurrencyUnavailable);
+    }
+    Ok(value)
+}
+
+fn validated_credit_basis(
+    settings: BillingDashboardSettings,
+) -> Result<Decimal, BillingDashboardStoreError> {
+    let anchor = settings
+        .credits_per_usd
+        .ok_or(BillingDashboardStoreError::CurrencyUnavailable)?;
+    let legacy = settings
+        .legacy_pricing_quota_per_unit
+        .ok_or(BillingDashboardStoreError::CurrencyUnavailable)?;
+    let maximum = Decimal::from(MAX_WALLET_QUOTA);
+    if anchor <= Decimal::ZERO
+        || anchor > maximum
+        || legacy <= Decimal::ZERO
+        || legacy > maximum
+        || settings.quota_per_unit != legacy
+    {
+        return Err(BillingDashboardStoreError::CurrencyUnavailable);
+    }
+    // Go's retained runtime calibration is float64, then NewFromFloat's
+    // shortest decimal. Refuse a persisted Q that cannot survive that same
+    // projection; otherwise Rust would accept a basis rejected by Go.
+    let runtime_q = settings
+        .quota_per_unit
+        .to_string()
+        .parse::<f64>()
+        .map_err(|_| BillingDashboardStoreError::CurrencyUnavailable)?;
+    if !runtime_q.is_finite()
+        || runtime_q <= 0.0
+        || parse_credit_rate(&runtime_q.to_string())? != legacy
+    {
+        return Err(BillingDashboardStoreError::CurrencyUnavailable);
+    }
+    Ok(anchor)
+}
+
+fn currency_error() -> Response {
+    Json(json!({"error": {
+        "message": "credit currency units are unavailable", "type": "billing_unavailable",
+        "param": "", "code": null,
+    }}))
+    .into_response()
 }
 
 fn parse_quota_display_type(value: &str) -> Option<QuotaDisplay> {
@@ -568,16 +729,19 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct StaticStore(BillingDashboardSettings);
+    struct StaticStore {
+        settings: BillingDashboardSettings,
+        user_quota: (i64, i64),
+    }
 
     #[async_trait]
     impl BillingDashboardStore for StaticStore {
         async fn settings(&self) -> Result<BillingDashboardSettings, BillingDashboardStoreError> {
-            Ok(self.0)
+            Ok(self.settings)
         }
 
         async fn user_quota(&self, _: i64) -> Result<(i64, i64), BillingDashboardStoreError> {
-            Ok((900, 100))
+            Ok(self.user_quota)
         }
     }
 
@@ -614,16 +778,31 @@ mod tests {
     }
 
     fn router(settings: BillingDashboardSettings) -> Router {
-        billing_dashboard_router(BillingDashboardState::new(
-            Arc::new(StaticStore(settings)),
-            Arc::new(StaticAuthorizer(BillingDashboardPrincipal {
+        router_with_principal(
+            settings,
+            BillingDashboardPrincipal {
                 token_id: 1,
                 user_id: 2,
                 remain_quota: 750,
                 used_quota: 250,
                 unlimited_quota: false,
                 expired_time: -1,
-            })),
+            },
+            (900, 100),
+        )
+    }
+
+    fn router_with_principal(
+        settings: BillingDashboardSettings,
+        principal: BillingDashboardPrincipal,
+        user_quota: (i64, i64),
+    ) -> Router {
+        billing_dashboard_router(BillingDashboardState::new(
+            Arc::new(StaticStore {
+                settings,
+                user_quota,
+            }),
+            Arc::new(StaticAuthorizer(principal)),
         ))
     }
 
@@ -641,7 +820,9 @@ mod tests {
             .body(Body::empty())
             .map_err(|error| test_error(format!("build subscription request: {error}")))?;
         let response = router(BillingDashboardSettings {
-            quota_per_unit: 500.0,
+            quota_per_unit: Decimal::from(500),
+            credits_per_usd: Some(Decimal::from(500)),
+            legacy_pricing_quota_per_unit: Some(Decimal::from(500)),
             ..BillingDashboardSettings::default()
         })
         .oneshot(request)
@@ -663,14 +844,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn usage_preserves_cny_and_versioned_alias() -> TestResult {
+    async fn usage_keeps_usd_cents_despite_cny_preference_and_versioned_alias() -> TestResult {
         let request = Request::builder()
             .uri("/v1/dashboard/billing/usage")
             .body(Body::empty())
             .map_err(|error| test_error(format!("build usage request: {error}")))?;
         let response = router(BillingDashboardSettings {
             quota_display: QuotaDisplay::Cny,
-            quota_per_unit: 500.0,
+            quota_per_unit: Decimal::from(500),
+            credits_per_usd: Some(Decimal::from(500)),
+            legacy_pricing_quota_per_unit: Some(Decimal::from(500)),
             usd_exchange_rate: 2.0,
             ..BillingDashboardSettings::default()
         })
@@ -680,7 +863,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response_json(response, "usage").await?,
-            json!({"object": "list", "total_usage": 100.0})
+            json!({"object": "list", "total_usage": 50.0})
         );
         Ok(())
     }
@@ -697,6 +880,284 @@ mod tests {
         );
         assert_eq!(parse_quota_display_type("CUSTOM"), Some(QuotaDisplay::Usd));
         assert_eq!(parse_quota_display_type("invalid"), None);
+        Ok(())
+    }
+
+    fn canonical_settings() -> BillingDashboardSettings {
+        BillingDashboardSettings {
+            credits_per_usd: Some(Decimal::from(3_500_000)),
+            legacy_pricing_quota_per_unit: Some(Decimal::from(500_000)),
+            ..BillingDashboardSettings::default()
+        }
+    }
+
+    #[test]
+    fn immutable_basis_rejects_missing_invalid_or_drifted_values() -> TestResult {
+        assert_eq!(
+            validated_credit_basis(canonical_settings())?,
+            Decimal::from(3_500_000)
+        );
+        for invalid in [
+            "",
+            "0",
+            "-1",
+            "NaN",
+            "Infinity",
+            "9007199254740992",
+            "500_000",
+            "1e999999999",
+            "1e-999999999",
+            "1.00000000000000000000000000001",
+        ] {
+            assert!(parse_credit_rate(invalid).is_err(), "{invalid}");
+        }
+        assert_eq!(parse_credit_rate("3.5e6")?, Decimal::from(3_500_000));
+        assert_eq!(parse_credit_rate("500000.000")?, Decimal::from(500_000));
+        for settings in [
+            BillingDashboardSettings::default(),
+            BillingDashboardSettings {
+                credits_per_usd: None,
+                ..canonical_settings()
+            },
+            BillingDashboardSettings {
+                legacy_pricing_quota_per_unit: None,
+                ..canonical_settings()
+            },
+            BillingDashboardSettings {
+                credits_per_usd: Some(Decimal::ZERO),
+                ..canonical_settings()
+            },
+            BillingDashboardSettings {
+                credits_per_usd: Some(Decimal::from(-1)),
+                ..canonical_settings()
+            },
+            BillingDashboardSettings {
+                credits_per_usd: Some(Decimal::from(MAX_WALLET_QUOTA + 1)),
+                ..canonical_settings()
+            },
+            BillingDashboardSettings {
+                quota_per_unit: Decimal::from(500_001),
+                ..canonical_settings()
+            },
+            BillingDashboardSettings {
+                legacy_pricing_quota_per_unit: Some(Decimal::ZERO),
+                ..canonical_settings()
+            },
+            BillingDashboardSettings {
+                quota_per_unit: Decimal::from_str_exact("500000.00000000000000001")?,
+                ..canonical_settings()
+            },
+            BillingDashboardSettings {
+                quota_per_unit: Decimal::from_str_exact("500000.00000000000000001")?,
+                legacy_pricing_quota_per_unit: Some(Decimal::from_str_exact(
+                    "500000.00000000000000001",
+                )?),
+                ..canonical_settings()
+            },
+        ] {
+            assert_eq!(
+                validated_credit_basis(settings),
+                Err(BillingDashboardStoreError::CurrencyUnavailable)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn real_usd_division_matches_go_precision_and_preserves_zero_and_wide_sum() -> TestResult {
+        assert_eq!(real_usd_amount(3_500_000, Decimal::from(3_500_000))?, 1.0);
+        assert_eq!(real_usd_amount(0, Decimal::from(3_500_000))?, 0.0);
+        assert_eq!(
+            real_usd_amount(1, Decimal::from(3_500_000))?,
+            0.0000002857142857
+        );
+        let credits = i128::from(i64::MAX) + i128::from(i64::MAX);
+        assert_eq!(
+            real_usd_amount(credits, Decimal::from(2))?,
+            9_223_372_036_854_776_000.0
+        );
+        assert_eq!(
+            real_usd_amount(
+                866_666_666_666_668,
+                Decimal::from(8_666_666_666_666_667_i64)
+            )?,
+            0.1000000000000001
+        );
+        assert_eq!(
+            real_usd_amount(
+                -866_666_666_666_668,
+                Decimal::from(8_666_666_666_666_667_i64)
+            )?,
+            -0.1000000000000001
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn all_aliases_return_real_usd_independent_of_display_fx_and_ledger_source() -> TestResult
+    {
+        for display in [QuotaDisplay::Usd, QuotaDisplay::Cny, QuotaDisplay::Tokens] {
+            for fx in [7.0, 9.9, 99.0, 0.0, f64::NAN, f64::INFINITY] {
+                for token_statistics in [true, false] {
+                    let app = router_with_principal(
+                        BillingDashboardSettings {
+                            quota_display: display,
+                            usd_exchange_rate: fx,
+                            display_token_stat_enabled: token_statistics,
+                            ..canonical_settings()
+                        },
+                        BillingDashboardPrincipal {
+                            token_id: 1,
+                            user_id: 2,
+                            remain_quota: 0,
+                            used_quota: 3_500_000,
+                            unlimited_quota: false,
+                            expired_time: -1,
+                        },
+                        (0, 3_500_000),
+                    );
+                    for path in [
+                        "/dashboard/billing/subscription",
+                        "/v1/dashboard/billing/subscription",
+                        "/dashboard/billing/usage",
+                        "/v1/dashboard/billing/usage",
+                    ] {
+                        let request = Request::get(path).body(Body::empty())?;
+                        let response = app.clone().oneshot(request).await?;
+                        assert_eq!(response.status(), StatusCode::OK);
+                        let body = response_json(response, path).await?;
+                        if path.ends_with("subscription") {
+                            assert_eq!(
+                                body,
+                                json!({"object":"billing_subscription", "has_payment_method":true,
+                                "soft_limit_usd":1.0, "hard_limit_usd":1.0, "system_hard_limit_usd":1.0, "access_until":0})
+                            );
+                        } else {
+                            assert_eq!(body, json!({"object":"list", "total_usage":100.0}));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn signed_balance_and_single_rounding_keep_go_sdk_units() -> TestResult {
+        for (quota, anchor, dollars, cents) in [
+            (-3_500_000, 3_500_000, -1.0, -100.0),
+            (
+                866_666_666_666_668,
+                8_666_666_666_666_667_i64,
+                0.1000000000000001,
+                10.00000000000001,
+            ),
+            (
+                -866_666_666_666_668,
+                8_666_666_666_666_667_i64,
+                -0.1000000000000001,
+                -10.00000000000001,
+            ),
+        ] {
+            let settings = BillingDashboardSettings {
+                credits_per_usd: Some(Decimal::from(anchor)),
+                ..canonical_settings()
+            };
+            let principal = BillingDashboardPrincipal {
+                token_id: 1,
+                user_id: 2,
+                remain_quota: 0,
+                used_quota: quota,
+                unlimited_quota: false,
+                expired_time: -1,
+            };
+            let app = router_with_principal(settings, principal, (0, 0));
+            let response = app
+                .clone()
+                .oneshot(Request::get("/dashboard/billing/subscription").body(Body::empty())?)
+                .await?;
+            assert_eq!(
+                response_json(response, "signed subscription").await?["hard_limit_usd"],
+                dollars
+            );
+            let response = app
+                .oneshot(Request::get("/dashboard/billing/usage").body(Body::empty())?)
+                .await?;
+            assert_eq!(
+                response_json(response, "signed usage").await?["total_usage"],
+                cents
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn billing_money_errors_and_zero_keep_openai_compatibility_shape() -> TestResult {
+        let principal = BillingDashboardPrincipal {
+            token_id: 1,
+            user_id: 2,
+            remain_quota: 0,
+            used_quota: 0,
+            unlimited_quota: false,
+            expired_time: -1,
+        };
+        for path in [
+            "/dashboard/billing/subscription",
+            "/v1/dashboard/billing/subscription",
+            "/dashboard/billing/usage",
+            "/v1/dashboard/billing/usage",
+        ] {
+            for invalid in [
+                BillingDashboardSettings::default(),
+                BillingDashboardSettings {
+                    quota_per_unit: Decimal::from(700_000),
+                    ..canonical_settings()
+                },
+                BillingDashboardSettings {
+                    credits_per_usd: Some(Decimal::ZERO),
+                    ..canonical_settings()
+                },
+            ] {
+                let app = router_with_principal(invalid, principal, (0, 0));
+                let response = app.oneshot(Request::get(path).body(Body::empty())?).await?;
+                assert_eq!(response.status(), StatusCode::OK);
+                assert_eq!(
+                    response_json(response, path).await?,
+                    json!({"error":{
+                    "message":"credit currency units are unavailable", "type":"billing_unavailable", "param":"", "code":null}})
+                );
+            }
+            let app = router_with_principal(canonical_settings(), principal, (0, 0));
+            let response = app.oneshot(Request::get(path).body(Body::empty())?).await?;
+            let body = response_json(response, path).await?;
+            assert_eq!(body.get("error"), None);
+            if path.ends_with("subscription") {
+                assert_eq!(body["hard_limit_usd"], 0.0);
+            } else {
+                assert_eq!(body["total_usage"], 0.0);
+            }
+        }
+        // The existing unlimited sentinel also requires initialized currency.
+        let unlimited = BillingDashboardPrincipal {
+            unlimited_quota: true,
+            ..principal
+        };
+        let app = router_with_principal(canonical_settings(), unlimited, (0, 0));
+        let response = app
+            .oneshot(Request::get("/dashboard/billing/subscription").body(Body::empty())?)
+            .await?;
+        assert_eq!(
+            response_json(response, "unlimited").await?["hard_limit_usd"],
+            100_000_000.0
+        );
+        let app = router_with_principal(BillingDashboardSettings::default(), unlimited, (0, 0));
+        let response = app
+            .oneshot(Request::get("/dashboard/billing/subscription").body(Body::empty())?)
+            .await?;
+        assert_eq!(
+            response_json(response, "unlimited unavailable").await?["error"]["type"],
+            "billing_unavailable"
+        );
         Ok(())
     }
 
