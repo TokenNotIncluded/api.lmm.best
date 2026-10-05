@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import type { ModelPricingConfig } from './models/model-pricing-api'
+
 export type SystemOption = {
   key: string
   value: string
@@ -595,12 +597,15 @@ export type TestResult = {
   name: string
   status: 'success' | 'error'
   error?: string
+  source_providers?: Record<string, string>
+  skipped_models?: Record<string, string>
 }
 
 export type UpstreamRatiosResponse = {
   success: boolean
   message: string
   data: {
+    pricing_config: ModelPricingConfig
     differences: DifferencesMap
     test_results: TestResult[]
   }

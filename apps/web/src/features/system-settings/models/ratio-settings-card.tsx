@@ -194,6 +194,7 @@ export function RatioSettingsCard({
   }, [legacyModelDefaults.ExposeRatioEnabled])
   const needsUsdPricing = visibleTabs.some((tab) => tab !== 'groups')
   const pricingQuery = useModelPricingConfig(needsUsdPricing)
+  const modelPricingBaseline = useRef(pricingQuery.data)
   const modelDefaults = useMemo<ModelFormValues>(() => {
     const values = pricingQuery.data?.values
     return {
@@ -302,6 +303,7 @@ export function RatioSettingsCard({
       GroupWarnings: formatJsonForTextarea(groupDefaults.GroupWarnings),
     },
   })
+  const isModelFormDirty = modelForm.formState.isDirty
 
   const applyModelDefaults = useCallback(
     (defaults: ModelFormValues) => {
@@ -342,19 +344,23 @@ export function RatioSettingsCard({
   )
 
   useEffect(() => {
+    // A background refresh cannot replace a draft's values or CAS revision.
+    if (isModelFormDirty) return
+    modelPricingBaseline.current = pricingQuery.data
     const unchanged = Object.entries(modelDefaults).every(
       ([key, value]) =>
         (typeof value === 'boolean' ? value : normalizeJsonString(value)) ===
         modelNormalizedDefaults.current[key as keyof ModelFormValues]
     )
     if (!unchanged) applyModelDefaults(modelDefaults)
-  }, [applyModelDefaults, modelDefaults])
+  }, [applyModelDefaults, modelDefaults, pricingQuery.data, isModelFormDirty])
 
   const acceptSavedModelValues = useCallback(
     (
       config: ModelPricingSaveReceipt['data'],
       exposure = modelNormalizedDefaults.current.ExposeRatioEnabled
     ) => {
+      modelPricingBaseline.current = config
       queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, config)
       setExposeRatioEnabled(exposure)
       applyModelDefaults(modelPricingFormSnapshot(config, exposure))
@@ -389,12 +395,14 @@ export function RatioSettingsCard({
   const modelUpdateMutation = useMutation({
     retry: false,
     mutationFn: async (values: Record<string, string>) => {
-      const config = pricingQuery.data
+      const { ExposeRatioEnabled, ...prices } = values
+      const pricesChanged = Object.keys(prices).length > 0
+      const config = pricesChanged
+        ? modelPricingBaseline.current
+        : pricingQuery.data
       if (!config) {
         throw new Error(t('Failed to load USD model prices'))
       }
-      const { ExposeRatioEnabled, ...prices } = values
-      const pricesChanged = Object.keys(prices).length > 0
       await queryClient.cancelQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
       const response: ModelPricingSaveReceipt = pricesChanged
         ? await updateModelPricingConfig(config, prices, false, {
@@ -599,22 +607,7 @@ export function RatioSettingsCard({
         />
       )
     }
-    return (
-      <UpstreamRatioSync
-        modelRatios={{
-          ModelPrice: legacyModelDefaults.ModelPrice,
-          ModelRatio: legacyModelDefaults.ModelRatio,
-          CompletionRatio: legacyModelDefaults.CompletionRatio,
-          CacheRatio: legacyModelDefaults.CacheRatio,
-          CreateCacheRatio: legacyModelDefaults.CreateCacheRatio,
-          ImageRatio: legacyModelDefaults.ImageRatio,
-          AudioRatio: legacyModelDefaults.AudioRatio,
-          AudioCompletionRatio: legacyModelDefaults.AudioCompletionRatio,
-          'billing_setting.billing_mode': legacyModelDefaults.BillingMode,
-          'billing_setting.billing_expr': legacyModelDefaults.BillingExpr,
-        }}
-      />
-    )
+    return <UpstreamRatioSync />
   }
 
   const renderTabSwitcher = () => (

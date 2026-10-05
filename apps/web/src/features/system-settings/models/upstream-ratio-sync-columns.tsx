@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/tooltip'
 
 import type { RatioType } from '../types'
-import { useModelPricingConfig } from './model-pricing-api'
+import type { ModelPricingConfig } from './model-pricing-api'
 import {
   getAlignedRatioTypes,
   getPreferredSyncField,
@@ -63,10 +63,10 @@ export function useUpstreamRatioSyncColumns(
   ) => void,
   onUnselectValue: (model: string, ratioType: RatioType) => void,
   onBulkSelect: (upstreamName: string) => void,
-  onBulkUnselect: (upstreamName: string) => void
+  onBulkUnselect: (upstreamName: string) => void,
+  pricingConfig?: ModelPricingConfig
 ): ColumnDef<ModelRow>[] {
   const { t } = useTranslation()
-  const { data: pricingConfig } = useModelPricingConfig()
 
   return useMemo<ColumnDef<ModelRow>[]>(() => {
     const baseColumns: ColumnDef<ModelRow>[] = [

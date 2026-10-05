@@ -188,6 +188,17 @@ beforeEach(async () => {
   api.post = (async (url: string, body: unknown, options?: unknown) => {
     posts.push({ url, body, options })
     if (failWrite) throw serviceError()
+    if (
+      (body as { expected_revision: string }).expected_revision !==
+      current.revision
+    ) {
+      throw Object.assign(new Error('pricing revision conflict'), {
+        response: {
+          status: 409,
+          data: { message: 'pricing revision conflict' },
+        },
+      })
+    }
     current = fixture('b')
     // The lock was applied by the server: the submitted locked=99 must never
     // become the saved form value. Zero remains a deliberate accepted price.
@@ -387,4 +398,52 @@ test('POST 503 remains a save error without accepting drafts, reloading, or retr
     locked: 99,
     free: 0,
   })
+})
+
+test('dirty model drafts keep their editing revision when an external save refreshes the cache', async () => {
+  await act(async () =>
+    formProps.form.setValue('ModelPrice', '{"locked":1.25,"free":7}', {
+      shouldDirty: true,
+    })
+  )
+  current = fixture('d')
+  current.values.ModelPrice = '{"locked":1.25,"free":9}'
+  await act(async () =>
+    queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, current)
+  )
+  assert.deepEqual(JSON.parse(formProps.form.getValues('ModelPrice')), {
+    locked: 1.25,
+    free: 7,
+  })
+  assert.deepEqual(JSON.parse(formProps.savedValues.ModelPrice), {
+    locked: 1.25,
+    free: 5,
+  })
+  await act(async () =>
+    assert.rejects(
+      formProps.onSave(formProps.form.getValues()),
+      /pricing revision conflict/
+    )
+  )
+  assert.equal(posts.length, 1)
+  assert.equal(
+    (posts[0].body as { expected_revision: string }).expected_revision,
+    'a'.repeat(64)
+  )
+  assert.equal(
+    queryClient.getQueryData<ModelPricingConfig>(MODEL_PRICING_QUERY_KEY)
+      ?.revision,
+    'd'.repeat(64)
+  )
+  assert.deepEqual(JSON.parse(current.values.ModelPrice), {
+    locked: 1.25,
+    free: 9,
+  })
+  assert.deepEqual(JSON.parse(formProps.form.getValues('ModelPrice')), {
+    locked: 1.25,
+    free: 7,
+  })
+  assert.equal(gets.length, 0)
+  assert.equal(successes.length, 0)
+  assert.match(errors[0], /pricing revision conflict/)
 })

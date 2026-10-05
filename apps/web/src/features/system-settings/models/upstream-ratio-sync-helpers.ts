@@ -83,26 +83,150 @@ export const NUMERIC_SYNC_FIELDS = new Set<string>([
   'model_price',
 ])
 
-// Import selections retain their provider's legacy storage units. Convert only
-// the label; the original value must still be sent through the import path.
+// Fetch normalizes every source to the captured local pricing schema. Only the
+// calibrated token ratio needs conversion for its USD-per-million label.
+function formatSyncPricingNumber(value: number) {
+  const formatted = formatPricingNumber(value)
+  return Number.isFinite(value) && value !== 0 && Number(formatted) === 0
+    ? value.toString()
+    : formatted
+}
+
 export function getSyncFieldDisplayValue(
   field: string,
   value: number | string,
   config?: ModelPricingConfig
 ): string {
-  if (!config || value === 'same') return String(value)
+  if (value === 'same') return String(value)
   if (field === 'model_price') {
-    return `USD ${formatPricingNumber(Number(value) / config.legacy_pricing_units_per_usd)}`
+    return `USD ${formatSyncPricingNumber(Number(value))}`
   }
-  if (field === 'model_ratio') {
-    return `USD ${formatPricingNumber(ratioToUsdPerMillion(Number(value), config.credits_per_usd))} /1M`
-  }
-  if (field === 'billing_expr' && config.legacy_pricing_units_per_usd !== 1) {
-    const expression = String(value)
-    const version = /^v\d+:/.exec(expression)?.[0] || ''
-    return `${version}(${expression.slice(version.length)}) / ${config.legacy_pricing_units_per_usd}`
+  if (field === 'model_ratio' && config) {
+    return `USD ${formatSyncPricingNumber(ratioToUsdPerMillion(Number(value), config.credits_per_usd))} /1M`
   }
   return String(value)
+}
+
+const SYNC_OPTION_KEYS: Record<RatioType, keyof ModelPricingConfig['values']> =
+  {
+    model_ratio: 'ModelRatio',
+    completion_ratio: 'CompletionRatio',
+    cache_ratio: 'CacheRatio',
+    create_cache_ratio: 'CreateCacheRatio',
+    image_ratio: 'ImageRatio',
+    audio_ratio: 'AudioRatio',
+    audio_completion_ratio: 'AudioCompletionRatio',
+    model_price: 'ModelPrice',
+    billing_mode: 'billing_setting.billing_mode',
+    billing_expr: 'billing_setting.billing_expr',
+  }
+
+export function parseSyncPricingMaps(config: ModelPricingConfig) {
+  return Object.fromEntries(
+    Object.entries(SYNC_OPTION_KEYS).map(([field, key]) => {
+      const parsed: unknown = JSON.parse(config.values[key])
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Invalid pricing snapshot')
+      }
+      return [field, { ...(parsed as Record<string, number | string>) }]
+    })
+  ) as Record<RatioType, Record<string, number | string>>
+}
+
+export function getLocalSyncBillingCategory(
+  maps: ReturnType<typeof parseSyncPricingMaps>,
+  model: string
+): 'price' | 'ratio' | 'tiered' | null {
+  if (maps.billing_mode[model] === 'tiered_expr') return 'tiered'
+  if (maps.model_price[model] !== undefined) return 'price'
+  if (RATIO_SYNC_FIELDS.some((field) => maps[field][model] !== undefined)) {
+    return 'ratio'
+  }
+  return null
+}
+
+// Keep the captured CAS baseline intact. Send only maps changed by selections;
+// never resend unrelated locks, tool prices or canonical USD maps as legacy data.
+export function buildUpstreamPricingUpdates(
+  config: ModelPricingConfig,
+  resolutions: ResolutionsMap
+): Record<string, string> {
+  const original = parseSyncPricingMaps(config)
+  const maps = parseSyncPricingMaps(config)
+  for (const [model, selection] of Object.entries(resolutions)) {
+    if (!model.trim() || Object.keys(selection).length === 0) {
+      throw new Error('Invalid upstream price selection')
+    }
+    for (const [field, value] of Object.entries(selection)) {
+      if (!Object.hasOwn(SYNC_OPTION_KEYS, field)) {
+        throw new Error('Invalid upstream price selection')
+      }
+      if (NUMERIC_SYNC_FIELDS.has(field)) {
+        if (
+          (typeof value === 'string' && !value.trim()) ||
+          !Number.isFinite(Number(value)) ||
+          Number(value) < 0
+        ) {
+          throw new Error('Invalid upstream price selection')
+        }
+      } else if (
+        typeof value !== 'string' ||
+        !value.trim() ||
+        value === 'same'
+      ) {
+        throw new Error('Invalid upstream price selection')
+      }
+    }
+    const hasExpression = selection.billing_expr !== undefined
+    const hasPrice = selection.model_price !== undefined
+    const hasRatio = RATIO_SYNC_FIELDS.some(
+      (field) => selection[field] !== undefined
+    )
+    const mode = selection.billing_mode
+    const existingBase = original.model_ratio[model]
+    const hasUsableExistingBase =
+      typeof existingBase === 'number' &&
+      Number.isFinite(existingBase) &&
+      existingBase >= 0
+    if (
+      (mode !== undefined && mode !== 'ratio' && mode !== 'tiered_expr') ||
+      (hasPrice && hasRatio) ||
+      (hasExpression && (hasPrice || hasRatio || mode === 'ratio')) ||
+      (mode === 'tiered_expr' && !hasExpression) ||
+      (!hasExpression && !hasPrice && !hasRatio) ||
+      (hasRatio &&
+        selection.model_ratio === undefined &&
+        (getLocalSyncBillingCategory(original, model) !== 'ratio' ||
+          !hasUsableExistingBase))
+    ) {
+      throw new Error('Select a complete upstream billing configuration')
+    }
+    if (hasExpression) {
+      maps.billing_mode[model] = 'tiered_expr'
+      maps.billing_expr[model] = String(selection.billing_expr)
+    } else {
+      maps.billing_mode[model] = 'ratio'
+      delete maps.billing_expr[model]
+      if (hasPrice) {
+        for (const field of RATIO_SYNC_FIELDS) delete maps[field][model]
+      } else {
+        delete maps.model_price[model]
+      }
+      for (const [field, value] of Object.entries(selection)) {
+        if (NUMERIC_SYNC_FIELDS.has(field)) {
+          maps[field as RatioType][model] = Number(value)
+        }
+      }
+    }
+  }
+  return Object.fromEntries(
+    SYNC_FIELD_ORDER.filter(
+      (field) => JSON.stringify(maps[field]) !== JSON.stringify(original[field])
+    ).map((field) => [
+      SYNC_OPTION_KEYS[field],
+      JSON.stringify(maps[field], null, 2),
+    ])
+  )
 }
 
 export function getSyncFieldLabel(
@@ -134,6 +258,7 @@ export function getPreferredSyncField(
 ): RatioType {
   const exprValue = ratioTypes.billing_expr?.upstreams?.[sourceName]
   if (
+    ratioTypes.billing_mode?.upstreams?.[sourceName] !== 'ratio' &&
     ratioType !== 'billing_expr' &&
     exprValue !== null &&
     exprValue !== undefined &&
@@ -189,15 +314,35 @@ export function isSelectableUpstreamValue(
   return value !== null && value !== undefined && value !== 'same'
 }
 
+export function isBulkSelectableUpstreamField(
+  fields: Partial<Record<RatioType, RatioDifferenceEntry>>,
+  ratioType: RatioType,
+  sourceName: string
+) {
+  // A partially trusted model must not be imported by a column-wide action.
+  return (
+    !Object.values(fields).some(
+      (field) => field?.confidence?.[sourceName] === false
+    ) && isSelectableUpstreamValue(fields[ratioType]?.upstreams?.[sourceName])
+  )
+}
+
 export function getUpstreamDisplayName(sourceName: string): string {
   const synthesizedPresets = [
-    { name: OFFICIAL_CHANNEL_NAME, id: OFFICIAL_CHANNEL_ID },
-    { name: MODELS_DEV_PRESET_NAME, id: MODELS_DEV_PRESET_ID },
+    { name: OFFICIAL_CHANNEL_NAME, id: OFFICIAL_CHANNEL_ID, label: 'basellm' },
+    {
+      name: MODELS_DEV_PRESET_NAME,
+      id: MODELS_DEV_PRESET_ID,
+      label: 'models.dev',
+    },
   ]
 
   for (const preset of synthesizedPresets) {
-    if (sourceName === `${preset.name}(${preset.id})`) {
-      return preset.name
+    if (
+      sourceName === preset.name ||
+      sourceName === `${preset.name}(${preset.id})`
+    ) {
+      return preset.label
     }
   }
 
@@ -277,18 +422,16 @@ function applyResolutionSelectionToDraft(
   )
 
   Object.keys(newModelRes).forEach((rt) => {
-    if (
-      category !== 'tiered' &&
-      getBillingCategory(rt) !== 'tiered' &&
-      getBillingCategory(rt) !== category
-    ) {
+    if (finalType === 'billing_mode' && finalValue === 'ratio') {
+      if (rt === 'billing_expr') delete newModelRes[rt]
+    } else if (getBillingCategory(rt) !== category) {
       delete newModelRes[rt]
     }
   })
 
   newModelRes[finalType] = finalValue
 
-  if (category === 'tiered' && modelDiffs) {
+  if (category === 'tiered' && finalValue !== 'ratio' && modelDiffs) {
     const modeVal = modelDiffs.billing_mode?.upstreams?.[selection.sourceName]
     const exprVal = modelDiffs.billing_expr?.upstreams?.[selection.sourceName]
     if (modeVal !== undefined && modeVal !== null && modeVal !== 'same') {
@@ -335,11 +478,10 @@ export function getEffectiveResolutionSelections(
     const resolved = resolveResolutionSelection(differences, selection)
     const category = getBillingCategory(resolved.ratioType)
 
-    if (category !== 'tiered') {
+    if (resolved.ratioType !== 'billing_mode' || resolved.value !== 'ratio') {
       for (const [key, existing] of effectiveByKey) {
         if (
           existing.model === resolved.model &&
-          getBillingCategory(existing.ratioType) !== 'tiered' &&
           getBillingCategory(existing.ratioType) !== category
         ) {
           effectiveByKey.delete(key)

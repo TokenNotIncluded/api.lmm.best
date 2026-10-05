@@ -201,10 +201,16 @@ export async function getUpstreamChannels() {
   return res.data
 }
 
-export async function fetchUpstreamRatios(request: FetchUpstreamRatiosRequest) {
+export async function fetchUpstreamRatios(
+  request: FetchUpstreamRatiosRequest,
+  options: { silent?: boolean } = {}
+) {
   const res = await api.post<UpstreamRatiosResponse>(
     '/api/ratio_sync/fetch',
-    request
+    request,
+    options.silent
+      ? { skipBusinessError: true, skipErrorHandler: true }
+      : undefined
   )
   return res.data
 }

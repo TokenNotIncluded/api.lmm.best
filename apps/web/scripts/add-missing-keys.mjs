@@ -49,6 +49,7 @@ import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
+import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
@@ -13048,6 +13049,10 @@ for (const [locale, values] of Object.entries(creditCurrencyCopy)) {
 }
 
 for (const [locale, values] of Object.entries(billingJsonEditorCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(upstreamPricingCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
