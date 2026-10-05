@@ -160,6 +160,7 @@ export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
         !Number.isSafeInteger(row.amount) ||
         row.amount < 3500000 ||
         row.amount > 350000000 ||
+        row.payment_method !== 'alipay' ||
         Object.keys(row).some(
           (key) =>
             ![
@@ -167,6 +168,7 @@ export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
               'amount_unit',
               'credit_metadata_version',
               'code',
+              'payment_method',
             ].includes(key)
         )
       ) {

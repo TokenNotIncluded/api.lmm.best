@@ -22,8 +22,13 @@ import { test } from 'node:test'
 import { AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
 import { Window } from 'happy-dom'
 
+import {
+  calculateCreditAmount,
+  validateCreditDiscountCode,
+} from '@/features/wallet/api'
 import { parsePaymentDiscount } from '@/features/wallet/lib/payment-discount'
 import { hasCompleteCreditGrant } from '@/features/wallet/lib/topup-credit-metadata'
+import { api } from '@/lib/api'
 
 import { withConsoleQueryFixtures } from './console-query-fixtures'
 
@@ -296,6 +301,7 @@ test('normal preview preset and coupon controls expose only synthetic same-ISO 1
     amount_unit: 'LEDGER_QUOTA',
     credit_metadata_version: 2,
     code: 'PREVIEW20',
+    payment_method: 'alipay',
   }
   assert.deepEqual((await wrapped(validation)).data, {
     success: true,
@@ -334,4 +340,50 @@ test('normal preview preset and coupon controls expose only synthetic same-ISO 1
   }
   validation.data = { ...validation.data, create_order: true }
   await assert.rejects(wrapped(validation), /blocked/)
+})
+
+test('the real coupon API accepts the local Alipay method and returns the matching combined quote', async () => {
+  const originalAdapter = api.defaults.adapter
+  api.defaults.adapter = withConsoleQueryFixtures(async () => {
+    throw new Error('blocked')
+  })
+  try {
+    const validated = await validateCreditDiscountCode({
+      code: 'PREVIEW20',
+      amount: 50000000,
+      payment_method: 'alipay',
+    })
+    assert.deepEqual(validated, {
+      success: true,
+      data: { code: 'PREVIEW20', discount_percent: 20, min_amount: 0 },
+    })
+    assert.ok(validated.data)
+    const quote = await calculateCreditAmount({
+      amount: 50000000,
+      payment_method: 'alipay',
+      discount_code: validated.data.code,
+    })
+    assert.equal(quote.data, '72.00')
+    assert.deepEqual(quote.settlement_quote, {
+      schema_version: 1,
+      currency: 'CNY',
+      original_amount: '100.00',
+      paid_amount: '72.00',
+      savings_amount: '28.00',
+      discount_percent: '28.00',
+      basis: 'amount_preset_and_code',
+    })
+    for (const payment_method of ['stripe', 'wxpay', 'unknown']) {
+      await assert.rejects(
+        validateCreditDiscountCode({
+          code: 'PREVIEW20',
+          amount: 50000000,
+          payment_method,
+        }),
+        /blocked/
+      )
+    }
+  } finally {
+    api.defaults.adapter = originalAdapter
+  }
 })

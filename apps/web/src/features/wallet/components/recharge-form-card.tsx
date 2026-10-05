@@ -141,6 +141,8 @@ interface RechargeFormCardProps {
   onRedeem: () => void
   redeeming: boolean
   discountCode?: string
+  discountApplied?: boolean
+  appliedDiscountCode?: string
   discountCodeFromUrl?: boolean
   onDiscountCodeChange?: (code: string) => void
   onApplyDiscount?: () => void
@@ -186,6 +188,8 @@ export function RechargeFormCard({
   onRedeem,
   redeeming,
   discountCode = '',
+  discountApplied = false,
+  appliedDiscountCode = '',
   discountCodeFromUrl = false,
   onDiscountCodeChange,
   onApplyDiscount,
@@ -387,6 +391,12 @@ export function RechargeFormCard({
     actualPaymentCurrency,
     calculating || discountApplying
   )
+  const couponDiscount =
+    discountApplied === true &&
+    appliedDiscountCode.trim() !== '' &&
+    appliedDiscountCode.trim() === discountCode.trim()
+      ? discount
+      : null
   const selectedPaymentMethodName =
     neutralMode || !effectivePaymentMethod?.name
       ? t('Payment Method')
@@ -827,21 +837,6 @@ export function RechargeFormCard({
                               }
                             )}
                           </span>
-                          {discount && (
-                            <div className='flex flex-wrap gap-1'>
-                              <Badge variant='secondary'>
-                                {t('Discount applied: {{percent}}% off', {
-                                  percent: formatDiscountPercent(
-                                    discount.percent
-                                  ),
-                                })}
-                              </Badge>
-                              <Badge variant='outline'>
-                                {t('You save')}:{' '}
-                                {formatSelectedPaymentAmount(discount.savings)}
-                              </Badge>
-                            </div>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -866,13 +861,15 @@ export function RechargeFormCard({
                               : t('Discount code')}
                           </Label>
                         </div>
-                        {discount && (
+                        {couponDiscount && (
                           <Badge
                             variant='secondary'
                             className='text-xs font-medium'
                           >
                             {t('Discount applied: {{percent}}% off', {
-                              percent: formatDiscountPercent(discount.percent),
+                              percent: formatDiscountPercent(
+                                couponDiscount.percent
+                              ),
                             })}
                           </Badge>
                         )}
@@ -939,19 +936,21 @@ export function RechargeFormCard({
                           )}
                         </p>
                       ) : null}
-                      {discount ? (
+                      {couponDiscount ? (
                         <div className='text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
                           <span>
                             {t('Discount applied: {{percent}}% off', {
-                              percent: formatDiscountPercent(discount.percent),
+                              percent: formatDiscountPercent(
+                                couponDiscount.percent
+                              ),
                             })}
                           </span>
-                          {discount ? (
-                            <span className='font-medium'>
-                              {t('You save')}:{' '}
-                              {formatSelectedPaymentAmount(discount.savings)}
-                            </span>
-                          ) : null}
+                          <span className='font-medium'>
+                            {t('You save')}:{' '}
+                            {formatSelectedPaymentAmount(
+                              couponDiscount.savings
+                            )}
+                          </span>
                         </div>
                       ) : (
                         <p className='text-muted-foreground text-xs'>

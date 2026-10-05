@@ -1149,6 +1149,10 @@ function WalletCheckout(
                   onRedeem={handleRedeem}
                   redeeming={redeeming}
                   discountCode={discountCode}
+                  discountApplied={
+                    Boolean(appliedDiscountCode) && discountPercent !== null
+                  }
+                  appliedDiscountCode={appliedDiscountCode}
                   discountCodeFromUrl={urlDiscountLocked}
                   onDiscountCodeChange={(value) => {
                     if (urlDiscountLocked) return

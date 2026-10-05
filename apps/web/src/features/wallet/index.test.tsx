@@ -1621,16 +1621,16 @@ test('proceed to payment handles missing Waffo payment URL failure', async () =>
   queryClient.clear()
 })
 
-test('manual discount code is not locked as URL discount and can be edited or removed', async () => {
+test('preset savings stay outside the coupon zone until a verified manual code is applied and can be removed', async () => {
   window.history.replaceState({}, '', '/wallet')
   api.post = v2PaymentPost((async (url, request) => {
     if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const code = (request as { code: string }).code
-      if (code === 'MANUAL20') {
+      if (code === 'PREVIEW20') {
         return {
           data: {
             success: true,
-            data: { code: 'MANUAL20', discount_percent: 20, min_amount: 10 },
+            data: { code: 'PREVIEW20', discount_percent: 20, min_amount: 10 },
           },
         }
       }
@@ -1641,11 +1641,11 @@ test('manual discount code is not locked as URL discount and can be edited or re
     return {
       data: {
         message: 'success',
-        data: req.discount_code ? '8.00' : '10.00',
+        data: req.discount_code ? '72.00' : '90.00',
         settlement_currency: 'CNY',
         settlement_quote: req.discount_code
-          ? fixtureDiscount('10.00', '8.00', '2.00', '20.00')
-          : undefined,
+          ? fixtureDiscount('100.00', '72.00', '28.00', '28.00')
+          : fixtureDiscount('100.00', '90.00', '10.00', '10.00'),
       },
     }
   }) as typeof api.post)
@@ -1654,17 +1654,23 @@ test('manual discount code is not locked as URL discount and can be edited or re
   const input = container.querySelector<HTMLInputElement>('#discount-code')
   assert.ok(input)
   assert.equal(input.readOnly, false)
+  const couponZone = input.closest('[data-slot="field"]')
+  assert.ok(couponZone)
+  assert.equal(couponZone.textContent?.includes('% off'), false)
+  assert.equal(couponZone.textContent?.includes('You save:'), false)
+  assert.ok(container.textContent?.includes('Discount applied: 10% off'))
 
-  // Type MANUAL20
+  // An unvalidated draft does not claim that the preset savings came from it.
   const setValue = Object.getOwnPropertyDescriptor(
     domWindow.HTMLInputElement.prototype,
     'value'
   )?.set
   assert.ok(setValue)
   await act(async () => {
-    setValue.call(input, 'MANUAL20')
+    setValue.call(input, 'PREVIEW20')
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
+  assert.equal(couponZone.textContent?.includes('% off'), false)
 
   const applyBtn = Array.from(
     container.querySelectorAll<HTMLButtonElement>('button')
@@ -1673,7 +1679,9 @@ test('manual discount code is not locked as URL discount and can be edited or re
   await act(async () => applyBtn.click())
 
   // Discount is applied
-  assert.ok(container.textContent?.includes('Discount applied: 20% off'))
+  assert.ok(couponZone.textContent?.includes('Discount applied: 28% off'))
+  assert.ok(couponZone.textContent?.includes('You save: 28 CNY'))
+  assert.equal(couponZone.textContent?.includes('20% off'), false)
   // Input is STILL NOT readOnly
   assert.equal(
     input.readOnly,
@@ -1701,9 +1709,11 @@ test('manual discount code is not locked as URL discount and can be edited or re
   // Discount is cleared
   assert.equal(input.value, '')
   assert.equal(
-    container.textContent?.includes('Discount applied: 20% off'),
+    container.textContent?.includes('Discount applied: 28% off'),
     false
   )
+  assert.equal(couponZone.textContent?.includes('% off'), false)
+  assert.ok(container.textContent?.includes('Discount applied: 10% off'))
   queryClient.clear()
 })
 

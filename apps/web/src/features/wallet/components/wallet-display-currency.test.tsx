@@ -112,12 +112,18 @@ function Harness({
   paymentDiscount = null,
   calculating = false,
   couponPercent,
+  couponCode,
+  couponApplied = false,
+  validatedCouponCode = '',
   rawQuota = 50000000,
 }: {
   amount?: number
   paymentDiscount?: ReturnType<typeof parsePaymentDiscount>
   calculating?: boolean
   couponPercent?: number
+  couponCode?: string
+  couponApplied?: boolean
+  validatedCouponCode?: string
   rawQuota?: number
 } = {}) {
   const [quota, setQuota] = useState(rawQuota)
@@ -168,7 +174,11 @@ function Harness({
         paymentAmount={amount}
         paymentDiscount={paymentDiscount}
         paymentCurrency='CNY'
-        discountCode={couponPercent === undefined ? '' : 'SAVE10'}
+        discountCode={
+          couponCode ?? (couponPercent === undefined ? '' : 'SAVE10')
+        }
+        discountApplied={couponApplied}
+        appliedDiscountCode={validatedCouponCode}
         discountPercent={couponPercent}
         selectedPaymentMethod={method}
         calculating={calculating}
@@ -610,6 +620,102 @@ for (const quote of [
     assert.deepEqual(edits, [])
   })
 }
+
+test('preset discounts do not claim that an empty or unvalidated coupon was applied', async () => {
+  const discount = parsePaymentDiscount(
+    {
+      schema_version: 1,
+      currency: 'CNY',
+      basis: 'amount_preset_and_code',
+      original_amount: '100.00',
+      paid_amount: '90.00',
+      savings_amount: '10.00',
+      discount_percent: '10.00',
+    },
+    '90.00',
+    'CNY'
+  )
+  assert.ok(discount)
+  for (const props of [
+    {},
+    { couponCode: 'PREVIEW20' },
+    { couponCode: 'PREVIEW20', couponApplied: true },
+    {
+      couponCode: 'OTHER',
+      couponApplied: true,
+      validatedCouponCode: 'PREVIEW20',
+    },
+  ]) {
+    const container = await render({
+      amount: 90,
+      paymentDiscount: discount,
+      ...props,
+    })
+    const zone = container
+      .querySelector('#discount-code')
+      ?.closest('[data-slot="field"]')
+    assert.ok(zone)
+    assert.equal(zone.textContent?.includes('% off'), false)
+    assert.equal(zone.textContent?.includes('You save:'), false)
+    assert.equal(zone.querySelector('[data-slot="badge"]'), null)
+    assert.ok(container.textContent?.includes('Discount applied: 10% off'))
+    assert.ok(container.textContent?.includes('You save: 10 CNY'))
+  }
+})
+
+test('a verified applied coupon shows the same total 28% discount in its zone and checkout', async () => {
+  const discount = parsePaymentDiscount(
+    {
+      schema_version: 1,
+      currency: 'CNY',
+      basis: 'amount_preset_and_code',
+      original_amount: '100.00',
+      paid_amount: '72.00',
+      savings_amount: '28.00',
+      discount_percent: '28.00',
+    },
+    '72.00',
+    'CNY'
+  )
+  assert.ok(discount)
+  for (const props of [
+    {},
+    { calculating: true },
+    { amount: 90 },
+    { paymentDiscount: { ...discount, currency: 'USD' } },
+  ]) {
+    const container = await render({
+      amount: 72,
+      paymentDiscount: discount,
+      couponCode: 'PREVIEW20',
+      couponPercent: 20,
+      couponApplied: true,
+      validatedCouponCode: 'PREVIEW20',
+      ...props,
+    })
+    const zone = container
+      .querySelector('#discount-code')
+      ?.closest('[data-slot="field"]')
+    assert.ok(zone)
+    const currentQuote = Object.keys(props).length === 0
+    assert.equal(
+      zone.textContent?.includes('Discount applied: 28% off'),
+      currentQuote
+    )
+    assert.equal(zone.textContent?.includes('You save: 28 CNY'), currentQuote)
+    assert.equal(zone.textContent?.includes('20% off'), false)
+    if (currentQuote) {
+      const pay = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Alipay"]'
+      )
+      assert.ok(pay)
+      await act(async () => pay.click())
+      const dialog = document.querySelector('[role="alertdialog"]')
+      assert.ok(dialog?.textContent?.includes('Discount applied: 28% off'))
+      assert.ok(dialog?.textContent?.includes('You save: 28 CNY'))
+    }
+  }
+})
 
 test('missing, mismatched and pending discount metadata never shows a promotional original or percent', async () => {
   const discount = parsePaymentDiscount(
