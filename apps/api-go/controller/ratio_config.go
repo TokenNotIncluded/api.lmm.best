@@ -42,9 +42,8 @@ func GetRatioConfig(c *gin.Context) {
 		"data":                          data,
 		"model_ratio_unit":              "LEDGER_QUOTA_PER_TOKEN",
 	}
-	if err := addCreditUnitMetadata(response); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing currency units are unavailable"})
-		return
+	for key, value := range creditUnitMetadataFieldsFor(config.CreditDenomination) {
+		response[key] = value
 	}
 	c.JSON(http.StatusOK, response)
 }

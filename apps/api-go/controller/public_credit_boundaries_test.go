@@ -117,13 +117,17 @@ func TestPublicCreditPricingSyncKeepsLedgerCalibrationAndRejectsPartialMetadata(
 	require.NotContains(t, string(encoded), "public_credits_per_usd")
 }
 
-func installPublicCreditBoundaryFixture(t *testing.T, ledger string) {
+func installPublicCreditBoundaryFixture(t *testing.T, ledger string, databases ...*gorm.DB) {
 	t.Helper()
 	oldLedger, oldErr := common.LedgerQuotaPerUSD()
 	oldQ, _ := common.LegacyPricingQuotaPerUnit()
 	oldPublic, publicErr := common.PublicCreditsPerUSD()
+	if len(databases) == 0 {
+		setupTokenControllerTestDB(t)
+	}
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.RequireFromString(ledger), decimal.NewFromFloat(common.QuotaPerUnit)))
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000)))
+	persistCreditDenominationFixture(t, model.DB)
 	t.Cleanup(func() {
 		common.ClearPublicCreditsPerUSD()
 		if oldErr != nil {
@@ -161,7 +165,7 @@ func publicCreditResponseData(t *testing.T, response *httptest.ResponseRecorder)
 
 func TestPublicCreditSelfAndUserListKeepLedgerValuesAndDollarValue(t *testing.T) {
 	db := setupUserOnboardingTestDB(t)
-	installPublicCreditBoundaryFixture(t, "3500000")
+	installPublicCreditBoundaryFixture(t, "3500000", db)
 	user := model.User{Username: "public-credit-self", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Quota: 3500000, UsedQuota: 7000000, Password: "private-password", Remark: "private-remark"}
 	require.NoError(t, db.Create(&user).Error)
 	c, w := publicCreditTestContext(t, http.MethodGet, "/api/user/self", "", user.Id)
@@ -190,7 +194,8 @@ func TestPublicCreditSelfAndUserListKeepLedgerValuesAndDollarValue(t *testing.T)
 	require.Equal(t, 3500000, stored.Quota)
 	require.Equal(t, 7000000, stored.UsedQuota)
 
-	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(200000)))
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)), "simulate stale local cache")
+	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
 	fields, err := publicUserCreditFields(stored.Quota, stored.UsedQuota)
 	require.NoError(t, err)
 	require.Equal(t, "200000", fields["public_credit_balance"])
@@ -202,7 +207,8 @@ func TestPublicCreditBoundarySnapshotSurvivesConcurrentSettingChange(t *testing.
 	installPublicCreditBoundaryFixture(t, "3359744")
 	basis, err := captureCreditBoundaryBasis()
 	require.NoError(t, err)
-	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(200000)))
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)), "simulate stale local cache")
+	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
 	quota, err := basis.ledgerAmount(common.PublicCreditUnit, decimal.NewFromInt(1))
 	require.NoError(t, err)
 	require.Equal(t, 33, quota)
@@ -270,7 +276,7 @@ func TestWalletTransferPublicCreditPostgres(t *testing.T) {
 
 func assertWalletTransferPublicCreditHTTP(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	installPublicCreditBoundaryFixture(t, "3359744")
+	installPublicCreditBoundaryFixture(t, "3359744", db)
 	require.NoError(t, db.AutoMigrate(&model.WalletTransfer{}))
 	user := model.User{Username: "credit-transfer-sender", AffCode: "credit-transfer-sender-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 10000}
 	require.NoError(t, db.Create(&user).Error)
@@ -299,7 +305,8 @@ func assertWalletTransferPublicCreditHTTP(t *testing.T, db *gorm.DB) {
 	require.Contains(t, conflicting.Body.String(), `"success":false`)
 	trailing := request(body + `{}`)
 	require.Contains(t, trailing.Body.String(), `"success":false`)
-	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(200000)))
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)), "simulate stale local cache")
+	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
 	stale := request(body)
 	require.Equal(t, http.StatusConflict, stale.Code)
 	require.Contains(t, stale.Body.String(), "CREDIT_DENOMINATION_CHANGED")
@@ -343,6 +350,7 @@ func assertWalletTransferPublicCreditHTTP(t *testing.T, db *gorm.DB) {
 func TestPublicCreditBoundaryMaximumAndDisplayRoundtripAreExplicit(t *testing.T) {
 	installPublicCreditBoundaryFixture(t, "1")
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(1)))
+	persistCreditDenominationFixture(t, model.DB)
 	basis, err := captureCreditBoundaryBasis()
 	require.NoError(t, err)
 	max := decimal.NewFromInt(common.MaxWalletQuota)
@@ -356,6 +364,7 @@ func TestPublicCreditBoundaryMaximumAndDisplayRoundtripAreExplicit(t *testing.T)
 
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3), decimal.NewFromFloat(common.QuotaPerUnit)))
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(2)))
+	persistCreditDenominationFixture(t, model.DB)
 	basis, err = captureCreditBoundaryBasis()
 	require.NoError(t, err)
 	display, err := basis.publicAmount(2)
@@ -369,7 +378,7 @@ func TestPublicCreditBoundaryMaximumAndDisplayRoundtripAreExplicit(t *testing.T)
 
 func TestPublicCreditTokenStatusSeparatesCompatibilityQuotaAndPublicSummary(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
-	installPublicCreditBoundaryFixture(t, "3500000")
+	installPublicCreditBoundaryFixture(t, "3500000", db)
 	user := model.User{Username: "public-token-owner", Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
 	token := model.Token{UserId: user.Id, Key: "public-credit-status-test-key", Status: common.TokenStatusEnabled, RemainQuota: 3500000, UsedQuota: 1750000, ExpiredTime: -1}
@@ -396,7 +405,7 @@ func TestPublicCreditTokenStatusSeparatesCompatibilityQuotaAndPublicSummary(t *t
 
 func TestPublicCreditToolConfigDoesNotRelabelLegacyPricingCalibration(t *testing.T) {
 	db := setupUserOnboardingTestDB(t)
-	installPublicCreditBoundaryFixture(t, "3359744")
+	installPublicCreditBoundaryFixture(t, "3359744", db)
 	require.NoError(t, db.AutoMigrate(&model.ToolMarketConfig{}))
 	c, w := publicCreditTestContext(t, http.MethodGet, "/api/tool-market/config", "", 1)
 	GetToolMarketConfig(c)
@@ -405,4 +414,20 @@ func TestPublicCreditToolConfigDoesNotRelabelLegacyPricingCalibration(t *testing
 	require.Equal(t, "3359744", data["ledger_quota_per_usd_exact"])
 	require.Equal(t, "100000", data["public_credits_per_usd_exact"])
 	require.Equal(t, common.LedgerQuotaUnit, data["quota_unit"])
+}
+
+func TestPublicCreditBoundaryReadsDurableDenominationOrFailsClosed(t *testing.T) {
+	installPublicCreditBoundaryFixture(t, "3359744")
+	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)))
+	basis, err := captureCreditBoundaryBasis()
+	require.NoError(t, err)
+	require.Equal(t, "200000", basis.Metadata.PublicCreditsPerUSDExact)
+	public, err := basis.publicAmount(3359744)
+	require.NoError(t, err)
+	require.Equal(t, "200000", public.String())
+	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "0").Error)
+	unavailable, err := captureCreditBoundaryBasis()
+	require.Error(t, err, "invalid durable configuration cannot fall back to an old node cache")
+	require.Equal(t, creditBoundaryBasis{}, unavailable)
 }

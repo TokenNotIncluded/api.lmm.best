@@ -19,7 +19,7 @@ type creditBoundaryBasis struct {
 }
 
 func captureCreditBoundaryBasis() (creditBoundaryBasis, error) {
-	units, err := common.CreditDenominationMetadata()
+	units, err := model.CreditDenominationSnapshot()
 	if err != nil {
 		return creditBoundaryBasis{}, err
 	}
