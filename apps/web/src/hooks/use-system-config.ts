@@ -43,6 +43,10 @@ interface StatusApiResponse {
     display_token_stat_enabled?: boolean
     display_in_currency?: boolean
     quota_display_type?: CurrencyDisplayType
+    currency_unit?: string
+    credits_per_usd?: number | string
+    cny_per_usd?: number | string
+    legacy_pricing_units_per_usd?: number | string
     quota_per_unit?: number
     usd_exchange_rate?: number
     custom_currency_symbol?: string
@@ -79,7 +83,24 @@ export function mapStatusDataToConfig(
     (data.quota_display_type as CurrencyDisplayType | undefined) ??
     DEFAULT_CURRENCY_CONFIG.quotaDisplayType
 
+  const positive = (value: unknown): number => {
+    const number =
+      typeof value === 'string' || typeof value === 'number'
+        ? Number(value)
+        : Number.NaN
+    return Number.isFinite(number) && number > 0 ? number : 0
+  }
   const currency: CurrencyConfig = {
+    currencyUnit: data.currency_unit === 'credit' ? 'credit' : 'unknown',
+    creditsPerUsd:
+      data.currency_unit === 'credit' ? positive(data.credits_per_usd) : 0,
+    cnyPerUsd: positive(data.cny_per_usd),
+    legacyPricingUnitsPerUsd: positive(data.legacy_pricing_units_per_usd),
+    creditsPerUsdExact:
+      data.currency_unit === 'credit' && positive(data.credits_per_usd)
+        ? String(data.credits_per_usd)
+        : '',
+    cnyPerUsdExact: positive(data.cny_per_usd) ? String(data.cny_per_usd) : '',
     displayInCurrency:
       data.display_in_currency ?? DEFAULT_CURRENCY_CONFIG.displayInCurrency,
     quotaDisplayType,
