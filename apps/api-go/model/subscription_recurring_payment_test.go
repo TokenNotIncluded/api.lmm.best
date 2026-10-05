@@ -9,16 +9,29 @@ import (
 )
 
 func TestApplySubscriptionPaymentEventRenewsExactlyOncePerProviderPeriod(t *testing.T) {
-	const (
+	runSubscriptionPaymentEventRenewal(t, false)
+}
+
+func TestMigratedSubscriptionPaymentEventRenewsCorrectedGrant(t *testing.T) {
+	runSubscriptionPaymentEventRenewal(t, true)
+}
+
+func runSubscriptionPaymentEventRenewal(t *testing.T, migrated bool) {
+	t.Helper()
+	var (
 		userID  = 980101
 		planID  = 980102
 		tradeNo = "WAFFO_PANCAKE_SUB-recurring-contract"
 	)
+	if migrated {
+		userID, planID = 980111, 980112
+		tradeNo += "-migrated"
+	}
 	now := time.Now().Unix()
 	user := &User{
 		Id:       userID,
-		Username: "recurring-contract-user",
-		AffCode:  "recurring-contract-user",
+		Username: t.Name(),
+		AffCode:  t.Name(),
 		Status:   common.UserStatusEnabled,
 		Group:    "default",
 	}
@@ -84,6 +97,9 @@ func TestApplySubscriptionPaymentEventRenewsExactlyOncePerProviderPeriod(t *test
 	require.NoError(t, DB.First(&subscription, storedOrder.UserSubscriptionId).Error)
 	require.Equal(t, firstEnd, subscription.EndTime)
 	require.NoError(t, DB.Model(&subscription).Update("amount_used", 700).Error)
+	if migrated {
+		require.NoError(t, DB.Model(&subscription).Updates(map[string]any{"amount_total": 730, "reset_amount": 100, "renewal_amount": 149}).Error)
+	}
 	require.NoError(t, DB.Model(storedOrder).Updates(map[string]any{
 		"refunded_amount_micros": 500_000,
 		"refunded_quota":         100,
@@ -103,6 +119,11 @@ func TestApplySubscriptionPaymentEventRenewsExactlyOncePerProviderPeriod(t *test
 	require.NoError(t, ApplySubscriptionPaymentEvent(tradeNo, renewal, "ORD_recurring", "active"))
 	require.NoError(t, DB.First(&subscription, storedOrder.UserSubscriptionId).Error)
 	require.Zero(t, subscription.AmountUsed)
+	if migrated {
+		require.EqualValues(t, 149, subscription.AmountTotal, "paid renewal cannot reload the old 1000-credit snapshot")
+	} else {
+		require.EqualValues(t, 1000, subscription.AmountTotal)
+	}
 	require.Equal(t, secondEnd, subscription.EndTime)
 	storedOrder = GetSubscriptionOrderByTradeNo(tradeNo)
 	require.NotNil(t, storedOrder)

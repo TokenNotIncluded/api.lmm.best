@@ -403,9 +403,15 @@ type UserSubscription struct {
 	UserId int `json:"user_id" gorm:"index;index:idx_user_sub_active,priority:1"`
 	PlanId int `json:"plan_id" gorm:"index"`
 
-	AmountTotal  int64 `json:"amount_total" gorm:"type:bigint;not null;default:0"`
-	AmountUsed   int64 `json:"amount_used" gorm:"type:bigint;not null;default:0"`
-	QuotaVersion int64 `json:"quota_version" gorm:"type:bigint;not null;default:0"`
+	AmountTotal int64 `json:"amount_total" gorm:"type:bigint;not null;default:0"`
+	AmountUsed  int64 `json:"amount_used" gorm:"type:bigint;not null;default:0"`
+	// ResetAmount is the corrected current-period reset grant.
+	// NULL keeps legacy grants; a non-NULL zero is an exhausted finite grant.
+	ResetAmount *int64 `json:"reset_amount,omitempty" gorm:"type:bigint"`
+	// RenewalAmount preserves the corrected full purchased grant independently
+	// of current-period partial refunds.
+	RenewalAmount *int64 `json:"renewal_amount,omitempty" gorm:"type:bigint"`
+	QuotaVersion  int64  `json:"quota_version" gorm:"type:bigint;not null;default:0"`
 
 	StartTime int64  `json:"start_time" gorm:"bigint"`
 	EndTime   int64  `json:"end_time" gorm:"bigint;index;index:idx_user_sub_active,priority:3"`
@@ -1144,9 +1150,7 @@ func applySubscriptionPaymentEventTx(tx *gorm.DB, tradeNo string, paymentEvent *
 		order.RefundedQuota = 0
 		subscription.AmountUsed = 0
 		subscription.QuotaVersion++
-		if renewalPlan.TotalAmount > 0 {
-			subscription.AmountTotal = renewalPlan.TotalAmount
-		}
+		subscription.applyRenewalGrant(renewalPlan.TotalAmount)
 		subscription.Status = "active"
 		subscription.LastResetTime = paymentEvent.PeriodStart
 		subscription.NextResetTime = calcNextResetTime(time.Unix(paymentEvent.PeriodStart, 0), &renewalPlan, subscription.EndTime)
@@ -1698,7 +1702,13 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 	}
 	updates := map[string]any{"amount_used": 0, "quota_version": gorm.Expr("quota_version + 1")}
 	sub.AmountUsed = 0
+	if sub.ResetAmount != nil {
+		sub.AmountTotal = *sub.ResetAmount
+	}
 	sub.QuotaVersion++
+	if sub.ResetAmount != nil {
+		updates["amount_total"] = sub.AmountTotal
+	}
 	if advanceResetTime {
 		nextReset := calcNextResetTime(time.Unix(now, 0), plan, sub.EndTime)
 		sub.NextResetTime = nextReset
@@ -1754,7 +1764,7 @@ func adminResetUserSubscriptionsByPlanTx(tx *gorm.DB, userId int, plan *Subscrip
 			return nil, errors.New("subscription reset encountered a negative used quota")
 		}
 		var addErr error
-		restoredQuota, addErr = checkedSubscriptionResetAdd(restoredQuota, subs[i].AmountUsed)
+		restoredQuota, addErr = checkedSubscriptionResetAdd(restoredQuota, subs[i].resetRestoredQuota())
 		if addErr != nil {
 			return nil, addErr
 		}
@@ -1945,6 +1955,9 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 		return nil
 	}
 	sub.AmountUsed = 0
+	if sub.ResetAmount != nil {
+		sub.AmountTotal = *sub.ResetAmount
+	}
 	sub.QuotaVersion++
 	sub.LastResetTime = base.Unix()
 	sub.NextResetTime = next
@@ -2030,7 +2043,7 @@ func preConsumeUserSubscriptionWithPolicy(db *gorm.DB, requestId string, userId 
 			if usedBefore > math.MaxInt64-amount {
 				return errors.New("subscription quota overflow")
 			}
-			if sub.AmountTotal > 0 {
+			if sub.hasFiniteQuota() {
 				remain := sub.AmountTotal - usedBefore
 				if remain < amount {
 					if partialAllowed && remain > partialAmount {
@@ -2251,7 +2264,7 @@ func postConsumeUserSubscriptionDeltaTx(tx *gorm.DB, userSubscriptionId int, del
 	if newUsed < 0 {
 		newUsed = 0
 	}
-	if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
+	if sub.hasFiniteQuota() && newUsed > sub.AmountTotal {
 		return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
 	}
 	sub.AmountUsed = newUsed
