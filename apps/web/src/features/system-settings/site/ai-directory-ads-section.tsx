@@ -15,12 +15,15 @@ import {
   listDirectoryAds,
   type DirectoryAd,
 } from '@/features/ai-directory/ads-api'
+import { DirectoryAdCurrencyControl } from '@/features/ai-directory/ads-currency-control'
 import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { SettingsSection } from '../components/settings-section'
 
 export function AIDirectoryAdsSection() {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const cache = useQueryClient()
   const [selected, setSelected] = useState<DirectoryAd | null>(null)
   const adsQuery = useInfiniteQuery({
@@ -54,6 +57,7 @@ export function AIDirectoryAdsSection() {
           'Review active paid placements. Hiding an ad removes it immediately and refunds its full wallet charge.'
         )}
       </p>
+      <DirectoryAdCurrencyControl />
       {adsQuery.isPending && (
         <p className='text-muted-foreground text-sm'>
           {t('Loading advertisements...')}
@@ -86,8 +90,8 @@ export function AIDirectoryAdsSection() {
               <p className='truncate font-semibold'>{ad.name}</p>
               <p className='text-muted-foreground truncate text-xs'>{ad.url}</p>
               <p className='text-muted-foreground mt-1 text-xs'>
-                {t('Bid: {{amount}} USD equivalent', {
-                  amount: (ad.bid_cents / 100).toFixed(2),
+                {t('Paid: {{amount}}', {
+                  amount: formatQuota(ad.charged_quota),
                 })}
                 {' · '}
                 {t('Ends {{date}}', {
@@ -122,8 +126,8 @@ export function AIDirectoryAdsSection() {
         }}
         title={t('Hide this advertisement?')}
         desc={t(
-          'The ad will disappear immediately and {{quota}} wallet units will be refunded to its owner.',
-          { quota: selected?.charged_quota.toLocaleString() ?? '0' }
+          'The ad will disappear immediately and {{amount}} will be refunded to its owner.',
+          { amount: selected ? formatQuota(selected.charged_quota) : '—' }
         )}
         confirmText={t('Hide and refund')}
         destructive

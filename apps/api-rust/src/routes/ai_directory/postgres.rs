@@ -6,7 +6,8 @@ use std::{sync::Arc, time::Duration};
 
 use super::{
     AD_DURATION_SECONDS, AIDirectoryAd, AIDirectoryAdInput, AIDirectoryStore, AdError,
-    MAX_WALLET_QUOTA, charge_quota, normalize_ad, validate_directory_links,
+    MAX_WALLET_QUOTA, charge_quota_with_credits_per_usd, charged_amount_usd, normalize_ad,
+    validate_directory_links,
 };
 use crate::auth::DashboardUserView;
 
@@ -55,14 +56,27 @@ impl PgAIDirectoryStore {
             .await
             .map_err(|_| AdError::Storage)
     }
+    async fn annotate(&self, ads: &mut [AIDirectoryAd]) {
+        // Metadata failure is not a failed payment/refund. No legacy fallback.
+        let basis = self.option("CreditsPerUSD").await.ok().flatten();
+        for ad in ads {
+            ad.charged_amount_usd = basis
+                .as_deref()
+                .and_then(|k| charged_amount_usd(ad.charged_quota, k));
+        }
+    }
     async fn find_request(&self, id: &str) -> Result<Option<AIDirectoryAd>, AdError> {
-        sqlx::query(&format!("{SELECT_AD} WHERE request_id=$1"))
+        let mut ad = sqlx::query(&format!("{SELECT_AD} WHERE request_id=$1"))
             .bind(id)
             .fetch_optional(&self.pg)
             .await
             .map_err(|_| AdError::Storage)?
             .map(ad_from_row)
-            .transpose()
+            .transpose()?;
+        if let Some(value) = &mut ad {
+            self.annotate(std::slice::from_mut(value)).await;
+        }
+        Ok(ad)
     }
     async fn post_commit(&self, ad: &AIDirectoryAd, refund: bool) {
         if let Some(valkey) = &self.valkey {
@@ -131,6 +145,7 @@ fn ad_from_row(row: PgRow) -> Result<AIDirectoryAd, AdError> {
             description: row.try_get("description")?,
             bid_cents: row.try_get("bid_cents")?,
             charged_quota: row.try_get("charged_quota")?,
+            charged_amount_usd: None,
             request_id: row.try_get("request_id")?,
             status: row.try_get("status")?,
             paid_at: row.try_get("paid_at")?,
@@ -164,31 +179,31 @@ impl AIDirectoryStore for PgAIDirectoryStore {
         if !(super::MIN_BID_CENTS..=super::MAX_BID_CENTS).contains(&bid) {
             return Err(AdError::InvalidBid);
         }
-        let rate = self
-            .option("QuotaPerUnit")
+        let basis = self
+            .option("CreditsPerUSD")
             .await?
-            .map_or(Ok(500000.0), |value| value.parse::<f64>())
-            .map_err(|_| AdError::WalletRange)?;
-        charge_quota(bid, rate)
+            .ok_or(AdError::CurrencyUnavailable)?;
+        charge_quota_with_credits_per_usd(bid, &basis)
     }
     async fn active(&self, offset: i64) -> Result<(Vec<AIDirectoryAd>, bool), AdError> {
         if !(0..=100_000).contains(&offset) {
             return Err(AdError::InvalidInput);
         }
-        let rows=sqlx::query(&format!("{SELECT_AD} WHERE status='active' AND expires_at>$1 ORDER BY bid_cents DESC,paid_at ASC,id ASC OFFSET $2 LIMIT 21")).bind(Utc::now().timestamp()).bind(offset).fetch_all(&self.pg).await.map_err(|_|AdError::Storage)?;
+        let rows=sqlx::query(&format!("{SELECT_AD} WHERE status='active' AND expires_at>$1 ORDER BY charged_quota DESC,paid_at ASC,id ASC OFFSET $2 LIMIT 21")).bind(Utc::now().timestamp()).bind(offset).fetch_all(&self.pg).await.map_err(|_|AdError::Storage)?;
         let mut ads = rows
             .into_iter()
             .map(ad_from_row)
             .collect::<Result<Vec<_>, _>>()?;
         let more = ads.len() > 20;
         ads.truncate(20);
+        self.annotate(&mut ads).await;
         Ok((ads, more))
     }
     async fn mine(&self, owner_id: i64) -> Result<Vec<AIDirectoryAd>, AdError> {
         if owner_id <= 0 {
             return Err(AdError::InvalidInput);
         }
-        sqlx::query(&format!(
+        let mut ads = sqlx::query(&format!(
             "{SELECT_AD} WHERE owner_user_id=$1 ORDER BY paid_at DESC,id DESC LIMIT 100"
         ))
         .bind(owner_id)
@@ -197,7 +212,9 @@ impl AIDirectoryStore for PgAIDirectoryStore {
         .map_err(|_| AdError::Storage)?
         .into_iter()
         .map(ad_from_row)
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+        self.annotate(&mut ads).await;
+        Ok(ads)
     }
     async fn create(
         &self,
@@ -226,9 +243,9 @@ impl AIDirectoryStore for PgAIDirectoryStore {
                 .bind(owner).bind(&input.name).bind(&input.url).bind(&input.summary).bind(&input.description).bind(input.bid_cents).bind(charge).bind(&input.request_id).bind(now).bind(now+AD_DURATION_SECONDS).fetch_one(&mut *tx).await.map_err(|_|AdError::Storage)?;
             let charged=sqlx::query("UPDATE users SET quota=quota-$2 WHERE id=$1 AND deleted_at IS NULL AND quota>=$2 AND quota<=$3").bind(owner).bind(charge).bind(MAX_WALLET_QUOTA).execute(&mut *tx).await.map_err(|_|AdError::Storage)?.rows_affected();
             if charged!=1 {return Err(AdError::Insufficient);}
-            Ok(AIDirectoryAd{id,owner_user_id:owner,name:input.name.clone(),url:input.url.clone(),summary:input.summary.clone(),description:input.description.clone(),bid_cents:input.bid_cents,charged_quota:charge,request_id:input.request_id.clone(),status:"active".into(),paid_at:now,expires_at:now+AD_DURATION_SECONDS,hidden_at:0,refunded_at:0})
+            Ok(AIDirectoryAd{id,owner_user_id:owner,name:input.name.clone(),url:input.url.clone(),summary:input.summary.clone(),description:input.description.clone(),bid_cents:input.bid_cents,charged_quota:charge,charged_amount_usd:None,request_id:input.request_id.clone(),status:"active".into(),paid_at:now,expires_at:now+AD_DURATION_SECONDS,hidden_at:0,refunded_at:0})
         }.await;
-        let ad = match outcome {
+        let mut ad = match outcome {
             Ok(ad) => {
                 tx.commit().await.map_err(|_| AdError::Storage)?;
                 ad
@@ -246,6 +263,7 @@ impl AIDirectoryStore for PgAIDirectoryStore {
             }
         };
         self.post_commit(&ad, false).await;
+        self.annotate(std::slice::from_mut(&mut ad)).await;
         Ok((ad, true))
     }
     async fn hide(&self, id: i64) -> Result<(AIDirectoryAd, bool), AdError> {
@@ -263,6 +281,7 @@ impl AIDirectoryStore for PgAIDirectoryStore {
         let mut ad = ad_from_row(row)?;
         if ad.status == "hidden" {
             tx.commit().await.map_err(|_| AdError::Storage)?;
+            self.annotate(std::slice::from_mut(&mut ad)).await;
             return Ok((ad, false));
         }
         if ad.status != "active" || ad.expires_at <= now {
@@ -284,6 +303,7 @@ impl AIDirectoryStore for PgAIDirectoryStore {
         ad.hidden_at = now;
         ad.refunded_at = now;
         self.post_commit(&ad, true).await;
+        self.annotate(std::slice::from_mut(&mut ad)).await;
         Ok((ad, true))
     }
     async fn audit_hide(

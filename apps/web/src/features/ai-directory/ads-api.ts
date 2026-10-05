@@ -11,6 +11,7 @@ export type DirectoryAd = {
   description: string
   bid_cents: number
   charged_quota: number
+  charged_amount_usd: string | null
   status: 'active' | 'hidden'
   paid_at: number
   expires_at: number
@@ -19,12 +20,28 @@ export type DirectoryAd = {
 }
 
 export type DirectoryAdQuote = {
+  pricing_schema_version: 2
   bid_cents: number
   quota: number
   currency: 'USD'
   duration_days: number
   min_bid_cents: number
   max_bid_cents: number
+}
+
+export function isUsdDirectoryAdQuote(
+  value: unknown
+): value is DirectoryAdQuote {
+  if (!value || typeof value !== 'object') return false
+  const quote = value as Partial<DirectoryAdQuote>
+  return (
+    quote.pricing_schema_version === 2 &&
+    quote.currency === 'USD' &&
+    Number.isSafeInteger(quote.quota) &&
+    Number(quote.quota) > 0 &&
+    Number.isSafeInteger(quote.bid_cents) &&
+    Number(quote.bid_cents) >= 100
+  )
 }
 
 export type DirectoryAdInput = {
@@ -66,13 +83,17 @@ export function listDirectoryAds(offset = 0) {
   }>(getPublicDirectory(`/api/ai-directory/ads?offset=${offset}`))
 }
 
-export function quoteDirectoryAd(bidCents: number) {
-  return unwrap<DirectoryAdQuote>(
+export async function quoteDirectoryAd(bidCents: number) {
+  const quote = await unwrap<DirectoryAdQuote>(
     api.get(`/api/ai-directory/ads/quote?bid_cents=${bidCents}`, {
       skipErrorHandler: true,
       skipBusinessError: true,
     })
   )
+  if (!isUsdDirectoryAdQuote(quote)) {
+    throw new Error('Unable to get a price quote. Try again.')
+  }
+  return quote
 }
 
 export function createDirectoryAd(input: DirectoryAdInput) {

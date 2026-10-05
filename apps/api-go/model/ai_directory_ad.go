@@ -2,9 +2,9 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"net/url"
 	"regexp"
@@ -52,6 +52,23 @@ type AIDirectoryAd struct {
 }
 
 func (AIDirectoryAd) TableName() string { return "ai_directory_ads" }
+
+// BidCents is the original request snapshot, including historical bids made in
+// legacy pricing units. Display the immutable wallet charge in actual USD.
+// Missing currency configuration never invents a one-to-one dollar amount, and
+// cannot prevent a previously paid request from replaying or being refunded.
+func (ad AIDirectoryAd) MarshalJSON() ([]byte, error) {
+	type storedAd AIDirectoryAd
+	var amount *string
+	if usd, err := common.CreditsToUSD(int64(ad.ChargedQuota)); err == nil {
+		value := usd.String()
+		amount = &value
+	}
+	return json.Marshal(struct {
+		storedAd
+		ChargedAmountUSD *string `json:"charged_amount_usd"`
+	}{storedAd: storedAd(ad), ChargedAmountUSD: amount})
+}
 
 type AIDirectoryAdInput struct {
 	Name          string `json:"name"`
@@ -107,12 +124,13 @@ func AIDirectoryAdChargeQuota(bidCents int64) (int, error) {
 	if bidCents < AIDirectoryAdMinBidCents || bidCents > AIDirectoryAdMaxBidCents {
 		return 0, ErrAIDirectoryAdInvalidBid
 	}
-	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
-		return 0, ErrWalletQuotaOutOfRange
+	creditsPerUSD, err := common.CreditsPerUSD()
+	if err != nil {
+		return 0, err
 	}
-	charge := decimal.NewFromInt(bidCents).
-		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
-		Div(decimal.NewFromInt(100)).Ceil()
+	// Shift is exact: a positive amount smaller than one wallet credit still
+	// rounds up to one, without an intermediate fixed-precision division.
+	charge := decimal.NewFromInt(bidCents).Mul(creditsPerUSD).Shift(-2).Ceil()
 	if !charge.IsPositive() || !charge.IsInteger() || !charge.BigInt().IsInt64() || charge.GreaterThan(decimal.NewFromInt(int64(common.MaxWalletQuota))) {
 		return 0, ErrWalletQuotaOutOfRange
 	}
@@ -194,7 +212,7 @@ func ListActiveAIDirectoryAds(now int64, offset, limit int) ([]AIDirectoryAd, bo
 	}
 	var ads []AIDirectoryAd
 	err := DB.Where("status = ? AND expires_at > ?", AIDirectoryAdStatusActive, now).
-		Order("bid_cents DESC, paid_at ASC, id ASC").Offset(offset).Limit(limit + 1).Find(&ads).Error
+		Order("charged_quota DESC, paid_at ASC, id ASC").Offset(offset).Limit(limit + 1).Find(&ads).Error
 	if err != nil {
 		return nil, false, err
 	}
