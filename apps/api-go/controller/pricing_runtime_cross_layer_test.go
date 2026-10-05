@@ -24,7 +24,7 @@ import (
 // directly into the raw runtime snapshot.
 func TestUSDPriceSaveReserveSettleReadbackKeepsLedgerCalibration(t *testing.T) {
 	db := ratioSyncCurrencyFixture(t, 500000)
-	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000)))
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(500000)))
 	t.Cleanup(common.ClearPublicCreditsPerUSD)
 	persistCreditDenominationFixture(t, db)
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"group_ratio_setting.group_ratio": `{"default":1}`}))
@@ -86,9 +86,9 @@ func TestUSDPriceSaveReserveSettleReadbackKeepsLedgerCalibration(t *testing.T) {
 			tier        string
 		}{"cache-boundary", tiered, params, usd, tier})
 	}
-	for _, p := range []string{"100000", "200000"} {
+	for _, p := range []string{"500000"} {
 		require.NoError(t, db.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", p).Error)
-		require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)), "another node may have a stale display cache")
+		require.Error(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)), "a display preference cannot replace integer wallet credits")
 		units, e := model.CreditDenominationSnapshot()
 		require.NoError(t, e)
 		require.Equal(t, p, units.PublicCreditsPerUSDExact)

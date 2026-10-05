@@ -53,10 +53,9 @@ func preserveRustStripeOraclePricing(t *testing.T) {
 	common.QuotaPerUnit = 500000
 	operation_setting.USDExchangeRate = 7.3
 	operation_setting.TopUpPlatformUnitsPerCNY = 2
-	// The shared Stripe fixture starts at 7.3 CNY/USD and bonus 2. Install
-	// its literal initialization anchor instead of the generic 6.8/1 fixture.
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(7300000), decimal.NewFromInt(500000)))
-	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000)))
+	// FX and recharge bonuses never redefine the fixed credit/USD contract.
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(500000)))
 }
 
 func TestRustStripeOraclePricingRestoresCurrencyBasis(t *testing.T) {
@@ -76,7 +75,7 @@ func TestRustStripeOraclePricingRestoresCurrencyBasis(t *testing.T) {
 			// Later FX/bonus changes cannot alter this site's USD quote or ledger.
 			operation_setting.USDExchangeRate = 8.9
 			operation_setting.TopUpPlatformUnitsPerCNY = 99
-			require.Equal(t, "1", getStripePayMoneyForLegacyAmount(decimal.RequireFromString("14.6"), "default").String())
+			require.Equal(t, "14.6", getStripePayMoneyForLegacyAmount(decimal.RequireFromString("14.6"), "default").String())
 			_, _, quota, err := topUpOrderAmountsLegacyDecimal(decimal.RequireFromString("14.6"))
 			require.NoError(t, err)
 			require.EqualValues(t, 7300000, quota)
@@ -181,12 +180,12 @@ func TestRustStripeCurrentGoOracle(t *testing.T) {
 	quoteContext.Request.Header.Set("Content-Type", "application/json")
 	RequestStripeAmount(quoteContext)
 	require.JSONEq(t, `{
-		"message":"success","data":"1.00","amount_unit":"LEGACY","currency_unit":"credit",
+		"message":"success","data":"14.60","amount_unit":"LEGACY","currency_unit":"credit",
 		"credit_amount":7300000,"credited_quota":7300000,"legacy_batch_units":"14.600001","settlement_currency":"USD",
 		"credit_amount_unit":"LEDGER_QUOTA","credit_unit_schema_version":2,"quota_unit":"LEDGER_QUOTA",
-		"public_credit_unit":"CREDIT","legacy_credit_unit":"LEDGER_QUOTA","ledger_quota_per_usd":7300000,
-		"ledger_quota_per_usd_exact":"7300000","public_credits_per_usd":100000,"public_credits_per_usd_exact":"100000",
-		"public_credit_amount":"100000","public_credit_amount_unit":"CREDIT","public_credit_metadata_version":2
+		"public_credit_unit":"CREDIT","legacy_credit_unit":"LEDGER_QUOTA","ledger_quota_per_usd":500000,
+		"ledger_quota_per_usd_exact":"500000","public_credits_per_usd":500000,"public_credits_per_usd_exact":"500000",
+		"public_credit_amount":"7300000","public_credit_amount_unit":"CREDIT","public_credit_metadata_version":2
 	}`, quoteWriter.Body.String())
 	var quoteResponse map[string]any
 	require.NoError(t, json.Unmarshal(quoteWriter.Body.Bytes(), &quoteResponse))
@@ -211,14 +210,14 @@ func TestRustStripeCurrentGoOracle(t *testing.T) {
 	require.NoError(t, model.DB.First(&order).Error)
 	require.EqualValues(t, 14600000, order.PlatformAmountMicros)
 	require.EqualValues(t, 7300000, order.CreditedQuota)
-	require.EqualValues(t, 1000000, order.ExpectedAmountMicros)
+	require.EqualValues(t, 14600000, order.ExpectedAmountMicros)
 	mutex.Lock()
 	fields := checkoutFields
 	persisted := persistedBeforeCheckout
 	mutex.Unlock()
 	fields["client_reference_id"] = "<order>"
-	require.Equal(t, "100", fields["line_items[0][price_data][unit_amount]"])
-	paid := map[string]any{"id": "evt_paid", "type": "checkout.session.completed", "data": map[string]any{"object": map[string]any{"id": "cs_fixture", "client_reference_id": order.TradeNo, "status": "complete", "payment_status": "paid", "currency": "usd", "amount_subtotal": 100, "amount_total": 80, "payment_intent": "pi_fixture", "customer": "cus_fixture", "customer_details": map[string]string{"email": "payer-contact@example.net"}}}}
+	require.Equal(t, "1460", fields["line_items[0][price_data][unit_amount]"])
+	paid := map[string]any{"id": "evt_paid", "type": "checkout.session.completed", "data": map[string]any{"object": map[string]any{"id": "cs_fixture", "client_reference_id": order.TradeNo, "status": "complete", "payment_status": "paid", "currency": "usd", "amount_subtotal": 1460, "amount_total": 1168, "payment_intent": "pi_fixture", "customer": "cus_fixture", "customer_details": map[string]string{"email": "payer-contact@example.net"}}}}
 	deliver := func(event any, secret string) int {
 		raw, err := json.Marshal(event)
 		require.NoError(t, err)
@@ -241,16 +240,16 @@ func TestRustStripeCurrentGoOracle(t *testing.T) {
 	refund := func(id string, amount int) map[string]any {
 		return map[string]any{"id": "evt_" + id, "type": "refund.updated", "data": map[string]any{"object": map[string]any{"id": id, "payment_intent": "pi_fixture", "status": "succeeded", "currency": "usd", "amount": amount}}}
 	}
-	refundStatuses := []int{deliver(refund("re_partial", 25), "whsec_fixture"), deliver(refund("re_partial", 25), "whsec_fixture")}
+	refundStatuses := []int{deliver(refund("re_partial", 365), "whsec_fixture"), deliver(refund("re_partial", 365), "whsec_fixture")}
 	require.NoError(t, model.DB.First(&payer, 7).Error)
 	partialQuota := payer.Quota
 	require.EqualValues(t, 5018750, partialQuota)
-	refundStatuses = append(refundStatuses, deliver(refund("re_final", 55), "whsec_fixture"))
+	refundStatuses = append(refundStatuses, deliver(refund("re_final", 803), "whsec_fixture"))
 	require.NoError(t, model.DB.First(&payer, 7).Error)
 	require.NoError(t, model.DB.First(&order, order.Id).Error)
 	require.EqualValues(t, 0, payer.Quota)
-	require.EqualValues(t, 800000, order.SettledAmountMicros)
-	require.EqualValues(t, 800000, order.RefundedAmountMicros)
+	require.EqualValues(t, 11680000, order.SettledAmountMicros)
+	require.EqualValues(t, 11680000, order.RefundedAmountMicros)
 	require.EqualValues(t, 7300000, order.RefundedQuota)
 	var inviter model.User
 	require.NoError(t, model.DB.First(&inviter, 1).Error)
