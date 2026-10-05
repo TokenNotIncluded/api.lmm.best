@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
@@ -135,39 +133,18 @@ func LogQuota(quota int) string {
 	return FormatQuota(quota)
 }
 
+// FormatQuota records monetary amounts in USD independently of display settings.
 func FormatQuota(quota int) string {
-	raw := fmt.Sprintf("%d Credits", quota)
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		return raw
-	}
 	anchor, err := common.CreditsPerUSD()
 	if err != nil {
-		return raw
+		return "USD unavailable"
 	}
 	usd := decimal.NewFromInt(int64(quota)).DivRound(anchor, 64)
-	format := func(amount decimal.Decimal, unit string) string {
-		text := amount.StringFixed(6)
-		if !amount.IsZero() && amount.Round(6).IsZero() {
-			text = amount.String()
-		}
-		return text + " " + unit
+	text := usd.StringFixed(6)
+	if !usd.IsZero() && usd.Round(6).IsZero() {
+		text = usd.String()
 	}
-	switch operation_setting.GetQuotaDisplayType() {
-	case operation_setting.QuotaDisplayTypeCNY:
-		rate := operation_setting.USDExchangeRate
-		if rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
-			return raw
-		}
-		return format(usd.Mul(decimal.NewFromFloat(rate)), "CNY")
-	case operation_setting.QuotaDisplayTypeCustom:
-		rate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
-		if rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
-			return raw
-		}
-		return format(usd.Mul(decimal.NewFromFloat(rate)), operation_setting.GetGeneralSetting().CustomCurrencyCode)
-	default:
-		return format(usd, "USD")
-	}
+	return text + " USD"
 }
 
 // LogJson 仅供测试使用 only for test

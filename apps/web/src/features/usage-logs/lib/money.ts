@@ -5,10 +5,10 @@ import type { CurrencyFormatOptions } from '@/lib/currency'
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
-import { getTieredBillingSummary } from './format'
+import { getTieredBillingSummary, renderAuditContent } from './format'
 
 export interface LogCurrencyFormatter {
-  currency: 'CREDIT' | 'CNY' | 'USD'
+  currency: 'USD'
   config: { creditsPerUsd?: number }
   formatQuota: (quota: number, options?: CurrencyFormatOptions) => string
   formatUSD: (amount: number, options?: CurrencyFormatOptions) => string
@@ -127,12 +127,19 @@ export function buildLogCopyText(
   currency: LogCurrencyFormatter,
   t: (key: string) => string
 ): string {
+  if (log.type === 3) {
+    const audit = renderAuditContent(other, t, (quota) =>
+      currency.formatQuota(quota, PRICE_OPTIONS)
+    )
+    return audit
+      ? `${audit}\n\n${t('Original log content')}:\n${original}`
+      : original
+  }
   if (![1, 2, 6].includes(log.type)) return original
   const format = (quota: number) => currency.formatQuota(quota, PRICE_OPTIONS)
   const rows = [
     `${t('Billing Details')} (${currency.currency})`,
     `${t('Total Cost')}: ${format(log.quota)}`,
-    `${t('Credits')}: ${log.quota.toLocaleString('en', { maximumFractionDigits: 0 })}`,
     `${t('Billing Source')}: ${t(other?.billing_source === 'subscription' ? 'Subscription' : 'Wallet')}`,
   ]
   if (other?.billing_mode === 'tiered_expr') {

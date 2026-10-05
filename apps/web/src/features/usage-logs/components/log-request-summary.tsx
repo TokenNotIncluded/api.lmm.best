@@ -20,8 +20,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { formatTokens } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
@@ -38,7 +38,7 @@ export function LogRequestSummary({
   onClose: () => void
 }) {
   const { t } = useTranslation()
-  const { formatQuota } = useWalletCurrency()
+  const { formatQuota } = useBillingUSD()
   const formatLogQuota = (raw: number) =>
     formatQuota(raw, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })
   const { copyToClipboard } = useCopyToClipboard()

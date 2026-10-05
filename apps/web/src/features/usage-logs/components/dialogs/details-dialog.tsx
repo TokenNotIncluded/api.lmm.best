@@ -61,8 +61,8 @@ import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
+import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -252,7 +252,7 @@ function BillingBreakdown(props: {
 }) {
   const { t } = useTranslation()
   const { log, other, isAdmin } = props
-  const currency = useWalletCurrency()
+  const currency = useBillingUSD()
   const formatLogQuota = (raw: number) =>
     currency.formatQuota(raw, {
       digitsLarge: 4,
@@ -547,7 +547,7 @@ interface DetailsDialogProps {
 
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
-  const currency = useWalletCurrency()
+  const currency = useBillingUSD()
   const formatLogQuota = (raw: number) =>
     currency.formatQuota(raw, {
       digitsLarge: 4,
@@ -633,7 +633,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
   // Localized operation text rendered from the language-independent op
   // descriptor (shared by audit type=3 and login type=7).
-  const operationText = renderAuditContent(other, t)
+  const operationText = renderAuditContent(other, t, formatLogQuota)
   const auditRoute = isManage && props.isAdmin ? other?.audit_info : undefined
   // Channel update records which fields changed (stable field tokens); render
   // them with their localized labels for admins.

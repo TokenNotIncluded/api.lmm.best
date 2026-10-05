@@ -35,7 +35,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -134,7 +134,13 @@ function buildTypeDetailSegments(
   // Audit (type=3) and login (type=7) logs: render localized content from the
   // structured op descriptor instead of the raw (English-fallback) content.
   if (log.type === 3 || log.type === 7) {
-    const text = renderAuditContent(other, t)
+    const text = renderAuditContent(other, t, (quota) =>
+      currency.formatQuota(quota, {
+        digitsLarge: 4,
+        digitsSmall: 8,
+        abbreviate: false,
+      })
+    )
     return text ? [{ text }] : []
   }
 
@@ -305,7 +311,7 @@ function buildTypeDetailSegments(
 
 export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
-  const currency = useWalletCurrency()
+  const currency = useBillingUSD()
   const columns: ColumnDef<UsageLog>[] = [
     {
       accessorKey: 'created_at',

@@ -8,6 +8,7 @@ import { formatQuotaInCurrency, formatUSDInCurrency } from '@/lib/currency'
 import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
 
 import type { UsageLog } from '../data/schema'
+import { renderAuditContent } from './format'
 import {
   buildLogCopyText,
   formatLogPrice,
@@ -28,9 +29,8 @@ const config = {
   quotaPerUnit: 2_000_000,
 }
 
-function formatter(
-  currency: LogCurrencyFormatter['currency']
-): LogCurrencyFormatter {
+function formatter(): LogCurrencyFormatter {
+  const currency = 'USD' as const
   return {
     currency,
     config,
@@ -52,44 +52,67 @@ function formatter(
 }
 
 describe('log monetary snapshots', () => {
-  test('converts a frozen legacy absolute price once into each display currency', () => {
+  test('renders audit ledger amounts in USD without mutating stored evidence', () => {
+    const other = {
+      op: {
+        action: 'user.quota_override',
+        params: { from: '3500000 Credits', to: '2.000000 USD' },
+      },
+    }
+    const original = JSON.stringify(other)
+    const t = (key: string, params?: Record<string, unknown>) =>
+      key.replaceAll(/\{\{(\w+)\}\}/g, (_, name: string) =>
+        String(params?.[name])
+      )
+    assert.equal(
+      renderAuditContent(other, t, (quota) => formatter().formatQuota(quota)),
+      'Overrode user quota from 1 USD to 2.000000 USD'
+    )
+    assert.equal(JSON.stringify(other), original)
+    assert.equal(
+      renderAuditContent(
+        { op: { action: 'user.quota_add', params: { quota: '7 CNY' } } },
+        t,
+        (quota) => formatter().formatQuota(quota)
+      ),
+      'Increased user quota by Not recorded'
+    )
+  })
+  test('converts a frozen legacy absolute price once into USD', () => {
     const other = { pricing_unit_credits_per_unit: 500_000 }
-    assert.equal(formatLogPrice(7, other, formatter('USD')), '1 USD')
-    assert.equal(formatLogPrice(7, other, formatter('CNY')), '7 CNY')
-    assert.match(formatLogPrice(7, other, formatter('CREDIT')), /^3,500,000 /)
+    assert.equal(formatLogPrice(7, other, formatter()), '1 USD')
   })
 
   test('requires a versioned basis before treating a price as real USD', () => {
     assert.equal(
-      formatLogPrice(7, { pricing_currency: 'USD' }, formatter('USD')),
+      formatLogPrice(7, { pricing_currency: 'USD' }, formatter()),
       '-'
     )
     assert.equal(
       formatLogPrice(
         7,
         { pricing_schema_version: 2, pricing_currency_basis: 'USD' },
-        formatter('CNY')
+        formatter()
       ),
-      '49 CNY'
+      '7 USD'
     )
-    assert.equal(formatLogPrice(7, {}, formatter('USD')), '-')
+    assert.equal(formatLogPrice(7, {}, formatter()), '-')
   })
 
   test('token ratios use Credits per token, independent of the old QPU', () => {
-    assert.equal(formatLogTokenPrice(3.5, 1, formatter('USD')), '1 USD')
-    assert.equal(formatLogTokenPrice(3.5, 2, formatter('CNY')), '14 CNY')
+    assert.equal(formatLogTokenPrice(3.5, 1, formatter()), '1 USD')
+    assert.equal(formatLogTokenPrice(3.5, 2, formatter()), '2 USD')
     assert.match(
-      formatLogTokenPrice(0.000_000_01, 1, formatter('CREDIT')),
-      /^0\.01 /
+      formatLogTokenPrice(0.000_000_01, 1, formatter()),
+      /^0\.00000000286 USD$/
     )
   })
 
   test('uses the frozen expression scale and leaves unknown historical prices unavailable', () => {
     assert.deepEqual(logExpressionCurrency({}, 3_500_000), {})
-    assert.equal(formatLogPrice(7, {}, formatter('USD'), true), '-')
+    assert.equal(formatLogPrice(7, {}, formatter(), true), '-')
     const frozen = { billing_expr_usd_multiplier: 1 / 7 }
-    assert.equal(formatLogPrice(7, frozen, formatter('USD'), true), '1 USD')
-    assert.equal(formatLogPrice(7, frozen, formatter('CNY'), true), '7 CNY')
+    assert.equal(formatLogPrice(7, frozen, formatter(), true), '1 USD')
     assert.equal(
       logExpressionCurrency(
         { pricing_unit_credits_per_unit: 500_000 },
@@ -111,30 +134,13 @@ describe('log monetary snapshots', () => {
       original,
       log,
       other,
-      formatter('USD'),
+      formatter(),
       (key) => key
     )
     assert.match(usd, /Billing Details \(USD\)\nTotal Cost: 1 USD/)
     assert.match(usd, /Final Consumed: 0\.00000029 USD/)
     assert.ok(usd.endsWith(original))
-    const cny = buildLogCopyText(
-      original,
-      log,
-      other,
-      formatter('CNY'),
-      (key) => key
-    )
-    assert.match(cny, /Total Cost: 7 CNY/)
-    assert.match(cny, /Final Consumed: 0\.000002 CNY/)
-    const credit = buildLogCopyText(
-      original,
-      log,
-      other,
-      formatter('CREDIT'),
-      (key) => key
-    )
-    assert.match(credit, /Total Cost: 3,500,000 /)
-    assert.match(credit, /Final Consumed: 1 /)
+    assert.doesNotMatch(usd, /Credits:|CNY|Billing Details \(CREDIT\)/)
   })
 
   test('copies matched expression prices and each tool surcharge with its own frozen unit', () => {
@@ -162,7 +168,7 @@ describe('log monetary snapshots', () => {
       '',
       { type: 2, quota: 3_500_000 } as UsageLog,
       other,
-      formatter('USD'),
+      formatter(),
       (key) => key
     )
     assert.match(copy, /Input: 1 USD\/M/)
@@ -177,18 +183,9 @@ test('audio addon prices use their own frozen unit rather than a separately capt
     tool_pricing_unit_credits_per_unit: 500000,
     audio_input_pricing_unit_credits_per_unit: 1000000,
   }
-  assert.equal(formatLogAddonPrice(7, other, formatter('USD')), '1 USD')
-  assert.equal(
-    formatLogAddonPrice(7, other, formatter('USD'), 'audio'),
-    '2 USD'
-  )
-  assert.equal(
-    formatLogAddonPrice(7, other, formatter('CNY'), 'audio'),
-    '14 CNY'
-  )
-  assert.match(
-    formatLogAddonPrice(7, other, formatter('CREDIT'), 'audio'),
-    /^7,000,000 /
-  )
-  assert.equal(formatLogAddonPrice(7, {}, formatter('USD'), 'audio'), '-')
+  assert.equal(formatLogAddonPrice(7, other, formatter()), '1 USD')
+  assert.equal(formatLogAddonPrice(7, other, formatter(), 'audio'), '2 USD')
+  assert.equal(formatLogAddonPrice(7, other, formatter(), 'audio'), '2 USD')
+  assert.match(formatLogAddonPrice(7, other, formatter(), 'audio'), /^2 USD$/)
+  assert.equal(formatLogAddonPrice(7, {}, formatter(), 'audio'), '-')
 })

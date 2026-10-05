@@ -22,7 +22,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Skeleton } from '@/components/ui/skeleton'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { cn } from '@/lib/utils'
 
 import { getLogStats, getUserLogStats } from '../api'
@@ -59,7 +59,7 @@ function UsageTrend(props: {
   onSelect: (bucket: TrendBucket) => void
 }) {
   const { t } = useTranslation()
-  const { formatQuota } = useWalletCurrency()
+  const { formatQuota } = useBillingUSD()
   const formatLogQuota = (raw: number) =>
     formatQuota(raw, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })
   const maxMetric = Math.max(1, ...props.buckets.map((bucket) => bucket.quota))
@@ -132,7 +132,7 @@ function UsageTrend(props: {
 
 export function CommonLogsStats() {
   const { t } = useTranslation()
-  const { formatQuota } = useWalletCurrency()
+  const { formatQuota } = useBillingUSD()
   const formatLogQuota = (raw: number) =>
     formatQuota(raw, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })
   const { isAdminView: isAdmin } = useLogsViewScope()

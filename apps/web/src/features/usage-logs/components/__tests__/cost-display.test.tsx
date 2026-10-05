@@ -199,19 +199,19 @@ describe('log cost display', () => {
 
     await unmountCost(rendered)
   })
-  test('updates mounted costs for language defaults, manual preference and FX changes', async () => {
+  test('keeps mounted costs in USD across language, wallet preference and FX changes', async () => {
     await i18n.changeLanguage('zhTW')
     const rendered = await renderCost({ quota: 3_500_000, other: null })
     try {
-      assert.match(rendered.container.textContent ?? '', /7 CNY/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () => i18n.changeLanguage('en'))
       assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
       )
-      assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () => i18n.changeLanguage('zhCN'))
-      assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
       )
@@ -224,8 +224,11 @@ describe('log cost display', () => {
           },
         })
       )
-      assert.match(rendered.container.textContent ?? '', /8 CNY/)
-      assert.doesNotMatch(rendered.container.textContent ?? '', /Platform|\$/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /Platform|Credits|CNY|\$/
+      )
     } finally {
       await unmountCost(rendered)
     }
