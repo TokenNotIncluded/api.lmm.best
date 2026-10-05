@@ -29,7 +29,7 @@ export function toggleCompareSelection(
   return [...current, modelName]
 }
 
-/** USD per token unit after the same group multiplier the model cards show. */
+/** Canonical base USD per token unit, matching the public model cards. */
 export function getCompareTokenPrice(
   model: PricingModel,
   type: PriceType,

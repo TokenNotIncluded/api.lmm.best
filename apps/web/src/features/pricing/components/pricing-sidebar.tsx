@@ -83,14 +83,6 @@ function countBy(
   return models.reduce((count, model) => count + (predicate(model) ? 1 : 0), 0)
 }
 
-function formatGroupRatio(ratio: number | undefined): string | undefined {
-  if (ratio == null) return undefined
-  const formatted = Number.isInteger(ratio)
-    ? ratio.toString()
-    : ratio.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
-  return `x${formatted}`
-}
-
 function FilterChip(props: {
   option: FilterOption
   active: boolean
@@ -189,7 +181,6 @@ export function PricingSidebar(props: PricingSidebarProps) {
     ...props.groups.map((group) => ({
       value: group,
       label: group,
-      suffix: formatGroupRatio(props.groupRatios?.[group]),
     })),
   ]
 
@@ -276,7 +267,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
 
       <div className='space-y-1'>
         <FilterSection
-          title={t('Groups')}
+          title={t('Available groups')}
           value={props.groupFilter}
           options={groupOptions}
           onChange={props.onGroupChange}

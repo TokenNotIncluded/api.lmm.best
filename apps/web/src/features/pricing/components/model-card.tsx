@@ -229,6 +229,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       </div>
 
       <div className='mt-3 flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 border-y py-3 text-sm tabular-nums'>
+        <span className='text-muted-foreground w-full text-xs'>
+          {t('Base price (1×)')}
+        </span>
         {priceSummary}
       </div>
 

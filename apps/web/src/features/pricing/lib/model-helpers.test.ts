@@ -28,23 +28,23 @@ function model(enableGroups: string[]): PricingModel {
 }
 
 describe('pricing model group helpers', () => {
-  test('the displayed group matches the advertised minimum price, not source order', () => {
+  test('availability badges follow the filter or source order, never the cheapest ratio', () => {
     const pricedModel = {
       ...model(['official', 'default', 'cheap']),
       group_ratio: { official: 5, default: 10, cheap: 0.1 },
     }
-    assert.equal(getDisplayPriceGroup(pricedModel), 'cheap')
+    assert.equal(getDisplayPriceGroup(pricedModel), 'official')
     assert.equal(getDisplayPriceGroup(pricedModel, 'default'), 'default')
-    assert.equal(getDisplayGroupRatio(pricedModel, 'default'), 10)
+    assert.equal(getDisplayGroupRatio(pricedModel, 'default'), 1)
   })
 
-  test('zero is a valid free price but negative prices are not advertised', () => {
+  test('group multipliers cannot make the public base price free', () => {
     const pricedModel = {
       ...model(['paid', 'invalid', 'free']),
       group_ratio: { paid: 2, invalid: -1, free: 0 },
     }
-    assert.equal(getDisplayPriceGroup(pricedModel), 'free')
-    assert.equal(getDisplayGroupRatio(pricedModel), 0)
+    assert.equal(getDisplayPriceGroup(pricedModel), 'paid')
+    assert.equal(getDisplayGroupRatio(pricedModel), 1)
   })
   test('expands all-groups models to every usable group', () => {
     const usableGroups = {
@@ -60,30 +60,31 @@ describe('pricing model group helpers', () => {
     ])
   })
 
-  test('uses the selected group ratio for an all-groups model', () => {
+  test('selected groups never multiply base prices for all-groups models', () => {
     const sharedModel = {
       ...model(['all']),
       group_ratio: { default: 1, vip: 0.6 },
     }
 
-    assert.equal(getDisplayGroupRatio(sharedModel, 'vip'), 0.6)
+    assert.equal(getDisplayGroupRatio(sharedModel, 'vip'), 1)
   })
 
-  test('uses the best disclosed ratio for an unfiltered all-groups model', () => {
+  test('unfiltered models keep the base price', () => {
     const sharedModel = {
       ...model(['all']),
       group_ratio: { default: 1, vip: 0.6, staff: 0.75 },
     }
 
-    assert.equal(getDisplayGroupRatio(sharedModel), 0.6)
+    assert.equal(getDisplayGroupRatio(sharedModel), 1)
   })
 
-  test('excludes hidden groups from the best disclosed ratio', () => {
+  test('hidden groups cannot affect the price or availability badge', () => {
     const sharedModel = {
       ...model(['all']),
       group_ratio: { default: 1, vip: 0.8, auto: 0.1, '': 0.2 },
     }
 
-    assert.equal(getDisplayGroupRatio(sharedModel), 0.8)
+    assert.equal(getDisplayGroupRatio(sharedModel), 1)
+    assert.equal(getDisplayPriceGroup(sharedModel), 'default')
   })
 })

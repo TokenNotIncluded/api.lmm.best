@@ -143,7 +143,7 @@ export function ModelCompareDialog(props: ModelCompareDialogProps) {
     },
     {
       key: 'group',
-      label: t('Group'),
+      label: t('Available groups'),
       cells: props.models.map((model) => {
         const group = getDisplayPriceGroup(model, props.selectedGroup)
         return group ? (
@@ -301,6 +301,9 @@ export function ModelCompareDialog(props: ModelCompareDialogProps) {
               'Side by side prices, speed and capabilities. Green marks the best value in each row.'
             )}
           </DialogDescription>
+          <p className='text-muted-foreground text-xs'>
+            {t('Base price (1×)')}
+          </p>
         </DialogHeader>
 
         <section

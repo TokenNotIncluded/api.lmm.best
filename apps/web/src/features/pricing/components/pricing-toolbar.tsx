@@ -291,12 +291,9 @@ export function PricingToolbar(props: PricingToolbarProps) {
         </div>
       </div>
 
-      <p
-        role='note'
-        className='text-muted-foreground hidden text-xs leading-5 sm:block'
-      >
+      <p role='note' className='text-muted-foreground text-xs leading-5'>
         {t(
-          'No group selected shows starting prices. Checkout confirms the final amount.'
+          'Groups filter model availability only. Prices always use the base price (1×).'
         )}
       </p>
 

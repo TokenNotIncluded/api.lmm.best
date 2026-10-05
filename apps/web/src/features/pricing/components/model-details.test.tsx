@@ -203,13 +203,14 @@ describe('ModelDetails group pricing', () => {
     await unmount(rendered)
   })
 
-  test('renders a configured zero group ratio as zero', async () => {
+  test('a free group cannot change the displayed base price', async () => {
     const rendered = await renderModelDetails()
 
-    assert.match(rendered.container.textContent ?? '', /0x/)
+    assert.match(rendered.container.textContent ?? '', /Base price \(1×\)/)
+    assert.match(rendered.container.textContent ?? '', /2 USD/)
     assert.doesNotMatch(
       rendered.container.textContent ?? '',
-      /free-model[\s\S]*1x/i
+      /0x|Pricing by Group/
     )
 
     await unmount(rendered)
@@ -236,7 +237,7 @@ describe('ModelDetails group pricing', () => {
         )
       )
     }
-    assert.equal(section.querySelector('select')?.value, 'free')
+    assert.equal(section.querySelector('select'), null)
     assert.doesNotMatch(
       section.querySelector('[aria-live]')?.textContent ?? '',
       /unavailable/
@@ -285,7 +286,7 @@ describe('ModelDetails group pricing', () => {
     )
     assert.match(
       section.querySelector('[aria-live]')?.textContent ?? '',
-      /^0\.00084 USD$/
+      /^0\.00042 USD$/
     )
     const presets = [...section.querySelectorAll('button')]
     assert.equal(presets.length, 1)
@@ -295,7 +296,7 @@ describe('ModelDetails group pricing', () => {
     assert.equal(presets[0].getAttribute('aria-pressed'), 'true')
     assert.match(
       section.querySelector('[aria-live]')?.textContent ?? '',
-      /^0\.0042 USD$/
+      /^0\.0021 USD$/
     )
 
     const setValue = Object.getOwnPropertyDescriptor(
@@ -310,7 +311,7 @@ describe('ModelDetails group pricing', () => {
     assert.equal(presets[0].getAttribute('aria-pressed'), 'false')
     assert.match(
       section.querySelector('[aria-live]')?.textContent ?? '',
-      /^0\.0021 USD$/
+      /^0\.00105 USD$/
     )
     await unmount(rendered)
   })

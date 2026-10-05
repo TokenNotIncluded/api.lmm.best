@@ -44,9 +44,9 @@ describe('compare selection', () => {
 })
 
 describe('compare prices', () => {
-  it('uses the cheapest visible group unless one is selected', () => {
-    assert.equal(getCompareTokenPrice(model, 'input', 'M'), 1.5)
-    assert.equal(getCompareTokenPrice(model, 'output', 'K', 'default'), 0.03)
+  it('uses the same 1× base price for every group', () => {
+    assert.equal(getCompareTokenPrice(model, 'input', 'M'), 3)
+    assert.equal(getCompareTokenPrice(model, 'output', 'K', 'default'), 0.015)
   })
   it('does not invent token prices for request or dynamic billing', () => {
     assert.equal(
@@ -73,8 +73,8 @@ describe('compare prices', () => {
       requestsPerDay: 100,
     })
     assert.ok(cost)
-    assert.equal(cost.perRequest, 0.03)
-    assert.equal(Math.round(cost.perMonth * 100) / 100, 90)
+    assert.equal(cost.perRequest, 0.06)
+    assert.equal(Math.round(cost.perMonth * 100) / 100, 180)
     assert.equal(
       estimateWorkloadCost(model, { input: 1, output: 1, requestsPerDay: -1 }),
       null

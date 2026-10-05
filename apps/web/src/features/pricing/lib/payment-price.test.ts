@@ -61,7 +61,7 @@ const requestModel: PricingModel = {
 test('uses canonical USD without a second legacy-unit or FX conversion', () => {
   assert.equal(
     formatPrice(tokenModel, 'input', 'M', 'USD', 'default'),
-    '25 USD'
+    '2.5 USD'
   )
   assert.equal(
     formatGroupPrice(
@@ -91,26 +91,26 @@ test('uses canonical USD without a second legacy-unit or FX conversion', () => {
     ),
     '50 USD'
   )
-  assert.equal(formatRequestPrice(requestModel, 'USD', 'default'), '50 USD')
+  assert.equal(formatRequestPrice(requestModel, 'USD', 'default'), '5 USD')
 })
 test('separates CNY FX, fixed Credit denomination and M/K usage units', () => {
   assert.equal(
     formatPrice(tokenModel, 'input', 'M', 'CNY', 'default'),
-    '175 CNY'
+    '17.5 CNY'
   )
   assert.equal(
     formatPrice(tokenModel, 'input', 'M', 'CREDIT', 'default'),
-    '12,500,000 Credits'
+    '1,250,000 Credits'
   )
   assert.equal(
     formatPrice(tokenModel, 'input', 'K', 'USD', 'default'),
-    '0.025 USD'
+    '0.0025 USD'
   )
   assert.equal(
     formatPrice(tokenModel, 'cache', 'K', 'CREDIT', 'default'),
-    '1,250 Credits'
+    '125 Credits'
   )
-  assert.equal(formatPrice(tokenModel, 'input', 'M', 'USD'), '0.25 USD')
+  assert.equal(formatPrice(tokenModel, 'input', 'M', 'USD'), '2.5 USD')
   assert.equal(formatModelPrice(0.0000025, 'CREDIT'), '1.25 Credits')
   useSystemConfigStore.getState().setConfig({
     currency: {
@@ -124,15 +124,15 @@ test('separates CNY FX, fixed Credit denomination and M/K usage units', () => {
   })
   assert.equal(
     formatPrice(tokenModel, 'input', 'M', 'CNY', 'default'),
-    '200 CNY'
+    '20 CNY'
   )
   assert.equal(
     formatPrice(tokenModel, 'input', 'M', 'CREDIT', 'default'),
-    '12,500,000 Credits'
+    '1,250,000 Credits'
   )
   assert.equal(
     formatPrice(tokenModel, 'input', 'M', 'USD', 'default'),
-    '25 USD'
+    '2.5 USD'
   )
 })
 test('unknown denomination or FX does not invent a one-to-one price', () => {
@@ -148,7 +148,7 @@ test('unknown denomination or FX does not invent a one-to-one price', () => {
   })
   assert.equal(formatPrice(tokenModel, 'input', 'M', 'CREDIT'), '-')
   assert.equal(formatPrice(tokenModel, 'input', 'M', 'CNY'), '-')
-  assert.equal(formatPrice(tokenModel, 'input', 'M', 'USD'), '0.25 USD')
+  assert.equal(formatPrice(tokenModel, 'input', 'M', 'USD'), '2.5 USD')
 })
 test('unknown price schemas and absent prices never become zero or USD', () => {
   assert.equal(
@@ -178,8 +178,8 @@ test('unknown price schemas and absent prices never become zero or USD', () => {
     '-'
   )
 })
-test('explicit free prices and groups stay zero in all three units', () => {
-  const free = { ...tokenModel, group_ratio: { default: 0 } }
+test('explicit free base prices stay zero independently of group multipliers', () => {
+  const free = { ...tokenModel, input_price: 0, group_ratio: { default: 2 } }
   assert.equal(formatPrice(free, 'input', 'M', 'USD', 'default'), '0 USD')
   assert.equal(formatPrice(free, 'input', 'M', 'CNY', 'default'), '0 CNY')
   assert.equal(

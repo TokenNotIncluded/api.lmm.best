@@ -334,7 +334,7 @@ export function Pricing() {
             </div>
             <p role='note' className='text-muted-foreground text-xs leading-5'>
               {t(
-                'No group selected shows starting prices. Checkout confirms the final amount.'
+                'Groups filter model availability only. Prices always use the base price (1×).'
               )}
             </p>
           </div>

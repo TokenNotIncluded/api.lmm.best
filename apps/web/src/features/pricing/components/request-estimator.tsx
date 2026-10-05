@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
 import { isNativeSessionEndpointType } from '../constants'
-import { getAvailableGroups } from '../lib/model-helpers'
 import { formatModelPrice } from '../lib/price-display'
 import { estimateRequestCost } from '../lib/request-estimate'
 import type { ModelDetailsContentProps } from './model-details'
@@ -25,7 +24,6 @@ const SYSTEMONE_PRESETS = [
 export function RequestEstimator(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
   const id = useId()
-  const [selected, setSelected] = useState('')
   const [input, setInput] = useState('10000')
   const [output, setOutput] = useState('2000')
   const [cached, setCached] = useState('0')
@@ -37,13 +35,11 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
     : /(^|\/)gpt-(?:live|realtime)(?:-|$)/.test(props.model.model_name)
   if (isNativeSession) return null
   const presets = isSystemone ? SYSTEMONE_PRESETS : PRESETS
-  const groups = getAvailableGroups(props.model, props.usableGroup)
-  const group = groups.includes(selected) ? selected : (groups[0] ?? '')
   const parse = (value: string) =>
     value.trim() === '' ? Number.NaN : Number(value)
   const amount = estimateRequestCost(
     props.model,
-    props.groupRatio[group],
+    1,
     parse(input),
     isSystemone ? 0 : parse(output),
     isSystemone ? 0 : parse(cached)
@@ -56,24 +52,7 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
       <h3 id={`${id}-title`} className='text-sm font-semibold'>
         {t('Request cost estimate')}
       </h3>
-      <label className='grid gap-1 text-sm' htmlFor={`${id}-group`}>
-        {t('Group')}
-        <select
-          id={`${id}-group`}
-          className='bg-background h-9 rounded-md border px-2'
-          value={group}
-          onChange={(event) => setSelected(event.target.value)}
-        >
-          {groups.length === 0 && (
-            <option value=''>{t('No available groups')}</option>
-          )}
-          {groups.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-      </label>
+      <p className='text-muted-foreground text-xs'>{t('Base price (1×)')}</p>
       {props.model.quota_type === 0 && (
         <>
           <div className='flex flex-wrap gap-1.5'>
@@ -159,11 +138,11 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
         <p className='text-muted-foreground mt-1 text-xs leading-relaxed'>
           {t(
             isSystemone
-              ? 'One request, input tokens and selected group multiplier included. Actual charges may differ.'
-              : 'One request, selected group multiplier included. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.'
+              ? 'One request at the base price (1×), using input tokens. Actual charges may differ.'
+              : 'One request at the base price (1×). Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.'
           )}
           {amount === null
-            ? ` ${t('Check token counts and group prices. Dynamic or special billing requires the pricing rules above.')}`
+            ? ` ${t('Check token counts. Dynamic or special billing requires the pricing rules above.')}`
             : ''}
         </p>
       </details>

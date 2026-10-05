@@ -180,7 +180,7 @@ export function formatFixedPrice(
 }
 
 /**
- * Format fixed price for pay-per-request models (minimum price from all groups)
+ * Format the canonical base price for pay-per-request models.
  */
 export function formatRequestPrice(
   model: PricingModel,
