@@ -27,7 +27,9 @@ def main():
     verifier, plan = fixtures.v, fixtures.fixture_plan()
     verifier_path = Path(verifier.__file__)
     inventory = {'format': helper.FORMAT, 'schema': plan['target']['schema'], 'tables': [{'schema': plan['target']['schema'], 'name': 'users', 'kind': 'r', 'partition': False, 'parents': [], 'bound_sha256': None, 'columns': [{'name': name, 'type': 'bigint', 'collation': None, 'not_null': name == 'id'} for name in ('id', 'quota', 'aff_quota')]}]}
-    root = Path(tempfile.mkdtemp(prefix='credit-original-cli-', dir=Path.home() / '.cache'))
+    cache = Path.home() / '.cache'
+    cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix='credit-original-cli-', dir=cache))
     root.chmod(0o700)
     log = root / 'tests.log'
     log.touch(mode=0o600)
