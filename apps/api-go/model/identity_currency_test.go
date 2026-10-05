@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -26,6 +27,41 @@ func installPaidPolicyCurrencyFixture(t *testing.T, q float64) {
 			require.NoError(t, common.SetCreditCurrencyBasis(oldK, oldQ))
 		}
 	})
+}
+
+func TestPaidUSDProjectionRejectsDecimalOverflowWithoutChangingPolicy(t *testing.T) {
+	db := setupTopUpAccessTestDB(t)
+	installPaidPolicyCurrencyFixture(t, 500000)
+	withDeveloperAccessSetting(t, true, 100)
+	user := User{Id: 919, Role: common.RoleCommonUser}
+	require.NoError(t, db.Create(&TopUp{UserId: user.Id, TradeNo: "overflow-display", CreditedQuota: 50000000, Money: 1, PaymentProvider: PaymentProviderStripe, Status: common.TopUpStatusSuccess, CompleteTime: time.Now().Unix()}).Error)
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.RequireFromString("1e-500"), decimal.NewFromInt(500000)))
+	snapshot, err := GetFreshUserAccessSnapshot(&user)
+	require.NoError(t, err)
+	require.Equal(t, 100.0, snapshot.TrustLevel.PaidAmount)
+	require.EqualValues(t, 100000000, snapshot.PaidAmountMicros)
+	require.Equal(t, 2, snapshot.TrustLevel.Level)
+	require.True(t, snapshot.DeveloperAccess.Granted)
+	require.Nil(t, snapshot.TrustLevel.PaidAmountUSD)
+	require.Nil(t, snapshot.TrustLevel.NextLevelPaidAmountUSD)
+	require.Nil(t, snapshot.TrustLevel.AmountToNextLevelUSD)
+	require.Nil(t, GetTrustLevelTiers()[2].MinPaidAmountUSD)
+	encoded, err := json.Marshal(snapshot.TrustLevel)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"paid_amount_usd":null`)
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		require.Nil(t, LegacyPolicyAmountUSD(value))
+		info := (paidTopUpAggregate{CreditedQuota: value}).withUSDDisplay(snapshot.TrustLevel)
+		require.Nil(t, info.PaidAmountUSD)
+		_, err := json.Marshal(info)
+		require.NoError(t, err)
+	}
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	require.Equal(t, 0.0, *LegacyPolicyAmountUSD(0))
+	zero := (paidTopUpAggregate{}).withUSDDisplay(EvaluateTrustLevelWithActivation(common.RoleCommonUser, nil, 0, false, 0, 0))
+	require.Equal(t, 0.0, *zero.PaidAmountUSD)
+	_, err = json.Marshal(zero)
+	require.NoError(t, err)
 }
 
 func TestPaidPolicyKeepsHistoricalThresholdsAndOrderBytesAfterRateDrift(t *testing.T) {

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -66,12 +67,20 @@ func oauthBalancePayload(quota int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
+	quotaPerUSD := anchor.InexactFloat64()
+	if math.IsNaN(quotaPerUSD) || math.IsInf(quotaPerUSD, 0) || quotaPerUSD <= 0 {
+		return nil, common.ErrCreditUnitsUnavailable
+	}
 	usd, err := common.CreditsToUSD(int64(quota))
 	if err != nil {
 		return nil, err
 	}
-	return gin.H{"schema_version": 2, "currency": "USD", "balance": usd.InexactFloat64(), "quota": quota,
-		"quota_unit": "CREDIT", "credit_unit": 1, "credits_per_usd": anchor.String(), "quota_per_unit": anchor.InexactFloat64(),
+	value := usd.InexactFloat64()
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return nil, common.ErrCreditUnitsUnavailable
+	}
+	return gin.H{"schema_version": 2, "currency": "USD", "balance": value, "quota": quota,
+		"quota_unit": "CREDIT", "credit_unit": 1, "credits_per_usd": anchor.String(), "quota_per_unit": quotaPerUSD,
 		"updated_at": time.Now().Unix(), "authorization_limit": nil}, nil
 }
 

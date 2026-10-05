@@ -449,6 +449,9 @@ func LegacyPolicyAmountUSD(amount float64) *float64 {
 		return nil
 	}
 	value := decimal.NewFromFloat(amount).Mul(legacy).Div(anchor).InexactFloat64()
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return nil
+	}
 	return &value
 }
 
@@ -456,15 +459,23 @@ func LegacyPolicyAmountUSD(amount float64) *float64 {
 // round a single credit to zero; that rounding must not erase real USD value.
 func (aggregate paidTopUpAggregate) withUSDDisplay(info TrustLevelInfo) TrustLevelInfo {
 	anchor, err := common.CreditsPerUSD()
-	if err != nil {
+	if err != nil || math.IsNaN(aggregate.CreditedQuota) || math.IsInf(aggregate.CreditedQuota, 0) {
 		info.PaidAmountUSD, info.AmountToNextLevelUSD = nil, nil
 		return info
 	}
 	value := decimal.NewFromFloat(aggregate.CreditedQuota).Div(anchor).InexactFloat64()
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		info.PaidAmountUSD, info.AmountToNextLevelUSD = nil, nil
+		return info
+	}
 	info.PaidAmountUSD = &value
 	if info.NextLevelPaidAmountUSD != nil {
 		remaining := math.Max(0, *info.NextLevelPaidAmountUSD-value)
-		info.AmountToNextLevelUSD = &remaining
+		if math.IsNaN(remaining) || math.IsInf(remaining, 0) {
+			info.AmountToNextLevelUSD = nil
+		} else {
+			info.AmountToNextLevelUSD = &remaining
+		}
 	}
 	return info
 }

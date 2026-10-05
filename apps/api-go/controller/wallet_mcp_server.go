@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -148,9 +149,13 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
 			}
+			value := usd.InexactFloat64()
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
 			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: map[string]any{"schema_version": 2, "available_quota": user.Quota,
 				"available_credits": user.Quota, "currency_unit": "CREDIT", "credit_unit": 1, "quota_per_platform_credit": 1,
-				"currency": "USD", "available_usd": usd.InexactFloat64(), "credits_per_usd": anchor.String(), "tool_price_quota": 0}}, nil
+				"currency": "USD", "available_usd": value, "credits_per_usd": anchor.String(), "tool_price_quota": 0}}, nil
 		})
 
 	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", "Open the official wallet with a bounded whole legacy batch amount prefilled. The wallet converts this compatibility amount to credits. The user chooses a payment method and confirms there; this is not a payment-provider checkout, successful payment or balance credit. The MCP call is free.", true, false, true),

@@ -76,6 +76,18 @@ func TestOAuthBalanceHTTPRejectsMissingBasisWithoutChangingAuthorization(t *test
 	require.Equal(t, "USD", data["currency"])
 	require.EqualValues(t, 1, data["balance"])
 	require.EqualValues(t, 3500000, data["quota"])
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.RequireFromString("1e-500"), decimal.NewFromInt(500000)))
+	w = request(tokens.AccessToken)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.JSONEq(t, `{"error":"temporarily_unavailable"}`, w.Body.String())
+	require.NoError(t, db.Model(&user).Update("quota", 0).Error)
+	w = request(tokens.AccessToken)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, "the numeric K alias must not underflow to zero")
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	w = request(tokens.AccessToken)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &data))
+	require.EqualValues(t, 0, data["balance"])
 	common.ClearCreditsPerUSD()
 	w = request(tokens.AccessToken)
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
@@ -83,6 +95,32 @@ func TestOAuthBalanceHTTPRejectsMissingBasisWithoutChangingAuthorization(t *test
 	require.Equal(t, http.StatusUnauthorized, request("invalid-synthetic-token").Code)
 	require.NoError(t, db.Model(&user).Update("status", common.UserStatusDisabled).Error)
 	require.Equal(t, http.StatusUnauthorized, request(tokens.AccessToken).Code)
+}
+
+func TestBalanceUSDProjectionRejectsDecimalOverflowAndKeepsNormalZero(t *testing.T) {
+	db, user, _ := setupWalletMCPTest(t)
+	require.NoError(t, db.Model(&user).Update("quota", 1).Error)
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.RequireFromString("1e-500"), decimal.NewFromInt(500000)))
+	for _, raw := range []int{0, 1} {
+		data, err := oauthBalancePayload(raw)
+		require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
+		require.Nil(t, data)
+	}
+	session := walletMCPTestSession(t, user.Id, walletMCPTestExtra("a"))
+	require.True(t, walletMCPCall(t, session, "wallet.balance", map[string]any{}, "").IsError)
+	var stored model.User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Equal(t, 1, stored.Quota, "an unavailable display never mutates raw credits")
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	data, err := oauthBalancePayload(0)
+	require.NoError(t, err)
+	require.Equal(t, 0.0, data["balance"])
+	_, err = json.Marshal(data)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&user).Update("quota", 0).Error)
+	balance := walletMCPData(t, walletMCPCall(t, session, "wallet.balance", map[string]any{}, ""))
+	require.EqualValues(t, 0, balance["available_usd"])
+	require.EqualValues(t, 0, balance["available_quota"])
 }
 
 func TestOAuthBalanceUsesFixedUSDAnchorAndRawOneCredit(t *testing.T) {
