@@ -5,6 +5,7 @@ TOPUP_TEXT = ("payment_provider", "payment_method", "settlement_currency")
 REFERRAL_NUMBERS = ("inviter_id", "invitee_id", "top_up_id", "quota", "revoked_quota", "penalty_quota", "penalty_percent", "max_penalty_quota", "revision", "created_at", "updated_at")
 INTERNAL_METHODS = ("ldc", "linuxdo", "linux_do", "linuxdo_credit")
 ASCII_SPACE = " \t\n\r\v\f"
+RECOVERABLE_TOPUP_SQL = "(status='pending' OR (payment_provider='waffo_pancake' AND status='failed' AND failure_reason_code='checkout_timeout'))"
 
 
 def legacy_noncash(source):
@@ -46,12 +47,13 @@ def make_auxiliary(snapshot, selected, scale, *, include_pending=False, include_
         for row in rows:
             source = dict(row)
             tid, uid = safe_int(source.get("id"), "pending topup id"), safe_int(source.get("user_id"), "pending topup user")
-            if tid <= 0 or tid in seen or uid not in selected or source.get("status") != "pending":
+            recoverable = source.get("status") == "pending" or (source.get("status") == "failed" and source.get("payment_provider") == "waffo_pancake" and source.get("failure_reason_code") == "checkout_timeout")
+            if tid <= 0 or tid in seen or uid not in selected or not recoverable:
                 raise ValueError("duplicate, unselected or nonpending topup")
             seen.add(tid)
             for key in TOPUP_NUMBERS:
                 safe_int(source.get(key), "pending topup " + key)
-            for key in TOPUP_TEXT + ("money",):
+            for key in TOPUP_TEXT + ("money", "failure_reason_code"):
                 if not isinstance(source.get(key), str) or "\x00" in source[key]:
                     raise ValueError("pending source requires exact " + key)
             from decimal import Decimal, InvalidOperation
@@ -104,10 +106,10 @@ def render_auxiliary(plan, schema, literal):
     if plan["include_pending_topups"]:
         for key, kind, default in (("pending_credit_rebase_key", "varchar(128)", "''"), ("pending_credit_rebase_original_quota", "bigint", "0"), ("pending_credit_rebase_effective_quota", "bigint", "0")):
             ddl.append(f"ALTER TABLE {schema}.top_ups ADD COLUMN IF NOT EXISTS {key} {kind} NOT NULL DEFAULT {default};")
-        checks.append(f"IF (SELECT count(*) FROM {schema}.top_ups WHERE status='pending' AND user_id=ANY(ARRAY[{selected}]::bigint[])) <> {len(plan['pending_bases'])} THEN RAISE EXCEPTION 'pending topup snapshot incomplete'; END IF;")
+        checks.append(f"IF (SELECT count(*) FROM {schema}.top_ups WHERE {RECOVERABLE_TOPUP_SQL} AND user_id=ANY(ARRAY[{selected}]::bigint[])) <> {len(plan['pending_bases'])} THEN RAISE EXCEPTION 'pending or recoverable failed topup snapshot incomplete'; END IF;")
         for b in plan["pending_bases"]:
             s = b["source"]
-            clauses = [f"id={b['top_up_id']}", f"user_id={b['user_id']}", "status='pending'"]
+            clauses = [f"id={b['top_up_id']}", f"user_id={b['user_id']}", f"status={literal(s['status'])}", f"failure_reason_code={literal(s['failure_reason_code'])}"]
             clauses += [f"{key}={s[key]}" for key in TOPUP_NUMBERS]
             clauses += [f"{key}={literal(s[key])}" for key in TOPUP_TEXT]
             clauses += [f"money={literal(s['money'])}::double precision", "pending_credit_rebase_key=''", "pending_credit_rebase_original_quota=0", "pending_credit_rebase_effective_quota=0"]

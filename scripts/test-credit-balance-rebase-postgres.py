@@ -58,10 +58,11 @@ INSERT INTO fixture_money.tokens VALUES (10,1,680,false);
                 "price_review": {"status": "verified", "evidence": "synthetic $credit_rebase$ quote ' and slash \\ fixture",
                                  "option_corrections": []}}
     snapshot["referrals"] = [{"id":9,"inviter_id":1,"invitee_id":2,"top_up_id":20,"quota":680,"revoked_quota":680,"penalty_quota":68,"penalty_percent":10,"max_penalty_quota":0,"revision":1,"created_at":0,"updated_at":0,"status":"revoked","reason":"abuse"}]
-    snapshot["pending_topups"] = [snapshot["topups"][0] | {"id":21,"status":"pending","credited_quota":680,"refunded_quota":0,"refunded_amount_micros":0,"effective_credited_quota":680,"pending_credit_rebase_key":"","pending_credit_rebase_original_quota":0,"pending_credit_rebase_effective_quota":0}]
+    snapshot["pending_topups"] = [snapshot["topups"][0] | {"id":21,"status":"pending","failure_reason_code":"","credited_quota":680,"refunded_quota":0,"refunded_amount_micros":0,"effective_credited_quota":680,"pending_credit_rebase_key":"","pending_credit_rebase_original_quota":0,"pending_credit_rebase_effective_quota":0}]
     noncash = snapshot["topups"][0] | {"id":22,"credited_quota":0,"amount":2,"settled_amount_micros":0,"expected_amount_micros":0,"refunded_quota":0,"refunded_amount_micros":0,"money":"0.28","payment_provider":"epay","payment_method":"epay","settlement_currency":"","effective_credited_quota":0,"paid_amount_micros":280000,"is_legacy_linuxdo_credit_topup":True}
     snapshot["topups"].append(noncash)
-    ok(base,input="INSERT INTO fixture_money.top_ups VALUES (22,1,'success',0,2,0,0,0,0,0,0.28,'epay','epay','');")
+    ok(base,input="ALTER TABLE fixture_money.top_ups ADD COLUMN failure_reason_code text NOT NULL DEFAULT '';")
+    ok(base,input="INSERT INTO fixture_money.top_ups VALUES (22,1,'success',0,2,0,0,0,0,0,0.28,'epay','epay','','');")
     snapshot["users"][1]["aff_quota"] = 0
     snapshot["users"][0]["aff_quota"] = 680
     from credit_rebase_entitlements import SPECS

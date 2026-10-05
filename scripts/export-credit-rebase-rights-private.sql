@@ -15,11 +15,12 @@ pending AS (
  SELECT id,user_id,status,credited_quota,amount,platform_amount_micros,
         settled_amount_micros,expected_amount_micros,refunded_quota,
         refunded_amount_micros,money::text,payment_provider,payment_method,
-        settlement_currency,
+        settlement_currency,failure_reason_code,
         COALESCE(to_jsonb(t)->'pending_credit_rebase_key','""'::jsonb) AS pending_credit_rebase_key,
         COALESCE(to_jsonb(t)->'pending_credit_rebase_original_quota','0'::jsonb) AS pending_credit_rebase_original_quota,
         COALESCE(to_jsonb(t)->'pending_credit_rebase_effective_quota','0'::jsonb) AS pending_credit_rebase_effective_quota
- FROM :"target_schema".top_ups t WHERE status='pending'
+ FROM :"target_schema".top_ups t WHERE status='pending' OR
+   (payment_provider='waffo_pancake' AND status='failed' AND failure_reason_code='checkout_timeout')
 ), referrals AS (
  SELECT id,inviter_id,invitee_id,top_up_id,quota,revoked_quota,penalty_quota,
         penalty_percent,max_penalty_quota,revision,created_at,updated_at,status,reason

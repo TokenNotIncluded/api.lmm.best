@@ -85,7 +85,7 @@ class RebaseTests(unittest.TestCase):
         snapshot["topups"] = [source]
         reward = {key:0 for key in REFERRAL_NUMBERS} | {"id":9,"inviter_id":1,"invitee_id":2,"top_up_id":20,"quota":680,"revoked_quota":680,"penalty_quota":68,"status":"revoked","reason":"abuse"}
         snapshot["referrals"] = [reward]
-        pending = source | {"id":21,"status":"pending","credited_quota":680,"amount":0,"effective_credited_quota":680,"is_legacy_linuxdo_credit_topup":False,"pending_credit_rebase_key":"","pending_credit_rebase_original_quota":0,"pending_credit_rebase_effective_quota":0}
+        pending = source | {"id":21,"status":"failed","payment_provider":"waffo_pancake","failure_reason_code":"checkout_timeout","credited_quota":680,"amount":0,"effective_credited_quota":680,"is_legacy_linuxdo_credit_topup":False,"pending_credit_rebase_key":"","pending_credit_rebase_original_quota":0,"pending_credit_rebase_effective_quota":0}
         snapshot["pending_topups"] = [pending]
         plan = r.make_plan(snapshot, **self.kw, restore_fixed_anchors=True, include_pending_topups=True, include_affiliate=True)
         self.assertEqual(len(plan["refund_bases"]),0)
