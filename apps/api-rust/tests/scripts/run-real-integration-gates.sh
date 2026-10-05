@@ -170,14 +170,14 @@ run_stripe() (
 
 run_catalog() (
   for variable in LMM_TEST_DATABASE_URL LMM_AUTH_TEST_VALKEY_URL; do require_loopback_url "$variable"; done
-  require_api_ignored_test_count ai_directory 4
+  require_api_ignored_test_count ai_directory 5
   runtime=$(mktemp -d "${TMPDIR:-/tmp}/lmm-current-go-catalog.XXXXXX")
   trap 'rm -rf -- "$runtime"' EXIT
   export LMM_AI_DIRECTORY_GO_ORACLE_OUTPUT="$runtime/catalog.json"
   (cd "$repo_root/apps/api-go"; go test ./model -run '^TestRustAIDirectoryCurrentGoOracle$' -count=1)
   python3 "$script_dir/verify-current-go-export.py" catalog "$LMM_AI_DIRECTORY_GO_ORACLE_OUTPUT"
   run_exact_api_unit_test ai_directory quote_and_url_normalization_match_current_go_oracle
-  run_counted_api_integration_tests ai_directory 4
+  run_counted_api_integration_tests ai_directory 5
 )
 
 run_token_queries() (
