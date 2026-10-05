@@ -98,6 +98,7 @@ func TestPaymentRefundRebaseMissingAuditFailsClosed(t *testing.T) {
 		{"new_payment", true, `{"user_ids":[1],"refund_bases":[{"top_up_id":2}]}`, false},
 		{"invalid_plan", false, `broken`, true},
 		{"missing_order_inventory", false, `{"user_ids":[1]}`, true},
+		{"historical_noncash", true, `{"user_ids":[1],"refund_bases":[],"noncash_topups":[{"id":1}]}`, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			db := setupConsoleActivationTestDB(t)

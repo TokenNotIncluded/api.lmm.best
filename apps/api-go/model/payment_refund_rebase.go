@@ -134,11 +134,27 @@ func unrebasedTopUpRefundDeltaTx(tx *gorm.DB, topUp *TopUp, originalDelta int64)
 	}
 	for _, audit := range audits {
 		var plan struct {
-			UserIDs     []int           `json:"user_ids"`
-			RefundBases json.RawMessage `json:"refund_bases"`
+			UserIDs       []int           `json:"user_ids"`
+			RefundBases   json.RawMessage `json:"refund_bases"`
+			NoncashTopUps json.RawMessage `json:"noncash_topups"`
 		}
 		if err := json.Unmarshal([]byte(audit.Plan), &plan); err != nil {
 			return 0, fmt.Errorf("%w: invalid wallet rebase audit plan", ErrRefundAmountInvalid)
+		}
+
+		var noncash []struct {
+			ID int `json:"id"`
+		}
+		if len(plan.NoncashTopUps) > 0 && json.Unmarshal(plan.NoncashTopUps, &noncash) != nil {
+			return 0, fmt.Errorf("%w: invalid noncash topup migration audit", ErrRefundAmountInvalid)
+		}
+		for _, source := range noncash {
+			if source.ID <= 0 {
+				return 0, fmt.Errorf("%w: invalid noncash topup audit id", ErrRefundAmountInvalid)
+			}
+			if source.ID == topUp.Id {
+				return 0, fmt.Errorf("%w: historical noncash topup is not refundable", ErrRefundAmountInvalid)
+			}
 		}
 		affected := false
 		for _, userID := range plan.UserIDs {
