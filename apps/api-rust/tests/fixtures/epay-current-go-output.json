@@ -67,7 +67,7 @@
     "url": "https://pay.example/gateway/submit.php",
     "wallet_quota": 2625000
   },
-  "fixture_count": "15",
+  "fixture_count": "18",
   "fractional-half-cent": {
     "acks": [
       "fail",
@@ -122,6 +122,24 @@
     "url": "https://pay.example/gateway/submit.php",
     "wallet_quota": 7000000
   },
+  "legacy-half-credit": {
+    "acks": [
+      "fail",
+      "fail",
+      "success",
+      "success"
+    ],
+    "amount": 1,
+    "credited_quota": 500000,
+    "currency": "CNY",
+    "money": "0.50",
+    "name": "TUC1.000001",
+    "platform_amount_micros": 1000001,
+    "signature_valid": true,
+    "topup_logs": 1,
+    "url": "https://pay.example/gateway/submit.php",
+    "wallet_quota": 500000
+  },
   "maximum-limit": {
     "order_count": 0,
     "response": {
@@ -165,7 +183,7 @@
   "request-micros-overflow": {
     "order_count": 0,
     "response": {
-      "data": "充值数量最多支持 6 位小数",
+      "data": "充值额度超出系统可表示范围",
       "message": "error"
     }
   },
@@ -180,12 +198,37 @@
     "credited_quota": 500001,
     "currency": "CNY",
     "money": "0.50",
-    "name": "TUC500001",
+    "name": "TUC1.000002",
     "platform_amount_micros": 1000002,
     "signature_valid": true,
     "topup_logs": 1,
     "url": "https://pay.example/gateway/submit.php",
     "wallet_quota": 500001
+  },
+  "tokens-fractional-credit-rejected": {
+    "order_count": 0,
+    "response": {
+      "data": "CREDIT 必须为整数",
+      "message": "error"
+    }
+  },
+  "tokens-large-valid-credit": {
+    "acks": [
+      "fail",
+      "fail",
+      "success",
+      "success"
+    ],
+    "amount": 20000000,
+    "credited_quota": 10000000000000,
+    "currency": "CNY",
+    "money": "10000000.00",
+    "name": "TUC20000000",
+    "platform_amount_micros": 20000000000000,
+    "signature_valid": true,
+    "topup_logs": 1,
+    "url": "https://pay.example/gateway/submit.php",
+    "wallet_quota": 10000000000000
   },
   "too-many-decimal-places": {
     "order_count": 0,

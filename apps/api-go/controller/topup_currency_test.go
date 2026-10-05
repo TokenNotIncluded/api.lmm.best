@@ -253,6 +253,33 @@ func TestPaymentMethodCatalogDeclaresLimitsAndCanonicalBatchAliases(t *testing.T
 	require.Equal(t, "2", auto[0]["legacy_min_topup"])
 }
 
+func TestEpayLegacyAmountBoundariesKeepIntegerCreditAuthority(t *testing.T) {
+	preserveTopUpCreditMetadataConfig(t)
+	for _, tc := range []struct {
+		name, input, display, legacy string
+		credits, stored, micros      int64
+	}{
+		{"legacy half credit", "1.000001", "USD", "1.000001", 500000, 1, 1000001},
+		{"large integer tokens", "10000000000000", "TOKENS", "20000000", 10000000000000, 20000000, 20000000000000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation_setting.GetGeneralSetting().QuotaDisplayType = tc.display
+			amount, err := resolveTopUpDecimalAmount(decimal.RequireFromString(tc.input), "")
+			require.NoError(t, err)
+			require.Equal(t, tc.credits, amount.CreditedQuota)
+			require.Equal(t, tc.legacy, amount.LegacyBatch.String())
+			stored, micros, credits, err := topUpOrderAmountsResolved(amount)
+			require.NoError(t, err)
+			require.Equal(t, tc.stored, stored)
+			require.Equal(t, tc.micros, micros)
+			require.Equal(t, tc.credits, credits)
+		})
+	}
+	operation_setting.GetGeneralSetting().QuotaDisplayType = "TOKENS"
+	_, err := resolveTopUpDecimalAmount(decimal.RequireFromString("500000.5"), "")
+	require.EqualError(t, err, "CREDIT 必须为整数")
+}
+
 func TestTopUpWireRejectsFractionalCreditBeforeFloatRounding(t *testing.T) {
 	preserveChannelPricing(t)
 	preservePaymentCreditAnchor(t, "3500000")

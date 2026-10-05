@@ -149,15 +149,27 @@ impl PgEpayRepository {
         };
         let quota_per_unit = opt_decimal(&values, "QuotaPerUnit", "500000")
             .map_err(|_| message("充值额度配置无效"))?;
-        if input.amount <= Decimal::ZERO
-            || input.amount.normalize().scale() > 6
-            || monetary_micros(&input.amount.to_string()).is_err()
-        {
+        if input.amount <= Decimal::ZERO || input.amount.normalize().scale() > 6 {
             return Err(message("充值数量最多支持 6 位小数"));
         }
         let tokens = values
             .get("general_setting.quota_display_type")
             .is_some_and(|value| value == "TOKENS");
+        // Raw TOKENS credits are integers, not money micros. Current Go floors
+        // only the legacy batch conversion and checks wallet bounds before
+        // creating the compatibility platform-micros projection.
+        let quota = if tokens {
+            if !input.amount.fract().is_zero() {
+                return Err(message("CREDIT 必须为整数"));
+            }
+            input.amount
+        } else {
+            mul(input.amount, quota_per_unit)?.floor()
+        };
+        let quota = quota
+            .to_i64()
+            .filter(|quota| (1..=MAX_WALLET_QUOTA).contains(quota))
+            .ok_or_else(|| message("充值额度超出系统可表示范围"))?;
         let platform_amount = if tokens {
             div(input.amount, quota_per_unit)?
         } else {
@@ -186,15 +198,6 @@ impl PgEpayRepository {
             .ok_or_else(|| message("充值数量超出系统可表示范围"))?;
         let platform_amount_micros = monetary_micros(&platform_amount.to_string())
             .map_err(|_| message("平台充值数量最多支持 6 位小数"))?;
-        let quota = if tokens {
-            input.amount
-        } else {
-            mul(input.amount, quota_per_unit)?
-        };
-        let quota = round(quota, 0)
-            .to_i64()
-            .filter(|quota| (1..=MAX_WALLET_QUOTA).contains(quota))
-            .ok_or_else(|| message("充值额度超出系统可表示范围"))?;
         let current_quota = user_i64(&user, "quota");
         if !(-MAX_WALLET_QUOTA..=MAX_WALLET_QUOTA - quota).contains(&current_quota) {
             return Err(message("充值后余额将超过账户额度上限"));

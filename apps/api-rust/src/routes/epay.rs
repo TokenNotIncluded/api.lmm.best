@@ -27,7 +27,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use rust_decimal::{Decimal, prelude::ToPrimitive};
+use rust_decimal::Decimal;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -443,16 +443,9 @@ async fn epay_pay(State(state): State<UserTopupState>, request: Request) -> Resp
         Err(message) => return legacy_error(message),
     };
     let amount = match Decimal::from_str_exact(&request.amount.to_string()) {
-        Ok(value)
-            if value > Decimal::ZERO
-                && value.normalize().scale() <= 6
-                && value
-                    .checked_mul(Decimal::from(1_000_000))
-                    .and_then(|micros| micros.to_i64())
-                    .is_some() =>
-        {
-            value
-        }
+        // The repository validates integer credits and the legacy projection.
+        // A raw TOKENS amount cannot be bounded as monetary micros here.
+        Ok(value) if value > Decimal::ZERO && value.normalize().scale() <= 6 => value,
         _ => return legacy_error("充值数量最多支持 6 位小数"),
     };
     create_epay_checkout(

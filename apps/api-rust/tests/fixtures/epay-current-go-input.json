@@ -191,5 +191,42 @@
         "type": "alipay"
       }
     ]
+  },
+  {
+    "name": "legacy-half-credit",
+    "amount": "1.000001",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "tokens-large-valid-credit",
+    "amount": "10000000000000",
+    "method": "alipay",
+    "options": {
+      "general_setting.quota_display_type": "TOKENS"
+    },
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "tokens-fractional-credit-rejected",
+    "amount": "500000.5",
+    "method": "alipay",
+    "options": {
+      "general_setting.quota_display_type": "TOKENS"
+    },
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
   }
 ]

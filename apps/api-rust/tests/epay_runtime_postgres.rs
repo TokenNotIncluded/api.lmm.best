@@ -325,6 +325,9 @@ fn signed_callback_method(trade: &str, money: &str, key: &str, method: &str) -> 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL; tests/scripts/epay-current-differential.py regenerates the reference from current Go"]
 async fn current_go_checkout_notification_and_rejection_fixtures_match_rust() -> TestResult {
+    // These requests use the legacy compatibility boundary at matching site
+    // initialization. They do not establish canonical CREDIT or later fixed-K
+    // FX/bonus behavior in Rust; Go's native currency gates cover those.
     let inputs: Vec<Value> =
         serde_json::from_str(include_str!("fixtures/epay-current-go-input.json"))?;
     let reference: Value = if let Ok(path) = std::env::var("LMM_EPAY_GO_ORACLE_OUTPUT") {
