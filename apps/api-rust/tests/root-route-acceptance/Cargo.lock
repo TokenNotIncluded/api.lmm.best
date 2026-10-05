@@ -1532,6 +1532,8 @@ dependencies = [
  "lmm-contracts",
  "lmm-domain",
  "lmm-observability",
+ "num-bigint",
+ "num-traits",
  "pkcs1",
  "rand 0.9.5",
  "redis",
