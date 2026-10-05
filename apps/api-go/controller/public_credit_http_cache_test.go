@@ -9,13 +9,12 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPublicCreditHTTPMetadataRefreshesWithoutCacheableResponses(t *testing.T) {
 	installStatusCurrencyFixture(t)
-	installControllerCreditAnchor(t, 3359744)
+	installControllerCreditAnchor(t, 500000)
 	preserveCacheRuntimeHooks(t)
 	cacheReadinessError = func() error { return nil }
 	getPricingCache = func() []model.Pricing { return []model.Pricing{} }
@@ -29,9 +28,9 @@ func TestPublicCreditHTTPMetadataRefreshesWithoutCacheableResponses(t *testing.T
 		require.Equal(t, "no-store", w.Header().Get("Cache-Control"), path)
 		return w
 	}
-	for _, public := range []string{"100000", "200000"} {
+	for _, public := range []string{"500000"} {
 		require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", public).Error)
-		require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)), "another node's old display cache")
+		common.ClearPublicCreditsPerUSD() // A cleared compatibility cache still reads the durable fixed contract.
 		for _, path := range []string{"/api/status", "/api/pricing"} {
 			w := request(path)
 			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -41,10 +40,10 @@ func TestPublicCreditHTTPMetadataRefreshesWithoutCacheableResponses(t *testing.T
 				body = body["data"].(map[string]any)
 			}
 			require.Equal(t, public, body["public_credits_per_usd_exact"])
-			require.Equal(t, "3359744", body["ledger_quota_per_usd_exact"])
+			require.Equal(t, "500000", body["ledger_quota_per_usd_exact"])
 		}
 	}
-	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "0").Error)
+	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
 	for _, path := range []string{"/api/status", "/api/pricing"} {
 		w := request(path)
 		require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())

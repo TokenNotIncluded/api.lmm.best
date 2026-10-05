@@ -40,21 +40,21 @@ func publicTopUpCreditTestConfig(t *testing.T, public string) {
 		}
 	})
 	canonicalCreditTestConfig(t, 500000)
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3359744), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.RequireFromString(public)))
 	persistCreditDenominationFixture(t, model.DB)
 }
 
 func TestPublicTopUpCreditVersionedUnitsPreserveLegacyQuota(t *testing.T) {
-	publicTopUpCreditTestConfig(t, "100000")
+	publicTopUpCreditTestConfig(t, "500000")
 	for _, tc := range []struct {
 		name, unit, version string
 		amount, quota       int64
 	}{
 		{"old omitted version", "CREDIT", "", 100000, 100000},
 		{"explicit old version", "CREDIT", `,"credit_metadata_version":1`, 100000, 100000},
-		{"public one dollar", "CREDIT", `,"credit_metadata_version":2`, 100000, 3359744},
-		{"public dust floors once", "CREDIT", `,"credit_metadata_version":2`, 1, 33},
+		{"public one dollar", "CREDIT", `,"credit_metadata_version":2`, 500000, 500000},
+		{"public one credit", "CREDIT", `,"credit_metadata_version":2`, 1, 1},
 		{"authoritative existing preset", "LEDGER_QUOTA", `,"credit_metadata_version":2`, 5000000, 5000000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -63,7 +63,7 @@ func TestPublicTopUpCreditVersionedUnitsPreserveLegacyQuota(t *testing.T) {
 			if strings.Contains(tc.version, ":2") {
 				request = publicCreditRequest
 				if tc.unit == "CREDIT" {
-					guard = `,"expected_public_credits_per_usd_exact":"100000"`
+					guard = `,"expected_public_credits_per_usd_exact":"500000"`
 				}
 			}
 			response := request(t, func(c *gin.Context) {
@@ -85,7 +85,7 @@ func TestPublicTopUpCreditVersionedUnitsPreserveLegacyQuota(t *testing.T) {
 }
 
 func TestPublicTopUpCreditRejectsUnknownUnitsVersionsAndUnsafeConversion(t *testing.T) {
-	publicTopUpCreditTestConfig(t, "100000")
+	publicTopUpCreditTestConfig(t, "500000")
 	for _, body := range []string{
 		`{"amount":1,"amount_unit":"CREDIT"}`,
 		`{"amount":1,"amount_unit":"LEDGER_QUOTA"}`,
@@ -98,30 +98,32 @@ func TestPublicTopUpCreditRejectsUnknownUnitsVersionsAndUnsafeConversion(t *test
 		`{"amount":1,"amount_unit":"CREDIT","credit_metadata_version":"2"}`,
 		`{"amount":1,"amount_unit":"CREDIT","credit_metadata_version":2.0}`,
 		`{"amount":1,"amount_unit":"CREDIT","credit_metadata_version":null}`,
-		`{"amount":9007199254740991,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"100000"}`,
+		`{"amount":9007199254740992,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"500000"}`,
 	} {
 		called := false
 		response := publicCreditRequest(t, func(c *gin.Context) { called = true }, 0, body)
 		require.Equal(t, http.StatusBadRequest, response.Code, body)
 		require.False(t, called, body)
 	}
-	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000000)))
+	require.Error(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000000)))
 	persistCreditDenominationFixture(t, model.DB)
-	response := publicCreditRequest(t, func(c *gin.Context) { t.Fatal("positive public dust cannot grant zero ledger quota") }, 0,
+	response := publicCreditRequest(t, func(c *gin.Context) { t.Fatal("a stale denomination guard cannot reach checkout") }, 0,
 		`{"amount":1,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"100000000"}`)
+	require.Equal(t, http.StatusConflict, response.Code)
+	response = publicCreditRequest(t, func(c *gin.Context) { t.Fatal("fractional dust cannot grant zero credits") }, 0,
+		`{"amount":0.9,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"500000"}`)
 	require.Equal(t, http.StatusBadRequest, response.Code)
 }
 
 func TestPublicTopUpCreditExpectedDenominationRejectsStaleCheckout(t *testing.T) {
-	publicTopUpCreditTestConfig(t, "100000")
-	body := `{"amount":100000,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"100000"}`
+	publicTopUpCreditTestConfig(t, "500000")
+	body := `{"amount":100000,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"500000"}`
 	response := publicCreditRequest(t, func(c *gin.Context) {
 		amount, ok := canonicalTopUpCredit(c)
 		require.True(t, ok)
-		require.EqualValues(t, 3359744, amount.CreditedQuota)
-		// A concurrent denomination update must not alter this request's grant
-		// or mix its response amount with another metadata generation.
-		require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(200000)))
+		require.EqualValues(t, 100000, amount.CreditedQuota)
+		// A rejected denomination change cannot alter the wallet integer grant.
+		require.Error(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(200000)))
 		persistCreditDenominationFixture(t, model.DB)
 		c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, gin.H{}, "CREDIT", amount.LegacyBatch, amount.CreditedQuota, "USD"))
 	}, 0, body)
@@ -132,8 +134,8 @@ func TestPublicTopUpCreditExpectedDenominationRejectsStaleCheckout(t *testing.T)
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &first))
 	require.Equal(t, "100000", first.PublicAmount)
-	require.Equal(t, "100000", first.PublicExact)
-	response = publicCreditRequest(t, func(c *gin.Context) { t.Fatal("stale public units must not reach checkout") }, 0, body)
+	require.Equal(t, "500000", first.PublicExact)
+	response = publicCreditRequest(t, func(c *gin.Context) { t.Fatal("stale public units must not reach checkout") }, 0, strings.Replace(body, `"500000"`, `"200000"`, 1))
 	require.Equal(t, http.StatusConflict, response.Code)
 	for _, guard := range []string{"", `,"expected_public_credits_per_usd_exact":200000`, `,"expected_public_credits_per_usd_exact":"0200000"`, `,"expected_public_credits_per_usd_exact":"2e5"`, `,"expected_public_credits_per_usd_exact":"200000.0"`} {
 		response = publicCreditRequest(t, func(c *gin.Context) { t.Fatal("invalid or missing denomination guard reached checkout") }, 0,
@@ -143,7 +145,7 @@ func TestPublicTopUpCreditExpectedDenominationRejectsStaleCheckout(t *testing.T)
 }
 
 func TestPublicTopUpCreditCannotUseLegacyCurrencyRoute(t *testing.T) {
-	publicTopUpCreditTestConfig(t, "100000")
+	publicTopUpCreditTestConfig(t, "500000")
 	for _, unit := range []string{"CREDIT", "LEDGER_QUOTA"} {
 		response := canonicalCreditRequest(t, func(c *gin.Context) { t.Fatal("a public denomination request reached the version-1 handler") }, 0,
 			fmt.Sprintf(`{"amount":100000,"amount_unit":%q,"credit_metadata_version":2}`, unit))
@@ -152,7 +154,7 @@ func TestPublicTopUpCreditCannotUseLegacyCurrencyRoute(t *testing.T) {
 }
 
 func TestPublicTopUpCreditCannotFallThroughLegacyAmountResolver(t *testing.T) {
-	publicTopUpCreditTestConfig(t, "100000")
+	publicTopUpCreditTestConfig(t, "500000")
 	for _, version := range []string{"2", "3", "null", `"2"`} {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/user/amount", strings.NewReader(
@@ -191,7 +193,7 @@ func TestPublicTopUpCreditCannotFallThroughLegacyAmountResolver(t *testing.T) {
 }
 
 func TestPublicTopUpMetadataPairsDecimalProjectionWithLedgerSelection(t *testing.T) {
-	publicTopUpCreditTestConfig(t, "100000")
+	publicTopUpCreditTestConfig(t, "500000")
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 	operation_setting.GetPaymentSetting().AmountOptions = []int{5000000, 10000000}
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{5000000: 0.9}
@@ -203,21 +205,21 @@ func TestPublicTopUpMetadataPairsDecimalProjectionWithLedgerSelection(t *testing
 	require.Equal(t, 1, metadata["credit_metadata_version"])
 	require.Equal(t, 2, metadata["public_credit_metadata_version"])
 	require.Equal(t, "LEDGER_QUOTA", metadata["legacy_credit_unit"])
-	require.Equal(t, "3359744", metadata["ledger_quota_per_usd_exact"])
-	require.Equal(t, "100000", metadata["public_credits_per_usd_exact"])
+	require.Equal(t, "500000", metadata["ledger_quota_per_usd_exact"])
+	require.Equal(t, "500000", metadata["public_credits_per_usd_exact"])
 	require.Equal(t, []int64{5000000, 10000000}, metadata["credit_amount_options"])
 	require.Equal(t, metadata["credit_amount_options"], metadata["ledger_quota_amount_options"])
 	require.Equal(t, map[string]float64{"5000000": 0.9}, metadata["ledger_quota_discount"])
 	projection, err := common.LedgerQuotaToPublicCredits(5000000)
 	require.NoError(t, err)
-	require.False(t, projection.IsInteger(), "do not silently round an existing preset to a new public input")
+	require.True(t, projection.IsInteger(), "public credits are the same wallet integers")
 	require.Equal(t, projection.String(), metadata["public_credit_amount_options"].([]string)[0])
 	require.Equal(t, map[string]float64{projection.String(): 0.9}, metadata["public_credit_discount"])
-	require.Equal(t, "3359744", methods[0]["min_topup_credit"])
+	require.Equal(t, "500000", methods[0]["min_topup_credit"])
 	require.Equal(t, methods[0]["min_topup_credit"], methods[0]["min_topup_ledger_quota"])
-	require.Equal(t, "100000", methods[0]["min_topup_public_credit"])
-	require.Equal(t, "8399360", methods[0]["max_topup_credit"])
-	require.Equal(t, "250000", methods[0]["max_topup_public_credit"])
+	require.Equal(t, "500000", methods[0]["min_topup_public_credit"])
+	require.Equal(t, "1250000", methods[0]["max_topup_credit"])
+	require.Equal(t, "1250000", methods[0]["max_topup_public_credit"])
 	require.Equal(t, []int{5000000, 10000000}, operation_setting.GetPaymentSetting().AmountOptions)
 	require.Equal(t, map[int]float64{5000000: 0.9}, operation_setting.GetPaymentSetting().AmountDiscount)
 	fields := topUpCreditFields("LEDGER_QUOTA", decimal.NewFromInt(10), 5000000, "CNY")
@@ -238,7 +240,7 @@ func TestPublicTopUpQuoteCheckoutAndHistoricalRefundKeepFrozenMoneyPostgres(t *t
 
 func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool) {
 	t.Helper()
-	publicTopUpCreditTestConfig(t, "100000")
+	publicTopUpCreditTestConfig(t, "500000")
 	if postgres {
 		openAssistantKeyPostgresHarness(t)
 		persistCreditDenominationFixture(t, model.DB)
@@ -252,15 +254,15 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 	operation_setting.USDExchangeRate = 7
 	operation_setting.PayMethods = []map[string]string{{"type": "alipay"}}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{33597440: 0.9}
-	code := model.DiscountCode{Code: "PUBLIC_CREDIT_SNAPSHOT", DiscountPercent: 10, MinAmount: 33597440, Status: model.DiscountCodeStatusEnabled}
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{5000000: 0.9}
+	code := model.DiscountCode{Code: "PUBLIC_CREDIT_SNAPSHOT", DiscountPercent: 10, MinAmount: 5000000, Status: model.DiscountCodeStatusEnabled}
 	require.NoError(t, model.DB.Create(&code).Error)
 	previousAddress, previousID, previousKey := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey
 	operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey = "http://127.0.0.1:1", "offline-fixture", "offline-fixture"
 	t.Cleanup(func() {
 		operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey = previousAddress, previousID, previousKey
 	})
-	body := `{"amount":1000000,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"100000","payment_method":"alipay","discount_code":"PUBLIC_CREDIT_SNAPSHOT"}`
+	body := `{"amount":5000000,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"500000","payment_method":"alipay","discount_code":"PUBLIC_CREDIT_SNAPSHOT"}`
 	quote := publicCreditRequest(t, RequestAmount, 705, body)
 	var quoted struct {
 		Message, Data, CreditAmountUnit, PublicCreditAmount string
@@ -271,9 +273,9 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	require.NoError(t, json.Unmarshal(quote.Body.Bytes(), &raw))
 	require.Equal(t, "success", quoted.Message, quote.Body.String())
 	require.Equal(t, "56.70", quoted.Data)
-	require.EqualValues(t, 33597440, quoted.CreditedQuota)
+	require.EqualValues(t, 5000000, quoted.CreditedQuota)
 	require.JSONEq(t, `"LEDGER_QUOTA"`, string(raw["credit_amount_unit"]))
-	require.JSONEq(t, `"1000000"`, string(raw["public_credit_amount"]))
+	require.JSONEq(t, `"5000000"`, string(raw["public_credit_amount"]))
 	// Epay constructs its signed redirect locally; no real provider is called.
 	checkout := publicCreditRequest(t, RequestEpay, 705, body)
 	var opened struct {
@@ -285,11 +287,11 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	require.Equal(t, "56.70", opened.Data["money"])
 	var order model.TopUp
 	require.NoError(t, model.DB.Where("trade_no = ?", opened.Data["out_trade_no"]).First(&order).Error)
-	require.EqualValues(t, 33597440, order.CreditedQuota)
+	require.EqualValues(t, 5000000, order.CreditedQuota)
 	require.EqualValues(t, 56700000, order.ExpectedAmountMicros)
-	require.Equal(t, "33597440", order.DiscountQualifyingAmount)
+	require.Equal(t, "5000000", order.DiscountQualifyingAmount)
 	require.Equal(t, "CREDIT", order.DiscountQualifyingUnit, "historical coupon unit retains its ledger quota contract")
-	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(250000)))
+	require.Error(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(250000)))
 	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.USDExchangeRate = 9
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
@@ -302,46 +304,33 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	require.NoError(t, err)
 	var user model.User
 	require.NoError(t, model.DB.First(&user, 705).Error)
-	require.EqualValues(t, 33597440, user.Quota)
+	require.EqualValues(t, 5000000, user.Quota)
 	refund, err := model.ApplyPaymentRefund(order.TradeNo, false, 28350000, "CNY", "public-credit-refund", "alipay", model.PaymentProviderEpay, "fixture", 705)
 	require.NoError(t, err)
 	require.True(t, refund.Created)
-	require.EqualValues(t, 16798720, refund.QuotaDebited)
+	require.EqualValues(t, 2500000, refund.QuotaDebited)
 	refund, err = model.ApplyPaymentRefund(order.TradeNo, false, 28350000, "CNY", "public-credit-refund", "alipay", model.PaymentProviderEpay, "fixture", 705)
 	require.NoError(t, err)
 	require.False(t, refund.Created)
 	require.NoError(t, model.DB.First(&user, 705).Error)
-	require.EqualValues(t, 16798720, user.Quota)
+	require.EqualValues(t, 2500000, user.Quota)
 	require.NoError(t, model.DB.First(&order, order.Id).Error)
-	require.EqualValues(t, 33597440, order.CreditedQuota)
+	require.EqualValues(t, 5000000, order.CreditedQuota)
 	require.EqualValues(t, 56700000, order.ExpectedAmountMicros)
-	require.EqualValues(t, 16798720, order.RefundedQuota)
+	require.EqualValues(t, 2500000, order.RefundedQuota)
 }
 
-func TestPublicTopUpCreditReadsOtherNodeDurableDenominationImmediately(t *testing.T) {
-	publicTopUpCreditTestConfig(t, "100000")
-	// Another node has saved P; this process still holds the old local cache.
+func TestPublicTopUpCreditRejectsOtherNodeMutableDenomination(t *testing.T) {
+	publicTopUpCreditTestConfig(t, "500000")
 	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
 	cached, err := common.PublicCreditsPerUSD()
 	require.NoError(t, err)
-	require.Equal(t, "100000", cached.String())
-	response := publicCreditRequest(t, func(c *gin.Context) {
-		amount, ok := canonicalTopUpCredit(c)
-		require.True(t, ok)
-		require.EqualValues(t, 1679872, amount.CreditedQuota)
-		c.JSON(http.StatusOK, withTopUpRequestCreditFields(c, gin.H{}, "CREDIT", amount.LegacyBatch, amount.CreditedQuota, "USD"))
-	}, 0, `{"amount":100000,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"200000"}`)
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	var decoded struct {
-		PublicExact  string `json:"public_credits_per_usd_exact"`
-		PublicAmount string `json:"public_credit_amount"`
-	}
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &decoded))
-	require.Equal(t, "200000", decoded.PublicExact)
-	require.Equal(t, "100000", decoded.PublicAmount)
-	metadata, err := topUpCreditMetadata(nil)
-	require.NoError(t, err)
-	require.Equal(t, "200000", metadata["public_credits_per_usd_exact"])
+	require.Equal(t, "500000", cached.String())
+	response := publicCreditRequest(t, func(c *gin.Context) { t.Fatal("mutable durable denomination reached checkout") }, 0,
+		`{"amount":100000,"amount_unit":"CREDIT","credit_metadata_version":2,"expected_public_credits_per_usd_exact":"500000"}`)
+	require.Equal(t, http.StatusServiceUnavailable, response.Code, response.Body.String())
+	_, err = topUpCreditMetadata(nil)
+	require.Error(t, err)
 }
 
 func TestPublicTopUpCreditInvalidDurableConfigurationDoesNotUseStaleCache(t *testing.T) {
@@ -357,7 +346,7 @@ func TestPublicTopUpCreditInvalidDurableConfigurationDoesNotUseStaleCache(t *tes
 		{"database failure", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			publicTopUpCreditTestConfig(t, "100000")
+			publicTopUpCreditTestConfig(t, "500000")
 			if tc.key == "" {
 				require.NoError(t, model.DB.Migrator().DropTable(&model.Option{}))
 			} else if tc.value == "" {
