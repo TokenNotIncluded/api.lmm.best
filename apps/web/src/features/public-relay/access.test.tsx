@@ -78,6 +78,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
 const { PublicRelay } = await import('./index')
 
 const i18n = createInstance()
@@ -194,5 +196,166 @@ test('channel market does not request administrator data for contributors or ord
   } finally {
     api.defaults.adapter = originalAdapter
     useAuthStore.setState({ auth: originalAuth })
+  }
+})
+
+test('tip display uses real currency and withdrawal uses remaining Credits', async () => {
+  const originalAdapter = api.defaults.adapter
+  const originalAuth = useAuthStore.getState().auth
+  const originalConfig = useSystemConfigStore.getState().config
+  const sent: unknown[] = []
+  const item = {
+    id: 81,
+    contributor_email: 'contributor@example.test',
+    name: 'Currency fixture',
+    base_url: 'https://relay.example.test',
+    group: 'FREE',
+    models: 'fixture-model',
+    description: '',
+    status: 'approved',
+    created_at: 1,
+    updated_at: 1,
+    tip_quota: 7_000_000,
+    withdrawn_quota: 0,
+    // Deliberately misleading legacy projection: the view must use raw Credits.
+    tip_quota_usd: 999,
+  }
+  let minimum: number | undefined = 5_000_000
+  api.defaults.adapter = async (config) => {
+    const url = config.url ?? ''
+    let data: unknown = []
+    if (config.method === 'post') {
+      assert.equal(url, '/api/public-relays/81/tip')
+      sent.push(JSON.parse(String(config.data)))
+      data = { amount_usd: 1 }
+    } else if (url === '/api/public-relays/config') {
+      data = {
+        group: 'FREE',
+        minimum_withdrawal_quota: minimum,
+        minimum_withdrawal_usd: 999,
+      }
+    } else if (url.startsWith('/api/public-relays')) {
+      data = { group: 'FREE', items: [item] }
+    } else if (url === '/api/user/groups') {
+      data = { default: 'Default' }
+    }
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: true, data },
+    }
+  }
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 3_500_000,
+      creditsPerUsdExact: '3500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+      legacyPricingUnitsPerUsd: 7,
+      quotaPerUnit: 500_000,
+    },
+  })
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+  const button = (root: ParentNode, text: string) =>
+    [...root.querySelectorAll('button')].find(
+      (candidate) => candidate.textContent?.trim() === text
+    )
+  try {
+    for (const fixture of [
+      { preference: 'USD', language: 'en', amount: '2 USD', withdraw: true },
+      { preference: '', language: 'zh', amount: '14 CNY', withdraw: true },
+      {
+        preference: 'CREDIT',
+        language: 'en',
+        amount: '7,000,000',
+        withdraw: true,
+      },
+      {
+        preference: 'USD',
+        language: 'en',
+        amount: '2 USD',
+        withdraw: false,
+        withdrawn: 3_000_000,
+      },
+      {
+        preference: 'USD',
+        language: 'en',
+        amount: '2 USD',
+        withdraw: false,
+        missing: true,
+      },
+    ]) {
+      item.withdrawn_quota = fixture.withdrawn ?? 0
+      minimum = fixture.missing ? undefined : 5_000_000
+      await i18n.changeLanguage(fixture.language)
+      useAuthStore.getState().auth.setUser({
+        id: 1,
+        username: 'currency-user',
+        role: 1,
+        developer_access_granted: true,
+        setting: JSON.stringify({
+          wallet_display_currency: fixture.preference,
+        }),
+      })
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+      })
+      const container = document.createElement('div')
+      document.body.append(container)
+      const root = createRoot(container)
+      try {
+        await act(async () => {
+          root.render(
+            <QueryClientProvider client={client}>
+              <I18nextProvider i18n={i18n}>
+                <PublicRelay />
+              </I18nextProvider>
+            </QueryClientProvider>
+          )
+        })
+        await settle()
+        if (fixture.language === 'zh') {
+          await act(async () => button(container, 'Tip contributor')?.click())
+          await settle()
+          const dialog = document.querySelector('[role="dialog"]')
+          assert.ok(dialog)
+          assert.match(dialog.textContent ?? '', /Tip amount\s*\(USD\)/)
+          assert.equal(
+            dialog.querySelector<HTMLInputElement>(
+              'input[aria-label="Custom tip amount"]'
+            )?.value,
+            '1'
+          )
+          assert.ok(button(dialog, '7 CNY'))
+          await act(async () => button(dialog, 'Send tip')?.click())
+          await settle()
+          assert.deepEqual(sent, [{ amount_usd: 1, message: '' }])
+        }
+        await act(async () => button(container, 'My channels')?.click())
+        await settle()
+        assert.ok(container.textContent?.includes(fixture.amount))
+        assert.equal(
+          Boolean(button(container, 'Withdraw tips')),
+          fixture.withdraw
+        )
+        assert.ok(!container.textContent?.includes('$999'))
+      } finally {
+        await act(async () => root.unmount())
+        client.clear()
+        container.remove()
+      }
+    }
+  } finally {
+    api.defaults.adapter = originalAdapter
+    useAuthStore.setState({ auth: originalAuth })
+    useSystemConfigStore.setState({ config: originalConfig })
+    await i18n.changeLanguage('en')
   }
 })

@@ -130,6 +130,36 @@ test('SVG language maps interface and browser locale aliases', () => {
   }
 })
 
+test('model SVG exports preserve the selected money currency independently of language', () => {
+  for (const currency of ['CREDIT', 'CNY', 'USD'] as const) {
+    const url = new URL(
+      buildBadgeURL(
+        'https://api.lmm.best/example.svg',
+        INITIAL_OPTIONS,
+        'zhCN',
+        currency
+      )
+    )
+    assert.equal(url.searchParams.get('currency'), currency)
+    assert.equal(url.searchParams.get('lang'), 'zh')
+    for (const layout of ['profile', 'badge', 'aggregate'] as const) {
+      const nonMoneyURL = new URL(
+        buildBadgeURL(
+          'https://api.lmm.best/example.svg',
+          changeBadgeLayout(INITIAL_OPTIONS, layout),
+          'en',
+          currency
+        )
+      )
+      assert.equal(nonMoneyURL.searchParams.has('currency'), false)
+    }
+  }
+  const automatic = new URL(
+    buildBadgeURL('https://api.lmm.best/example.svg', INITIAL_OPTIONS, 'en')
+  )
+  assert.equal(automatic.searchParams.has('currency'), false)
+})
+
 test('copy embeds only the chosen live image, never a stale statistics snapshot', () => {
   const url = buildBadgeURL(
     'https://api.lmm.best/example.svg',

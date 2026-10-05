@@ -42,6 +42,10 @@ export type PublicRelayReport = {
 export type PublicRelayConfig = {
   group: string
   minimum_withdrawal_usd: number
+  /** The server's immutable Credit policy; absent metadata disables withdrawal. */
+  minimum_withdrawal_quota?: number
+  maximum_tip_quota?: number
+  maximum_tip_usd?: number
 }
 
 export type PublicRelayReview = {

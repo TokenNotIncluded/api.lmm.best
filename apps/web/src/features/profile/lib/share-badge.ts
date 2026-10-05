@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { normalizeInterfaceLanguage } from '@/i18n/languages'
+import type { WalletDisplayCurrency } from '@/lib/currency'
 
 import { PROFILE_SHARE_URL } from './share-card'
 
@@ -222,7 +223,8 @@ export const INITIAL_OPTIONS: BadgeOptions = {
 export function buildBadgeURL(
   baseURL: string,
   options: BadgeOptions,
-  language: string
+  language: string,
+  currency?: WalletDisplayCurrency
 ): string {
   const url = new URL(baseURL)
   url.search = ''
@@ -244,6 +246,7 @@ export function buildBadgeURL(
   }
   if (options.layout === 'models') {
     url.searchParams.set('top', String(options.top))
+    if (currency) url.searchParams.set('currency', currency)
   }
   for (const [key, value] of Object.entries(options.colors)) {
     if (key !== 'bg' || options.theme !== 'transparent') {
