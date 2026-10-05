@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 const (
@@ -257,6 +258,9 @@ func getAssistantGiftRiskSecret(tx *gorm.DB) (string, error) {
 	if tx == nil {
 		return "", gorm.ErrInvalidData
 	}
+	// This query/INSERT contains installation key material. Even callers using
+	// DB.Debug() must never render it through SQL/error tracing.
+	tx = tx.Session(&gorm.Session{Logger: gormlogger.Discard})
 	var stored AssistantGiftRiskKey
 	if err := tx.Where("id = ?", assistantGiftRiskKeyID).First(&stored).Error; err == nil {
 		stored.Secret = strings.TrimSpace(stored.Secret)
