@@ -49,6 +49,7 @@ import {
   DataTableView,
   useDataTable,
 } from '@/components/data-table'
+import { ErrorState } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
 import { useMediaQuery } from '@/hooks'
@@ -67,6 +68,7 @@ import {
   isBasePricingUnset,
   type ModelRow,
 } from './model-pricing-snapshots'
+import { useModelPricingCreditsPerUsd } from './model-pricing-units'
 import { buildModelRatioColumns } from './model-ratio-table-columns'
 import { useModelPriceLocks } from './use-model-price-locks'
 
@@ -140,6 +142,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
   ref
 ) {
   const { t } = useTranslation()
+  const creditsPerUsd = useModelPricingCreditsPerUsd()
   const priceLocks = useModelPriceLocks()
   const { locks, pending: lockPending, toggle: togglePriceLock } = priceLocks
   const isMobile = useMediaQuery('(max-width: 767px)')
@@ -303,6 +306,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
   const models = useMemo(() => {
     const savedRows = buildModelSnapshots({
+      creditsPerUsd,
       modelPrice: savedModelPrice,
       modelRatio: savedModelRatio,
       cacheRatio: savedCacheRatio,
@@ -315,6 +319,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       billingExpr: savedBillingExpr,
     })
     const draftRows = buildModelSnapshots({
+      creditsPerUsd,
       modelPrice,
       modelRatio,
       cacheRatio,
@@ -366,6 +371,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       .filter((row) => filterMode !== 'unset' || isBasePricingUnset(row.saved))
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [
+    creditsPerUsd,
     locks,
     priceLocks.snapshots,
     candidateModelNames,
@@ -884,6 +890,10 @@ const ModelRatioVisualEditorComponent = forwardRef<
     emptyStateText = candidateModelsLoading
       ? t('Loading...')
       : t('No models with unset prices')
+  }
+
+  if (!Number.isFinite(creditsPerUsd) || creditsPerUsd <= 0) {
+    return <ErrorState title={t('Failed to load USD model prices')} />
   }
 
   return (

@@ -8,6 +8,7 @@ import { Window } from 'happy-dom'
 
 import type { SystemOptionsResponse } from '../types'
 import { MODEL_PRICE_SNAPSHOT_KEYS } from './model-price-lock-snapshot'
+import { MODEL_PRICING_QUERY_KEY, USD_PRICING_KEYS } from './model-pricing-api'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
 for (const key of [
@@ -80,9 +81,30 @@ async function harness(response: unknown, failReadAfterWrite = true) {
   })
   const initial = options()
   client.setQueryData(['system-options'], initial)
-  api.get = (async () => {
+  api.get = (async (url: string) => {
     reads++
-    if (writes && failReadAfterWrite) throw new Error('read unavailable')
+    if (url === '/api/option/pricing') {
+      if (writes && failReadAfterWrite) throw new Error('read unavailable')
+      return {
+        data: {
+          success: true,
+          data: {
+            schema_version: 2,
+            currency: 'USD',
+            storage_basis: 'legacy_pricing_unit',
+            revision: 'a'.repeat(64),
+            credits_per_usd: 3_600_000,
+            legacy_pricing_units_per_usd: 7.2,
+            model_ratio_usd_per_million: 1_000_000 / 3_600_000,
+            values: {
+              ...Object.fromEntries(USD_PRICING_KEYS.map((key) => [key, '{}'])),
+              ...pricing(writes > 0),
+              ModelPrice: '{"source":1.25}',
+            },
+          },
+        },
+      }
+    }
     return { data: initial }
   }) as typeof api.get
   api.put = (async () => {
@@ -138,25 +160,28 @@ async function harness(response: unknown, failReadAfterWrite = true) {
   }
 }
 
-test('hook uses committed pricing without a read after PUT', async () => {
-  const ctx = await harness({
-    success: true,
-    message: '',
-    pricing: pricing(true),
-  })
+test('hook ignores legacy pricing receipt and reads canonical USD after PUT', async () => {
+  const ctx = await harness(
+    {
+      success: true,
+      message: '',
+      pricing: pricing(true),
+    },
+    false
+  )
   try {
     const result = await ctx.toggle()
     assert.ok(result?.locked)
     assert.equal(ctx.counts().writes, 1)
-    assert.equal(ctx.counts().reads, 1)
+    assert.ok(ctx.counts().reads >= 3)
     assert.deepEqual(ctx.errors, [])
     assert.equal(
       result.options.find(({ key }) => key === 'ModelPriceLock')?.value,
       '{"source":true}'
     )
     assert.equal(
-      result.options.find(({ key }) => key === 'Notice')?.value,
-      'new unrelated edit'
+      result.options.find(({ key }) => key === 'ModelPrice')?.value,
+      '{"source":1.25}'
     )
   } finally {
     await ctx.cleanup()
@@ -175,7 +200,7 @@ test('hook invalidates unknown outcomes without accepting drafts', async () => {
       assert.equal(ctx.counts().writes, 1)
       assert.ok(ctx.errors.length > 0)
       assert.equal(
-        ctx.client.getQueryState(['system-options'])?.isInvalidated,
+        ctx.client.getQueryState(MODEL_PRICING_QUERY_KEY)?.isInvalidated,
         true
       )
     } finally {

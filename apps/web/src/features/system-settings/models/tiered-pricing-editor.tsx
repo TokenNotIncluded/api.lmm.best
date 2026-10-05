@@ -105,7 +105,7 @@ import {
 } from '@/features/pricing/lib/tier-expr'
 import { cn } from '@/lib/utils'
 
-const PRICE_SUFFIX = '$/1M tokens'
+const PRICE_SUFFIX = 'USD/1M tokens'
 const CACHE_PRICE_VARS = BILLING_EXTRA_VARS.filter(
   (variable) => variable.group === 'cache'
 )
@@ -624,7 +624,7 @@ function VisualTierCard({
       <PriceField
         key={variable.key}
         label={t(variable.label)}
-        hint={variable.unit === 'minute' ? t('$/min') : PRICE_SUFFIX}
+        hint={variable.unit === 'minute' ? 'USD/min' : PRICE_SUFFIX}
         value={value}
         onChange={(next) =>
           handlePriceChange(fieldKey, displayPriceToCoefficient(variable, next))
@@ -1482,7 +1482,10 @@ function CostEstimator({ effectiveExpr }: EstimatorProps) {
         ) : (
           <div className='flex items-center gap-2'>
             <span className='font-medium'>
-              {t('Estimated quota cost')}: {result.cost.toLocaleString()}
+              {t('Estimated cost (USD)')}:{' '}
+              {(result.cost / 1_000_000).toLocaleString(undefined, {
+                maximumFractionDigits: 12,
+              })}
             </span>
             {result.matchedTier && (
               <Badge variant='outline' className='text-xs'>
@@ -1673,6 +1676,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
 }: TieredPricingEditorProps) {
   const { t } = useTranslation()
   const [editorMode, setEditorMode] = useState<EditorMode>('visual')
+  const [visualDraftChanged, setVisualDraftChanged] = useState(false)
   const [visualConfig, setVisualConfig] = useState<VisualConfig | null>(() =>
     tryParseVisualConfig(currentExpr)
   )
@@ -1687,6 +1691,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   useEffect(() => {
     if (initRef.current) return
     initRef.current = true
+    setVisualDraftChanged(false)
     const parsedConfig = tryParseVisualConfig(currentExpr)
     if (parsedConfig) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -1715,11 +1720,12 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
 
   const effectiveExpr = useMemo(() => {
     if (editorMode === 'visual') {
+      if (!visualDraftChanged && currentExpr) return currentExpr
       return generateExprFromVisualConfig(visualConfig)
     }
     const { billingExpr } = splitBillingExprAndRequestRules(rawExpr)
     return billingExpr
-  }, [editorMode, visualConfig, rawExpr])
+  }, [editorMode, visualConfig, rawExpr, visualDraftChanged, currentExpr])
 
   useEffect(() => {
     if (effectiveExpr !== currentExpr) {
@@ -1741,6 +1747,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   ])
 
   const handleVisualChange = useCallback((next: VisualConfig) => {
+    setVisualDraftChanged(true)
     setVisualConfig(next)
   }, [])
 
@@ -1761,21 +1768,23 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
           splitBillingExprAndRequestRules(rawExpr)
         const parsed = tryParseVisualConfig(billingExpr)
         if (parsed) {
+          setVisualDraftChanged(false)
           setVisualConfig(parsed)
         } else {
+          setVisualDraftChanged(true)
           setVisualConfig(createDefaultVisualConfig())
         }
         const parsedGroups = tryParseRequestRuleExpr(ruleStr)
         setRequestRuleGroups(parsedGroups || [])
         onRequestRuleExprChange(ruleStr)
       } else {
-        const expr = generateExprFromVisualConfig(visualConfig)
+        const expr = effectiveExpr
         const ruleExpr = buildRequestRuleExpr(requestRuleGroups)
         setRawExpr(combineBillingExpr(expr, ruleExpr) || expr)
       }
       setEditorMode(next)
     },
-    [rawExpr, visualConfig, requestRuleGroups, onRequestRuleExprChange]
+    [rawExpr, effectiveExpr, requestRuleGroups, onRequestRuleExprChange]
   )
 
   const applyPreset = useCallback(
@@ -1786,6 +1795,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       setRawExpr(combined)
       const parsed = tryParseVisualConfig(preset.expr)
       if (parsed) {
+        setVisualDraftChanged(true)
         setVisualConfig(parsed)
         setEditorMode('visual')
       } else {

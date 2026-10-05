@@ -32,10 +32,12 @@ import {
 } from '@/components/ui/tooltip'
 
 import type { RatioType } from '../types'
+import { useModelPricingConfig } from './model-pricing-api'
 import {
   getAlignedRatioTypes,
   getPreferredSyncField,
   getSyncFieldLabel,
+  getSyncFieldDisplayValue,
   isSelectedResolutionValue,
   type ModelRow,
   type ResolutionsMap,
@@ -64,6 +66,7 @@ export function useUpstreamRatioSyncColumns(
   onBulkUnselect: (upstreamName: string) => void
 ): ColumnDef<ModelRow>[] {
   const { t } = useTranslation()
+  const { data: pricingConfig } = useModelPricingConfig()
 
   return useMemo<ColumnDef<ModelRow>[]>(() => {
     const baseColumns: ColumnDef<ModelRow>[] = [
@@ -138,7 +141,11 @@ export function useUpstreamRatioSyncColumns(
                           <TooltipTrigger
                             render={
                               <StatusBadge
-                                label={String(current)}
+                                label={getSyncFieldDisplayValue(
+                                  ratioType,
+                                  current,
+                                  pricingConfig
+                                )}
                                 variant='info'
                                 size='sm'
                                 className='max-w-[160px] truncate font-mono'
@@ -147,7 +154,11 @@ export function useUpstreamRatioSyncColumns(
                           />
                           <TooltipContent>
                             <p className='max-w-xs text-xs break-all'>
-                              {String(current)}
+                              {getSyncFieldDisplayValue(
+                                ratioType,
+                                current,
+                                pricingConfig
+                              )}
                             </p>
                           </TooltipContent>
                         </Tooltip>
@@ -239,6 +250,14 @@ export function useUpstreamRatioSyncColumns(
                     <div className='min-w-0 flex-1'>
                       {renderUpstreamValue({
                         upstreamVal,
+                        displayValue:
+                          upstreamVal !== null && upstreamVal !== undefined
+                            ? getSyncFieldDisplayValue(
+                                ratioType,
+                                upstreamVal,
+                                pricingConfig
+                              )
+                            : undefined,
                         isAvailable: isVisibleForSource,
                         isConfident,
                         isSelected: isSelectedResolutionValue(
@@ -281,11 +300,13 @@ export function useUpstreamRatioSyncColumns(
     onBulkSelect,
     onBulkUnselect,
     t,
+    pricingConfig,
   ])
 }
 
 type RenderUpstreamValueArgs = {
   upstreamVal: number | string | 'same' | null | undefined
+  displayValue?: string
   isAvailable: boolean
   isConfident: boolean
   isSelected: boolean
@@ -327,7 +348,7 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
     )
   }
 
-  const text = String(upstreamVal)
+  const text = args.displayValue ?? String(upstreamVal)
 
   return (
     <div className='flex h-full min-w-0 items-center gap-2'>

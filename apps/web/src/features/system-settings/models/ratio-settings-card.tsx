@@ -28,16 +28,23 @@ import { toast } from 'sonner'
 import * as z from 'zod'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { ErrorState } from '@/components/error-state'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { getSystemOptions, resetModelRatios, updateSystemOptions } from '../api'
+import { getSystemOptions, resetModelRatios, updateSystemOption } from '../api'
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { getOptionValue } from '../hooks/use-system-options'
 import { positiveIntegerSchema } from '../utils/numeric-field'
 import { showOptionUpdateToast } from '../utils/option-update-toast'
 import { GroupRatioForm } from './group-ratio-form'
 import { isValidGroupWarnings } from './group-warning-validation'
+import {
+  getModelPricingConfig,
+  MODEL_PRICING_QUERY_KEY,
+  updateModelPricingConfig,
+  useModelPricingConfig,
+} from './model-pricing-api'
+import { ModelPricingUnitsContext } from './model-pricing-units'
 import { ModelRatioForm } from './model-ratio-form'
 import { ToolPriceSettings } from './tool-price-settings'
 import { UpstreamRatioSync } from './upstream-ratio-sync'
@@ -163,15 +170,33 @@ type RatioSettingsCardProps = {
 }
 
 export function RatioSettingsCard({
-  modelDefaults,
+  modelDefaults: legacyModelDefaults,
   groupDefaults,
-  toolPricesDefault,
+  toolPricesDefault: _toolPricesDefault,
   titleKey = 'Pricing Ratios',
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const needsUsdPricing = visibleTabs.some((tab) => tab !== 'groups')
+  const pricingQuery = useModelPricingConfig(needsUsdPricing)
+  const modelDefaults = useMemo<ModelFormValues>(() => {
+    const values = pricingQuery.data?.values
+    return {
+      ModelPrice: values?.ModelPrice || '{}',
+      ModelRatio: values?.ModelRatio || '{}',
+      CacheRatio: values?.CacheRatio || '{}',
+      CreateCacheRatio: values?.CreateCacheRatio || '{}',
+      CompletionRatio: values?.CompletionRatio || '{}',
+      ImageRatio: values?.ImageRatio || '{}',
+      AudioRatio: values?.AudioRatio || '{}',
+      AudioCompletionRatio: values?.AudioCompletionRatio || '{}',
+      BillingMode: values?.['billing_setting.billing_mode'] || '{}',
+      BillingExpr: values?.['billing_setting.billing_expr'] || '{}',
+      ExposeRatioEnabled: legacyModelDefaults.ExposeRatioEnabled,
+    }
+  }, [pricingQuery.data, legacyModelDefaults.ExposeRatioEnabled])
 
   const resetMutation = useMutation({
     mutationFn: resetModelRatios,
@@ -301,26 +326,42 @@ export function RatioSettingsCard({
     if (!response.success) {
       throw new Error(response.message || t('Failed to load settings'))
     }
-    const formKeyMap: Record<string, string> = {
-      'billing_setting.billing_mode': 'BillingMode',
-      'billing_setting.billing_expr': 'BillingExpr',
-    }
-    const acceptedOptions = response.data.map((option) => ({
-      ...option,
-      key: formKeyMap[option.key] || option.key,
-    }))
-    // A locked-only update leaves the query data unchanged; reset explicitly so
-    // rejected edits never become the form's saved snapshot.
-    applyModelDefaults(getOptionValue(acceptedOptions, modelDefaults))
+    const config = await getModelPricingConfig()
+    queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, config)
+    const values = config.values
+    applyModelDefaults({
+      ...modelDefaults,
+      ...Object.fromEntries(
+        Object.entries(values).filter(([key]) => key in modelDefaults)
+      ),
+      BillingMode: values['billing_setting.billing_mode'],
+      BillingExpr: values['billing_setting.billing_expr'],
+    })
     queryClient.setQueryData(['system-options'], response)
   }, [applyModelDefaults, modelDefaults, queryClient, t])
 
   const modelUpdateMutation = useMutation({
     mutationFn: async (values: Record<string, string>) => {
-      const response = await updateSystemOptions(values)
-      if (!response.success) {
-        throw new Error(response.message || t('Failed to update setting'))
+      const config = pricingQuery.data
+      if (!config || pricingQuery.isError) {
+        throw new Error(t('Failed to load USD model prices'))
       }
+      const { ExposeRatioEnabled, ...prices } = values
+      const response = Object.keys(prices).length
+        ? await updateModelPricingConfig(config, prices)
+        : { success: true, message: '', data: config }
+      if (ExposeRatioEnabled !== undefined) {
+        const exposeResponse = await updateSystemOption({
+          key: 'ExposeRatioEnabled',
+          value: ExposeRatioEnabled,
+        })
+        if (!exposeResponse.success) {
+          throw new Error(
+            exposeResponse.message || t('Failed to update setting')
+          )
+        }
+      }
+      queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, response.data)
       return response
     },
     onSuccess: async (response) => {
@@ -328,6 +369,7 @@ export function RatioSettingsCard({
       showOptionUpdateToast(response, t('Setting updated successfully'))
     },
     onError: (error: Error) => {
+      void queryClient.invalidateQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
       toast.error(error.message || t('Failed to update setting'))
     },
   })
@@ -405,6 +447,21 @@ export function RatioSettingsCard({
   const defaultTab = visibleTabs[0] ?? 'models'
 
   const renderTabContent = (tab: RatioTabId) => {
+    if (tab !== 'groups' && (pricingQuery.isError || !pricingQuery.data)) {
+      return pricingQuery.isError ? (
+        <ErrorState
+          title={t('Failed to load USD model prices')}
+          description={t(
+            'Update the server to use the USD pricing editor, then retry.'
+          )}
+          onRetry={() => {
+            void pricingQuery.refetch()
+          }}
+        />
+      ) : (
+        <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+      )
+    }
     if (tab === 'models' || tab === 'unset-models') {
       return (
         <ModelRatioForm
@@ -428,21 +485,28 @@ export function RatioSettingsCard({
       )
     }
     if (tab === 'tool-prices') {
-      return <ToolPriceSettings defaultValue={toolPricesDefault} />
+      return (
+        <ToolPriceSettings
+          defaultValue={
+            pricingQuery.data?.values['tool_price_setting.prices'] || '{}'
+          }
+          pricingConfig={pricingQuery.data}
+        />
+      )
     }
     return (
       <UpstreamRatioSync
         modelRatios={{
-          ModelPrice: modelDefaults.ModelPrice,
-          ModelRatio: modelDefaults.ModelRatio,
-          CompletionRatio: modelDefaults.CompletionRatio,
-          CacheRatio: modelDefaults.CacheRatio,
-          CreateCacheRatio: modelDefaults.CreateCacheRatio,
-          ImageRatio: modelDefaults.ImageRatio,
-          AudioRatio: modelDefaults.AudioRatio,
-          AudioCompletionRatio: modelDefaults.AudioCompletionRatio,
-          'billing_setting.billing_mode': modelDefaults.BillingMode,
-          'billing_setting.billing_expr': modelDefaults.BillingExpr,
+          ModelPrice: legacyModelDefaults.ModelPrice,
+          ModelRatio: legacyModelDefaults.ModelRatio,
+          CompletionRatio: legacyModelDefaults.CompletionRatio,
+          CacheRatio: legacyModelDefaults.CacheRatio,
+          CreateCacheRatio: legacyModelDefaults.CreateCacheRatio,
+          ImageRatio: legacyModelDefaults.ImageRatio,
+          AudioRatio: legacyModelDefaults.AudioRatio,
+          AudioCompletionRatio: legacyModelDefaults.AudioCompletionRatio,
+          'billing_setting.billing_mode': legacyModelDefaults.BillingMode,
+          'billing_setting.billing_expr': legacyModelDefaults.BillingExpr,
         }}
       />
     )
@@ -459,7 +523,9 @@ export function RatioSettingsCard({
   )
 
   return (
-    <>
+    <ModelPricingUnitsContext
+      value={pricingQuery.data?.credits_per_usd ?? Number.NaN}
+    >
       {visibleTabs.length === 1 ? (
         <SettingsSection title={t(titleKey)}>
           {renderTabContent(defaultTab)}
@@ -492,6 +558,6 @@ export function RatioSettingsCard({
         handleConfirm={handleConfirmReset}
         confirmText={t('Reset')}
       />
-    </>
+    </ModelPricingUnitsContext>
   )
 }

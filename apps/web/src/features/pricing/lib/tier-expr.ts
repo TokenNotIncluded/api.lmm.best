@@ -21,6 +21,7 @@ import {
   BILLING_VARS,
   evaluateBillingExpression,
   parseTiersFromExpr,
+  unwrapBillingPriceScale,
 } from './billing-expr'
 
 export const CACHE_MODE_TIMED = 'timed'
@@ -193,7 +194,8 @@ export function tryParseVisualConfig(
     const versionMatch = /^v\d+:([\s\S]*)$/.exec(body)
     if (versionMatch) body = versionMatch[1]
 
-    const parsedTiers = parseTiersFromExpr(body)
+    const { expression: unscaledBody, scale } = unwrapBillingPriceScale(body)
+    const parsedTiers = parseTiersFromExpr(unscaledBody)
     if (parsedTiers.length === 0) return null
     const tiers = parsedTiers.map((parsed) => {
       const tier: Partial<VisualTier> = {
@@ -215,8 +217,24 @@ export function tryParseVisualConfig(
 
     const config = normalizeVisualConfig({ tiers })
     const regenerated = generateExprFromVisualConfig(config)
-    if (regenerated.replaceAll(/\s+/g, '') !== body.replaceAll(/\s+/g, '')) {
+    if (
+      regenerated.replaceAll(/\s+/g, '') !== unscaledBody.replaceAll(/\s+/g, '')
+    ) {
       return null
+    }
+    if (scale !== 1) {
+      for (const tier of config.tiers) {
+        tier.input_unit_cost *= scale
+        tier.output_unit_cost *= scale
+        for (const variable of BILLING_VARS) {
+          const cacheVar = BILLING_CACHE_VAR_MAP.find(
+            (entry) => entry.exprVar === variable.key
+          )
+          if (cacheVar && typeof tier[cacheVar.field] === 'number') {
+            tier[cacheVar.field] = (tier[cacheVar.field] as number) * scale
+          }
+        }
+      }
     }
     return config
   } catch {

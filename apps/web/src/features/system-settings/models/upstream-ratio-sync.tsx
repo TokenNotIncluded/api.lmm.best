@@ -53,6 +53,7 @@ import {
   OPENROUTER_CHANNEL_TYPE,
   OPENROUTER_ENDPOINT,
 } from './constants'
+import { MODEL_PRICING_QUERY_KEY } from './model-pricing-api'
 import {
   NUMERIC_SYNC_FIELDS,
   RATIO_SYNC_FIELDS,
@@ -206,6 +207,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     },
     onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: ['system-options'] })
+      await queryClient.invalidateQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
       showOptionUpdateToast(response, t('Prices synced successfully'))
       const lockedModels = new Set(response.locked_models)
 

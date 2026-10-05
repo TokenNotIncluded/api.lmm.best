@@ -73,11 +73,17 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { updateSystemOptions } from '@/features/system-settings/api'
+import { getOptionValue } from '@/features/system-settings/hooks/use-system-options'
 import {
-  useSystemOptions,
-  getOptionValue,
-} from '@/features/system-settings/hooks/use-system-options'
+  MODEL_PRICING_QUERY_KEY,
+  updateModelPricingConfig,
+  useModelPricingConfig,
+  type ModelPricingConfig,
+} from '@/features/system-settings/models/model-pricing-api'
+import {
+  ratioToUsdPerMillion,
+  usdPerMillionToRatio,
+} from '@/features/system-settings/models/model-pricing-units'
 import { parseModelPriceLocks } from '@/features/system-settings/models/use-model-price-locks'
 import { normalizeJsonString } from '@/features/system-settings/models/utils'
 import type { ModelSettings } from '@/features/system-settings/types'
@@ -176,7 +182,8 @@ function lookupModelRatio(
 // the maps from the form and would otherwise drop pricing it never loaded.
 function readPricingConfig(
   settings: ModelSettings | null,
-  modelName: string
+  modelName: string,
+  creditsPerUsd: number
 ): PricingConfig {
   if (!settings || !modelName) return EMPTY_PRICING_CONFIG
 
@@ -205,7 +212,7 @@ function readPricingConfig(
   let promptPrice = ''
   let completionPrice = ''
   if (ratio !== undefined && ratio !== null) {
-    const tokenPrice = ratio * 2
+    const tokenPrice = ratioToUsdPerMillion(ratio, creditsPerUsd)
     promptPrice = tokenPrice.toString()
     if (completionRatio !== undefined && completionRatio !== null) {
       completionPrice = (tokenPrice * completionRatio).toString()
@@ -266,6 +273,10 @@ export function ModelMutateDrawer({
   // depending on it: modelSettings is a fresh object on every system-options
   // refetch, and including it in the deps would reset the form under the user.
   const modelSettingsRef = useRef<ModelSettings | null>(null)
+  const loadedPricingConfigRef = useRef<ModelPricingConfig | undefined>(
+    undefined
+  )
+  const pricingConfigRef = useRef<ModelPricingConfig | undefined>(undefined)
 
   // Fetch vendors for dropdown
   const { data: vendorsData } = useQuery({
@@ -289,11 +300,12 @@ export function ModelMutateDrawer({
   })
 
   // Fetch system options for ratio configuration
-  const { data: systemOptionsData } = useSystemOptions()
+  const pricingQuery = useModelPricingConfig(open)
+  const creditsPerUsd = pricingQuery.data?.credits_per_usd ?? Number.NaN
 
   // Get model settings from system options
   const modelSettings = useMemo(() => {
-    if (!systemOptionsData?.data) return null
+    if (!pricingQuery.data || pricingQuery.isError) return null
     const defaultModelSettings: ModelSettings = {
       'global.pass_through_request_enabled': false,
       'global.thinking_model_blacklist': '[]',
@@ -356,8 +368,14 @@ export function ModelMutateDrawer({
       'model_deployment.ionet.api_key': '',
       'model_deployment.ionet.enabled': false,
     }
-    return getOptionValue(systemOptionsData.data, defaultModelSettings)
-  }, [systemOptionsData])
+    return getOptionValue(
+      Object.entries(pricingQuery.data.values).map(([key, value]) => ({
+        key,
+        value,
+      })),
+      defaultModelSettings
+    )
+  }, [pricingQuery.data, pricingQuery.isError])
 
   // The load effect keys off this boolean, not the object: it re-runs once
   // when the settings first arrive (so a drawer opened before that still gets
@@ -366,6 +384,7 @@ export function ModelMutateDrawer({
   const hasModelSettings = modelSettings !== null
   useEffect(() => {
     modelSettingsRef.current = modelSettings
+    pricingConfigRef.current = pricingQuery.data
   })
 
   const form = useForm<ExtendedModelFormValues>({
@@ -407,7 +426,10 @@ export function ModelMutateDrawer({
   const handlePromptPriceChange = (value: string) => {
     setPromptPrice(value)
     if (value && !Number.isNaN(Number.parseFloat(value))) {
-      const ratio = Number.parseFloat(value) / 2
+      const ratio = usdPerMillionToRatio(
+        Number.parseFloat(value),
+        creditsPerUsd
+      )
       form.setValue('ratio', ratio.toString())
     } else {
       form.setValue('ratio', '')
@@ -439,8 +461,10 @@ export function ModelMutateDrawer({
 
       const pricing = readPricingConfig(
         modelSettingsRef.current,
-        model.model_name
+        model.model_name,
+        pricingConfigRef.current?.credits_per_usd ?? Number.NaN
       )
+      loadedPricingConfigRef.current = pricingConfigRef.current
       setLoadedPricingName(model.model_name)
       setPricingMode(pricing.mode)
       setPromptPrice(pricing.promptPrice)
@@ -467,7 +491,12 @@ export function ModelMutateDrawer({
       // pricing that name already has, so the user edits it instead of being
       // shown an empty form that hides existing configuration.
       const modelName = currentRow?.model_name || ''
-      const pricing = readPricingConfig(modelSettingsRef.current, modelName)
+      const pricing = readPricingConfig(
+        modelSettingsRef.current,
+        modelName,
+        pricingConfigRef.current?.credits_per_usd ?? Number.NaN
+      )
+      loadedPricingConfigRef.current = pricingConfigRef.current
       setOldModelName('')
       setLoadedPricingName(modelName)
       setPricingSubMode('ratio')
@@ -742,7 +771,14 @@ export function ModelMutateDrawer({
               )
             }
             if (Object.keys(allowedUpdates).length > 0) {
-              const result = await updateSystemOptions(allowedUpdates)
+              if (!loadedPricingConfigRef.current) {
+                throw new Error(t('Failed to load USD model prices'))
+              }
+              const result = await updateModelPricingConfig(
+                loadedPricingConfigRef.current,
+                allowedUpdates
+              )
+              queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, result.data)
               if (!result.success) {
                 throw new Error(result.message || t('Failed to update setting'))
               }
@@ -759,11 +795,15 @@ export function ModelMutateDrawer({
           }
           queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
           queryClient.invalidateQueries({ queryKey: ['system-options'] })
+          queryClient.invalidateQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
           onOpenChange(false)
         } else {
           toast.error(response.message || 'Operation failed')
         }
       } catch (error: unknown) {
+        void queryClient.invalidateQueries({
+          queryKey: MODEL_PRICING_QUERY_KEY,
+        })
         toast.error((error as Error)?.message || 'Operation failed')
       } finally {
         setIsSubmitting(false)
@@ -1053,7 +1093,7 @@ export function ModelMutateDrawer({
 
             {/* Pricing Configuration */}
             <fieldset
-              disabled={isPricingLocked}
+              disabled={isPricingLocked || !modelSettings}
               className={sideDrawerSectionClassName('disabled:opacity-60')}
               aria-label={t('Pricing Configuration')}
             >
@@ -1061,6 +1101,11 @@ export function ModelMutateDrawer({
                 {t('Pricing Configuration')}
               </h3>
 
+              {!modelSettings && (
+                <p className='text-muted-foreground text-sm'>
+                  {t('Failed to load USD model prices')}
+                </p>
+              )}
               {isPricingLocked && (
                 <p className='text-muted-foreground flex items-center gap-2 text-sm'>
                   <Lock className='h-4 w-4 shrink-0' aria-hidden='true' />
@@ -1165,8 +1210,9 @@ export function ModelMutateDrawer({
                                     field.onChange(value)
                                     if (value) {
                                       setPromptPrice(
-                                        (
-                                          Number.parseFloat(value) * 2
+                                        ratioToUsdPerMillion(
+                                          Number.parseFloat(value),
+                                          creditsPerUsd
                                         ).toString()
                                       )
                                     } else {
@@ -1179,7 +1225,7 @@ export function ModelMutateDrawer({
                             <FormDescription>
                               {field.value &&
                               !Number.isNaN(Number.parseFloat(field.value))
-                                ? `Calculated price: $${(Number.parseFloat(field.value) * 2).toFixed(4)} per 1M tokens`
+                                ? `Calculated price: USD ${ratioToUsdPerMillion(Number.parseFloat(field.value), creditsPerUsd).toFixed(4)} per 1M tokens`
                                 : t('Multiplier for prompt tokens.')}
                             </FormDescription>
                             <FormMessage />
@@ -1205,9 +1251,10 @@ export function ModelMutateDrawer({
                                     const ratio = form.getValues('ratio')
                                     if (value && ratio) {
                                       const compPrice =
-                                        Number.parseFloat(ratio) *
-                                        2 *
-                                        Number.parseFloat(value)
+                                        ratioToUsdPerMillion(
+                                          Number.parseFloat(ratio),
+                                          creditsPerUsd
+                                        ) * Number.parseFloat(value)
                                       setCompletionPrice(compPrice.toString())
                                     } else {
                                       setCompletionPrice('')
@@ -1221,7 +1268,7 @@ export function ModelMutateDrawer({
                               !Number.isNaN(Number.parseFloat(field.value)) &&
                               promptPrice &&
                               !Number.isNaN(Number.parseFloat(promptPrice))
-                                ? `Calculated price: $${(Number.parseFloat(promptPrice) * Number.parseFloat(field.value)).toFixed(4)} per 1M tokens`
+                                ? `Calculated price: USD ${(Number.parseFloat(promptPrice) * Number.parseFloat(field.value)).toFixed(4)} per 1M tokens`
                                 : t('Multiplier for completion tokens.')}
                             </FormDescription>
                             <FormMessage />
@@ -1232,7 +1279,7 @@ export function ModelMutateDrawer({
                   ) : (
                     <div className='space-y-4'>
                       <div className='space-y-2'>
-                        <Label>{t('Prompt price ($/1M tokens)')}</Label>
+                        <Label>{t('Prompt price (USD/1M tokens)')}</Label>
                         <Input
                           type='text'
                           placeholder='2.0'
@@ -1244,13 +1291,13 @@ export function ModelMutateDrawer({
                         <p className='text-muted-foreground text-sm'>
                           {promptPrice &&
                           !Number.isNaN(Number.parseFloat(promptPrice))
-                            ? `Calculated ratio: ${(Number.parseFloat(promptPrice) / 2).toFixed(4)}`
+                            ? `Calculated ratio: ${usdPerMillionToRatio(Number.parseFloat(promptPrice), creditsPerUsd).toFixed(4)}`
                             : t('Enter Input price to calculate ratio')}
                         </p>
                       </div>
 
                       <div className='space-y-2'>
-                        <Label>{t('Completion price ($/1M tokens)')}</Label>
+                        <Label>{t('Completion price (USD/1M tokens)')}</Label>
                         <Input
                           type='text'
                           placeholder='4.0'
