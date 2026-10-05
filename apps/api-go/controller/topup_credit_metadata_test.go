@@ -186,51 +186,50 @@ func TestTopUpCreditMetadataRoundsUSDDirectlyToCredits(t *testing.T) {
 	// Permit tiny grants here to isolate USD rounding from the ordinary rail's
 	// minimum; complete provider minima are verified separately below.
 	operation_setting.MinTopUp = 0
-	common.QuotaPerUnit = 300000
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(300000)))
-	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.PayMethods = []map[string]string{
 		{"name": "One-credit minimum", "type": "min-one", "min_topup": "0.0000012"},
 		{"name": "Two-credit minimum", "type": "min-two", "min_topup": "0.0000022"},
-		{"name": "One-credit maximum", "type": "max-one", "max_topup": "0.000002000000000005"},
+		{"name": "One-credit maximum", "type": "max-one", "max_topup": "0.00000399999999999"},
 	}
 	methods := sanitizedPaymentMethods(operation_setting.PayMethods)
 	require.Len(t, methods, 3)
-	require.Equal(t, "0.0000033333333333", methods[2]["legacy_max_topup_amount"])
+	require.Equal(t, "0.000004", methods[2]["legacy_max_topup_amount"])
 	_, err := topUpCreditMetadata(methods)
 	require.NoError(t, err)
 	require.Equal(t, "1", methods[0]["min_topup_credit"])
 	require.Equal(t, "2", methods[1]["min_topup_credit"])
-	// Reusing the rounded legacy alias would incorrectly produce zero.
+	// Reusing the rounded legacy alias would incorrectly allow two credits.
 	require.Equal(t, "0", methods[2]["min_topup_credit"])
 	require.Equal(t, "1", methods[2]["max_topup_credit"])
 }
 
-func TestTopUpCreditMetadataRejectsOldFractionalLegacyCurrencyBasis(t *testing.T) {
-	preserveTopUpCreditMetadataConfig(t)
-	// The old mutable USD anchor cannot authorize metadata, even when the
-	// runtime and durable fractional legacy scales agree with one another.
-	common.QuotaPerUnit = 1.25
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.RequireFromString("1.25")))
-	persistCreditDenominationFixture(t, model.DB)
-	methods := []map[string]string{{"type": "stripe", "min_topup_credit": "unchanged"}}
-	before := cloneTopUpCreditMetadataMethods(methods)
-	metadata, err := topUpCreditMetadata(methods)
-	require.Error(t, err)
-	require.Nil(t, metadata)
-	require.Equal(t, before, methods, "a stale currency contract cannot publish partial limits")
+func TestTopUpCreditMetadataRejectsNonFixedLegacyScale(t *testing.T) {
+	for _, scale := range []string{"300000", "1.25"} {
+		t.Run(scale, func(t *testing.T) {
+			preserveTopUpCreditMetadataConfig(t)
+			// Matching stale runtime and durable settings cannot redefine the fixed
+			// legacy scale used by production metadata and wallet USD conversions.
+			legacy := decimal.RequireFromString(scale)
+			common.QuotaPerUnit = legacy.InexactFloat64()
+			require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), legacy))
+			persistCreditDenominationFixture(t, model.DB)
+			methods := []map[string]string{{"type": "stripe", "min_topup_credit": "unchanged"}}
+			before := cloneTopUpCreditMetadataMethods(methods)
+			metadata, err := topUpCreditMetadata(methods)
+			require.Error(t, err)
+			require.Nil(t, metadata)
+			require.Equal(t, before, methods, "a stale currency contract cannot publish partial limits")
+		})
+	}
 }
 
 func TestTopUpCreditMetadataDedicatedAliasesContainCompletePolicies(t *testing.T) {
 	preserveTopUpCreditMetadataConfig(t)
-	common.QuotaPerUnit = 300000
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(300000)))
-	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.MinTopUp = 20
 	operation_setting.PayMethods = []map[string]string{
 		{"name": "Waffo first", "type": model.PaymentMethodWaffo, "min_topup": "1", "max_topup": "5"},
-		{"name": "Waffo strictest", "type": model.PaymentMethodWaffo, "min_topup": "0.5", "max_topup": "2.5"},
-		{"name": "Pancake", "type": model.PaymentMethodWaffoPancake, "min_topup": "2", "max_topup": "3"},
+		{"name": "Waffo strictest", "type": model.PaymentMethodWaffo, "min_topup": "0.5", "max_topup": "3.5"},
+		{"name": "Pancake", "type": model.PaymentMethodWaffoPancake, "min_topup": "2", "max_topup": "4.5"},
 		{"name": "Creem", "type": model.PaymentMethodCreem, "min_topup": "1", "max_topup": "2.5"},
 	}
 	for _, withCatalog := range []bool{false, true} {
@@ -241,21 +240,21 @@ func TestTopUpCreditMetadataDedicatedAliasesContainCompletePolicies(t *testing.T
 		}
 		metadata, err := topUpCreditMetadata(methods)
 		require.NoError(t, err)
-		requireTopUpCreditMetadataMinima(t, metadata, 6000000, 600000, 900000, 1200000)
-		require.EqualValues(t, 3000000000, metadata["stripe_credit_max_topup"])
-		require.EqualValues(t, 1250000, metadata["waffo_credit_max_topup"])
-		require.EqualValues(t, 1500000, metadata["pancake_credit_max_topup"])
+		requireTopUpCreditMetadataMinima(t, metadata, 10000000, 1000000, 1500000, 2000000)
+		require.EqualValues(t, 5000000000, metadata["stripe_credit_max_topup"])
+		require.EqualValues(t, 1750000, metadata["waffo_credit_max_topup"])
+		require.EqualValues(t, 2250000, metadata["pancake_credit_max_topup"])
 		if withCatalog {
 			for _, method := range methods {
 				switch method["type"] {
 				case model.PaymentMethodWaffo:
-					require.Equal(t, "900000", method["min_topup_credit"])
-					require.Equal(t, "1250000", method["max_topup_credit"])
+					require.Equal(t, "1500000", method["min_topup_credit"])
+					require.Equal(t, "1750000", method["max_topup_credit"])
 				case model.PaymentMethodWaffoPancake:
-					require.Equal(t, "1200000", method["min_topup_credit"])
-					require.Equal(t, "1500000", method["max_topup_credit"])
+					require.Equal(t, "2000000", method["min_topup_credit"])
+					require.Equal(t, "2250000", method["max_topup_credit"])
 				case model.PaymentMethodCreem:
-					require.Equal(t, "500000", method["min_topup_credit"], "fixed products do not inherit the 6000000 Epay minimum")
+					require.Equal(t, "500000", method["min_topup_credit"], "fixed products do not inherit the 10000000 Epay minimum")
 				}
 			}
 		}
@@ -263,8 +262,8 @@ func TestTopUpCreditMetadataDedicatedAliasesContainCompletePolicies(t *testing.T
 	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 8, 99
 	metadata, err := topUpCreditMetadata(nil)
 	require.NoError(t, err)
-	require.EqualValues(t, 900000, metadata["waffo_credit_min_topup"])
-	require.EqualValues(t, 1250000, metadata["waffo_credit_max_topup"])
+	require.EqualValues(t, 1500000, metadata["waffo_credit_min_topup"])
+	require.EqualValues(t, 1750000, metadata["waffo_credit_max_topup"])
 }
 
 func TestTopUpCreditMetadataDedicatedMaximumIsExplicitWhenUnlimited(t *testing.T) {
@@ -280,16 +279,13 @@ func TestTopUpCreditMetadataDedicatedMaximumIsExplicitWhenUnlimited(t *testing.T
 
 func TestTopUpCreditMetadataStripeMaximumUsesMostRestrictiveCap(t *testing.T) {
 	preserveTopUpCreditMetadataConfig(t)
-	common.QuotaPerUnit = 300000
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(300000)))
-	persistCreditDenominationFixture(t, model.DB)
 	for _, tc := range []struct {
 		name, configuredMaximum string
 		maximum                 int64
 	}{
-		{"retained gateway cap", "", 3000000000},
+		{"retained gateway cap", "", 5000000000},
 		{"configured smaller cap", "2.5", 1250000},
-		{"configured larger cap", "10000", 3000000000},
+		{"configured larger cap", "20000", 5000000000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			operation_setting.PayMethods = []map[string]string{{"name": "Stripe", "type": model.PaymentMethodStripe}}
@@ -424,7 +420,7 @@ func TestTopUpCreditMetadataRejectsInvalidConfigurationWithoutPartialMutation(t 
 		{"nonfinite discount factor", func(_ *testing.T, _ []map[string]string) {
 			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1: math.NaN()}
 		}},
-		{"conflicting rounded discount thresholds", func(t *testing.T, _ []map[string]string) {
+		{"nonfixed fractional legacy scale with conflicting discount thresholds", func(t *testing.T, _ []map[string]string) {
 			common.QuotaPerUnit = 0.25
 			require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.RequireFromString("0.25")))
 			persistCreditDenominationFixture(t, model.DB)
