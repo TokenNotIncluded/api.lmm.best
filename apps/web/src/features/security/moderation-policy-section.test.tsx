@@ -15,11 +15,15 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { after, beforeEach, describe, test } from 'node:test'
 
 import { createInstance } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
+
+import appI18n from '@/i18n/config'
+import { useSystemConfigStore } from '@/stores/system-config-store'
+import { useWalletCurrencyPreferenceStore } from '@/stores/wallet-currency-preference-store'
 
 import { ModerationPolicySection } from './moderation-policy-section'
 import type { SecurityModerationPolicy } from './types'
@@ -30,12 +34,51 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
+const originalConfig = useSystemConfigStore.getState().config
+const originalPreference =
+  useWalletCurrencyPreferenceStore.getState().preference
+const originalLanguage = appI18n.language
+beforeEach(async () => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...originalConfig.currency,
+      currencyUnit: 'credit',
+      creditsPerUsd: 3_600_000,
+      creditsPerUsdExact: '3600000',
+      cnyPerUsd: 7.2,
+      cnyPerUsdExact: '7.2',
+      legacyPricingUnitsPerUsd: 14,
+    },
+  })
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  await appI18n.changeLanguage('en')
+})
+after(async () => {
+  useSystemConfigStore.getState().setConfig(originalConfig)
+  useWalletCurrencyPreferenceStore.getState().setPreference(originalPreference)
+  await appI18n.changeLanguage(originalLanguage)
+})
+
 function render(policy?: SecurityModerationPolicy) {
-  return renderToStaticMarkup(
-    <I18nextProvider i18n={i18n}>
-      <ModerationPolicySection policy={policy} isLoading={false} />
-    </I18nextProvider>
-  )
+  // Static rendering reads Zustand's server snapshot; install this test's
+  // explicit denomination and preference without changing the app defaults.
+  const configSnapshot = useSystemConfigStore.getInitialState()
+  const preferenceSnapshot = useWalletCurrencyPreferenceStore.getInitialState()
+  const config = configSnapshot.config
+  const preference = preferenceSnapshot.preference
+  configSnapshot.config = useSystemConfigStore.getState().config
+  preferenceSnapshot.preference =
+    useWalletCurrencyPreferenceStore.getState().preference
+  try {
+    return renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <ModerationPolicySection policy={policy} isLoading={false} />
+      </I18nextProvider>
+    )
+  } finally {
+    configSnapshot.config = config
+    preferenceSnapshot.preference = preference
+  }
 }
 
 function policy(
@@ -67,7 +110,11 @@ describe('public Moderation policy', () => {
     const html = render(
       policy({
         group_policies: {
-          existing: { mode: 'strict', category_fines_usd: { hate: 0.015 } },
+          existing: {
+            mode: 'strict',
+            amount_currency: 'USD',
+            category_fines_usd: { hate: 0.015 },
+          },
         },
       })
     )
@@ -75,7 +122,7 @@ describe('public Moderation policy', () => {
     assert.match(html, /A disabled feature does not review requests/)
     assert.match(html, /existing/)
     assert.match(html, /Strict mode/)
-    assert.match(html, /\$0\.015/)
+    assert.match(html, /0\.015 USD/)
     assert.match(html, /Features and groups are disabled by default/)
   })
 
@@ -89,6 +136,7 @@ describe('public Moderation policy', () => {
           warn: { mode: 'tolerant', category_fines_usd: { hate: 98 } },
           paid: {
             mode: 'strict',
+            amount_currency: 'USD',
             category_fines_usd: { hate: 0.25, violence: 0.5 },
           },
         },
@@ -96,9 +144,9 @@ describe('public Moderation policy', () => {
     )
     assert.match(html, /Moderation is disabled for this group/)
     assert.match(html, /without a wallet deduction/)
-    assert.match(html, /\$0\.25/)
-    assert.match(html, /\$0\.5/)
-    assert.doesNotMatch(html, /\$99|\$98/)
+    assert.match(html, /0\.25 USD/)
+    assert.match(html, /0\.5 USD/)
+    assert.doesNotMatch(html, /99 USD|98 USD/)
     assert.match(html, /largest configured fee among matched categories once/)
     assert.match(html, /reviews never overdraw the wallet/)
     assert.match(
@@ -116,9 +164,14 @@ describe('public Moderation policy', () => {
     const html = render(
       policy({
         group_policies: {
-          zero: { mode: 'strict', category_fines_usd: {} },
+          zero: {
+            mode: 'strict',
+            amount_currency: 'USD',
+            category_fines_usd: {},
+          },
           invalid: {
             mode: 'strict',
+            amount_currency: 'USD',
             category_fines_usd: {
               harassment: 0,
               hate: Number.NaN,
@@ -128,8 +181,36 @@ describe('public Moderation policy', () => {
         },
       })
     )
-    assert.match(html, /No category fees are configured; the review fee is \$0/)
+    assert.match(
+      html,
+      /No category fees are configured; the review fee is zero\./
+    )
     assert.match(html, /harassment/)
-    assert.doesNotMatch(html, />hate<|>violence<|NaN|\$-2/)
+    assert.match(html, /0 USD/)
+    assert.doesNotMatch(html, />hate<|>violence<|NaN|-2 USD/)
   })
+})
+
+test('public category fees remain real USD independently of legacy calibration', () => {
+  const published = policy({
+    group_policies: {
+      strict: {
+        mode: 'strict',
+        amount_currency: 'USD',
+        category_fines_usd: { hate: 0.25 },
+      },
+    },
+  })
+  assert.match(render(published), /0\.25 USD/)
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...useSystemConfigStore.getState().config.currency,
+      legacyPricingUnitsPerUsd: 140,
+    },
+  })
+  assert.match(render(published), /0\.25 USD/)
+  useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+  assert.match(render(published), /1\.8 CNY/)
+  useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+  assert.match(render(published), /900,000 Credits/)
 })
