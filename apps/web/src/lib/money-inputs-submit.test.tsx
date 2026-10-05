@@ -142,7 +142,7 @@ async function render(component: 'subscription' | 'bounty') {
   useWalletCurrencyPreferenceStore.getState().setPreference('USD')
   api.get = (async (url: string) => {
     let data: unknown = []
-    if (url === '/api/status')
+    if (url === '/api/status') {
       data = {
         currency_unit: 'credit',
         credits_per_usd: 3000000,
@@ -150,10 +150,11 @@ async function render(component: 'subscription' | 'bounty') {
         legacy_pricing_units_per_usd: 6,
         backend_capabilities: { bounty_public_read: true },
       }
-    else if (url.includes('open-source-bounties?'))
+    } else if (url.includes('open-source-bounties?')) {
       data = { items: [], total: 0, page: 1, page_size: 50 }
-    else if (url.includes('open-source-bounties/config'))
+    } else if (url.includes('open-source-bounties/config')) {
       data = { rate_percent: 10, rate_basis_points: 1000 }
+    }
     return { data: { success: true, data } }
   }) as typeof api.get
   api.post = (async (url: string, data: unknown) => {

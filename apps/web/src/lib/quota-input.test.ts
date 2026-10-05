@@ -128,11 +128,12 @@ test('creation defaults keep their previous raw budget and bounty escrow multipl
     validateBountyDraft(draft, { rawCredits: true }).rewardAmount,
     undefined
   )
-  for (const raw of [0, -1, 0.1, Infinity, Number.MAX_SAFE_INTEGER + 1])
+  for (const raw of [0, -1, 0.1, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     assert.ok(
       validateBountyDraft({ ...draft, rewardAmount: raw }, { rawCredits: true })
         .rewardAmount
     )
+  }
   assert.ok(
     validateBountyDraft(
       { ...draft, rewardAmount: Number.MAX_SAFE_INTEGER, rewardSlots: 2 },

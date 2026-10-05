@@ -96,14 +96,16 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
       defaultValues,
       onSubmit: async (_data, changedFields) => {
         for (const [key, value] of Object.entries(changedFields)) {
-          if (key !== 'USDExchangeRate' && key !== 'DisplayTokenStatEnabled')
+          if (key !== 'USDExchangeRate' && key !== 'DisplayTokenStatEnabled') {
             continue
+          }
           if (
             value === undefined ||
             value === null ||
             typeof value === 'object'
-          )
+          ) {
             continue
+          }
           await updateOption.mutateAsync({ key, value: String(value) })
         }
       },
@@ -113,8 +115,9 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
     setIsSyncingExchangeRate(true)
     try {
       const response = await getUsdExchangeRate('CNY')
-      if (!response.success || !response.data)
+      if (!response.success || !response.data) {
         throw new Error(response.message || t('Failed to load exchange rate'))
+      }
       const rate = Number(response.data.rate)
       if (
         response.data.base_currency !== 'USD' ||

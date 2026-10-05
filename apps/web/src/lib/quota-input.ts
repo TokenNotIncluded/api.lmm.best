@@ -30,9 +30,10 @@ export function assertCreditAmount(
   value: number,
   allowNegative = false
 ): number {
-  if (!isCreditAmount(value, allowNegative))
+  if (!isCreditAmount(value, allowNegative)) {
     throw new RangeError(
       'Enter a valid amount within the supported credit range'
     )
+  }
   return value
 }
