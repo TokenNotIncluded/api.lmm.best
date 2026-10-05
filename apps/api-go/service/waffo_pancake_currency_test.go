@@ -107,7 +107,7 @@ func installWaffoPancakeCreditCurrencyFixture(t *testing.T) {
 		require.NoError(t, common.SetCreditCurrencyBasis(originalAnchor, originalLegacy))
 	})
 	common.QuotaPerUnit = 500000
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 }
 
 func TestWaffoPancakeOneTimePricesUseLiveFiatRates(t *testing.T) {

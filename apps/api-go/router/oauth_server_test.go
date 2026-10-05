@@ -49,10 +49,10 @@ func installRouterCurrencyFixture(t *testing.T) {
 	oldK, oldBasisErr := common.CreditsPerUSD()
 	oldLegacyQ, _ := common.LegacyPricingQuotaPerUnit()
 	oldRuntimeQ := common.QuotaPerUnit
-	// Initialize this historical site's independent immutable K/Q without
-	// changing any raw wallet, payment-snapshot or access-policy fixture.
+	// Initialize the fixed credit/USD contract without changing any raw
+	// wallet, payment-snapshot or access-policy fixture.
 	common.QuotaPerUnit = 500000
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	t.Cleanup(func() {
 		common.QuotaPerUnit = oldRuntimeQ
 		if oldBasisErr != nil {

@@ -25,12 +25,13 @@ func toolMarketTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, string, model.Us
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
 	model.DB = db
+	oldRuntimeQ := common.QuotaPerUnit
 	oldLedger, ledgerErr := common.LedgerQuotaPerUSD()
 	oldLegacy, _ := common.LegacyPricingQuotaPerUnit()
-	if ledgerErr != nil {
-		require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromFloat(common.QuotaPerUnit).Mul(decimal.NewFromInt(7)), decimal.NewFromFloat(common.QuotaPerUnit)))
-	}
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	t.Cleanup(func() {
+		common.QuotaPerUnit = oldRuntimeQ
 		if ledgerErr != nil {
 			common.ClearCreditsPerUSD()
 		} else {
