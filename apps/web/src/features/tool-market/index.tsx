@@ -324,14 +324,16 @@ function ToolMarketWorkspace() {
                 item.min_price_quota !== undefined &&
                 item.max_price_quota !== undefined && (
                   <span className='basis-full text-sm font-medium break-words tabular-nums sm:text-right'>
-                    {item.max_price_quota === 0
-                      ? t('Free tool')
-                      : t('{{amount}} credits per successful call', {
-                          amount:
-                            item.min_price_quota === item.max_price_quota
-                              ? creditAmount(item.min_price_quota, units)
-                              : `${creditAmount(item.min_price_quota, units)} – ${creditAmount(item.max_price_quota, units)}`,
-                        })}
+                    {(item.metered_tools ?? 0) > 0
+                      ? t('Usage-based billing')
+                      : item.max_price_quota === 0
+                        ? t('Free tool')
+                        : t('{{amount}} credits per successful call', {
+                            amount:
+                              item.min_price_quota === item.max_price_quota
+                                ? creditAmount(item.min_price_quota, units)
+                                : `${creditAmount(item.min_price_quota, units)} – ${creditAmount(item.max_price_quota, units)}`,
+                          })}
                   </span>
                 )}
             </span>
@@ -780,17 +782,27 @@ function ToolMarketWorkspace() {
                                 {tool.name}
                               </h4>
                               <p className='text-sm font-medium tabular-nums'>
-                                {tool.price_quota === 0
-                                  ? t('Free tool')
-                                  : t(
-                                      '{{amount}} credits per successful call',
+                                {tool.billing_mode === 'input_tokens'
+                                  ? t(
+                                      '{{amount}} credits per million input tokens',
                                       {
                                         amount: creditAmount(
-                                          tool.price_quota,
+                                          tool.input_token_price_quota ?? 0,
                                           units
                                         ),
                                       }
-                                    )}
+                                    )
+                                  : tool.price_quota === 0
+                                    ? t('Free tool')
+                                    : t(
+                                        '{{amount}} credits per successful call',
+                                        {
+                                          amount: creditAmount(
+                                            tool.price_quota,
+                                            units
+                                          ),
+                                        }
+                                      )}
                               </p>
                             </div>
                             <p className='text-muted-foreground max-w-[70ch] text-sm leading-6 break-words whitespace-pre-wrap'>
@@ -862,9 +874,19 @@ function ToolMarketWorkspace() {
                                       })
                                     }
                                   >
-                                    {tool.price_quota === 0
-                                      ? t('Run free tool')
-                                      : t('Run tool')}
+                                    {tool.billing_mode === 'input_tokens'
+                                      ? t(
+                                          '{{amount}} credits per million input tokens',
+                                          {
+                                            amount: creditAmount(
+                                              tool.input_token_price_quota ?? 0,
+                                              units
+                                            ),
+                                          }
+                                        )
+                                      : tool.price_quota === 0
+                                        ? t('Run free tool')
+                                        : t('Run tool')}
                                   </Button>
                                 )}
                                 {grant && (

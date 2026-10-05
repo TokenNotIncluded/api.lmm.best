@@ -323,7 +323,7 @@ test('each discovered tool can be priced independently and switching back to fre
       assert.equal(mode.value, 'free')
       assert.deepEqual(
         [...mode.options].map((option) => option.textContent),
-        ['Free tool', 'Paid tool']
+        ['Free tool', 'Paid tool', 'Input token usage']
       )
     }
     await view.select('#billing-mode-search', 'paid')
@@ -537,6 +537,9 @@ test('editor preserves owner policy, requires review, and retries credential wri
         ...discovered[0],
         permissions: ['read', 'network'],
         price_quota: 25000,
+        billing_mode: '',
+        input_token_price_quota: 0,
+        max_input_tokens: 0,
       },
     ])
     assert.equal('authentication' in drafts[0], false)
@@ -843,5 +846,28 @@ test('an unsafe legacy inspection fails visibly and invalidates the earlier save
   } finally {
     await view.dispose()
     api.defaults.adapter = originalAdapter
+  }
+})
+
+test('metered pricing keeps the actual input rate and a separate refundable cap through discovery', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor()
+  try {
+    await readNewService(view)
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '2.94')
+    await view.input('#token-limit-search', '65536')
+    await view.click('Read tool definitions')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    const tool = requests.drafts[0].tools.find(({ name }) => name === 'search')
+    assert.ok(tool)
+    assert.equal(tool.billing_mode, 'input_tokens')
+    assert.equal(tool.input_token_price_quota, 1470000)
+    assert.equal(tool.max_input_tokens, 65536)
+    assert.equal(tool.price_quota, 96338)
+  } finally {
+    await view.dispose()
+    requests.restore()
   }
 })

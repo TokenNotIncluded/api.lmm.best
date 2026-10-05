@@ -28,10 +28,12 @@ type ToolMarketListItem struct {
 	ToolCount     int    `json:"tool_count"`
 	MinPriceQuota int    `json:"min_price_quota"`
 	MaxPriceQuota int    `json:"max_price_quota"`
+	MeteredTools  int    `json:"metered_tools"`
 }
 
 const marketListColumns = `s.id, s.owner_id, v.id AS version_id, v.name, v.description, v.execution_type, v.published_at,
 	(SELECT COUNT(*) FROM tool_market_tool_versions tv WHERE tv.version_id = v.id) AS tool_count,
+	(SELECT COUNT(*) FROM tool_market_tool_versions tv WHERE tv.version_id = v.id AND tv.billing_mode = 'input_tokens') AS metered_tools,
 	COALESCE((SELECT MIN(tv.price_quota) FROM tool_market_tool_versions tv WHERE tv.version_id = v.id), 0) AS min_price_quota,
 	COALESCE((SELECT MAX(tv.price_quota) FROM tool_market_tool_versions tv WHERE tv.version_id = v.id), 0) AS max_price_quota`
 

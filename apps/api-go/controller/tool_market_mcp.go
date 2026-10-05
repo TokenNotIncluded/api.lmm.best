@@ -229,8 +229,12 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 			annotations = definition.Annotations
 			provider = "LMM built-in tool. Tool invocation is free; confirmed image generation, transfers and bounty funding retain their normal costs."
 		}
+		pricing := fmt.Sprintf("%d quota per successful tool call", execution.Tool.PriceQuota)
+		if execution.Tool.BillingMode == "input_tokens" {
+			pricing = fmt.Sprintf("%d quota per million actual input tokens; reserve at most %d quota", execution.Tool.InputTokenPriceQuota, execution.Tool.PriceQuota)
+		}
 		server.AddTool(&mcp.Tool{Name: "market_tool_" + strings.ReplaceAll(execution.Tool.ToolID, "-", ""), Title: execution.Version.Name + " / " + execution.Tool.Name,
-			Description: fmt.Sprintf("%s\n%s Price: %d quota per successful tool call, capped by the explicit grant. Supply a unique request_id; reuse it only for the same call. Continue confirmation with the same request_id and arguments, echoing requestState/inputResponses.", execution.Tool.Description, provider, execution.Tool.PriceQuota), InputSchema: schema, OutputSchema: outputSchema, Annotations: annotations}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			Description: fmt.Sprintf("%s\n%s Price: %s, capped by the explicit grant. Supply a unique request_id; reuse it only for the same call. Continue confirmation with the same request_id and arguments, echoing requestState/inputResponses.", execution.Tool.Description, provider, pricing), InputSchema: schema, OutputSchema: outputSchema, Annotations: annotations}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var input struct {
 				RequestID string          `json:"request_id"`
 				Arguments json.RawMessage `json:"arguments"`

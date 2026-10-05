@@ -70,6 +70,9 @@ export function ServiceEditor({
         ...(tool.output_schema ? { output_schema: tool.output_schema } : {}),
         permissions: JSON.parse(tool.permissions) ?? [],
         price_quota: tool.price_quota,
+        billing_mode: tool.billing_mode,
+        input_token_price_quota: tool.input_token_price_quota,
+        max_input_tokens: tool.max_input_tokens,
       })) ?? []
   )
   const [selected, setSelected] = useState<string[]>(
@@ -77,14 +80,28 @@ export function ServiceEditor({
   )
   const [prices, setPrices] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      tools.map((tool) => [tool.name, String(tool.price_quota / units)])
+      tools.map((tool) => [
+        tool.name,
+        String(
+          (tool.billing_mode === 'input_tokens'
+            ? (tool.input_token_price_quota ?? 0)
+            : tool.price_quota) / units
+        ),
+      ])
     )
   )
   const [billingModes, setBillingModes] = useState<
-    Record<string, 'free' | 'paid'>
+    Record<string, 'free' | 'paid' | 'input_tokens'>
   >(() =>
     Object.fromEntries(
-      tools.map((tool) => [tool.name, tool.price_quota > 0 ? 'paid' : 'free'])
+      tools.map((tool) => [
+        tool.name,
+        tool.billing_mode === 'input_tokens'
+          ? 'input_tokens'
+          : tool.price_quota > 0
+            ? 'paid'
+            : 'free',
+      ])
     )
   )
   const [inspectedEndpoint, setInspectedEndpoint] = useState(
@@ -147,9 +164,19 @@ export function ServiceEditor({
         const quota = marketQuota(raw, units)
         if (
           Number(raw) > 1000000 ||
-          (billingModes[tool.name] === 'paid' ? quota <= 0 : quota !== 0)
+          (billingModes[tool.name] !== 'free' ? quota <= 0 : quota !== 0)
         ) {
           throw new Error('Invalid price')
+        }
+        if (billingModes[tool.name] === 'input_tokens') {
+          const cap = tool.max_input_tokens ?? 200000
+          if (!Number.isSafeInteger(cap) || cap < 1 || cap > 1000000) {
+            throw new Error('Invalid token limit')
+          }
+          return [
+            tool.name,
+            Number((BigInt(quota) * BigInt(cap) + 999999n) / 1000000n),
+          ]
         }
         return [tool.name, quota]
       } catch {
@@ -281,7 +308,17 @@ export function ServiceEditor({
           .filter((tool) => selected.includes(tool.name))
           .map((tool) => ({
             ...tool,
-            price_quota: marketQuota(prices[tool.name] ?? '0', units),
+            price_quota: priceQuotas[tool.name] ?? 0,
+            billing_mode:
+              billingModes[tool.name] === 'input_tokens' ? 'input_tokens' : '',
+            input_token_price_quota:
+              billingModes[tool.name] === 'input_tokens'
+                ? marketQuota(prices[tool.name] ?? '0', units)
+                : 0,
+            max_input_tokens:
+              billingModes[tool.name] === 'input_tokens'
+                ? (tool.max_input_tokens ?? 200000)
+                : 0,
           })),
       }
       if (!input.tools.length) throw new Error('Select a tool')
@@ -625,7 +662,11 @@ export function ServiceEditor({
                           disabled={pending}
                           onChange={(event) => {
                             const mode =
-                              event.target.value === 'paid' ? 'paid' : 'free'
+                              event.target.value === 'input_tokens'
+                                ? 'input_tokens'
+                                : event.target.value === 'paid'
+                                  ? 'paid'
+                                  : 'free'
                             setBillingModes((current) => ({
                               ...current,
                               [tool.name]: mode,
@@ -638,11 +679,18 @@ export function ServiceEditor({
                         >
                           <option value='free'>{t('Free tool')}</option>
                           <option value='paid'>{t('Paid tool')}</option>
+                          <option value='input_tokens'>
+                            {t('Input token usage')}
+                          </option>
                         </select>
                       </Field>
                       <Field>
                         <FieldLabel htmlFor={`price-${tool.name}`}>
-                          {t('Price per successful call')}
+                          {t(
+                            billingModes[tool.name] === 'input_tokens'
+                              ? 'Price per million input tokens'
+                              : 'Price per successful call'
+                          )}
                         </FieldLabel>
                         <Input
                           id={`price-${tool.name}`}
@@ -660,7 +708,10 @@ export function ServiceEditor({
                               ...current,
                               [tool.name]: raw,
                             }))
-                            if (Number(raw) > 0) {
+                            if (
+                              Number(raw) > 0 &&
+                              billingModes[tool.name] !== 'input_tokens'
+                            ) {
                               setBillingModes((current) => ({
                                 ...current,
                                 [tool.name]: 'paid',
@@ -668,13 +719,14 @@ export function ServiceEditor({
                             }
                           }}
                         />
-                        {billingModes[tool.name] === 'paid' &&
+                        {billingModes[tool.name] !== 'free' &&
                           priceQuota === undefined && (
                             <FieldDescription className='text-destructive'>
                               {t('Enter a positive price for a paid tool.')}
                             </FieldDescription>
                           )}
-                        {priceQuota !== undefined &&
+                        {billingModes[tool.name] !== 'input_tokens' &&
+                          priceQuota !== undefined &&
                           feeBps !== undefined &&
                           Number.isSafeInteger(feeBps) &&
                           feeBps >= 0 &&
@@ -693,6 +745,42 @@ export function ServiceEditor({
                             </FieldDescription>
                           )}
                       </Field>
+                      {billingModes[tool.name] === 'input_tokens' && (
+                        <Field>
+                          <FieldLabel htmlFor={`token-limit-${tool.name}`}>
+                            {t('Maximum input tokens per call')}
+                          </FieldLabel>
+                          <Input
+                            id={`token-limit-${tool.name}`}
+                            type='number'
+                            min='1'
+                            max='1000000'
+                            step='1'
+                            value={tool.max_input_tokens ?? 200000}
+                            disabled={pending}
+                            onChange={(e) =>
+                              setTools((current) =>
+                                current.map((item) =>
+                                  item.name === tool.name
+                                    ? {
+                                        ...item,
+                                        max_input_tokens: Number(
+                                          e.target.value
+                                        ),
+                                      }
+                                    : item
+                                )
+                              )
+                            }
+                          />
+                          <FieldDescription>
+                            {t(
+                              'Reserve up to {{amount}} credits; charge actual input usage and release the remainder.',
+                              { amount: creditAmount(priceQuota ?? 0, units) }
+                            )}
+                          </FieldDescription>
+                        </Field>
+                      )}
                       <fieldset className='flex min-w-0 flex-wrap gap-x-4 gap-y-2 text-sm sm:col-span-2'>
                         <legend className='mb-2'>
                           {t('Declared permissions')}

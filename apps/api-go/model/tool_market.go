@@ -60,14 +60,18 @@ type ToolMarketTool struct {
 }
 
 type ToolMarketToolVersion struct {
-	VersionID    string `json:"version_id" gorm:"primaryKey;size:36"`
-	ToolID       string `json:"tool_id" gorm:"primaryKey;size:36"`
-	Name         string `json:"name" gorm:"size:128;not null"`
-	Description  string `json:"description" gorm:"type:text"`
-	InputSchema  string `json:"input_schema" gorm:"type:text"`
-	OutputSchema string `json:"output_schema" gorm:"type:text"`
-	Permissions  string `json:"permissions" gorm:"type:text"`
-	PriceQuota   int    `json:"price_quota" gorm:"not null"`
+	VersionID            string `json:"version_id" gorm:"primaryKey;size:36"`
+	ToolID               string `json:"tool_id" gorm:"primaryKey;size:36"`
+	Name                 string `json:"name" gorm:"size:128;not null"`
+	Description          string `json:"description" gorm:"type:text"`
+	InputSchema          string `json:"input_schema" gorm:"type:text"`
+	OutputSchema         string `json:"output_schema" gorm:"type:text"`
+	Permissions          string `json:"permissions" gorm:"type:text"`
+	PriceQuota           int    `json:"price_quota" gorm:"not null"`
+	BillingMode          string `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
+	InputTokenPriceQuota int    `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
+	MaxInputTokens       int    `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
+
 	RemoteDigest string `json:"-" gorm:"size:64"`
 }
 
@@ -145,12 +149,15 @@ func toolMarketModels() []interface{} {
 }
 
 type ToolMarketToolInput struct {
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	InputSchema  json.RawMessage `json:"input_schema"`
-	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
-	Permissions  []string        `json:"permissions"`
-	PriceQuota   int             `json:"price_quota"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	InputSchema          json.RawMessage `json:"input_schema"`
+	OutputSchema         json.RawMessage `json:"output_schema,omitempty"`
+	Permissions          []string        `json:"permissions"`
+	PriceQuota           int             `json:"price_quota"`
+	BillingMode          string          `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
+	InputTokenPriceQuota int             `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
+	MaxInputTokens       int             `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
 }
 
 type ToolMarketDraftInput struct {
@@ -258,6 +265,10 @@ func validateMarketDraft(in ToolMarketDraftInput) error {
 func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (*ToolMarketService, error) {
 	in.Tools = append([]ToolMarketToolInput(nil), in.Tools...)
 	for i := range in.Tools {
+		if err := normalizeToolMarketPricing(&in.Tools[i]); err != nil {
+			return nil, err
+		}
+
 		if strings.TrimSpace(string(in.Tools[i].OutputSchema)) == "null" {
 			in.Tools[i].OutputSchema = nil
 		}
@@ -321,7 +332,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				return err
 			}
 			permissions, _ := json.Marshal(input.Permissions)
-			tv := ToolMarketToolVersion{VersionID: version.ID, ToolID: tool.ID, Name: tool.Name, Description: input.Description, InputSchema: string(input.InputSchema), OutputSchema: string(input.OutputSchema), Permissions: string(permissions), PriceQuota: input.PriceQuota}
+			tv := ToolMarketToolVersion{VersionID: version.ID, ToolID: tool.ID, Name: tool.Name, Description: input.Description, InputSchema: string(input.InputSchema), OutputSchema: string(input.OutputSchema), Permissions: string(permissions), PriceQuota: input.PriceQuota, BillingMode: input.BillingMode, InputTokenPriceQuota: input.InputTokenPriceQuota, MaxInputTokens: input.MaxInputTokens}
 			if err := tx.Create(&tv).Error; err != nil {
 				return err
 			}

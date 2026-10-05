@@ -155,6 +155,13 @@ export function GrantDialog({
             </dd>
           </div>
         </dl>
+        {tool.billing_mode === 'input_tokens' && (
+          <p className='text-sm'>
+            {t('{{amount}} credits per million input tokens', {
+              amount: creditAmount(tool.input_token_price_quota ?? 0, units),
+            })}
+          </p>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault()
