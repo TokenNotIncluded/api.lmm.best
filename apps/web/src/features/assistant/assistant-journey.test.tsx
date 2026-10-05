@@ -128,7 +128,7 @@ describe('assistant game-style progress', () => {
       assert.match(text, /Get L1 access/)
       assert.doesNotMatch(text, /Get a recommendation/)
       assert.match(text, /Side quest 0\/2/)
-      assert.match(text, /Chat with AI to earn a 0 USD–1\.43 USD new-user gift/)
+      assert.match(text, /Chat with AI to earn a 0 USD–10 USD new-user gift/)
       assert.match(text, /Accept an open-source bounty/)
     } finally {
       await unmount(rendered)
@@ -245,7 +245,7 @@ describe('assistant game-style progress', () => {
           data: {
             amount_cents: 999,
             quota: 123,
-            credit_amount: 3_500_000,
+            credit_amount: 500_000,
             amount_unit: 'LEGACY_CENTS',
             amount_usd: 1,
             status: 'offered',
@@ -265,7 +265,7 @@ describe('assistant game-style progress', () => {
       await act(async () => {
         useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
       })
-      assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
+      assert.match(rendered.container.textContent ?? '', /500,000 Credits/)
       assert.equal(calls, 1)
       assert.doesNotMatch(
         rendered.container.textContent ?? '',

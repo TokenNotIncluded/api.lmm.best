@@ -310,11 +310,11 @@ test('low-balance SMS notice renders in every supported interface language', asy
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_500_000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
-      legacyPricingUnitsPerUsd: 7,
+      legacyPricingUnitsPerUsd: 1,
       quotaPerUnit: 500_000,
     },
   }
@@ -341,7 +341,7 @@ test('low-balance SMS notice renders in every supported interface language', asy
       const currency = code === 'zhCN' || code === 'zhTW' ? 'CNY' : 'USD'
       const balance = new Intl.NumberFormat(toIntlLocale(code), {
         maximumFractionDigits: 8,
-      }).format(currency === 'CNY' ? 1.25 : 625_000 / 3_500_000)
+      }).format(currency === 'CNY' ? 8.75 : 625_000 / 500_000)
       assert.ok(html.includes(`Current balance: ${balance} ${currency}`), code)
       assert.ok(!html.includes('Current balance: -'), code)
     }

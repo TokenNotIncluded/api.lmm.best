@@ -240,13 +240,13 @@ describe('AssistantCostTool', () => {
       await act(async () => {
         useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
       })
-      assert.match(rendered.container.textContent ?? '', /1,260,000 Credits/)
+      assert.match(rendered.container.textContent ?? '', /180,000 Credits/)
       const input = rendered.container.querySelector<HTMLInputElement>(
         '#assistant-input-tokens'
       )
       assert.equal(input?.value, '100000')
       await act(async () => i18n.changeLanguage('zhCN'))
-      assert.match(rendered.container.textContent ?? '', /1,260,000 Credits/)
+      assert.match(rendered.container.textContent ?? '', /180,000 Credits/)
       assert.equal(calls, 1)
       assert.doesNotMatch(rendered.container.textContent ?? '', /\(Platform\)/)
     } finally {

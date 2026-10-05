@@ -83,7 +83,7 @@ const historicalAd: DirectoryAd = {
   description: '',
   bid_cents: 100,
   charged_quota: 500_000,
-  charged_amount_usd: '0.142857142857142857',
+  charged_amount_usd: '1',
   status: 'active',
   paid_at: 1,
   expires_at: Math.floor(Date.now() / 1000) + 86_400,
@@ -180,11 +180,11 @@ beforeEach(async () => {
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
       currencyUnit: 'credit',
-      creditsPerUsd: 3_500_000,
-      creditsPerUsdExact: '3500000',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
       cnyPerUsd: 7,
       cnyPerUsdExact: '7',
-      legacyPricingUnitsPerUsd: 7,
+      legacyPricingUnitsPerUsd: 1,
       quotaPerUnit: 500_000,
     },
   })
@@ -202,7 +202,7 @@ beforeEach(async () => {
             ...(oldQuote ? {} : { pricing_schema_version: 2 }),
             currency: 'USD',
             bid_cents: 100,
-            quota: 3_500_000,
+            quota: 500_000,
             duration_days: 30,
             min_bid_cents: 100,
             max_bid_cents: 1_000_000,
@@ -226,7 +226,7 @@ beforeEach(async () => {
     return {
       data: {
         success: true,
-        data: { ad: historicalAd, created: true, charged_quota: 3_500_000 },
+        data: { ad: historicalAd, created: true, charged_quota: 500_000 },
       },
     }
   }) as typeof api.post
@@ -260,24 +260,24 @@ after(async () => {
 
 test('historical public and moderation prices follow charged quota, language and shared display preference', async () => {
   await render()
-  assert.match(container.textContent ?? '', /Paid: 0\.142857 USD/)
+  assert.match(container.textContent ?? '', /Paid: 1 USD/)
   assert.doesNotMatch(container.textContent ?? '', /1\.00 USD equivalent/)
   await select('CNY')
-  assert.match(container.textContent ?? '', /Paid: 1 CNY/)
+  assert.match(container.textContent ?? '', /Paid: 7 CNY/)
   assert.equal(useWalletCurrencyPreferenceStore.getState().preference, 'CNY')
   await select('Credits')
   assert.match(container.textContent ?? '', /Paid: 500,000 Credits/)
   await select('Follow language')
   await act(async () => i18n.changeLanguage('zhCN'))
-  assert.match(container.textContent ?? '', /1 CNY/)
+  assert.match(container.textContent ?? '', /7 CNY/)
   await act(async () => i18n.changeLanguage('en'))
   await render(true)
-  assert.match(container.textContent ?? '', /Paid: 0\.142857 USD/)
+  assert.match(container.textContent ?? '', /Paid: 1 USD/)
   await select('CNY')
   await click('Hide and refund', container)
   assert.match(
     document.querySelector('[role="alertdialog"]')?.textContent ?? '',
-    /1 CNY will be refunded/
+    /7 CNY will be refunded/
   )
   assert.equal(bids.length, 0)
 })
@@ -302,8 +302,8 @@ test('unknown K blocks public credit and USD display while unknown FX blocks CNY
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...useSystemConfigStore.getState().config.currency,
-        creditsPerUsd: 3_500_000,
-        creditsPerUsdExact: '3500000',
+        creditsPerUsd: 500_000,
+        creditsPerUsdExact: '500000',
         cnyPerUsd: 0,
         cnyPerUsdExact: '',
       },
@@ -312,15 +312,18 @@ test('unknown K blocks public credit and USD display while unknown FX blocks CNY
   assert.match(container.textContent ?? '', /Paid: -/)
 })
 
-test('public credit denomination updates a paid receipt without changing its USD amount or ledger charge', async () => {
+test('noncanonical public denomination cannot redefine a paid receipt', async () => {
   await render()
+  assert.match(container.textContent ?? '', /Paid: 1 USD/)
+  await select('Credits')
+  assert.match(container.textContent ?? '', /Paid: 500,000 Credits/)
   await act(async () =>
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...useSystemConfigStore.getState().config.currency,
         creditUnitSchemaVersion: 2,
-        ledgerQuotaPerUsd: 3_500_000,
-        ledgerQuotaPerUsdExact: '3500000',
+        ledgerQuotaPerUsd: 500_000,
+        ledgerQuotaPerUsdExact: '500000',
         publicCreditsPerUsd: 100_000,
         publicCreditsPerUsdExact: '100000',
         quotaUnit: 'LEDGER_QUOTA',
@@ -328,24 +331,8 @@ test('public credit denomination updates a paid receipt without changing its USD
       },
     })
   )
-  assert.match(container.textContent ?? '', /Paid: 0\.142857 USD/)
-  await select('Credits')
-  assert.match(container.textContent ?? '', /Paid: 14,285\.71 Credits/)
-  assert.doesNotMatch(container.textContent ?? '', /Paid: 500,000 Credits/)
-  await act(async () =>
-    useSystemConfigStore.getState().setConfig({
-      currency: {
-        ...useSystemConfigStore.getState().config.currency,
-        publicCreditsPerUsd: 200_000,
-        publicCreditsPerUsdExact: '200000',
-        cnyPerUsd: 0,
-        cnyPerUsdExact: '',
-      },
-    })
-  )
-  assert.match(container.textContent ?? '', /Paid: 28,571\.43 Credits/)
-  await select('USD')
-  assert.match(container.textContent ?? '', /Paid: 0\.142857 USD/)
+  assert.match(container.textContent ?? '', /Paid: -/)
+  assert.doesNotMatch(container.textContent ?? '', /Paid: 100,000 Credits/)
   assert.equal(historicalAd.charged_quota, 500_000)
   assert.equal(bids.length, 0)
 })
@@ -372,7 +359,7 @@ test('a one-dollar bid submits 100 USD cents and the server charge while its dis
   assert.ok(dialog)
   assert.match(dialog.textContent ?? '', /Bid \(USD\)/)
   assert.match(dialog.textContent ?? '', /Exact charge: 7 CNY for 30 days/)
-  assert.match(dialog.textContent ?? '', /1 CNY paid/)
+  assert.match(dialog.textContent ?? '', /7 CNY paid/)
   const form = dialog.querySelector('form')
   assert.ok(form)
   // Happy DOM does not dispatch the browser's form submit from this Base UI
@@ -384,12 +371,12 @@ test('a one-dollar bid submits 100 USD cents and the server charge while its dis
   assert.match(dialog.textContent ?? '', /Bid1 USD/)
   assert.match(dialog.textContent ?? '', /Wallet charge7 CNY/)
   await select('Credits', dialog)
-  assert.match(dialog.textContent ?? '', /Wallet charge3,500,000 Credits/)
+  assert.match(dialog.textContent ?? '', /Wallet charge500,000 Credits/)
   assert.match(dialog.textContent ?? '', /Bid1 USD/)
   await click('Pay and publish', dialog)
   assert.equal(bids.length, 1)
   assert.equal(bids[0]?.bid_cents, 100)
-  assert.equal(bids[0]?.expected_quota, 3_500_000)
+  assert.equal(bids[0]?.expected_quota, 500_000)
 })
 
 test('a legacy backend quote cannot open confirmation or submit a payment', async () => {
