@@ -18,11 +18,26 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
 func TestHandleGroupRatioAppliesTrustLevelDiscount(t *testing.T) {
+	previousAnchor, previousBasisErr := common.CreditsPerUSD()
+	previousLegacyQuota, _ := common.LegacyPricingQuotaPerUnit()
+	previousQuotaPerUnit := common.QuotaPerUnit
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQuotaPerUnit
+		if previousBasisErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(previousAnchor, previousLegacyQuota))
+		}
+	})
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+
 	previousDB := model.DB
 	previousRedis := common.RedisEnabled
 	common.RedisEnabled = false
@@ -50,7 +65,9 @@ func TestHandleGroupRatioAppliesTrustLevelDiscount(t *testing.T) {
 	require.NoError(t, db.Create(&user).Error)
 	require.NoError(t, db.Create(&model.TopUp{
 		UserId: user.Id, TradeNo: "trust-price-paid", Amount: 100,
-		CreditedQuota: int64(common.QuotaPerUnit) * 100, Money: 100.0,
+		// Preserve the historical 100-unit policy amount (50m credits / Q),
+		// independently of its real USD value (50m credits / K).
+		CreditedQuota: 50000000, Money: 100.0,
 		Status: common.TopUpStatusSuccess, PaymentProvider: model.PaymentProviderStripe,
 		CompleteTime: time.Now().Unix(),
 	}).Error)
