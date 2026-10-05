@@ -10,6 +10,16 @@ spec.loader.exec_module(deploy)
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_shared_database_backup_includes_other_schemas_without_changing_default(self):
+        for full in (False,True):
+            with tempfile.TemporaryDirectory() as d, patch.object(deploy.subprocess,'run') as execute, patch.object(deploy,'run'), patch.object(deploy,'digest',return_value='digest'):
+                (Path(d)/'database.dump').write_bytes(b'synthetic-dump-output')
+                execute.return_value.stdout=b'public';execute.return_value.returncode=0
+                deploy.backup(Path(d),{},all_schemas=full)
+                dump=execute.call_args.args[0]
+                self.assertEqual(not full,'--schema' in dump)
+                self.assertIn('--format=custom',dump)
+
     def test_verification_uses_ordered_service_environment_overrides(self):
         files = '/etc/lmm-api-go/lmm-api-go.env (ignore_errors=yes)\n/etc/lmm-api/cluster.env (ignore_errors=no)'
         with patch.object(deploy, 'property_value', return_value=files), patch.object(deploy, 'run') as run:

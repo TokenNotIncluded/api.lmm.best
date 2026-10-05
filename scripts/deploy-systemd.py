@@ -135,6 +135,11 @@ def database_environment():
         raise RuntimeError('running service is required to identify database configuration')
     entries = Path('/proc', pid, 'environ').read_bytes().split(b'\0')
     env = dict(item.split(b'=', 1) for item in entries if b'=' in item)
+    return database_environment_from_values(env)
+
+
+def database_environment_from_values(env):
+    """Parse an existing process/oneshot environment without exposing credentials."""
     dsn = env.get(b'SQL_DSN', b'').decode()
     if not dsn.startswith(('postgres://', 'postgresql://')) or env.get(b'LOG_SQL_DSN'):
         raise RuntimeError('migration currently requires PostgreSQL without a separate log database')
@@ -159,13 +164,14 @@ def database_environment():
     return result
 
 
-def backup(work, env, schema_only=False, exclude=()):
+def backup(work, env, schema_only=False, exclude=(), all_schemas=False):
     path = work / ('preflight-schema.sql' if schema_only else 'database.dump')
     command = ['pg_dump', '--no-password', '--file', str(path)]
     schema = subprocess.run(['psql', '-XAtc', 'SELECT current_schema()'], env=env, capture_output=True, check=True).stdout.decode().strip()
     if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', schema):
         raise RuntimeError('unsupported database schema name')
-    command += ['--schema', schema]
+    if not all_schemas:
+        command += ['--schema', schema]
     for table in exclude:
         if not re.fullmatch(re.escape(schema) + r'\.[A-Za-z_][A-Za-z0-9_]*', table):
             raise RuntimeError('backup exclusion must name an exact table in the active schema')
