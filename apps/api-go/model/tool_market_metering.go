@@ -16,10 +16,10 @@ import (
 	"sort"
 )
 
-var ErrToolMarketMetering = errors.New("tool market requires platform-authorized metering")
+var ErrToolMarketMetering = errors.New("tool market usage report is missing or invalid")
 
-// Rates are quota per metric scale. Counts use integer base units, measured by
-// the platform collector from the upstream provider or hypervisor, never a tool.
+// Rates are quota per metric scale. Tool-reported counts use integer base units;
+// optional independently collected counts are distinguished by their source.
 type ToolMarketBillingRule struct {
 	Metric      string `json:"metric"`
 	RateQuota   int    `json:"rate_quota"`
@@ -139,29 +139,14 @@ func readToolMarketMeteringAdapters() ([]toolMarketMeteringAdapter, error) {
 	return cfg.Adapters, nil
 }
 func ToolMarketMeteringMetrics(serviceID, endpoint, toolName string) []string {
-	adapters, err := readToolMarketMeteringAdapters()
-	if err != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var metrics []string
-	for _, a := range adapters {
-		if a.ServiceID == serviceID && a.Endpoint == endpoint && a.ToolName == toolName {
-			for _, m := range a.Metrics {
-				if !seen[m] {
-					seen[m] = true
-					metrics = append(metrics, m)
-				}
-			}
-		}
+	metrics := make([]string, 0, len(toolMarketMetricScales))
+	for metric := range toolMarketMetricScales {
+		metrics = append(metrics, metric)
 	}
 	sort.Strings(metrics)
 	return metrics
 }
 func marketDraftMeteringAllowed(serviceID, endpoint string, t ToolMarketToolInput) bool {
-	if serviceID == "" {
-		return false
-	}
 	allowed := ToolMarketMeteringMetrics(serviceID, endpoint, t.Name)
 	set := map[string]bool{}
 	for _, m := range allowed {
@@ -207,8 +192,7 @@ func ValidateToolMarketMetering(serviceID string, v ToolMarketVersion, t ToolMar
 	if _, err := toolMarketRulesQuota(toolMarketToolRules(t), nil); err != nil {
 		return err
 	}
-	_, err := toolMarketAuthorizedAdapter(serviceID, v, t)
-	return err
+	return nil
 }
 
 // Sent in MCP _meta; user arguments cannot replace it. No key is sent.

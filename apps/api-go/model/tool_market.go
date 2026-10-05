@@ -147,7 +147,7 @@ type ToolMarketEvent struct {
 func toolMarketModels() []interface{} {
 	return []interface{}{&ToolMarketService{}, &ToolMarketVersion{}, &ToolMarketTool{}, &ToolMarketToolVersion{}, &ToolMarketAccess{},
 		&ToolMarketFavorite{}, &ToolMarketInstallation{}, &ToolMarketGrant{}, &ToolMarketBudget{}, &ToolMarketConfig{},
-		&ToolMarketEvent{}, &ToolMarketCall{}, &ToolMarketTransfer{}, &ToolMarketResult{}, &ToolMarketToken{}, &ToolMarketBuiltinContinuation{}, &ToolMarketCredential{}}
+		&ToolMarketReport{}, &ToolMarketEvent{}, &ToolMarketCall{}, &ToolMarketTransfer{}, &ToolMarketResult{}, &ToolMarketToken{}, &ToolMarketBuiltinContinuation{}, &ToolMarketCredential{}}
 }
 
 type ToolMarketToolInput struct {

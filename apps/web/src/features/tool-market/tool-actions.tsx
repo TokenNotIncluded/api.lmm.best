@@ -34,6 +34,7 @@ import {
 } from './call-utils'
 import { marketStatus, marketPermissionList } from './copy'
 import { useMarketMoneyDraft } from './money'
+import { ReportCallButton } from './reports'
 import {
   drawingResultImages,
   resultImage,
@@ -45,7 +46,11 @@ import {
   initialArguments,
   schemaObject,
 } from './schema-form-utils'
-import { usagePriceLabel, usageQuantityLabel } from './usage-pricing'
+import {
+  usagePriceLabel,
+  usageQuantityLabel,
+  usageSourceLabel,
+} from './usage-pricing'
 
 export function GrantDialog({
   tool,
@@ -163,6 +168,13 @@ export function GrantDialog({
             {t('{{amount}} per million input tokens', {
               amount: formatQuota(tool.input_token_price_quota ?? 0),
             })}
+          </p>
+        )}
+        {tool.billing_mode && (
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Usage is reported by the tool provider. You can report a disputed bill.'
+            )}
           </p>
         )}
         <form
@@ -287,11 +299,16 @@ export function CallResult({
         </div>
         {response.call.usage_quantities && (
           <div className='col-span-2'>
-            <dt className='text-muted-foreground'>{t('Verified usage')}</dt>
+            <dt className='text-muted-foreground'>
+              {t(usageSourceLabel(response.call.usage_source))}
+            </dt>
             <dd>{usageQuantityLabel(response.call.usage_quantities, t)}</dd>
           </div>
         )}
       </dl>
+      {['settled', 'released'].includes(response.call.settlement_status) && (
+        <ReportCallButton callID={response.call.id} />
+      )}
       {response.call.settlement_status === 'held' && (
         <p>
           {t(

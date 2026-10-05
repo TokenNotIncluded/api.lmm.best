@@ -24,7 +24,7 @@ func toolMarketRespond(c *gin.Context, value any, err error) {
 	case errors.Is(err, model.ErrToolMarketInput):
 		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_INVALID_INPUT", err.Error()
 	case errors.Is(err, model.ErrToolMarketMetering):
-		status, code, message = http.StatusForbidden, "TOOL_MARKET_METERING_REQUIRED", err.Error()
+		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_INVALID_USAGE", err.Error()
 	case errors.Is(err, model.ErrToolMarketDenied):
 		status, code, message = http.StatusForbidden, "TOOL_MARKET_DENIED", err.Error()
 	case errors.Is(err, model.ErrToolMarketConflict):
@@ -215,4 +215,35 @@ func SetToolMarketConfig(c *gin.Context) {
 		return
 	}
 	toolMarketRespond(c, nil, model.SetToolMarketConfig(c.GetInt("id"), input))
+}
+
+func ReportToolMarketCall(c *gin.Context) {
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	if c.ShouldBindJSON(&input) != nil {
+		toolMarketRespond(c, nil, model.ErrToolMarketInput)
+		return
+	}
+	report, err := model.ReportToolMarketCall(c.GetInt("id"), c.Param("id"), input.Reason)
+	toolMarketRespond(c, report, err)
+}
+func ListToolMarketReports(c *gin.Context) {
+	offset, limit, ok := toolMarketPage(c)
+	if !ok {
+		return
+	}
+	rows, err := model.ListToolMarketReports(c.GetInt("id"), offset, limit)
+	toolMarketRespond(c, rows, err)
+}
+func ReviewToolMarketReport(c *gin.Context) {
+	var input struct {
+		Confirmed *bool  `json:"confirmed"`
+		Note      string `json:"note"`
+	}
+	if c.ShouldBindJSON(&input) != nil || input.Confirmed == nil {
+		toolMarketRespond(c, nil, model.ErrToolMarketInput)
+		return
+	}
+	toolMarketRespond(c, nil, model.ReviewToolMarketReport(c.GetInt("id"), c.Param("id"), *input.Confirmed, input.Note))
 }

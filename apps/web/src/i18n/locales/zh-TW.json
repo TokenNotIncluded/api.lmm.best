@@ -10558,6 +10558,27 @@
     "Verified usage": "已驗證用量",
     "Price per unit": "每單位價格",
     "Reserve up to {{amount}}; settle verified usage and release the remainder.": "最多預留 {{amount}}，按已驗證用量結算並退回剩餘金額。",
-    "{{amount}} per {{unit}}": "每 {{unit}} {{amount}}"
+    "{{amount}} per {{unit}}": "每 {{unit}} {{amount}}",
+    "Tool-reported usage": "工具自報用量",
+    "Usage is reported by the tool provider. You can report a disputed bill.": "用量由工具提供方回報。有爭議的帳單可以檢舉。",
+    "Usage is reported by the tool provider. Rates are added together.": "用量由工具提供方回報，各項費用相加。",
+    "Reserve up to {{amount}}; settle reported usage and release the remainder.": "最多預留 {{amount}}，按回報用量結算並退回剩餘金額。",
+    "Choose the usage units the tool reports. Missing or invalid usage is not charged.": "選擇工具回報的用量單位。缺失或無效的用量不扣款。",
+    "Report this bill": "檢舉此帳單",
+    "Describe the suspected incorrect usage or charge. The bill and reported usage will be attached for review.": "說明懷疑有誤的用量或費用。帳單和回報用量會一併提交審核。",
+    "Report submitted for review.": "檢舉已提交，等待審核。",
+    "Report reason": "檢舉原因",
+    "Could not submit report. Retry with the same reason.": "檢舉提交失敗，請使用相同原因重試。",
+    "Submit report": "提交檢舉",
+    "Billing evidence": "帳單證據",
+    "Confirming a false bill suspends the service. Settled funds are not automatically refunded.": "確認虛假帳單後將停用服務。已結算款項不會自動退款。",
+    "Confirm and suspend service": "確認並停用服務",
+    "Dismiss report": "駁回檢舉",
+    "Could not review report.": "檢舉審核失敗。",
+    "Report confirmed": "檢舉已確認",
+    "Report dismissed": "檢舉已駁回",
+    "Billing reports": "帳單檢舉",
+    "No billing reports": "暫無帳單檢舉",
+    "Usage source unavailable": "用量來源未知"
   }
 }

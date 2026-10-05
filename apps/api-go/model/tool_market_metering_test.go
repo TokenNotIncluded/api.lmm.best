@@ -37,22 +37,27 @@ func marketTestSignedReceipt(t *testing.T, c ToolMarketCall, key []byte, quantit
 	require.NoError(t, err)
 	return data
 }
-func TestToolMarketUntrustedUsageBlockedBeforeHold(t *testing.T) {
+func TestToolMarketReportedUsageDoesNotRequireProviderKeys(t *testing.T) {
 	f := newMarketFixture(t, 100)
 	t.Setenv("LMM_TOOL_MARKET_METERING_CONFIG", "")
 	require.NoError(t, f.db.Model(&ToolMarketToolVersion{}).Where("version_id = ?", f.tool.VersionID).Updates(map[string]any{"billing_mode": "input_tokens", "input_token_price_quota": 1000000, "max_input_tokens": 100}).Error)
-	_, _, err := ReserveToolMarketCall(f.input("forged-usage"))
-	require.ErrorIs(t, err, ErrToolMarketMetering)
-	require.Equal(t, 1000, marketTestBalance(t, f.db, f.buyer.Id))
+	call, _, err := ReserveToolMarketCall(f.input("reported-usage"))
+	require.NoError(t, err)
+	require.Equal(t, 900, marketTestBalance(t, f.db, f.buyer.Id))
+	_, err = StartToolMarketCall(call.ID)
+	require.NoError(t, err)
+	require.NoError(t, RecordToolMarketResult(call.ID, true, json.RawMessage(`{"content":[{"type":"text","text":"{\"usage\":{\"input_tokens\":25,\"output_tokens\":0}}"}]}`)))
+	require.NoError(t, FinishToolMarketCall(call.ID, true))
+	require.NoError(t, f.db.First(call, "id = ?", call.ID).Error)
+	require.Equal(t, ToolMarketUsageReported, call.UsageSource)
+	require.Equal(t, 25, call.PriceQuota)
+	require.Equal(t, 975, marketTestBalance(t, f.db, f.buyer.Id))
 	draft := marketTestDraft(100)
 	draft.Tools[0].BillingMode = "input_tokens"
 	draft.Tools[0].InputTokenPriceQuota = 1000000
 	draft.Tools[0].MaxInputTokens = 100
 	_, err = SaveToolMarketDraft(f.author.Id, f.service.ID, draft)
-	require.ErrorIs(t, err, ErrToolMarketMetering)
-	// Even a root publisher cannot manufacture an authorized collector.
-	_, err = SaveToolMarketDraft(f.root.Id, "", draft)
-	require.ErrorIs(t, err, ErrToolMarketMetering)
+	require.NoError(t, err)
 }
 func TestToolMarketComputeSettlementAndReceiptBinding(t *testing.T) {
 	f := newMarketFixture(t, 300)
@@ -105,10 +110,10 @@ func TestToolMarketComputeSettlementAndReceiptBinding(t *testing.T) {
 	require.NoError(t, f.db.First(f.grant, "id = ?", f.grant.ID).Error)
 	require.Zero(t, f.grant.ReservedQuota)
 	require.Equal(t, 150, f.grant.SpentQuota)
-	// Removing the collector closes future execution; settled replay stays exactly once.
+	// Removing the optional collector does not block reported usage; settled replay stays exactly once.
 	t.Setenv("LMM_TOOL_MARKET_METERING_CONFIG", "")
 	_, _, err = ReserveToolMarketCall(f.input("compute-new"))
-	require.ErrorIs(t, err, ErrToolMarketMetering)
+	require.NoError(t, err)
 	replay, err := LookupToolMarketReplay(f.input("compute"))
 	require.NoError(t, err)
 	require.Equal(t, 150, replay.PriceQuota)
@@ -162,19 +167,22 @@ func TestToolMarketMeteringConfigFailsClosed(t *testing.T) {
 	require.NotEmpty(t, ToolMarketMeteringMetrics(f.service.ID, v.Endpoint, f.tool.Name))
 	linked := filepath.Join(t.TempDir(), "hardlink.json")
 	require.NoError(t, os.Link(path, linked))
-	require.Empty(t, ToolMarketMeteringMetrics(f.service.ID, v.Endpoint, f.tool.Name))
+	_, configErr := readToolMarketMeteringAdapters()
+	require.ErrorIs(t, configErr, ErrToolMarketMetering)
 	require.NoError(t, os.Remove(linked))
 	require.NoError(t, os.Chmod(path, 0644))
-	require.Empty(t, ToolMarketMeteringMetrics(f.service.ID, v.Endpoint, f.tool.Name))
+	_, configErr = readToolMarketMeteringAdapters()
+	require.ErrorIs(t, configErr, ErrToolMarketMetering)
 	require.NoError(t, os.Chmod(path, 0600))
 	require.NoError(t, os.WriteFile(path, []byte(`{"adapters":[{"id":"weak","key_base64":"YQ=="}]}`), 0600))
-	require.Empty(t, ToolMarketMeteringMetrics(f.service.ID, v.Endpoint, f.tool.Name))
+	_, configErr = readToolMarketMeteringAdapters()
+	require.ErrorIs(t, configErr, ErrToolMarketMetering)
 	require.NoError(t, os.WriteFile(path, []byte(`{"adapters":[],"trust_all":true}`), 0600))
 	_, err := readToolMarketMeteringAdapters()
 	require.ErrorIs(t, err, ErrToolMarketMetering)
 }
 
-func TestToolMarketReviewCannotAuthorizeCollector(t *testing.T) {
+func TestToolMarketReviewCanPublishReportedUsage(t *testing.T) {
 	f := newMarketFixture(t, 100)
 	t.Setenv("LMM_TOOL_MARKET_METERING_CONFIG", "")
 	draft, err := SaveToolMarketDraft(f.author.Id, f.service.ID, marketTestDraft(100))
@@ -185,9 +193,10 @@ func TestToolMarketReviewCannotAuthorizeCollector(t *testing.T) {
 	var v ToolMarketVersion
 	require.NoError(t, f.db.First(&v, "id = ?", draft.DraftVersionID).Error)
 	require.NoError(t, f.db.Model(&v).Update("validation_digest", v.Digest).Error)
-	require.ErrorIs(t, ReviewToolMarketVersion(f.root.Id, draft.ID, draft.DraftVersionID, true, "Independently reviewed definition"), ErrToolMarketMetering)
+	newVersionID := draft.DraftVersionID
+	require.NoError(t, ReviewToolMarketVersion(f.root.Id, draft.ID, draft.DraftVersionID, true, "Independently reviewed definition"))
 	require.NoError(t, f.db.First(draft, "id = ?", draft.ID).Error)
-	require.Equal(t, f.tool.VersionID, draft.LiveVersionID)
+	require.Equal(t, newVersionID, draft.LiveVersionID)
 }
 
 func TestToolMarketVerifiedZeroUsageReleasesEntireHold(t *testing.T) {
