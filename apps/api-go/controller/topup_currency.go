@@ -197,6 +197,9 @@ func bindTopUpRequest(c *gin.Context, target any) error {
 }
 
 func resolveTopUpRequestAmount(c *gin.Context, value float64, unit string) (resolvedTopUpAmount, error) {
+	if amount, canonical := canonicalTopUpCredit(c); canonical {
+		return amount, nil
+	}
 	raw := ""
 	if body, exists := c.Get(gin.BodyBytesKey); exists {
 		if bytes, ok := body.([]byte); ok {

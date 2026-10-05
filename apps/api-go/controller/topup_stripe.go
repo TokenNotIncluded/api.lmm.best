@@ -77,7 +77,7 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
 	if err != nil || !requireTopUpCreditCapacity(c, id, creditedQuota) {
 		return
 	}
-	payMoney, _, err := applyDiscountCodeQuoteLegacyDecimal(getStripePayMoneyForLegacyAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
+	payMoney, _, err := quoteStandardTopUpRequestWithDiscount(c, resolvedAmount, group, "USD", req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
@@ -137,7 +137,7 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney, discountCode, err := applyDiscountCodeQuoteLegacyDecimal(getStripePayMoneyForLegacyAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
+	payMoney, discountCode, err := quoteStandardTopUpRequestWithDiscount(c, resolvedAmount, group, "USD", req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return

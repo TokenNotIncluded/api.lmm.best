@@ -161,7 +161,7 @@ func RequestWaffoAmount(c *gin.Context) {
 		return
 	}
 
-	payMoneyDecimal, _, err := applyDiscountCodeQuoteLegacyDecimal(getWaffoPayMoneyForLegacyAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
+	payMoneyDecimal, _, err := quoteStandardTopUpRequestWithDiscount(c, resolvedAmount, group, "USD", req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
@@ -254,7 +254,7 @@ func RequestWaffoPay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoneyDecimal, discountCode, err := applyDiscountCodeQuoteLegacyDecimal(getWaffoPayMoneyForLegacyAmount(requestedAmount, group), requestedAmount, req.DiscountCode, id)
+	payMoneyDecimal, discountCode, err := quoteStandardTopUpRequestWithDiscount(c, resolvedAmount, group, "USD", req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return

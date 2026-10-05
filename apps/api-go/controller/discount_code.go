@@ -231,6 +231,9 @@ func ValidateDiscountCode(c *gin.Context) {
 			return
 		}
 		amount = topUpConfigAmountFromLegacy(legacy)
+		if _, canonical := canonicalTopUpCredit(c); canonical {
+			amount = topUpConfigAmountFromResolved(resolved)
+		}
 		if topUpRequestUnit("") == "CREDIT" {
 			amount = amount.Floor()
 		}

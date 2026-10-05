@@ -74,12 +74,12 @@ func RequestWaffoPancakeAmount(c *gin.Context) {
 		return
 	}
 	currency := waffoPancakeCheckoutCurrency(c, user, req.CheckoutLanguage)
-	base, err := getWaffoPancakePayMoneyForLegacyCurrency(requestedAmount, group, currency)
+	base, err := standardTopUpRequestBase(c, resolvedAmount, group, currency)
 	if err != nil {
 		common.ApiErrorMsg(c, "支付金额无效")
 		return
 	}
-	payMoneyDecimal, _, err := applyDiscountCodeQuoteLegacyDecimal(base, requestedAmount, req.DiscountCode, id)
+	payMoneyDecimal, _, err := applyDiscountCodeQuoteRequest(c, base, resolvedAmount, req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return
@@ -530,12 +530,12 @@ func RequestWaffoPancakePay(c *gin.Context) {
 	}
 
 	currency := waffoPancakeCheckoutCurrency(c, user, req.CheckoutLanguage)
-	base, err := getWaffoPancakePayMoneyForLegacyCurrency(requestedAmount, group, currency)
+	base, err := standardTopUpRequestBase(c, resolvedAmount, group, currency)
 	if err != nil {
 		common.ApiErrorMsg(c, "支付金额无效")
 		return
 	}
-	payMoneyDecimal, discountCode, err := applyDiscountCodeQuoteLegacyDecimal(base, requestedAmount, req.DiscountCode, id)
+	payMoneyDecimal, discountCode, err := applyDiscountCodeQuoteRequest(c, base, resolvedAmount, req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "优惠码无效"})
 		return

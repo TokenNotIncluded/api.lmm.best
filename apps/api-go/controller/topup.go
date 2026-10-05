@@ -208,7 +208,7 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 	if !access.Granted {
 		paymentAvailable, minPayment := neutralTopUpAvailability(gatewayAvailability)
-		common.ApiSuccess(c, neutralTopUpInfo{AmountUnit: topUpRequestUnit(""), CurrencyUnit: "credit", LegacyAmountUnit: "LEGACY", LegacyAmountOptions: legacyTopUpPresetOptions(), LegacyDiscount: legacyTopUpDiscountOptions(),
+		common.ApiSuccess(c, withTopUpPublicCreditMetadata(neutralTopUpInfo{AmountUnit: topUpRequestUnit(""), CurrencyUnit: "credit", LegacyAmountUnit: "LEGACY", LegacyAmountOptions: legacyTopUpPresetOptions(), LegacyDiscount: legacyTopUpDiscountOptions(),
 			DeveloperAccessGranted:         false,
 			ActivationRequired:             true,
 			PaymentAvailable:               paymentAvailable,
@@ -241,7 +241,7 @@ func GetTopUpInfo(c *gin.Context) {
 			TopUpLink:                     common.TopUpLink,
 			PaymentComplianceConfirmed:    complianceConfirmed,
 			PaymentComplianceTermsVersion: operation_setting.CurrentComplianceTermsVersion,
-		})
+		}))
 		return
 	}
 
@@ -291,7 +291,7 @@ func GetTopUpInfo(c *gin.Context) {
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
 	}
-	common.ApiSuccess(c, data)
+	common.ApiSuccess(c, withTopUpPublicCreditMetadata(data))
 }
 
 type neutralTopUpInfo struct {
@@ -801,6 +801,7 @@ type payMethodSettlementPricing struct {
 	settlementUnitsPerUSD              decimal.Decimal
 	settlementUnitsPerPlatformUnit     decimal.Decimal
 	usesSettlementUnitsPerPlatformUnit bool
+	usesFixedCreditDenomination        bool
 }
 
 func parsePositivePaymentRate(paymentMethod, field, raw string) (decimal.Decimal, error) {
@@ -843,8 +844,9 @@ func standardSettlementPricing(settlementCurrency string) (payMethodSettlementPr
 		return payMethodSettlementPricing{}, fmt.Errorf("unsupported standard settlement currency %q", settlementCurrency)
 	}
 	return payMethodSettlementPricing{
-		platformUnitsPerUSD:   platformUnitsPerUSD,
-		settlementUnitsPerUSD: settlementUnitsPerUSD,
+		platformUnitsPerUSD:         platformUnitsPerUSD,
+		settlementUnitsPerUSD:       settlementUnitsPerUSD,
+		usesFixedCreditDenomination: true,
 	}, nil
 }
 
@@ -1008,7 +1010,14 @@ func quoteTopUpLegacyDecimalWithSettlementPricing(requestedAmount decimal.Decima
 }
 
 func quoteTopUpLegacyDecimalWithDiscountAmount(requestedAmount, discountAmount decimal.Decimal, group string, pricing payMethodSettlementPricing, dPaymentRatio decimal.Decimal) (decimal.Decimal, error) {
-	dAmount := requestedAmount
+	settlementAmount, err := settlementAmountForPlatformAmount(requestedAmount, pricing)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return applyTopUpSettlementRatios(settlementAmount, discountAmount, group, dPaymentRatio), nil
+}
+
+func applyTopUpSettlementRatios(settlementAmount, discountAmount decimal.Decimal, group string, dPaymentRatio decimal.Decimal) decimal.Decimal {
 	topupGroupRatio := common.GetTopupGroupRatio(group)
 	if topupGroupRatio == 0 {
 		topupGroupRatio = 1
@@ -1026,15 +1035,11 @@ func quoteTopUpLegacyDecimalWithDiscountAmount(requestedAmount, discountAmount d
 	}
 	dDiscount := decimal.NewFromFloat(discount)
 
-	settlementAmount, err := settlementAmountForPlatformAmount(dAmount, pricing)
-	if err != nil {
-		return decimal.Zero, err
-	}
 	return settlementAmount.
 		Mul(dTopupGroupRatio).
 		Mul(dPaymentRatio).
 		Mul(dDiscount).
-		Round(2), nil
+		Round(2)
 }
 
 func getMinTopup() int64 {
@@ -1191,7 +1196,7 @@ func RequestEpay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney, discountCode, err := quoteTopUpLegacyDecimalWithDiscount(requestedAmount, group, req.PaymentMethod, req.DiscountCode, id)
+	payMoney, discountCode, err := quoteTopUpRequestWithDiscount(c, resolvedAmount, group, req.PaymentMethod, req.DiscountCode, id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式配置无效"})
 		return
@@ -1479,7 +1484,7 @@ func RequestAmount(c *gin.Context) {
 		common.ApiErrorMsg(c, "获取用户分组失败")
 		return
 	}
-	payMoney, _, err := quoteTopUpLegacyDecimalWithDiscount(amount, group, req.PaymentMethod, req.DiscountCode, id)
+	payMoney, _, err := quoteTopUpRequestWithDiscount(c, resolvedAmount, group, req.PaymentMethod, req.DiscountCode, id)
 	if err != nil {
 		common.ApiErrorMsg(c, "支付方式配置无效")
 		return
