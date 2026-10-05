@@ -226,10 +226,10 @@ function grantFields(amount: number) {
     quota_unit: 'LEDGER_QUOTA',
     legacy_credit_unit: 'LEDGER_QUOTA',
     public_credit_unit: 'CREDIT',
-    ledger_quota_per_usd: 5,
-    ledger_quota_per_usd_exact: '5',
-    public_credits_per_usd: 5,
-    public_credits_per_usd_exact: '5',
+    ledger_quota_per_usd: 500000,
+    ledger_quota_per_usd_exact: '500000',
+    public_credits_per_usd: 500000,
+    public_credits_per_usd_exact: '500000',
     credited_quota: amount,
     credit_amount: amount,
     credit_amount_unit: 'LEDGER_QUOTA',
@@ -384,7 +384,7 @@ test('a missing CREDIT route surfaces HTTP 404 without falling back to a legacy 
   )
 })
 
-test('only explicit v2 CREDIT requests use the public denomination and captured basis', async () => {
+test('explicit v2 CREDIT requests preserve raw integers with the fixed captured basis', async () => {
   const captured: unknown[] = []
   api.post = (async (_url: string, body: unknown) => {
     captured.push(body)
@@ -392,10 +392,7 @@ test('only explicit v2 CREDIT requests use the public denomination and captured 
       data: {
         success: true,
         data: '7.00',
-        ...grantFields(10),
-        public_credits_per_usd: 2,
-        public_credits_per_usd_exact: '2',
-        public_credit_amount: '4',
+        ...grantFields(4),
       },
     }
   }) as typeof api.post
@@ -403,7 +400,7 @@ test('only explicit v2 CREDIT requests use the public denomination and captured 
     amount: 4,
     amount_unit: 'CREDIT',
     credit_metadata_version: 2,
-    expected_public_credits_per_usd_exact: '2',
+    expected_public_credits_per_usd_exact: '500000',
     payment_method: 'alipay',
   })
   assert.deepEqual(
@@ -413,7 +410,7 @@ test('only explicit v2 CREDIT requests use the public denomination and captured 
         amount: 4,
         amount_unit: 'CREDIT',
         credit_metadata_version: 2,
-        expected_public_credits_per_usd_exact: '2',
+        expected_public_credits_per_usd_exact: '500000',
         payment_method: 'alipay',
       },
     ]
@@ -520,7 +517,7 @@ test('explicit public input rejects a changed basis or unrelated ledger grant', 
           amount: 4,
           amount_unit: 'CREDIT',
           credit_metadata_version: 2,
-          expected_public_credits_per_usd_exact: '2',
+          expected_public_credits_per_usd_exact: '500000',
         }),
       /Top-up credit metadata unavailable/
     )

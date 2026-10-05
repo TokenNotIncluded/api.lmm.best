@@ -56,16 +56,13 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
-// Synthetic captured basis: 500000 ledger units / USD, 100000 public Credits / USD.
+// Credits are raw integers, with the fixed 500000 Credits / USD basis.
 function publicAmount(value: unknown): string {
   const raw = typeof value === 'string' ? Number(value) : value
   if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 0) {
     return 'invalid'
   }
-  const scaled = BigInt(raw) * 2n
-  const whole = scaled / 10n
-  const fraction = scaled % 10n
-  return whole.toString() + (fraction ? `.${fraction}` : '')
+  return String(raw)
 }
 
 function wireCatalog(payMethods: unknown, extra: Record<string, unknown>) {
@@ -96,8 +93,8 @@ function wireCatalog(payMethods: unknown, extra: Record<string, unknown>) {
     public_credit_unit: 'CREDIT',
     ledger_quota_per_usd: 500000,
     ledger_quota_per_usd_exact: '500000',
-    public_credits_per_usd: 100000,
-    public_credits_per_usd_exact: '100000',
+    public_credits_per_usd: 500000,
+    public_credits_per_usd_exact: '500000',
     public_credit_metadata_version: 2,
     public_credit_amount_unit: 'CREDIT',
     ledger_quota_amount_options: legacy.credit_amount_options,
@@ -305,6 +302,8 @@ test('missing or invalid raw metadata disables editable money without disabling 
     { credit_unit_schema_version: 3 },
     { quota_unit: 'CREDIT' },
     { public_credits_per_usd_exact: '200000' },
+    { public_credits_per_usd: 100000, public_credits_per_usd_exact: '100000' },
+    { ledger_quota_per_usd: 3359744, ledger_quota_per_usd_exact: '3359744' },
     { public_credit_amount_options: ['1', '2', '5'] },
   ]) {
     const info = await loadTopupInfo([{ name: 'Card', type: 'card' }], {
@@ -394,9 +393,9 @@ test('complete dedicated aliases override stale synthetic rows and include the S
   assert.equal(getPaymentMinTopupQuota(info.pay_methods[1]), 3500000)
   assert.equal(getPaymentMaxTopupQuota(info.pay_methods[1]), 8750000)
   assert.equal(info.pay_methods[0].max_topup_ledger_quota, '3000000000')
-  assert.equal(info.pay_methods[0].max_topup_public_credit, '600000000')
+  assert.equal(info.pay_methods[0].max_topup_public_credit, '3000000000')
   assert.equal(info.pay_methods[1].min_topup_ledger_quota, '3500000')
-  assert.equal(info.pay_methods[1].min_topup_public_credit, '700000')
+  assert.equal(info.pay_methods[1].min_topup_public_credit, '3500000')
 })
 
 test('partial dedicated caps disable editable money; explicit null preserves unlimited providers', async () => {

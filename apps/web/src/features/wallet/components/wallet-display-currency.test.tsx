@@ -134,8 +134,8 @@ function Harness({
         user={{
           id: 7,
           username: 'unit-fixture',
-          quota: 3359744,
-          used_quota: 1679872,
+          quota: 500000,
+          used_quota: 250000,
           request_count: 1,
           aff_quota: 0,
           aff_history_quota: 0,
@@ -158,7 +158,7 @@ function Harness({
             credit_amount_options: [50000000],
             credit_discount: {},
           },
-          3359744
+          500000
         )}
         presetAmounts={[{ value: 50000000, discount: 1 }]}
         selectedPreset={50000000}
@@ -282,7 +282,7 @@ beforeEach(async () => {
     setting: { wallet_display_currency: '', settlement_currency: 'CNY' },
   })
   useWalletCurrencyPreferenceStore.getState().setPreference('')
-  setRates(3359744, 6.719488)
+  setRates(500000, 1)
   api.put = (async (path: string, body: unknown) => {
     updates.push({ path, body })
     return { data: { success: true } }
@@ -313,8 +313,8 @@ test('balance CNY/USD/Credit selector updates balance and total usage without ch
   await i18n.changeLanguage('zh')
   const container = await render()
   assert.equal(input(container).value, '100')
-  assert.ok(container.textContent?.includes('6.72 CNY'))
-  assert.ok(container.textContent?.includes('3.36 CNY'))
+  assert.ok(container.textContent?.includes('1 CNY'))
+  assert.ok(container.textContent?.includes('0.5 CNY'))
   for (const unit of ['Credits', 'USD', 'CNY', 'Credits']) {
     await choose(container, 'Balance display currency', unit)
     assert.equal(input(container).value, '100')
@@ -332,8 +332,8 @@ test('balance CNY/USD/Credit selector updates balance and total usage without ch
       false
     )
   }
-  assert.ok(container.textContent?.includes('3,359,744 Credits'))
-  assert.ok(container.textContent?.includes('1,679,872 Credits'))
+  assert.ok(container.textContent?.includes('500,000 Credits'))
+  assert.ok(container.textContent?.includes('250,000 Credits'))
   assert.equal(edits.length, 0)
   assert.deepEqual(
     updates.map((update) => update.body),
@@ -346,8 +346,8 @@ test('balance CNY/USD/Credit selector updates balance and total usage without ch
   )
   assert.ok(updates.every((update) => update.path === '/api/user/self'))
   await choose(container, 'Recharge display currency', 'USD')
-  assert.equal(input(container).value, '≈14.88')
-  assert.ok(container.textContent?.includes('3,359,744 Credits'))
+  assert.equal(input(container).value, '100')
+  assert.ok(container.textContent?.includes('500,000 Credits'))
   assert.equal(edits.length, 0)
   assert.equal(updates.length, 4)
   const preset = container.querySelector<HTMLButtonElement>(
@@ -383,7 +383,7 @@ for (const language of ['en', 'zh', 'zh-TW', 'zhCN', 'zhTW']) {
         ?.textContent?.trim(),
       unit
     )
-    assert.equal(input(container).value, language === 'en' ? '≈14.88' : '100')
+    assert.equal(input(container).value, language === 'en' ? '100' : '100')
     assert.equal(
       input(container)
         .closest('[data-slot="input-group"]')
@@ -394,13 +394,13 @@ for (const language of ['en', 'zh', 'zh-TW', 'zhCN', 'zhTW']) {
   })
 }
 
-test('fiat recharge reads live server K and FX while unit switches preserve raw selected quota', async () => {
+test('fiat recharge uses fixed Credits per USD and live FX while preserving raw quota', async () => {
   const container = await render()
   await choose(container, 'Recharge display currency', 'CNY')
-  await act(async () => setRates(4000000, 6.5))
-  assert.equal(input(container).value, '81.25')
+  await act(async () => setRates(500000, 6.5))
+  assert.equal(input(container).value, '650')
   await choose(container, 'Recharge display currency', 'USD')
-  assert.equal(input(container).value, '12.5')
+  assert.equal(input(container).value, '100')
   const setter = Object.getOwnPropertyDescriptor(
     domWindow.HTMLInputElement.prototype,
     'value'
@@ -410,10 +410,10 @@ test('fiat recharge reads live server K and FX while unit switches preserve raw 
     setter.call(input(container), '25')
     input(container).dispatchEvent(new Event('input', { bubbles: true }))
   })
-  assert.deepEqual(edits, [100000000])
+  assert.deepEqual(edits, [12500000])
   await choose(container, 'Recharge display currency', 'CNY')
   assert.equal(input(container).value, '162.5')
-  assert.deepEqual(edits, [100000000])
+  assert.deepEqual(edits, [12500000])
   assert.equal(updates.length, 0)
 })
 
@@ -455,78 +455,56 @@ test('failed balance preference save keeps the prior unit and cannot alter a fia
   assert.equal(selections.length, 0)
 })
 
-test('public credit face value changes balance display while 100 CNY recharge retains the old ledger basis', async () => {
+test('old ledger basis disables fiat recharge and old public face values cannot revalue Credits', async () => {
   const { mapStatusDataToConfig } = await import('@/hooks/use-system-config')
-  const status = {
-    currency_unit: 'credit',
-    credits_per_usd: 3359744,
-    ledger_quota_per_usd: 3359744,
-    ledger_quota_per_usd_exact: '3359744',
-    public_credits_per_usd: 100000,
-    public_credits_per_usd_exact: '100000',
-    credit_unit_schema_version: 2,
-    quota_unit: 'LEDGER_QUOTA',
-    public_credit_unit: 'CREDIT',
-    legacy_credit_unit: 'LEDGER_QUOTA',
-    cny_per_usd: '6.719488',
-    quota_per_unit: 500000,
-  }
-  useSystemConfigStore.getState().setConfig(mapStatusDataToConfig(status))
-  const container = await render()
-  assert.ok(container.textContent?.includes('1 USD'))
-  assert.ok(container.textContent?.includes('0.5 USD'))
-  await choose(container, 'Recharge display currency', 'CNY')
-  assert.equal(input(container).value, '100')
-  await choose(container, 'Balance display currency', 'Credits')
-  assert.ok(container.textContent?.includes('100,000 Credits'))
-  assert.ok(container.textContent?.includes('50,000 Credits'))
-  assert.equal(input(container).value, '100')
-  assert.ok(container.textContent?.includes('100 CNY'))
-  await act(async () =>
-    useSystemConfigStore.getState().setConfig(
-      mapStatusDataToConfig({
-        ...status,
-        public_credits_per_usd: 200000,
-        public_credits_per_usd_exact: '200000',
-      })
+  for (const basis of [
+    { ledger: 3359744, public: 100000 },
+    { ledger: 500000, public: 100000 },
+  ]) {
+    await act(async () =>
+      useSystemConfigStore.getState().setConfig(
+        mapStatusDataToConfig({
+          currency_unit: 'credit',
+          credits_per_usd: basis.ledger,
+          ledger_quota_per_usd: basis.ledger,
+          ledger_quota_per_usd_exact: String(basis.ledger),
+          public_credits_per_usd: basis.public,
+          public_credits_per_usd_exact: String(basis.public),
+          credit_unit_schema_version: 2,
+          quota_unit: 'LEDGER_QUOTA',
+          public_credit_unit: 'CREDIT',
+          legacy_credit_unit: 'LEDGER_QUOTA',
+          cny_per_usd: '6.719488',
+          quota_per_unit: 500000,
+        })
+      )
     )
-  )
-  assert.ok(container.textContent?.includes('200,000 Credits'))
-  assert.ok(container.textContent?.includes('100,000 Credits'))
-  assert.equal(input(container).value, '100')
-  await choose(container, 'Balance display currency', 'USD')
-  assert.ok(container.textContent?.includes('1 USD'))
-  assert.ok(container.textContent?.includes('0.5 USD'))
-  assert.equal(input(container).value, '100')
-  assert.equal(
-    useSystemConfigStore.getState().config.currency.creditsPerUsd,
-    3359744
-  )
-  const preset = container.querySelector<HTMLButtonElement>(
-    'button[aria-pressed]'
-  )
-  assert.ok(preset)
-  await act(async () => preset.click())
-  assert.deepEqual(selections, [50000000])
-  assert.equal(edits.length, 0)
+    const container = await render()
+    assert.equal(input(container).value, basis.ledger === 500000 ? '100' : '')
+    assert.equal(input(container).disabled, basis.ledger !== 500000)
+    await choose(container, 'Balance display currency', 'Credits')
+    assert.equal(container.textContent?.includes('100,000 Credits'), false)
+    assert.equal(container.textContent?.includes('500,000 Credits'), false)
+    assert.deepEqual(edits, [])
+  }
 })
 
 test('short recharge display restores the exact draft on focus and never changes the selected ledger amount on blur', async () => {
   const container = await render()
   const field = input(container)
-  assert.equal(field.value, '≈14.88')
+  assert.equal(field.value, '100')
   await act(async () => field.focus())
-  assert.equal(field.value, '14.882086254190795489180128009754')
+  assert.equal(field.value, '100')
   await act(async () => field.blur())
-  assert.equal(field.value, '≈14.88')
+  assert.equal(field.value, '100')
   assert.deepEqual(edits, [])
   const micro = await render({ rawQuota: 1 })
   const microField = input(micro)
-  assert.equal(microField.value, '≈0.0000003')
+  assert.equal(microField.value, '0.000002')
   await act(async () => microField.focus())
-  assert.equal(microField.value, '0.000000297641725083815909783603')
+  assert.equal(microField.value, '0.000002')
   await act(async () => microField.blur())
-  assert.equal(microField.value, '≈0.0000003')
+  assert.equal(microField.value, '0.000002')
   assert.deepEqual(edits, [])
 })
 

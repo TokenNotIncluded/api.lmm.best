@@ -3,7 +3,7 @@
 export function projectedCredits(
   raw: number,
   ledger: number,
-  publicUnit = 100000
+  publicUnit = 500000
 ): string {
   const numerator = BigInt(raw) * BigInt(publicUnit) * 10n ** 64n
   const denominator = BigInt(ledger)
@@ -13,7 +13,7 @@ export function projectedCredits(
   const tail = digits.slice(-64).replace(/0+$/, '')
   return digits.slice(0, -64) + (tail ? `.${tail}` : '')
 }
-export function creditGrant(raw: number, ledger = 3500000) {
+export function creditGrant(raw: number, ledger = 500000) {
   return {
     credit_unit_schema_version: 2,
     quota_unit: 'LEDGER_QUOTA',
@@ -21,8 +21,8 @@ export function creditGrant(raw: number, ledger = 3500000) {
     public_credit_unit: 'CREDIT',
     ledger_quota_per_usd: ledger,
     ledger_quota_per_usd_exact: String(ledger),
-    public_credits_per_usd: 100000,
-    public_credits_per_usd_exact: '100000',
+    public_credits_per_usd: 500000,
+    public_credits_per_usd_exact: '500000',
     public_credit_metadata_version: 2,
     public_credit_amount_unit: 'CREDIT',
     credit_amount_unit: 'LEDGER_QUOTA',
@@ -33,7 +33,7 @@ export function creditGrant(raw: number, ledger = 3500000) {
 }
 export function walletCatalog<
   T extends { pay_methods: Array<Record<string, unknown>> },
->(value: T, ledger = 3500000): T & Record<string, unknown> {
+>(value: T, ledger = 500000): T & Record<string, unknown> {
   const row = value as Record<string, unknown>
   const options = (row.credit_amount_options ?? []) as number[]
   const discounts = (row.credit_discount ?? {}) as Record<string, number>
