@@ -22,6 +22,7 @@ export type PublicRelay = {
   tip_quota?: number
   tip_count?: number
   withdrawn_quota?: number
+  available_tip_quota?: number
   used_quota_usd?: number
   tip_quota_usd?: number
   withdrawn_quota_usd?: number

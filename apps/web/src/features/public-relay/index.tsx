@@ -468,13 +468,17 @@ export function PublicRelay() {
                 {t('Tips')}: {money.formatQuota(item.tip_quota ?? Number.NaN)}
               </span>
               {item.status === 'approved' &&
-              Number.isSafeInteger(item.tip_quota) &&
-              Number.isSafeInteger(item.withdrawn_quota) &&
+              Number.isSafeInteger(
+                item.available_tip_quota ??
+                  (item.tip_quota ?? Number.NaN) -
+                    (item.withdrawn_quota ?? Number.NaN)
+              ) &&
               Number.isSafeInteger(
                 configQuery.data?.minimum_withdrawal_quota
               ) &&
               (configQuery.data?.minimum_withdrawal_quota ?? 0) > 0 &&
-              (item.tip_quota ?? 0) - (item.withdrawn_quota ?? 0) >=
+              (item.available_tip_quota ??
+                (item.tip_quota ?? 0) - (item.withdrawn_quota ?? 0)) >=
                 (configQuery.data?.minimum_withdrawal_quota ?? Infinity) ? (
                 <Button
                   variant='ghost'

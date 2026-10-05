@@ -217,6 +217,7 @@ test('tip display uses real currency and withdrawal uses remaining Credits', asy
     updated_at: 1,
     tip_quota: 7_000_000,
     withdrawn_quota: 0,
+    available_tip_quota: undefined as number | undefined,
     // Deliberately misleading legacy projection: the view must use raw Credits.
     tip_quota_usd: 999,
   }
@@ -289,10 +290,18 @@ test('tip display uses real currency and withdrawal uses remaining Credits', asy
         language: 'en',
         amount: '14 USD',
         withdraw: false,
+        available: 1_000_000,
+      },
+      {
+        preference: 'USD',
+        language: 'en',
+        amount: '14 USD',
+        withdraw: false,
         missing: true,
       },
     ]) {
       item.withdrawn_quota = fixture.withdrawn ?? 0
+      item.available_tip_quota = fixture.available
       minimum = fixture.missing ? undefined : 5_000_000
       await i18n.changeLanguage(fixture.language)
       useAuthStore.getState().auth.setUser({

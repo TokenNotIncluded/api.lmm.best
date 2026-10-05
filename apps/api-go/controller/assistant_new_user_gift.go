@@ -32,6 +32,11 @@ func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any,
 	amountCents, credits := 0, 0
 	if gift != nil {
 		amountCents, credits = gift.AmountCents, gift.Quota
+		var err error
+		credits, err = model.AssistantGiftCreditQuota(gift)
+		if err != nil {
+			return nil, err
+		}
 	}
 	fields := map[string]any{
 		"amount_cents": amountCents, "amount_unit": "LEGACY_CENTS",
@@ -67,7 +72,7 @@ func assistantGiftResponse(gift *model.AssistantNewUserGift) (*assistantNewUserG
 		return nil, err
 	}
 	response := &assistantNewUserGiftResponse{
-		AssistantNewUserGift: gift, AmountUnit: "LEGACY_CENTS", CreditAmount: gift.Quota,
+		AssistantNewUserGift: gift, AmountUnit: "LEGACY_CENTS", CreditAmount: fields["credit_amount"].(int),
 		Currency: "USD",
 	}
 	response.CreditAmountUnit = common.LedgerQuotaUnit
@@ -124,7 +129,12 @@ func ClaimAssistantNewUserGift(c *gin.Context) {
 		return
 	}
 	if !alreadyClaimed {
-		model.RecordLog(c.GetInt("id"), model.LogTypeTopup, fmt.Sprintf("领取 AI 新用户礼包，获得额度 %s", logger.LogQuota(gift.Quota)))
+		quota, err := model.AssistantGiftCreditQuota(gift)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		model.RecordLog(c.GetInt("id"), model.LogTypeTopup, fmt.Sprintf("领取 AI 新用户礼包，获得额度 %s", logger.LogQuota(quota)))
 	}
 	response, err := assistantGiftResponse(gift)
 	if err != nil {

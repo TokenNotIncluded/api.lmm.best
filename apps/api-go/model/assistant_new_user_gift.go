@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -383,6 +384,7 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 	}
 	var gift AssistantNewUserGift
 	alreadyClaimed := false
+	creditedQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
@@ -403,9 +405,14 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		if gift.Status != AssistantGiftOffered || gift.AmountCents <= 0 || gift.Quota <= 0 {
 			return ErrAssistantGiftUnavailable
 		}
+		var err error
+		creditedQuota, err = WalletFutureCreditQuota(tx, gift.UserId, "assistant_gift", strconv.FormatInt(gift.Id, 10), gift.Quota, gift.CreatedAt)
+		if err != nil {
+			return err
+		}
 		result := UpdateWalletQuotaByDelta(
 			tx.Model(&User{}).Where("id = ? AND status = ?", userID, common.UserStatusEnabled),
-			gift.Quota,
+			creditedQuota,
 		)
 		if result.Error != nil {
 			return result.Error
@@ -428,7 +435,7 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		return nil, false, err
 	}
 	if !alreadyClaimed {
-		if err := cacheIncrUserQuota(userID, int64(gift.Quota)); err != nil {
+		if err := cacheIncrUserQuota(userID, int64(creditedQuota)); err != nil {
 			common.SysLog("failed to update new-user assistant gift quota cache: " + err.Error())
 		}
 	}

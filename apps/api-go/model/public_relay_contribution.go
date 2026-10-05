@@ -152,6 +152,7 @@ type PublicRelayView struct {
 	TipQuota          int64   `json:"tip_quota"`
 	TipCount          int64   `json:"tip_count"`
 	WithdrawnQuota    int64   `json:"withdrawn_quota"`
+	AvailableTipQuota int64   `json:"available_tip_quota"`
 	UsedQuotaUSD      float64 `json:"used_quota_usd"`
 	TipQuotaUSD       float64 `json:"tip_quota_usd"`
 	WithdrawnQuotaUSD float64 `json:"withdrawn_quota_usd"`
@@ -162,6 +163,14 @@ type PublicRelayView struct {
 func (item *PublicRelayContribution) PublicView() (PublicRelayView, error) {
 	if item.WithdrawnQuota > item.TipQuota || item.TipCount < 0 || item.TipCount > common.MaxWalletQuota {
 		return PublicRelayView{}, ErrWalletQuotaOutOfRange
+	}
+	available := item.TipQuota - item.WithdrawnQuota
+	if DB != nil {
+		var err error
+		available, err = publicRelayAvailableCreditTx(DB, item)
+		if err != nil {
+			return PublicRelayView{}, err
+		}
 	}
 	amounts := make([]float64, 3)
 	for index, quota := range []int64{item.UsedQuota, item.TipQuota, item.WithdrawnQuota} {
@@ -181,6 +190,7 @@ func (item *PublicRelayContribution) PublicView() (PublicRelayView, error) {
 		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 		UsedQuota:      item.UsedQuota,
 		WithdrawnQuota: item.WithdrawnQuota, TipQuota: item.TipQuota, TipCount: item.TipCount,
+		AvailableTipQuota: available,
 		UsedQuotaUSD:      amounts[0],
 		TipQuotaUSD:       amounts[1],
 		WithdrawnQuotaUSD: amounts[2],
@@ -730,7 +740,11 @@ func WithdrawPublicRelayTips(contributionID, userID int, targetGroup string) (in
 		if item.TipQuota < 0 || item.TipQuota > common.MaxWalletQuota || item.WithdrawnQuota < 0 || item.WithdrawnQuota > item.TipQuota {
 			return ErrWalletQuotaOutOfRange
 		}
-		available := item.TipQuota - item.WithdrawnQuota
+		rawAvailable := item.TipQuota - item.WithdrawnQuota
+		available, err := publicRelayAvailableCreditTx(tx, &item)
+		if err != nil {
+			return err
+		}
 		if available < minimumWithdrawal {
 			return ErrPublicRelayInvalidInput
 		}
@@ -738,7 +752,8 @@ func WithdrawPublicRelayTips(contributionID, userID int, targetGroup string) (in
 		if err := ApplyWalletQuotaDelta(tx, userID, int(amount)); err != nil {
 			return err
 		}
-		return tx.Model(&item).UpdateColumns(map[string]interface{}{"withdrawn_quota": gorm.Expr("withdrawn_quota + ?", amount), "updated_at": common.GetTimestamp()}).Error
+		// Consume the full source pool once; only corrected credits enter the wallet.
+		return tx.Model(&item).UpdateColumns(map[string]interface{}{"withdrawn_quota": gorm.Expr("withdrawn_quota + ?", rawAvailable), "updated_at": common.GetTimestamp()}).Error
 	})
 	if err != nil {
 		return 0, err
