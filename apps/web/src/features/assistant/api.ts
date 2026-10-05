@@ -249,9 +249,9 @@ export type AssistantNewUserGift = {
   amount_cents: number
   amount_unit?: 'LEGACY_CENTS'
   credit_amount?: number
-  amount_usd?: number
+  amount_usd?: number | null
   currency?: 'USD'
-  credits_per_usd?: number
+  credits_per_usd?: number | null
   quota: number
   status: 'offered' | 'claimed' | 'declined'
   reason: string
@@ -269,9 +269,9 @@ export type AssistantNewUserGiftAction = {
   amount_cents: number
   amount_unit?: 'LEGACY_CENTS'
   credit_amount?: number
-  amount_usd?: number
+  amount_usd?: number | null
   currency?: 'USD'
-  credits_per_usd?: number
+  credits_per_usd?: number | null
   status: 'offered'
   reason: string
 }
@@ -895,13 +895,15 @@ function parseAssistantNewUserGiftAction(
     typeof action.credit_amount === 'number' &&
     Number.isSafeInteger(action.credit_amount) &&
     action.credit_amount > 0 &&
-    typeof action.amount_usd === 'number' &&
-    Number.isFinite(action.amount_usd) &&
-    action.amount_usd > 0 &&
+    (action.amount_usd === null ||
+      (typeof action.amount_usd === 'number' &&
+        Number.isFinite(action.amount_usd) &&
+        action.amount_usd > 0)) &&
     action.currency === 'USD' &&
-    typeof action.credits_per_usd === 'number' &&
-    Number.isFinite(action.credits_per_usd) &&
-    action.credits_per_usd > 0
+    (action.credits_per_usd === null ||
+      (typeof action.credits_per_usd === 'number' &&
+        Number.isFinite(action.credits_per_usd) &&
+        action.credits_per_usd > 0))
       ? {
           amount_unit: 'LEGACY_CENTS' as const,
           credit_amount: action.credit_amount,

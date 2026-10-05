@@ -346,6 +346,21 @@ describe('assistant response parsing', () => {
     assert.deepEqual(parseAssistantAction(action), action)
   })
 
+  test('keeps the persisted gift Credits when its USD projection is unavailable', () => {
+    const action = {
+      type: 'new_user_gift',
+      amount_cents: 525,
+      amount_unit: 'LEGACY_CENTS',
+      credit_amount: 1,
+      amount_usd: null,
+      currency: 'USD',
+      credits_per_usd: null,
+      status: 'offered',
+      reason: 'A persisted gift award.',
+    }
+    assert.deepEqual(parseAssistantAction(action), action)
+  })
+
   test('accepts the server-issued new-user gift action without private quota data', () => {
     assert.deepEqual(
       parseAssistantAction({

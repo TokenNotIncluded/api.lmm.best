@@ -49,7 +49,8 @@ func TestAssistantCurrencyWalletAndGiftUsePersistedCreditAmounts(t *testing.T) {
 		assert.Equal(t, "LEGACY_CENTS", dto.AmountUnit)
 		assert.Equal(t, 999, dto.AmountCents)
 		assert.Equal(t, 3500000, dto.CreditAmount)
-		assert.Equal(t, float64(1), dto.AmountUSD)
+		require.NotNil(t, dto.AmountUSD)
+		assert.Equal(t, float64(1), *dto.AmountUSD)
 		encoded, err := json.Marshal(dto)
 		require.NoError(t, err)
 		assert.Contains(t, string(encoded), `"amount_cents":999`)
@@ -111,4 +112,81 @@ func TestAssistantGiftLegacyCentsCannotBeRelabelledAsUSCents(t *testing.T) {
 	result := executeAssistantNewUserGiftTool(nil, 7, map[string]any{"amount_cents": 525, "amount_unit": "USD"})
 	assert.Equal(t, false, result["ok"])
 	assert.Equal(t, "invalid_decision", result["status"])
+}
+
+func TestAssistantCurrencyUnrepresentableProjectionKeepsJSONFinite(t *testing.T) {
+	setupAssistantCurrencyTest(t)
+	db := setupAssistantAccountProgressDB(t)
+	user := assistantAccountProgressUser(t, db, true)
+	oldGetter := drawingUserQuota
+	oldInviter, oldInvitee := common.QuotaForInviter, common.QuotaForInvitee
+	t.Cleanup(func() {
+		drawingUserQuota = oldGetter
+		common.QuotaForInviter, common.QuotaForInvitee = oldInviter, oldInvitee
+	})
+	for _, tc := range []struct {
+		anchor  string
+		credits int
+	}{
+		{anchor: "1e-500", credits: 1},
+		{anchor: "1e-300", credits: 9007199254740991},
+	} {
+		t.Run(tc.anchor, func(t *testing.T) {
+			require.NoError(t, common.SetCreditCurrencyBasis(decimal.RequireFromString(tc.anchor), decimal.NewFromInt(500000)))
+			wallet := assistantWalletBalanceFields(tc.credits)
+			assert.Equal(t, "unavailable", wallet["wallet_balance_status"])
+			assert.Nil(t, wallet["wallet_balance_usd"])
+			assert.Nil(t, wallet["credits_per_usd"])
+			_, err := json.Marshal(wallet)
+			require.NoError(t, err)
+			gift := &model.AssistantNewUserGift{AmountCents: 525, Quota: tc.credits, Status: model.AssistantGiftOffered}
+			dto, err := assistantGiftResponse(gift)
+			require.NoError(t, err)
+			assert.Equal(t, tc.credits, dto.CreditAmount)
+			assert.Nil(t, dto.AmountUSD)
+			assert.Nil(t, dto.CreditsPerUSD)
+			encoded, err := json.Marshal(dto)
+			require.NoError(t, err)
+			assert.Contains(t, string(encoded), `"amount_usd":null`)
+			assert.Contains(t, string(encoded), `"credits_per_usd":null`)
+			require.NoError(t, db.Model(user).Updates(map[string]any{"aff_quota": tc.credits, "aff_history": tc.credits}).Error)
+			common.QuotaForInviter, common.QuotaForInvitee = tc.credits, tc.credits
+			rewards := executeAssistantInvitationTool(user.Id)
+			require.Equal(t, true, rewards["ok"])
+			assert.Equal(t, tc.credits, rewards["pending_reward_credit"])
+			for _, field := range []string{"pending_reward_usd", "total_reward_usd", "reward_per_inviter_usd", "reward_per_invitee_usd"} {
+				assert.Nil(t, rewards[field])
+			}
+			_, err = json.Marshal(rewards)
+			require.NoError(t, err)
+			drawingUserQuota = func(int, bool) (int, error) { return tc.credits, nil }
+			access := drawingWebAccessForUser(user.Id)
+			assert.False(t, access.Allowed)
+			assert.Nil(t, access.BalanceUSD)
+			_, err = json.Marshal(access)
+			require.NoError(t, err)
+			c, w := newAuthenticatedContext(t, http.MethodPost, "/pg/images/generations", nil, user.Id)
+			assert.False(t, requireDrawingWebBalance(c, user.Id))
+			assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+			assert.Contains(t, w.Body.String(), `"code":"WEB_DRAWING_BALANCE_UNAVAILABLE"`)
+		})
+	}
+}
+
+func TestAssistantCurrencyNormalZeroRemainsExplicitZero(t *testing.T) {
+	setupAssistantCurrencyTest(t)
+	fields := assistantWalletBalanceFields(0)
+	assert.Equal(t, "available", fields["wallet_balance_status"])
+	assert.Equal(t, float64(0), fields["wallet_balance_usd"])
+	dto, err := assistantGiftResponse(&model.AssistantNewUserGift{Status: model.AssistantGiftDeclined})
+	require.NoError(t, err)
+	require.NotNil(t, dto.AmountUSD)
+	assert.Equal(t, float64(0), *dto.AmountUSD)
+	oldGetter := drawingUserQuota
+	t.Cleanup(func() { drawingUserQuota = oldGetter })
+	drawingUserQuota = func(int, bool) (int, error) { return 0, nil }
+	access := drawingWebAccessForUser(17)
+	require.NotNil(t, access.BalanceUSD)
+	assert.Equal(t, float64(0), *access.BalanceUSD)
+	assert.False(t, access.Allowed)
 }

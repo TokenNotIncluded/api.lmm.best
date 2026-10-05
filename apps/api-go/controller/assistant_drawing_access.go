@@ -50,11 +50,10 @@ func drawingWebAccessForUser(userID int) drawingWebAccess {
 	if err != nil {
 		return access
 	}
-	minimumUSD, err := common.CreditsToUSD(int64(minimumQuota))
+	minimum, _, err := assistantFiatProjection(int64(minimumQuota))
 	if err != nil {
 		return access
 	}
-	minimum := minimumUSD.InexactFloat64()
 	access.MinimumBalanceUSD, access.MinimumBalanceCredit = &minimum, &minimumQuota
 	if userID <= 0 {
 		return access
@@ -65,11 +64,10 @@ func drawingWebAccessForUser(userID int) drawingWebAccess {
 	if err != nil {
 		return access
 	}
-	balanceUSD, err := common.CreditsToUSD(int64(quota))
+	balance, _, err := assistantFiatProjection(int64(quota))
 	if err != nil {
 		return access
 	}
-	balance := balanceUSD.InexactFloat64()
 	access.BalanceUSD = &balance
 	access.BalanceCredit = &quota
 	access.Allowed = quota >= minimumQuota

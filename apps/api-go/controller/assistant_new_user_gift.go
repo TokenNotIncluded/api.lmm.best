@@ -12,34 +12,38 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
 )
 
 // amount_cents is a retained legacy input, never a true USD amount. The stored
 // Credit grant is authoritative, including for gifts offered before migration.
 type assistantNewUserGiftResponse struct {
 	*model.AssistantNewUserGift
-	AmountUnit    string  `json:"amount_unit"`
-	CreditAmount  int     `json:"credit_amount"`
-	AmountUSD     float64 `json:"amount_usd"`
-	Currency      string  `json:"currency"`
-	CreditsPerUSD float64 `json:"credits_per_usd"`
+	AmountUnit    string   `json:"amount_unit"`
+	CreditAmount  int      `json:"credit_amount"`
+	AmountUSD     *float64 `json:"amount_usd"`
+	Currency      string   `json:"currency"`
+	CreditsPerUSD *float64 `json:"credits_per_usd"`
 }
 
 func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any, error) {
-	anchor, err := common.CreditsPerUSD()
-	if err != nil {
-		return nil, err
-	}
 	amountCents, credits := 0, 0
 	if gift != nil {
 		amountCents, credits = gift.AmountCents, gift.Quota
 	}
-	return map[string]any{
+	fields := map[string]any{
 		"amount_cents": amountCents, "amount_unit": "LEGACY_CENTS",
-		"credit_amount": credits, "amount_usd": decimal.NewFromInt(int64(credits)).Div(anchor).InexactFloat64(),
-		"currency": "USD", "credits_per_usd": anchor.InexactFloat64(),
-	}, nil
+		"credit_amount": credits, "amount_usd": nil,
+		"currency": "USD", "credits_per_usd": nil,
+	}
+	usd, anchor, err := assistantFiatProjection(int64(credits))
+	if errors.Is(err, errAssistantCurrencyProjectionUnavailable) {
+		return fields, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	fields["amount_usd"], fields["credits_per_usd"] = usd, anchor
+	return fields, nil
 }
 
 func assistantGiftResponse(gift *model.AssistantNewUserGift) (*assistantNewUserGiftResponse, error) {
@@ -47,10 +51,17 @@ func assistantGiftResponse(gift *model.AssistantNewUserGift) (*assistantNewUserG
 	if err != nil || gift == nil {
 		return nil, err
 	}
-	return &assistantNewUserGiftResponse{
+	response := &assistantNewUserGiftResponse{
 		AssistantNewUserGift: gift, AmountUnit: "LEGACY_CENTS", CreditAmount: gift.Quota,
-		AmountUSD: fields["amount_usd"].(float64), Currency: "USD", CreditsPerUSD: fields["credits_per_usd"].(float64),
-	}, nil
+		Currency: "USD",
+	}
+	if value, ok := fields["amount_usd"].(float64); ok {
+		response.AmountUSD = &value
+	}
+	if value, ok := fields["credits_per_usd"].(float64); ok {
+		response.CreditsPerUSD = &value
+	}
+	return response, nil
 }
 
 func GetAssistantNewUserGift(c *gin.Context) {

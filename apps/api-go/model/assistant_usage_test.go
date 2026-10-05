@@ -8,6 +8,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -127,4 +128,39 @@ func TestAssistantUsageUSDUsesFixedCreditsDespiteFXAndBonusChanges(t *testing.T)
 		require.NoError(t, err)
 		assert.Equal(t, float64(1), usd)
 	}
+}
+
+func TestAssistantUsageUnrepresentableProjectionReturnsError(t *testing.T) {
+	setupAssistantCurrencyTest(t)
+	oldLogDB := LOG_DB
+	oldLogType := common.LogDatabaseType()
+	common.SetDatabaseTypes(common.MainDatabaseType(), common.DatabaseTypeSQLite)
+	initCol()
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&Log{}))
+	LOG_DB = db
+	t.Cleanup(func() {
+		LOG_DB = oldLogDB
+		common.SetDatabaseTypes(common.MainDatabaseType(), oldLogType)
+		initCol()
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	require.NoError(t, db.Create(&Log{UserId: 7, Type: LogTypeConsume, CreatedAt: 10, Quota: 9007199254740991, Other: `{"billing_source":"assistant"}`}).Error)
+	for _, anchor := range []string{"1e-500", "1e-300"} {
+		require.NoError(t, common.SetCreditCurrencyBasis(decimal.RequireFromString(anchor), decimal.NewFromInt(500000)))
+		_, err := usageCostUSD(9007199254740991)
+		require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
+		_, err = GetAssistantUsageSummary(7, 0, 20, 20)
+		require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
+		_, err = GetAssistantFundingSummary(7, 0, 20)
+		require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
+	}
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	zero, err := usageCostUSD(0)
+	require.NoError(t, err)
+	assert.Equal(t, float64(0), zero)
 }

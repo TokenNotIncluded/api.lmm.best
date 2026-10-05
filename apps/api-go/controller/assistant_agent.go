@@ -3092,13 +3092,16 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 		return map[string]any{"ok": false, "error": "invitation information could not be loaded"}
 	}
 	amounts := []int{user.AffQuota, user.AffHistoryQuota, common.QuotaForInviter, common.QuotaForInvitee}
-	usd := make([]float64, len(amounts))
+	usd := make([]any, len(amounts))
 	for i, amount := range amounts {
-		converted, err := common.CreditsToUSD(int64(amount))
+		converted, _, err := assistantFiatProjection(int64(amount))
+		if errors.Is(err, errAssistantCurrencyProjectionUnavailable) {
+			continue // Preserve the Credit rewards; an unrepresentable USD field is null.
+		}
 		if err != nil {
 			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
 		}
-		usd[i] = converted.InexactFloat64()
+		usd[i] = converted
 	}
 	result := map[string]any{
 		"ok":                           true,

@@ -349,12 +349,7 @@ func AdminGetAssistantFundingSummary(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	remainingUSD, err := common.CreditsToUSD(int64(remainingQuota))
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	anchor, err := common.CreditsPerUSD()
+	remainingUSD, anchor, err := assistantFiatProjection(int64(remainingQuota))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -369,9 +364,9 @@ func AdminGetAssistantFundingSummary(c *gin.Context) {
 		"quota":             summary.Quota,
 		"cost_usd":          summary.CostUSD,
 		"remaining_quota":   remainingQuota,
-		"remaining_usd":     remainingUSD.InexactFloat64(),
+		"remaining_usd":     remainingUSD,
 		"currency_unit":     "credit",
-		"credits_per_usd":   anchor.InexactFloat64(),
+		"credits_per_usd":   anchor,
 	})
 }
 

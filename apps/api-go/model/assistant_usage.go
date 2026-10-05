@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"math"
 	"sort"
 	"strings"
 
@@ -54,11 +55,23 @@ type assistantUsageAggregate struct {
 }
 
 func usageCostUSD(quota int64) (float64, error) {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		return 0, err
+	}
+	anchorFloat := anchor.InexactFloat64()
+	if anchorFloat <= 0 || math.IsNaN(anchorFloat) || math.IsInf(anchorFloat, 0) {
+		return 0, common.ErrCreditUnitsUnavailable
+	}
 	usd, err := common.CreditsToUSD(quota)
 	if err != nil {
 		return 0, err
 	}
-	return usd.InexactFloat64(), nil
+	value := usd.InexactFloat64()
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, common.ErrCreditUnitsUnavailable
+	}
+	return value, nil
 }
 
 func usageBreakdownRows(userID int, startTimestamp int64, endTimestamp int64, limit int, column string) ([]AssistantUsageBreakdown, error) {
