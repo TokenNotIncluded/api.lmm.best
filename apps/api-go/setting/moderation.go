@@ -12,23 +12,27 @@ import (
 )
 
 const (
-	ModerationEnabledOptionKey          = "ModerationEnabled"
-	ModerationGroupOptionKey            = "ModerationGroup"
-	ModerationModelOptionKey            = "ModerationModel"
-	ModerationGroupPoliciesOptionKey    = "ModerationGroupPolicies"
-	AssistantModerationEnabledOptionKey = "AssistantModerationEnabled"
-	AssistantModerationGroupOptionKey   = "AssistantModerationGroup"
-	AssistantModerationModelOptionKey   = "AssistantModerationModel"
-	DefaultModerationGroup              = "default"
-	DefaultModerationModel              = "omni-moderation-latest"
-	ModerationModeOff                   = "off"
-	ModerationModeTolerant              = "tolerant"
-	ModerationModeStrict                = "strict"
-	ModerationMaxCategoryFineUSD        = 1000
-	ModerationAmountCurrencyLegacy      = "legacy_pricing_unit"
-	ModerationAmountCurrencyUSD         = "USD"
-	moderationMaxGroupPolicies          = 64
-	moderationMaxPoliciesJSONBytes      = 65536
+	ModerationEnabledOptionKey                 = "ModerationEnabled"
+	ModerationGroupOptionKey                   = "ModerationGroup"
+	ModerationModelOptionKey                   = "ModerationModel"
+	ModerationGroupPoliciesOptionKey           = "ModerationGroupPolicies"
+	ModerationPolicyScopeOptionKey             = "ModerationPolicyScope"
+	ModerationSafetyIdentifierEnabledOptionKey = "ModerationSafetyIdentifierEnabled"
+	AssistantModerationEnabledOptionKey        = "AssistantModerationEnabled"
+	AssistantModerationGroupOptionKey          = "AssistantModerationGroup"
+	AssistantModerationModelOptionKey          = "AssistantModerationModel"
+	DefaultModerationGroup                     = "default"
+	DefaultModerationModel                     = "omni-moderation-latest"
+	ModerationModeOff                          = "off"
+	ModerationModeTolerant                     = "tolerant"
+	ModerationModeStrict                       = "strict"
+	ModerationPolicyScopeAccountGroup          = "account_group"
+	ModerationPolicyScopeRequestGroup          = "request_group"
+	ModerationMaxCategoryFineUSD               = 1000
+	ModerationAmountCurrencyLegacy             = "legacy_pricing_unit"
+	ModerationAmountCurrencyUSD                = "USD"
+	moderationMaxGroupPolicies                 = 64
+	moderationMaxPoliciesJSONBytes             = 65536
 )
 
 type ModerationGroupPolicy struct {
@@ -53,13 +57,15 @@ func ResolveModerationAmountCurrency(currency string) string {
 // ModerationSettings keeps assistant and API routing independent. Policies
 // apply to the actual account group, never the moderation routing group.
 type ModerationSettings struct {
-	Enabled          bool
-	Group            string
-	Model            string
-	GroupPolicies    map[string]ModerationGroupPolicy
-	AssistantEnabled bool
-	AssistantGroup   string
-	AssistantModel   string
+	Enabled                 bool
+	Group                   string
+	Model                   string
+	GroupPolicies           map[string]ModerationGroupPolicy
+	PolicyScope             string
+	SafetyIdentifierEnabled bool
+	AssistantEnabled        bool
+	AssistantGroup          string
+	AssistantModel          string
 }
 
 var moderationCategories = []string{
@@ -76,6 +82,7 @@ var (
 func DefaultModerationSettings() ModerationSettings {
 	return ModerationSettings{
 		Group: DefaultModerationGroup, Model: DefaultModerationModel,
+		PolicyScope:    ModerationPolicyScopeAccountGroup,
 		AssistantGroup: DefaultModerationGroup, AssistantModel: DefaultModerationModel,
 		GroupPolicies: map[string]ModerationGroupPolicy{},
 	}
@@ -101,7 +108,8 @@ func IsModerationCategory(category string) bool {
 func IsModerationOption(key string) bool {
 	switch key {
 	case ModerationEnabledOptionKey, ModerationGroupOptionKey, ModerationModelOptionKey,
-		ModerationGroupPoliciesOptionKey, AssistantModerationEnabledOptionKey,
+		ModerationGroupPoliciesOptionKey, ModerationPolicyScopeOptionKey,
+		ModerationSafetyIdentifierEnabledOptionKey, AssistantModerationEnabledOptionKey,
 		AssistantModerationGroupOptionKey, AssistantModerationModelOptionKey:
 		return true
 	}
@@ -121,13 +129,15 @@ func ModerationGroupPoliciesJSON(policies map[string]ModerationGroupPolicy) stri
 
 func (settings ModerationSettings) OptionValues() map[string]string {
 	return map[string]string{
-		ModerationEnabledOptionKey:          fmt.Sprintf("%t", settings.Enabled),
-		ModerationGroupOptionKey:            settings.Group,
-		ModerationModelOptionKey:            settings.Model,
-		ModerationGroupPoliciesOptionKey:    ModerationGroupPoliciesJSON(settings.GroupPolicies),
-		AssistantModerationEnabledOptionKey: fmt.Sprintf("%t", settings.AssistantEnabled),
-		AssistantModerationGroupOptionKey:   settings.AssistantGroup,
-		AssistantModerationModelOptionKey:   settings.AssistantModel,
+		ModerationEnabledOptionKey:                 fmt.Sprintf("%t", settings.Enabled),
+		ModerationGroupOptionKey:                   settings.Group,
+		ModerationModelOptionKey:                   settings.Model,
+		ModerationGroupPoliciesOptionKey:           ModerationGroupPoliciesJSON(settings.GroupPolicies),
+		ModerationPolicyScopeOptionKey:             normalizedModerationPolicyScope(settings.PolicyScope),
+		ModerationSafetyIdentifierEnabledOptionKey: fmt.Sprintf("%t", settings.SafetyIdentifierEnabled),
+		AssistantModerationEnabledOptionKey:        fmt.Sprintf("%t", settings.AssistantEnabled),
+		AssistantModerationGroupOptionKey:          settings.AssistantGroup,
+		AssistantModerationModelOptionKey:          settings.AssistantModel,
 	}
 }
 
@@ -200,15 +210,22 @@ func ParseModerationSettings(base ModerationSettings, values map[string]string) 
 		}
 		value := strings.TrimSpace(raw)
 		switch key {
-		case ModerationEnabledOptionKey, AssistantModerationEnabledOptionKey:
+		case ModerationEnabledOptionKey, AssistantModerationEnabledOptionKey, ModerationSafetyIdentifierEnabledOptionKey:
 			if value != "true" && value != "false" {
 				return base, fmt.Errorf("%s must be true or false", key)
 			}
 			if key == ModerationEnabledOptionKey {
 				settings.Enabled = value == "true"
-			} else {
+			} else if key == AssistantModerationEnabledOptionKey {
 				settings.AssistantEnabled = value == "true"
+			} else {
+				settings.SafetyIdentifierEnabled = value == "true"
 			}
+		case ModerationPolicyScopeOptionKey:
+			if !IsModerationPolicyScope(value) {
+				return base, errors.New("moderation scope must use account_group or request_group")
+			}
+			settings.PolicyScope = value
 		case ModerationGroupOptionKey, AssistantModerationGroupOptionKey:
 			if value == "" || value == "*" || utf8.RuneCountInString(value) > 64 {
 				return base, fmt.Errorf("%s must be an explicit group of at most 64 characters", key)
@@ -279,6 +296,36 @@ func ResolveModerationPolicy(settings ModerationSettings, group string) (Moderat
 		return ModerationGroupPolicy{Mode: ModerationModeOff}, false
 	}
 	return cloneModerationPolicy(policy), true
+}
+
+func IsModerationPolicyScope(scope string) bool {
+	return scope == ModerationPolicyScopeAccountGroup || scope == ModerationPolicyScopeRequestGroup
+}
+
+func normalizedModerationPolicyScope(scope string) string {
+	if scope == "" {
+		return ModerationPolicyScopeAccountGroup
+	}
+	return scope
+}
+
+// ResolveModerationRequestPolicy only selects a policy. Callers separately
+// check the API/assistant and safety-identifier switches. RequestGroup must
+// come from trusted routing context; a missing request group never falls back
+// to the account group. Assistant reviews always use the account group.
+func ResolveModerationRequestPolicy(settings ModerationSettings, accountGroup, requestGroup string, assistant bool) (scope, policyGroup string, policy ModerationGroupPolicy, configured bool) {
+	scope = normalizedModerationPolicyScope(settings.PolicyScope)
+	if assistant {
+		scope = ModerationPolicyScopeAccountGroup
+	}
+	policyGroup = strings.TrimSpace(accountGroup)
+	if scope == ModerationPolicyScopeRequestGroup {
+		policyGroup = strings.TrimSpace(requestGroup)
+	} else if scope != ModerationPolicyScopeAccountGroup {
+		return scope, "", ModerationGroupPolicy{Mode: ModerationModeOff}, false
+	}
+	policy, configured = ResolveModerationPolicy(settings, policyGroup)
+	return scope, policyGroup, policy, configured
 }
 
 func cloneModerationSettings(settings ModerationSettings) ModerationSettings {

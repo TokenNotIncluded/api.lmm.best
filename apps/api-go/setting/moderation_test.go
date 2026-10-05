@@ -22,6 +22,8 @@ func TestModerationDefaultsAndExplicitGroupPolicies(t *testing.T) {
 	defaults := GetModerationSettings()
 	require.False(t, defaults.Enabled)
 	require.False(t, defaults.AssistantEnabled)
+	require.False(t, defaults.SafetyIdentifierEnabled)
+	require.Equal(t, ModerationPolicyScopeAccountGroup, defaults.PolicyScope)
 	require.Empty(t, defaults.GroupPolicies)
 	require.Equal(t, "omni-moderation-latest", defaults.Model)
 	require.Equal(t, "omni-moderation-latest", defaults.AssistantModel)
@@ -46,6 +48,58 @@ func TestModerationDefaultsAndExplicitGroupPolicies(t *testing.T) {
 	require.Equal(t, 1.25, policy.CategoryFinesUSD["sexual/minors"])
 	_, found = ModerationPolicyForGroup("default")
 	require.True(t, found)
+}
+
+func TestModerationRequestPolicyScopeAndAssistantIsolation(t *testing.T) {
+	settings := DefaultModerationSettings()
+	settings.GroupPolicies = map[string]ModerationGroupPolicy{
+		"account": {Mode: ModerationModeStrict},
+		"route":   {Mode: ModerationModeTolerant},
+	}
+	for _, test := range []struct {
+		name, scope, requestGroup, wantScope, wantGroup, wantMode string
+		assistant, found                                          bool
+	}{
+		{"default_account", "", "route", ModerationPolicyScopeAccountGroup, "account", ModerationModeStrict, false, true},
+		{"account", ModerationPolicyScopeAccountGroup, "route", ModerationPolicyScopeAccountGroup, "account", ModerationModeStrict, false, true},
+		{"request", ModerationPolicyScopeRequestGroup, "route", ModerationPolicyScopeRequestGroup, "route", ModerationModeTolerant, false, true},
+		{"other_request_off", ModerationPolicyScopeRequestGroup, "other", ModerationPolicyScopeRequestGroup, "other", ModerationModeOff, false, false},
+		{"missing_request_does_not_fallback", ModerationPolicyScopeRequestGroup, "", ModerationPolicyScopeRequestGroup, "", ModerationModeOff, false, false},
+		{"assistant_stays_account", ModerationPolicyScopeRequestGroup, "route", ModerationPolicyScopeAccountGroup, "account", ModerationModeStrict, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			settings.PolicyScope = test.scope
+			scope, group, policy, found := ResolveModerationRequestPolicy(settings, "account", test.requestGroup, test.assistant)
+			require.Equal(t, test.wantScope, scope)
+			require.Equal(t, test.wantGroup, group)
+			require.Equal(t, test.wantMode, policy.Mode)
+			require.Equal(t, test.found, found)
+		})
+	}
+}
+
+func TestModerationScopeAndIdentifierOptionsAreExplicitAndPreserveOtherFields(t *testing.T) {
+	base := DefaultModerationSettings()
+	base.AssistantEnabled = true
+	settings, err := ParseModerationSettings(base, map[string]string{
+		ModerationPolicyScopeOptionKey:             ModerationPolicyScopeRequestGroup,
+		ModerationSafetyIdentifierEnabledOptionKey: "true",
+	})
+	require.NoError(t, err)
+	require.Equal(t, ModerationPolicyScopeRequestGroup, settings.PolicyScope)
+	require.True(t, settings.SafetyIdentifierEnabled)
+	require.True(t, settings.AssistantEnabled)
+	require.False(t, settings.Enabled)
+	require.Equal(t, "request_group", settings.OptionValues()[ModerationPolicyScopeOptionKey])
+	require.Equal(t, "true", settings.OptionValues()[ModerationSafetyIdentifierEnabledOptionKey])
+	require.True(t, IsModerationOption(ModerationPolicyScopeOptionKey))
+	require.True(t, IsModerationOption(ModerationSafetyIdentifierEnabledOptionKey))
+	for _, scope := range []string{"", "account", "request-group", "*", "REQUEST_GROUP"} {
+		_, err := ParseModerationSettings(base, map[string]string{ModerationPolicyScopeOptionKey: scope})
+		require.Error(t, err)
+	}
+	_, err = ParseModerationSettings(base, map[string]string{ModerationSafetyIdentifierEnabledOptionKey: "1"})
+	require.Error(t, err)
 }
 
 func TestModerationRejectsNonOfficialModelsAndMalformedPolicies(t *testing.T) {
