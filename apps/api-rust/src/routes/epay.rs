@@ -160,6 +160,8 @@ pub struct CreateTopup {
 pub struct QuotedTopup {
     pub user_id: i64,
     pub requested_amount: Decimal,
+    /// Request interpretation captured with the pricing configuration.
+    pub amount_unit: &'static str,
     pub stored_amount: i64,
     pub money: String,
     pub payment_method: String,
@@ -878,6 +880,7 @@ mod tests {
         body::{Body, to_bytes},
         http::{HeaderValue, Request},
     };
+    use rust_decimal::prelude::ToPrimitive;
     use std::sync::{Mutex, MutexGuard};
     use tower::ServiceExt;
 
@@ -1004,6 +1007,7 @@ mod tests {
             Ok(QuotedTopup {
                 user_id: input.user_id,
                 requested_amount: input.amount,
+                amount_unit: "LEGACY",
                 stored_amount: input.amount.to_i64().unwrap(),
                 money: "1.00".into(),
                 payment_method: input.payment_method,

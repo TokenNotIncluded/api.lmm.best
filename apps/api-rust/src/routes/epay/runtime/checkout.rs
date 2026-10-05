@@ -295,6 +295,7 @@ impl PgEpayRepository {
         Ok(QuotedTopup {
             user_id: input.user_id,
             requested_amount: input.amount,
+            amount_unit: if tokens { "CREDIT" } else { "LEGACY" },
             stored_amount,
             money: format!("{money:.2}"),
             payment_method: input.payment_method,

@@ -17,11 +17,22 @@ use crate::routes::epay::runtime::{
     now_seconds, options,
 };
 use crate::routes::epay::{
-    CreateTopup, PendingTopup as WalletOrder, PgEpayRepository, TopupAuthorizer, TopupError,
-    TopupRepository,
+    CreateTopup, PendingTopup as WalletOrder, PgEpayRepository, SettlementSnapshot,
+    TopupAuthorizer, TopupError, TopupRepository,
 };
 use crate::{ClientIpKey, RequestContext, auth::CriticalRateLimitOutcome};
 use rust_decimal::RoundingStrategy;
+
+fn stripe_credit_fields(snapshot: &SettlementSnapshot, amount_unit: &str) -> Value {
+    json!({
+        "currency_unit": "credit",
+        "amount_unit": amount_unit,
+        "credited_quota": snapshot.credited_quota,
+        "credit_amount": snapshot.credited_quota,
+        "legacy_batch_units": Decimal::new(snapshot.platform_amount_micros, 6).normalize().to_string(),
+        "settlement_currency": snapshot.settlement_currency.trim().to_ascii_uppercase(),
+    })
+}
 
 #[derive(Clone)]
 pub struct StripeWalletState {
@@ -135,7 +146,10 @@ impl StripeWalletState {
             return legacy("error", "充值金额过低");
         }
         if !pay {
-            return legacy("success", quote.money);
+            let mut response = stripe_credit_fields(&quote.snapshot, quote.amount_unit);
+            response["message"] = json!("success");
+            response["data"] = json!(quote.money);
+            return Json(response).into_response();
         }
         for (redirect, label) in [
             (&input.success_url, "支付成功重定向URL不在可信任域名列表中"),
@@ -178,6 +192,7 @@ impl StripeWalletState {
             return legacy("error", "支付金额无效");
         }
         quote.snapshot.settlement_currency = price.currency.clone();
+        let amount_unit = quote.amount_unit;
         let user=match sqlx::query("SELECT COALESCE(email,'') AS email,COALESCE(stripe_customer,'') AS customer FROM users WHERE id=$1 AND deleted_at IS NULL").bind(user_id).fetch_optional(&self.pg).await {
             Ok(Some(user))=>user,_=>return legacy("error","用户不存在"),
         };
@@ -228,7 +243,12 @@ impl StripeWalletState {
             .create_checkout(&secret, &price, &session)
             .await
         {
-            Ok(url) => legacy("success", json!({"pay_link":url,"trade_no":order.trade_no})),
+            Ok(url) => {
+                let mut data = stripe_credit_fields(&order.snapshot, amount_unit);
+                data["pay_link"] = json!(url);
+                data["trade_no"] = json!(order.trade_no);
+                legacy("success", data)
+            }
             // Provider acceptance may precede a transport error. The committed
             // order and coupon reservation must remain available to callbacks.
             Err(_) => legacy("error", "拉起支付失败"),
@@ -574,4 +594,41 @@ struct LiveRequest {
     success_url: String,
     #[serde(default, deserialize_with = "null_string_is_empty")]
     cancel_url: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credit_metadata_preserves_the_priced_snapshot_and_request_unit() {
+        let legacy = SettlementSnapshot {
+            platform_amount_micros: 14_600_000,
+            credited_quota: 7_300_000,
+            settlement_currency: "usd".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            stripe_credit_fields(&legacy, "LEGACY"),
+            json!({
+                "currency_unit": "credit", "amount_unit": "LEGACY",
+                "credited_quota": 7_300_000, "credit_amount": 7_300_000,
+                "legacy_batch_units": "14.6", "settlement_currency": "USD",
+            })
+        );
+        let raw = SettlementSnapshot {
+            platform_amount_micros: 1_200_002,
+            credited_quota: 600_001,
+            settlement_currency: "USD".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            stripe_credit_fields(&raw, "CREDIT"),
+            json!({
+                "currency_unit": "credit", "amount_unit": "CREDIT",
+                "credited_quota": 600_001, "credit_amount": 600_001,
+                "legacy_batch_units": "1.200002", "settlement_currency": "USD",
+            })
+        );
+    }
 }
