@@ -169,8 +169,10 @@ export type AssistantPreConversationPresets = {
 }
 
 export type DrawingWebAccess = {
-  minimum_balance_usd: number
+  minimum_balance_usd: number | null
+  minimum_balance_credit?: number | null
   balance_usd: number | null
+  balance_credit?: number | null
   allowed: boolean
 }
 
@@ -245,6 +247,11 @@ export type AssistantJourney = {
 
 export type AssistantNewUserGift = {
   amount_cents: number
+  amount_unit?: 'LEGACY_CENTS'
+  credit_amount?: number
+  amount_usd?: number
+  currency?: 'USD'
+  credits_per_usd?: number
   quota: number
   status: 'offered' | 'claimed' | 'declined'
   reason: string
@@ -254,13 +261,17 @@ export type AssistantNewUserGift = {
 
 /**
  * The server emits this lightweight action when the assistant has prepared a
- * gift for the user to claim. It intentionally does not include quota or any
- * private account fields; those remain available only through the signed-in
- * gift endpoint.
+ * gift for the user to claim. credit_amount is the gift's stored grant, never
+ * the account balance. Legacy amount_cents are not US cents.
  */
 export type AssistantNewUserGiftAction = {
   type: 'new_user_gift'
   amount_cents: number
+  amount_unit?: 'LEGACY_CENTS'
+  credit_amount?: number
+  amount_usd?: number
+  currency?: 'USD'
+  credits_per_usd?: number
   status: 'offered'
   reason: string
 }
@@ -879,8 +890,29 @@ function parseAssistantNewUserGiftAction(
   const reason = action.reason.trim()
   const reasonRunes = [...reason].length
   if (reasonRunes < 2 || reasonRunes > 240) return undefined
+  const money =
+    action.amount_unit === 'LEGACY_CENTS' &&
+    typeof action.credit_amount === 'number' &&
+    Number.isSafeInteger(action.credit_amount) &&
+    action.credit_amount > 0 &&
+    typeof action.amount_usd === 'number' &&
+    Number.isFinite(action.amount_usd) &&
+    action.amount_usd > 0 &&
+    action.currency === 'USD' &&
+    typeof action.credits_per_usd === 'number' &&
+    Number.isFinite(action.credits_per_usd) &&
+    action.credits_per_usd > 0
+      ? {
+          amount_unit: 'LEGACY_CENTS' as const,
+          credit_amount: action.credit_amount,
+          amount_usd: action.amount_usd,
+          currency: 'USD' as const,
+          credits_per_usd: action.credits_per_usd,
+        }
+      : {}
   return {
     type: 'new_user_gift',
+    ...money,
     amount_cents: action.amount_cents,
     status: 'offered',
     reason,

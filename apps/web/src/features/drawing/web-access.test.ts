@@ -6,91 +6,83 @@ import { test } from 'node:test'
 
 import { getDrawingWebDenial, resolveDrawingWebAccess } from './web-access'
 
-test('web access permits exact USD 10 and rejects below it or an unavailable balance', () => {
-  for (const balance of [0, 9, 9.999999, -1, null, Number.NaN]) {
+const gate = (credits: number | null, allowed = true) => ({
+  minimum_balance_credit: 5_000_000,
+  minimum_balance_usd: 1.4285714285714286,
+  balance_credit: credits,
+  balance_usd: credits === null ? null : credits / 3_500_000,
+  allowed,
+})
+
+test('raw Credit floor remains exact and does not become a true USD 10 floor', () => {
+  for (const credits of [0, 3_500_000, 4_999_999, -1, null, Number.NaN]) {
+    assert.equal(
+      resolveDrawingWebAccess(gate(credits), undefined, 0).allowed,
+      false
+    )
+  }
+  const access = resolveDrawingWebAccess(gate(5_000_000), undefined, 0)
+  assert.equal(access.allowed, true)
+  assert.equal(access.minimum_balance_credit, 5_000_000)
+  assert.equal(access.minimum_balance_usd, 1.4285714285714286)
+  assert.equal(
+    resolveDrawingWebAccess(gate(5_000_000, false), undefined, 0).allowed,
+    false
+  )
+  assert.equal(
+    resolveDrawingWebAccess(gate(null, false), 99_999_999, 1).balance_usd,
+    null
+  )
+})
+
+test('legacy or malformed gate metadata fails closed without inventing a USD threshold', () => {
+  const access = resolveDrawingWebAccess(
+    { minimum_balance_usd: 10, balance_usd: 100, allowed: true },
+    undefined,
+    0
+  )
+  assert.equal(access.allowed, false)
+  assert.equal(access.minimum_balance_usd, null)
+  assert.equal(access.balance_usd, null)
+  for (const minimum of [Number.NaN, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
     assert.equal(
       resolveDrawingWebAccess(
-        { minimum_balance_usd: 10, balance_usd: balance, allowed: true },
-        99999999,
-        1
+        { ...gate(5_000_000), minimum_balance_credit: minimum },
+        undefined,
+        0
       ).allowed,
       false
     )
   }
+})
+
+test('fixed K can display USD but wallet data cannot authorize generation', () => {
+  const access = resolveDrawingWebAccess(undefined, 3_500_000, 3_500_000)
+  assert.equal(access.balance_usd, 1)
+  assert.equal(access.minimum_balance_usd, null)
+  assert.equal(access.allowed, false)
   assert.equal(
-    resolveDrawingWebAccess(
-      { minimum_balance_usd: 10, balance_usd: 10, allowed: true },
-      undefined,
-      1
-    ).allowed,
-    true
+    resolveDrawingWebAccess(undefined, 5_000_000, 0).balance_usd,
+    null
   )
   assert.equal(
-    resolveDrawingWebAccess(
-      { minimum_balance_usd: 10, balance_usd: 100, allowed: false },
-      undefined,
-      1
-    ).allowed,
-    false
-  )
-  assert.equal(
-    resolveDrawingWebAccess(
-      { minimum_balance_usd: 10, balance_usd: null, allowed: false },
-      99999999,
-      1
-    ).balance_usd,
+    resolveDrawingWebAccess(undefined, Number.NaN, 3_500_000).balance_usd,
     null
   )
 })
 
-test('wallet quota can display USD but never authorizes generation without the server payload', () => {
-  assert.equal(
-    resolveDrawingWebAccess(undefined, 5000000, 500000).allowed,
-    false
-  )
-  assert.equal(
-    resolveDrawingWebAccess(undefined, 4999999, 500000).allowed,
-    false
-  )
-  assert.equal(resolveDrawingWebAccess(undefined, 100, 20).balance_usd, 5)
-  assert.equal(
-    resolveDrawingWebAccess(undefined, undefined, 500000).balance_usd,
-    null
-  )
-  assert.equal(
-    resolveDrawingWebAccess(undefined, Number.NaN, 500000).balance_usd,
-    null
-  )
-  assert.equal(resolveDrawingWebAccess(undefined, 5000000, 0).balance_usd, null)
-})
-
-test('backend denial is detected from the OpenAI envelope and preserves unknown balances', () => {
+test('backend denial preserves the actual Credit gate and never authorizes drawing', () => {
   const response = {
     data: {
       error: { code: 'WEB_DRAWING_MINIMUM_BALANCE' },
-      drawing_web_access: {
-        minimum_balance_usd: 10,
-        balance_usd: 7,
-        allowed: false,
-      },
+      drawing_web_access: gate(3_500_000),
     },
   }
-  assert.equal(getDrawingWebDenial({ response })?.balance_usd, 7)
-  assert.equal(
-    getDrawingWebDenial({
-      response: {
-        data: {
-          error: { code: 'WEB_DRAWING_MINIMUM_BALANCE' },
-          drawing_web_access: {
-            minimum_balance_usd: 10,
-            balance_usd: 100,
-            allowed: true,
-          },
-        },
-      },
-    })?.allowed,
-    false
-  )
+  const denied = getDrawingWebDenial({ response })
+  assert.equal(denied?.balance_usd, 1)
+  assert.equal(denied?.balance_credit, 3_500_000)
+  assert.equal(denied?.minimum_balance_credit, 5_000_000)
+  assert.equal(denied?.allowed, false)
   assert.equal(
     getDrawingWebDenial({
       response: { data: { error: { code: 'WEB_DRAWING_MINIMUM_BALANCE' } } },

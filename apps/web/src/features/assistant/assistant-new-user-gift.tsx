@@ -115,7 +115,7 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
         <div className='min-w-0'>
           <p className='text-sm font-medium'>
             {giftTitle} ·{' '}
-            {formatQuota(gift.quota, {
+            {formatQuota(gift.credit_amount ?? gift.quota, {
               abbreviate: false,
               digitsLarge: 2,
               digitsSmall: 2,

@@ -37,6 +37,7 @@ type drawingParityFixture struct {
 // mock provider. It is not a production/strict-PostgreSQL acceptance rehearsal.
 func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int, upstreamResponse ...json.RawMessage) *drawingParityFixture {
 	t.Helper()
+	setupAssistantCurrencyTest(t)
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousRedis, previousMemory := common.RedisEnabled, common.MemoryCacheEnabled

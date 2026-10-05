@@ -15,20 +15,21 @@ import (
 )
 
 func TestAdminGetAssistantFundingSummaryUsesAssistantSpendAndRootBalance(t *testing.T) {
+	setupAssistantCurrencyTest(t)
 	db := setupManageUserTestDB(t)
 	root := &model.User{
 		Username: "assistant-funding-root",
 		Password: "password",
 		Role:     common.RoleRootUser,
 		Status:   common.UserStatusEnabled,
-		Quota:    int(common.QuotaPerUnit),
+		Quota:    3500000,
 		Group:    "default",
 	}
 	require.NoError(t, db.Create(root).Error)
 
 	now := time.Now().Unix()
 	require.NoError(t, db.Create(&[]model.Log{
-		{UserId: root.Id, CreatedAt: now, Type: model.LogTypeConsume, PromptTokens: 10, CompletionTokens: 5, Quota: 100, Other: `{"billing_source":"assistant"}`},
+		{UserId: root.Id, CreatedAt: now, Type: model.LogTypeConsume, PromptTokens: 10, CompletionTokens: 5, Quota: 3500000, Other: `{"billing_source":"assistant"}`},
 		{UserId: root.Id, CreatedAt: now, Type: model.LogTypeConsume, PromptTokens: 20, CompletionTokens: 10, Quota: 200, Other: `{"billing_source":"wallet"}`},
 	}).Error)
 
@@ -58,8 +59,8 @@ func TestAdminGetAssistantFundingSummaryUsesAssistantSpendAndRootBalance(t *test
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.True(t, response.Success)
 	assert.Equal(t, int64(1), response.Data.Requests)
-	assert.Equal(t, int64(100), response.Data.Quota)
-	assert.InDelta(t, float64(100)/common.QuotaPerUnit, response.Data.CostUSD, 0.0000001)
-	assert.Equal(t, int(common.QuotaPerUnit), response.Data.RemainingQuota)
+	assert.Equal(t, int64(3500000), response.Data.Quota)
+	assert.Equal(t, float64(1), response.Data.CostUSD)
+	assert.Equal(t, 3500000, response.Data.RemainingQuota)
 	assert.InDelta(t, 1, response.Data.RemainingUSD, 0.0000001)
 }

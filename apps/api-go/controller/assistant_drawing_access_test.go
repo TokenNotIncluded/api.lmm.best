@@ -15,6 +15,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -24,6 +25,7 @@ import (
 
 func setupDrawingAccessTest(t *testing.T) (*gorm.DB, model.User) {
 	t.Helper()
+	setupAssistantCurrencyTest(t)
 	oldDB, oldLogDB, oldRedis := model.DB, model.LOG_DB, common.RedisEnabled
 	oldMainType, oldLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	oldDrawing := common.DrawingEnabled
@@ -54,9 +56,10 @@ func setupDrawingAccessTest(t *testing.T) (*gorm.DB, model.User) {
 }
 
 func TestDrawingWebBalanceFloorExactBoundaryAndTrustedMCPOnly(t *testing.T) {
+	setupAssistantCurrencyTest(t)
 	oldGetter := drawingUserQuota
 	t.Cleanup(func() { drawingUserQuota = oldGetter })
-	quota, reads := int(10*common.QuotaPerUnit)-1, 0
+	quota, reads := 4999999, 0
 	drawingUserQuota = func(id int, fromDB bool) (int, error) {
 		assert.Equal(t, 17, id)
 		assert.True(t, fromDB, "the durable wallet balance is authoritative")
@@ -102,7 +105,9 @@ func TestDrawingWebBalanceUnavailableFailsClosedAndStatusReturnsNull(t *testing.
 	assert.NotContains(t, w.Body.String(), "sensitive database detail")
 	status := performAssistantStatusTestRequest(t, user.Id)
 	assert.Equal(t, http.StatusOK, status.Code)
-	assert.Contains(t, status.Body.String(), `"drawing_web_access":{"minimum_balance_usd":10,"balance_usd":null,"allowed":false}`)
+	assert.Contains(t, status.Body.String(), `"minimum_balance_credit":5000000`)
+	assert.Contains(t, status.Body.String(), `"balance_usd":null`)
+	assert.Contains(t, status.Body.String(), `"allowed":false`)
 }
 
 func TestPreparePlaygroundImageAuthBindsRealKeyBeforeDistribution(t *testing.T) {
@@ -207,4 +212,36 @@ func TestPrepareAssistantDrawingChecksBalanceBeforeConfirmationConsumption(t *te
 	var count int64
 	require.NoError(t, db.Model(&model.Token{}).Count(&count).Error)
 	assert.Zero(t, count)
+}
+
+func TestDrawingWebLegacyCreditGateDisplaysActualUSDAndFailsWithoutBasis(t *testing.T) {
+	setupAssistantCurrencyTest(t)
+	oldGetter := drawingUserQuota
+	t.Cleanup(func() { drawingUserQuota = oldGetter })
+	quota := 3500000
+	drawingUserQuota = func(int, bool) (int, error) { return quota, nil }
+	for _, fx := range []float64{7, 7.2, 8} {
+		operation_setting.USDExchangeRate = fx
+		access := drawingWebAccessForUser(17)
+		require.NotNil(t, access.MinimumBalanceCredit)
+		require.NotNil(t, access.MinimumBalanceUSD)
+		require.NotNil(t, access.BalanceUSD)
+		assert.Equal(t, 5000000, *access.MinimumBalanceCredit)
+		assert.InDelta(t, 1.4285714285714286, *access.MinimumBalanceUSD, 1e-15)
+		assert.Equal(t, float64(1), *access.BalanceUSD)
+		assert.False(t, access.Allowed)
+	}
+	quota = 4999999
+	assert.False(t, drawingWebAccessForUser(17).Allowed)
+	quota = 5000000
+	assert.True(t, drawingWebAccessForUser(17).Allowed)
+	common.ClearCreditsPerUSD()
+	access := drawingWebAccessForUser(17)
+	assert.False(t, access.Allowed)
+	assert.Nil(t, access.BalanceUSD)
+	assert.Nil(t, access.MinimumBalanceUSD)
+	assert.Nil(t, access.MinimumBalanceCredit)
+	c, w := newAuthenticatedContext(t, http.MethodPost, "/pg/images/generations", nil, 17)
+	assert.False(t, requireDrawingWebBalance(c, 17))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }

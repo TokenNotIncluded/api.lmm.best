@@ -349,9 +349,15 @@ func AdminGetAssistantFundingSummary(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	remainingUSD := float64(remainingQuota)
-	if common.QuotaPerUnit > 0 {
-		remainingUSD /= common.QuotaPerUnit
+	remainingUSD, err := common.CreditsToUSD(int64(remainingQuota))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
 	common.ApiSuccess(c, gin.H{
 		"start_timestamp":   summary.StartTimestamp,
@@ -363,7 +369,9 @@ func AdminGetAssistantFundingSummary(c *gin.Context) {
 		"quota":             summary.Quota,
 		"cost_usd":          summary.CostUSD,
 		"remaining_quota":   remainingQuota,
-		"remaining_usd":     remainingUSD,
+		"remaining_usd":     remainingUSD.InexactFloat64(),
+		"currency_unit":     "credit",
+		"credits_per_usd":   anchor.InexactFloat64(),
 	})
 }
 

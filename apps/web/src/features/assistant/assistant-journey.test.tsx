@@ -244,7 +244,10 @@ describe('assistant game-style progress', () => {
           success: true,
           data: {
             amount_cents: 999,
-            quota: 3_500_000,
+            quota: 123,
+            credit_amount: 3_500_000,
+            amount_unit: 'LEGACY_CENTS',
+            amount_usd: 1,
             status: 'offered',
             reason: 'A historical credit award.',
             created_at: 1,

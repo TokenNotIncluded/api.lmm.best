@@ -4,12 +4,12 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"errors"
-	"math"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -100,7 +100,8 @@ func (AssistantGiftRiskMemory) TableName() string { return "assistant_gift_risk_
 
 // AssistantNewUserGift is a one-time, user-scoped decision. AmountCents and
 // Quota are both persisted so a later exchange-rate change cannot alter an
-// already presented gift. A zero-dollar decision is retained as declined and
+// already presented gift. AmountCents are LEGACY_CENTS, not US cents; Quota is
+// the immutable Credit grant. A zero-credit decision is retained as declined and
 // consumes the same single opportunity.
 type AssistantNewUserGift struct {
 	Id             int64  `json:"id" gorm:"primaryKey"`
@@ -161,7 +162,17 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 	if user.Role != common.RoleCommonUser || user.Status != common.UserStatusEnabled || strings.TrimSpace(user.Email) == "" || IsDisposableEmail(user.Email) {
 		return nil, false, assistantGiftError("account_not_eligible", ErrAssistantGiftIneligible)
 	}
-	quota := int(math.Round(float64(amountCents) * common.QuotaPerUnit / 100))
+	if _, err := common.LegacyPricingUnitsPerUSD(); err != nil {
+		return nil, false, err
+	}
+	legacyUnit, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return nil, false, err
+	}
+	quota, err := common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(int64(amountCents)).Mul(legacyUnit).Div(decimal.NewFromInt(100)))
+	if err != nil {
+		return nil, false, err
+	}
 	if quota < 0 || (amountCents > 0 && quota <= 0) {
 		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
 	}
@@ -179,7 +190,7 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 		CreatedAt:      common.GetTimestamp(),
 	}
 	createdDecision := false
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err = DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
 		}

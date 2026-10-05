@@ -303,7 +303,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_new_user_gift_status",
-				Description: "Read only the signed-in user's stored welcome-gift status and USD amount. Use for status, rules, eligibility questions, and whether a gift was already claimed. This never evaluates eligibility, creates a decision, consumes the opportunity, or claims a gift. An existing offer reopens its claim card. No stored decision does not establish eligibility; claimed and declined decisions cannot be reset by changing conversations.",
+				Description: "Read only the signed-in user's stored welcome-gift status, Credit grant and actual USD value. amount_cents is a legacy bridge, not US cents. Use for status, rules, eligibility questions, and whether a gift was already claimed. This never evaluates eligibility, creates a decision, consumes the opportunity, or claims a gift. An existing offer reopens its claim card. No stored decision does not establish eligibility; claimed and declined decisions cannot be reset by changing conversations.",
 				Parameters:  emptyObjectSchema(),
 			},
 		},
@@ -311,9 +311,10 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_new_user_gift",
-				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 US cents. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
+				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 LEGACY_CENTS, hundredths of one legacy pricing unit, preserving the existing Credit gift range. These are not US cents; explain the result using credit_amount or amount_usd. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
 				Parameters: objectSchema(map[string]any{
-					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
+					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000, "description": "LEGACY_CENTS: hundredths of one legacy pricing unit, preserving the existing Credit gift range. Not US cents. The result reports actual credit_amount and amount_usd."},
+					"amount_unit":  map[string]any{"type": "string", "enum": []string{"LEGACY_CENTS"}, "description": "The retained amount_cents input uses LEGACY_CENTS only."},
 					"reason":       map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
 				}, []string{"amount_cents", "reason"}),
 			},
@@ -3090,15 +3091,29 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 	if err != nil {
 		return map[string]any{"ok": false, "error": "invitation information could not be loaded"}
 	}
+	amounts := []int{user.AffQuota, user.AffHistoryQuota, common.QuotaForInviter, common.QuotaForInvitee}
+	usd := make([]float64, len(amounts))
+	for i, amount := range amounts {
+		converted, err := common.CreditsToUSD(int64(amount))
+		if err != nil {
+			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+		}
+		usd[i] = converted.InexactFloat64()
+	}
 	result := map[string]any{
 		"ok":                           true,
 		"affiliate_code_available":     strings.TrimSpace(user.AffCode) != "",
 		"affiliate_code_path":          "/aff",
 		"invited_count":                user.AffCount,
-		"pending_reward_usd":           float64(user.AffQuota) / common.QuotaPerUnit,
-		"total_reward_usd":             float64(user.AffHistoryQuota) / common.QuotaPerUnit,
-		"reward_per_inviter_usd":       float64(common.QuotaForInviter) / common.QuotaPerUnit,
-		"reward_per_invitee_usd":       float64(common.QuotaForInvitee) / common.QuotaPerUnit,
+		"currency_unit":                "credit",
+		"pending_reward_credit":        user.AffQuota,
+		"total_reward_credit":          user.AffHistoryQuota,
+		"reward_per_inviter_credit":    common.QuotaForInviter,
+		"reward_per_invitee_credit":    common.QuotaForInvitee,
+		"pending_reward_usd":           usd[0],
+		"total_reward_usd":             usd[1],
+		"reward_per_inviter_usd":       usd[2],
+		"reward_per_invitee_usd":       usd[3],
 		"promotional_rewards_eligible": !model.IsDisposableEmail(user.Email),
 		"payment_compliance_confirmed": operation_setting.IsPaymentComplianceConfirmed(),
 		"next_step":                    "Open the invitation page to generate or copy the current invitation code.",

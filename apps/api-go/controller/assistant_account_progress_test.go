@@ -2,7 +2,6 @@ package controller
 
 import (
 	"encoding/json"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -199,17 +198,15 @@ func TestAssistantAccountAccessReadFailuresAreUnavailable(t *testing.T) {
 }
 
 func TestAssistantSelfAccountToolsReturnUSDWalletBalanceIndependentlyOfUsage(t *testing.T) {
-	previousUnit := common.QuotaPerUnit
-	common.QuotaPerUnit = 500000
-	t.Cleanup(func() { common.QuotaPerUnit = previousUnit })
+	setupAssistantCurrencyTest(t)
 	for _, tc := range []struct {
 		name  string
 		quota int
 		usd   float64
 	}{
-		{name: "positive_balance_without_usage", quota: 1500000, usd: 3},
-		{name: "small_balance", quota: 1, usd: 0.000002},
-		{name: "large_balance", quota: 9000000000000, usd: 18000000},
+		{name: "positive_balance_without_usage", quota: 3500000, usd: 1},
+		{name: "small_balance", quota: 1, usd: 0.0000002857142857},
+		{name: "large_balance", quota: 7000000000000, usd: 2000000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupAssistantAccountProgressDB(t)
@@ -227,8 +224,8 @@ func TestAssistantSelfAccountToolsReturnUSDWalletBalanceIndependentlyOfUsage(t *
 					assert.Equal(t, 0, balance["used_quota"])
 				}
 				assert.Equal(t, tc.quota, balance["wallet_balance_quota"], name)
-				assert.Equal(t, float64(500000), balance["quota_per_usd"], name)
-				assert.Equal(t, tc.usd, balance["wallet_balance_usd"], name)
+				assert.Equal(t, float64(3500000), balance["quota_per_usd"], name)
+				assert.InDelta(t, tc.usd, balance["wallet_balance_usd"], 1e-16, name)
 				assert.Equal(t, "available", balance["wallet_balance_status"], name)
 				assert.Contains(t, balance["wallet_balance_note"], "remaining subscription quota and usage totals", name)
 			}
@@ -237,17 +234,15 @@ func TestAssistantSelfAccountToolsReturnUSDWalletBalanceIndependentlyOfUsage(t *
 }
 
 func TestAssistantWalletBalanceUnavailableRemainsJSONSerializable(t *testing.T) {
-	previousUnit := common.QuotaPerUnit
-	t.Cleanup(func() { common.QuotaPerUnit = previousUnit })
-	for _, unit := range []float64{0, -1, math.NaN(), math.Inf(1), math.SmallestNonzeroFloat64} {
-		common.QuotaPerUnit = unit
-		fields := assistantWalletBalanceFields(500000)
-		assert.Equal(t, "unavailable", fields["wallet_balance_status"])
-		assert.Nil(t, fields["wallet_balance_usd"])
-		assert.Nil(t, fields["quota_per_usd"])
-		_, err := json.Marshal(fields)
-		require.NoError(t, err)
-	}
+	setupAssistantCurrencyTest(t)
+	common.ClearCreditsPerUSD()
+	fields := assistantWalletBalanceFields(3500000)
+	assert.Equal(t, "unavailable", fields["wallet_balance_status"])
+	assert.Nil(t, fields["wallet_balance_usd"])
+	assert.Nil(t, fields["quota_per_usd"])
+	assert.Nil(t, fields["credits_per_usd"])
+	_, err := json.Marshal(fields)
+	require.NoError(t, err)
 }
 
 func TestAssistantAccountProgressAndBalancePrefetchEvenWithAgentLoopDisabled(t *testing.T) {

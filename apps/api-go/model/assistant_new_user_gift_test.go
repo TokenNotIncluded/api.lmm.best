@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,7 @@ import (
 
 func setupAssistantGiftTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	setupAssistantCurrencyTest(t)
 	previousDB := DB
 	previousRedis := common.RedisEnabled
 	previousQuotaPerUnit := common.QuotaPerUnit
@@ -69,6 +71,8 @@ func TestAssistantNewUserGiftIsOneTimeAndClaimIsIdempotent(t *testing.T) {
 	assert.Equal(t, gift.Id, again.Id)
 	assert.Equal(t, 525, again.AmountCents)
 
+	// Offered gifts retain their original Credit grant through FX and bonus changes.
+	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 8, 99
 	claimed, alreadyClaimed, err := ClaimAssistantNewUserGift(user.Id)
 	require.NoError(t, err)
 	assert.False(t, alreadyClaimed)
@@ -235,4 +239,21 @@ func TestPurgeAssistantGiftNetworkRiskBeforeIsBoundedAndPreservesIdentity(t *tes
 	}
 	assert.Equal(t, assistantGiftRiskIdentity, byKey["old-identity"].Kind)
 	assert.Equal(t, assistantGiftRiskNetwork, byKey["new-network"].Kind)
+}
+
+func TestAssistantNewUserGiftMissingCurrencyBasisDoesNotConsumeDecision(t *testing.T) {
+	db := setupAssistantGiftTestDB(t)
+	user := newAssistantGiftUser(t, db, "gift-no-currency", "gift-no-currency@example.com")
+	common.ClearCreditsPerUSD()
+	_, created, err := DecideAssistantNewUserGift(user.Id, 7, 525, "Clear and constructive project details.", 2, 40, "198.51.100.10")
+	require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
+	assert.False(t, created)
+	for _, table := range []any{&AssistantNewUserGift{}, &AssistantGiftRiskMemory{}} {
+		var count int64
+		require.NoError(t, db.Model(table).Count(&count).Error)
+		assert.Zero(t, count)
+	}
+	var stored User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	assert.Zero(t, stored.Quota)
 }

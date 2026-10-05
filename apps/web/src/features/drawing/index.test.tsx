@@ -81,6 +81,8 @@ const { Drawing } = await import('./index')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { createDrawingHistoryStore } = await import('./history-storage')
 const { resetDrawingTaskState } = await import('./drawing-task-state')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const originalCurrency = useSystemConfigStore.getState().config.currency
 const originalFetch = globalThis.fetch
 const originalConfirm = window.confirm
 
@@ -189,6 +191,8 @@ async function renderDrawing() {
         ...response.data.data,
         drawing_web_access: {
           minimum_balance_usd: 10,
+          minimum_balance_credit: 35_000_000,
+          balance_credit: 35_000_000,
           balance_usd: 10,
           allowed: true,
         },
@@ -217,6 +221,18 @@ async function renderDrawing() {
 }
 
 beforeEach(() => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...originalCurrency,
+      currencyUnit: 'credit',
+      creditsPerUsd: 3_500_000,
+      creditsPerUsdExact: '3500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+      legacyPricingUnitsPerUsd: 7,
+      quotaPerUnit: 500_000,
+    },
+  })
   resetDrawingTaskState()
   useAuthStore
     .getState()
@@ -233,6 +249,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  useSystemConfigStore.getState().setConfig({ currency: originalCurrency })
   resetDrawingTaskState()
   globalThis.fetch = originalFetch
   window.confirm = originalConfirm
@@ -389,6 +406,8 @@ describe('Drawing mobile controls', () => {
               developer_access_granted: true,
               drawing_web_access: {
                 minimum_balance_usd: 0,
+                minimum_balance_credit: 0,
+                balance_credit: 35_000_000,
                 balance_usd: 10,
                 allowed: true,
               },
@@ -798,7 +817,11 @@ describe('Drawing generation failures', () => {
   }
 })
 
-function mockWorkbench(balance: () => number | null, modelName = 'image-2') {
+function mockWorkbench(
+  balance: () => number | null,
+  modelName = 'image-2',
+  minimumCredit = 35_000_000
+) {
   let statusReads = 0
   api.get = (async (url: string) => {
     if (url === '/api/assistant/status') {
@@ -810,9 +833,14 @@ function mockWorkbench(balance: () => number | null, modelName = 'image-2') {
           data: {
             developer_access_granted: true,
             drawing_web_access: {
-              minimum_balance_usd: 10,
+              minimum_balance_usd: minimumCredit / 3_500_000,
+              minimum_balance_credit: minimumCredit,
+              balance_credit:
+                current === null ? null : Math.round(current * 3_500_000),
               balance_usd: current,
-              allowed: current !== null && current >= 10,
+              allowed:
+                current !== null &&
+                Math.round(current * 3_500_000) >= minimumCredit,
             },
           },
         },
@@ -857,6 +885,56 @@ const png =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6aQAAAABJRU5ErkJggg=='
 
 describe('Drawing balance and browser history', () => {
+  test('displays the preserved 5m Credit floor across live CNY, USD and Credit preferences', async () => {
+    mockWorkbench(() => 1, 'image-2', 5_000_000)
+    const rendered = await renderDrawing()
+    const alertText = () =>
+      rendered.container.querySelector('[data-slot="drawing-web-access"]')
+        ?.textContent ?? ''
+    try {
+      assert.match(alertText(), /minimum balance of 1.43 USD/)
+      assert.match(alertText(), /Current balance: 1 USD/)
+      await act(async () => {
+        await i18n.changeLanguage('zhCN')
+      })
+      assert.match(alertText(), /minimum balance of 10 CNY/)
+      assert.match(alertText(), /Current balance: 7 CNY/)
+      await act(async () => {
+        const currency = useSystemConfigStore.getState().config.currency
+        useSystemConfigStore.getState().setConfig({
+          currency: { ...currency, cnyPerUsd: 8, cnyPerUsdExact: '8' },
+        })
+      })
+      assert.match(alertText(), /minimum balance of 11.43 CNY/)
+      assert.match(alertText(), /Current balance: 8 CNY/)
+      await act(async () => {
+        const user = useAuthStore.getState().auth.user
+        assert.ok(user)
+        useAuthStore.getState().auth.setUser({
+          ...user,
+          setting: JSON.stringify({ wallet_display_currency: 'USD' }),
+        })
+      })
+      assert.match(alertText(), /minimum balance of 1.43 USD/)
+      await act(async () => {
+        const user = useAuthStore.getState().auth.user
+        assert.ok(user)
+        useAuthStore.getState().auth.setUser({
+          ...user,
+          setting: JSON.stringify({ wallet_display_currency: 'CREDIT' }),
+        })
+      })
+      assert.match(alertText(), /minimum balance of 5,000,000 Credits/)
+      assert.match(alertText(), /Current balance: 3,500,000 Credits/)
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en')
+      })
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
   for (const balance of [9.99, 10, null]) {
     test(`balance ${balance} gates only web generation while key/MCP controls remain available`, async () => {
       mockWorkbench(() => balance)
@@ -885,7 +963,7 @@ describe('Drawing balance and browser history', () => {
         if (balance === 10) assert.equal(alert, null)
         else {
           assert.ok(alert)
-          assert.match(alert.textContent ?? '', /USD 10.00/)
+          if (balance !== null) assert.match(alert.textContent ?? '', /10 USD/)
           assert.match(
             alert.textContent ?? '',
             /API and MCP usage is billed normally, not free/
@@ -894,14 +972,14 @@ describe('Drawing balance and browser history', () => {
             assert.match(alert.textContent ?? '', /balance unavailable/)
             assert.doesNotMatch(
               alert.textContent ?? '',
-              /Current balance: USD 0/
+              /Current balance: 0 USD/
             )
           } else {
             assert.match(
               alert.textContent ?? '',
               /Insufficient balance for web image generation/
             )
-            assert.match(alert.textContent ?? '', /Current balance: USD 9.99/)
+            assert.match(alert.textContent ?? '', /Current balance: 9.99 USD/)
           }
         }
         assert.equal(
@@ -957,7 +1035,7 @@ describe('Drawing balance and browser history', () => {
       assert.equal(button(rendered.container, 'Generate image').disabled, true)
       assert.match(
         rendered.container.textContent ?? '',
-        /Current balance: USD 9.50/
+        /Current balance: 9.5 USD/
       )
       const stored = await createDrawingHistoryStore().load(1)
       assert.equal(stored.images.length, 1)
@@ -1010,6 +1088,8 @@ describe('Drawing balance and browser history', () => {
             },
             drawing_web_access: {
               minimum_balance_usd: 10,
+              minimum_balance_credit: 35_000_000,
+              balance_credit: 28_000_000,
               balance_usd: 8,
               allowed: false,
             },
@@ -1030,7 +1110,7 @@ describe('Drawing balance and browser history', () => {
       )
       assert.match(
         rendered.container.textContent ?? '',
-        /Current balance: USD 8.00/
+        /Current balance: 8 USD/
       )
       assert.doesNotMatch(
         rendered.container.textContent ?? '',

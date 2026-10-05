@@ -1,30 +1,31 @@
 package controller
 
-import (
-	"math"
-
-	"github.com/LIghtJUNction/api.lmm.best/common"
-)
+import "github.com/LIghtJUNction/api.lmm.best/common"
 
 // Keep the wallet unit conversion server-side so a model cannot mistake raw
 // quota or a zero-cost usage window for the account's USD wallet balance.
 func assistantWalletBalanceFields(quota int) map[string]any {
 	fields := map[string]any{
 		"wallet_balance_quota":  quota,
+		"currency_unit":         "credit",
+		"credits_per_usd":       nil,
 		"quota_per_usd":         nil,
 		"wallet_balance_usd":    nil,
 		"wallet_balance_status": "unavailable",
 		"wallet_balance_note":   "Wallet balance is separate from remaining subscription quota and usage totals. Zero used_quota or zero cost in a usage window does not mean the wallet balance is zero.",
 	}
-	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
 		return fields
 	}
-	balanceUSD := float64(quota) / common.QuotaPerUnit
-	if math.IsNaN(balanceUSD) || math.IsInf(balanceUSD, 0) {
+	balanceUSD, err := common.CreditsToUSD(int64(quota))
+	if err != nil {
 		return fields
 	}
-	fields["quota_per_usd"] = common.QuotaPerUnit
+	// Retain the old field name for clients, with the actual USD denomination.
+	fields["quota_per_usd"] = anchor.InexactFloat64()
+	fields["credits_per_usd"] = anchor.InexactFloat64()
 	fields["wallet_balance_status"] = "available"
-	fields["wallet_balance_usd"] = balanceUSD
+	fields["wallet_balance_usd"] = balanceUSD.InexactFloat64()
 	return fields
 }
