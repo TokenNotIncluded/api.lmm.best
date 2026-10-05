@@ -3914,7 +3914,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For dsh web in a terminal, run this command. It installs only into the web profile.": "For dsh web in a terminal, run this command. It installs only into the web profile.",
     "For example, a reliable OpenAI-compatible endpoint": "For example, a reliable OpenAI-compatible endpoint",
@@ -10544,6 +10544,9 @@
     "Storage GiB-hours": "Storage GiB-hours",
     "Image (billing unit)": "Image",
     "Images (billing quantity)": "Images",
-    "Verified usage": "Verified usage"
+    "Verified usage": "Verified usage",
+    "Price per unit": "Price per unit",
+    "Reserve up to {{amount}}; settle verified usage and release the remainder.": "Reserve up to {{amount}}; settle verified usage and release the remainder.",
+    "{{amount}} per {{unit}}": "{{amount}} per {{unit}}"
   }
 }
