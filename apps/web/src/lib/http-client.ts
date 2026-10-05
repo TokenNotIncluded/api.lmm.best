@@ -225,5 +225,8 @@ api.interceptors.request.use(async (config) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`
   }
+  // This client rejects cached denominations other than 500,000/USD. Old
+  // tabs omit this acknowledgement and must refresh before dashboard writes.
+  config.headers.set('X-LMM-Credit-Unit', '500000', true)
   return config
 })

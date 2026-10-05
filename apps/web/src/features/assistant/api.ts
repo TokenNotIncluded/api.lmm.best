@@ -1564,6 +1564,7 @@ async function sendAssistantMessageStream(
     headers: {
       ...authHeaders,
       Accept: 'text/event-stream',
+      'X-LMM-Credit-Unit': '500000',
       'X-LMM-Assistant-Attempt': String(attempt),
     },
     signal,

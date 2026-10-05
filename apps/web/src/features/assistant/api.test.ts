@@ -1048,8 +1048,11 @@ describe('assistant chat retry policy', () => {
     ]
     const deltas: string[] = []
     let requestedAccept = ''
+    let requestedCreditUnit = ''
     globalThis.fetch = (async (_input, init) => {
       requestedAccept = new Headers(init?.headers).get('Accept') || ''
+      requestedCreditUnit =
+        new Headers(init?.headers).get('X-LMM-Credit-Unit') || ''
       const encoder = new TextEncoder()
       let index = 0
       const body = new ReadableStream<Uint8Array>({
@@ -1079,6 +1082,7 @@ describe('assistant chat retry policy', () => {
         { onDelta: (content) => deltas.push(content) }
       )
       assert.equal(requestedAccept, 'text/event-stream')
+      assert.equal(requestedCreditUnit, '500000')
       assert.deepEqual(deltas, ['实时', '输出'])
       assert.deepEqual(reply, {
         content: '实时输出',

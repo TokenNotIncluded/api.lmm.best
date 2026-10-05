@@ -59,7 +59,7 @@ const v2 = {
 }
 const options = { locale: 'en-US', creditLabel: 'Credits', digitsLarge: 6 }
 const currencyConfig = (
-  data: Parameters<typeof mapStatusDataToConfig>[0] = v2,
+  data: Parameters<typeof mapStatusDataToConfig>[0] = v2
 ) => {
   const mapped = mapStatusDataToConfig(data).currency
   assert.ok(mapped)
@@ -89,19 +89,19 @@ test('credits equal raw balances and model quotes use fixed 500000 per USD', () 
   assert.equal(formatCreditAmount(500000, options, config), '500,000 Credits')
   assert.equal(
     formatQuotaInCurrency(500000, 'CNY', options, config),
-    '6.719488 CNY',
+    '6.719488 CNY'
   )
   assert.equal(formatQuotaInCurrency(500000, 'USD', options, config), '1 USD')
   assert.equal(formatModelPrice(4, 'USD', options), '4 USD')
   assert.equal(formatModelPrice(4, 'CREDIT', options), '2,000,000 Credits')
   assert.equal(
     formatUSDInCurrency(0.0000001, 'CREDIT', options, config),
-    '0.05 Credits',
+    '0.05 Credits'
   )
   assert.equal(formatUSDInCurrency(0, 'CREDIT', options, config), '0 Credits')
   assert.equal(
     formatAmountInCurrency(500000, 'CREDIT', options),
-    '500,000 Credits',
+    '500,000 Credits'
   )
 })
 
@@ -146,16 +146,14 @@ test('one ledger unit and signed max-safe balances retain exact editable round t
       if (quota >= 0) {
         assert.equal(
           marketQuota(text, (input) =>
-            displayAmountToQuota(input, unit, config),
+            displayAmountToQuota(input, unit, config)
           ),
-          quota,
+          quota
         )
       }
     }
     assert.ok(
-      Number.isNaN(
-        displayAmountToQuota('9007199254740992000000', unit, config),
-      ),
+      Number.isNaN(displayAmountToQuota('9007199254740992000000', unit, config))
     )
   }
 })
@@ -167,7 +165,7 @@ test('old server status clears cached v2 fields and falls back only when every n
       credits_per_usd: 500000,
       cny_per_usd: '6.719488',
       quota_per_unit: 500000,
-    }),
+    })
   )
   assert.equal(getCurrencyDisplay().config.publicCreditsPerUsd, undefined)
   assert.equal(quotaToDisplayAmount(500000, 'CREDIT'), 500000)
@@ -250,15 +248,15 @@ test('chart sums and tooltips retain raw integer credits without converting twic
   assert.equal(values[1].Usage, 500000 / 500000)
   assert.equal(
     model.spec_line.axes[1].label.formatMethod(500000),
-    '500,000 Credits',
+    '500,000 Credits'
   )
   assert.equal(
     model.spec_line.axes[1].label.formatMethod(values[1].Usage),
-    '1 Credits',
+    '1 Credits'
   )
   assert.equal(
     user.spec_user_rank.label.formatMethod(values[1].Usage),
-    '1 Credits',
+    '1 Credits'
   )
   assert.equal(model.totalQuotaDisplay, '500,001 Credits')
   const tooltip = model.spec_line.tooltip.dimension.updateContent(
@@ -266,7 +264,7 @@ test('chart sums and tooltips retain raw integer credits without converting twic
       key: row.Model,
       value: row.rawQuota,
       datum: row,
-    })),
+    }))
   )
   assert.equal(tooltip[0].value, '500,001 Credits')
 })
@@ -281,5 +279,53 @@ test('old revalued balances cannot silently use a different USD conversion', () 
     })
     assert.ok(Number.isNaN(quotaToDisplayAmount(500000, 'USD', config)))
     assert.equal(formatCreditAmount(500000, options, config), '-')
+  }
+})
+
+test('persisted Web119/120 denominations cannot produce form quota until fresh canonical status arrives', () => {
+  const oldStatus = {
+    currency_unit: 'credit',
+    credits_per_usd: 3359744,
+    cny_per_usd: '6.710363',
+    legacy_pricing_units_per_usd: 6.719488,
+    quota_per_unit: 500000,
+  }
+  for (const status of [
+    oldStatus,
+    {
+      ...oldStatus,
+      credit_unit_schema_version: 2,
+      quota_unit: 'LEDGER_QUOTA',
+      legacy_credit_unit: 'LEDGER_QUOTA',
+      ledger_quota_per_usd: 3359744,
+      ledger_quota_per_usd_exact: '3359744',
+      public_credit_unit: 'CREDIT',
+      public_credits_per_usd: 100000,
+      public_credits_per_usd_exact: '100000',
+    },
+  ]) {
+    useSystemConfigStore.getState().setConfig(mapStatusDataToConfig(status))
+    for (const [unit, amount] of [
+      ['CREDIT', '100000'],
+      ['USD', '1'],
+      ['CNY', '6.710363'],
+    ] as const) {
+      useWalletCurrencyPreferenceStore.getState().setPreference(unit)
+      assert.equal(quotaToDisplayInput(500000, unit), '')
+      assert.ok(Number.isNaN(displayAmountToQuota(amount, unit)))
+      assert.ok(Number.isNaN(parseQuotaFromDollars(amount)))
+      assert.equal(testKeyQuota(amount), null)
+    }
+    useSystemConfigStore.getState().setConfig(mapStatusDataToConfig(v2))
+    for (const [unit, amount, expected] of [
+      ['CREDIT', '100000', 100000],
+      ['USD', '1', 500000],
+      ['CNY', '6.719488', 500000],
+    ] as const) {
+      useWalletCurrencyPreferenceStore.getState().setPreference(unit)
+      assert.equal(displayAmountToQuota(amount, unit), expected)
+      assert.equal(parseQuotaFromDollars(amount), expected)
+      assert.equal(testKeyQuota(amount), expected)
+    }
   }
 })
