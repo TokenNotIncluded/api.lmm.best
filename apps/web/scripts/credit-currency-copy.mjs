@@ -786,6 +786,15 @@ const rows = [
     'Vị trí quảng cáo từ 1 USD cho 30 ngày.',
   ],
   [
+    'Paid placements are labeled and ranked by the amount paid.',
+    '付费广告位会标明，并按实际支付金额排序。',
+    '付費廣告版位會標明，並按實際支付金額排序。',
+    'Les emplacements payants sont signalés et classés selon le montant payé.',
+    '有料広告枠にはラベルを表示し、支払額に応じて順位を決めます。',
+    'Платные размещения помечены и ранжируются по оплаченной сумме.',
+    'Vị trí quảng cáo trả phí được gắn nhãn và xếp hạng theo số tiền đã thanh toán.',
+  ],
+  [
     'The ad will disappear immediately and {{amount}} will be refunded to its owner.',
     '广告将立即移除，并向广告主退还 {{amount}}。',
     '廣告將立即移除，並向廣告主退還 {{amount}}。',
