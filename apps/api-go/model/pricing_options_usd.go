@@ -198,6 +198,9 @@ func usdPriceConfig(values map[string]string) (USDPriceConfig, error) {
 					return USDPriceConfig{}, fmt.Errorf("invalid %s price for %s", key, name)
 				}
 				usd := amount.Mul(baseline).DivRound(anchor, 64)
+				if amount.IsPositive() && usd.IsZero() {
+					return USDPriceConfig{}, fmt.Errorf("positive %s price for %s is outside the representable range", key, name)
+				}
 				if _, err := pricingFiniteFloat(usd); err != nil {
 					return USDPriceConfig{}, err
 				}
@@ -273,6 +276,9 @@ func convertUSDPriceValues(request USDPriceUpdate, current map[string]string) (m
 					return nil, fmt.Errorf("invalid USD %s for %s", key, name)
 				}
 				legacy := usd.Mul(anchor).DivRound(baseline, 64)
+				if usd.IsPositive() && legacy.IsZero() {
+					return nil, fmt.Errorf("positive USD %s for %s is outside the representable range", key, name)
+				}
 				if _, err := pricingFiniteFloat(legacy); err != nil {
 					return nil, err
 				}
