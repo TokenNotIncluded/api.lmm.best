@@ -797,6 +797,7 @@ func getPayMethodSettlementUnit(paymentMethod string) (string, error) {
 }
 
 type payMethodSettlementPricing struct {
+	settlementCurrency                 string
 	platformUnitsPerUSD                decimal.Decimal
 	settlementUnitsPerUSD              decimal.Decimal
 	settlementUnitsPerPlatformUnit     decimal.Decimal
@@ -844,6 +845,7 @@ func standardSettlementPricing(settlementCurrency string) (payMethodSettlementPr
 		return payMethodSettlementPricing{}, fmt.Errorf("unsupported standard settlement currency %q", settlementCurrency)
 	}
 	return payMethodSettlementPricing{
+		settlementCurrency:          strings.ToUpper(strings.TrimSpace(settlementCurrency)),
 		platformUnitsPerUSD:         platformUnitsPerUSD,
 		settlementUnitsPerUSD:       settlementUnitsPerUSD,
 		usesFixedCreditDenomination: true,
@@ -896,6 +898,7 @@ func getPayMethodSettlementPricing(paymentMethod string) (payMethodSettlementPri
 			return payMethodSettlementPricing{}, err
 		}
 		return payMethodSettlementPricing{
+			settlementCurrency:    settlementUnit,
 			platformUnitsPerUSD:   platformRate,
 			settlementUnitsPerUSD: settlementRate,
 		}, nil
@@ -921,6 +924,7 @@ func getPayMethodSettlementPricing(paymentMethod string) (payMethodSettlementPri
 		}
 	}
 	return payMethodSettlementPricing{
+		settlementCurrency:                 settlementUnit,
 		settlementUnitsPerPlatformUnit:     directRate,
 		usesSettlementUnitsPerPlatformUnit: true,
 	}, nil
@@ -1010,14 +1014,25 @@ func quoteTopUpLegacyDecimalWithSettlementPricing(requestedAmount decimal.Decima
 }
 
 func quoteTopUpLegacyDecimalWithDiscountAmount(requestedAmount, discountAmount decimal.Decimal, group string, pricing payMethodSettlementPricing, dPaymentRatio decimal.Decimal) (decimal.Decimal, error) {
+	_, paid, err := quoteTopUpLegacySettlementAmounts(requestedAmount, discountAmount, group, pricing, dPaymentRatio)
+	return paid, err
+}
+
+func quoteTopUpLegacySettlementAmounts(requestedAmount, discountAmount decimal.Decimal, group string, pricing payMethodSettlementPricing, dPaymentRatio decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
 	settlementAmount, err := settlementAmountForPlatformAmount(requestedAmount, pricing)
 	if err != nil {
-		return decimal.Zero, err
+		return decimal.Zero, decimal.Zero, err
 	}
-	return applyTopUpSettlementRatios(settlementAmount, discountAmount, group, dPaymentRatio), nil
+	original, paid := applyTopUpSettlementRatiosWithOriginal(settlementAmount, discountAmount, group, dPaymentRatio)
+	return original, paid, nil
 }
 
 func applyTopUpSettlementRatios(settlementAmount, discountAmount decimal.Decimal, group string, dPaymentRatio decimal.Decimal) decimal.Decimal {
+	_, paid := applyTopUpSettlementRatiosWithOriginal(settlementAmount, discountAmount, group, dPaymentRatio)
+	return paid
+}
+
+func applyTopUpSettlementRatiosWithOriginal(settlementAmount, discountAmount decimal.Decimal, group string, dPaymentRatio decimal.Decimal) (decimal.Decimal, decimal.Decimal) {
 	topupGroupRatio := common.GetTopupGroupRatio(group)
 	if topupGroupRatio == 0 {
 		topupGroupRatio = 1
@@ -1035,11 +1050,14 @@ func applyTopUpSettlementRatios(settlementAmount, discountAmount decimal.Decimal
 	}
 	dDiscount := decimal.NewFromFloat(discount)
 
-	return settlementAmount.
+	// Group/payment pricing and fees belong to both sides of the comparison.
+	// Only an eligible amount preset and then a coupon can reduce this basis.
+	base := settlementAmount.
 		Mul(dTopupGroupRatio).
-		Mul(dPaymentRatio).
-		Mul(dDiscount).
-		Round(2)
+		Mul(dPaymentRatio)
+	// Preserve the existing final rounding order; do not apply a discount to
+	// the separately rounded display price.
+	return base.Round(2), base.Mul(dDiscount).Round(2)
 }
 
 func getMinTopup() int64 {

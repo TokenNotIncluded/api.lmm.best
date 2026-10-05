@@ -152,33 +152,37 @@ func topUpConfigAmountFromResolved(amount resolvedTopUpAmount) decimal.Decimal {
 }
 
 func quoteTopUpResolvedWithSettlementPricing(amount resolvedTopUpAmount, group string, pricing payMethodSettlementPricing, ratio decimal.Decimal) (decimal.Decimal, error) {
+	_, paid, err := quoteTopUpResolvedSettlementAmounts(amount, group, pricing, ratio)
+	return paid, err
+}
+
+func quoteTopUpResolvedSettlementAmounts(amount resolvedTopUpAmount, group string, pricing payMethodSettlementPricing, ratio decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
 	if amount.CreditedQuota <= 0 || !validQuotaPerUnit() {
-		return decimal.Zero, errors.New("invalid credit amount")
+		return decimal.Zero, decimal.Zero, errors.New("invalid credit amount")
 	}
 	credits := decimal.NewFromInt(amount.CreditedQuota)
 	var settlement decimal.Decimal
 	if pricing.usesFixedCreditDenomination {
 		anchor, err := common.CreditsPerUSD()
 		if err != nil || !pricing.settlementUnitsPerUSD.IsPositive() {
-			return decimal.Zero, errors.New("invalid credit settlement pricing")
+			return decimal.Zero, decimal.Zero, errors.New("invalid credit settlement pricing")
 		}
 		settlement = credits.Mul(pricing.settlementUnitsPerUSD).Div(anchor)
 	} else if pricing.usesSettlementUnitsPerPlatformUnit {
 		settlement = credits.Mul(pricing.settlementUnitsPerPlatformUnit).Div(decimal.NewFromFloat(common.QuotaPerUnit))
 	} else {
 		if !pricing.platformUnitsPerUSD.IsPositive() || !pricing.settlementUnitsPerUSD.IsPositive() {
-			return decimal.Zero, errors.New("invalid credit settlement pricing")
+			return decimal.Zero, decimal.Zero, errors.New("invalid credit settlement pricing")
 		}
 		settlement = credits.Mul(pricing.settlementUnitsPerUSD).
 			Div(decimal.NewFromFloat(common.QuotaPerUnit).Mul(pricing.platformUnitsPerUSD))
 	}
-	return applyTopUpSettlementRatios(settlement, topUpConfigAmountFromResolved(amount), group, ratio), nil
+	original, paid := applyTopUpSettlementRatiosWithOriginal(settlement, topUpConfigAmountFromResolved(amount), group, ratio)
+	return original, paid, nil
 }
 
 func quoteTopUpRequestWithDiscount(c *gin.Context, amount resolvedTopUpAmount, group, paymentMethod, code string, userID int) (decimal.Decimal, *model.DiscountCode, error) {
-	if _, canonical := canonicalTopUpCredit(c); !canonical {
-		return quoteTopUpLegacyDecimalWithDiscount(amount.LegacyBatch, group, paymentMethod, code, userID)
-	}
+	_, canonical := canonicalTopUpCredit(c)
 	pricing, err := getPayMethodSettlementPricing(paymentMethod)
 	if err != nil {
 		return decimal.Zero, nil, err
@@ -187,11 +191,17 @@ func quoteTopUpRequestWithDiscount(c *gin.Context, amount resolvedTopUpAmount, g
 	if err != nil {
 		return decimal.Zero, nil, err
 	}
-	base, err := quoteTopUpResolvedWithSettlementPricing(amount, group, pricing, ratio)
+	var original, base decimal.Decimal
+	if canonical {
+		original, base, err = quoteTopUpResolvedSettlementAmounts(amount, group, pricing, ratio)
+	} else {
+		original, base, err = quoteTopUpLegacySettlementAmounts(amount.LegacyBatch, topUpConfigAmountFromLegacy(amount.LegacyBatch), group, pricing, ratio)
+	}
 	if err != nil {
 		return decimal.Zero, nil, err
 	}
-	return applyDiscountCodeQuoteDecimal(base, topUpConfigAmountFromResolved(amount), code, userID)
+	recordTopUpQuoteBasis(c, original, base, pricing.settlementCurrency)
+	return applyDiscountCodeQuoteRequest(c, base, amount, code, userID)
 }
 
 func standardTopUpRequestBase(c *gin.Context, amount resolvedTopUpAmount, group, currency string) (decimal.Decimal, error) {
@@ -199,17 +209,31 @@ func standardTopUpRequestBase(c *gin.Context, amount resolvedTopUpAmount, group,
 	if err != nil {
 		return decimal.Zero, err
 	}
+	var original, paid decimal.Decimal
 	if _, canonical := canonicalTopUpCredit(c); canonical {
-		return quoteTopUpResolvedWithSettlementPricing(amount, group, pricing, decimal.NewFromInt(1))
+		original, paid, err = quoteTopUpResolvedSettlementAmounts(amount, group, pricing, decimal.NewFromInt(1))
+	} else {
+		original, paid, err = quoteTopUpLegacySettlementAmounts(amount.LegacyBatch, topUpConfigAmountFromLegacy(amount.LegacyBatch), group, pricing, decimal.NewFromInt(1))
 	}
-	return quoteTopUpLegacyDecimalWithSettlementPricing(amount.LegacyBatch, group, pricing, decimal.NewFromInt(1))
+	if err == nil {
+		recordTopUpQuoteBasis(c, original, paid, pricing.settlementCurrency)
+	}
+	return paid, err
 }
 
 func applyDiscountCodeQuoteRequest(c *gin.Context, base decimal.Decimal, amount resolvedTopUpAmount, code string, userID int) (decimal.Decimal, *model.DiscountCode, error) {
+	var paid decimal.Decimal
+	var discount *model.DiscountCode
+	var err error
 	if _, canonical := canonicalTopUpCredit(c); canonical {
-		return applyDiscountCodeQuoteDecimal(base, topUpConfigAmountFromResolved(amount), code, userID)
+		paid, discount, err = applyDiscountCodeQuoteDecimal(base, topUpConfigAmountFromResolved(amount), code, userID)
+	} else {
+		paid, discount, err = applyDiscountCodeQuoteLegacyDecimal(base, amount.LegacyBatch, code, userID)
 	}
-	return applyDiscountCodeQuoteLegacyDecimal(base, amount.LegacyBatch, code, userID)
+	if err == nil {
+		updateTopUpQuotePaid(c, paid)
+	}
+	return paid, discount, err
 }
 
 func quoteStandardTopUpRequestWithDiscount(c *gin.Context, amount resolvedTopUpAmount, group, currency, code string, userID int) (decimal.Decimal, *model.DiscountCode, error) {

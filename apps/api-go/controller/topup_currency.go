@@ -157,6 +157,7 @@ func withTopUpCreditFields(response gin.H, rawUnit string, legacyBatch decimal.D
 }
 
 func withTopUpRequestCreditFields(c *gin.Context, response gin.H, rawUnit string, legacyBatch decimal.Decimal, credits int64, currency string) gin.H {
+	addTopUpSettlementQuote(c, response, currency)
 	if value, exists := c.Get(canonicalTopUpCreditUnitsKey); exists {
 		if units, ok := value.(common.CreditDenomination); ok {
 			return withTopUpCreditFields(response, rawUnit, legacyBatch, credits, currency, units)
