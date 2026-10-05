@@ -617,8 +617,6 @@ class NodeAgent:
             result = {'identity': self.identity}
             if self.peer:
                 result['backup_preflight'] = self.peer.preflight(self.backup_binding)
-                require(self.peer.fingerprint(self.backup_binding, self.p['expected_units']) ==
-                        fingerprints(self.db_env, self.p['expected_units']), 'backup-app-fingerprint-mismatch')
             return result
         if action == 'stop':
             self.guard()

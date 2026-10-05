@@ -284,6 +284,15 @@ class PeerTests(unittest.TestCase):
             with self.assertRaises(c.GateFailed):a.action('baseline',None)
         a.peer.counts.assert_not_called()
 
+    def test_preflight_does_not_read_money_before_all_writers_are_stopped(self):
+        a=c.NodeAgent.__new__(c.NodeAgent);a.p=plan();a.n=a.p['nodes'][0]
+        a.guard=lambda *v:None;a.identity={'database':'synthetic'};a.backup_binding={};a.peer=Mock()
+        a.peer.preflight.return_value={'passed':True}
+        with patch.object(c,'fingerprints',side_effect=AssertionError('inflight money is not stable yet')):
+            self.assertEqual({'identity':a.identity,'backup_preflight':{'passed':True}},a.action('preflight',None))
+        a.peer.preflight.assert_called_once_with({})
+        a.peer.fingerprint.assert_not_called()
+
     def test_background_member_cannot_continue_writing_a_sealed_dump(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);output=root/'database.dump'
