@@ -93,6 +93,9 @@ impl CurrencyUnits {
         finite_number(result)
     }
     fn expression(&self, expression: &str) -> Result<String, Response> {
+        if expression.trim().is_empty() {
+            return Ok(expression.to_owned());
+        }
         let scale = self
             .anchor
             .checked_div(self.baseline)
