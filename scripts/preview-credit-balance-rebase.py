@@ -88,6 +88,8 @@ def make_plan(snapshot, *, divisor_text, migration_id, user_ids, rounding,
                 "original_paid_amount_micros": source["paid_amount_micros"],
                 "refundable_quota": scale_credit(credited - refunded, divisor, rounding), "rebased_debited_quota": 0})
         refund_bases.sort(key=lambda e: e["top_up_id"])
+    if include_affiliate and restore_fixed_anchors and snapshot.get("referral_reward_rows") != 0:
+        raise ValueError("affiliate SQL requires verified zero referral rewards; historical clawback/restore units are not adapted")
     option_entries = []
     if restore_fixed_anchors:
         options = snapshot.get("options", {})
@@ -241,6 +243,10 @@ def postgres_sql(plan):
     refund_checks.insert(0, f"IF (SELECT count(*) FROM {schema}.top_ups WHERE status='success' AND user_id=ANY(ARRAY[{user_ids}]::bigint[]) AND (credited_quota<>0 OR amount<>0)) <> {expected_count} THEN RAISE EXCEPTION 'paid wallet topup snapshot incomplete'; END IF;")
     refund_checks_sql = "\n".join(refund_checks)
     refund_inserts_sql = "\n".join(refund_inserts)
+    affiliate_lock = f", {schema}.referral_rewards" if plan["include_affiliate"] else ""
+    if plan["include_affiliate"]:
+        refund_checks.append(f"IF EXISTS (SELECT 1 FROM {schema}.referral_rewards WHERE inviter_id=ANY(ARRAY[{user_ids}]::bigint[])) THEN RAISE EXCEPTION 'historical referral clawback/restore bases require adaptation'; END IF;")
+        refund_checks_sql = "\n".join(refund_checks)
     statements = "\n".join(updates)
     return f"""-- OFFLINE operation: reviewed plan; stop ALL writers and drain/cache reset first.
 -- No application startup or deployment hook may execute this artifact.
@@ -260,7 +266,7 @@ BEGIN
 END
 {delimiter};
 SELECT pg_advisory_xact_lock(500000, 680001);
-LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options, {schema}.top_ups IN ACCESS EXCLUSIVE MODE;
+LOCK TABLE {schema}.users, {schema}.tokens, {schema}.options, {schema}.top_ups{affiliate_lock} IN ACCESS EXCLUSIVE MODE;
 CREATE TABLE IF NOT EXISTS {schema}.wallet_credit_rebases (
     migration_id text PRIMARY KEY,
     plan_sha256 text NOT NULL,

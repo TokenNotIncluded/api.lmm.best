@@ -56,4 +56,9 @@ SELECT 'sms_order' AS scope, status, complaint_status, COUNT(*) AS rows,
        COALESCE(SUM(charge_quota),0) AS charged_credit,
        COALESCE(SUM(refunded_quota),0) AS refunded_credit
 FROM :"target_schema".hero_sms_sms_orders GROUP BY status,complaint_status;
+SELECT 'referral_reward' AS scope, status, COUNT(*) AS rows,
+       COALESCE(SUM(quota),0) AS original_reward_credit,
+       COALESCE(SUM(revoked_quota),0) AS original_revoked_credit,
+       COALESCE(SUM(penalty_quota),0) AS original_penalty_credit
+FROM :"target_schema".referral_rewards GROUP BY status;
 ROLLBACK;

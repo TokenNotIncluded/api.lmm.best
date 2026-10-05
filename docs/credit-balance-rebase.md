@@ -148,3 +148,14 @@ SQL 设置 standard_conforming_strings，DO 使用不出现在嵌入内容中的
 独立表记录原始到账、原始已退点数/金额、原始支付金额，以及按同一确认除数/舍入规则计算的剩余可退款池；新 `rebased_debited_quota` 起始为零。旧 TopUp 历史字段不重写；未来退款分别维护旧单位事实和纠正后实际扣点。二次迁移同用户当前一律拒绝，不会重置已有退款基准。
 
 `price_review.unchanged_option_values` 可以记录要求保留的完整 ModelRatio/ModelPrice/mode/locks 字符串；`absent_unchanged_options` 可记录原本不存在的工具价配置。联合事务先核对这些保留项，任意变化整笔失败，不会创建本来不存在的无关配置。
+
+
+## 本轮只读发现对应的政策
+
+当前生产只读统计由协调 agent 单独保存，下面只约定处理方式，不把动态计数写成永久配置：
+
+- 未完成充值：区分确实未付与已付但回调迟到。确实未付可取消重新报价；已付应先按已约定事实结算进旧钱包，再纳入停写后的余额纠正，或者明确迁移订单待到账权益。旧订单直接改 status 不是退款，也不能借此吞掉真实支付。
+- 可用兑换码：对仍能入钱包的 `redemptions.quota` 同比缩减并逐条审计；已兑换的 quota 保留历史。红包 claimed_by 只表示拿到了码，尚可用的码仍要处理。折扣比例/reset券不缩减。
+- 已发布悬赏：保留参与者工作与状态；迁移剩余 escrow 和未支付 reward 权益，而不是为了清理全部关掉。校验每个项目剩余池足够其有效未支付承诺，分配整数舍入尾差；project 的 net_reward/gross_reward 是未来报价配置，需要明确改；已收 platform_fee、已付挑战 reward、tip_quota 和 ledgers 是历史，不改。`TipOpenSourceBounty` 已即时扣发双方钱包，tip_quota 不是待发奖金。
+- 活跃订阅：独立套餐额度不是 wallet。如果决定缩减套餐的剩余 credit，保留 amount_used，设置 amount_total = 原 amount_used + round(原剩余额度 / divisor)，并联动下一次续费/reset来源 plan.total_amount，防止恢复旧额度。若决定保留已售套餐权益，则明确保留全部套餐/reset/退款口径，不能只改其中一半。
+- 邀请权益：ReferralReward quota/revoked/penalty 是旧单位历史，会在退款追索或误封恢复中再次影响 aff_quota。未适配该独立基准前，联合 SQL 的 `--include-affiliate` 只允许核实选中邀请人没有任何 referral_rewards 的情形；快照必须注明 referral_reward_rows=0，SQL 加锁再次核验，否则拒绝。
