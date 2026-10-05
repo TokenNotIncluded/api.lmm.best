@@ -18,9 +18,11 @@ from pathlib import Path
 import re
 import shutil
 import shlex
+import stat
 import subprocess
 import sys
 import time
+import math
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -69,6 +71,8 @@ def tree_digest(root):
 
 
 def save(work, state):
+    if state.get('phase') in ('CONFIRMED', 'ROLLED_BACK'):
+        state.setdefault('terminal_at', time.time())
     pending = work / 'state.next'
     with pending.open('w') as output:
         json.dump(state, output, indent=2)
@@ -274,6 +278,11 @@ def immutable_write(path, body, mode=0o644):
         output.flush()
         os.fsync(output.fileno())
     pending.replace(path)
+    directory = os.open(path.parent, os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def maintenance_barrier(maintenance, original):
@@ -408,13 +417,18 @@ def verify_maintenance_database(maintenance, env, post):
 
 
 @contextlib.contextmanager
-def deployment_lock(maintenance=None, digest_value=None):
+def deployment_lock(maintenance=None, digest_value=None, all_locks=False):
     if maintenance:
-        descriptor, lease = guardian.adopt(maintenance, digest_value, ROOT / 'lock')
+        if all_locks:
+            descriptors, lease, receipt = guardian.adopt_all(maintenance, digest_value)
+        else:
+            descriptor, lease, receipt = guardian.adopt(maintenance, digest_value, ROOT / 'lock', with_receipt=True)
+            descriptors = [descriptor]
         try:
-            yield
+            yield receipt
         finally:
-            os.close(descriptor)  # Close only: LOCK_UN would also unlock guardian.
+            for descriptor in descriptors:
+                os.close(descriptor)  # Close only: LOCK_UN would also unlock guardian.
             lease.close()
     else:
         if (ROOT / 'lock').is_symlink():
@@ -467,12 +481,13 @@ def read_state(work, allow_incomplete=False):
     return state
 
 
-def read_status(release=None):
+def read_status(release=None, handoff_path=None, handoff_sha256=None):
     # Do not create ROOT, a lock or a transaction while inspecting the host.
     if ROOT.is_symlink():
         raise RuntimeError('deployment root may not be a symlink')
     if release:
-        return read_state(ROOT / release, allow_incomplete=True)
+        return maintenance_dispatch_status(ROOT / release, read_state(ROOT / release, allow_incomplete=True),
+                                           handoff_path=handoff_path, handoff_sha256=handoff_sha256)
     states = []
     if ROOT.exists():
         for work in sorted(ROOT.iterdir()):
@@ -481,8 +496,490 @@ def read_status(release=None):
             if work.is_dir():
                 if not re.fullmatch(RELEASE_PATTERN, work.name):
                     raise RuntimeError(f'invalid transaction directory: {work}')
-                states.append(read_state(work, allow_incomplete=True))
+                states.append(maintenance_dispatch_status(work, read_state(work, allow_incomplete=True)))
     return {'deployments': states}
+
+
+POST_FREEZING_FIELDS = {'stopped_writer', 'previous_deployment_id', 'archived_environment_path',
+                        'archived_environment_sha256', 'capture_receipt_path', 'capture_receipt_sha256'}
+
+
+def validate_post_staging_intent(maintenance):
+    if maintenance.get('stage') == 'post' and not maintenance.get('stopped_writer') and any(key in maintenance for key in POST_FREEZING_FIELDS):
+        raise RuntimeError('unstopped post staging intent must contain no freezing evidence fields')
+
+
+def post_staging_refinement(base_binding, path, expected):
+    base = json.loads(guardian.bound_file(base_binding['path'], base_binding['sha256']))
+    sealed = json.loads(guardian.bound_file(path, expected))
+    validate_post_staging_intent(base)
+    if base.get('stage') != 'post' or base.get('stopped_writer') or base.get('previous_deployment_id') or sealed.get('stage') != 'post' or not sealed.get('stopped_writer') or not sealed.get('previous_deployment_id'):
+        raise RuntimeError('post handoff refinement requires an unstopped staging intent and a real frozen bridge')
+    if {key: value for key, value in base.items() if key not in POST_FREEZING_FIELDS} != {key: value for key, value in sealed.items() if key not in POST_FREEZING_FIELDS}:
+        raise RuntimeError('sealed post handoff changed immutable staging intent fields')
+    return guardian.handoff(path, expected)
+
+
+def maintenance_dispatch_status(work, state, uid=0, handoff_path=None, handoff_sha256=None):
+    if state['phase'] != 'STAGED' or not state.get('maintenance_handoff'):
+        return state
+    result = dict(state, dispatch_verified_absent=False)
+    try:
+        binding = state['maintenance_handoff']
+        maintenance = guardian.handoff(binding['path'], binding['sha256'])
+        validate_post_staging_intent(maintenance)
+        staging_intent = None
+        if handoff_path and (str(handoff_path), handoff_sha256) != (binding['path'], binding['sha256']):
+            staging_intent = state.get('maintenance_staging_intent', binding)
+            maintenance = post_staging_refinement(staging_intent, handoff_path, handoff_sha256)
+            binding = {'path': str(handoff_path), 'sha256': handoff_sha256}
+        if maintenance['deployment_tool'] != 'systemd':
+            raise RuntimeError('staged maintenance handoff belongs to another deployment tool')
+        with deployment_lock(maintenance, binding['sha256']) as receipt:
+            verify_cleanup_guardian(receipt)
+            cleanup_path(work)
+            cleanup_path(work / 'state.json', private_file=True)
+            if read_state(work) != state:
+                raise RuntimeError('staged owner state changed during dispatch inspection')
+            if any(state.get(key) != maintenance.get(key) for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256', 'prepare_config_sha256')) or state.get('maintenance_stage') != maintenance['stage']:
+                raise RuntimeError('staged owner state differs from the frozen maintenance identity')
+            info = cleanup_path(work / 'lmm-api-go')
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or digest(work / 'lmm-api-go') != state['sha256'] or state['sha256'] != maintenance['provider_sha256']:
+                raise RuntimeError('staged maintenance provider bytes changed')
+            entry = work / 'lmm-api'
+            if not entry.is_symlink() or os.readlink(entry) != 'lmm-api-go' or entry.lstat().st_uid != uid:
+                raise RuntimeError('staged maintenance provider entrypoint changed')
+            cleanup_path(work / 'frontend')
+            if tree_digest(work / 'frontend') != state['frontend_sha256'] or tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
+                raise RuntimeError('staged or frozen active frontend tree changed')
+            # No apply mutation marker may exist. Read-only stage schema dumps
+            # and verification logs are preparation evidence, not a dispatch.
+            prepared_names = {'state.json', 'lmm-api-go', 'lmm-api', 'frontend', 'preflight-schema.sql', 'backup.log', 'verify-stage.log'}
+            if any(path.name not in prepared_names for path in work.iterdir()):
+                raise RuntimeError('staged workspace contains dispatch or unknown mutation evidence')
+            if maintenance.get('stopped_writer'):
+                verify_stopped_maintenance(maintenance)
+            result.update(phase='NOT_DISPATCHED', dispatch_verified_absent=True,
+                          maintenance_handoff_sha256=binding['sha256'], handoff_sha256=binding['sha256'],
+                          transition_id=maintenance['transition_id'], transition_intent_sha256=maintenance['transition_intent_sha256'],
+                          provider_sha256=maintenance['provider_sha256'], prepare_config_sha256=maintenance['prepare_config_sha256'])
+            if staging_intent:
+                result.update(maintenance_handoff=binding, maintenance_staging_intent=staging_intent)
+    except (OSError, RuntimeError, ValueError, KeyError) as error:
+        result['dispatch_verification_error'] = str(error)
+    return result
+
+
+CLEANUP_PAYLOADS = ('lmm-api-go', 'lmm-api', 'frontend', 'previous-binary', 'tmp', 'cache')
+
+
+def cleanup_path(path, private_file=False, uid=0):
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts or str(path) != os.path.normpath(str(path)):
+        raise RuntimeError('cleanup evidence path must be absolute and canonical')
+    for parent in path.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, uid) or info.st_mode & 0o022:
+            raise RuntimeError('cleanup evidence ancestor ownership or permissions are unsafe')
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or info.st_uid != uid or info.st_mode & 0o022:
+        raise RuntimeError('cleanup evidence ownership or permissions are unsafe')
+    if private_file and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) not in (0o600, 0o640)):
+        raise RuntimeError('cleanup evidence must be a root-private single-linked regular file')
+    return info
+
+
+def verify_financial_archive(path, expected, uid=0):
+    path = Path(path)
+    if not re.fullmatch(r'[0-9a-f]{64}', expected or '') or path.is_relative_to(ROOT):
+        raise RuntimeError('financial backup requires an exact digest and a path outside deployment workspaces')
+    before = cleanup_path(path, private_file=True, uid=uid)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        opened = os.fstat(descriptor)
+        if opened.st_uid != uid or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise RuntimeError('financial backup changed while opening')
+        with os.fdopen(descriptor, 'rb', closefd=False) as source:
+            magic = source.read(5)
+            result = hashlib.sha256(magic)
+            for block in iter(lambda: source.read(1024 * 1024), b''):
+                result.update(block)
+        after = os.fstat(descriptor)
+        named = path.lstat()
+        identity = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_mode, info.st_uid, info.st_nlink)
+        if identity(before) != identity(after) or identity(after) != identity(named):
+            raise RuntimeError('financial backup changed while hashing')
+        if magic != b'PGDMP' or result.hexdigest() != expected:
+            raise RuntimeError('financial backup is not the sealed PostgreSQL custom archive')
+        return {'path': str(path), 'sha256': expected, 'bytes': before.st_size}
+    finally:
+        os.close(descriptor)
+
+
+def verify_financial_backup_receipt(args, maintenance, archive):
+    receipt = json.loads(guardian.bound_file(args.financial_backup_receipt, args.financial_backup_receipt_sha256))
+    if not isinstance(receipt, dict) or receipt.get('format') != 'lmm-credit-financial-backup-v1' or any(receipt.get(key) != maintenance[key] for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256')):
+        raise RuntimeError('financial backup receipt differs from the frozen transition identity')
+    if any(receipt.get(key) is not True for key in ('full_database', 'preserve_ownership')) or receipt.get('archive_format') != 'custom':
+        raise RuntimeError('financial backup receipt does not prove a full custom archive preserving ownership')
+    for key in ('source_sha', 'frozen_guardian_bindings_sha256'):
+        if not re.fullmatch(r'[0-9a-f]{64}', receipt.get(key, '')):
+            raise RuntimeError('financial backup receipt lacks the sealed source or guardian binding')
+    prepared = json.loads(guardian.bound_file(maintenance['prepare_config_path'], maintenance['prepare_config_sha256']))
+    target = receipt.get('target')
+    required = {'database', 'schema', 'system_identifier', 'database_oid', 'schema_oid'}
+    if not isinstance(target, dict) or set(target) != required or any(target.get(key) != prepared['database'].get(key) for key in required - {'schema_oid'}):
+        raise RuntimeError('financial backup receipt identifies a different PostgreSQL database or schema')
+    if not isinstance(target['schema_oid'], int) or isinstance(target['schema_oid'], bool) or target['schema_oid'] <= 0:
+        raise RuntimeError('financial backup receipt lacks a valid frozen schema OID')
+    if receipt.get('backup_sha256') != archive['sha256'] or not isinstance(receipt.get('size_bytes'), int) or isinstance(receipt['size_bytes'], bool) or receipt['size_bytes'] != archive['bytes']:
+        raise RuntimeError('financial backup receipt differs from the actual archive bytes or size')
+    return {'path': str(args.financial_backup_receipt), 'sha256': args.financial_backup_receipt_sha256,
+            'target': target, 'source_sha': receipt['source_sha'],
+            'frozen_guardian_bindings_sha256': receipt['frozen_guardian_bindings_sha256']}
+
+
+def verify_cleanup_guardian(receipt, uid=0):
+    locks = receipt.get('locks', []) if isinstance(receipt, dict) else []
+    if len(locks) != 3 or {item.get('path') for item in locks} != set(guardian.LOCKS.values()):
+        raise RuntimeError('cleanup requires a real guardian lease covering all three owner locks')
+    for lock in locks:
+        info = os.stat(lock['path'], follow_symlinks=False)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_nlink != 1 or (info.st_dev, info.st_ino) != (lock.get('device'), lock.get('inode')):
+            raise RuntimeError('guardian cleanup lock identity changed')
+        descriptor = os.open(lock['path'], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                raise RuntimeError('guardian cleanup lock is independently acquirable')
+        finally:
+            os.close(descriptor)
+
+
+def verify_cleanup_protected(work, args, maintenance):
+    if not maintenance or maintenance['stage'] != 'post' or args.superseded_by != work.name or args.retain_rollback == work.name:
+        raise RuntimeError('cleanup requires the current post-maintenance owner and a distinct bridge rollback owner')
+    bridge_work = ROOT / args.retain_rollback
+    for protected in (work, bridge_work):
+        cleanup_path(protected)
+        cleanup_path(protected / 'state.json', private_file=True)
+    current, bridge = read_state(work), read_state(bridge_work)
+    if current['phase'] != 'CONFIRMED' or current.get('maintenance_admission_reopened') is not True:
+        raise RuntimeError('cleanup requires confirmed current release with reopened admission')
+    if bridge['phase'] not in ('FROZEN', 'MAINTENANCE_CONFIRMED') or bridge.get('maintenance_confirmation') is not True:
+        raise RuntimeError('cleanup requires the retained confirmed bridge rollback workspace')
+    bindings = ('transition_id', 'transition_intent_sha256', 'provider_sha256', 'prepare_config_sha256')
+    current_binding = current.get('maintenance_handoff', {})
+    current_frozen = guardian.handoff(current_binding.get('path', ''), current_binding.get('sha256', ''))
+    bridge_binding = bridge.get('maintenance_handoff', {})
+    frozen = guardian.handoff(bridge_binding.get('path', ''), bridge_binding.get('sha256', ''))
+    if current_frozen['stage'] != 'post' or current_frozen.get('previous_deployment_id') != bridge['release'] or frozen['stage'] != 'prebridge' or any(current_frozen.get(key) != maintenance.get(key) or frozen.get(key) != maintenance.get(key) for key in bindings):
+        raise RuntimeError('retained bridge differs from the current transition binding')
+    for state in (current, bridge):
+        if any(state.get(key) != maintenance.get(key) for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256')):
+            raise RuntimeError('protected owner state differs from the frozen transition')
+    for binary in (BINARY, work / 'lmm-api-go', work / 'previous-binary', bridge_work / 'lmm-api-go'):
+        info = cleanup_path(binary)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or digest(binary) != maintenance['provider_sha256']:
+            raise RuntimeError('current provider or true N-1 bridge bytes changed')
+    if current['sha256'] != maintenance['provider_sha256'] or current.get('previous_sha256') != maintenance['provider_sha256'] or bridge['sha256'] != maintenance['provider_sha256'] or current.get('previous_version') != bridge['version']:
+        raise RuntimeError('current rollback identity is not the retained bridge')
+    for protected in (work, bridge_work):
+        cleanup_path(protected / 'previous.env', private_file=True)
+        if digest(protected / 'previous.env') != maintenance['archived_environment_sha256']:
+            raise RuntimeError('protected rollback environment changed')
+    cleanup_path(ENVIRONMENT, private_file=True)
+    if digest(ENVIRONMENT) != maintenance['archived_environment_sha256']:
+        raise RuntimeError('current service environment differs from the protected rollback configuration')
+    original = guardian.bound_file(work / 'previous-nginx-locations', current['ingress_original_sha256'])
+    if current['ingress_original_sha256'] != bridge['ingress_original_sha256'] or guardian.bound_file(bridge_work / 'previous-nginx-locations', bridge['ingress_original_sha256']) != original or NGINX_LOCATIONS.read_bytes() != original:
+        raise RuntimeError('reopened ingress differs from retained owner evidence')
+    frontend_target = 'releases/' + current['previous_frontend']
+    if bridge.get('previous_frontend') != current['previous_frontend'] or os.readlink(FRONTEND / 'current') != frontend_target:
+        raise RuntimeError('frozen active frontend link changed')
+    cleanup_path(FRONTEND / frontend_target)
+    cleanup_path(work / 'frontend')
+    cleanup_path(bridge_work / 'frontend')
+    for frontend in (FRONTEND / 'current', work / 'frontend', bridge_work / 'frontend'):
+        if tree_digest(frontend) != current['frontend_sha256'] or bridge['frontend_sha256'] != current['frontend_sha256']:
+            raise RuntimeError('frozen complete frontend tree changed')
+    healthy(current['version'], maintenance)
+    token = guardian.bound_file(maintenance['probe_token_path'], maintenance['probe_token_sha256']).decode().strip()
+    for route in ('/api/livez', '/api/status'):
+        body = health_json(route, maintenance['public_base_url'])
+        if body.get('success') is not True or body.get('maintenance') is True or body.get('business_enabled') is False or (route == '/api/livez' and body.get('live') is not True) or (route == '/api/status' and (body.get('ready') is not True or body.get('data', {}).get('version') != current['version'])):
+            raise RuntimeError('current public release is not strictly healthy')
+    if not token or not isinstance(health_json('/v1/models', maintenance['public_base_url'], token).get('data'), list):
+        raise RuntimeError('current public authenticated models probe failed')
+    return current, bridge
+
+
+def cleanup_terminal_time(work, state, now):
+    value = state.get('terminal_at', state.get('completed_at'))
+    if value is None and state.get('ready_at') is not None:
+        ready = state['ready_at']
+        if not isinstance(ready, (int, float)) or isinstance(ready, bool) or not math.isfinite(ready) or ready <= 0:
+            return None
+        # Legacy confirmation states have both readiness evidence and the final
+        # state write; mtime alone never establishes a terminal transition.
+        value = max((work / 'state.json').stat().st_mtime, ready + 120)
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value <= 0 or value > now:
+        return None
+    return value
+
+
+def cleanup_payload_inventory(work, uid=0):
+    entries, total = [], 0
+    for name in CLEANUP_PAYLOADS:
+        path = work / name
+        if not path.exists() and not path.is_symlink():
+            continue
+        if name == 'lmm-api':
+            info = path.lstat()
+            if not stat.S_ISLNK(info.st_mode) or os.readlink(path) != 'lmm-api-go' or info.st_uid != uid:
+                raise RuntimeError('historical lmm-api is not the fixed provider symlink')
+            paths = [path]
+        else:
+            if path.is_symlink() or (name in ('lmm-api-go', 'previous-binary') and not path.is_file()) or (name in ('frontend', 'tmp', 'cache') and not path.is_dir()):
+                raise RuntimeError('historical cleanup payload has an unexpected type')
+            paths = [path, *sorted(path.rglob('*'))] if path.is_dir() else [path]
+        for item in paths:
+            info = item.lstat()
+            if item != work / 'lmm-api' and (not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)) or info.st_uid != uid or info.st_mode & 0o022 or (stat.S_ISREG(info.st_mode) and info.st_nlink != 1)):
+                raise RuntimeError('historical cleanup payload ownership, links or permissions are unsafe')
+            entries.append((str(item.relative_to(work)), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_mode, info.st_nlink))
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
+    signature = hashlib.sha256(json.dumps(entries).encode()).hexdigest()
+    return {'payloads': [name for name in CLEANUP_PAYLOADS if (work / name).exists() or (work / name).is_symlink()], 'bytes': total, 'inventory_sha256': signature}
+
+
+def cleanup_strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from cleanup_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from cleanup_strings(item)
+
+
+def path_in_payload(value, work):
+    if not isinstance(value, str) or not value.startswith('/'):
+        return False
+    path = Path(os.path.normpath(value.removesuffix(' (deleted)')))
+    return any(path.is_relative_to(work / name) for name in CLEANUP_PAYLOADS)
+
+
+def cleanup_process_references(work, proc=Path('/proc')):
+    found = []
+    for process in proc.iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            links = [process / 'exe', process / 'cwd', *list((process / 'fd').iterdir())]
+            for link in links:
+                try:
+                    target = os.readlink(link)
+                except FileNotFoundError:
+                    continue  # Process/fd disappeared during the inspection.
+                if path_in_payload(target, work):
+                    found.append({'pid': int(process.name), 'kind': str(link.relative_to(process)), 'path': target})
+            for line in (process / 'maps').read_text().splitlines():
+                fields = line.split(maxsplit=5)
+                if len(fields) == 6 and path_in_payload(fields[5], work):
+                    found.append({'pid': int(process.name), 'kind': 'maps', 'path': fields[5]})
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        except (PermissionError, OSError):
+            raise RuntimeError('cannot completely inspect live process references; cleanup refused')
+    return found
+
+
+def maintenance_transfer_record(previous, next_state, next_handoff, maintenance):
+    if previous['phase'] != 'FROZEN' or previous.get('capture_receipt_sha256') != maintenance.get('capture_receipt_sha256') or previous.get('capture_receipt_path') != maintenance.get('capture_receipt_path'):
+        raise RuntimeError('maintenance transfer requires the direct previous owner FROZEN capture')
+    source = guardian.handoff(previous['maintenance_handoff']['path'], previous['maintenance_handoff']['sha256'])
+    if any(source.get(key) != maintenance.get(key) for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256', 'prepare_config_sha256')):
+        raise RuntimeError('maintenance transfer crosses a frozen transition identity')
+    captured = json.loads(guardian.bound_file(previous['capture_receipt_path'], previous['capture_receipt_sha256']))
+    if captured.get('format') != 'lmm-credit-maintenance-capture-v1' or captured.get('phase') != 'FROZEN' or any(captured.get(key) != maintenance[key] for key in ('transition_id', 'transition_intent_sha256')):
+        raise RuntimeError('maintenance transfer capture receipt is not the previous owner evidence')
+    if maintenance['stage'] == 'post' and (previous.get('maintenance_confirmation') is not True or captured.get('was_maintenance_confirmed') is not True or captured.get('provider_sha256') != maintenance['provider_sha256']):
+        raise RuntimeError('post maintenance transfer requires the confirmed installed bridge capture')
+    return {'format': 'lmm-credit-maintenance-transfer-v1',
+            **{key: maintenance[key] for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256', 'prepare_config_sha256')},
+            'previous_deployment_id': previous['release'], 'next_deployment_id': next_state['release'],
+            'next_handoff_sha256': next_handoff['sha256'],
+            'capture_receipt_sha256': previous['capture_receipt_sha256']}
+
+
+def transfer_record_body(record):
+    return json.dumps(record, indent=2).encode() + b'\n'
+
+
+def maintenance_ancestor_chain(start, maintenance):
+    ancestors, visited = set(), {start}
+    cleanup_path(ROOT / start)
+    cleanup_path(ROOT / start / 'state.json', private_file=True)
+    next_state = read_state(ROOT / start)
+    while True:
+        binding = next_state.get('maintenance_handoff', {})
+        next_maintenance = guardian.handoff(binding.get('path', ''), binding.get('sha256', ''))
+        if any(next_maintenance.get(key) != maintenance.get(key) for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256', 'prepare_config_sha256')):
+            raise RuntimeError('maintenance ancestor chain crosses the frozen transition identity')
+        previous_id = next_maintenance.get('previous_deployment_id')
+        if not previous_id:
+            return ancestors
+        if not re.fullmatch(RELEASE_PATTERN, previous_id) or previous_id in visited:
+            raise RuntimeError('maintenance ancestor chain has an invalid or repeated owner')
+        visited.add(previous_id)
+        cleanup_path(ROOT / previous_id)
+        cleanup_path(ROOT / previous_id / 'state.json', private_file=True)
+        previous = read_state(ROOT / previous_id)
+        expected = maintenance_transfer_record(previous, next_state, binding, next_maintenance)
+        path = ROOT / previous_id / ('maintenance-transfer.' + next_state['release'] + '.json')
+        body = transfer_record_body(expected)
+        if guardian.bound_file(path, hashlib.sha256(body).hexdigest()) != body:
+            raise RuntimeError('maintenance ancestor has no exact immutable owner transfer record')
+        ancestors.add(previous_id)
+        next_state = previous
+
+
+def write_maintenance_transfer(previous, next_state, maintenance):
+    binding = next_state['maintenance_handoff']
+    for owner in (previous['release'], next_state['release']):
+        cleanup_path(ROOT / owner)
+        cleanup_path(ROOT / owner / 'state.json', private_file=True)
+    if maintenance.get('previous_deployment_id') != previous['release']:
+        raise RuntimeError('maintenance transfer does not name the direct previous owner')
+    body = transfer_record_body(maintenance_transfer_record(previous, next_state, binding, maintenance))
+    path = ROOT / previous['release'] / ('maintenance-transfer.' + next_state['release'] + '.json')
+    if path.exists() or path.is_symlink():
+        if guardian.bound_file(path, hashlib.sha256(body).hexdigest()) != body:
+            raise RuntimeError('existing maintenance transfer record differs')
+    else:
+        immutable_write(path, body, 0o600)
+
+
+def cleanup_history(args, now, transferred=None):
+    transferred = transferred or set()
+    states, evidence, protected, candidates, blockers = {}, {}, [], [], []
+    for work in sorted(ROOT.iterdir()):
+        if not work.is_dir() and not work.is_symlink():
+            continue
+        if work.name in (args.release, args.retain_rollback):
+            reason = 'current release' if work.name == args.release else 'bridge rollback release'
+            protected.append({'release': work.name, 'reason': reason})
+        try:
+            if not re.fullmatch(RELEASE_PATTERN, work.name):
+                raise RuntimeError('unknown workspace name')
+            cleanup_path(work)
+            cleanup_path(work / 'state.json', private_file=True)
+            states[work] = read_state(work)
+            # Owner evidence is retained. Inspect all JSON evidence outside the
+            # removable payloads for cross-workspace references.
+            values = []
+            for base, directories, files in os.walk(work, followlinks=False):
+                if Path(base) == work:
+                    directories[:] = [name for name in directories if name not in CLEANUP_PAYLOADS]
+                if any((Path(base) / name).is_symlink() for name in directories):
+                    raise RuntimeError('retained evidence contains an unknown directory link')
+                for name in files:
+                    if name.endswith('.json'):
+                        path = Path(base) / name
+                        cleanup_path(path, private_file=True)
+                        if path.stat().st_size > 4 * 1024 * 1024:
+                            raise RuntimeError('retained JSON evidence is too large to inspect safely')
+                        values.append(json.loads(path.read_text()))
+            frozen = states[work].get('maintenance_handoff')
+            if frozen:
+                values.append(json.loads(guardian.bound_file(frozen['path'], frozen['sha256'])))
+            evidence[work] = values
+        except (OSError, RuntimeError, ValueError, KeyError) as error:
+            protected.append({'release': work.name, 'reason': 'unverified state or retained evidence: ' + str(error)})
+            blockers.append(work.name)
+    for work, state in states.items():
+        if work.name in (args.release, args.retain_rollback):
+            continue
+        if state['phase'] not in ('CONFIRMED', 'ROLLED_BACK'):
+            if state['phase'] == 'FROZEN' and work.name in transferred:
+                protected.append({'release': work.name, 'reason': 'formally transferred frozen ancestor; complete evidence and payload retained'})
+                continue
+            protected.append({'release': work.name, 'reason': 'non-terminal owner state'})
+            blockers.append(work.name)
+            continue
+        terminal = cleanup_terminal_time(work, state, now)
+        if terminal is None or now - terminal < args.older_than:
+            protected.append({'release': work.name, 'reason': 'terminal age is not reliably at least the requested retention'})
+            continue
+        try:
+            inventory = cleanup_payload_inventory(work)
+            refs = []
+            for owner, values in evidence.items():
+                if owner == work:
+                    continue
+                for value in cleanup_strings(values):
+                    paths = (value,) if value.startswith('/') else (str(owner / value), str(ROOT / value))
+                    if any(path_in_payload(path, work) for path in paths):
+                        refs.append(owner.name)
+            if refs:
+                protected.append({'release': work.name, 'reason': 'payload is referenced by another workspace', 'references': sorted(set(refs))})
+                continue
+            processes = cleanup_process_references(work)
+            if processes:
+                protected.append({'release': work.name, 'reason': 'payload has live process references', 'references': processes})
+                continue
+            candidates.append({'release': work.name, 'terminal_at': terminal, **inventory})
+        except (OSError, RuntimeError, ValueError) as error:
+            protected.append({'release': work.name, 'reason': str(error)})
+            if 'completely inspect live process' in str(error):
+                blockers.append(work.name)
+    return {'candidates': candidates, 'protected': protected, 'blocked_by': sorted(set(blockers))}
+
+
+def cleanup(work, args, maintenance, guardian_receipt):
+    if args.older_than < 86400:
+        raise RuntimeError('cleanup retention must be at least 86400 seconds')
+    verify_cleanup_guardian(guardian_receipt)
+    current, bridge = verify_cleanup_protected(work, args, maintenance)
+    archive = verify_financial_archive(args.financial_backup, args.financial_backup_sha256)
+    financial_receipt = verify_financial_backup_receipt(args, maintenance, archive)
+    transferred = maintenance_ancestor_chain(work.name, maintenance)
+    now = time.time()
+    plan = cleanup_history(args, now, transferred)
+    result = {'format': 'lmm-credit-maintenance-cleanup-v1', 'release': work.name,
+              'phase': current['phase'], 'transition_id': maintenance['transition_id'],
+              'transition_intent_sha256': maintenance['transition_intent_sha256'],
+              'retain_rollback': bridge['release'], 'financial_backup': archive,
+              'financial_backup_receipt': financial_receipt,
+              'dry_run': not args.execute, 'older_than': args.older_than, **plan}
+    if args.execute:
+        if plan['blocked_by']:
+            raise RuntimeError('cleanup refused because other owner states or retained evidence are unverified: ' + ', '.join(plan['blocked_by']))
+        verify_cleanup_guardian(guardian_receipt)
+        verify_cleanup_protected(work, args, maintenance)
+        if verify_financial_archive(args.financial_backup, args.financial_backup_sha256) != archive or verify_financial_backup_receipt(args, maintenance, archive) != financial_receipt or maintenance_ancestor_chain(work.name, maintenance) != transferred or cleanup_history(args, now, transferred) != plan:
+            raise RuntimeError('cleanup proof changed before removal; no payload was removed')
+        filesystem = os.statvfs(ROOT)
+        free_before = filesystem.f_bavail * filesystem.f_frsize
+        for candidate in plan['candidates']:
+            historical = ROOT / candidate['release']
+            for name in candidate['payloads']:
+                path = historical / name
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                else:
+                    shutil.rmtree(path)
+        filesystem = os.statvfs(ROOT)
+        free_after = filesystem.f_bavail * filesystem.f_frsize
+        result.update(deleted_payload_bytes=sum(item['bytes'] for item in plan['candidates']),
+                      filesystem_available_bytes_before=free_before, filesystem_available_bytes_after=free_after)
+    return result
 
 
 def doctor(migrate=False):
@@ -581,7 +1078,7 @@ def progress(args, message):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['doctor', 'upgrade', 'stage', 'apply', 'status', 'confirm', 'rollback', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop'])
+    parser.add_argument('action', choices=['doctor', 'upgrade', 'stage', 'apply', 'status', 'confirm', 'rollback', 'cleanup', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop'])
     parser.add_argument('--release', help='explicit transaction ID; omit for status to list all transactions')
     parser.add_argument('--binary', type=Path)
     parser.add_argument('--frontend', type=Path)
@@ -592,6 +1089,14 @@ def main(argv=None):
     parser.add_argument('--global-confirmation-sha256')
     parser.add_argument('--all-admission-closed', type=Path)
     parser.add_argument('--all-admission-closed-sha256')
+    parser.add_argument('--superseded-by')
+    parser.add_argument('--retain-rollback')
+    parser.add_argument('--financial-backup', type=Path)
+    parser.add_argument('--financial-backup-sha256')
+    parser.add_argument('--financial-backup-receipt', type=Path)
+    parser.add_argument('--financial-backup-receipt-sha256')
+    parser.add_argument('--older-than', type=int, default=86400)
+    parser.add_argument('--execute', action='store_true', help='cleanup: remove only proved historical payloads; the default is a dry run')
     parser.add_argument('--wait', action='store_true', help='confirm: observe healthy candidate until the existing 120-second deadline')
     parser.add_argument('--migrate', action='store_true', help='back up PostgreSQL and apply schema migrations after stopping the writer')
     parser.add_argument('--backup-exclude-table', action='append', default=[], help='exact schema.table of an unrelated archive table to exclude; recorded in the plan')
@@ -605,7 +1110,7 @@ def main(argv=None):
         parser.error('invalid release ID')
     if args.action not in ('doctor', 'status') and not args.release:
         parser.error('--release is required for this action')
-    if args.action in ('upgrade', 'apply', 'confirm', 'rollback', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop') and args.confirm != 'api.lmm.best':
+    if args.action in ('upgrade', 'apply', 'confirm', 'rollback', 'cleanup', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop') and args.confirm != 'api.lmm.best':
         parser.error('mutations require --confirm api.lmm.best')
     if args.action not in ('stage', 'upgrade') and (args.binary or args.frontend or args.backup_exclude_table):
         parser.error('artifact and backup-exclusion arguments are only valid for stage/upgrade')
@@ -617,6 +1122,15 @@ def main(argv=None):
         parser.error('maintenance handoff path and digest must be supplied together')
     if args.action == 'maintenance-release' and not (args.global_confirmation and args.global_confirmation_sha256):
         parser.error('maintenance release requires exact global owner confirmation receipt')
+    if args.action == 'status' and args.maintenance_handoff and not args.release:
+        parser.error('handoff refinement status requires an explicit release')
+    if args.action == 'cleanup':
+        if not args.superseded_by or not args.retain_rollback or not args.financial_backup or not args.financial_backup_sha256 or not args.financial_backup_receipt or not args.financial_backup_receipt_sha256:
+            parser.error('cleanup requires current supersession, retained bridge rollback and a sealed financial backup')
+        if not re.fullmatch(RELEASE_PATTERN, args.superseded_by) or not re.fullmatch(RELEASE_PATTERN, args.retain_rollback) or args.older_than < 86400:
+            parser.error('cleanup requires valid protected release IDs and at least 86400 seconds retention')
+    elif args.execute or args.superseded_by or args.retain_rollback or args.financial_backup or args.financial_backup_sha256 or args.financial_backup_receipt or args.financial_backup_receipt_sha256 or args.older_than != 86400:
+        parser.error('cleanup arguments are only valid for cleanup')
     if os.geteuid() != 0:
         parser.error('run on the target as root')
     # Preserve JSON for existing non-interactive granular commands.
@@ -628,7 +1142,7 @@ def main(argv=None):
             show(result, args.human)
             return 0 if result['ok'] else 1
         if args.action == 'status':
-            show(read_status(args.release), args.human)
+            show(read_status(args.release, args.maintenance_handoff, args.maintenance_handoff_sha256), args.human)
             return 0
         execute(args, parser)
         return 0
@@ -654,7 +1168,6 @@ def execute(args, parser):
     os.umask(0o077)
     if ROOT.is_symlink():
         raise RuntimeError('deployment root may not be a symlink')
-    ROOT.mkdir(mode=0o700, exist_ok=True)
     maintenance = None
     handoff_sha = args.maintenance_handoff_sha256
     if args.maintenance_handoff:
@@ -667,10 +1180,21 @@ def execute(args, parser):
             maintenance = guardian.handoff(frozen['path'], handoff_sha)
     if maintenance and maintenance['deployment_tool'] != 'systemd':
         raise RuntimeError('maintenance handoff belongs to a different deployment tool')
+    if maintenance:
+        validate_post_staging_intent(maintenance)
+    if maintenance and maintenance['stage'] == 'post' and not maintenance.get('stopped_writer') and args.action != 'stage':
+        raise RuntimeError('unstopped post staging intent only authorizes stage/status; frozen owner handoff is required')
     if maintenance and maintenance['stage'] == 'prebridge' and args.action in ('stage', 'upgrade', 'apply', 'maintenance-capture'):
         validate_prepare_service_reader(maintenance)
-    with deployment_lock(maintenance, handoff_sha):
+    if args.action == 'cleanup' and not maintenance:
+        raise RuntimeError('financial cleanup requires the current bound maintenance guardian')
+    ROOT.mkdir(mode=0o700, exist_ok=True)
+    with deployment_lock(maintenance, handoff_sha, all_locks=args.action == 'cleanup') as guardian_receipt:
         work = ROOT / args.release
+        if args.action == 'cleanup':
+            check_layout()
+            show(cleanup(work, args, maintenance, guardian_receipt), args.human)
+            return
         if args.action in ('stage', 'upgrade'):
             progress(args, 'Checking prerequisites and preparing immutable artifacts...')
             check_tools(args.migrate)
@@ -691,7 +1215,9 @@ def execute(args, parser):
             version = run(str(work / 'lmm-api'), 'version')
             run(str(work / 'lmm-api'), 'operator', 'help')
             if args.migrate:
-                backup(work, database_environment(), schema_only=True, exclude=args.backup_exclude_table)
+                if not (maintenance and maintenance['stage'] == 'post' and not maintenance.get('stopped_writer')):
+                    db_env = verify_stopped_maintenance(maintenance) if maintenance and maintenance.get('stopped_writer') else database_environment()
+                    backup(work, db_env, schema_only=True, exclude=args.backup_exclude_table)
             elif not maintenance:
                 verify(work, 'stage')
             state = {'release': args.release, 'version': version, 'sha256': digest(work / 'lmm-api-go'),
@@ -701,13 +1227,27 @@ def execute(args, parser):
                 if tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
                     raise RuntimeError('maintenance frontend must exactly match the frozen active frontend tree')
                 state['maintenance_handoff'] = {'path': str(args.maintenance_handoff), 'sha256': handoff_sha}
+                if maintenance['stage'] == 'post' and not maintenance.get('stopped_writer'):
+                    state['maintenance_staging_intent'] = dict(state['maintenance_handoff'])
+                state.update(maintenance_stage=maintenance['stage'], transition_id=maintenance['transition_id'],
+                             transition_intent_sha256=maintenance['transition_intent_sha256'], provider_sha256=maintenance['provider_sha256'],
+                             prepare_config_sha256=maintenance['prepare_config_sha256'])
                 if digest(work / 'lmm-api-go') != maintenance['provider_sha256']:
                     raise RuntimeError('candidate provider differs from frozen maintenance identity')
             save(work, state)
         if args.action != 'stage':
             state = read_state(work)
             if maintenance:
-                state.update(maintenance_stage=maintenance['stage'], transition_id=maintenance['transition_id'], transition_intent_sha256=maintenance['transition_intent_sha256'], provider_sha256=maintenance['provider_sha256'])
+                frozen = state.get('maintenance_handoff', {})
+                if frozen and (frozen['path'], frozen['sha256']) != (maintenance['_handoff_path'], handoff_sha):
+                    if args.action != 'apply' or state['phase'] != 'STAGED':
+                        raise RuntimeError('changed owner handoff only permits the official staged post refinement apply')
+                    base = state.get('maintenance_staging_intent', frozen)
+                    post_staging_refinement(base, maintenance['_handoff_path'], handoff_sha)
+                    verify_stopped_maintenance(maintenance)
+                    state['maintenance_staging_intent'] = base
+                    state['maintenance_handoff'] = {'path': maintenance['_handoff_path'], 'sha256': handoff_sha}
+                state.update(maintenance_stage=maintenance['stage'], transition_id=maintenance['transition_id'], transition_intent_sha256=maintenance['transition_intent_sha256'], provider_sha256=maintenance['provider_sha256'], prepare_config_sha256=maintenance['prepare_config_sha256'])
             check_layout()
             if digest(work / 'lmm-api-go') != state['sha256']:
                 raise RuntimeError('staged binary changed')
@@ -769,9 +1309,12 @@ def execute(args, parser):
                     raise RuntimeError('--migrate must match the immutable staged plan')
                 if state['phase'] != 'STAGED':
                     raise RuntimeError('apply requires STAGED; use status or explicit rollback')
+                transferred = set()
+                if maintenance and maintenance.get('stopped_writer'):
+                    transferred = maintenance_ancestor_chain(maintenance['previous_deployment_id'], maintenance)
                 for other in ROOT.glob('*/state.json'):
                     value = read_state(other.parent)
-                    if other.parent != work and value['phase'] not in ('STAGED', 'CONFIRMED', 'ROLLED_BACK') and not (maintenance and maintenance.get('stopped_writer') and value['phase'] == 'FROZEN' and value['release'] == maintenance['previous_deployment_id']):
+                    if other.parent != work and value['phase'] not in ('STAGED', 'CONFIRMED', 'ROLLED_BACK') and not (maintenance and maintenance.get('stopped_writer') and value['phase'] == 'FROZEN' and (value['release'] == maintenance['previous_deployment_id'] or value['release'] in transferred)):
                         raise RuntimeError('another deployment needs recovery')
                 if maintenance and maintenance.get('stopped_writer'):
                     db_env = verify_stopped_maintenance(maintenance)
@@ -780,6 +1323,7 @@ def execute(args, parser):
                     frozen = guardian.handoff(previous['maintenance_handoff']['path'], previous['maintenance_handoff']['sha256'])
                     if previous['phase'] != 'FROZEN' or any(frozen[key] != maintenance[key] for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256', 'prepare_config_sha256')) or (maintenance['stage'] == 'post' and (digest(BINARY) != maintenance['provider_sha256'] or state['sha256'] != previous['sha256'])):
                         raise RuntimeError('post handoff requires the installed confirmed bridge as true N-1')
+                    write_maintenance_transfer(previous, state, maintenance)
                     source = ROOT / previous['release'] / 'previous-nginx-locations'
                     original = guardian.bound_file(source, previous['ingress_original_sha256'])
                     immutable_write(work / 'previous-nginx-locations', original, 0o600)
@@ -809,8 +1353,9 @@ def execute(args, parser):
                 if state['migrate']:
                     state['database_backup_sha256'] = backup(work, db_env, exclude=state['backup_exclude_tables'])
                     save(work, state)
-                    verify(work, 'migrate', mode='apply', maintenance=maintenance)
-                    verify(work, 'post-migrate', maintenance=maintenance)
+                    binding = {'maintenance': maintenance} if maintenance else {}
+                    verify(work, 'migrate', mode='apply', **binding)
+                    verify(work, 'post-migrate', **binding)
                 if maintenance and maintenance['stage'] == 'prebridge':
                     verify(work, 'prepare', mode='apply', maintenance=maintenance)
                     verify(work, 'prepare-verify', maintenance=maintenance)
@@ -838,7 +1383,7 @@ def execute(args, parser):
                 state['phase'] = 'AWAITING_CONFIRMATION'
                 state['ready_at'] = time.time()
             elif args.action == 'confirm':
-                if state['phase'] != 'AWAITING_CONFIRMATION':
+                if state['phase'] != 'AWAITING_CONFIRMATION' and not (maintenance and state['phase'] == 'MAINTENANCE_CONFIRMED'):
                     raise RuntimeError('confirm requires AWAITING_CONFIRMATION')
                 while args.wait and time.time() - state['ready_at'] < 120:
                     healthy(state['version'], maintenance)
@@ -886,8 +1431,13 @@ def execute(args, parser):
                     raise RuntimeError('rollback requires a pending deployment')
                 if digest(work / 'previous-binary') != state['previous_sha256']:
                     raise RuntimeError('rollback binary changed')
+                if maintenance and maintenance['stage'] == 'post' and (state['previous_sha256'] != maintenance['provider_sha256'] or state['sha256'] != maintenance['provider_sha256'] or state['previous_version'] != state['version']):
+                    raise RuntimeError('post rollback must retain the same canonical-compatible bridge provider')
                 if property_value('MainPID') != '0':
-                    stop(work, maintenance)
+                    if maintenance:
+                        stop(work, maintenance)
+                    else:
+                        stop(work)
                 if not maintenance:
                     run(str(work / 'lmm-api'), 'operator', 'frontend', 'rollback', '--release', state['previous_frontend'],
                         '--keep', '10', log=work / 'rollback-frontend.log')
@@ -902,12 +1452,33 @@ def execute(args, parser):
                 while True:
                     try:
                         healthy(state['previous_version'], maintenance if maintenance and maintenance['stage'] == 'post' else None)
+                        if maintenance:
+                            maintenance_admission(maintenance)
                         break
                     except Exception:
                         if time.monotonic() >= deadline:
                             raise RuntimeError('rollback failed readiness; recovery remains pending')
                         time.sleep(2)
-                state['phase'] = 'ROLLED_BACK'
+                if maintenance and maintenance['stage'] == 'post':
+                    state.update(phase='AWAITING_CONFIRMATION', ready_at=time.time(), maintenance_confirmation=False)
+                    save(work, state)
+                    try:
+                        while True:
+                            healthy(state['version'], maintenance)
+                            maintenance_admission(maintenance)
+                            if digest(BINARY) != maintenance['provider_sha256'] or os.readlink(FRONTEND / 'current') != 'releases/' + state['previous_frontend'] or tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
+                                raise RuntimeError('post rollback identity or frozen frontend changed during observation')
+                            remaining = state['ready_at'] + 120 - time.time()
+                            if remaining <= 0:
+                                break
+                            time.sleep(min(2, remaining))
+                    except BaseException:
+                        state['phase'] = 'ROLLBACK_REQUIRED'
+                        save(work, state)
+                        raise
+                    state.update(phase='MAINTENANCE_CONFIRMED', maintenance_confirmation=True)
+                else:
+                    state['phase'] = 'ROLLED_BACK'
             save(work, state)
         show(state, args.human)
 

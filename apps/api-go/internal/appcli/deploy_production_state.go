@@ -281,6 +281,8 @@ func runVerifiedBinary(ctx context.Context, runner productionCommandRunner, bina
 type productionRuntime struct {
 	maintenanceHandoff   *productionMaintenanceHandoff
 	guardianLease        io.Closer
+	guardianAdoptAll     bool
+	guardianExtraLocks   []*os.File
 	maintenanceReleasing bool
 
 	billingAdmissionClosed        bool
@@ -751,15 +753,16 @@ func readSafeRegularFile(path string, maximum int64) ([]byte, error) {
 }
 
 type productionStatus struct {
-	HandoffSHA256          string `json:"handoff_sha256,omitempty"`
-	PlanSHA256             string `json:"plan_sha256,omitempty"`
-	DispatchVerifiedAbsent bool   `json:"dispatch_verified_absent,omitempty"`
-	ProviderSHA256         string `json:"provider_sha256,omitempty"`
-	MaintenanceStage       string `json:"maintenance_stage,omitempty"`
-	TransitionID           string `json:"transition_id,omitempty"`
-	TransitionIntentSHA256 string `json:"transition_intent_sha256,omitempty"`
-	CaptureReceiptPath     string `json:"capture_receipt_path,omitempty"`
-	CaptureReceiptSHA256   string `json:"capture_receipt_sha256,omitempty"`
+	HandoffSHA256             string `json:"handoff_sha256,omitempty"`
+	HandoffRefinementVerified bool   `json:"handoff_refinement_verified,omitempty"`
+	PlanSHA256                string `json:"plan_sha256,omitempty"`
+	DispatchVerifiedAbsent    bool   `json:"dispatch_verified_absent,omitempty"`
+	ProviderSHA256            string `json:"provider_sha256,omitempty"`
+	MaintenanceStage          string `json:"maintenance_stage,omitempty"`
+	TransitionID              string `json:"transition_id,omitempty"`
+	TransitionIntentSHA256    string `json:"transition_intent_sha256,omitempty"`
+	CaptureReceiptPath        string `json:"capture_receipt_path,omitempty"`
+	CaptureReceiptSHA256      string `json:"capture_receipt_sha256,omitempty"`
 
 	MaintenanceConfirmation      bool `json:"maintenance_confirmation,omitempty"`
 	MaintenanceAdmissionReopened bool `json:"maintenance_admission_reopened,omitempty"`
@@ -973,11 +976,9 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 func (runtime *productionRuntime) executeTransaction(ctx context.Context, options productionTransactionOptions) (productionStatus, error) {
 	var workspace productionWorkspace
 	var err error
-	if options.Action == "status" {
-		workspace, err = runtime.openWorkspaceForInspection(options.Workspace)
-	} else {
-		workspace, err = runtime.openWorkspace(options.Workspace)
-	}
+	// Resolve the binding through inspection first. An unstopped post intent
+	// cannot cause even a state-directory preparation before its refusal.
+	workspace, err = runtime.openWorkspaceForInspection(options.Workspace)
 	if err != nil {
 		return productionStatus{}, err
 	}
@@ -1002,6 +1003,15 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 			if err := runtime.setMaintenanceHandoff(manifest.MaintenanceHandoff.Path, manifest.MaintenanceHandoff.SHA256); err != nil {
 				return productionStatus{}, err
 			}
+		}
+	}
+	if options.Action != "status" {
+		if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+			return productionStatus{}, err
+		}
+		workspace, err = runtime.openWorkspace(options.Workspace)
+		if err != nil {
+			return productionStatus{}, err
 		}
 	}
 	if options.Action == "status" && runtime.maintenanceHandoff != nil {
@@ -1127,6 +1137,15 @@ func (runtime *productionRuntime) openWorkspaceWithMode(root string, requireStag
 
 func (runtime *productionRuntime) acquireGlobalLock(ctx context.Context) (*os.File, error) {
 	if runtime.maintenanceHandoff != nil {
+		if runtime.guardianAdoptAll {
+			files, lease, err := receiveMaintenanceAllLocks(ctx, runtime.maintenanceHandoff, runtime.paths.GlobalLock, uint32(runtime.effectiveUID()))
+			if err != nil {
+				return nil, err
+			}
+			runtime.guardianLease = lease
+			runtime.guardianExtraLocks = files[1:]
+			return files[0], nil
+		}
 		file, lease, err := receiveMaintenanceLock(ctx, runtime.maintenanceHandoff, runtime.paths.GlobalLock, uint32(runtime.effectiveUID()))
 		if err != nil {
 			return nil, err

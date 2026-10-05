@@ -75,45 +75,56 @@ def receive_line(connection):
     return json.loads(line)
 
 
-def adopt(value, expected, lock_path, uid=0, with_receipt=False):
+def adopt(value, expected, lock_path, uid=0, with_receipt=False, all_locks=False, lock_paths_override=None):
     """Return (fd, lease). Keep lease open for the whole operation; close only."""
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    descriptor = None
+    descriptors = []
     try:
         connection.settimeout(125)
         connection.connect(value['guardian_socket'])
         if peer_uid(connection) != uid:
             raise RuntimeError('guardian peer owner mismatch')
         request = {'protocol': PROTOCOL, 'handoff_sha256': expected,
-                   'transition_id': value['transition_id'], 'handoff_path': value['_handoff_path'], 'operation': 'adopt'}
+                   'transition_id': value['transition_id'], 'handoff_path': value['_handoff_path'], 'operation': 'adopt-all' if all_locks else 'adopt'}
         connection.sendall(json.dumps(request).encode() + b'\n')
-        body, ancillary, flags, _ = connection.recvmsg(16384, socket.CMSG_SPACE(array.array('i').itemsize))
-        descriptors = []
+        count = 3 if all_locks else 1
+        body, ancillary, flags, _ = connection.recvmsg(16384, socket.CMSG_SPACE(array.array('i').itemsize * count))
         for level, kind, payload in ancillary:
             if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
                 received = array.array('i')
                 received.frombytes(payload[:len(payload) - len(payload) % received.itemsize])
                 descriptors.extend(received)
-        if len(descriptors) != 1 or flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC):
-            for item in descriptors:
-                os.close(item)
-            raise RuntimeError('guardian did not provide one complete lock descriptor')
-        descriptor = descriptors[0]
-        os.set_inheritable(descriptor, False)
+        if len(descriptors) != count or flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC):
+            raise RuntimeError('guardian did not provide the requested complete lock descriptor set')
         reply = json.loads(body)
         peer_pid = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[0]
         if reply.get('guardian_pid') != peer_pid:
             raise RuntimeError('guardian reply PID differs from actual Unix peer')
-        info, path_info = os.fstat(descriptor), os.stat(lock_path, follow_symlinks=False)
-        if reply.get('protocol') != PROTOCOL or reply.get('handoff_sha256') != expected or reply.get('transition_id') != value['transition_id'] or not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_nlink != 1 or (info.st_dev, info.st_ino) != (path_info.st_dev, path_info.st_ino):
+        if reply.get('protocol') != PROTOCOL or reply.get('handoff_sha256') != expected or reply.get('transition_id') != value['transition_id']:
             raise RuntimeError('guardian lock identity mismatch')
+        paths = lock_paths_override or LOCKS
+        transferred = [paths[name] for name in ('native', 'systemd', 'frontend')] if all_locks else [str(lock_path)]
+        if all_locks and reply.get('transferred_paths') != transferred:
+            raise RuntimeError('guardian did not transfer the three normal owner OFDs')
+        for descriptor, path in zip(descriptors, transferred):
+            os.set_inheritable(descriptor, False)
+            info, path_info = os.fstat(descriptor), os.stat(path, follow_symlinks=False)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_nlink != 1 or (info.st_dev, info.st_ino) != (path_info.st_dev, path_info.st_ino):
+                raise RuntimeError('guardian transferred lock inode differs from its owner path')
         connection.settimeout(None)
-        return (descriptor, connection, reply) if with_receipt else (descriptor, connection)
+        if all_locks:
+            return descriptors, connection, reply
+        return (descriptors[0], connection, reply) if with_receipt else (descriptors[0], connection)
     except BaseException:
-        if descriptor is not None:
+        for descriptor in descriptors:
             os.close(descriptor)
         connection.close()
         raise
+
+
+def adopt_all(value, expected, uid=0, lock_paths_override=None):
+    paths = lock_paths_override or LOCKS
+    return adopt(value, expected, paths[value['deployment_tool']], uid, True, True, paths)
 
 
 def inspect(path, expected, uid=0, lock_paths_override=None):
@@ -181,7 +192,7 @@ def serve(path, expected, uid=0, lock_paths_override=None):
                     request = receive_line(connection)
                     current = handoff(request.get('handoff_path', ''), request.get('handoff_sha256', ''), uid)
                     identities = ('transition_id', 'transition_intent_sha256', 'provider_sha256', 'prepare_config_sha256', 'guardian_socket', 'deployment_tool')
-                    if peer_uid(connection) != uid or any(current[name] != value[name] for name in identities) or request.get('protocol') != PROTOCOL or request.get('operation') != 'adopt' or request.get('transition_id') != value['transition_id']:
+                    if peer_uid(connection) != uid or any(current[name] != value[name] for name in identities) or request.get('protocol') != PROTOCOL or request.get('operation') not in ('adopt', 'adopt-all') or request.get('transition_id') != value['transition_id']:
                         raise RuntimeError('guardian lease binding mismatch')
                     locks = []
                     for name, descriptor in descriptors.items():
@@ -192,7 +203,9 @@ def serve(path, expected, uid=0, lock_paths_override=None):
                         locks.append({'path': paths[name], 'device': info.st_dev, 'inode': info.st_ino, 'held': True})
                     reply = {'protocol': PROTOCOL, 'handoff_sha256': request['handoff_sha256'],
                              'transition_id': value['transition_id'], 'guardian_pid': os.getpid(), 'locks': locks}
-                    connection.sendmsg([json.dumps(reply).encode()], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', [descriptors[value['deployment_tool']]]))])
+                    names = ('native', 'systemd', 'frontend') if request['operation'] == 'adopt-all' else (value['deployment_tool'],)
+                    reply['transferred_paths'] = [paths[name] for name in names]
+                    connection.sendmsg([json.dumps(reply).encode()], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', [descriptors[name] for name in names]))])
                     connection.settimeout(None)
                     while connection.recv(1):
                         pass

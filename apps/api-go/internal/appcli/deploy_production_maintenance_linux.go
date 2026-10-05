@@ -28,6 +28,18 @@ func receiveMaintenanceLock(ctx context.Context, h *productionMaintenanceHandoff
 }
 
 func receiveMaintenanceLockForPaths(ctx context.Context, h *productionMaintenanceHandoff, lockPath string, owner uint32, expectedPaths map[string]string) (*os.File, net.Conn, error) {
+	files, lease, err := receiveMaintenanceLockSet(ctx, h, lockPath, owner, expectedPaths, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	return files[0], lease, nil
+}
+
+func receiveMaintenanceAllLocks(ctx context.Context, h *productionMaintenanceHandoff, lockPath string, owner uint32) ([]*os.File, net.Conn, error) {
+	return receiveMaintenanceLockSet(ctx, h, lockPath, owner, map[string]string{"native": lockPath, "systemd": "/var/lib/lmm-api-deploy-systemd/lock", "frontend": "/srv/lmm-api-frontend/.release.lock"}, true)
+}
+
+func receiveMaintenanceLockSet(ctx context.Context, h *productionMaintenanceHandoff, lockPath string, owner uint32, expectedPaths map[string]string, all bool) ([]*os.File, net.Conn, error) {
 	connection, err := (&net.Dialer{Timeout: 125 * time.Second}).DialContext(ctx, "unix", h.GuardianSocket)
 	if err != nil {
 		return nil, nil, err
@@ -52,13 +64,19 @@ func receiveMaintenanceLockForPaths(ctx context.Context, h *productionMaintenanc
 	if err := raw.Control(func(fd uintptr) { peer, peerErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) }); err != nil || peerErr != nil || peer == nil || peer.Uid != owner {
 		return nil, nil, errors.New("guardian peer owner differs from deployment authority")
 	}
-	request := map[string]any{"protocol": productionMaintenanceLockProtocol, "handoff_sha256": h.SHA256, "handoff_path": h.Path, "transition_id": h.TransitionID, "operation": "adopt"}
+	operation := "adopt"
+	expectedCount := 1
+	if all {
+		operation = "adopt-all"
+		expectedCount = 3
+	}
+	request := map[string]any{"protocol": productionMaintenanceLockProtocol, "handoff_sha256": h.SHA256, "handoff_path": h.Path, "transition_id": h.TransitionID, "operation": operation}
 	payload, _ := json.Marshal(request)
 	if _, err := unixConnection.Write(append(payload, '\n')); err != nil {
 		return nil, nil, err
 	}
 	_ = unixConnection.SetReadDeadline(time.Now().Add(125 * time.Second))
-	body, oob := make([]byte, 16384), make([]byte, unix.CmsgSpace(4))
+	body, oob := make([]byte, 16384), make([]byte, unix.CmsgSpace(4*expectedCount))
 	n, on, flags, _, err := unixConnection.ReadMsgUnix(body, oob)
 	if err != nil {
 		return nil, nil, err
@@ -77,18 +95,28 @@ func receiveMaintenanceLockForPaths(ctx context.Context, h *productionMaintenanc
 			descriptors = append(descriptors, received...)
 		}
 	}
-	if len(descriptors) != 1 || flags&(unix.MSG_TRUNC|unix.MSG_CTRUNC) != 0 {
+	if len(descriptors) != expectedCount || flags&(unix.MSG_TRUNC|unix.MSG_CTRUNC) != 0 {
 		for _, fd := range descriptors {
 			_ = unix.Close(fd)
 		}
-		return nil, nil, errors.New("guardian must transfer exactly one complete lock descriptor")
+		return nil, nil, errors.New("guardian must transfer the exact complete lock descriptor set")
 	}
-	file := os.NewFile(uintptr(descriptors[0]), lockPath)
-	unix.CloseOnExec(descriptors[0])
+	transferred := []string{lockPath}
+	if all {
+		transferred = []string{expectedPaths["native"], expectedPaths["systemd"], expectedPaths["frontend"]}
+	}
+	files := make([]*os.File, 0, len(descriptors))
+	for index, descriptor := range descriptors {
+		unix.CloseOnExec(descriptor)
+		files = append(files, os.NewFile(uintptr(descriptor), transferred[index]))
+	}
+	file := files[0]
 	good := false
 	defer func() {
 		if !good {
-			_ = file.Close()
+			for _, file := range files {
+				_ = file.Close()
+			}
 		}
 	}()
 	var reply struct {
@@ -98,13 +126,36 @@ func receiveMaintenanceLockForPaths(ctx context.Context, h *productionMaintenanc
 			Inode  uint64 `json:"inode"`
 			Held   bool   `json:"held"`
 		} `json:"locks"`
-		GuardianPID   int    `json:"guardian_pid"`
-		Protocol      string `json:"protocol"`
-		HandoffSHA256 string `json:"handoff_sha256"`
-		TransitionID  string `json:"transition_id"`
+		TransferredPaths []string `json:"transferred_paths"`
+		GuardianPID      int      `json:"guardian_pid"`
+		Protocol         string   `json:"protocol"`
+		HandoffSHA256    string   `json:"handoff_sha256"`
+		TransitionID     string   `json:"transition_id"`
 	}
 	if json.Unmarshal(body[:n], &reply) != nil || reply.GuardianPID != int(peer.Pid) || reply.Protocol != productionMaintenanceLockProtocol || reply.HandoffSHA256 != h.SHA256 || reply.TransitionID != h.TransitionID {
 		return nil, nil, errors.New("guardian lock receipt differs from immutable handoff")
+	}
+	if all {
+		if len(reply.TransferredPaths) != 3 {
+			return nil, nil, errors.New("guardian did not transfer every frozen owner lock")
+		}
+		for index, path := range transferred {
+			if reply.TransferredPaths[index] != path {
+				return nil, nil, errors.New("guardian transferred lock order differs")
+			}
+			info, err := files[index].Stat()
+			if err != nil {
+				return nil, nil, err
+			}
+			current, err := os.Lstat(path)
+			if err != nil {
+				return nil, nil, err
+			}
+			uid, links, ok := deploymentFileOwnership(info)
+			if !ok || uid != owner || links != 1 || !info.Mode().IsRegular() || !os.SameFile(info, current) || current.Mode()&os.ModeSymlink != 0 {
+				return nil, nil, errors.New("guardian transferred lock inode differs from frozen owner")
+			}
+		}
 	}
 	if len(reply.Locks) != 3 || len(expectedPaths) != 3 {
 		return nil, nil, errors.New("guardian must freeze all three normal owner locks")
@@ -156,5 +207,5 @@ func receiveMaintenanceLockForPaths(ctx context.Context, h *productionMaintenanc
 	}
 	_ = unixConnection.SetReadDeadline(time.Time{})
 	good, closeOnFailure = true, false
-	return file, connection, nil
+	return files, connection, nil
 }

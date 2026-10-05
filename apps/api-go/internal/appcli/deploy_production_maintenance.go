@@ -22,7 +22,7 @@ func (runtime *productionRuntime) maintenanceUndispatchedStatus(ctx context.Cont
 	if runtime.guardianLease == nil || options.StagedPlanPath != filepath.Join(workspace.stagingDir, productionReleasePlanFilename) || !productionSHA256Pattern.MatchString(options.StagedPlanSHA256) {
 		return productionStatus{}, errors.New("absent maintenance status requires the exact staged plan and guardian lease")
 	}
-	if err := runtime.validateTransactionLock(workspace); err != nil {
+	if err := runtime.validateMaintenanceStatusTransaction(workspace); err != nil {
 		return productionStatus{}, err
 	}
 	evidence, err := runtime.productionDispatchEvidence(ctx, workspace.root, productionActivationUnit(workspace.id))
@@ -39,6 +39,28 @@ func (runtime *productionRuntime) maintenanceUndispatchedStatus(ctx context.Cont
 	for _, entry := range entries {
 		if entry.Name() != "maintenance-transfer.json" {
 			return productionStatus{}, errors.New("undispatched workspace retains owner mutation or failed-attempt evidence")
+		}
+		if runtime.maintenanceHandoff.StoppedWriter == nil {
+			return productionStatus{}, errors.New("unstopped staging intent retains a transaction transfer")
+		}
+		path := filepath.Join(workspace.stateDir, entry.Name())
+		if err := runtime.requireOwnedSafePath(path, false); err != nil {
+			return productionStatus{}, err
+		}
+		body, err := readPrivateRegularFile(path, 16<<10)
+		if err != nil {
+			return productionStatus{}, err
+		}
+		var transfer struct {
+			Format   string `json:"format"`
+			Previous string `json:"previous_deployment_id"`
+			Next     string `json:"deployment_id"`
+			SHA256   string `json:"handoff_sha256"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&transfer) != nil || decoder.Decode(new(any)) != io.EOF || transfer.Format != "lmm-maintenance-transaction-transfer-v1" || transfer.Previous != runtime.maintenanceHandoff.PreviousDeploymentID || transfer.Next != workspace.id || transfer.SHA256 != runtime.maintenanceHandoff.SHA256 {
+			return productionStatus{}, errors.New("undispatched workspace transaction transfer differs from its actual stopped handoff")
 		}
 	}
 	content, err := readPrivateRegularFile(options.StagedPlanPath, 2<<20)
@@ -66,8 +88,14 @@ func (runtime *productionRuntime) maintenanceUndispatchedStatus(ctx context.Cont
 		return productionStatus{}, errors.New("staged maintenance plan is not canonical")
 	}
 	h := runtime.maintenanceHandoff
-	if plan.DeploymentID != workspace.id || plan.MaintenanceHandoff == nil || plan.MaintenanceHandoff.SHA256 != h.SHA256 || plan.MaintenanceHandoff.TransitionID != h.TransitionID || plan.MaintenanceHandoff.TransitionIntentSHA256 != h.TransitionIntentSHA256 || plan.ProbeBinary.SHA256 != h.ProviderSHA256 {
+	if plan.DeploymentID != workspace.id || plan.MaintenanceHandoff == nil || plan.MaintenanceHandoff.TransitionID != h.TransitionID || plan.MaintenanceHandoff.TransitionIntentSHA256 != h.TransitionIntentSHA256 || plan.ProbeBinary.SHA256 != h.ProviderSHA256 {
 		return productionStatus{}, errors.New("staged maintenance plan differs from the frozen handoff")
+	}
+	refined := plan.MaintenanceHandoff.SHA256 != h.SHA256
+	if refined {
+		if err := runtime.verifyStoppedHandoffRefinement(workspace, plan.MaintenanceHandoff, h); err != nil {
+			return productionStatus{}, err
+		}
 	}
 	for _, artifact := range []productionReleasePackagePlan{plan.GoCandidate, plan.GoRollback, plan.WebCandidate, plan.WebRollback} {
 		if err := runtime.validateStagedFile(workspace, filepath.Join(workspace.stagingDir, filepath.Base(artifact.PackagePath)), artifact.PackageSHA256, "undispatched package"); err != nil {
@@ -81,8 +109,102 @@ func (runtime *productionRuntime) maintenanceUndispatchedStatus(ctx context.Cont
 		if err := runtime.validateStoppedMaintenanceWriter(ctx); err != nil {
 			return productionStatus{}, err
 		}
+		if h.Stage == "post" {
+			_, previous, err := runtime.maintenancePreviousWorkspace()
+			if err != nil {
+				return productionStatus{}, err
+			}
+			if previous.Go.CandidateSHA256 != plan.GoCandidate.PackageSHA256 || previous.ProbeBinarySHA256 != h.ProviderSHA256 {
+				return productionStatus{}, errors.New("post staged N-1 is not the actual installed confirmed bridge")
+			}
+		}
 	}
-	return productionStatus{Format: productionStatusFormat, DeploymentID: workspace.id, Phase: "NOT_DISPATCHED", PlanSHA256: options.StagedPlanSHA256, HandoffSHA256: h.SHA256, DispatchVerifiedAbsent: true, MaintenanceStage: h.Stage, TransitionID: h.TransitionID, TransitionIntentSHA256: h.TransitionIntentSHA256, ProviderSHA256: h.ProviderSHA256, Version: plan.ExpectedVersion}, nil
+	return productionStatus{Format: productionStatusFormat, DeploymentID: workspace.id, Phase: "NOT_DISPATCHED", PlanSHA256: options.StagedPlanSHA256, HandoffSHA256: h.SHA256, HandoffRefinementVerified: refined, DispatchVerifiedAbsent: true, MaintenanceStage: h.Stage, TransitionID: h.TransitionID, TransitionIntentSHA256: h.TransitionIntentSHA256, ProviderSHA256: h.ProviderSHA256, Version: plan.ExpectedVersion}, nil
+}
+
+func (runtime *productionRuntime) verifyStoppedHandoffRefinement(workspace productionWorkspace, base, next *productionMaintenanceHandoff) error {
+	if base == nil || next == nil || base.StoppedWriter != nil || next.StoppedWriter == nil || base.Stage != next.Stage || base.TransitionID != next.TransitionID || base.TransitionIntentSHA256 != next.TransitionIntentSHA256 || base.ProviderSHA256 != next.ProviderSHA256 || base.PrepareConfigPath != next.PrepareConfigPath || base.PrepareConfigSHA256 != next.PrepareConfigSHA256 || base.GuardianSocket != next.GuardianSocket || base.DeploymentTool != next.DeploymentTool || base.PublicBaseURL != next.PublicBaseURL || base.ProbeTokenPath != next.ProbeTokenPath || base.ProbeTokenSHA256 != next.ProbeTokenSHA256 || (base.PreviousDeploymentID != "" && base.PreviousDeploymentID != next.PreviousDeploymentID) {
+		return errors.New("dynamic handoff is not a stopped-only refinement of the immutable stage intent")
+	}
+	// Normal stage preserves the original root-owned handoff bytes alongside the
+	// package plan. Re-read that base instead of trusting caller-supplied fields.
+	path := filepath.Join(workspace.stagingDir, filepath.Base(base.Path))
+	loaded, err := loadProductionMaintenanceHandoff(path, base.SHA256, runtime.requiredOwnerUID)
+	if err != nil {
+		loaded, err = loadProductionMaintenanceHandoff(productionRemoteHandoffPath(*base), base.SHA256, runtime.requiredOwnerUID)
+	}
+	if err != nil {
+		return fmt.Errorf("verify original staged handoff before stopped refinement: %w", err)
+	}
+	left, right := *loaded, *base
+	left.Path = ""
+	left.SHA256 = ""
+	right.Path = ""
+	right.SHA256 = ""
+	if !reflect.DeepEqual(left, right) {
+		return errors.New("staged base handoff fields differ from the immutable release plan")
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) maintenanceStagingIntent() bool {
+	return runtime.maintenancePost() && runtime.maintenanceHandoff.StoppedWriter == nil
+}
+
+func (runtime *productionRuntime) refuseUnstoppedPostMutation() error {
+	if runtime.maintenanceStagingIntent() {
+		return errors.New("post maintenance staging intent cannot activate before an official stopped bridge handoff")
+	}
+	return nil
+}
+
+func (runtime *productionRuntime) maintenanceWorkspaceStagingIntent(workspace productionWorkspace) (bool, error) {
+	content, err := readPrivateRegularFile(filepath.Join(workspace.root, productionWorkspaceMarker), 16<<10)
+	if err != nil {
+		return false, err
+	}
+	values, err := parseSimpleManifest(content)
+	if err != nil {
+		return false, err
+	}
+	return values["deployment_id"] == workspace.id && values["role"] == "staging-intent", nil
+}
+
+func (runtime *productionRuntime) validateMaintenanceStatusTransaction(workspace productionWorkspace) error {
+	intent, err := runtime.maintenanceWorkspaceStagingIntent(workspace)
+	if err != nil || !intent {
+		return runtime.validateTransactionLock(workspace)
+	}
+	if !runtime.maintenancePost() || runtime.guardianLease == nil {
+		return errors.New("post staging workspace requires its bound guardian")
+	}
+	if runtime.maintenanceStopped() {
+		previous, _, err := runtime.maintenancePreviousWorkspace()
+		if err != nil {
+			return err
+		}
+		if err := runtime.validateTransactionLock(previous); err == nil {
+			return nil
+		}
+		// A dispatched post apply may already own the transaction; missing status
+		// remains independently guarded by the absence-of-mutation checks.
+		return runtime.validateTransactionLock(workspace)
+	}
+	return nil // This workspace has never claimed the transaction.
+}
+
+func (runtime *productionRuntime) activateMaintenanceStagingIntent(ctx context.Context, workspace productionWorkspace) error {
+	intent, err := runtime.maintenanceWorkspaceStagingIntent(workspace)
+	if err != nil || !intent {
+		return err
+	}
+	if !runtime.maintenancePost() || !runtime.maintenanceStopped() {
+		return errors.New("post staging intent activation requires the stopped bridge")
+	}
+	if err := runtime.validateTransactionLock(workspace); err == nil {
+		return nil
+	}
+	return runtime.transferMaintenanceTransaction(ctx, workspace.id)
 }
 
 const productionMaintenanceHandoffFormat = "lmm-credit-maintenance-handoff-v1"
@@ -290,7 +412,7 @@ func loadProductionMaintenanceHandoff(path, digest string, owner uint32) (*produ
 			return nil, errors.New("invalid exact maintenance option snapshot")
 		}
 	}
-	if handoff.StoppedWriter != nil || handoff.Stage == "post" {
+	if handoff.StoppedWriter != nil {
 		if handoff.StoppedWriter == nil || handoff.StoppedWriter.PID <= 1 || len(handoff.StoppedWriter.InvocationID) != 32 || !productionIDPattern.MatchString(handoff.PreviousDeploymentID) {
 			return nil, errors.New("post maintenance handoff requires bound stopped writer and previous deployment")
 		}
@@ -309,13 +431,16 @@ func loadProductionMaintenanceHandoff(path, digest string, owner uint32) (*produ
 			return nil, err
 		}
 	}
+	if handoff.Stage == "post" && handoff.StoppedWriter == nil && (handoff.PreviousDeploymentID != "" || handoff.CaptureReceiptPath != "" || handoff.CaptureReceiptSHA256 != "" || handoff.ArchivedEnvironmentPath != "" || handoff.ArchivedEnvironmentSHA256 != "") {
+		return nil, errors.New("unstopped post staging intent must not claim previous writer evidence")
+	}
 	if handoff.StoppedWriter != nil {
 		receipt, err := readMaintenanceBoundFile(handoff.CaptureReceiptPath, handoff.CaptureReceiptSHA256, owner)
 		if err != nil {
 			return nil, err
 		}
 		var captured productionMaintenanceCapture
-		if json.Unmarshal(receipt, &captured) != nil || captured.Format != "lmm-credit-maintenance-capture-v1" || captured.Phase != "FROZEN" || captured.TransitionID != handoff.TransitionID || captured.TransitionIntentSHA256 != handoff.TransitionIntentSHA256 || captured.PID != handoff.StoppedWriter.PID || captured.InvocationID != handoff.StoppedWriter.InvocationID || captured.ArchivedEnvironmentSHA256 != handoff.ArchivedEnvironmentSHA256 || captured.ShutdownJournalSHA256 != handoff.StoppedWriter.ShutdownJournalSHA256 {
+		if json.Unmarshal(receipt, &captured) != nil || captured.Format != "lmm-credit-maintenance-capture-v1" || captured.Phase != "FROZEN" || captured.TransitionID != handoff.TransitionID || captured.TransitionIntentSHA256 != handoff.TransitionIntentSHA256 || captured.PID != handoff.StoppedWriter.PID || captured.InvocationID != handoff.StoppedWriter.InvocationID || captured.ArchivedEnvironmentPath != handoff.ArchivedEnvironmentPath || captured.ArchivedEnvironmentSHA256 != handoff.ArchivedEnvironmentSHA256 || captured.ShutdownJournalPath != handoff.StoppedWriter.ShutdownJournalPath || captured.ShutdownJournalSHA256 != handoff.StoppedWriter.ShutdownJournalSHA256 || handoff.Stage == "post" && (!captured.WasMaintenanceConfirmed || captured.ProviderSHA256 != handoff.ProviderSHA256) {
 			return nil, errors.New("stopped handoff differs from normal owner frozen capture receipt")
 		}
 	}
@@ -338,6 +463,10 @@ func validateMaintenanceShutdownJournal(journal []byte) error {
 
 func (runtime *productionRuntime) releaseGlobalLock(lock *os.File) {
 	if runtime.guardianLease != nil {
+		for _, extra := range runtime.guardianExtraLocks {
+			_ = extra.Close()
+		}
+		runtime.guardianExtraLocks = nil
 		_ = lock.Close()
 		_ = runtime.guardianLease.Close()
 		runtime.guardianLease = nil
@@ -426,6 +555,9 @@ func (runtime *productionRuntime) verifyMaintenanceDatabase(ctx context.Context,
 }
 
 func (runtime *productionRuntime) configureMaintenanceService(workspace productionWorkspace, manifest productionManifest, rollback bool) error {
+	if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+		return err
+	}
 	if manifest.MaintenanceHandoff == nil {
 		return nil
 	}
@@ -532,6 +664,9 @@ func (runtime *productionRuntime) probeMaintenanceRelease(ctx context.Context, w
 }
 
 func (runtime *productionRuntime) maintenanceRelease(ctx context.Context, workspace productionWorkspace, globalPath, globalSHA string) (productionStatus, error) {
+	if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+		return productionStatus{}, err
+	}
 	manifest, err := runtime.readManifest(workspace)
 	if err != nil {
 		return productionStatus{}, err
@@ -798,6 +933,9 @@ func (runtime *productionRuntime) persistMaintenanceCapture(workspace production
 }
 
 func (runtime *productionRuntime) maintenanceClose(ctx context.Context, workspace productionWorkspace) (productionStatus, error) {
+	if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+		return productionStatus{}, err
+	}
 	manifest, err := runtime.readManifest(workspace)
 	if err != nil {
 		return productionStatus{}, err
@@ -839,6 +977,9 @@ func (runtime *productionRuntime) maintenanceClose(ctx context.Context, workspac
 }
 
 func (runtime *productionRuntime) maintenanceStop(ctx context.Context, workspace productionWorkspace, allPath, allSHA string) (productionStatus, error) {
+	if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+		return productionStatus{}, err
+	}
 	manifest, err := runtime.readManifest(workspace)
 	if err != nil {
 		return productionStatus{}, err
@@ -943,6 +1084,9 @@ func validateMaintenanceServiceDropIn(path string, content []byte) error {
 }
 
 func (runtime *productionRuntime) archiveMaintenancePrearmFailure(ctx context.Context, workspace productionWorkspace) error {
+	if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+		return err
+	}
 	if !runtime.maintenanceStopped() || runtime.guardianLease == nil {
 		return errors.New("maintenance prearm retry requires the same stopped handoff and guardian lease")
 	}

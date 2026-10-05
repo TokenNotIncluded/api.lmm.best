@@ -8,9 +8,108 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func maintenanceBindingFixture(t *testing.T, stage string) (*productionRuntime, productionWorkspace, *productionMaintenanceHandoff) {
+	t.Helper()
+	root, err := os.MkdirTemp(filepath.Join(os.Getenv("HOME"), ".cache"), "maintenance-binding-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	staging := filepath.Join(root, "staging")
+	if err := os.Mkdir(staging, 0700); err != nil {
+		t.Fatal(err)
+	}
+	prepared := productionMaintenancePrepareConfig{Format: "lmm-credit-transition-prepare-v1", TransitionID: "fixture", TransitionIntentSHA256: strings.Repeat("a", 64), ProviderSHA256: strings.Repeat("b", 64), TargetCreditsPerUSD: 500000, Database: map[string]any{"system_identifier": "123", "database": "fixture", "database_oid": float64(123), "schema": "public", "server_version_num": float64(170000), "database_user": "fixture"}, Options: map[string]string{"CreditsPerUSD": "400000", "LegacyPricingQuotaPerUnit": "400000", "QuotaPerUnit": "400000", "PublicCreditsPerUSD": "400000", "USDExchangeRate": "7.1"}}
+	preparePath := filepath.Join(root, "prepare.json")
+	content, _ := json.Marshal(prepared)
+	if err := os.WriteFile(preparePath, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	prepareSHA, _ := sha256File(preparePath)
+	h := &productionMaintenanceHandoff{Format: productionMaintenanceHandoffFormat, Stage: stage, DeploymentTool: "native", TransitionID: prepared.TransitionID, TransitionIntentSHA256: prepared.TransitionIntentSHA256, ProviderSHA256: prepared.ProviderSHA256, PrepareConfigPath: preparePath, PrepareConfigSHA256: prepareSHA, GuardianSocket: filepath.Join(root, "guardian.sock")}
+	path := filepath.Join(staging, "handoff.json")
+	content, _ = json.Marshal(h)
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest, _ := sha256File(path)
+	loaded, err := loadProductionMaintenanceHandoff(path, digest, uint32(os.Getuid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &productionRuntime{requiredOwnerUID: uint32(os.Getuid()), maintenanceHandoff: loaded}, productionWorkspace{root: root, stagingDir: staging}, loaded
+}
+
+func TestPostStagingIntentLoadsButEveryActivationRejectsBeforeMutation(t *testing.T) {
+	_, _, h := maintenanceBindingFixture(t, "post")
+	for _, action := range []string{"apply", "maintenance-retry", "maintenance-capture", "maintenance-close", "maintenance-stop", "confirm", "rollback", "maintenance-release"} {
+		t.Run(action, func(t *testing.T) {
+			f := newProductionFixture(t)
+			f.runtime.maintenanceHandoff = h
+			before, _ := os.ReadFile(filepath.Join(f.runtime.paths.TransactionLock, productionTransactionMarker))
+			options := f.options
+			options.Action = action
+			if _, err := f.runtime.executeTransaction(context.Background(), options); err == nil || !strings.Contains(err.Error(), "staging intent") {
+				t.Fatalf("err=%v", err)
+			}
+			after, _ := os.ReadFile(filepath.Join(f.runtime.paths.TransactionLock, productionTransactionMarker))
+			if !bytes.Equal(before, after) || len(f.runner.events) != 0 {
+				t.Fatalf("premature mutation events=%v", f.runner.events)
+			}
+			entries, _ := os.ReadDir(f.workspace.stateDir)
+			if len(entries) != 0 {
+				t.Fatalf("premature state mutation: %v", entries)
+			}
+		})
+	}
+}
+
+func TestStoppedRefinementKeepsImmutablePostIntentAndRejectsChanges(t *testing.T) {
+	for _, change := range []string{"", "provider", "config", "socket", "stage", "public", "base-bytes", "base-fields", "already-stopped"} {
+		t.Run(change, func(t *testing.T) {
+			runtime, workspace, base := maintenanceBindingFixture(t, "post")
+			next := *base
+			next.SHA256 = strings.Repeat("c", 64)
+			next.PreviousDeploymentID = "bridge"
+			next.StoppedWriter = &productionStoppedWriter{PID: 2147483647, InvocationID: strings.Repeat("a", 32)}
+			switch change {
+			case "provider":
+				next.ProviderSHA256 = strings.Repeat("d", 64)
+			case "config":
+				next.PrepareConfigPath += ".other"
+			case "socket":
+				next.GuardianSocket += ".other"
+			case "stage":
+				next.Stage = "prebridge"
+			case "public":
+				next.PublicBaseURL = "https://other.invalid"
+			case "base-bytes":
+				os.WriteFile(base.Path, []byte("changed"), 0600)
+			case "base-fields":
+				base.ProbeTokenPath = "/other/token"
+			case "already-stopped":
+				base.StoppedWriter = next.StoppedWriter
+			}
+			before, _ := os.ReadFile(base.Path)
+			err := runtime.verifyStoppedHandoffRefinement(workspace, base, &next)
+			if change == "" && err != nil {
+				t.Fatal(err)
+			}
+			if change != "" && err == nil {
+				t.Fatalf("accepted %s", change)
+			}
+			after, _ := os.ReadFile(base.Path)
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("refinement rewrote immutable base intent")
+			}
+		})
+	}
+}
 
 type maintenanceBodyRunner struct{ body []byte }
 

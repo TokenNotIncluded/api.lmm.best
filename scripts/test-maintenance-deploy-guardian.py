@@ -297,6 +297,34 @@ class GuardianTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 guardian.bound_file(path, expected, os.getuid())
 
+    def test_adopt_all_preserves_three_lock_descriptions_after_guardian_exit(self):
+        with self.running_guardian() as (_, value, original, expected, paths, process):
+            bound = guardian.handoff(original, expected, os.getuid())
+            descriptors, lease, reply = guardian.adopt_all(bound, expected, os.getuid(), paths)
+            try:
+                self.assertEqual(3, len(descriptors))
+                self.assertEqual([paths[name] for name in ('native', 'systemd', 'frontend')],
+                                 reply['transferred_paths'])
+                for descriptor, path in zip(descriptors, reply['transferred_paths']):
+                    self.assertEqual(os.stat(path).st_ino, os.fstat(descriptor).st_ino)
+                self.assert_three_locks_held(paths)
+                process.terminate()
+                process.join(5)
+                self.assertFalse(process.is_alive())
+                self.assert_three_locks_held(paths)
+            finally:
+                # Closing the adopted OFDs is sufficient; LOCK_UN would unlock
+                # the guardian's description while it is still alive.
+                for descriptor in descriptors:
+                    os.close(descriptor)
+                lease.close()
+            for path in paths.values():
+                independent = os.open(path, os.O_RDWR)
+                try:
+                    fcntl.flock(independent, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                finally:
+                    os.close(independent)
+
 
 if __name__ == '__main__':
     unittest.main()

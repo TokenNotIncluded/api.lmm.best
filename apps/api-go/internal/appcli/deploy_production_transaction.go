@@ -590,6 +590,9 @@ func providerLinkState(path string) (string, error) {
 }
 
 func (runtime *productionRuntime) apply(ctx context.Context, workspace productionWorkspace, options productionTransactionOptions) (result productionStatus, returnErr error) {
+	if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+		return productionStatus{}, err
+	}
 	if runtime.maintenanceHandoff != nil && options.Action != "maintenance-capture" && !runtime.maintenanceStopped() {
 		return productionStatus{}, errors.New("maintenance apply requires official all-stopped owner handoff")
 	}
@@ -612,6 +615,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	}
 	if _, err := os.Lstat(workspace.statusPath); !errors.Is(err, os.ErrNotExist) {
 		return productionStatus{}, errors.New("deployment status already exists")
+	}
+	if err := runtime.activateMaintenanceStagingIntent(ctx, workspace); err != nil {
+		return productionStatus{}, err
 	}
 	if err := runtime.validateTransactionLock(workspace); err != nil {
 		return productionStatus{}, err
@@ -1182,6 +1188,9 @@ func (runtime *productionRuntime) confirm(ctx context.Context, workspace product
 }
 
 func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace productionWorkspace, manifest productionManifest) (productionStatus, error) {
+	if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+		return productionStatus{}, err
+	}
 	status, err := runtime.readStatus(workspace)
 	if err != nil {
 		return productionStatus{}, err
@@ -1277,6 +1286,9 @@ func (runtime *productionRuntime) persistRollbackFailure(workspace productionWor
 }
 
 func (runtime *productionRuntime) rollback(ctx context.Context, workspace productionWorkspace, reason string) (productionStatus, error) {
+	if err := runtime.refuseUnstoppedPostMutation(); err != nil {
+		return productionStatus{}, err
+	}
 	manifest, err := runtime.readManifestForRollback(workspace)
 	if err != nil {
 		return productionStatus{}, err
