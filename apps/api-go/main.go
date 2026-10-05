@@ -20,6 +20,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/controller"
 	"github.com/LIghtJUNction/api.lmm.best/i18n"
 	"github.com/LIghtJUNction/api.lmm.best/internal/appcli"
+	"github.com/LIghtJUNction/api.lmm.best/internal/credittransition"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -43,6 +44,13 @@ func main() {
 	dispatch := appcli.Dispatch(os.Args[1:], common.Version, os.Stdout, os.Stderr)
 	switch dispatch.Mode {
 	case appcli.ModeServe:
+		if credittransition.Requested() {
+			if err := runCreditPreparation("serve", dispatch.ServeArgs); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "%s credit preparation: %v\n", appcli.ProgramName, err)
+				os.Exit(appcli.ExitError)
+			}
+			return
+		}
 		// common.InitEnv owns the server flag set. Remove the optional serve word so
 		// `lmm-api serve --port ...` and `lmm-api --port ...` share one parser.
 		os.Args = append([]string{os.Args[0]}, dispatch.ServeArgs...)
@@ -59,6 +67,13 @@ func main() {
 }
 
 func runMigrationCommand(mode model.DBMigrationMode) {
+	if credittransition.Requested() {
+		if err := runCreditPreparation(string(mode), nil); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "%s credit preparation --%s: %v\n", appcli.ProgramName, mode, err)
+			os.Exit(appcli.ExitError)
+		}
+		return
+	}
 	if err := os.Setenv("LMM_DB_MIGRATION_MODE", string(mode)); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%s migrate: set migration mode: %v\n", appcli.ProgramName, err)
 		os.Exit(appcli.ExitError)
