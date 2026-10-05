@@ -112,7 +112,7 @@ func TestRatioSyncCurrencyPartialShapePreservesWholeLocalModel(t *testing.T) {
 }
 
 func TestRatioSyncCurrencyModelsDevRequiresProviderBeforeNetwork(t *testing.T) {
-	ratioSyncCurrencyFixture(t, 3359744)
+	ratioSyncCurrencyFixture(t, 500000)
 	for _, endpoint := range []string{"/api.json", "/api.json?provider=", "/api.json?provider=openai&provider=anthropic"} {
 		w := ratioSyncRunHandler(t, http.MethodPost, "/api/ratio_sync/fetch", map[string]any{
 			"upstreams": []map[string]any{{"name": "models.dev", "base_url": "https://models.dev", "endpoint": endpoint}},
@@ -161,7 +161,7 @@ func TestRatioSyncCurrencyOrphanBillingContractsAreNotSelectable(t *testing.T) {
 }
 
 func TestRatioSyncCurrencyBridgeRejectsPositiveRoundingToFree(t *testing.T) {
-	db := ratioSyncCurrencyFixture(t, 3359744)
+	db := ratioSyncCurrencyFixture(t, 500000)
 	fetched := ratioSyncFetchCurrency(t, map[string]any{
 		"success": true, "pricing_schema_version": 2, "pricing_currency": "USD",
 		"data": map[string]any{"model_price": map[string]float64{"small": 1e-100, "free": 0}},
@@ -187,7 +187,7 @@ func TestRatioSyncCurrencyBridgeRejectsPositiveRoundingToFree(t *testing.T) {
 }
 
 func TestRatioSyncCurrencyInactiveExpressionNeverChangesActiveMode(t *testing.T) {
-	db := ratioSyncCurrencyFixture(t, 3359744)
+	db := ratioSyncCurrencyFixture(t, 500000)
 	oldExpr := `v1:tier("inactive_old", p*100)`
 	require.NoError(t, model.UpdateOptionsBulk(map[string]string{
 		"billing_setting.billing_mode": `{"quote":"ratio","keep-expr":"tiered_expr"}`,

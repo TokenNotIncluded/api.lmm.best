@@ -23,7 +23,7 @@ import (
 // pre-consume helper and final settlement. A canonical readback is never fed
 // directly into the raw runtime snapshot.
 func TestUSDPriceSaveReserveSettleReadbackKeepsLedgerCalibration(t *testing.T) {
-	db := ratioSyncCurrencyFixture(t, 3359744)
+	db := ratioSyncCurrencyFixture(t, 500000)
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(100000)))
 	t.Cleanup(common.ClearPublicCreditsPerUSD)
 	persistCreditDenominationFixture(t, db)
@@ -54,10 +54,10 @@ func TestUSDPriceSaveReserveSettleReadbackKeepsLedgerCalibration(t *testing.T) {
 	rawBefore := ratioSyncStoredOptions(t, db)
 	var stored map[string]string
 	require.NoError(t, json.Unmarshal([]byte(rawBefore["billing_setting.billing_expr"]), &stored))
-	require.Contains(t, stored[flat], "6.719488", "USD save converts the entire expression once to the immutable legacy basis")
+	require.Contains(t, stored[flat], "* (1)", "USD save keeps the fixed dollar-to-credit denomination")
 	rawMillion, _, err := billingexpr.RunExpr(stored[flat], billingexpr.TokenParams{P: 1e6, Len: 1e6})
 	require.NoError(t, err)
-	require.Equal(t, 4e6*6.719488, rawMillion)
+	require.Equal(t, 4e6, rawMillion)
 	var quotes map[string]string
 	require.NoError(t, json.Unmarshal([]byte(saved.Values["billing_setting.billing_expr"]), &quotes))
 	quotedMillion, _, err := billingexpr.RunExpr(quotes[flat], billingexpr.TokenParams{P: 1e6, Len: 1e6})
@@ -92,7 +92,7 @@ func TestUSDPriceSaveReserveSettleReadbackKeepsLedgerCalibration(t *testing.T) {
 		units, e := model.CreditDenominationSnapshot()
 		require.NoError(t, e)
 		require.Equal(t, p, units.PublicCreditsPerUSDExact)
-		display, e := units.ProjectLedgerQuota(3359744)
+		display, e := units.ProjectLedgerQuota(500000)
 		require.NoError(t, e)
 		require.Equal(t, p, display.String())
 		for _, v := range vectors {
@@ -105,11 +105,11 @@ func TestUSDPriceSaveReserveSettleReadbackKeepsLedgerCalibration(t *testing.T) {
 			require.Equal(t, stored[v.model], info.TieredBillingSnapshot.ExprString)
 			require.Equal(t, float64(500000), info.TieredBillingSnapshot.QuotaPerUnit)
 			if v.model == flat {
-				want, e := common.QuotaFromDecimalStrict(decimal.NewFromFloat(v.usd).Mul(decimal.NewFromInt(3359744)))
+				want, e := common.QuotaFromDecimalStrict(decimal.NewFromFloat(v.usd).Mul(decimal.NewFromInt(500000)))
 				require.NoError(t, e)
 				require.Equal(t, want, price.QuotaToPreConsume)
 				if v.params.P == 1e6 {
-					require.Equal(t, 13438976, price.QuotaToPreConsume)
+					require.Equal(t, 2000000, price.QuotaToPreConsume)
 				}
 			}
 			params := v.params
@@ -123,7 +123,7 @@ func TestUSDPriceSaveReserveSettleReadbackKeepsLedgerCalibration(t *testing.T) {
 			require.True(t, ok)
 			require.NotNil(t, result)
 			require.Nil(t, result.Clamp)
-			expected, e := common.QuotaFromDecimalStrict(decimal.NewFromFloat(v.usd).Mul(decimal.NewFromInt(3359744)))
+			expected, e := common.QuotaFromDecimalStrict(decimal.NewFromFloat(v.usd).Mul(decimal.NewFromInt(500000)))
 			require.NoError(t, e)
 			require.Equal(t, expected, actual, v.name)
 			require.Equal(t, v.tier, result.MatchedTier)

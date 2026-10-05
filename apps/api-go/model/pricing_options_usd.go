@@ -69,6 +69,13 @@ func validateAuthoritativePricingUnits(db *gorm.DB) error {
 	if err != nil || !baselineFound {
 		return common.ErrCreditUnitsUnavailable
 	}
+	// Prices must never inherit a former FX-derived wallet calibration, even
+	// when an old node's cache still agrees with those obsolete durable rows.
+	// Repairing balances is separate from changing the USD price denomination.
+	fixed := decimal.NewFromInt(500000)
+	if !durableAnchor.Equal(fixed) || !durableBaseline.Equal(fixed) || !legacy.Equal(fixed) {
+		return ErrPricingUnitsStale
+	}
 	if !anchor.Equal(durableAnchor) || !baseline.Equal(durableBaseline) || !legacy.Equal(durableBaseline) || !legacy.Equal(decimal.NewFromFloat(common.QuotaPerUnit)) {
 		return ErrPricingUnitsStale
 	}

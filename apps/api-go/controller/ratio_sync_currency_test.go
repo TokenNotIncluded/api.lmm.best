@@ -31,7 +31,7 @@ var ratioSyncOptionKeys = map[string]string{
 }
 
 // Every fetch sees the same complete durable currency basis as a real node;
-// the legacy 500k calibration must never silently become the USD anchor.
+// the USD denomination remains fixed at 500k, independently of source units.
 func ratioSyncCurrencyFixture(t *testing.T, creditsPerUSD int64) *gorm.DB {
 	t.Helper()
 	oldDB, oldLog, oldRedis := model.DB, model.LOG_DB, common.RedisEnabled
@@ -230,7 +230,7 @@ func ratioSyncCurrencySource(format string) map[string]any {
 }
 
 func TestRatioSyncCurrencyPublicFetchCASRoundTrip(t *testing.T) {
-	for _, k := range []int64{500000, 3000000, 3359744} {
+	for _, k := range []int64{500000} {
 		for _, format := range []string{"standard-legacy", "explicit-legacy", "canonical-array"} {
 			t.Run(fmt.Sprintf("K%d/%s", k, format), func(t *testing.T) {
 				db := ratioSyncCurrencyFixture(t, k)
@@ -336,7 +336,7 @@ func TestRatioSyncCurrencyPublicFetchCASRoundTrip(t *testing.T) {
 }
 
 func TestRatioSyncCurrencyStaleSnapshotRejectsEverySelectedWrite(t *testing.T) {
-	db := ratioSyncCurrencyFixture(t, 3359744)
+	db := ratioSyncCurrencyFixture(t, 500000)
 	fetched := ratioSyncFetchCurrency(t, ratioSyncCurrencySource("canonical-array"))
 	update := ratioSyncCurrencySelection(t, fetched, "quote", "fixed", "split", "minute")
 	winner := model.USDPriceUpdate{SchemaVersion: 2, Currency: "USD", ExpectedRevision: fetched.Data.PricingConfig.Revision, Values: map[string]string{"ImageRatio": `{"other-writer":3}`}}
@@ -349,7 +349,7 @@ func TestRatioSyncCurrencyStaleSnapshotRejectsEverySelectedWrite(t *testing.T) {
 }
 
 func TestRatioSyncCurrencyRejectsExplicitLegacyWithoutCalibration(t *testing.T) {
-	db := ratioSyncCurrencyFixture(t, 3359744)
+	db := ratioSyncCurrencyFixture(t, 500000)
 	before := ratioSyncStoredOptions(t, db)
 	for _, metadata := range []map[string]any{
 		{"pricing_storage_basis": "legacy_pricing_unit"},
@@ -367,7 +367,7 @@ func TestRatioSyncCurrencyRejectsExplicitLegacyWithoutCalibration(t *testing.T) 
 }
 
 func TestRatioSyncCurrencyFetchFailsWithoutDurableBasis(t *testing.T) {
-	db := ratioSyncCurrencyFixture(t, 3359744)
+	db := ratioSyncCurrencyFixture(t, 500000)
 	require.NoError(t, db.Delete(&model.Option{}, "key = ?", model.CreditsPerUSDOptionKey).Error)
 	w := ratioSyncRunHandler(t, http.MethodPost, "/api/ratio_sync/fetch", map[string]any{"upstreams": []map[string]any{{"name": "unused", "base_url": "http://127.0.0.1:1"}}}, FetchUpstreamRatios)
 	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
@@ -376,7 +376,7 @@ func TestRatioSyncCurrencyFetchFailsWithoutDurableBasis(t *testing.T) {
 func TestRatioSyncCurrencyExportProvidesCompleteUSDContract(t *testing.T) {
 	var exported map[string]any
 	t.Run("source", func(t *testing.T) {
-		ratioSyncCurrencyFixture(t, 3359744)
+		ratioSyncCurrencyFixture(t, 500000)
 		oldExpose := ratio_setting.IsExposeRatioEnabled()
 		ratio_setting.SetExposeRatioEnabled(true)
 		t.Cleanup(func() { ratio_setting.SetExposeRatioEnabled(oldExpose) })
@@ -386,9 +386,9 @@ func TestRatioSyncCurrencyExportProvidesCompleteUSDContract(t *testing.T) {
 		require.Equal(t, float64(2), exported["pricing_schema_version"])
 		require.Equal(t, "USD", exported["pricing_currency"])
 		require.Equal(t, "legacy_pricing_unit", exported["pricing_storage_basis"])
-		require.Equal(t, float64(3359744), exported["credits_per_usd"])
+		require.Equal(t, float64(500000), exported["credits_per_usd"])
 		require.Equal(t, float64(500000), exported["legacy_pricing_quota_per_unit"])
-		require.Equal(t, 6.719488, exported["legacy_pricing_units_per_usd"])
+		require.Equal(t, 1.0, exported["legacy_pricing_units_per_usd"])
 		direct, err := model.GetUSDPriceConfig()
 		require.NoError(t, err)
 		require.Equal(t, direct.ModelRatioUSDPerMillion, exported["model_ratio_usd_per_million"])
@@ -401,7 +401,7 @@ func TestRatioSyncCurrencyExportProvidesCompleteUSDContract(t *testing.T) {
 		}
 		require.NotContains(t, data, "tool_price_setting.prices")
 	})
-	t.Run("different destination", func(t *testing.T) {
+	t.Run("destination", func(t *testing.T) {
 		ratioSyncCurrencyFixture(t, 500000)
 		fetched := ratioSyncFetchCurrency(t, exported)
 		require.Len(t, fetched.Data.Results, 1)
@@ -413,12 +413,12 @@ func TestRatioSyncCurrencyExportProvidesCompleteUSDContract(t *testing.T) {
 		require.True(t, exists)
 		quote, err := model.NormalizePricingUSD([]model.Pricing{{ModelName: "quote", ModelRatio: m, CompletionRatio: 1}})
 		require.NoError(t, err)
-		require.InDelta(t, .2976417250838159, *quote[0].InputPrice, 1e-14, "source 1 credit/token at K3359744 retains its real USD rate")
+		require.InDelta(t, 2.0, *quote[0].InputPrice, 1e-14, "source 1 credit/token retains its fixed USD rate")
 		price, exists := ratio_setting.GetModelPrice("keep-fixed", false)
 		require.True(t, exists)
 		fixed, err := model.LegacyPricingAmountUSD(price)
 		require.NoError(t, err)
-		require.InDelta(t, .002529954663212435, fixed, 1e-15, "canonical export must not scale fixed USD a second time")
+		require.InDelta(t, .017, fixed, 1e-15, "canonical export must not scale fixed USD a second time")
 		raw, exists := billing_setting.GetBillingExpr("keep-expr")
 		require.True(t, exists)
 		canonical, err := model.USDExpression(raw)
@@ -426,12 +426,12 @@ func TestRatioSyncCurrencyExportProvidesCompleteUSDContract(t *testing.T) {
 		cost, trace, err := billingexpr.RunExpr(canonical, billingexpr.TokenParams{P: 1e6})
 		require.NoError(t, err)
 		require.Equal(t, "keep", trace.MatchedTier)
-		require.InDelta(t, 183719.35480798537, cost, 1e-8, "the exported USD expression keeps its value at a different destination K")
+		require.InDelta(t, 1234500.0, cost, 1e-8, "the exported USD expression keeps its fixed denomination value")
 	})
 }
 
 func TestRatioSyncCurrencyLegacyFallbackConfidenceSurvivesNormalization(t *testing.T) {
-	ratioSyncCurrencyFixture(t, 3359744)
+	ratioSyncCurrencyFixture(t, 500000)
 	fetched := ratioSyncFetchCurrency(t, ratioSyncCurrencySource("standard-legacy"))
 	require.Contains(t, fetched.Data.Differences, "legacy-fallback")
 	confidence := fetched.Data.Differences["legacy-fallback"]["model_ratio"].Confidence
@@ -442,7 +442,7 @@ func TestRatioSyncCurrencyLegacyFallbackConfidenceSurvivesNormalization(t *testi
 func TestRatioSyncCurrencyExpressionSelectionKeepsSameSourceModePair(t *testing.T) {
 	for _, modeChanges := range []bool{false, true} {
 		t.Run(fmt.Sprint(modeChanges), func(t *testing.T) {
-			ratioSyncCurrencyFixture(t, 3359744)
+			ratioSyncCurrencyFixture(t, 500000)
 			mode := "tiered_expr"
 			if modeChanges {
 				mode = "ratio"
@@ -471,7 +471,7 @@ func TestRatioSyncCurrencyExpressionSelectionKeepsSameSourceModePair(t *testing.
 }
 
 func TestRatioSyncCurrencyGPTWholeUSDExpressionPreservesLenTierBoundary(t *testing.T) {
-	ratioSyncCurrencyFixture(t, 3359744)
+	ratioSyncCurrencyFixture(t, 500000)
 	// Exercise the canonical whole-expression/len/tier shape, including the
 	// legacy storage metadata carried beside a schema-2 public USD quote.
 	const expr = `len <= 272000 ? tier("standard_short", p * 4 + c * 20 + cr * 0.4 + cc * 5) : tier("standard_long", p * 8 + c * 30 + cr * 0.8 + cc * 10)`
@@ -521,7 +521,7 @@ func TestRatioSyncCurrencyGPTWholeUSDExpressionPreservesLenTierBoundary(t *testi
 				ExprString: raw, ExprHash: billingexpr.ExprHashString(raw), QuotaPerUnit: 500000, GroupRatio: 1, ExprVersion: 1,
 			}, params)
 			require.NoError(t, err)
-			want, clamp := common.QuotaFromDecimalChecked(decimal.NewFromFloat(test.usd).Mul(decimal.NewFromInt(3359744)))
+			want, clamp := common.QuotaFromDecimalChecked(decimal.NewFromFloat(test.usd).Mul(decimal.NewFromInt(500000)))
 			require.Nil(t, clamp)
 			require.Equal(t, want, actual.ActualQuotaAfterGroup)
 		})

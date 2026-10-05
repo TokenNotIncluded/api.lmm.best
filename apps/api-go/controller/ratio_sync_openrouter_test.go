@@ -116,17 +116,17 @@ func TestOpenRouterKeepsNegativeSentinelOutOfResults(t *testing.T) {
 	}, result)
 }
 
-func TestOpenRouterUsesDurableCreditAnchorForUSDPrices(t *testing.T) {
-	ratioSyncCurrencyFixture(t, 3000000)
+func TestOpenRouterUsesFixedCreditAnchorForUSDPrices(t *testing.T) {
+	ratioSyncCurrencyFixture(t, 500000)
 	result, err := convertOpenRouterToRatioData(strings.NewReader(`{"data":[
 		{"id":"usd-model","pricing":{"prompt":"0.000002","completion":"0.000006","input_cache_read":"0.000001"}}
 	]}`))
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{
-		"model_ratio":      map[string]any{"usd-model": 6.0},
+		"model_ratio":      map[string]any{"usd-model": 1.0},
 		"completion_ratio": map[string]any{"usd-model": 3.0},
 		"cache_ratio":      map[string]any{"usd-model": 0.5},
-	}, result, "absolute USD prices use the local credit anchor; relative token multipliers do not")
+	}, result, "absolute USD prices use the fixed credit anchor; relative token multipliers do not")
 	_, err = json.Marshal(result)
 	require.NoError(t, err)
 }

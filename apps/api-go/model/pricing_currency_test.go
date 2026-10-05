@@ -113,7 +113,7 @@ func TestUSDModalityAndCacheProductsUseTheSameMoneyGuard(t *testing.T) {
 }
 func TestUSDPriceReadSavePreservesAllLegacyBytesAndLocks(t *testing.T) {
 	setupPriceLockTest(t)
-	pricingCurrencyFixture(t, 500000, 4500000)
+	pricingCurrencyFixture(t, 500000, 500000)
 	raw := priceOptionSnapshot()
 	for k := range raw {
 		raw[k] = ` { "unchanged" : 1.000000 , "tiny" : 0.000001 } `
@@ -141,11 +141,11 @@ func TestUSDPriceReadSavePreservesAllLegacyBytesAndLocks(t *testing.T) {
 		require.Equal(t, v, persistedPriceOption(t, k), k)
 	}
 	require.Equal(t, before.Values, after.Values)
-	require.InDelta(t, 10.0/9, before.ToolPriceDefaults["web_search"], 1e-15)
+	require.InDelta(t, 10.0, before.ToolPriceDefaults["web_search"], 1e-15)
 }
 func TestUSDPriceEditPreservesEntriesAndRejectsStaleRevision(t *testing.T) {
 	setupPriceLockTest(t)
-	pricingCurrencyFixture(t, 500000, 3000000)
+	pricingCurrencyFixture(t, 500000, 500000)
 	raw := priceOptionSnapshot()
 	raw["ModelPrice"] = `{"locked":0.05000,"keep":0.017000,"edit":0.034,"tiny":0.000001}`
 	raw[ModelPriceLocksOptionKey] = `{"locked":true}`
@@ -170,7 +170,7 @@ func TestUSDPriceEditPreservesEntriesAndRejectsStaleRevision(t *testing.T) {
 	require.Equal(t, `0.05000`, string(saved["locked"]))
 	require.Equal(t, `0.017000`, string(saved["keep"]))
 	require.Equal(t, `0.000001`, string(saved["tiny"]))
-	require.JSONEq(t, `0.252`, string(saved["edit"]))
+	require.JSONEq(t, `0.042`, string(saved["edit"]))
 	require.NotEqual(t, before.Revision, after.Revision)
 	_, _, e = UpdateUSDPriceConfig(r)
 	require.ErrorIs(t, e, ErrPricingRevisionConflict)
@@ -245,7 +245,7 @@ func TestUSDNormalizationDetachesLegacyCacheAndFailsClosed(t *testing.T) {
 
 func TestUSDPriceCASRejectsDifferentNodeCalibration(t *testing.T) {
 	setupPriceLockTest(t)
-	pricingCurrencyFixture(t, 500000, 3500000)
+	pricingCurrencyFixture(t, 500000, 500000)
 	for key, value := range priceOptionSnapshot() {
 		require.NoError(t, DB.Create(&Option{Key: key, Value: value}).Error)
 	}
@@ -291,7 +291,7 @@ func TestUSDExpressionPreservesVersionAndRequestRules(t *testing.T) {
 
 func TestUSDExpressionVersionedReadSaveAndEdit(t *testing.T) {
 	setupPriceLockTest(t)
-	pricingCurrencyFixture(t, 500000, 7000000)
+	pricingCurrencyFixture(t, 500000, 500000)
 	raw := priceOptionSnapshot()
 	raw["billing_setting.billing_expr"] = ` { "versioned" : "v1:tier(\"base\", p*28+c*112)" } `
 	for key, value := range raw {
@@ -311,11 +311,11 @@ func TestUSDExpressionVersionedReadSaveAndEdit(t *testing.T) {
 	require.NoError(t, err)
 	var stored string
 	require.NoError(t, json.Unmarshal(entries["versioned"], &stored))
-	require.Equal(t, `v1:(tier("base", p*0.042)) * (14)`, stored)
+	require.Equal(t, `v1:(tier("base", p*0.042)) * (1)`, stored)
 	snap := &billingexpr.BillingSnapshot{ExprString: stored, ExprHash: billingexpr.ExprHashString(stored), QuotaPerUnit: 500000, GroupRatio: 1, ExprVersion: 1}
 	actual, err := billingexpr.ComputeTieredQuota(snap, billingexpr.TokenParams{P: 1000000})
 	require.NoError(t, err)
-	require.Equal(t, 294000, actual.ActualQuotaAfterGroup)
+	require.Equal(t, 21000, actual.ActualQuotaAfterGroup)
 }
 
 func TestUSDToolPriceWriterRetainsLegacyValidation(t *testing.T) {
