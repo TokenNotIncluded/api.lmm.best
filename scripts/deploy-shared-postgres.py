@@ -122,7 +122,7 @@ def command(args, *, env=None, log=None, timeout=180, cwd=None):
 
 def validate_plan(p):
     require(set(p) == {'format', 'id', 'confirmation', 'script_sha256', 'helper_sha256',
-                      'source_sha', 'candidate', 'nodes', 'database_owner',
+                      'source_sha', 'candidate', 'nodes', 'database_owner', 'database_backup',
                       'public_probes', 'expected_units', 'rehearsal_root'}, 'plan-fields')
     require(p['format'] == 1 and re.fullmatch(NAME, p['id']) and
             re.fullmatch(NAME, p['confirmation']), 'plan-identity')
@@ -148,6 +148,15 @@ def validate_plan(p):
         require(n['probes'], 'origin-barrier-required')
         names.append(n['name'])
     require(len(set(names)) == len(names) and p['database_owner'] in names, 'node-set')
+    backup = p['database_backup']
+    require(isinstance(backup, dict) and set(backup) == {
+        'transport', 'os_user', 'database_role', 'socket_directory', 'port'}, 'backup-fields')
+    require(backup['transport'] == 'local_peer' and
+            isinstance(backup['os_user'], str) and
+            re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', backup['os_user']) and backup['os_user'] != 'root' and
+            isinstance(backup['database_role'], str) and re.fullmatch(NAME, backup['database_role']) and
+            type(backup['port']) is int and 1 <= backup['port'] <= 65535, 'backup-role-binding')
+    absolute(backup['socket_directory'])
     require(p['public_probes'], 'public-barrier-required')
     for probe in p['public_probes'] + [v for n in p['nodes'] for v in n['probes']]:
         require(set(probe) == {'url', 'body_sha256'}, 'probe-fields')
@@ -245,8 +254,8 @@ def psql(env, sql):
     return command(['psql', '-XqAt', '--no-password', '-v', 'ON_ERROR_STOP=1', '-c', sql], env=env)
 
 
-def database_identity(env):
-    v = decode(psql(env, "SELECT json_build_object('system',system_identifier::text,'database',current_database(),'oid',(SELECT oid FROM pg_database WHERE datname=current_database()),'schema',current_schema(),'version',current_setting('server_version_num')) FROM pg_control_system()"))
+def database_identity(env, query=None):
+    v = decode((query or psql)(env, "SELECT json_build_object('system',system_identifier::text,'database',current_database(),'oid',(SELECT oid FROM pg_database WHERE datname=current_database()),'schema',current_schema(),'version',current_setting('server_version_num')) FROM pg_control_system()"))
     require(re.fullmatch(NAME, v['schema']), 'unsafe-schema')
     return v
 
@@ -256,14 +265,15 @@ def no_database_clients(env):
     require(count.strip() == b'0', 'unrecognized-database-client')
 
 
-def fingerprints(env, expected):
+def fingerprints(env, expected, query=None):
+    query = query or psql
     keys = ','.join("'" + k + "'" for k in PRICING_KEYS)
-    values = decode(psql(env, 'SELECT coalesce(json_object_agg(key,value),\'{}\'::json) FROM options WHERE key IN (' + keys + ')'))
+    values = decode(query(env, 'SELECT coalesce(json_object_agg(key,value),\'{}\'::json) FROM options WHERE key IN (' + keys + ')'))
     require(all(values.get(k) == v for k, v in expected.items()), 'immutable-units-changed')
     quotas = {}
     for table, quota_column in (('users', 'quota'), ('tokens', 'remain_quota')):
         sql = "SELECT md5(coalesce(string_agg(id::text||':'||" + quota_column + "::text||':'||used_quota::text,',' ORDER BY id),'')) FROM " + table
-        quotas[table] = psql(env, sql).strip().decode()
+        quotas[table] = query(env, sql).strip().decode()
     return {'pricing_and_policies': hashlib.sha256(encode(values)).hexdigest(), 'user_and_token_quota_columns': quotas}
 
 
@@ -277,13 +287,140 @@ def table_counts(env, schema):
     return result
 
 
-def database_table_counts(env):
-    tables = decode(psql(env, "SELECT coalesce(json_agg(json_build_array(schemaname,tablename) ORDER BY schemaname,tablename),'[]'::json) FROM pg_tables WHERE schemaname <> 'information_schema' AND schemaname NOT LIKE 'pg_%'"))
+def database_table_counts(env, query=None):
+    query = query or psql
+    tables = decode(query(env, "SELECT coalesce(json_agg(json_build_array(schemaname,tablename) ORDER BY schemaname,tablename),'[]'::json) FROM pg_tables WHERE schemaname <> 'information_schema' AND schemaname NOT LIKE 'pg_%'"))
     result = {}
     for schema, name in tables:
         quoted = '.'.join('"' + v.replace('"', '""') + '"' for v in (schema, name))
-        result[schema + '.' + name] = int(psql(env, 'SELECT count(*) FROM ' + quoted))
+        result[schema + '.' + name] = int(query(env, 'SELECT count(*) FROM ' + quoted))
     return result
+
+
+def terminate_peer(process):
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+    try:
+        os.killpg(process.pid, 0)
+    except ProcessLookupError:
+        return
+    # A surviving member cannot continue writing a supposedly sealed dump.
+    os.killpg(process.pid, signal.SIGKILL)
+    raise GateFailed('peer-process-group-survived')
+
+
+def peer_output(args, output, log, timeout, capture=False):
+    """Root owns both FDs; the peer never needs access to the private directory."""
+    fd = None
+    err = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        if output is not None:
+            fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            process = subprocess.Popen(args, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'},
+                                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE if capture else
+                                       (fd if fd is not None else subprocess.DEVNULL),
+                                       stderr=err, start_new_session=True)
+            data, _ = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Terminate the peer process group and wait. Partial private evidence
+            # is never sealed or armed, even if termination was ambiguous.
+            terminate_peer(process)
+            raise GateFailed('peer-command-timeout-outcome-unknown') from None
+        except OSError:
+            raise GateFailed('peer-command-unavailable') from None
+        terminate_peer(process)  # Also proves no successful child was left behind.
+        require(process.returncode == 0, 'peer-command-failed')
+        if fd is not None:
+            os.fsync(fd)
+    finally:
+        if fd is not None:
+            os.close(fd)
+        os.close(err)
+    if output is not None:
+        regular(output)
+    return data if capture else None
+
+
+class PeerDatabase:
+    """Existing OS peer access for read-only full catalog/counts and backup only."""
+    def __init__(self, config, identity, work):
+        self.config, self.identity, self.work = config, identity, work
+        directory = absolute(config['socket_directory'])
+        require(directory.is_dir() and directory.resolve() == directory, 'backup-socket-directory-invalid')
+        require(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,62}', identity['schema']), 'backup-schema-invalid')
+        self.env = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'PGHOST': str(directory),
+                    'PGPORT': str(config['port']), 'PGDATABASE': identity['database'],
+                    'PGUSER': config['database_role'], 'PGPASSFILE': '/dev/null',
+                    'PGOPTIONS': '-csearch_path=' + identity['schema'] +
+                                 ' -crow_security=off -cdefault_transaction_read_only=on'}
+        self.prefix = ['runuser', '-u', config['os_user'], '--', '/usr/bin/env', '-i',
+                       *[k + '=' + v for k, v in self.env.items()]]
+        self.query_nonce, self.query_count = os.urandom(8).hex(), 0
+
+    def query(self, _env, sql):
+        self.query_count += 1
+        return peer_output(self.prefix + ['psql', '-XqAt', '--no-password', '-v', 'ON_ERROR_STOP=1', '-c', sql], None,
+                           self.work / ('backup-query-' + self.query_nonce + '-' + str(self.query_count) + '.stderr'),
+                           180, capture=True)
+
+    def binding(self):
+        require(database_identity(self.env, self.query) == self.identity, 'backup-database-mismatch')
+        role = decode(self.query(self.env, "SELECT json_build_object('current_user',current_user,'session_user',session_user,'superuser',rolsuper,'bypass_rls',rolbypassrls) FROM pg_roles WHERE rolname=current_user"))
+        require(role['current_user'] == role['session_user'] == self.config['database_role'], 'backup-effective-role-mismatch')
+        return {'configuration': self.config, 'identity': self.identity, 'role': role}
+
+    def verify(self, expected):
+        require(self.binding() == expected, 'backup-role-or-identity-changed')
+
+    def preflight(self, binding):
+        self.verify(binding)
+        capabilities = decode(self.query(self.env, "SELECT json_build_object("
+            "'missing_table_select',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_' AND CASE WHEN c.relkind IN ('r','p','m') THEN NOT has_table_privilege(c.oid,'SELECT') ELSE false END),"
+            "'missing_schema_usage',(SELECT count(*) FROM pg_namespace n WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_' AND NOT has_schema_privilege(n.oid,'USAGE')),"
+            "'missing_sequence_select',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_' AND CASE WHEN c.relkind='S' THEN NOT has_sequence_privilege(c.oid,'SELECT') ELSE false END),"
+            "'rls_without_bypass',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_' AND c.relrowsecurity AND NOT (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user)),"
+            "'missing_large_object_select',(SELECT count(*) FROM pg_largeobject_metadata WHERE NOT has_largeobject_privilege(oid,'SELECT')))"))
+        require(set(capabilities) == {'missing_table_select', 'missing_schema_usage', 'missing_sequence_select',
+                                     'rls_without_bypass', 'missing_large_object_select'} and
+                all(type(v) is int and v == 0 for v in capabilities.values()), 'backup-read-capability-missing')
+        # Actual reads catch catalog-only permission mistakes and RLS filtering.
+        tables = database_table_counts(self.env, self.query)
+        peer_output(self.prefix + ['pg_dump', '--no-password', '--schema-only'], None,
+                    self.work / 'backup-preflight-schema.stderr', 180)
+        self.verify(binding)
+        value = {'passed': True, 'binding': binding, 'capabilities': capabilities,
+                 'application_tables_read': len(tables), 'full_schema_dump_exit': 0}
+        private_write(self.work / 'backup-preflight.json', encode(value))
+        return value
+
+    def counts(self, binding):
+        self.verify(binding)
+        value = database_table_counts(self.env, self.query)
+        self.verify(binding)
+        return value
+
+    def fingerprint(self, binding, expected):
+        self.verify(binding)
+        value = fingerprints(self.env, expected, self.query)
+        self.verify(binding)
+        return value
+
+    def backup(self, binding):
+        self.verify(binding)
+        path = self.work / 'database.dump'
+        peer_output(self.prefix + ['pg_dump', '--no-password', '--format=custom'], path,
+                    self.work / 'backup.stderr', 3600)
+        command(['pg_restore', '--list', str(path)], log=self.work / 'backup-contents.log')
+        self.verify(binding)
+        return sha(path)
 
 
 def module(path):
@@ -334,7 +471,8 @@ def start_guardian(agent, plan, node):
         listener.close()
         path.unlink()
     private_write(agent.work / 'guardian.json', encode({'unit': name, 'locks': list(LOCKS),
-                                                       'plan_sha256': sha(node['plan'])}))
+                                                       'plan_sha256': sha(node['plan']),
+                                                       'database_backup': agent.backup_binding}))
     return name
 
 
@@ -420,6 +558,10 @@ class NodeAgent:
         self.env_hashes = {f: sha(f.lstrip('-')) for f in self.env_files}
         self.db_env = self.helper.database_environment()
         self.identity = database_identity(self.db_env)
+        self.peer = PeerDatabase(plan['database_backup'], self.identity, self.work) if node['name'] == plan['database_owner'] else None
+        self.backup_binding = self.peer.binding() if self.peer else None
+        if self.peer:
+            private_write(self.work / 'database-backup.json', encode(self.backup_binding))
         self.did_stop = self.armed = self.verified_old = self.did_start = self.dispatched = False
         private_write(self.work / 'original-writer.json', encode({
             'unit': self.before, 'agent_pid': os.getpid(), 'env_files': self.env_files,
@@ -439,6 +581,14 @@ class NodeAgent:
                 {f: sha(f.lstrip('-')) for f in self.env_files} == self.env_hashes,
                 'service-environment-changed')
         require(database_identity(self.db_env) == self.identity, 'database-identity-changed')
+        regular(self.work / 'guardian.json')
+        require(decode((self.work / 'guardian.json').read_bytes())['database_backup'] == self.backup_binding,
+                'backup-guardian-binding-changed')
+        if self.peer:
+            regular(self.work / 'database-backup.json')
+            require(decode((self.work / 'database-backup.json').read_bytes()) == self.backup_binding,
+                    'backup-binding-changed')
+            self.peer.verify(self.backup_binding)
         if needs_stop:
             require(self.did_stop, 'stop-not-proven')
             stopped(self.before['MainPID'])
@@ -464,7 +614,12 @@ class NodeAgent:
     def action(self, action, data):
         if action == 'preflight':
             self.guard()
-            return {'identity': self.identity}
+            result = {'identity': self.identity}
+            if self.peer:
+                result['backup_preflight'] = self.peer.preflight(self.backup_binding)
+                require(self.peer.fingerprint(self.backup_binding, self.p['expected_units']) ==
+                        fingerprints(self.db_env, self.p['expected_units']), 'backup-app-fingerprint-mismatch')
+            return result
         if action == 'stop':
             self.guard()
             require(unit() == self.before, 'old-invocation-changed')
@@ -490,15 +645,18 @@ class NodeAgent:
             return {'stopped': True}
         if action == 'baseline':
             no_database_clients(self.db_env)
-            value = {'fingerprints': fingerprints(self.db_env, self.p['expected_units']),
-                     'tables': database_table_counts(self.db_env)}
+            value = {'fingerprints': fingerprints(self.db_env, self.p['expected_units'])}
+            if self.peer:
+                require(self.peer.fingerprint(self.backup_binding, self.p['expected_units']) == value['fingerprints'],
+                        'backup-app-fingerprint-mismatch')
+                value['tables'] = self.peer.counts(self.backup_binding)
             if not (self.work / 'baseline-before.json').exists():
                 private_write(self.work / 'baseline-before.json', encode(value))
             return value
         if action == 'backup':
             require(self.n['name'] == self.p['database_owner'], 'wrong-backup-owner')
             no_database_clients(self.db_env)
-            self.dump_sha = self.helper.backup(self.work, self.db_env, all_schemas=True)
+            self.dump_sha = self.peer.backup(self.backup_binding)
             return {'path': str(self.work / 'database.dump'), 'sha256': self.dump_sha}
         if action == 'arm':
             require(not self.dispatched and not self.armed and
@@ -592,10 +750,16 @@ def coordinate(p, digest, work, connect=RPC, rehearse=None):
         probe_all(p['public_probes'])
         for node in p['nodes']:
             clients.append(connect(p, node, digest, work))
-        identities = [c.call('preflight')['identity'] for c in clients]
+        preflights = [c.call('preflight') for c in clients]
+        identities = [v['identity'] for v in preflights]
         require(all(v == identities[0] for v in identities), 'nodes-do-not-share-database')
+        owner = next(c for c in clients if c.node['name'] == p['database_owner'])
+        owner_preflight = preflights[clients.index(owner)].get('backup_preflight')
+        require(isinstance(owner_preflight, dict) and owner_preflight.get('passed') is True and
+                owner_preflight.get('full_schema_dump_exit') == 0 and
+                owner_preflight.get('binding', {}).get('identity') == identities[0], 'backup-preflight-incomplete')
         journal(work, 'preflight', {'plan_sha256': digest, 'source_sha': p['source_sha'],
-                                    'identity': identities[0]})
+                                    'identity': identities[0], 'backup': owner_preflight})
         for c in clients:
             journal(work, 'writer-stopped', {'node': c.node['name'], **c.call('stop')})
         def check_all():
@@ -603,12 +767,14 @@ def coordinate(p, digest, work, connect=RPC, rehearse=None):
             for c in clients:
                 c.call('check')
         check_all()
-        owner = next(c for c in clients if c.node['name'] == p['database_owner'])
         before = owner.call('baseline')
+        require(set(before) == {'fingerprints', 'tables'}, 'owner-baseline-incomplete')
         private_write(work / 'baseline-before.json', encode(before))
         for c in clients:
             if c is not owner:
-                require(c.call('baseline') == before, 'node-baselines-differ')
+                other = c.call('baseline')
+                require(set(other) == {'fingerprints'} and other['fingerprints'] == before['fingerprints'],
+                        'node-baselines-differ')
         backup = owner.call('backup')
         target = work / 'database.dump'
         require(not target.exists(), 'backup-copy-already-exists')
@@ -634,6 +800,11 @@ def coordinate(p, digest, work, connect=RPC, rehearse=None):
             c.call('verify')
         after = owner.call('baseline')
         require(after['fingerprints'] == before['fingerprints'], 'production-money-drift')
+        for c in clients:
+            if c is not owner:
+                other = c.call('baseline')
+                require(set(other) == {'fingerprints'} and other['fingerprints'] == before['fingerprints'],
+                        'production-node-money-drift')
         journal(work, 'production-schema-verified', {'fingerprints': after['fingerprints']})
         check_all()
         for c in clients:
@@ -671,6 +842,17 @@ def recovery_context(p, n):
     require(helper.service_environment_files() == original['env_files'] and
             {f: sha(f.lstrip('-')) for f in original['env_files']} == original['env_hashes'],
             'recovery-service-environment-changed')
+    identity = decode((work / 'database-identity.json').read_bytes())
+    if n['name'] == p['database_owner']:
+        regular(work / 'database-backup.json')
+        binding = decode((work / 'database-backup.json').read_bytes())
+        require(binding['configuration'] == p['database_backup'] and binding['identity'] == identity and
+                guardian['database_backup'] == binding, 'recovery-backup-binding-changed')
+        PeerDatabase(p['database_backup'], identity, work).verify(binding)
+    else:
+        require(guardian['database_backup'] is None and
+                set(decode((work / 'baseline-before.json').read_bytes())) == {'fingerprints'},
+                'recovery-nonowner-baseline-invalid')
     probe_all(n['probes'])
     return work, original, guardian, helper
 
@@ -757,6 +939,11 @@ def recovery_check(p, n, attempt):
     no_database_clients(env)
     baseline = decode((work / 'baseline-before.json').read_bytes())
     require(fingerprints(env, p['expected_units']) == baseline['fingerprints'], 'recovery-money-drift')
+    if n['name'] == p['database_owner']:
+        require(set(baseline) == {'fingerprints', 'tables'}, 'recovery-owner-baseline-invalid')
+        binding = decode((work / 'database-backup.json').read_bytes())
+        require(PeerDatabase(p['database_backup'], identity, work).fingerprint(binding, p['expected_units']) ==
+                baseline['fingerprints'], 'recovery-backup-money-drift')
     candidate_verified = True
     try:
         command([n['candidate'], 'migrate', '--verify'], log=logs / 'candidate-verify.log')

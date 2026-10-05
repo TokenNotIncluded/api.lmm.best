@@ -6,6 +6,10 @@ import array
 import fcntl
 import socket
 import signal
+import stat
+import subprocess
+import sys
+import time
 from pathlib import Path
 import tempfile
 import unittest
@@ -30,6 +34,8 @@ def plan():
             'script_sha256': 'a'*64, 'helper_sha256': 'a'*64, 'source_sha': 'b'*40,
             'candidate': {'path': '/p/candidate', 'sha256': 'a'*64}, 'nodes': nodes,
             'database_owner': 'alpha', 'public_probes': nodes[0]['probes'],
+            'database_backup': {'transport': 'local_peer', 'os_user': 'postgres', 'database_role': 'postgres',
+                                'socket_directory': '/run/postgresql', 'port': 5432},
             'expected_units': {k: '1000' for k in c.PRICING_KEYS[:3]}, 'rehearsal_root': '/tmp/fixture-only'}
 
 
@@ -43,12 +49,20 @@ class Fake:
         if (self.node['name'], action) == self.failure:
             raise c.GateFailed('injected-secret-must-not-be-printed')
         if action == 'preflight':
-            return {'identity': {'system': 'synthetic', 'oid': 1, 'schema': 'public'}}
+            value = {'identity': {'system': 'synthetic', 'oid': 1, 'schema': 'public'}}
+            if self.node['name'] == 'alpha':
+                value['backup_preflight'] = {'passed': True, 'full_schema_dump_exit': 0,
+                                             'binding': {'identity': value['identity']}}
+            return value
         if action == 'baseline':
             self.baselines += 1
             if self.drift == self.baselines:
-                return {'fingerprints': {'pricing': 'changed'}, 'tables': {'users': 1}}
-            return BASELINE
+                value = {'fingerprints': {'pricing': 'changed'}}
+            else:
+                value = {'fingerprints': BASELINE['fingerprints']}
+            if self.node['name'] == 'alpha':
+                value['tables'] = BASELINE['tables']
+            return value
         if action == 'backup':
             return {'path': '/p/database.dump', 'sha256': DIGEST}
         return {'passed': True}
@@ -135,6 +149,153 @@ class CoordinatorTests(unittest.TestCase):
         ok, events, _, _ = self.execute(failure=('beta','start'))
         self.assertFalse(ok)
         self.assertFalse(any(a=='release' for _,a in events))
+
+    def test_missing_backup_preflight_or_nonowner_fullcounts_never_stops_or_applies(self):
+        original = Fake.call
+        for bad in ('preflight', 'baseline'):
+            def altered(agent, action, data=None):
+                value = original(agent, action, data)
+                if bad == 'preflight' and action == 'preflight' and agent.node['name'] == 'alpha':
+                    value.pop('backup_preflight')
+                if bad == 'baseline' and action == 'baseline' and agent.node['name'] == 'beta':
+                    value['tables'] = {}
+                return value
+            with self.subTest(bad=bad), patch.object(Fake, 'call', altered):
+                ok, events, _, _ = self.execute()
+                self.assertFalse(ok)
+                self.assertFalse(any(a in ('apply', 'start', 'release') for _,a in events))
+                if bad == 'preflight':
+                    self.assertFalse(any(a == 'stop' for _,a in events))
+
+    def test_owner_full_table_drift_after_backup_still_blocks_apply(self):
+        original = Fake.call
+        def altered(agent, action, data=None):
+            value = original(agent, action, data)
+            if agent.node['name'] == 'alpha' and action == 'baseline' and agent.baselines == 2:
+                value['tables'] = {'users': 2}
+            return value
+        with patch.object(Fake, 'call', altered):
+            ok, events, _, _ = self.execute()
+        self.assertFalse(ok)
+        self.assertNotIn(('alpha', 'apply'), events)
+
+
+class PeerTests(unittest.TestCase):
+    def peer(self, root):
+        cfg = {**plan()['database_backup'], 'socket_directory': str(root)}
+        identity = {'system': '123', 'oid': 42, 'schema': 'public', 'database': 'synthetic', 'version': '180006'}
+        return c.PeerDatabase(cfg, identity, root)
+
+    def test_explicit_environment_cannot_inherit_password_service_or_application_dsn(self):
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {
+                'PGPASSWORD': 'secret-sentinel', 'PGSERVICE': 'unexpected-service',
+                'SQL_DSN': 'postgresql://secret-sentinel', 'PGPASSFILE': '/secret-sentinel'}):
+            peer = self.peer(Path(d))
+            self.assertEqual(['runuser','-u','postgres','--','/usr/bin/env','-i'], peer.prefix[:6])
+            self.assertEqual('/dev/null', peer.env['PGPASSFILE'])
+            self.assertNotIn('secret-sentinel', ' '.join(peer.prefix))
+            # Exercise the same explicit env-i boundary without changing OS UID.
+            result = c.peer_output(peer.prefix[4:] + ['/usr/bin/env'], None, Path(d)/'environment.stderr', 10, capture=True)
+            child = dict(v.split('=',1) for v in result.decode().splitlines())
+            self.assertEqual(peer.env, child)
+            self.assertIn('row_security=off', child['PGOPTIONS'])
+            self.assertIn('default_transaction_read_only=on', child['PGOPTIONS'])
+
+    def test_effective_peer_identity_and_role_must_match(self):
+        with tempfile.TemporaryDirectory() as d:
+            peer = self.peer(Path(d))
+            role = {'current_user':'postgres','session_user':'postgres','superuser':True,'bypass_rls':True}
+            with patch.object(c,'database_identity',return_value=peer.identity),patch.object(peer,'query',return_value=c.encode(role)):
+                binding = peer.binding()
+                self.assertEqual(peer.identity,binding['identity'])
+                self.assertNotIn('superuser',binding['identity'])
+                peer.verify(binding)
+            for field in ('system','database','oid','schema','version'):
+                changed={**peer.identity,field:'other'}
+                with self.subTest(field=field),patch.object(c,'database_identity',return_value=changed):
+                    with self.assertRaises(c.GateFailed):peer.binding()
+            with patch.object(c,'database_identity',return_value=peer.identity),patch.object(peer,'query',return_value=c.encode({**role,'current_user':'other'})):
+                with self.assertRaises(c.GateFailed):peer.binding()
+
+    def test_catalog_count_and_full_schema_dump_are_real_pre_stop_gates(self):
+        capabilities = dict.fromkeys(('missing_table_select','missing_schema_usage','missing_sequence_select',
+                                     'rls_without_bypass','missing_large_object_select'),0)
+        for failure in [*capabilities, 'counts', 'schema']:
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as d:
+                peer = self.peer(Path(d));value={**capabilities}
+                if failure in value:value[failure]=1
+                with patch.object(peer,'verify'),patch.object(peer,'query',return_value=c.encode(value)),\
+                     patch.object(c,'database_table_counts',side_effect=c.GateFailed('read-denied') if failure=='counts' else None,return_value={'public.users':1}),\
+                     patch.object(c,'peer_output',side_effect=c.GateFailed('schema-denied') if failure=='schema' else None) as dump:
+                    with self.assertRaises(c.GateFailed):peer.preflight({})
+                    self.assertFalse((Path(d)/'backup-preflight.json').exists())
+                    if failure!='schema':dump.assert_not_called()
+        with tempfile.TemporaryDirectory() as d:
+            peer = self.peer(Path(d))
+            with patch.object(peer,'verify'),patch.object(peer,'query',return_value=c.encode(capabilities)),\
+                 patch.object(c,'database_table_counts',return_value={'public.users':1}),patch.object(c,'peer_output') as dump:
+                self.assertTrue(peer.preflight({})['passed'])
+                args=dump.call_args.args
+                self.assertIsNone(args[1])
+                self.assertEqual(['pg_dump','--no-password','--schema-only'],args[0][-3:])
+
+    def test_root_owned_exclusive_stdout_preserves_private_modes_and_bytes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);root.chmod(0o700)
+            output,log=root/'database.dump',root/'dump.stderr'
+            c.peer_output([sys.executable,'-c',"import sys;sys.stdout.buffer.write(b'exact-custom-payload')"],output,log,10)
+            self.assertEqual(b'exact-custom-payload',output.read_bytes())
+            self.assertEqual(0o600,stat.S_IMODE(output.stat().st_mode))
+            self.assertEqual(0o600,stat.S_IMODE(log.stat().st_mode))
+            self.assertEqual(0o700,stat.S_IMODE(root.stat().st_mode))
+            self.assertEqual(1,output.stat().st_nlink)
+            for name in ('existing','symlink'):
+                path=root/name
+                if name=='existing':path.write_bytes(b'untouched')
+                else:path.symlink_to(output)
+                with patch.object(c.subprocess,'Popen') as child,self.assertRaises(OSError):
+                    c.peer_output(['not-started'],path,root/(name+'.stderr'),10)
+                child.assert_not_called()
+            self.assertEqual(b'untouched',(root/'existing').read_bytes())
+
+    def test_partial_failure_timeout_and_invalid_list_never_seal_backup(self):
+        for mode in ('failed','timeout','list'):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as d:
+                root=Path(d);peer=self.peer(root)
+                code="import sys,time;sys.stdout.buffer.write(b'partial');sys.stdout.flush();"
+                code += 'time.sleep(30)' if mode=='timeout' else ('sys.exit(2)' if mode=='failed' else '')
+                peer.prefix=[sys.executable,'-c',code]
+                agent=c.NodeAgent.__new__(c.NodeAgent);agent.p=plan();agent.n=agent.p['nodes'][0]
+                agent.peer=peer;agent.backup_binding={};agent.db_env={};agent.guard=lambda *v:None;agent.dump_sha=None
+                original=c.peer_output
+                def short(args,output,log,timeout,*v,**kw):return original(args,output,log,0.1 if mode=='timeout' else timeout,*v,**kw)
+                with patch.object(peer,'verify'),patch.object(c,'no_database_clients'),patch.object(c,'peer_output',side_effect=short),\
+                     patch.object(c,'command',side_effect=c.GateFailed('invalid-custom-list') if mode=='list' else None) as listing:
+                    with self.assertRaises(c.GateFailed):agent.action('backup',None)
+                    self.assertIsNone(agent.dump_sha)
+                    self.assertEqual(b'partial',(root/'database.dump').read_bytes())
+                    if mode!='list':listing.assert_not_called()
+
+    def test_peer_monetary_visibility_must_match_application_before_baseline(self):
+        a=c.NodeAgent.__new__(c.NodeAgent);a.p=plan();a.n=a.p['nodes'][0];a.work=Path('/unused')
+        a.db_env={};a.backup_binding={};a.guard=lambda *v:None;a.peer=Mock()
+        a.peer.fingerprint.return_value={'quota':'filtered'}
+        with patch.object(c,'no_database_clients'),patch.object(c,'fingerprints',return_value={'quota':'all'}):
+            with self.assertRaises(c.GateFailed):a.action('baseline',None)
+        a.peer.counts.assert_not_called()
+
+    def test_background_member_cannot_continue_writing_a_sealed_dump(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);output=root/'database.dump'
+            code="import os,time;pid=os.fork();" \
+                 "\ntime.sleep(2) if pid==0 else None\n" \
+                 "os.write(1,b'late-write') if pid==0 else None\n"
+            with self.assertRaises(c.GateFailed):
+                c.peer_output([sys.executable,'-c',code],output,root/'stderr',0.1)
+            before=output.read_bytes()
+            time.sleep(0.15)
+            self.assertEqual(before,output.read_bytes())
+            self.assertNotIn(b'late-write',before)
 
 class PrimitiveTests(unittest.TestCase):
     def test_full_invocation_periodic_flush_is_not_shutdown_evidence(self):

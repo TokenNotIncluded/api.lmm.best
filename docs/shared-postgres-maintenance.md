@@ -31,6 +31,7 @@ The plan is JSON with exactly these fields:
 | `candidate` | `{ "path": "/local/verified/candidate", "sha256": "..." }` on the non-root controller |
 | `nodes` | All writer nodes, two to eight, with the fields below |
 | `database_owner` | One node name; only it can dump/apply |
+| `database_backup` | Existing owner-local peer access: `transport: "local_peer"`, `os_user`, `database_role`, `socket_directory`, integer `port` |
 | `public_probes` | Public closed-admission probes with exact 503 body hashes |
 | `expected_units` | Exact existing option strings for `CreditsPerUSD`, `LegacyPricingQuotaPerUnit`, `QuotaPerUnit` |
 | `rehearsal_root` | A new absent, short absolute local temporary directory |
@@ -49,6 +50,13 @@ version capable of restoring the full dump. It runs as an ordinary user. Node
 agents run through existing root SSH authority and ordinary systemd commands.
 The effective database access stays in the node's process environment and is
 never copied to the controller or printed. A separate log database is unsupported.
+The backup transport is required and used only on `database_owner`. Its database
+name and active schema come from the application identity. Its existing Unix
+socket/OS user/database role must already permit complete read-only access;
+this tool never grants permissions or creates credentials. It invokes `runuser`
+and `env -i` with explicit PG/PATH values and `PGPASSFILE=/dev/null`, preventing
+password/service/environment fallback. Migration continues to use only the
+original application environment, never these peer parameters.
 
 ## Normal execution
 
@@ -60,6 +68,15 @@ with a fixed 503 body. Drain peer keepalive connections normally; do not kill
 connections or replace admission gates. Backup jobs and other database clients
 must be idle. The coordinator rejects remaining local port-3000 sockets and
 unrecognized PostgreSQL client sessions.
+Before stopping any writer, owner preflight must match peer and application
+system identifier, database name/OID, schema and server version. It separately
+binds the effective database role, checks all application schema/table/sequence
+and large-object read permissions and RLS bypass capability, actually counts
+all tables, and completes a full schema-only dump to discarded stdout. Peer
+queries use read-only transactions with `row_security=off`; filtered counts
+cannot pass. Errors remain in root-private logs. No full data dump runs at this
+preflight boundary. These role/identity bindings are rechecked during work and
+recovery.
 
 Validate and run once, using a new private evidence directory:
 
@@ -86,6 +103,14 @@ including other application schemas. It copies that dump into private local
 evidence, performs an actual `pg_restore --clean --if-exists --single-transaction`
 in a new isolated PostgreSQL instance, and compares all application-table row
 counts and the selected financial fingerprints.
+Full counts and the full custom dump use the owner's existing peer role. The
+dump streams into a root-opened exclusive mode-0600 file in the mode-0700 work
+directory, without exposing that directory to the peer user. A failed, partial,
+timed-out or unlistable dump is retained but never sealed/armed. Peer process
+groups must exit before sealing. Each node independently computes the original
+application fingerprint; only the owner has full-table counts. The owner's
+peer fingerprint must also equal its application fingerprint. No nonowner
+table-count placeholder is treated as restore proof.
 
 The clone has a new mount/network/PID/user namespace, private loopback only,
 synthetic credentials, no host HOME or credential mounts, and no HTTP provider
