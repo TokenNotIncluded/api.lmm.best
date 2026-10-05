@@ -395,11 +395,8 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 		if service.OwnerID == 0 {
 			return ErrToolMarketDenied
 		}
-		// Administrative authority does not replace an independent approval.
-		// An administrator author may still reject their pending submission.
-		if approve && service.OwnerID == actor {
-			return ErrToolMarketDenied
-		}
+		// Enabled administrators, including root users, may review their own
+		// services. The role check and exact-version validation still apply.
 		if service.DraftVersionID != versionID {
 			return ErrToolMarketConflict
 		}

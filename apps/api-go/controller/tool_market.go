@@ -119,17 +119,8 @@ func ReviewToolMarketDraft(c *gin.Context) {
 		return
 	}
 	if input.Approve {
-		// Deny self-approval before remote validation, including administrators
-		// and root users. The model repeats this check under the service lock.
-		review, err := model.GetToolMarketReview(c.GetInt("id"), c.Param("id"))
-		if err != nil {
-			toolMarketRespond(c, nil, err)
-			return
-		}
-		if review.Service.OwnerID == c.GetInt("id") {
-			toolMarketRespond(c, nil, model.ErrToolMarketDenied)
-			return
-		}
+		// Approval always revalidates the remote snapshot, including when an
+		// administrator or root user is also the publisher.
 		if err := service.ValidateToolMarketRemote(c.Request.Context(), c.GetInt("id"), c.Param("id"), true); err != nil {
 			toolMarketRespond(c, nil, err)
 			return

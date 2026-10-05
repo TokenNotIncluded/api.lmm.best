@@ -44,7 +44,7 @@ MCP 地址是 `http://127.0.0.1:8123/mcp`，健康检查是 `/health`。本地 H
 1. `POST /api/tool-market/inspect` 传入 `endpoint`。认证服务同时传入 `authentication: {"mode":"bearer","secret":"测试服务凭证"}`；它只用于这次发现。读取定义不调用业务 Tool。
 2. 将返回的 `data` 作为草稿的 `tools`，逐 Tool 设置 `price_quota`，再通过 `POST /api/tool-market/services` 保存。`prices.json` 是可复用的价格配置；`service.json` 是草稿元数据模板，缺少 `tools` 时不能直接提交。
 3. 认证服务用 `PUT /api/tool-market/services/:id/credentials` 保存 `{version_id, mode:"bearer", secret}`。使用当前草稿版本 ID。凭证另行加密保存，不写入草稿 JSON、URL、调用日志或结果。
-4. `POST /api/tool-market/services/:id/validate` 校验当前定义和凭证；`POST /api/tool-market/services/:id/submit` 提交 `{version_id}`。另一位管理员用同版本 ID `POST .../review` 批准时，再次访问远端可信校验。作者即使具有管理员或根用户权限，也不能自行批准。具有管理权限的作者仍可拒绝自己的待审版本来撤回提交；重新提交后的批准仍须由另一位管理员完成。
+4. `POST /api/tool-market/services/:id/validate` 校验当前定义和凭证；`POST /api/tool-market/services/:id/submit` 提交 `{version_id}`。管理员用同版本 ID `POST .../review` 批准时，再次访问远端可信校验。管理员和超级管理员可以批准自己发布的服务；普通用户不能审核。具有管理权限的作者也可拒绝自己的待审版本来撤回提交。
 5. 买家创建绑定 `paid-test-client` 的市场连接令牌，使用 `/mcp/market` 连接。先用 `PUT /api/tool-market/installations` 加载精确 Tool 和版本；此时不会授予调用或付款权限。
 6. 买家用 `POST /api/tool-market/grants` 明确授权对应客户端、Tool、版本、单次和累计额度、次数及有效期。`grant.json` 的 `expires_at` 要改为未来 Unix 秒。首次测试建议账户总预算 600 quota，单工具最多四次，测试结束撤销授权和令牌。
 7. 刷新 `tools/list`，调用 `market_tool_<去掉连字符的 Tool ID>`，传入 `{request_id:"唯一业务标识", arguments:{...}}`。相同标识只用于相同参数的重放；复用标识但改参数会被拒绝。
