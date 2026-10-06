@@ -715,11 +715,6 @@ export function StoreProductEditor({
               </label>
             ))}
           </fieldset>
-          <p className='text-muted-foreground text-xs'>
-            {t(
-              'Prices are stored as whole Credits. 1 USD = 500,000 Credits; CNY uses the current display exchange rate.'
-            )}
-          </p>
           <div className='flex justify-end gap-2 border-t pt-4'>
             <Button
               type='button'
