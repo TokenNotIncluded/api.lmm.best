@@ -55,6 +55,7 @@ import { publicCreditDisplayCopy } from './public-credit-display-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
+import { storeConstellationLunaCopy } from './store-constellation-luna-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
 import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
@@ -13202,6 +13203,10 @@ for (const [locale, values] of Object.entries(moderationAuditCopy)) {
 }
 
 for (const [locale, values] of Object.entries(marketAIReviewLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeConstellationLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

@@ -19,6 +19,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import type { StoreProduct } from './types'
@@ -37,8 +38,16 @@ export function StoreShell() {
     )
   }
   return (
-    <PublicLayout>
-      <div className='mx-auto max-w-6xl space-y-7'>
+    <PublicLayout
+      className={path === '/store' ? 'flex flex-col' : undefined}
+      mainClassName={path === '/store' ? 'flex flex-1 flex-col' : undefined}
+    >
+      <div
+        className={cn(
+          'mx-auto w-full max-w-6xl space-y-7',
+          path === '/store' && 'flex flex-1 flex-col'
+        )}
+      >
         <div className='flex flex-wrap items-center justify-between gap-3 border-b pb-4'>
           <a
             href='/store'

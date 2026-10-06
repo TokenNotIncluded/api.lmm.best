@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { AccessRestrictionNotice } from '@/components/access-restriction-notice'
+import { cn } from '@/lib/utils'
 
 import type { TopNavLink } from '../types'
 import { PublicHeader, type PublicHeaderProps } from './public-header'
@@ -24,6 +25,8 @@ import { PublicHeader, type PublicHeaderProps } from './public-header'
 type PublicLayoutProps = {
   children: React.ReactNode
   showMainContainer?: boolean
+  mainClassName?: string
+  className?: string
   navContent?: React.ReactNode
   headerProps?: Omit<PublicHeaderProps, 'navContent'>
   navLinks?: TopNavLink[]
@@ -36,7 +39,12 @@ type PublicLayoutProps = {
 
 export function PublicLayout(props: PublicLayoutProps) {
   return (
-    <div className='bg-background text-foreground relative min-h-svh overflow-x-clip pt-[env(safe-area-inset-top)]'>
+    <div
+      className={cn(
+        'bg-background text-foreground relative min-h-svh overflow-x-clip pt-[env(safe-area-inset-top)]',
+        props.className
+      )}
+    >
       <PublicHeader
         navContent={props.navContent}
         navLinks={props.navLinks}
@@ -49,7 +57,12 @@ export function PublicLayout(props: PublicLayoutProps) {
       />
 
       {props.showMainContainer !== false ? (
-        <main className='container mx-auto px-5 pt-24 pb-12 sm:px-8 sm:pt-28 sm:pb-16 lg:px-12'>
+        <main
+          className={cn(
+            'container mx-auto px-5 pt-24 pb-12 sm:px-8 sm:pt-28 sm:pb-16 lg:px-12',
+            props.mainClassName
+          )}
+        >
           {props.children}
         </main>
       ) : (

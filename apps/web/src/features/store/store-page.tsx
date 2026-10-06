@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 import { storeApi } from './api'
+import { StoreConstellation } from './constellation'
+import { STORE_CONSTELLATION_COPY as copy } from './constellation-copy'
 import { StoreAmount, StoreBadges, StoreError, StoreLoading } from './shared'
 import { safeStoreUrl } from './utils'
 
@@ -21,7 +23,7 @@ export function StorePage() {
     retry: false,
   })
   return (
-    <div className='space-y-5'>
+    <div className='flex flex-1 flex-col gap-5'>
       <div className='flex flex-wrap items-end justify-between gap-4'>
         <div className='space-y-1'>
           <h1 className='console-page-title text-xl font-bold'>
@@ -63,9 +65,35 @@ export function StorePage() {
         query.data && (
           <>
             {query.data.items.length === 0 ? (
-              <p className='text-muted-foreground border-y py-12 text-center text-sm'>
-                {t('No products found')}
-              </p>
+              <div className='flex flex-1 flex-col items-center justify-center gap-6 border-t px-4 py-10 text-center'>
+                <div className='max-w-md space-y-2'>
+                  <h2 className='font-semibold'>
+                    {t(
+                      !search && page === 1
+                        ? copy.emptyTitle
+                        : 'No products found'
+                    )}
+                  </h2>
+                  {!search && page === 1 ? (
+                    <p className='text-muted-foreground text-sm'>
+                      {t(copy.emptyHint)}
+                    </p>
+                  ) : (
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => {
+                        setInput('')
+                        setSearch('')
+                        setPage(1)
+                      }}
+                    >
+                      {t('Clear search')}
+                    </Button>
+                  )}
+                </div>
+                {!search && page === 1 && <StoreConstellation />}
+              </div>
             ) : (
               <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
                 {query.data.items.map((product) => (
@@ -110,33 +138,37 @@ export function StorePage() {
                 ))}
               </div>
             )}
-            <div className='flex items-center justify-between border-t pt-4 text-sm'>
-              <span className='text-muted-foreground'>
-                {t('Page {{page}}', { page })}
-              </span>
-              <div className='flex gap-2'>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  disabled={page <= 1}
-                  onClick={() => setPage((value) => value - 1)}
-                >
-                  {t('Previous page')}
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  disabled={!query.data.has_more}
-                  onClick={() => setPage((value) => value + 1)}
-                >
-                  {t('Next page')}
-                </Button>
+            {(query.data.items.length > 0 ||
+              page > 1 ||
+              query.data.has_more) && (
+              <div className='flex items-center justify-between border-t pt-4 text-sm'>
+                <span className='text-muted-foreground'>
+                  {t('Page {{page}}', { page })}
+                </span>
+                <div className='flex gap-2'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={page <= 1}
+                    onClick={() => setPage((value) => value - 1)}
+                  >
+                    {t('Previous page')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={!query.data.has_more}
+                    onClick={() => setPage((value) => value + 1)}
+                  >
+                    {t('Next page')}
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </>
         )
       )}
-      <div className='text-muted-foreground border-t pt-4 text-xs'>
+      <div className='text-muted-foreground mt-auto border-t pt-4 text-xs'>
         {t(
           'Official labels identify administrator-owned products. Other products are sold independently by their sellers.'
         )}

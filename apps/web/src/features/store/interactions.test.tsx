@@ -63,6 +63,7 @@ const { StoreGatewayEditor } = await import('./settings-page')
 const { StoreOrderRow } = await import('./orders-page')
 const { StoreDeliveryEmail } = await import('./delivery-email')
 const { StoreProductEditor } = await import('./seller-page')
+const { StorePage } = await import('./store-page')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
   lng: 'en',
@@ -188,6 +189,56 @@ test('guests may inspect a product and disclaimer but cannot place an order', as
   await click(button('Read purchase disclaimer'))
   assert.match(document.body.textContent || '', /Independent seller terms/)
   assert.equal(posts, 0)
+})
+test('an empty public shelf offers an optional keyboard-accessible constellation without buying or refetching', async () => {
+  owner(null)
+  let reads = 0
+  api.get = (async (url: string) => {
+    assert.equal(url, '/api/store/products')
+    reads++
+    return result({ items: [], has_more: false })
+  }) as typeof api.get
+  api.post = (async () =>
+    assert.fail(
+      'The constellation must not submit an order'
+    )) as typeof api.post
+  await mount(<StorePage />)
+  assert.match(document.body.textContent || '', /Nothing on the shelves yet/)
+  assert.equal(document.querySelectorAll('article').length, 0)
+  assert.equal(document.body.textContent?.includes('Next page'), false)
+  const stars = [
+    ...document.querySelectorAll<HTMLButtonElement>('button[aria-pressed]'),
+  ]
+  assert.equal(stars.length, 7)
+  assert.ok(
+    stars.every((star) => star.getAttribute('aria-pressed') === 'false')
+  )
+  for (const star of stars) await click(star)
+  assert.match(
+    document.querySelector('[role="status"]')?.textContent || '',
+    /Constellation complete/
+  )
+  await click(button('Reset'))
+  assert.ok(
+    stars.every((star) => star.getAttribute('aria-pressed') === 'false')
+  )
+  await click(button('Close'))
+  assert.equal(document.querySelectorAll('button[aria-pressed]').length, 0)
+  await click(button('Show constellation'))
+  assert.equal(document.querySelectorAll('button[aria-pressed]').length, 7)
+  assert.equal(reads, 1)
+})
+test('real products keep their shelf without an empty-state toy or fake listings', async () => {
+  api.get = (async () =>
+    result({ items: [product], has_more: false })) as typeof api.get
+  await mount(<StorePage />)
+  assert.equal(document.querySelectorAll('article').length, 1)
+  assert.equal(document.querySelectorAll('button[aria-pressed]').length, 0)
+  assert.ok(document.querySelector('a[href="/store/products/product-fixture"]'))
+  assert.equal(
+    document.body.textContent?.includes('Nothing on the shelves yet'),
+    false
+  )
 })
 test('first independent purchase requires explicit acceptance before checkout; integer quota stays server-owned', async () => {
   owner(2)
