@@ -154,6 +154,10 @@ func TestAssistantPersonaMatrix(t *testing.T) {
 			expectedAllowed := append([]string{}, fixture.Expected.Tools.Allowed...)
 			expectedAllowed = append(expectedAllowed,
 				"navigate_to_page",
+				"get_store_products",
+				"get_store_product",
+				"get_tool_market_services",
+				"get_tool_market_service",
 				"get_user_overview",
 				"get_user_usage_summary",
 				"prepare_user_action",

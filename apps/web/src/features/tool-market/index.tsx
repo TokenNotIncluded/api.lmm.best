@@ -62,6 +62,7 @@ import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
 import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
+import { parseMarketServiceID } from './service-link'
 import { CallDialog, CallResult, GrantDialog } from './tool-actions'
 import {
   usagePriceLabel,
@@ -123,14 +124,27 @@ function MarketStatusIcon({ value }: { value: string }) {
   }
 }
 
-export function ToolMarket() {
+export function ToolMarket({
+  initialServiceID,
+}: {
+  initialServiceID?: string
+}) {
   const userID = useAuthStore((state) => state.auth.user?.id)
-  return <ToolMarketWorkspace key={userID ?? 'signed-out'} />
+  return (
+    <ToolMarketWorkspace
+      key={userID ?? 'signed-out'}
+      initialServiceID={initialServiceID}
+    />
+  )
 }
 
 // Discard drafts, provider secrets, arguments and results when the signed-in
 // account changes, even if the router preserves the market page component.
-function ToolMarketWorkspace() {
+function ToolMarketWorkspace({
+  initialServiceID,
+}: {
+  initialServiceID?: string
+}) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const cache = useQueryClient()
@@ -158,6 +172,15 @@ function ToolMarketWorkspace() {
   const [reviewNote, setReviewNote] = useState('')
   const [record, setRecord] = useState<CallResponse | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MarketService | null>(null)
+  useEffect(() => {
+    const id = parseMarketServiceID(initialServiceID)
+    setTab('market')
+    setSelected(id ? { id, mode: 'published' } : null)
+    setEditor(false)
+    setGrantTool(null)
+    setCallTool(null)
+    setRecord(null)
+  }, [initialServiceID])
   const deletion = useMutation({
     retry: false,
     mutationFn: marketAPI.deleteService,

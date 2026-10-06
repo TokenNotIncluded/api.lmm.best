@@ -272,6 +272,12 @@ function assistantNavigationLabel(
     return translate('Open usage logs')
   }
   if (action.path === '/profile') return translate('Open account bindings')
+  if (action.path.startsWith('/store/products/')) {
+    return translate('Open product')
+  }
+  if (action.path === '/tool-market' && action.query.service_id) {
+    return translate('Open tool service')
+  }
   return translate('Open page')
 }
 

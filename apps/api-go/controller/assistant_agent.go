@@ -352,11 +352,11 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "navigate_to_page",
-				Description: "Navigate the signed-in user to one allowlisted page inside this LMM console. Use this when the user asks to open, jump to, or locate something. For the users or usage-log page, identifier may be a username, email, or numeric user ID; regular users may only target themselves and administrators may only target users in their permitted scope.",
+				Description: "Prepare an internal page link when the user asks to open, jump to, or locate something. For store-product or tool-market-service, identifier must be the exact ID returned by the read-only catalogue tools; the server rechecks visibility. For users or usage-logs, identifier may be a username, email, or numeric user ID and existing account permissions apply. This never purchases a product or authorizes a tool.",
 				Parameters: objectSchema(map[string]any{
 					"page": map[string]any{
 						"type": "string",
-						"enum": []string{"home", "getting-started", "pricing", "wallet", "usage-logs", "keys", "drawing", "models", "profile", "support", "open-source-bounties", "users"},
+						"enum": []string{"home", "getting-started", "pricing", "wallet", "usage-logs", "keys", "drawing", "models", "profile", "support", "open-source-bounties", "users", "store", "store-product", "tool-market", "tool-market-service"},
 					},
 					"identifier": map[string]any{"type": "string", "maxLength": 200},
 					"query":      map[string]any{"type": "string", "maxLength": 200},
@@ -609,6 +609,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
 	definitions = append(definitions, assistantAdminPricingAuditTools()...)
 	definitions = append(definitions, assistantKeyManagementToolDefinitions()...)
+	definitions = append(definitions, assistantCatalogToolDefinitions()...)
 	return append(definitions, assistantSkillTools()...)
 }
 
@@ -779,6 +780,10 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		"prepare_api_key_action",
 		"get_bounty_guide",
 		"get_bounty_data",
+		"get_store_products",
+		"get_store_product",
+		"get_tool_market_services",
+		"get_tool_market_service",
 		"search_web",
 		"get_setup_guide",
 		"prepare_l1_recommendation",
@@ -2155,6 +2160,10 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantL1RecommendationStateTool(c, actorUserID)
 	case "navigate_to_page":
 		return executeAssistantNavigateTool(c, actorUserID, input)
+	case "get_store_products", "get_store_product":
+		return executeAssistantStoreCatalogTool(actorUserID, input, name == "get_store_product")
+	case "get_tool_market_services", "get_tool_market_service":
+		return executeAssistantMarketCatalogTool(c, actorUserID, input, name == "get_tool_market_service")
 	case "get_user_overview":
 		return executeAssistantUserOverviewTool(c, actorUserID, input)
 	case "get_user_usage_summary":

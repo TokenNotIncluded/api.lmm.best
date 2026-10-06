@@ -720,6 +720,50 @@ describe('assistant response parsing', () => {
     )
   })
 
+  test('accepts exact catalogue deep links and rejects external or malformed targets', () => {
+    const id = '768e7947-0652-4c6b-a998-712958765432'
+    for (const action of [
+      { type: 'navigate', path: '/store', query: {} },
+      { type: 'navigate', path: `/store/products/${id}`, query: {} },
+      { type: 'navigate', path: '/tool-market', query: { service_id: id } },
+    ]) {
+      assert.deepEqual(parseAssistantAction(action), action)
+    }
+    for (const path of [
+      '//attacker.test/store',
+      'https://console.example.test/store',
+      `/store/products/${id}/../orders`,
+      `/store/products/${id}%2f..`,
+      '/store/products/not-a-product',
+      '/store/claim/private-token',
+    ]) {
+      assert.equal(
+        parseAssistantAction({ type: 'navigate', path, query: {} }),
+        undefined
+      )
+    }
+    for (const query of [
+      { service_id: 'https://attacker.test' },
+      { service_id: `${id}/invoke` },
+      { service_id: id, redirect: '//attacker.test' },
+      { service_id: 7 },
+      [],
+    ]) {
+      assert.equal(
+        parseAssistantAction({ type: 'navigate', path: '/tool-market', query }),
+        undefined
+      )
+    }
+    assert.equal(
+      parseAssistantAction({
+        type: 'navigate',
+        path: `/store/products/${id}`,
+        query: { grant: true },
+      }),
+      undefined
+    )
+  })
+
   test('accepts only self display-name previews with a confirmation token', () => {
     assert.deepEqual(parseAssistantAction(displayNameAction), displayNameAction)
     assert.deepEqual(

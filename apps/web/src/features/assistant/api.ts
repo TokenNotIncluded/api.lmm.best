@@ -24,6 +24,7 @@ import axios, { type AxiosError } from 'axios'
 import type { QuotaDataItem } from '@/features/dashboard/types'
 import type { PricingData } from '@/features/pricing/types'
 import type { PlanRecord } from '@/features/subscriptions/types'
+import { CATALOGUE_ID_PATTERN } from '@/features/tool-market/service-link'
 import { api, getCommonHeaders, getFreshAuthHeaders } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -416,6 +417,9 @@ export type AssistantNavigationPath =
   | '/support'
   | '/open-source-bounties'
   | '/users'
+  | '/store'
+  | `/store/products/${string}`
+  | '/tool-market'
 
 export type AssistantNavigationAction = {
   type: 'navigate'
@@ -815,11 +819,12 @@ const ASSISTANT_NAVIGATION_PATHS = new Set<AssistantNavigationPath>([
   '/support',
   '/open-source-bounties',
   '/users',
+  '/store',
+  '/tool-market',
 ])
 
-const ASSISTANT_NAVIGATION_QUERY_KEYS: Record<
-  AssistantNavigationPath,
-  readonly string[]
+const ASSISTANT_NAVIGATION_QUERY_KEYS: Partial<
+  Record<AssistantNavigationPath, readonly string[]>
 > = {
   '/': [],
   '/getting-started': [],
@@ -835,6 +840,8 @@ const ASSISTANT_NAVIGATION_QUERY_KEYS: Record<
   '/support': [],
   '/open-source-bounties': [],
   '/users': ['filter', 'l0Only'],
+  '/store': [],
+  '/tool-market': ['service_id'],
 }
 
 function parseAssistantNavigationAction(
@@ -844,16 +851,29 @@ function parseAssistantNavigationAction(
     return undefined
   }
   const path = action.path.trim() as AssistantNavigationPath
-  if (!ASSISTANT_NAVIGATION_PATHS.has(path)) return undefined
+  const productID = path.startsWith('/store/products/')
+    ? path.slice('/store/products/'.length)
+    : undefined
+  const productPath =
+    productID !== undefined && CATALOGUE_ID_PATTERN.test(productID)
+  if (!ASSISTANT_NAVIGATION_PATHS.has(path) && !productPath) return undefined
   const queryValue = action.query
   const query: Record<string, string | number | boolean> = {}
   if (queryValue !== undefined) {
     if (!queryValue || typeof queryValue !== 'object') return undefined
-    const allowedKeys = ASSISTANT_NAVIGATION_QUERY_KEYS[path]
+    if (Array.isArray(queryValue)) return undefined
+    const allowedKeys = ASSISTANT_NAVIGATION_QUERY_KEYS[path] ?? []
     for (const [key, value] of Object.entries(
       queryValue as Record<string, unknown>
     )) {
       if (!allowedKeys.includes(key)) return undefined
+      if (
+        path === '/tool-market' &&
+        key === 'service_id' &&
+        (typeof value !== 'string' || !CATALOGUE_ID_PATTERN.test(value))
+      ) {
+        return undefined
+      }
       if (
         typeof value !== 'string' &&
         typeof value !== 'number' &&
