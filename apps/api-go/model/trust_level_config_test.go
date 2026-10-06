@@ -88,7 +88,7 @@ func TestTrustConfigurationPersistenceAndImmediateCreditBoundary(t *testing.T) {
 	}
 	info := evaluateTrustLevelCredits(common.RoleCommonUser, nil, 1000001, 0, true, now, now, GetTrustLevelConfiguration())
 	require.Equal(t, 0.88, info.DiscountRatio)
-	require.Equal(t, "1000001", info.PaidCredits)
+	require.Equal(t, "1000001", *info.PaidCredits)
 	require.Equal(t, "500000", *info.CreditsToNextLevel)
 	config.Tiers[2].MinPaidCredits = 1100001
 	raw, _ = json.Marshal(config)

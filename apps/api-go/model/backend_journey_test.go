@@ -131,7 +131,7 @@ func TestBackendJourneyL0FilterMatchesLiveActivationPolicy(t *testing.T) {
 	}
 }
 
-func TestBackendJourneyL0ThresholdRoundsTheCumulativeCredit(t *testing.T) {
+func TestBackendJourneyL0ThresholdUsesCumulativeIntegerCredits(t *testing.T) {
 	db := setupExternalTopUpSettlementDB(t, 1)
 	settings := operation_setting.GetDeveloperAccessSetting()
 	oldSettings, oldQuota := *settings, common.QuotaPerUnit
@@ -142,8 +142,8 @@ func TestBackendJourneyL0ThresholdRoundsTheCumulativeCredit(t *testing.T) {
 		common.QuotaPerUnit = oldQuota
 		SetLocalAcceptanceDeveloperAccess(oldLocal)
 	})
-	settings.PaidActivationEnabled, settings.PaidActivationMinAmount = true, 0.000001
-	common.QuotaPerUnit = 3000000
+	settings.PaidActivationEnabled, settings.PaidActivationMinAmount = true, 0.000004
+	common.QuotaPerUnit = 500000
 	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	user := User{Username: "rounding", Password: "unused", AffCode: "rounding", Role: common.RoleCommonUser}
 	require.NoError(t, db.Create(&user).Error)

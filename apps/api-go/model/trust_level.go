@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -45,13 +46,14 @@ func LocalAcceptanceDeveloperAccessEnabled() bool {
 }
 
 type TrustLevelInfo struct {
-	Level                int     `json:"level"`
-	LevelSource          string  `json:"level_source"`
-	PaidCredits          string  `json:"paid_credits"`
-	NextLevelPaidCredits *string `json:"next_level_paid_credits"`
-	CreditsToNextLevel   *string `json:"credits_to_next_level"`
-	AutomaticLevel       int     `json:"automatic_level"`
-	OverrideLevel        *int    `json:"override_level"`
+	Level                         int     `json:"level"`
+	LevelSource                   string  `json:"level_source"`
+	PaidCredits                   *string `json:"paid_credits"`
+	PaidCreditProjectionAvailable bool    `json:"paid_credit_projection_available"`
+	NextLevelPaidCredits          *string `json:"next_level_paid_credits"`
+	CreditsToNextLevel            *string `json:"credits_to_next_level"`
+	AutomaticLevel                int     `json:"automatic_level"`
+	OverrideLevel                 *int    `json:"override_level"`
 	// PaidAmount retains the historical policy units Q, not USD or gateway cash.
 	PaidAmount             float64  `json:"paid_amount"`
 	PaidAmountCurrency     string   `json:"paid_amount_currency"`
@@ -149,11 +151,12 @@ func GetTrustLevelTierViews(viewerLevel int) []TrustLevelTier {
 type paidTopUpAggregate struct {
 	// PaidAmountMicros retains historical legacy-policy micros (credits / Q),
 	// not USD micros or the amount charged by the payment provider.
-	PaidAmountMicros   int64
-	PaidAmount         float64
-	CreditedQuota      float64
-	PaidCredits        int64
-	LastPaidCompleteAt int64
+	PaidAmountMicros      int64
+	PaidAmount            float64
+	CreditedQuota         float64
+	PaidCredits           int64
+	ProjectionUnavailable bool
+	LastPaidCompleteAt    int64
 	// PaidRows counts the qualifying real-money recharges. It is kept next to
 	// the amount so a cached aggregate can be re-judged against the current
 	// threshold instead of freezing the verdict that was in force when the
@@ -187,7 +190,7 @@ var paidTopUpAggregateCache = cachex.NewByteCache[cachedPaidTopUpAggregate](
 	paidTopUpAggregateCacheMaxEntries,
 	paidTopUpAggregateCacheMaxBytes,
 	func(key string, _ cachedPaidTopUpAggregate) int64 {
-		return int64(len(key) + 56)
+		return int64(len(key) + 64)
 	},
 )
 
@@ -269,26 +272,30 @@ func evaluateTrustLevelCredits(role int, overrideLevel *int, paidCredits int64, 
 		nextDecayAt = nil
 	}
 
+	paidCreditsString := strconv.FormatInt(paidCredits, 10)
 	info := TrustLevelInfo{
-		Level:                effectiveLevel,
-		LevelSource:          "automatic",
-		PaidCredits:          strconv.FormatInt(paidCredits, 10),
-		AutomaticLevel:       automaticLevel,
-		OverrideLevel:        overrideLevel,
-		PaidAmount:           paidAmount,
-		PaidAmountCurrency:   LegacyPaidPolicyCurrency,
-		PaidAmountUSD:        LegacyPolicyAmountUSD(paidAmount),
-		DiscountRatio:        config.Tiers[effectiveLevel].DiscountRatio,
-		DiscountPercent:      (1 - config.Tiers[effectiveLevel].DiscountRatio) * 100,
-		NextDecayAt:          nextDecayAt,
-		InactivityDecaySteps: decaySteps,
-		DecayPeriodDays:      config.DecayPeriodDays,
-		Overridden:           overridden,
+		Level:                         effectiveLevel,
+		LevelSource:                   "automatic",
+		PaidCredits:                   &paidCreditsString,
+		PaidCreditProjectionAvailable: true,
+		AutomaticLevel:                automaticLevel,
+		OverrideLevel:                 overrideLevel,
+		PaidAmount:                    paidAmount,
+		PaidAmountCurrency:            LegacyPaidPolicyCurrency,
+		PaidAmountUSD:                 LegacyPolicyAmountUSD(paidAmount),
+		DiscountRatio:                 config.Tiers[effectiveLevel].DiscountRatio,
+		DiscountPercent:               (1 - config.Tiers[effectiveLevel].DiscountRatio) * 100,
+		NextDecayAt:                   nextDecayAt,
+		InactivityDecaySteps:          decaySteps,
+		DecayPeriodDays:               config.DecayPeriodDays,
+		Overridden:                    overridden,
 	}
 	if overridden {
+		info.PaidCredits = nil
+		info.PaidCreditProjectionAvailable = false
 		info.LevelSource = "override"
 	}
-	if automaticLevel < TrustLevelMaxUser {
+	if automaticLevel < TrustLevelMaxUser && !overridden {
 		next := automaticLevel + 1
 		thresholdCredits := config.Tiers[next].MinPaidCredits
 		threshold := float64(thresholdCredits) / 500000
@@ -323,7 +330,7 @@ func administratorTrustLevelInfo(level int, config TrustLevelConfiguration) Trus
 	return TrustLevelInfo{
 		Level:              level,
 		LevelSource:        "role",
-		PaidCredits:        "0",
+		PaidCredits:        nil,
 		AutomaticLevel:     TrustLevelMinUser,
 		PaidAmountCurrency: LegacyPaidPolicyCurrency,
 		PaidAmountUSD:      LegacyPolicyAmountUSD(0),
@@ -340,6 +347,9 @@ func getPaidTopUpAggregate(userID int) (paidTopUpAggregate, error) {
 	aggregates, err := getPaidTopUpAggregates([]int{userID})
 	if err != nil {
 		return paidTopUpAggregate{}, err
+	}
+	if aggregates[userID].ProjectionUnavailable {
+		return paidTopUpAggregate{}, ErrPaidCreditProjectionUnavailable
 	}
 	return aggregates[userID], nil
 }
@@ -404,6 +414,9 @@ func getFreshPaidTopUpAggregate(userID int) (paidTopUpAggregate, error) {
 	if err != nil {
 		return paidTopUpAggregate{}, err
 	}
+	if aggregates[userID].ProjectionUnavailable {
+		return paidTopUpAggregate{}, ErrPaidCreditProjectionUnavailable
+	}
 	return aggregates[userID], nil
 }
 
@@ -437,21 +450,30 @@ func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map
 		CreditedQuota          decimal.Decimal
 		LastPaidCompleteAt     int64
 		ActivationCompleteRows int64
+		ProjectionUnknown      int64
 	}
 	var summaries []paidTopUpSummary
 	activityExpression := "CASE WHEN complete_time > 0 THEN complete_time ELSE create_time END"
-	creditedQuotaExpression, creditedQuotaArgs, legacyQuota, err := legacyPaidPolicyCreditedQuotaSQL()
+	creditedQuotaExpression, creditedQuotaArgs, _, err := legacyPaidPolicyCreditedQuotaSQL()
 	if err != nil {
 		return nil, err
 	}
 	// Fixed integer multipliers keep provider fallback and SUM in credit units.
 	creditedQuotaArgs[len(creditedQuotaArgs)-1] = int64(500000)
-	selectClause := "user_id, " +
-		"COALESCE(SUM(" + creditedQuotaExpression + "), 0) AS credited_quota, " +
-		"COALESCE(MAX(" + activityExpression + "), 0) AS last_paid_complete_at, " +
-		"COUNT(*) AS activation_complete_rows"
+	netExpression, netArgs, err := trustPaidCreditSQL(DB.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	selectClause := "user_id, COALESCE(SUM(" + netExpression + "),0) AS credited_quota, " +
+		"COALESCE(MAX(CASE WHEN (" + netExpression + ") > 0 THEN " + activityExpression + " ELSE 0 END),0) AS last_paid_complete_at, " +
+		"SUM(CASE WHEN (" + netExpression + ") > 0 THEN 1 ELSE 0 END) AS activation_complete_rows, " +
+		"SUM(CASE WHEN (" + netExpression + ") IS NULL THEN 1 ELSE 0 END) AS projection_unknown"
+	var selectArgs []interface{}
+	for i := 0; i < 4; i++ {
+		selectArgs = append(selectArgs, netArgs...)
+	}
 	query := DB.WithContext(ctx).Model(&TopUp{}).
-		Select(selectClause, creditedQuotaArgs...).
+		Select(selectClause, selectArgs...).
 		Where("user_id IN ?", uniqueUserIDs).
 		Where("("+creditedQuotaExpression+") > 0", creditedQuotaArgs...).
 		Group("user_id")
@@ -459,14 +481,21 @@ func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map
 		return nil, err
 	}
 	for _, summary := range summaries {
+		if summary.ProjectionUnknown > 0 {
+			result[summary.UserId] = paidTopUpAggregate{ProjectionUnavailable: true}
+			continue
+		}
 		if summary.CreditedQuota.IsNegative() || !summary.CreditedQuota.Equal(summary.CreditedQuota.Truncate(0)) || summary.CreditedQuota.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
 			return nil, fmt.Errorf("invalid cumulative paid credit amount for user %d", summary.UserId)
 		}
 		paidCredits := summary.CreditedQuota.IntPart()
-		paidAmountMicros := creditedQuotaToLegacyPolicyMicros(float64(paidCredits), legacyQuota)
+		paidAmountMicros := int64(math.MaxInt64)
+		if paidCredits <= math.MaxInt64/2 {
+			paidAmountMicros = paidCredits * 2
+		}
 		result[summary.UserId] = paidTopUpAggregate{
 			PaidAmountMicros:   paidAmountMicros,
-			PaidAmount:         float64(paidAmountMicros) / 1_000_000,
+			PaidAmount:         float64(paidCredits) / 500000,
 			CreditedQuota:      float64(paidCredits),
 			PaidCredits:        paidCredits,
 			LastPaidCompleteAt: summary.LastPaidCompleteAt,
@@ -846,7 +875,12 @@ func EnrichUsersTrustLevelsContext(ctx context.Context, users []*User) error {
 		}
 	}
 	aggregates, err := getPaidTopUpAggregatesContext(ctx, userIDs)
-	if err != nil {
+	if errors.Is(err, ErrPaidCreditProjectionUnavailable) {
+		aggregates = make(map[int]paidTopUpAggregate, len(userIDs))
+		for _, id := range userIDs {
+			aggregates[id] = paidTopUpAggregate{ProjectionUnavailable: true}
+		}
+	} else if err != nil {
 		return err
 	}
 	now := time.Now().Unix()
@@ -873,6 +907,11 @@ func EnrichUsersTrustLevelsContext(ctx context.Context, users []*User) error {
 				now,
 				policy.trustConfiguration,
 			))
+			if aggregate.ProjectionUnavailable {
+				info.PaidCreditProjectionAvailable = false
+				info.PaidCredits, info.NextLevelPaidCredits, info.CreditsToNextLevel = nil, nil, nil
+				info.PaidAmountUSD, info.NextLevelPaidAmountUSD, info.AmountToNextLevelUSD = nil, nil, nil
+			}
 		}
 		user.TrustLevelInfo = &info
 	}

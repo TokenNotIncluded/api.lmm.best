@@ -467,6 +467,17 @@ func TestAdminUserTopupQuotaSortProjectsBeforePagination(t *testing.T) {
 		all, total, err := GetAllUsers(&common.PageInfo{Page: 1, PageSize: 4}, false, NewUserSortOptions("topup_quota", direction))
 		require.NoError(t, err)
 		assert.EqualValues(t, 4, total)
+		for _, user := range all {
+			require.NotNil(t, user.TrustLevelInfo)
+			if user.Id == 4 {
+				assert.False(t, user.TrustLevelInfo.PaidCreditProjectionAvailable)
+				assert.Nil(t, user.TrustLevelInfo.PaidCredits)
+				assert.Nil(t, user.TrustLevelInfo.NextLevelPaidCredits)
+				assert.Equal(t, 0, user.TrustLevelInfo.Level)
+			} else {
+				assert.True(t, user.TrustLevelInfo.PaidCreditProjectionAvailable)
+			}
+		}
 		ids := collectUserIDs(all)
 		require.Len(t, ids, 4)
 		assert.Equal(t, 4, ids[3], "unproven large raw quota must sort last in both directions")

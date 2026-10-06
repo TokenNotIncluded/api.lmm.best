@@ -603,22 +603,19 @@ func applyL0UserFilterWithPolicy(tx *gorm.DB, query *gorm.DB, policy DeveloperAc
 	ordinaryL0 := "users.trust_level_override IS NULL AND users.console_activated_at = 0"
 	args := []interface{}{TrustLevelMinUser + 1, TrustLevelMaxUser}
 	if policy.paidActivationEnabled {
-		expression, expressionArgs, legacyQuota, err := legacyPaidPolicyCreditedQuotaSQL()
+		expression, expressionArgs, err := trustPaidCreditSQL(tx)
 		if err != nil {
 			query.AddError(err)
 			return query
 		}
 		paid := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{}).
-			Select("1").Where("top_ups.user_id = users.id")).
-			Where("("+expression+") > 0", expressionArgs...)
-		if policy.paidActivationMinMicros > 0 {
-			// Sum before rounding, just like the authoritative access snapshot.
-			// This is the immutable legacy policy Q, not the USD anchor K.
-			// Floating division and single-argument ROUND work on all three DBs.
-			havingArgs := append(append([]interface{}{}, expressionArgs...), legacyQuota.InexactFloat64(), policy.paidActivationMinMicros)
-			paid = paid.Group("top_ups.user_id").Having(
-				"ROUND(SUM("+expression+") * 1000000.0 / NULLIF(?, 0)) >= ?", havingArgs...)
-		}
+			Select("1").Where("top_ups.user_id = users.id")).Group("top_ups.user_id")
+		// Eligibility and L0 listing use the same net integer credit facts.
+		// An unsupported historical order makes the whole user unavailable.
+		havingArgs := append(append([]interface{}{}, expressionArgs...), expressionArgs...)
+		havingArgs = append(havingArgs, policy.trustConfiguration.Tiers[1].MinPaidCredits)
+		havingArgs = append(havingArgs, expressionArgs...)
+		paid = paid.Having("SUM(CASE WHEN ("+expression+") IS NULL THEN 1 ELSE 0 END) = 0 AND SUM("+expression+") >= ? AND SUM(CASE WHEN ("+expression+") > 0 THEN 1 ELSE 0 END) > 0", havingArgs...)
 		ordinaryL0 += " AND NOT EXISTS (?)"
 		args = append(args, paid)
 	}

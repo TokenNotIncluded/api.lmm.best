@@ -67,3 +67,18 @@ func TestTrustConfigurationOptionsExposeNormalizedRoleOnlyDefaults(t *testing.T)
 	require.NoError(t, db.Where("key = ?", stored.Key).First(&after).Error)
 	require.Equal(t, stored.Value, after.Value, "invalid HTTP configuration cannot alter persisted thresholds")
 }
+
+func TestTrustConfigurationSelfDoesNotInventProgressForInvalidRefundFacts(t *testing.T) {
+	db := setupUserOnboardingTestDB(t)
+	user := model.User{Username: "trust-unavailable", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&model.TopUp{UserId: user.Id, TradeNo: "trust-invalid-refund", CreditedQuota: 500000, RefundedQuota: 500001, PaymentProvider: model.PaymentProviderStripe, PaymentMethod: model.PaymentMethodStripe, Money: 1, Status: common.TopUpStatusSuccess}).Error)
+	data := buildSelfUserData(&user)
+	info := data["trust_level_info"].(model.TrustLevelInfo)
+	require.False(t, info.PaidCreditProjectionAvailable)
+	require.Nil(t, info.PaidCredits)
+	require.Nil(t, info.NextLevelPaidCredits)
+	require.Nil(t, info.CreditsToNextLevel)
+	require.Equal(t, 0, info.Level)
+	require.Equal(t, false, data["developer_access_granted"])
+}

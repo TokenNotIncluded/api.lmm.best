@@ -751,35 +751,42 @@ func paidTopUpFactsWithTx(tx *gorm.DB, userId int, lockFacts bool) (paidTopUpFac
 		return paidTopUpFacts{}, gorm.ErrInvalidDB
 	}
 
-	creditedQuotaExpression, creditedQuotaArgs, legacyQuota, err := legacyPaidPolicyCreditedQuotaSQL()
+	expression, args, err := trustPaidCreditSQL(tx)
 	if err != nil {
 		return paidTopUpFacts{}, err
 	}
-	query := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{})).
-		Where("user_id = ?", userId).
-		Where("("+creditedQuotaExpression+") > 0", creditedQuotaArgs...)
-
+	query := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{})).Where("user_id = ?", userId)
 	type paidTopUpRow struct {
-		Id            int
-		CreditedQuota float64
+		Id         int
+		NetCredits decimal.NullDecimal
 	}
 	var rows []paidTopUpRow
-	// Aggregating in Go rather than through SUM keeps the row identifiers in
-	// the result set, which is what FOR UPDATE needs to lock.
-	scan := query.Select("id, ("+creditedQuotaExpression+") AS credited_quota", creditedQuotaArgs...).Order("id")
+	// Preserve individual row locks through the credential transaction. The
+	// net audit guard prevents a concurrent refund from granting stale value.
+	scan := query.Select("id, ("+expression+") AS net_credits", args...).Order("id")
 	if lockFacts {
 		scan = lockForUpdate(scan)
 	}
 	if err := scan.Scan(&rows).Error; err != nil {
 		return paidTopUpFacts{}, err
 	}
-
-	facts := paidTopUpFacts{Rows: int64(len(rows))}
-	var creditedQuota float64
+	facts := paidTopUpFacts{}
+	total := decimal.Zero
 	for _, row := range rows {
-		creditedQuota += row.CreditedQuota
+		if !row.NetCredits.Valid || row.NetCredits.Decimal.IsNegative() || !row.NetCredits.Decimal.Equal(row.NetCredits.Decimal.Truncate(0)) {
+			return paidTopUpFacts{}, ErrPaidCreditProjectionUnavailable
+		}
+		if row.NetCredits.Decimal.IsPositive() {
+			facts.Rows++
+			total = total.Add(row.NetCredits.Decimal)
+		}
 	}
-	facts.AmountMicros = creditedQuotaToLegacyPolicyMicros(creditedQuota, legacyQuota)
+	if total.GreaterThan(decimal.NewFromInt(math.MaxInt64 / 2)) {
+		facts.AmountMicros = math.MaxInt64
+	} else {
+		facts.AmountMicros = total.IntPart() * 2
+	}
+
 	return facts, nil
 }
 

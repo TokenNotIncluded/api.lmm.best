@@ -93,6 +93,8 @@ type adminTopupProjector struct {
 	cutoff  int64
 	dialect string
 	orders  map[int]adminTopupProjectedOrder
+	// Validated audit facts, not presentation quotas. Net eligibility separately verifies current refunds.
+	refundFacts map[int]WalletTopUpCreditRebase
 }
 
 const maxAdminTopupAuditOrders = 10000
@@ -232,7 +234,7 @@ func adminTopupSourceCondition(order TopUp, dialect string, pending bool) string
 }
 
 func loadAdminTopupProjector(tx *gorm.DB) (*adminTopupProjector, error) {
-	p := &adminTopupProjector{orders: map[int]adminTopupProjectedOrder{}, dialect: tx.Dialector.Name()}
+	p := &adminTopupProjector{orders: map[int]adminTopupProjectedOrder{}, refundFacts: map[int]WalletTopUpCreditRebase{}, dialect: tx.Dialector.Name()}
 	exists, err := walletCreditAuditTableExists(tx, "wallet_credit_rebases")
 	if err != nil || !exists {
 		return p, err
@@ -358,6 +360,7 @@ func loadAdminTopupProjector(tx *gorm.DB) (*adminTopupProjector, error) {
 				" AND top_ups.refunded_amount_micros <= " + strconv.FormatInt(paid, 10) +
 				" AND COALESCE(top_ups.pending_credit_rebase_key, '') = ''"
 			p.orders[base.TopUpID] = adminTopupProjectedOrder{condition: condition, quota: scaleReferralCredit(credited, divisor, plan.Rounding)}
+			p.refundFacts[base.TopUpID] = child
 		}
 		for _, base := range *plan.Pending {
 			if !claim(base.TopUpID) {

@@ -37,7 +37,7 @@ func TestBackendJourneyL0PostgresPolicyAndRounding(t *testing.T) {
 			granted bool
 		}{
 			{"any recharge", true, 0, true},
-			{"cumulative rounding", true, 0.000001, i == 1},
+			{"cumulative integer credits", true, 0.000004, i == 1},
 			{"below threshold", true, 1, false},
 			{"manual review only", false, 0, false},
 		} {

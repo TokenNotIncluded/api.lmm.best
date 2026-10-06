@@ -279,11 +279,13 @@ func ApplyPaymentRefund(
 	if err != nil {
 		return PaymentRefundResult{}, err
 	}
+	if !isSubscription && result.UserID > 0 {
+		InvalidatePaidTopUpAggregate(result.UserID)
+	}
 	if !isSubscription && result.UserID > 0 && result.QuotaDebited > 0 {
 		if err := cacheDecrUserQuota(result.UserID, result.QuotaDebited); err != nil {
 			common.SysLog("failed to update quota cache after payment refund: " + err.Error())
 		}
-		InvalidatePaidTopUpAggregate(result.UserID)
 	}
 	return result, nil
 }

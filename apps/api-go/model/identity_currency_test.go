@@ -158,9 +158,9 @@ func TestPaidPolicyOneCreditUSDDoesNotUseRoundedLegacyMicros(t *testing.T) {
 	require.NoError(t, db.Create(&TopUp{UserId: user.Id, TradeNo: "one-credit", CreditedQuota: 1, Money: 1, PaymentProvider: PaymentProviderStripe, Status: common.TopUpStatusSuccess}).Error)
 	snapshot, err := GetFreshUserAccessSnapshot(&user)
 	require.NoError(t, err)
-	require.Zero(t, snapshot.PaidAmountMicros)
-	require.Zero(t, snapshot.TrustLevel.PaidAmount)
-	require.False(t, snapshot.DeveloperAccess.Granted)
+	require.EqualValues(t, 2, snapshot.PaidAmountMicros)
+	require.Equal(t, 0.000002, snapshot.TrustLevel.PaidAmount)
+	require.True(t, snapshot.DeveloperAccess.Granted)
 	require.Equal(t, 0.0000000476190476, *snapshot.TrustLevel.PaidAmountUSD)
 }
 

@@ -610,6 +610,10 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	if err != nil {
 		common.SysError(fmt.Sprintf("failed to calculate access state for user %d: %s", user.Id, err.Error()))
 		fallbackTrustLevel := model.EvaluateTrustLevel(user.Role, user.TrustLevelOverride, 0, user.CreatedAt, common.GetTimestamp())
+		fallbackTrustLevel.PaidCreditProjectionAvailable = false
+		fallbackTrustLevel.PaidCredits = nil
+		fallbackTrustLevel.NextLevelPaidCredits = nil
+		fallbackTrustLevel.CreditsToNextLevel = nil
 		accessSnapshot = model.UserAccessSnapshot{TrustLevel: fallbackTrustLevel}
 	}
 	onboarding, err := model.GetOnboardingStateForUserSnapshot(user, accessSnapshot)
