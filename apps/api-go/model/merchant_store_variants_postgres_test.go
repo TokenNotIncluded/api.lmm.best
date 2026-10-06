@@ -80,8 +80,25 @@ func merchantStorePGVariantOrders(t *testing.T, db *gorm.DB, f storeFixture, exp
 	price, fees := 0, 0
 	for _, order := range orders {
 		require.Equal(t, "paid", order.Status)
-		price += order.PriceQuota
-		fees += order.FeeQuota
+		require.Equal(t, 1, order.Quantity)
+		// Independent fixture values: default is $1/500000 credits, Plus $2.
+		// A 100-bps fee is exactly 5000/10000, not trusted from the order row.
+		expectedPrice, expectedFee := 500000, 5000
+		if order.VariantID != MerchantStoreDefaultVariantID(f.product.ID) {
+			expectedPrice, expectedFee = 1000000, 10000
+		}
+		require.Equal(t, expectedPrice, order.UnitPriceQuota)
+		require.Equal(t, expectedPrice, order.PriceQuota)
+		require.Equal(t, expectedFee, order.FeeQuota)
+		price += expectedPrice
+		fees += expectedFee
+		var transfers []MerchantStoreTransfer
+		require.NoError(t, db.Where("order_id = ?", order.ID).Order("kind").Find(&transfers).Error)
+		require.Len(t, transfers, 2)
+		require.Equal(t, "fee", transfers[0].Kind)
+		require.Equal(t, expectedFee, transfers[0].Quota)
+		require.Equal(t, "sale", transfers[1].Kind)
+		require.Equal(t, expectedPrice, transfers[1].Quota)
 	}
 	storeBalance(t, f.buyer.Id, 10000000-price)
 	storeBalance(t, f.seller.Id, 10000000+price-fees)
