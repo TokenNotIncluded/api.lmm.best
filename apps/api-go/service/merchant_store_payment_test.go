@@ -81,41 +81,34 @@ func TestMerchantStoreMoneyRejectsAmbiguousUnits(t *testing.T) {
 	require.EqualValues(t, 672, minor)
 }
 
-func TestMerchantStoreLinuxDORequiresOfficialGatewayAndExplicitRootRate(t *testing.T) {
+func TestMerchantStoreLinuxDOReusesExplicitPlatformPricingAndIgnoresHistoricalShopRate(t *testing.T) {
 	f := merchantStoreServiceDB(t, MerchantStoreBalance)
-	oldAddress, oldID, oldKey, oldMethods := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey, operation_setting.PayMethods
-	t.Cleanup(func() {
-		operation_setting.PayAddress = oldAddress
-		operation_setting.EpayId = oldID
-		operation_setting.EpayKey = oldKey
-		operation_setting.PayMethods = oldMethods
-	})
-	operation_setting.PayAddress = "https://credit.linux.do/epay"
-	operation_setting.EpayId = "123"
-	operation_setting.EpayKey = "platform-private-key"
-	operation_setting.PayMethods = nil
+	merchantStoreTestLinuxDOSettings(t, nil)
 	_, err := merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
-	require.Error(t, err, "blank rate cannot borrow a CNY exchange rate")
-	config, err := model.GetMerchantStoreConfig()
+	require.Error(t, err, "LDC never falls back to CNY FX")
+	historical, err := model.GetMerchantStoreConfig()
 	require.NoError(t, err)
-	config.LinuxDOUnitsPerUSD = "20"
-	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, config))
+	historical.LinuxDOUnitsPerUSD = "999"
+	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, historical))
+	_, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
+	require.Error(t, err, "a historical store rate cannot enable LDC")
+	operation_setting.PayMethods = []map[string]string{{"type": "epay", "settlement_unit": "LDC", "settlement_units_per_usd": "30"}}
 	method, err := merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
 	require.NoError(t, err)
 	require.Equal(t, "LDC", method.Currency)
-	require.Equal(t, "20", method.UnitsPerUSD)
-	operation_setting.PayMethods = []map[string]string{{"type": "epay", "settlement_unit": "LDC", "settlement_units_per_usd": "30"}}
-	method, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
-	require.NoError(t, err)
-	require.Equal(t, "20", method.UnitsPerUSD, "the explicit shop root rate wins")
-	config.LinuxDOUnitsPerUSD = ""
-	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, config))
+	require.Equal(t, "30", method.UnitsPerUSD, "legacy integrity field keeps original platform declaration")
+	historical.LinuxDOUnitsPerUSD = ""
+	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, historical))
 	_, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
-	require.Error(t, err, "clearing the shop rate disables new checkout even when a legacy LDC rate exists")
+	require.NoError(t, err, "clearing obsolete shop rate does not affect actual platform pricing")
+	operation_setting.PayMethods = append(operation_setting.PayMethods, map[string]string{"type": "epay", "enabled": "false"})
+	_, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
+	require.Error(t, err, "a duplicate disabled platform type fails closed")
+	operation_setting.PayMethods = operation_setting.PayMethods[:1]
 	operation_setting.PayAddress = "https://some-fiat-gateway.example.com"
 	_, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
-	require.Error(t, err, "a generic ePay provider is never assumed to charge LDC")
-	require.Error(t, validateMerchantStoreGatewayConfig(MerchantStoreExternalEpay, merchantStoreGatewayConfig{GatewayURL: "https://credit.linux.do/epay", PartnerID: "123", Key: "merchant-key", PaymentType: "epay", Currency: "CNY"}), "the known LDC provider cannot masquerade as a CNY external ePay gateway")
+	require.Error(t, err, "only the actual Linux DO endpoint supports LDC")
+	require.Error(t, validateMerchantStoreGatewayConfig(MerchantStoreExternalEpay, merchantStoreGatewayConfig{GatewayURL: "https://credit.linux.do/epay", PartnerID: "123", Key: "merchant-key", PaymentType: "epay", Currency: "CNY"}))
 }
 
 func merchantStoreTestEpayOrder() (*model.MerchantStoreOrder, merchantStorePaymentContext) {
@@ -304,6 +297,12 @@ func merchantStoreServiceDB(t *testing.T, method string) merchantStoreServiceFix
 		require.NoError(t, db.Create(user).Error)
 	}
 	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, model.MerchantStoreConfig{FeeBPS: 100, RecipientID: f.root.Id, PromotionQuota: 500000}))
+	initialConfig := ""
+	if strings.HasPrefix(method, "external:") {
+		initialConfig = `{ "key":"fixture" }`
+	}
+	_, err = model.SaveMerchantStoreGateway(f.seller.Id, method, true, initialConfig)
+	require.NoError(t, err)
 	f.product, err = model.SaveMerchantStoreProduct(f.seller.Id, "", model.MerchantStoreProductInput{Title: "Store card", PriceQuota: 500000, PaymentMethods: []string{method}, EmailPickupLink: true})
 	require.NoError(t, err)
 	require.NoError(t, model.SubmitMerchantStoreProduct(f.seller.Id, f.product.ID))
@@ -311,10 +310,6 @@ func merchantStoreServiceDB(t *testing.T, method string) merchantStoreServiceFix
 	_, err = model.AddMerchantStoreStock(f.seller.Id, f.product.ID, []string{"PRIVATE-CARD-ONE", "PRIVATE-CARD-TWO"})
 	require.NoError(t, err)
 	require.NoError(t, model.AcceptMerchantStoreDisclaimer(f.buyer.Id, model.MerchantStoreDisclaimerVersion))
-	if !strings.HasPrefix(method, "external:") {
-		_, err = model.SaveMerchantStoreGateway(f.seller.Id, method, true, "")
-		require.NoError(t, err)
-	}
 	return f
 }
 
@@ -592,29 +587,16 @@ func TestMerchantStoreVerifiedCallbackFailurePreservesReceiptAndCannotReleaseSto
 	require.Equal(t, 9995000, seller.Quota)
 }
 
-func TestMerchantStoreClearedLinuxDORateDisablesNewSessionAndPreservesIssuedPayment(t *testing.T) {
+func TestMerchantStoreDisabledPlatformLinuxDOPreservesIssuedPayment(t *testing.T) {
 	merchantStoreTestCreditBasis(t)
 	f := merchantStoreServiceDB(t, MerchantStorePlatformLinuxDO)
-	oldAddress, oldID, oldKey := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey
-	t.Cleanup(func() {
-		operation_setting.PayAddress = oldAddress
-		operation_setting.EpayId = oldID
-		operation_setting.EpayKey = oldKey
-	})
-	operation_setting.PayAddress = "https://credit.linux.do/epay"
-	operation_setting.EpayId = "123"
-	operation_setting.EpayKey = "platform-private-key"
-	shop, err := model.GetMerchantStoreConfig()
-	require.NoError(t, err)
-	shop.LinuxDOUnitsPerUSD = "20"
-	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, shop))
+	merchantStoreTestLinuxDOSettings(t, map[string]string{"type": "epay", "settlement_unit": "LDC", "settlement_units_per_usd": "20"})
 	config, err := merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
 	require.NoError(t, err)
 	order := merchantStoreTestOrder(t, f, MerchantStorePlatformLinuxDO, config, 2000, "LDC")
 	payment, err := loadMerchantStorePaymentContext(order)
 	require.NoError(t, err)
-	shop.LinuxDOUnitsPerUSD = ""
-	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, shop))
+	operation_setting.PayMethods[0]["enabled"] = "false"
 	_, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
 	require.Error(t, err)
 	// The old quote and account are immutable; turning off new checkout must

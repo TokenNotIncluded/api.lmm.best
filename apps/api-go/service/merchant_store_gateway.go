@@ -59,25 +59,29 @@ type merchantStoreGatewayConfig struct {
 	StoreID     string `json:"store_id,omitempty"`
 	ProductID   string `json:"product_id,omitempty"`
 	Environment string `json:"environment,omitempty"`
+	// Old reader integrity only. New LDC invoices use complete PlatformPricing.
 	UnitsPerUSD string `json:"units_per_usd,omitempty"`
 }
 
 type MerchantStoreGatewayView struct {
-	Provider        string            `json:"provider"`
-	Enabled         bool              `json:"enabled"`
-	Configured      bool              `json:"configured"`
-	GatewayURL      string            `json:"gateway_url,omitempty"`
-	PartnerID       string            `json:"partner_id,omitempty"`
-	PaymentType     string            `json:"payment_type,omitempty"`
-	Currency        string            `json:"currency,omitempty"`
-	MerchantID      string            `json:"merchant_id,omitempty"`
-	StoreID         string            `json:"store_id,omitempty"`
-	ProductID       string            `json:"product_id,omitempty"`
-	Environment     string            `json:"environment,omitempty"`
-	HasKey          bool              `json:"has_key"`
-	HasPrivateKey   bool              `json:"has_private_key"`
-	CallbackURLs    map[string]string `json:"callback_urls,omitempty"`
-	UnavailableCode string            `json:"unavailable_code,omitempty"`
+	Provider         string            `json:"provider"`
+	Enabled          bool              `json:"enabled"`
+	Category         string            `json:"category"`
+	CategoryEnabled  bool              `json:"category_enabled"`
+	EffectiveEnabled bool              `json:"effective_enabled"`
+	Configured       bool              `json:"configured"`
+	GatewayURL       string            `json:"gateway_url,omitempty"`
+	PartnerID        string            `json:"partner_id,omitempty"`
+	PaymentType      string            `json:"payment_type,omitempty"`
+	Currency         string            `json:"currency,omitempty"`
+	MerchantID       string            `json:"merchant_id,omitempty"`
+	StoreID          string            `json:"store_id,omitempty"`
+	ProductID        string            `json:"product_id,omitempty"`
+	Environment      string            `json:"environment,omitempty"`
+	HasKey           bool              `json:"has_key"`
+	HasPrivateKey    bool              `json:"has_private_key"`
+	CallbackURLs     map[string]string `json:"callback_urls,omitempty"`
+	UnavailableCode  string            `json:"unavailable_code,omitempty"`
 }
 
 var merchantStoreProviderIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -108,12 +112,8 @@ func decryptMerchantStorePaymentValue(purpose, ciphertext string, destination an
 }
 
 func merchantStorePaymentProviderSupported(provider string) bool {
-	switch provider {
-	case MerchantStoreExternalEpay, MerchantStoreExternalPancake, MerchantStorePlatformPancake, MerchantStorePlatformLinuxDO, MerchantStoreBalance:
-		return true
-	default:
-		return false
-	}
+	_, known := model.MerchantStorePaymentCategory(provider)
+	return known
 }
 
 func merchantStorePublicHTTPSURL(raw string, allowQuery bool) (*url.URL, error) {
@@ -278,7 +278,29 @@ func SaveMerchantStorePaymentGateway(sellerID int, input MerchantStoreGatewayCon
 		return nil, err
 	}
 	view := merchantStorePublicGatewayView(sellerID, provider, input.Enabled, config)
+	if err := merchantStoreGatewayPolicy(sellerID, &view); err != nil {
+		return nil, err
+	}
 	return &view, nil
+}
+
+func merchantStoreGatewayPolicy(sellerID int, view *MerchantStoreGatewayView) error {
+	categories, err := model.GetMerchantStorePaymentCategories(sellerID)
+	if err != nil {
+		return err
+	}
+	u, err := model.GetUserById(sellerID, false)
+	if err != nil {
+		return err
+	}
+	merchantStoreApplyGatewayPolicy(categories, u.Quota, view)
+	return nil
+}
+
+func merchantStoreApplyGatewayPolicy(categories model.MerchantStorePaymentCategories, quota int, view *MerchantStoreGatewayView) {
+	view.Category, _ = model.MerchantStorePaymentCategory(view.Provider)
+	view.CategoryEnabled = categories.Enabled(view.Provider)
+	view.EffectiveEnabled = view.Enabled && view.CategoryEnabled && view.Configured && (view.Category != model.MerchantStoreCategoryExternal || quota > model.MerchantStoreExternalMinimumQuota)
 }
 
 // All payment methods are returned even for a new seller, with enabled=false.
@@ -288,12 +310,20 @@ func ListMerchantStorePaymentGateways(sellerID int) ([]MerchantStoreGatewayView,
 	if err != nil {
 		return nil, err
 	}
+	categories, err := model.GetMerchantStorePaymentCategories(sellerID)
+	if err != nil {
+		return nil, err
+	}
+	user, err := model.GetUserById(sellerID, false)
+	if err != nil {
+		return nil, err
+	}
 	enabled := map[string]bool{}
 	for _, row := range rows {
 		enabled[row.Provider] = row.Enabled
 	}
 	views := make([]MerchantStoreGatewayView, 0, 5)
-	for _, provider := range []string{MerchantStoreExternalEpay, MerchantStoreExternalPancake, MerchantStorePlatformPancake, MerchantStorePlatformLinuxDO, MerchantStoreBalance} {
+	for _, provider := range model.MerchantStorePaymentProviders() {
 		var config merchantStoreGatewayConfig
 		if strings.HasPrefix(provider, "external:") {
 			config, err = loadMerchantStoreGatewayConfig(sellerID, provider)
@@ -305,6 +335,7 @@ func ListMerchantStorePaymentGateways(sellerID int) ([]MerchantStoreGatewayView,
 			view.Configured = false
 			view.UnavailableCode = "payment_configuration_required"
 		}
+		merchantStoreApplyGatewayPolicy(categories, user.Quota, &view)
 		views = append(views, view)
 	}
 	return views, nil
@@ -312,24 +343,86 @@ func ListMerchantStorePaymentGateways(sellerID int) ([]MerchantStoreGatewayView,
 
 type MerchantStorePlatformMethodView struct {
 	Provider        string `json:"provider"`
+	PaymentType     string `json:"payment_type,omitempty"`
+	Name            string `json:"name,omitempty"`
+	Supported       bool   `json:"supported"`
 	Configured      bool   `json:"configured"`
 	UnavailableCode string `json:"unavailable_code,omitempty"`
 }
 
 // Public capability metadata contains neither gateway credentials nor owners.
 // Seller enablement remains separate and defaults to false for every method.
-func AvailableMerchantStorePlatformMethods() []MerchantStorePlatformMethodView {
-	views := make([]MerchantStorePlatformMethodView, 0, 3)
-	for _, provider := range []string{MerchantStorePlatformPancake, MerchantStorePlatformLinuxDO, MerchantStoreBalance} {
-		_, err := merchantStorePlatformGatewayConfig(provider)
-		view := MerchantStorePlatformMethodView{Provider: provider, Configured: err == nil}
-		if err != nil {
-			view.UnavailableCode = "payment_configuration_required"
-			if provider == MerchantStorePlatformLinuxDO {
-				view.UnavailableCode = "explicit_ldc_gateway_and_rate_required"
+func AvailableMerchantStorePlatformMethods(catalog []MerchantStorePlatformMethodView) []MerchantStorePlatformMethodView {
+	views := make([]MerchantStorePlatformMethodView, 0, len(catalog))
+	for _, view := range catalog {
+		if view.Supported && view.Configured {
+			views = append(views, view)
+		}
+	}
+	return views
+}
+
+// Only display fields cross this public boundary. Unknown platform methods
+// are capability declarations, never newly accepted store order providers.
+func MerchantStorePlatformPaymentCatalog(methods []map[string]string) []MerchantStorePlatformMethodView {
+	views := []MerchantStorePlatformMethodView{{Provider: MerchantStoreBalance, PaymentType: "balance", Name: "Platform balance", Supported: true, Configured: true}}
+	seen := map[string]bool{"balance": true}
+	for _, method := range methods {
+		paymentType := strings.TrimSpace(method["type"])
+		if paymentType == "" || len(paymentType) > 128 || seen[paymentType] {
+			continue
+		}
+		seen[paymentType] = true
+		name := strings.TrimSpace(method["name"])
+		if name == "" || len(name) > 200 {
+			name = paymentType
+		}
+		view := MerchantStorePlatformMethodView{PaymentType: paymentType, Name: name, UnavailableCode: "merchant_settlement_unsupported"}
+		switch paymentType {
+		case "waffo_pancake":
+			view.Provider = MerchantStorePlatformPancake
+		case "epay":
+			unit := strings.ToUpper(strings.TrimSpace(method["settlement_currency"]))
+			if unit == "" {
+				unit = strings.ToUpper(strings.TrimSpace(method["settlement_unit"]))
+			}
+			if unit == "LDC" {
+				view.Provider = MerchantStorePlatformLinuxDO
+			}
+		}
+		if view.Provider != "" {
+			view.Supported = true
+			_, err := merchantStorePlatformGatewayConfig(view.Provider)
+			view.Configured = err == nil
+			view.UnavailableCode = ""
+			if err != nil {
+				view.UnavailableCode = "payment_configuration_required"
 			}
 		}
 		views = append(views, view)
 	}
 	return views
+}
+
+// Public products expose a usable provider identifier, never credentials.
+// Model policy already intersected category, channel and product selection.
+func FilterMerchantStorePublicPaymentMethods(product *model.MerchantStoreProduct) {
+	methods := make([]string, 0, len(product.PaymentMethods))
+	for _, provider := range product.PaymentMethods {
+		if !merchantStorePaymentProviderSupported(provider) {
+			continue
+		}
+		var config merchantStoreGatewayConfig
+		var err error
+		if strings.HasPrefix(provider, "external:") {
+			config, err = loadMerchantStoreGatewayConfig(product.SellerID, provider)
+		} else {
+			config, err = merchantStorePlatformGatewayConfig(provider)
+		}
+		if err == nil && validateMerchantStoreGatewayConfig(provider, config) == nil {
+			methods = append(methods, provider)
+		}
+	}
+	product.PaymentMethods = methods
+	product.TradingPaused = product.TradingPaused || len(methods) == 0
 }

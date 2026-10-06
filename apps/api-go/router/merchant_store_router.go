@@ -50,12 +50,13 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	self.POST("/orders/:id/reconcile", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.ReconcileMerchantStorePayment)
 	self.GET("/payments/settings", controller.GetMerchantStorePaymentSettings)
 	self.PUT("/payments/settings", middleware.RequestBodyLimit(64<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStorePaymentSettings)
+	self.PUT("/payments/categories", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStorePaymentCategories)
 
 	admin := parent.Group("/store")
 	admin.Use(middleware.AdminAuth(), middleware.DisableCache())
 	admin.GET("/reviews", controller.ListMerchantStoreReviews)
 	admin.POST("/products/:id/review", middleware.RequestBodyLimit(8<<10), middleware.CriticalRateLimit(), controller.ReviewMerchantStoreProduct)
-	admin.PUT("/promotion-config", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStorePromotionPrice)
+	admin.PUT("/promotion-config", middleware.RootAuth(), middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStorePromotionPrice)
 	admin.PUT("/config", middleware.RootAuth(), middleware.RequestBodyLimit(8<<10), middleware.CriticalRateLimit(), controller.SetMerchantStoreConfig)
 
 	// Dedicated, unauthenticated callbacks are separate from top-up callbacks.

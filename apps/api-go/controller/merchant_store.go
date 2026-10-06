@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -10,6 +12,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -37,6 +40,10 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusNotFound, "STORE_NOT_FOUND", "The shop item or order was not found."
 	case errors.Is(err, model.ErrMerchantStoreInput):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_INVALID_INPUT", "Please check the shop information and amounts."
+	case errors.Is(err, model.ErrMerchantStorePaymentSelection):
+		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_SELECTION_UNAVAILABLE", "Select only currently enabled merchant payment methods."
+	case errors.Is(err, model.ErrMerchantStorePaymentCategoryDisabled):
+		status, code, message = http.StatusConflict, "STORE_PAYMENT_CATEGORY_DISABLED", "The merchant has disabled this payment category."
 	case errors.Is(err, model.ErrMerchantStoreDenied), errors.Is(err, service.ErrMerchantStorePaymentAccess):
 		status, code, message = http.StatusForbidden, "STORE_ACCESS_DENIED", "This shop operation is not available to this account."
 	case errors.Is(err, model.ErrMerchantStoreConflict), errors.Is(err, model.ErrMerchantStorePendingLimit):
@@ -88,6 +95,7 @@ func merchantStoreList[T any](c *gin.Context, items []T, offset, limit int, err 
 
 func publicStoreProduct(p model.MerchantStoreProduct) model.MerchantStoreProduct {
 	p.ReviewNote, p.ReviewedBy = "", 0
+	service.FilterMerchantStorePublicPaymentMethods(&p)
 	return p
 }
 
@@ -113,12 +121,14 @@ func GetPublicMerchantStoreProduct(c *gin.Context) {
 
 func GetMerchantStoreConfig(c *gin.Context) {
 	config, err := model.GetMerchantStoreConfig()
+	catalog := service.MerchantStorePlatformPaymentCatalog(availablePaymentMethods(operation_setting.IsPaymentComplianceConfirmed()))
 	merchantStoreRespond(c, gin.H{
 		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota,
 		"linuxdo_units_per_usd": config.LinuxDOUnitsPerUSD,
 		"credits_per_usd":       common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
 		"disclaimer_version": model.MerchantStoreDisclaimerVersion, "disclaimer_text": merchantStoreDisclaimerText,
-		"platform_payment_methods": service.AvailableMerchantStorePlatformMethods(),
+		"platform_payment_methods": service.AvailableMerchantStorePlatformMethods(catalog),
+		"platform_payment_catalog": catalog,
 	}, err)
 }
 
@@ -384,7 +394,27 @@ func GetMerchantStorePaymentSettings(c *gin.Context) {
 		return
 	}
 	config, err := model.GetMerchantStoreConfig()
-	merchantStoreRespond(c, gin.H{"items": items, "balance_quota": user.Quota, "external_eligible": user.Quota > model.MerchantStoreExternalMinimumQuota, "fee_bps": config.FeeBPS}, err)
+	if err != nil {
+		merchantStoreRespond(c, nil, err)
+		return
+	}
+	categories, err := model.GetMerchantStorePaymentCategories(c.GetInt("id"))
+	merchantStoreRespond(c, gin.H{"items": items, "categories": categories, "balance_quota": user.Quota, "external_eligible": user.Quota > model.MerchantStoreExternalMinimumQuota, "fee_bps": config.FeeBPS}, err)
+}
+
+func SetMerchantStorePaymentCategories(c *gin.Context) {
+	var input struct {
+		PlatformEnabled *bool `json:"platform_enabled"`
+		ExternalEnabled *bool `json:"external_enabled"`
+	}
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || input.PlatformEnabled == nil || input.ExternalEnabled == nil || decoder.Decode(new(any)) != io.EOF {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+		return
+	}
+	value := model.MerchantStorePaymentCategories{PlatformEnabled: *input.PlatformEnabled, ExternalEnabled: *input.ExternalEnabled}
+	merchantStoreRespond(c, value, model.SetMerchantStorePaymentCategories(c.GetInt("id"), value))
 }
 
 func SaveMerchantStorePaymentSettings(c *gin.Context) {

@@ -22,6 +22,14 @@ func newStoreFixture(t *testing.T, methods ...string) storeFixture {
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "C5wmMzDh1QsVZb0saEW9ulAPzVN87Boqv3DK6eIrKXc2YLfg")
 	f := storeFixture{buyer: marketTestUser(t, db, "store-buyer", 10000000, common.RoleCommonUser), seller: marketTestUser(t, db, "store-seller", 10000000, common.RoleCommonUser), root: marketTestUser(t, db, "store-root", 0, common.RoleRootUser)}
 	require.NoError(t, SetMerchantStoreConfig(f.root.Id, MerchantStoreConfig{FeeBPS: 100, RecipientID: f.root.Id, PromotionQuota: 500000}))
+	for _, method := range methods {
+		config := ""
+		if strings.HasPrefix(method, "external:") {
+			config = `{"key":"fixture"}`
+		}
+		_, err := SaveMerchantStoreGateway(f.seller.Id, method, true, config)
+		require.NoError(t, err)
+	}
 	var e error
 	f.product, e = SaveMerchantStoreProduct(f.seller.Id, "", MerchantStoreProductInput{Title: "Card store", Description: "Useful text", PriceQuota: 500000, PaymentMethods: methods, PickupLoginRequired: true, PickupCodeRequired: true, EmailPickupLink: true})
 	require.NoError(t, e)
@@ -29,12 +37,6 @@ func newStoreFixture(t *testing.T, methods ...string) storeFixture {
 	require.NoError(t, ReviewMerchantStoreProduct(f.root.Id, f.product.ID, true, "private reviewer note"))
 	_, e = AddMerchantStoreStock(f.seller.Id, f.product.ID, []string{"CARD-SECRET-FIRST", "CARD-SECRET-SECOND"})
 	require.NoError(t, e)
-	for _, method := range methods {
-		if !strings.HasPrefix(method, "external:") {
-			_, e := SaveMerchantStoreGateway(f.seller.Id, method, true, "")
-			require.NoError(t, e)
-		}
-	}
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", f.buyer.Id).Update("email", "store-buyer@example.test").Error)
 	require.NoError(t, MarkMerchantStoreEmailVerified(f.buyer.Id, "store-buyer@example.test"))
 	require.NoError(t, AcceptMerchantStoreDisclaimer(f.buyer.Id, MerchantStoreDisclaimerVersion))
@@ -347,7 +349,7 @@ func TestMerchantStoreGatewayDisabledAndProductMethodsPreserved(t *testing.T) {
 	_, e := SaveMerchantStoreGateway(f.seller.Id, "balance", false, "")
 	require.NoError(t, e)
 	_, _, e = CreateMerchantStoreOrder(f.checkout("disabled", "balance"))
-	require.ErrorIs(t, e, ErrMerchantStoreUnavailable)
+	require.ErrorIs(t, e, ErrMerchantStorePaymentCategoryDisabled)
 	public, e := GetPublicMerchantStoreProduct(f.product.ID)
 	require.NoError(t, e)
 	require.Empty(t, public.PaymentMethods)
@@ -359,11 +361,12 @@ func TestMerchantStoreGatewayDisabledAndProductMethodsPreserved(t *testing.T) {
 	require.NoError(t, e)
 	require.Empty(t, secret)
 }
-func TestMerchantStoreAdministratorPromotionSettingCannotChangeFees(t *testing.T) {
+func TestMerchantStoreRootPromotionSettingCannotChangeFees(t *testing.T) {
 	f := newStoreFixture(t, "balance")
 	require.ErrorIs(t, SetMerchantStorePromotionPrice(f.seller.Id, 750000), ErrMerchantStoreDenied)
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", f.seller.Id).Update("role", common.RoleAdminUser).Error)
-	require.NoError(t, SetMerchantStorePromotionPrice(f.seller.Id, 750000))
+	require.ErrorIs(t, SetMerchantStorePromotionPrice(f.seller.Id, 750000), ErrMerchantStoreDenied)
+	require.NoError(t, SetMerchantStorePromotionPrice(f.root.Id, 750000))
 	c, e := GetMerchantStoreConfig()
 	require.NoError(t, e)
 	require.Equal(t, 750000, c.PromotionQuota)
@@ -517,7 +520,8 @@ func TestMerchantStoreLinuxDOExplicitRateAndAdministratorIsolation(t *testing.T)
 	c.LinuxDOUnitsPerUSD = "7.142857"
 	require.NoError(t, SetMerchantStoreConfig(f.root.Id, c))
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", f.seller.Id).Update("role", common.RoleAdminUser).Error)
-	require.NoError(t, SetMerchantStorePromotionPrice(f.seller.Id, 600000))
+	require.ErrorIs(t, SetMerchantStorePromotionPrice(f.seller.Id, 600000), ErrMerchantStoreDenied)
+	require.NoError(t, SetMerchantStorePromotionPrice(f.root.Id, 600000))
 	c, e = GetMerchantStoreConfig()
 	require.NoError(t, e)
 	require.Equal(t, "7.142857", c.LinuxDOUnitsPerUSD)

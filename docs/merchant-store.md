@@ -77,11 +77,13 @@ Seller payment methods are independently selected and default to off:
 | Merchant Epay | Merchant's gateway | Cash goes directly to the merchant; no sale-price credit is created |
 | Merchant Waffo Pancake | Merchant's gateway | Cash goes directly to the merchant; no sale-price credit is created |
 
-The shop's root setting `linuxdo_units_per_usd` explicitly states the number of
-Linux DO credits (LDC) paid for one USD of product value. It defaults to empty,
-which disables this platform method. It never borrows the recharge page's
-implicit conversion or treats LDC as CNY. Root may set a positive decimal for
-future quotes; already issued orders keep their frozen amount and rate.
+New Linux DO invoices reuse the platform's explicit `PayMethods` LDC pricing
+and exact Linux DO ePay gateway. Direct and paired pricing share the recharge
+parser; shop checkout uses only the base quote, without recharge discounts.
+The historical shop field `linuxdo_units_per_usd` remains stored but no longer
+calculates new invoices. Frozen invoices retain their original account and
+amount. See [merchant payment policy](merchant-store-payment-categories.md)
+for the category switches, pricing evidence and Go85 rollback constraints.
 
 Merchant gateway credentials are encrypted in tenant-owned shop rows, never
 written to the platform's payment options. Merchant external gateways may be
@@ -145,7 +147,7 @@ silently reassigning inventory.
 
 ## Promotion, consent and mail
 
-The default promotion price is 500,000 credits per 30-day month. Administrators
+The default promotion price is 500,000 credits per 30-day month. Root
 may change the price of future promotion purchases. A confirmed promotion has a
 static recorded cost and expiry, appears ahead of ordinary products, and shows
 a sparkle with an explanatory tooltip. Repurchase extends an active period.

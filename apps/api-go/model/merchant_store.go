@@ -254,11 +254,8 @@ func validateStoreProduct(in *MerchantStoreProductInput) error {
 	return nil
 }
 func storePaymentMethod(m string) bool {
-	switch m {
-	case "balance", "platform:waffo_pancake", "platform:linuxdo", "external:epay", "external:waffo_pancake":
-		return true
-	}
-	return false
+	_, known := MerchantStorePaymentCategory(m)
+	return known
 }
 func storeProductOwner(tx *gorm.DB, actor int, id string) (*MerchantStoreProduct, error) {
 	var p MerchantStoreProduct
@@ -283,14 +280,13 @@ func storeWithProduct(id string, fn func(*gorm.DB, *MerchantStoreProduct) error)
 	})
 }
 
-// Administrators may edit the promotion price without receiving authority
-// over transaction fees or their superadministrator recipient.
+// Global store economics are editable only by a superadministrator.
 func SetMerchantStorePromotionPrice(actor, quota int) error {
 	if !marketQuotaValid(quota) {
 		return ErrMerchantStoreInput
 	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
-		if _, e := storeUser(tx, actor, common.RoleAdminUser); e != nil {
+		if _, e := storeUser(tx, actor, common.RoleRootUser); e != nil {
 			return e
 		}
 		c, e := storeConfig(tx)

@@ -805,6 +805,28 @@ type payMethodSettlementPricing struct {
 	usesFixedCreditDenomination        bool
 }
 
+func privateSettlementPricing(pricing paymentpricing.SettlementPricing) payMethodSettlementPricing {
+	return payMethodSettlementPricing{
+		settlementCurrency:                 pricing.SettlementCurrency,
+		platformUnitsPerUSD:                pricing.PlatformUnitsPerUSD,
+		settlementUnitsPerUSD:              pricing.SettlementUnitsPerUSD,
+		settlementUnitsPerPlatformUnit:     pricing.SettlementUnitsPerPlatformUnit,
+		usesSettlementUnitsPerPlatformUnit: pricing.UsesSettlementUnitsPerPlatformUnit,
+		usesFixedCreditDenomination:        pricing.UsesFixedCreditDenomination,
+	}
+}
+
+func (pricing payMethodSettlementPricing) sharedSettlementPricing() paymentpricing.SettlementPricing {
+	return paymentpricing.SettlementPricing{
+		SettlementCurrency:                 pricing.settlementCurrency,
+		PlatformUnitsPerUSD:                pricing.platformUnitsPerUSD,
+		SettlementUnitsPerUSD:              pricing.settlementUnitsPerUSD,
+		SettlementUnitsPerPlatformUnit:     pricing.settlementUnitsPerPlatformUnit,
+		UsesSettlementUnitsPerPlatformUnit: pricing.usesSettlementUnitsPerPlatformUnit,
+		UsesFixedCreditDenomination:        pricing.usesFixedCreditDenomination,
+	}
+}
+
 func parsePositivePaymentRate(paymentMethod, field, raw string) (decimal.Decimal, error) {
 	if !positiveDecimalPattern.MatchString(raw) {
 		return decimal.Zero, fmt.Errorf("payment method %q has invalid %s", paymentMethod, field)
@@ -835,21 +857,10 @@ func standardSettlementPricing(settlementCurrency string) (payMethodSettlementPr
 	if err != nil {
 		return payMethodSettlementPricing{}, err
 	}
-	var settlementUnitsPerUSD decimal.Decimal
-	switch strings.ToUpper(strings.TrimSpace(settlementCurrency)) {
-	case paymentpricing.CurrencyUSD:
-		settlementUnitsPerUSD = decimal.NewFromInt(1)
-	case paymentpricing.CurrencyCNY:
-		settlementUnitsPerUSD = rates.CNYPerUSD
-	default:
-		return payMethodSettlementPricing{}, fmt.Errorf("unsupported standard settlement currency %q", settlementCurrency)
-	}
-	return payMethodSettlementPricing{
-		settlementCurrency:          strings.ToUpper(strings.TrimSpace(settlementCurrency)),
-		platformUnitsPerUSD:         platformUnitsPerUSD,
-		settlementUnitsPerUSD:       settlementUnitsPerUSD,
-		usesFixedCreditDenomination: true,
-	}, nil
+	pricing, err := paymentpricing.ParseSettlementPricing("", map[string]string{
+		"settlement_currency": settlementCurrency,
+	}, platformUnitsPerUSD, rates.CNYPerUSD)
+	return privateSettlementPricing(pricing), err
 }
 
 // getPayMethodSettlementPricing accepts explicit pricing for genuinely custom
@@ -869,65 +880,31 @@ func getPayMethodSettlementPricing(paymentMethod string) (payMethodSettlementPri
 		return standardSettlementPricing("CNY")
 	}
 
-	platformRaw, hasPlatformRate := payMethod["platform_units_per_usd"]
-	settlementRaw, hasSettlementRate := payMethod["settlement_units_per_usd"]
-	directRaw, hasDirectRate := payMethod["settlement_units_per_platform_unit"]
-	legacyRaw, hasLegacyRate := payMethod["unit_price"]
+	_, hasPlatformRate := payMethod["platform_units_per_usd"]
+	_, hasSettlementRate := payMethod["settlement_units_per_usd"]
+	_, hasDirectRate := payMethod["settlement_units_per_platform_unit"]
+	_, hasLegacyRate := payMethod["unit_price"]
 	if !hasPlatformRate && !hasSettlementRate && !hasDirectRate && !hasLegacyRate {
 		return standardSettlementPricing(settlementUnit)
 	}
-	if hasPlatformRate && !hasSettlementRate {
-		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q configures platform_units_per_usd without settlement_units_per_usd", paymentMethod)
-	}
-	if hasSettlementRate && (hasDirectRate || hasLegacyRate) {
-		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q mixes FX and per-platform-unit pricing", paymentMethod)
-	}
-
-	if hasSettlementRate {
-		var platformRate decimal.Decimal
-		if hasPlatformRate {
-			platformRate, err = parsePositivePaymentRate(paymentMethod, "platform_units_per_usd", platformRaw)
-		} else {
-			platformRate, err = configuredPlatformUnitsPerUSD()
-			if err != nil {
-				return payMethodSettlementPricing{}, fmt.Errorf("payment method %q requires a configured platform USD rate: %w", paymentMethod, err)
-			}
-		}
-		settlementRate, err := parsePositivePaymentRate(paymentMethod, "settlement_units_per_usd", settlementRaw)
+	defaultPlatformUnitsPerUSD := decimal.Zero
+	if hasSettlementRate && !hasPlatformRate && !hasDirectRate && !hasLegacyRate {
+		// An explicit non-fiat settlement rate uses only the immutable K/QPU
+		// basis. It does not require unrelated live CNY FX to be configured.
+		defaultPlatformUnitsPerUSD, err = common.LegacyPricingUnitsPerUSD()
 		if err != nil {
-			return payMethodSettlementPricing{}, err
-		}
-		return payMethodSettlementPricing{
-			settlementCurrency:    settlementUnit,
-			platformUnitsPerUSD:   platformRate,
-			settlementUnitsPerUSD: settlementRate,
-		}, nil
-	}
-
-	if !hasDirectRate && !hasLegacyRate {
-		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q has no explicit settlement pricing", paymentMethod)
-	}
-	if !hasDirectRate {
-		directRaw = legacyRaw
-	}
-	directRate, err := parsePositivePaymentRate(paymentMethod, "settlement_units_per_platform_unit", directRaw)
-	if err != nil {
-		return payMethodSettlementPricing{}, err
-	}
-	if hasDirectRate && hasLegacyRate {
-		legacyRate, err := parsePositivePaymentRate(paymentMethod, "unit_price", legacyRaw)
-		if err != nil {
-			return payMethodSettlementPricing{}, err
-		}
-		if !directRate.Equal(legacyRate) {
-			return payMethodSettlementPricing{}, fmt.Errorf("payment method %q has conflicting per-platform-unit rates", paymentMethod)
+			return payMethodSettlementPricing{}, fmt.Errorf("payment method %q requires a configured platform USD rate: %w", paymentMethod, err)
 		}
 	}
-	return payMethodSettlementPricing{
-		settlementCurrency:                 settlementUnit,
-		settlementUnitsPerPlatformUnit:     directRate,
-		usesSettlementUnitsPerPlatformUnit: true,
-	}, nil
+	method := make(map[string]string, len(payMethod)+1)
+	for key, value := range payMethod {
+		method[key] = value
+	}
+	// Preserve the legacy recharge route's generic Epay CNY default. The
+	// shared parser itself requires an explicit unit, including for LDC.
+	method["settlement_currency"] = settlementUnit
+	pricing, err := paymentpricing.ParseSettlementPricing(paymentMethod, method, defaultPlatformUnitsPerUSD, decimal.Zero)
+	return privateSettlementPricing(pricing), err
 }
 
 func settlementAmountForPlatformAmount(platformAmount decimal.Decimal, pricing payMethodSettlementPricing) (decimal.Decimal, error) {

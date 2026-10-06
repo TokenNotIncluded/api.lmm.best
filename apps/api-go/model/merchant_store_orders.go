@@ -163,6 +163,9 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e
 		}
+		if e = storeRequirePaymentCategory(tx, seller.Id, in.PaymentMethod); e != nil {
+			return e
+		}
 		if in.PaymentMethod != "balance" {
 			if in.Quantity > 100 {
 				return ErrMerchantStoreInput
@@ -354,6 +357,9 @@ func GetMerchantStorePaymentOrderByTradeNo(trade string) (*MerchantStoreOrder, e
 	o.PaymentIssued = o.GatewaySnapshot != "" || o.ProviderSessionID != ""
 	return &o, e
 }
+
+// LDC fx is a legacy integrity field containing an original platform rate
+// declaration, not a derived USD exchange rate. amountMinor freezes the invoice.
 func BindMerchantStorePaymentQuote(id string, amountMinor int64, currency, fx string) error {
 	if amountMinor <= 0 || amountMinor > int64(common.MaxWalletQuota) || len(currency) < 3 || len(currency) > 16 || currency != strings.ToUpper(currency) || len(fx) == 0 || len(fx) > 64 {
 		return ErrMerchantStoreInput
@@ -394,6 +400,21 @@ func BindMerchantStorePaymentContext(id, snapshot string, scopeHashes ...string)
 				return nil
 			}
 			return ErrMerchantStoreConflict
+		}
+		// Serialize first issuance with category/channel changes. Existing
+		// encrypted invoices remain usable regardless of current enablement.
+		if err := marketLockUsers(tx, o.SellerID); err != nil {
+			return err
+		}
+		seller, err := storeUser(tx, o.SellerID, common.RoleCommonUser)
+		if err != nil {
+			return err
+		}
+		if err = storeRequirePaymentCategory(tx, o.SellerID, o.PaymentMethod); err != nil {
+			return err
+		}
+		if err = storeValidatePaymentSelection(tx, seller, []string{o.PaymentMethod}); err != nil {
+			return err
 		}
 		return tx.Model(o).Updates(map[string]any{"gateway_snapshot": snapshot, "payment_scope_hash": scopeHash}).Error
 	})

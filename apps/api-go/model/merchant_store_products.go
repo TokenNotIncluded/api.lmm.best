@@ -16,7 +16,8 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 	}
 	var p MerchantStoreProduct
 	e := marketTransaction(DB, func(tx *gorm.DB) error {
-		if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
+		seller, e := storeUser(tx, actor, common.RoleCommonUser)
+		if e != nil {
 			return e
 		}
 		now := common.GetTimestamp()
@@ -31,6 +32,9 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 			if p.Status == "pending" {
 				return ErrMerchantStoreConflict
 			}
+		}
+		if e := storeValidatePaymentSelection(tx, seller, in.PaymentMethods); e != nil {
+			return e
 		}
 		p.Title = in.Title
 		p.Description = in.Description
@@ -253,7 +257,14 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 		fee = 0
 	}
 	enabled := make([]string, 0, len(p.PaymentMethods))
+	categories, e := storePaymentCategories(tx, p.SellerID)
+	if e != nil {
+		return e
+	}
 	for _, method := range p.PaymentMethods {
+		if !categories.Enabled(method) {
+			continue
+		}
 		var count int64
 		if e = tx.Model(&MerchantStoreGateway{}).Where("seller_id = ? AND provider = ? AND enabled = ?", p.SellerID, method, true).Count(&count).Error; e != nil {
 			return e

@@ -24,6 +24,8 @@ func marketAIWorkerFixture(t *testing.T, mode string) (*gorm.DB, int, *model.Mer
 	for key, value := range map[string]string{setting.StoreAIReviewModeOptionKey: mode, setting.ModerationEnabledOptionKey: "true", setting.ModerationGroupPoliciesOptionKey: `{"default":{"mode":"strict","amount_currency":"USD","category_fines_usd":{"hate":100}}}`} {
 		require.NoError(t, db.Create(&model.Option{Key: key, Value: value}).Error)
 	}
+	_, gatewayErr := model.SaveMerchantStoreGateway(userID, "balance", true, "")
+	require.NoError(t, gatewayErr)
 	p, err := model.SaveMerchantStoreProduct(userID, "", model.MerchantStoreProductInput{Title: "Public title", Description: "Public description", PriceQuota: 500000, PaymentMethods: []string{"balance"}, Links: []model.MerchantStoreLink{{Title: "Public link", Description: "Public link text", URL: "https://example.test/PRIVATE-URL-TOKEN"}}, Contact: "PRIVATE-CONTACT", ImageURLs: []string{"https://example.test/PRIVATE-IMAGE-TOKEN"}})
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&model.MerchantStoreStock{ID: "private-stock", ProductID: p.ID, Ciphertext: "PRIVATE-CARD-CIPHERTEXT", State: "available"}).Error)

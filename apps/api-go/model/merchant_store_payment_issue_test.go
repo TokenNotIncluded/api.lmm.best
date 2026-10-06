@@ -88,17 +88,17 @@ func TestMerchantStoreVerifiedPaymentMissingSellerKeepsEvidenceAndInventory(t *t
 }
 func storeScopeSecondProduct(t *testing.T, f storeFixture, owner int, method string) *MerchantStoreProduct {
 	t.Helper()
+	config := ""
+	if method == "external:epay" {
+		config = `{"key":"test-private-material"}`
+	}
+	_, gatewayErr := SaveMerchantStoreGateway(owner, method, true, config)
+	require.NoError(t, gatewayErr)
 	p, e := SaveMerchantStoreProduct(owner, "", MerchantStoreProductInput{Title: "Second scoped product", PriceQuota: 500000, PaymentMethods: []string{method}})
 	require.NoError(t, e)
 	require.NoError(t, SubmitMerchantStoreProduct(owner, p.ID))
 	require.NoError(t, ReviewMerchantStoreProduct(f.root.Id, p.ID, true, ""))
 	_, e = AddMerchantStoreStock(owner, p.ID, []string{"scoped-item"})
-	require.NoError(t, e)
-	config := ""
-	if method == "external:epay" {
-		config = `{"key":"test-private-material"}`
-	}
-	_, e = SaveMerchantStoreGateway(owner, method, true, config)
 	require.NoError(t, e)
 	return p
 }

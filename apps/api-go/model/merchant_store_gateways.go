@@ -19,7 +19,7 @@ type MerchantStoreGateway struct {
 }
 
 func SaveMerchantStoreGateway(sellerID int, provider string, enabled bool, config string) (*MerchantStoreGateway, error) {
-	if provider != "external:epay" && provider != "external:waffo_pancake" && provider != "platform:waffo_pancake" && provider != "platform:linuxdo" && provider != "balance" {
+	if _, known := MerchantStorePaymentCategory(provider); !known {
 		return nil, ErrMerchantStoreInput
 	}
 	if len(config) > 128<<10 || config != "" && !json.Valid([]byte(config)) {
@@ -65,13 +65,16 @@ func ListMerchantStoreGateways(sellerID int) ([]MerchantStoreGateway, error) {
 		return nil, e
 	}
 	var rows []MerchantStoreGateway
-	e := DB.Where("seller_id = ?", sellerID).Order("provider ASC").Find(&rows).Error
+	e := DB.Where("seller_id = ? AND provider IN ?", sellerID, MerchantStorePaymentProviders()).Order("provider ASC").Find(&rows).Error
 	return rows, e
 }
 
 // This internal primitive is used only after the payment service authenticated
 // the merchant. Callbacks use the frozen per-order encrypted context instead.
 func GetMerchantStoreGatewaySecret(sellerID int, provider string) (string, error) {
+	if _, known := MerchantStorePaymentCategory(provider); !known {
+		return "", ErrMerchantStoreInput
+	}
 	if _, e := storeUser(DB, sellerID, common.RoleCommonUser); e != nil {
 		return "", e
 	}

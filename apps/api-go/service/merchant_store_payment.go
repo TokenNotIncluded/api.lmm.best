@@ -48,14 +48,16 @@ type MerchantStorePaymentSession struct {
 }
 
 type merchantStorePaymentContext struct {
-	Provider     string                     `json:"provider"`
-	Config       merchantStoreGatewayConfig `json:"config"`
-	AmountMinor  int64                      `json:"amount_minor"`
-	Currency     string                     `json:"currency"`
-	FrozenRate   string                     `json:"frozen_rate"`
-	Origin       string                     `json:"origin"`
-	PublicOrigin string                     `json:"public_origin"`
-	ExpiresIn    int                        `json:"expires_in"`
+	Provider        string                            `json:"provider"`
+	Config          merchantStoreGatewayConfig        `json:"config"`
+	AmountMinor     int64                             `json:"amount_minor"`
+	Currency        string                            `json:"currency"`
+	FrozenRate      string                            `json:"frozen_rate"`
+	Origin          string                            `json:"origin"`
+	PublicOrigin    string                            `json:"public_origin"`
+	ExpiresIn       int                               `json:"expires_in"`
+	PricingSource   string                            `json:"pricing_source,omitempty"`
+	PlatformPricing *paymentpricing.SettlementPricing `json:"platform_pricing,omitempty"`
 }
 
 func merchantStorePaymentContextPurpose(orderID string) string {
@@ -188,6 +190,9 @@ func merchantStorePlatformGatewayConfig(provider string) (merchantStoreGatewayCo
 	case MerchantStoreBalance:
 		return merchantStoreGatewayConfig{}, nil
 	case MerchantStorePlatformPancake:
+		if !operation_setting.IsPaymentComplianceConfirmed() || !merchantStorePlatformMethodEnabled("waffo_pancake") {
+			return merchantStoreGatewayConfig{}, ErrMerchantStorePaymentConfiguration
+		}
 		merchantID, key := WaffoPancakeCredentials()
 		config := merchantStoreGatewayConfig{
 			MerchantID: merchantID, PrivateKey: key, StoreID: strings.TrimSpace(setting.WaffoPancakeStoreID),
@@ -200,22 +205,62 @@ func merchantStorePlatformGatewayConfig(provider string) (merchantStoreGatewayCo
 		if strings.TrimRight(strings.TrimSpace(operation_setting.PayAddress), "/") != "https://credit.linux.do/epay" {
 			return merchantStoreGatewayConfig{}, ErrMerchantStorePaymentConfiguration
 		}
-		shopConfig, err := model.GetMerchantStoreConfig()
+		pricing, err := merchantStoreLinuxDOPricing()
 		if err != nil {
 			return merchantStoreGatewayConfig{}, ErrMerchantStorePaymentConfiguration
+		}
+		// Compatibility integrity field: keep an original declared platform
+		// rate, never a rounded derived USD rate. New amounts use full pricing.
+		legacyRate := pricing.SettlementUnitsPerUSD.String()
+		if pricing.UsesSettlementUnitsPerPlatformUnit {
+			legacyRate = pricing.SettlementUnitsPerPlatformUnit.String()
 		}
 		base := merchantStoreGatewayConfig{
 			GatewayURL: "https://credit.linux.do/epay", PartnerID: strings.TrimSpace(operation_setting.EpayId),
 			Key: strings.TrimSpace(operation_setting.EpayKey), PaymentType: "epay", Currency: "LDC",
-			UnitsPerUSD: strings.TrimSpace(shopConfig.LinuxDOUnitsPerUSD),
+			UnitsPerUSD: legacyRate,
 		}
 		if base.UnitsPerUSD != "" {
 			return base, validateMerchantStoreGatewayConfig(provider, base)
 		}
-		// An empty dedicated shop rate disables new Linux DO checkouts even
-		// if an unrelated legacy recharge method carries its own LDC rate.
 	}
 	return merchantStoreGatewayConfig{}, ErrMerchantStorePaymentConfiguration
+}
+
+func merchantStorePlatformMethodEnabled(paymentType string) bool {
+	for _, method := range operation_setting.PayMethods {
+		if strings.TrimSpace(method["type"]) != paymentType {
+			continue
+		}
+		if value := strings.TrimSpace(method["enabled"]); value != "" {
+			enabled, err := strconv.ParseBool(value)
+			if err != nil || !enabled {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func merchantStoreLinuxDOPricing() (paymentpricing.SettlementPricing, error) {
+	if !operation_setting.IsPaymentComplianceConfirmed() || !merchantStorePlatformMethodEnabled("epay") {
+		return paymentpricing.SettlementPricing{}, ErrMerchantStorePaymentConfiguration
+	}
+	platformBasis, err := common.LegacyPricingUnitsPerUSD()
+	if err != nil {
+		return paymentpricing.SettlementPricing{}, ErrMerchantStorePaymentConfiguration
+	}
+	for _, method := range operation_setting.PayMethods {
+		if strings.TrimSpace(method["type"]) != "epay" {
+			continue
+		}
+		pricing, err := paymentpricing.ParseSettlementPricing("epay", method, platformBasis, decimal.Zero)
+		if err != nil || pricing.SettlementCurrency != "LDC" {
+			return paymentpricing.SettlementPricing{}, ErrMerchantStorePaymentConfiguration
+		}
+		return pricing, nil
+	}
+	return paymentpricing.SettlementPricing{}, ErrMerchantStorePaymentConfiguration
 }
 
 type merchantStoreProviderTransport struct {
@@ -335,6 +380,7 @@ func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, request
 		return ErrMerchantStorePaymentConfiguration
 	}
 	rate := "1"
+	var platformPricing *paymentpricing.SettlementPricing
 	switch currency {
 	case "CNY":
 		rates, err := paymentpricing.CurrentRates()
@@ -343,12 +389,33 @@ func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, request
 		}
 		rate = rates.CNYPerUSD.String()
 	case "LDC":
-		rate = config.UnitsPerUSD
+		pricing, err := merchantStoreLinuxDOPricing()
+		if err != nil {
+			return err
+		}
+		platformPricing = &pricing
+		rate = pricing.SettlementUnitsPerUSD.String()
+		if pricing.UsesSettlementUnitsPerPlatformUnit {
+			rate = pricing.SettlementUnitsPerPlatformUnit.String()
+		}
+		config.UnitsPerUSD = rate // Legacy integrity only, not the amount basis.
 	case "USD":
 	default:
 		return ErrMerchantStorePaymentConfiguration
 	}
 	minor, err := merchantStoreQuotePayment(int64(order.PriceQuota), currency, rate)
+	if platformPricing != nil {
+		anchor, anchorErr := common.CreditsPerUSD()
+		quotaBasis, basisErr := common.LegacyPricingQuotaPerUnit()
+		if anchorErr != nil || basisErr != nil || !anchor.Equal(decimal.NewFromInt(merchantStoreCreditsPerUSD)) || !quotaBasis.Equal(anchor) {
+			return ErrMerchantStorePaymentConfiguration
+		}
+		amount, quoteErr := paymentpricing.CeilSettlementMinorForCredits(int64(order.PriceQuota), *platformPricing, anchor, quotaBasis, 100)
+		if quoteErr != nil || amount <= 0 {
+			return ErrMerchantStorePaymentConfiguration
+		}
+		minor, err = amount, nil
+	}
 	if err != nil {
 		return err
 	}
@@ -365,6 +432,10 @@ func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, request
 		return ErrMerchantStorePaymentAccess
 	}
 	context := merchantStorePaymentContext{Provider: order.PaymentMethod, Config: config, AmountMinor: minor, Currency: currency, FrozenRate: rate, Origin: origin, PublicOrigin: publicOrigin, ExpiresIn: int(expiresIn)}
+	if platformPricing != nil {
+		context.PricingSource = "platform_pay_methods"
+		context.PlatformPricing = platformPricing
+	}
 	ciphertext, err := encryptMerchantStorePaymentValue(merchantStorePaymentContextPurpose(order.ID), context)
 	if err != nil {
 		return err
