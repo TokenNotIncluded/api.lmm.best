@@ -482,7 +482,7 @@ func ListPublicMerchantStoreProductsForSeller(search string, sellerID, offset, l
 		return nil, ErrMerchantStoreInput
 	}
 	q := DB.Where("status = ? AND test_mode = ?", "published", false).
-		Where("EXISTS (SELECT 1 FROM users WHERE users.id = merchant_store_products.seller_id AND users.status = ? AND users.role >= ?)", common.UserStatusEnabled, common.RoleCommonUser)
+		Where("EXISTS (SELECT 1 FROM users WHERE users.id = merchant_store_products.seller_id AND users.status = ? AND users.role >= ? AND users.deleted_at IS NULL)", common.UserStatusEnabled, common.RoleCommonUser)
 	if sellerID != 0 {
 		q = q.Where("seller_id = ?", sellerID)
 	}

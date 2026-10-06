@@ -54,6 +54,7 @@ func TestMerchantStoreSellerFilterKeepsVisibilityAndFiltersBeforePagination(t *t
 	require.NoError(t, DB.Create(&testProduct).Error)
 	other := *f.product
 	other.ID, other.SellerID, other.Title, other.CreatedAt = "another-merchant-profile", f.buyer.Id, "Other merchant", 100
+	other.Status = "published"
 	require.NoError(t, DB.Create(&other).Error)
 	rows, err := ListPublicMerchantStoreProductsForSeller("", f.seller.Id, 0, 1)
 	require.NoError(t, err)
@@ -75,4 +76,13 @@ func TestMerchantStoreSellerFilterKeepsVisibilityAndFiltersBeforePagination(t *t
 	require.Empty(t, rows)
 	_, err = GetPublicMerchantStoreSellerProfile(f.seller.Id)
 	require.Error(t, err)
+
+	// Account soft-deletion must be filtered before LIMIT, just like disabled
+	// merchants; its product rows are retained for existing order history.
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", f.seller.Id).Update("status", common.UserStatusEnabled).Error)
+	require.NoError(t, DB.Delete(&User{}, f.seller.Id).Error)
+	rows, err = ListPublicMerchantStoreProductsForSeller("", 0, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, other.ID, rows[0].ID)
 }

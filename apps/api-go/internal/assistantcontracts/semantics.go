@@ -113,5 +113,14 @@ func (g *generator) refine(name string, c *contract) {
 			properties["listed"] = map[string]any{"type": "boolean"}
 		}
 		c.notes = append(c.notes, "listed=false takes an approved listing off the shelf without deleting its inventory or orders. listed=true republishes only an unchanged approved off-shelf listing. Edited drafts still require review. The field must be an explicit boolean; null and omission are rejected.")
+	case "SetMerchantStoreProductRemainingQuota":
+		c.body["required"] = []string{"available_count"}
+		if properties, ok := c.body["properties"].(map[string]any); ok {
+			properties["available_count"] = map[string]any{"anyOf": []any{
+				map[string]any{"type": "integer", "minimum": 0, "maximum": int64(9007199254740991)},
+				map[string]any{"type": "null"},
+			}}
+		}
+		c.notes = append(c.notes, "available_count is the remaining quantity quota, including unpaid reservations. The server adds actual paid obligations under the product lock to preserve historical sales. Paid orders reduce this remaining quota; cancellation releases held slots and importing inventory does not raise it. null makes sales unlimited; zero stops new orders while retaining fulfillment of existing orders. The field must be explicit. Only the owner or an administrator may change it; another seller's test product remains owner-only.")
 	}
 }

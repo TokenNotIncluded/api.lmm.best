@@ -24,4 +24,14 @@ func TestMerchantStoreSalesContractsRequireExplicitNullableCeilingAndBoolean(t *
 	property = body["properties"].(map[string]any)["listed"].(map[string]any)
 	require.Equal(t, "boolean", property["type"])
 	require.NotContains(t, property, "anyOf")
+
+	remaining := assistantAdminOperationContract("SetMerchantStoreProductRemainingQuota")
+	require.Equal(t, "derived", remaining["contract_status"])
+	body = remaining["body_schema"].(map[string]any)
+	require.Equal(t, []any{"available_count"}, body["required"])
+	property = body["properties"].(map[string]any)["available_count"].(map[string]any)
+	branches = property["anyOf"].([]any)
+	require.Equal(t, "integer", branches[0].(map[string]any)["type"])
+	require.EqualValues(t, 0, branches[0].(map[string]any)["minimum"])
+	require.Equal(t, "null", branches[1].(map[string]any)["type"])
 }
