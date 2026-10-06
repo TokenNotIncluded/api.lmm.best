@@ -21,7 +21,6 @@ import type { ReactNode, Ref } from 'react'
 import { BrandLogo } from '@/components/brand-logo'
 import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
 import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
-import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
@@ -171,10 +170,6 @@ export function HomeLanding({
       >
         <div className='lmm-cinema-inner' data-cinema-inner>
           <div className='lmm-visual' data-home-visual>
-            <ForgeShaderSurface
-              variant='home'
-              className='absolute inset-0 opacity-50'
-            />
             <div
               className='lmm-token-cloud'
               data-token-cloud
