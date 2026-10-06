@@ -32,8 +32,11 @@ the existing server qualification gate, including real database safety. Only
 the three pure Rust checks are outside this component inventory. A completed CI
 or dynamic CodeQL workflow may have failed in its Rust portion only when every
 selected check and aggregate succeeds for the same main commit and selected
-workflow run. Cancellation, incomplete runs, missing checks, and failed selected
-checks still reject publication; the Go-only server workflow must succeed. The
+workflow run. CI and CodeQL may still be running when every selected check has
+completed successfully; the newest check in that run must succeed, so an older
+success cannot cover a queued or running retry. Cancellation, missing checks,
+and failed or unfinished selected checks still reject publication; the Go-only
+server workflow must complete successfully. The
 default invocation and `--component rust` retain the original 14-check inventory
 and require successful parent workflows.
 
