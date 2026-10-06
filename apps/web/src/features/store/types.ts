@@ -90,11 +90,22 @@ export interface StoreConfig {
     configured: boolean
     unavailable_code?: string
   }[]
+  platform_payment_catalog?: {
+    provider?: StorePaymentMethod
+    payment_type: string
+    name: string
+    supported: boolean
+    configured: boolean
+    unavailable_code?: string
+  }[]
 }
 export interface StoreGateway {
   provider: StorePaymentMethod
   enabled: boolean
   configured: boolean
+  category?: 'platform' | 'external'
+  category_enabled?: boolean
+  effective_enabled?: boolean
   currency?: string
   gateway_url?: string
   partner_id?: string
@@ -111,16 +122,24 @@ export interface StoreGateway {
 export type StoreGatewayInput = Omit<
   StoreGateway,
   | 'configured'
+  | 'category'
+  | 'category_enabled'
+  | 'effective_enabled'
   | 'has_key'
   | 'has_private_key'
   | 'callback_urls'
   | 'unavailable_code'
 > & { key?: string; private_key?: string }
 export interface StorePaymentSettings {
+  categories: StorePaymentCategories
   items: StoreGateway[]
   external_eligible: boolean
   balance_quota: number
   fee_bps: number
+}
+export interface StorePaymentCategories {
+  platform_enabled: boolean
+  external_enabled: boolean
 }
 export interface StoreDisclaimer {
   version: string

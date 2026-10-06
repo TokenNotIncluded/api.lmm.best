@@ -60,6 +60,10 @@ const { api } = await import('@/lib/api')
 const { StoreCheckout, StoreProductPage } = await import('./product-page')
 const { StoreClaimPage } = await import('./claim-page')
 const { StoreGatewayEditor } = await import('./settings-page')
+const { StoreSettingsPage } = await import('./settings-page')
+const { StorePaymentCategoriesForm } = await import('./payment-categories')
+const { MerchantStoreSettingsSection } =
+  await import('@/features/system-settings/integrations/merchant-store-settings-section')
 const { StoreOrderRow } = await import('./orders-page')
 const { StoreDeliveryEmail } = await import('./delivery-email')
 const { StoreProductEditor } = await import('./seller-page')
@@ -239,6 +243,166 @@ test('real products keep their shelf without an empty-state toy or fake listings
     document.body.textContent?.includes('Nothing on the shelves yet'),
     false
   )
+})
+test('seller category changes send only both master switches and retain a failed draft', async () => {
+  const calls: unknown[] = []
+  let fail = true
+  api.put = (async (url: string, body: unknown) => {
+    assert.equal(url, '/api/store/payments/categories')
+    calls.push(body)
+    if (fail) throw new Error('Category save failed')
+    return result(body)
+  }) as typeof api.put
+  await mount(
+    <StorePaymentCategoriesForm
+      categories={{ platform_enabled: false, external_enabled: true }}
+      onSaved={async () => {}}
+    />
+  )
+  const platform = document.querySelector<HTMLElement>(
+    '[role="switch"][aria-label="Platform payments"]'
+  )
+  assert.ok(platform)
+  await click(platform)
+  await click(button('Save payment categories'))
+  assert.equal(platform.getAttribute('aria-checked'), 'true')
+  assert.match(document.body.textContent || '', /Store request failed/)
+  fail = false
+  await click(button('Save payment categories'))
+  assert.deepEqual(calls, [
+    { platform_enabled: true, external_enabled: true },
+    { platform_enabled: true, external_enabled: true },
+  ])
+})
+for (const role of [1, 10, 100]) {
+  test(`seller payment settings expose the administration link only to root (role ${role})`, async () => {
+    useAuthStore.getState().auth.setUser({ id: 2, role, username: 'seller' })
+    api.get = (async (url: string) => {
+      if (url === '/api/store/config')
+        return result({
+          fee_bps: 0,
+          promotion_quota: 500000,
+          platform_payment_catalog: [
+            {
+              payment_type: 'stripe',
+              name: 'Stripe',
+              supported: false,
+              configured: true,
+              unavailable_code: 'merchant_settlement_unsupported',
+            },
+          ],
+        })
+      assert.equal(url, '/api/store/payments/settings')
+      return result({
+        items: [],
+        categories: { platform_enabled: false, external_enabled: false },
+        balance_quota: 0,
+        fee_bps: 0,
+        external_eligible: false,
+      })
+    }) as typeof api.get
+    await mount(<StoreSettingsPage />)
+    assert.equal(
+      !!document.querySelector(
+        'a[href="/system-settings/billing/payment#merchant-store"]'
+      ),
+      role === 100
+    )
+    assert.equal(document.querySelector('#store-fee'), null)
+    assert.equal(document.querySelector('#store-linuxdo-rate'), null)
+    assert.match(document.body.textContent || '', /Stripe/)
+    assert.equal(
+      document.querySelector('[role="switch"][aria-label="Enable Stripe"]'),
+      null
+    )
+  })
+}
+test('root store administration saves only fees and native promotion credits, without a merchant-specific rate', async () => {
+  useAuthStore.getState().auth.setUser({ id: 2, role: 100, username: 'root' })
+  api.get = (async () =>
+    result({
+      fee_bps: 100,
+      promotion_quota: 500000,
+      linuxdo_units_per_usd: '2.5',
+      disclaimer_version: 'v1',
+      disclaimer_text: '',
+      platform_payment_methods: [],
+    })) as typeof api.get
+  let saved: unknown
+  api.put = (async (url: string, body: unknown) => {
+    assert.equal(url, '/api/store/config')
+    saved = body
+    return result(null)
+  }) as typeof api.put
+  await mount(<MerchantStoreSettingsSection />)
+  const fee = document.querySelector<HTMLInputElement>('#store-fee')
+  assert.ok(fee)
+  await input(fee, '2')
+  await click(button('Save store settings'))
+  assert.deepEqual(saved, { fee_bps: 200, promotion_quota: 500000 })
+  assert.equal(document.querySelector('#store-linuxdo-rate'), null)
+})
+for (const role of [1, 10]) {
+  test(`store fee administration does not load or render for non-root role ${role}`, async () => {
+    useAuthStore.getState().auth.setUser({ id: 2, role, username: 'seller' })
+    api.get = (async () =>
+      assert.fail(
+        'Non-root must not load the administration form'
+      )) as typeof api.get
+    await mount(<MerchantStoreSettingsSection />)
+    assert.equal(document.querySelector('#store-fee'), null)
+    assert.equal(document.querySelector('form'), null)
+  })
+}
+test('a previously selected disabled payment remains visible until explicitly removed and cannot be saved as available', async () => {
+  let updates = 0
+  let saved: { payment_methods: string[] } | undefined
+  api.put = (async (_: string, body: { payment_methods: string[] }) => {
+    updates++
+    saved = body
+    return result(product)
+  }) as typeof api.put
+  await mount(
+    <StoreProductEditor
+      product={{ ...product, payment_methods: ['balance'] }}
+      allowedMethods={[]}
+      onClose={() => {}}
+      onSaved={async () => {}}
+    />
+  )
+  const currency = document.querySelector<HTMLSelectElement>(
+    'select[aria-label="Price currency"]'
+  )
+  assert.ok(currency)
+  await act(async () => {
+    currency.value = 'CREDIT'
+    currency.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  const fieldset = [...document.querySelectorAll('fieldset')].find(
+    (field) => field.querySelector('legend')?.textContent === 'Payment methods'
+  )
+  assert.ok(fieldset)
+  const selected = fieldset.querySelector<HTMLElement>('[role="switch"]')
+  assert.ok(selected)
+  assert.equal(selected.getAttribute('aria-checked'), 'true')
+  await click(button('Save draft'))
+  assert.equal(updates, 0)
+  assert.match(
+    document.body.textContent || '',
+    /This selected payment method is unavailable/
+  )
+  await click(selected)
+  assert.equal(fieldset.querySelector('[role="switch"]'), null)
+  assert.equal(button('Save draft').disabled, false)
+  assert.ok(document.querySelector('form')?.checkValidity())
+  await click(button('Save draft'))
+  assert.equal(
+    updates,
+    1,
+    document.querySelector('[role="alert"]')?.textContent ?? ''
+  )
+  assert.deepEqual(saved?.payment_methods, [])
 })
 test('first independent purchase requires explicit acceptance before checkout; integer quota stays server-owned', async () => {
   owner(2)

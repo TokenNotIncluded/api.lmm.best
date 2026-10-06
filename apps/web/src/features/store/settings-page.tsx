@@ -8,11 +8,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { useMarketMoneyDraft } from '@/features/tool-market/money'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StorePaymentCategoriesForm } from './payment-categories'
+import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
 import {
   CopyStoreValue,
   StoreAmount,
@@ -21,7 +21,6 @@ import {
   StoreLoading,
 } from './shared'
 import type {
-  StoreConfig,
   StoreGateway,
   StoreGatewayInput,
   StorePaymentMethod,
@@ -51,7 +50,7 @@ function StorePaymentSettings() {
     queryFn: storeApi.paymentSettings,
     retry: false,
   })
-  const config = useQuery({
+  const catalog = useQuery({
     queryKey: ['store', 'config'],
     queryFn: storeApi.config,
     retry: false,
@@ -69,6 +68,7 @@ function StorePaymentSettings() {
         </p>
       </div>
       <StoreError error={query.error} retry={() => void query.refetch()} />
+      <StoreError error={catalog.error} retry={() => void catalog.refetch()} />
       {query.isPending ? (
         <StoreLoading />
       ) : (
@@ -88,6 +88,23 @@ function StorePaymentSettings() {
                 )}
               </p>
             </div>
+            <StorePaymentCategoriesForm
+              key={JSON.stringify(query.data.categories)}
+              categories={
+                query.data.categories || {
+                  platform_enabled: false,
+                  external_enabled: false,
+                }
+              }
+              onSaved={async () => {
+                await client.invalidateQueries({
+                  queryKey: ['store', 'payments', user.id],
+                })
+                await client.invalidateQueries({
+                  queryKey: ['store', 'my-products', user.id],
+                })
+              }}
+            />
             {(['platform', 'external'] as const).map((group) => (
               <section key={group} className='space-y-4'>
                 <div className='space-y-2 border-b pb-3'>
@@ -145,19 +162,30 @@ function StorePaymentSettings() {
                     />
                   ))}
                 </div>
+                {group === 'platform' &&
+                  catalog.data?.platform_payment_catalog
+                    ?.filter((item) => !item.supported)
+                    .map((item) => (
+                      <div
+                        key={`${item.payment_type}-${item.name}`}
+                        className='text-muted-foreground flex items-center justify-between gap-3 border-b py-3 text-sm'
+                      >
+                        <span>{item.name}</span>
+                        <span>{t('Unavailable')}</span>
+                      </div>
+                    ))}
               </section>
             ))}
           </>
         )
       )}
-      {user.role >= 100 && config.data && (
-        <StoreRootConfig
-          key={JSON.stringify(config.data)}
-          config={config.data}
-          onSaved={async () => {
-            await client.invalidateQueries({ queryKey: ['store', 'config'] })
-          }}
-        />
+      {user.role >= 100 && (
+        <Button
+          variant='outline'
+          render={<a href='/system-settings/billing/payment#merchant-store' />}
+        >
+          {t(copy.adminLink)}
+        </Button>
       )}
     </div>
   )
@@ -247,7 +275,11 @@ export function StoreGatewayEditor({
           aria-label={t('Enable {{method}}', {
             method: t(paymentLabel(gateway.provider)),
           })}
-          disabled={busy || (external && !eligible && !draft.enabled)}
+          disabled={
+            busy ||
+            (external && !eligible && !draft.enabled) ||
+            (!external && !!gateway.unavailable_code && !draft.enabled)
+          }
           onCheckedChange={(value) => change('enabled', value)}
         />
       </div>
@@ -339,7 +371,9 @@ export function StoreGatewayEditor({
       {!external && gateway.unavailable_code && (
         <p className='text-muted-foreground text-xs'>
           {t(
-            'This platform method is unavailable until an administrator configures it.'
+            gateway.unavailable_code === 'merchant_settlement_unsupported'
+              ? 'Unavailable'
+              : 'This platform method is unavailable until an administrator configures it.'
           )}
         </p>
       )}
@@ -373,108 +407,5 @@ export function StoreGatewayEditor({
         )}
       </div>
     </form>
-  )
-}
-function StoreRootConfig({
-  config,
-  onSaved,
-}: {
-  config: StoreConfig
-  onSaved: () => Promise<void>
-}) {
-  const { t } = useTranslation()
-  const money = useWalletCurrency()
-  const promotion = useMarketMoneyDraft(config.promotion_quota)
-  const [fee, setFee] = useState(String(config.fee_bps / 100))
-  const [linuxdoRate, setLinuxdoRate] = useState(
-    config.linuxdo_units_per_usd || ''
-  )
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<unknown>(null)
-  async function save(event: React.FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      const bps = Math.round(Number(fee) * 100)
-      if (
-        !/^\d+(\.\d{1,2})?$/.test(fee) ||
-        bps < 0 ||
-        bps > 10000 ||
-        !promotion.quota
-      ) {
-        throw new Error('Invalid amount')
-      }
-      if (
-        linuxdoRate.trim() &&
-        !/^\d+(\.\d{1,12})?$/.test(linuxdoRate.trim())
-      ) {
-        throw new Error('Invalid amount')
-      }
-      await storeApi.saveConfig({
-        fee_bps: bps,
-        promotion_quota: promotion.quota,
-        linuxdo_units_per_usd: linuxdoRate.trim(),
-      })
-      await onSaved()
-    } catch (issue) {
-      setError(issue)
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <section className='space-y-4 border-t pt-5'>
-      <h2 className='font-semibold'>{t('Store administration')}</h2>
-      <form onSubmit={(event) => void save(event)} className='space-y-4'>
-        <div className='space-y-2'>
-          <Label htmlFor='store-linuxdo-rate'>
-            {t('Linux DO exchange rate')} ({t('LDC per 1 USD')})
-          </Label>
-          <Input
-            id='store-linuxdo-rate'
-            inputMode='decimal'
-            value={linuxdoRate}
-            onChange={(event) => setLinuxdoRate(event.target.value)}
-          />
-          <p className='text-muted-foreground text-xs'>
-            {t(
-              'Leave empty to disable Linux DO payments. Set this conversion explicitly; CNY exchange rates are not used.'
-            )}
-          </p>
-        </div>
-        <StoreError error={error} />
-        <div className='grid gap-4 sm:grid-cols-2'>
-          <div className='space-y-2'>
-            <Label htmlFor='store-fee'>{t('Seller fee')} (%)</Label>
-            <Input
-              id='store-fee'
-              inputMode='decimal'
-              value={fee}
-              onChange={(event) => setFee(event.target.value)}
-            />
-          </div>
-          <div className='space-y-2'>
-            <Label htmlFor='store-promotion-price'>
-              {t('Monthly promotion price')} ({money.label})
-            </Label>
-            <Input
-              id='store-promotion-price'
-              inputMode='decimal'
-              value={promotion.input}
-              onChange={(event) => promotion.setInput(event.target.value)}
-            />
-          </div>
-        </div>
-        <p className='text-muted-foreground text-xs'>
-          {t(
-            'Fees go to the configured super administrator. Purchases from that account’s own products are exempt from seller fees.'
-          )}
-        </p>
-        <Button type='submit' disabled={busy}>
-          {t(busy ? 'Saving...' : 'Save store settings')}
-        </Button>
-      </form>
-    </section>
   )
 }

@@ -19,6 +19,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { useStoreMoneyDraft } from './money'
+import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
 import {
   StoreAmount,
   StoreAuthGate,
@@ -109,7 +110,7 @@ function StoreSellerCenter() {
   }
   const allowedMethods: StorePaymentMethod[] =
     settings.data?.items
-      ?.filter((gateway) => gateway.enabled && gateway.configured)
+      ?.filter((gateway) => gateway.effective_enabled === true)
       .map((gateway) => gateway.provider) || []
   return (
     <div className='space-y-5'>
@@ -378,6 +379,11 @@ export function StoreProductEditor({
       if (!price.quota || !draft.title.trim()) {
         throw new Error('Enter a valid title and price')
       }
+      if (
+        draft.payment_methods.some((method) => !allowedMethods.includes(method))
+      ) {
+        throw new Error(t(copy.unavailable))
+      }
       const imageUrls = images
         .split(/\r?\n/)
         .map((url) => url.trim())
@@ -627,27 +633,44 @@ export function StoreProductEditor({
           </div>
           <fieldset className='space-y-2 border-t pt-4'>
             <legend className='font-semibold'>{t('Payment methods')}</legend>
-            {allowedMethods.map((method) => (
-              <label
-                key={method}
-                className='flex items-center justify-between gap-3 py-1 text-sm'
-              >
-                {t(paymentLabel(method))}
-                <Switch
-                  checked={draft.payment_methods.includes(method)}
-                  onCheckedChange={(enabled) =>
-                    change(
-                      'payment_methods',
-                      enabled
-                        ? [...draft.payment_methods, method]
-                        : draft.payment_methods.filter(
-                            (item) => item !== method
-                          )
-                    )
-                  }
-                />
-              </label>
-            ))}
+            <p className='text-muted-foreground text-sm'>{t(copy.subset)}</p>
+            {[...new Set([...allowedMethods, ...draft.payment_methods])].map(
+              (method) => (
+                <div
+                  key={method}
+                  className='flex items-center justify-between gap-3 py-1 text-sm'
+                >
+                  <Label htmlFor={`store-product-payment-${method}`}>
+                    {t(paymentLabel(method))}
+                  </Label>
+                  <Switch
+                    id={`store-product-payment-${method}`}
+                    checked={draft.payment_methods.includes(method)}
+                    disabled={
+                      !allowedMethods.includes(method) &&
+                      !draft.payment_methods.includes(method)
+                    }
+                    onCheckedChange={(enabled) =>
+                      change(
+                        'payment_methods',
+                        enabled
+                          ? [...draft.payment_methods, method]
+                          : draft.payment_methods.filter(
+                              (item) => item !== method
+                            )
+                      )
+                    }
+                  />
+                </div>
+              )
+            )}
+            {draft.payment_methods.some(
+              (method) => !allowedMethods.includes(method)
+            ) && (
+              <p role='status' className='text-warning text-sm'>
+                {t(copy.unavailable)}
+              </p>
+            )}
             {!allowedMethods.length && (
               <p className='text-muted-foreground text-sm'>
                 {t(

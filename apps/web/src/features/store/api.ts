@@ -11,6 +11,7 @@ import type {
   StoreOrder,
   StorePage,
   StorePaymentSettings,
+  StorePaymentCategories,
   StoreGatewayInput,
   StoreGateway,
   StoreProduct,
@@ -139,6 +140,10 @@ export const storeApi = {
     unwrap<StorePaymentSettings>(api.get(`${root}/payments/settings`, options)),
   savePaymentSettings: (body: StoreGatewayInput) =>
     unwrap<StoreGateway>(api.put(`${root}/payments/settings`, body, options)),
+  savePaymentCategories: (body: StorePaymentCategories) =>
+    unwrap<StorePaymentCategories>(
+      api.put(`${root}/payments/categories`, body, options)
+    ),
   claimMetadata: (token: string) =>
     unwrap<StoreClaimMetadata>(
       api.get(`${claimRoot}/${encodeURIComponent(token)}`, claimOptions)
