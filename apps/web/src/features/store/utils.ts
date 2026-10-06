@@ -1,4 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import { toIntlLocale } from '@/i18n/languages'
+
 import type { StorePaymentMethod } from './types'
 
 export const CREDITS_PER_USD = 500000
@@ -47,7 +49,9 @@ export function storeTotal(unit: number, quantity: number) {
   return unit * quantity
 }
 export function storeDate(timestamp: number, locale: string) {
-  return timestamp > 0 ? new Date(timestamp * 1000).toLocaleString(locale) : '—'
+  return timestamp > 0
+    ? new Date(timestamp * 1000).toLocaleString(toIntlLocale(locale))
+    : '—'
 }
 export function storeRequestKey() {
   return crypto.randomUUID()

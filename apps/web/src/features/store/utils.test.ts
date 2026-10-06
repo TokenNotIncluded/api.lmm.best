@@ -8,6 +8,7 @@ import {
   MAX_IMPORT_BYTES,
   parseInventoryText,
   safeStoreUrl,
+  storeDate,
   storeTotal,
 } from './utils'
 
@@ -23,6 +24,20 @@ test('store integer credits retain the immutable USD anchor and strict external 
     [Number.MAX_SAFE_INTEGER, 2],
   ]) {
     assert.throws(() => storeTotal(unit, quantity), /Invalid amount/)
+  }
+})
+test('order dates accept both Chinese interface language codes without crashing', () => {
+  const timestamp = 1791270000
+  for (const [language, locale] of [
+    ['zhCN', 'zh-CN'],
+    ['zhTW', 'zh-TW'],
+    ['en', 'en'],
+  ]) {
+    assert.equal(
+      storeDate(timestamp, language),
+      new Date(timestamp * 1000).toLocaleString(locale)
+    )
+    assert.equal(storeDate(0, language), '—')
   }
 })
 test('inventory handles BOM, CRLF, empty lines and preserves duplicate units', () => {
