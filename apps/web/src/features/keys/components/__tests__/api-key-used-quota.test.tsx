@@ -2,7 +2,7 @@
 Copyright (C) 2026 LIghtJUNction
 */
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -18,21 +18,127 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { ApiKeyUsedQuota } = await import('../api-keys-cells')
+const { default: i18n } = await import('@/i18n/config')
+const { useAuthStore } = await import('@/stores/auth-store')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 
-after(() => domWindow.close())
+const originalCurrency = useSystemConfigStore.getState().config.currency
+const originalUser = useAuthStore.getState().auth.user
+const originalPreference =
+  useWalletCurrencyPreferenceStore.getState().preference
+const originalLanguage = i18n.language
+let root: ReturnType<typeof createRoot> | undefined
 
-test('renders API key usage directly, including zero', async () => {
+beforeEach(async () => {
+  useAuthStore.getState().auth.setUser(null)
+  useWalletCurrencyPreferenceStore.getState().setPreference('')
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+      legacyPricingUnitsPerUsd: 1,
+      quotaPerUnit: 500_000,
+    },
+  })
+  await i18n.changeLanguage('en')
+})
+
+afterEach(async () => {
+  await act(async () => root?.unmount())
+  root = undefined
+})
+
+after(async () => {
+  useSystemConfigStore.getState().setConfig({ currency: originalCurrency })
+  useAuthStore.getState().auth.setUser(originalUser)
+  useWalletCurrencyPreferenceStore.getState().setPreference(originalPreference)
+  await i18n.changeLanguage(originalLanguage)
+  domWindow.close()
+})
+
+for (const [currency, amounts] of [
+  ['USD', ['0 USD', '1 USD', '0.000002 USD']],
+  ['CNY', ['0 CNY', '7 CNY', '0.000014 CNY']],
+  ['CREDIT', ['0 Credits', '500,000 Credits', '1 Credits']],
+] as const) {
+  test(`renders zero, 500,000 credits and one credit literally in ${currency}`, async () => {
+    const container = document.createElement('div')
+    root = createRoot(container)
+    useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+
+    for (const [index, used] of [0, 500_000, 1].entries()) {
+      await act(async () => root?.render(<ApiKeyUsedQuota used={used} />))
+      const usage = container.querySelector('[data-api-key-used-quota]')
+      assert.ok(usage)
+      assert.equal(usage.textContent, amounts[index])
+    }
+  })
+}
+
+test('mounted usage cells react to currency changes without a parent render', async () => {
   const container = document.createElement('div')
-  const root = createRoot(container)
+  root = createRoot(container)
+  await act(async () =>
+    root?.render(
+      <>
+        <ApiKeyUsedQuota used={0} />
+        <ApiKeyUsedQuota used={500_000} />
+        <ApiKeyUsedQuota used={1} />
+      </>
+    )
+  )
+  for (const [currency, expected] of [
+    ['CNY', ['0 CNY', '7 CNY', '0.000014 CNY']],
+    ['CREDIT', ['0 Credits', '500,000 Credits', '1 Credits']],
+    ['USD', ['0 USD', '1 USD', '0.000002 USD']],
+  ] as const) {
+    await act(async () => {
+      useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+    })
+    assert.deepEqual(
+      [...container.querySelectorAll('[data-api-key-used-quota]')].map(
+        (usage) => usage.textContent
+      ),
+      expected
+    )
+  }
+})
 
-  await act(async () => root.render(<ApiKeyUsedQuota used={0} />))
-  const usage = container.querySelector('[data-api-key-used-quota]')
-  assert.ok(usage)
-  assert.notEqual(usage.textContent, '-')
+test('mounted usage follows language defaults and retains a manual USD preference', async () => {
+  const container = document.createElement('div')
+  root = createRoot(container)
+  await act(async () => root?.render(<ApiKeyUsedQuota used={500_000} />))
+  assert.equal(container.textContent, '1 USD')
+  await act(async () => {
+    await i18n.changeLanguage('zhCN')
+  })
+  assert.equal(container.textContent, '7 CNY')
+  await act(async () => {
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  })
+  assert.equal(container.textContent, '1 USD')
+  await act(async () => {
+    await i18n.changeLanguage('en')
+  })
+  assert.equal(container.textContent, '1 USD')
+})
 
-  await act(async () => root.render(<ApiKeyUsedQuota used={500_000} />))
-  assert.ok(container.textContent?.trim())
-  assert.notEqual(container.textContent?.trim(), '-')
-
-  await act(async () => root.unmount())
+test('legacy quota-per-unit alone does not imply a fiat denomination', async () => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      quotaPerUnit: 500_000,
+    },
+  })
+  const container = document.createElement('div')
+  root = createRoot(container)
+  await act(async () => root?.render(<ApiKeyUsedQuota used={500_000} />))
+  assert.equal(container.textContent, '-')
 })

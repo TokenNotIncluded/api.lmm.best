@@ -65,7 +65,8 @@ the additional wait until all accounting becomes visible. Use
 `--relay-requests 500` to choose requests per measured relay batch.
 
 Current Go initializes the common schema; the runner applies the real Rust
-`0014_relay_settlement.sql` extension before starting both serving processes.
+`0014_relay_settlement.sql` and `0018_subscription_amount_snapshots.sql`
+extensions before starting both serving processes.
 The fixture's model ratio and completion ratio are both 1; each provider reply
 has 512 prompt plus 128 completion tokens, requiring exactly 640 quota units.
 Each backend uses one owner/key, so concurrent requests contend on one wallet.

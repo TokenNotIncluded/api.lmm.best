@@ -28,7 +28,9 @@ import { apiKeySourceCopy } from './api-key-source-copy.mjs'
 import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
 import { balanceQueryCopy } from './balance-query-copy.mjs'
+import { billingJsonEditorCopy } from './billing-json-editor-copy.mjs'
 import { codewhaleGuideCopy } from './codewhale-guide-copy.mjs'
+import { creditCurrencyCopy } from './credit-currency-copy.mjs'
 import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
@@ -41,13 +43,17 @@ import { passkeyCopy } from './passkey-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
+import { pricingBaseCopy } from './pricing-base-copy.mjs'
 import { profileShareCopy } from './profile-share-copy.mjs'
+import { publicCreditDisplayCopy } from './public-credit-display-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
+import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
+import { walletDisplayCopy } from './wallet-display-copy.mjs'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 
@@ -13038,6 +13044,30 @@ for (const [locale, values] of Object.entries(nativeBillingCopy)) {
 }
 
 for (const [locale, values] of Object.entries(moderationCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(creditCurrencyCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(billingJsonEditorCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(upstreamPricingCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(walletDisplayCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(pricingBaseCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(publicCreditDisplayCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

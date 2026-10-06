@@ -50,6 +50,11 @@ type ModerationJob struct {
 	Source                    string `json:"source" gorm:"type:varchar(24);not null;index"`
 	RequestID                 string `json:"request_id" gorm:"type:varchar(128);not null;index"`
 	Group                     string `json:"group" gorm:"type:varchar(64);not null;index"`
+	PolicyScope               string `json:"-" gorm:"type:varchar(24);not null;default:account_group"`
+	PolicyGroup               string `json:"-" gorm:"type:varchar(64);not null;default:''"`
+	RelayGroup                string `json:"-" gorm:"type:varchar(64);not null;default:''"`
+	SubjectIdentifier         string `json:"-" gorm:"type:char(64);not null;default:''"`
+	ProviderCallsJSON         string `json:"-" gorm:"type:text;not null;default:'[]'"`
 	ReviewGroup               string `json:"review_group" gorm:"type:varchar(64);not null"`
 	ReviewModel               string `json:"review_model" gorm:"type:varchar(128);not null"`
 	InputDigest               string `json:"input_digest" gorm:"type:char(64);not null"`
@@ -57,6 +62,7 @@ type ModerationJob struct {
 	Payload                   string `json:"-" gorm:"size:262144;not null"`
 	CapturedMode              string `json:"mode" gorm:"type:varchar(16);not null"`
 	CapturedCategoryFinesJSON string `json:"-" gorm:"type:text;not null"`
+	CapturedAmountCurrency    string `json:"-" gorm:"type:varchar(24);not null;default:''"`
 	Status                    string `json:"status" gorm:"type:varchar(16);not null;index:idx_moderation_queue,priority:1"`
 	Attempts                  int    `json:"attempts" gorm:"not null;default:0"`
 	NextAttemptAt             int64  `json:"-" gorm:"not null;index:idx_moderation_queue,priority:2"`
@@ -95,6 +101,26 @@ func moderationSourceValid(source string) bool {
 	return source == ModerationSourceRelayInput || source == ModerationSourceAssistantInput || source == ModerationSourceAssistantOutput
 }
 
+// CurrentPolicy rejects work captured under a different scope or subject.
+// Historical rows without the added columns retain the account-group meaning.
+func (job ModerationJob) CurrentPolicy(settings setting.ModerationSettings) (setting.ModerationGroupPolicy, bool) {
+	if !moderationSourceValid(job.Source) {
+		return setting.ModerationGroupPolicy{Mode: setting.ModerationModeOff}, false
+	}
+	capturedScope, capturedGroup := job.PolicyScope, job.PolicyGroup
+	if capturedScope == "" {
+		capturedScope = setting.ModerationPolicyScopeAccountGroup
+	}
+	if capturedGroup == "" && capturedScope == setting.ModerationPolicyScopeAccountGroup {
+		capturedGroup = job.Group
+	}
+	scope, group, policy, configured := setting.ResolveModerationRequestPolicy(settings, job.Group, job.RelayGroup, job.Source != ModerationSourceRelayInput)
+	if scope != capturedScope || group != capturedGroup {
+		return setting.ModerationGroupPolicy{Mode: setting.ModerationModeOff}, false
+	}
+	return policy, configured
+}
+
 // Even a bounded, redacted message remains private user content. Gorm's
 // default error/slow-query trace interpolates INSERT values, so every queue
 // operation uses a separate silent session. Workers report stable error codes
@@ -113,8 +139,28 @@ func EnqueueModerationJob(ctx context.Context, job *ModerationJob) (bool, error)
 	if job.CapturedMode != setting.ModerationModeTolerant && job.CapturedMode != setting.ModerationModeStrict {
 		return false, ErrModerationJobInvalid
 	}
+	if !setting.IsModerationAmountCurrency(job.CapturedAmountCurrency) {
+		return false, ErrModerationJobInvalid
+	}
 	job.RequestID = strings.TrimSpace(job.RequestID)
+	if job.SubjectIdentifier != "" && ModerationSubjectIdentifier(job.SubjectIdentifier) == "" {
+		return false, ErrModerationJobInvalid
+	}
 	job.Group = strings.TrimSpace(job.Group)
+	job.PolicyScope = strings.TrimSpace(job.PolicyScope)
+	job.PolicyGroup = strings.TrimSpace(job.PolicyGroup)
+	job.RelayGroup = strings.TrimSpace(job.RelayGroup)
+	if job.PolicyScope == "" {
+		job.PolicyScope = setting.ModerationPolicyScopeAccountGroup
+	}
+	if job.PolicyGroup == "" && job.PolicyScope == setting.ModerationPolicyScopeAccountGroup {
+		job.PolicyGroup = job.Group
+	}
+	if !setting.IsModerationPolicyScope(job.PolicyScope) || len(job.PolicyGroup) > 64 || len(job.RelayGroup) > 64 ||
+		(job.PolicyScope == setting.ModerationPolicyScopeAccountGroup && job.PolicyGroup != job.Group) ||
+		(job.PolicyScope == setting.ModerationPolicyScopeRequestGroup && (job.Source != ModerationSourceRelayInput || job.RelayGroup == "" || job.PolicyGroup != job.RelayGroup)) {
+		return false, ErrModerationJobInvalid
+	}
 	job.ReviewGroup = strings.TrimSpace(job.ReviewGroup)
 	job.ReviewModel = strings.TrimSpace(job.ReviewModel)
 	if job.RequestID == "" || len(job.RequestID) > 128 || job.Group == "" || len(job.Group) > 64 || len(job.ReviewGroup) > 64 || job.ReviewModel == "" || len(job.ReviewModel) > 128 {
@@ -157,6 +203,7 @@ func EnqueueModerationJob(ctx context.Context, job *ModerationJob) (bool, error)
 	job.CategoriesJSON, job.CategoryScoresJSON = "[]", "{}"
 	job.RequestedQuota, job.ChargedQuota = 0, 0
 	job.ResponseModel, job.FeeCategory, job.FeeStatus = "", "", "none"
+	job.ProviderCallsJSON = "[]"
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -285,7 +332,62 @@ type ModerationCompletion struct {
 	ResponseModel    string
 	CurrentMode      string
 	CategoryFinesUSD map[string]float64
+	AmountCurrency   string
 	Now              int64
+}
+
+// One completion uses one conversion basis. Legacy ceilings are still priced
+// with the current legacy quota unit; explicit USD never depends on that unit.
+type moderationAmountBasis struct {
+	creditsPerUSD      decimal.Decimal
+	legacyQuotaPerUnit decimal.Decimal
+}
+
+func newModerationAmountBasis(needsLegacy bool) (moderationAmountBasis, error) {
+	credits, err := common.CreditsPerUSD()
+	if err != nil {
+		return moderationAmountBasis{}, err
+	}
+	basis := moderationAmountBasis{creditsPerUSD: credits}
+	if needsLegacy {
+		unit := common.QuotaPerUnit
+		if unit <= 0 || math.IsNaN(unit) || math.IsInf(unit, 0) {
+			return moderationAmountBasis{}, ErrModerationJobInvalid
+		}
+		basis.legacyQuotaPerUnit = decimal.NewFromFloat(unit)
+	}
+	return basis, nil
+}
+
+func (basis moderationAmountBasis) amountUSD(amount float64, currency string) (decimal.Decimal, error) {
+	credits, err := basis.amountCredits(amount, currency)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return credits.Div(basis.creditsPerUSD), nil
+}
+
+// This is the exact numerator of the amount in the shared USD basis. Keeping
+// USD*K during comparisons avoids division rounding before the single floor.
+func (basis moderationAmountBasis) amountCredits(amount float64, currency string) (decimal.Decimal, error) {
+	if !setting.IsModerationAmountCurrency(currency) || setting.ValidateModerationFineUSD(amount) != nil {
+		return decimal.Zero, ErrModerationJobInvalid
+	}
+	value := decimal.NewFromFloat(amount)
+	if setting.ResolveModerationAmountCurrency(currency) == setting.ModerationAmountCurrencyUSD {
+		return value.Mul(basis.creditsPerUSD), nil
+	}
+	return value.Mul(basis.legacyQuotaPerUnit), nil
+}
+
+// ModerationAmountToUSD projects raw policy amounts without mutating their
+// stored values or treating historical fields named *_usd as real fiat.
+func ModerationAmountToUSD(amount float64, currency string) (decimal.Decimal, error) {
+	basis, err := newModerationAmountBasis(setting.ResolveModerationAmountCurrency(currency) != setting.ModerationAmountCurrencyUSD)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return basis.amountUSD(amount, currency)
 }
 
 func (job ModerationJob) Categories() []string {
@@ -307,6 +409,9 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 		completion.Now = common.GetTimestamp()
 	}
 	if completion.CurrentMode != setting.ModerationModeOff && completion.CurrentMode != setting.ModerationModeTolerant && completion.CurrentMode != setting.ModerationModeStrict {
+		return ErrModerationJobInvalid
+	}
+	if !setting.IsModerationAmountCurrency(completion.AmountCurrency) {
 		return ErrModerationJobInvalid
 	}
 	for category, amount := range completion.CategoryFinesUSD {
@@ -348,7 +453,7 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 	}
 	var cacheUser int
 	err = moderationDB(ctx).Transaction(func(tx *gorm.DB) error {
-		// This row lock is shared with all seven option writers and must be
+		// This row lock is shared with all moderation option writers and must be
 		// acquired before task/user locks. It fences policy changes across nodes.
 		settings, err := LockModerationSettings(tx)
 		if err != nil {
@@ -388,7 +493,7 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 		if job.Source == ModerationSourceAssistantInput || job.Source == ModerationSourceAssistantOutput {
 			enabled = settings.AssistantEnabled
 		}
-		policy, configured := setting.ResolveModerationPolicy(settings, job.Group)
+		policy, configured := job.CurrentPolicy(settings)
 		if !enabled || !configured || policy.Mode == setting.ModerationModeOff || user.Group != job.Group || user.Status != common.UserStatusEnabled || completion.CurrentMode == setting.ModerationModeOff || job.InputTruncated {
 			return tx.Model(&job).Updates(map[string]any{"status": ModerationJobCancelled, "payload": "", "lease_owner": "", "lease_until": 0, "completed_at": completion.Now, "updated_at": completion.Now, "error_message": "review policy disabled or subject group changed"}).Error
 		}
@@ -400,20 +505,62 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 			if json.Unmarshal([]byte(job.CapturedCategoryFinesJSON), &captured) != nil {
 				return ErrModerationJobInvalid
 			}
-			amount, category := 0.0, ""
+			capturedCurrency := setting.ResolveModerationAmountCurrency(job.CapturedAmountCurrency)
+			policyCurrency := setting.ResolveModerationAmountCurrency(policy.AmountCurrency)
+			completionCurrency := setting.ResolveModerationAmountCurrency(completion.AmountCurrency)
+			allLegacy := capturedCurrency == setting.ModerationAmountCurrencyLegacy && policyCurrency == setting.ModerationAmountCurrencyLegacy && completionCurrency == setting.ModerationAmountCurrencyLegacy
+			needsLegacy := capturedCurrency == setting.ModerationAmountCurrencyLegacy || policyCurrency == setting.ModerationAmountCurrencyLegacy || completionCurrency == setting.ModerationAmountCurrencyLegacy
+			var basis moderationAmountBasis
 			for _, match := range categories {
-				candidate := math.Min(captured[match], math.Min(policy.CategoryFinesUSD[match], completion.CategoryFinesUSD[match]))
-				if candidate > amount && candidate <= setting.ModerationMaxCategoryFineUSD && !math.IsInf(candidate, 0) && !math.IsNaN(candidate) {
-					amount, category = candidate, match
+				if captured[match] > 0 && policy.CategoryFinesUSD[match] > 0 && completion.CategoryFinesUSD[match] > 0 {
+					basis, err = newModerationAmountBasis(needsLegacy)
+					if err != nil {
+						return err
+					}
+					break
 				}
 			}
-			if amount > 0 {
-				if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
-					return ErrModerationJobInvalid
+			quotaAmount, legacyAmount, category := decimal.Zero, decimal.Zero, ""
+			for _, match := range categories {
+				// Warning-only categories never need monetary authorization.
+				if captured[match] <= 0 || policy.CategoryFinesUSD[match] <= 0 || completion.CategoryFinesUSD[match] <= 0 {
+					continue
 				}
+				if allLegacy {
+					candidate := math.Min(captured[match], math.Min(policy.CategoryFinesUSD[match], completion.CategoryFinesUSD[match]))
+					if setting.ValidateModerationFineUSD(candidate) != nil {
+						return ErrModerationJobInvalid
+					}
+					value := decimal.NewFromFloat(candidate)
+					if value.GreaterThan(legacyAmount) {
+						legacyAmount, category = value, match
+					}
+					continue
+				}
+				capturedCredits, err := basis.amountCredits(captured[match], capturedCurrency)
+				if err != nil {
+					return err
+				}
+				policyCredits, err := basis.amountCredits(policy.CategoryFinesUSD[match], policyCurrency)
+				if err != nil {
+					return err
+				}
+				completionCredits, err := basis.amountCredits(completion.CategoryFinesUSD[match], completionCurrency)
+				if err != nil {
+					return err
+				}
+				candidate := decimal.Min(capturedCredits, policyCredits, completionCredits)
+				if candidate.GreaterThan(quotaAmount) {
+					quotaAmount, category = candidate, match
+				}
+			}
+			if allLegacy {
+				quotaAmount = legacyAmount.Mul(basis.legacyQuotaPerUnit)
+			}
+			if quotaAmount.IsPositive() {
 				// A configured fine is a ceiling. Round down in decimal arithmetic
 				// to wallet units; a sub-unit amount remains warning-only.
-				requested, conversionErr := common.WalletQuotaFromDecimalStrict(decimal.NewFromFloat(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Floor())
+				requested, conversionErr := common.WalletQuotaFromDecimalStrict(quotaAmount.Floor())
 				if conversionErr != nil {
 					return conversionErr
 				}
@@ -441,8 +588,8 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 							}
 							cacheUser = user.Id
 						}
-						chargedAmount := float64(charged) / common.QuotaPerUnit
-						fresh := ViolationFeeRecord{UserID: user.Id, RequestID: job.RequestID, PolicyKey: "moderation:" + job.Group, Group: job.Group, Occurrence: 1, PeriodStartedAt: completion.Now, PeriodEndsAt: completion.Now, RequestedAmountUSD: amount, ChargedAmountUSD: chargedAmount, RequestedQuota: requested, ChargedQuota: charged, ErrorCode: "moderation." + category, Status: ViolationFeeRecordStatusCharged, CreatedAt: completion.Now}
+						chargedAmount := decimal.NewFromInt(int64(charged)).Div(basis.creditsPerUSD).InexactFloat64()
+						fresh := ViolationFeeRecord{UserID: user.Id, RequestID: job.RequestID, PolicyKey: "moderation:" + job.Group, Group: job.Group, Occurrence: 1, PeriodStartedAt: completion.Now, PeriodEndsAt: completion.Now, AmountCurrency: setting.ModerationAmountCurrencyUSD, RequestedAmountUSD: quotaAmount.Div(basis.creditsPerUSD).InexactFloat64(), ChargedAmountUSD: chargedAmount, RequestedQuota: requested, ChargedQuota: charged, ErrorCode: "moderation." + category, Status: ViolationFeeRecordStatusCharged, CreatedAt: completion.Now}
 						if err := tx.Create(&fresh).Error; err != nil {
 							return err
 						}

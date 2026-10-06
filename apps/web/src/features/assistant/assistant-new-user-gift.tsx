@@ -14,12 +14,13 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
-import { formatPlatformAmount } from '@/lib/currency'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { claimAssistantNewUserGift, getAssistantNewUserGift } from './api'
 
 export function AssistantNewUserGift(props: { enabled: boolean }) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const queryClient = useQueryClient()
   const [claiming, setClaiming] = useState(false)
   const giftQuery = useQuery({
@@ -114,11 +115,11 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
         <div className='min-w-0'>
           <p className='text-sm font-medium'>
             {giftTitle} ·{' '}
-            {formatPlatformAmount(
-              gift.amount_cents / 100,
-              { abbreviate: false, digitsLarge: 2, digitsSmall: 2 },
-              t('Platform')
-            )}
+            {formatQuota(gift.credit_amount ?? gift.quota, {
+              abbreviate: false,
+              digitsLarge: 2,
+              digitsSmall: 2,
+            })}
           </p>
           <p className='text-muted-foreground mt-1 text-xs leading-5'>
             {gift.reason}

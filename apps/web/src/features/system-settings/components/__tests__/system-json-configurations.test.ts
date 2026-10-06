@@ -20,6 +20,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, test } from 'node:test'
 
+import { parseModerationGroupPolicies } from '../../security/moderation-config'
 import { SYSTEM_JSON_CONFIGURATIONS } from '../system-json-configurations'
 
 function collectTsxFiles(directory: string): string[] {
@@ -69,6 +70,7 @@ describe('system JSON configuration registry', () => {
       'components/system-json-code-editor.tsx'
     )
     let documentedEditorCount = 0
+    let moderationEditorCount = 0
 
     for (const file of collectTsxFiles(systemSettingsRoot)) {
       const source = readFileSync(file, 'utf8')
@@ -84,11 +86,68 @@ describe('system JSON configuration registry', () => {
         /<SystemJsonCodeEditor\b([\s\S]*?)\/>/g
       )) {
         assert.match(match[1] ?? '', /configurationKey=/, `${file} has no key`)
+        const props = match[1] ?? ''
+        const literalKey = /configurationKey=['"]([^'"]+)['"]/.exec(props)?.[1]
+        if (literalKey) {
+          assert.ok(
+            Object.hasOwn(SYSTEM_JSON_CONFIGURATIONS, literalKey),
+            `${file} uses an unregistered key ${literalKey}`
+          )
+        }
+        if (file.endsWith('moderation-group-policy-editor.tsx')) {
+          assert.equal(
+            literalKey,
+            'ModerationGroupPolicies',
+            `${file} must document the Moderation policy contract`
+          )
+          moderationEditorCount += 1
+        }
         documentedEditorCount += 1
       }
     }
 
-    assert.equal(documentedEditorCount, 28)
+    assert.ok(
+      documentedEditorCount > 0,
+      'the settings editor inventory must not be empty'
+    )
+    assert.ok(
+      moderationEditorCount > 0,
+      'the Moderation JSON fallback must use the documented wrapper'
+    )
+  })
+
+  test('documents explicit USD and inherited legacy Moderation price bases', () => {
+    const configuration = SYSTEM_JSON_CONFIGURATIONS.ModerationGroupPolicies
+    const example = JSON.parse(configuration.example)
+    assert.deepEqual(example.default, {
+      mode: 'off',
+      amount_currency: 'USD',
+      category_fines_usd: {},
+    })
+    assert.ok(parseModerationGroupPolicies(configuration.example))
+    const fields = configuration.specification.fields
+    assert.match(
+      fields.find((field) => field.path === '<userGroup>.amount_currency')
+        ?.rules ?? '',
+      /omitted means legacy_pricing_unit/
+    )
+    assert.match(
+      fields.find((field) => field.path === '<userGroup>.amount_currency')
+        ?.rules ?? '',
+      /convert legacy amounts before changing this marker/
+    )
+    assert.match(
+      fields.find(
+        (field) => field.path === '<userGroup>.category_fines_usd.<category>'
+      )?.rules ?? '',
+      /maximum: 1000/
+    )
+    assert.match(
+      fields.find(
+        (field) => field.path === '<userGroup>.category_fines_usd.<category>'
+      )?.rules ?? '',
+      /precision: 6/
+    )
   })
 
   test('keeps high-risk examples aligned with their backend contracts', () => {

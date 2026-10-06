@@ -7,11 +7,17 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 
 import { createInstance } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
+
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
+import { useWalletCurrencyPreferenceStore } from '@/stores/wallet-currency-preference-store'
 
 import { ModerationReviewRow } from './moderation-audit-panel'
 import type { ModerationReview } from './security-audit-types'
@@ -49,6 +55,81 @@ const render = (review: ModerationReview) =>
     </I18nextProvider>
   )
 
+const originalConfig = useSystemConfigStore.getState().config
+const originalPreference =
+  useWalletCurrencyPreferenceStore.getState().preference
+after(() => {
+  useSystemConfigStore.getState().setConfig(originalConfig)
+  useWalletCurrencyPreferenceStore.getState().setPreference(originalPreference)
+})
+
+test('review deductions always use ledger USD across wallet display preferences', async () => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+    },
+  })
+  const { Window } = await import('happy-dom')
+  const window = new Window()
+  for (const key of [
+    'window',
+    'document',
+    'navigator',
+    'HTMLElement',
+    'SVGElement',
+    'Node',
+    'Element',
+    'Event',
+    'MutationObserver',
+  ] as const) {
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      value: window[key],
+    })
+  }
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const testGlobals = globalThis as typeof globalThis & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean
+  }
+  testGlobals.IS_REACT_ACT_ENVIRONMENT = true
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ModerationReviewRow
+            review={{
+              ...base,
+              requested_quota: 3359744,
+              charged_quota: 1679872,
+            }}
+          />
+        </I18nextProvider>
+      )
+    )
+    for (const preference of ['USD', 'CNY', 'CREDIT'] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(preference)
+      )
+      assert.match(container.innerHTML, />6\.719488 USD</)
+      assert.match(container.innerHTML, />3\.359744 USD</)
+      assert.doesNotMatch(container.innerHTML, /CNY|Credits/)
+    }
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    window.close()
+  }
+})
+
 test('shows durable metadata and category effects without rendering request text', () => {
   const html = render({
     ...base,
@@ -70,6 +151,37 @@ test('does not label failed or pending reviews as clear or violating', () => {
     assert.match(html, new RegExp(status === 'pending' ? 'Pending' : 'Failed'))
     assert.doesNotMatch(html, />Clear<|>Flagged</)
   }
+})
+
+test('shows captured private and paired upstream IDs while empty historical or restricted rows stay empty', () => {
+  const html = render({
+    ...base,
+    subject_identifier: 'a'.repeat(64),
+    provider_calls: [
+      {
+        attempt: 1,
+        batch_index: 1,
+        response_id: 'modr-first',
+        request_id: 'req_first',
+      },
+      { attempt: 2, batch_index: 1, response_id: 'modr-retry', request_id: '' },
+    ],
+  })
+  assert.match(html, /Private user identifier/)
+  assert.match(html, /Upstream moderation calls/)
+  assert.match(html, /modr-first/)
+  assert.match(html, /req_first/)
+  assert.match(html, /Attempt 2, batch 1/)
+  assert.match(html, /modr-retry/)
+  const historical = render({
+    ...base,
+    subject_identifier: '',
+    provider_calls: [],
+  })
+  assert.doesNotMatch(
+    historical,
+    /Private user identifier|Upstream moderation calls|modr-first|req_first/
+  )
 })
 
 test('output warnings state that users are excluded from penalties and risk scoring', () => {

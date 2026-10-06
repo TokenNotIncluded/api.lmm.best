@@ -27,6 +27,8 @@ import {
 
 const defaultSecuritySettings: SecuritySettings = {
   ModerationEnabled: false,
+  ModerationPolicyScope: 'account_group',
+  ModerationSafetyIdentifierEnabled: false,
   ModerationGroup: 'default',
   ModerationModel: 'omni-moderation-latest',
   ModerationGroupPolicies: '{}',

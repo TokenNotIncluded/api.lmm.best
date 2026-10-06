@@ -122,7 +122,7 @@ impl StripeHarness {
             fixture.option(key, value).await;
         }
         sqlx::raw_sql("CREATE TABLE subscription_plans(id BIGINT PRIMARY KEY,title TEXT NOT NULL DEFAULT 'Plan',price_amount NUMERIC NOT NULL DEFAULT 1,currency TEXT NOT NULL DEFAULT 'USD',duration_unit TEXT NOT NULL DEFAULT 'day',duration_value BIGINT NOT NULL DEFAULT 1,custom_seconds BIGINT NOT NULL DEFAULT 0,total_amount BIGINT NOT NULL DEFAULT 1000,max_purchase_per_user BIGINT NOT NULL DEFAULT 0,upgrade_group TEXT NOT NULL DEFAULT '',downgrade_group TEXT NOT NULL DEFAULT '',quota_reset_period TEXT NOT NULL DEFAULT 'never',quota_reset_custom_seconds BIGINT NOT NULL DEFAULT 0,allow_wallet_overflow BOOLEAN NOT NULL DEFAULT TRUE); INSERT INTO subscription_plans(id) VALUES(3);
-            CREATE TABLE user_subscriptions(id BIGSERIAL PRIMARY KEY,user_id BIGINT,plan_id BIGINT,amount_total BIGINT,amount_used BIGINT,quota_version BIGINT NOT NULL DEFAULT 0,start_time BIGINT,end_time BIGINT,status TEXT,source TEXT,last_reset_time BIGINT,next_reset_time BIGINT,upgrade_group TEXT,prev_user_group TEXT,downgrade_group TEXT,allow_wallet_overflow BOOLEAN,created_at BIGINT,updated_at BIGINT)")
+            CREATE TABLE user_subscriptions(id BIGSERIAL PRIMARY KEY,user_id BIGINT,plan_id BIGINT,amount_total BIGINT,reset_amount BIGINT,renewal_amount BIGINT,amount_used BIGINT,quota_version BIGINT NOT NULL DEFAULT 0,start_time BIGINT,end_time BIGINT,status TEXT,source TEXT,last_reset_time BIGINT,next_reset_time BIGINT,upgrade_group TEXT,prev_user_group TEXT,downgrade_group TEXT,allow_wallet_overflow BOOLEAN,created_at BIGINT,updated_at BIGINT)")
             .execute(&fixture.pg).await.unwrap();
         let provider = Provider {
             pg: fixture.pg.clone(),
@@ -707,7 +707,7 @@ async fn stripe_partial_and_full_refunds_replay_safely_and_claw_back_only_the_fi
     assert_eq!(
         harness
             .notify(
-                paid(&trade, "evt_refundable", "pi_refundable", 100, 100),
+                paid(&trade, "evt_refundable", "pi_refundable", 1460, 1460),
                 "whsec_fixture"
             )
             .await,
@@ -716,7 +716,7 @@ async fn stripe_partial_and_full_refunds_replay_safely_and_claw_back_only_the_fi
     for _ in 0..2 {
         assert_eq!(
             harness
-                .notify(refund("re_quarter", "pi_refundable", 25), "whsec_fixture")
+                .notify(refund("re_quarter", "pi_refundable", 365), "whsec_fixture")
                 .await,
             StatusCode::OK
         );
@@ -730,7 +730,7 @@ async fn stripe_partial_and_full_refunds_replay_safely_and_claw_back_only_the_fi
     );
     assert_eq!(
         harness
-            .notify(refund("re_rest", "pi_refundable", 75), "whsec_fixture")
+            .notify(refund("re_rest", "pi_refundable", 1095), "whsec_fixture")
             .await,
         StatusCode::OK
     );
@@ -785,7 +785,7 @@ async fn stripe_refund_insufficient_wallet_and_ledger_failure_are_atomic_retryab
     assert_eq!(
         harness
             .notify(
-                paid(&trade, "evt_refundable", "pi_refundable", 100, 100),
+                paid(&trade, "evt_refundable", "pi_refundable", 1460, 1460),
                 "whsec_fixture"
             )
             .await,
@@ -796,7 +796,7 @@ async fn stripe_refund_insufficient_wallet_and_ledger_failure_are_atomic_retryab
         .await?;
     assert_eq!(
         harness
-            .notify(refund("re_full", "pi_refundable", 100), "whsec_fixture")
+            .notify(refund("re_full", "pi_refundable", 1460), "whsec_fixture")
             .await,
         StatusCode::INTERNAL_SERVER_ERROR
     );
@@ -813,7 +813,7 @@ async fn stripe_refund_insufficient_wallet_and_ledger_failure_are_atomic_retryab
     sqlx::query("ALTER TABLE finance_ledger_entries ADD CONSTRAINT fail_refund_ledger CHECK(amount_micros<0)").execute(&harness.fixture.pg).await?;
     assert_eq!(
         harness
-            .notify(refund("re_full", "pi_refundable", 100), "whsec_fixture")
+            .notify(refund("re_full", "pi_refundable", 1460), "whsec_fixture")
             .await,
         StatusCode::INTERNAL_SERVER_ERROR
     );
@@ -835,7 +835,7 @@ async fn stripe_refund_insufficient_wallet_and_ledger_failure_are_atomic_retryab
         .await?;
     assert_eq!(
         harness
-            .notify(refund("re_full", "pi_refundable", 100), "whsec_fixture")
+            .notify(refund("re_full", "pi_refundable", 1460), "whsec_fixture")
             .await,
         StatusCode::OK
     );
@@ -853,10 +853,26 @@ async fn stripe_current_go_checkout_settlement_and_refund_reference_matches() ->
         serde_json::from_str(include_str!("../fixtures/stripe-current-go-output.json"))?
     };
     let harness = StripeHarness::new().await;
+    for (key, value) in reference["currency_options"]
+        .as_object()
+        .expect("actual Go currency options")
+    {
+        harness
+            .fixture
+            .option(key, value.as_str().expect("currency option string"))
+            .await;
+    }
     harness
         .fixture
         .option("StripePromotionCodesEnabled", "true")
         .await;
+    // This exact half-credit input distinguishes flooring from the legacy
+    // round-to-nearest implementation without changing the frozen payment.
+    let quote = Request::post("/api/user/stripe/amount")
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"amount":14.600001}"#))?;
+    let quote: Value = serde_json::from_str(&http_body(harness.app.clone(), quote).await)?;
+    assert_eq!(quote, reference["quote_response"]);
     let mut response = harness.pay(reference["request"].clone()).await;
     let trade = harness.trade().await;
     let mut expected = reference["response"].clone();
@@ -870,7 +886,7 @@ async fn stripe_current_go_checkout_settlement_and_refund_reference_matches() ->
     fields.insert("client_reference_id".into(), "<order>".into());
     assert_eq!(json!(fields), reference["checkout_fields"]);
     assert_eq!(json!(persisted), reference["persisted_before_checkout"]);
-    let paid = paid(&trade, "evt_paid", "pi_fixture", 100, 80);
+    let paid = paid(&trade, "evt_paid", "pi_fixture", 1460, 1168);
     let statuses = vec![
         harness.notify(paid.clone(), "wrong-secret").await.as_u16(),
         harness.notify(paid.clone(), "whsec_fixture").await.as_u16(),
@@ -885,7 +901,7 @@ async fn stripe_current_go_checkout_settlement_and_refund_reference_matches() ->
     for _ in 0..2 {
         refunds.push(
             harness
-                .notify(refund("re_partial", "pi_fixture", 25), "whsec_fixture")
+                .notify(refund("re_partial", "pi_fixture", 365), "whsec_fixture")
                 .await
                 .as_u16(),
         );
@@ -896,7 +912,7 @@ async fn stripe_current_go_checkout_settlement_and_refund_reference_matches() ->
     );
     refunds.push(
         harness
-            .notify(refund("re_final", "pi_fixture", 55), "whsec_fixture")
+            .notify(refund("re_final", "pi_fixture", 803), "whsec_fixture")
             .await
             .as_u16(),
     );
@@ -985,17 +1001,23 @@ async fn stripe_checkout_is_durable_before_provider_and_signed_promoted_payment_
     let trade = harness.trade().await;
     let (fields, persisted) = harness.provider.sessions.lock().unwrap()[0].clone();
     assert!(persisted);
-    assert_eq!(fields["line_items[0][price_data][unit_amount]"], "90");
+    assert_eq!(fields["line_items[0][price_data][unit_amount]"], "1314");
     assert_eq!(fields["line_items[0][quantity]"], "1");
     assert_eq!(
         harness
-            .notify(paid(&trade, "evt_paid", "pi_paid", 90, 80), "bad-secret")
+            .notify(
+                paid(&trade, "evt_paid", "pi_paid", 1314, 1168),
+                "bad-secret"
+            )
             .await,
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
         harness
-            .notify(paid(&trade, "evt_paid", "pi_paid", 89, 80), "whsec_fixture")
+            .notify(
+                paid(&trade, "evt_paid", "pi_paid", 1313, 1168),
+                "whsec_fixture"
+            )
             .await,
         StatusCode::OK
     );
@@ -1004,15 +1026,18 @@ async fn stripe_checkout_is_durable_before_provider_and_signed_promoted_payment_
     for _ in 0..2 {
         assert_eq!(
             harness
-                .notify(paid(&trade, "evt_paid", "pi_paid", 90, 80), "whsec_fixture")
+                .notify(
+                    paid(&trade, "evt_paid", "pi_paid", 1314, 1168),
+                    "whsec_fixture"
+                )
                 .await,
             StatusCode::OK
         );
     }
     assert_eq!(harness.fixture.quota(7).await, 7_300_000);
     let row=sqlx::query("SELECT expected_amount_micros,settled_amount_micros,provider_event_id,provider_transaction_id FROM top_ups").fetch_one(&harness.fixture.pg).await?;
-    assert_eq!(row.get::<i64, _>("expected_amount_micros"), 900_000);
-    assert_eq!(row.get::<i64, _>("settled_amount_micros"), 800_000);
+    assert_eq!(row.get::<i64, _>("expected_amount_micros"), 13_140_000);
+    assert_eq!(row.get::<i64, _>("settled_amount_micros"), 11_680_000);
     assert_eq!(row.get::<String, _>("provider_event_id"), "evt_paid");
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT used_count FROM discount_codes WHERE id=9")
@@ -1065,7 +1090,7 @@ async fn stripe_provider_failure_retains_order_and_callback_storage_failure_retr
     sqlx::query("ALTER TABLE referral_ledger_entries ADD CONSTRAINT fail_referral CHECK(quota<0)")
         .execute(&harness.fixture.pg)
         .await?;
-    let event = paid(&trade, "evt_retry", "pi_retry", 90, 90);
+    let event = paid(&trade, "evt_retry", "pi_retry", 1314, 1314);
     assert_eq!(
         harness.notify(event.clone(), "whsec_fixture").await,
         StatusCode::INTERNAL_SERVER_ERROR
@@ -1107,7 +1132,7 @@ async fn stripe_reused_payment_intent_and_wrong_currency_cannot_credit_another_o
     assert_eq!(
         harness
             .notify(
-                paid(&first, "evt_first", "pi_unique", 100, 100),
+                paid(&first, "evt_first", "pi_unique", 1460, 1460),
                 "whsec_fixture"
             )
             .await,
@@ -1123,13 +1148,13 @@ async fn stripe_reused_payment_intent_and_wrong_currency_cannot_credit_another_o
     assert_eq!(
         harness
             .notify(
-                paid(&second, "evt_second", "pi_unique", 100, 100),
+                paid(&second, "evt_second", "pi_unique", 1460, 1460),
                 "whsec_fixture"
             )
             .await,
         StatusCode::OK
     );
-    let mut wrong = paid(&second, "evt_second", "pi_second", 100, 100);
+    let mut wrong = paid(&second, "evt_second", "pi_second", 1460, 1460);
     wrong["data"]["object"]["currency"] = json!("eur");
     assert_eq!(harness.notify(wrong, "whsec_fixture").await, StatusCode::OK);
     assert_eq!(harness.fixture.quota(7).await, 7_300_000);
@@ -1142,7 +1167,7 @@ async fn stripe_reused_payment_intent_and_wrong_currency_cannot_credit_another_o
     assert_eq!(
         harness
             .notify(
-                paid(&second, "evt_second", "pi_second", 100, 100),
+                paid(&second, "evt_second", "pi_second", 1460, 1460),
                 "whsec_fixture"
             )
             .await,

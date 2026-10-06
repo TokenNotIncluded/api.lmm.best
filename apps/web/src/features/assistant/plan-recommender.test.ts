@@ -165,4 +165,69 @@ describe('assistant plan recommender', () => {
     assert.equal(ranked[0]?.record.plan.id, 1)
     assert.equal(ranked[0]?.recommended, true)
   })
+
+  test('uses fixed credits per real USD when deciding which plan covers a budget', () => {
+    const ranked = compareAssistantPlans(
+      [plan(1, 5_000_000), plan(2, 15_000_000)],
+      20,
+      500_000
+    )
+
+    assert.equal(ranked[0]?.record.plan.id, 2)
+    assert.equal(ranked[0]?.monthlyCreditUSD, 15_000_000 / 500_000)
+  })
+
+  test('compares CNY and USD plan payments using the actual exchange rate', () => {
+    const dollarPlan = plan(1, 25_000_000)
+    dollarPlan.plan.price_amount = 8
+    const yuanPlan = plan(2, 22_000_000)
+    yuanPlan.plan.price_amount = 35
+    yuanPlan.plan.currency = 'CNY'
+
+    const ranked = compareAssistantPlans(
+      [dollarPlan, yuanPlan],
+      20,
+      1_000_000,
+      7
+    )
+
+    assert.equal(ranked[0]?.record.plan.id, 2)
+    assert.equal(ranked[0]?.monthlyCostUSD, 5)
+    assert.equal(ranked[0]?.monthlyCostAmount, 35)
+    assert.equal(ranked[0]?.record.plan.currency, 'CNY')
+  })
+
+  test('does not equate an unknown CNY exchange rate with one USD', () => {
+    const dollarPlan = plan(1, 22_000_000)
+    dollarPlan.plan.price_amount = 8
+    const yuanPlan = plan(2, 25_000_000)
+    yuanPlan.plan.price_amount = 1
+    yuanPlan.plan.currency = 'CNY'
+
+    const ranked = compareAssistantPlans([yuanPlan, dollarPlan], 20, 1_000_000)
+
+    assert.equal(ranked[0]?.record.plan.id, 1)
+    assert.equal(
+      ranked.find((item) => item.record.plan.id === 2)?.monthlyCostUSD,
+      null
+    )
+  })
+
+  test('uses consistent capacity ordering when one covering payment currency is unknown', () => {
+    const smaller = plan(1, 22_000_000)
+    smaller.plan.price_amount = 40
+    const larger = plan(2, 30_000_000)
+    larger.plan.price_amount = 5
+    const incomparable = plan(3, 25_000_000)
+    incomparable.plan.currency = 'EUR'
+    incomparable.plan.price_amount = 1
+
+    for (const candidates of [
+      [smaller, larger, incomparable],
+      [incomparable, larger, smaller],
+    ]) {
+      const ranked = compareAssistantPlans(candidates, 20, 1_000_000, 7)
+      assert.equal(ranked[0]?.record.plan.id, 1)
+    }
+  })
 })

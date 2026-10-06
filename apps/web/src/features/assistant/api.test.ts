@@ -331,6 +331,36 @@ describe('assistant response parsing', () => {
     )
   })
 
+  test('retains the gift Credit snapshot and actual USD while legacy cents stay labelled', () => {
+    const action = {
+      type: 'new_user_gift',
+      amount_cents: 525,
+      amount_unit: 'LEGACY_CENTS',
+      credit_amount: 2_625_000,
+      amount_usd: 0.75,
+      currency: 'USD',
+      credits_per_usd: 3_500_000,
+      status: 'offered',
+      reason: 'A persisted gift award.',
+    }
+    assert.deepEqual(parseAssistantAction(action), action)
+  })
+
+  test('keeps the persisted gift Credits when its USD projection is unavailable', () => {
+    const action = {
+      type: 'new_user_gift',
+      amount_cents: 525,
+      amount_unit: 'LEGACY_CENTS',
+      credit_amount: 1,
+      amount_usd: null,
+      currency: 'USD',
+      credits_per_usd: null,
+      status: 'offered',
+      reason: 'A persisted gift award.',
+    }
+    assert.deepEqual(parseAssistantAction(action), action)
+  })
+
   test('accepts the server-issued new-user gift action without private quota data', () => {
     assert.deepEqual(
       parseAssistantAction({
@@ -1018,8 +1048,11 @@ describe('assistant chat retry policy', () => {
     ]
     const deltas: string[] = []
     let requestedAccept = ''
+    let requestedCreditUnit = ''
     globalThis.fetch = (async (_input, init) => {
       requestedAccept = new Headers(init?.headers).get('Accept') || ''
+      requestedCreditUnit =
+        new Headers(init?.headers).get('X-LMM-Credit-Unit') || ''
       const encoder = new TextEncoder()
       let index = 0
       const body = new ReadableStream<Uint8Array>({
@@ -1049,6 +1082,7 @@ describe('assistant chat retry policy', () => {
         { onDelta: (content) => deltas.push(content) }
       )
       assert.equal(requestedAccept, 'text/event-stream')
+      assert.equal(requestedCreditUnit, '500000')
       assert.deepEqual(deltas, ['实时', '输出'])
       assert.deepEqual(reply, {
         content: '实时输出',

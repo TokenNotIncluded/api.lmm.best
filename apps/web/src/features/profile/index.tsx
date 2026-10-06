@@ -34,6 +34,7 @@ import { ProfileSettingsCard } from './components/profile-settings-card'
 import { SettlementCurrencyCard } from './components/settlement-currency-card'
 import { SidebarModulesCard } from './components/sidebar-modules-card'
 import { TwoFACard } from './components/two-fa-card'
+import { WalletDisplayCurrencyCard } from './components/wallet-display-currency-card'
 import { useProfile } from './hooks'
 
 interface ProfilePasskeyCapabilityProps {
@@ -105,6 +106,11 @@ export function Profile() {
             <div className='grid items-start gap-5 lg:grid-cols-2'>
               <LanguagePreferencesCard
                 profile={profile}
+                onProfileUpdate={refreshProfile}
+              />
+              <WalletDisplayCurrencyCard
+                profile={profile}
+                loading={loading}
                 onProfileUpdate={refreshProfile}
               />
               <SettlementCurrencyCard

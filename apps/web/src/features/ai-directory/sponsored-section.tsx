@@ -25,17 +25,21 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 import { useDebounce } from '@/hooks/use-debounce'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { isConsoleActivated } from '@/lib/console-activation'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createDirectoryAd,
   directoryAdErrorCode,
+  isUsdDirectoryAdQuote,
   listDirectoryAds,
   listMyDirectoryAds,
   quoteDirectoryAd,
   type DirectoryAd,
 } from './ads-api'
+import { DirectoryAdCurrencyControl } from './ads-currency-control'
 import { safeDirectoryUrl } from './api'
 
 const EMPTY_DRAFT = {
@@ -51,10 +55,6 @@ function centsFromInput(value: string): number | null {
   const [whole, fraction = ''] = value.split('.')
   const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
   return cents >= 100 && cents <= 1_000_000 ? cents : null
-}
-
-function bidAmount(cents: number) {
-  return (cents / 100).toFixed(2)
 }
 
 function adErrorMessage(code: string | null): string {
@@ -74,6 +74,7 @@ function adErrorMessage(code: string | null): string {
 
 function SponsoredAd({ ad }: { ad: DirectoryAd }) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const href = safeDirectoryUrl(ad.url)
   if (!href) return null
   const hostname = new URL(href).hostname.replace(/^www\./, '')
@@ -93,8 +94,8 @@ function SponsoredAd({ ad }: { ad: DirectoryAd }) {
       </div>
       <div className='ai-sponsored-side'>
         <span>
-          {t('Bid: {{amount}} USD equivalent', {
-            amount: bidAmount(ad.bid_cents),
+          {t('Paid: {{amount}}', {
+            amount: formatQuota(ad.charged_quota),
           })}
         </span>
         <a
@@ -118,6 +119,7 @@ function AdvertisementDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const cache = useQueryClient()
   const [draft, setDraft] = useState(EMPTY_DRAFT)
   const [step, setStep] = useState<'edit' | 'confirm'>('edit')
@@ -190,7 +192,12 @@ function AdvertisementDialog({
     validName && validURL && validSummary && validDescription && validBid
   const review = () => {
     setAttempted(true)
-    if (valid && quote.isSuccess && quote.data.bid_cents === bidCents) {
+    if (
+      valid &&
+      quote.isSuccess &&
+      isUsdDirectoryAdQuote(quote.data) &&
+      quote.data.bid_cents === bidCents
+    ) {
       setStep('confirm')
     }
   }
@@ -198,7 +205,7 @@ function AdvertisementDialog({
     if (
       !valid ||
       bidCents === null ||
-      !quote.data ||
+      !isUsdDirectoryAdQuote(quote.data) ||
       quote.data.bid_cents !== bidCents ||
       mutation.isPending
     ) {
@@ -228,6 +235,7 @@ function AdvertisementDialog({
                 )}
               </DialogDescription>
             </DialogHeader>
+            <DirectoryAdCurrencyControl />
             <form
               className='grid gap-4'
               onSubmit={(event) => {
@@ -279,9 +287,7 @@ function AdvertisementDialog({
                 />
               </div>
               <div className='grid gap-1.5'>
-                <Label htmlFor='sponsor-bid'>
-                  {t('Bid in USD equivalent')}
-                </Label>
+                <Label htmlFor='sponsor-bid'>{t('Bid (USD)')}</Label>
                 <Input
                   id='sponsor-bid'
                   type='number'
@@ -294,22 +300,18 @@ function AdvertisementDialog({
                   aria-invalid={attempted && !validBid}
                 />
                 <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'Bid 1 to 10,000 USD equivalent. Payment uses platform wallet credits.'
-                  )}
+                  {t('Bid 1 to 10,000 USD. Payment uses wallet credits.')}
                 </p>
               </div>
               {validBid &&
                 quote.isSuccess &&
+                isUsdDirectoryAdQuote(quote.data) &&
                 quote.data.bid_cents === bidCents && (
                   <p className='ai-sponsored-quote'>
-                    {t(
-                      'Exact charge: {{quota}} wallet units for {{days}} days.',
-                      {
-                        quota: quote.data.quota.toLocaleString(),
-                        days: quote.data.duration_days,
-                      }
-                    )}
+                    {t('Exact charge: {{amount}} for {{days}} days.', {
+                      amount: formatQuota(quote.data.quota),
+                      days: quote.data.duration_days,
+                    })}
                   </p>
                 )}
               {quote.isError && validBid && (
@@ -334,7 +336,9 @@ function AdvertisementDialog({
                   type='submit'
                   disabled={
                     valid &&
-                    (!quote.isSuccess || quote.data?.bid_cents !== bidCents)
+                    (!quote.isSuccess ||
+                      !isUsdDirectoryAdQuote(quote.data) ||
+                      quote.data.bid_cents !== bidCents)
                   }
                 >
                   {t('Review payment')}
@@ -360,11 +364,11 @@ function AdvertisementDialog({
                           : t('Ended')}
                         {' · '}
                         {ad.refunded_at > 0
-                          ? t('{{quota}} units refunded', {
-                              quota: ad.charged_quota.toLocaleString(),
+                          ? t('{{amount}} refunded', {
+                              amount: formatQuota(ad.charged_quota),
                             })
-                          : t('{{quota}} units paid', {
-                              quota: ad.charged_quota.toLocaleString(),
+                          : t('{{amount}} paid', {
+                              amount: formatQuota(ad.charged_quota),
                             })}
                       </span>
                     </p>
@@ -383,6 +387,7 @@ function AdvertisementDialog({
                 )}
               </DialogDescription>
             </DialogHeader>
+            <DirectoryAdCurrencyControl />
             <div className='ai-sponsored-confirm'>
               <p>
                 <span>{t('Website')}</span>
@@ -393,15 +398,13 @@ function AdvertisementDialog({
                 <strong>
                   {bidCents === null
                     ? '—'
-                    : t('{{amount}} USD equivalent', {
-                        amount: bidAmount(bidCents),
-                      })}
+                    : formatFiatCurrencyAmount(bidCents / 100, 'USD')}
                 </strong>
               </p>
               <p>
                 <span>{t('Wallet charge')}</span>
                 <strong>
-                  {quote.data?.quota.toLocaleString()} {t('units')}
+                  {quote.data ? formatQuota(quote.data.quota) : '—'}
                 </strong>
               </p>
               <p>
@@ -470,28 +473,33 @@ export function SponsoredDirectorySection() {
       <div className='ai-sponsored-heading'>
         <div>
           <h2 id='ai-sponsored-heading'>{t('Sponsored websites')}</h2>
-          <p>{t('Paid placements are labeled and ranked by bid.')}</p>
+          <p>
+            {t('Paid placements are labeled and ranked by the amount paid.')}
+          </p>
         </div>
-        {canPromote ? (
-          <Button type='button' size='sm' onClick={() => setOpen(true)}>
-            <Plus data-icon='inline-start' />
-            {t('Promote your website')}
-          </Button>
-        ) : (
-          <Button
-            size='sm'
-            render={
-              isSignedIn ? (
-                <Link to='/getting-started' />
-              ) : (
-                <Link to='/sign-in' search={{ redirect: '/ai-directory' }} />
-              )
-            }
-          >
-            <Plus data-icon='inline-start' />
-            {t('Promote your website')}
-          </Button>
-        )}
+        <div className='flex flex-wrap items-center gap-2'>
+          <DirectoryAdCurrencyControl />
+          {canPromote ? (
+            <Button type='button' size='sm' onClick={() => setOpen(true)}>
+              <Plus data-icon='inline-start' />
+              {t('Promote your website')}
+            </Button>
+          ) : (
+            <Button
+              size='sm'
+              render={
+                isSignedIn ? (
+                  <Link to='/getting-started' />
+                ) : (
+                  <Link to='/sign-in' search={{ redirect: '/ai-directory' }} />
+                )
+              }
+            >
+              <Plus data-icon='inline-start' />
+              {t('Promote your website')}
+            </Button>
+          )}
+        </div>
       </div>
       {adsQuery.isPending && (
         <p className='ai-sponsored-empty'>{t('Loading advertisements...')}</p>
@@ -508,7 +516,7 @@ export function SponsoredDirectorySection() {
         <div className='ai-sponsored-empty'>
           <Megaphone size={22} strokeWidth={1.5} aria-hidden='true' />
           <p>{t('Your website could be featured here.')}</p>
-          <span>{t('Placements start at 1 USD equivalent for 30 days.')}</span>
+          <span>{t('Placements start at 1 USD for 30 days.')}</span>
         </div>
       )}
       {ads.length > 0 && (

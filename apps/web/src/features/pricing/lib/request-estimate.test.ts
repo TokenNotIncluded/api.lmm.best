@@ -28,6 +28,11 @@ import { estimateRequestCost } from './request-estimate'
 const model: PricingModel = {
   id: 1,
   model_name: 'test',
+  pricing_schema_version: 2,
+  pricing_currency: 'USD',
+  input_price: 3,
+  output_price: 15,
+  cache_read_price: 0.3,
   quota_type: 0,
   model_ratio: 1.5,
   completion_ratio: 5,
@@ -44,6 +49,20 @@ describe('request estimate', () => {
     assert.equal(estimateRequestCost(model, undefined, 1, 1, 0), null)
     assert.equal(
       estimateRequestCost(
+        { ...model, pricing_schema_version: undefined },
+        1,
+        10,
+        1,
+        0
+      ),
+      null
+    )
+    assert.equal(
+      estimateRequestCost({ ...model, input_price: undefined }, 1, 10, 1, 0),
+      null
+    )
+    assert.equal(
+      estimateRequestCost(
         { ...model, billing_mode: 'tiered_expr' },
         1,
         1,
@@ -53,7 +72,7 @@ describe('request estimate', () => {
       null
     )
     assert.equal(
-      estimateRequestCost({ ...model, cache_ratio: null }, 1, 10, 1, 1),
+      estimateRequestCost({ ...model, cache_read_price: null }, 1, 10, 1, 1),
       null
     )
     assert.equal(estimateRequestCost(model, 1, 10, 1, 11), null)
@@ -82,6 +101,12 @@ describe('expression request estimates', () => {
     ...model,
     billing_mode: 'tiered_expr',
     billing_expr,
+  })
+  it('evaluates a canonical whole-expression conversion once', () => {
+    const canonical = dynamic(
+      '(tier("short", p * 28 + cr * 2.8 + c * 112)) / (14)'
+    )
+    assert.equal(estimateRequestCost(canonical, 2, 10000, 1000, 4000), 0.0416)
   })
   it('selects tiers by total context even when most tokens are cached', () => {
     const tiered = dynamic(

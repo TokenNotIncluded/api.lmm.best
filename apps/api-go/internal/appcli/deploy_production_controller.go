@@ -24,6 +24,12 @@ const (
 )
 
 type productionReleaseControllerOptions struct {
+	AllAdmissionClosedPath   string
+	AllAdmissionClosedSHA256 string
+
+	GlobalConfirmationPath   string
+	GlobalConfirmationSHA256 string
+
 	Plan            string
 	PlanSHA256      string
 	Confirm         string
@@ -32,23 +38,39 @@ type productionReleaseControllerOptions struct {
 }
 
 type productionReleaseControllerState struct {
-	Format                  int       `json:"format"`
-	DeploymentID            string    `json:"deployment_id"`
-	PlanSHA256              string    `json:"plan_sha256"`
-	Phase                   string    `json:"phase"`
-	RemoteWorkspace         string    `json:"remote_workspace"`
-	TargetBackup            string    `json:"target_backup,omitempty"`
-	ControllerBackup        string    `json:"controller_backup,omitempty"`
-	ControllerReceiptSHA256 string    `json:"controller_receipt_sha256,omitempty"`
-	OffhostBackup           string    `json:"offhost_backup,omitempty"`
-	Version                 string    `json:"version,omitempty"`
-	ActivationUnit          string    `json:"activation_unit,omitempty"`
-	DispatchAttempts        int       `json:"dispatch_attempts,omitempty"`
-	DispatchObserved        bool      `json:"dispatch_observed,omitempty"`
-	UpdatedUTC              time.Time `json:"updated_utc"`
+	DispatchVerifiedAbsent       bool      `json:"dispatch_verified_absent,omitempty"`
+	MaintenanceConfirmation      bool      `json:"maintenance_confirmation,omitempty"`
+	MaintenanceAdmissionReopened bool      `json:"maintenance_admission_reopened,omitempty"`
+	CaptureReceiptPath           string    `json:"capture_receipt_path,omitempty"`
+	CaptureReceiptSHA256         string    `json:"capture_receipt_sha256,omitempty"`
+	Format                       int       `json:"format"`
+	DeploymentID                 string    `json:"deployment_id"`
+	PlanSHA256                   string    `json:"plan_sha256"`
+	Phase                        string    `json:"phase"`
+	RemoteWorkspace              string    `json:"remote_workspace"`
+	TargetBackup                 string    `json:"target_backup,omitempty"`
+	ControllerBackup             string    `json:"controller_backup,omitempty"`
+	ControllerReceiptSHA256      string    `json:"controller_receipt_sha256,omitempty"`
+	OffhostBackup                string    `json:"offhost_backup,omitempty"`
+	Version                      string    `json:"version,omitempty"`
+	ActivationUnit               string    `json:"activation_unit,omitempty"`
+	DispatchAttempts             int       `json:"dispatch_attempts,omitempty"`
+	DispatchObserved             bool      `json:"dispatch_observed,omitempty"`
+	UpdatedUTC                   time.Time `json:"updated_utc"`
 }
 
 type productionReleaseControllerResult struct {
+	DispatchVerifiedAbsent       bool   `json:"dispatch_verified_absent,omitempty"`
+	ProviderSHA256               string `json:"provider_sha256,omitempty"`
+	Phase                        string `json:"phase,omitempty"`
+	TransitionID                 string `json:"transition_id,omitempty"`
+	TransitionIntentSHA256       string `json:"transition_intent_sha256,omitempty"`
+	MaintenanceStage             string `json:"maintenance_stage,omitempty"`
+	MaintenanceConfirmation      bool   `json:"maintenance_confirmation,omitempty"`
+	MaintenanceAdmissionReopened bool   `json:"maintenance_admission_reopened,omitempty"`
+	CaptureReceiptPath           string `json:"capture_receipt_path,omitempty"`
+	CaptureReceiptSHA256         string `json:"capture_receipt_sha256,omitempty"`
+
 	DeploymentID     string `json:"deployment_id"`
 	PlanSHA256       string `json:"plan_sha256"`
 	Version          string `json:"version"`
@@ -123,6 +145,14 @@ func parseProductionReleaseControllerOptions(action string, args []string, stder
 	flags.StringVar(&options.Plan, "plan", "", "immutable controller release plan")
 	flags.StringVar(&options.PlanSHA256, "plan-sha256", "", "exact immutable release-plan SHA-256")
 	flags.StringVar(&options.Confirm, "confirm", "", "must equal api.lmm.best")
+	if action == "maintenance-stop" {
+		flags.StringVar(&options.AllAdmissionClosedPath, "all-admission-closed", "", "target sealed all-origin admission closure evidence")
+		flags.StringVar(&options.AllAdmissionClosedSHA256, "all-admission-closed-sha256", "", "exact closure receipt digest")
+	}
+	if action == "maintenance-release" {
+		flags.StringVar(&options.GlobalConfirmationPath, "global-confirmation", "", "root-owned global owner confirmation receipt on target")
+		flags.StringVar(&options.GlobalConfirmationSHA256, "global-confirmation-sha256", "", "exact global confirmation receipt SHA-256")
+	}
 	if action == "promote" || action == "confirm" {
 		flags.StringVar(&options.AgeIdentityFile, "age-identity-file", "", "owner-protected age or SSH private identity for backup verification")
 	}
@@ -184,6 +214,15 @@ func (runtime *productionReleaseRuntime) stage(ctx context.Context, options prod
 			DeploymentID: plan.DeploymentID,
 			PlanSHA256:   options.PlanSHA256,
 			Version:      plan.ExpectedVersion,
+		}
+	}
+	if plan.MaintenanceHandoff != nil {
+		root := filepath.Dir(productionRemoteHandoffPath(*plan.MaintenanceHandoff))
+		if _, err := runtime.ssh(ctx, plan.TargetAlias, time.Minute, "install", "-d", "-m", "0700", root); err != nil {
+			return productionReleaseControllerResult{}, err
+		}
+		if err := runtime.stageRemoteFile(ctx, plan.TargetAlias, plan.MaintenanceHandoff.Path, productionRemoteHandoffPath(*plan.MaintenanceHandoff), plan.MaintenanceHandoff.SHA256, false); err != nil {
+			return productionReleaseControllerResult{}, err
 		}
 	}
 	if state.RemoteWorkspace == "" {
@@ -275,6 +314,7 @@ func (runtime *productionReleaseRuntime) promote(ctx context.Context, options pr
 		}
 	}
 	if state.Phase == productionReleasePhaseStaged ||
+		(state.Phase == "NOT_DISPATCHED" && state.DispatchVerifiedAbsent) ||
 		state.Phase == productionReleasePhaseBackupsReady ||
 		state.Phase == productionReleasePhaseActivationDispatched {
 		if err := runtime.dispatchProductionActivation(ctx, plan, &state); err != nil {
@@ -322,8 +362,26 @@ func (runtime *productionReleaseRuntime) control(ctx context.Context, action str
 	}
 	if action != "status" {
 		arguments := []string{"operator", "production", action, "--workspace", state.RemoteWorkspace}
+		if action == "maintenance-capture" || action == "maintenance-retry" {
+			arguments = runtime.productionApplyArguments(plan, state)[9:]
+			for i, arg := range arguments {
+				if arg == "apply" {
+					arguments[i] = action
+					break
+				}
+			}
+		}
+		if action == "maintenance-stop" {
+			arguments = append(arguments, "--all-admission-closed", options.AllAdmissionClosedPath, "--all-admission-closed-sha256", options.AllAdmissionClosedSHA256)
+		}
 		if action == "rollback" {
 			arguments = append(arguments, "--reason", options.Reason)
+		}
+		if action == "maintenance-release" {
+			arguments = append(arguments, "--global-confirmation", options.GlobalConfirmationPath, "--global-confirmation-sha256", options.GlobalConfirmationSHA256)
+		}
+		if plan.MaintenanceHandoff != nil {
+			arguments = append(arguments, "--maintenance-handoff", productionRemoteHandoffPath(*plan.MaintenanceHandoff), "--maintenance-handoff-sha256", plan.MaintenanceHandoff.SHA256)
 		}
 		operator, err := runtime.controllerRecoveryOperator(ctx, plan, state)
 		if err != nil {
@@ -360,6 +418,11 @@ func (runtime *productionReleaseRuntime) remoteCandidateCommand(ctx context.Cont
 }
 
 func persistRemoteReleaseControllerStatus(plan productionReleasePlan, state *productionReleaseControllerState, status productionStatus, now time.Time) error {
+	state.DispatchVerifiedAbsent = status.DispatchVerifiedAbsent
+	state.MaintenanceConfirmation = status.MaintenanceConfirmation
+	state.MaintenanceAdmissionReopened = status.MaintenanceAdmissionReopened
+	state.CaptureReceiptPath = status.CaptureReceiptPath
+	state.CaptureReceiptSHA256 = status.CaptureReceiptSHA256
 	state.Phase = status.Phase
 	state.Version = status.Version
 	state.UpdatedUTC = utcSecond(now)
@@ -393,6 +456,9 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 		"--operator-binary-sha256", plan.OperatorBinary.SHA256,
 		"--expected-version", plan.ExpectedVersion,
 		"--observation-seconds", fmt.Sprintf("%d", plan.ObservationSeconds),
+	}
+	if plan.MaintenanceHandoff != nil {
+		arguments = append(arguments, "--maintenance-handoff", productionRemoteHandoffPath(*plan.MaintenanceHandoff), "--maintenance-handoff-sha256", plan.MaintenanceHandoff.SHA256)
 	}
 	if plan.GoChanged {
 		arguments = append(arguments, "--go-changed")
@@ -540,7 +606,7 @@ func productionActivationStatusTerminalForPlan(_ productionReleasePlan, status p
 
 func productionActivationStatusTerminal(phase string) bool {
 	switch phase {
-	case "AWAITING_CONFIRMATION", "ROLLBACK_REQUIRED", "CONFIRMED", "ROLLED_BACK", "FAILED_PREARM", "ABORTED":
+	case "AWAITING_CONFIRMATION", "ROLLBACK_REQUIRED", "CONFIRMED", "ROLLED_BACK", "FAILED_PREARM", "ABORTED", productionMaintenanceConfirmedPhase, "CAPTURED", "ADMISSION_CLOSED", "FROZEN", "MAINTENANCE_PREARM_FAILED":
 		return true
 	default:
 		return false
@@ -580,8 +646,11 @@ func (runtime *productionReleaseRuntime) readRemoteReleaseStatus(ctx context.Con
 	if err != nil {
 		return productionStatus{}, err
 	}
-	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		operator, "operator", "production", "status", "--workspace", state.RemoteWorkspace)
+	arguments := []string{operator, "operator", "production", "status", "--workspace", state.RemoteWorkspace}
+	if plan.MaintenanceHandoff != nil {
+		arguments = append(arguments, "--maintenance-handoff", productionRemoteHandoffPath(*plan.MaintenanceHandoff), "--maintenance-handoff-sha256", plan.MaintenanceHandoff.SHA256, "--staged-plan", filepath.Join(state.RemoteWorkspace, "staging", productionReleasePlanFilename), "--staged-plan-sha256", state.PlanSHA256)
+	}
+	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, arguments...)
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("read production release status: %w", err)
 	}
@@ -621,6 +690,9 @@ func productionReleaseStageFiles(plan productionReleasePlan, planPath string) ([
 		{operator.Path, operator.SHA256, true},
 		{planPath, planSHA256, false},
 		{digestPath, digestSHA256, false},
+	}
+	if plan.MaintenanceHandoff != nil {
+		files = append(files, productionReleaseStageFile{plan.MaintenanceHandoff.Path, plan.MaintenanceHandoff.SHA256, false})
 	}
 	if plan.WithBackups && plan.Format == 5 {
 		files = append(files, productionReleaseStageFile{plan.AgeRecipient.Path, plan.AgeRecipient.SHA256, false})
@@ -1154,18 +1226,22 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 		productionReleasePhaseStaged:               true,
 		productionReleasePhaseBackupsReady:         true,
 		productionReleasePhaseActivationDispatched: true,
-		"PREPARING":             true,
-		"ARMING":                true,
-		"ARMED":                 true,
-		"MIGRATING":             true,
-		"DEPLOYING_GO":          true,
-		"DEPLOYING_WEB":         true,
-		"AWAITING_CONFIRMATION": true,
-		"CONFIRMED":             true,
-		"ROLLED_BACK":           true,
-		"FAILED_PREARM":         true,
-		"ROLLBACK_REQUIRED":     true,
-		"ABORTED":               true,
+		"PREPARING":                         true,
+		"ARMING":                            true,
+		"ARMED":                             true,
+		"MIGRATING":                         true,
+		"DEPLOYING_GO":                      true,
+		"DEPLOYING_WEB":                     true,
+		"AWAITING_CONFIRMATION":             true,
+		productionMaintenanceConfirmedPhase: true,
+		"MAINTENANCE_PREARM_FAILED":         true,
+		"NOT_DISPATCHED":                    true,
+		"CAPTURED":                          true, "ADMISSION_CLOSED": true, "FROZEN": true,
+		"CONFIRMED":         true,
+		"ROLLED_BACK":       true,
+		"FAILED_PREARM":     true,
+		"ROLLBACK_REQUIRED": true,
+		"ABORTED":           true,
 	}
 	if !phases[state.Phase] {
 		return errors.New("controller release state phase is invalid")
@@ -1202,7 +1278,9 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 }
 
 func releaseControllerResult(plan productionReleasePlan, state productionReleaseControllerState) productionReleaseControllerResult {
-	return productionReleaseControllerResult{
+	result := productionReleaseControllerResult{
+		DispatchVerifiedAbsent: state.DispatchVerifiedAbsent,
+		Phase:                  state.Phase, MaintenanceConfirmation: state.MaintenanceConfirmation, MaintenanceAdmissionReopened: state.MaintenanceAdmissionReopened, CaptureReceiptPath: state.CaptureReceiptPath, CaptureReceiptSHA256: state.CaptureReceiptSHA256,
 		DeploymentID:     plan.DeploymentID,
 		PlanSHA256:       state.PlanSHA256,
 		Version:          plan.ExpectedVersion,
@@ -1215,6 +1293,13 @@ func releaseControllerResult(plan productionReleasePlan, state productionRelease
 		DispatchAttempts: state.DispatchAttempts,
 		Workspace:        state.RemoteWorkspace,
 	}
+	if plan.MaintenanceHandoff != nil {
+		result.MaintenanceStage = plan.MaintenanceHandoff.Stage
+		result.TransitionID = plan.MaintenanceHandoff.TransitionID
+		result.TransitionIntentSHA256 = plan.MaintenanceHandoff.TransitionIntentSHA256
+		result.ProviderSHA256 = plan.MaintenanceHandoff.ProviderSHA256
+	}
+	return result
 }
 
 func (runtime *productionReleaseRuntime) remoteGoPackage(ctx context.Context) (string, error) {

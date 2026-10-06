@@ -137,7 +137,7 @@ func EvaluateAdvancedSecurityText(c *gin.Context, relayInfo *relaycommon.RelayIn
 	}
 	if err := QueueModeration(ctx, ModerationSubmission{
 		UserID: relayInfo.UserId, Source: ModerationSourceRelayInput, RequestID: requestID,
-		Group: relayInfo.UserGroup, Text: text,
+		Group: relayInfo.UserGroup, RelayGroup: relayInfo.UsingGroup, Text: text,
 	}); err != nil {
 		common.SysError("relay_moderation_enqueue_unavailable")
 	}

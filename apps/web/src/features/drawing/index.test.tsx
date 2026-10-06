@@ -81,6 +81,8 @@ const { Drawing } = await import('./index')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { createDrawingHistoryStore } = await import('./history-storage')
 const { resetDrawingTaskState } = await import('./drawing-task-state')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const originalCurrency = useSystemConfigStore.getState().config.currency
 const originalFetch = globalThis.fetch
 const originalConfirm = window.confirm
 
@@ -189,6 +191,8 @@ async function renderDrawing() {
         ...response.data.data,
         drawing_web_access: {
           minimum_balance_usd: 10,
+          minimum_balance_credit: 35_000_000,
+          balance_credit: 35_000_000,
           balance_usd: 10,
           allowed: true,
         },
@@ -217,6 +221,18 @@ async function renderDrawing() {
 }
 
 beforeEach(() => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...originalCurrency,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+      legacyPricingUnitsPerUsd: 1,
+      quotaPerUnit: 500_000,
+    },
+  })
   resetDrawingTaskState()
   useAuthStore
     .getState()
@@ -233,6 +249,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  useSystemConfigStore.getState().setConfig({ currency: originalCurrency })
   resetDrawingTaskState()
   globalThis.fetch = originalFetch
   window.confirm = originalConfirm
@@ -389,6 +406,8 @@ describe('Drawing mobile controls', () => {
               developer_access_granted: true,
               drawing_web_access: {
                 minimum_balance_usd: 0,
+                minimum_balance_credit: 0,
+                balance_credit: 35_000_000,
                 balance_usd: 10,
                 allowed: true,
               },
@@ -798,7 +817,11 @@ describe('Drawing generation failures', () => {
   }
 })
 
-function mockWorkbench(balance: () => number | null, modelName = 'image-2') {
+function mockWorkbench(
+  balance: () => number | null,
+  modelName = 'image-2',
+  minimumCredit = 35_000_000
+) {
   let statusReads = 0
   api.get = (async (url: string) => {
     if (url === '/api/assistant/status') {
@@ -810,9 +833,11 @@ function mockWorkbench(balance: () => number | null, modelName = 'image-2') {
           data: {
             developer_access_granted: true,
             drawing_web_access: {
-              minimum_balance_usd: 10,
-              balance_usd: current,
-              allowed: current !== null && current >= 10,
+              minimum_balance_usd: minimumCredit / 500_000,
+              minimum_balance_credit: minimumCredit,
+              balance_credit: current === null ? null : Math.round(current),
+              balance_usd: current === null ? null : current / 500_000,
+              allowed: current !== null && Math.round(current) >= minimumCredit,
             },
           },
         },
@@ -857,7 +882,57 @@ const png =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6aQAAAABJRU5ErkJggg=='
 
 describe('Drawing balance and browser history', () => {
-  for (const balance of [9.99, 10, null]) {
+  test('displays the preserved 5m Credit floor across live CNY, USD and Credit preferences', async () => {
+    mockWorkbench(() => 3_500_000, 'image-2', 5_000_000)
+    const rendered = await renderDrawing()
+    const alertText = () =>
+      rendered.container.querySelector('[data-slot="drawing-web-access"]')
+        ?.textContent ?? ''
+    try {
+      assert.match(alertText(), /minimum balance of 10 USD/)
+      assert.match(alertText(), /Current balance: 7 USD/)
+      await act(async () => {
+        await i18n.changeLanguage('zhCN')
+      })
+      assert.match(alertText(), /minimum balance of 70 CNY/)
+      assert.match(alertText(), /Current balance: 49 CNY/)
+      await act(async () => {
+        const currency = useSystemConfigStore.getState().config.currency
+        useSystemConfigStore.getState().setConfig({
+          currency: { ...currency, cnyPerUsd: 8, cnyPerUsdExact: '8' },
+        })
+      })
+      assert.match(alertText(), /minimum balance of 80 CNY/)
+      assert.match(alertText(), /Current balance: 56 CNY/)
+      await act(async () => {
+        const user = useAuthStore.getState().auth.user
+        assert.ok(user)
+        useAuthStore.getState().auth.setUser({
+          ...user,
+          setting: JSON.stringify({ wallet_display_currency: 'USD' }),
+        })
+      })
+      assert.match(alertText(), /minimum balance of 10 USD/)
+      await act(async () => {
+        const user = useAuthStore.getState().auth.user
+        assert.ok(user)
+        useAuthStore.getState().auth.setUser({
+          ...user,
+          setting: JSON.stringify({ wallet_display_currency: 'CREDIT' }),
+        })
+      })
+      assert.match(alertText(), /minimum balance of 5,000,000 Credits/)
+      assert.match(alertText(), /Current balance: 3,500,000 Credits/)
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en')
+      })
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  for (const balance of [34_965_000, 35_000_000, null]) {
     test(`balance ${balance} gates only web generation while key/MCP controls remain available`, async () => {
       mockWorkbench(() => balance)
       let keyCalls = 0
@@ -877,15 +952,15 @@ describe('Drawing balance and browser history', () => {
         await promptDrawing(rendered.container)
         assert.equal(
           button(rendered.container, 'Generate image').disabled,
-          balance !== 10
+          balance !== 35_000_000
         )
         const alert = rendered.container.querySelector(
           '[data-slot="drawing-web-access"]'
         )
-        if (balance === 10) assert.equal(alert, null)
+        if (balance === 35_000_000) assert.equal(alert, null)
         else {
           assert.ok(alert)
-          assert.match(alert.textContent ?? '', /USD 10.00/)
+          if (balance !== null) assert.match(alert.textContent ?? '', /70 USD/)
           assert.match(
             alert.textContent ?? '',
             /API and MCP usage is billed normally, not free/
@@ -894,14 +969,14 @@ describe('Drawing balance and browser history', () => {
             assert.match(alert.textContent ?? '', /balance unavailable/)
             assert.doesNotMatch(
               alert.textContent ?? '',
-              /Current balance: USD 0/
+              /Current balance: 0 USD/
             )
           } else {
             assert.match(
               alert.textContent ?? '',
               /Insufficient balance for web image generation/
             )
-            assert.match(alert.textContent ?? '', /Current balance: USD 9.99/)
+            assert.match(alert.textContent ?? '', /Current balance: 69.93 USD/)
           }
         }
         assert.equal(
@@ -928,13 +1003,13 @@ describe('Drawing balance and browser history', () => {
     })
   }
 
-  test('exact USD 10 generates once, refreshes balance and keeps downloaded history available below the floor', async () => {
-    let balance = 10
+  test('exact 35m Credit balance generates once, refreshes balance and keeps downloaded history available below the floor', async () => {
+    let balance = 35_000_000
     const statusReads = mockWorkbench(() => balance)
     let calls = 0
     api.post = (async () => {
       calls++
-      balance = 9.5
+      balance = 33_250_000
       return { data: { data: [{ b64_json: png }] } }
     }) as typeof api.post
     let rendered = await renderDrawing()
@@ -957,7 +1032,7 @@ describe('Drawing balance and browser history', () => {
       assert.equal(button(rendered.container, 'Generate image').disabled, true)
       assert.match(
         rendered.container.textContent ?? '',
-        /Current balance: USD 9.50/
+        /Current balance: 66.5 USD/
       )
       const stored = await createDrawingHistoryStore().load(1)
       assert.equal(stored.images.length, 1)
@@ -994,12 +1069,12 @@ describe('Drawing balance and browser history', () => {
   })
 
   test('server denial produces a persistent web-only alert rather than a generation retry', async () => {
-    let balance = 12
+    let balance = 42_000_000
     mockWorkbench(() => balance)
     let calls = 0
     api.post = (async () => {
       calls++
-      balance = 8
+      balance = 28_000_000
       throw {
         response: {
           status: 403,
@@ -1009,8 +1084,10 @@ describe('Drawing balance and browser history', () => {
               message: 'server threshold',
             },
             drawing_web_access: {
-              minimum_balance_usd: 10,
-              balance_usd: 8,
+              minimum_balance_usd: 70,
+              minimum_balance_credit: 35_000_000,
+              balance_credit: 28_000_000,
+              balance_usd: 56,
               allowed: false,
             },
           },
@@ -1030,7 +1107,7 @@ describe('Drawing balance and browser history', () => {
       )
       assert.match(
         rendered.container.textContent ?? '',
-        /Current balance: USD 8.00/
+        /Current balance: 56 USD/
       )
       assert.doesNotMatch(
         rendered.container.textContent ?? '',
@@ -1046,7 +1123,7 @@ describe('Drawing balance and browser history', () => {
   })
 
   test('cache failure never turns generation success into Request failed or repeats the paid request', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     let calls = 0
     api.post = (async () => {
       calls++
@@ -1084,7 +1161,7 @@ describe('Drawing balance and browser history', () => {
   })
 
   test('account switch and logout cannot display or save a late response for a previous user', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     let finish: (value: unknown) => void = () => {
       throw new Error('Generation did not start')
     }
@@ -1127,7 +1204,7 @@ describe('Drawing balance and browser history', () => {
 describe('Drawing wait experience, cancel control, and prompt draft restoration', () => {
   for (const returnBeforeCompletion of [true, false]) {
     test(`persists a request across navigation (return before completion: ${returnBeforeCompletion})`, async () => {
-      mockWorkbench(() => 20)
+      mockWorkbench(() => 70_000_000)
       let resolvePost!: (value: unknown) => void
       let calls = 0
       let signal: AbortSignal | undefined
@@ -1210,7 +1287,7 @@ describe('Drawing wait experience, cancel control, and prompt draft restoration'
   }
 
   test('shows truthful wait status and allows stopping waiting while keeping prompt', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     let resolvePost: ((value: unknown) => void) | null = null
     api.post = (() =>
       new Promise<unknown>((resolve) => {
@@ -1291,7 +1368,7 @@ describe('Drawing wait experience, cancel control, and prompt draft restoration'
   })
 
   test('restores saved prompt draft upon mounting', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     const { saveDrawingDraft } = await import('./drawing-task-state')
     saveDrawingDraft(1, { prompt: 'Persisted draft of a red lighthouse' })
 
@@ -1316,7 +1393,7 @@ describe('Drawing wait experience, cancel control, and prompt draft restoration'
   })
 
   test('displays error details with HTTP status badge and copy button on 500 error, keeping prompt intact', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     api.post = (() =>
       Promise.reject({
         response: {

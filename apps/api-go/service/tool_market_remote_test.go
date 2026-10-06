@@ -60,7 +60,7 @@ func marketRemoteTestDB(t *testing.T) *gorm.DB {
 }
 
 func TestToolMarketRemoteLifecycleAndBusinessResults(t *testing.T) {
-	for _, mode := range []string{"success", "error", "schema", "unknown", "pending"} {
+	for _, mode := range []string{"success", "reported", "missing_usage", "invalid_usage", "error", "schema", "unknown", "pending"} {
 		t.Run(mode, func(t *testing.T) {
 			db := marketRemoteTestDB(t)
 			users := []model.User{{Username: "buyer", AffCode: "buyer", Role: 1, Status: 1, Quota: 1000}, {Username: "author", AffCode: "author", Role: 1, Status: 1}, {Username: "root", AffCode: "root", Role: 100, Status: 1}}
@@ -74,6 +74,10 @@ func TestToolMarketRemoteLifecycleAndBusinessResults(t *testing.T) {
 			server.AddTool(tool, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				calls.Add(1)
 				switch mode {
+				case "reported":
+					return &mcp.CallToolResult{StructuredContent: map[string]any{"answer": "delivered"}, Content: []mcp.Content{&mcp.TextContent{Text: `{"usage":{"input_tokens":25,"output_tokens":0}}`}}}, nil
+				case "invalid_usage":
+					return &mcp.CallToolResult{StructuredContent: map[string]any{"answer": "delivered", "usage": map[string]any{"input_tokens": 1.5}}}, nil
 				case "error":
 					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "Business operation failed"}}}, nil
 				case "schema":
@@ -97,6 +101,11 @@ func TestToolMarketRemoteLifecycleAndBusinessResults(t *testing.T) {
 			require.Len(t, tools, 1)
 			require.Zero(t, calls.Load())
 			tools[0].PriceQuota = 100
+			if mode == "reported" || mode == "missing_usage" || mode == "invalid_usage" {
+				tools[0].BillingMode = "input_tokens"
+				tools[0].InputTokenPriceQuota = 1000000
+				tools[0].MaxInputTokens = 100
+			}
 			product, err := model.SaveToolMarketDraft(users[1].Id, "", model.ToolMarketDraftInput{Name: "Fixture", ExecutionType: "remote", Visibility: "public", Endpoint: "https://example.com/mcp", Tools: tools})
 			require.NoError(t, err)
 			require.NoError(t, remote.validate(ctx, users[1].Id, product.ID, false))
@@ -138,6 +147,12 @@ func TestToolMarketRemoteLifecycleAndBusinessResults(t *testing.T) {
 				require.Error(t, err)
 				_, _, err = model.GetToolMarketResult(users[0].Id, "another-client", response.Call.ID)
 				require.Error(t, err)
+			case "reported":
+				require.Equal(t, "settled", response.Call.SettlementStatus)
+				require.Equal(t, model.ToolMarketUsageReported, response.Call.UsageSource)
+				require.Equal(t, 25, response.Call.PriceQuota)
+				require.Equal(t, 975, buyer.Quota)
+				require.Equal(t, response.Call.UsageQuantities, replayed.Call.UsageQuantities)
 			case "unknown", "pending":
 				require.Equal(t, "unknown", response.Call.ExecutionStatus)
 				require.Equal(t, "held", response.Call.SettlementStatus)

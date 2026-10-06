@@ -1633,6 +1633,7 @@ async fn header_nav_refresh_failure_retains_the_last_good_access_policy() {
         .await
         .expect("response");
     assert_eq!(first.status(), StatusCode::FORBIDDEN);
+    assert_eq!(first.headers()[header::CACHE_CONTROL], "no-store");
 
     fail.store(1, Ordering::SeqCst);
     let retained = app
@@ -1667,6 +1668,7 @@ async fn pricing_last_good_is_isolated_between_public_and_authenticated_owners()
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     }
 
     fail.store(1, Ordering::SeqCst);

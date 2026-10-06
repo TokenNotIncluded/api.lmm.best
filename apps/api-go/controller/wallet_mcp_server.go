@@ -13,6 +13,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -25,11 +26,11 @@ type walletMCPOutput struct {
 }
 
 type walletMCPTopupInput struct {
-	Amount int `json:"amount" jsonschema:"Positive whole platform-credit amount, at most 1000000. This only prefills the official wallet; the user must choose and confirm payment there."`
+	Amount int `json:"amount" jsonschema:"Positive whole legacy batch amount, at most 1000000. This is not raw wallet credits or USD. This only prefills the official wallet; the user must choose and confirm payment there."`
 }
 
 type walletMCPTransferInput struct {
-	Quota int `json:"quota" jsonschema:"Positive integer wallet quota units to hold for the recipient. Inspect wallet.balance for quota_per_platform_credit. The exact amount requires user confirmation."`
+	Quota int `json:"quota" jsonschema:"Positive integer wallet credits to hold for the recipient. One credit is one raw quota unit. The exact amount requires user confirmation."`
 }
 
 type walletMCPCancelInput struct {
@@ -48,6 +49,8 @@ type walletMCPTransferView struct {
 	ClaimedAt   int64  `json:"claimed_at,omitempty"`
 	CancelledAt int64  `json:"cancelled_at,omitempty"`
 	ShareURL    string `json:"share_url,omitempty"`
+	common.CreditDenomination
+	PublicCreditAmount string `json:"public_credit_amount"`
 }
 
 func walletMCPActor(request *mcp.CallToolRequest, write bool) (*model.User, error) {
@@ -93,7 +96,20 @@ func walletMCPURL(path string, query url.Values, fragment string) (string, error
 }
 
 func walletMCPView(transfer model.WalletTransfer) (walletMCPTransferView, error) {
-	view := walletMCPTransferView{ID: transfer.Id, Quota: transfer.Quota, Status: transfer.Status, CreatedAt: transfer.CreatedAt, ClaimedAt: transfer.ClaimedAt, CancelledAt: transfer.CancelledAt}
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return walletMCPTransferView{}, err
+	}
+	return walletMCPViewFor(transfer, units)
+}
+
+func walletMCPViewFor(transfer model.WalletTransfer, units common.CreditDenomination) (walletMCPTransferView, error) {
+	view := walletMCPTransferView{ID: transfer.Id, Quota: transfer.Quota, Status: transfer.Status, CreatedAt: transfer.CreatedAt, ClaimedAt: transfer.ClaimedAt, CancelledAt: transfer.CancelledAt, CreditDenomination: units}
+	public, err := units.ProjectLedgerQuota(int64(transfer.Quota))
+	if err != nil {
+		return walletMCPTransferView{}, err
+	}
+	view.PublicCreditAmount = public.String()
 	if transfer.Status == "pending" {
 		var err error
 		view.ShareURL, err = walletMCPURL("/transfer", nil, transfer.Token)
@@ -141,13 +157,43 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}
-			if math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) || common.QuotaPerUnit <= 0 {
+			anchor, err := common.CreditsPerUSD()
+			if err != nil {
 				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
 			}
-			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: map[string]any{"available_quota": user.Quota, "quota_per_platform_credit": common.QuotaPerUnit, "tool_price_quota": 0}}, nil
+			usd, err := common.CreditsToUSD(int64(user.Quota))
+			if err != nil {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
+			value := usd.InexactFloat64()
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
+			legacy, err := common.LegacyPricingQuotaPerUnit()
+			legacyValue := legacy.InexactFloat64()
+			if err != nil || legacyValue <= 0 || math.IsNaN(legacyValue) || math.IsInf(legacyValue, 0) {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
+			units, err := model.CreditDenominationSnapshot()
+			if err != nil {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
+			public, err := units.ProjectLedgerQuota(int64(user.Quota))
+			if err != nil {
+				return nil, walletMCPOutput{}, errors.New("wallet unit configuration is unavailable")
+			}
+			data := gin.H{"schema_version": 2, "available_quota": user.Quota,
+				"available_credits": user.Quota, "available_credits_unit": common.LedgerQuotaUnit,
+				"public_available_credits": public.String(), "currency_unit": common.LedgerQuotaUnit, "credit_unit": 1,
+				"quota_per_platform_credit": legacyValue, "quota_per_platform_credit_unit": "LEGACY", "quota_per_platform_credit_deprecated": true,
+				"currency": "USD", "available_usd": value, "credits_per_usd": anchor.String(), "tool_price_quota": 0}
+			for key, value := range creditUnitMetadataFieldsFor(units) {
+				data[key] = value
+			}
+			return nil, walletMCPOutput{Message: "Current available wallet balance. No charge.", Data: data}, nil
 		})
 
-	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", "Open the official wallet with a bounded whole platform-credit amount prefilled. The user chooses a payment method and confirms there; this is not a payment-provider checkout, successful payment or balance credit. The MCP call is free.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.topup_link", "Generate an official top-up link and QR", walletMCPTopupDescription, true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input walletMCPTopupInput) (*mcp.CallToolResult, walletMCPOutput, error) {
 			if _, err := walletMCPActor(request, false); err != nil {
 				return nil, walletMCPOutput{}, err
@@ -159,7 +205,7 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}
-			return walletMCPLinkResult(walletMCPOutput{Message: "Review the amount and choose a payment method in your wallet. No payment has been created or charged.", Data: map[string]any{"url": link, "platform_credit_amount": input.Amount, "payment_confirmation_required": true, "tool_price_quota": 0}}, link)
+			return walletMCPLinkResult(walletMCPOutput{Message: "Review the legacy batch amount and choose a payment method in your wallet. No payment has been created or charged.", Data: map[string]any{"url": link, "amount_unit": "LEGACY", "legacy_batch_amount": input.Amount, "platform_credit_amount": input.Amount, "payment_confirmation_required": true, "tool_price_quota": 0}}, link)
 		})
 
 	addToolMarketBuiltinMCPTool(server, bountyMCPTool("wallet.transfers.list", "Read your wallet transfers", "Read up to 50 of your own transfer statuses. Pending links and QR codes are bearer credentials: share only with the intended recipient. Recipient contact details are not returned.", true, false, true),
@@ -175,9 +221,13 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, walletMCPError(err)
 			}
+			units, err := model.CreditDenominationSnapshot()
+			if err != nil {
+				return nil, walletMCPOutput{}, err
+			}
 			views := make([]walletMCPTransferView, 0, len(rows))
 			for _, row := range rows {
-				view, err := walletMCPView(row)
+				view, err := walletMCPViewFor(row, units)
 				if err != nil {
 					return nil, walletMCPOutput{}, err
 				}
@@ -192,7 +242,12 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}
-			if input.Quota <= 0 || common.ValidateWalletQuota(input.Quota) != nil {
+			units, err := model.CreditDenominationSnapshot()
+			if err != nil {
+				return nil, walletMCPOutput{}, err
+			}
+			quota := input.Quota
+			if quota <= 0 || common.ValidateWalletQuota(quota) != nil {
 				return nil, walletMCPOutput{}, model.ErrWalletTransferInvalid
 			}
 			// Validate the console origin before creating a hold.
@@ -203,16 +258,24 @@ func registerWalletMCPTools(server *mcp.Server) {
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}
-			message := fmt.Sprintf("Hold exactly %d wallet quota units from account %d and create a private transfer link? Available balance: %d quota. Anyone with this link or QR can claim the held amount. The MCP tool fee is 0; the transfer amount is held until claimed or cancelled.", input.Quota, user.Id, user.Quota)
+			public, err := units.ProjectLedgerQuota(int64(quota))
+			if err != nil {
+				return nil, walletMCPOutput{}, err
+			}
+			usd, err := common.CreditsToUSD(int64(quota))
+			if err != nil {
+				return nil, walletMCPOutput{}, err
+			}
+			message := fmt.Sprintf("Hold USD %s (about %s CREDIT) from account %d and create a private transfer link? Anyone with this link or QR can claim the held amount. The MCP tool fee is 0; the transfer amount is held until claimed or cancelled.", usd.String(), public.Round(8).String(), user.Id)
 			pending, operation, err := bountyMCPConfirmedOperation(request, user.Id, "wallet.transfer.create", payload, message)
 			if err != nil || pending != nil {
 				return pending, walletMCPOutput{}, err
 			}
-			transfer, err := model.CreateWalletTransferWithMCPConfirmation(user.Id, input.Quota, requestKey, user.AuthVersion, *operation)
+			transfer, err := model.CreateWalletTransferWithMCPConfirmation(user.Id, quota, requestKey, user.AuthVersion, *operation)
 			if err != nil {
 				return nil, walletMCPOutput{}, walletMCPError(err)
 			}
-			view, err := walletMCPView(*transfer)
+			view, err := walletMCPViewFor(*transfer, units)
 			if err != nil {
 				return nil, walletMCPOutput{}, err
 			}

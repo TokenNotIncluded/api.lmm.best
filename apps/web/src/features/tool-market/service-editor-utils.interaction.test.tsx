@@ -54,6 +54,8 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { resetMarketCurrencyTest, useWalletCurrencyPreferenceStore } =
+  await import('./currency-test-support')
 const { ServiceEditor } = await import('./service-editor')
 type MarketDetail = import('./api').MarketDetail
 type DraftInput = import('./api').DraftInput
@@ -87,6 +89,8 @@ function submitForm(container: HTMLElement) {
 }
 
 async function renderEditor(initial?: MarketDetail, feeBps = 1000) {
+  resetMarketCurrencyTest()
+  useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
@@ -323,14 +327,19 @@ test('each discovered tool can be priced independently and switching back to fre
       assert.equal(mode.value, 'free')
       assert.deepEqual(
         [...mode.options].map((option) => option.textContent),
-        ['Free tool', 'Paid tool']
+        [
+          'Free tool',
+          'Paid tool',
+          'Input token usage',
+          'Combined usage pricing',
+        ]
       )
     }
     await view.select('#billing-mode-search', 'paid')
     assert.equal(view.button('Save draft').disabled, true)
-    await view.input('#price-search', '1')
+    await view.input('#price-search', '7')
     await view.select('#billing-mode-new_tool', 'paid')
-    await view.input('#price-new_tool', '0.000002')
+    await view.input('#price-new_tool', '0.000014')
     await view.click('Save draft')
     assert.equal(requests.drafts.length, 1)
     assert.deepEqual(
@@ -400,15 +409,15 @@ test('net earnings use the current platform fee and refreshing definitions prese
   try {
     await readNewService(view)
     await view.select('#billing-mode-search', 'paid')
-    await view.input('#price-search', '1')
+    await view.input('#price-search', '7')
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.9 credits per successful call after the 10% platform fee\./
+      /You receive 6\.3 CNY per successful call after the 10% platform fee\./
     )
     await view.rerenderFee(2500)
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.75 credits per successful call after the 25% platform fee\./
+      /You receive 5\.25 CNY per successful call after the 25% platform fee\./
     )
     await view.click('Read tool definitions')
     assert.equal(
@@ -418,11 +427,11 @@ test('net earnings use the current platform fee and refreshing definitions prese
     )
     assert.equal(
       view.container.querySelector<HTMLInputElement>('#price-search')?.value,
-      '1'
+      '7'
     )
     assert.match(
       view.container.textContent ?? '',
-      /You receive 0\.75 credits per successful call after the 25% platform fee\./
+      /You receive 5\.25 CNY per successful call after the 25% platform fee\./
     )
     await view.click('Save draft')
     assert.equal(requests.drafts.length, 1)
@@ -485,7 +494,7 @@ test('editor preserves owner policy, requires review, and retries credential wri
     })
     assert.equal(
       view.container.querySelector<HTMLInputElement>('#price-search')?.value,
-      '0.05'
+      '0.35'
     )
     assert.equal(
       view.container.querySelector<HTMLInputElement>('input#select-search')
@@ -537,6 +546,9 @@ test('editor preserves owner policy, requires review, and retries credential wri
         ...discovered[0],
         permissions: ['read', 'network'],
         price_quota: 25000,
+        billing_mode: '',
+        input_token_price_quota: 0,
+        max_input_tokens: 0,
       },
     ])
     assert.equal('authentication' in drafts[0], false)
@@ -843,5 +855,302 @@ test('an unsafe legacy inspection fails visibly and invalidates the earlier save
   } finally {
     await view.dispose()
     api.defaults.adapter = originalAdapter
+  }
+})
+
+async function acknowledgePricingDefinitions(
+  view: Awaited<ReturnType<typeof renderEditor>>
+) {
+  const label = [...view.container.querySelectorAll('label')].find((item) =>
+    item.textContent?.includes('I reviewed the endpoint')
+  )
+  const checkbox = label?.querySelector<HTMLInputElement>(
+    'input[type="checkbox"]'
+  )
+  if (checkbox && !checkbox.checked) await act(async () => checkbox.click())
+}
+
+test('metered pricing keeps the actual input rate and a separate refundable cap through discovery', async () => {
+  const requests = pricingRequests()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].available_metering_metrics = ['input_tokens']
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  const view = await renderEditor(authorized)
+  try {
+    await view.click('Read tool definitions')
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '20.58')
+    await view.input('#token-limit-search', '65536')
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    const tool = requests.drafts[0].tools.find(({ name }) => name === 'search')
+    assert.ok(tool)
+    assert.equal(tool.billing_mode, 'input_tokens')
+    assert.equal(tool.input_token_price_quota, 1470000)
+    assert.equal(tool.max_input_tokens, 65536)
+    assert.equal(tool.price_quota, 96338)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('ordinary publishers can select tool-reported usage pricing without provider keys', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor()
+  try {
+    await readNewService(view)
+    const mode = view.container.querySelector<HTMLSelectElement>(
+      '#billing-mode-search'
+    )
+    assert.ok(mode)
+    assert.equal(
+      mode.querySelector<HTMLOptionElement>('[value="input_tokens"]')?.disabled,
+      false
+    )
+    assert.equal(
+      mode.querySelector<HTMLOptionElement>('[value="metered"]')?.disabled,
+      false
+    )
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '20.58')
+    assert.equal(view.button('Save draft').disabled, false)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('authorized resource pricing saves a combination and refundable cap', async () => {
+  const requests = pricingRequests()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  authorized.tools[0].available_metering_metrics = [
+    'cpu_core_milliseconds',
+    'memory_mib_seconds',
+  ]
+  authorized.tools[0].billing_mode = 'metered'
+  authorized.tools[0].billing_rules = [
+    { metric: 'cpu_core_milliseconds', rate_quota: 500000, max_quantity: 2000 },
+    { metric: 'memory_mib_seconds', rate_quota: 250000, max_quantity: 1024 },
+  ]
+  authorized.tools[0].price_quota = 1250000
+  const view = await renderEditor(authorized)
+  try {
+    await view.click('Read tool definitions')
+    assert.match(view.container.textContent ?? '', /CPU core-second/)
+    assert.match(view.container.textContent ?? '', /Memory GiB-second/)
+    await acknowledgePricingDefinitions(view)
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    const tool = requests.drafts[0].tools[0]
+    assert.equal(tool.billing_mode, 'metered')
+    assert.deepEqual(tool.billing_rules, authorized.tools[0].billing_rules)
+    assert.equal(tool.price_quota, 1250000)
+    assert.equal(tool.input_token_price_quota, 0)
+    assert.equal(tool.max_input_tokens, 0)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('changing the display unit mid-editor retains one-credit prices and metered rate payloads', async () => {
+  const requests = pricingRequests()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].available_metering_metrics = ['input_tokens']
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  const view = await renderEditor(authorized)
+  try {
+    await view.click('Read tool definitions')
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '20.58')
+    await view.input('#token-limit-search', '65536')
+    await act(async () =>
+      view.container
+        .querySelector<HTMLInputElement>('#select-new_tool')
+        ?.click()
+    )
+    await acknowledgePricingDefinitions(view)
+    await view.select('#billing-mode-new_tool', 'paid')
+    await view.input('#price-new_tool', '0.000014')
+    for (const unit of ['USD', 'CREDIT', 'CNY'] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(unit)
+      )
+      const rate =
+        view.container.querySelector<HTMLInputElement>('#price-search')
+      const smallest =
+        view.container.querySelector<HTMLInputElement>('#price-new_tool')
+      assert.ok(rate)
+      assert.ok(smallest)
+      assert.equal(
+        rate.value,
+        unit === 'USD' ? '2.94' : unit === 'CREDIT' ? '1470000' : '20.58'
+      )
+      assert.equal(
+        smallest.value,
+        unit === 'USD' ? '0.000002' : unit === 'CREDIT' ? '1' : '0.000014'
+      )
+      assert.equal(view.button('Save draft').disabled, false)
+    }
+    await act(async () =>
+      useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+    )
+    const smallestInput =
+      view.container.querySelector<HTMLInputElement>('#price-new_tool')
+    assert.ok(smallestInput)
+    await view.input('#price-new_tool', smallestInput.value)
+    await view.click('Read tool definitions')
+    await view.click('Save draft')
+    const rate = requests.drafts[0].tools.find((tool) => tool.name === 'search')
+    assert.ok(rate)
+    assert.equal(rate.input_token_price_quota, 1470000)
+    assert.equal(rate.price_quota, 96338)
+    assert.equal(rate.max_input_tokens, 65536)
+    const smallestTool = requests.drafts[0].tools.find(
+      (tool) => tool.name === 'new_tool'
+    )
+    assert.ok(smallestTool)
+    assert.equal(smallestTool.price_quota, 1)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+function usagePricingDraftFixture(): MarketDetail {
+  const detail = structuredClone(initial)
+  detail.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  detail.tools[0].available_metering_metrics = ['cpu_core_milliseconds']
+  detail.tools[0].billing_mode = 'metered'
+  detail.tools[0].billing_rules = [
+    { metric: 'cpu_core_milliseconds', rate_quota: 500000, max_quantity: 1000 },
+  ]
+  detail.tools[0].price_quota = 500000
+  return detail
+}
+
+const usageRateSelector = '[id$="-rate-0"]'
+
+function usageRateInput(view: Awaited<ReturnType<typeof renderEditor>>) {
+  const input =
+    view.container.querySelector<HTMLInputElement>(usageRateSelector)
+  assert.ok(input)
+  return input
+}
+
+test('usage rates retain every decimal keystroke and trailing dot in CNY, USD, and Credits', async () => {
+  const requests = pricingRequests()
+  const detail = usagePricingDraftFixture()
+  const before = JSON.stringify(detail)
+  const view = await renderEditor(detail)
+  try {
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    assert.equal(usageRateInput(view).type, 'text')
+    for (const currency of ['CNY', 'USD', 'CREDIT'] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      for (const input of ['0', '0.', '0.0', '0.01']) {
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input, `${currency}: ${input}`)
+        assert.equal(
+          view.button('Save draft').disabled,
+          input !== '0.01' || currency === 'CREDIT'
+        )
+      }
+      for (const input of ['1', '1.', '1.0']) {
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input, `${currency}: ${input}`)
+        assert.equal(view.button('Save draft').disabled, input === '1.')
+      }
+    }
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.equal(requests.drafts[0].tools[0].billing_rules?.[0].rate_quota, 1)
+    assert.equal(requests.drafts[0].tools[0].price_quota, 1)
+    assert.equal(JSON.stringify(detail), before)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('usage rate currency switches reproject the chosen Credits and retain the real save payload', async () => {
+  const requests = pricingRequests()
+  const detail = usagePricingDraftFixture()
+  const view = await renderEditor(detail)
+  try {
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    await view.input(usageRateSelector, '0.07')
+    for (const [currency, expected] of [
+      ['USD', '0.01'],
+      ['CREDIT', '5000'],
+      ['CNY', '0.07'],
+    ] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      assert.equal(usageRateInput(view).value, expected)
+      assert.equal(view.button('Save draft').disabled, false)
+    }
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.deepEqual(requests.drafts[0].tools[0].billing_rules, [
+      { metric: 'cpu_core_milliseconds', rate_quota: 5000, max_quantity: 1000 },
+    ])
+    assert.equal(requests.drafts[0].tools[0].price_quota, 5000)
+    assert.equal(detail.tools[0].billing_rules?.[0].rate_quota, 500000)
+  } finally {
+    await view.dispose()
+    requests.restore()
+  }
+})
+
+test('invalid usage drafts block real form submissions instead of saving the old valid rate', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor(usagePricingDraftFixture())
+  try {
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    for (const currency of ['CNY', 'USD', 'CREDIT'] as const) {
+      await act(async () =>
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      await view.input(usageRateSelector, '1')
+      assert.equal(view.button('Save draft').disabled, false)
+      for (const input of [
+        '',
+        '0',
+        '1.',
+        '-1',
+        'junk',
+        '1e4',
+        '9007199254740992',
+      ]) {
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input)
+        assert.equal(usageRateInput(view).getAttribute('aria-invalid'), 'true')
+        assert.equal(view.button('Save draft').disabled, true)
+        await view.submit()
+        assert.equal(requests.drafts.length, 0, `${currency}: ${input}`)
+      }
+      if (currency === 'CREDIT') {
+        await view.input(usageRateSelector, '1.5')
+        await view.submit()
+        assert.equal(requests.drafts.length, 0)
+      }
+    }
+    await view.input(usageRateSelector, '2')
+    await view.click('Save draft')
+    assert.equal(requests.drafts[0].tools[0].billing_rules?.[0].rate_quota, 2)
+  } finally {
+    await view.dispose()
+    requests.restore()
   }
 })

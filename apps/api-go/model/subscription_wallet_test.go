@@ -26,6 +26,7 @@ func createBalanceSubscriptionPlan(t *testing.T, title string, price float64) Su
 
 func TestPurchaseSubscriptionWithBalanceDebitsAtomically(t *testing.T) {
 	truncateTables(t)
+	installFixedPaymentAnchor(t, "7")
 	oldQuotaPerUnit := common.QuotaPerUnit
 	oldRedisEnabled := common.RedisEnabled
 	common.QuotaPerUnit = 1
@@ -54,6 +55,7 @@ func TestPurchaseSubscriptionWithBalanceDebitsAtomically(t *testing.T) {
 
 func TestPurchaseSubscriptionWithBalanceRollsBackOnInsufficientOrUnsafeQuota(t *testing.T) {
 	truncateTables(t)
+	installFixedPaymentAnchor(t, "7")
 	oldQuotaPerUnit := common.QuotaPerUnit
 	oldRedisEnabled := common.RedisEnabled
 	common.QuotaPerUnit = 1

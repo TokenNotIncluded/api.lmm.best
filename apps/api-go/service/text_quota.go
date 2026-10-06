@@ -26,9 +26,11 @@ import (
 
 // ToolSurchargeItem is one billable tool-call line for consume logs.
 type ToolSurchargeItem struct {
-	Name  string  `json:"name"`
-	Count int     `json:"count"`
-	Price float64 `json:"price"`
+	Name                      string  `json:"name"`
+	Count                     int     `json:"count"`
+	Price                     float64 `json:"price"`
+	PriceCurrencyBasis        string  `json:"price_currency_basis,omitempty"`
+	PricingUnitCreditsPerUnit float64 `json:"pricing_unit_credits_per_unit,omitempty"`
 }
 
 func appendToolSurchargeLogInfo(other map[string]interface{}, items []ToolSurchargeItem) {
@@ -36,37 +38,41 @@ func appendToolSurchargeLogInfo(other map[string]interface{}, items []ToolSurcha
 		return
 	}
 	other["tool_surcharges"] = items
+	if items[0].PricingUnitCreditsPerUnit > 0 {
+		other["tool_pricing_unit_credits_per_unit"] = items[0].PricingUnitCreditsPerUnit
+	}
 }
 
 type textQuotaSummary struct {
-	PromptTokens           int
-	CompletionTokens       int
-	TotalTokens            int
-	CacheTokens            int
-	CacheCreationTokens    int
-	CacheCreationTokens5m  int
-	CacheCreationTokens1h  int
-	ImageTokens            int
-	AudioTokens            int
-	ModelName              string
-	TokenName              string
-	UseTimeSeconds         int64
-	CompletionRatio        float64
-	CacheRatio             float64
-	ImageRatio             float64
-	ModelRatio             float64
-	GroupRatio             float64
-	ModelPrice             float64
-	CacheCreationRatio     float64
-	CacheCreationRatio5m   float64
-	CacheCreationRatio1h   float64
-	Quota                  int
-	IsClaudeUsageSemantic  bool
-	UsageSemantic          string
-	AudioInputPrice        float64
-	ToolSurchargeItems     []ToolSurchargeItem
-	ToolCallSurchargeQuota decimal.Decimal
-	BillingExemptReason    string
+	PromptTokens                   int
+	CompletionTokens               int
+	TotalTokens                    int
+	CacheTokens                    int
+	CacheCreationTokens            int
+	CacheCreationTokens5m          int
+	CacheCreationTokens1h          int
+	ImageTokens                    int
+	AudioTokens                    int
+	ModelName                      string
+	TokenName                      string
+	UseTimeSeconds                 int64
+	CompletionRatio                float64
+	CacheRatio                     float64
+	ImageRatio                     float64
+	ModelRatio                     float64
+	GroupRatio                     float64
+	ModelPrice                     float64
+	CacheCreationRatio             float64
+	CacheCreationRatio5m           float64
+	CacheCreationRatio1h           float64
+	Quota                          int
+	IsClaudeUsageSemantic          bool
+	UsageSemantic                  string
+	AudioInputPrice                float64
+	AudioPricingUnitCreditsPerUnit float64
+	ToolSurchargeItems             []ToolSurchargeItem
+	ToolCallSurchargeQuota         decimal.Decimal
+	BillingExemptReason            string
 }
 
 // hasBillableUsage reports whether this request should incur any charge.
@@ -213,6 +219,10 @@ func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.Rel
 	}
 
 	summary.ToolSurchargeItems = mergeToolSurchargeItems(items)
+	for i := range summary.ToolSurchargeItems {
+		summary.ToolSurchargeItems[i].PriceCurrencyBasis = "legacy_pricing_unit"
+		summary.ToolSurchargeItems[i].PricingUnitCreditsPerUnit = dQuotaPerUnit.InexactFloat64()
+	}
 	var surcharge decimal.Decimal
 	for _, item := range summary.ToolSurchargeItems {
 		surcharge = surcharge.Add(decimal.NewFromFloat(item.Price).
@@ -387,6 +397,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		if !dAudioTokens.IsZero() {
 			summary.AudioInputPrice = operation_setting.GetGeminiInputAudioPricePerMillionTokens(summary.ModelName)
 			if summary.AudioInputPrice > 0 {
+				summary.AudioPricingUnitCreditsPerUnit = dQuotaPerUnit.InexactFloat64()
 				baseTokens = baseTokens.Sub(dAudioTokens)
 				audioInputQuota = decimal.NewFromFloat(summary.AudioInputPrice).
 					Div(decimal.NewFromInt(1000000)).Mul(dAudioTokens).Mul(dGroupRatio).Mul(dQuotaPerUnit)
@@ -659,6 +670,10 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 		other["audio_input_seperate_price"] = true
 		other["audio_input_token_count"] = summary.AudioTokens
 		other["audio_input_price"] = summary.AudioInputPrice
+		other["audio_input_pricing_unit_credits_per_unit"] = summary.AudioPricingUnitCreditsPerUnit
+		if len(summary.ToolSurchargeItems) == 0 {
+			other["tool_pricing_unit_credits_per_unit"] = summary.AudioPricingUnitCreditsPerUnit
+		}
 	}
 	if summary.CacheCreationTokens > 0 {
 		other["cache_creation_tokens"] = summary.CacheCreationTokens

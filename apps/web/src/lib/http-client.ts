@@ -25,7 +25,10 @@ import {
   clearAuthentication,
   refreshAuthentication,
 } from '@/lib/auth-session'
-import { getServerErrorMessageKey } from '@/lib/server-error-message'
+import {
+  getServerErrorMessageKey,
+  getServerErrorToastId,
+} from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 declare module 'axios' {
@@ -180,7 +183,7 @@ api.interceptors.response.use(
         : error?.response?.data?.message ||
           error?.message ||
           t('Request failed')
-      toast.error(message)
+      toast.error(message, { id: getServerErrorToastId(error) })
     }
     throw error
   }
@@ -222,5 +225,8 @@ api.interceptors.request.use(async (config) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`
   }
+  // This client rejects cached denominations other than 500,000/USD. Old
+  // tabs omit this acknowledgement and must refresh before dashboard writes.
+  config.headers.set('X-LMM-Credit-Unit', '500000', true)
   return config
 })

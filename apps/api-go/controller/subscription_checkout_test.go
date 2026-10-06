@@ -259,6 +259,7 @@ func TestEnabledSubscriptionPlanRequiresConfiguredPaymentMethod(t *testing.T) {
 }
 
 func TestStripeSubscriptionPersistsOrderBeforeCreatingCheckout(t *testing.T) {
+	preservePaymentCreditAnchor(t, "3400000")
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.SubscriptionPlan{}, &model.SubscriptionOrder{}))
 	confirmPaymentComplianceForTest(t)

@@ -23,7 +23,7 @@ import { getSystemOptions } from '../api'
 export function useSystemOptions() {
   return useQuery({
     queryKey: ['system-options'],
-    queryFn: getSystemOptions,
+    queryFn: () => getSystemOptions({ silent: true }),
     staleTime: 5 * 60 * 1000,
   })
 }

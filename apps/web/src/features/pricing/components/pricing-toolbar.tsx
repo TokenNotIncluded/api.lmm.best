@@ -54,7 +54,12 @@ import {
   type SortOption,
   type ViewMode,
 } from '../constants'
-import type { PricingModel, PricingVendor, TokenUnit } from '../types'
+import type {
+  PricingModel,
+  PricingVendor,
+  TokenUnit,
+  PriceDisplayCurrency,
+} from '../types'
 import { PricingSidebar } from './pricing-sidebar'
 
 type SegmentOption = {
@@ -71,8 +76,8 @@ export interface PricingToolbarProps {
   onSortChange: (value: string) => void
   tokenUnit: TokenUnit
   onTokenUnitChange: (value: TokenUnit) => void
-  showRechargePrice: boolean
-  onRechargePriceChange: (value: boolean) => void
+  displayCurrency: PriceDisplayCurrency
+  onDisplayCurrencyChange: (value: PriceDisplayCurrency) => void
   viewMode: ViewMode
   onViewModeChange: (value: ViewMode) => void
   quotaTypeFilter: string
@@ -162,8 +167,9 @@ export function PricingToolbar(props: PricingToolbarProps) {
     [props]
   )
 
-  const handleRechargePriceChange = useCallback(
-    (value: string) => props.onRechargePriceChange(value === 'recharge'),
+  const handleDisplayCurrencyChange = useCallback(
+    (value: string) =>
+      props.onDisplayCurrencyChange(value as PriceDisplayCurrency),
     [props]
   )
 
@@ -210,12 +216,13 @@ export function PricingToolbar(props: PricingToolbarProps) {
             <div className='hidden items-center gap-2 sm:flex'>
               <SegmentedControl
                 options={[
-                  { value: 'standard', label: t('Platform credits') },
-                  { value: 'recharge', label: t('Estimated USD cost') },
+                  { value: 'USD', label: 'USD' },
+                  { value: 'CNY', label: 'CNY' },
+                  { value: 'CREDIT', label: 'CREDIT' },
                 ]}
-                value={props.showRechargePrice ? 'recharge' : 'standard'}
-                onChange={handleRechargePriceChange}
-                ariaLabel={t('Price display mode')}
+                value={props.displayCurrency}
+                onChange={handleDisplayCurrencyChange}
+                ariaLabel={t('Display currency')}
               />
               <SegmentedControl
                 options={[
@@ -284,12 +291,9 @@ export function PricingToolbar(props: PricingToolbarProps) {
         </div>
       </div>
 
-      <p
-        role='note'
-        className='text-muted-foreground hidden text-xs leading-5 sm:block'
-      >
+      <p role='note' className='text-muted-foreground text-xs leading-5'>
         {t(
-          'No group selected shows starting prices. Checkout confirms the final amount.'
+          'Groups filter model availability only. Prices always use the base price (1×).'
         )}
       </p>
 
@@ -327,16 +331,17 @@ export function PricingToolbar(props: PricingToolbarProps) {
           <div className='border-border space-y-4 border-t pt-4 sm:hidden'>
             <div className='space-y-2'>
               <p className='text-muted-foreground text-xs font-medium'>
-                {t('Price display mode')}
+                {t('Display currency')}
               </p>
               <SegmentedControl
                 options={[
-                  { value: 'standard', label: t('Platform credits') },
-                  { value: 'recharge', label: t('Estimated USD cost') },
+                  { value: 'USD', label: 'USD' },
+                  { value: 'CNY', label: 'CNY' },
+                  { value: 'CREDIT', label: 'CREDIT' },
                 ]}
-                value={props.showRechargePrice ? 'recharge' : 'standard'}
-                onChange={handleRechargePriceChange}
-                ariaLabel={t('Price display mode')}
+                value={props.displayCurrency}
+                onChange={handleDisplayCurrencyChange}
+                ariaLabel={t('Display currency')}
               />
             </div>
             <div className='space-y-2'>

@@ -52,6 +52,21 @@
     ]
   },
   {
+    "name": "custom-credit-rail-default-platform-rate",
+    "amount": "14.6",
+    "method": "epay",
+    "options": {},
+    "methods": [
+      {
+        "type": "epay",
+        "name": "LDC",
+        "settlement_unit": "LDC",
+        "settlement_units_per_usd": "3",
+        "topup_ratio": "0.8"
+      }
+    ]
+  },
+  {
     "name": "integer-amount-discount",
     "amount": "14",
     "method": "alipay",
@@ -88,7 +103,7 @@
     "methods": [
       {
         "type": "alipay",
-        "min_topup": "2"
+        "min_topup": "20"
       }
     ]
   },
@@ -186,6 +201,43 @@
     "method": "alipay",
     "body": "{\"amount\":5.25,\"amount\":null,\"payment_method\":\"alipay\"}",
     "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "legacy-half-credit",
+    "amount": "1.000001",
+    "method": "alipay",
+    "options": {},
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "tokens-large-valid-credit",
+    "amount": "10000000000000",
+    "method": "alipay",
+    "options": {
+      "general_setting.quota_display_type": "TOKENS"
+    },
+    "methods": [
+      {
+        "type": "alipay"
+      }
+    ]
+  },
+  {
+    "name": "tokens-fractional-credit-rejected",
+    "amount": "500000.5",
+    "method": "alipay",
+    "options": {
+      "general_setting.quota_display_type": "TOKENS"
+    },
     "methods": [
       {
         "type": "alipay"

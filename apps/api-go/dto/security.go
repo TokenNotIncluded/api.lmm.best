@@ -90,6 +90,7 @@ type SecurityModerationPolicy struct {
 
 type SecurityModerationGroupPolicy struct {
 	Mode             string             `json:"mode"`
+	AmountCurrency   string             `json:"amount_currency"`
 	CategoryFinesUSD map[string]float64 `json:"category_fines_usd"`
 }
 
@@ -149,29 +150,38 @@ type ModerationSecurityStats struct {
 // SecurityModerationReview is a bounded administrative projection. It never
 // includes submitted text, provider bodies, leases or captured policy data.
 type SecurityModerationReview struct {
-	ID             int64    `json:"id"`
-	SourceKind     string   `json:"source_kind"`
-	Source         string   `json:"source"`
-	UserID         int      `json:"user_id,omitempty"`
-	RequestID      string   `json:"request_id,omitempty"`
-	Group          string   `json:"group,omitempty"`
-	ReviewModel    string   `json:"review_model"`
-	Mode           string   `json:"mode"`
-	Status         string   `json:"status"`
-	Attempts       int      `json:"attempts"`
-	InputTruncated bool     `json:"input_truncated"`
-	Flagged        bool     `json:"flagged"`
-	Categories     []string `json:"categories"`
-	ResponseModel  string   `json:"response_model"`
-	ReviewID       int64    `json:"review_id,omitempty"`
-	FeeRecordID    uint     `json:"fee_record_id,omitempty"`
-	FeeCategory    string   `json:"fee_category,omitempty"`
-	FeeStatus      string   `json:"fee_status"`
-	RequestedQuota int      `json:"requested_quota"`
-	ChargedQuota   int      `json:"charged_quota"`
-	CreatedAt      int64    `json:"created_at"`
-	UpdatedAt      int64    `json:"updated_at"`
-	CompletedAt    int64    `json:"completed_at"`
+	ID                int64                            `json:"id"`
+	SourceKind        string                           `json:"source_kind"`
+	Source            string                           `json:"source"`
+	UserID            int                              `json:"user_id,omitempty"`
+	RequestID         string                           `json:"request_id,omitempty"`
+	Group             string                           `json:"group,omitempty"`
+	ReviewModel       string                           `json:"review_model"`
+	Mode              string                           `json:"mode"`
+	Status            string                           `json:"status"`
+	Attempts          int                              `json:"attempts"`
+	InputTruncated    bool                             `json:"input_truncated"`
+	Flagged           bool                             `json:"flagged"`
+	Categories        []string                         `json:"categories"`
+	ResponseModel     string                           `json:"response_model"`
+	ReviewID          int64                            `json:"review_id,omitempty"`
+	FeeRecordID       uint                             `json:"fee_record_id,omitempty"`
+	FeeCategory       string                           `json:"fee_category,omitempty"`
+	FeeStatus         string                           `json:"fee_status"`
+	RequestedQuota    int                              `json:"requested_quota"`
+	ChargedQuota      int                              `json:"charged_quota"`
+	CreatedAt         int64                            `json:"created_at"`
+	UpdatedAt         int64                            `json:"updated_at"`
+	CompletedAt       int64                            `json:"completed_at"`
+	SubjectIdentifier string                           `json:"subject_identifier,omitempty"`
+	ProviderCalls     []SecurityModerationProviderCall `json:"provider_calls"`
+}
+
+type SecurityModerationProviderCall struct {
+	Attempt    int    `json:"attempt"`
+	BatchIndex int    `json:"batch_index"`
+	ResponseID string `json:"response_id"`
+	RequestID  string `json:"request_id"`
 }
 
 // AISecurityReviewStats summarizes the asynchronous assistant review lane.

@@ -13,7 +13,8 @@ CREATE TABLE subscription_plans (
 );
 CREATE TABLE user_subscriptions (
     id BIGINT PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL,
-    amount_total BIGINT NOT NULL DEFAULT 100, amount_used BIGINT NOT NULL DEFAULT 0,
+    amount_total BIGINT NOT NULL DEFAULT 100, reset_amount BIGINT, renewal_amount BIGINT,
+    amount_used BIGINT NOT NULL DEFAULT 0,
     start_time BIGINT NOT NULL DEFAULT 0, end_time BIGINT NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'active', source TEXT NOT NULL DEFAULT 'order',
     last_reset_time BIGINT NOT NULL DEFAULT 0, next_reset_time BIGINT NOT NULL DEFAULT 0,

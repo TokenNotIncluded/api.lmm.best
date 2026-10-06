@@ -349,11 +349,12 @@ func AdminGetAssistantFundingSummary(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	remainingUSD := float64(remainingQuota)
-	if common.QuotaPerUnit > 0 {
-		remainingUSD /= common.QuotaPerUnit
+	remainingUSD, anchor, err := assistantFiatProjection(int64(remainingQuota))
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
-	common.ApiSuccess(c, gin.H{
+	payload := gin.H{
 		"start_timestamp":   summary.StartTimestamp,
 		"end_timestamp":     summary.EndTimestamp,
 		"requests":          summary.Requests,
@@ -364,7 +365,24 @@ func AdminGetAssistantFundingSummary(c *gin.Context) {
 		"cost_usd":          summary.CostUSD,
 		"remaining_quota":   remainingQuota,
 		"remaining_usd":     remainingUSD,
-	})
+		"currency_unit":     "credit",
+		"credits_per_usd":   anchor,
+	}
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		payload[key] = value
+	}
+	public, err := units.ProjectLedgerQuota(int64(remainingQuota))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	payload["remaining_public_credits"] = public.String()
+	common.ApiSuccess(c, payload)
 }
 
 func AdminResolveAssistantHandoff(c *gin.Context) {

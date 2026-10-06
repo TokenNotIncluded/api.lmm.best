@@ -92,6 +92,13 @@ export function refreshToolDefinitions(
     return {
       ...tool,
       price_quota: existing.price_quota,
+      billing_mode: existing.billing_mode,
+      input_token_price_quota: existing.input_token_price_quota,
+      max_input_tokens: existing.max_input_tokens,
+      billing_rules: existing.billing_rules,
+      available_metering_metrics: options.endpointChanged
+        ? []
+        : existing.available_metering_metrics,
       permissions: [...existing.permissions],
     }
   })

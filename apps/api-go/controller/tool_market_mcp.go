@@ -166,6 +166,9 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 			return marketMCPOutput(nil, model.ErrToolMarketInput)
 		}
 		detail, err := model.GetToolMarketDetail(identity.userID, input.ID, false)
+		if err == nil {
+			detail, err = walletCurrentCatalogPresentation(ctx, detail)
+		}
 		return marketMCPOutput(detail, err)
 	})
 	server.AddTool(&mcp.Tool{Name: "lmm_market_call_status", Description: "Get this client's previous call and retained result without charging again.", InputSchema: marketMCPSchema(map[string]any{"call_id": marketMCPString()}, "call_id")}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -203,8 +206,25 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 		if execution.Version.ExecutionType != "remote" && execution.Version.ExecutionType != "builtin" {
 			continue
 		}
+		provider := fmt.Sprintf("Provider account: %d. Data recipient: %s.", execution.Service.OwnerID, execution.Version.Endpoint)
+		displayTool := execution.Tool
+		var annotations *mcp.ToolAnnotations
+		if execution.Version.ExecutionType == "builtin" {
+			key, definition, err := marketBuiltinDefinition(context.Background(), execution.Service.ID, execution.Tool.Name)
+			if err != nil || marketBuiltinVersionCurrent(context.Background(), key, execution.Version.ID) != nil {
+				continue
+			}
+			if key == "wallet" {
+				displayTool, err = walletCurrentToolPresentation(execution.Tool)
+				if err != nil {
+					return nil, err
+				}
+			}
+			annotations = definition.Annotations
+			provider = "LMM built-in tool. Tool invocation is free; confirmed image generation, transfers and bounty funding retain their normal costs."
+		}
 		var args map[string]any
-		decoder := json.NewDecoder(strings.NewReader(execution.Tool.InputSchema))
+		decoder := json.NewDecoder(strings.NewReader(displayTool.InputSchema))
 		decoder.UseNumber()
 		if decoder.Decode(&args) != nil {
 			return nil, service.ErrMarketRemoteSchema
@@ -219,18 +239,12 @@ func newToolMarketMCPServer(identity marketMCPIdentity) (*mcp.Server, error) {
 			}
 			outputSchema = json.RawMessage(execution.Tool.OutputSchema)
 		}
-		provider := fmt.Sprintf("Provider account: %d. Data recipient: %s.", execution.Service.OwnerID, execution.Version.Endpoint)
-		var annotations *mcp.ToolAnnotations
-		if execution.Version.ExecutionType == "builtin" {
-			key, definition, err := marketBuiltinDefinition(context.Background(), execution.Service.ID, execution.Tool.Name)
-			if err != nil || marketBuiltinVersionCurrent(context.Background(), key, execution.Version.ID) != nil {
-				continue
-			}
-			annotations = definition.Annotations
-			provider = "LMM built-in tool. Tool invocation is free; confirmed image generation, transfers and bounty funding retain their normal costs."
+		pricing := map[string]any{"price_quota": execution.Tool.PriceQuota, "billing_mode": execution.Tool.BillingMode, "input_token_price_quota": execution.Tool.InputTokenPriceQuota, "max_input_tokens": execution.Tool.MaxInputTokens, "billing_rules": execution.Tool.BillingRules}
+		if execution.Tool.BillingMode != "" {
+			pricing["usage_policy"] = model.ToolMarketUsageReported
 		}
 		server.AddTool(&mcp.Tool{Name: "market_tool_" + strings.ReplaceAll(execution.Tool.ToolID, "-", ""), Title: execution.Version.Name + " / " + execution.Tool.Name,
-			Description: fmt.Sprintf("%s\n%s Price: %d quota per successful tool call, capped by the explicit grant. Supply a unique request_id; reuse it only for the same call. Continue confirmation with the same request_id and arguments, echoing requestState/inputResponses.", execution.Tool.Description, provider, execution.Tool.PriceQuota), InputSchema: schema, OutputSchema: outputSchema, Annotations: annotations}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			Description: fmt.Sprintf("%s\n%s Execution is capped by the explicit grant. Supply a unique request_id; reuse it only for the same call. Continue confirmation with the same request_id and arguments, echoing requestState/inputResponses.", displayTool.Description, provider), Meta: mcp.Meta{"lmm/pricing": pricing}, InputSchema: schema, OutputSchema: outputSchema, Annotations: annotations}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var input struct {
 				RequestID string          `json:"request_id"`
 				Arguments json.RawMessage `json:"arguments"`

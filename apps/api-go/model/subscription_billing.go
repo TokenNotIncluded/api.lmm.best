@@ -348,7 +348,7 @@ func ReserveSubscriptionBilling(requestID string, userID int, target int64) (*Su
 		if fundingDelta < 0 {
 			fundingDelta = 0
 		}
-		if subscription.AmountTotal > 0 {
+		if subscription.hasFiniteQuota() {
 			remaining := subscription.AmountTotal - subscription.AmountUsed
 			if remaining < 0 {
 				remaining = 0
@@ -434,7 +434,7 @@ func SettleSubscriptionBillingContext(ctx context.Context, requestID string, use
 		}
 		delta := actual - r.PreConsumed
 		subDelta, wallet := delta, int64(0)
-		if delta > 0 && sub.AmountTotal > 0 {
+		if delta > 0 && sub.hasFiniteQuota() {
 			remaining := sub.AmountTotal - sub.AmountUsed
 			if remaining < 0 {
 				remaining = 0

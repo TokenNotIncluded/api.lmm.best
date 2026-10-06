@@ -23,12 +23,36 @@ func (runtime *productionReleaseRuntime) bootstrapRemoteWorkspace(ctx context.Co
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	provider := filepath.Join(filepath.Dir(productionOperatorBinary), backendGoName)
-	if err := runtime.verifyRemoteProviderEntrypoint(ctx, plan.TargetAlias, productionOperatorBinary, provider, plan.GoRollback.PayloadSHA256); err != nil {
-		return productionWorkspaceResult{}, fmt.Errorf("verify installed rollback provider before bootstrap: %w", err)
-	}
-	protocol, err := runtime.productionBootstrapProtocol(ctx, plan.TargetAlias, plan.GoRollback)
-	if err != nil {
-		return productionWorkspaceResult{}, err
+	operator, protocol := productionOperatorBinary, "operator"
+	if plan.MaintenanceHandoff != nil {
+		// The maintenance owner is the verified canonical candidate, before any
+		// package installation. Older installed operators cannot adopt guardian
+		// leases, and a post staging intent has not installed its N-1 yet.
+		root := filepath.Dir(productionRemoteHandoffPath(*plan.MaintenanceHandoff))
+		provider, operator = filepath.Join(root, backendGoName), filepath.Join(root, backendCanonicalName)
+		if err := runtime.stageRemoteFile(ctx, plan.TargetAlias, plan.ProbeBinary.Path, provider, plan.ProbeBinary.SHA256, true); err != nil {
+			return productionWorkspaceResult{}, err
+		}
+		if _, err := runtime.ssh(ctx, plan.TargetAlias, time.Minute, "test", "-L", operator); err != nil {
+			if _, err := runtime.ssh(ctx, plan.TargetAlias, time.Minute, "test", "!", "-e", operator); err != nil {
+				return productionWorkspaceResult{}, errors.New("maintenance bootstrap provider entrypoint is unsafe")
+			}
+			if _, err := runtime.ssh(ctx, plan.TargetAlias, time.Minute, "ln", "-s", "--", backendGoName, operator); err != nil {
+				return productionWorkspaceResult{}, err
+			}
+		}
+		if err := runtime.verifyRemoteProviderEntrypoint(ctx, plan.TargetAlias, operator, provider, plan.ProbeBinary.SHA256); err != nil {
+			return productionWorkspaceResult{}, err
+		}
+	} else {
+		if err := runtime.verifyRemoteProviderEntrypoint(ctx, plan.TargetAlias, operator, provider, plan.GoRollback.PayloadSHA256); err != nil {
+			return productionWorkspaceResult{}, fmt.Errorf("verify installed rollback provider before bootstrap: %w", err)
+		}
+		var err error
+		protocol, err = runtime.productionBootstrapProtocol(ctx, plan.TargetAlias, plan.GoRollback)
+		if err != nil {
+			return productionWorkspaceResult{}, err
+		}
 	}
 	expected := filepath.Join(defaultProductionPaths().WorkRoot, plan.DeploymentID)
 	exists, err := runtime.remoteDirectoryExists(ctx, plan.TargetAlias, expected)
@@ -38,8 +62,11 @@ func (runtime *productionReleaseRuntime) bootstrapRemoteWorkspace(ctx context.Co
 	if exists {
 		return runtime.inspectBootstrapWorkspace(ctx, plan)
 	}
-	output, createErr := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute,
-		productionOperatorBinary, protocol, "production", "workspace", "create", "--deployment-id", plan.DeploymentID)
+	createArgs := []string{operator, protocol, "production", "workspace", "create", "--deployment-id", plan.DeploymentID}
+	if plan.MaintenanceHandoff != nil {
+		createArgs = append(createArgs, "--maintenance-handoff", productionRemoteHandoffPath(*plan.MaintenanceHandoff), "--maintenance-handoff-sha256", plan.MaintenanceHandoff.SHA256)
+	}
+	output, createErr := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, createArgs...)
 	if createErr != nil {
 		// The server may have completed before SSH disconnected. Read the exact
 		// native markers instead of dispatching create twice or inventing state.
@@ -50,7 +77,8 @@ func (runtime *productionReleaseRuntime) bootstrapRemoteWorkspace(ctx context.Co
 		return workspace, nil
 	}
 	var workspace productionWorkspaceResult
-	if json.Unmarshal(output, &workspace) != nil || workspace.DeploymentID != plan.DeploymentID || !workspace.TransactionSet || workspace.Workspace != expected || workspace.Transaction != defaultProductionPaths().TransactionLock {
+	intent := plan.MaintenanceHandoff != nil && plan.MaintenanceHandoff.Stage == "post" && plan.MaintenanceHandoff.StoppedWriter == nil
+	if json.Unmarshal(output, &workspace) != nil || workspace.DeploymentID != plan.DeploymentID || workspace.TransactionSet == intent || workspace.StagingIntent != intent || workspace.Workspace != expected || workspace.Transaction != defaultProductionPaths().TransactionLock {
 		return productionWorkspaceResult{}, errors.New("target workspace response is invalid")
 	}
 	return workspace, nil
@@ -160,7 +188,12 @@ func parseProductionBootstrapCapabilities(output []byte) (string, error) {
 func (runtime *productionReleaseRuntime) inspectBootstrapWorkspace(ctx context.Context, plan productionReleasePlan) (productionWorkspaceResult, error) {
 	paths := defaultProductionPaths()
 	root := filepath.Join(paths.WorkRoot, plan.DeploymentID)
-	for _, directory := range []string{filepath.Dir(paths.WorkRoot), paths.WorkRoot, root, filepath.Join(root, "staging"), filepath.Join(root, "state"), paths.TransactionLock} {
+	intent := plan.MaintenanceHandoff != nil && plan.MaintenanceHandoff.Stage == "post" && plan.MaintenanceHandoff.StoppedWriter == nil
+	directories := []string{filepath.Dir(paths.WorkRoot), paths.WorkRoot, root, filepath.Join(root, "staging"), filepath.Join(root, "state")}
+	if !intent {
+		directories = append(directories, paths.TransactionLock)
+	}
+	for _, directory := range directories {
 		if _, err := runtime.bootstrapRemoteEntry(ctx, plan.TargetAlias, directory, true); err != nil {
 			return productionWorkspaceResult{}, err
 		}
@@ -178,11 +211,18 @@ func (runtime *productionReleaseRuntime) inspectBootstrapWorkspace(ctx context.C
 	if err != nil {
 		return productionWorkspaceResult{}, err
 	}
-	prefix := "format=1\ndeployment_id=" + plan.DeploymentID + "\nrole=target\ncreated_at_utc="
+	role := "target"
+	if intent {
+		role = "staging-intent"
+	}
+	prefix := "format=1\ndeployment_id=" + plan.DeploymentID + "\nrole=" + role + "\ncreated_at_utc="
 	created, valid := strings.CutPrefix(marker, prefix)
 	stamp, stampErr := time.Parse(time.RFC3339, strings.TrimSuffix(created, "\n"))
 	if !valid || !strings.HasSuffix(created, "\n") || stampErr != nil || stamp.Location() != time.UTC {
 		return productionWorkspaceResult{}, errors.New("bootstrap workspace native marker is invalid")
+	}
+	if intent {
+		return productionWorkspaceResult{DeploymentID: plan.DeploymentID, Workspace: root, Transaction: paths.TransactionLock, StagingIntent: true}, nil
 	}
 	transaction, err := runtime.bootstrapRemoteEntry(ctx, plan.TargetAlias, filepath.Join(paths.TransactionLock, productionTransactionMarker), false)
 	if err != nil || transaction != "format=1\ndeployment_id="+plan.DeploymentID+"\nstatus=ACTIVE\n" {

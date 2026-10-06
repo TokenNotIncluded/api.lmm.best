@@ -164,7 +164,11 @@ func GetPublicProfileShareSVG(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Unable to load usage"})
 			return
 		}
-		svg = renderProfileShareModelsSVG(options, usage, start, now.Unix())
+		svg, err = renderProfileShareModelsSVG(options, usage, start, now.Unix())
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "code": "CREDIT_UNITS_UNAVAILABLE", "message": "Unable to display currency amounts"})
+			return
+		}
 	} else if options.Layout == "profile" {
 		endDay := time.Now().UTC().Truncate(24 * time.Hour).Unix()
 		startDay := endDay - 370*86400

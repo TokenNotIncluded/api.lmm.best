@@ -56,7 +56,7 @@ func TestHeroSMSSMSMinimumBalanceRejectsBeforePurchase(t *testing.T) {
 			require.ErrorAs(t, err, &apiErr)
 			require.Equal(t, http.StatusPaymentRequired, apiErr.Status)
 			require.Equal(t, "TEMPORARY_SMS_MINIMUM_BALANCE", apiErr.Code)
-			require.Equal(t, "Temporary SMS purchases require a balance of at least USD 10", apiErr.Message)
+			require.Equal(t, fmt.Sprintf("Temporary SMS purchases require a balance of at least %d Credits", common.GetTrustQuota()), apiErr.Message)
 			require.Nil(t, order)
 			require.Zero(t, purchases.Load())
 			require.Equal(t, startingQuota, getUserQuotaValue(user.Id))

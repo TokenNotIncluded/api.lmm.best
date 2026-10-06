@@ -6,7 +6,7 @@ export function testKeyQuota(input: string): number | null {
   if (!input.trim()) return null
   const amount = Number(input)
   if (!Number.isFinite(amount) || amount <= 0) return null
-  const quota = parseQuotaFromDollars(amount)
+  const quota = parseQuotaFromDollars(input)
   return Number.isSafeInteger(quota) && quota > 0 ? quota : null
 }
 

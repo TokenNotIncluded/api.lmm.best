@@ -4,14 +4,16 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"errors"
-	"math"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 const (
@@ -100,7 +102,8 @@ func (AssistantGiftRiskMemory) TableName() string { return "assistant_gift_risk_
 
 // AssistantNewUserGift is a one-time, user-scoped decision. AmountCents and
 // Quota are both persisted so a later exchange-rate change cannot alter an
-// already presented gift. A zero-dollar decision is retained as declined and
+// already presented gift. AmountCents are LEGACY_CENTS, not US cents; Quota is
+// the immutable Credit grant. A zero-credit decision is retained as declined and
 // consumes the same single opportunity.
 type AssistantNewUserGift struct {
 	Id             int64  `json:"id" gorm:"primaryKey"`
@@ -161,7 +164,19 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 	if user.Role != common.RoleCommonUser || user.Status != common.UserStatusEnabled || strings.TrimSpace(user.Email) == "" || IsDisposableEmail(user.Email) {
 		return nil, false, assistantGiftError("account_not_eligible", ErrAssistantGiftIneligible)
 	}
-	quota := int(math.Round(float64(amountCents) * common.QuotaPerUnit / 100))
+	if _, err := common.LegacyPricingUnitsPerUSD(); err != nil {
+		return nil, false, err
+	}
+	legacyUnit, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return nil, false, err
+	}
+	// The legacy gift policy rounds half away from zero before validating the
+	// integer Credit ledger. Fractional legacy units must preserve that grant.
+	quota, err := common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(int64(amountCents)).Mul(legacyUnit).Div(decimal.NewFromInt(100)).Round(0))
+	if err != nil {
+		return nil, false, err
+	}
 	if quota < 0 || (amountCents > 0 && quota <= 0) {
 		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
 	}
@@ -179,7 +194,7 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 		CreatedAt:      common.GetTimestamp(),
 	}
 	createdDecision := false
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err = DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
 		}
@@ -244,6 +259,9 @@ func getAssistantGiftRiskSecret(tx *gorm.DB) (string, error) {
 	if tx == nil {
 		return "", gorm.ErrInvalidData
 	}
+	// This query/INSERT contains installation key material. Even callers using
+	// DB.Debug() must never render it through SQL/error tracing.
+	tx = tx.Session(&gorm.Session{Logger: gormlogger.Discard})
 	var stored AssistantGiftRiskKey
 	if err := tx.Where("id = ?", assistantGiftRiskKeyID).First(&stored).Error; err == nil {
 		stored.Secret = strings.TrimSpace(stored.Secret)
@@ -366,6 +384,7 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 	}
 	var gift AssistantNewUserGift
 	alreadyClaimed := false
+	creditedQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
@@ -386,9 +405,14 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		if gift.Status != AssistantGiftOffered || gift.AmountCents <= 0 || gift.Quota <= 0 {
 			return ErrAssistantGiftUnavailable
 		}
+		var err error
+		creditedQuota, err = WalletFutureCreditQuota(tx, gift.UserId, "assistant_gift", strconv.FormatInt(gift.Id, 10), gift.Quota, gift.CreatedAt)
+		if err != nil {
+			return err
+		}
 		result := UpdateWalletQuotaByDelta(
 			tx.Model(&User{}).Where("id = ? AND status = ?", userID, common.UserStatusEnabled),
-			gift.Quota,
+			creditedQuota,
 		)
 		if result.Error != nil {
 			return result.Error
@@ -411,7 +435,7 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		return nil, false, err
 	}
 	if !alreadyClaimed {
-		if err := cacheIncrUserQuota(userID, int64(gift.Quota)); err != nil {
+		if err := cacheIncrUserQuota(userID, int64(creditedQuota)); err != nil {
 			common.SysLog("failed to update new-user assistant gift quota cache: " + err.Error())
 		}
 	}

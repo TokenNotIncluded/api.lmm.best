@@ -64,6 +64,7 @@ import {
   updateSystemOption,
 } from '@/features/system-settings/api'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { getUserGroups } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -185,6 +186,7 @@ function PublicRelayEmpty(props: {
 
 export function PublicRelay() {
   const { t } = useTranslation()
+  const money = useWalletCurrency()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
   const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
@@ -463,11 +465,21 @@ export function PublicRelay() {
           {mine ? (
             <>
               <span>
-                {t('Tips')}: ${item.tip_quota_usd?.toFixed(2) ?? '0.00'}
+                {t('Tips')}: {money.formatQuota(item.tip_quota ?? Number.NaN)}
               </span>
               {item.status === 'approved' &&
-              (item.tip_quota_usd ?? 0) >=
-                (configQuery.data?.minimum_withdrawal_usd ?? 10) ? (
+              Number.isSafeInteger(
+                item.available_tip_quota ??
+                  (item.tip_quota ?? Number.NaN) -
+                    (item.withdrawn_quota ?? Number.NaN)
+              ) &&
+              Number.isSafeInteger(
+                configQuery.data?.minimum_withdrawal_quota
+              ) &&
+              (configQuery.data?.minimum_withdrawal_quota ?? 0) > 0 &&
+              (item.available_tip_quota ??
+                (item.tip_quota ?? 0) - (item.withdrawn_quota ?? 0)) >=
+                (configQuery.data?.minimum_withdrawal_quota ?? Infinity) ? (
                 <Button
                   variant='ghost'
                   size='sm'
@@ -1094,7 +1106,7 @@ export function PublicRelay() {
           </DialogHeader>
           <div className='grid gap-4'>
             <div className='grid gap-2'>
-              <Label>{t('Tip amount')}</Label>
+              <Label>{t('Tip amount')} (USD)</Label>
               <div className='flex flex-wrap gap-2'>
                 {['0.5', '1', '3', '5'].map((amount) => (
                   <Button
@@ -1104,7 +1116,7 @@ export function PublicRelay() {
                     variant={tipAmount === amount ? 'secondary' : 'outline'}
                     onClick={() => setTipAmount(amount)}
                   >
-                    ${amount}
+                    {money.formatUSD(Number(amount))}
                   </Button>
                 ))}
                 <Input

@@ -6,10 +6,21 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
-func TestOAuthPricingConvertsPlatformUnitsToUSDOnce(t *testing.T) {
+func TestOAuthPricingUsesFixedCreditAnchorForUSD(t *testing.T) {
+	oldAnchor, anchorErr := common.CreditsPerUSD()
+	oldLegacy, _ := common.LegacyPricingQuotaPerUnit()
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
+	t.Cleanup(func() {
+		if anchorErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(oldAnchor, oldLegacy))
+		}
+	})
 	oldQuota, oldFX, oldPurchase := common.QuotaPerUnit, operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY
 	oldRatios, oldCaches, oldCreates := ratio_setting.ModelRatio2JSONString(), ratio_setting.CacheRatio2JSONString(), ratio_setting.CreateCacheRatio2JSONString()
 	t.Cleanup(func() {
@@ -26,16 +37,20 @@ func TestOAuthPricingConvertsPlatformUnitsToUSDOnce(t *testing.T) {
 	p := oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), 1)
 	require.Equal(t, "USD", p.Currency)
 	require.Equal(t, "configured_base_rates", p.PriceBasis)
-	require.InDelta(t, 2.0/9.0, *p.Input, 1e-12)
-	require.InDelta(t, 2.0/9.0, *p.Output, 1e-12)
-	require.InDelta(t, 0.2/9.0, *p.CacheRead, 1e-12)
-	require.InDelta(t, 0.4/9.0, *p.CacheWrite, 1e-12)
+	require.InDelta(t, 2.0, *p.Input, 1e-12)
+	require.InDelta(t, 2.0, *p.Output, 1e-12)
+	require.InDelta(t, 0.2, *p.CacheRead, 1e-12)
+	require.InDelta(t, 0.4, *p.CacheWrite, 1e-12)
 	require.NotNil(t, p.NativeCost)
+	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 15, 100
+	unchanged := oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), 1)
+	require.Equal(t, p.Input, unchanged.Input)
+	require.Equal(t, p.Output, unchanged.Output)
 	require.NoError(t, ratio_setting.UpdateCacheRatioByJSONString(`{}`))
 	require.NoError(t, ratio_setting.UpdateCreateCacheRatioByJSONString(`{}`))
 	p = oauthPricing("oauth-pricing-test", floatPtr(2), floatPtr(0.5), 1)
-	require.InDelta(t, 2.0/9.0, *p.CacheRead, 1e-12)
-	require.InDelta(t, 2.5/9.0, *p.CacheWrite, 1e-12)
+	require.InDelta(t, 2.0, *p.CacheRead, 1e-12)
+	require.InDelta(t, 2.5, *p.CacheWrite, 1e-12)
 	require.NotNil(t, p.NativeCost)
 }
 

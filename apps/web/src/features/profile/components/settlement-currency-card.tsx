@@ -116,7 +116,12 @@ function SettlementCurrencyField({
               aria-busy={preference.saving}
               className='w-full sm:min-w-48'
             >
-              <SelectValue placeholder={t('Loading...')} />
+              <SelectValue placeholder={t('Loading...')}>
+                {preference.available
+                  ? options.find((option) => option.value === preference.value)
+                      ?.label
+                  : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent alignItemWithTrigger={false}>
               <SelectGroup>

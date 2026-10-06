@@ -21,8 +21,9 @@ import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { api } from '@/lib/api'
-import { formatQuota, formatTimestamp } from '@/lib/format'
+import { formatTimestamp } from '@/lib/format'
 
 import { createReferralHistoryRequests } from '../lib/referral-history-requests'
 
@@ -65,6 +66,7 @@ const reasons: Record<string, string> = {
 
 export function ReferralHistoryDialog() {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')

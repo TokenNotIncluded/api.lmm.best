@@ -24,6 +24,7 @@ import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { DateTimePicker } from '@/components/datetime-picker'
 import {
   SideDrawerSection,
@@ -73,9 +74,9 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { readSetupPreferences } from '@/features/onboarding/setup-preferences'
+import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
 import {
@@ -451,13 +452,11 @@ export function ApiKeysMutateDrawer({
     form.setValue('expired_time', now)
   }
 
-  const { meta: currencyMeta } = getCurrencyDisplay()
-  const currencyLabel = getCurrencyLabel()
-  const tokensOnly = currencyMeta.kind === 'tokens'
+  const { label: currencyLabel } = useCreditInputDisplay()
   const quotaLabel = t('Quota ({{currency}})', { currency: currencyLabel })
-  const quotaPlaceholder = tokensOnly
-    ? t('Enter quota in tokens')
-    : t('Enter quota in {{currency}}', { currency: currencyLabel })
+  const quotaPlaceholder = t('Enter quota in {{currency}}', {
+    currency: currencyLabel,
+  })
   const autoGroupsMode = form.watch('auto_groups_mode')
   const unlimitedQuota = form.watch('unlimited_quota')
 
@@ -810,29 +809,21 @@ export function ApiKeysMutateDrawer({
               {!unlimitedQuota && (
                 <FormField
                   control={form.control}
-                  name='remain_quota_dollars'
+                  name='remain_quota_credits'
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{quotaLabel}</FormLabel>
                       <FormControl>
-                        <Input
+                        <CreditAmountInput
                           {...field}
-                          type='number'
-                          step={tokensOnly ? 1 : 0.01}
                           placeholder={quotaPlaceholder}
-                          onChange={(e) =>
-                            field.onChange(
-                              Number.parseFloat(e.target.value) || 0
-                            )
-                          }
+                          onValueChange={field.onChange}
                         />
                       </FormControl>
                       <FormDescription>
-                        {tokensOnly
-                          ? t('Enter the quota amount in tokens')
-                          : t('Enter the quota amount in {{currency}}', {
-                              currency: currencyLabel,
-                            })}
+                        {t('Enter the quota amount in {{currency}}', {
+                          currency: currencyLabel,
+                        })}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

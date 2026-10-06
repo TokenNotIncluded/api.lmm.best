@@ -15,6 +15,10 @@ const (
 	ContextKeyDrawingRealToken ContextKey = "drawing_real_token"
 	// Browser-only starting balance, set by the server, never request headers.
 	ContextKeyWebDrawingMinimumQuota ContextKey = "web_drawing_minimum_quota"
+	// Authenticated assistant actor retained before the relay switches to its
+	// payer. These are server context values, never request JSON or headers.
+	ContextKeyAssistantActorUserID ContextKey = "assistant_actor_user_id"
+	ContextKeyAssistantActorGroup  ContextKey = "assistant_actor_group"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"

@@ -261,6 +261,7 @@ export function OllamaModelsDialog({
         headers: {
           ...authHeaders,
           Accept: 'text/event-stream',
+          'X-LMM-Credit-Unit': '500000',
         },
         body: JSON.stringify({
           channel_id: channelId,

@@ -2,34 +2,69 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { displayAmountToQuota, quotaToDisplayInput } from '@/lib/currency'
+import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
+
 import { marketNetQuota, marketQuota } from './money'
 
-test('market prices preserve the exact integer billing unit', () => {
-  assert.equal(marketQuota('0', 500000), 0)
-  assert.equal(marketQuota('0.05', 500000), 25000)
-  assert.equal(marketQuota('0.000002', 500000), 1)
+const config = {
+  ...DEFAULT_CURRENCY_CONFIG,
+  currencyUnit: 'credit' as const,
+  creditsPerUsd: 500000,
+  creditsPerUsdExact: '500000',
+  cnyPerUsd: 7,
+  cnyPerUsdExact: '7',
+}
+
+test('market inputs preserve native raw Credits across all display currencies', () => {
+  for (const currency of ['CREDIT', 'CNY', 'USD'] as const) {
+    const convert = (input: string) =>
+      displayAmountToQuota(input, currency, config)
+    for (const raw of [0, 1, 11, 96338, 1470000, Number.MAX_SAFE_INTEGER]) {
+      assert.equal(
+        marketQuota(quotaToDisplayInput(raw, currency, config), convert),
+        raw,
+        `${currency} ${raw}`
+      )
+    }
+  }
   assert.equal(
-    marketQuota('18014398509.481982', 500000),
-    Number.MAX_SAFE_INTEGER
+    marketQuota('7', (input) => displayAmountToQuota(input, 'CNY', config)),
+    500000
   )
+  assert.equal(
+    marketQuota('1', (input) => displayAmountToQuota(input, 'USD', config)),
+    500000
+  )
+  assert.equal(marketQuota('1', Number), 1)
+})
+
+test('market inputs reject fractional raw Credits, sub-credit fiat, unsafe integers and numeric coercion', () => {
   for (const amount of [
-    '0.000001',
-    '0.000003',
+    '0.5',
     '-1',
     '1e3',
     'Infinity',
     'NaN',
     '',
     '0x10',
-    '18014398509.481984',
+    '9007199254740992',
+    '9007199254740991.1',
   ]) {
     assert.throws(
-      () => marketQuota(amount, 500000),
+      () => marketQuota(amount, Number),
       /Invalid amount/,
       amount || 'empty'
     )
   }
-  assert.throws(() => marketQuota('1', 0.5))
+  assert.throws(
+    () =>
+      marketQuota('0.00000000001', (input) =>
+        displayAmountToQuota(input, 'USD', config)
+      ),
+    /Invalid amount/
+  )
+  assert.throws(() => marketQuota('1', () => Number.NaN), /Invalid amount/)
 })
 
 test('author earnings use the configured fee and the exact integer settlement rounding', () => {

@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -16,6 +18,7 @@ import (
 
 func setupAssistantGiftTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	setupAssistantCurrencyTest(t)
 	previousDB := DB
 	previousRedis := common.RedisEnabled
 	previousQuotaPerUnit := common.QuotaPerUnit
@@ -69,6 +72,8 @@ func TestAssistantNewUserGiftIsOneTimeAndClaimIsIdempotent(t *testing.T) {
 	assert.Equal(t, gift.Id, again.Id)
 	assert.Equal(t, 525, again.AmountCents)
 
+	// Offered gifts retain their original Credit grant through FX and bonus changes.
+	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 8, 99
 	claimed, alreadyClaimed, err := ClaimAssistantNewUserGift(user.Id)
 	require.NoError(t, err)
 	assert.False(t, alreadyClaimed)
@@ -235,4 +240,78 @@ func TestPurgeAssistantGiftNetworkRiskBeforeIsBoundedAndPreservesIdentity(t *tes
 	}
 	assert.Equal(t, assistantGiftRiskIdentity, byKey["old-identity"].Kind)
 	assert.Equal(t, assistantGiftRiskNetwork, byKey["new-network"].Kind)
+}
+
+func TestAssistantNewUserGiftMissingCurrencyBasisDoesNotConsumeDecision(t *testing.T) {
+	db := setupAssistantGiftTestDB(t)
+	user := newAssistantGiftUser(t, db, "gift-no-currency", "gift-no-currency@example.com")
+	common.ClearCreditsPerUSD()
+	_, created, err := DecideAssistantNewUserGift(user.Id, 7, 525, "Clear and constructive project details.", 2, 40, "198.51.100.10")
+	require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
+	assert.False(t, created)
+	for _, table := range []any{&AssistantNewUserGift{}, &AssistantGiftRiskMemory{}} {
+		var count int64
+		require.NoError(t, db.Model(table).Count(&count).Error)
+		assert.Zero(t, count)
+	}
+	var stored User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	assert.Zero(t, stored.Quota)
+}
+
+func TestAssistantNewUserGiftPreservesFractionalLegacyCreditRounding(t *testing.T) {
+	for _, tc := range []struct {
+		name, legacy   string
+		cents, credits int
+		rejected       bool
+	}{
+		{name: "fractional_grant", legacy: "3.5", cents: 525, credits: 18},
+		{name: "exact_grant", legacy: "3.5", cents: 1000, credits: 35},
+		{name: "half_credit", legacy: "0.5", cents: 100, credits: 1},
+		{name: "two_and_half", legacy: "2.5", cents: 100, credits: 3},
+		{name: "three_and_half", legacy: "3.5", cents: 100, credits: 4},
+		{name: "positive_rounds_zero", legacy: "0.25", cents: 100, rejected: true},
+		{name: "below_half_rounds_zero", legacy: "0.49", cents: 100, rejected: true},
+		{name: "zero_decision", legacy: "3.5", cents: 0, credits: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupAssistantGiftTestDB(t)
+			legacy := decimal.RequireFromString(tc.legacy)
+			common.QuotaPerUnit = legacy.InexactFloat64()
+			require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), legacy))
+			user := newAssistantGiftUser(t, db, "gift-fractional", "gift-fractional@example.com")
+			gift, created, err := DecideAssistantNewUserGift(user.Id, 7, tc.cents, "Clear and constructive project details.", 2, 40, "198.51.100.10")
+			if tc.rejected {
+				require.ErrorIs(t, err, ErrAssistantGiftInvalid)
+				assert.False(t, created)
+				assert.Nil(t, gift)
+				for _, table := range []any{&AssistantNewUserGift{}, &AssistantGiftRiskMemory{}} {
+					var count int64
+					require.NoError(t, db.Model(table).Count(&count).Error)
+					assert.Zero(t, count)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, created)
+			assert.Equal(t, tc.credits, gift.Quota)
+			assert.Equal(t, tc.cents, gift.AmountCents)
+			if tc.cents == 0 {
+				assert.Equal(t, AssistantGiftDeclined, gift.Status)
+				_, _, err = ClaimAssistantNewUserGift(user.Id)
+				require.ErrorIs(t, err, ErrAssistantGiftUnavailable)
+			} else {
+				assert.Equal(t, AssistantGiftOffered, gift.Status)
+				_, replay, err := ClaimAssistantNewUserGift(user.Id)
+				require.NoError(t, err)
+				assert.False(t, replay)
+				_, replay, err = ClaimAssistantNewUserGift(user.Id)
+				require.NoError(t, err)
+				assert.True(t, replay)
+			}
+			var stored User
+			require.NoError(t, db.First(&stored, user.Id).Error)
+			assert.Equal(t, tc.credits, stored.Quota)
+		})
+	}
 }

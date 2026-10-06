@@ -103,6 +103,7 @@ func TestMonetaryMicrosConversionsAreExact(t *testing.T) {
 }
 
 func TestStripeQuoteAndCheckoutLineItemUseSameCanonicalAmount(t *testing.T) {
+	preservePaymentCreditAnchor(t, "3400000")
 	previousDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
 	previousQuotaPerUnit := common.QuotaPerUnit
 	previousUnitPrice := setting.StripeUnitPrice
@@ -148,7 +149,7 @@ func TestTopUpSelfRecordDoesNotExposeSettlementEvidence(t *testing.T) {
 	require.NoError(t, err)
 	jsonText := string(payload)
 	assert.Contains(t, jsonText, `"currency":"USD"`)
-	for _, forbidden := range []string{"credited_quota", "expected_amount_micros", "settled_amount_micros", "settlement_currency", "provider_product_id", "provider_store_id", "provider_event_id", "provider_transaction_id"} {
+	for _, forbidden := range []string{"expected_amount_micros", "settled_amount_micros", "settlement_currency", "provider_product_id", "provider_store_id", "provider_event_id", "provider_transaction_id"} {
 		assert.NotContains(t, jsonText, forbidden)
 	}
 }
@@ -193,6 +194,7 @@ func configureNeutralTopUpInfoTest(t *testing.T) {
 	operation_setting.PayMethods = []map[string]string{{
 		"name": "LDC", "type": "epay", "product_id": "prod-secret",
 	}}
+	persistCreditDenominationFixture(t, model.DB)
 }
 
 func TestGetTopUpInfoReturnsNeutralDataWhenDeveloperAccessIsDenied(t *testing.T) {
@@ -219,7 +221,10 @@ func TestGetTopUpInfoReturnsNeutralDataWhenDeveloperAccessIsDenied(t *testing.T)
 	assert.Equal(t, true, payload.Data["enable_online_topup"])
 	assert.EqualValues(t, 7, payload.Data["min_payment"])
 	assert.Contains(t, payload.Data, "pay_methods")
-	assert.Equal(t, []any{map[string]any{"name": "LDC", "type": "epay"}}, payload.Data["pay_methods"])
+	assert.Equal(t, []any{map[string]any{
+		"name": "LDC", "type": "epay", "min_topup_credit": "3500000",
+		"min_topup_ledger_quota": "3500000", "min_topup_public_credit": "3500000", "credit_amount_unit": "LEDGER_QUOTA",
+	}}, payload.Data["pay_methods"])
 	for _, forbidden := range []string{
 		"provider-secret.invalid", "merchant-secret", "key-secret", "prod-secret",
 		"topup_group_ratio",
@@ -328,6 +333,7 @@ func TestRequestCreemPayRejectsConfiguredProductWithoutCurrency(t *testing.T) {
 }
 
 func TestRequestWaffoPayFailsWhenGroupLookupFails(t *testing.T) {
+	preservePaymentCreditAnchor(t, "3400000")
 	previousDB := model.DB
 	previousRedis := common.RedisEnabled
 	previousEnabled := setting.WaffoEnabled

@@ -59,6 +59,10 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
+const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
+  await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { api } = await import('@/lib/api')
 const { ApiKeysProvider } = await import('../api-keys-provider')
 const { ApiKeysMutateDrawer } = await import('../api-keys-mutate-drawer')
@@ -94,7 +98,18 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
   apiClient.get = async (url) => {
     switch (url) {
       case '/api/status':
-        return { data: { data: { default_use_auto_group: true } } }
+        return {
+          data: {
+            data: {
+              default_use_auto_group: true,
+              currency_unit: 'credit',
+              credits_per_usd: 500000,
+              cny_per_usd: 7.2,
+              legacy_pricing_units_per_usd: 1,
+              quota_per_unit: 500000,
+            },
+          },
+        }
       case '/api/user/models':
         return { data: { success: true, data: [] } }
       case '/api/user/self/groups':
@@ -521,4 +536,40 @@ test('an ambiguous creation failure cannot silently create a second key', async 
   )
   assert.equal(findButton('Create API Key', true).disabled, true)
   assert.equal(payloads.length, 1)
+})
+
+test('a limited key uses a fixed Credit basis after changing the display currency', async () => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
+      cnyPerUsd: 7.2,
+      legacyPricingUnitsPerUsd: 1,
+    },
+  })
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  const created: Array<Record<string, unknown>> = []
+  installApiFixtures(created)
+  await renderCreateDrawer()
+  await selectComboboxOption(
+    getControlByLabel<HTMLButtonElement>('Group'),
+    'Standard access'
+  )
+  await changeInput(getControlByLabel<HTMLInputElement>('Name'), 'fixed')
+  await act(async () =>
+    getControlByLabel<HTMLButtonElement>('Unlimited Quota').click()
+  )
+  await changeInput(getControlByLabel<HTMLInputElement>('Quota (USD)'), '1.25')
+  await act(async () =>
+    useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+  )
+  assert.equal(getControlByLabel<HTMLInputElement>('Quota (CNY)').value, '9')
+  await act(async () => findButton('Create API Key', true).click())
+  await act(async () =>
+    waitForCondition(() => created.length === 1, 'limited key not submitted')
+  )
+  assert.equal(created[0]?.remain_quota, 625000)
+  assert.equal(created[0]?.unlimited_quota, false)
 })

@@ -2,24 +2,25 @@
 package model
 
 import (
-	"math"
+	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestAIDirectoryAdQuoteRoundsUpAndRejectsInvalidRates(t *testing.T) {
-	previous := common.QuotaPerUnit
-	t.Cleanup(func() { common.QuotaPerUnit = previous })
-	common.QuotaPerUnit = 1000.1
+	directoryAdCurrencyFixture(t, "1000.1")
 	charge, err := AIDirectoryAdChargeQuota(125)
 	require.NoError(t, err)
 	assert.Equal(t, 1251, charge)
-	common.QuotaPerUnit = math.NaN()
+	common.ClearCreditsPerUSD()
 	_, err = AIDirectoryAdChargeQuota(100)
-	assert.ErrorIs(t, err, ErrWalletQuotaOutOfRange)
+	assert.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
 }
 
 func directoryAdInput(requestID string, bidCents int64) AIDirectoryAdInput {
@@ -32,9 +33,7 @@ func directoryAdInput(requestID string, bidCents int64) AIDirectoryAdInput {
 func TestAIDirectoryAdChargesOnceAndRanksByPaidBid(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&AIDirectoryAd{}, &Log{}))
-	previous := common.QuotaPerUnit
-	common.QuotaPerUnit = 1000
-	t.Cleanup(func() { common.QuotaPerUnit = previous })
+	directoryAdCurrencyFixture(t, "1000")
 	owner := User{Username: "ad-owner", Password: "password", AffCode: "ad-owner-aff", Quota: 10_000}
 	require.NoError(t, db.Create(&owner).Error)
 
@@ -83,9 +82,7 @@ func TestAIDirectoryAdChargesOnceAndRanksByPaidBid(t *testing.T) {
 func TestAIDirectoryAdRejectsLowBidUnsafeURLAndInsufficientFunds(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&AIDirectoryAd{}, &Log{}))
-	previous := common.QuotaPerUnit
-	common.QuotaPerUnit = 1000
-	t.Cleanup(func() { common.QuotaPerUnit = previous })
+	directoryAdCurrencyFixture(t, "1000")
 	owner := User{Username: "ad-small-wallet", Password: "password", AffCode: "ad-small-wallet-aff", Quota: 999}
 	require.NoError(t, db.Create(&owner).Error)
 
@@ -112,9 +109,7 @@ func TestAIDirectoryAdRejectsLowBidUnsafeURLAndInsufficientFunds(t *testing.T) {
 func TestHideAIDirectoryAdRefundsExactlyOnce(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&AIDirectoryAd{}, &Log{}))
-	previous := common.QuotaPerUnit
-	common.QuotaPerUnit = 1000
-	t.Cleanup(func() { common.QuotaPerUnit = previous })
+	directoryAdCurrencyFixture(t, "1000")
 	owner := User{Username: "ad-refund-owner", Password: "password", AffCode: "ad-refund-owner-aff", Quota: 2000}
 	require.NoError(t, db.Create(&owner).Error)
 	ad, created, err := CreateAIDirectoryAd(owner.Id, directoryAdInput("directory-test-request-0007", 100), 1000)
@@ -135,4 +130,187 @@ func TestHideAIDirectoryAdRefundsExactlyOnce(t *testing.T) {
 	ads, _, err := ListActiveAIDirectoryAds(1002, 0, 50)
 	require.NoError(t, err)
 	assert.Empty(t, ads)
+}
+
+func directoryAdCurrencyFixture(t *testing.T, creditsPerUSD string) {
+	t.Helper()
+	previousQ := common.QuotaPerUnit
+	previousK, previousErr := common.CreditsPerUSD()
+	previousLegacy, _ := common.LegacyPricingQuotaPerUnit()
+	common.QuotaPerUnit = 500_000
+	common.ClearCreditsPerUSD()
+	if creditsPerUSD != "" {
+		value, err := decimal.NewFromString(creditsPerUSD)
+		require.NoError(t, err)
+		require.NoError(t, common.SetCreditsPerUSD(value))
+	}
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQ
+		common.ClearCreditsPerUSD()
+		if previousErr == nil {
+			require.NoError(t, common.SetCreditCurrencyBasis(previousK, previousLegacy))
+		}
+	})
+}
+
+func TestAIDirectoryAdActualUSDBasisAndSafeCeiling(t *testing.T) {
+	directoryAdCurrencyFixture(t, "3500000")
+	quota, err := AIDirectoryAdChargeQuota(100)
+	require.NoError(t, err)
+	require.Equal(t, 3_500_000, quota) // $1, independent of legacy Q=500,000.
+	common.QuotaPerUnit = 1
+	quota, err = AIDirectoryAdChargeQuota(100)
+	require.NoError(t, err)
+	require.Equal(t, 3_500_000, quota)
+	require.NoError(t, common.SetCreditsPerUSD(decimal.RequireFromString("1e-30")))
+	quota, err = AIDirectoryAdChargeQuota(100)
+	require.NoError(t, err)
+	require.Equal(t, 1, quota)
+	require.NoError(t, common.SetCreditsPerUSD(decimal.NewFromInt(int64(common.MaxWalletQuota))))
+	quota, err = AIDirectoryAdChargeQuota(100)
+	require.NoError(t, err)
+	require.Equal(t, common.MaxWalletQuota, quota)
+	_, err = AIDirectoryAdChargeQuota(125)
+	require.ErrorIs(t, err, ErrWalletQuotaOutOfRange)
+}
+
+func TestAIDirectoryAdHistoricalChargeReplayRefundAndRanking(t *testing.T) {
+	db := setupConsoleActivationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&AIDirectoryAd{}, &Log{}))
+	directoryAdCurrencyFixture(t, "3500000")
+	owner := User{Username: "legacy-ad-owner", AffCode: "legacy-ad-owner", Quota: 10_000_000}
+	require.NoError(t, db.Create(&owner).Error)
+	legacyInput := directoryAdInput("directory-legacy-paid-0001", 2000)
+	legacyInput.ExpectedQuota = 500_000
+	legacy := AIDirectoryAd{OwnerUserID: owner.Id, Name: legacyInput.Name, URL: legacyInput.URL,
+		Summary: legacyInput.Summary, Description: legacyInput.Description, BidCents: legacyInput.BidCents,
+		ChargedQuota: 500_000, RequestID: legacyInput.RequestID, Status: AIDirectoryAdStatusActive,
+		PaidAt: 999, ExpiresAt: 999 + 30*86400}
+	require.NoError(t, db.Create(&legacy).Error)
+	encoded, err := json.Marshal(legacy)
+	require.NoError(t, err)
+	var public map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &public))
+	require.Equal(t, "0.1428571428571429", public["charged_amount_usd"])
+	require.NotContains(t, public, "owner_user_id")
+	require.NotContains(t, public, "request_id")
+	newInput := directoryAdInput("directory-real-dollar-0001", 100)
+	newInput.ExpectedQuota = 3_500_000
+	fresh, created, err := CreateAIDirectoryAd(owner.Id, newInput, 1000)
+	require.NoError(t, err)
+	require.True(t, created)
+	ads, _, err := ListActiveAIDirectoryAds(1000, 0, 50)
+	require.NoError(t, err)
+	require.Equal(t, []int{fresh.ID, legacy.ID}, []int{ads[0].ID, ads[1].ID})
+	common.ClearCreditsPerUSD()
+	replayed, created, err := CreateAIDirectoryAd(owner.Id, legacyInput, 1001)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, 500_000, replayed.ChargedQuota)
+	encoded, err = json.Marshal(replayed)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(encoded, &public))
+	require.Nil(t, public["charged_amount_usd"])
+	_, _, err = CreateAIDirectoryAd(owner.Id, directoryAdInput("directory-missing-basis-0001", 100), 1001)
+	require.ErrorIs(t, err, common.ErrCreditUnitsUnavailable)
+	hidden, refunded, err := HideAIDirectoryAd(legacy.ID, 1001)
+	require.NoError(t, err)
+	require.True(t, refunded)
+	require.Equal(t, 500_000, hidden.ChargedQuota)
+	_, refunded, err = HideAIDirectoryAd(legacy.ID, 1002)
+	require.NoError(t, err)
+	require.False(t, refunded)
+	var wallet User
+	require.NoError(t, db.First(&wallet, owner.Id).Error)
+	require.Equal(t, 7_000_000, wallet.Quota)
+}
+
+func seedAdViolationFutureCreditAudit(t *testing.T, db *gorm.DB, userID int, bases []map[string]any) {
+	t.Helper()
+	require.NoError(t, db.Exec("CREATE TABLE wallet_credit_rebases (migration_id TEXT PRIMARY KEY, plan TEXT NOT NULL)").Error)
+	if bases == nil {
+		bases = []map[string]any{}
+	}
+	plan, err := json.Marshal(map[string]any{
+		"user_ids": []int{userID}, "include_other_rights": true,
+		"snapshot_at": int64(1_700_000_000), "other_credit_bases": bases,
+		"divisor": "6.710363", "rounding": "half-away-from-zero",
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("INSERT INTO wallet_credit_rebases (migration_id, plan) VALUES (?, ?)", "ad-violation-test", string(plan)).Error)
+}
+
+func TestHideAIDirectoryAdUsesFutureCreditBasisAndKeepsPaidFacts(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		original  int
+		effective int
+	}{
+		{name: "scaled", original: 6_710_363, effective: 1_000_000},
+		{name: "rounded_to_zero", original: 1, effective: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupConsoleActivationTestDB(t)
+			require.NoError(t, db.AutoMigrate(&AIDirectoryAd{}, &Log{}))
+			owner := User{Username: "ad-rebased", AffCode: "ad-rebased", Quota: 123}
+			require.NoError(t, db.Create(&owner).Error)
+			ad := AIDirectoryAd{OwnerUserID: owner.Id, BidCents: 100, ChargedQuota: test.original,
+				RequestID: "ad-rebased-paid-0001", Status: AIDirectoryAdStatusActive,
+				PaidAt: 1_699_999_999, ExpiresAt: 1_700_001_000}
+			require.NoError(t, db.Create(&ad).Error)
+			seedAdViolationFutureCreditAudit(t, db, owner.Id, []map[string]any{{
+				"kind": "ai_directory_ad_refund", "source_id": strconv.Itoa(ad.ID), "user_id": owner.Id,
+				"original_quota": test.original, "rebased_quota": test.effective,
+				"source": map[string]any{"id": ad.ID, "owner_user_id": owner.Id, "status": ad.Status,
+					"charged_quota": ad.ChargedQuota, "bid_cents": ad.BidCents,
+					"paid_at": ad.PaidAt, "expires_at": ad.ExpiresAt, "hidden_at": ad.HiddenAt, "refunded_at": ad.RefundedAt},
+			}})
+			hidden, refunded, err := HideAIDirectoryAd(ad.ID, 1_700_000_001)
+			require.NoError(t, err)
+			require.True(t, refunded)
+			require.Equal(t, test.effective, hidden.RefundQuota)
+			require.Equal(t, test.original, hidden.ChargedQuota)
+			replayed, refunded, err := HideAIDirectoryAd(ad.ID, 1_700_000_002)
+			require.NoError(t, err)
+			require.False(t, refunded)
+			require.Equal(t, test.effective, replayed.RefundQuota)
+			var wallet User
+			require.NoError(t, db.First(&wallet, owner.Id).Error)
+			require.Equal(t, 123+test.effective, wallet.Quota)
+			var stored AIDirectoryAd
+			require.NoError(t, db.First(&stored, ad.ID).Error)
+			require.Equal(t, test.original, stored.ChargedQuota)
+			require.Equal(t, int64(100), stored.BidCents)
+			require.Equal(t, int64(1_699_999_999), stored.PaidAt)
+		})
+	}
+}
+
+func TestHideAIDirectoryAdRejectsMissingOldFutureCreditBasis(t *testing.T) {
+	db := setupConsoleActivationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&AIDirectoryAd{}, &Log{}))
+	owner := User{Username: "ad-missing-basis", AffCode: "ad-missing-basis", Quota: 123}
+	require.NoError(t, db.Create(&owner).Error)
+	ad := AIDirectoryAd{OwnerUserID: owner.Id, ChargedQuota: 6_710_363,
+		RequestID: "ad-missing-basis-0001", Status: AIDirectoryAdStatusActive,
+		PaidAt: 1_699_999_999, ExpiresAt: 1_700_001_000}
+	require.NoError(t, db.Create(&ad).Error)
+	seedAdViolationFutureCreditAudit(t, db, owner.Id, nil)
+	_, refunded, err := HideAIDirectoryAd(ad.ID, 1_700_000_001)
+	require.Error(t, err)
+	require.False(t, refunded)
+	var stored AIDirectoryAd
+	require.NoError(t, db.First(&stored, ad.ID).Error)
+	require.Equal(t, AIDirectoryAdStatusActive, stored.Status)
+	require.Zero(t, stored.RefundedAt)
+	var wallet User
+	require.NoError(t, db.First(&wallet, owner.Id).Error)
+	require.Equal(t, 123, wallet.Quota)
+
+	// A refund completed before migration only needs its historical receipt.
+	require.NoError(t, db.Model(&ad).Updates(map[string]any{"status": AIDirectoryAdStatusHidden, "refunded_at": 1_699_999_999, "hidden_at": 1_699_999_999}).Error)
+	replayed, refunded, err := HideAIDirectoryAd(ad.ID, 1_700_000_002)
+	require.NoError(t, err)
+	require.False(t, refunded)
+	require.Equal(t, ad.ChargedQuota, replayed.RefundQuota)
 }

@@ -21,6 +21,7 @@ type productionWorkspaceResult struct {
 	Workspace      string `json:"workspace"`
 	Transaction    string `json:"transaction_lock"`
 	TransactionSet bool   `json:"transaction_active"`
+	StagingIntent  bool   `json:"staging_intent,omitempty"`
 }
 
 type productionBackupOptions struct {
@@ -66,8 +67,20 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 		flags.SetOutput(stderr)
 		retention := productionWorkspaceCleanupRetention
 		execute := false
+		var supersededBy, retainRollback string
+		var handoffPath, handoffDigest string
+		var financialBackup, financialBackupSHA string
+		var financialReceipt, financialReceiptSHA string
 		flags.DurationVar(&retention, "older-than", retention, "only clean terminal workspaces older than this duration")
 		flags.BoolVar(&execute, "execute", false, "remove eligible disposable children; default is a dry-run preview")
+		flags.StringVar(&supersededBy, "superseded-by", "", "verified current strict post-transition workspace (retains its entire payload)")
+		flags.StringVar(&retainRollback, "retain-rollback", "", "verified installed compatible bridge workspace to retain in full")
+		flags.StringVar(&handoffPath, "maintenance-handoff", "", "sealed maintenance guardian binding")
+		flags.StringVar(&handoffDigest, "maintenance-handoff-sha256", "", "maintenance binding SHA-256")
+		flags.StringVar(&financialBackup, "financial-backup", "", "external sealed full financial backup archive (never modified)")
+		flags.StringVar(&financialBackupSHA, "financial-backup-sha256", "", "full financial backup archive SHA-256")
+		flags.StringVar(&financialReceipt, "financial-backup-receipt", "", "root-sealed full financial backup provenance receipt")
+		flags.StringVar(&financialReceiptSHA, "financial-backup-receipt-sha256", "", "exact financial backup receipt SHA-256")
 		flags.Usage = func() { writeDeployUsage(stderr) }
 		if err := flags.Parse(args[1:]); errors.Is(err, flag.ErrHelp) {
 			return ExitOK
@@ -75,7 +88,13 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 			return ExitUsage
 		}
 		runtime := defaultProductionRuntime()
-		result, err := runtime.cleanupWorkspaces(context.Background(), productionWorkspaceCleanupOptions{OlderThan: retention, Execute: execute})
+		if handoffPath != "" || handoffDigest != "" {
+			if err := runtime.setMaintenanceHandoff(handoffPath, handoffDigest); err != nil {
+				_, _ = fmt.Fprintln(stderr, err)
+				return ExitError
+			}
+		}
+		result, err := runtime.cleanupWorkspaces(context.Background(), productionWorkspaceCleanupOptions{OlderThan: retention, Execute: execute, SupersededBy: supersededBy, RetainRollback: retainRollback, FinancialBackup: financialBackup, FinancialBackupSHA256: financialBackupSHA, FinancialBackupReceipt: financialReceipt, FinancialBackupReceiptSHA256: financialReceiptSHA})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "%s production workspace cleanup: %v\n", DeployProgramName, err)
 			return ExitError
@@ -112,6 +131,9 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet(DeployProgramName+" production workspace create", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	deploymentID := ""
+	handoffPath, handoffSHA := "", ""
+	flags.StringVar(&handoffPath, "maintenance-handoff", "", "immutable maintenance handoff")
+	flags.StringVar(&handoffSHA, "maintenance-handoff-sha256", "", "exact maintenance handoff digest")
 	flags.StringVar(&deploymentID, "deployment-id", "", "unique release-scoped deployment ID")
 	flags.Usage = func() { writeDeployUsage(stderr) }
 	if err := flags.Parse(args[1:]); errors.Is(err, flag.ErrHelp) {
@@ -124,6 +146,10 @@ func runProductionWorkspace(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
+	if err := runtime.setMaintenanceHandoff(handoffPath, handoffSHA); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return ExitError
+	}
 	result, err := runtime.createWorkspace(context.Background(), deploymentID)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "%s production workspace create: %v\n", DeployProgramName, err)
@@ -253,10 +279,7 @@ func (runtime *productionRuntime) withGlobalLock(ctx context.Context, operation 
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = unlockDeploymentFile(lock)
-		_ = lock.Close()
-	}()
+	defer runtime.releaseGlobalLock(lock)
 	return operation()
 }
 
@@ -303,8 +326,13 @@ func (runtime *productionRuntime) createWorkspace(ctx context.Context, deploymen
 		if _, err := os.Lstat(workspace); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("release-scoped production workspace already exists or is unsafe")
 		}
+		stagingIntent := runtime.maintenanceStagingIntent()
+		transactionExists := false
 		if _, err := os.Lstat(runtime.paths.TransactionLock); !errors.Is(err, os.ErrNotExist) {
-			return errors.New("another release owns the production transaction lock")
+			if !runtime.maintenanceStopped() && !stagingIntent {
+				return errors.New("another release owns the production transaction lock")
+			}
+			transactionExists = true
 		}
 		if err := os.Mkdir(workspace, 0o700); err != nil {
 			return err
@@ -328,21 +356,36 @@ func (runtime *productionRuntime) createWorkspace(ctx context.Context, deploymen
 				return err
 			}
 		}
-		marker := fmt.Sprintf("format=1\ndeployment_id=%s\nrole=target\ncreated_at_utc=%s\n", deploymentID, utcSecond(runtime.now()).Format(time.RFC3339))
+		role := "target"
+		if stagingIntent {
+			role = "staging-intent"
+		}
+		marker := fmt.Sprintf("format=1\ndeployment_id=%s\nrole=%s\ncreated_at_utc=%s\n", deploymentID, role, utcSecond(runtime.now()).Format(time.RFC3339))
 		if err := writeAtomicRegularFile(filepath.Join(workspace, productionWorkspaceMarker), []byte(marker), 0o600); err != nil {
 			return err
 		}
-		if err := os.Mkdir(runtime.paths.TransactionLock, 0o700); err != nil {
-			return fmt.Errorf("claim production transaction lock: %w", err)
-		}
-		transactionCreated = true
-		transaction := fmt.Sprintf("format=1\ndeployment_id=%s\nstatus=ACTIVE\n", deploymentID)
-		if err := writeAtomicRegularFile(filepath.Join(runtime.paths.TransactionLock, productionTransactionMarker), []byte(transaction), 0o600); err != nil {
-			return err
+		if stagingIntent {
+			// Artifact staging neither claims nor transfers a writer transaction.
+		} else if transactionExists {
+			if err := runtime.transferMaintenanceTransaction(ctx, deploymentID); err != nil {
+				return err
+			}
+		} else {
+			if runtime.maintenanceStopped() {
+				return errors.New("post handoff requires the bridge transaction to transfer")
+			}
+			if err := os.Mkdir(runtime.paths.TransactionLock, 0o700); err != nil {
+				return err
+			}
+			transactionCreated = true
+			transaction := fmt.Sprintf("format=1\ndeployment_id=%s\nstatus=ACTIVE\n", deploymentID)
+			if err := writeAtomicRegularFile(filepath.Join(runtime.paths.TransactionLock, productionTransactionMarker), []byte(transaction), 0o600); err != nil {
+				return err
+			}
 		}
 		result = productionWorkspaceResult{
 			DeploymentID: deploymentID, Workspace: workspace,
-			Transaction: runtime.paths.TransactionLock, TransactionSet: true,
+			Transaction: runtime.paths.TransactionLock, TransactionSet: !stagingIntent, StagingIntent: stagingIntent,
 		}
 		return nil
 	})

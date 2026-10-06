@@ -37,6 +37,7 @@ import {
 
 import type { DifferencesMap, RatioType } from '../types'
 import { RATIO_TYPE_OPTIONS } from './constants'
+import type { ModelPricingConfig } from './model-pricing-api'
 import { useUpstreamRatioSyncColumns } from './upstream-ratio-sync-columns'
 import {
   getAlignedRatioTypes,
@@ -44,7 +45,7 @@ import {
   getOrderedRatioTypes,
   getUpstreamDisplayName,
   isSelectedResolutionValue,
-  isSelectableUpstreamValue,
+  isBulkSelectableUpstreamField,
   RATIO_SYNC_FIELDS,
   type ModelRow,
   type ResolutionRemovalPlan,
@@ -54,6 +55,7 @@ import {
 
 type UpstreamRatioSyncTableProps = {
   differences: DifferencesMap
+  pricingConfig?: ModelPricingConfig
   resolutions: ResolutionsMap
   isDisabled: boolean
   isSyncing: boolean
@@ -77,6 +79,7 @@ export type UpstreamBulkSelectState = {
 }
 
 export function UpstreamRatioSyncTable({
+  pricingConfig,
   differences,
   resolutions,
   isDisabled,
@@ -148,7 +151,13 @@ export function UpstreamRatioSyncTable({
           ).forEach((ratioType) => {
             const upstreamVal =
               row.ratioTypes[ratioType]?.upstreams?.[upstreamName]
-            if (isSelectableUpstreamValue(upstreamVal)) {
+            if (
+              isBulkSelectableUpstreamField(
+                row.ratioTypes,
+                ratioType,
+                upstreamName
+              )
+            ) {
               selections.push({
                 model: row.model,
                 ratioType,
@@ -217,7 +226,8 @@ export function UpstreamRatioSyncTable({
     onSelectValue,
     onUnselectValue,
     handleBulkSelect,
-    handleBulkUnselect
+    handleBulkUnselect,
+    pricingConfig
   )
 
   const { table } = useDataTable({

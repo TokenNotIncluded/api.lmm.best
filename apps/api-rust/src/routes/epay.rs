@@ -27,7 +27,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use rust_decimal::{Decimal, prelude::ToPrimitive};
+use rust_decimal::Decimal;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -160,6 +160,8 @@ pub struct CreateTopup {
 pub struct QuotedTopup {
     pub user_id: i64,
     pub requested_amount: Decimal,
+    /// Request interpretation captured with the pricing configuration.
+    pub amount_unit: &'static str,
     pub stored_amount: i64,
     pub money: String,
     pub payment_method: String,
@@ -377,6 +379,18 @@ struct PayJson {
     amount: f64,
     payment_method: String,
     discount_code: String,
+    unsupported_credit_input: bool,
+}
+
+fn is_explicit_credit_field(key: &str) -> bool {
+    [
+        "schema_version",
+        "unit",
+        "amount_unit",
+        "expected_public_credits_per_usd_exact",
+    ]
+    .iter()
+    .any(|field| key.eq_ignore_ascii_case(field))
 }
 
 impl<'de> Deserialize<'de> for PayJson {
@@ -402,7 +416,10 @@ impl<'de> Deserialize<'de> for PayJson {
                 // case-insensitive names and leaves scalar values unchanged
                 // on null. A serde Value/map would lose duplicate-key order.
                 while let Some(key) = fields.next_key::<String>()? {
-                    if key.eq_ignore_ascii_case("amount") {
+                    if is_explicit_credit_field(&key) {
+                        request.unsupported_credit_input = true;
+                        fields.next_value::<serde::de::IgnoredAny>()?;
+                    } else if key.eq_ignore_ascii_case("amount") {
                         if let Some(value) = fields.next_value::<Option<f64>>()? {
                             request.amount = value;
                         }
@@ -443,16 +460,9 @@ async fn epay_pay(State(state): State<UserTopupState>, request: Request) -> Resp
         Err(message) => return legacy_error(message),
     };
     let amount = match Decimal::from_str_exact(&request.amount.to_string()) {
-        Ok(value)
-            if value > Decimal::ZERO
-                && value.normalize().scale() <= 6
-                && value
-                    .checked_mul(Decimal::from(1_000_000))
-                    .and_then(|micros| micros.to_i64())
-                    .is_some() =>
-        {
-            value
-        }
+        // The repository validates integer credits and the legacy projection.
+        // A raw TOKENS amount cannot be bounded as monetary micros here.
+        Ok(value) if value > Decimal::ZERO && value.normalize().scale() <= 6 => value,
         _ => return legacy_error("充值数量最多支持 6 位小数"),
     };
     create_epay_checkout(
@@ -660,8 +670,18 @@ fn parse_pay(headers: &HeaderMap, body: &[u8], query: Option<&str>) -> Result<Pa
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.to_ascii_lowercase().contains("application/json"));
     if json_body
+        && let Ok(Value::Object(fields)) =
+            Value::deserialize(&mut serde_json::Deserializer::from_slice(body))
+        && fields.keys().any(|key| is_explicit_credit_field(key))
+    {
+        return Err("该支付接口不支持版本化金额输入".into());
+    }
+    if json_body
         && let Ok(parsed) = PayJson::deserialize(&mut serde_json::Deserializer::from_slice(body))
     {
+        if parsed.unsupported_credit_input {
+            return Err("该支付接口不支持版本化金额输入".into());
+        }
         amount = parsed.amount;
         method = parsed.payment_method;
         discount_code = parsed.discount_code;
@@ -674,6 +694,15 @@ fn parse_pay(headers: &HeaderMap, body: &[u8], query: Option<&str>) -> Result<Pa
     } else {
         Default::default()
     };
+    if form.keys().any(|key| is_explicit_credit_field(key))
+        || query.is_some_and(|query| {
+            parse_form(query.as_bytes())
+                .keys()
+                .any(|key| is_explicit_credit_field(key))
+        })
+    {
+        return Err("该支付接口不支持版本化金额输入".into());
+    }
     if amount <= 0.0 {
         amount = form
             .get("amount")
@@ -885,6 +914,7 @@ mod tests {
         body::{Body, to_bytes},
         http::{HeaderValue, Request},
     };
+    use rust_decimal::prelude::ToPrimitive;
     use std::sync::{Mutex, MutexGuard};
     use tower::ServiceExt;
 
@@ -1011,6 +1041,7 @@ mod tests {
             Ok(QuotedTopup {
                 user_id: input.user_id,
                 requested_amount: input.amount,
+                amount_unit: "LEGACY",
                 stored_amount: input.amount.to_i64().unwrap(),
                 money: "1.00".into(),
                 payment_method: input.payment_method,
@@ -1531,6 +1562,42 @@ mod tests {
         let fields = parse_form(b"amount=12.9&payment_method=alipay");
         assert_eq!(fields["amount"], "12.9");
         assert_eq!(fields["payment_method"], "alipay");
+    }
+
+    #[test]
+    fn explicit_credit_fields_cannot_reinterpret_a_legacy_epay_amount() {
+        let json_headers = HeaderMap::from_iter([(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        )]);
+        for body in [
+            r#"{"amount":1,"unit":"CREDIT"}"#,
+            r#"{"amount":1,"schema_version":null}"#,
+            r#"{"amount":1,"UNIT":null}"#,
+            r#"{"amount":1,"expected_public_credits_per_usd_exact":"100000"}"#,
+        ] {
+            assert!(parse_pay(&json_headers, body.as_bytes(), None).is_err());
+        }
+        assert!(parse_pay(&HeaderMap::new(), b"amount=1&unit=CREDIT", None).is_err());
+        assert!(
+            parse_pay(
+                &json_headers,
+                br#"{"schema_version":2,"amount":"1"}"#,
+                Some("amount=1"),
+            )
+            .is_err()
+        );
+        assert!(parse_pay(&json_headers, br#"{"amount":1}"#, Some("schema_version=2")).is_err());
+        assert_eq!(
+            parse_pay(
+                &json_headers,
+                br#"{"amount":1,"legacy_extra":"retained"}"#,
+                None
+            )
+            .unwrap()
+            .amount,
+            1.0,
+        );
     }
     #[test]
     fn malformed_percent_encoding_does_not_panic() {

@@ -38,10 +38,17 @@ func (ToolMarketDeliveryData) GormDBDataType(db *gorm.DB, _ *schema.Field) strin
 
 // Results are short-lived delivery data, never author analytics or logs.
 type ToolMarketResult struct {
-	CallID  string                 `json:"call_id" gorm:"primaryKey;size:64"`
-	UserID  int                    `json:"-" gorm:"index"`
-	Success bool                   `json:"success"`
-	Data    ToolMarketDeliveryData `json:"-"`
+	CallID           string                 `json:"call_id" gorm:"primaryKey;size:64"`
+	UserID           int                    `json:"-" gorm:"index"`
+	Success          bool                   `json:"success"`
+	InputTokens      int                    `json:"-" gorm:"not null;default:0"`
+	UsageRecorded    bool                   `json:"-" gorm:"not null;default:false"`
+	MeteringVerified bool                   `json:"-" gorm:"not null;default:false"`
+	UsageQuantities  map[string]int64       `json:"-" gorm:"serializer:json;type:text"`
+	UsageSource      string                 `json:"-" gorm:"size:24;not null;default:''"`
+	UsageReport      ToolMarketDeliveryData `json:"-"`
+	ResultDigest     string                 `json:"-" gorm:"size:64;not null;default:''"`
+	Data             ToolMarketDeliveryData `json:"-"`
 	// A valid generated image is recoverable before normal model settlement.
 	// This flag keeps that delivery outcome from completing the market call.
 	BuiltinBillingPending bool  `json:"-" gorm:"not null;default:false"`
@@ -382,8 +389,19 @@ func recordToolMarketResult(callID string, success bool, data json.RawMessage, d
 		if call.SettlementStatus != "held" || (call.ExecutionStatus != "running" && call.ExecutionStatus != "unknown") {
 			return ErrToolMarketConflict
 		}
+		inputTokens, usageRecorded := 0, false
+		var quantities map[string]int64
+		usageSource, usageReport := "", ""
+		if success && call.BillingMode != "" {
+			var err error
+			quantities, usageSource, usageReport, err = ReadToolMarketUsage(tx, *call, data)
+			if err != nil {
+				return err
+			}
+			inputTokens, usageRecorded = int(quantities["input_tokens"]), true
+		}
 		now := common.GetTimestamp()
-		row := ToolMarketResult{CallID: callID, UserID: call.UserID, Success: success, Data: ToolMarketDeliveryData(data), BuiltinBillingPending: billingPending, CreatedAt: now, ExpiresAt: now + 3600}
+		row := ToolMarketResult{InputTokens: inputTokens, UsageRecorded: usageRecorded, MeteringVerified: usageSource == ToolMarketUsageVerified, UsageQuantities: quantities, UsageSource: usageSource, UsageReport: ToolMarketDeliveryData(usageReport), ResultDigest: marketDigest(json.RawMessage(data)), CallID: callID, UserID: call.UserID, Success: success, Data: ToolMarketDeliveryData(data), BuiltinBillingPending: billingPending, CreatedAt: now, ExpiresAt: now + 3600}
 		q := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		if q.Error != nil {
 			return q.Error

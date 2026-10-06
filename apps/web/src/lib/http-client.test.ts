@@ -29,6 +29,7 @@ import {
 } from 'axios'
 import { toast } from 'sonner'
 
+import i18n from '@/i18n/config'
 import {
   applyAuthBundle,
   bindAuthCache,
@@ -81,6 +82,134 @@ function bundle(token: string, expiresAt: number): AuthBundle {
 afterEach(() => {
   api.defaults.adapter = originalAPIAdapter
   useAuthStore.getState().auth.reset('idle')
+})
+
+describe('canonical browser credit-unit acknowledgement', () => {
+  test('declares the fixed unit on dispatched requests without changing raw payloads', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    useAuthStore.getState().auth.setBundle(bundle('unit-test-token', now + 600))
+    const requests: Array<{
+      method: string | undefined
+      unit: unknown
+      data: unknown
+      authorization: unknown
+    }> = []
+    api.defaults.adapter = async (config) => {
+      requests.push({
+        method: config.method,
+        unit: config.headers.get('X-LMM-Credit-Unit'),
+        data: config.data,
+        authorization: config.headers.Authorization,
+      })
+      return response(config, 200, { success: true })
+    }
+
+    await api.get('/api/status')
+    for (const method of ['post', 'put', 'patch', 'delete'] as const) {
+      await api.request({
+        method,
+        url: '/api/wallet-transfer',
+        data: { quota: 100000, request_key: 'raw-unit-test' },
+        headers: {
+          'X-LMM-Credit-Unit': method === 'delete' ? false : '100000',
+        },
+      })
+    }
+
+    assert.deepEqual(
+      requests.map((request) => request.method),
+      ['get', 'post', 'put', 'patch', 'delete']
+    )
+    for (const request of requests) {
+      assert.equal(request.unit, '500000')
+      assert.equal(request.authorization, 'Bearer unit-test-token')
+    }
+    assert.equal(requests[0].data, undefined)
+    for (const request of requests.slice(1)) {
+      assert.deepEqual(JSON.parse(String(request.data)), {
+        quota: 100000,
+        request_key: 'raw-unit-test',
+      })
+    }
+  })
+
+  test('preserves the unit acknowledgement through the existing same-session 401 retry', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    useAuthStore.getState().auth.setBundle(bundle('original-token', now + 600))
+    setDevelopmentAuthRefreshAdapter(async (config) =>
+      response(config, 200, {
+        success: true,
+        data: bundle('rotated-token', now + 600),
+      })
+    )
+    const units: unknown[] = []
+    api.defaults.adapter = async (config) => {
+      units.push(config.headers.get('X-LMM-Credit-Unit'))
+      if (units.length === 1) {
+        throw new AxiosError(
+          'Unauthorized',
+          'ERR_BAD_REQUEST',
+          config,
+          undefined,
+          response(config, 401, {})
+        )
+      }
+      return response(config, 200, { success: true })
+    }
+    await api.post('/api/wallet-transfer', { quota: 100000 })
+    assert.deepEqual(units, ['500000', '500000'])
+    assert.equal(useAuthStore.getState().auth.accessToken, 'rotated-token')
+  })
+
+  test('a refresh-required 409 stays rejected without replaying or clearing authentication', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    useAuthStore.getState().auth.setBundle(bundle('current-token', now + 600))
+    let refreshCalls = 0
+    setDevelopmentAuthRefreshAdapter(async () => {
+      refreshCalls += 1
+      throw new Error('unit mismatch must not refresh authentication')
+    })
+    let writes = 0
+    const message = '点数单位已更新，请刷新页面后重试。'
+    api.defaults.adapter = async (config) => {
+      writes += 1
+      throw new AxiosError(
+        message,
+        'ERR_BAD_REQUEST',
+        config,
+        undefined,
+        response(config, 409, {
+          success: false,
+          code: 'CREDIT_UNIT_REFRESH_REQUIRED',
+          message,
+        })
+      )
+    }
+    const originalToast = toast.error
+    const messages: unknown[] = []
+    toast.error = ((value: unknown) => {
+      messages.push(value)
+      return 'unit-refresh-test'
+    }) as typeof toast.error
+    try {
+      await assert.rejects(
+        api.post('/api/wallet-transfer', { quota: 100000 }),
+        (error: unknown) => {
+          assert.ok(error instanceof AxiosError)
+          assert.equal(error.response?.status, 409)
+          assert.equal(error.response.data.code, 'CREDIT_UNIT_REFRESH_REQUIRED')
+          return true
+        }
+      )
+      assert.equal(writes, 1)
+      assert.equal(refreshCalls, 0)
+      assert.equal(useAuthStore.getState().auth.user?.id, 42)
+      assert.equal(useAuthStore.getState().auth.accessToken, 'current-token')
+      assert.deepEqual(messages, [message])
+    } finally {
+      toast.error = originalToast
+    }
+  })
 })
 
 describe('authenticated HTTP requests', () => {
@@ -245,6 +374,68 @@ describe('route navigation request cancellation', () => {
         /Network failure/
       )
       assert.equal(messages.length, 1)
+    } finally {
+      toast.error = originalToast
+    }
+  })
+
+  test('concurrent outage reads use one notification identity and never retry a save', async () => {
+    const originalToast = toast.error
+    const notifications: Array<{ message: unknown; id?: unknown }> = []
+    const requests: string[] = []
+    toast.error = ((message: unknown, options?: { id?: unknown }) => {
+      notifications.push({ message, id: options?.id })
+      return 'outage-test'
+    }) as typeof toast.error
+    api.defaults.adapter = async (config) => {
+      requests.push(`${config.method}:${config.url}`)
+      const rejected = response(config, 503, {
+        error: {
+          code: 'service_temporarily_unavailable',
+          message: 'private diagnostic',
+        },
+      })
+      throw new AxiosError(
+        'Request failed with status code 503',
+        'ERR_BAD_RESPONSE',
+        config,
+        undefined,
+        rejected
+      )
+    }
+    try {
+      const results = await Promise.allSettled([
+        api.get('/api/outage-settings-test'),
+        api.get('/api/outage-models-test'),
+        api.post('/api/outage-save-test', { value: 'changed' }),
+      ])
+      assert.deepEqual(
+        results.map((result) => result.status),
+        ['rejected', 'rejected', 'rejected']
+      )
+      assert.equal(requests.length, 3)
+      assert.equal(
+        requests.filter((request) => request.startsWith('post:')).length,
+        1
+      )
+      assert.deepEqual(
+        notifications.map(({ id }) => id),
+        Array(3).fill('service-temporarily-unavailable')
+      )
+      for (const { message } of notifications) {
+        assert.equal(typeof message, 'string')
+        assert.equal(
+          message,
+          i18n.t(
+            'The service is temporarily unavailable. Please try again later.'
+          )
+        )
+      }
+      notifications.length = 0
+      await assert.rejects(
+        api.get('/api/outage-silent-test', { skipErrorHandler: true })
+      )
+      assert.equal(notifications.length, 0)
     } finally {
       toast.error = originalToast
     }

@@ -83,6 +83,8 @@ describe('native cache and duration billing', () => {
     }
     const model = {
       model_name: 'audio-judge',
+      pricing_schema_version: 2,
+      pricing_currency: 'USD',
       billing_mode: 'tiered_expr',
       billing_expr: 'tier("audio", p * 0 + c * 0 + audio_s * 100)',
     } as PricingModel

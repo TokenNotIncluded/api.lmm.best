@@ -2,12 +2,13 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -43,6 +44,7 @@ type AIDirectoryAd struct {
 	Description  string `json:"description" gorm:"type:text;not null;default:''"`
 	BidCents     int64  `json:"bid_cents" gorm:"not null;index"`
 	ChargedQuota int    `json:"charged_quota" gorm:"not null"`
+	RefundQuota  int    `json:"refunded_quota,omitempty" gorm:"-"`
 	RequestID    string `json:"-" gorm:"type:varchar(80);not null;uniqueIndex"`
 	Status       string `json:"status" gorm:"type:varchar(16);not null;index"`
 	PaidAt       int64  `json:"paid_at" gorm:"not null;index"`
@@ -52,6 +54,23 @@ type AIDirectoryAd struct {
 }
 
 func (AIDirectoryAd) TableName() string { return "ai_directory_ads" }
+
+// BidCents is the original request snapshot, including historical bids made in
+// legacy pricing units. Display the immutable wallet charge in actual USD.
+// Missing currency configuration never invents a one-to-one dollar amount, and
+// cannot prevent a previously paid request from replaying or being refunded.
+func (ad AIDirectoryAd) MarshalJSON() ([]byte, error) {
+	type storedAd AIDirectoryAd
+	var amount *string
+	if usd, err := common.CreditsToUSD(int64(ad.ChargedQuota)); err == nil {
+		value := usd.String()
+		amount = &value
+	}
+	return json.Marshal(struct {
+		storedAd
+		ChargedAmountUSD *string `json:"charged_amount_usd"`
+	}{storedAd: storedAd(ad), ChargedAmountUSD: amount})
+}
 
 type AIDirectoryAdInput struct {
 	Name          string `json:"name"`
@@ -107,12 +126,13 @@ func AIDirectoryAdChargeQuota(bidCents int64) (int, error) {
 	if bidCents < AIDirectoryAdMinBidCents || bidCents > AIDirectoryAdMaxBidCents {
 		return 0, ErrAIDirectoryAdInvalidBid
 	}
-	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
-		return 0, ErrWalletQuotaOutOfRange
+	creditsPerUSD, err := common.CreditsPerUSD()
+	if err != nil {
+		return 0, err
 	}
-	charge := decimal.NewFromInt(bidCents).
-		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
-		Div(decimal.NewFromInt(100)).Ceil()
+	// Shift is exact: a positive amount smaller than one wallet credit still
+	// rounds up to one, without an intermediate fixed-precision division.
+	charge := decimal.NewFromInt(bidCents).Mul(creditsPerUSD).Shift(-2).Ceil()
 	if !charge.IsPositive() || !charge.IsInteger() || !charge.BigInt().IsInt64() || charge.GreaterThan(decimal.NewFromInt(int64(common.MaxWalletQuota))) {
 		return 0, ErrWalletQuotaOutOfRange
 	}
@@ -194,7 +214,7 @@ func ListActiveAIDirectoryAds(now int64, offset, limit int) ([]AIDirectoryAd, bo
 	}
 	var ads []AIDirectoryAd
 	err := DB.Where("status = ? AND expires_at > ?", AIDirectoryAdStatusActive, now).
-		Order("bid_cents DESC, paid_at ASC, id ASC").Offset(offset).Limit(limit + 1).Find(&ads).Error
+		Order("charged_quota DESC, paid_at ASC, id ASC").Offset(offset).Limit(limit + 1).Find(&ads).Error
 	if err != nil {
 		return nil, false, err
 	}
@@ -222,6 +242,7 @@ func HideAIDirectoryAd(adID int, now int64) (AIDirectoryAd, bool, error) {
 		return ad, false, ErrAIDirectoryAdInvalidInput
 	}
 	refunded := false
+	refundQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockForUpdate(tx).Where("id = ?", adID).First(&ad).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -230,11 +251,19 @@ func HideAIDirectoryAd(adID int, now int64) (AIDirectoryAd, bool, error) {
 			return err
 		}
 		if ad.Status == AIDirectoryAdStatusHidden {
-			return nil
+			var err error
+			ad.RefundQuota, err = WalletFutureCreditReceiptQuota(tx, ad.OwnerUserID, "ai_directory_ad_refund", strconv.Itoa(ad.ID), ad.ChargedQuota)
+			return err
 		}
 		if ad.Status != AIDirectoryAdStatusActive || ad.ExpiresAt <= now {
 			return ErrAIDirectoryAdNotFound
 		}
+		var err error
+		refundQuota, err = WalletFutureCreditQuota(tx, ad.OwnerUserID, "ai_directory_ad_refund", strconv.Itoa(ad.ID), ad.ChargedQuota, ad.PaidAt)
+		if err != nil {
+			return err
+		}
+		ad.RefundQuota = refundQuota
 		updated := tx.Model(&AIDirectoryAd{}).
 			Where("id = ? AND status = ? AND expires_at > ?", ad.ID, AIDirectoryAdStatusActive, now).
 			Updates(map[string]any{"status": AIDirectoryAdStatusHidden, "hidden_at": now, "refunded_at": now})
@@ -244,7 +273,7 @@ func HideAIDirectoryAd(adID int, now int64) (AIDirectoryAd, bool, error) {
 		if updated.RowsAffected != 1 {
 			return ErrAIDirectoryAdNotFound
 		}
-		credit := UpdateWalletQuotaByDelta(tx.Model(&User{}).Where("id = ?", ad.OwnerUserID), ad.ChargedQuota)
+		credit := UpdateWalletQuotaByDelta(tx.Model(&User{}).Where("id = ?", ad.OwnerUserID), refundQuota)
 		if credit.Error != nil {
 			return credit.Error
 		}
@@ -261,10 +290,10 @@ func HideAIDirectoryAd(adID int, now int64) (AIDirectoryAd, bool, error) {
 		return AIDirectoryAd{}, false, err
 	}
 	if refunded {
-		if cacheErr := cacheIncrUserQuota(ad.OwnerUserID, int64(ad.ChargedQuota)); cacheErr != nil {
+		if cacheErr := cacheIncrUserQuota(ad.OwnerUserID, int64(refundQuota)); cacheErr != nil {
 			common.SysLog(fmt.Sprintf("AI directory ad %d refund cache refresh failed: %v", ad.ID, cacheErr))
 		}
-		RecordLog(ad.OwnerUserID, LogTypeRefund, fmt.Sprintf("Refunded %d quota for hidden AI directory advertisement %d", ad.ChargedQuota, ad.ID))
+		RecordLog(ad.OwnerUserID, LogTypeRefund, fmt.Sprintf("Refunded %d quota for hidden AI directory advertisement %d", refundQuota, ad.ID))
 	}
 	return ad, refunded, nil
 }

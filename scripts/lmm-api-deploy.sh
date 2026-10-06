@@ -20,6 +20,11 @@ Existing standalone systemd installation (run on the target as root):
   systemd rollback --release ID --confirm api.lmm.best
   systemd --help                  All flags and granular stage/apply actions
 
+Shared PostgreSQL maintenance (reviewed plan, normal deployment follows):
+  shared-postgres validate --plan FILE --plan-sha256 SHA
+  shared-postgres run --plan FILE --plan-sha256 SHA --work NEWDIR --confirm HOST --execute-migration
+  shared-postgres recover --plan FILE --plan-sha256 SHA --work NEWDIR --recovery-id ID --confirm HOST
+
 Package-owned installation:
   Use the installed /usr/bin/lmm-api-deploy production workflow.
   Standalone systemd upgrades refuse package-owned providers.
@@ -36,6 +41,11 @@ esac
 if [[ ${1:-} == systemd ]]; then
   shift
   exec python3 "$SCRIPT_DIR/deploy-systemd.py" "$@"
+fi
+
+if [[ ${1:-} == shared-postgres ]]; then
+  shift
+  exec python3 -B "$SCRIPT_DIR/deploy-shared-postgres.py" "$@"
 fi
 
 # Public development entrypoint. Installed packages use the locked-down script

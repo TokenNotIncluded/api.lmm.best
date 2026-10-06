@@ -63,10 +63,11 @@ func GetOptions(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"success":      true,
-		"message":      "",
-		"data":         options,
-		"capabilities": gin.H{"model_price_locks": true},
+		"success":               true,
+		"message":               "",
+		"data":                  options,
+		"capabilities":          gin.H{"model_price_locks": true, "usd_pricing_options": true},
+		"pricing_storage_basis": "legacy_pricing_unit",
 	})
 }
 

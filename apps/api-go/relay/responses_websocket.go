@@ -720,6 +720,19 @@ func buildResponsesWSCreatePayload(c *gin.Context, relayInfo *relaycommon.RelayI
 			return nil, newAPIErrorFromParamOverride(err)
 		}
 	}
+	// Match the actual WebSocket URL/Host selection and enforce identity only
+	// after the client's body and channel parameter overrides are finalized.
+	if targetURL, urlErr := adaptor.GetRequestURL(relayInfo); urlErr == nil {
+		if overrides, headerErr := relaychannel.ResolveHeaderOverride(relayInfo, sanitizedResponsesWSHeaderContext(c)); headerErr == nil {
+			host := ""
+			for name, value := range overrides {
+				if strings.EqualFold(name, "Host") {
+					host = value
+				}
+			}
+			jsonData = helper.ApplyOpenAIPrivateSafetyIdentifier(c.Request.Context(), relayInfo, toWebSocketURL(targetURL), host, jsonData)
+		}
+	}
 	event, err := buildResponsesWSCreateEvent(jsonData, generate, streamID)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())

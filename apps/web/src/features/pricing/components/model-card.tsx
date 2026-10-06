@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ChevronRight, Copy } from 'lucide-react'
+import { Check, ChevronRight, Copy, Plus } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -30,10 +30,11 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
+import { MAX_COMPARE_MODELS } from '../lib/model-compare'
 import { getDisplayPriceGroup, isTokenBasedModel } from '../lib/model-helpers'
 import type { ModelPerfBadgeData } from '../lib/model-perf'
 import { formatPrice, formatRequestPrice } from '../lib/price'
-import type { PricingModel, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit, PriceDisplayCurrency } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge } from './model-perf-badge'
 import { ModelRuntimeBadge } from './model-runtime-badge'
@@ -41,21 +42,21 @@ import { ModelRuntimeBadge } from './model-runtime-badge'
 export interface ModelCardProps {
   model: PricingModel
   onClick: () => void
-  priceRate?: number
-  usdExchangeRate?: number
   tokenUnit?: TokenUnit
-  showRechargePrice?: boolean
+  displayCurrency?: PriceDisplayCurrency
   selectedGroup?: string
   perf?: ModelPerfBadgeData
+  compareSelected?: boolean
+  /** True when the compare tray is full and this card is not in it. */
+  compareFull?: boolean
+  onToggleCompare?: (modelName: string) => void
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const { t } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
-  const priceRate = props.priceRate ?? 1
-  const usdExchangeRate = props.usdExchangeRate ?? 1
-  const showRechargePrice = props.showRechargePrice ?? false
+  const displayCurrency = props.displayCurrency ?? 'USD'
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const tags = parseTags(props.model.tags)
@@ -67,13 +68,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const isDynamicPricing =
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
-  const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
+  const hasCachedPrice = isTokenBased && props.model.cache_read_price != null
   const dynamicSummary = isDynamicPricing
     ? getDynamicPricingSummary(props.model, {
         tokenUnit,
-        showRechargePrice,
-        priceRate,
-        usdExchangeRate,
+        displayCurrency,
         groupRatioMultiplier: getDynamicDisplayGroupRatio(
           props.model,
           props.selectedGroup
@@ -152,9 +151,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               props.model,
               'input',
               tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
+              displayCurrency,
               props.selectedGroup
             )}
           </span>
@@ -166,9 +163,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               props.model,
               'output',
               tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
+              displayCurrency,
               props.selectedGroup
             )}
           </span>
@@ -181,9 +176,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 props.model,
                 'cache',
                 tokenUnit,
-                showRechargePrice,
-                priceRate,
-                usdExchangeRate,
+                displayCurrency,
                 props.selectedGroup
               )}
             </span>
@@ -197,9 +190,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <span className='text-foreground font-mono font-semibold'>
           {formatRequestPrice(
             props.model,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
+            displayCurrency,
             props.selectedGroup
           )}
         </span>{' '}
@@ -212,7 +203,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     <div
       className={cn(
         'group relative flex min-w-0 flex-col rounded-xl border p-4 transition-colors sm:p-5 motion-reduce:transition-none',
-        'hover:bg-muted/20'
+        'hover:bg-muted/20',
+        props.compareSelected && 'border-primary/50 ring-primary/20 ring-2'
       )}
     >
       {/* Keep the full model identifier clear of the action buttons. */}
@@ -237,6 +229,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       </div>
 
       <div className='mt-3 flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 border-y py-3 text-sm tabular-nums'>
+        <span className='text-muted-foreground w-full text-xs'>
+          {t('Base price (1×)')}
+        </span>
         {priceSummary}
       </div>
 
@@ -278,6 +273,34 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       </div>
 
       <div className='mt-4 flex items-center justify-end gap-2'>
+        {props.onToggleCompare && (
+          <button
+            type='button'
+            onClick={() => props.onToggleCompare?.(props.model.model_name)}
+            disabled={props.compareFull && !props.compareSelected}
+            aria-pressed={Boolean(props.compareSelected)}
+            title={
+              props.compareFull && !props.compareSelected
+                ? t('Compare up to {{count}} models', {
+                    count: MAX_COMPARE_MODELS,
+                  })
+                : undefined
+            }
+            className={cn(
+              'me-auto inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none sm:min-h-8 sm:py-1.5',
+              props.compareSelected
+                ? 'border-primary/60 bg-primary/10 text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+          >
+            {props.compareSelected ? (
+              <Check className='size-3.5' aria-hidden='true' />
+            ) : (
+              <Plus className='size-3.5' aria-hidden='true' />
+            )}
+            {t('Compare')}
+          </button>
+        )}
         <button
           type='button'
           onClick={handleCopy}

@@ -90,6 +90,16 @@ review process as schema contract 10. The forward verifier checks the exact
 `tokens.account_balance_read BOOLEAN NOT NULL DEFAULT FALSE` shape; rerunning
 the migration is idempotent and existing keys remain denied.
 
+Subscription amount snapshots are a separate forward step in
+`migrations/0018_subscription_amount_snapshots.sql`, schema contract 18. It adds
+nullable `BIGINT` columns `user_subscriptions.reset_amount` and `renewal_amount`
+without defaults or backfilling existing rows. `NULL` keeps the historical
+fallback, including the unlimited interpretation of an amount of zero when both
+snapshots are absent; an explicit zero snapshot represents a finite zero quota.
+The schema verifier rejects missing columns, narrower types, `NOT NULL`, and any
+default. Apply this contract after the preceding contracts; the frozen baseline
+and previously bound migration artifacts retain their original hashes.
+
 COPY, catalog, sequence, or verification failure rolls back the complete target schema transaction. `verify` uses a read-only, repeatable-read PostgreSQL snapshot.
 
 ## Audit output

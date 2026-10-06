@@ -4,6 +4,12 @@ import { toolMarketEditorCopy } from './tool-market-editor-copy.mjs'
 import { toolMarketPracticalCopy } from './tool-market-practical-copy.mjs'
 
 const rows = `
+Input token usage|按输入 token 用量|依輸入 token 用量|Usage des tokens d’entrée|入力トークン使用量|По входным токенам|Theo token đầu vào
+Price per million input tokens|每百万输入 token 的价格|每百萬輸入 token 的價格|Prix par million de tokens d’entrée|入力100万トークンあたりの料金|Цена за миллион входных токенов|Giá mỗi triệu token đầu vào
+Maximum input tokens per call|每次调用的输入 token 上限|每次呼叫的輸入 token 上限|Maximum de tokens d’entrée par appel|呼び出しごとの入力トークン上限|Лимит входных токенов на вызов|Giới hạn token đầu vào mỗi lần gọi
+Reserve up to {{amount}} credits; charge actual input usage and release the remainder.|最多冻结 {{amount}} 额度，按实际输入用量扣费，剩余额度自动释放。|最多凍結 {{amount}} 額度，依實際輸入用量扣費，剩餘額度自動釋放。|Réserver jusqu’à {{amount}} crédits ; facturer l’usage réel et libérer le solde.|最大{{amount}}クレジットを確保し、実際の入力使用量を課金して残額を解放します。|Резерв до {{amount}} кредитов; оплата фактического входа, остаток освобождается.|Giữ tối đa {{amount}} tín dụng; tính phí đầu vào thực tế và giải phóng phần còn lại.
+Usage-based billing|按用量计费|依用量計費|Facturation à l’usage|従量課金|Оплата по использованию|Tính phí theo mức sử dụng
+{{amount}} credits per million input tokens|每百万输入 token {{amount}} 额度|每百萬輸入 token {{amount}} 額度|{{amount}} crédits par million de tokens d’entrée|入力100万トークンあたり{{amount}}クレジット|{{amount}} кредитов за миллион входных токенов|{{amount}} tín dụng mỗi triệu token đầu vào
 Could not load tool access. Retry before changing permissions.|无法读取工具授权状态，请重试后再修改权限。|無法讀取工具授權狀態，請重試後再修改權限。|Impossible de lire les autorisations. Réessayez avant de les modifier.|ツールの権限を読み込めません。再試行してから権限を変更してください。|Не удалось загрузить права инструмента. Повторите попытку перед их изменением.|Không thể tải quyền công cụ. Hãy thử lại trước khi thay đổi quyền.
 Remaining spending limit|剩余可消费额度|剩餘可消費額度|Budget restant|残りの支出枠|Остаток лимита расходов|Hạn mức chi tiêu còn lại
 Remaining successful calls|剩余成功调用次数|剩餘成功呼叫次數|Appels réussis restants|成功する呼び出しの残り回数|Осталось успешных вызовов|Số lần gọi thành công còn lại

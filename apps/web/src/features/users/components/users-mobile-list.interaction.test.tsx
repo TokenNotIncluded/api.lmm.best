@@ -59,6 +59,8 @@ type RowSelectionState = import('@tanstack/react-table').RowSelectionState
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
 const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
   await import('@/stores/system-config-store')
 
@@ -139,7 +141,10 @@ function makeUser(patch: Partial<User> = {}): User {
   }
 }
 
-async function renderList(users: User[]) {
+async function renderList(
+  users: User[],
+  preference: 'USD' | 'CNY' | 'CREDIT' = 'USD'
+) {
   const requests: { method: string | undefined; url: string | undefined }[] = []
   api.defaults.adapter = async (config) => {
     requests.push({ method: config.method, url: config.url })
@@ -148,8 +153,18 @@ async function renderList(users: User[]) {
     )
   }
   useSystemConfigStore.getState().setConfig({
-    currency: { ...DEFAULT_CURRENCY_CONFIG },
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
+      cnyPerUsd: 7.2,
+      cnyPerUsdExact: '7.2',
+      legacyPricingUnitsPerUsd: 1,
+      quotaPerUnit: 500000,
+    },
   })
+  useWalletCurrencyPreferenceStore.getState().setPreference(preference)
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -238,8 +253,8 @@ test('the collapsed row keeps complete identity, status, balance, and fiat top-u
       'Enabled',
       'mobile-fixture',
       'Admin',
-      '$12.4',
-      '98.8 CNY',
+      '12.35 USD',
+      '98.76 CNY',
       'Edit user',
     ]) {
       assert.ok(summary.includes(value), `${value} must remain in the summary`)
@@ -388,12 +403,12 @@ test('multiple settlement currencies retain method amounts without presenting th
     await view.click(paymentButton)
     assert.equal(payment.open, true)
     for (const [label, fiat, quota, orders] of [
-      ['Card · USD provider', '12.3 USD', '$2', '2'],
-      ['Bank · CNY provider', '56.8 CNY', '$4', '3'],
+      ['Card · USD provider', '12.34 USD', '2 USD', '2'],
+      ['Bank · CNY provider', '56.78 CNY', '4 USD', '3'],
       [
         'Legacy · Unknown provider',
         '9.876543 (Currency unavailable)',
-        '$12',
+        '12 USD',
         '1',
       ],
     ]) {
@@ -432,26 +447,29 @@ test('multiple settlement currencies retain method amounts without presenting th
 })
 
 test('unknown currency stays explicit and a missing email keeps a usable identity fallback', async () => {
-  const view = await renderList([
-    makeUser({
-      email: '   ',
-      topup_summary: {
-        quota: 500_000,
-        money_micros: 9_876_543,
-        currency: 'UNKNOWN',
-        orders: 1,
-        methods: [
-          {
-            method: 'Legacy',
-            settlement_currency: 'UNKNOWN',
-            quota: 500_000,
-            money_micros: 9_876_543,
-            orders: 1,
-          },
-        ],
-      },
-    }),
-  ])
+  const view = await renderList(
+    [
+      makeUser({
+        email: '   ',
+        topup_summary: {
+          quota: 500_000,
+          money_micros: 9_876_543,
+          currency: 'UNKNOWN',
+          orders: 1,
+          methods: [
+            {
+              method: 'Legacy',
+              settlement_currency: 'UNKNOWN',
+              quota: 500_000,
+              money_micros: 9_876_543,
+              orders: 1,
+            },
+          ],
+        },
+      }),
+    ],
+    'CREDIT'
+  )
   try {
     const article = firstArticle(view.host)
     const { button, region } = disclosure(article)
@@ -468,6 +486,29 @@ test('unknown currency stays explicit and a missing email keeps a usable identit
     await view.click(paymentButton)
     assert.equal(payment.open, true)
     assert.ok(payment.textContent?.includes('9.876543 (Currency unavailable)'))
+    assert.deepEqual(view.requests, [])
+  } finally {
+    await view.dispose()
+  }
+})
+
+test('native Credit display retains raw balances while settlement amounts keep their own fiat currency', async () => {
+  const view = await renderList([makeUser()], 'CREDIT')
+  try {
+    const article = firstArticle(view.host)
+    const { button, region } = disclosure(article)
+    const summary = summaryText(article, region)
+    assert.ok(summary.includes('6,175,000 Credits'))
+    assert.ok(summary.includes('98.76 CNY'))
+    assert.equal(summary.includes('USD'), false)
+    await view.click(button)
+    const payment = region.querySelector('details')
+    assert.ok(payment)
+    const paymentButton = payment.querySelector('summary')
+    assert.ok(paymentButton)
+    await view.click(paymentButton)
+    assert.ok(payment.textContent?.includes('98.76 CNY'))
+    assert.ok(payment.textContent?.includes('49,380,000 Credits'))
     assert.deepEqual(view.requests, [])
   } finally {
     await view.dispose()

@@ -74,6 +74,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { api } = await import('@/lib/api')
+const { resetMarketCurrencyTest } = await import('./currency-test-support')
 const { marketAPI } = await import('./api')
 const { ToolMarket } = await import('./index')
 const originalAPI = { ...marketAPI }
@@ -200,7 +201,13 @@ async function click(element: HTMLElement) {
   })
 }
 async function mount(role = 1, id = 2) {
-  useAuthStore.getState().auth.setUser({ id, username: 'market-test', role })
+  resetMarketCurrencyTest()
+  useAuthStore.getState().auth.setUser({
+    id,
+    username: 'market-test',
+    role,
+    setting: JSON.stringify({ wallet_display_currency: 'CNY' }),
+  })
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: Infinity },
@@ -615,7 +622,7 @@ test('editing a published service opens the existing authored draft without repl
   const price = [...container.querySelectorAll<HTMLInputElement>('input')].find(
     (input) => input.id === `price-${draft.tools[0].name}`
   )
-  assert.equal(price?.value, '0.75')
+  assert.equal(price?.value, '5.25')
   assert.equal(
     container.querySelector<HTMLSelectElement>('#market-visibility')?.value,
     'shared'
@@ -792,4 +799,45 @@ test('OAuth authorization targets are discarded when the signed-in account chang
     container.querySelector<HTMLSelectElement>('#market-catalog-client')?.value,
     'web-market'
   )
+})
+
+test('catalog prices react to wallet units and rates while keeping native credit prices intact', async () => {
+  const priced = detail('Currency catalog', 'remote', 3500000)
+  stubNavigation([priced])
+  const { container } = await mount()
+  await waitFor(() =>
+    (container.textContent ?? '').includes('49 CNY per successful call')
+  )
+  const { useSystemConfigStore } = await import('@/stores/system-config-store')
+  for (const [unit, expected] of [
+    ['USD', '7 USD'],
+    ['CREDIT', '3,500,000 Credits'],
+    ['CNY', '49 CNY'],
+  ] as const) {
+    await act(async () => {
+      const auth = useAuthStore.getState().auth
+      assert.ok(auth.user)
+      auth.setUser({
+        ...auth.user,
+        setting: JSON.stringify({ wallet_display_currency: unit }),
+      })
+    })
+    await waitFor(() =>
+      (container.textContent ?? '').includes(`${expected} per successful call`)
+    )
+  }
+  await act(async () => {
+    const store = useSystemConfigStore.getState()
+    store.setConfig({
+      currency: {
+        ...store.config.currency,
+        cnyPerUsd: 14,
+        cnyPerUsdExact: '14',
+      },
+    })
+  })
+  await waitFor(() =>
+    (container.textContent ?? '').includes('98 CNY per successful call')
+  )
+  assert.equal(priced.tools[0].price_quota, 3500000)
 })

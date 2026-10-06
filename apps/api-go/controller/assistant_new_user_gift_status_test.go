@@ -17,6 +17,7 @@ import (
 )
 
 func TestAssistantNewUserGiftStatusReadDoesNotConsumeOrModifyDecision(t *testing.T) {
+	setupAssistantCurrencyTest(t)
 	for _, state := range []string{"none", model.AssistantGiftOffered, model.AssistantGiftClaimed, model.AssistantGiftDeclined} {
 		t.Run(state, func(t *testing.T) {
 			db := setupTokenControllerTestDB(t)
@@ -50,16 +51,27 @@ func TestAssistantNewUserGiftStatusReadDoesNotConsumeOrModifyDecision(t *testing
 					assert.Contains(t, result["next_step"], "does not establish eligibility")
 				}
 				assert.Equal(t, expectedAmount, result["amount_cents"])
+				assert.Equal(t, "LEGACY_CENTS", result["amount_unit"])
+				if state == model.AssistantGiftOffered || state == model.AssistantGiftClaimed {
+					assert.Equal(t, 2625000, result["credit_amount"])
+					assert.Equal(t, float64(5.25), result["amount_usd"])
+				} else {
+					assert.Equal(t, 0, result["credit_amount"])
+					assert.Equal(t, float64(0), result["amount_usd"])
+				}
 				encoded, err := json.Marshal(result)
 				require.NoError(t, err)
-				for _, hidden := range []string{"internal evaluation", "reason", "conversation_id", "user_id", "quota", "confirmation_token"} {
+				for _, hidden := range []string{"internal evaluation", "reason", "conversation_id", "user_id", "confirmation_token"} {
 					assert.NotContains(t, string(encoded), hidden)
 				}
+				assert.NotContains(t, result, "quota", "denomination metadata must not expose a raw quota field")
 				action, hasAction := c.Get(assistantClientActionKey)
 				assert.Equal(t, state == model.AssistantGiftOffered, hasAction)
 				if hasAction {
 					card := action.(map[string]any)
 					assert.Equal(t, gift.AmountCents, card["amount_cents"])
+					assert.Equal(t, 2625000, card["credit_amount"])
+					assert.Equal(t, float64(5.25), card["amount_usd"])
 					assert.Equal(t, model.AssistantGiftOffered, card["status"])
 					assert.NotEqual(t, gift.Reason, card["reason"])
 				}
@@ -87,9 +99,10 @@ func TestAssistantNewUserGiftStatusReadDoesNotConsumeOrModifyDecision(t *testing
 }
 
 func TestAssistantNewUserGiftStatusToolReadsOnlyActor(t *testing.T) {
+	setupAssistantCurrencyTest(t)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.AssistantNewUserGift{}))
-	require.NoError(t, db.Create(&model.AssistantNewUserGift{UserId: 11, Status: model.AssistantGiftClaimed, AmountCents: 123, Reason: "private owner reason"}).Error)
+	require.NoError(t, db.Create(&model.AssistantNewUserGift{UserId: 11, Status: model.AssistantGiftClaimed, AmountCents: 123, Quota: 615000, Reason: "private owner reason"}).Error)
 	require.NoError(t, db.Create(&model.AssistantNewUserGift{UserId: 22, Status: model.AssistantGiftOffered, AmountCents: 900, Reason: "other user reason"}).Error)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Set(assistantActorUserIDKey, 11)

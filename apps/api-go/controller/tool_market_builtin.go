@@ -64,6 +64,10 @@ func toolMarketBuiltinCatalogInputs(ctx context.Context) ([]model.ToolMarketBuil
 			}
 			input.Tools = append(input.Tools, model.ToolMarketToolInput{Name: tool.Name, Description: tool.Description, InputSchema: inputSchema, OutputSchema: outputSchema, Permissions: permissions, PriceQuota: 0})
 		}
+		input, err = walletLegacyCatalogCompatibility(input)
+		if err != nil {
+			return nil, err
+		}
 		inputs = append(inputs, input)
 	}
 	return inputs, nil

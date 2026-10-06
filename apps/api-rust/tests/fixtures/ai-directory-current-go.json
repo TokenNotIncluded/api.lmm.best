@@ -1,364 +1,573 @@
 {
+  "amounts": [
+    {
+      "charged_amount_usd": "0.1428571428571429",
+      "charged_quota": 500000,
+      "credits_per_usd": "3500000"
+    },
+    {
+      "charged_amount_usd": "1",
+      "charged_quota": 3500000,
+      "credits_per_usd": "3500000"
+    },
+    {
+      "charged_amount_usd": "0",
+      "charged_quota": 0,
+      "credits_per_usd": "3500000"
+    },
+    {
+      "charged_amount_usd": "-0.1428571428571429",
+      "charged_quota": -500000,
+      "credits_per_usd": "3500000"
+    },
+    {
+      "charged_amount_usd": "1.2338766123387661",
+      "charged_quota": 1234,
+      "credits_per_usd": "1000.1"
+    },
+    {
+      "charged_amount_usd": "1000000000000000000000000000000",
+      "charged_quota": 1,
+      "credits_per_usd": "1e-30"
+    },
+    {
+      "charged_amount_usd": "0.0000000000000001",
+      "charged_quota": 1,
+      "credits_per_usd": "9007199254740991"
+    },
+    {
+      "charged_amount_usd": "7295831462002685.8745904211877742",
+      "charged_quota": 9007199254740991,
+      "credits_per_usd": "1.234567890123456789012345678901"
+    },
+    {
+      "charged_amount_usd": null,
+      "charged_quota": 500000,
+      "credits_per_usd": ""
+    }
+  ],
+  "pricing_currency": "USD",
+  "pricing_schema_version": 2,
   "quotes": [
     {
       "bid_cents": 99,
+      "credits_per_usd": "1000.1",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "1000.1"
     },
     {
       "bid_cents": 100,
+      "credits_per_usd": "1000.1",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1001,
       "unit": "1000.1"
     },
     {
       "bid_cents": 125,
+      "credits_per_usd": "1000.1",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1251,
       "unit": "1000.1"
     },
     {
       "bid_cents": 1000000,
+      "credits_per_usd": "1000.1",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 10001000,
       "unit": "1000.1"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "1000.1",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "1000.1"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "500000",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "500000"
     },
     {
       "bid_cents": 100,
+      "credits_per_usd": "500000",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 500000,
       "unit": "500000"
     },
     {
       "bid_cents": 125,
+      "credits_per_usd": "500000",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 625000,
       "unit": "500000"
     },
     {
       "bid_cents": 1000000,
+      "credits_per_usd": "500000",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 5000000000,
       "unit": "500000"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "500000",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "500000"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "0.00000000000000001",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0.00000000000000001"
     },
     {
       "bid_cents": 100,
-      "error": "wallet quota would exceed the safe range",
-      "quota": 0,
-      "unit": "0.00000000000000001"
-    },
-    {
-      "bid_cents": 125,
-      "error": "wallet quota would exceed the safe range",
-      "quota": 0,
-      "unit": "0.00000000000000001"
-    },
-    {
-      "bid_cents": 1000000,
+      "credits_per_usd": "0.00000000000000001",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1,
       "unit": "0.00000000000000001"
     },
     {
+      "bid_cents": 125,
+      "credits_per_usd": "0.00000000000000001",
+      "error": "",
+      "legacy_quota_per_unit": "500000",
+      "quota": 1,
+      "unit": "0.00000000000000001"
+    },
+    {
+      "bid_cents": 1000000,
+      "credits_per_usd": "0.00000000000000001",
+      "error": "",
+      "legacy_quota_per_unit": "500000",
+      "quota": 1,
+      "unit": "0.00000000000000001"
+    },
+    {
       "bid_cents": 1000001,
+      "credits_per_usd": "0.00000000000000001",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0.00000000000000001"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "0.00000000000000005",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0.00000000000000005"
     },
     {
       "bid_cents": 100,
+      "credits_per_usd": "0.00000000000000005",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1,
       "unit": "0.00000000000000005"
     },
     {
       "bid_cents": 125,
+      "credits_per_usd": "0.00000000000000005",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1,
       "unit": "0.00000000000000005"
     },
     {
       "bid_cents": 1000000,
+      "credits_per_usd": "0.00000000000000005",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1,
       "unit": "0.00000000000000005"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "0.00000000000000005",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0.00000000000000005"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "0.0000000000000001",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0.0000000000000001"
     },
     {
       "bid_cents": 100,
+      "credits_per_usd": "0.0000000000000001",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1,
       "unit": "0.0000000000000001"
     },
     {
       "bid_cents": 125,
+      "credits_per_usd": "0.0000000000000001",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1,
       "unit": "0.0000000000000001"
     },
     {
       "bid_cents": 1000000,
+      "credits_per_usd": "0.0000000000000001",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 1,
       "unit": "0.0000000000000001"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "0.0000000000000001",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0.0000000000000001"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "1e-30",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "1e-30"
     },
     {
       "bid_cents": 100,
-      "error": "wallet quota would exceed the safe range",
-      "quota": 0,
+      "credits_per_usd": "1e-30",
+      "error": "",
+      "legacy_quota_per_unit": "500000",
+      "quota": 1,
       "unit": "1e-30"
     },
     {
       "bid_cents": 125,
-      "error": "wallet quota would exceed the safe range",
-      "quota": 0,
+      "credits_per_usd": "1e-30",
+      "error": "",
+      "legacy_quota_per_unit": "500000",
+      "quota": 1,
       "unit": "1e-30"
     },
     {
       "bid_cents": 1000000,
-      "error": "wallet quota would exceed the safe range",
-      "quota": 0,
+      "credits_per_usd": "1e-30",
+      "error": "",
+      "legacy_quota_per_unit": "500000",
+      "quota": 1,
       "unit": "1e-30"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "1e-30",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "1e-30"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "0",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0"
     },
     {
       "bid_cents": 100,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "0",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0"
     },
     {
       "bid_cents": 125,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "0",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0"
     },
     {
       "bid_cents": 1000000,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "0",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "0",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "0"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "-1",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "-1"
     },
     {
       "bid_cents": 100,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "-1",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "-1"
     },
     {
       "bid_cents": 125,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "-1",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "-1"
     },
     {
       "bid_cents": 1000000,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "-1",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "-1"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "-1",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "-1"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "NaN",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "NaN"
     },
     {
       "bid_cents": 100,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "NaN",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "NaN"
     },
     {
       "bid_cents": 125,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "NaN",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "NaN"
     },
     {
       "bid_cents": 1000000,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "NaN",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "NaN"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "NaN",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "NaN"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "+Inf",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "+Inf"
     },
     {
       "bid_cents": 100,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "+Inf",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "+Inf"
     },
     {
       "bid_cents": 125,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "+Inf",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "+Inf"
     },
     {
       "bid_cents": 1000000,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "+Inf",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "+Inf"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "+Inf",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "+Inf"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "9007199254740991",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740991"
     },
     {
       "bid_cents": 100,
+      "credits_per_usd": "9007199254740991",
       "error": "",
+      "legacy_quota_per_unit": "500000",
       "quota": 9007199254740991,
       "unit": "9007199254740991"
     },
     {
       "bid_cents": 125,
+      "credits_per_usd": "9007199254740991",
       "error": "wallet quota would exceed the safe range",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740991"
     },
     {
       "bid_cents": 1000000,
+      "credits_per_usd": "9007199254740991",
       "error": "wallet quota would exceed the safe range",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740991"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "9007199254740991",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740991"
     },
     {
       "bid_cents": 99,
+      "credits_per_usd": "9007199254740992",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740992"
     },
     {
       "bid_cents": 100,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "9007199254740992",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740992"
     },
     {
       "bid_cents": 125,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "9007199254740992",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740992"
     },
     {
       "bid_cents": 1000000,
-      "error": "wallet quota would exceed the safe range",
+      "credits_per_usd": "9007199254740992",
+      "error": "credit currency units are unavailable",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740992"
     },
     {
       "bid_cents": 1000001,
+      "credits_per_usd": "9007199254740992",
       "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
       "quota": 0,
       "unit": "9007199254740992"
+    },
+    {
+      "bid_cents": 99,
+      "credits_per_usd": "3500000",
+      "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
+      "quota": 0,
+      "unit": "3500000"
+    },
+    {
+      "bid_cents": 100,
+      "credits_per_usd": "3500000",
+      "error": "",
+      "legacy_quota_per_unit": "500000",
+      "quota": 3500000,
+      "unit": "3500000"
+    },
+    {
+      "bid_cents": 125,
+      "credits_per_usd": "3500000",
+      "error": "",
+      "legacy_quota_per_unit": "500000",
+      "quota": 4375000,
+      "unit": "3500000"
+    },
+    {
+      "bid_cents": 1000000,
+      "credits_per_usd": "3500000",
+      "error": "",
+      "legacy_quota_per_unit": "500000",
+      "quota": 35000000000,
+      "unit": "3500000"
+    },
+    {
+      "bid_cents": 1000001,
+      "credits_per_usd": "3500000",
+      "error": "advertisement bid must be between $1 and $10,000",
+      "legacy_quota_per_unit": "500000",
+      "quota": 0,
+      "unit": "3500000"
     }
   ],
   "urls": [

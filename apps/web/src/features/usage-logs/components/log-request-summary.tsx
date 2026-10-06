@@ -20,8 +20,9 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatLogQuota, formatTokens } from '@/lib/format'
+import { formatTokens } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
 import { logRecovery, safeLogDiagnostic } from '../lib/recovery'
@@ -37,6 +38,9 @@ export function LogRequestSummary({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const { formatQuota } = useBillingUSD()
+  const formatLogQuota = (raw: number) =>
+    formatQuota(raw, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })
   const { copyToClipboard } = useCopyToClipboard()
   if (![2, 5, 6].includes(log.type)) return null
   const cacheReadDetails = [

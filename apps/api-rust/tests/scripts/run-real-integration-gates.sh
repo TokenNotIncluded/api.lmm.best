@@ -151,7 +151,7 @@ run_epay() (
 
 run_stripe() (
   payment_environment
-  require_api_ignored_test_count epay_runtime_postgres 12 "stripe_wallet::"
+  require_api_ignored_test_count epay_runtime_postgres 13 "stripe_wallet::"
   runtime=$(mktemp -d "${TMPDIR:-/tmp}/lmm-current-go-stripe.XXXXXX")
   trap 'rm -rf -- "$runtime"' EXIT
   export LMM_STRIPE_GO_ORACLE_OUTPUT="$runtime/wallet.json"
@@ -165,36 +165,36 @@ run_stripe() (
   python3 "$script_dir/verify-current-go-export.py" stripe "$LMM_STRIPE_GO_ORACLE_OUTPUT"
   python3 "$script_dir/verify-current-go-export.py" stripe-subscription "$LMM_STRIPE_SUBSCRIPTION_GO_ORACLE_OUTPUT"
   python3 "$script_dir/verify-current-go-export.py" stripe-subscription-checkout "$LMM_STRIPE_SUBSCRIPTION_CHECKOUT_GO_ORACLE_OUTPUT" --shared-input "$LMM_STRIPE_SUBSCRIPTION_CHECKOUT_FIXTURES"
-  run_counted_api_integration_tests epay_runtime_postgres 12 "stripe_wallet::"
+  run_counted_api_integration_tests epay_runtime_postgres 13 "stripe_wallet::"
 )
 
 run_catalog() (
   for variable in LMM_TEST_DATABASE_URL LMM_AUTH_TEST_VALKEY_URL; do require_loopback_url "$variable"; done
-  require_api_ignored_test_count ai_directory 4
+  require_api_ignored_test_count ai_directory 5
   runtime=$(mktemp -d "${TMPDIR:-/tmp}/lmm-current-go-catalog.XXXXXX")
   trap 'rm -rf -- "$runtime"' EXIT
   export LMM_AI_DIRECTORY_GO_ORACLE_OUTPUT="$runtime/catalog.json"
   (cd "$repo_root/apps/api-go"; go test ./model -run '^TestRustAIDirectoryCurrentGoOracle$' -count=1)
   python3 "$script_dir/verify-current-go-export.py" catalog "$LMM_AI_DIRECTORY_GO_ORACLE_OUTPUT"
   run_exact_api_unit_test ai_directory quote_and_url_normalization_match_current_go_oracle
-  run_counted_api_integration_tests ai_directory 4
+  run_counted_api_integration_tests ai_directory 5
 )
 
 run_token_queries() (
   for variable in LMM_TEST_DATABASE_URL LMM_AUTH_TEST_VALKEY_URL; do require_loopback_url "$variable"; done
-  require_api_ignored_test_count token_queries 6
+  require_api_ignored_test_count token_queries 7
   runtime=$(mktemp -d "${TMPDIR:-/tmp}/lmm-current-go-token-pricing.XXXXXX")
   trap 'rm -rf -- "$runtime"' EXIT
   export LMM_TOKEN_PRICING_GO_ORACLE_OUTPUT="$runtime/token-pricing.json"
   (cd "$repo_root/apps/api-go"; go test ./controller -run '^TestRustTokenPricingCurrentGoOracle$' -count=1)
   python3 "$script_dir/verify-current-go-export.py" token-pricing "$LMM_TOKEN_PRICING_GO_ORACLE_OUTPUT"
-  run_counted_api_integration_tests token_queries 6
+  run_counted_api_integration_tests token_queries 7
 )
 
 run_acquisition() {
   require_loopback_url LMM_TEST_DATABASE_URL
-  require_api_ignored_test_count acquisition 11
-  run_counted_api_integration_tests acquisition 11
+  require_api_ignored_test_count acquisition 12
+  run_counted_api_integration_tests acquisition 12
 }
 
 run_shared_trust() {
@@ -211,7 +211,7 @@ run_relay_settlement() (
   for variable in LMM_TEST_DATABASE_URL LMM_AUTH_TEST_VALKEY_URL; do require_loopback_url "$variable"; done
   export LMM_API_TOKEN_TEST_VALKEY_URL="${LMM_API_TOKEN_TEST_VALKEY_URL:-$LMM_AUTH_TEST_VALKEY_URL}"
   require_loopback_url LMM_API_TOKEN_TEST_VALKEY_URL
-  require_api_ignored_test_count relay_openai_settlement_pg 36
+  require_api_ignored_test_count relay_openai_settlement_pg 39
   runtime=$(mktemp -d "${TMPDIR:-/tmp}/lmm-current-go-funding.XXXXXX")
   trap 'rm -rf -- "$runtime"' EXIT
   export LMM_RELAY_FUNDING_GO_VECTORS="$runtime/funding.json"
@@ -223,7 +223,7 @@ run_relay_settlement() (
   )
   python3 "$script_dir/verify-current-go-export.py" relay-funding "$LMM_RELAY_FUNDING_GO_VECTORS"
   python3 "$script_dir/verify-current-go-export.py" relay-price "$LMM_RELAY_PRICE_GO_VECTORS"
-  run_counted_api_integration_tests relay_openai_settlement_pg 36
+  run_counted_api_integration_tests relay_openai_settlement_pg 39
   run_exact_api_lib_test routes::relay_openai::funding::go_oracle_tests::current_go_funding_vectors_match_real_postgres_reserve_settle_refund_and_grow
 )
 
@@ -285,6 +285,7 @@ run_subscription_reset() {
 
 run_migration() {
   require_loopback_url LMM_TEST_DATABASE_URL
+  run_exact_migration_test subscription_amount_snapshots_schema subscription_amount_snapshots_preserve_null_zero_and_existing_balances
   run_exact_migration_test account_balance_access_schema account_balance_access_migration_is_additive_idempotent_and_default_denied
   run_exact_migration_test full_copy full_copy_should_verify_all_tables_and_rollback_both_fault_phases
   run_exact_migration_test waffo_subscription_schema contract_eight_preserves_pending_evidence_and_rejects_broken_replay_guards

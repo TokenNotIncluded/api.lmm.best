@@ -27,10 +27,11 @@ import {
 } from '@/features/subscriptions/api'
 import { formatTimestamp } from '@/features/subscriptions/lib'
 import type { SubscriptionResetVoucher } from '@/features/subscriptions/types'
-import { formatQuota } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const [selected, setSelected] = useState<SubscriptionResetVoucher | null>(
     null
   )

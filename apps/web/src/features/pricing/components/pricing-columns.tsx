@@ -41,7 +41,7 @@ import {
   formatRequestPrice,
   stripTrailingZeros,
 } from '../lib/price'
-import type { PricingModel, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit, PriceDisplayCurrency } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfStatus } from './model-perf-badge'
 import { ModelRuntimeBadge } from './model-runtime-badge'
@@ -52,9 +52,7 @@ import { ModelRuntimeBadge } from './model-runtime-badge'
 
 export interface PricingColumnsOptions {
   tokenUnit?: TokenUnit
-  priceRate?: number
-  usdExchangeRate?: number
-  showRechargePrice?: boolean
+  displayCurrency?: PriceDisplayCurrency
   selectedGroup?: string
   /** Per-model performance summary; absent entries render the empty state. */
   perfMap?: ReadonlyMap<string, ModelPerfBadgeData>
@@ -66,9 +64,7 @@ export function usePricingColumns(
   const { t } = useTranslation()
   const {
     tokenUnit = DEFAULT_TOKEN_UNIT,
-    priceRate = 1,
-    usdExchangeRate = 1,
-    showRechargePrice = false,
+    displayCurrency = 'USD',
     selectedGroup,
     perfMap,
   } = options
@@ -124,9 +120,7 @@ export function usePricingColumns(
         const model = row.original
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
-          showRechargePrice,
-          priceRate,
-          usdExchangeRate,
+          displayCurrency,
           groupRatioMultiplier: getDynamicDisplayGroupRatio(
             model,
             selectedGroup
@@ -205,9 +199,7 @@ export function usePricingColumns(
               model,
               'input',
               tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
+              displayCurrency,
               selectedGroup
             )
           )
@@ -216,9 +208,7 @@ export function usePricingColumns(
               model,
               'output',
               tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
+              displayCurrency,
               selectedGroup
             )
           )
@@ -238,13 +228,7 @@ export function usePricingColumns(
         }
 
         const price = stripTrailingZeros(
-          formatRequestPrice(
-            model,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            selectedGroup
-          )
+          formatRequestPrice(model, displayCurrency, selectedGroup)
         )
 
         return (
@@ -268,9 +252,7 @@ export function usePricingColumns(
         const model = row.original
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
-          showRechargePrice,
-          priceRate,
-          usdExchangeRate,
+          displayCurrency,
           groupRatioMultiplier: getDynamicDisplayGroupRatio(
             model,
             selectedGroup
@@ -307,20 +289,12 @@ export function usePricingColumns(
 
         const isTokenBased = isTokenBasedModel(model)
 
-        if (!isTokenBased || model.cache_ratio == null) {
+        if (!isTokenBased || model.cache_read_price == null) {
           return <span className='text-muted-foreground/30 text-xs'>—</span>
         }
 
         const cachedPrice = stripTrailingZeros(
-          formatPrice(
-            model,
-            'cache',
-            tokenUnit,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            selectedGroup
-          )
+          formatPrice(model, 'cache', tokenUnit, displayCurrency, selectedGroup)
         )
 
         return (

@@ -93,7 +93,7 @@ class QualityGateTests(unittest.TestCase):
                 continue
             self.assertRegex(line, r"^[a-zA-Z_][a-zA-Z0-9_-]*:$")
             jobs.append(line[:-1])
-        self.assertCountEqual(jobs, (*REQUIRED_JOBS, "quality-gate"))
+        self.assertCountEqual(jobs, (*REQUIRED_JOBS, "quality-gate", "go-web-release-gate"))
         gate = jobs_text.split("  quality-gate:\n", 1)[1]
         gate = re.split(r"\n  [a-zA-Z_][a-zA-Z0-9_-]*:", gate, maxsplit=1)[0]
         needs = re.search(r"(?m)^    needs:\n((?:      - [a-zA-Z0-9_-]+\n)+)", gate)
@@ -102,6 +102,29 @@ class QualityGateTests(unittest.TestCase):
         self.assertIn("    if: ${{ always() }}\n", gate)
         self.assertIn("CI_NEEDS: ${{ toJSON(needs) }}", gate)
         self.assertIn("run: python3 -B scripts/ci_quality_gate.py", gate)
+
+    def test_go_web_publication_gate_covers_all_non_rust_jobs_on_main_push(self):
+        jobs_text = WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1]
+        gate = jobs_text.split("  go-web-release-gate:\n", 1)[1]
+        gate = re.split(r"\n  [a-zA-Z_][a-zA-Z0-9_-]*:", gate, maxsplit=1)[0]
+        expected = (
+            "changes", "repository-contracts", "release-artifact-contract",
+            "pi-lmm-provider", "web", "go", "route-coverage-contract",
+            "aur-package-matrix", "translations",
+        )
+        needs = re.search(r"(?m)^    needs:\n((?:      - [a-zA-Z0-9_-]+\n)+)", gate)
+        self.assertIsNotNone(needs)
+        self.assertCountEqual(re.findall(r"- ([a-zA-Z0-9_-]+)", needs.group(1)), expected)
+        self.assertEqual(set(expected), set(REQUIRED_JOBS) - {
+            "rust-preview", "rust-real-integration", "root-route-acceptance-lockfile", "rustsec",
+        })
+        self.assertIn("name: Go/Web release qualification gate\n", gate)
+        self.assertIn(
+            "    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}\n",
+            gate,
+        )
+        self.assertIn("CI_GO_WEB_NEEDS: ${{ toJSON(needs) }}", gate)
+        self.assertNotIn("CI_SELECTED", gate)
 
     def test_workflow_does_not_downgrade_checks_to_advisory(self):
         text = WORKFLOW.read_text(encoding="utf-8")

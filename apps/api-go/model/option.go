@@ -319,6 +319,17 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == "QuotaPerUnit" {
+		_, err := parseFixedCreditRate(key, value)
+		return err
+	}
+	if key == PublicCreditsPerUSDOptionKey {
+		_, err := parsePublicCreditRate(value)
+		return err
+	}
+	if key == CreditsPerUSDOptionKey || key == LegacyPricingQuotaPerUnitOptionKey {
+		return errors.New("credit/USD conversion is immutable: 1 USD = 500000 credits")
+	}
 	if setting.IsModerationOption(key) {
 		return validateModerationOptionValues(DB, map[string]string{key: value})
 	}
@@ -602,7 +613,7 @@ func readModerationSettings(db *gorm.DB) (setting.ModerationSettings, error) {
 	return settings, nil
 }
 
-// ReadModerationSettingsContext reads exactly the seven moderation options.
+// ReadModerationSettingsContext reads the complete moderation option set.
 // It is used before HTTP dispatch so a stale node cannot submit newly disabled
 // content, and holds no database lock during the upstream request.
 func ReadModerationSettingsContext(ctx context.Context) (setting.ModerationSettings, error) {
@@ -917,6 +928,24 @@ func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string)
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if key == PublicCreditsPerUSDOptionKey {
+		denomination, parseErr := parsePublicCreditRate(value)
+		if parseErr != nil {
+			return parseErr
+		}
+		if err := common.SetPublicCreditsPerUSD(denomination); err != nil {
+			return err
+		}
+	}
+	if key == "QuotaPerUnit" {
+		candidate, parseErr := parseFixedCreditRate("QuotaPerUnit", value)
+		if parseErr != nil {
+			return parseErr
+		}
+		if baseline, basisErr := common.LegacyPricingQuotaPerUnit(); basisErr == nil && !candidate.Equal(baseline) {
+			return errors.New("refusing legacy QuotaPerUnit drift from immutable credit currency basis")
+		}
+	}
 	if setting.IsModerationOption(key) {
 		return applyModerationOptionMap(map[string]string{key: value})
 	}
@@ -1365,7 +1394,11 @@ func updateOptionMap(key string, value string) (err error) {
 	case "ChannelDisableThreshold":
 		common.ChannelDisableThreshold, _ = strconv.ParseFloat(value, 64)
 	case "QuotaPerUnit":
-		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
+		// Once initialized, refreshes and idempotent saves keep the published
+		// calibration untouched, including avoiding concurrent scalar writes.
+		if _, basisErr := common.LegacyPricingQuotaPerUnit(); basisErr != nil {
+			common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
+		}
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
 	case setting.AdvancedSecurityActionOptionKey:

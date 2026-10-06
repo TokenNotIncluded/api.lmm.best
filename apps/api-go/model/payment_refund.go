@@ -124,8 +124,14 @@ func ApplyPaymentRefund(
 				}
 				creditedQuota := normalizedTopUpCreditedQuota(&topUp)
 				refundQuota := int64(0)
+				originalRefundQuota := int64(0)
 				if !alreadyApplied {
-					refundQuota = proportionalRefundDelta(creditedQuota, paidMicros, topUp.RefundedQuota, topUp.RefundedAmountMicros, appliedAmount)
+					originalRefundQuota = proportionalRefundDelta(creditedQuota, paidMicros, topUp.RefundedQuota, topUp.RefundedAmountMicros, appliedAmount)
+					var err error
+					refundQuota, err = rebasedTopUpRefundDeltaTx(tx, &topUp, creditedQuota, paidMicros, appliedAmount, originalRefundQuota)
+					if err != nil {
+						return err
+					}
 				}
 				if refundQuota > 0 {
 					// Refunds must never silently create a negative wallet. Keep
@@ -152,7 +158,7 @@ func ApplyPaymentRefund(
 				if !alreadyApplied {
 					updates := map[string]interface{}{
 						"refunded_amount_micros": topUp.RefundedAmountMicros + appliedAmount,
-						"refunded_quota":         topUp.RefundedQuota + refundQuota,
+						"refunded_quota":         topUp.RefundedQuota + originalRefundQuota,
 					}
 					if err := refundReferralTx(tx, &topUp, topUp.RefundedAmountMicros+appliedAmount); err != nil {
 						return err
@@ -210,19 +216,17 @@ func ApplyPaymentRefund(
 				if err := lockForUpdate(tx).Where("id = ?", order.UserSubscriptionId).First(&subscription).Error; err != nil {
 					return err
 				}
-				if paidMicros > 0 && subscription.AmountTotal > 0 {
+				if subscription.hasFiniteQuota() {
 					refundBaseQuota := subscription.AmountTotal + order.RefundedQuota
-					targetRevoked := proportionalRefundTarget(refundBaseQuota, paidMicros, order.RefundedAmountMicros+appliedAmount)
-					if targetRevoked < order.RefundedQuota {
-						targetRevoked = order.RefundedQuota
+					refundQuota, historicalQuotaDelta, err := applySubscriptionRefundQuotaTx(tx, &order, &subscription, paidMicros, appliedAmount, refundBaseQuota, false)
+					if err != nil {
+						return err
 					}
-					refundQuota := targetRevoked - order.RefundedQuota
-					newTotal := subscription.AmountTotal - refundQuota
-					if newTotal < subscription.AmountUsed {
-						newTotal = subscription.AmountUsed
+					updates := map[string]interface{}{"amount_total": subscription.AmountTotal}
+					if subscription.ResetAmount != nil {
+						updates["reset_amount"] = *subscription.ResetAmount
 					}
-					updates := map[string]interface{}{"amount_total": newTotal}
-					if newTotal == subscription.AmountUsed && subscription.Status == "active" {
+					if subscription.AmountTotal == subscription.AmountUsed && subscription.Status == "active" {
 						updates["status"] = "cancelled"
 					}
 					if err := tx.Model(&UserSubscription{}).Where("id = ?", subscription.Id).Updates(updates).Error; err != nil {
@@ -231,7 +235,7 @@ func ApplyPaymentRefund(
 					result.QuotaDebited = refundQuota
 					if err := tx.Model(&SubscriptionOrder{}).Where("id = ?", order.Id).Updates(map[string]interface{}{
 						"refunded_amount_micros": order.RefundedAmountMicros + appliedAmount,
-						"refunded_quota":         order.RefundedQuota + refundQuota,
+						"refunded_quota":         order.RefundedQuota + historicalQuotaDelta,
 					}).Error; err != nil {
 						return err
 					}

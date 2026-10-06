@@ -387,7 +387,12 @@ func GetAllUsers(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(users)
+	publicUsers, err := buildPublicUserCreditResponses(users)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetItems(publicUsers)
 
 	common.ApiSuccess(c, pageInfo)
 	return
@@ -443,7 +448,12 @@ func SearchUsers(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(users)
+	publicUsers, err := buildPublicUserCreditResponses(users)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetItems(publicUsers)
 	common.ApiSuccess(c, pageInfo)
 	return
 }
@@ -484,10 +494,15 @@ func GetUser(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	publicUser, err := buildPublicUserCreditResponse(user)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    user,
+		"data":    publicUser,
 	})
 	return
 }
@@ -609,7 +624,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	docsAccess := onboarding.ActivationComplete
 	permissions["docs_access"] = docsAccess
 	developerAccess := operation_setting.GetDeveloperAccessSetting()
-	return map[string]interface{}{
+	data := map[string]interface{}{
 		"id":                       user.Id,
 		"developer_access_granted": onboarding.ActivationComplete,
 		"username":                 user.Username,
@@ -644,16 +659,31 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 			// The client shows how far a recharge still has to go before it
 			// unlocks the console on its own, so it needs the same threshold
 			// the server judges against rather than a hardcoded copy.
-			"paid_activation_enabled":    developerAccess.PaidActivationEnabled,
-			"paid_activation_min_amount": developerAccess.PaidActivationMinAmount,
-			"credential_complete":        onboarding.CredentialComplete,
-			"api_key_created":            onboarding.APIKeyCreated,
-			"first_request_complete":     onboarding.FirstRequestComplete,
-			"stage":                      onboarding.Stage,
+			"paid_activation_enabled":             developerAccess.PaidActivationEnabled,
+			"paid_activation_min_amount":          developerAccess.PaidActivationMinAmount,
+			"paid_activation_min_amount_currency": model.LegacyPaidPolicyCurrency,
+			"paid_activation_min_amount_usd":      model.LegacyPolicyAmountUSD(developerAccess.PaidActivationMinAmount),
+			"credential_complete":                 onboarding.CredentialComplete,
+			"api_key_created":                     onboarding.APIKeyCreated,
+			"first_request_complete":              onboarding.FirstRequestComplete,
+			"stage":                               onboarding.Stage,
 		},
 		"sidebar_modules": userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":     permissions,
 	}
+	creditFields, creditErr := publicUserCreditFields(user.Quota, user.UsedQuota)
+	if creditErr == nil {
+		for key, value := range creditFields {
+			data[key] = value
+		}
+	} else {
+		// Authentication still succeeds when a display projection is unavailable.
+		// Never manufacture a public amount or label raw quota as CREDIT.
+		data["quota_unit"] = common.LedgerQuotaUnit
+		data["public_credit_unit"] = common.PublicCreditUnit
+		data["public_credit_status"] = "unavailable"
+	}
+	return data
 }
 
 // 计算用户权限的辅助函数

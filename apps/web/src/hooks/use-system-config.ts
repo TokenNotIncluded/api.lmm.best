@@ -43,6 +43,19 @@ interface StatusApiResponse {
     display_token_stat_enabled?: boolean
     display_in_currency?: boolean
     quota_display_type?: CurrencyDisplayType
+    currency_unit?: string
+    credits_per_usd?: number | string
+    credits_per_usd_exact?: string
+    ledger_quota_per_usd?: number | string
+    ledger_quota_per_usd_exact?: string
+    public_credits_per_usd?: number | string
+    public_credits_per_usd_exact?: string
+    credit_unit_schema_version?: number
+    quota_unit?: string
+    public_credit_unit?: string
+    legacy_credit_unit?: string
+    cny_per_usd?: number | string
+    legacy_pricing_units_per_usd?: number | string
     quota_per_unit?: number
     usd_exchange_rate?: number
     custom_currency_symbol?: string
@@ -79,7 +92,39 @@ export function mapStatusDataToConfig(
     (data.quota_display_type as CurrencyDisplayType | undefined) ??
     DEFAULT_CURRENCY_CONFIG.quotaDisplayType
 
+  const positive = (value: unknown): number => {
+    const number =
+      typeof value === 'string' || typeof value === 'number'
+        ? Number(value)
+        : Number.NaN
+    return Number.isFinite(number) && number > 0 ? number : 0
+  }
   const currency: CurrencyConfig = {
+    currencyUnit: data.currency_unit === 'credit' ? 'credit' : 'unknown',
+    creditsPerUsd:
+      data.currency_unit === 'credit' ? positive(data.credits_per_usd) : 0,
+    // Explicit undefined clears any persisted v2 face value after a v1 server response.
+    ledgerQuotaPerUsd:
+      data.ledger_quota_per_usd === undefined
+        ? undefined
+        : positive(data.ledger_quota_per_usd),
+    ledgerQuotaPerUsdExact: data.ledger_quota_per_usd_exact,
+    publicCreditsPerUsd:
+      data.public_credits_per_usd === undefined
+        ? undefined
+        : positive(data.public_credits_per_usd),
+    publicCreditsPerUsdExact: data.public_credits_per_usd_exact,
+    creditUnitSchemaVersion: data.credit_unit_schema_version,
+    quotaUnit: data.quota_unit,
+    publicCreditUnit: data.public_credit_unit,
+    legacyCreditUnit: data.legacy_credit_unit,
+    cnyPerUsd: positive(data.cny_per_usd),
+    legacyPricingUnitsPerUsd: positive(data.legacy_pricing_units_per_usd),
+    creditsPerUsdExact:
+      data.currency_unit === 'credit' && positive(data.credits_per_usd)
+        ? (data.credits_per_usd_exact ?? String(data.credits_per_usd))
+        : '',
+    cnyPerUsdExact: positive(data.cny_per_usd) ? String(data.cny_per_usd) : '',
     displayInCurrency:
       data.display_in_currency ?? DEFAULT_CURRENCY_CONFIG.displayInCurrency,
     quotaDisplayType,

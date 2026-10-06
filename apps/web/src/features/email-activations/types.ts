@@ -23,10 +23,18 @@ export interface HeroSmsEnvelope<T> {
   data: T
 }
 
-export interface HeroSmsProduct {
+export interface HeroSmsPricingMetadata {
+  pricing_schema_version?: number
+  pricing_currency?: string
+  pricing_available?: boolean
+  charge_quota?: number
+}
+
+export interface HeroSmsProduct extends HeroSmsPricingMetadata {
   id: number | string
   domain: string
   site: string
+  /** Schema 2 is real USD; earlier cached quotes retain legacy units. */
   customer_price_usd: number
   charge_quota: number
   count: number

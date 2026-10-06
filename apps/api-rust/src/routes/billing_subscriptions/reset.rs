@@ -414,6 +414,10 @@ struct ResetExecuteRequest {
 
 #[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
 struct FrozenSubscription {
+    #[serde(default)]
+    amount_total: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reset_amount: Option<i64>,
     id: i64,
     user_id: i64,
     plan_id: i64,
@@ -440,12 +444,29 @@ struct ActiveRow {
     plan_title: String,
     plan_archived_at: i64,
     amount_total: i64,
+    reset_amount: Option<i64>,
     amount_used: i64,
     next_reset_time: i64,
     status: String,
     end_time: i64,
     updated_at: i64,
     banked_voucher_count: i64,
+}
+
+// Historical use is untouched by migration. A corrected finite reset grant can
+// differ from this period's total, so restored quota is the actual new credit.
+fn reset_restored_quota(total: i64, used: i64, reset: Option<i64>) -> Result<i64, ResetError> {
+    if used < 0 || reset.is_some_and(|value| value < 0) {
+        return Err(ResetError::Business(
+            "subscription reset encountered negative quota",
+        ));
+    }
+    Ok(match reset {
+        Some(grant) => grant
+            .saturating_sub(total.saturating_sub(used).max(0))
+            .max(0),
+        None => used,
+    })
 }
 
 fn checked_reset_add(current: i64, value: i64) -> Result<i64, ResetError> {
@@ -571,7 +592,7 @@ async fn load_frozen(
         .collect::<Vec<_>>();
     let selected = targets.iter().copied().collect::<HashSet<_>>();
     let rows = sqlx::query_as::<_, ActiveRow>(
-        "SELECT us.id,us.user_id,users.username,COALESCE(users.email,'') email,us.plan_id,plans.title plan_title,COALESCE(plans.archived_at,0) plan_archived_at,us.amount_total,us.amount_used,COALESCE(us.next_reset_time,0) next_reset_time,us.status,us.end_time,COALESCE(us.updated_at,0) updated_at,(SELECT COUNT(*) FROM subscription_reset_vouchers v WHERE v.user_id=us.user_id AND v.plan_id=us.plan_id AND v.status='available' AND v.expires_at>$3)::BIGINT banked_voucher_count FROM unnest($1::BIGINT[],$2::BIGINT[]) selected(user_id,plan_id) JOIN user_subscriptions us ON us.user_id=selected.user_id AND us.plan_id=selected.plan_id JOIN users ON users.id=us.user_id AND users.deleted_at IS NULL JOIN subscription_plans plans ON plans.id=us.plan_id WHERE us.status='active' AND us.end_time>$3 ORDER BY us.user_id,us.plan_id,us.id LIMIT 20001",
+        "SELECT us.id,us.user_id,users.username,COALESCE(users.email,'') email,us.plan_id,plans.title plan_title,COALESCE(plans.archived_at,0) plan_archived_at,us.amount_total,us.reset_amount,us.amount_used,COALESCE(us.next_reset_time,0) next_reset_time,us.status,us.end_time,COALESCE(us.updated_at,0) updated_at,(SELECT COUNT(*) FROM subscription_reset_vouchers v WHERE v.user_id=us.user_id AND v.plan_id=us.plan_id AND v.status='available' AND v.expires_at>$3)::BIGINT banked_voucher_count FROM unnest($1::BIGINT[],$2::BIGINT[]) selected(user_id,plan_id) JOIN user_subscriptions us ON us.user_id=selected.user_id AND us.plan_id=selected.plan_id JOIN users ON users.id=us.user_id AND users.deleted_at IS NULL JOIN subscription_plans plans ON plans.id=us.plan_id WHERE us.status='active' AND us.end_time>$3 ORDER BY us.user_id,us.plan_id,us.id LIMIT 20001",
     )
     .bind(&users)
     .bind(&plans)
@@ -636,6 +657,8 @@ async fn load_frozen(
                 id: row.id,
                 user_id: row.user_id,
                 plan_id: row.plan_id,
+                amount_total: row.amount_total,
+                reset_amount: row.reset_amount,
                 amount_used: row.amount_used,
                 status: row.status,
                 end_time: row.end_time,
@@ -764,9 +787,15 @@ async fn preview(
                 "subscription reset count exceeds the supported range",
             ))
     })?;
-    let quota_to_restore = summaries.iter().try_fold(0_i64, |total, item| {
-        checked_reset_add(total, item.amount_used)
-    })?;
+    let quota_to_restore = frozen
+        .iter()
+        .flat_map(|target| &target.subscriptions)
+        .try_fold(0_i64, |total, item| {
+            checked_reset_add(
+                total,
+                reset_restored_quota(item.amount_total, item.amount_used, item.reset_amount)?,
+            )
+        })?;
     let voucher_expires_at = if mode == "soft" {
         one_calendar_month(now)?
     } else {
@@ -924,7 +953,7 @@ async fn verify_frozen(
         return Err(ResetError::Stale);
     }
     let rows = sqlx::query_as::<_, FrozenSubscription>(
-        "SELECT us.id,us.user_id,us.plan_id,us.amount_used,us.status,us.end_time,COALESCE(us.updated_at,0) updated_at FROM unnest($1::BIGINT[],$2::BIGINT[]) selected(user_id,plan_id) JOIN user_subscriptions us ON us.user_id=selected.user_id AND us.plan_id=selected.plan_id WHERE us.status='active' AND us.end_time>$3 ORDER BY us.user_id,us.plan_id,us.id FOR UPDATE OF us",
+        "SELECT us.id,us.user_id,us.plan_id,us.amount_total,us.reset_amount,us.amount_used,us.status,us.end_time,COALESCE(us.updated_at,0) updated_at FROM unnest($1::BIGINT[],$2::BIGINT[]) selected(user_id,plan_id) JOIN user_subscriptions us ON us.user_id=selected.user_id AND us.plan_id=selected.plan_id WHERE us.status='active' AND us.end_time>$3 ORDER BY us.user_id,us.plan_id,us.id FOR UPDATE OF us",
     )
     .bind(&users)
     .bind(&plans)
@@ -941,6 +970,8 @@ async fn verify_frozen(
         };
         if row.user_id != frozen.user_id
             || row.plan_id != frozen.plan_id
+            || row.amount_total != frozen.amount_total
+            || row.reset_amount != frozen.reset_amount
             || row.amount_used != frozen.amount_used
             || row.status != frozen.status
             || row.end_time != frozen.end_time
@@ -1078,7 +1109,7 @@ async fn execute(
         if preview.mode == "hard" {
             for frozen in &target.subscriptions {
                 let changed = sqlx::query(
-                    "UPDATE user_subscriptions SET amount_used=0,quota_version=quota_version+1 WHERE id=$1 AND user_id=$2 AND plan_id=$3 AND status=$4 AND end_time=$5 AND end_time>$6 AND amount_used=$7 AND COALESCE(updated_at,0)=$8",
+                    "UPDATE user_subscriptions SET amount_total=COALESCE(reset_amount,amount_total),amount_used=0,quota_version=quota_version+1 WHERE id=$1 AND user_id=$2 AND plan_id=$3 AND status=$4 AND end_time=$5 AND end_time>$6 AND amount_used=$7 AND COALESCE(updated_at,0)=$8 AND amount_total=$9 AND reset_amount IS NOT DISTINCT FROM $10",
                 )
                 .bind(frozen.id)
                 .bind(frozen.user_id)
@@ -1088,6 +1119,8 @@ async fn execute(
                 .bind(now)
                 .bind(frozen.amount_used)
                 .bind(frozen.updated_at)
+                .bind(frozen.amount_total)
+                .bind(frozen.reset_amount)
                 .execute(&mut *tx)
                 .await?;
                 if changed.rows_affected() != 1 {
@@ -1096,7 +1129,14 @@ async fn execute(
                 reset_count = reset_count.checked_add(1).ok_or(ResetError::Business(
                     "subscription reset count exceeds the supported range",
                 ))?;
-                restored_quota = checked_reset_add(restored_quota, frozen.amount_used)?;
+                restored_quota = checked_reset_add(
+                    restored_quota,
+                    reset_restored_quota(
+                        frozen.amount_total,
+                        frozen.amount_used,
+                        frozen.reset_amount,
+                    )?,
+                )?;
             }
             result.reset_subscriptions = result
                 .reset_subscriptions
@@ -1320,7 +1360,7 @@ async fn redeem(
         return Err(ResetError::VoucherExpired);
     }
     let rows = sqlx::query(
-        "SELECT id,amount_used FROM user_subscriptions WHERE user_id=$1 AND plan_id=$2 AND status='active' AND end_time>$3 ORDER BY end_time,id FOR UPDATE",
+        "SELECT id,amount_total,reset_amount,amount_used FROM user_subscriptions WHERE user_id=$1 AND plan_id=$2 AND status='active' AND end_time>$3 ORDER BY end_time,id FOR UPDATE",
     )
     .bind(user.id)
     .bind(voucher.plan_id)
@@ -1347,9 +1387,16 @@ async fn redeem(
                 "subscription reset encountered a negative used quota",
             ));
         }
-        restored_quota = checked_reset_add(restored_quota, amount_used)?;
+        restored_quota = checked_reset_add(
+            restored_quota,
+            reset_restored_quota(
+                row.try_get("amount_total")?,
+                amount_used,
+                row.try_get("reset_amount")?,
+            )?,
+        )?;
         sqlx::query(
-            "UPDATE user_subscriptions SET amount_used=0,quota_version=quota_version+1 WHERE id=$1",
+            "UPDATE user_subscriptions SET amount_total=COALESCE(reset_amount,amount_total),amount_used=0,quota_version=quota_version+1 WHERE id=$1",
         )
         .bind(row.try_get::<i64, _>("id")?)
         .execute(&mut *tx)
@@ -1482,6 +1529,44 @@ fn error_response(error: ResetError) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn corrected_resets_report_actual_new_grant_and_preserve_legacy_restoration() {
+        assert_eq!(reset_restored_quota(550, 500, Some(100)).unwrap(), 50);
+        assert_eq!(reset_restored_quota(520, 500, Some(70)).unwrap(), 50);
+        assert_eq!(reset_restored_quota(100, 120, Some(30)).unwrap(), 30);
+        assert_eq!(reset_restored_quota(5, 0, Some(0)).unwrap(), 0);
+        assert_eq!(reset_restored_quota(1000, 500, None).unwrap(), 500);
+        assert!(reset_restored_quota(10, 0, Some(-1)).is_err());
+    }
+
+    #[test]
+    fn frozen_reset_basis_matches_go_json_order_and_omits_unmigrated_null() {
+        let frozen = FrozenSubscription {
+            amount_total: 550,
+            reset_amount: Some(100),
+            id: 1,
+            user_id: 2,
+            plan_id: 3,
+            amount_used: 500,
+            status: "active".into(),
+            end_time: 9,
+            updated_at: 8,
+        };
+        assert_eq!(
+            serde_json::to_string(&frozen).unwrap(),
+            r#"{"amount_total":550,"reset_amount":100,"id":1,"user_id":2,"plan_id":3,"amount_used":500,"status":"active","end_time":9,"updated_at":8}"#
+        );
+        let legacy = FrozenSubscription {
+            reset_amount: None,
+            ..frozen
+        };
+        assert!(
+            !serde_json::to_string(&legacy)
+                .unwrap()
+                .contains("reset_amount")
+        );
+    }
 
     #[test]
     fn voucher_redemption_rejects_an_empty_locked_subscription_set() {

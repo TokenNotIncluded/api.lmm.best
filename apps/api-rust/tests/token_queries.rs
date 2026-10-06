@@ -10,12 +10,82 @@ use lmm_api_rs::{
         public_catalog::{
             AccountBalanceRateLimiter, PublicCatalogStoreError, ValkeyAccountBalanceRateLimiter,
         },
+        system_config::ProcessRuntimeOptions,
         token_queries::{TokenQueryState, router},
     },
 };
-use serde_json::{Value, json};
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn public_denomination_refreshes_both_node_caches_without_repricing_or_ledger_writes() {
+    let fixture = Fixture::new().await;
+    fixture.pricing_schema().await;
+    sqlx::raw_sql("UPDATE options SET value='3359744' WHERE key='CreditsPerUSD';UPDATE options SET value='500000' WHERE key IN ('QuotaPerUnit','LegacyPricingQuotaPerUnit');INSERT INTO options VALUES('PublicCreditsPerUSD','100000'),('ModelRatio','{\"priced\":2}'),('ModelPrice','{}');INSERT INTO models(model_name) VALUES('priced');INSERT INTO abilities VALUES('priced','default',1,TRUE);UPDATE tokens SET remain_quota=3359744,used_quota=6719488 WHERE id=11")
+        .execute(&fixture.pg).await.unwrap();
+    let cached: BTreeMap<String, String> = sqlx::query_as("SELECT key,value FROM options")
+        .fetch_all(&fixture.pg)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+    let stale_a = Arc::new(ProcessRuntimeOptions::new(cached.clone()));
+    let mut stale_b_options = cached;
+    stale_b_options.insert("PublicCreditsPerUSD".into(), "99999".into());
+    let stale_b = Arc::new(ProcessRuntimeOptions::new(stale_b_options));
+    let apps = [stale_a.clone(), stale_b.clone()].map(|runtime| {
+        router(
+            TokenQueryState::new(fixture.pg.clone(), Arc::new(Allowed::default()))
+                .with_runtime_options(runtime),
+        )
+    });
+    let before = fixture.ledger_snapshot().await;
+    let mut prior_price = None;
+    for public in [100_000, 200_000] {
+        sqlx::query("UPDATE options SET value=$1 WHERE key='PublicCreditsPerUSD'")
+            .bind(public.to_string())
+            .execute(&fixture.pg)
+            .await
+            .unwrap();
+        for app in &apps {
+            let response = app
+                .clone()
+                .oneshot(request("/v1/usage", "Bearer query-key"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let usage = body(response).await;
+            assert_eq!(usage["remaining"], 1.0);
+            assert_eq!(usage["used_total"], 2.0);
+            assert_eq!(usage["public_credit_balance"], public.to_string());
+            assert_eq!(usage["public_credit_used"], (public * 2).to_string());
+            assert_eq!(usage["public_credits_per_usd_exact"], public.to_string());
+            assert_eq!(usage["ledger_quota_per_usd_exact"], "3359744");
+            assert_eq!(usage["quota_unit"], "LEDGER_QUOTA");
+            let response = app
+                .clone()
+                .oneshot(request("/v1/pricing?model=priced", "Bearer query-key"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let price = body(response).await;
+            assert_eq!(price["pricing_currency"], "USD");
+            assert_eq!(price["public_credits_per_usd_exact"], public.to_string());
+            assert_eq!(price["ledger_quota_per_usd_exact"], "3359744");
+            if let Some(prior) = &prior_price {
+                assert_eq!(prior, &price["data"]);
+            }
+            prior_price = Some(price["data"].clone());
+        }
+    }
+    assert_eq!(stale_a.snapshot().await["PublicCreditsPerUSD"], "100000");
+    assert_eq!(stale_b.snapshot().await["PublicCreditsPerUSD"], "99999");
+    assert_eq!(before, fixture.ledger_snapshot().await);
+    fixture.cleanup().await;
+}
+use serde_json::{Value, json, value::RawValue};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{
+    collections::BTreeMap,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -41,7 +111,38 @@ fn request(path: &str, authorization: &str) -> Request<Body> {
     request
 }
 async fn body(response: axum::response::Response) -> Value {
-    serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap()).unwrap()
+    serde_json::from_str(&raw_body(response).await).unwrap()
+}
+async fn raw_body(response: axum::response::Response) -> String {
+    String::from_utf8(
+        to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+type RawObject = BTreeMap<String, Box<RawValue>>;
+fn raw_prices(entries: &str) -> BTreeMap<(String, String, String), String> {
+    let entries: Vec<RawObject> = serde_json::from_str(entries).unwrap();
+    let mut prices = BTreeMap::new();
+    for entry in entries {
+        let model: String = serde_json::from_str(entry["model"].get()).unwrap();
+        let group: String = serde_json::from_str(entry["group"].get()).unwrap();
+        for field in ["input_price", "output_price", "request_price"] {
+            if let Some(value) = entry.get(field) {
+                prices.insert(
+                    (model.clone(), group.clone(), field.into()),
+                    value.get().to_owned(),
+                );
+            }
+        }
+    }
+    prices
+}
+fn response_prices(response: &str) -> BTreeMap<(String, String, String), String> {
+    let response: RawObject = serde_json::from_str(response).unwrap();
+    raw_prices(response["data"].get())
 }
 
 #[tokio::test]
@@ -112,7 +213,7 @@ impl Fixture {
             .connect(&url)
             .await
             .unwrap();
-        sqlx::raw_sql("CREATE TABLE users(id BIGINT PRIMARY KEY,status BIGINT,quota BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE tokens(id BIGINT PRIMARY KEY,user_id BIGINT,key TEXT,status BIGINT,expired_time BIGINT,allow_ips TEXT,remain_quota BIGINT,used_quota BIGINT,unlimited_quota BOOLEAN,oauth_managed BOOLEAN,accessed_time BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE logs(user_id BIGINT,token_id BIGINT,type BIGINT,quota BIGINT,created_at BIGINT);CREATE TABLE options(key TEXT PRIMARY KEY,value TEXT);INSERT INTO users VALUES(1,1,999999,NULL);INSERT INTO tokens VALUES(11,1,'query-key',1,-1,'',8850,12080,FALSE,FALSE,17,NULL);INSERT INTO options VALUES('QuotaPerUnit','100'),('LogConsumeEnabled','true');").execute(&pg).await.unwrap();
+        sqlx::raw_sql("CREATE TABLE users(id BIGINT PRIMARY KEY,status BIGINT,quota BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE tokens(id BIGINT PRIMARY KEY,user_id BIGINT,key TEXT,status BIGINT,expired_time BIGINT,allow_ips TEXT,remain_quota BIGINT,used_quota BIGINT,unlimited_quota BOOLEAN,oauth_managed BOOLEAN,accessed_time BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE logs(user_id BIGINT,token_id BIGINT,type BIGINT,quota BIGINT,created_at BIGINT);CREATE TABLE options(key TEXT PRIMARY KEY,value TEXT);INSERT INTO users VALUES(1,1,999999,NULL);INSERT INTO tokens VALUES(11,1,'query-key',1,-1,'',8850,12080,FALSE,FALSE,17,NULL);INSERT INTO options VALUES('QuotaPerUnit','100'),('CreditsPerUSD','700'),('LegacyPricingQuotaPerUnit','100'),('USDExchangeRate','7'),('TopUpPlatformUnitsPerCNY','1'),('LogConsumeEnabled','true');").execute(&pg).await.unwrap();
         Self { admin, pg, schema }
     }
     fn app(&self) -> axum::Router {
@@ -130,6 +231,11 @@ impl Fixture {
         self.admin.close().await;
     }
 
+    async fn ledger_snapshot(&self) -> Value {
+        sqlx::query_scalar("SELECT jsonb_build_object('tokens',(SELECT jsonb_agg(to_jsonb(tokens) ORDER BY id) FROM tokens),'users',(SELECT jsonb_agg(to_jsonb(users) ORDER BY id) FROM users))")
+            .fetch_one(&self.pg).await.unwrap()
+    }
+
     async fn pricing_schema(&self) {
         sqlx::raw_sql("ALTER TABLE users ADD COLUMN \"group\" TEXT DEFAULT 'default',ADD COLUMN role BIGINT DEFAULT 1,ADD COLUMN trust_level_override BIGINT DEFAULT 2,ADD COLUMN created_at BIGINT DEFAULT 0,ADD COLUMN last_api_activity_at BIGINT DEFAULT 0,ADD COLUMN console_activated_at BIGINT DEFAULT 0;ALTER TABLE tokens ADD COLUMN \"group\" TEXT DEFAULT '',ADD COLUMN auto_groups TEXT DEFAULT '',ADD COLUMN model_limits_enabled BOOLEAN DEFAULT FALSE,ADD COLUMN model_limits TEXT DEFAULT '';CREATE TABLE models(id BIGSERIAL PRIMARY KEY,model_name TEXT,status BIGINT DEFAULT 1,name_rule BIGINT DEFAULT 0,deleted_at TIMESTAMPTZ);CREATE TABLE abilities(model TEXT,\"group\" TEXT,channel_id BIGINT,enabled BOOLEAN);CREATE TABLE top_ups(user_id BIGINT,status TEXT,credited_quota BIGINT,amount BIGINT,settled_amount_micros BIGINT,expected_amount_micros BIGINT,money DOUBLE PRECISION,payment_provider TEXT,payment_method TEXT,settlement_currency TEXT,create_time BIGINT,complete_time BIGINT);")
             .execute(&self.pg).await.unwrap();
@@ -141,11 +247,35 @@ impl Fixture {
 async fn configured_token_prices_match_current_go_reference_live_maps_and_limits() {
     let fixture = Fixture::new().await;
     fixture.pricing_schema().await;
-    let oracle: Value = if let Ok(path) = std::env::var("LMM_TOKEN_PRICING_GO_ORACLE_OUTPUT") {
-        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    let oracle_text = if let Ok(path) = std::env::var("LMM_TOKEN_PRICING_GO_ORACLE_OUTPUT") {
+        std::fs::read_to_string(path).unwrap()
     } else {
-        serde_json::from_str(include_str!("fixtures/token-pricing-current-go.json")).unwrap()
+        include_str!("fixtures/token-pricing-current-go.json").to_owned()
     };
+    let oracle: Value = serde_json::from_str(&oracle_text).unwrap();
+    let raw_oracle: RawObject = serde_json::from_str(&oracle_text).unwrap();
+    let raw_cases: Vec<RawObject> = serde_json::from_str(raw_oracle["cases"].get()).unwrap();
+    assert_eq!(oracle["catalog"].as_array().unwrap().len(), 10);
+    assert_eq!(oracle["float_json"].as_array().unwrap().len(), 14);
+    assert_eq!(oracle["cases"].as_array().unwrap().len(), 6);
+    assert_eq!(oracle["options"]["CreditsPerUSD"], "3500000");
+    assert_eq!(oracle["options"]["LegacyPricingQuotaPerUnit"], "500000");
+    let first = oracle["cases"][0]["entries"].as_array().unwrap();
+    let literal = |model: &str| first.iter().find(|row| row["model"] == model).unwrap();
+    // Independent amounts for initial FX=7, Q=500000, K=3500000.
+    // The reference exporter cannot silently bless an empty or fake-USD oracle.
+    let literal_prices = raw_prices(raw_cases[0]["entries"].get());
+    let price =
+        |model: &str, field: &str| &literal_prices[&(model.into(), "default".into(), field.into())];
+    assert_eq!(price("gpt-4o", "input_price"), "0.3464285714285714");
+    assert_eq!(price("gpt-4o", "output_price"), "1.0392857142857141");
+    assert_eq!(literal("gpt-4o")["model_ratio"], 1.25);
+    assert_eq!(literal("gpt-4o")["cache_ratio"], 0.5);
+    assert_eq!(price("image", "request_price"), "0.005542857142857143");
+    assert_eq!(
+        literal("tier")["billing_expression"],
+        "(p * 2 + c * 4) / (7)"
+    );
     for (key, value) in oracle["options"].as_object().unwrap() {
         sqlx::query("INSERT INTO options(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").bind(key).bind(value.as_str().unwrap()).execute(&fixture.pg).await.unwrap();
     }
@@ -165,7 +295,14 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
                 .unwrap();
         }
     }
-    for case in oracle["cases"].as_array().unwrap() {
+    for (case_index, case) in oracle["cases"].as_array().unwrap().iter().enumerate() {
+        let expected_count = match case["name"].as_str().unwrap() {
+            "default-discount" | "group-override" => 7,
+            "two-groups" => 15,
+            "model-limit" | "wildcard-limit" | "expression" => 1,
+            name => panic!("unexpected oracle case {name}"),
+        };
+        assert_eq!(case["entries"].as_array().unwrap().len(), expected_count);
         let group = case["user_group"].as_str().unwrap();
         let groups = case["groups"].as_array().unwrap();
         let discount = case["discount"].as_f64().unwrap();
@@ -199,6 +336,7 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
             .map(|values| values.keys().cloned().collect::<Vec<_>>().join(","))
             .unwrap_or_default();
         sqlx::query("UPDATE tokens SET \"group\"=$1,auto_groups=$2,model_limits_enabled=$3,model_limits=$4 WHERE id=11").bind(token_group).bind(auto).bind(case["limited"].as_bool().unwrap()).bind(limits).execute(&fixture.pg).await.unwrap();
+        let ledger_before = fixture.ledger_snapshot().await;
         let path = format!("/v1/pricing?model={}", case["requested"].as_str().unwrap());
         let response = fixture
             .app()
@@ -207,8 +345,19 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK, "{case}");
         assert_eq!(response.headers()["cache-control"], "no-store");
-        let snapshot = body(response).await;
+        let snapshot_text = raw_body(response).await;
+        let snapshot: Value = serde_json::from_str(&snapshot_text).unwrap();
+        // The default Value float decoder can collapse adjacent f64 values.
+        // Preserve and compare every wire USD amount before decoding it.
+        assert_eq!(
+            response_prices(&snapshot_text),
+            raw_prices(raw_cases[case_index]["entries"].get()),
+            "exact Go/Rust USD numbers for {}",
+            case["name"]
+        );
         assert_eq!(snapshot["scope"], "token");
+        assert_eq!(snapshot["pricing_schema_version"], 2);
+        assert_eq!(snapshot["pricing_currency"], "USD");
         assert_eq!(snapshot["price_basis"], "configured_base_rates");
         assert_eq!(snapshot["final_cost_depends_on_usage"], true);
         let mut entries = snapshot["data"].as_array().unwrap().clone();
@@ -224,8 +373,18 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
             "Go/Rust pricing case {}",
             case["name"]
         );
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry["pricing_schema_version"] == 2 && entry["currency"] == "USD")
+        );
+        assert_eq!(ledger_before, fixture.ledger_snapshot().await);
     }
     sqlx::query("UPDATE tokens SET \"group\"='default',model_limits_enabled=FALSE WHERE id=11")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET \"group\"='default',trust_level_override=1 WHERE id=1")
         .execute(&fixture.pg)
         .await
         .unwrap();
@@ -233,7 +392,7 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
         .execute(&fixture.pg)
         .await
         .unwrap();
-    let changed = body(
+    let changed_text = raw_body(
         fixture
             .app()
             .oneshot(request("/v1/pricing?model=gpt-4o", "Bearer query-key"))
@@ -241,7 +400,30 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
             .unwrap(),
     )
     .await;
+    let changed: Value = serde_json::from_str(&changed_text).unwrap();
     assert_eq!(changed["data"][0]["model_ratio"], 2.5);
+    sqlx::raw_sql("UPDATE options SET value='9.9' WHERE key='USDExchangeRate';UPDATE options SET value='2.4' WHERE key='TopUpPlatformUnitsPerCNY'").execute(&fixture.pg).await.unwrap();
+    let after_fx_text = raw_body(
+        fixture
+            .app()
+            .oneshot(request("/v1/pricing?model=gpt-4o", "Bearer query-key"))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let after_fx: Value = serde_json::from_str(&after_fx_text).unwrap();
+    assert_eq!(
+        changed["data"], after_fx["data"],
+        "USD prices use frozen K, never live FX or recharge promotions"
+    );
+    assert_eq!(
+        response_prices(&changed_text),
+        response_prices(&after_fx_text)
+    );
+    assert_eq!(
+        response_prices(&after_fx_text)[&("gpt-4o".into(), "default".into(), "input_price".into())],
+        "0.7142857142857143"
+    );
     fixture.cleanup().await;
 }
 
@@ -338,6 +520,102 @@ async fn token_pricing_checks_permissions_before_query_validation_and_never_muta
             .status(),
         StatusCode::NOT_FOUND
     );
+    // Auth/query precedence above remains unchanged; currency failures must
+    // never become labelled USD quotes or mutate credentials and balances.
+    let before: Value = sqlx::query_scalar("SELECT jsonb_build_object('tokens',(SELECT jsonb_agg(to_jsonb(tokens)) FROM tokens),'users',(SELECT jsonb_agg(to_jsonb(users)) FROM users))")
+        .fetch_one(&fixture.pg).await.unwrap();
+    for (key, value) in [
+        ("CreditsPerUSD", None),
+        ("LegacyPricingQuotaPerUnit", None),
+        ("CreditsPerUSD", Some("0")),
+        ("CreditsPerUSD", Some("-1")),
+        ("CreditsPerUSD", Some("1e-80")),
+        ("CreditsPerUSD", Some("NaN")),
+        ("CreditsPerUSD", Some("9007199254740992")),
+        ("LegacyPricingQuotaPerUnit", Some("0")),
+        ("LegacyPricingQuotaPerUnit", Some("101")),
+        ("QuotaPerUnit", Some("NaN")),
+    ] {
+        match value {
+            Some(value) => {
+                sqlx::query("UPDATE options SET value=$2 WHERE key=$1")
+                    .bind(key)
+                    .bind(value)
+                    .execute(&fixture.pg)
+                    .await
+                    .unwrap();
+            }
+            None => {
+                sqlx::query("DELETE FROM options WHERE key=$1")
+                    .bind(key)
+                    .execute(&fixture.pg)
+                    .await
+                    .unwrap();
+            }
+        }
+        for (path, status) in [
+            ("/v1/pricing", StatusCode::SERVICE_UNAVAILABLE),
+            ("/v1/usage", StatusCode::INTERNAL_SERVER_ERROR),
+        ] {
+            let response = fixture
+                .app()
+                .oneshot(request(path, "Bearer query-key"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status, "{path} {key}={value:?}");
+            let error = body(response).await;
+            assert!(error.get("data").is_none() && error.get("currency").is_none());
+        }
+        let after: Value = sqlx::query_scalar("SELECT jsonb_build_object('tokens',(SELECT jsonb_agg(to_jsonb(tokens)) FROM tokens),'users',(SELECT jsonb_agg(to_jsonb(users)) FROM users))")
+            .fetch_one(&fixture.pg).await.unwrap();
+        assert_eq!(before, after);
+        let original = if key == "CreditsPerUSD" { "700" } else { "100" };
+        sqlx::query(
+            "INSERT INTO options VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
+        )
+        .bind(key)
+        .bind(original)
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    }
+    sqlx::raw_sql("UPDATE options SET value='3500000' WHERE key='CreditsPerUSD';UPDATE options SET value='500000' WHERE key IN ('LegacyPricingQuotaPerUnit','QuotaPerUnit');INSERT INTO models(model_name) VALUES('vendor/priced');INSERT INTO abilities VALUES('vendor/priced','default',1,TRUE);INSERT INTO options VALUES('ModelRatio','{\"vendor/priced\":1}'),('ModelPrice','{}') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").execute(&fixture.pg).await.unwrap();
+    for (model, completion, status) in [
+        ("1", "-1", StatusCode::SERVICE_UNAVAILABLE),
+        ("1", "5e-324", StatusCode::SERVICE_UNAVAILABLE),
+        ("5e-324", "1", StatusCode::SERVICE_UNAVAILABLE),
+        ("1e-80", "1", StatusCode::SERVICE_UNAVAILABLE),
+        ("1", "0", StatusCode::OK),
+        ("0", "1", StatusCode::OK),
+    ] {
+        sqlx::query("UPDATE options SET value=$1 WHERE key='ModelRatio'")
+            .bind(format!("{{\"vendor/priced\":{model}}}"))
+            .execute(&fixture.pg)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO options VALUES('CompletionRatio',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").bind(format!("{{\"vendor/priced\":{completion}}}")).execute(&fixture.pg).await.unwrap();
+        let ledger = fixture.ledger_snapshot().await;
+        let response = fixture
+            .app()
+            .oneshot(request(
+                "/v1/pricing?model=vendor/priced",
+                "Bearer query-key",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            status,
+            "model={model},completion={completion}"
+        );
+        let quote = body(response).await;
+        if status == StatusCode::OK {
+            assert_eq!(quote["data"][0]["output_price"], 0);
+        } else {
+            assert!(quote.get("data").is_none());
+        }
+        assert_eq!(ledger, fixture.ledger_snapshot().await);
+    }
     fixture.cleanup().await;
 }
 
@@ -346,7 +624,7 @@ async fn token_pricing_checks_permissions_before_query_validation_and_never_muta
 async fn token_pricing_uses_shared_credited_trust_facts_and_excludes_internal_credits() {
     let fixture = Fixture::new().await;
     fixture.pricing_schema().await;
-    sqlx::raw_sql("UPDATE users SET trust_level_override=NULL;UPDATE options SET value='1000' WHERE key='QuotaPerUnit';INSERT INTO options VALUES('ModelRatio','{\"priced\":1}'),('ModelPrice','{}');INSERT INTO models(model_name) VALUES('priced');INSERT INTO abilities VALUES('priced','default',1,TRUE)").execute(&fixture.pg).await.unwrap();
+    sqlx::raw_sql("UPDATE users SET trust_level_override=NULL;UPDATE options SET value='1000' WHERE key IN ('QuotaPerUnit','LegacyPricingQuotaPerUnit');UPDATE options SET value='7000' WHERE key='CreditsPerUSD';INSERT INTO options VALUES('ModelRatio','{\"priced\":1}'),('ModelPrice','{}');INSERT INTO models(model_name) VALUES('priced');INSERT INTO abilities VALUES('priced','default',1,TRUE)").execute(&fixture.pg).await.unwrap();
     let now = chrono::Utc::now().timestamp();
     for (provider, method, credit) in [("stripe", "stripe", 500000_i64), ("epay", "ldc", 9999999)] {
         sqlx::query(
@@ -369,7 +647,7 @@ async fn token_pricing_uses_shared_credited_trust_facts_and_excludes_internal_cr
     )
     .await;
     assert_eq!(quote["data"][0]["trust_discount_ratio"], 0.94);
-    assert_eq!(quote["data"][0]["input_price"], 940.0);
+    assert_eq!(quote["data"][0]["input_price"], 134.28571428571428);
     sqlx::query("UPDATE top_ups SET status='refunded' WHERE payment_provider='stripe'")
         .execute(&fixture.pg)
         .await
@@ -427,10 +705,7 @@ async fn persisted_usage_is_exact_token_scoped_utc_and_never_changes_credentials
             .await
             .unwrap();
     }
-    let before: Value = sqlx::query_scalar("SELECT to_jsonb(tokens) FROM tokens WHERE id=11")
-        .fetch_one(&fixture.pg)
-        .await
-        .unwrap();
+    let before = fixture.ledger_snapshot().await;
     let response = fixture
         .app()
         .oneshot(request("/v1/usage", "Bearer sk-query-key"))
@@ -442,14 +717,14 @@ async fn persisted_usage_is_exact_token_scoped_utc_and_never_changes_credentials
     assert_eq!(snapshot["valid"], true);
     assert_eq!(snapshot["currency"], "USD");
     assert_eq!(snapshot["scope"], "token");
-    assert_eq!(snapshot["remaining"], 88.5);
-    assert_eq!(snapshot["used_total"], 120.8);
-    assert_eq!(snapshot["total_quota"], 209.3);
+    assert_eq!(snapshot["remaining"], 12.642857142857142);
+    assert_eq!(snapshot["used_total"], 17.257142857142856);
+    assert_eq!(snapshot["total_quota"], 29.9);
     let read_at = snapshot["updated_at"].as_i64().unwrap();
     assert_eq!(
         snapshot["used_today"],
         if read_at - read_at.rem_euclid(86400) == start {
-            json!(2.3)
+            json!(0.3285714285714286)
         } else {
             json!(0.0)
         }
@@ -457,11 +732,24 @@ async fn persisted_usage_is_exact_token_scoped_utc_and_never_changes_credentials
     assert_eq!(snapshot["used_today_source"], "retained_consumption_logs");
     assert_eq!(snapshot["day_timezone"], "UTC");
     assert!(!snapshot.to_string().contains("query-key"));
-    let after: Value = sqlx::query_scalar("SELECT to_jsonb(tokens) FROM tokens WHERE id=11")
-        .fetch_one(&fixture.pg)
-        .await
-        .unwrap();
+    let after = fixture.ledger_snapshot().await;
     assert_eq!(before, after);
+    sqlx::raw_sql("UPDATE options SET value='9.9' WHERE key='USDExchangeRate';UPDATE options SET value='2.4' WHERE key='TopUpPlatformUnitsPerCNY'").execute(&fixture.pg).await.unwrap();
+    let after_fx = body(
+        fixture
+            .app()
+            .oneshot(request("/v1/usage", "Bearer query-key"))
+            .await
+            .unwrap(),
+    )
+    .await;
+    for field in ["remaining", "used_total", "total_quota"] {
+        assert_eq!(
+            snapshot[field], after_fx[field],
+            "USD usage is fixed by K despite FX and recharge promotion changes"
+        );
+    }
+    assert_eq!(after_fx["remaining"], 12.642857142857142);
     sqlx::query("UPDATE tokens SET unlimited_quota=TRUE,status=4 WHERE id=11")
         .execute(&fixture.pg)
         .await

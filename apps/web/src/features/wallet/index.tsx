@@ -25,6 +25,7 @@ import { ConsoleDisclosure } from '@/components/layout/components/console-disclo
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { useStatus } from '@/hooks/use-status'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { isLocalPreview } from '@/lib/local-preview'
 import { platformUnitsToUsd } from '@/lib/payment-pricing'
@@ -39,7 +40,7 @@ import {
   useSystemConfigStore,
 } from '@/stores/system-config-store'
 
-import { isApiSuccess, validateDiscountCode } from './api'
+import { isApiSuccess, validateCreditDiscountCode } from './api'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
@@ -60,12 +61,17 @@ import {
   useWaffoPayment,
   useWaffoPancakePayment,
 } from './hooks'
-import { useCheckoutScope } from './hooks/use-checkout-scope'
+import { PaymentCurrencyProvider } from './hooks/payment-currency-provider'
+import {
+  useCheckoutOwnerKey,
+  useCheckoutScope,
+} from './hooks/use-checkout-scope'
 import { useTopupCloudSuccess } from './hooks/use-topup-cloud-success'
 import {
   getDefaultPaymentType,
   getTopupAvailability,
   getMinTopupAmount,
+  getDedicatedPaymentLimits,
   isPaymentMethodCurrencySupported,
   dispatchSelectedPayment,
 } from './lib'
@@ -104,12 +110,38 @@ const PAYMENT_REFRESH_INTERVAL_MS = 3_000
 const PAYMENT_REFRESH_DEADLINE_MS = 2 * 60 * 1_000
 
 export function Wallet(props: WalletProps) {
-  const { key } = useCheckoutScope()
-  return <WalletCheckout key={key} {...props} />
+  const ownerKey = useCheckoutOwnerKey()
+  return (
+    <PaymentCurrencyProvider key={ownerKey}>
+      <WalletAmountDraft {...props} />
+    </PaymentCurrencyProvider>
+  )
 }
 
-function WalletCheckout(props: WalletProps) {
+function WalletAmountDraft(props: WalletProps) {
+  const [rawTopupDraft, setRawTopupDraft] = useState<number | null>(null)
+  const { key } = useCheckoutScope()
+  // Only the raw selection survives a preference/locale change. Checkout,
+  // quote, coupon authorization and confirmation still use the full scope.
+  return (
+    <WalletCheckout
+      key={key}
+      {...props}
+      rawTopupDraft={rawTopupDraft}
+      onRawTopupDraftChange={setRawTopupDraft}
+    />
+  )
+}
+
+function WalletCheckout(
+  props: WalletProps & {
+    rawTopupDraft: number | null
+    onRawTopupDraftChange: (amount: number) => void
+  }
+) {
+  const { rawTopupDraft, onRawTopupDraftChange } = props
   const { t, i18n } = useTranslation()
+  const currency = useWalletCurrency()
   const { isCurrent } = useCheckoutScope()
   const authUser = useAuthStore((state) => state.auth.user)
   const { refreshUser } = useAuthUserRefresh()
@@ -124,12 +156,13 @@ function WalletCheckout(props: WalletProps) {
       ? configuredQuotaPerUnit
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const developerAccessGranted = !localPreview && isConsoleActivated(authUser)
-  const [enteredTopupAmount, setTopupAmount] = useState<number | null>(() =>
+  const [legacyPrefill] = useState<number | null>(() =>
     getWalletTopupPrefill(
       typeof window === 'undefined' ? '' : window.location.search,
       props.initialTopupAmount
     )
   )
+  const [enteredTopupAmount, setTopupAmount] = useState<number | null>(null)
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod>()
@@ -218,6 +251,9 @@ function WalletCheckout(props: WalletProps) {
   )
   const {
     amount: paymentAmount,
+    creditedQuota,
+    paymentCurrency,
+    paymentDiscount,
     calculating,
     processing,
     lastQuoteErrorRef,
@@ -332,16 +368,32 @@ function WalletCheckout(props: WalletProps) {
   // Initialize topup amount when topup info is loaded
   const topupAmountInitializedRef = useRef(false)
   useEffect(() => {
-    if (topupInfo && !topupAmountInitializedRef.current) {
+    if (
+      topupInfo &&
+      currency.config.currencyUnit === 'credit' &&
+      !topupAmountInitializedRef.current
+    ) {
       if (enteredTopupAmount !== null) return
       const defaultPaymentType = topupAvailability.defaultQuotedType
       if (!defaultPaymentType) return
 
-      topupAmountInitializedRef.current = true
       const minTopup = getMinTopupAmount(topupInfo)
-      const initialAmount = Math.max(10, minTopup)
+      if (!Number.isSafeInteger(minTopup)) return
+      topupAmountInitializedRef.current = true
+      const prefill =
+        legacyPrefill === null
+          ? currency.legacyAmountToQuota(10)
+          : currency.legacyAmountToQuota(legacyPrefill)
+      const initialAmount =
+        rawTopupDraft !== null
+          ? rawTopupDraft
+          : Number.isSafeInteger(prefill) && prefill > 0
+            ? Math.max(prefill, minTopup)
+            : minTopup
       setTopupAmount(initialAmount)
-      // Calculate initial payment amount with default payment type
+      onRawTopupDraftChange(initialAmount)
+      if (legacyPrefill !== null && rawTopupDraft === null) return
+      // Requote the retained raw selection within the new checkout scope.
       calculatePaymentAmount(
         initialAmount,
         defaultPaymentType,
@@ -351,9 +403,13 @@ function WalletCheckout(props: WalletProps) {
   }, [
     topupInfo,
     topupAvailability,
+    currency,
+    legacyPrefill,
     enteredTopupAmount,
     calculatePaymentAmount,
     appliedDiscountCode,
+    rawTopupDraft,
+    onRawTopupDraftChange,
   ])
 
   // Get current payment type (selected or default)
@@ -390,7 +446,7 @@ function WalletCheckout(props: WalletProps) {
       setDiscountApplying(true)
       let applied = false
       try {
-        const result = await validateDiscountCode({
+        const result = await validateCreditDiscountCode({
           code,
           amount,
           payment_method: paymentType,
@@ -476,8 +532,8 @@ function WalletCheckout(props: WalletProps) {
   useEffect(() => {
     const candidateCode = candidateDiscountCode || discountCodeFromUrl
     if (!candidateCode || !topupInfo) return
-    if (topupAmount < getMinTopupAmount(topupInfo)) return
     const paymentType = getCurrentPaymentType()
+    if (topupAmount < getMinTopupAmount(topupInfo, paymentType)) return
     if (!paymentType) return
     const previous = discountUrlValidationRef.current
     if (
@@ -518,6 +574,7 @@ function WalletCheckout(props: WalletProps) {
       amount
     )
     setTopupAmount(amount)
+    onRawTopupDraftChange(amount)
     setSelectedPreset(preset)
     if (nextDiscount.code !== appliedDiscountCode) {
       setAppliedDiscountCode(nextDiscount.code)
@@ -530,7 +587,7 @@ function WalletCheckout(props: WalletProps) {
       discountCodeFromUrl ||
       appliedDiscountCode ||
       (discountApplying ? discountCode.trim() : '')
-    if (candidateCode && amount >= getMinTopupAmount(topupInfo)) {
+    if (candidateCode && amount >= getMinTopupAmount(topupInfo, paymentType)) {
       const isFromUrl =
         discountCodeOrigin === 'url' &&
         Boolean(candidateDiscountCode || discountCodeFromUrl)
@@ -622,10 +679,20 @@ function WalletCheckout(props: WalletProps) {
         revision,
       }
     }
+    const limits = getDedicatedPaymentLimits(topupInfo, PAYMENT_TYPES.WAFFO)
+    if (
+      !limits ||
+      topupAmount < limits.minimum ||
+      (limits.maximum !== null && topupAmount > limits.maximum)
+    ) {
+      return
+    }
     const loadingKey = `waffo-${index}`
     setSelectedPaymentMethod({
       name: method.name,
       type: PAYMENT_TYPES.WAFFO,
+      min_topup_credit: limits.minimum,
+      max_topup_credit: limits.maximum ?? undefined,
       icon: method.icon,
       settlement_unit: topupInfo?.waffo_currency || 'USD',
       unit_price: topupInfo?.waffo_unit_price,
@@ -694,7 +761,7 @@ function WalletCheckout(props: WalletProps) {
 
     try {
       // Validate minimum topup
-      const minTopup = getMinTopupAmount(topupInfo)
+      const minTopup = getMinTopupAmount(topupInfo, method.type)
       if (topupAmount < minTopup) {
         return
       }
@@ -749,6 +816,23 @@ function WalletCheckout(props: WalletProps) {
       return
     }
 
+    if (
+      selectedPaymentMethod.type === PAYMENT_TYPES.STRIPE ||
+      selectedPaymentMethod.type === PAYMENT_TYPES.WAFFO ||
+      selectedPaymentMethod.type === PAYMENT_TYPES.WAFFO_PANCAKE
+    ) {
+      const limits = getDedicatedPaymentLimits(
+        topupInfo,
+        selectedPaymentMethod.type
+      )
+      if (
+        !limits ||
+        topupAmount < limits.minimum ||
+        (limits.maximum !== null && topupAmount > limits.maximum)
+      ) {
+        return
+      }
+    }
     setPaymentFeedback({ tone: 'default', message: t('Submitting...') })
 
     if (!isPaymentMethodCurrencySupported(selectedPaymentMethod.type)) {
@@ -766,7 +850,12 @@ function WalletCheckout(props: WalletProps) {
     }
 
     const revision = paymentInputRevisionRef.current
-    prepareTopupCloud(user?.quota ?? 0, topupAmount)
+    // This legacy projection only sizes the success animation. The order
+    // identity and all requests below keep the selected raw integer amount.
+    prepareTopupCloud(
+      user?.quota ?? 0,
+      currency.quotaToLegacyAmount(topupAmount)
+    )
     try {
       const success = await dispatchSelectedPayment(
         selectedPaymentMethod,
@@ -936,6 +1025,8 @@ function WalletCheckout(props: WalletProps) {
     if (!selectedCreemProduct) return
 
     setPaymentFeedback({ tone: 'default', message: t('Submitting...') })
+    // This legacy projection only sizes the success animation. The order
+    // identity and all requests below keep the selected raw integer amount.
     prepareTopupCloud(
       user?.quota ?? 0,
       selectedCreemProduct.quota / quotaPerUnit
@@ -1035,6 +1126,8 @@ function WalletCheckout(props: WalletProps) {
                   topupAmount={topupAmount}
                   onTopupAmountChange={handleTopupAmountChange}
                   paymentAmount={paymentAmount}
+                  paymentCurrency={paymentCurrency}
+                  paymentDiscount={paymentDiscount}
                   settlementQuote={settlementQuote}
                   selectedPaymentMethod={selectedPaymentMethod}
                   calculating={calculating || discountApplying}
@@ -1056,6 +1149,10 @@ function WalletCheckout(props: WalletProps) {
                   onRedeem={handleRedeem}
                   redeeming={redeeming}
                   discountCode={discountCode}
+                  discountApplied={
+                    Boolean(appliedDiscountCode) && discountPercent !== null
+                  }
+                  appliedDiscountCode={appliedDiscountCode}
                   discountCodeFromUrl={urlDiscountLocked}
                   onDiscountCodeChange={(value) => {
                     if (urlDiscountLocked) return
@@ -1153,11 +1250,14 @@ function WalletCheckout(props: WalletProps) {
       </SectionPageLayout>
 
       <PaymentConfirmDialog
+        creditedQuota={creditedQuota}
         open={confirmDialogOpen}
         onOpenChange={setConfirmDialogOpen}
         onConfirm={handlePaymentConfirm}
         topupAmount={topupAmount}
         paymentAmount={paymentAmount}
+        paymentCurrency={paymentCurrency}
+        paymentDiscount={paymentDiscount}
         settlementQuote={settlementQuote}
         paymentMethod={selectedPaymentMethod}
         calculating={calculating || discountApplying}

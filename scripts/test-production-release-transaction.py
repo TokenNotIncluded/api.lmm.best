@@ -220,6 +220,42 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn('run: python3 -B scripts/test-production-release-transaction.py', text)
         self.assertNotIn('test -f scripts/test-production-release-transaction.py', text)
 
+    def test_live_browser_fixture_declares_fixed_credit_unit_and_preserves_auth(self):
+        helper = SCRIPT.parent / 'ci/qualify-live-server.sh'
+        definitions, _ = helper.read_text().split('\nwait_ready\n', 1)
+        with tempfile.TemporaryDirectory(prefix='lmm-browser-contract-') as directory:
+            stub = '''
+curl() {
+  printf '%s\\0' "$@" > "$work/$method.argv"
+  printf '200'
+}
+'''
+            writes = '\n'.join(
+                f"request {method} /api/channel/ fixture-bearer '{{\"name\":\"fixture\"}}'\ntest \"$status\" = 200"
+                for method in ('POST', 'PUT', 'PATCH', 'DELETE')
+            )
+            result = subprocess.run(
+                ['bash'], input=definitions + stub + writes + '\nrequest GET /api/status fixture-bearer\n',
+                text=True, capture_output=True,
+                env={'PATH': '/usr/bin:/bin', 'LMM_QUALIFICATION_BACKEND': 'go',
+                     'LMM_QUALIFICATION_BASE_URL': 'http://qualification.test',
+                     'LMM_QUALIFICATION_WORK_DIR': directory},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for method in ('POST', 'PUT', 'PATCH', 'DELETE', 'GET'):
+                with self.subTest(method=method):
+                    arguments = (Path(directory) / f'{method}.argv').read_bytes().decode().split('\0')[:-1]
+                    headers = [arguments[index + 1] for index, argument in enumerate(arguments) if argument == '-H']
+                    self.assertIn('Authorization: Bearer fixture-bearer', headers)
+                    if method == 'GET':
+                        self.assertNotIn('Origin: http://qualification.test', headers)
+                        self.assertNotIn('X-LMM-Credit-Unit: 500000', headers)
+                    else:
+                        self.assertIn('Origin: http://qualification.test', headers)
+                        self.assertEqual(headers.count('X-LMM-Credit-Unit: 500000'), 1)
+                        self.assertIn('content-type: application/json', headers)
+                        self.assertEqual(arguments[arguments.index('--data-binary') + 1], '{"name":"fixture"}')
+
 
 class ProcessIntegrationTests(unittest.TestCase):
     def exercise(self, public_ok, operator_command="operator"):

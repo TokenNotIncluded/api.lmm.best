@@ -37,6 +37,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import {
   disableProfileShare,
@@ -72,6 +73,7 @@ import { registerProfileShareTranslations } from './share-i18n'
 
 export function ProfileSharePage() {
   const { t, i18n } = useTranslation()
+  const money = useWalletCurrency()
   registerProfileShareTranslations(i18n)
   const reduceMotion = useReducedMotion()
   const queryClient = useQueryClient()
@@ -135,7 +137,8 @@ export function ProfileSharePage() {
         ? buildBadgeURL(
             shareQuery.data.url,
             reduceMotion ? { ...options, animation: 'none' } : options,
-            i18n.resolvedLanguage || i18n.language
+            i18n.resolvedLanguage || i18n.language,
+            money.currency
           )
         : '',
     [
@@ -145,6 +148,7 @@ export function ProfileSharePage() {
       shareQuery.data?.url,
       i18n.resolvedLanguage,
       i18n.language,
+      money.currency,
     ]
   )
   useEffect(() => {

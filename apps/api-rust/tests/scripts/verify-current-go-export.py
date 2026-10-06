@@ -89,11 +89,15 @@ def verify(kind, source, shared_input=None):
             raise ValueError("current Go Stripe subscription export is missing the purchased snapshot")
         return 12
     if kind == "catalog":
-        if len(data.get("quotes", [])) != 60 or len(data.get("urls", [])) != 22:
-            raise ValueError("current Go AI directory export must contain 60 quotes and 22 URL vectors")
+        if len(data.get("quotes", [])) != 65 or len(data.get("urls", [])) != 22 or len(data.get("amounts", [])) != 9:
+            raise ValueError("current Go AI directory export must contain 65 quotes, 9 USD amounts, and 22 URL vectors")
+        if data.get("pricing_schema_version") != 2 or data.get("pricing_currency") != "USD":
+            raise ValueError("current Go AI directory export must use real USD pricing schema 2")
         if any(not isinstance(row, dict) or not {"bid_cents", "unit", "quota", "error"} <= row.keys() for row in data["quotes"]):
             raise ValueError("current Go AI directory quote vectors are incomplete")
-        return 82
+        if any(not isinstance(row, dict) or not {"charged_quota", "credits_per_usd", "charged_amount_usd"} <= row.keys() for row in data["amounts"]):
+            raise ValueError("current Go AI directory USD amount vectors are incomplete")
+        return 96
     if kind == "token-pricing":
         required = {"default-discount", "group-override", "two-groups", "model-limit", "wildcard-limit", "expression"}
         cases = data.get("cases", [])

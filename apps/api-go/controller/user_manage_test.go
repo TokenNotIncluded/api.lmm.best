@@ -22,6 +22,7 @@ import (
 
 func setupManageUserTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	installIdentityCurrencyFixture(t)
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousRedisEnabled := common.RedisEnabled
 	previousMainDatabaseType, previousLogDatabaseType := common.MainDatabaseType(), common.LogDatabaseType()

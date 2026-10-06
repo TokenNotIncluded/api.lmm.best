@@ -68,6 +68,7 @@ pub struct AIDirectoryAd {
     pub description: String,
     pub bid_cents: i64,
     pub charged_quota: i64,
+    pub charged_amount_usd: Option<String>,
     #[serde(skip)]
     pub request_id: String,
     pub status: String,
@@ -164,6 +165,8 @@ pub enum AdError {
     QuoteChanged,
     #[error("advertisement not found")]
     NotFound,
+    #[error("credit currency units are unavailable")]
+    CurrencyUnavailable,
     #[error("wallet quota would exceed the safe range")]
     WalletRange,
     #[error("advertisement storage unavailable")]
@@ -193,51 +196,202 @@ pub trait AIDirectoryStore: Send + Sync {
     }
 }
 
+/// Compatibility entry point for the frozen floating-rate oracle. Runtime
+/// charging uses the exact persisted decimal basis, never a binary float.
 pub fn charge_quota(bid: i64, rate: f64) -> Result<i64, AdError> {
+    charge_quota_with_credits_per_usd(bid, &rate.to_string())
+}
+
+struct CreditBasis {
+    digits: Vec<u8>,
+    exponent: i64,
+}
+
+fn multiply_digits(digits: &[u8], multiplier: u64) -> Vec<u8> {
+    let mut result = Vec::with_capacity(digits.len() + 8);
+    let mut carry = 0_u64;
+    for &digit in digits.iter().rev() {
+        let value = u64::from(digit) * multiplier + carry;
+        result.push((value % 10) as u8);
+        carry = value / 10;
+    }
+    while carry > 0 {
+        result.push((carry % 10) as u8);
+        carry /= 10;
+    }
+    result.reverse();
+    result
+}
+
+fn ceiling_wallet_credits(digits: &[u8], exponent: i64) -> Result<i64, AdError> {
+    let position = digits.len() as i64 + exponent;
+    if position <= 0 {
+        return Ok(1); // Every strictly positive sub-credit bid rounds up.
+    }
+    if position > 16 {
+        return Err(AdError::WalletRange);
+    }
+    let mut integer = 0_i64;
+    for i in 0..position as usize {
+        integer = integer * 10 + i64::from(digits.get(i).copied().unwrap_or(0));
+    }
+    if digits
+        .get(position as usize..)
+        .is_some_and(|tail| tail.iter().any(|d| *d != 0))
+    {
+        integer += 1;
+    }
+    if integer > MAX_WALLET_QUOTA {
+        return Err(AdError::WalletRange);
+    }
+    Ok(integer)
+}
+
+fn credit_basis(raw: &str) -> Result<CreditBasis, AdError> {
+    let raw = raw.trim().strip_prefix('+').unwrap_or(raw.trim());
+    if raw.is_empty() || raw.len() > 4096 {
+        return Err(AdError::CurrencyUnavailable);
+    }
+    let (mantissa, exponent) = match raw.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (
+            mantissa,
+            exponent
+                .parse::<i32>()
+                .map_err(|_| AdError::CurrencyUnavailable)? as i64,
+        ),
+        None => (raw, 0),
+    };
+    let mut digits = Vec::new();
+    let mut fraction = 0_i64;
+    let mut point = false;
+    for byte in mantissa.bytes() {
+        match byte {
+            b'.' if !point => point = true,
+            b'0'..=b'9' => {
+                digits.push(byte - b'0');
+                fraction += i64::from(point);
+            }
+            _ => return Err(AdError::CurrencyUnavailable),
+        }
+    }
+    let first = digits
+        .iter()
+        .position(|d| *d != 0)
+        .ok_or(AdError::CurrencyUnavailable)?;
+    digits.drain(..first);
+    let mut exponent = exponent - fraction;
+    while digits.last() == Some(&0) {
+        digits.pop();
+        exponent += 1;
+    }
+    // A basis itself must fit the same maximum domain as Go's validated K.
+    ceiling_wallet_credits(&digits, exponent).map_err(|_| AdError::CurrencyUnavailable)?;
+    Ok(CreditBasis { digits, exponent })
+}
+
+pub fn charge_quota_with_credits_per_usd(bid: i64, raw: &str) -> Result<i64, AdError> {
     if !(MIN_BID_CENTS..=MAX_BID_CENTS).contains(&bid) {
         return Err(AdError::InvalidBid);
     }
-    if !rate.is_finite() || rate <= 0.0 {
-        return Err(AdError::WalletRange);
+    let basis = credit_basis(raw)?;
+    if basis.digits != [5] || basis.exponent != 5 {
+        return Err(AdError::CurrencyUnavailable);
     }
-    // shopspring/decimal.NewFromFloat uses the shortest decimal representation,
-    // divides with its default 16 decimal places before taking the ceiling.
-    // Preserve that rounding step, including tiny positive rates rounding to 0.
-    let repr = rate.to_string();
-    let (mantissa, explicit_exponent) = repr
-        .split_once(['e', 'E'])
-        .map_or((repr.as_str(), 0_i32), |(m, e)| (m, e.parse().unwrap_or(0)));
-    let fraction = mantissa
-        .split_once('.')
-        .map_or(0, |(_, tail)| tail.len() as i32);
-    let digits = mantissa.replace('.', "");
-    let digits = digits.trim_start_matches('0');
-    let trimmed = digits.trim_end_matches('0');
-    let exponent = explicit_exponent - fraction + (digits.len() - trimmed.len()) as i32 - 2 + 16;
-    let coefficient = trimmed.parse::<u128>().map_err(|_| AdError::WalletRange)?;
-    let amount = coefficient
-        .checked_mul(bid as u128)
-        .ok_or(AdError::WalletRange)?;
-    let rounded = if exponent >= 0 {
-        amount
-            .checked_mul(
-                10_u128
-                    .checked_pow(exponent as u32)
-                    .ok_or(AdError::WalletRange)?,
-            )
-            .ok_or(AdError::WalletRange)?
-    } else if -exponent > 38 {
-        0
-    } else {
-        let divisor = 10_u128.pow((-exponent) as u32);
-        amount / divisor + u128::from(amount % divisor >= divisor / 2)
-    };
-    let precision = 10_000_000_000_000_000_u128;
-    let rounded = rounded / precision + u128::from(rounded % precision != 0);
-    if rounded == 0 || rounded > MAX_WALLET_QUOTA as u128 {
-        return Err(AdError::WalletRange);
+    let amount = multiply_digits(&basis.digits, bid as u64);
+    ceiling_wallet_credits(&amount, basis.exponent - 2)
+}
+
+fn normalize_digits(digits: &mut Vec<u8>) {
+    let first = digits.iter().position(|d| *d != 0).unwrap_or(digits.len());
+    digits.drain(..first);
+}
+
+fn compare_digits(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
+}
+
+fn subtract_digits(a: &mut Vec<u8>, b: &[u8]) {
+    let mut borrow = 0_i16;
+    for i in 0..a.len() {
+        let ai = a.len() - i - 1;
+        let right = b.get(b.len().wrapping_sub(i + 1)).copied().unwrap_or(0);
+        let mut value = i16::from(a[ai]) - i16::from(right) - borrow;
+        borrow = i16::from(value < 0);
+        if value < 0 {
+            value += 10;
+        }
+        a[ai] = value as u8;
     }
-    Ok(rounded as i64)
+    normalize_digits(a);
+}
+
+/// Matches Go CreditsToUSD's 16-place, half-away-from-zero decimal division.
+/// Annotation is best effort and must never prevent an immutable refund/replay.
+pub fn charged_amount_usd(quota: i64, raw: &str) -> Option<String> {
+    let basis = credit_basis(raw).ok()?;
+    if basis.digits != [5] || basis.exponent != 5 {
+        return None;
+    }
+    if quota == 0 {
+        return Some("0".into());
+    }
+    let negative = quota < 0;
+    let mut numerator: Vec<u8> = quota
+        .unsigned_abs()
+        .to_string()
+        .bytes()
+        .map(|d| d - b'0')
+        .collect();
+    let mut denominator = basis.digits;
+    let numerator_zeros = 16_i64 - basis.exponent.min(0);
+    let denominator_zeros = basis.exponent.max(0);
+    // Bound display work for pathological decimal exponents. No invented USD.
+    if numerator.len() as i64 + numerator_zeros > 8192
+        || denominator.len() as i64 + denominator_zeros > 8192
+    {
+        return None;
+    }
+    numerator.resize(numerator.len() + numerator_zeros as usize, 0);
+    denominator.resize(denominator.len() + denominator_zeros as usize, 0);
+    let mut quotient = Vec::with_capacity(numerator.len());
+    let mut remainder = Vec::new();
+    for digit in numerator {
+        remainder.push(digit);
+        normalize_digits(&mut remainder);
+        let mut q = 0;
+        while compare_digits(&remainder, &denominator).is_ge() {
+            subtract_digits(&mut remainder, &denominator);
+            q += 1;
+        }
+        quotient.push(q);
+    }
+    normalize_digits(&mut quotient);
+    if compare_digits(&multiply_digits(&remainder, 2), &denominator).is_ge() {
+        let mut carry = 1;
+        for digit in quotient.iter_mut().rev() {
+            let value = *digit + carry;
+            *digit = value % 10;
+            carry = value / 10;
+        }
+        if carry != 0 {
+            quotient.insert(0, carry);
+        }
+    }
+    while quotient.len() <= 16 {
+        quotient.insert(0, 0);
+    }
+    let mut value: String = quotient.into_iter().map(|d| char::from(b'0' + d)).collect();
+    value.insert(value.len() - 16, '.');
+    while value.ends_with('0') {
+        value.pop();
+    }
+    if value.ends_with('.') {
+        value.pop();
+    }
+    if negative && value != "0" {
+        value.insert(0, '-');
+    }
+    Some(value)
 }
 
 pub fn normalize_ad(mut input: AIDirectoryAdInput) -> Result<AIDirectoryAdInput, AdError> {
@@ -379,6 +533,10 @@ fn error(error: AdError) -> Response {
             StatusCode::UNPROCESSABLE_ENTITY,
             "AI_DIRECTORY_AD_INVALID_INPUT",
         ),
+        AdError::CurrencyUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AI_DIRECTORY_AD_CURRENCY_UNAVAILABLE",
+        ),
         AdError::Insufficient => (
             StatusCode::PAYMENT_REQUIRED,
             "AI_DIRECTORY_AD_INSUFFICIENT_BALANCE",
@@ -500,7 +658,7 @@ async fn quote_ad(
     };
     authenticated(match state.store.quote(bid).await {
         Ok(quota) => success(
-            json!({"bid_cents":bid,"quota":quota,"currency":"USD","duration_days":30,"min_bid_cents":MIN_BID_CENTS,"max_bid_cents":MAX_BID_CENTS}),
+            json!({"bid_cents":bid,"quota":quota,"currency":"USD","pricing_schema_version":2,"duration_days":30,"min_bid_cents":MIN_BID_CENTS,"max_bid_cents":MAX_BID_CENTS}),
         ),
         Err(e) => error(e),
     })

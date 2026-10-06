@@ -1432,5 +1432,103 @@ async fn postgres_corrections_enforce_consent_target_validation_and_retention() 
             .await
             .unwrap();
     assert_eq!(durable, 1, "read retention must not mutate audit history");
+
+    let restarted = fixture
+        .store
+        .save_correction(
+            8,
+            102,
+            input(json!({
+                "source":"documentation",
+                "reason":"Current source was independently verified",
+                "expected_revision":0
+            })),
+        )
+        .await
+        .expect("an expired hidden head must accept the revision exposed to clients");
+    assert_eq!(restarted["previous_revision"], 0);
+    assert_eq!(restarted["previous_source"], "historical_unrecorded");
+
+    let visible = fixture.store.corrections(8).await.unwrap();
+    assert_eq!(visible["head"]["revision"], restarted["id"]);
+    assert_eq!(visible["head"]["source"], "documentation");
+    assert_eq!(visible["items"].as_array().unwrap().len(), 1);
+    assert_eq!(visible["items"][0]["id"], restarted["id"]);
+    assert!(
+        !visible.to_string().contains("Historical account source was confirmed"),
+        "expired correction details must remain outside the read contract"
+    );
+    assert!(matches!(
+        fixture
+            .store
+            .save_correction(
+                8,
+                103,
+                input(json!({
+                    "source":"client",
+                    "reason":"A stale concurrent correction must conflict",
+                    "expected_revision":0
+                }))
+            )
+            .await,
+        Err(Error::Conflict(_))
+    ));
+    let durable: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM acquisition_corrections WHERE user_id=8")
+            .fetch_one(&fixture.pg)
+            .await
+            .unwrap();
+    assert_eq!(durable, 2, "the expired audit row must remain append-only");
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_corrections_paginate_recent_history_without_leaking_expired_rows() {
+    let fixture = PgFixture::new().await;
+    let now = chrono::Utc::now().timestamp();
+    sqlx::query(
+        "INSERT INTO acquisition_corrections(\
+            user_id,previous_revision,previous_source,source,reason,actor_id,created_at)\
+         SELECT 7,sequence-1,'community','documentation','verified page',101,$1\
+         FROM generate_series(1,101) AS sequence",
+    )
+    .bind(now)
+    .execute(&fixture.pg)
+    .await
+    .unwrap();
+    let newest_visible: i64 = sqlx::query_scalar(
+        "SELECT MAX(id) FROM acquisition_corrections WHERE user_id=7 AND created_at=$1",
+    )
+    .bind(now)
+    .fetch_one(&fixture.pg)
+    .await
+    .unwrap();
+    let expired_id: i64 = sqlx::query_scalar(
+        "INSERT INTO acquisition_corrections(\
+            user_id,previous_revision,previous_source,source,reason,actor_id,created_at)\
+         VALUES(7,101,'documentation','social','expired private reason',101,$1)\
+         RETURNING id",
+    )
+    .bind(now - 366 * 86400)
+    .fetch_one(&fixture.pg)
+    .await
+    .unwrap();
+
+    let history = fixture.store.corrections(7).await.unwrap();
+    let items = history["items"].as_array().unwrap();
+    assert_eq!(items.len(), 100);
+    assert_eq!(history["has_more"], true);
+    assert_eq!(items[0]["id"], newest_visible);
+    assert_eq!(
+        items.last().unwrap()["id"].as_i64().unwrap(),
+        newest_visible - 99
+    );
+    assert!(
+        items
+            .iter()
+            .all(|item| item["id"].as_i64() != Some(expired_id)),
+        "retention filtering must happen before the 101-row pagination probe"
+    );
     fixture.cleanup().await;
 }

@@ -62,11 +62,25 @@ func cleanBillingUnitExit(state map[string]string, pid int) error {
 }
 
 func billingBarrier(original []byte, id string) ([]byte, error) {
+	if !productionIDPattern.MatchString(id) {
+		return nil, errors.New("invalid billing barrier identity")
+	}
+	return billingBarrierBody(original, "lmm-billing-drain:"+id)
+}
+
+func (runtime *productionRuntime) billingBarrier(original []byte, id string) ([]byte, error) {
+	if runtime.maintenanceHandoff != nil {
+		return billingBarrierBody(original, "lmm-credit-transition:"+runtime.maintenanceHandoff.TransitionID)
+	}
+	return billingBarrier(original, id)
+}
+
+func billingBarrierBody(original []byte, body string) ([]byte, error) {
 	const anchor = "location @lmm_api_backend {"
-	if !productionIDPattern.MatchString(id) || strings.Count(string(original), anchor) != 1 || strings.Contains(string(original), "lmm-billing-drain:") {
+	if strings.Count(string(original), anchor) != 1 || strings.Contains(string(original), "lmm-billing-drain:") || strings.Contains(string(original), "lmm-credit-transition:") {
 		return nil, errors.New("unrecognized LMM-only nginx locations")
 	}
-	return append([]byte("return 503 'lmm-billing-drain:"+id+"';\n"), original...), nil
+	return append([]byte("return 503 '"+body+"';\n"), original...), nil
 }
 
 func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, workspace productionWorkspace, manifest *productionManifest) error {
@@ -111,7 +125,7 @@ func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, wor
 	if err != nil || fmt.Sprintf("%x", sha256Bytes(original)) != g.OriginalSHA256 {
 		return errors.New("billing locations backup mismatch")
 	}
-	barrier, err := billingBarrier(original, workspace.id)
+	barrier, err := runtime.billingBarrier(original, workspace.id)
 	if err != nil {
 		return err
 	}
@@ -119,7 +133,15 @@ func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, wor
 	if err != nil {
 		return err
 	}
-	if string(current) != string(original) && string(current) != string(barrier) {
+	previousBarrier := ""
+	if runtime.maintenanceStopped() {
+		prior, err := runtime.billingBarrier(original, runtime.maintenanceHandoff.PreviousDeploymentID)
+		if err != nil {
+			return err
+		}
+		previousBarrier = string(prior)
+	}
+	if string(current) != string(original) && string(current) != string(barrier) && (previousBarrier == "" || string(current) != previousBarrier) {
 		return errors.New("LMM locations changed outside the transaction")
 	}
 	if err := writeAtomicRegularFile(path, barrier, 0644); err != nil {
@@ -152,6 +174,10 @@ func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, wor
 		binary = runtime.paths.InstalledBinary
 	}
 	statusFile := filepath.Join(workspace.root, "billing-gate-probe.status")
+	expectedBody := "lmm-billing-drain:" + workspace.id
+	if runtime.maintenanceHandoff != nil {
+		expectedBody = "lmm-credit-transition:" + runtime.maintenanceHandoff.TransitionID
+	}
 	closed := false
 	for attempt := 0; attempt < 300; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -159,7 +185,7 @@ func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, wor
 		}
 		out, probeErr := runVerifiedBinary(ctx, runtime.runner, binary, []string{"request", "--base-url", runtime.paths.PublicBaseURL, "--path", "/v1/models?lmm_billing_gate=" + workspace.id, "--no-follow", "--timeout", "5s", "--status-file", statusFile}, nil, "", 7*time.Second, false)
 		status, readErr := os.ReadFile(statusFile)
-		if probeErr == nil && readErr == nil && strings.TrimSpace(string(status)) == "503" && string(out) == "lmm-billing-drain:"+workspace.id {
+		if probeErr == nil && readErr == nil && strings.TrimSpace(string(status)) == "503" && string(out) == expectedBody {
 			counter := countBillingConnections
 			if runtime.billingConnections != nil {
 				counter = runtime.billingConnections
@@ -316,6 +342,34 @@ func (runtime *productionRuntime) stopBillingWriter(ctx context.Context, workspa
 	if err := runtime.writeManifest(workspace, *manifest); err != nil {
 		return err
 	}
+	if manifest.MaintenanceHandoff != nil {
+		binary, err := runtime.validateCandidateEntrypoint(workspace, manifest.ProbeBinary, manifest.ProbeBinarySHA256)
+		if err != nil {
+			binary = runtime.paths.InstalledBinary
+		}
+		if runtime.probeBoundMaintenanceLocal(ctx, binary, manifest.ExpectedVersion) == nil {
+			if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"stop", runtime.paths.Service}}); err != nil {
+				return err
+			}
+			stopped, err := runtime.billingUnitState(ctx, runtime.paths.Service)
+			if err != nil {
+				return err
+			}
+			if err := cleanBillingUnitExit(stopped, pid); err != nil {
+				return err
+			}
+			journal, err := runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: []string{"--no-pager", "--output=cat", "_PID=" + strconv.Itoa(pid), "_SYSTEMD_INVOCATION_ID=" + gate.GoInvocationID}})
+			if err != nil {
+				return err
+			}
+			if err := validateMaintenanceShutdownJournal(journal); err != nil {
+				return err
+			}
+			gate.StopVerified = true
+			gate.ShutdownJournalSHA256 = fmt.Sprintf("%x", sha256Bytes(journal))
+			return runtime.writeManifest(workspace, *manifest)
+		}
+	}
 	if err := runtime.verifyNoUntrackedRefunds(ctx, manifest); err != nil {
 		return err
 	}
@@ -456,6 +510,9 @@ func (runtime *productionRuntime) verifyNoUntrackedRefunds(ctx context.Context, 
 }
 
 func (runtime *productionRuntime) reopenBillingAdmission(ctx context.Context, workspace productionWorkspace, manifest *productionManifest) error {
+	if runtime.maintenanceHandoff != nil && !runtime.maintenanceReleasing {
+		return nil
+	}
 	if manifest.BillingGate == nil {
 		return nil
 	}
@@ -464,7 +521,7 @@ func (runtime *productionRuntime) reopenBillingAdmission(ctx context.Context, wo
 	if err != nil || fmt.Sprintf("%x", sha256Bytes(original)) != g.OriginalSHA256 {
 		return errors.New("billing restore evidence mismatch")
 	}
-	barrier, err := billingBarrier(original, workspace.id)
+	barrier, err := runtime.billingBarrier(original, workspace.id)
 	if err != nil {
 		return err
 	}

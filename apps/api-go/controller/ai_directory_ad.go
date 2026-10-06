@@ -18,6 +18,8 @@ func aiDirectoryAdError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, model.ErrAIDirectoryAdInvalidInput), errors.Is(err, model.ErrAIDirectoryAdInvalidBid):
 		status, code = http.StatusUnprocessableEntity, "AI_DIRECTORY_AD_INVALID_INPUT"
+	case errors.Is(err, common.ErrCreditUnitsUnavailable):
+		status, code = http.StatusServiceUnavailable, "AI_DIRECTORY_AD_CURRENCY_UNAVAILABLE"
 	case errors.Is(err, model.ErrAIDirectoryAdInsufficient):
 		status, code = http.StatusPaymentRequired, "AI_DIRECTORY_AD_INSUFFICIENT_BALANCE"
 	case errors.Is(err, model.ErrAIDirectoryAdConflict):
@@ -63,7 +65,7 @@ func QuoteAIDirectoryAd(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{
-		"bid_cents": bidCents, "quota": quota, "currency": "USD",
+		"bid_cents": bidCents, "quota": quota, "currency": "USD", "pricing_schema_version": 2,
 		"duration_days": model.AIDirectoryAdDurationDays,
 		"min_bid_cents": model.AIDirectoryAdMinBidCents,
 		"max_bid_cents": model.AIDirectoryAdMaxBidCents,
@@ -108,5 +110,5 @@ func HideAIDirectoryAd(c *gin.Context) {
 		return
 	}
 	recordManageAudit(c, "ai_directory_ad.hide", map[string]interface{}{"ad_id": id, "refunded": refunded})
-	common.ApiSuccess(c, gin.H{"ad": ad, "refunded": refunded, "refunded_quota": ad.ChargedQuota})
+	common.ApiSuccess(c, gin.H{"ad": ad, "refunded": refunded, "refunded_quota": ad.RefundQuota})
 }

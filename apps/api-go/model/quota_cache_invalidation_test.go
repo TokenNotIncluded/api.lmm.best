@@ -75,6 +75,7 @@ func TestGiftClaimCreditsAndLogsWhenCacheInvalidationFails(t *testing.T) {
 
 func setupCheckinTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB, previousLogDB := DB, LOG_DB
 	previousMainDatabaseType, previousLogDatabaseType := common.MainDatabaseType(), common.LogDatabaseType()
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)

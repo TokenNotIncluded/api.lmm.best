@@ -11,7 +11,8 @@ use lmm_api_rs::{
     },
     routes::ai_directory::{
         AIDirectoryAdInput, AIDirectoryState, AIDirectoryStore, AdError, MAX_WALLET_QUOTA,
-        PgAIDirectoryStore, charge_quota, normalize_ad, router, validate_directory_links,
+        PgAIDirectoryStore, charge_quota, charge_quota_with_credits_per_usd, charged_amount_usd,
+        normalize_ad, router, validate_directory_links,
     },
 };
 use secrecy::{ExposeSecret, SecretString};
@@ -178,9 +179,10 @@ fn quote_and_url_normalization_match_current_go_oracle() {
         serde_json::from_str(include_str!("fixtures/ai-directory-current-go.json")).unwrap()
     };
     for vector in oracle["quotes"].as_array().unwrap() {
-        let outcome = charge_quota(
+        assert_eq!(vector["legacy_quota_per_unit"], "500000");
+        let outcome = charge_quota_with_credits_per_usd(
             vector["bid_cents"].as_i64().unwrap(),
-            vector["unit"].as_str().unwrap().parse().unwrap(),
+            vector["credits_per_usd"].as_str().unwrap(),
         );
         if vector["error"] == "" {
             assert_eq!(
@@ -195,6 +197,17 @@ fn quote_and_url_normalization_match_current_go_oracle() {
                 "{vector}"
             )
         }
+    }
+    for vector in oracle["amounts"].as_array().unwrap() {
+        assert_eq!(
+            charged_amount_usd(
+                vector["charged_quota"].as_i64().unwrap(),
+                vector["credits_per_usd"].as_str().unwrap()
+            )
+            .as_deref(),
+            vector["charged_amount_usd"].as_str(),
+            "{vector}",
+        );
     }
     for vector in oracle["urls"].as_array().unwrap() {
         let mut ad = input("directory-oracle-0001", 100);
@@ -348,7 +361,7 @@ impl Fixture {
             .connect(&url)
             .await
             .unwrap();
-        sqlx::raw_sql("CREATE TABLE options(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE users(id BIGINT PRIMARY KEY,username TEXT,quota BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE logs(id BIGSERIAL PRIMARY KEY,user_id BIGINT,created_at BIGINT,type BIGINT,content TEXT,username TEXT,token_name TEXT,model_name TEXT,quota BIGINT,prompt_tokens BIGINT,completion_tokens BIGINT,use_time BIGINT,is_stream BOOLEAN,channel_id BIGINT,token_id BIGINT,\"group\" TEXT,ip TEXT,other TEXT,request_id TEXT);INSERT INTO users VALUES(1,'owner',1000000,NULL),(2,'other',1000000,NULL),(3,'admin',0,NULL),(4,'root',0,NULL);INSERT INTO options VALUES('QuotaPerUnit','1000'),('AIDirectoryLinks','[]');").execute(&pg).await.unwrap();
+        sqlx::raw_sql("CREATE TABLE options(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE users(id BIGINT PRIMARY KEY,username TEXT,quota BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE logs(id BIGSERIAL PRIMARY KEY,user_id BIGINT,created_at BIGINT,type BIGINT,content TEXT,username TEXT,token_name TEXT,model_name TEXT,quota BIGINT,prompt_tokens BIGINT,completion_tokens BIGINT,use_time BIGINT,is_stream BOOLEAN,channel_id BIGINT,token_id BIGINT,\"group\" TEXT,ip TEXT,other TEXT,request_id TEXT);INSERT INTO users VALUES(1,'owner',1000000,NULL),(2,'other',1000000,NULL),(3,'admin',0,NULL),(4,'root',0,NULL);INSERT INTO options VALUES('QuotaPerUnit','500000'),('CreditsPerUSD','1000'),('AIDirectoryLinks','[]');").execute(&pg).await.unwrap();
         let migration = include_str!("../migrations/0015_current_catalog.sql")
             .replace("__LMM_APP_SCHEMA__", &schema);
         sqlx::raw_sql(&migration).execute(&pg).await.unwrap();
@@ -409,7 +422,7 @@ async fn postgres_create_replay_quote_changes_and_concurrency_charge_once() {
     assert_eq!(created, 1);
     assert_eq!(ids.len(), 1);
     assert_eq!(fixture.quota(1).await, 998750);
-    sqlx::query("UPDATE options SET value='2000' WHERE key='QuotaPerUnit'")
+    sqlx::query("UPDATE options SET value='2000' WHERE key='CreditsPerUSD'")
         .execute(&fixture.pg)
         .await
         .unwrap();
@@ -579,6 +592,7 @@ async fn postgres_public_private_pagination_expiry_and_http_contract() {
     for item in page["data"]["items"].as_array().unwrap() {
         assert!(item.get("request_id").is_none());
         assert!(item.get("owner_user_id").is_none());
+        assert_eq!(item["charged_amount_usd"], "1");
     }
     let quote = json_body(
         app.clone()
@@ -594,7 +608,7 @@ async fn postgres_public_private_pagination_expiry_and_http_contract() {
     .await;
     assert_eq!(
         quote["data"],
-        json!({"bid_cents":125,"quota":1250,"currency":"USD","duration_days":30,"min_bid_cents":100,"max_bid_cents":1000000})
+        json!({"bid_cents":125,"quota":1250,"currency":"USD","pricing_schema_version":2,"duration_days":30,"min_bid_cents":100,"max_bid_cents":1000000})
     );
     let response = app
         .clone()
@@ -684,5 +698,169 @@ async fn postgres_cache_and_audit_failures_do_not_reverse_committed_wallet_chang
             .unwrap()
             .1
     );
+    fixture.cleanup().await;
+}
+
+#[test]
+fn real_usd_bid_uses_exact_credit_basis_and_safe_ceiling() {
+    assert_eq!(
+        charge_quota_with_credits_per_usd(100, "3500000").unwrap(),
+        3_500_000
+    );
+    assert_eq!(charge_quota(100, 3_500_000.0).unwrap(), 3_500_000);
+    assert_eq!(
+        charge_quota_with_credits_per_usd(125, "1000.1").unwrap(),
+        1251
+    );
+    assert_eq!(charge_quota_with_credits_per_usd(100, "1e-30").unwrap(), 1);
+    assert_eq!(
+        charge_quota_with_credits_per_usd(100, "9007199254740991").unwrap(),
+        MAX_WALLET_QUOTA
+    );
+    assert_eq!(
+        charge_quota_with_credits_per_usd(125, "9007199254740991").unwrap_err(),
+        AdError::WalletRange
+    );
+    for rate in [
+        "",
+        "0",
+        "-1",
+        "NaN",
+        "+Inf",
+        "1e400",
+        "9007199254740991.0001",
+        "9007199254740992",
+    ] {
+        assert_eq!(
+            charge_quota_with_credits_per_usd(100, rate).unwrap_err(),
+            AdError::CurrencyUnavailable,
+            "{rate}"
+        );
+    }
+    assert_eq!(
+        charge_quota_with_credits_per_usd(99, "").unwrap_err(),
+        AdError::InvalidBid
+    );
+    assert_eq!(
+        charged_amount_usd(500_000, "3500000").as_deref(),
+        Some("0.1428571428571429")
+    );
+    assert_eq!(
+        charged_amount_usd(3_500_000, "3500000").as_deref(),
+        Some("1")
+    );
+    assert_eq!(
+        charged_amount_usd(1, "1e-30").as_deref(),
+        Some("1000000000000000000000000000000")
+    );
+    assert_eq!(charged_amount_usd(1, "20000000000000000"), None);
+    assert_eq!(charged_amount_usd(500_000, ""), None);
+    assert_eq!(charged_amount_usd(0, "3500000").as_deref(), Some("0"));
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_actual_usd_basis_preserves_legacy_replay_refund_and_value_ordering() {
+    let fixture = Fixture::new().await;
+    sqlx::query("UPDATE options SET value='3500000' WHERE key='CreditsPerUSD'")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET quota=10000000 WHERE id=1")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    // Q=500,000 is the old pricing unit, not the immutable USD wallet basis.
+    assert_eq!(fixture.store.quote(100).await.unwrap(), 3_500_000);
+    sqlx::query("UPDATE options SET value='1' WHERE key='QuotaPerUnit'")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    assert_eq!(fixture.store.quote(100).await.unwrap(), 3_500_000);
+    let legacy = normalize_ad(input("directory-legacy-paid-0001", 2000)).unwrap();
+    let legacy_id: i64 = sqlx::query_scalar("INSERT INTO ai_directory_ads(owner_user_id,name,url,summary,description,bid_cents,charged_quota,request_id,status,paid_at,expires_at,hidden_at,refunded_at) VALUES(1,$1,$2,$3,$4,2000,500000,$5,'active',1,$6,0,0) RETURNING id::BIGINT")
+        .bind(&legacy.name).bind(&legacy.url).bind(&legacy.summary).bind(&legacy.description).bind(&legacy.request_id).bind(chrono::Utc::now().timestamp()+86400).fetch_one(&fixture.pg).await.unwrap();
+    let mut fresh_input = input("directory-real-dollar-0001", 100);
+    fresh_input.expected_quota = 3_500_000;
+    let mut tasks = tokio::task::JoinSet::new();
+    for _ in 0..16 {
+        let store = fixture.store.clone();
+        let new_input = fresh_input.clone();
+        tasks.spawn(async move { store.create(1, new_input).await });
+    }
+    let mut created = 0;
+    let mut fresh_id = 0;
+    while let Some(outcome) = tasks.join_next().await {
+        let (ad, new) = outcome.unwrap().unwrap();
+        created += usize::from(new);
+        assert_eq!(ad.charged_quota, 3_500_000);
+        assert_eq!(ad.charged_amount_usd.as_deref(), Some("1"));
+        if fresh_id != 0 {
+            assert_eq!(ad.id, fresh_id);
+        }
+        fresh_id = ad.id;
+    }
+    assert_eq!(created, 1);
+    assert_eq!(fixture.quota(1).await, 6_500_000);
+    let (ads, _) = fixture.store.active(0).await.unwrap();
+    assert_eq!(
+        ads.iter().map(|ad| ad.id).collect::<Vec<_>>(),
+        vec![fresh_id, legacy_id]
+    );
+    assert_eq!(
+        ads[1].charged_amount_usd.as_deref(),
+        Some("0.1428571428571429")
+    );
+    sqlx::query("DELETE FROM options WHERE key='CreditsPerUSD'")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.store.quote(100).await.unwrap_err(),
+        AdError::CurrencyUnavailable
+    );
+    let mut replay = legacy.clone();
+    replay.expected_quota = 500_000;
+    let (paid, new) = fixture.store.create(1, replay).await.unwrap();
+    assert!(!new);
+    assert_eq!(paid.charged_quota, 500_000);
+    assert_eq!(paid.charged_amount_usd, None);
+    assert_eq!(
+        fixture
+            .store
+            .create(1, input("directory-missing-basis-0001", 100))
+            .await
+            .unwrap_err(),
+        AdError::CurrencyUnavailable
+    );
+    let response = fixture
+        .app()
+        .oneshot(request(
+            "GET",
+            "/api/ai-directory/ads/quote?bid_cents=100",
+            Some("owner"),
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        json_body(response).await["code"],
+        "AI_DIRECTORY_AD_CURRENCY_UNAVAILABLE"
+    );
+    let mut tasks = tokio::task::JoinSet::new();
+    for _ in 0..16 {
+        let store = fixture.store.clone();
+        tasks.spawn(async move { store.hide(legacy_id).await });
+    }
+    let mut refunded = 0;
+    while let Some(outcome) = tasks.join_next().await {
+        let (ad, new) = outcome.unwrap().unwrap();
+        assert_eq!(ad.charged_quota, 500_000);
+        assert_eq!(ad.charged_amount_usd, None);
+        refunded += usize::from(new);
+    }
+    assert_eq!(refunded, 1);
+    assert_eq!(fixture.quota(1).await, 7_000_000);
     fixture.cleanup().await;
 }

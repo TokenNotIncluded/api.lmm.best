@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"net/http"
 	"strconv"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -11,6 +12,8 @@ import (
 
 func walletTransferError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, errPublicCreditDenominationChanged):
+		c.JSON(http.StatusConflict, gin.H{"success": false, "code": "CREDIT_DENOMINATION_CHANGED", "message": "Credit units changed; refresh before transferring"})
 	case errors.Is(err, model.ErrWalletTransferBalance):
 		common.ApiErrorMsg(c, "Insufficient wallet balance")
 	case errors.Is(err, model.ErrWalletTransferInvalid):
@@ -26,20 +29,27 @@ func walletTransferError(c *gin.Context, err error) {
 }
 
 func CreateWalletTransfer(c *gin.Context) {
-	var input struct {
-		Quota      int    `json:"quota"`
-		RequestKey string `json:"request_key"`
-	}
-	if c.ShouldBindJSON(&input) != nil {
+	var input walletTransferCreateInput
+	if decodeStrictJSONRequest(c, &input) != nil {
 		walletTransferError(c, model.ErrWalletTransferInvalid)
 		return
 	}
-	transfer, err := model.CreateWalletTransfer(c.GetInt("id"), input.Quota, input.RequestKey)
+	basis, err := captureCreditBoundaryBasis()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "code": "CREDIT_UNITS_UNAVAILABLE", "message": "Credit units are unavailable"})
+		return
+	}
+	quota, err := input.ledgerQuota(basis)
 	if err != nil {
 		walletTransferError(c, err)
 		return
 	}
-	common.ApiSuccess(c, transfer)
+	transfer, err := model.CreateWalletTransfer(c.GetInt("id"), quota, input.RequestKey)
+	if err != nil {
+		walletTransferError(c, err)
+		return
+	}
+	walletTransferOwnerResponse(c, transfer, basis)
 }
 
 func ListWalletTransfers(c *gin.Context) {
@@ -53,7 +63,44 @@ func ListWalletTransfers(c *gin.Context) {
 		walletTransferError(c, err)
 		return
 	}
-	common.ApiSuccess(c, transfers)
+	basis, err := captureCreditBoundaryBasis()
+	if err != nil {
+		walletTransferError(c, err)
+		return
+	}
+	responses := make([]walletTransferPublicResponse, 0, len(transfers))
+	for i := range transfers {
+		response, err := buildWalletTransferPublicResponse(&transfers[i], basis)
+		if err != nil {
+			walletTransferError(c, err)
+			return
+		}
+		responses = append(responses, response)
+	}
+	common.ApiSuccess(c, responses)
+}
+
+type walletTransferPublicResponse struct {
+	*model.WalletTransfer
+	common.CreditDenomination
+	PublicCreditAmount string `json:"public_credit_amount"`
+}
+
+func buildWalletTransferPublicResponse(transfer *model.WalletTransfer, basis creditBoundaryBasis) (walletTransferPublicResponse, error) {
+	amount, err := basis.publicAmount(int64(transfer.Quota))
+	if err != nil {
+		return walletTransferPublicResponse{}, err
+	}
+	return walletTransferPublicResponse{WalletTransfer: transfer, CreditDenomination: basis.Metadata, PublicCreditAmount: amount.String()}, nil
+}
+
+func walletTransferOwnerResponse(c *gin.Context, transfer *model.WalletTransfer, basis creditBoundaryBasis) {
+	response, err := buildWalletTransferPublicResponse(transfer, basis)
+	if err != nil {
+		walletTransferError(c, err)
+		return
+	}
+	common.ApiSuccess(c, response)
 }
 
 func walletTransferToken(c *gin.Context) (string, bool) {
@@ -69,7 +116,23 @@ func walletTransferToken(c *gin.Context) (string, bool) {
 
 func walletTransferReceipt(c *gin.Context, transfer *model.WalletTransfer) {
 	// Recipient identity and the bearer credential never leave owner history.
-	common.ApiSuccess(c, gin.H{"quota": transfer.Quota, "status": transfer.Status, "created_at": transfer.CreatedAt, "claimed_at": transfer.ClaimedAt, "is_sender": transfer.SenderID == c.GetInt("id"), "claimed_by_me": transfer.RecipientID == c.GetInt("id")})
+	basis, err := captureCreditBoundaryBasis()
+	if err != nil {
+		walletTransferError(c, err)
+		return
+	}
+	walletTransferReceiptWithBasis(c, transfer, basis)
+}
+
+func walletTransferReceiptWithBasis(c *gin.Context, transfer *model.WalletTransfer, basis creditBoundaryBasis) {
+	amount, err := basis.publicAmount(int64(transfer.Quota))
+	if err != nil {
+		walletTransferError(c, err)
+		return
+	}
+	data := gin.H{"quota": transfer.Quota, "public_credit_amount": amount.String(), "status": transfer.Status, "created_at": transfer.CreatedAt, "claimed_at": transfer.ClaimedAt, "is_sender": transfer.SenderID == c.GetInt("id"), "claimed_by_me": transfer.RecipientID == c.GetInt("id")}
+	basis.addMetadata(data)
+	common.ApiSuccess(c, data)
 }
 
 func InspectWalletTransfer(c *gin.Context) {
@@ -90,12 +153,17 @@ func ClaimWalletTransfer(c *gin.Context) {
 	if !ok {
 		return
 	}
+	basis, err := captureCreditBoundaryBasis()
+	if err != nil {
+		walletTransferError(c, err)
+		return
+	}
 	transfer, err := model.ClaimWalletTransfer(token, c.GetInt("id"))
 	if err != nil {
 		walletTransferError(c, err)
 		return
 	}
-	walletTransferReceipt(c, transfer)
+	walletTransferReceiptWithBasis(c, transfer, basis)
 }
 
 func CancelWalletTransfer(c *gin.Context) {

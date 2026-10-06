@@ -216,6 +216,8 @@ func TestAssistantAgentOversizedResultPreservesSuccessfulMutationReceipt(t *test
 
 func TestAssistantAgentRetriedAdminRequestRefusesWritesAndKeepsReads(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
+	var initialOptions []model.Option
+	require.NoError(t, db.Order("key").Find(&initialOptions).Error)
 	c, _, _ := assistantAutomationTestContext(t, db, common.RoleRootUser)
 	c.Request.Header.Set(assistantAttemptHeader, "2")
 	result := executeAssistantTool(c, assistantOpenAIToolCall{Function: assistantOpenAIToolCallFunction{
@@ -225,7 +227,10 @@ func TestAssistantAgentRetriedAdminRequestRefusesWritesAndKeepsReads(t *testing.
 	assert.Equal(t, true, result["do_not_retry"])
 	var count int64
 	require.NoError(t, db.Model(&model.Option{}).Count(&count).Error)
-	assert.Zero(t, count)
+	assert.EqualValues(t, len(initialOptions), count)
+	var afterOptions []model.Option
+	require.NoError(t, db.Order("key").Find(&afterOptions).Error)
+	assert.Equal(t, initialOptions, afterOptions, "a retried request cannot mutate existing settings")
 	assert.False(t, assistantAdminRetryMutationBlocked(c, assistantOpenAIToolCall{Function: assistantOpenAIToolCallFunction{Name: "get_admin_server_config"}}))
 	assert.False(t, assistantAdminRetryMutationBlocked(c, assistantOpenAIToolCall{Function: assistantOpenAIToolCallFunction{Name: "audit_admin_model_pricing"}}))
 }

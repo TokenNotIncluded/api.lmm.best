@@ -59,9 +59,9 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDuration, formatResetPeriod } from '@/features/subscriptions/lib'
-import { formatCreditBalance as formatCreditBalanceBase } from '@/features/wallet/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatFiatCurrencyAmount, getCurrencyDisplay } from '@/lib/currency'
+import { formatFiatCurrencyAmount } from '@/lib/currency'
 
 import { getAssistantPlanOffers } from './api'
 import {
@@ -83,7 +83,8 @@ function getRecommendationMessage(
   t: TFunction,
   comparison: AssistantPlanComparison,
   expectedCreditUSD: number,
-  amount: string
+  amount: string,
+  comparablePrices: boolean
 ) {
   if (comparison.oneTimeOnly) {
     return t(
@@ -99,6 +100,12 @@ function getRecommendationMessage(
     )
   }
   if (monthlyCreditUSD >= expectedCreditUSD) {
+    if (!comparablePrices) {
+      return t(
+        'This plan covers your {{amount}} monthly estimate. Some payment currencies cannot currently be compared.',
+        { amount }
+      )
+    }
     return t(
       'Recommended as the lowest monthly-equivalent cost that covers your {{amount}} monthly estimate.',
       { amount }
@@ -115,8 +122,24 @@ export function AssistantPlanTool(props: {
   onRequestAccess: () => void
 }) {
   const { t, i18n } = useTranslation()
-  const formatCreditBalance = (amount: number) =>
-    formatCreditBalanceBase(amount, t('Platform'))
+  const {
+    config,
+    formatUSD,
+    formatQuota,
+    formatLegacyAmount,
+    legacyAmountToQuota,
+  } = useWalletCurrency()
+  // The assistant endpoint reads the persisted discount option directly.
+  // Its legacy global TOKENS mode stores raw-credit keys; user preferences
+  // only change presentation and must never change this contract.
+  const topupAmountToQuota = (amount: number) =>
+    config.quotaDisplayType === 'TOKENS' ? amount : legacyAmountToQuota(amount)
+  const formatTopupAmount = (amount: number) =>
+    config.quotaDisplayType === 'TOKENS'
+      ? Number.isSafeInteger(amount)
+        ? formatQuota(amount)
+        : formatUSD(amount / Number(config.creditsPerUsd))
+      : formatLegacyAmount(amount)
   const [expectedCredit, setExpectedCredit] = useState('20')
   const [topupCredit, setTopupCredit] = useState('100')
   const offersQuery = useQuery({
@@ -128,15 +151,15 @@ export function AssistantPlanTool(props: {
   const expected = Number(expectedCredit)
   const normalizedExpected =
     Number.isFinite(expected) && expected > 0 ? expected : 0
-  const quotaPerUnit = getCurrencyDisplay().config.quotaPerUnit
   const comparisons = useMemo(
     () =>
       compareAssistantPlans(
         offersQuery.data?.plans ?? [],
         expected,
-        quotaPerUnit
+        Number(config.creditsPerUsd),
+        config.cnyPerUsd
       ),
-    [expected, offersQuery.data?.plans, quotaPerUnit]
+    [expected, offersQuery.data?.plans, config.creditsPerUsd, config.cnyPerUsd]
   )
   const offers = useMemo(
     () => getAssistantTopupOffers(offersQuery.data?.topup_discounts),
@@ -146,11 +169,20 @@ export function AssistantPlanTool(props: {
   const normalizedTopupAmount =
     Number.isFinite(topupAmount) && topupAmount > 0 ? topupAmount : 0
   const exactTopupOffer = offers.find(
-    (offer) => offer.amount === normalizedTopupAmount
+    (offer) =>
+      Math.abs(
+        topupAmountToQuota(offer.amount) / Number(config.creditsPerUsd) -
+          normalizedTopupAmount
+      ) < 1e-9
   )
   const recommendedTopupOffer = exactTopupOffer ?? offers[0]
   const readOnly = offersQuery.data?.read_only === true
   const checkoutAvailable = offersQuery.data?.checkout_available === true
+  const denominationAvailable =
+    Number.isFinite(config.creditsPerUsd) && Number(config.creditsPerUsd) > 0
+  const comparablePrices = comparisons.every(
+    (comparison) => comparison.monthlyCostUSD !== null
+  )
 
   let planContent: ReactNode = (
     <div className='grid gap-2'>
@@ -189,7 +221,7 @@ export function AssistantPlanTool(props: {
                 <strong className='text-foreground'>
                   {comparison.monthlyCreditUSD === null
                     ? t('Unlimited')
-                    : formatCreditBalance(comparison.monthlyCreditUSD)}
+                    : formatUSD(comparison.monthlyCreditUSD)}
                 </strong>
               </span>
               <span className='text-right'>
@@ -229,7 +261,8 @@ export function AssistantPlanTool(props: {
                   t,
                   comparison,
                   normalizedExpected,
-                  formatCreditBalance(normalizedExpected)
+                  formatUSD(normalizedExpected),
+                  comparablePrices
                 )}
               </p>
             ) : null}
@@ -273,6 +306,18 @@ export function AssistantPlanTool(props: {
         </AlertAction>
       </Alert>
     )
+  } else if (!denominationAvailable && offersQuery.data?.plans.length) {
+    planContent = (
+      <Alert>
+        <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
+        <AlertTitle>{t('Plan recommendations unavailable')}</AlertTitle>
+        <AlertDescription>
+          {t(
+            'Current currency rates are unavailable. Refresh after the server currency update.'
+          )}
+        </AlertDescription>
+      </Alert>
+    )
   } else if (comparisons.length === 0) {
     planContent = (
       <Empty className='min-h-36 border'>
@@ -312,6 +357,14 @@ export function AssistantPlanTool(props: {
         </AlertDescription>
       </Alert>
     )
+  } else if (!denominationAvailable && offers.length > 0) {
+    topupContent = (
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Current currency rates are unavailable. Refresh after the server currency update.'
+        )}
+      </p>
+    )
   } else if (offers.length > 0) {
     const discountPercent = recommendedTopupOffer
       ? new Intl.NumberFormat(toIntlLocale(i18n.language), {
@@ -323,7 +376,7 @@ export function AssistantPlanTool(props: {
         <div className='flex flex-wrap gap-2'>
           {offers.slice(0, 3).map((offer) => (
             <Badge key={offer.amount} variant='outline'>
-              {formatCreditBalance(offer.amount)} ·{' '}
+              {formatTopupAmount(offer.amount)} ·{' '}
               {t('save {{percent}}%', {
                 percent: new Intl.NumberFormat(toIntlLocale(i18n.language), {
                   maximumFractionDigits: 1,
@@ -334,7 +387,7 @@ export function AssistantPlanTool(props: {
         </div>
         <div className='grid gap-1.5'>
           <Label htmlFor='assistant-topup-credit'>
-            {t('Platform credit to compare')}
+            {t('Top-up balance to compare (USD)')}
           </Label>
 
           <Input
@@ -357,17 +410,15 @@ export function AssistantPlanTool(props: {
                 <span className='text-muted-foreground text-xs leading-5'>
                   {t(
                     'No exact discount matches {{amount}}. Showing the best current configured offer instead.',
-                    { amount: formatCreditBalance(normalizedTopupAmount) }
+                    { amount: formatUSD(normalizedTopupAmount) }
                   )}
                 </span>
               ) : null}
             </div>
             <dl className='grid grid-cols-2 gap-x-4 gap-y-2 text-xs'>
-              <dt className='text-muted-foreground'>
-                {t('Credited platform balance')}
-              </dt>
+              <dt className='text-muted-foreground'>{t('Credited balance')}</dt>
               <dd className='text-right font-medium'>
-                {formatCreditBalance(recommendedTopupOffer.amount)}
+                {formatTopupAmount(recommendedTopupOffer.amount)}
               </dd>
               <dt className='text-muted-foreground'>
                 {t('Configured discount')}
@@ -377,7 +428,7 @@ export function AssistantPlanTool(props: {
                 {t('Estimated discounted base amount')}
               </dt>
               <dd className='text-right font-medium'>
-                {formatCreditBalance(
+                {formatTopupAmount(
                   recommendedTopupOffer.amount *
                     recommendedTopupOffer.multiplier
                 )}
@@ -386,7 +437,7 @@ export function AssistantPlanTool(props: {
                 {t('Estimated savings')}
               </dt>
               <dd className='text-right font-medium'>
-                {formatCreditBalance(
+                {formatTopupAmount(
                   recommendedTopupOffer.amount *
                     (1 - recommendedTopupOffer.multiplier)
                 )}
@@ -493,7 +544,7 @@ export function AssistantPlanTool(props: {
       <CardContent className='grid gap-4'>
         <div className='grid gap-1.5'>
           <Label htmlFor='assistant-expected-credit'>
-            {t('Expected monthly platform credit')}
+            {t('Expected monthly API budget (USD)')}
           </Label>
           <Input
             id='assistant-expected-credit'

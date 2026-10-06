@@ -3,7 +3,7 @@ Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -43,6 +43,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { marketAPI } = await import('./api')
 const { MarketConnections } = await import('./connections')
+const { resetMarketCurrencyTest } = await import('./currency-test-support')
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -57,6 +58,7 @@ const originals = {
   install: marketAPI.install,
   grant: marketAPI.grant,
   invoke: marketAPI.invoke,
+  budget: marketAPI.budget,
 }
 const config = {
   enabled: false,
@@ -137,6 +139,11 @@ async function mount(onChooseClient: (clientID: string) => void) {
   return { container, cache }
 }
 
+beforeEach(async () => {
+  resetMarketCurrencyTest()
+  await i18n.changeLanguage('en')
+})
+
 afterEach(async () => {
   for (const { root, cache } of rendered.splice(0)) {
     await act(async () => root.unmount())
@@ -147,6 +154,59 @@ afterEach(async () => {
   document.body.replaceChildren()
 })
 after(() => dom.close())
+
+test('editing a one-credit budget preserves raw quota across account currency changes', async () => {
+  const { container, cache } = await mount(() => {})
+  let payload: Parameters<typeof marketAPI.budget>[0] | undefined
+  marketAPI.budget = async (input) => {
+    payload = input
+    return null
+  }
+  await act(async () => {
+    cache.setQueryData(
+      ['tool-market', 1, 'budgets'],
+      [
+        {
+          scope: 'account',
+          scope_id: '',
+          limit_quota: 1,
+          spent_quota: 0,
+          reserved_quota: 0,
+        },
+      ]
+    )
+    await flush()
+  })
+  await waitFor(() => container.textContent?.includes('Edit budget') === true)
+  await act(async () => button(container, 'Edit budget').click())
+  const input = element<HTMLInputElement>(container, '#budget-limit')
+  assert.equal(input.value, '0.000002')
+  for (const [currency, expected] of [
+    ['CNY', '0.000014'],
+    ['CREDIT', '1'],
+    ['USD', '0.000002'],
+  ]) {
+    await act(async () => {
+      const auth = useAuthStore.getState().auth
+      assert.ok(auth.user)
+      auth.setUser({
+        ...auth.user,
+        setting: JSON.stringify({ wallet_display_currency: currency }),
+      })
+    })
+    assert.equal(input.value, expected)
+    assert.match(
+      container.textContent ?? '',
+      new RegExp(currency === 'CREDIT' ? '1 Credits' : currency)
+    )
+  }
+  await act(async () => {
+    button(container, 'Save budget').click()
+    await flush()
+  })
+  await waitFor(() => payload !== undefined)
+  assert.deepEqual(payload, { scope: 'account', scope_id: '', limit_quota: 1 })
+})
 
 test('a newly issued token chooses its own client without granting or invoking tools', async () => {
   const chosen: string[] = []

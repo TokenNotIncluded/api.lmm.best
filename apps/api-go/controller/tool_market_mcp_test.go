@@ -59,6 +59,9 @@ func TestToolMarketMCPUsesVerifiedClientAndRefreshesToolSet(t *testing.T) {
 	var rawSchema []byte
 	for _, item := range list.Tools {
 		if strings.HasPrefix(item.Name, "market_tool_") {
+			require.NotContains(t, item.Description, "Price:")
+			require.NotContains(t, item.Description, "quota per")
+			require.Contains(t, item.Meta, "lmm/pricing")
 			rawSchema, err = json.Marshal(item.InputSchema)
 			require.NoError(t, err)
 		}

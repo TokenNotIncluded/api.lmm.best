@@ -24,11 +24,7 @@ import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  formatQuota,
-  parseQuotaFromDollars,
-  quotaUnitsToDollars,
-} from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import {
   DEFAULT_CURRENCY_CONFIG,
   useSystemConfigStore,
@@ -50,27 +46,30 @@ export function TransferDialog({
   transferring,
 }: TransferDialogProps) {
   const { t } = useTranslation()
+  const currency = useWalletCurrency()
+  const { formatQuota } = currency
   const currencyConfig = useSystemConfigStore((state) => state.config.currency)
   const minimumQuota = Math.ceil(
     currencyConfig.quotaPerUnit > 0
       ? currencyConfig.quotaPerUnit
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   )
-  const minimumAmount = quotaUnitsToDollars(minimumQuota)
-  const maximumAmount = quotaUnitsToDollars(availableQuota)
-  const [amount, setAmount] = useState(minimumAmount)
-  const transferQuota = parseQuotaFromDollars(amount)
+  const minimumAmount = currency.quotaToAmount(minimumQuota)
+  const maximumAmount = currency.quotaToAmount(availableQuota)
+  const [transferQuota, setTransferQuota] = useState(minimumQuota)
+  const amount = currency.quotaToAmount(transferQuota)
   const canTransfer =
     Number.isFinite(amount) &&
+    Number.isSafeInteger(transferQuota) &&
     transferQuota >= minimumQuota &&
     transferQuota <= availableQuota
 
   useEffect(() => {
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAmount(minimumAmount)
+      setTransferQuota(minimumQuota)
     }
-  }, [minimumAmount, open])
+  }, [minimumQuota, open])
 
   const handleConfirm = async () => {
     if (!canTransfer) return
@@ -126,16 +125,19 @@ export function TransferDialog({
             htmlFor='transfer-amount'
             className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
           >
-            {t('Transfer Amount')}
+            {t('Transfer Amount')} ({currency.label})
           </Label>
           <Input
             id='transfer-amount'
             type='number'
-            value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
-            min={minimumAmount}
-            max={maximumAmount}
-            step={minimumAmount}
+            value={currency.quotaToInput(transferQuota)}
+            onChange={(e) =>
+              setTransferQuota(currency.amountToQuota(e.target.value))
+            }
+            min={Number.isFinite(minimumAmount) ? minimumAmount : undefined}
+            max={Number.isFinite(maximumAmount) ? maximumAmount : undefined}
+            step={currency.currency === 'CREDIT' ? 1 : 'any'}
+            disabled={!Number.isFinite(minimumAmount) || transferring}
             className='font-mono text-lg'
           />
           <p className='text-muted-foreground text-xs'>

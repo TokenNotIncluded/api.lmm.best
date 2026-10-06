@@ -24,6 +24,7 @@ type UserSetting struct {
 	BillingPreference                string  `json:"billing_preference,omitempty"`                   // BillingPreference 扣费策略（订阅/钱包）
 	Language                         string  `json:"language,omitempty"`                             // Language 用户语言偏好 (zh, en)
 	SettlementCurrency               string  `json:"settlement_currency,omitempty"`                  // Customer fiat preference; empty follows language, not quota display.
+	WalletDisplayCurrency            string  `json:"wallet_display_currency,omitempty"`              // CREDIT/CNY/USD display preference, independent of payment settlement.
 	UsageLeaderboardVisibility       string  `json:"usage_leaderboard_visibility,omitempty"`         // 用户使用排行榜展示方式
 	AllowKeyBypassIPPolicy           bool    `json:"allow_key_bypass_ip_policy,omitempty"`           // L1+ 用户凭有效 API key 绕过 IP/地区访问策略
 }
@@ -44,7 +45,28 @@ func (setting UserSetting) EffectiveSettlementCurrency(languageHint string) stri
 	if currency, err := NormalizeSettlementCurrencyPreference(setting.SettlementCurrency); err == nil && currency != "" {
 		return currency
 	}
-	language := strings.TrimSpace(setting.Language)
+	return languageFiatCurrency(setting.Language, languageHint)
+}
+
+func NormalizeWalletDisplayCurrencyPreference(value string) (string, error) {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	switch value {
+	case "", "CREDIT", "CNY", "USD":
+		return value, nil
+	default:
+		return "", fmt.Errorf("wallet display currency must be CREDIT, CNY or USD")
+	}
+}
+
+func (setting UserSetting) EffectiveWalletDisplayCurrency(languageHint string) string {
+	if currency, err := NormalizeWalletDisplayCurrencyPreference(setting.WalletDisplayCurrency); err == nil && currency != "" {
+		return currency
+	}
+	return languageFiatCurrency(setting.Language, languageHint)
+}
+
+func languageFiatCurrency(preferredLanguage, languageHint string) string {
+	language := strings.TrimSpace(preferredLanguage)
 	if language == "" {
 		language = languageHint
 	}

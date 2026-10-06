@@ -65,6 +65,13 @@ func ListAdminModerationReviews(c *gin.Context) {
 			ReviewID: row.ReviewID, FeeRecordID: row.FeeRecordID, FeeCategory: row.FeeCategory,
 			FeeStatus: row.FeeStatus, RequestedQuota: row.RequestedQuota, ChargedQuota: row.ChargedQuota,
 			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
+			SubjectIdentifier: model.ModerationSubjectIdentifier(row.SubjectIdentifier),
+			ProviderCalls:     []dto.SecurityModerationProviderCall{},
+		}
+		for _, call := range row.ProviderCalls() {
+			item.ProviderCalls = append(item.ProviderCalls, dto.SecurityModerationProviderCall{
+				Attempt: call.Attempt, BatchIndex: call.BatchIndex, ResponseID: call.ResponseID, RequestID: call.RequestID,
+			})
 		}
 		if item.Categories == nil {
 			item.Categories = []string{}
@@ -75,6 +82,8 @@ func ListAdminModerationReviews(c *gin.Context) {
 			item.UserID, item.RequestID, item.Group = 0, "", ""
 			item.ReviewID, item.FeeRecordID = 0, 0
 			item.RequestedQuota, item.ChargedQuota = 0, 0
+			item.SubjectIdentifier = ""
+			item.ProviderCalls = []dto.SecurityModerationProviderCall{}
 		}
 		items = append(items, item)
 	}
@@ -103,9 +112,16 @@ func publicModerationPolicy(settings setting.ModerationSettings) dto.SecurityMod
 	for group, policy := range settings.GroupPolicies {
 		fines := make(map[string]float64, len(policy.CategoryFinesUSD))
 		for category, amount := range policy.CategoryFinesUSD {
-			fines[category] = amount
+			usd, err := model.ModerationAmountToUSD(amount, policy.AmountCurrency)
+			if err != nil {
+				// An unavailable currency basis must not expose raw legacy
+				// numbers under the public USD label.
+				fines = nil
+				break
+			}
+			fines[category] = usd.InexactFloat64()
 		}
-		policies[group] = dto.SecurityModerationGroupPolicy{Mode: policy.Mode, CategoryFinesUSD: fines}
+		policies[group] = dto.SecurityModerationGroupPolicy{Mode: policy.Mode, AmountCurrency: setting.ModerationAmountCurrencyUSD, CategoryFinesUSD: fines}
 	}
 	return dto.SecurityModerationPolicy{
 		Enabled: settings.Enabled, AssistantEnabled: settings.AssistantEnabled,

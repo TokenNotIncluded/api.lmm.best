@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,9 +13,11 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
-const drawingWebMinimumBalanceUSD = 10
+// Preserve the existing Credit gate. These are legacy pricing units, not USD.
+const drawingWebMinimumLegacyUnits = 10
 
 // Only the private MCP relay engine sets this key. No client header, query or
 // tool argument is accepted as proof of an MCP origin.
@@ -25,16 +28,34 @@ type drawingMCPRelayIdentity struct {
 }
 
 type drawingWebAccess struct {
-	MinimumBalanceUSD int      `json:"minimum_balance_usd"`
-	BalanceUSD        *float64 `json:"balance_usd"`
-	Allowed           bool     `json:"allowed"`
+	MinimumBalanceUSD    *float64 `json:"minimum_balance_usd"`
+	MinimumBalanceCredit *int     `json:"minimum_balance_credit"`
+	BalanceUSD           *float64 `json:"balance_usd"`
+	BalanceCredit        *int     `json:"balance_credit"`
+	Allowed              bool     `json:"allowed"`
 }
 
 var drawingUserQuota = model.GetUserQuota
 
 func drawingWebAccessForUser(userID int) drawingWebAccess {
-	access := drawingWebAccess{MinimumBalanceUSD: drawingWebMinimumBalanceUSD}
-	if userID <= 0 || common.QuotaPerUnit <= 0 {
+	access := drawingWebAccess{}
+	if _, err := common.LegacyPricingUnitsPerUSD(); err != nil {
+		return access
+	}
+	legacyUnit, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return access
+	}
+	minimumQuota, err := common.WalletQuotaFromDecimalStrict(legacyUnit.Mul(decimal.NewFromInt(drawingWebMinimumLegacyUnits)).Ceil())
+	if err != nil {
+		return access
+	}
+	minimum, _, err := assistantFiatProjection(int64(minimumQuota))
+	if err != nil {
+		return access
+	}
+	access.MinimumBalanceUSD, access.MinimumBalanceCredit = &minimum, &minimumQuota
+	if userID <= 0 {
 		return access
 	}
 	// Wallet reservations commit to the DB before invalidating Redis. A stale
@@ -43,9 +64,13 @@ func drawingWebAccessForUser(userID int) drawingWebAccess {
 	if err != nil {
 		return access
 	}
-	balance := float64(quota) / common.QuotaPerUnit
+	balance, _, err := assistantFiatProjection(int64(quota))
+	if err != nil {
+		return access
+	}
 	access.BalanceUSD = &balance
-	access.Allowed = float64(quota) >= drawingWebMinimumBalanceUSD*common.QuotaPerUnit
+	access.BalanceCredit = &quota
+	access.Allowed = quota >= minimumQuota
 	return access
 }
 
@@ -60,11 +85,14 @@ func requireDrawingWebBalance(c *gin.Context, userID int) bool {
 	}
 	status := http.StatusForbidden
 	code := "WEB_DRAWING_MINIMUM_BALANCE"
-	message := "Web drawing requires a starting available wallet balance of at least USD 10. API key creation and drawing via API or MCP remain available and are billed normally."
+	message := "Web drawing requires the minimum available wallet balance. API key creation and drawing via API or MCP remain available and are billed normally."
+	if access.MinimumBalanceCredit != nil {
+		message = fmt.Sprintf("Web drawing requires a starting available wallet balance of at least %d Credits. API key creation and drawing via API or MCP remain available and are billed normally.", *access.MinimumBalanceCredit)
+	}
 	if access.BalanceUSD == nil {
 		status = http.StatusServiceUnavailable
 		code = "WEB_DRAWING_BALANCE_UNAVAILABLE"
-		message = "The available wallet balance could not be checked. Web drawing requires at least USD 10. API key creation and drawing via API or MCP remain available and are billed normally."
+		message = "The available wallet balance or currency units could not be checked. API key creation and drawing via API or MCP remain available and are billed normally."
 	}
 	c.AbortWithStatusJSON(status, gin.H{
 		"error":              gin.H{"message": message, "type": "access_denied", "code": code},

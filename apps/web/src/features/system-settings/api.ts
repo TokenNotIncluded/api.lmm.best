@@ -33,8 +33,33 @@ import type {
   UpstreamRatiosResponse,
 } from './types'
 
-export async function getSystemOptions() {
-  const res = await api.get<SystemOptionsResponse>('/api/option/')
+type SettingsRequestOptions = { silent?: boolean }
+
+function settingsRequestConfig(options?: SettingsRequestOptions) {
+  return options?.silent
+    ? { skipBusinessError: true, skipErrorHandler: true }
+    : undefined
+}
+
+export function getSystemOptions(
+  options: SettingsRequestOptions
+): Promise<SystemOptionsResponse>
+export function getSystemOptions(): Promise<SystemOptionsResponse>
+export async function getSystemOptions(
+  options?: SettingsRequestOptions
+): Promise<SystemOptionsResponse> {
+  const res = await api.get<SystemOptionsResponse>(
+    '/api/option/',
+    settingsRequestConfig(options)
+  )
+  if (res.data.success !== true || !Array.isArray(res.data.data)) {
+    throw Object.assign(
+      new Error(res.data.message || 'Failed to load settings'),
+      {
+        response: { data: res.data },
+      }
+    )
+  }
   return res.data
 }
 
@@ -47,8 +72,15 @@ export async function getSystemGroups() {
   return res.data
 }
 
-export async function updateSystemOption(request: UpdateOptionRequest) {
-  const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+export async function updateSystemOption(
+  request: UpdateOptionRequest,
+  options?: SettingsRequestOptions
+) {
+  const res = await api.put<UpdateOptionResponse>(
+    '/api/option/',
+    request,
+    settingsRequestConfig(options)
+  )
   return res.data
 }
 
@@ -72,10 +104,17 @@ export async function validateSystemOptions(values: Record<string, string>) {
   return res.data
 }
 
-export async function updateSystemOptions(values: Record<string, string>) {
-  const res = await api.post<UpdateOptionResponse>('/api/option/bulk', {
-    values,
-  })
+export async function updateSystemOptions(
+  values: Record<string, string>,
+  options?: SettingsRequestOptions
+) {
+  const res = await api.post<UpdateOptionResponse>(
+    '/api/option/bulk',
+    {
+      values,
+    },
+    settingsRequestConfig(options)
+  )
   return res.data
 }
 
@@ -162,10 +201,16 @@ export async function getUpstreamChannels() {
   return res.data
 }
 
-export async function fetchUpstreamRatios(request: FetchUpstreamRatiosRequest) {
+export async function fetchUpstreamRatios(
+  request: FetchUpstreamRatiosRequest,
+  options: { silent?: boolean } = {}
+) {
   const res = await api.post<UpstreamRatiosResponse>(
     '/api/ratio_sync/fetch',
-    request
+    request,
+    options.silent
+      ? { skipBusinessError: true, skipErrorHandler: true }
+      : undefined
   )
   return res.data
 }

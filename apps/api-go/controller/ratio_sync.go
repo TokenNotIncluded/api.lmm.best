@@ -10,8 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,34 +20,37 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
-	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	defaultTimeoutSeconds       = 10
-	defaultEndpoint             = "/api/pricing"
-	maxConcurrentFetches        = 8
-	maxRatioConfigBytes         = 10 << 20 // 10MB
-	floatEpsilon                = 1e-9
-	officialRatioPresetID       = -100
-	officialRatioPresetName     = "官方倍率预设"
-	officialRatioPresetBaseURL  = "https://basellm.github.io"
-	modelsDevPresetID           = -101
-	modelsDevPresetName         = "models.dev 价格预设"
-	modelsDevPresetBaseURL      = "https://models.dev"
-	modelsDevHost               = "models.dev"
-	modelsDevPath               = "/api.json"
-	modelsDevInputCostRatioBase = 1000.0
+	defaultTimeoutSeconds      = 10
+	defaultEndpoint            = "/api/pricing"
+	maxConcurrentFetches       = 8
+	maxRatioConfigBytes        = 10 << 20 // 10MB
+	officialRatioPresetID      = -100
+	officialRatioPresetName    = "官方倍率预设"
+	officialRatioPresetBaseURL = "https://basellm.github.io"
+	modelsDevPresetID          = -101
+	modelsDevPresetName        = "models.dev 价格预设"
+	modelsDevPresetBaseURL     = "https://models.dev"
+	modelsDevHost              = "models.dev"
+	modelsDevPath              = "/api.json"
 )
 
 func nearlyEqual(a, b float64) bool {
-	if a > b {
-		return a-b < floatEpsilon
+	if a == b {
+		return true
 	}
-	return b-a < floatEpsilon
+	if a == 0 || b == 0 {
+		return false
+	}
+	// Tolerate only float representation noise, not an absolute money cutoff.
+	// Even the smallest positive rate differs from a free quote.
+	scale := math.Max(math.Abs(a), math.Abs(b))
+	return math.Abs(a-b) <= 4*(scale-math.Nextafter(scale, math.Inf(-1)))
 }
 
 func valuesEqual(a, b interface{}) bool {
@@ -131,19 +132,22 @@ func normalizeSyncValue(field string, value any) any {
 	return value
 }
 
-func getLocalPricingSyncData() map[string]any {
-	data := billing_setting.GetPricingSyncData(map[string]any(ratio_setting.GetExposedData()))
-	data["image_ratio"] = ratio_setting.GetImageRatioCopy()
-	data["audio_ratio"] = ratio_setting.GetAudioRatioCopy()
-	data["audio_completion_ratio"] = ratio_setting.GetAudioCompletionRatioCopy()
-	return data
-}
-
 func FetchUpstreamRatios(c *gin.Context) {
 	var req dto.UpstreamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.SysError("failed to bind upstream request: " + err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请求参数格式错误"})
+		return
+	}
+
+	pricingConfig, err := model.GetUSDPriceConfig()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing currency units are unavailable"})
+		return
+	}
+	localData, err := pricingSyncDataFromConfig(pricingConfig)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
@@ -260,6 +264,15 @@ func FetchUpstreamRatios(c *gin.Context) {
 				fullURL = chItem.BaseURL + endpoint
 			}
 			isModelsDev := isModelsDevAPIEndpoint(fullURL)
+			var sourceProvider string
+			if isModelsDev {
+				parsed, err := url.Parse(fullURL)
+				if err != nil || len(parsed.Query()["provider"]) != 1 || strings.TrimSpace(parsed.Query().Get("provider")) == "" {
+					ch <- upstreamResult{Name: uniqueName, Err: "models.dev requires an explicit provider query parameter"}
+					return
+				}
+				sourceProvider = strings.TrimSpace(parsed.Query().Get("provider"))
+			}
 
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 			if err != nil {
@@ -351,7 +364,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 
 			// type3: OpenRouter /v1/models -> convert per-token pricing to ratios
 			if isOpenRouter {
-				converted, err := convertOpenRouterToRatioData(bytes.NewReader(bodyBytes))
+				converted, err := convertOpenRouterToRatioDataWithAnchor(bytes.NewReader(bodyBytes), pricingConfig.CreditsPerUSD)
 				if err != nil {
 					logger.LogWarn(c.Request.Context(), "OpenRouter parse failed from "+chItem.Name+": "+err.Error())
 					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
@@ -361,166 +374,30 @@ func FetchUpstreamRatios(c *gin.Context) {
 				return
 			}
 
-			// type4: models.dev /api.json -> convert provider model pricing to ratios
+			// type4: select one reported provider and retain complete USD billing shapes.
 			if isModelsDev {
-				converted, err := convertModelsDevToRatioData(bytes.NewReader(bodyBytes))
+				converted, skipped, err := convertModelsDevCanonicalData(bytes.NewReader(bodyBytes), sourceProvider, pricingConfig.CreditsPerUSD)
 				if err != nil {
 					logger.LogWarn(c.Request.Context(), "models.dev parse failed from "+chItem.Name+": "+err.Error())
 					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 					return
 				}
+				converted[syncSkippedModels] = valueMap(skipped)
+				providers := map[string]any{}
+				for _, field := range pricingSyncFields {
+					for name := range valueMap(converted[field]) {
+						providers[name] = sourceProvider
+					}
+				}
+				converted[syncSourceProviders] = providers
 				ch <- upstreamResult{Name: uniqueName, Data: converted}
 				return
 			}
 
-			// 兼容两种上游接口格式：
-			//  type1: /api/ratio_config -> data 为 map[string]any，包含 model_ratio/completion_ratio/cache_ratio/model_price
-			//  type2: /api/pricing      -> data 为 []Pricing 列表，需要转换为与 type1 相同的 map 格式
-			var body struct {
-				Success bool            `json:"success"`
-				Data    json.RawMessage `json:"data"`
-				Message string          `json:"message"`
-			}
-
-			if err := common.DecodeJson(bytes.NewReader(bodyBytes), &body); err != nil {
-				logger.LogWarn(c.Request.Context(), "json decode failed from "+chItem.Name+": "+err.Error())
+			converted, err := decodeUpstreamPricingData(bodyBytes, pricingConfig.CreditsPerUSD)
+			if err != nil {
 				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 				return
-			}
-
-			if !body.Success {
-				ch <- upstreamResult{Name: uniqueName, Err: body.Message}
-				return
-			}
-
-			// 若 Data 为空，将继续按 type1 尝试解析（与多数静态 ratio_config 兼容）
-
-			// 尝试按 type1 解析
-			var type1Data map[string]any
-			if err := common.Unmarshal(body.Data, &type1Data); err == nil {
-				// 如果包含至少一个 ratioTypes 字段，则认为是 type1
-				isType1 := false
-				for _, rt := range pricingSyncFields {
-					if _, ok := type1Data[rt]; ok {
-						isType1 = true
-						break
-					}
-				}
-				if isType1 {
-					ch <- upstreamResult{Name: uniqueName, Data: type1Data}
-					return
-				}
-			}
-
-			// 如果不是 type1，则尝试按 type2 (/api/pricing) 解析
-			var pricingItems []struct {
-				ModelName            string   `json:"model_name"`
-				QuotaType            int      `json:"quota_type"`
-				ModelRatio           float64  `json:"model_ratio"`
-				ModelPrice           float64  `json:"model_price"`
-				CompletionRatio      float64  `json:"completion_ratio"`
-				CacheRatio           *float64 `json:"cache_ratio"`
-				CreateCacheRatio     *float64 `json:"create_cache_ratio"`
-				ImageRatio           *float64 `json:"image_ratio"`
-				AudioRatio           *float64 `json:"audio_ratio"`
-				AudioCompletionRatio *float64 `json:"audio_completion_ratio"`
-				BillingMode          string   `json:"billing_mode"`
-				BillingExpr          string   `json:"billing_expr"`
-			}
-			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
-				logger.LogWarn(c.Request.Context(), "unrecognized data format from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: "无法解析上游返回数据"}
-				return
-			}
-
-			modelRatioMap := make(map[string]float64)
-			completionRatioMap := make(map[string]float64)
-			cacheRatioMap := make(map[string]float64)
-			createCacheRatioMap := make(map[string]float64)
-			imageRatioMap := make(map[string]float64)
-			audioRatioMap := make(map[string]float64)
-			audioCompletionRatioMap := make(map[string]float64)
-			modelPriceMap := make(map[string]float64)
-			billingModeMap := make(map[string]string)
-			billingExprMap := make(map[string]string)
-
-			for _, item := range pricingItems {
-				if item.ModelName == "" {
-					continue
-				}
-				if item.BillingMode == billing_setting.BillingModeTieredExpr && strings.TrimSpace(item.BillingExpr) != "" {
-					billingModeMap[item.ModelName] = billing_setting.BillingModeTieredExpr
-					billingExprMap[item.ModelName] = item.BillingExpr
-				}
-				if item.QuotaType == 1 {
-					modelPriceMap[item.ModelName] = item.ModelPrice
-				} else {
-					modelRatioMap[item.ModelName] = item.ModelRatio
-					// completionRatio 可能为 0，此时也直接赋值，保持与上游一致
-					completionRatioMap[item.ModelName] = item.CompletionRatio
-				}
-				if item.CacheRatio != nil {
-					cacheRatioMap[item.ModelName] = *item.CacheRatio
-				}
-				if item.CreateCacheRatio != nil {
-					createCacheRatioMap[item.ModelName] = *item.CreateCacheRatio
-				}
-				if item.ImageRatio != nil {
-					imageRatioMap[item.ModelName] = *item.ImageRatio
-				}
-				if item.AudioRatio != nil {
-					audioRatioMap[item.ModelName] = *item.AudioRatio
-				}
-				if item.AudioCompletionRatio != nil {
-					audioCompletionRatioMap[item.ModelName] = *item.AudioCompletionRatio
-				}
-			}
-
-			converted := make(map[string]any)
-
-			if len(modelRatioMap) > 0 {
-				ratioAny := make(map[string]any, len(modelRatioMap))
-				for k, v := range modelRatioMap {
-					ratioAny[k] = v
-				}
-				converted["model_ratio"] = ratioAny
-			}
-
-			if len(completionRatioMap) > 0 {
-				compAny := make(map[string]any, len(completionRatioMap))
-				for k, v := range completionRatioMap {
-					compAny[k] = v
-				}
-				converted["completion_ratio"] = compAny
-			}
-			if len(cacheRatioMap) > 0 {
-				converted["cache_ratio"] = valueMap(cacheRatioMap)
-			}
-			if len(createCacheRatioMap) > 0 {
-				converted["create_cache_ratio"] = valueMap(createCacheRatioMap)
-			}
-			if len(imageRatioMap) > 0 {
-				converted["image_ratio"] = valueMap(imageRatioMap)
-			}
-			if len(audioRatioMap) > 0 {
-				converted["audio_ratio"] = valueMap(audioRatioMap)
-			}
-			if len(audioCompletionRatioMap) > 0 {
-				converted["audio_completion_ratio"] = valueMap(audioCompletionRatioMap)
-			}
-
-			if len(modelPriceMap) > 0 {
-				priceAny := make(map[string]any, len(modelPriceMap))
-				for k, v := range modelPriceMap {
-					priceAny[k] = v
-				}
-				converted["model_price"] = priceAny
-			}
-			if len(billingModeMap) > 0 {
-				converted[billing_setting.BillingModeField] = valueMap(billingModeMap)
-			}
-			if len(billingExprMap) > 0 {
-				converted[billing_setting.BillingExprField] = valueMap(billingExprMap)
 			}
 
 			// Final check before sending result - don't queue work if the request was cancelled
@@ -536,8 +413,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 	wg.Wait()
 	close(ch)
 
-	localData := getLocalPricingSyncData()
-
 	var testResults []dto.TestResult
 	var successfulChannels []struct {
 		name string
@@ -552,9 +427,23 @@ func FetchUpstreamRatios(c *gin.Context) {
 				Error:  r.Err,
 			})
 		} else {
+			protectPricingSyncShapes(localData, r.Data)
+			sourceProviders, skippedModels := make(map[string]string), make(map[string]string)
+			for name, value := range valueMap(r.Data[syncSourceProviders]) {
+				if text, ok := value.(string); ok {
+					sourceProviders[name] = text
+				}
+			}
+			for name, value := range valueMap(r.Data[syncSkippedModels]) {
+				if text, ok := value.(string); ok {
+					skippedModels[name] = text
+				}
+			}
 			testResults = append(testResults, dto.TestResult{
-				Name:   r.Name,
-				Status: "success",
+				Name:            r.Name,
+				Status:          "success",
+				SourceProviders: sourceProviders,
+				SkippedModels:   skippedModels,
 			})
 			successfulChannels = append(successfulChannels, struct {
 				name string
@@ -568,8 +457,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"differences":  differences,
-			"test_results": testResults,
+			"pricing_config": pricingConfig,
+			"differences":    differences,
+			"test_results":   testResults,
 		},
 	})
 }
@@ -598,36 +488,12 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 
 	confidenceMap := make(map[string]map[string]bool)
 
-	// 预处理阶段：检查pricing接口的可信度
+	// Legacy fallback detection was made before currency conversion, so the
+	// sentinel remains untrusted at every target credit anchor.
 	for _, channel := range successfulChannels {
 		confidenceMap[channel.name] = make(map[string]bool)
-
-		modelRatios := valueMap(channel.data["model_ratio"])
-		completionRatios := valueMap(channel.data["completion_ratio"])
-
-		if len(modelRatios) > 0 && len(completionRatios) > 0 {
-			// 遍历所有模型，检查是否满足不可信条件
-			for modelName := range allModels {
-				// 默认为可信
-				confidenceMap[channel.name][modelName] = true
-
-				// 检查是否满足不可信条件：model_ratio为37.5且completion_ratio为1
-				if modelRatioVal, ok := modelRatios[modelName]; ok {
-					if completionRatioVal, ok := completionRatios[modelName]; ok {
-						// 转换为float64进行比较
-						modelRatioFloat, modelRatioOK := asFloat64(modelRatioVal)
-						completionRatioFloat, completionRatioOK := asFloat64(completionRatioVal)
-						if modelRatioOK && completionRatioOK && nearlyEqual(modelRatioFloat, 37.5) && nearlyEqual(completionRatioFloat, 1.0) {
-							confidenceMap[channel.name][modelName] = false
-						}
-					}
-				}
-			}
-		} else {
-			// 如果不是从pricing接口获取的数据，则全部标记为可信
-			for modelName := range allModels {
-				confidenceMap[channel.name][modelName] = true
-			}
+		for name := range allModels {
+			confidenceMap[channel.name][name] = valueMap(channel.data[syncUntrustedModels])[name] != true
 		}
 	}
 
@@ -646,11 +512,18 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 			for _, channel := range successfulChannels {
 				var upstreamValue interface{} = nil
 
+				pairedExpressionChange := false
+				if ratioType == billing_setting.BillingModeField || ratioType == billing_setting.BillingExprField {
+					mode := valueMap(channel.data[billing_setting.BillingModeField])[modelName]
+					expr, _ := valueMap(channel.data[billing_setting.BillingExprField])[modelName].(string)
+					pairedExpressionChange = mode == billing_setting.BillingModeTieredExpr && strings.TrimSpace(expr) != "" &&
+						(!valuesEqual(valueMap(localData[billing_setting.BillingModeField])[modelName], mode) || !valuesEqual(valueMap(localData[billing_setting.BillingExprField])[modelName], expr))
+				}
 				if val, exists := valueMap(channel.data[ratioType])[modelName]; exists {
 					upstreamValue = normalizeSyncValue(ratioType, val)
 					hasUpstreamValue = true
 
-					if localValue != nil && !valuesEqual(localValue, upstreamValue) {
+					if pairedExpressionChange || localValue != nil && !valuesEqual(localValue, upstreamValue) {
 						hasDifference = true
 					} else if valuesEqual(localValue, upstreamValue) {
 						upstreamValue = "same"
@@ -736,10 +609,6 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 	return differences
 }
 
-func roundRatioValue(value float64) float64 {
-	return math.Round(value*1e6) / 1e6
-}
-
 func isModelsDevAPIEndpoint(rawURL string) bool {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
@@ -757,20 +626,25 @@ func isModelsDevAPIEndpoint(rawURL string) bool {
 
 // convertOpenRouterToRatioData parses OpenRouter's /v1/models response and converts
 // per-token USD pricing into the local ratio format.
-// model_ratio = prompt_price_per_token * 1_000_000 * (USD / 1000)
-//
-//	since 1 ratio unit = $0.002/1K tokens and USD=500, the factor is 500_000
+// model_ratio = prompt_price_per_token * target_credits_per_usd
 //
 // completion_ratio = completion_price / prompt_price (output/input multiplier)
 func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		return nil, err
+	}
+	return convertOpenRouterToRatioDataWithAnchor(reader, anchor.InexactFloat64())
+}
+
+func convertOpenRouterToRatioDataWithAnchor(reader io.Reader, targetK float64) (map[string]any, error) {
+	if !validSyncUnit(targetK) {
+		return nil, fmt.Errorf("invalid pricing currency units")
+	}
 	var orResp struct {
 		Data []struct {
-			ID      string `json:"id"`
-			Pricing struct {
-				Prompt         string `json:"prompt"`
-				Completion     string `json:"completion"`
-				InputCacheRead string `json:"input_cache_read"`
-			} `json:"pricing"`
+			ID      string            `json:"id"`
+			Pricing map[string]string `json:"pricing"`
 		} `json:"data"`
 	}
 
@@ -781,10 +655,29 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 	modelRatioMap := make(map[string]any)
 	completionRatioMap := make(map[string]any)
 	cacheRatioMap := make(map[string]any)
+	skippedModels := make(map[string]any)
 
 	for _, m := range orResp.Data {
-		promptPrice, promptErr := strconv.ParseFloat(m.Pricing.Prompt, 64)
-		completionPrice, compErr := strconv.ParseFloat(m.Pricing.Completion, 64)
+		if strings.TrimSpace(m.ID) == "" {
+			continue
+		}
+		unsupported := ""
+		for field, raw := range m.Pricing {
+			if field == "prompt" || field == "completion" || field == "input_cache_read" {
+				continue
+			}
+			value, err := syncFloatLiteral(raw)
+			if err != nil || value != 0 {
+				unsupported = "OpenRouter quote has an unsupported billing dimension " + field
+				break
+			}
+		}
+		if unsupported != "" {
+			skippedModels[m.ID] = unsupported
+			continue
+		}
+		promptPrice, promptErr := syncFloatLiteral(m.Pricing["prompt"])
+		completionPrice, compErr := syncFloatLiteral(m.Pricing["completion"])
 
 		// Reject models where both prices are missing or invalid
 		if promptErr != nil && compErr != nil {
@@ -808,6 +701,12 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		}
 
 		if promptPrice == 0 && completionPrice == 0 {
+			if m.Pricing["input_cache_read"] != "" {
+				cache, err := syncFloatLiteral(m.Pricing["input_cache_read"])
+				if err != nil || cache != 0 {
+					continue
+				}
+			}
 			// Free model
 			modelRatioMap[m.ID] = 0.0
 			continue
@@ -818,216 +717,38 @@ func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		}
 
 		// Normal case: promptPrice > 0
-		ratio := promptPrice * 1000 * ratio_setting.USD
-		ratio = roundRatioValue(ratio)
+		ratio, err := scaleSyncPrice(promptPrice, targetK, 1)
+		if err != nil {
+			continue
+		}
 
 		// Validate computed ratio is finite
 		if !isValidNonNegativeCost(ratio) {
 			continue
 		}
-		compRatio := completionPrice / promptPrice
-		compRatio = roundRatioValue(compRatio)
+		compRatio, err := scaleSyncPrice(completionPrice, 1, promptPrice)
+		if err != nil {
+			continue
+		}
 
 		// Validate computed completion ratio is finite
 		if !isValidNonNegativeCost(compRatio) {
 			continue
 		}
-		modelRatioMap[m.ID] = ratio
-		completionRatioMap[m.ID] = compRatio
-
 		// Convert input_cache_read to cache_ratio (= cache_read_price / prompt_price)
-		if m.Pricing.InputCacheRead != "" {
-			if cachePrice, err := strconv.ParseFloat(m.Pricing.InputCacheRead, 64); err == nil {
-				if isValidNonNegativeCost(cachePrice) && cachePrice >= 0 {
-					cacheRatio := cachePrice / promptPrice
-					cacheRatio = roundRatioValue(cacheRatio)
-
-					// Validate computed cache ratio is finite
-					if isValidNonNegativeCost(cacheRatio) {
-						cacheRatioMap[m.ID] = cacheRatio
-					}
-				}
-			}
-		}
-	}
-
-	converted := make(map[string]any)
-	if len(modelRatioMap) > 0 {
-		converted["model_ratio"] = modelRatioMap
-	}
-	if len(completionRatioMap) > 0 {
-		converted["completion_ratio"] = completionRatioMap
-	}
-	if len(cacheRatioMap) > 0 {
-		converted["cache_ratio"] = cacheRatioMap
-	}
-
-	return converted, nil
-}
-
-type modelsDevProvider struct {
-	Models map[string]modelsDevModel `json:"models"`
-}
-
-type modelsDevModel struct {
-	Cost modelsDevCost `json:"cost"`
-}
-
-type modelsDevCost struct {
-	Input     *float64 `json:"input"`
-	Output    *float64 `json:"output"`
-	CacheRead *float64 `json:"cache_read"`
-}
-
-type modelsDevCandidate struct {
-	Provider  string
-	Input     float64
-	Output    *float64
-	CacheRead *float64
-}
-
-func cloneFloatPtr(v *float64) *float64 {
-	if v == nil {
-		return nil
-	}
-	out := *v
-	return &out
-}
-
-func isValidNonNegativeCost(v float64) bool {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return false
-	}
-	return v >= 0
-}
-
-func buildModelsDevCandidate(provider string, cost modelsDevCost) (modelsDevCandidate, bool) {
-	if cost.Input == nil {
-		return modelsDevCandidate{}, false
-	}
-
-	input := *cost.Input
-	if !isValidNonNegativeCost(input) {
-		return modelsDevCandidate{}, false
-	}
-
-	var output *float64
-	if cost.Output != nil {
-		if !isValidNonNegativeCost(*cost.Output) {
-			return modelsDevCandidate{}, false
-		}
-		output = cloneFloatPtr(cost.Output)
-	}
-
-	// input=0/output>0 cannot be transformed into local ratio.
-	if input == 0 && output != nil && *output > 0 {
-		return modelsDevCandidate{}, false
-	}
-
-	var cacheRead *float64
-	if cost.CacheRead != nil && isValidNonNegativeCost(*cost.CacheRead) {
-		cacheRead = cloneFloatPtr(cost.CacheRead)
-	}
-
-	return modelsDevCandidate{
-		Provider:  provider,
-		Input:     input,
-		Output:    output,
-		CacheRead: cacheRead,
-	}, true
-}
-
-func shouldReplaceModelsDevCandidate(current, next modelsDevCandidate) bool {
-	currentNonZero := current.Input > 0
-	nextNonZero := next.Input > 0
-	if currentNonZero != nextNonZero {
-		// Prefer non-zero pricing data; this matches "cheapest non-zero" conflict policy.
-		return nextNonZero
-	}
-	if nextNonZero && !nearlyEqual(next.Input, current.Input) {
-		return next.Input < current.Input
-	}
-	// Stable tie-breaker for deterministic result.
-	return next.Provider < current.Provider
-}
-
-// convertModelsDevToRatioData parses models.dev /api.json and converts
-// provider pricing metadata into local ratio format.
-// models.dev costs are USD per 1M tokens:
-//
-//	model_ratio = input_cost_per_1M / 2
-//	completion_ratio = output_cost / input_cost
-//	cache_ratio = cache_read_cost / input_cost
-//
-// Duplicate model keys across providers are resolved by selecting the
-// cheapest non-zero input cost. If only zero-priced candidates exist,
-// a zero ratio is kept.
-func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
-	var upstreamData map[string]modelsDevProvider
-	if err := common.DecodeJson(reader, &upstreamData); err != nil {
-		return nil, fmt.Errorf("failed to decode models.dev response: %w", err)
-	}
-	if len(upstreamData) == 0 {
-		return nil, fmt.Errorf("empty models.dev response")
-	}
-
-	providers := make([]string, 0, len(upstreamData))
-	for provider := range upstreamData {
-		providers = append(providers, provider)
-	}
-	sort.Strings(providers)
-
-	selectedCandidates := make(map[string]modelsDevCandidate)
-	for _, provider := range providers {
-		providerData := upstreamData[provider]
-		if len(providerData.Models) == 0 {
-			continue
-		}
-
-		modelNames := make([]string, 0, len(providerData.Models))
-		for modelName := range providerData.Models {
-			modelNames = append(modelNames, modelName)
-		}
-		sort.Strings(modelNames)
-
-		for _, modelName := range modelNames {
-			candidate, ok := buildModelsDevCandidate(provider, providerData.Models[modelName].Cost)
-			if !ok {
+		if m.Pricing["input_cache_read"] != "" {
+			cachePrice, err := syncFloatLiteral(m.Pricing["input_cache_read"])
+			if err != nil {
 				continue
 			}
-			current, exists := selectedCandidates[modelName]
-			if !exists || shouldReplaceModelsDevCandidate(current, candidate) {
-				selectedCandidates[modelName] = candidate
+			cacheRatio, err := scaleSyncPrice(cachePrice, 1, promptPrice)
+			if err != nil {
+				continue
 			}
+			cacheRatioMap[m.ID] = cacheRatio
 		}
-	}
-
-	if len(selectedCandidates) == 0 {
-		return nil, fmt.Errorf("no valid models.dev pricing entries found")
-	}
-
-	modelRatioMap := make(map[string]any)
-	completionRatioMap := make(map[string]any)
-	cacheRatioMap := make(map[string]any)
-
-	for modelName, candidate := range selectedCandidates {
-		if candidate.Input == 0 {
-			modelRatioMap[modelName] = 0.0
-			continue
-		}
-
-		modelRatio := candidate.Input * float64(ratio_setting.USD) / modelsDevInputCostRatioBase
-		modelRatioMap[modelName] = roundRatioValue(modelRatio)
-
-		if candidate.Output != nil {
-			completionRatio := *candidate.Output / candidate.Input
-			completionRatioMap[modelName] = roundRatioValue(completionRatio)
-		}
-
-		if candidate.CacheRead != nil {
-			cacheRatio := *candidate.CacheRead / candidate.Input
-			cacheRatioMap[modelName] = roundRatioValue(cacheRatio)
-		}
+		modelRatioMap[m.ID] = ratio
+		completionRatioMap[m.ID] = compRatio
 	}
 
 	converted := make(map[string]any)
@@ -1040,6 +761,10 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	if len(cacheRatioMap) > 0 {
 		converted["cache_ratio"] = cacheRatioMap
 	}
+	if len(skippedModels) > 0 {
+		converted[syncSkippedModels] = skippedModels
+	}
+
 	return converted, nil
 }
 

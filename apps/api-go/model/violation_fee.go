@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -40,6 +41,8 @@ func (ViolationFeeState) TableName() string { return "violation_fee_states" }
 
 // ViolationFeeRecord is the immutable charging audit row. The policy is
 // matched by group, while model/provider details are deliberately absent.
+// Empty AmountCurrency marks historical legacy amounts; new moderation
+// receipts explicitly use USD without rewriting existing numeric fields.
 type ViolationFeeRecord struct {
 	ID                 uint    `json:"id" gorm:"primaryKey"`
 	UserID             int     `json:"user_id" gorm:"not null;index;uniqueIndex:idx_violation_fee_request,priority:1"`
@@ -49,6 +52,7 @@ type ViolationFeeRecord struct {
 	Occurrence         int     `json:"occurrence" gorm:"not null"`
 	PeriodStartedAt    int64   `json:"period_started_at" gorm:"not null"`
 	PeriodEndsAt       int64   `json:"period_ends_at" gorm:"not null"`
+	AmountCurrency     string  `json:"amount_currency" gorm:"type:varchar(24);not null;default:''"`
 	RequestedAmountUSD float64 `json:"requested_amount_usd" gorm:"not null"`
 	ChargedAmountUSD   float64 `json:"charged_amount_usd" gorm:"not null"`
 	RequestedQuota     int     `json:"requested_quota" gorm:"not null"`
@@ -303,7 +307,11 @@ func ReviewViolationFeeAppeal(adminUserID int, appealID uint, approve bool, note
 		if approve {
 			status = ViolationFeeAppealStatusApproved
 			if record.Status == ViolationFeeRecordStatusCharged && record.ChargedQuota > 0 {
-				if err := ApplyWalletQuotaDelta(tx, record.UserID, record.ChargedQuota); err != nil {
+				refundQuota, err := WalletFutureCreditQuota(tx, record.UserID, "violation_fee_refund", strconv.FormatUint(uint64(record.ID), 10), record.ChargedQuota, record.CreatedAt)
+				if err != nil {
+					return err
+				}
+				if err := ApplyWalletQuotaDelta(tx, record.UserID, refundQuota); err != nil {
 					return err
 				}
 				if err := tx.Model(&ViolationFeeRecord{}).Where("id = ? AND status = ?", record.ID, ViolationFeeRecordStatusCharged).Updates(map[string]interface{}{
@@ -318,7 +326,7 @@ func ReviewViolationFeeAppeal(adminUserID int, appealID uint, approve bool, note
 						return err
 					}
 				}
-				reversedQuota = record.ChargedQuota
+				reversedQuota = refundQuota
 				reversedUserID = record.UserID
 			}
 		}

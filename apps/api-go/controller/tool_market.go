@@ -23,6 +23,8 @@ func toolMarketRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusNotFound, "TOOL_MARKET_NOT_FOUND", "tool market resource not found"
 	case errors.Is(err, model.ErrToolMarketInput):
 		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_INVALID_INPUT", err.Error()
+	case errors.Is(err, model.ErrToolMarketMetering):
+		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_INVALID_USAGE", err.Error()
 	case errors.Is(err, model.ErrToolMarketDenied):
 		status, code, message = http.StatusForbidden, "TOOL_MARKET_DENIED", err.Error()
 	case errors.Is(err, model.ErrToolMarketConflict):
@@ -74,6 +76,9 @@ func ListToolMarket(c *gin.Context) {
 
 func GetToolMarket(c *gin.Context) {
 	detail, err := model.GetToolMarketDetail(c.GetInt("id"), c.Param("id"), false)
+	if err == nil {
+		detail, err = walletCurrentCatalogPresentation(c.Request.Context(), detail)
+	}
 	toolMarketRespond(c, detail, err)
 }
 
@@ -114,17 +119,8 @@ func ReviewToolMarketDraft(c *gin.Context) {
 		return
 	}
 	if input.Approve {
-		// Deny self-approval before remote validation, including administrators
-		// and root users. The model repeats this check under the service lock.
-		review, err := model.GetToolMarketReview(c.GetInt("id"), c.Param("id"))
-		if err != nil {
-			toolMarketRespond(c, nil, err)
-			return
-		}
-		if review.Service.OwnerID == c.GetInt("id") {
-			toolMarketRespond(c, nil, model.ErrToolMarketDenied)
-			return
-		}
+		// Approval always revalidates the remote snapshot, including when an
+		// administrator or root user is also the publisher.
 		if err := service.ValidateToolMarketRemote(c.Request.Context(), c.GetInt("id"), c.Param("id"), true); err != nil {
 			toolMarketRespond(c, nil, err)
 			return
@@ -210,4 +206,35 @@ func SetToolMarketConfig(c *gin.Context) {
 		return
 	}
 	toolMarketRespond(c, nil, model.SetToolMarketConfig(c.GetInt("id"), input))
+}
+
+func ReportToolMarketCall(c *gin.Context) {
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	if c.ShouldBindJSON(&input) != nil {
+		toolMarketRespond(c, nil, model.ErrToolMarketInput)
+		return
+	}
+	report, err := model.ReportToolMarketCall(c.GetInt("id"), c.Param("id"), input.Reason)
+	toolMarketRespond(c, report, err)
+}
+func ListToolMarketReports(c *gin.Context) {
+	offset, limit, ok := toolMarketPage(c)
+	if !ok {
+		return
+	}
+	rows, err := model.ListToolMarketReports(c.GetInt("id"), offset, limit)
+	toolMarketRespond(c, rows, err)
+}
+func ReviewToolMarketReport(c *gin.Context) {
+	var input struct {
+		Confirmed *bool  `json:"confirmed"`
+		Note      string `json:"note"`
+	}
+	if c.ShouldBindJSON(&input) != nil || input.Confirmed == nil {
+		toolMarketRespond(c, nil, model.ErrToolMarketInput)
+		return
+	}
+	toolMarketRespond(c, nil, model.ReviewToolMarketReport(c.GetInt("id"), c.Param("id"), *input.Confirmed, input.Note))
 }

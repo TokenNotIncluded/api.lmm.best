@@ -25,6 +25,18 @@ that still reproduces byte for byte. The tracked AUR version must be older
 than the proposed tag. Assets are checksum-bound, signed with the component
 workflow's Sigstore identity, and verified before publication.
 
+Go and Web publishers explicitly select their 12-check inventory with
+`verify-release-commit-checks.sh COMMIT_SHA --component go|web`. It retains Go,
+Web, package, mixed route-safety, non-Rust CodeQL, the Go/Web CI aggregate, and
+the existing server qualification gate, including real database safety. Only
+the three pure Rust checks are outside this component inventory. A completed CI
+or dynamic CodeQL workflow may have failed in its Rust portion only when every
+selected check and aggregate succeeds for the same main commit and selected
+workflow run. Cancellation, incomplete runs, missing checks, and failed selected
+checks still reject publication; the Go-only server workflow must succeed. The
+default invocation and `--component rust` retain the original 14-check inventory
+and require successful parent workflows.
+
 Creating a tag is deliberately an operator-controlled action. There is no
 workflow that infers a release from a root version-file change. A future
 component promoter may automate tag creation only after it proves the same

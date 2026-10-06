@@ -48,24 +48,7 @@ func TestSettlementQuoteSavingsUsesRoundedSameCurrencyAmounts(t *testing.T) {
 }
 
 func TestGetWaffoPancakePayMoney(t *testing.T) {
-	originalUnitPrice := setting.WaffoPancakeUnitPrice
-	originalUSDExchangeRate := operation_setting.USDExchangeRate
-	originalPlatformUnitsPerCNY := operation_setting.TopUpPlatformUnitsPerCNY
-	originalQuotaDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
-	originalDiscounts := make(map[int]float64, len(operation_setting.GetPaymentSetting().AmountDiscount))
-	for k, v := range operation_setting.GetPaymentSetting().AmountDiscount {
-		originalDiscounts[k] = v
-	}
-	originalTopupGroupRatio := common.TopupGroupRatio2JSONString()
-
-	t.Cleanup(func() {
-		setting.WaffoPancakeUnitPrice = originalUnitPrice
-		operation_setting.USDExchangeRate = originalUSDExchangeRate
-		operation_setting.TopUpPlatformUnitsPerCNY = originalPlatformUnitsPerCNY
-		operation_setting.GetGeneralSetting().QuotaDisplayType = originalQuotaDisplayType
-		operation_setting.GetPaymentSetting().AmountDiscount = originalDiscounts
-		require.NoError(t, common.UpdateTopupGroupRatioByJSONString(originalTopupGroupRatio))
-	})
+	preserveChannelPricing(t)
 
 	// Provider-specific UnitPrice is deprecated and must not affect settlement.
 	setting.WaffoPancakeUnitPrice = 999
@@ -86,7 +69,7 @@ func TestGetWaffoPancakePayMoney(t *testing.T) {
 		expected         float64
 	}{
 		{
-			name:             "USD settlement uses global FX group ratio and discount",
+			name:             "USD settlement uses frozen anchor group ratio and discount",
 			amount:           10,
 			group:            "vip",
 			quotaDisplayType: operation_setting.QuotaDisplayTypeUSD,

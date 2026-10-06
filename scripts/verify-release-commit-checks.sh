@@ -5,7 +5,6 @@ ROOT=$(git rev-parse --show-toplevel)
 readonly ROOT
 readonly REPOSITORY=${GITHUB_REPOSITORY:-TokenNotIncluded/api.lmm.best}
 readonly API_ROOT=${GITHUB_API_URL:-https://api.github.com}
-readonly REQUIRED_FILE="$ROOT/.github/required-release-checks.txt"
 readonly MAX_ATTEMPTS=${LMM_CHECK_MAX_ATTEMPTS:-30}
 readonly WAIT_SECONDS=${LMM_CHECK_WAIT_SECONDS:-20}
 
@@ -14,8 +13,20 @@ fail() {
   exit 1
 }
 
-[[ $# -eq 1 && $1 =~ ^[0-9a-f]{40}$ ]] || fail 'usage: verify-release-commit-checks.sh COMMIT_SHA'
+[[ $# -eq 1 || $# -eq 3 ]] || fail 'usage: verify-release-commit-checks.sh COMMIT_SHA [--component go|web|rust]'
+[[ $1 =~ ^[0-9a-f]{40}$ ]] || fail 'commit must be a full lowercase SHA'
 readonly REVISION=$1
+component=full
+if [[ $# -eq 3 ]]; then
+  [[ $2 == --component ]] || fail 'expected --component'
+  case "$3" in go|web|rust) component=$3 ;; *) fail 'unsupported release component' ;; esac
+fi
+readonly COMPONENT=$component
+if [[ $COMPONENT == go || $COMPONENT == web ]]; then
+  readonly REQUIRED_FILE="$ROOT/.github/required-go-web-release-checks.txt"
+else
+  readonly REQUIRED_FILE="$ROOT/.github/required-release-checks.txt"
+fi
 [[ -f $REQUIRED_FILE ]] || fail 'required check inventory is missing'
 
 required_names=()
@@ -107,8 +118,17 @@ for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
       continue
     fi
     if [[ $workflow_conclusion != success ]]; then
-      invalid+=("$name ($workflow $workflow_conclusion)")
-      continue
+      allow_component_failure=false
+      if [[ ($COMPONENT == go || $COMPONENT == web) && $workflow_conclusion == failure ]]; then
+        case "$workflow" in
+          .github/workflows/ci.yml|dynamic/github-code-scanning/codeql)
+            allow_component_failure=true ;;
+        esac
+      fi
+      if [[ $allow_component_failure != true ]]; then
+        invalid+=("$name ($workflow $workflow_conclusion)")
+        continue
+      fi
     fi
 
     workflow_run_id=$(jq -r '.id' <<<"$workflow_run")
@@ -147,7 +167,11 @@ for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
     exit 1
   fi
   if [[ ${#pending[@]} -eq 0 ]]; then
-    printf 'all required main-push CI, CodeQL, and release artifact checks passed for %s\n' "$REVISION"
+    if [[ $COMPONENT == go || $COMPONENT == web ]]; then
+      printf 'all required %s component CI, CodeQL, and release qualification checks passed for %s\n' "$COMPONENT" "$REVISION"
+    else
+      printf 'all required main-push CI, CodeQL, and release artifact checks passed for %s\n' "$REVISION"
+    fi
     exit 0
   fi
   if ((attempt == MAX_ATTEMPTS)); then

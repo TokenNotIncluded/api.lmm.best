@@ -20,6 +20,8 @@ import type { AxiosAdapter, InternalAxiosRequestConfig } from 'axios'
 
 import { useAuthStore } from '@/stores/auth-store'
 
+import { DEBUG_WALLET_TOPUP_INFO } from './wallet-review-fixtures'
+
 const stamp = 1790035200
 const page = { items: [], total: 0, page: 1, page_size: 20, size: 20 }
 const modelNames = ['gpt-5-mini', 'claude-sonnet']
@@ -29,31 +31,7 @@ const modelNames = ['gpt-5-mini', 'claude-sonnet']
 // is added here. Activated only by console_review=1 in the development entry.
 const reads: Record<string, unknown> = {
   '/api/user/company-billing-profile': null,
-  '/api/user/topup/info': {
-    enable_online_topup: true,
-    enable_stripe_topup: false,
-    enable_creem_topup: false,
-    enable_waffo_topup: false,
-    pay_methods: [
-      {
-        name: 'Alipay · local preview',
-        type: 'alipay',
-        min_topup: 1,
-        settlement_currency: 'USD',
-        platform_units_per_usd: 1,
-        settlement_units_per_usd: 1,
-        settlement_units_per_platform_unit: 1,
-      },
-    ],
-    amount_options: [10, 50, 100, 200],
-    min_topup: 1,
-    stripe_min_topup: 1,
-    discount: {},
-    topup_group_ratio: 1,
-    payment_compliance_confirmed: true,
-    developer_access_granted: true,
-    payment_available: true,
-  },
+  '/api/user/topup/info': DEBUG_WALLET_TOPUP_INFO,
   '/api/user/aff': 'local-preview-referral',
   '/api/user/2fa/status': {
     enabled: false,
@@ -252,6 +230,30 @@ const reads: Record<string, unknown> = {
   '/api/hero-sms/email/activations': page,
   '/api/hero-sms/email/activations/current': null,
   '/api/drawing/self/settings': { enabled: false },
+  '/api/option/pricing': {
+    schema_version: 2,
+    currency: 'USD',
+    storage_basis: 'legacy_pricing_unit',
+    revision: 'a'.repeat(64),
+    credits_per_usd: 500000,
+    legacy_pricing_units_per_usd: 500000,
+    model_ratio_usd_per_million: 2,
+    tool_price_defaults: {},
+    values: {
+      ModelRatio: '{"gpt-5-mini":0.25}',
+      CompletionRatio: '{"gpt-5-mini":2}',
+      ModelPrice: '{}',
+      CacheRatio: '{}',
+      CreateCacheRatio: '{}',
+      ImageRatio: '{}',
+      AudioRatio: '{}',
+      AudioCompletionRatio: '{}',
+      'billing_setting.billing_mode': '{}',
+      'billing_setting.billing_expr': '{}',
+      ModelPriceLock: '{}',
+      'tool_price_setting.prices': '{}',
+    },
+  },
   '/api/option/': [
     { key: 'SystemName', value: 'LMM Best' },
     { key: 'QuotaPerUnit', value: '500000' },
@@ -344,7 +346,7 @@ export function consolePageFixture(
       },
     }
   }
-  if (path === '/api/pricing') {
+  if (path === '/api/pricing' || path === '/api/assistant/pricing') {
     return {
       success: true,
       data: [

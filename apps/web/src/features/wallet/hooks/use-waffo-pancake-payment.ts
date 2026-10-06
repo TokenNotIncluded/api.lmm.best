@@ -25,7 +25,7 @@ import {
   getWaffoPancakeCheckoutLanguage,
 } from '@/lib/waffo-pancake-checkout'
 
-import { requestWaffoPancakePayment, isApiSuccess } from '../api'
+import { requestCreditPancakePayment, isApiSuccess } from '../api'
 import { isSafeHttpCheckoutUrl } from '../lib'
 import {
   expectedSettlement,
@@ -87,8 +87,8 @@ export function useWaffoPancakePayment() {
 
       try {
         const interfaceLanguage = i18next.resolvedLanguage || i18next.language
-        const response = await requestWaffoPancakePayment({
-          amount: Math.floor(topupAmount),
+        const response = await requestCreditPancakePayment({
+          amount: topupAmount,
           ...expectedSettlement(quote),
           checkout_region:
             checkoutOptions?.checkout_region ??

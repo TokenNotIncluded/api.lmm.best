@@ -128,6 +128,10 @@ async function renderModelDetails(
               id: 1,
               model_name: modelName,
               quota_type: 0,
+              pricing_schema_version: 2,
+              pricing_currency: 'USD',
+              input_price: 2,
+              output_price: 2,
               model_ratio: 1,
               completion_ratio: 1,
               enable_groups: ['free'],
@@ -137,8 +141,7 @@ async function renderModelDetails(
             usableGroup={{ free: { desc: 'Free group', ratio: groupRatio } }}
             endpointMap={{}}
             autoGroups={[]}
-            priceRate={1}
-            usdExchangeRate={1}
+            displayCurrency='USD'
             tokenUnit='M'
           />
         </I18nextProvider>
@@ -200,13 +203,14 @@ describe('ModelDetails group pricing', () => {
     await unmount(rendered)
   })
 
-  test('renders a configured zero group ratio as zero', async () => {
+  test('a free group cannot change the displayed base price', async () => {
     const rendered = await renderModelDetails()
 
-    assert.match(rendered.container.textContent ?? '', /0x/)
+    assert.match(rendered.container.textContent ?? '', /Base price \(1×\)/)
+    assert.match(rendered.container.textContent ?? '', /2 USD/)
     assert.doesNotMatch(
       rendered.container.textContent ?? '',
-      /free-model[\s\S]*1x/i
+      /0x|Pricing by Group/
     )
 
     await unmount(rendered)
@@ -233,7 +237,7 @@ describe('ModelDetails group pricing', () => {
         )
       )
     }
-    assert.equal(section.querySelector('select')?.value, 'free')
+    assert.equal(section.querySelector('select'), null)
     assert.doesNotMatch(
       section.querySelector('[aria-live]')?.textContent ?? '',
       /unavailable/
@@ -256,6 +260,7 @@ describe('ModelDetails group pricing', () => {
       'account-judge',
       {
         supported_endpoint_types: ['systemone'],
+        input_price: 0.042,
         model_ratio: 0.021,
         completion_ratio: 1000,
       },
@@ -281,7 +286,7 @@ describe('ModelDetails group pricing', () => {
     )
     assert.match(
       section.querySelector('[aria-live]')?.textContent ?? '',
-      /^\$0\.00084 \(/
+      /^0\.00042 USD$/
     )
     const presets = [...section.querySelectorAll('button')]
     assert.equal(presets.length, 1)
@@ -291,7 +296,7 @@ describe('ModelDetails group pricing', () => {
     assert.equal(presets[0].getAttribute('aria-pressed'), 'true')
     assert.match(
       section.querySelector('[aria-live]')?.textContent ?? '',
-      /^\$0\.0042 \(/
+      /^0\.0021 USD$/
     )
 
     const setValue = Object.getOwnPropertyDescriptor(
@@ -306,7 +311,7 @@ describe('ModelDetails group pricing', () => {
     assert.equal(presets[0].getAttribute('aria-pressed'), 'false')
     assert.match(
       section.querySelector('[aria-live]')?.textContent ?? '',
-      /^\$0\.0021 \(/
+      /^0\.00105 USD$/
     )
     await unmount(rendered)
   })

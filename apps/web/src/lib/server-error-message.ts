@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 const serverErrorMessageKeys = {
+  service_temporarily_unavailable:
+    'The service is temporarily unavailable. Please try again later.',
   'oauth.github_migration_declined':
     'GitHub account ownership could not be verified. Sign in another way and relink GitHub in account settings.',
   AUTH_SESSION_LIMIT:
@@ -60,11 +62,24 @@ function serverErrorPayload(value: unknown): Record<string, unknown> | null {
 
 export function getServerErrorMessageKey(value: unknown): string | null {
   const payload = serverErrorPayload(value)
-  if (!payload || typeof payload.code !== 'string') return null
+  if (!payload) return null
+  const code =
+    typeof payload.code === 'string'
+      ? payload.code
+      : isRecord(payload.error) && typeof payload.error.code === 'string'
+        ? payload.error.code
+        : null
+  if (!code) return null
 
   return (
-    serverErrorMessageKeys[
-      payload.code as keyof typeof serverErrorMessageKeys
-    ] ?? null
+    serverErrorMessageKeys[code as keyof typeof serverErrorMessageKeys] ?? null
   )
+}
+
+/** Concurrent requests during the same outage share one notification. */
+export function getServerErrorToastId(value: unknown): string | undefined {
+  return getServerErrorMessageKey(value) ===
+    serverErrorMessageKeys.service_temporarily_unavailable
+    ? 'service-temporarily-unavailable'
+    : undefined
 }

@@ -20,12 +20,18 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
 import { useStatus } from '@/hooks/use-status'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import { getPricing } from '../api'
 import { useModelRuntime } from './use-model-runtime'
 
 export function usePricingData(options?: { enabled?: boolean }) {
-  const { status } = useStatus()
+  useStatus()
+  const {
+    currency: displayCurrency,
+    setPreference: setDisplayCurrency,
+    error: displayCurrencyError,
+  } = useWalletCurrency()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pricing'],
@@ -33,16 +39,6 @@ export function usePricingData(options?: { enabled?: boolean }) {
     enabled: options?.enabled ?? true,
     staleTime: 5 * 60 * 1000,
   })
-
-  // Missing/invalid conversion rates must not fabricate a USD estimate.
-  const priceRate = useMemo(
-    () => Number(status?.price ?? Number.NaN),
-    [status?.price]
-  )
-  const usdExchangeRate = useMemo(
-    () => Number(status?.usd_exchange_rate ?? Number.NaN),
-    [status?.usd_exchange_rate]
-  )
 
   const models = useMemo(() => {
     if (!data?.data || !data?.vendors) return []
@@ -86,7 +82,8 @@ export function usePricingData(options?: { enabled?: boolean }) {
     isLoading,
     error,
     refetch,
-    priceRate,
-    usdExchangeRate,
+    displayCurrency,
+    setDisplayCurrency,
+    displayCurrencyError,
   }
 }

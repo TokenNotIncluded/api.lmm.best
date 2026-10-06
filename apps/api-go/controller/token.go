@@ -241,13 +241,38 @@ func GetTokenStatus(c *gin.Context) {
 	if expiredAt == -1 {
 		expiredAt = 0
 	}
-	c.JSON(http.StatusOK, gin.H{
+	basis, err := captureCreditBoundaryBasis()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "credit_units_unavailable"})
+		return
+	}
+	available, err := basis.publicAmount(int64(token.RemainQuota))
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "credit_units_unavailable"})
+		return
+	}
+	used, err := basis.publicAmount(int64(token.UsedQuota))
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "credit_units_unavailable"})
+		return
+	}
+	data := gin.H{
 		"object":          "credit_summary",
+		"unit":            common.LedgerQuotaUnit,
 		"total_granted":   token.RemainQuota,
 		"total_used":      0, // not supported currently
 		"total_available": token.RemainQuota,
 		"expires_at":      expiredAt * 1000,
-	})
+		"credit_summary": gin.H{
+			"unit":            common.PublicCreditUnit,
+			"total_granted":   available.Add(used).String(),
+			"total_used":      used.String(),
+			"total_available": available.String(),
+			"unlimited":       token.UnlimitedQuota,
+		},
+	}
+	basis.addMetadata(data)
+	c.JSON(http.StatusOK, data)
 }
 
 func GetTokenUsage(c *gin.Context) {

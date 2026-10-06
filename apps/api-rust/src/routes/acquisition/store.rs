@@ -358,6 +358,8 @@ impl PgAcquisitionStore {
         if user <= 0 || actor <= 0 || expected < 0 || source.is_empty() || label(source) != source {
             return Err(INVALID.into());
         }
+        let now = Utc::now().timestamp();
+        let cutoff = now - ACCOUNT_DAYS * 86400;
         let mut tx = self.pool.begin().await?;
         let Some((target_role, created_at)) = sqlx::query_as::<_, (i64, i64)>(
             "SELECT role,created_at FROM users WHERE id=$1 AND deleted_at IS NULL",
@@ -375,12 +377,20 @@ impl PgAcquisitionStore {
             .bind(user)
             .execute(&mut *tx)
             .await?;
-        let (revision, head_source): (i64, String) = sqlx::query_as(
-            "SELECT COALESCE(revision,0),COALESCE(source,'') FROM acquisition_correction_heads WHERE user_id=$1 FOR UPDATE",
+        let (stored_revision, stored_source, updated_at): (i64, String, i64) = sqlx::query_as(
+            "SELECT COALESCE(revision,0),COALESCE(source,''),COALESCE(updated_at,0) FROM acquisition_correction_heads WHERE user_id=$1 FOR UPDATE",
         )
         .bind(user)
         .fetch_one(&mut *tx)
         .await?;
+        // The read contract hides correction heads outside the retention window. Treat the
+        // same head as revision zero while holding its row lock so a client can start a new
+        // visible chain, while a concurrent second revision-zero write still conflicts.
+        let (revision, head_source) = if updated_at >= cutoff {
+            (stored_revision, stored_source)
+        } else {
+            (0, String::new())
+        };
         let consent = sqlx::query_scalar::<_, bool>(
             "SELECT COALESCE(allowed,FALSE) FROM acquisition_consents WHERE user_id=$1",
         )
@@ -401,7 +411,7 @@ impl PgAcquisitionStore {
                 "SELECT COALESCE(registration_source,'') FROM acquisition_accounts WHERE user_id=$1 AND created_at>=$2",
             )
             .bind(user)
-            .bind(Utc::now().timestamp() - ACCOUNT_DAYS * 86400)
+            .bind(cutoff)
             .fetch_optional(&mut *tx)
             .await?
             .unwrap_or_default();
@@ -414,7 +424,6 @@ impl PgAcquisitionStore {
                 };
             }
         }
-        let now = Utc::now().timestamp();
         let saved = sqlx::query_scalar::<_, Value>(
             "INSERT INTO acquisition_corrections(user_id,previous_revision,previous_source,source,reason,actor_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING to_jsonb(acquisition_corrections)",
         )

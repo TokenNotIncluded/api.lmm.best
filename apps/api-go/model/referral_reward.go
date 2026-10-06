@@ -173,6 +173,11 @@ func grantFirstTopUpReferralTx(tx *gorm.DB, topUp *TopUp) error {
 // A negative balance is durable reward debt; subsequent awards offset it before
 // anything can be transferred. Never clamp a debit and silently lose the debt.
 func applyReferralDeltaTx(tx *gorm.DB, reward *ReferralReward, kind, reason string, delta int) error {
+	var err error
+	delta, err = rebasedReferralDeltaTx(tx, reward, kind, delta)
+	if err != nil {
+		return err
+	}
 	if delta == 0 {
 		return nil
 	}

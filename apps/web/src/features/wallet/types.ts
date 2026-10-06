@@ -39,11 +39,37 @@ export interface ApiResponse<T = unknown> {
  */
 export type TopupInfoResponse = ApiResponse<TopupInfo>
 export type RedemptionResponse = ApiResponse<number>
-export type AmountResponse = ApiResponse<string> & {
-  settlement_currency?: string
-  original_settlement_amount?: string
-  savings_settlement_amount?: string
+export interface CreditUnitMetadata {
+  credit_unit_schema_version: number
+  quota_unit: string
+  public_credit_unit: string
+  legacy_credit_unit: string
+  ledger_quota_per_usd: number
+  ledger_quota_per_usd_exact: string
+  public_credits_per_usd: number
+  public_credits_per_usd_exact: string
 }
+
+export interface CreditAmountMetadata extends Partial<CreditUnitMetadata> {
+  credited_quota?: number
+  /** Compatibility alias; this is immutable raw ledger quota. */
+  credit_amount?: number
+  credit_amount_unit?: 'LEDGER_QUOTA'
+  public_credit_amount?: string
+  public_credit_amount_unit?: 'CREDIT'
+  public_credit_metadata_version?: number
+}
+
+export type AmountResponse = ApiResponse<string> &
+  CreditAmountMetadata & {
+    settlement_currency?: string
+    /** Optional same-currency breakdown; validate its version and basis before display. */
+    settlement_quote?: unknown
+    original_settlement_amount?: string
+    savings_settlement_amount?: string
+    amount_unit?: 'LEGACY' | 'USD' | 'CNY' | 'CREDIT' | 'LEDGER_QUOTA'
+    legacy_batch_units?: string
+  }
 export type DiscountCodeResponse = ApiResponse<{
   code: string
   discount_percent: number
@@ -120,6 +146,18 @@ export interface PaymentMethod {
   color?: string
   /** Optional administrator-provided instructions shown on the selector. */
   description?: string
+  /** Server-normalized legacy batch policy, independent of display units. */
+  min_topup_credit?: string | number
+  max_topup_credit?: string | number
+  min_topup_ledger_quota?: string
+  max_topup_ledger_quota?: string
+  min_topup_public_credit?: string
+  max_topup_public_credit?: string
+  credit_amount_unit?: 'LEDGER_QUOTA'
+  legacy_min_topup?: string | number
+  legacy_max_topup_amount?: string | number
+  min_topup_unit?: 'USD' | 'LEGACY'
+  max_topup_amount_unit?: 'CREDIT' | 'LEGACY'
   /** Minimum topup amount for this payment method */
   min_topup?: number
   /** Maximum credited USD allowed in one payment for this method. */
@@ -130,7 +168,7 @@ export interface PaymentMethod {
   icon?: string
   /** Explicit ISO/code unit charged by the gateway, for example USD or CNY. */
   settlement_currency?: string
-  /** Platform credit units represented by 1 real USD in the settlement contract. */
+  /** Legacy recharge batches represented by 1 real USD in the settlement contract. */
   platform_units_per_usd?: string | number
   /** Gateway settlement units represented by 1 real USD. */
   settlement_units_per_usd?: string | number
@@ -164,7 +202,44 @@ export interface WaffoPayMethod {
 /**
  * Topup configuration information
  */
-export interface TopupInfo {
+export interface TopupInfo extends Partial<CreditUnitMetadata> {
+  /** Internal compatibility catalog label; CREDIT here retains raw ledger integers. */
+  amount_unit?: 'LEGACY' | 'CREDIT'
+  credit_metadata_available?: boolean
+  credit_metadata_version?: number
+  public_credit_metadata_version?: number
+  public_credit_amount_unit?: 'CREDIT'
+  ledger_quota_amount_options?: number[]
+  public_credit_amount_options?: string[]
+  ledger_quota_discount?: Record<string, number>
+  public_credit_discount?: Record<string, number>
+  ledger_quota_min_topup?: number
+  stripe_ledger_quota_min_topup?: number
+  waffo_ledger_quota_min_topup?: number
+  pancake_ledger_quota_min_topup?: number
+  stripe_ledger_quota_max_topup?: number | null
+  waffo_ledger_quota_max_topup?: number | null
+  pancake_ledger_quota_max_topup?: number | null
+  public_credit_min_topup?: string
+  stripe_public_credit_min_topup?: string
+  waffo_public_credit_min_topup?: string
+  pancake_public_credit_min_topup?: string
+  stripe_public_credit_max_topup?: string | null
+  waffo_public_credit_max_topup?: string | null
+  pancake_public_credit_max_topup?: string | null
+  credit_amount_options?: number[]
+  credit_discount?: Record<number, number>
+  credit_min_topup?: number
+  stripe_credit_min_topup?: number
+  waffo_credit_min_topup?: number
+  pancake_credit_min_topup?: number
+  /** Complete provider caps; explicit null means no configured cap. */
+  stripe_credit_max_topup?: number | null
+  waffo_credit_max_topup?: number | null
+  pancake_credit_max_topup?: number | null
+  legacy_amount_unit?: 'LEGACY'
+  legacy_amount_options?: number[]
+  legacy_discount?: Record<number, number>
   /** Whether this account has completed the paid developer-access activation. */
   developer_access_granted?: boolean
   /** Whether activation is required before normal console access. */
@@ -197,7 +272,7 @@ export interface TopupInfo {
   enable_waffo_topup?: boolean
   /** Fiat settlement currency used by Waffo. */
   waffo_currency?: string
-  /** Fiat amount charged for one platform dollar by Waffo. */
+  /** Fiat amount charged for one legacy recharge batch by Waffo. */
   waffo_unit_price?: number | string
   /** Available Waffo payment methods */
   waffo_pay_methods?: WaffoPayMethod[]
@@ -227,7 +302,7 @@ export interface TopupInfo {
  * Preset amount option with optional discount
  */
 export interface PresetAmount {
-  /** Preset amount value */
+  /** Raw integer Credit value after top-up metadata normalization. */
   value: number
   /** Optional discount rate (0-1) */
   discount?: number
@@ -245,6 +320,8 @@ export interface RedemptionRequest {
  * Payment request parameters
  */
 export interface PaymentRequest {
+  /** Explicit legacy batch unit; display currency never changes this request. */
+  amount_unit?: 'LEGACY'
   /** Topup amount */
   amount: number
   /** Payment method identifier */
@@ -257,6 +334,8 @@ export interface PaymentRequest {
  * Waffo payment request parameters
  */
 export interface WaffoPaymentRequest {
+  /** Explicit legacy batch unit; display currency never changes this request. */
+  amount_unit?: 'LEGACY'
   /** Topup amount */
   amount: number
   /** Optional server-side Waffo payment method index */
@@ -268,6 +347,8 @@ export interface WaffoPaymentRequest {
  * Waffo Pancake payment request parameters
  */
 export interface WaffoPancakePaymentRequest {
+  /** Explicit legacy batch unit; display currency never changes this request. */
+  amount_unit?: 'LEGACY'
   settlement_currency?: 'CNY' | 'USD'
   settlement_amount?: string
   /** Topup amount */
@@ -283,6 +364,8 @@ export interface WaffoPancakePaymentRequest {
  * Amount calculation request
  */
 export interface AmountRequest {
+  /** Explicit legacy batch unit; display currency never changes this request. */
+  amount_unit?: 'LEGACY'
   /** Topup amount to calculate */
   amount: number
   /** Gateway selected for a regular Epay amount calculation. */
@@ -290,6 +373,59 @@ export interface AmountRequest {
   /** Optional administrator-issued percentage discount code. */
   discount_code?: string
 }
+
+/** Historical Credit* callers supply raw ledger integers, never public CREDIT projections. */
+export interface LedgerQuotaRequestUnit {
+  amount_unit: 'LEDGER_QUOTA'
+  credit_metadata_version: 2
+  expected_public_credits_per_usd_exact?: never
+}
+export interface PublicCreditRequestUnit {
+  amount_unit: 'CREDIT'
+  credit_metadata_version: 2
+  expected_public_credits_per_usd_exact: string
+}
+export type CreditWireRequestUnit =
+  | {
+      amount_unit?: 'CREDIT'
+      credit_metadata_version?: never
+      expected_public_credits_per_usd_exact?: never
+    }
+  | LedgerQuotaRequestUnit
+  | PublicCreditRequestUnit
+
+export type CreditAmountRequest = Omit<AmountRequest, 'amount_unit'> & {
+  amount_unit?: 'CREDIT'
+}
+export type CreditPaymentRequest = Omit<PaymentRequest, 'amount_unit'> & {
+  amount_unit?: 'CREDIT'
+}
+export type CreditWaffoPaymentRequest = Omit<
+  WaffoPaymentRequest,
+  'amount_unit'
+> & { amount_unit?: 'CREDIT' }
+
+export type VersionedCreditAmountRequest = Omit<AmountRequest, 'amount_unit'> &
+  (LedgerQuotaRequestUnit | PublicCreditRequestUnit)
+export type VersionedCreditPaymentRequest = Omit<
+  PaymentRequest,
+  'amount_unit'
+> &
+  (LedgerQuotaRequestUnit | PublicCreditRequestUnit)
+export type VersionedCreditWaffoPaymentRequest = Omit<
+  WaffoPaymentRequest,
+  'amount_unit'
+> &
+  (LedgerQuotaRequestUnit | PublicCreditRequestUnit)
+export type VersionedCreditPancakePaymentRequest = Omit<
+  WaffoPancakePaymentRequest,
+  'amount_unit'
+> &
+  (LedgerQuotaRequestUnit | PublicCreditRequestUnit)
+export type CreditPancakePaymentRequest = Omit<
+  WaffoPancakePaymentRequest,
+  'amount_unit'
+> & { amount_unit?: 'CREDIT' }
 
 /**
  * Affiliate quota transfer request
@@ -339,9 +475,13 @@ export interface TopupRecord {
   id: number
   /** User ID */
   user_id: number
-  /** Deprecated integer projection of the platform amount. */
+  /** Immutable raw credit snapshot when available. */
+  credited_quota?: number
+  /** Immutable gateway settlement currency. */
+  settlement_currency?: string
+  /** Deprecated integer projection of the legacy recharge batch amount. */
   amount: number
-  /** Exact platform amount snapshot in millionths for fractional top-ups. */
+  /** Exact legacy recharge batch snapshot in millionths for fractional top-ups. */
   platform_amount_micros?: number
   /** Payment amount (actual fiat money paid) */
   money: number

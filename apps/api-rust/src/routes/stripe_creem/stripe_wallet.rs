@@ -12,16 +12,49 @@ use super::{
     },
     *,
 };
+use crate::public_credit_units::{PublicCreditDenomination, PublicCreditError};
 use crate::routes::epay::runtime::{
     MAX_WALLET_QUOTA, compliance_confirmed, consume_discount, grant_referral, monetary_micros,
     now_seconds, options,
 };
 use crate::routes::epay::{
-    CreateTopup, PendingTopup as WalletOrder, PgEpayRepository, TopupAuthorizer, TopupError,
-    TopupRepository,
+    CreateTopup, PendingTopup as WalletOrder, PgEpayRepository, SettlementSnapshot,
+    TopupAuthorizer, TopupError, TopupRepository,
 };
 use crate::{ClientIpKey, RequestContext, auth::CriticalRateLimitOutcome};
 use rust_decimal::RoundingStrategy;
+
+fn stripe_credit_fields(
+    snapshot: &SettlementSnapshot,
+    amount_unit: &str,
+    units: &PublicCreditDenomination,
+) -> Result<Value, PublicCreditError> {
+    let amount = units.project_ledger_quota(snapshot.credited_quota)?;
+    let mut fields = json!({
+        "currency_unit": "credit",
+        "amount_unit": amount_unit,
+        "credited_quota": snapshot.credited_quota,
+        "credit_amount": snapshot.credited_quota,
+        "credit_amount_unit": "LEDGER_QUOTA",
+        "public_credit_amount": amount,
+        "public_credit_amount_unit": "CREDIT",
+        "public_credit_metadata_version": 2,
+        "legacy_batch_units": Decimal::new(snapshot.platform_amount_micros, 6).normalize().to_string(),
+        "settlement_currency": snapshot.settlement_currency.trim().to_ascii_uppercase(),
+    });
+    let metadata =
+        serde_json::to_value(units.metadata()).map_err(|_| PublicCreditError::UnitsUnavailable)?;
+    fields
+        .as_object_mut()
+        .ok_or(PublicCreditError::UnitsUnavailable)?
+        .extend(
+            metadata
+                .as_object()
+                .ok_or(PublicCreditError::UnitsUnavailable)?
+                .clone(),
+        );
+    Ok(fields)
+}
 
 #[derive(Clone)]
 pub struct StripeWalletState {
@@ -109,7 +142,7 @@ impl StripeWalletState {
             Ok(amount) if amount>Decimal::ZERO&&amount.normalize().scale()<=6&&monetary_micros(&amount.to_string()).is_ok()=>amount,
             _=>return Json(json!({"success":false,"message":if input.amount<=0.0{"充值数量无效"}else{"充值数量最多支持 6 位小数"}})).into_response(),
         };
-        let mut quote = match self
+        let (mut quote, units) = match self
             .wallet
             .quote_stripe(CreateTopup {
                 user_id,
@@ -131,11 +164,18 @@ impl StripeWalletState {
             Err(TopupError::Message(message)) => return legacy("error", message),
             Err(_) => return legacy("error", "获取用户分组失败"),
         };
+        let mut credit_fields =
+            match stripe_credit_fields(&quote.snapshot, quote.amount_unit, &units) {
+                Ok(fields) => fields,
+                Err(_) => return legacy("error", "定价货币单位不可用"),
+            };
         if quote.snapshot.expected_amount_micros <= 10_000 {
             return legacy("error", "充值金额过低");
         }
         if !pay {
-            return legacy("success", quote.money);
+            credit_fields["message"] = json!("success");
+            credit_fields["data"] = json!(quote.money);
+            return Json(credit_fields).into_response();
         }
         for (redirect, label) in [
             (&input.success_url, "支付成功重定向URL不在可信任域名列表中"),
@@ -178,6 +218,7 @@ impl StripeWalletState {
             return legacy("error", "支付金额无效");
         }
         quote.snapshot.settlement_currency = price.currency.clone();
+        credit_fields["settlement_currency"] = json!(price.currency.trim().to_ascii_uppercase());
         let user=match sqlx::query("SELECT COALESCE(email,'') AS email,COALESCE(stripe_customer,'') AS customer FROM users WHERE id=$1 AND deleted_at IS NULL").bind(user_id).fetch_optional(&self.pg).await {
             Ok(Some(user))=>user,_=>return legacy("error","用户不存在"),
         };
@@ -228,7 +269,11 @@ impl StripeWalletState {
             .create_checkout(&secret, &price, &session)
             .await
         {
-            Ok(url) => legacy("success", json!({"pay_link":url,"trade_no":order.trade_no})),
+            Ok(url) => {
+                credit_fields["pay_link"] = json!(url);
+                credit_fields["trade_no"] = json!(order.trade_no);
+                legacy("success", credit_fields)
+            }
             // Provider acceptance may precede a transport error. The committed
             // order and coupon reservation must remain available to callbacks.
             Err(_) => legacy("error", "拉起支付失败"),
@@ -563,6 +608,7 @@ pub fn webhook_router(state: StripeWalletState) -> Router {
 }
 
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LiveRequest {
     #[serde(default, deserialize_with = "null_f64_is_zero")]
     amount: f64,
@@ -574,4 +620,68 @@ struct LiveRequest {
     success_url: String,
     #[serde(default, deserialize_with = "null_string_is_empty")]
     cancel_url: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credit_metadata_preserves_the_priced_snapshot_and_request_unit() {
+        let units = PublicCreditDenomination::from_options(&std::collections::BTreeMap::from([
+            ("CreditsPerUSD".to_owned(), "500000".to_owned()),
+            ("LegacyPricingQuotaPerUnit".to_owned(), "500000".to_owned()),
+            ("PublicCreditsPerUSD".to_owned(), "500000".to_owned()),
+        ]))
+        .unwrap();
+        let legacy = SettlementSnapshot {
+            platform_amount_micros: 14_600_000,
+            credited_quota: 7_300_000,
+            settlement_currency: "usd".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            stripe_credit_fields(&legacy, "LEGACY", &units).unwrap(),
+            json!({
+                "currency_unit": "credit", "amount_unit": "LEGACY",
+                "credited_quota": 7_300_000, "credit_amount": 7_300_000,
+                "legacy_batch_units": "14.6", "settlement_currency": "USD",
+                "credit_amount_unit":"LEDGER_QUOTA", "public_credit_amount":"7300000", "public_credit_amount_unit":"CREDIT", "public_credit_metadata_version":2,
+                "credit_unit_schema_version":2,"quota_unit":"LEDGER_QUOTA","public_credit_unit":"CREDIT","legacy_credit_unit":"LEDGER_QUOTA",
+                "ledger_quota_per_usd":500000,"ledger_quota_per_usd_exact":"500000","public_credits_per_usd":500000,"public_credits_per_usd_exact":"500000",
+            })
+        );
+        let raw = SettlementSnapshot {
+            platform_amount_micros: 1_200_002,
+            credited_quota: 600_001,
+            settlement_currency: "USD".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            stripe_credit_fields(&raw, "CREDIT", &units).unwrap(),
+            json!({
+                "currency_unit": "credit", "amount_unit": "CREDIT",
+                "credited_quota": 600_001, "credit_amount": 600_001,
+                "legacy_batch_units": "1.200002", "settlement_currency": "USD",
+                "credit_amount_unit":"LEDGER_QUOTA", "public_credit_amount":"600001", "public_credit_amount_unit":"CREDIT", "public_credit_metadata_version":2,
+                "credit_unit_schema_version":2,"quota_unit":"LEDGER_QUOTA","public_credit_unit":"CREDIT","legacy_credit_unit":"LEDGER_QUOTA",
+                "ledger_quota_per_usd":500000,"ledger_quota_per_usd_exact":"500000","public_credits_per_usd":500000,"public_credits_per_usd_exact":"500000",
+            })
+        );
+    }
+
+    #[test]
+    fn unsupported_versioned_payment_input_is_not_reinterpreted_as_a_legacy_amount() {
+        for body in [
+            r#"{"schema_version":2,"amount":1,"unit":"CREDIT","expected_public_credits_per_usd_exact":"100000"}"#,
+            r#"{"schema_version":null,"amount":1}"#,
+            r#"{"amount":1,"amount_unit":"CREDIT"}"#,
+        ] {
+            assert!(serde_json::from_str::<LiveRequest>(body).is_err());
+        }
+        assert!(
+            serde_json::from_str::<LiveRequest>(r#"{"amount":14.6,"payment_method":"stripe"}"#)
+                .is_ok()
+        );
+    }
 }

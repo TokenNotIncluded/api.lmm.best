@@ -25,6 +25,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -43,8 +44,28 @@ type oauthHTTPTest struct {
 	query       string
 }
 
+func installRouterCurrencyFixture(t *testing.T) {
+	t.Helper()
+	oldK, oldBasisErr := common.CreditsPerUSD()
+	oldLegacyQ, _ := common.LegacyPricingQuotaPerUnit()
+	oldRuntimeQ := common.QuotaPerUnit
+	// Initialize the fixed credit/USD contract without changing any raw
+	// wallet, payment-snapshot or access-policy fixture.
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
+	t.Cleanup(func() {
+		common.QuotaPerUnit = oldRuntimeQ
+		if oldBasisErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(oldK, oldLegacyQ))
+		}
+	})
+}
+
 func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	t.Helper()
+	installRouterCurrencyFixture(t)
 	oldDB, oldLogDB, oldRedis, oldSecret, oldType := model.DB, model.LOG_DB, common.RedisEnabled, common.SessionSecret, common.MainDatabaseType()
 	oldGroups, oldRatios := setting.UserUsableGroups2JSONString(), ratio_setting.GroupRatio2JSONString()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "oauth.db")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
@@ -53,6 +74,14 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(8)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Token{}, &model.Channel{}, &model.Ability{}, &model.Log{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	ledger, err := common.LedgerQuotaPerUSD()
+	require.NoError(t, err)
+	legacy, err := common.LegacyPricingQuotaPerUnit()
+	require.NoError(t, err)
+	public, err := common.PublicCreditsPerUSD()
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&[]model.Option{{Key: model.CreditsPerUSDOptionKey, Value: ledger.String()}, {Key: model.LegacyPricingQuotaPerUnitOptionKey, Value: legacy.String()}, {Key: "QuotaPerUnit", Value: legacy.String()}, {Key: model.PublicCreditsPerUSDOptionKey, Value: public.String()}}).Error)
 	model.DB, model.LOG_DB, common.RedisEnabled, common.SessionSecret = db, db, false, "isolated-oauth-http-session-test"
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))

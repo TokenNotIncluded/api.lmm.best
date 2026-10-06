@@ -34,18 +34,21 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
 
-import { DEFAULT_DISCOUNT_RATE } from '../../constants'
+import { usePaymentCurrency } from '../../hooks/use-payment-currency'
 import {
-  formatCreditBalance as formatPlatformCreditBalanceBase,
   formatPaymentAmount,
   formatSettlementAmount,
   getPaymentIcon,
   getPaymentSettlementUnit,
+  isFiatPaymentCurrency,
   isPositivePaymentAmount,
   isWaffoPancakePayment,
 } from '../../lib'
-import { discountCodeSavings } from '../../lib/discount-state'
-import { visiblePlatformCredit } from '../../lib/platform-credit-display'
+import {
+  currentPaymentDiscount,
+  formatDiscountPercent,
+  type PaymentDiscount,
+} from '../../lib/payment-discount'
 import {
   formatSettlementQuote,
   parseSettlementQuote,
@@ -58,9 +61,13 @@ interface PaymentConfirmDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
+  creditedQuota?: number
+  /** Selected raw Credit amount; quote creditedQuota is authoritative. */
   topupAmount: number
+  paymentCurrency?: string
   paymentAmount: number
   settlementQuote?: SettlementQuote | null
+  paymentDiscount?: PaymentDiscount | null
   paymentMethod: PaymentMethod | undefined
   calculating: boolean
   processing: boolean
@@ -75,41 +82,43 @@ export function PaymentConfirmDialog({
   onOpenChange,
   onConfirm,
   topupAmount,
+  creditedQuota,
   paymentAmount,
+  paymentCurrency,
   settlementQuote,
+  paymentDiscount,
   paymentMethod,
   calculating,
   processing,
-  discountRate = DEFAULT_DISCOUNT_RATE,
   discountCode = '',
-  discountPercent = null,
   neutralMode = false,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
-  const formatPlatformCreditBalance = (amount: number) =>
-    formatPlatformCreditBalanceBase(amount, t('Platform'))
+  const { formatQuota } = usePaymentCurrency()
+  const creditedBalance =
+    creditedQuota === undefined
+      ? formatQuota(topupAmount)
+      : formatQuota(creditedQuota)
   const usesSettlementQuote = isWaffoPancakePayment(paymentMethod?.type ?? '')
   const quote = parseSettlementQuote(settlementQuote)
-  const hasPaymentAmount = usesSettlementQuote
-    ? quote !== null
-    : isPositivePaymentAmount(paymentAmount)
-  const effectivePaymentAmount =
-    usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
-  const codeSavings = hasPaymentAmount
-    ? discountCodeSavings(effectivePaymentAmount, discountPercent)
-    : 0
-  const hasDiscount =
-    !usesSettlementQuote &&
-    hasPaymentAmount &&
-    discountRate > 0 &&
-    discountRate < 1
-  const originalAmount = hasDiscount ? effectivePaymentAmount / discountRate : 0
-  const discountAmount = hasDiscount
-    ? originalAmount - effectivePaymentAmount
-    : 0
   const settlementUnit = usesSettlementQuote
     ? null
     : getPaymentSettlementUnit(paymentMethod, true)
+  const actualPaymentCurrency = usesSettlementQuote
+    ? quote?.currency
+    : (paymentCurrency ?? settlementUnit?.label ?? 'USD')
+  const fiatPayment = isFiatPaymentCurrency(actualPaymentCurrency)
+  const hasPaymentAmount = usesSettlementQuote
+    ? fiatPayment && quote !== null
+    : fiatPayment && isPositivePaymentAmount(paymentAmount)
+  const effectivePaymentAmount =
+    usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
+  const discount = currentPaymentDiscount(
+    paymentDiscount,
+    effectivePaymentAmount,
+    actualPaymentCurrency,
+    calculating
+  )
   const formatSelectedPaymentAmount = (amount: number) =>
     usesSettlementQuote
       ? quote
@@ -117,9 +126,11 @@ export function PaymentConfirmDialog({
           ? formatSettlementQuote(quote)
           : formatPaymentAmount(amount, quote.currency)
         : t('Payment unavailable')
-      : settlementUnit
-        ? formatSettlementAmount(amount, settlementUnit.label)
-        : formatPaymentAmount(amount, 'USD')
+      : paymentCurrency
+        ? formatPaymentAmount(amount, paymentCurrency)
+        : settlementUnit
+          ? formatSettlementAmount(amount, settlementUnit.label)
+          : formatPaymentAmount(amount, 'USD')
   const paymentMethodLabel = neutralMode
     ? t('Payment Method')
     : paymentMethod?.name
@@ -153,9 +164,7 @@ export function PaymentConfirmDialog({
               {t('Balance credited')}
             </span>
             <span className='text-lg font-semibold'>
-              <PlatformCreditAmount
-                value={formatPlatformCreditBalance(topupAmount)}
-              />
+              <PlatformCreditAmount value={creditedBalance} />
             </span>
           </div>
 
@@ -170,13 +179,9 @@ export function PaymentConfirmDialog({
                 <span className='text-2xl font-semibold'>
                   {formatSelectedPaymentAmount(effectivePaymentAmount)}
                 </span>
-                {(hasDiscount || codeSavings > 0) && (
+                {discount && (
                   <span className='text-muted-foreground text-sm line-through'>
-                    {formatSelectedPaymentAmount(
-                      hasDiscount
-                        ? originalAmount
-                        : effectivePaymentAmount + codeSavings
-                    )}
+                    {formatSelectedPaymentAmount(discount.original)}
                   </span>
                 )}
               </div>
@@ -187,48 +192,31 @@ export function PaymentConfirmDialog({
             )}
           </div>
 
-          {hasDiscount && !calculating && (
-            <div className='bg-muted/50 rounded-lg border p-3'>
-              <div className='flex items-center justify-between text-sm'>
-                <span className='text-muted-foreground'>{t('You save')}</span>
-                <Badge variant='secondary'>
-                  {formatSelectedPaymentAmount(discountAmount)}
-                </Badge>
-              </div>
-            </div>
-          )}
-
-          {discountCode && codeSavings > 0 && !calculating && (
+          {discount && (
             <div className='bg-primary/5 rounded-lg border p-3'>
-              <div className='flex items-center justify-between gap-3 text-sm'>
-                <div className='flex min-w-0 flex-col'>
-                  <span className='text-foreground font-medium'>
-                    {discountPercent !== null && discountPercent !== undefined
-                      ? t('Discount applied: {{percent}}% off', {
-                          percent: discountPercent,
-                        })
-                      : t('Discount code')}
-                  </span>
-                  <span className='text-muted-foreground text-xs'>
-                    {t('Discount code saves {{amount}}', {
-                      amount: formatSelectedPaymentAmount(codeSavings),
-                    })}
-                  </span>
-                </div>
-                <Badge variant='secondary' className='shrink-0 font-mono'>
-                  {discountCode}
+              <div className='flex flex-wrap items-center justify-between gap-2 text-sm'>
+                <span>
+                  {t('You save')}:{' '}
+                  {formatSelectedPaymentAmount(discount.savings)}
+                </span>
+                <Badge variant='secondary'>
+                  {t('Discount applied: {{percent}}% off', {
+                    percent: formatDiscountPercent(discount.percent),
+                  })}
                 </Badge>
               </div>
+              {discountCode && (
+                <p className='text-muted-foreground mt-1 text-xs'>
+                  {t('Discount code')}: {discountCode}
+                </p>
+              )}
             </div>
           )}
 
           {(settlementUnit || quote) && !calculating && hasPaymentAmount && (
             <div className='bg-muted/50 rounded-lg border p-3 text-sm'>
               {t('Credit {{amount}}; pay {{payment}}', {
-                amount: visiblePlatformCredit(
-                  formatPlatformCreditBalance(topupAmount),
-                  t('Platform')
-                ),
+                amount: creditedBalance,
                 payment: formatSelectedPaymentAmount(effectivePaymentAmount),
               })}
             </div>

@@ -8,6 +8,7 @@ import (
 )
 
 func TestUserWalletRiskLifecycleAndGlobalSorting(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	sender, recipient := transferUsers(t)
 	require.NoError(t, DB.AutoMigrate(&Checkin{}))
 	require.NoError(t, DB.Exec("DELETE FROM checkins").Error)

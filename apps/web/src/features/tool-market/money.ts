@@ -1,28 +1,68 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-export function creditAmount(quota: number, units: number) {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(
-    quota / units
-  )
-}
+import { useState } from 'react'
 
-export function marketQuota(raw: string, units: number): number {
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+
+/** Validate a selected-currency input before crossing the raw integer ledger boundary. */
+export function marketQuota(
+  raw: string,
+  convert: (value: string) => number
+): number {
   if (
     raw.length > 64 ||
-    !/^\d+(\.\d{1,6})?$/.test(raw.trim()) ||
-    !Number.isSafeInteger(units) ||
-    units <= 0
+    !/^\d+(\.\d{1,30})?$/.test(raw.trim()) ||
+    (convert === Number && /\.[0-9]*[1-9]/.test(raw.trim()))
   ) {
     throw new Error('Invalid amount')
   }
-  const [whole, fraction = ''] = raw.trim().split('.')
-  const scale = 10n ** BigInt(fraction.length)
-  const numerator =
-    (BigInt(whole) * scale + BigInt(fraction || '0')) * BigInt(units)
-  const quota = numerator / scale
-  if (numerator % scale !== 0n || quota > BigInt(Number.MAX_SAFE_INTEGER)) {
+  const quota = convert(raw.trim())
+  if (
+    !Number.isSafeInteger(quota) ||
+    quota < 0 ||
+    (quota === 0 && /[1-9]/.test(raw))
+  ) {
     throw new Error('Invalid amount')
   }
-  return Number(quota)
+  return quota
+}
+
+/** A draft owns Credits; display/rate changes never reinterpret its stored balance. */
+export function useMarketMoneyDraft(initialQuota: number) {
+  const { currency, quotaToInput, amountToQuota } = useWalletCurrency()
+  const key = `${currency}:${quotaToInput(1)}`
+  const [draft, setDraft] = useState<{
+    quota: number | undefined
+    key?: string
+    input?: string
+  }>(() => ({
+    quota:
+      Number.isSafeInteger(initialQuota) && initialQuota >= 0
+        ? initialQuota
+        : undefined,
+  }))
+  return {
+    quota: draft.quota,
+    input:
+      draft.key === key
+        ? (draft.input ?? '')
+        : draft.quota === undefined
+          ? ''
+          : quotaToInput(draft.quota),
+    setInput(input: string) {
+      let quota: number | undefined
+      try {
+        quota = marketQuota(input, amountToQuota)
+      } catch {
+        quota = undefined
+      }
+      setDraft({ input, key, quota })
+    },
+    setQuota(quota: number) {
+      setDraft({
+        quota: Number.isSafeInteger(quota) && quota >= 0 ? quota : undefined,
+      })
+    },
+  }
 }
 
 export function marketNetQuota(priceQuota: number, feeBps: number): number {

@@ -342,6 +342,10 @@ psql "$LMM_CONTROL_ADMIN_RUST_DATABASE_URL" -v ON_ERROR_STOP=1 \
 sed "s/public\\./$LMM_CONTROL_ADMIN_RUST_SCHEMA./g" \
   "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" \
   >"$runtime/rust-baseline.sql"
+# Expand only the disposable Rust schema after the frozen baseline.
+sed "s/__LMM_APP_SCHEMA__/$LMM_CONTROL_ADMIN_RUST_SCHEMA/g" \
+  "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+  >>"$runtime/rust-baseline.sql"
 psql "$LMM_CONTROL_ADMIN_RUST_DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f "$runtime/rust-baseline.sql" >/dev/null
 sed "s/__LMM_APP_SCHEMA__/$LMM_CONTROL_ADMIN_RUST_SCHEMA/g" \

@@ -37,6 +37,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -56,9 +57,14 @@ import {
 import { marketErrorKey } from './call-utils'
 import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
-import { creditAmount } from './money'
+import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
 import { CallDialog, CallResult, GrantDialog } from './tool-actions'
+import {
+  usagePriceLabel,
+  usageQuantityLabel,
+  usageSourceLabel,
+} from './usage-pricing'
 
 /** A small icon paired with the status text, so state reads at a glance. */
 function MarketStatusIcon({ value }: { value: string }) {
@@ -224,7 +230,9 @@ function ToolMarketWorkspace() {
       void cache.invalidateQueries({ queryKey: ['tool-market'] })
     },
   })
-  const units = config.data?.quota_per_unit ?? 500000
+  const { formatQuota: formatRawQuota } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
   const chooseTab = (value: string) => {
     setTab(value)
     setSelected(null)
@@ -324,14 +332,16 @@ function ToolMarketWorkspace() {
                 item.min_price_quota !== undefined &&
                 item.max_price_quota !== undefined && (
                   <span className='basis-full text-sm font-medium break-words tabular-nums sm:text-right'>
-                    {item.max_price_quota === 0
-                      ? t('Free tool')
-                      : t('{{amount}} credits per successful call', {
-                          amount:
-                            item.min_price_quota === item.max_price_quota
-                              ? creditAmount(item.min_price_quota, units)
-                              : `${creditAmount(item.min_price_quota, units)} – ${creditAmount(item.max_price_quota, units)}`,
-                        })}
+                    {(item.metered_tools ?? 0) > 0
+                      ? t('Usage-based billing')
+                      : item.max_price_quota === 0
+                        ? t('Free tool')
+                        : t('{{amount}} per successful call', {
+                            amount:
+                              item.min_price_quota === item.max_price_quota
+                                ? formatQuota(item.min_price_quota)
+                                : `${formatQuota(item.min_price_quota)} – ${formatQuota(item.max_price_quota)}`,
+                          })}
                   </span>
                 )}
             </span>
@@ -403,7 +413,6 @@ function ToolMarketWorkspace() {
             <ServiceEditor
               key={selected?.id ?? 'new'}
               initial={editorInitial}
-              units={units}
               feeBps={config.data?.fee_bps}
               onCancel={() => setEditor(false)}
               onSaved={(id) => {
@@ -780,17 +789,19 @@ function ToolMarketWorkspace() {
                                 {tool.name}
                               </h4>
                               <p className='text-sm font-medium tabular-nums'>
-                                {tool.price_quota === 0
-                                  ? t('Free tool')
-                                  : t(
-                                      '{{amount}} credits per successful call',
-                                      {
-                                        amount: creditAmount(
-                                          tool.price_quota,
-                                          units
+                                {tool.billing_mode === 'metered'
+                                  ? usagePriceLabel(tool, formatQuota, t)
+                                  : tool.billing_mode === 'input_tokens'
+                                    ? t('{{amount}} per million input tokens', {
+                                        amount: formatQuota(
+                                          tool.input_token_price_quota ?? 0
                                         ),
-                                      }
-                                    )}
+                                      })
+                                    : tool.price_quota === 0
+                                      ? t('Free tool')
+                                      : t('{{amount}} per successful call', {
+                                          amount: formatQuota(tool.price_quota),
+                                        })}
                               </p>
                             </div>
                             <p className='text-muted-foreground max-w-[70ch] text-sm leading-6 break-words whitespace-pre-wrap'>
@@ -862,9 +873,21 @@ function ToolMarketWorkspace() {
                                       })
                                     }
                                   >
-                                    {tool.price_quota === 0
-                                      ? t('Run free tool')
-                                      : t('Run tool')}
+                                    {tool.billing_mode === 'metered'
+                                      ? usagePriceLabel(tool, formatQuota, t)
+                                      : tool.billing_mode === 'input_tokens'
+                                        ? t(
+                                            '{{amount}} per million input tokens',
+                                            {
+                                              amount: formatQuota(
+                                                tool.input_token_price_quota ??
+                                                  0
+                                              ),
+                                            }
+                                          )
+                                        : tool.price_quota === 0
+                                          ? t('Run free tool')
+                                          : t('Run tool')}
                                   </Button>
                                 )}
                                 {grant && (
@@ -1283,13 +1306,18 @@ function ToolMarketWorkspace() {
                               ? t('Reserved')
                               : t('Amount')}
                             :{' '}
-                            {creditAmount(
+                            {formatQuota(
                               item.settlement_status === 'released'
                                 ? 0
-                                : item.price_quota,
-                              units
+                                : item.price_quota
                             )}
                           </p>
+                          {item.usage_quantities && (
+                            <p className='text-muted-foreground'>
+                              {t(usageSourceLabel(item.usage_source))}:{' '}
+                              {usageQuantityLabel(item.usage_quantities, t)}
+                            </p>
+                          )}
                         </div>
                         <Button
                           variant='outline'
@@ -1301,6 +1329,9 @@ function ToolMarketWorkspace() {
                         >
                           {t('View result')}
                         </Button>
+                        {['settled', 'released'].includes(
+                          item.settlement_status
+                        ) && <ReportCallButton callID={item.id} />}
                       </div>
                     ))}
                     <div className='flex justify-end gap-2'>
@@ -1321,7 +1352,7 @@ function ToolMarketWorkspace() {
                         {t('Next')}
                       </Button>
                     </div>
-                    {record && <CallResult response={record} units={units} />}
+                    {record && <CallResult response={record} />}
                     <h3 className='font-semibold'>{t('Income transfers')}</h3>
                     {income.data?.length === 0 && (
                       <p className='text-muted-foreground'>
@@ -1337,10 +1368,7 @@ function ToolMarketWorkspace() {
                           {item.call_id}
                         </span>
                         <span className='tabular-nums'>
-                          +
-                          {t('{{amount}} credits', {
-                            amount: creditAmount(item.quota, units),
-                          })}
+                          +{formatQuota(item.quota)}
                         </span>
                       </div>
                     ))}
@@ -1411,6 +1439,7 @@ function ToolMarketWorkspace() {
                           </Button>
                         </div>
                       ))}
+                      <MarketReports />
                       {(user?.role ?? 0) >= 100 && config.data && (
                         <MarketSettings
                           key={`${config.data.enabled}:${config.data.fee_bps}:${config.data.recipient_id}`}
@@ -1449,7 +1478,6 @@ function ToolMarketWorkspace() {
               tool={grantTool}
               endpoint={current.version.endpoint}
               clientID={client}
-              units={units}
               onClose={() => setGrantTool(null)}
             />
           )}
@@ -1461,7 +1489,6 @@ function ToolMarketWorkspace() {
                 callTool.grant
               }
               endpoint={callTool.endpoint}
-              units={units}
               onClose={() => setCallTool(null)}
             />
           )}

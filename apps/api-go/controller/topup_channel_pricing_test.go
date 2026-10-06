@@ -34,7 +34,18 @@ func preserveChannelPricing(t *testing.T) {
 	originalStripeUnitPrice := setting.StripeUnitPrice
 	originalWaffoUnitPrice := setting.WaffoUnitPrice
 	originalPancakeUnitPrice := setting.WaffoPancakeUnitPrice
+	originalAnchor, originalAnchorErr := common.CreditsPerUSD()
+	// This fixture is a site initialized at 6.8 CNY/USD and a baseline bonus
+	// of 1. Later changes to FX or recharge bonus must not rewrite its anchor.
+	operation_setting.USDExchangeRate = 6.8
+	operation_setting.TopUpPlatformUnitsPerCNY = 1
+	require.NoError(t, common.SetCreditsPerUSD(decimal.NewFromFloat(common.QuotaPerUnit).Mul(decimal.RequireFromString("6.8"))))
 	t.Cleanup(func() {
+		if originalAnchorErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditsPerUSD(originalAnchor))
+		}
 		operation_setting.Price = originalPrice
 		operation_setting.USDExchangeRate = originalUSDExchangeRate
 		operation_setting.TopUpPlatformUnitsPerCNY = originalPlatformUnitsPerCNY
@@ -51,6 +62,7 @@ func preserveChannelPricing(t *testing.T) {
 
 func setupTopupInfoUser(t *testing.T, id int, group string) {
 	t.Helper()
+	installIdentityCurrencyFixture(t)
 	previousDB := model.DB
 	previousDatabaseType := common.MainDatabaseType()
 	previousRedisEnabled := common.RedisEnabled
@@ -60,6 +72,7 @@ func setupTopupInfoUser(t *testing.T, id int, group string) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}))
 	model.DB = db
+	persistCreditDenominationFixture(t, db)
 	levelOne := model.TrustLevelMinUser + 1
 	require.NoError(t, db.Create(&model.User{
 		Id:                 id,
@@ -113,18 +126,54 @@ func TestTopUpOrderSnapshotsExactFractionalPlatformAmount(t *testing.T) {
 	}
 }
 
-func TestDedicatedUSDGatewaysUseConfiguredRateForFractionalAmounts(t *testing.T) {
+func TestDedicatedUSDGatewaysKeepFrozenQuoteWhenLiveFXChanges(t *testing.T) {
 	preserveChannelPricing(t)
 	operation_setting.TopUpPlatformUnitsPerCNY = 1
 	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 
-	for _, configuredRate := range []string{"6.8", "7.25"} {
-		rate := decimal.RequireFromString(configuredRate)
-		operation_setting.USDExchangeRate = rate.InexactFloat64()
-		require.True(t, getStripePayMoneyDecimal(rate, "default").Equal(decimal.NewFromInt(1)), configuredRate)
-		require.True(t, getWaffoPayMoneyForAmount(rate, "default").Equal(decimal.NewFromInt(1)), configuredRate)
-		require.True(t, getWaffoPancakePayMoneyForAmount(rate, "default").Equal(decimal.NewFromInt(1)), configuredRate)
+	platformAmount := decimal.RequireFromString("6.8")
+	for _, tc := range []struct{ fx, cny string }{{"6.8", "6.8"}, {"7.25", "7.25"}} {
+		operation_setting.USDExchangeRate = decimal.RequireFromString(tc.fx).InexactFloat64()
+		require.True(t, getStripePayMoneyDecimal(platformAmount, "default").Equal(decimal.NewFromInt(1)), tc.fx)
+		require.True(t, getWaffoPayMoneyForAmount(platformAmount, "default").Equal(decimal.NewFromInt(1)), tc.fx)
+		require.True(t, getWaffoPancakePayMoneyForAmount(platformAmount, "default").Equal(decimal.NewFromInt(1)), tc.fx)
+		cny, err := getWaffoPancakePayMoneyForLegacyCurrency(platformAmount, "default", "CNY")
+		require.NoError(t, err)
+		require.True(t, cny.Equal(decimal.RequireFromString(tc.cny)), tc.fx)
+	}
+}
+
+func TestDedicatedUSDGatewaysPreserveEachSiteInitializationPrice(t *testing.T) {
+	preserveChannelPricing(t)
+	previousQPU := common.QuotaPerUnit
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() { common.QuotaPerUnit = previousQPU })
+	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
+	for _, tc := range []struct {
+		name, initialFX, initialBonus, initialCreditsPerUSD, legacyAmount string
+	}{
+		{"baseline", "6.8", "1", "3400000", "6.8"},
+		{"different initial FX", "7.25", "1", "3625000", "7.25"},
+		{"different initial bonus", "6.8", "1.1", "3740000", "7.48"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation_setting.USDExchangeRate = decimal.RequireFromString(tc.initialFX).InexactFloat64()
+			operation_setting.TopUpPlatformUnitsPerCNY = decimal.RequireFromString(tc.initialBonus).InexactFloat64()
+			// Each case represents an independently initialized site, rather than
+			// pretending that a live FX/bonus change can recompute K.
+			require.NoError(t, common.SetCreditsPerUSD(decimal.RequireFromString(tc.initialCreditsPerUSD)))
+			amount := decimal.RequireFromString(tc.legacyAmount)
+			require.True(t, getStripePayMoneyDecimal(amount, "default").Equal(decimal.NewFromInt(1)))
+			require.True(t, getWaffoPayMoneyForAmount(amount, "default").Equal(decimal.NewFromInt(1)))
+			require.True(t, getWaffoPancakePayMoneyForAmount(amount, "default").Equal(decimal.NewFromInt(1)))
+			operation_setting.USDExchangeRate = 8
+			operation_setting.TopUpPlatformUnitsPerCNY = 99
+			require.True(t, getStripePayMoneyDecimal(amount, "default").Equal(decimal.NewFromInt(1)))
+			require.True(t, getWaffoPayMoneyForAmount(amount, "default").Equal(decimal.NewFromInt(1)))
+			require.True(t, getWaffoPancakePayMoneyForAmount(amount, "default").Equal(decimal.NewFromInt(1)))
+		})
 	}
 }
 
@@ -218,7 +267,7 @@ func TestQuoteTopUpSupportsExplicitFXAndLegacyDirectPricing(t *testing.T) {
 	require.True(t, grouped.Equal(decimal.RequireFromString("0.70")))
 }
 
-func TestConfiguredPlatformRateUsesCNYBaseIndependentlyOfDisplay(t *testing.T) {
+func TestConfiguredPlatformRateKeepsInitializationAnchorAcrossDisplayFXAndBonus(t *testing.T) {
 	preserveChannelPricing(t)
 	operation_setting.USDExchangeRate = 6.8
 	operation_setting.TopUpPlatformUnitsPerCNY = 1
@@ -231,9 +280,10 @@ func TestConfiguredPlatformRateUsesCNYBaseIndependentlyOfDisplay(t *testing.T) {
 	require.True(t, rate.Equal(decimal.RequireFromString("6.8")))
 
 	operation_setting.TopUpPlatformUnitsPerCNY = 1.1
+	operation_setting.USDExchangeRate = 7.25
 	rate, err = configuredPlatformUnitsPerUSD()
 	require.NoError(t, err)
-	require.True(t, rate.Equal(decimal.RequireFromString("7.48")))
+	require.True(t, rate.Equal(decimal.RequireFromString("6.8")))
 }
 
 func TestEpayAlwaysUsesCNYSettlementContract(t *testing.T) {
@@ -369,7 +419,7 @@ func TestGetTopUpInfoPreservesCanonicalFXMetadata(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 	require.Len(t, response.Data.PayMethods, 1)
 	require.Equal(t, "CNY", response.Data.PayMethods[0]["settlement_currency"])
-	require.Equal(t, "7.48", response.Data.PayMethods[0]["platform_units_per_usd"])
+	require.Equal(t, "6.8", response.Data.PayMethods[0]["platform_units_per_usd"])
 	require.Equal(t, "6.8", response.Data.PayMethods[0]["settlement_units_per_usd"])
 }
 

@@ -255,6 +255,10 @@ SQL
 psql -h 127.0.0.1 -p "$pg_port" -U postgres -d "$rust_database" \
   -v ON_ERROR_STOP=1 -v seed_epoch="$seed_epoch" <<'SQL' >/dev/null
 CREATE TABLE options (key TEXT PRIMARY KEY, value TEXT);
+-- Minimal subscription shape for listener readiness only; snapshots remain nullable.
+CREATE TABLE user_subscriptions (
+  amount_total BIGINT, amount_used BIGINT, reset_amount BIGINT, renewal_amount BIGINT
+);
 CREATE TABLE users (
   id BIGINT PRIMARY KEY, username TEXT, password TEXT NOT NULL, role BIGINT DEFAULT 1,
   status BIGINT DEFAULT 1, email TEXT, quota BIGINT DEFAULT 0,

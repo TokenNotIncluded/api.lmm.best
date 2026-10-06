@@ -135,6 +135,9 @@ func TestWaffoPancakeTopUpCurrencyPreservesPlatformCredits(t *testing.T) {
 	originalQuotaPerUnit := common.QuotaPerUnit
 	common.QuotaPerUnit = 100
 	t.Cleanup(func() { common.QuotaPerUnit = originalQuotaPerUnit })
+	// This separate site initialized QPU=100, FX=6.6, B=2 once. Its old
+	// 19.8 batch-unit purchase remains USD 1.50 and grants 1980 credits.
+	preservePaymentCreditAnchor(t, "1320")
 	operation_setting.USDExchangeRate = 6.6
 	operation_setting.TopUpPlatformUnitsPerCNY = 2
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
@@ -152,6 +155,16 @@ func TestWaffoPancakeTopUpCurrencyPreservesPlatformCredits(t *testing.T) {
 		require.EqualValues(t, 1980, quota)
 	}
 	require.Equal(t, "1.50", getWaffoPancakePayMoneyForAmount(amount, "default").StringFixed(2))
+	operation_setting.USDExchangeRate = 7.2
+	operation_setting.TopUpPlatformUnitsPerCNY = 99
+	require.Equal(t, "1.50", getWaffoPancakePayMoneyForAmount(amount, "default").StringFixed(2))
+	cnyAfterFXChange, err := getWaffoPancakePayMoneyForCurrency(amount, "default", "CNY")
+	require.NoError(t, err)
+	require.Equal(t, "10.80", cnyAfterFXChange.StringFixed(2))
+	_, _, creditsAfterChange, err := topUpOrderAmountsDecimal(amount)
+	require.NoError(t, err)
+	require.EqualValues(t, 1980, creditsAfterChange)
+	operation_setting.USDExchangeRate = 6.6
 	cent, err := getWaffoPancakePayMoneyForCurrency(decimal.RequireFromString("0.02"), "default", "CNY")
 	require.NoError(t, err)
 	require.Equal(t, "0.01", cent.StringFixed(2))

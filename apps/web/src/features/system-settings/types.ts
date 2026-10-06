@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import type { ModelPricingConfig } from './models/model-pricing-api'
+
 export type SystemOption = {
   key: string
   value: string
@@ -37,6 +39,11 @@ export type UpdateOptionRequest = {
   key: string
   value: string | boolean | number
   model?: string
+  /** Public display option uses the v2 guarded endpoint, never the generic setter. */
+  publicCreditUnitBaseline?: {
+    publicCreditsPerUsd: number
+    ledgerQuotaPerUsd: number
+  }
 }
 
 export type UpdateOptionResponse = {
@@ -393,6 +400,7 @@ export type BillingSettings = {
   'developer_access_setting.paid_activation_enabled': boolean
   'developer_access_setting.paid_activation_min_amount': number
   QuotaPerUnit: number
+  PublicCreditsPerUSD: string
   USDExchangeRate: number
   TopUpPlatformUnitsPerCNY: number
   'general_setting.quota_display_type': string
@@ -508,6 +516,8 @@ export type OperationsSettings = {
 
 export type SecuritySettings = {
   ModerationEnabled: boolean
+  ModerationPolicyScope: 'account_group' | 'request_group'
+  ModerationSafetyIdentifierEnabled: boolean
   ModerationGroup: string
   ModerationModel: 'omni-moderation-latest' | 'omni-moderation-2024-09-26'
   ModerationGroupPolicies: string
@@ -593,12 +603,15 @@ export type TestResult = {
   name: string
   status: 'success' | 'error'
   error?: string
+  source_providers?: Record<string, string>
+  skipped_models?: Record<string, string>
 }
 
 export type UpstreamRatiosResponse = {
   success: boolean
   message: string
   data: {
+    pricing_config: ModelPricingConfig
     differences: DifferencesMap
     test_results: TestResult[]
   }

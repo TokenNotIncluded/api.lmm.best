@@ -54,6 +54,10 @@ impl Harness {
             ("MinTopUp", "1"),
             ("USDExchangeRate", "7.3"),
             ("TopUpPlatformUnitsPerCNY", "2"),
+            ("QuotaPerUnit", "500000"),
+            ("CreditsPerUSD", "500000"),
+            ("LegacyPricingQuotaPerUnit", "500000"),
+            ("PublicCreditsPerUSD", "500000"),
         ] {
             self.option(key, value).await;
         }
@@ -154,7 +158,7 @@ async fn fractional_checkout_snapshots_pricing_and_ignores_stale_builtin_rates()
         .quote(request_amount("12.345678", ""))
         .await
         .unwrap();
-    assert_eq!(quote.money, "6.17");
+    assert_eq!(quote.money, "90.12");
     assert_eq!(quote.snapshot.settlement_currency, "CNY");
     assert_eq!(quote.snapshot.credited_quota, 6_172_839);
     assert_eq!(quote.snapshot.platform_amount_micros, 12_345_678);
@@ -162,7 +166,7 @@ async fn fractional_checkout_snapshots_pricing_and_ignores_stale_builtin_rates()
     fixture.option("QuotaPerUnit", "42").await;
     fixture.option("TopUpPlatformUnitsPerCNY", "10").await;
     let callback = EpayCallback {
-        money: "6.17".into(),
+        money: "90.12".into(),
         ..evidence(&pending.trade_no, "fractional-provider")
     };
     assert_eq!(
@@ -199,7 +203,7 @@ async fn tokens_group_discount_and_private_coupon_preserve_go_order_of_rounding(
         .quote(request_amount("500000", "private"))
         .await
         .unwrap();
-    assert_eq!(quote.money, "0.32");
+    assert_eq!(quote.money, "4.73");
     assert_eq!(quote.snapshot.credited_quota, 500_000);
     assert_eq!(quote.snapshot.platform_amount_micros, 1_000_000);
     assert_eq!(quote.snapshot.discount_code_id, 9);
@@ -240,7 +244,7 @@ async fn checkout_enforces_duplicate_policies_audience_unlock_and_limits() -> Te
         r#"[{"type":"alipay","enabled":"maybe"}]"#,
         r#"[{"type":"alipay","audience_mode":"include","audience_email_contains":"other@example.com"}]"#,
         r#"[{"type":"alipay","audience_mode":"include","audience_linuxdo_score_min":"10000"}]"#,
-        r#"[{"type":"alipay","min_topup":"2"}]"#,
+        r#"[{"type":"alipay","min_topup":"20"}]"#,
         r#"[{"type":"alipay","max_topup":"5"},{"type":"alipay","max_topup":"0.5"}]"#,
         r#"[{"type":"alipay","unlock_after_days":"9223372036854775807"}]"#,
     ] {
@@ -325,6 +329,9 @@ fn signed_callback_method(trade: &str, money: &str, key: &str, method: &str) -> 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL; tests/scripts/epay-current-differential.py regenerates the reference from current Go"]
 async fn current_go_checkout_notification_and_rejection_fixtures_match_rust() -> TestResult {
+    // Legacy request amounts and TOKENS credits share the fixed 500000 CREDIT
+    // per USD basis. Built-in settlement prices use USD/CNY, while explicit
+    // custom gateway rates retain their compatibility pricing.
     let inputs: Vec<Value> =
         serde_json::from_str(include_str!("fixtures/epay-current-go-input.json"))?;
     let reference: Value = if let Ok(path) = std::env::var("LMM_EPAY_GO_ORACLE_OUTPUT") {
@@ -442,7 +449,7 @@ async fn http_checkout_and_signed_callback_use_live_credentials_and_ack_only_com
     let response: Value = serde_json::from_str(&http_body(app.clone(), request).await)?;
     assert_eq!(response["message"], "success");
     assert_eq!(response["url"], "https://pay.example/gateway/submit.php");
-    assert_eq!(response["data"]["money"], "2.62");
+    assert_eq!(response["data"]["money"], "38.33");
     assert_eq!(response["data"]["name"], "TUC5.25");
     let trade = response["data"]["out_trade_no"].as_str().unwrap();
     let notify = |query: String| {
@@ -453,7 +460,7 @@ async fn http_checkout_and_signed_callback_use_live_credentials_and_ack_only_com
     assert_eq!(
         http_body(
             app.clone(),
-            notify(signed_callback(trade, "2.61", "fixture-key"))
+            notify(signed_callback(trade, "38.32", "fixture-key"))
         )
         .await,
         "fail"
@@ -463,7 +470,7 @@ async fn http_checkout_and_signed_callback_use_live_credentials_and_ack_only_com
     assert_eq!(
         http_body(
             app.clone(),
-            notify(signed_callback(trade, "2.62", "fixture-key"))
+            notify(signed_callback(trade, "38.33", "fixture-key"))
         )
         .await,
         "fail"
@@ -471,7 +478,7 @@ async fn http_checkout_and_signed_callback_use_live_credentials_and_ack_only_com
     assert_eq!(
         http_body(
             app.clone(),
-            notify(signed_callback(trade, "2.62", "rotated-key"))
+            notify(signed_callback(trade, "38.33", "rotated-key"))
         )
         .await,
         "success"
@@ -479,7 +486,7 @@ async fn http_checkout_and_signed_callback_use_live_credentials_and_ack_only_com
     assert_eq!(
         http_body(
             app.clone(),
-            notify(signed_callback(trade, "2.62", "rotated-key"))
+            notify(signed_callback(trade, "38.33", "rotated-key"))
         )
         .await,
         "success"
@@ -491,7 +498,7 @@ async fn http_checkout_and_signed_callback_use_live_credentials_and_ack_only_com
     assert_eq!(
         http_body(
             app.clone(),
-            notify(signed_callback(trade, "2.62", "rotated-key"))
+            notify(signed_callback(trade, "38.33", "rotated-key"))
         )
         .await,
         "fail"
@@ -590,6 +597,7 @@ async fn concurrent_replays_credit_coupon_and_referral_exactly_once() -> TestRes
 #[ignore = "requires LMM_EPAY_TEST_DATABASE_URL and LMM_EPAY_TEST_VALKEY_URL pointing to disposable services"]
 async fn logs_and_cache_are_post_commit_effects_and_failure_cannot_unpay_an_order() -> TestResult {
     let fixture = Harness::new().await;
+    fixture.checkout_settings().await;
     fixture.pending("logged", 7, 0).await;
     let valkey = redis::Client::open(std::env::var("LMM_EPAY_TEST_VALKEY_URL")?)?;
     let mut connection = valkey.get_multiplexed_async_connection().await?;
@@ -607,6 +615,7 @@ async fn logs_and_cache_are_post_commit_effects_and_failure_cannot_unpay_an_orde
             .unwrap(),
         Completion::Completed
     );
+    assert_eq!(fixture.quota(7).await, 5_000_000);
     assert_eq!(
         redis::cmd("EXISTS")
             .arg("user:7")
@@ -619,7 +628,7 @@ async fn logs_and_cache_are_post_commit_effects_and_failure_cannot_unpay_an_orde
         .await?;
     assert_eq!(
         log.get::<String, _>("content"),
-        "使用在线充值成功，充值金额: ＄10.000000 额度，支付金额：10.000000"
+        "使用在线充值成功，充值金额: 10.000000 USD，支付金额：10.000000"
     );
     assert_eq!(log.get::<String, _>("ip"), "203.0.113.9");
     let metadata: Value = serde_json::from_str(&log.get::<String, _>("other"))?;
@@ -642,6 +651,12 @@ async fn logs_and_cache_are_post_commit_effects_and_failure_cannot_unpay_an_orde
         Completion::Completed
     );
     assert_eq!(fixture.quota(7).await, 10_000_000);
+    let order = sqlx::query("SELECT status,credited_quota,settled_amount_micros FROM top_ups WHERE trade_no='broken-log'")
+        .fetch_one(&fixture.pg)
+        .await?;
+    assert_eq!(order.get::<String, _>("status"), "success");
+    assert_eq!(order.get::<i64, _>("credited_quota"), 5_000_000);
+    assert_eq!(order.get::<i64, _>("settled_amount_micros"), 10_000_000);
     assert_eq!(
         repository
             .complete_verified(&evidence("broken-log", "second-provider"), "{}")

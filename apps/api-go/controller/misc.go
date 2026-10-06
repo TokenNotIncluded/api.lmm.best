@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -96,6 +97,7 @@ func getPublicCatalogModelIDsWithBillingPolicy(acceptUnsetRatioModel bool) []str
 }
 
 func GetStatus(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if err := cacheReadinessError(); err != nil {
 		ensureCachesWarmAsync()
 		c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -110,7 +112,19 @@ func GetStatus(c *gin.Context) {
 	registrationDisabledMethods := common.GetRegistrationDisabledMethods()
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
+	anchor, anchorErr := common.CreditsPerUSD()
+	legacyScale, scaleErr := common.LegacyPricingUnitsPerUSD()
+	fx := operation_setting.USDExchangeRate
+	if anchorErr != nil || scaleErr != nil || fx <= 0 || math.IsNaN(fx) || math.IsInf(fx, 0) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "ready": false, "message": "currency units are not ready"})
+		return
+	}
 
+	unitMetadata, unitErr := creditUnitMetadataFields()
+	if unitErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "ready": false, "message": "currency units are not ready"})
+		return
+	}
 	passkeySetting := system_setting.GetPasskeySettings()
 	assistantSettings := setting.GetAssistantSettings()
 	assistantGroup, assistantModel, routeErr := assistantConfiguredRouteResolver(assistantSettings)
@@ -118,29 +132,34 @@ func GetStatus(c *gin.Context) {
 		assistantModel = ""
 	}
 	data := gin.H{
-		"version":                     common.Version,
-		"start_time":                  common.StartTime,
-		"email_verification":          common.EmailVerificationEnabled,
-		"github_oauth":                common.GitHubOAuthEnabled,
-		"github_client_id":            common.GitHubClientId,
-		"discord_oauth":               system_setting.GetDiscordSettings().Enabled,
-		"discord_client_id":           system_setting.GetDiscordSettings().ClientId,
-		"linuxdo_oauth":               common.LinuxDOOAuthEnabled,
-		"linuxdo_client_id":           common.LinuxDOClientId,
-		"linuxdo_minimum_trust_level": common.LinuxDOMinimumTrustLevel,
-		"telegram_oauth":              common.TelegramOAuthEnabled,
-		"telegram_bot_name":           common.TelegramBotName,
-		"theme":                       "default",
-		"system_name":                 common.SystemName,
-		"logo":                        common.Logo,
-		"footer_html":                 common.Footer,
-		"wechat_qrcode":               common.WeChatAccountQRCodeImageURL,
-		"wechat_login":                common.WeChatAuthEnabled,
-		"server_address":              system_setting.ServerAddress,
-		"turnstile_check":             common.TurnstileCheckEnabled,
-		"turnstile_site_key":          common.TurnstileSiteKey,
-		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
-		"quota_per_unit":              common.QuotaPerUnit,
+		"version":                      common.Version,
+		"start_time":                   common.StartTime,
+		"email_verification":           common.EmailVerificationEnabled,
+		"github_oauth":                 common.GitHubOAuthEnabled,
+		"github_client_id":             common.GitHubClientId,
+		"discord_oauth":                system_setting.GetDiscordSettings().Enabled,
+		"discord_client_id":            system_setting.GetDiscordSettings().ClientId,
+		"linuxdo_oauth":                common.LinuxDOOAuthEnabled,
+		"linuxdo_client_id":            common.LinuxDOClientId,
+		"linuxdo_minimum_trust_level":  common.LinuxDOMinimumTrustLevel,
+		"telegram_oauth":               common.TelegramOAuthEnabled,
+		"telegram_bot_name":            common.TelegramBotName,
+		"theme":                        "default",
+		"system_name":                  common.SystemName,
+		"logo":                         common.Logo,
+		"footer_html":                  common.Footer,
+		"wechat_qrcode":                common.WeChatAccountQRCodeImageURL,
+		"wechat_login":                 common.WeChatAuthEnabled,
+		"server_address":               system_setting.ServerAddress,
+		"turnstile_check":              common.TurnstileCheckEnabled,
+		"turnstile_site_key":           common.TurnstileSiteKey,
+		"docs_link":                    operation_setting.GetGeneralSetting().DocsLink,
+		"quota_per_unit":               common.QuotaPerUnit,
+		"currency_unit":                "credit",
+		"credits_per_usd":              anchor.InexactFloat64(),
+		"quota_per_usd":                anchor.InexactFloat64(),
+		"cny_per_usd":                  fx,
+		"legacy_pricing_units_per_usd": legacyScale.InexactFloat64(),
 		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
 		"display_in_currency":                 operation_setting.IsCurrencyDisplay(),
 		"quota_display_type":                  operation_setting.GetQuotaDisplayType(),
@@ -181,8 +200,8 @@ func GetStatus(c *gin.Context) {
 		"usd_exchange_rate": operation_setting.USDExchangeRate,
 		// Legacy clients read price as platform units per real USD and
 		// stripe_unit_price as real USD per platform unit.
-		"price":             operation_setting.USDExchangeRate * operation_setting.TopUpPlatformUnitsPerCNY,
-		"stripe_unit_price": standardUSDPerPlatformUnit(),
+		"price":             legacyScale.InexactFloat64(),
+		"stripe_unit_price": 1 / legacyScale.InexactFloat64(),
 
 		// 面板启用开关
 		"api_info_enabled":      cs.ApiInfoEnabled,
@@ -242,6 +261,9 @@ func GetStatus(c *gin.Context) {
 		delete(data, "api_info")
 	}
 
+	for key, value := range unitMetadata {
+		data[key] = value
+	}
 	// Add enabled custom OAuth providers
 	customProviders := oauth.GetEnabledCustomProviders()
 	if len(customProviders) > 0 {

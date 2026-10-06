@@ -54,11 +54,7 @@ export function getConfiguredGroupRatio(
 }
 
 /**
- * Resolve the group ratio used by model square summary prices.
- *
- * When no specific group is selected, the model square shows the best price
- * available to the viewer. When a group filter is active, it shows that
- * group's price instead.
+ * Resolve an availability badge, independently of model prices.
  */
 export function getDisplayPriceGroup(
   model: PricingModel,
@@ -75,28 +71,17 @@ export function getDisplayPriceGroup(
     return selectedGroup
   }
 
-  const candidates = (allGroups ? Object.keys(ratios) : groups).filter(
+  return (allGroups ? Object.keys(ratios) : groups).find(
     (group) => group !== FILTER_ALL && !EXCLUDED_GROUPS.includes(group)
   )
-  let best: string | undefined
-  for (const group of candidates) {
-    const ratio = ratios[group]
-    if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio < 0) {
-      continue
-    }
-    if (best === undefined || ratio < ratios[best]) best = group
-  }
-  return best
 }
 
+/** Public model prices always use the canonical base price (1×). */
 export function getDisplayGroupRatio(
-  model: PricingModel,
-  selectedGroup?: string
+  _model: PricingModel,
+  _selectedGroup?: string
 ): number {
-  const group = getDisplayPriceGroup(model, selectedGroup)
-  return group === undefined
-    ? 1
-    : getConfiguredGroupRatio(model.group_ratio || {}, group)
+  return 1
 }
 
 /**

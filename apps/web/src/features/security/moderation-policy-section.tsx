@@ -27,7 +27,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toIntlLocale } from '@/i18n/languages'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import type {
   SecurityModerationGroupPolicy,
@@ -47,7 +47,8 @@ function GroupPolicy({
   group: string
   policy: SecurityModerationGroupPolicy
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
+  const { formatUSD } = useWalletCurrency()
   const fines = Object.entries(policy.category_fines_usd ?? {})
     .filter(([, amount]) => Number.isFinite(amount) && amount >= 0)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -87,18 +88,13 @@ function GroupPolicy({
                   <dt className='min-w-0 font-mono [overflow-wrap:anywhere]'>
                     {category}
                   </dt>
-                  <dd className='shrink-0 tabular-nums'>
-                    $
-                    {Intl.NumberFormat(toIntlLocale(i18n.language), {
-                      maximumFractionDigits: 20,
-                    }).format(amount)}
-                  </dd>
+                  <dd className='shrink-0 tabular-nums'>{formatUSD(amount)}</dd>
                 </div>
               ))}
             </dl>
           ) : (
             <p className='text-muted-foreground text-sm'>
-              {t('No category fees are configured; the review fee is $0.')}
+              {t('No category fees are configured; the review fee is zero.')}
             </p>
           )}
         </CardContent>

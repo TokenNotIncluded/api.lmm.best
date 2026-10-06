@@ -23,7 +23,8 @@ import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { Label } from '@/components/ui/label'
-import { formatQuota, formatCompactNumber } from '@/lib/format'
+import { useBillingUSD } from '@/hooks/use-billing-usd'
+import { formatCompactNumber } from '@/lib/format'
 
 import { getUserInfo } from '../../api'
 import type { UserInfo } from '../../types'
@@ -49,6 +50,7 @@ export function UserInfoDialog({
   onOpenChange,
 }: UserInfoDialogProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useBillingUSD()
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 

@@ -20,7 +20,17 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { bindTopupOrder, capturePreparedTopup } from './lib/topup-cloud-storage'
+import { hasCompleteCreditGrant } from './lib/topup-credit-metadata'
 import type {
+  CreditAmountRequest,
+  CreditPaymentRequest,
+  CreditWaffoPaymentRequest,
+  CreditPancakePaymentRequest,
+  CreditWireRequestUnit,
+  VersionedCreditAmountRequest,
+  VersionedCreditPaymentRequest,
+  VersionedCreditWaffoPaymentRequest,
+  VersionedCreditPancakePaymentRequest,
   RedemptionRequest,
   PaymentRequest,
   AmountRequest,
@@ -109,9 +119,13 @@ export async function validateDiscountCode(request: {
   amount: number
   payment_method?: string
 }): Promise<DiscountCodeResponse> {
-  const res = await api.post('/api/user/discount-code/validate', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/discount-code/validate',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -121,9 +135,13 @@ export async function validateDiscountCode(request: {
 export async function calculateAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
-  const res = await api.post('/api/user/amount', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/amount',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -133,9 +151,13 @@ export async function calculateAmount(
 export async function calculateStripeAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
-  const res = await api.post('/api/user/stripe/amount', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/stripe/amount',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -145,9 +167,13 @@ export async function calculateStripeAmount(
 export async function calculateWaffoAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
-  const res = await api.post('/api/user/waffo/amount', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/waffo/amount',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -158,9 +184,13 @@ export async function requestPayment(
   request: PaymentRequest
 ): Promise<PaymentResponse> {
   return checkoutRequest(async () => {
-    const res = await api.post('/api/user/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    const res = await api.post(
+      '/api/user/pay',
+      { ...request, amount_unit: 'LEGACY' },
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
     const legacyUrl = Reflect.get(res, 'url')
     return {
       ...res.data,
@@ -177,9 +207,13 @@ export async function requestStripePayment(
   request: PaymentRequest
 ): Promise<StripePaymentResponse> {
   return checkoutRequest(async () => {
-    const res = await api.post('/api/user/stripe/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    const res = await api.post(
+      '/api/user/stripe/pay',
+      { ...request, amount_unit: 'LEGACY' },
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
     return res.data
   })
 }
@@ -205,9 +239,13 @@ export async function requestWaffoPayment(
   request: WaffoPaymentRequest
 ): Promise<WaffoPaymentResponse> {
   return checkoutRequest(async () => {
-    const res = await api.post('/api/user/waffo/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    const res = await api.post(
+      '/api/user/waffo/pay',
+      { ...request, amount_unit: 'LEGACY' },
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
     return res.data
   })
 }
@@ -218,9 +256,13 @@ export async function requestWaffoPayment(
 export async function calculateWaffoPancakeAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
-  const res = await api.post('/api/user/waffo-pancake/amount', request, {
-    skipBusinessError: true,
-  } as Record<string, unknown>)
+  const res = await api.post(
+    '/api/user/waffo-pancake/amount',
+    { ...request, amount_unit: 'LEGACY' },
+    {
+      skipBusinessError: true,
+    } as Record<string, unknown>
+  )
   return res.data
 }
 
@@ -231,9 +273,13 @@ export async function requestWaffoPancakePayment(
   request: WaffoPancakePaymentRequest
 ): Promise<WaffoPancakePaymentResponse> {
   return checkoutRequest(async () => {
-    const res = await api.post('/api/user/waffo-pancake/pay', request, {
-      skipBusinessError: true,
-    } as Record<string, unknown>)
+    const res = await api.post(
+      '/api/user/waffo-pancake/pay',
+      { ...request, amount_unit: 'LEGACY' },
+      {
+        skipBusinessError: true,
+      } as Record<string, unknown>
+    )
     return res.data
   })
 }
@@ -323,3 +369,120 @@ export async function completeOrder(
   const res = await api.post('/api/user/topup/complete', request)
   return res.data
 }
+
+/**
+ * Historical Credit* callers supply raw ledger integers. Only explicit v2
+ * CREDIT requests use the public denomination; old nodes must never receive a fallback.
+ */
+async function creditMoneyRequest<T>(
+  endpoint: string,
+  request: { amount: number } & CreditWireRequestUnit
+): Promise<T> {
+  if (!Number.isSafeInteger(request.amount) || request.amount <= 0) {
+    throw new Error('Invalid top-up amount')
+  }
+  let unit: 'LEDGER_QUOTA' | 'CREDIT' = 'LEDGER_QUOTA'
+  const version = request.credit_metadata_version
+  const expected = request.expected_public_credits_per_usd_exact
+  if (version === undefined) {
+    if (
+      (request.amount_unit !== undefined && request.amount_unit !== 'CREDIT') ||
+      expected !== undefined
+    ) {
+      throw new Error('Invalid top-up credit metadata')
+    }
+  } else if (
+    version === 2 &&
+    request.amount_unit === 'LEDGER_QUOTA' &&
+    expected === undefined
+  ) {
+    unit = 'LEDGER_QUOTA'
+  } else if (
+    version === 2 &&
+    request.amount_unit === 'CREDIT' &&
+    typeof expected === 'string' &&
+    /^[1-9]\d{0,15}$/.test(expected) &&
+    Number.isSafeInteger(Number(expected))
+  ) {
+    unit = 'CREDIT'
+  } else {
+    throw new Error('Invalid top-up credit metadata')
+  }
+  const response = await api.post(
+    `/api/user/topup/currency/v2/${endpoint}`,
+    {
+      ...request,
+      amount_unit: unit,
+      credit_metadata_version: 2,
+    },
+    { skipBusinessError: true } as Record<string, unknown>
+  )
+  const result = response.data
+  if (
+    endpoint !== 'discount-code/validate' &&
+    result &&
+    typeof result === 'object' &&
+    isApiSuccess(result)
+  ) {
+    const grant =
+      'credit_amount_unit' in result ||
+      'public_credit_metadata_version' in result
+        ? result
+        : result.data
+    if (
+      !hasCompleteCreditGrant(
+        grant,
+        unit === 'LEDGER_QUOTA' ? request.amount : undefined,
+        unit === 'CREDIT' ? request.amount : undefined
+      ) ||
+      (unit === 'CREDIT' && grant.public_credits_per_usd_exact !== expected)
+    ) {
+      throw new Error('Top-up credit metadata unavailable')
+    }
+  }
+  return response.data
+}
+
+export const calculateCreditAmount = (
+  request: CreditAmountRequest | VersionedCreditAmountRequest
+) => creditMoneyRequest<AmountResponse>('amount', request)
+export const calculateCreditStripeAmount = (
+  request: CreditAmountRequest | VersionedCreditAmountRequest
+) => creditMoneyRequest<AmountResponse>('stripe/amount', request)
+export const calculateCreditWaffoAmount = (
+  request: CreditAmountRequest | VersionedCreditAmountRequest
+) => creditMoneyRequest<AmountResponse>('waffo/amount', request)
+export const calculateCreditPancakeAmount = (
+  request: CreditAmountRequest | VersionedCreditAmountRequest
+) => creditMoneyRequest<AmountResponse>('waffo-pancake/amount', request)
+export const validateCreditDiscountCode = (
+  request: {
+    code: string
+    amount: number
+    payment_method?: string
+  } & CreditWireRequestUnit
+) => creditMoneyRequest<DiscountCodeResponse>('discount-code/validate', request)
+export const requestCreditPayment = (
+  request: CreditPaymentRequest | VersionedCreditPaymentRequest
+) => checkoutRequest(() => creditMoneyRequest<PaymentResponse>('pay', request))
+export const requestCreditStripePayment = (
+  request: CreditPaymentRequest | VersionedCreditPaymentRequest
+) =>
+  checkoutRequest(() =>
+    creditMoneyRequest<StripePaymentResponse>('stripe/pay', request)
+  )
+export const requestCreditWaffoPayment = (
+  request: CreditWaffoPaymentRequest | VersionedCreditWaffoPaymentRequest
+) =>
+  checkoutRequest(() =>
+    creditMoneyRequest<WaffoPaymentResponse>('waffo/pay', request)
+  )
+export const requestCreditPancakePayment = (
+  request: CreditPancakePaymentRequest | VersionedCreditPancakePaymentRequest
+) =>
+  checkoutRequest(() =>
+    creditMoneyRequest<WaffoPancakePaymentResponse>(
+      'waffo-pancake/pay',
+      request
+    )
+  )

@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -166,6 +167,13 @@ func GetAvailableGiftsForUser(userId int) ([]GiftWithClaimStatus, error) {
 		if cl, ok := claimedMap[g.Id]; ok {
 			item.Claimed = true
 			item.ClaimedAt = cl.CreatedAt
+			item.Quota = cl.Quota
+		} else if now < g.EndAt {
+			quota, err := WalletFutureCreditQuota(DB, userId, "grant_gift", strconv.Itoa(g.Id), g.Quota, g.CreatedAt)
+			if err != nil {
+				return nil, err
+			}
+			item.Quota = quota
 		}
 		if err := checkGiftEligibility(&g, user, now); err != nil {
 			item.Eligible = false
@@ -197,16 +205,20 @@ func ClaimGift(userId int, giftId int) (claim *GiftClaim, alreadyClaimed bool, e
 	if err := checkGiftEligibility(gift, user, now); err != nil {
 		return nil, false, err
 	}
+	quota, err := WalletFutureCreditQuota(DB, userId, "grant_gift", strconv.Itoa(gift.Id), gift.Quota, gift.CreatedAt)
+	if err != nil {
+		return nil, false, err
+	}
 
 	claim = &GiftClaim{
 		GiftId:    giftId,
 		UserId:    userId,
 		Username:  user.Username,
-		Quota:     gift.Quota,
+		Quota:     quota,
 		CreatedAt: now,
 	}
 
-	createErr := claimGiftWithTransaction(claim, userId, gift.Quota)
+	createErr := claimGiftWithTransaction(claim, userId, quota)
 	if createErr != nil {
 		// 唯一索引冲突 = 已领取过：返回既有领取记录，让调用方按幂等成功处理
 		if errors.Is(createErr, ErrGiftAlreadyClaimed) {

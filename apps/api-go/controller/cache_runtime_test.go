@@ -80,6 +80,7 @@ func TestGetStatusReturnsNotReadyPayloadAndTriggersOneRetry(t *testing.T) {
 }
 
 func TestGetStatusRecoversWithoutDroppingExistingData(t *testing.T) {
+	installStatusCurrencyFixture(t)
 	preserveCacheRuntimeHooks(t)
 	var calls atomic.Int32
 	cacheReadinessError = func() error {

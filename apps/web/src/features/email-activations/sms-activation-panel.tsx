@@ -92,6 +92,7 @@ import {
   type HeroSmsFavoritePair,
 } from './sms-selection.js'
 import { useSmsPurchaseBalance } from './sms-use-purchase-balance.js'
+import { useHeroSmsCurrency } from './use-hero-sms-currency'
 
 const smsKeys = {
   countries: (service = 'all') =>
@@ -162,7 +163,10 @@ function batchFailureMessage(result: HeroSmsBatchPurchaseResult, t: Translate) {
     })
   }
   if (isSmsMinimumBalanceError(result.failure.error)) {
-    return t('Temporary SMS purchases require a balance of at least USD 10')
+    return t(
+      'Temporary SMS purchases require a balance of at least {{amount}}',
+      { amount: formatHeroSmsPlatformAmount(10) }
+    )
   }
   return t(parseHeroSmsError(result.failure.error).message)
 }
@@ -309,7 +313,8 @@ function useSmsPurchaseMutation(options: SmsPurchaseMutationOptions) {
         attempt.balance.markDenied()
         toast.error(
           attempt.t(
-            'Temporary SMS purchases require a balance of at least USD 10'
+            'Temporary SMS purchases require a balance of at least {{amount}}',
+            { amount: formatHeroSmsPlatformAmount(10) }
           )
         )
       } else {
@@ -813,6 +818,7 @@ function resolveSmsQuantity(quantity: number, offer?: HeroSmsSmsOffer) {
 function createSmsPanelView({
   effectiveQuantity,
   offer,
+  currencyAvailable,
   purchasePending,
   batchResult,
   selectedCountry,
@@ -823,6 +829,7 @@ function createSmsPanelView({
 }: {
   effectiveQuantity: number
   offer?: HeroSmsSmsOffer
+  currencyAvailable: boolean
   purchasePending: boolean
   batchResult: HeroSmsBatchPurchaseResult | null
   selectedCountry?: HeroSmsSmsCountry
@@ -835,8 +842,15 @@ function createSmsPanelView({
     effectiveQuantity,
     totalPrice: Number(offer?.customer_price_usd ?? 0) * effectiveQuantity,
     canPurchase: Boolean(
+      currencyAvailable &&
       offer &&
       offer.inventory >= effectiveQuantity &&
+      offer.pricing_available !== false &&
+      (offer.pricing_schema_version === undefined ||
+        offer.pricing_schema_version < 2 ||
+        (offer.pricing_schema_version === 2 &&
+          offer.pricing_currency === 'USD' &&
+          offer.pricing_available === true)) &&
       !purchasePending &&
       !batchResult?.failure?.ambiguous
     ),
@@ -851,6 +865,7 @@ function createSmsPanelView({
 // pi-lens-ignore: high-fan-out -- composition root delegates domain and rendering responsibilities.
 export function HeroSmsSmsActivationPanel() {
   const { t, i18n } = useTranslation()
+  const { formatPrice, minimumBalance, config } = useHeroSmsCurrency()
   const queryClient = useQueryClient()
   const purchaseBalance = useSmsPurchaseBalance()
   const recovery = useSmsPurchaseRecovery()
@@ -1107,6 +1122,8 @@ export function HeroSmsSmsActivationPanel() {
   })
 
   const view = createSmsPanelView({
+    currencyAvailable:
+      Number.isFinite(config.creditsPerUsd) && Number(config.creditsPerUsd) > 0,
     effectiveQuantity,
     offer: effectiveOffer,
     purchasePending: ownPurchasePending,
@@ -1120,7 +1137,7 @@ export function HeroSmsSmsActivationPanel() {
   const catalogError = queries.services.error ?? queries.allCountries.error
   const catalogFeedback =
     purchaseBalance.canPurchase && catalogError
-      ? describeSmsAccessError(catalogError, t)
+      ? describeSmsAccessError(catalogError, t, minimumBalance)
       : null
 
   return (
@@ -1358,7 +1375,11 @@ export function HeroSmsSmsActivationPanel() {
             quantity: view.effectiveQuantity,
             service: selectedService?.name ?? service,
             country: view.selectedCountryName,
-            price: formatHeroSmsPlatformAmount(view.totalPrice),
+            price: formatPrice(
+              view.totalPrice,
+              effectiveOffer,
+              view.effectiveQuantity
+            ),
           }
         )}
         confirmText={t('Confirm purchase')}

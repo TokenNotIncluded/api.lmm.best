@@ -30,6 +30,16 @@ func encodeHeroSMSModelTestJSON(t *testing.T, writer http.ResponseWriter, value 
 
 func setupHeroSMSTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	previousAnchor, anchorErr := common.CreditsPerUSD()
+	previousLegacy, legacyErr := common.LegacyPricingQuotaPerUnit()
+	require.NoError(t, common.SetCreditsPerUSD(decimal.NewFromFloat(common.QuotaPerUnit)))
+	t.Cleanup(func() {
+		if anchorErr != nil || legacyErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(previousAnchor, previousLegacy))
+		}
+	})
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
@@ -92,7 +102,7 @@ func testHeroSMSEmailProductsPricing(t *testing.T) {
 	products, err := ListHeroSMSEmailProducts(t.Context(), 1, 10, "demo.com")
 	require.NoError(t, err)
 	require.Len(t, products.Items, 1)
-	require.Equal(t, "0.0000011", products.Items[0].CustomerPriceUSD)
+	require.Equal(t, "0.000002", products.Items[0].CustomerPriceUSD)
 	require.Equal(t, 1, products.Items[0].ChargeQuota)
 	require.True(t, products.Items[0].Available)
 	publicPayload, err := json.Marshal(products)
@@ -116,7 +126,7 @@ func testHeroSMSEmailProductsPricing(t *testing.T) {
 	require.NoError(t, UpdateHeroSMSSettings(HeroSMSSettingsUpdate{PriceMultiplier: "12.5"}))
 	products, err = ListHeroSMSEmailProducts(t.Context(), 1, 10, "demo.com")
 	require.NoError(t, err)
-	require.Equal(t, "0.00001375", products.Items[0].CustomerPriceUSD)
+	require.Equal(t, "0.000014", products.Items[0].CustomerPriceUSD)
 
 	invalidProducts, err := ListHeroSMSEmailProducts(t.Context(), 1, 10, "https://demo.com/path")
 	require.Nil(t, invalidProducts)

@@ -172,7 +172,7 @@ class PlannedGateTests(unittest.TestCase):
     def test_workflow_has_one_complete_dag_and_stable_gate(self):
         source = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = re.findall(r"^  ([a-z][a-z0-9-]*):$", source.split("\njobs:\n", 1)[1], re.M)
-        self.assertCountEqual(jobs, [*REQUIRED_JOBS, "quality-gate"])
+        self.assertCountEqual(jobs, [*REQUIRED_JOBS, "quality-gate", "go-web-release-gate"])
         for job in REQUIRED_JOBS:
             if job != "changes":
                 block = source.split(f"  {job}:\n", 1)[1].split("\n  ", 1)[0]

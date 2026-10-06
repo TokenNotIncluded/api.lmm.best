@@ -12,6 +12,8 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
+	"github.com/shopspring/decimal"
 )
 
 // Reuse the existing, strict SVG appearance parser. Only the model layout's
@@ -30,6 +32,7 @@ func parseProfileShareModelsSVGOptions(query url.Values) (profileShareSVGOptions
 		appearance[key] = append([]string(nil), values...)
 	}
 	appearance.Del("top")
+	appearance.Del("currency")
 	appearance.Set("layout", "badge")
 	for key, value := range map[string]string{"width": "1200", "height": "900", "radius": "20", "theme": "dark"} {
 		if appearance.Get(key) == "" {
@@ -37,8 +40,21 @@ func parseProfileShareModelsSVGOptions(query url.Values) (profileShareSVGOptions
 		}
 	}
 	options, err := parseProfileShareSVGOptions(appearance)
+	if err != nil {
+		return empty, 0, err
+	}
 	options.Layout = "models"
-	return options, top, err
+	options.Currency = strings.ToUpper(strings.TrimSpace(query.Get("currency")))
+	if options.Currency == "" {
+		options.Currency = "USD"
+		if strings.HasPrefix(options.Lang, "zh") {
+			options.Currency = "CNY"
+		}
+	}
+	if options.Currency != "USD" && options.Currency != "CNY" && options.Currency != "CREDIT" {
+		return empty, 0, errors.New("currency must be CREDIT, CNY or USD")
+	}
+	return options, top, nil
 }
 
 type profileShareModelCopy struct {
@@ -99,22 +115,37 @@ func profileShareModelColor(accent, muted string, index, count int) string {
 	return fmt.Sprintf("#%02x%02x%02x", channels[0], channels[1], channels[2])
 }
 
-func profileShareModelQuota(quota int64) string {
-	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
-		return "—"
+func profileShareModelQuota(quota int64, currency string) (string, error) {
+	fx := decimal.Zero
+	if currency == "CNY" {
+		if operation_setting.USDExchangeRate <= 0 || math.IsNaN(operation_setting.USDExchangeRate) || math.IsInf(operation_setting.USDExchangeRate, 0) {
+			return "", errors.New("CNY exchange rate is unavailable")
+		}
+		fx = decimal.NewFromFloat(operation_setting.USDExchangeRate)
 	}
-	amount := float64(quota) / common.QuotaPerUnit
-	precision := 4
-	if amount > 0 && amount < .01 {
+	amount, err := common.CreditsToFiat(quota, currency, fx)
+	if err != nil {
+		return "", err
+	}
+	if currency == "CREDIT" {
+		return amount.String() + " Credit", nil
+	}
+	precision := int32(4)
+	if amount.IsPositive() && amount.LessThan(decimal.NewFromFloat(.01)) {
 		precision = 6
 	}
-	return "$" + strconv.FormatFloat(amount, 'f', precision, 64)
+	return amount.StringFixed(precision) + " " + currency, nil
 }
 
-func renderProfileShareModelsSVG(options profileShareSVGOptions, usage model.ProfileShareModelUsage, start, end int64) string {
+func renderProfileShareModelsSVG(options profileShareSVGOptions, usage model.ProfileShareModelUsage, start, end int64) (string, error) {
 	copy, ok := profileShareModelLanguages[options.Lang]
 	if !ok {
 		copy = profileShareModelLanguages["en"]
+	}
+	copy.Spend = strings.Replace(copy.Spend, "($)", "("+options.Currency+")", 1)
+	totalSpend, err := profileShareModelQuota(usage.Quota, options.Currency)
+	if err != nil {
+		return "", err
 	}
 	title, tokenLabel := copy.Title, copy.Tokens
 	if options.CustomTitle {
@@ -132,6 +163,13 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage model.Pro
 	}
 	if usage.ModelCount > int64(len(rows)) {
 		rows = append(rows, other)
+	}
+	rowSpend := make([]string, len(rows))
+	for index, row := range rows {
+		rowSpend[index], err = profileShareModelQuota(row.Quota, options.Currency)
+		if err != nil {
+			return "", err
+		}
 	}
 	shareLabel := copy.QuotaShare
 	totalWeight := usage.Quota
@@ -209,7 +247,7 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage model.Pro
 		text(x, y+38, size, "start", options.Foreground, value)
 	}
 	stat(488, 191, tokenLabel, format(usage.Tokens))
-	stat(488, 303, copy.Spend, profileShareModelQuota(usage.Quota))
+	stat(488, 303, copy.Spend, totalSpend)
 	if options.ShowRequests {
 		stat(840, 191, copy.Requests, format(usage.Requests))
 	}
@@ -240,7 +278,7 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage model.Pro
 		if options.ShowRequests {
 			text(928, y+30, int(math.Min(16, 150/math.Max(1, float64(len([]rune(format(row.Requests))))*.62))), "end", options.Foreground, format(row.Requests))
 		}
-		text(1144, y+30, 16, "end", options.Foreground, profileShareModelQuota(row.Quota))
+		text(1144, y+30, 16, "end", options.Foreground, rowSpend[index])
 		fmt.Fprintf(&svg, `<path d="M56 %dH1144" stroke="%s" opacity=".6"/></g>`, y+56, options.Border)
 	}
 	if len(rows) == 0 {
@@ -249,5 +287,5 @@ func renderProfileShareModelsSVG(options profileShareSVGOptions, usage model.Pro
 	text(56, height-36, 14, "start", options.Muted, profileShareModelShortText(options.Footer, 64))
 	text(1144, height-36, 14, "end", options.Muted, "https://api.lmm.best")
 	svg.WriteString(`</g></g></svg>`)
-	return svg.String()
+	return svg.String(), nil
 }

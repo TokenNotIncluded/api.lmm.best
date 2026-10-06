@@ -18,12 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, Wallet } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { usePurchaseEntry } from '@/features/forge/use-purchase-entry'
+import { cn } from '@/lib/utils'
 
 import {
   EmptyState,
@@ -35,13 +36,21 @@ import {
   VendorIconWall,
   VendorModelSections,
 } from './components'
+import { ModelCompareTray } from './components/model-compare-tray'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePerfMap } from './hooks/use-perf-map'
 import { usePricingData } from './hooks/use-pricing-data'
+import { MAX_COMPARE_MODELS, toggleCompareSelection } from './lib/model-compare'
 
 /** Models revealed per "Load more" click on the vendor grid. */
 const PAGE_SIZE = 48
+
+const LazyModelCompareDialog = lazy(() =>
+  import('./components/model-compare-dialog').then((m) => ({
+    default: m.ModelCompareDialog,
+  }))
+)
 
 /** A searchable model catalog, grouped by vendor for price comparison. */
 export function Pricing() {
@@ -51,6 +60,8 @@ export function Pricing() {
     null
   )
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [compareNames, setCompareNames] = useState<string[]>([])
+  const [compareOpen, setCompareOpen] = useState(false)
 
   const {
     models,
@@ -62,8 +73,9 @@ export function Pricing() {
     isLoading,
     error,
     refetch,
-    priceRate,
-    usdExchangeRate,
+    displayCurrency,
+    setDisplayCurrency,
+    displayCurrencyError,
   } = usePricingData()
 
   const {
@@ -76,7 +88,6 @@ export function Pricing() {
     tagFilter,
     tokenUnit,
     viewMode,
-    showRechargePrice,
     setSearchInput,
     setSortBy,
     setVendorFilter,
@@ -86,7 +97,6 @@ export function Pricing() {
     setTagFilter,
     setTokenUnit,
     setViewMode,
-    setShowRechargePrice,
     filteredModels,
     hasActiveFilters,
     activeFilterCount,
@@ -110,6 +120,17 @@ export function Pricing() {
         : null,
     [models, selectedModelName]
   )
+
+  const handleToggleCompare = useCallback((modelName: string) => {
+    setCompareNames((current) => toggleCompareSelection(current, modelName))
+  }, [])
+
+  const compareModels = useMemo(() => {
+    const byName = new Map(
+      (models || []).map((model) => [model.model_name, model])
+    )
+    return compareNames.flatMap((name) => byName.get(name) ?? [])
+  }, [compareNames, models])
 
   const availableGroups = useMemo(
     () =>
@@ -150,12 +171,13 @@ export function Pricing() {
           <VendorModelSections
             models={visibleModels}
             onModelClick={handleModelClick}
-            priceRate={priceRate}
-            usdExchangeRate={usdExchangeRate}
             tokenUnit={tokenUnit}
-            showRechargePrice={showRechargePrice}
+            displayCurrency={displayCurrency}
             selectedGroup={groupFilter}
             perfMap={perfMap}
+            compareSelection={compareNames}
+            compareFull={compareNames.length >= MAX_COMPARE_MODELS}
+            onToggleCompare={handleToggleCompare}
           />
           {hasMore ? (
             <div className='mt-10 flex justify-center'>
@@ -175,10 +197,8 @@ export function Pricing() {
     return (
       <PricingTable
         models={filteredModels}
-        priceRate={priceRate}
-        usdExchangeRate={usdExchangeRate}
         tokenUnit={tokenUnit}
-        showRechargePrice={showRechargePrice}
+        displayCurrency={displayCurrency}
         selectedGroup={groupFilter}
         perfMap={perfMap}
         onModelClick={handleModelClick}
@@ -201,7 +221,12 @@ export function Pricing() {
   return (
     <ForgePublicShell>
       <div className='min-h-svh'>
-        <div className='mx-auto w-full max-w-7xl px-5 pb-20 md:px-10'>
+        <div
+          className={cn(
+            'mx-auto w-full max-w-7xl px-5 md:px-10',
+            compareModels.length > 0 ? 'pb-32' : 'pb-20'
+          )}
+        >
           <div className='border-foreground/20 mb-5 border-b pt-7 pb-5 sm:mb-8 sm:pt-14 sm:pb-8'>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6'>
               <div className='min-w-0'>
@@ -254,8 +279,10 @@ export function Pricing() {
                 onSortChange={setSortBy}
                 tokenUnit={tokenUnit}
                 onTokenUnitChange={setTokenUnit}
-                showRechargePrice={showRechargePrice}
-                onRechargePriceChange={setShowRechargePrice}
+                displayCurrency={displayCurrency}
+                onDisplayCurrencyChange={(currency) => {
+                  void setDisplayCurrency(currency)
+                }}
                 viewMode={viewMode}
                 onViewModeChange={(next) => {
                   setViewMode(next)
@@ -283,6 +310,11 @@ export function Pricing() {
                   setVisibleCount(PAGE_SIZE)
                 }}
               />
+              {displayCurrencyError && (
+                <p role='alert' className='text-destructive text-xs'>
+                  {t(displayCurrencyError)}
+                </p>
+              )}
             </div>
           </div>
 
@@ -302,7 +334,7 @@ export function Pricing() {
             </div>
             <p role='note' className='text-muted-foreground text-xs leading-5'>
               {t(
-                'No group selected shows starting prices. Checkout confirms the final amount.'
+                'Groups filter model availability only. Prices always use the base price (1×).'
               )}
             </p>
           </div>
@@ -336,11 +368,36 @@ export function Pricing() {
               >) || {}
             }
             autoGroups={autoGroups || []}
-            priceRate={priceRate ?? 1}
-            usdExchangeRate={usdExchangeRate ?? 1}
             tokenUnit={tokenUnit}
-            showRechargePrice={showRechargePrice}
+            displayCurrency={displayCurrency}
           />
+        )}
+
+        {!compareOpen && !selectedModel && (
+          <ModelCompareTray
+            models={compareModels}
+            onRemove={handleToggleCompare}
+            onClear={() => setCompareNames([])}
+            onCompare={() => setCompareOpen(true)}
+          />
+        )}
+        {compareOpen && compareModels.length >= 2 && (
+          <Suspense fallback={null}>
+            <LazyModelCompareDialog
+              open
+              onOpenChange={setCompareOpen}
+              models={compareModels}
+              tokenUnit={tokenUnit}
+              displayCurrency={displayCurrency}
+              selectedGroup={groupFilter}
+              perfMap={perfMap}
+              onRemove={handleToggleCompare}
+              onViewDetails={(modelName) => {
+                setCompareOpen(false)
+                setSelectedModelName(modelName)
+              }}
+            />
+          </Suspense>
         )}
       </div>
     </ForgePublicShell>

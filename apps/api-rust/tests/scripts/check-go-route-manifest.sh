@@ -11,7 +11,8 @@ fail_closed_shells="${routes_dir}/rust-mounted-fail-closed-shells.tsv"
 current_manifest_source="${repo_root}/apps/api-go/cmd/route-manifest/main.go"
 
 for required_file in "${golden_hash_file}" "${legacy_manifest}" "${rust_manifest}" \
-  "${normal_manifest}" "${fail_closed_shells}" "${routes_dir}/ownership.tsv"; do
+  "${normal_manifest}" "${fail_closed_shells}" "${routes_dir}/ownership.tsv" \
+  "${routes_dir}/current-go-only-ownership.tsv"; do
   if [[ ! -f "${required_file}" ]]; then
     echo "missing route contract file: ${required_file}" >&2
     exit 1
@@ -155,6 +156,10 @@ awk -F '\t' '
     exit failures != 0
   }
 ' expected="${route_count}" "${routes_dir}/ownership.tsv" "${legacy_manifest}"
+
+# New money endpoints are current-Go contracts, not additions to immutable
+# frozen evidence. Keep their exact method/handler/auth/source ownership gate.
+python3 -B "${repo_root}/apps/api-rust/tests/scripts/check-current-go-only-ownership.py" "${current_manifest}"
 
 rust_report="$(awk -F '\t' -v current_routes="${current_runtime}/identities.tsv" '
   BEGIN {

@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuotaWithCurrency } from '@/lib/currency'
+import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { formatTimestampToDate } from '@/lib/format'
 
 import { getSystemGroups } from '../api'
@@ -56,15 +56,19 @@ const FEE_STATUS_LABELS: Record<string, string> = {
   insufficient_balance: 'Insufficient balance',
 }
 const ALL = '__all__'
-const feeAmount = (quota: number) =>
-  formatQuotaWithCurrency(quota, {
-    digitsLarge: 6,
-    digitsSmall: 6,
-    abbreviate: false,
-  })
+function useFeeAmount() {
+  const { formatQuota } = useBillingUSD()
+  return (quota: number) =>
+    formatQuota(quota, {
+      digitsLarge: 6,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
+}
 
 export function ModerationReviewRow({ review }: { review: ModerationReview }) {
   const { t } = useTranslation()
+  const feeAmount = useFeeAmount()
   const completed = review.status === 'completed'
   return (
     <article
@@ -115,6 +119,41 @@ export function ModerationReviewRow({ review }: { review: ModerationReview }) {
         <dl className='mt-2 grid gap-x-3 gap-y-1 border-l pl-3 sm:grid-cols-[auto_minmax(0,1fr)]'>
           <dt>{t('Request ID')}</dt>
           <dd className='font-mono break-all'>{review.request_id}</dd>
+          {review.subject_identifier ? (
+            <>
+              <dt>{t('Private user identifier')}</dt>
+              <dd className='font-mono break-all'>
+                {review.subject_identifier}
+              </dd>
+            </>
+          ) : null}
+          {review.provider_calls?.length ? (
+            <>
+              <dt>{t('Upstream moderation calls')}</dt>
+              <dd className='min-w-0 space-y-2'>
+                {review.provider_calls.map((call) => (
+                  <div key={`${call.attempt}:${call.batch_index}`}>
+                    <p>
+                      {t('Attempt {{attempt}}, batch {{batch}}', {
+                        attempt: call.attempt,
+                        batch: call.batch_index,
+                      })}
+                    </p>
+                    {call.response_id ? (
+                      <p className='font-mono break-all'>
+                        {t('Upstream response ID')}: {call.response_id}
+                      </p>
+                    ) : null}
+                    {call.request_id ? (
+                      <p className='font-mono break-all'>
+                        {t('Upstream request ID')}: {call.request_id}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </dd>
+            </>
+          ) : null}
           <dt>{t('Review status')}</dt>
           <dd>{t(STATUS_LABELS[review.status])}</dd>
           <dt>{t('Requested category fee')}</dt>
@@ -160,6 +199,7 @@ export function ModerationReviewRow({ review }: { review: ModerationReview }) {
 
 export function ModerationAuditPanel() {
   const { t } = useTranslation()
+  const feeAmount = useFeeAmount()
   const [filters, setFilters] = useState<ModerationReviewFilters>({
     page: 1,
     page_size: 20,

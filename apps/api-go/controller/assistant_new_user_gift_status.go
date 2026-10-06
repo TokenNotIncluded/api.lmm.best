@@ -256,27 +256,35 @@ func executeAssistantNewUserGiftStatusTool(c *gin.Context, userID int) map[strin
 			"error": "The current gift status could not be read. Do not infer eligibility, a decision, or a successful claim.",
 		}
 	}
-	result := map[string]any{
-		"ok": true, "read_only": true, "status": "none", "currency": "USD", "amount_cents": 0,
+	result, err := assistantGiftMoneyFields(gift)
+	if err != nil {
+		return map[string]any{"ok": false, "status": "unavailable", "read_only": true, "error": "Gift currency units are unavailable. Do not infer an amount or a successful claim."}
+	}
+	for key, value := range map[string]any{
+		"ok": true, "read_only": true, "status": "none",
 		"one_time_decision_used": false, "claim_available": false,
 		"next_step": "No gift decision is stored. This does not establish eligibility. Explain the one-time rules if asked; an evaluation requires a separate explicit application and sufficient conversation detail.",
+	} {
+		result[key] = value
 	}
 	if gift == nil {
 		return result
 	}
 	result["status"] = gift.Status
-	result["amount_cents"] = gift.AmountCents
 	result["one_time_decision_used"] = true
 	switch gift.Status {
 	case model.AssistantGiftOffered:
 		result["claim_available"] = true
 		result["next_step"] = "The existing offered gift is ready for the user to claim from the gift card. Never claim it for them or evaluate it again."
 		if c != nil {
-			c.Set(assistantClientActionKey, map[string]any{
-				"type": "new_user_gift", "amount_cents": gift.AmountCents, "status": gift.Status,
-				// Keep the card useful without exposing stored evaluation prose.
-				"reason": "领取已发放的新用户礼包 / Claim your existing welcome gift",
-			})
+			money := make(map[string]any)
+			for _, key := range []string{"amount_cents", "amount_unit", "credit_amount", "credit_amount_unit", "public_credit_amount", "amount_usd", "currency", "credits_per_usd", "credit_unit_schema_version", "quota_unit", "public_credit_unit", "legacy_credit_unit", "ledger_quota_per_usd", "ledger_quota_per_usd_exact", "public_credits_per_usd", "public_credits_per_usd_exact"} {
+				money[key] = result[key]
+			}
+			money["type"], money["status"] = "new_user_gift", gift.Status
+			// Keep the card useful without exposing stored evaluation prose.
+			money["reason"] = "领取已发放的新用户礼包 / Claim your existing welcome gift"
+			c.Set(assistantClientActionKey, money)
 		}
 	case model.AssistantGiftClaimed:
 		result["next_step"] = "The stored gift has already been claimed. The one-time decision cannot be reset by changing conversations."

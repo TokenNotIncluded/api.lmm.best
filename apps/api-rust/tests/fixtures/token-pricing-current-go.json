@@ -4,6 +4,7 @@
       "discount": 0.97,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -15,10 +16,11 @@
           "completion_ratio": 5,
           "cache_ratio": 0.1,
           "create_cache_ratio": 1.25,
-          "input_price": 3.88,
-          "output_price": 19.4
+          "input_price": 0.5542857142857143,
+          "output_price": 2.7714285714285714
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "default",
           "currency": "USD",
@@ -30,10 +32,11 @@
           "completion_ratio": 2,
           "cache_ratio": 1,
           "create_cache_ratio": 1.25,
-          "input_price": 1.94,
-          "output_price": 3.88
+          "input_price": 0.27714285714285714,
+          "output_price": 0.5542857142857143
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "default",
           "currency": "USD",
@@ -45,10 +48,11 @@
           "completion_ratio": 3,
           "cache_ratio": 0.5,
           "create_cache_ratio": 1.25,
-          "input_price": 2.425,
-          "output_price": 7.2749999999999995
+          "input_price": 0.3464285714285714,
+          "output_price": 1.0392857142857141
         },
         {
+          "pricing_schema_version": 2,
           "model": "image",
           "group": "default",
           "currency": "USD",
@@ -56,9 +60,10 @@
           "unit": "request",
           "group_ratio": 0.97,
           "trust_discount_ratio": 0.97,
-          "request_price": 0.0388
+          "request_price": 0.005542857142857143
         },
         {
+          "pricing_schema_version": 2,
           "model": "tier",
           "group": "default",
           "currency": "USD",
@@ -66,9 +71,10 @@
           "unit": "expression",
           "group_ratio": 0.97,
           "trust_discount_ratio": 0.97,
-          "billing_expression": "p * 2 + c * 4"
+          "billing_expression": "(p * 2 + c * 4) / (7)"
         },
         {
+          "pricing_schema_version": 2,
           "model": "vendor/claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -80,10 +86,11 @@
           "completion_ratio": 7,
           "cache_ratio": 1,
           "create_cache_ratio": 1.25,
-          "input_price": 3.88,
-          "output_price": 27.16
+          "input_price": 0.5542857142857143,
+          "output_price": 3.88
         },
         {
+          "pricing_schema_version": 2,
           "model": "zero",
           "group": "default",
           "currency": "USD",
@@ -111,6 +118,7 @@
       "discount": 0.94,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -122,10 +130,11 @@
           "completion_ratio": 5,
           "cache_ratio": 0.1,
           "create_cache_ratio": 1.25,
-          "input_price": 1.88,
-          "output_price": 9.399999999999999
+          "input_price": 0.26857142857142857,
+          "output_price": 1.342857142857143
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "default",
           "currency": "USD",
@@ -137,10 +146,11 @@
           "completion_ratio": 2,
           "cache_ratio": 1,
           "create_cache_ratio": 1.25,
-          "input_price": 0.94,
-          "output_price": 1.88
+          "input_price": 0.13428571428571429,
+          "output_price": 0.26857142857142857
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "default",
           "currency": "USD",
@@ -152,10 +162,11 @@
           "completion_ratio": 3,
           "cache_ratio": 0.5,
           "create_cache_ratio": 1.25,
-          "input_price": 1.1749999999999998,
-          "output_price": 3.5249999999999995
+          "input_price": 0.16785714285714282,
+          "output_price": 0.5035714285714284
         },
         {
+          "pricing_schema_version": 2,
           "model": "image",
           "group": "default",
           "currency": "USD",
@@ -163,9 +174,10 @@
           "unit": "request",
           "group_ratio": 0.47,
           "trust_discount_ratio": 0.94,
-          "request_price": 0.0188
+          "request_price": 0.0026857142857142856
         },
         {
+          "pricing_schema_version": 2,
           "model": "tier",
           "group": "default",
           "currency": "USD",
@@ -173,9 +185,10 @@
           "unit": "expression",
           "group_ratio": 0.47,
           "trust_discount_ratio": 0.94,
-          "billing_expression": "p * 2 + c * 4"
+          "billing_expression": "(p * 2 + c * 4) / (7)"
         },
         {
+          "pricing_schema_version": 2,
           "model": "vendor/claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -187,10 +200,11 @@
           "completion_ratio": 7,
           "cache_ratio": 1,
           "create_cache_ratio": 1.25,
-          "input_price": 1.88,
-          "output_price": 13.16
+          "input_price": 0.26857142857142857,
+          "output_price": 1.88
         },
         {
+          "pricing_schema_version": 2,
           "model": "zero",
           "group": "default",
           "currency": "USD",
@@ -218,6 +232,7 @@
       "discount": 1,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "claude-3-5-sonnet",
           "group": "default",
           "currency": "USD",
@@ -229,10 +244,11 @@
           "completion_ratio": 5,
           "cache_ratio": 0.1,
           "create_cache_ratio": 1.25,
-          "input_price": 4,
-          "output_price": 20
+          "input_price": 0.5714285714285714,
+          "output_price": 2.8571428571428568
         },
         {
+          "pricing_schema_version": 2,
           "model": "claude-3-5-sonnet",
           "group": "private",
           "currency": "USD",
@@ -244,10 +260,11 @@
           "completion_ratio": 5,
           "cache_ratio": 0.1,
           "create_cache_ratio": 1.25,
-          "input_price": 12,
-          "output_price": 60
+          "input_price": 1.7142857142857142,
+          "output_price": 8.571428571428571
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "default",
           "currency": "USD",
@@ -259,10 +276,11 @@
           "completion_ratio": 2,
           "cache_ratio": 1,
           "create_cache_ratio": 1.25,
-          "input_price": 2,
-          "output_price": 4
+          "input_price": 0.2857142857142857,
+          "output_price": 0.5714285714285714
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "private",
           "currency": "USD",
@@ -274,10 +292,11 @@
           "completion_ratio": 2,
           "cache_ratio": 1,
           "create_cache_ratio": 1.25,
-          "input_price": 6,
-          "output_price": 12
+          "input_price": 0.8571428571428571,
+          "output_price": 1.7142857142857142
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "default",
           "currency": "USD",
@@ -289,10 +308,11 @@
           "completion_ratio": 3,
           "cache_ratio": 0.5,
           "create_cache_ratio": 1.25,
-          "input_price": 2.5,
-          "output_price": 7.5
+          "input_price": 0.35714285714285715,
+          "output_price": 1.0714285714285714
         },
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "private",
           "currency": "USD",
@@ -304,10 +324,11 @@
           "completion_ratio": 3,
           "cache_ratio": 0.5,
           "create_cache_ratio": 1.25,
-          "input_price": 7.5,
-          "output_price": 22.5
+          "input_price": 1.0714285714285714,
+          "output_price": 3.2142857142857144
         },
         {
+          "pricing_schema_version": 2,
           "model": "image",
           "group": "default",
           "currency": "USD",
@@ -315,9 +336,10 @@
           "unit": "request",
           "group_ratio": 1,
           "trust_discount_ratio": 1,
-          "request_price": 0.04
+          "request_price": 0.005714285714285714
         },
         {
+          "pricing_schema_version": 2,
           "model": "image",
           "group": "private",
           "currency": "USD",
@@ -325,9 +347,10 @@
           "unit": "request",
           "group_ratio": 3,
           "trust_discount_ratio": 1,
-          "request_price": 0.12
+          "request_price": 0.017142857142857144
         },
         {
+          "pricing_schema_version": 2,
           "model": "secret",
           "group": "private",
           "currency": "USD",
@@ -339,60 +362,65 @@
           "completion_ratio": 1,
           "cache_ratio": 1,
           "create_cache_ratio": 1.25,
-          "input_price": 12,
+          "input_price": 1.7142857142857142,
+          "output_price": 1.7142857142857142
+        },
+        {
+          "pricing_schema_version": 2,
+          "model": "tier",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "tiered_expr",
+          "unit": "expression",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "billing_expression": "(p * 2 + c * 4) / (7)"
+        },
+        {
+          "pricing_schema_version": 2,
+          "model": "tier",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "tiered_expr",
+          "unit": "expression",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "billing_expression": "(p * 2 + c * 4) / (7)"
+        },
+        {
+          "pricing_schema_version": 2,
+          "model": "vendor/claude-3-5-sonnet",
+          "group": "default",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 1,
+          "trust_discount_ratio": 1,
+          "model_ratio": 2,
+          "completion_ratio": 7,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 0.5714285714285714,
+          "output_price": 4
+        },
+        {
+          "pricing_schema_version": 2,
+          "model": "vendor/claude-3-5-sonnet",
+          "group": "private",
+          "currency": "USD",
+          "billing_mode": "per_token",
+          "unit": "million_tokens",
+          "group_ratio": 3,
+          "trust_discount_ratio": 1,
+          "model_ratio": 2,
+          "completion_ratio": 7,
+          "cache_ratio": 1,
+          "create_cache_ratio": 1.25,
+          "input_price": 1.7142857142857142,
           "output_price": 12
         },
         {
-          "model": "tier",
-          "group": "default",
-          "currency": "USD",
-          "billing_mode": "tiered_expr",
-          "unit": "expression",
-          "group_ratio": 1,
-          "trust_discount_ratio": 1,
-          "billing_expression": "p * 2 + c * 4"
-        },
-        {
-          "model": "tier",
-          "group": "private",
-          "currency": "USD",
-          "billing_mode": "tiered_expr",
-          "unit": "expression",
-          "group_ratio": 3,
-          "trust_discount_ratio": 1,
-          "billing_expression": "p * 2 + c * 4"
-        },
-        {
-          "model": "vendor/claude-3-5-sonnet",
-          "group": "default",
-          "currency": "USD",
-          "billing_mode": "per_token",
-          "unit": "million_tokens",
-          "group_ratio": 1,
-          "trust_discount_ratio": 1,
-          "model_ratio": 2,
-          "completion_ratio": 7,
-          "cache_ratio": 1,
-          "create_cache_ratio": 1.25,
-          "input_price": 4,
-          "output_price": 28
-        },
-        {
-          "model": "vendor/claude-3-5-sonnet",
-          "group": "private",
-          "currency": "USD",
-          "billing_mode": "per_token",
-          "unit": "million_tokens",
-          "group_ratio": 3,
-          "trust_discount_ratio": 1,
-          "model_ratio": 2,
-          "completion_ratio": 7,
-          "cache_ratio": 1,
-          "create_cache_ratio": 1.25,
-          "input_price": 12,
-          "output_price": 84
-        },
-        {
+          "pricing_schema_version": 2,
           "model": "zero",
           "group": "default",
           "currency": "USD",
@@ -407,6 +435,7 @@
           "output_price": 0
         },
         {
+          "pricing_schema_version": 2,
           "model": "zero",
           "group": "private",
           "currency": "USD",
@@ -435,6 +464,7 @@
       "discount": 1,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4o",
           "group": "default",
           "currency": "USD",
@@ -446,8 +476,8 @@
           "completion_ratio": 3,
           "cache_ratio": 0.5,
           "create_cache_ratio": 1.25,
-          "input_price": 2.5,
-          "output_price": 7.5
+          "input_price": 0.35714285714285715,
+          "output_price": 1.0714285714285714
         }
       ],
       "groups": [
@@ -465,6 +495,7 @@
       "discount": 1,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "gpt-4-gizmo-demo",
           "group": "default",
           "currency": "USD",
@@ -476,8 +507,8 @@
           "completion_ratio": 2,
           "cache_ratio": 1,
           "create_cache_ratio": 1.25,
-          "input_price": 2,
-          "output_price": 4
+          "input_price": 0.2857142857142857,
+          "output_price": 0.5714285714285714
         }
       ],
       "groups": [
@@ -495,6 +526,7 @@
       "discount": 0.97,
       "entries": [
         {
+          "pricing_schema_version": 2,
           "model": "tier",
           "group": "default",
           "currency": "USD",
@@ -502,7 +534,7 @@
           "unit": "expression",
           "group_ratio": 0.485,
           "trust_discount_ratio": 0.97,
-          "billing_expression": "p * 2 + c * 4"
+          "billing_expression": "(p * 2 + c * 4) / (7)"
         }
       ],
       "groups": [
@@ -708,9 +740,13 @@
     "CacheRatio": "{\"gpt-4o\":0.5,\"claude-3-5-sonnet\":0.1}",
     "CompletionRatio": "{\"gpt-4o\":3,\"claude-3-5-sonnet\":7,\"vendor/claude-3-5-sonnet\":7}",
     "CreateCacheRatio": "{\"claude-3-5-sonnet\":1.25}",
+    "CreditsPerUSD": "3500000",
+    "LegacyPricingQuotaPerUnit": "500000",
     "ModelPrice": "{\"image\":0.04}",
     "ModelRatio": "{\"gpt-4o\":1.25,\"secret\":2,\"zero\":0,\"claude-3-5-sonnet\":2,\"vendor/claude-3-5-sonnet\":2,\"gpt-4-gizmo-*\":1}",
     "QuotaPerUnit": "500000",
+    "TopUpPlatformUnitsPerCNY": "1",
+    "USDExchangeRate": "7",
     "UserUsableGroups": "{\"auto\":\"Auto\",\"default\":\"Default\",\"vip\":\"VIP\",\"private\":\"Private\"}",
     "billing_setting.billing_expr": "{\"tier\":\"p * 2 + c * 4\"}",
     "billing_setting.billing_mode": "{\"tier\":\"tiered_expr\",\"missing-expr\":\"tiered_expr\"}",

@@ -62,7 +62,7 @@ type ChannelSelectorDialogProps = {
 
 // Synthesized presets from `controller/ratio_sync.go` always carry stable
 // negative IDs, so matching by ID alone is reliable and self-documenting.
-function isOfficialChannel(channel: UpstreamChannel): boolean {
+function isReferencePreset(channel: UpstreamChannel): boolean {
   return (
     channel.id === OFFICIAL_CHANNEL_ID || channel.id === MODELS_DEV_PRESET_ID
   )
@@ -149,14 +149,20 @@ export function ChannelSelectorDialog({
         cell: ({ row }) => {
           const name = row.getValue('name') as string
           const channel = row.original
-          const isOfficial = isOfficialChannel(channel)
+          const isPreset = isReferencePreset(channel)
 
           return (
             <div className='flex items-center gap-2'>
-              <span className='font-medium'>{name}</span>
-              {isOfficial && (
+              <span className='font-medium'>
+                {channel.id === OFFICIAL_CHANNEL_ID
+                  ? 'basellm'
+                  : channel.id === MODELS_DEV_PRESET_ID
+                    ? 'models.dev'
+                    : name}
+              </span>
+              {isPreset && (
                 <StatusBadge
-                  label={t('Official')}
+                  label={t('Reference preset')}
                   variant='success'
                   size='sm'
                   copyable={false}
@@ -285,8 +291,8 @@ export function ChannelSelectorDialog({
 
   const sortedChannels = useMemo(() => {
     return [...filteredChannels].sort((a, b) => {
-      const aIsOfficial = isOfficialChannel(a)
-      const bIsOfficial = isOfficialChannel(b)
+      const aIsOfficial = isReferencePreset(a)
+      const bIsOfficial = isReferencePreset(b)
       if (aIsOfficial && !bIsOfficial) return -1
       if (!aIsOfficial && bIsOfficial) return 1
       return 0
@@ -319,7 +325,7 @@ export function ChannelSelectorDialog({
       onOpenChange={onOpenChange}
       title={t('Select Sync Channels')}
       description={t(
-        'Choose channels to sync upstream ratio configurations from'
+        'Read channel prices or third-party reference data from basellm and models.dev. The models.dev preset selects OpenAI; edit its endpoint to choose another provider.'
       )}
       contentClassName='flex max-h-[90vh] max-w-[calc(100%-2rem)] flex-col sm:max-w-[90vw] xl:max-w-[1400px]'
       contentHeight='min(72vh, 720px)'

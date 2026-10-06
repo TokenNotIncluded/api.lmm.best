@@ -1,6 +1,7 @@
 //! Current Go ePay pricing, per-method access and coupon reservation rules.
 
 use super::*;
+use crate::public_credit_units::{CREDITS_PER_USD, PublicCreditDenomination};
 use rust_decimal::RoundingStrategy;
 
 type Method = BTreeMap<String, String>;
@@ -93,19 +94,32 @@ impl PgEpayRepository {
         &self,
         input: CreateTopup,
     ) -> Result<QuotedTopup, TopupError> {
-        self.quote_currency(input, None).await
+        self.quote_currency(input, None)
+            .await
+            .map(|(quote, _)| quote)
     }
 
-    pub(crate) async fn quote_stripe(&self, input: CreateTopup) -> Result<QuotedTopup, TopupError> {
-        self.quote_currency(input, Some("USD")).await
+    pub(crate) async fn quote_stripe(
+        &self,
+        input: CreateTopup,
+    ) -> Result<(QuotedTopup, PublicCreditDenomination), TopupError> {
+        let (quote, denomination) = self.quote_currency(input, Some("USD")).await?;
+        Ok((
+            quote,
+            denomination.ok_or_else(|| message("定价货币单位不可用"))?,
+        ))
     }
 
     async fn quote_currency(
         &self,
         input: CreateTopup,
         dedicated_currency: Option<&str>,
-    ) -> Result<QuotedTopup, TopupError> {
+    ) -> Result<(QuotedTopup, Option<PublicCreditDenomination>), TopupError> {
         let values = options(&self.pg).await?;
+        let denomination = dedicated_currency
+            .map(|_| PublicCreditDenomination::from_options(&values))
+            .transpose()
+            .map_err(|_| message("定价货币单位不可用"))?;
         let methods = methods(&values)?;
         let user: Value = sqlx::query_scalar(
             "SELECT to_jsonb(u) FROM users u WHERE id=$1 AND deleted_at IS NULL",
@@ -149,15 +163,30 @@ impl PgEpayRepository {
         };
         let quota_per_unit = opt_decimal(&values, "QuotaPerUnit", "500000")
             .map_err(|_| message("充值额度配置无效"))?;
-        if input.amount <= Decimal::ZERO
-            || input.amount.normalize().scale() > 6
-            || monetary_micros(&input.amount.to_string()).is_err()
-        {
+        if quota_per_unit != Decimal::from(CREDITS_PER_USD) {
+            return Err(message("充值额度配置无效"));
+        }
+        if input.amount <= Decimal::ZERO || input.amount.normalize().scale() > 6 {
             return Err(message("充值数量最多支持 6 位小数"));
         }
         let tokens = values
             .get("general_setting.quota_display_type")
             .is_some_and(|value| value == "TOKENS");
+        // Raw TOKENS credits are integers, not money micros. Current Go floors
+        // only the legacy batch conversion and checks wallet bounds before
+        // creating the compatibility platform-micros projection.
+        let quota = if tokens {
+            if !input.amount.fract().is_zero() {
+                return Err(message("CREDIT 必须为整数"));
+            }
+            input.amount
+        } else {
+            mul(input.amount, quota_per_unit)?.floor()
+        };
+        let quota = quota
+            .to_i64()
+            .filter(|quota| (1..=MAX_WALLET_QUOTA).contains(quota))
+            .ok_or_else(|| message("充值额度超出系统可表示范围"))?;
         let platform_amount = if tokens {
             div(input.amount, quota_per_unit)?
         } else {
@@ -165,14 +194,13 @@ impl PgEpayRepository {
         };
         let cny_per_usd = opt_decimal(&values, "USDExchangeRate", "7.3")
             .map_err(|_| message("充值汇率配置无效"))?;
-        let platform_per_cny = opt_decimal(&values, "TopUpPlatformUnitsPerCNY", "1")
-            .map_err(|_| message("充值汇率配置无效"))?;
-        let platform_per_usd = mul(cny_per_usd, platform_per_cny)?;
-        validate_limits(
-            &methods,
-            &input.payment_method,
-            div(platform_amount, platform_per_usd)?,
-        )?;
+        // A legacy batch is 500,000 raw credits, hence exactly one USD.
+        // Custom gateways may provide their own explicit settlement rate.
+        let platform_per_usd = Decimal::ONE;
+        // FX converts the actual payment currency, never the credit basis.
+        // Use the floored raw grant for quote limits and standard USD/CNY prices.
+        let amount_usd = div(Decimal::from(quota), Decimal::from(CREDITS_PER_USD))?;
+        validate_limits(&methods, &input.payment_method, amount_usd)?;
         if dedicated_currency.is_some() && input.amount > Decimal::from(10_000) {
             return Err(message("充值数量不能大于 10000"));
         }
@@ -186,15 +214,6 @@ impl PgEpayRepository {
             .ok_or_else(|| message("充值数量超出系统可表示范围"))?;
         let platform_amount_micros = monetary_micros(&platform_amount.to_string())
             .map_err(|_| message("平台充值数量最多支持 6 位小数"))?;
-        let quota = if tokens {
-            input.amount
-        } else {
-            mul(input.amount, quota_per_unit)?
-        };
-        let quota = round(quota, 0)
-            .to_i64()
-            .filter(|quota| (1..=MAX_WALLET_QUOTA).contains(quota))
-            .ok_or_else(|| message("充值额度超出系统可表示范围"))?;
         let current_quota = user_i64(&user, "quota");
         if !(-MAX_WALLET_QUOTA..=MAX_WALLET_QUOTA - quota).contains(&current_quota) {
             return Err(message("充值后余额将超过账户额度上限"));
@@ -203,6 +222,7 @@ impl PgEpayRepository {
             method,
             &input.payment_method,
             &currency,
+            amount_usd,
             platform_amount,
             cny_per_usd,
             platform_per_usd,
@@ -289,15 +309,19 @@ impl PgEpayRepository {
         }
         snapshot.expected_amount_micros =
             monetary_micros(&money.to_string()).map_err(|_| message("支付金额无效"))?;
-        Ok(QuotedTopup {
-            user_id: input.user_id,
-            requested_amount: input.amount,
-            stored_amount,
-            money: format!("{money:.2}"),
-            payment_method: input.payment_method,
-            provider: input.provider,
-            snapshot,
-        })
+        Ok((
+            QuotedTopup {
+                user_id: input.user_id,
+                requested_amount: input.amount,
+                amount_unit: if tokens { "CREDIT" } else { "LEGACY" },
+                stored_amount,
+                money: format!("{money:.2}"),
+                payment_method: input.payment_method,
+                provider: input.provider,
+                snapshot,
+            },
+            denomination,
+        ))
     }
 
     pub(super) async fn persist_pending(&self, order: PendingTopup) -> Result<(), TopupError> {
@@ -388,7 +412,8 @@ fn settlement_amount(
     method: &Method,
     name: &str,
     currency: &str,
-    amount: Decimal,
+    amount_usd: Decimal,
+    legacy_amount: Decimal,
     cny_per_usd: Decimal,
     platform_per_usd: Decimal,
 ) -> Result<Decimal, TopupError> {
@@ -406,7 +431,7 @@ fn settlement_amount(
             "USD" => Decimal::ONE,
             _ => return Err(invalid()),
         };
-        return mul(div(amount, platform_per_usd)?, rate);
+        return mul(amount_usd, rate);
     }
     let platform = method.get("platform_units_per_usd");
     let settlement = method.get("settlement_units_per_usd");
@@ -422,7 +447,7 @@ fn settlement_amount(
             .map(|raw| positive_rate(raw))
             .transpose()?
             .unwrap_or(platform_per_usd);
-        return mul(div(amount, platform)?, positive_rate(settlement)?);
+        return mul(div(legacy_amount, platform)?, positive_rate(settlement)?);
     }
     let rate = positive_rate(direct.or(legacy).ok_or_else(invalid)?)?;
     if let (Some(_), Some(legacy)) = (direct, legacy)
@@ -430,7 +455,7 @@ fn settlement_amount(
     {
         return Err(invalid());
     }
-    mul(amount, rate)
+    mul(legacy_amount, rate)
 }
 
 fn validate_limits(methods: &[Method], name: &str, amount_usd: Decimal) -> Result<(), TopupError> {

@@ -20,15 +20,16 @@ import i18next from 'i18next'
 import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
+import { quotaToLegacyPlatformAmount } from '@/lib/currency'
 import { isLocalPreview } from '@/lib/local-preview'
 
 import {
-  calculateAmount,
-  calculateStripeAmount,
-  calculateWaffoAmount,
-  calculateWaffoPancakeAmount,
-  requestPayment,
-  requestStripePayment,
+  calculateCreditAmount,
+  calculateCreditStripeAmount,
+  calculateCreditWaffoAmount,
+  calculateCreditPancakeAmount,
+  requestCreditPayment,
+  requestCreditStripePayment,
   isApiSuccess,
 } from '../api'
 import {
@@ -41,11 +42,20 @@ import {
   reservePaymentCheckout,
   submitPaymentForm,
 } from '../lib'
+import { isFiatPaymentCurrency } from '../lib/format'
+import {
+  parsePaymentDiscount,
+  type PaymentDiscount,
+} from '../lib/payment-discount'
 import {
   parseSettlementQuote,
   type SettlementQuote,
 } from '../lib/settlement-quote'
-import type { AmountRequest, AmountResponse, PaymentResponse } from '../types'
+import type {
+  CreditAmountRequest as AmountRequest,
+  AmountResponse,
+  PaymentResponse,
+} from '../types'
 import { useCheckoutScope } from './use-checkout-scope'
 
 // ============================================================================
@@ -62,10 +72,10 @@ export interface PaymentAmountCalculators {
 }
 
 const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
-  regular: calculateAmount,
-  stripe: calculateStripeAmount,
-  waffo: calculateWaffoAmount,
-  waffoPancake: calculateWaffoPancakeAmount,
+  regular: calculateCreditAmount,
+  stripe: calculateCreditStripeAmount,
+  waffo: calculateCreditWaffoAmount,
+  waffoPancake: calculateCreditPancakeAmount,
 }
 
 export async function requestPaymentQuote(
@@ -77,7 +87,17 @@ export async function requestPaymentQuote(
   amount: number
   settlementQuote: SettlementQuote | null
   errorReason?: string
+  creditedQuota?: number
+  paymentCurrency?: string
+  paymentDiscount?: PaymentDiscount | null
 }> {
+  if (!Number.isSafeInteger(topupAmount) || topupAmount <= 0) {
+    return {
+      amount: 0,
+      settlementQuote: null,
+      errorReason: i18next.t('Invalid top-up amount'),
+    }
+  }
   // Keep the old third-argument calculators form working for callers outside
   // the wallet while allowing the wallet to pass a discount code.
   const discountCode =
@@ -104,11 +124,13 @@ export async function requestPaymentQuote(
   const request = usesRegularCalculator
     ? {
         amount: topupAmount,
+        amount_unit: 'CREDIT' as const,
         payment_method: paymentType,
         ...(discountCode ? { discount_code: discountCode } : {}),
       }
     : {
         amount: topupAmount,
+        amount_unit: 'CREDIT' as const,
         ...(discountCode ? { discount_code: discountCode } : {}),
       }
   let response: AmountResponse
@@ -160,6 +182,23 @@ export async function requestPaymentQuote(
       errorReason: extractErrorReason(response),
     }
   }
+  if (!isFiatPaymentCurrency(response.settlement_currency)) {
+    return {
+      amount: 0,
+      settlementQuote: null,
+      errorReason: i18next.t('Payment unavailable'),
+    }
+  }
+  const credit =
+    Number.isSafeInteger(response.credited_quota) &&
+    (response.credited_quota ?? -1) >= 0
+      ? { creditedQuota: response.credited_quota }
+      : {}
+  const paymentDiscount = parsePaymentDiscount(
+    response.settlement_quote,
+    response.data,
+    response.settlement_currency
+  )
   if (isWaffoPancakePayment(paymentType)) {
     const settlementQuote = parseSettlementQuote({
       amount: response.data,
@@ -168,14 +207,29 @@ export async function requestPaymentQuote(
       savingsAmount: response.savings_settlement_amount,
     })
     return settlementQuote
-      ? { amount: Number(settlementQuote.amount), settlementQuote }
+      ? {
+          amount: Number(settlementQuote.amount),
+          settlementQuote,
+          paymentCurrency: settlementQuote.currency,
+          paymentDiscount,
+          ...credit,
+        }
       : {
           amount: 0,
           settlementQuote: null,
           errorReason: extractErrorReason(response),
         }
   }
-  return { amount: Number.parseFloat(response.data), settlementQuote: null }
+  const settlementCurrency = response.settlement_currency?.trim().toUpperCase()
+  return {
+    ...(settlementCurrency && /^[A-Z]{3}$/.test(settlementCurrency)
+      ? { paymentCurrency: settlementCurrency }
+      : {}),
+    paymentDiscount,
+    amount: Number.parseFloat(response.data),
+    settlementQuote: null,
+    ...credit,
+  }
 }
 
 export async function requestPaymentAmount(
@@ -192,6 +246,9 @@ export function usePayment() {
     scope: string
     amount: number
     settlementQuote: SettlementQuote | null
+    creditedQuota?: number
+    paymentCurrency?: string
+    paymentDiscount?: PaymentDiscount | null
   } | null>(null)
   const amount = quote?.scope === scope ? quote.amount : 0
   const settlementQuote = quote?.scope === scope ? quote.settlementQuote : null
@@ -218,10 +275,19 @@ export function usePayment() {
     async (topupAmount: number, paymentType: string, discountCode = '') => {
       const requestId = ++amountRequestIdRef.current
       if (localPreview && !isWaffoPancakePayment(paymentType)) {
-        setQuote({ scope, amount: topupAmount, settlementQuote: null })
+        const amount =
+          Number.isSafeInteger(topupAmount) && topupAmount > 0
+            ? quotaToLegacyPlatformAmount(topupAmount)
+            : 0
+        setQuote({
+          scope,
+          amount,
+          settlementQuote: null,
+          creditedQuota: topupAmount,
+        })
         setQuoteError(null)
         lastQuoteErrorRef.current = null
-        return topupAmount
+        return amount
       }
 
       setQuote(null)
@@ -275,16 +341,16 @@ export function usePayment() {
         setProcessing(true)
 
         const isStripe = isStripePayment(paymentType)
-        const amount = Math.floor(topupAmount)
+        const amount = topupAmount
         checkout = reservePaymentCheckout()
 
         const response = isStripe
-          ? await requestStripePayment({
+          ? await requestCreditStripePayment({
               amount,
               payment_method: 'stripe',
               ...(discountCode ? { discount_code: discountCode } : {}),
             })
-          : await requestPayment({
+          : await requestCreditPayment({
               amount,
               payment_method: paymentType,
               ...(discountCode ? { discount_code: discountCode } : {}),
@@ -339,6 +405,9 @@ export function usePayment() {
 
   return {
     amount,
+    creditedQuota: quote?.scope === scope ? quote.creditedQuota : undefined,
+    paymentCurrency: quote?.scope === scope ? quote.paymentCurrency : undefined,
+    paymentDiscount: quote?.scope === scope ? quote.paymentDiscount : null,
     calculating,
     processing,
     quoteError,

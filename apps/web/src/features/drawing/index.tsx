@@ -53,11 +53,11 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { api } from '@/lib/api'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { formatQuota } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
-import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { getAssistantStatus, type DrawingWebAccess } from '../assistant/api'
 import { getPricing } from '../pricing/api'
@@ -191,9 +191,8 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   const { t, i18n } = useTranslation()
   const history = useDrawingHistory(userId)
   const results = history.images
-  const quotaPerUSD = useSystemConfigStore(
-    (state) => state.config.currency.quotaPerUnit
-  )
+  const money = useWalletCurrency()
+  const quotaPerUSD = money.config.creditsPerUsd ?? Number.NaN
   const [webDenial, setWebDenial] = useState<DrawingWebAccess | null>(null)
   const [keyPending, setKeyPending] = useState(false)
   const [keyReady, setKeyReady] = useState(false)
@@ -360,8 +359,10 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       (!status.data?.drawing_web_access && wallet?.isError)
     ) {
       setWebDenial({
-        minimum_balance_usd: 10,
+        minimum_balance_usd: null,
+        minimum_balance_credit: null,
         balance_usd: null,
+        balance_credit: null,
         allowed: false,
       })
     } else {
@@ -1798,16 +1799,27 @@ function DrawingWorkbench({ userId }: { userId: number }) {
               </AlertTitle>
               <AlertDescription>
                 <p>
-                  {webAccess.balance_usd === null
-                    ? t(
-                        'Web image generation requires a minimum balance of USD {{minimum}}. Your current USD balance is unavailable. Refresh the balance to continue.',
-                        { minimum: '10.00' }
-                      )
+                  {webAccess.balance_credit === null ||
+                  webAccess.balance_credit === undefined ||
+                  webAccess.minimum_balance_credit === null ||
+                  webAccess.minimum_balance_credit === undefined
+                    ? t('Web image generation balance unavailable')
                     : t(
-                        'Web image generation requires a minimum balance of USD {{minimum}}. Current balance: USD {{balance}}.',
+                        'Web image generation requires a minimum balance of {{minimum}}. Current balance: {{balance}}.',
                         {
-                          minimum: '10.00',
-                          balance: webAccess.balance_usd.toFixed(2),
+                          minimum: money.formatQuota(
+                            webAccess.minimum_balance_credit,
+                            {
+                              abbreviate: false,
+                              digitsLarge: 2,
+                              digitsSmall: 2,
+                            }
+                          ),
+                          balance: money.formatQuota(webAccess.balance_credit, {
+                            abbreviate: false,
+                            digitsLarge: 2,
+                            digitsSmall: 2,
+                          }),
                         }
                       )}
                 </p>
@@ -1934,7 +1946,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                     </h2>
                     <p className='text-muted-foreground mt-1 max-w-2xl text-xs leading-5'>
                       {t(
-                        'Connect an Agent with the dedicated drawing MCP endpoint. MCP uses the same group permissions and normal API billing, without the web-only USD 10 minimum balance.'
+                        'Connect an Agent with the dedicated drawing MCP endpoint. MCP uses the same group permissions and normal API billing, without the web-only minimum balance.'
                       )}
                     </p>
                   </div>

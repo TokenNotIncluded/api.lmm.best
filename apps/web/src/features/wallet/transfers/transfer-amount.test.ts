@@ -20,16 +20,42 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { after, beforeEach, describe, test } from 'node:test'
+
+import { useSystemConfigStore } from '@/stores/system-config-store'
+import { useWalletCurrencyPreferenceStore } from '@/stores/wallet-currency-preference-store'
 
 import { transferQuota, formatTransferQuota } from './api'
+
+const originalCurrency = useSystemConfigStore.getState().config.currency
+after(() =>
+  useSystemConfigStore.setState((state) => ({
+    config: { ...state.config, currency: originalCurrency },
+  }))
+)
+beforeEach(() => {
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  useSystemConfigStore.setState((state) => ({
+    config: {
+      ...state.config,
+      currency: {
+        ...state.config.currency,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+      },
+    },
+  }))
+})
 
 describe('wallet transfer amount conversion', () => {
   test('shows exact amounts without compact rounding', () => {
     assert.match(formatTransferQuota(625000), /1[.,]25/)
     assert.match(formatTransferQuota(1), /0[.,]000002/)
   })
-  test('keeps exact platform credit units', () => {
+  test('keeps the legacy batch helper compatible with raw credit transfers', () => {
     assert.equal(transferQuota('1.25', 500000), 625000)
     assert.equal(transferQuota('0.000002', 500000), 1)
     assert.equal(transferQuota('0.1', 500000), 50000)

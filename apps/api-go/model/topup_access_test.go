@@ -15,6 +15,7 @@ import (
 
 func setupTopUpAccessTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB := DB
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -205,6 +206,7 @@ func TestFreshPaidTopUpAggregateUsesCreditedQuotaInsteadOfSettledMoney(t *testin
 	db := setupTopUpAccessTestDB(t)
 	previousQuotaPerUnit := common.QuotaPerUnit
 	common.QuotaPerUnit = 999_999
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	t.Cleanup(func() { common.QuotaPerUnit = previousQuotaPerUnit })
 	topUp := TopUp{
 		UserId:              119,

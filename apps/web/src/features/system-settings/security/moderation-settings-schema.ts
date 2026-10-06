@@ -15,6 +15,8 @@ import {
 
 export const moderationSettingsSchema = z.object({
   ModerationEnabled: z.boolean(),
+  ModerationPolicyScope: z.enum(['account_group', 'request_group']),
+  ModerationSafetyIdentifierEnabled: z.boolean(),
   ModerationGroup: z.string().trim().min(1).max(64),
   ModerationModel: z.enum(MODERATION_MODELS),
   ModerationGroupPolicies: z
@@ -22,7 +24,7 @@ export const moderationSettingsSchema = z.object({
     .max(65536)
     .refine(
       (value) => parseModerationGroupPolicies(value) !== null,
-      'Use explicit groups, valid modes, and category fees from $0 to $1000 with up to six decimal places.'
+      'Use explicit groups, valid modes, and category fees from 0 to 1000 USD with up to six decimal places.'
     ),
 })
 export type ModerationSettingsFormValues = z.infer<

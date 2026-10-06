@@ -36,6 +36,7 @@ func collectUserIDs(users []*User) []int {
 }
 
 func TestGetAllUsersSortsBeforePagination(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 42)
 
@@ -56,6 +57,7 @@ func TestGetAllUsersSortsBeforePagination(t *testing.T) {
 }
 
 func TestSearchUsersSortsBeforePagination(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 42)
 
@@ -66,6 +68,7 @@ func TestSearchUsersSortsBeforePagination(t *testing.T) {
 }
 
 func TestUserListsSortByActualTopUpMoney(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 4)
 
@@ -160,6 +163,7 @@ func TestPopulateUserTopupsDoesNotAddDifferentFiatCurrencies(t *testing.T) {
 }
 
 func TestUserTopupSummaryExcludesLinuxDOCredit(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 2)
 
@@ -201,6 +205,7 @@ func TestUserTopupSummaryExcludesLinuxDOCredit(t *testing.T) {
 }
 
 func TestUserListsFilterL0BeforePagination(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	truncateTables(t)
 	for userID := 1; userID <= 8; userID++ {
 		invalidatePaidTopUpAggregate(userID)

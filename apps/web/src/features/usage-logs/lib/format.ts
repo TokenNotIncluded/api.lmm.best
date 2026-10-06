@@ -470,11 +470,31 @@ const AUDIT_TEMPLATES: Record<string, string> = {
  */
 export function renderAuditContent(
   other: LogOtherData | null | undefined,
-  t: (key: string, opts?: Record<string, unknown>) => string
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  formatQuotaUSD?: (quota: number) => string
 ): string | null {
   const op = other?.op
   if (!op?.action) return null
   const template = AUDIT_TEMPLATES[op.action]
   if (!template) return null
-  return t(template, (op.params ?? {}) as Record<string, unknown>)
+  const params = { ...op.params } as Record<string, unknown>
+  const moneyFields: Record<string, string[]> = {
+    'user.quota_add': ['quota'],
+    'user.quota_subtract': ['quota'],
+    'user.quota_override': ['from', 'to'],
+    'redemption.create': ['quota'],
+  }
+  for (const key of moneyFields[op.action] ?? []) {
+    const value = params[key]
+    if (typeof value === 'string' && /^[+-]?\d+(?:\.\d+)? USD$/.test(value)) {
+      continue
+    }
+    const raw = typeof value === 'string' && value.match(/^([+-]?\d+) Credits$/)
+    const quota = raw ? Number(raw[1]) : Number.NaN
+    params[key] =
+      Number.isSafeInteger(quota) && formatQuotaUSD
+        ? formatQuotaUSD(quota)
+        : t('Not recorded')
+  }
+  return t(template, params)
 }

@@ -33,6 +33,8 @@ pub const RELAY_SETTLEMENT_SCHEMA_CONTRACT_ID: i64 = 14;
 pub const CURRENT_CATALOG_SCHEMA_CONTRACT_ID: i64 = 15;
 /// The first contract that supports current token-management flags.
 pub const TOKEN_MANAGEMENT_SCHEMA_CONTRACT_ID: i64 = 16;
+/// The first contract that preserves reset and renewal subscription amount snapshots.
+pub const SUBSCRIPTION_AMOUNT_SNAPSHOTS_SCHEMA_CONTRACT_ID: i64 = 18;
 
 #[derive(Clone, Copy)]
 struct ColumnRequirement {
@@ -1102,6 +1104,22 @@ fn verify_added_columns(
         }
     }
     Ok(())
+}
+
+pub fn verify_subscription_amount_snapshots_schema(
+    transaction: &mut Transaction<'_>,
+    schema: &str,
+) -> Result<(), MigrationError> {
+    verify_added_columns(
+        transaction,
+        schema,
+        "user_subscriptions",
+        &[
+            nullable_column("reset_amount", "bigint", None),
+            nullable_column("renewal_amount", "bigint", None),
+        ],
+        |_, nullable, default| nullable && default.is_none(),
+    )
 }
 
 pub fn verify_relay_settlement_schema(

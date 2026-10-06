@@ -12,16 +12,17 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAccountBalanceConsentAndScope(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Token{}))
-	oldUnit := common.QuotaPerUnit
-	common.QuotaPerUnit = 100
-	t.Cleanup(func() { common.QuotaPerUnit = oldUnit })
-	user := model.User{Username: "balance-owner", Status: common.UserStatusEnabled, Quota: 2361}
+	preserveAccountBalanceBasis(t)
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
+	user := model.User{Username: "balance-owner", Status: common.UserStatusEnabled, Quota: 3500000}
 	require.NoError(t, db.Create(&user).Error)
 	token := model.Token{UserId: user.Id, Key: "balance-fixture", ExpiredTime: -1, UnlimitedQuota: true, UsedQuota: 98765}
 	require.NoError(t, db.Create(&token).Error)
@@ -64,15 +65,15 @@ func TestAccountBalanceConsentAndScope(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "account", body["scope"])
 	require.Equal(t, "USD", body["currency"])
-	require.Equal(t, 23.61, body["remaining"])
+	require.Equal(t, 7.0, body["remaining"])
 	require.NotContains(t, body, "used_total")
 	require.NotContains(t, w.Body.String(), token.Key)
-	for _, quota := range []int{0, -123} {
+	for _, quota := range []int{0, -3500000} {
 		require.NoError(t, db.Model(&user).Update("quota", quota).Error)
 		w = query()
 		require.Equal(t, 200, w.Code)
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		require.Equal(t, float64(quota)/100, body["remaining"])
+		require.Equal(t, float64(quota)/500000, body["remaining"])
 	}
 	require.Equal(t, 200, grant(user.Id, `{"enabled":false}`).Code)
 	require.Equal(t, 403, query().Code)

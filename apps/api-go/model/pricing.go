@@ -38,6 +38,15 @@ type Pricing struct {
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	PricingSchemaVersion   int                     `json:"pricing_schema_version,omitempty"`
+	PricingCurrency        string                  `json:"pricing_currency,omitempty"`
+	InputPrice             *float64                `json:"input_price,omitempty"`
+	OutputPrice            *float64                `json:"output_price,omitempty"`
+	CacheReadPrice         *float64                `json:"cache_read_price,omitempty"`
+	CacheWritePrice        *float64                `json:"cache_write_price,omitempty"`
+	ImagePrice             *float64                `json:"image_price,omitempty"`
+	AudioInputPrice        *float64                `json:"audio_input_price,omitempty"`
+	AudioOutputPrice       *float64                `json:"audio_output_price,omitempty"`
 }
 
 type PricingVendor struct {
@@ -85,6 +94,13 @@ func clonePricing(pricing []Pricing) []Pricing {
 	for i := range pricing {
 		cloned[i] = pricing[i]
 		cloned[i].CacheRatio = cloneFloat64(pricing[i].CacheRatio)
+		cloned[i].InputPrice = cloneFloat64(pricing[i].InputPrice)
+		cloned[i].OutputPrice = cloneFloat64(pricing[i].OutputPrice)
+		cloned[i].CacheReadPrice = cloneFloat64(pricing[i].CacheReadPrice)
+		cloned[i].CacheWritePrice = cloneFloat64(pricing[i].CacheWritePrice)
+		cloned[i].ImagePrice = cloneFloat64(pricing[i].ImagePrice)
+		cloned[i].AudioInputPrice = cloneFloat64(pricing[i].AudioInputPrice)
+		cloned[i].AudioOutputPrice = cloneFloat64(pricing[i].AudioOutputPrice)
 		cloned[i].CreateCacheRatio = cloneFloat64(pricing[i].CreateCacheRatio)
 		cloned[i].ImageRatio = cloneFloat64(pricing[i].ImageRatio)
 		cloned[i].AudioRatio = cloneFloat64(pricing[i].AudioRatio)

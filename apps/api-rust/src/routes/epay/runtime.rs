@@ -154,9 +154,12 @@ impl EpayGateway for PgEpayGateway {
     }
 
     async fn begin(&self, order: &PendingTopup) -> Result<Checkout, TopupError> {
+        // Current Go names the product with its legacy batch projection. Keep
+        // requested_amount intact for the quote/order anti-tampering checks.
+        let amount = Decimal::new(order.snapshot.platform_amount_micros, 6);
         self.configuration()
             .await?
-            .checkout(order, format!("TUC{}", order.requested_amount.normalize()))
+            .checkout(order, format!("TUC{}", amount.normalize()))
     }
 
     async fn verify(&self, fields: &EpayCallbackFields) -> Result<EpayCallback, TopupError> {

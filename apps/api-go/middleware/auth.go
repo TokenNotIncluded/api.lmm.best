@@ -26,6 +26,7 @@ import (
 const authIdentityContextKey = "auth_identity"
 const dashboardCredentialContextKey = "dashboard_credential"
 const consoleActivationContextKey = "console_activation_granted"
+const dashboardCreditUnitHeader = "X-LMM-Credit-Unit"
 
 type dashboardCredentialKind int
 
@@ -51,6 +52,30 @@ func validUserInfo(username string, role int) bool {
 		return false
 	}
 	return true
+}
+
+// This is a browser compatibility declaration, not authorization. Authentication
+// and role checks must succeed before an old dashboard can be told to refresh.
+func validateDashboardBrowserCreditUnit(c *gin.Context) bool {
+	if !strings.HasPrefix(c.Request.URL.Path, "/api/") {
+		return true
+	}
+	switch c.Request.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	if c.GetHeader("Origin") == "" && c.GetHeader("Sec-Fetch-Site") == "" {
+		return true
+	}
+	if c.GetHeader(dashboardCreditUnitHeader) == strconv.FormatInt(common.FixedCreditsPerUSD, 10) {
+		return true
+	}
+	c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+		"success": false,
+		"code":    "CREDIT_UNIT_REFRESH_REQUIRED",
+		"message": "点数单位已更新，请刷新页面后重试。",
+	})
+	return false
 }
 
 func authHelper(c *gin.Context, minRole int) {
@@ -87,6 +112,9 @@ func authHelper(c *gin.Context, minRole int) {
 		return
 	}
 	setDashboardAuthContext(c, user, identity, useAccessToken)
+	if !validateDashboardBrowserCreditUnit(c) {
+		return
+	}
 
 	// 管理/root 写操作审计兜底：内聚在鉴权链路里，保证任何经过 AdminAuth/RootAuth
 	// 的写接口都会自动留痕（无需在路由上单独挂审计中间件，避免漏挂）。

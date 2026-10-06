@@ -21,8 +21,16 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuota } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { cn } from '@/lib/utils'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -47,6 +55,8 @@ interface WalletStatsCardProps {
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
+  const walletCurrency = useWalletCurrency()
+  const { formatQuota } = walletCurrency
   const configuredQuotaPerUnit = useSystemConfigStore(
     (state) => state.config.currency.quotaPerUnit
   )
@@ -140,6 +150,43 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             <div className='text-muted-foreground min-h-8 text-xs leading-4 font-medium sm:min-h-0'>
               {item.label}
             </div>
+            {index === 0 && (
+              <div className='pointer-events-auto ml-auto shrink-0'>
+                <Select
+                  items={[
+                    { value: 'CNY', label: 'CNY' },
+                    { value: 'USD', label: 'USD' },
+                    { value: 'CREDIT', label: t('Credits') },
+                  ]}
+                  value={walletCurrency.currency}
+                  disabled={walletCurrency.saving}
+                  onValueChange={(value) => {
+                    if (
+                      value === 'CNY' ||
+                      value === 'USD' ||
+                      value === 'CREDIT'
+                    ) {
+                      void walletCurrency.setPreference(value)
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    size='sm'
+                    aria-label={t('Balance display currency')}
+                    className='bg-background/80 min-w-22'
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value='CNY'>CNY</SelectItem>
+                      <SelectItem value='USD'>USD</SelectItem>
+                      <SelectItem value='CREDIT'>{t('Credits')}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div
@@ -165,6 +212,14 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             <div className='text-muted-foreground pointer-events-none relative z-10 mt-1 hidden text-xs sm:block'>
               {item.description}
             </div>
+          )}
+          {index === 0 && walletCurrency.error && (
+            <p
+              role='alert'
+              className='text-destructive relative z-10 mt-2 text-xs'
+            >
+              {t(walletCurrency.error)}
+            </p>
           )}
         </div>
       ))}

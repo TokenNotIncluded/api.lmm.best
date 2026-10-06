@@ -31,7 +31,7 @@ import {
 import { purchaseHeroSmsBatch } from './sms-purchase.js'
 
 describe('new temporary SMS purchase balance', () => {
-  test('allows exactly USD 10, but not one quota unit less', () => {
+  test('preserves the existing raw credit minimum, excluding one credit less', () => {
     assert.equal(getSmsPurchaseBalance(5_000_000, 500_000).status, 'allowed')
     assert.equal(
       getSmsPurchaseBalance(4_999_999, 500_000).status,
@@ -40,10 +40,10 @@ describe('new temporary SMS purchase balance', () => {
     assert.equal(getSmsPurchaseBalance(0, 500_000).status, 'below-minimum')
   })
 
-  test('uses configured quota per USD without a display currency conversion', () => {
+  test('uses the configured legacy unit only for the unchanged raw eligibility boundary', () => {
     assert.deepEqual(getSmsPurchaseBalance(10_000, 1_000), {
       status: 'allowed',
-      balanceUSD: 10,
+      balanceQuota: 10000,
     })
     assert.equal(getSmsPurchaseBalance(9_999, 1_000).status, 'below-minimum')
   })
@@ -52,7 +52,7 @@ describe('new temporary SMS purchase balance', () => {
     for (const value of [undefined, null, Number.NaN, Infinity, '5000000']) {
       assert.deepEqual(getSmsPurchaseBalance(value, 500_000), {
         status: 'unknown',
-        balanceUSD: undefined,
+        balanceQuota: undefined,
       })
     }
     for (const ratio of [0, -1, Number.NaN, Infinity]) {

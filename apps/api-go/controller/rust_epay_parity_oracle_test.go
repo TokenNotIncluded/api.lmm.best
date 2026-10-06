@@ -1,8 +1,10 @@
 package controller
 
 // This oracle executes the CURRENT Go handlers on the same fixtures consumed
-// by Rust's PostgreSQL test. It is intentionally separate from the frozen
-// legacy behavior oracle and never reads deployed database credentials.
+// by Rust's PostgreSQL test with the fixed 500000 CREDIT per USD basis. These
+// fixtures cover legacy request amounts, TOKENS credits, signatures and
+// immutable order credits. This is separate from the frozen legacy behavior
+// oracle and never reads deployed credentials.
 
 import (
 	"encoding/json"
@@ -20,6 +22,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,6 +103,9 @@ func TestRustEpayCurrentGoOracle(t *testing.T) {
 					t.Fatalf("unsupported reference fixture option: %s", key)
 				}
 			}
+			// FX and the retained legacy bonus option do not change the fixed
+			// credit basis used by built-in USD/CNY settlement prices.
+			require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 			writer := httptest.NewRecorder()
 			ctx, _ := gin.CreateTestContext(writer)
 			body := fixture.Body

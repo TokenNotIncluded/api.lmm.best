@@ -41,6 +41,7 @@ const defaultBillingSettings: BillingSettings = {
   'developer_access_setting.paid_activation_enabled': true,
   'developer_access_setting.paid_activation_min_amount': 1,
   QuotaPerUnit: 500000,
+  PublicCreditsPerUSD: '',
   USDExchangeRate: 7,
   TopUpPlatformUnitsPerCNY: 1,
   'general_setting.quota_display_type': 'USD',

@@ -12,6 +12,7 @@ package controller
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -51,8 +53,35 @@ type publicRelayWithdrawInput struct {
 }
 
 type publicRelayTipInput struct {
-	AmountUSD float64 `json:"amount_usd"`
-	Message   string  `json:"message"`
+	AmountUSD        float64         `json:"amount_usd"`
+	Message          string          `json:"message"`
+	amountUSDDecimal decimal.Decimal `json:"-"`
+}
+
+func (input *publicRelayTipInput) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		AmountUSD json.RawMessage `json:"amount_usd"`
+		Message   string          `json:"message"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	// Validate a bounded JSON number before decimal parsing. The float is only
+	// the compatibility response field; the original decimal token determines
+	// the integer debit, including amounts around a half-Credit boundary.
+	if len(raw.AmountUSD) == 0 || len(raw.AmountUSD) > 128 {
+		return model.ErrPublicRelayInvalidInput
+	}
+	var number float64
+	if err := json.Unmarshal(raw.AmountUSD, &number); err != nil || number <= 0 || math.IsNaN(number) || math.IsInf(number, 0) {
+		return model.ErrPublicRelayInvalidInput
+	}
+	amount, err := decimal.NewFromString(string(raw.AmountUSD))
+	if err != nil {
+		return model.ErrPublicRelayInvalidInput
+	}
+	input.AmountUSD, input.amountUSDDecimal, input.Message = number, amount, raw.Message
+	return nil
 }
 
 type publicRelayRatingInput struct {
@@ -79,9 +108,27 @@ func publicRelayError(c *gin.Context, status int, code string, err error) {
 }
 
 func GetPublicRelayConfig(c *gin.Context) {
+	minimum, maximum, err := model.PublicRelayTipBounds()
+	if err != nil {
+		publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+		return
+	}
+	minimumUSD, err := common.CreditsToUSD(minimum)
+	if err != nil {
+		publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+		return
+	}
+	maximumUSD, err := common.CreditsToUSD(maximum)
+	if err != nil {
+		publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+		return
+	}
 	common.ApiSuccess(c, gin.H{
-		"group":                  operation_setting.GetPublicRelayGroup(),
-		"minimum_withdrawal_usd": 10,
+		"group":                    operation_setting.GetPublicRelayGroup(),
+		"minimum_withdrawal_quota": minimum,
+		"minimum_withdrawal_usd":   minimumUSD.InexactFloat64(),
+		"maximum_tip_quota":        maximum,
+		"maximum_tip_usd":          maximumUSD.InexactFloat64(),
 	})
 }
 
@@ -89,6 +136,10 @@ func ListPublicRelayContributions(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	items, err := model.ListApprovedPublicRelays(limit)
 	if err != nil {
+		if errors.Is(err, common.ErrCreditUnitsUnavailable) {
+			publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -122,6 +173,10 @@ func ListMyPublicRelayContributions(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	items, err := model.ListUserPublicRelayContributions(c.GetInt("id"), limit)
 	if err != nil {
+		if errors.Is(err, common.ErrCreditUnitsUnavailable) {
+			publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -169,25 +224,43 @@ func TipPublicRelay(c *gin.Context) {
 		return
 	}
 	var input publicRelayTipInput
-	if err := c.ShouldBindJSON(&input); err != nil || input.AmountUSD <= 0 {
+	if err := c.ShouldBindJSON(&input); err != nil || input.AmountUSD <= 0 || math.IsNaN(input.AmountUSD) || math.IsInf(input.AmountUSD, 0) {
 		publicRelayError(c, http.StatusUnprocessableEntity, "PUBLIC_RELAY_INVALID_TIP", model.ErrPublicRelayInvalidInput)
 		return
 	}
-	quota := int64(common.QuotaFromFloat(input.AmountUSD * common.QuotaPerUnit))
-	if err := model.TipPublicRelayContribution(id, c.GetInt("id"), quota, input.Message); err != nil {
+	credits, err := common.FiatToCreditsDecimal(input.amountUSDDecimal, "USD", decimal.Zero)
+	if err != nil {
+		publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+		return
+	}
+	// Preserve the tip's historical half-away-from-zero integer rounding, but
+	// reject overflow before conversion instead of silently saturating int32.
+	quota, err := common.WalletQuotaFromDecimalStrict(credits)
+	if err != nil || quota <= 0 {
+		publicRelayError(c, http.StatusUnprocessableEntity, "PUBLIC_RELAY_INVALID_TIP", model.ErrPublicRelayInvalidInput)
+		return
+	}
+	if err := model.TipPublicRelayContribution(id, c.GetInt("id"), int64(quota), input.Message); err != nil {
 		status := http.StatusUnprocessableEntity
+		if errors.Is(err, common.ErrCreditUnitsUnavailable) {
+			status = http.StatusServiceUnavailable
+		}
 		if errors.Is(err, model.ErrPublicRelayNotFound) {
 			status = http.StatusNotFound
 		}
 		publicRelayError(c, status, "PUBLIC_RELAY_TIP_FAILED", err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"amount_usd": input.AmountUSD})
+	common.ApiSuccess(c, gin.H{"amount_usd": input.AmountUSD, "quota": quota})
 }
 
 func GetPublicRelayRouting(c *gin.Context) {
 	items, group, err := model.ListPublicRelayRouting(c.GetInt("id"))
 	if err != nil {
+		if errors.Is(err, common.ErrCreditUnitsUnavailable) {
+			publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -211,6 +284,10 @@ func ListAdminPublicRelayContributions(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	items, err := model.ListAdminPublicRelayContributions(c.Query("status"), limit)
 	if err != nil {
+		if errors.Is(err, common.ErrCreditUnitsUnavailable) {
+			publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -338,6 +415,10 @@ func WithdrawPublicRelayContributionReward(c *gin.Context) {
 	}
 	amount, err := model.WithdrawPublicRelayTips(id, c.GetInt("id"), group)
 	if err != nil {
+		if errors.Is(err, common.ErrCreditUnitsUnavailable) {
+			publicRelayError(c, http.StatusServiceUnavailable, "CREDIT_UNITS_UNAVAILABLE", err)
+			return
+		}
 		publicRelayError(c, http.StatusUnprocessableEntity, "PUBLIC_RELAY_WITHDRAW_FAILED", err)
 		return
 	}

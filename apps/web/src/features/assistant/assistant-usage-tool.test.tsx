@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -64,6 +64,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { AssistantUsageTool } = await import('./assistant-usage-tool')
+const { resetAssistantCurrencyTest, useWalletCurrencyPreferenceStore } =
+  await import('./assistant-currency-test-support')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -121,9 +123,11 @@ async function unmount(rendered: Awaited<ReturnType<typeof renderTool>>) {
   rendered.container.remove()
 }
 
-afterEach(() => {
+beforeEach(resetAssistantCurrencyTest)
+afterEach(async () => {
   api.get = originalGet
   document.body.replaceChildren()
+  await i18n.changeLanguage('en')
 })
 
 after(() => domWindow.close())
@@ -171,6 +175,7 @@ describe('AssistantUsageTool', () => {
       assert.match(text, /Usage at a glance/)
       assert.match(text, /deepseek-v4-flash/)
       assert.match(text, /claude-sonnet-4/)
+      assert.match(text, /3 USD/)
       assert.deepEqual(requestedDays, [30])
 
       const select = rendered.container.querySelector<HTMLSelectElement>(
@@ -184,6 +189,43 @@ describe('AssistantUsageTool', () => {
       })
       await act(flushQueries)
       assert.deepEqual(requestedDays, [30, 7])
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('uses language defaults and preserves manual preference across language changes', async () => {
+    let calls = 0
+    api.get = (async () => {
+      calls += 1
+      return {
+        data: {
+          success: true,
+          data: [
+            {
+              created_at: 1,
+              model_name: 'model-a',
+              quota: 3_500_000,
+              count: 1,
+            },
+          ],
+        },
+      }
+    }) as typeof api.get
+    await i18n.changeLanguage('zhTW')
+    const rendered = await renderTool(true)
+    try {
+      assert.match(rendered.container.textContent ?? '', /49 CNY/)
+      await act(async () => i18n.changeLanguage('en'))
+      assert.match(rendered.container.textContent ?? '', /7 USD/)
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      })
+      assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
+      await act(async () => i18n.changeLanguage('zhCN'))
+      assert.match(rendered.container.textContent ?? '', /3,500,000 Credits/)
+      assert.equal(calls, 1)
+      assert.doesNotMatch(rendered.container.textContent ?? '', /\(Platform\)/)
     } finally {
       await unmount(rendered)
     }

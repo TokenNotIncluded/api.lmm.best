@@ -1,25 +1,28 @@
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-export const SMS_MINIMUM_BALANCE_USD = 10
+export const SMS_MINIMUM_BALANCE_LEGACY_UNITS = 10
 export const SMS_MINIMUM_BALANCE_CODE = 'TEMPORARY_SMS_MINIMUM_BALANCE'
 
 export function getSmsPurchaseBalance(quota: unknown, quotaPerUnit: number) {
-  // Compare wallet quota with quota per USD, never a displayed fiat amount.
+  // Preserve the established raw purchase boundary; display its denomination separately.
   if (
     typeof quota !== 'number' ||
     !Number.isFinite(quota) ||
     !Number.isFinite(quotaPerUnit) ||
     quotaPerUnit <= 0
   ) {
-    return { status: 'unknown', balanceUSD: undefined } as const
+    return {
+      status: 'unknown',
+      balanceQuota: undefined,
+    } as const
   }
   return {
     status:
-      quota >= SMS_MINIMUM_BALANCE_USD * quotaPerUnit
+      quota >= SMS_MINIMUM_BALANCE_LEGACY_UNITS * quotaPerUnit
         ? 'allowed'
         : 'below-minimum',
-    balanceUSD: quota / quotaPerUnit,
+    balanceQuota: quota,
   } as const
 }
 

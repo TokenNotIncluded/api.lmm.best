@@ -18,11 +18,11 @@ import (
 // Uses real registered handlers, a real dashboard session and an isolated DB.
 // Payment evidence is synthetic: no provider, SMTP or model request is sent.
 func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
+	installRouterCurrencyFixture(t)
 	db := setupOpenSourceBountyAccessRouterTest(t)
 	require.NoError(t, db.AutoMigrate(&model.UserSession{}, &model.TopUp{}, &model.Token{}, &model.Checkin{}, &model.Log{}))
 	oldLogDB, oldSecret := model.LOG_DB, common.SessionSecret
 	oldGlobal, oldCritical, oldTurnstile := common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.TurnstileCheckEnabled
-	oldQuota := common.QuotaPerUnit
 	oldLocal := model.LocalAcceptanceDeveloperAccessEnabled()
 	access := operation_setting.GetDeveloperAccessSetting()
 	oldAccess := *access
@@ -32,7 +32,6 @@ func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
 	oldPayment := *payment
 	model.LOG_DB, common.SessionSecret = db, "isolated-backend-journey-session-test"
 	common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.TurnstileCheckEnabled = false, false, false
-	common.QuotaPerUnit = 500000
 	model.SetLocalAcceptanceDeveloperAccess(false)
 	access.PaidActivationEnabled, access.PaidActivationMinAmount = true, 1
 	payment.ComplianceConfirmed = false
@@ -40,7 +39,6 @@ func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
 	t.Cleanup(func() {
 		model.LOG_DB, common.SessionSecret = oldLogDB, oldSecret
 		common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.TurnstileCheckEnabled = oldGlobal, oldCritical, oldTurnstile
-		common.QuotaPerUnit = oldQuota
 		model.SetLocalAcceptanceDeveloperAccess(oldLocal)
 		*access, *checkin, *payment = oldAccess, oldCheckin, oldPayment
 	})

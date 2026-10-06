@@ -14,6 +14,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,6 +48,7 @@ func TestProfileShareModelsOptions(t *testing.T) {
 }
 
 func TestProfileShareModelsRender(t *testing.T) {
+	installPublicMoneyCurrencyFixture(t)
 	usage := model.ProfileShareModelUsage{Tokens: 1000, Requests: 25, Quota: 100, ModelCount: 4,
 		Models: []model.ProfileShareModelRow{
 			{ModelName: "a<script>\x00", Tokens: 400, Requests: 10, Quota: 40},
@@ -57,7 +59,8 @@ func TestProfileShareModelsRender(t *testing.T) {
 	for _, language := range []string{"en", "zh", "zh-TW", "fr", "ru", "ja", "vi"} {
 		options, _, err := parseProfileShareModelsSVGOptions(url.Values{"layout": {"models"}, "lang": {language}, "title": {"<svg onload=alert(1)>"}, "format": {"full"}})
 		require.NoError(t, err)
-		svg := renderProfileShareModelsSVG(options, usage, 1, 86400)
+		svg, err := renderProfileShareModelsSVG(options, usage, 1, 86400)
+		require.NoError(t, err)
 		require.Contains(t, svg, "&lt;svg")
 		require.NotContains(t, svg, "<script>")
 		require.NotContains(t, svg, "\x00")
@@ -71,25 +74,32 @@ func TestProfileShareModelsRender(t *testing.T) {
 	}
 	options, _, err := parseProfileShareModelsSVGOptions(url.Values{"layout": {"models"}, "animation": {"none"}, "requests": {"0"}})
 	require.NoError(t, err)
-	svg := renderProfileShareModelsSVG(options, usage, 1, 86400)
+	svg, err := renderProfileShareModelsSVG(options, usage, 1, 86400)
+	require.NoError(t, err)
 	require.NotContains(t, svg, "API requests")
 	require.NotContains(t, svg, "<style>")
 	for index := range usage.Models {
 		usage.Models[index].Quota = 0
 	}
 	usage.Quota = 0
-	require.Contains(t, renderProfileShareModelsSVG(options, usage, 1, 86400), "Tokens by model")
+	svg, err = renderProfileShareModelsSVG(options, usage, 1, 86400)
+	require.NoError(t, err)
+	require.Contains(t, svg, "Tokens by model")
 	for index := range usage.Models {
 		usage.Models[index].Tokens = 0
 	}
 	usage.Tokens = 0
-	require.Contains(t, renderProfileShareModelsSVG(options, usage, 1, 86400), "Requests by model")
-	empty := renderProfileShareModelsSVG(options, model.ProfileShareModelUsage{}, 1, 86400)
+	svg, err = renderProfileShareModelsSVG(options, usage, 1, 86400)
+	require.NoError(t, err)
+	require.Contains(t, svg, "Requests by model")
+	empty, err := renderProfileShareModelsSVG(options, model.ProfileShareModelUsage{}, 1, 86400)
+	require.NoError(t, err)
 	require.Contains(t, empty, "No usage in this range yet")
 	require.NotContains(t, empty, "NaN")
 }
 
 func TestProfileShareModelsConsentAndIsolation(t *testing.T) {
+	installPublicMoneyCurrencyFixture(t)
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.ProfileShare{}, &model.QuotaData{}))
@@ -135,6 +145,9 @@ func TestProfileShareModelsConsentAndIsolation(t *testing.T) {
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	require.Contains(t, response.Header().Get("Content-Type"), "image/svg+xml")
 	require.Contains(t, response.Body.String(), "owned-model")
+	common.ClearCreditsPerUSD()
+	require.Equal(t, http.StatusServiceUnavailable, request(http.MethodGet, path, "").Code)
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	for _, secret := range []string{"private-other-user", "too-old", "future-record", "password"} {
 		require.NotContains(t, response.Body.String(), secret)
 	}
@@ -148,6 +161,7 @@ func TestProfileShareModelsConsentAndIsolation(t *testing.T) {
 // Optional artifacts are rendered by the production renderer, not hand-drawn
 // screenshots. CI can inspect them directly in browsers without user data.
 func TestProfileShareModelsVisualFixtures(t *testing.T) {
+	installPublicMoneyCurrencyFixture(t)
 	dir := os.Getenv("PROFILE_SHARE_REVIEW_OUTPUT")
 	if dir == "" {
 		t.Skip("visual artifact output not requested")
@@ -166,7 +180,8 @@ func TestProfileShareModelsVisualFixtures(t *testing.T) {
 	for _, theme := range []string{"dark", "paper", "transparent"} {
 		options, _, err := parseProfileShareModelsSVGOptions(url.Values{"layout": {"models"}, "theme": {theme}, "lang": {"zh"}, "animation": {"none"}})
 		require.NoError(t, err)
-		svg := renderProfileShareModelsSVG(options, usage, 1787932800, 1790524800)
+		svg, err := renderProfileShareModelsSVG(options, usage, 1787932800, 1790524800)
+		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "models-"+theme+".svg"), []byte(svg), 0644))
 	}
 }

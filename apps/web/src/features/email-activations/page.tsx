@@ -82,13 +82,11 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { WaitCompanion } from '@/components/wait-companion'
 import { useDebounce, useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { formatQuotaWithCurrency } from '@/lib/currency'
 import dayjs from '@/lib/dayjs'
 import { formatNumber } from '@/lib/format'
 
 import {
   createHeroSmsIdempotencyKey,
-  formatHeroSmsPlatformAmount,
   listHeroSmsProducts,
   parseHeroSmsError,
 } from './api'
@@ -115,6 +113,7 @@ import type {
   HeroSmsParsedError,
   HeroSmsProduct,
 } from './types'
+import { useHeroSmsCurrency } from './use-hero-sms-currency'
 import { useHeroSmsTranslations } from './use-hero-sms-translations'
 
 type InlineFeedback = {
@@ -248,6 +247,7 @@ function HistoryMobileCards({
   onReorder: (activation: HeroSmsActivation) => void
 }) {
   const { t } = useTranslation()
+  const { formatQuota } = useHeroSmsCurrency()
 
   if (loading) {
     return <LoadingState message={t('Loading email activations...')} />
@@ -290,7 +290,7 @@ function HistoryMobileCards({
                   <MetaItem label={t('Code')} value={activation.code || '—'} />
                   <MetaItem
                     label={t('Quota charge')}
-                    value={formatQuotaWithCurrency(activation.charge_quota)}
+                    value={formatQuota(activation.charge_quota)}
                   />
                   <MetaItem
                     label={t('Created')}
@@ -364,6 +364,7 @@ function MetaItem({ label, value }: { label: string; value: string }) {
 
 export function EmailActivationsPage() {
   const { t } = useTranslation()
+  const { formatQuota, formatPrice } = useHeroSmsCurrency()
   const [activationKind, setActivationKind] = useState<'sms' | 'email'>('sms')
   useHeroSmsTranslations()
   // Match Tailwind's `sm` breakpoint: at 640px the side drawer uses desktop layout.
@@ -519,7 +520,7 @@ export function EmailActivationsPage() {
     {
       accessorKey: 'charge_quota',
       header: t('Quota charge'),
-      cell: ({ row }) => formatQuotaWithCurrency(row.original.charge_quota),
+      cell: ({ row }) => formatQuota(row.original.charge_quota),
     },
     {
       accessorKey: 'created_at',
@@ -1014,13 +1015,14 @@ export function EmailActivationsPage() {
                         />
                         <MetaItem
                           label={t('Quote')}
-                          value={formatHeroSmsPlatformAmount(
-                            selectedProduct?.customer_price_usd ?? 0
+                          value={formatPrice(
+                            selectedProduct?.customer_price_usd ?? 0,
+                            selectedProduct ?? undefined
                           )}
                         />
                         <MetaItem
                           label={t('Final quota price')}
-                          value={formatQuotaWithCurrency(
+                          value={formatQuota(
                             (selectedProduct?.charge_quota ?? 0) * quantity
                           )}
                         />
@@ -1058,6 +1060,10 @@ export function EmailActivationsPage() {
                       disabled={
                         !selectedProduct ||
                         !selectedProduct.available ||
+                        formatPrice(
+                          selectedProduct.customer_price_usd,
+                          selectedProduct
+                        ) === '-' ||
                         selectedProduct.count < quantity ||
                         createMutation.isPending ||
                         productsLoading
@@ -1179,9 +1185,7 @@ export function EmailActivationsPage() {
                           </div>
                           <MetaItem
                             label={t('Quota charge')}
-                            value={formatQuotaWithCurrency(
-                              currentActivation.charge_quota
-                            )}
+                            value={formatQuota(currentActivation.charge_quota)}
                           />
                         </div>
                       </div>
@@ -1444,9 +1448,7 @@ export function EmailActivationsPage() {
                     />
                     <MetaItem
                       label={t('Quota charge')}
-                      value={formatQuotaWithCurrency(
-                        detailActivation.charge_quota
-                      )}
+                      value={formatQuota(detailActivation.charge_quota)}
                     />
                     <MetaItem
                       label={t('Cancellation reason')}
@@ -1473,19 +1475,28 @@ export function EmailActivationsPage() {
                   {
                     quantity: purchaseTarget.quantity,
                     domain: purchaseTarget.product.domain,
-                    quota: formatQuotaWithCurrency(
+                    quota: formatQuota(
                       purchaseTarget.product.charge_quota *
                         purchaseTarget.quantity
                     ),
-                    price: formatHeroSmsPlatformAmount(
+                    price: formatPrice(
                       purchaseTarget.product.customer_price_usd *
-                        purchaseTarget.quantity
+                        purchaseTarget.quantity,
+                      purchaseTarget.product,
+                      purchaseTarget.quantity
                     ),
                   }
                 )
               : ''
           }
           confirmText={t('Confirm purchase')}
+          disabled={
+            !purchaseTarget ||
+            formatPrice(
+              purchaseTarget.product.customer_price_usd,
+              purchaseTarget.product
+            ) === '-'
+          }
           isLoading={createMutation.isPending}
           handleConfirm={() =>
             purchaseTarget && void handlePurchase(purchaseTarget)
@@ -1515,17 +1526,23 @@ export function EmailActivationsPage() {
                   'Reorder {{domain}} for {{quota}} quota ({{price}} platform price)? This creates a new paid activation.',
                   {
                     domain: reorderTarget.product.domain,
-                    quota: formatQuotaWithCurrency(
-                      reorderTarget.product.charge_quota
-                    ),
-                    price: formatHeroSmsPlatformAmount(
-                      reorderTarget.product.customer_price_usd
+                    quota: formatQuota(reorderTarget.product.charge_quota),
+                    price: formatPrice(
+                      reorderTarget.product.customer_price_usd,
+                      reorderTarget.product
                     ),
                   }
                 )
               : ''
           }
           confirmText={t('Confirm reorder')}
+          disabled={
+            !reorderTarget ||
+            formatPrice(
+              reorderTarget.product.customer_price_usd,
+              reorderTarget.product
+            ) === '-'
+          }
           isLoading={reorderMutation.isPending}
           handleConfirm={() => void handleConfirmReorder()}
         />

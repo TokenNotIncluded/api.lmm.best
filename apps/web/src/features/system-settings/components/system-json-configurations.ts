@@ -174,13 +174,16 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
     ]
   ),
   ModerationGroupPolicies: configuration(
-    { default: { mode: 'off', category_fines_usd: {} } },
+    {
+      default: { mode: 'off', amount_currency: 'USD', category_fines_usd: {} },
+    },
     'Record<string, ModerationGroupPolicy>',
     [
       {
         path: '<userGroup>',
         type: 'object',
-        rules: 'explicit group; no wildcard',
+        rules:
+          'explicit account group; no wildcard; unlisted groups remain off',
         example: '"default"',
       },
       {
@@ -191,9 +194,18 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
         example: '"off"',
       },
       {
+        path: '<userGroup>.amount_currency',
+        type: 'string',
+        required: false,
+        rules:
+          'enum: [USD, legacy_pricing_unit]; omitted means legacy_pricing_unit; new prices must explicitly use USD; convert legacy amounts before changing this marker',
+        example: '"USD"',
+      },
+      {
         path: '<userGroup>.category_fines_usd.<category>',
         type: 'number',
-        rules: 'minimum: 0; finite: true; precision: 6',
+        rules:
+          'minimum: 0; maximum: 1000; finite: true; precision: 6; amount_currency determines the monetary basis; strict mode charges the highest matched category once, limited to the positive wallet balance',
         example: '0.01',
       },
     ]

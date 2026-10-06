@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type React from 'react'
@@ -94,9 +94,32 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { Wallet } = await import('./index')
 const { PaymentConfirmDialog } =
   await import('./components/dialogs/payment-confirm-dialog')
+const { creditGrant, walletCatalog } =
+  await import('./lib/wallet-fixtures.test-support')
 const { usePayment } = await import('./hooks/use-payment')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
+const originalConfig = useSystemConfigStore.getState().config
+beforeEach(() => {
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  useSystemConfigStore.setState((state) => ({
+    config: {
+      ...state.config,
+      currency: {
+        ...state.config.currency,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+        quotaPerUnit: 500000,
+      },
+    },
+  }))
+})
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
@@ -106,6 +129,69 @@ const mounted: Array<{
   root: ReturnType<typeof createRoot>
   container: HTMLDivElement
 }> = []
+
+function fixtureDiscount(
+  original: string,
+  paid: string,
+  savings: string,
+  percent: string
+) {
+  return {
+    schema_version: 1,
+    currency: 'CNY',
+    basis: 'amount_preset_and_code',
+    original_amount: original,
+    paid_amount: paid,
+    savings_amount: savings,
+    discount_percent: percent,
+  }
+}
+
+function fixtureLedgerBasis() {
+  const config = useSystemConfigStore.getState().config.currency
+  return typeof config.ledgerQuotaPerUsd === 'number' &&
+    Number.isFinite(config.ledgerQuotaPerUsd) &&
+    config.ledgerQuotaPerUsd > 0
+    ? config.ledgerQuotaPerUsd
+    : config.creditsPerUsd
+}
+
+// Each synthetic successful v2 payment response has its captured ledger/public grant.
+// Existing invalid/incomplete fiat payloads are preserved for their fail-closed tests.
+function v2PaymentPost(post: typeof api.post): typeof api.post {
+  return (async (...args: Parameters<typeof api.post>) => {
+    const response = await post(...args)
+    const [url, body] = args
+    const raw = (body as { amount?: number } | undefined)?.amount
+    if (
+      url.startsWith('/api/user/topup/currency/v2/') &&
+      /\/(amount|pay)$/.test(url) &&
+      Number.isSafeInteger(raw) &&
+      Number(raw) > 0 &&
+      response.data &&
+      typeof response.data === 'object' &&
+      response.data.success !== false &&
+      !('credit_unit_schema_version' in response.data)
+    ) {
+      return {
+        ...response,
+        data: {
+          ...creditGrant(Number(raw), fixtureLedgerBasis()),
+          ...(!url.includes('waffo-pancake')
+            ? {
+                settlement_currency:
+                  url.endsWith('/amount') && /\/(waffo|stripe)\//.test(url)
+                    ? 'USD'
+                    : 'CNY',
+              }
+            : {}),
+          ...response.data,
+        },
+      }
+    }
+    return response
+  }) as typeof api.post
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -151,8 +237,12 @@ afterEach(async () => {
   window.sessionStorage.removeItem('wallet-pending-topup-cloud')
   window.localStorage.removeItem('wallet-topup-cloud:7')
   window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
+  await i18n.changeLanguage('en')
 })
-after(() => domWindow.close())
+after(() => {
+  useSystemConfigStore.setState({ config: originalConfig })
+  domWindow.close()
+})
 
 test('a superseded quote cannot approve checkout while the latest quote is pending', async () => {
   let payment!: ReturnType<typeof usePayment>
@@ -163,12 +253,26 @@ test('a superseded quote cannot approve checkout while the latest quote is pendi
     }, [state])
     return null
   }
-  const first = deferred<{ data: { message: string; data: string } }>()
-  const second = deferred<{ data: { message: string; data: string } }>()
-  api.post = ((_url, request) =>
+  const first = deferred<{
+    data: {
+      message: string
+      data: string
+      settlement_currency?: string
+      settlement_quote?: unknown
+    }
+  }>()
+  const second = deferred<{
+    data: {
+      message: string
+      data: string
+      settlement_currency?: string
+      settlement_quote?: unknown
+    }
+  }>()
+  api.post = v2PaymentPost(((_url, request) =>
     (request as AmountRequest).amount === 10
       ? first.promise
-      : second.promise) as typeof api.post
+      : second.promise) as typeof api.post)
   await render(<Probe />)
   let firstResult!: Promise<number>
   let secondResult!: Promise<number>
@@ -177,16 +281,54 @@ test('a superseded quote cannot approve checkout while the latest quote is pendi
     secondResult = payment.calculatePaymentAmount(100, 'alipay')
   })
   await act(async () => {
-    first.resolve({ data: { message: 'success', data: '10.00' } })
+    first.resolve({
+      data: {
+        message: 'success',
+        data: '10.00',
+        settlement_currency: 'CNY',
+        settlement_quote: {
+          schema_version: 1,
+          currency: 'CNY',
+          basis: 'amount_preset_and_code',
+          original_amount: '20.00',
+          paid_amount: '10.00',
+          savings_amount: '10.00',
+          discount_percent: '50.00',
+        },
+      },
+    })
     assert.equal(await firstResult, 0)
   })
   assert.equal(payment.amount, 0)
+  assert.equal(payment.paymentDiscount, null)
   assert.equal(payment.calculating, true)
   await act(async () => {
-    second.resolve({ data: { message: 'success', data: '100.00' } })
+    second.resolve({
+      data: {
+        message: 'success',
+        data: '100.00',
+        settlement_currency: 'CNY',
+        settlement_quote: {
+          schema_version: 1,
+          currency: 'CNY',
+          basis: 'amount_preset_and_code',
+          original_amount: '200.00',
+          paid_amount: '100.00',
+          savings_amount: '100.00',
+          discount_percent: '50.00',
+        },
+      },
+    })
     assert.equal(await secondResult, 100)
   })
   assert.equal(payment.amount, 100)
+  assert.deepEqual(payment.paymentDiscount, {
+    currency: 'CNY',
+    original: 200,
+    paid: 100,
+    savings: 100,
+    percent: 50,
+  })
   assert.equal(payment.calculating, false)
 })
 
@@ -194,19 +336,19 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   const validations: Array<ReturnType<typeof deferred<ValidationResult>>> = []
   const checkoutQuote = deferred<{ data: { message: string; data: string } }>()
   const quotes: AmountRequest[] = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const response = deferred<ValidationResult>()
       validations.push(response)
       return response.promise
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const quote = request as AmountRequest
     quotes.push(quote)
     return quote.discount_code
       ? checkoutQuote.promise
-      : { data: { message: 'success', data: String(quote.amount) } }
-  }) as typeof api.post
+      : { data: { message: 'success', data: String(quote.amount / 500000) } }
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet()
   const largerPreset = container.querySelector<HTMLButtonElement>(
     'button[aria-label^="Preset amount: 100 "]'
@@ -228,7 +370,9 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   assert.equal(document.querySelector('[role="alertdialog"]'), null)
   await act(async () => validations[2].resolve(validDiscount))
   assert.deepEqual(quotes.at(-1), {
-    amount: 100,
+    amount: 50000000,
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
     payment_method: 'alipay',
     discount_code: 'SAVE',
   })
@@ -238,10 +382,58 @@ test('late discount validation cannot quote an old amount into a new checkout', 
   )
   const confirmation = document.querySelector('[role="alertdialog"]')
   assert.ok(confirmation)
-  assert.ok(confirmation.textContent?.includes('100?'))
+  assert.ok(confirmation.textContent?.includes('100 USD?'))
   assert.ok(confirmation.textContent?.includes('90 CNY'))
   queryClient.clear()
 })
+
+function modernTopupInfo(info: Partial<TopupInfo>) {
+  return walletCatalog(
+    {
+      ...info,
+      credit_metadata_version: 1,
+      stripe_credit_max_topup:
+        info.stripe_credit_max_topup === undefined
+          ? 5000000000
+          : info.stripe_credit_max_topup,
+      waffo_credit_max_topup:
+        info.waffo_credit_max_topup === undefined
+          ? null
+          : info.waffo_credit_max_topup,
+      pancake_credit_max_topup:
+        info.pancake_credit_max_topup === undefined
+          ? null
+          : info.pancake_credit_max_topup,
+      credit_amount_options:
+        info.credit_amount_options ??
+        info.amount_options?.map((amount) => amount * 500000) ??
+        [],
+      credit_discount:
+        info.credit_discount ??
+        Object.fromEntries(
+          Object.entries(info.discount ?? {}).map(([amount, discount]) => [
+            Number(amount) * 500000,
+            discount,
+          ])
+        ),
+      credit_min_topup: info.credit_min_topup ?? (info.min_topup ?? 0) * 500000,
+      stripe_credit_min_topup:
+        info.stripe_credit_min_topup ?? (info.stripe_min_topup ?? 0) * 500000,
+      waffo_credit_min_topup:
+        info.waffo_credit_min_topup ?? (info.waffo_min_topup ?? 0) * 500000,
+      pancake_credit_min_topup:
+        info.pancake_credit_min_topup ??
+        (info.waffo_pancake_min_topup ?? 0) * 500000,
+      pay_methods: (info.pay_methods ?? []).map((method) => ({
+        ...method,
+        min_topup_credit:
+          method.min_topup_credit ??
+          String((method.min_topup ?? info.min_topup ?? 0) * 500000),
+      })),
+    },
+    fixtureLedgerBasis()
+  )
+}
 
 async function renderWallet(
   activated = false,
@@ -268,7 +460,7 @@ async function renderWallet(
       success: true,
       data:
         url === '/api/user/topup/info'
-          ? {
+          ? modernTopupInfo({
               enable_online_topup: true,
               enable_stripe_topup: false,
               pay_methods: ['alipay', 'wxpay'].map((type) => ({
@@ -283,7 +475,7 @@ async function renderWallet(
               amount_options: [10, 100],
               discount: {},
               ...options.topupInfo,
-            }
+            })
           : url === '/api/user/self'
             ? refreshedUser
             : url.startsWith('/api/user/topup/self?')
@@ -388,8 +580,8 @@ test('a checkout link revalidates a changed payment method and waits for its dis
     data: { message: string; data: string }
   }>()
   const quotes: AmountRequest[] = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const response = deferred<ValidationResult>()
       validations.push({
         request: request as (typeof validations)[number]['request'],
@@ -397,13 +589,13 @@ test('a checkout link revalidates a changed payment method and waits for its dis
       })
       return response.promise
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const quote = request as AmountRequest
     quotes.push(quote)
     return quote.discount_code
       ? discountedQuote.promise
-      : { data: { message: 'success', data: String(quote.amount) } }
-  }) as typeof api.post
+      : { data: { message: 'success', data: String(quote.amount / 500000) } }
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet()
   assert.equal(validations.length, 1)
   assert.equal(validations[0].request.payment_method, 'alipay')
@@ -419,7 +611,9 @@ test('a checkout link revalidates a changed payment method and waits for its dis
   )
   assert.deepEqual(validations[1].request, {
     code: 'save',
-    amount: 10,
+    amount: 5000000,
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
     payment_method: 'wxpay',
   })
   await act(async () => validations[0].response.resolve(validDiscount))
@@ -427,7 +621,9 @@ test('a checkout link revalidates a changed payment method and waits for its dis
   assert.equal(document.querySelector('[role="alertdialog"]'), null)
   await act(async () => validations[1].response.resolve(validDiscount))
   assert.deepEqual(quotes.at(-1), {
-    amount: 10,
+    amount: 5000000,
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
     payment_method: 'wxpay',
     discount_code: 'SAVE',
   })
@@ -449,19 +645,23 @@ test('a checkout link revalidates a changed payment method and waits for its dis
 test('a failed checkout-link discount unlocks manual retry without an automatic retry loop', async () => {
   const first = deferred<ValidationResult>()
   let validations = 0
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       validations++
       return validations === 1 ? first.promise : validDiscount
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     return {
       data: {
         message: 'success',
         data: (request as AmountRequest).discount_code ? '9' : '10',
+        settlement_currency: 'CNY',
+        settlement_quote: (request as AmountRequest).discount_code
+          ? fixtureDiscount('10', '9', '1', '10')
+          : undefined,
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(true)
   const input = container.querySelector<HTMLInputElement>('#discount-code')
   assert.ok(input)
@@ -487,11 +687,11 @@ test('a failed checkout-link discount unlocks manual retry without an automatic 
 test('a failed checkout-link discount automatically revalidates when the user selects a qualifying amount', async () => {
   window.history.replaceState({}, '', '/wallet?discount_code=SAVE')
   const validationRequests: Array<{ code: string; amount: number }> = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const body = request as { code: string; amount: number }
       validationRequests.push({ code: body.code, amount: body.amount })
-      if (body.amount < 50) {
+      if (body.amount < 25000000) {
         return {
           data: {
             success: false,
@@ -506,15 +706,21 @@ test('a failed checkout-link discount automatically revalidates when the user se
         },
       }
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const req = request as AmountRequest
     return {
       data: {
         message: 'success',
-        data: req.discount_code ? String(req.amount * 0.6) : String(req.amount),
+        data: req.discount_code
+          ? String((req.amount / 500000) * 0.6)
+          : String(req.amount / 500000),
+        settlement_currency: 'CNY',
+        settlement_quote: req.discount_code
+          ? fixtureDiscount('100', '60', '40', '40')
+          : undefined,
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true, {
     topupInfo: {
@@ -524,7 +730,7 @@ test('a failed checkout-link discount automatically revalidates when the user se
   })
 
   assert.equal(validationRequests.length, 1)
-  assert.equal(validationRequests[0].amount, 10)
+  assert.equal(validationRequests[0].amount, 5000000)
 
   const preset100 = Array.from(
     container.querySelectorAll<HTMLButtonElement>('button')
@@ -533,7 +739,7 @@ test('a failed checkout-link discount automatically revalidates when the user se
   await act(async () => preset100.click())
 
   assert.equal(validationRequests.length, 2)
-  assert.equal(validationRequests[1].amount, 100)
+  assert.equal(validationRequests[1].amount, 50000000)
   assert.equal(validationRequests[1].code, 'SAVE')
   assert.ok(container.textContent?.includes('Discount applied: 40% off'))
   queryClient.clear()
@@ -554,8 +760,8 @@ test('editing a pending manual discount prevents the old code from approving a q
   window.history.replaceState({}, '', '/wallet')
   const oldValidation = deferred<ValidationResult>()
   const quotes: AmountRequest[] = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       return (request as { code: string }).code === 'SAVE'
         ? oldValidation.promise
         : {
@@ -565,13 +771,20 @@ test('editing a pending manual discount prevents the old code from approving a q
             },
           }
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const quote = request as AmountRequest
     quotes.push(quote)
     return {
-      data: { message: 'success', data: quote.discount_code ? '8' : '10' },
+      data: {
+        message: 'success',
+        data: quote.discount_code ? '8' : '10',
+        settlement_currency: 'CNY',
+        settlement_quote: quote.discount_code
+          ? fixtureDiscount('10', '8', '2', '20')
+          : undefined,
+      },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(true)
   const input = container.querySelector<HTMLInputElement>('#discount-code')
   assert.ok(input)
@@ -607,16 +820,16 @@ test('editing a pending manual discount prevents the old code from approving a q
 test('a failed discounted quote unlocks the checkout-link code for retry', async () => {
   const quote = deferred<{ data: { success: boolean } }>()
   let validations = 0
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       validations++
       return validDiscount
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     return (request as AmountRequest).discount_code
       ? quote.promise
       : { data: { message: 'success', data: '10' } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(true)
   await act(async () => quote.resolve({ data: { success: false } }))
   const input = container.querySelector<HTMLInputElement>('#discount-code')
@@ -668,9 +881,9 @@ const confirmButton = () => {
 for (const currency of ['CNY', 'USD'] as const) {
   test(`Pancake shows and sends the exact ${currency} server quote, not the legacy coupon fiat preview`, async () => {
     const requests: Array<{ url: unknown; body: unknown }> = []
-    api.post = (async (url, body) => {
+    api.post = v2PaymentPost((async (url, body) => {
       requests.push({ url, body })
-      if (url === '/api/user/discount-code/validate') {
+      if (url === '/api/user/topup/currency/v2/discount-code/validate') {
         return {
           data: {
             ...validDiscount.data,
@@ -682,15 +895,15 @@ for (const currency of ['CNY', 'USD'] as const) {
           },
         }
       }
-      if (url === '/api/user/waffo-pancake/amount') {
+      if (url === '/api/user/topup/currency/v2/waffo-pancake/amount') {
         return quoteResponse(
           (body as AmountRequest).discount_code ? '63.0700' : '70.00',
           currency
         )
       }
-      assert.equal(url, '/api/user/waffo-pancake/pay')
+      assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/pay')
       return { data: { success: false, message: 'mock checkout rejected' } }
-    }) as typeof api.post
+    }) as typeof api.post)
     const { container, queryClient } = await renderWallet(false, {
       topupInfo: pancakeTopup,
     })
@@ -700,12 +913,14 @@ for (const currency of ['CNY', 'USD'] as const) {
     await act(async () => paymentButton().click())
     const dialog = document.querySelector('[role="alertdialog"]')
     assert.ok(dialog?.textContent?.includes(`63.0700 ${currency}`))
-    assert.ok(dialog?.textContent?.includes('10?'))
+    assert.ok(dialog?.textContent?.includes('10 USD?'))
     await act(async () => confirmButton().click())
     assert.deepEqual(requests.at(-1), {
-      url: '/api/user/waffo-pancake/pay',
+      url: '/api/user/topup/currency/v2/waffo-pancake/pay',
       body: {
-        amount: 10,
+        amount: 5000000,
+        amount_unit: 'LEDGER_QUOTA',
+        credit_metadata_version: 2,
         settlement_amount: '63.0700',
         settlement_currency: currency,
         checkout_region: 'global',
@@ -716,7 +931,7 @@ for (const currency of ['CNY', 'USD'] as const) {
     assert.ok(
       requests.some(
         ({ url, body }) =>
-          url === '/api/user/waffo-pancake/amount' &&
+          url === '/api/user/topup/currency/v2/waffo-pancake/amount' &&
           (body as AmountRequest).discount_code === 'SAVE'
       )
     )
@@ -728,10 +943,10 @@ for (const currency of ['CNY', 'USD'] as const) {
 
 test('an incomplete Pancake quote stays visibly unavailable and cannot open confirmation', async () => {
   window.history.replaceState({}, '', '/wallet')
-  api.post = (async (url) => {
-    assert.equal(url, '/api/user/waffo-pancake/amount')
+  api.post = v2PaymentPost((async (url) => {
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/amount')
     return { data: { message: 'success', data: '70.00' } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     topupInfo: pancakeTopup,
   })
@@ -747,21 +962,21 @@ test('SETTLEMENT_QUOTE_CHANGED only refreshes and requires a new selection and c
   const refreshed = deferred<ReturnType<typeof quoteResponse>>()
   let quotes = 0
   let payments = 0
-  api.post = (async (url, body) => {
-    if (url === '/api/user/waffo-pancake/amount') {
+  api.post = v2PaymentPost((async (url, body) => {
+    if (url === '/api/user/topup/currency/v2/waffo-pancake/amount') {
       quotes++
       return quotes === 3
         ? refreshed.promise
         : quoteResponse(quotes < 3 ? '70.00' : '71.0000')
     }
-    assert.equal(url, '/api/user/waffo-pancake/pay')
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/pay')
     payments++
     assert.equal(
       (body as { settlement_amount: string }).settlement_amount,
       payments === 1 ? '70.00' : '71.0000'
     )
     return { data: { success: false, code: 'SETTLEMENT_QUOTE_CHANGED' } }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     topupInfo: pancakeTopup,
   })
@@ -791,15 +1006,15 @@ test('changing the amount invalidates confirmation and isolates late Pancake quo
   window.history.replaceState({}, '', '/wallet')
   const pending = deferred<ReturnType<typeof quoteResponse>>()
   let requests = 0
-  api.post = (async (url, body) => {
-    assert.equal(url, '/api/user/waffo-pancake/amount')
+  api.post = v2PaymentPost((async (url, body) => {
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/amount')
     requests++
     return requests === 2
       ? pending.promise
       : quoteResponse(
-          (body as AmountRequest).amount === 100 ? '640.0000' : '64.00'
+          (body as AmountRequest).amount === 50000000 ? '640.0000' : '64.00'
         )
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(false, {
     topupInfo: pancakeTopup,
   })
@@ -829,7 +1044,7 @@ for (const currency of ['CNY', 'USD'] as const) {
         open
         onOpenChange={() => undefined}
         onConfirm={() => assert.fail('rendering must not submit')}
-        topupAmount={100}
+        topupAmount={50000000}
         paymentAmount={999}
         settlementQuote={{ amount: '12.3400', currency }}
         paymentMethod={pancakeTopup.pay_methods[0]}
@@ -843,7 +1058,7 @@ for (const currency of ['CNY', 'USD'] as const) {
     const text =
       document.querySelector('[role="alertdialog"]')?.textContent ?? ''
     assert.ok(text.includes(`12.3400 ${currency}`))
-    assert.ok(text.includes('100?'))
+    assert.ok(text.includes('100 USD?'))
     assert.equal(text.includes('999'), false)
     assert.equal(confirmButton().disabled, false)
   })
@@ -858,7 +1073,7 @@ for (const state of ['missing', 'invalid', 'pending', 'processing'] as const) {
         onConfirm={() =>
           assert.fail('unavailable confirmation must not submit')
         }
-        topupAmount={100}
+        topupAmount={50000000}
         paymentAmount={999}
         settlementQuote={
           state === 'missing'
@@ -888,7 +1103,7 @@ test('fixed gateway confirmation ignores the unrelated Pancake settlement quote'
       open
       onOpenChange={() => undefined}
       onConfirm={() => undefined}
-      topupAmount={100}
+      topupAmount={50000000}
       paymentAmount={70}
       settlementQuote={{ amount: '12.3400', currency: 'USD' }}
       paymentMethod={{
@@ -904,19 +1119,21 @@ test('fixed gateway confirmation ignores the unrelated Pancake settlement quote'
   const text = document.querySelector('[role="alertdialog"]')?.textContent ?? ''
   assert.ok(text.includes('70 CNY'))
   assert.equal(text.includes('12.3400'), false)
-  assert.equal(text.includes('USD'), false)
+  assert.equal(text.includes('70 USD'), false)
 })
 
 test('editing a coupon invalidates its pending Pancake quote before the coupon response can approve it', async () => {
   window.history.replaceState({}, '', '/wallet')
   const pending = deferred<ReturnType<typeof quoteResponse>>()
-  api.post = (async (url, body) => {
-    if (url === '/api/user/discount-code/validate') return validDiscount
-    assert.equal(url, '/api/user/waffo-pancake/amount')
+  api.post = v2PaymentPost((async (url, body) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
+      return validDiscount
+    }
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/amount')
     return (body as AmountRequest).discount_code
       ? pending.promise
       : quoteResponse('70.00')
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet(true, {
     topupInfo: pancakeTopup,
   })
@@ -978,18 +1195,217 @@ const scopeChanges = {
       },
     })),
 }
+
+// Fixed denomination with synthetic fiat parity for locale-only UI changes.
+function useRealUsdAnchor() {
+  useSystemConfigStore.setState((state) => ({
+    config: {
+      ...state.config,
+      currency: {
+        ...state.config.currency,
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 1,
+        cnyPerUsdExact: '1',
+      },
+    },
+  }))
+}
+
+test('changing locale retains the selected raw credits, requotes the same payment and closes confirmation', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  useRealUsdAnchor()
+  await i18n.changeLanguage('zh')
+  const requests: AmountRequest[] = []
+  api.post = v2PaymentPost((async (url, body) => {
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
+    const request = body as AmountRequest
+    requests.push(request)
+    return quoteResponse(String(request.amount / 500000))
+  }) as typeof api.post)
+  const { container, queryClient } = await renderWallet(false, {
+    setting: { wallet_display_currency: '' },
+  })
+  const preset = container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Preset amount: 100 "]'
+  )
+  assert.ok(preset)
+  await act(async () => preset.click())
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+    '100'
+  )
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  await act(async () => paymentButton().click())
+  assert.ok(document.querySelector('[role="alertdialog"]'))
+  const beforeLanguageChange = requests.length
+
+  await act(async () => i18n.changeLanguage('en'))
+  const input = container.querySelector<HTMLInputElement>('#topup-amount')
+  assert.ok(input)
+  assert.equal(input.value, '100')
+  await act(async () => input.focus())
+  const { displayAmountToQuota } = await import('@/lib/currency')
+  assert.equal(displayAmountToQuota(input.value, 'USD'), 50000000)
+  assert.equal(requests.length, beforeLanguageChange + 1)
+  assert.deepEqual(requests.at(-1), {
+    amount: 50000000,
+    amount_unit: 'LEDGER_QUOTA',
+    credit_metadata_version: 2,
+    payment_method: 'alipay',
+  })
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+
+  // Saving the profile language can update its scope separately from i18n.
+  await act(async () => {
+    const { auth } = useAuthStore.getState()
+    assert.ok(auth.user)
+    auth.setUser({ ...auth.user, language: 'en' })
+  })
+  assert.equal(requests.at(-1)?.amount, 50000000)
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  await act(async () => i18n.changeLanguage('zh'))
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+    '100'
+  )
+  assert.equal(requests.at(-1)?.amount, 50000000)
+  queryClient.clear()
+})
+
+test('a locale change cannot restore a late quote from the previous checkout scope', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  useRealUsdAnchor()
+  await i18n.changeLanguage('zh')
+  const oldQuote = deferred<ReturnType<typeof quoteResponse>>()
+  const newQuote = deferred<ReturnType<typeof quoteResponse>>()
+  const requests: AmountRequest[] = []
+  api.post = v2PaymentPost((async (url, body) => {
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
+    requests.push(body as AmountRequest)
+    if (requests.length === 2) return oldQuote.promise
+    if (requests.length === 3) return newQuote.promise
+    return quoteResponse('10')
+  }) as typeof api.post)
+  const { container, queryClient } = await renderWallet(false, {
+    setting: { wallet_display_currency: '' },
+  })
+  const preset = container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Preset amount: 100 "]'
+  )
+  assert.ok(preset)
+  await act(async () => preset.click())
+  await act(async () => i18n.changeLanguage('en'))
+  assert.equal(requests.at(-1)?.amount, 50000000)
+  await act(async () => oldQuote.resolve(quoteResponse('999')))
+  assert.equal(container.textContent?.includes('999 CNY'), false)
+  assert.equal(container.textContent?.includes('Amount due: 100 CNY'), false)
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  await act(async () => newQuote.resolve(quoteResponse('100')))
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  assert.equal(container.textContent?.includes('999 CNY'), false)
+  queryClient.clear()
+})
+
+test('a locale change retains the amount without retaining manual coupon authorization', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  useRealUsdAnchor()
+  await i18n.changeLanguage('zh')
+  const requests: AmountRequest[] = []
+  api.post = v2PaymentPost((async (url, body) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
+      return validDiscount
+    }
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
+    const request = body as AmountRequest
+    requests.push(request)
+    return quoteResponse(
+      String((request.amount / 500000) * (request.discount_code ? 0.9 : 1))
+    )
+  }) as typeof api.post)
+  const { container, queryClient } = await renderWallet(false, {
+    setting: { wallet_display_currency: '' },
+  })
+  const preset = container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Preset amount: 100 "]'
+  )
+  assert.ok(preset)
+  await act(async () => preset.click())
+  const input = container.querySelector<HTMLInputElement>('#discount-code')
+  assert.ok(input)
+  const setter = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, 'SAVE')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const apply = [...container.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Apply'
+  )
+  assert.ok(apply)
+  await act(async () => apply.click())
+  assert.equal(requests.at(-1)?.discount_code, 'SAVE')
+  assert.ok(container.textContent?.includes('Amount due: 90 CNY'))
+
+  await act(async () => i18n.changeLanguage('en'))
+  assert.equal(requests.at(-1)?.amount, 50000000)
+  assert.equal(requests.at(-1)?.discount_code, undefined)
+  assert.ok(container.textContent?.includes('Amount due: 100 CNY'))
+  assert.equal(
+    container.textContent?.includes('Discount applied: 10% off'),
+    false
+  )
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#discount-code')?.value,
+    ''
+  )
+  queryClient.clear()
+})
+
+for (const scope of ['account', 'session'] as const) {
+  test(`a ${scope} change discards the previous owner's raw amount draft`, async () => {
+    window.history.replaceState({}, '', '/wallet')
+    const requests: AmountRequest[] = []
+    api.post = v2PaymentPost((async (url, body) => {
+      assert.equal(url, '/api/user/topup/currency/v2/amount')
+      const request = body as AmountRequest
+      requests.push(request)
+      return quoteResponse(String(request.amount / 500000))
+    }) as typeof api.post)
+    const { container, queryClient } = await renderWallet(false)
+    const preset = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Preset amount: 100 "]'
+    )
+    assert.ok(preset)
+    await act(async () => preset.click())
+    assert.equal(requests.at(-1)?.amount, 50000000)
+    await act(async () => scopeChanges[scope]())
+    assert.equal(requests.at(-1)?.amount, 5000000)
+    assert.equal(
+      container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+      '10'
+    )
+    assert.ok(container.textContent?.includes('Amount due: 10 CNY'))
+    queryClient.clear()
+  })
+}
+
 for (const [scope, changeScope] of Object.entries(scopeChanges)) {
   test(`a ${scope} change hides confirmation and isolates the late quote`, async () => {
     window.history.replaceState({}, '', '/wallet')
     const pending = deferred<ReturnType<typeof quoteResponse>>()
     let requests = 0
-    api.post = (async (url) => {
-      assert.equal(url, '/api/user/waffo-pancake/amount')
+    api.post = v2PaymentPost((async (url) => {
+      assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/amount')
       requests++
       return requests === 2
         ? pending.promise
         : quoteResponse(requests < 3 ? '10.000' : '80.000')
-    }) as typeof api.post
+    }) as typeof api.post)
     const { container, queryClient } = await renderWallet(false, {
       topupInfo: pancakeTopup,
       setting: { settlement_currency: 'USD' },
@@ -1008,13 +1424,13 @@ for (const [scope, changeScope] of Object.entries(scopeChanges)) {
     const pending = deferred<{
       data: { success: boolean; data: { checkout_url: string } }
     }>()
-    api.post = (async (url) => {
-      if (url === '/api/user/waffo-pancake/amount') {
+    api.post = v2PaymentPost((async (url) => {
+      if (url === '/api/user/topup/currency/v2/waffo-pancake/amount') {
         return quoteResponse('70.00')
       }
-      assert.equal(url, '/api/user/waffo-pancake/pay')
+      assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/pay')
       return pending.promise
-    }) as typeof api.post
+    }) as typeof api.post)
     const { container, queryClient } = await renderWallet(false, {
       topupInfo: pancakeTopup,
       setting: { settlement_currency: 'USD' },
@@ -1047,11 +1463,11 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
   }
   window.open = (() => popup) as unknown as typeof window.open
   const waffoPayRequests: Array<{ url: string; body: unknown }> = []
-  api.post = (async (url, body) => {
-    if (url === '/api/user/waffo/amount') {
+  api.post = v2PaymentPost((async (url, body) => {
+    if (url === '/api/user/topup/currency/v2/waffo/amount') {
       return { data: { message: 'success', data: '10.00' } }
     }
-    if (url === '/api/user/waffo/pay') {
+    if (url === '/api/user/topup/currency/v2/waffo/pay') {
       waffoPayRequests.push({ url, body })
       return {
         data: {
@@ -1061,7 +1477,7 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
       }
     }
     return { data: { message: 'success', data: '10.00' } }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   try {
     const waffoTopup: Partial<TopupInfo> = {
@@ -1130,10 +1546,12 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
     // Confirm payment
     await act(async () => confirmButton().click())
 
-    // Verify that dispatchSelectedPayment dispatched to /api/user/waffo/pay with pay_method_index: 1
+    // Verify that dispatchSelectedPayment dispatched to /api/user/topup/currency/v2/waffo/pay with pay_method_index: 1
     assert.equal(waffoPayRequests.length, 1)
     assert.deepEqual(waffoPayRequests[0].body, {
-      amount: 10,
+      amount: 5000000,
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
       pay_method_index: 1,
     })
     assert.equal(popup.location.href, 'https://waffo.example.test/pay')
@@ -1147,11 +1565,11 @@ test('proceed to payment preserves selected Waffo sub-method index and dispatche
 
 test('proceed to payment handles missing Waffo payment URL failure', async () => {
   window.history.replaceState({}, '', '/wallet')
-  api.post = (async (url) => {
-    if (url === '/api/user/waffo/amount') {
+  api.post = v2PaymentPost((async (url) => {
+    if (url === '/api/user/topup/currency/v2/waffo/amount') {
       return { data: { message: 'success', data: '10.00' } }
     }
-    if (url === '/api/user/waffo/pay') {
+    if (url === '/api/user/topup/currency/v2/waffo/pay') {
       return {
         data: {
           success: true,
@@ -1160,7 +1578,7 @@ test('proceed to payment handles missing Waffo payment URL failure', async () =>
       }
     }
     return { data: { message: 'success', data: '10.00' } }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const waffoTopup: Partial<TopupInfo> = {
     enable_online_topup: true,
@@ -1206,46 +1624,56 @@ test('proceed to payment handles missing Waffo payment URL failure', async () =>
   queryClient.clear()
 })
 
-test('manual discount code is not locked as URL discount and can be edited or removed', async () => {
+test('preset savings stay outside the coupon zone until a verified manual code is applied and can be removed', async () => {
   window.history.replaceState({}, '', '/wallet')
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       const code = (request as { code: string }).code
-      if (code === 'MANUAL20') {
+      if (code === 'PREVIEW20') {
         return {
           data: {
             success: true,
-            data: { code: 'MANUAL20', discount_percent: 20, min_amount: 10 },
+            data: { code: 'PREVIEW20', discount_percent: 20, min_amount: 10 },
           },
         }
       }
       return { data: { success: false, message: 'Invalid code' } }
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const req = request as AmountRequest
     return {
       data: {
         message: 'success',
-        data: req.discount_code ? '8.00' : '10.00',
+        data: req.discount_code ? '72.00' : '90.00',
+        settlement_currency: 'CNY',
+        settlement_quote: req.discount_code
+          ? fixtureDiscount('100.00', '72.00', '28.00', '28.00')
+          : fixtureDiscount('100.00', '90.00', '10.00', '10.00'),
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true)
   const input = container.querySelector<HTMLInputElement>('#discount-code')
   assert.ok(input)
   assert.equal(input.readOnly, false)
+  const couponZone = input.closest('[data-slot="field"]')
+  assert.ok(couponZone)
+  assert.equal(couponZone.textContent?.includes('% off'), false)
+  assert.equal(couponZone.textContent?.includes('You save:'), false)
+  assert.ok(container.textContent?.includes('Discount applied: 10% off'))
 
-  // Type MANUAL20
+  // An unvalidated draft does not claim that the preset savings came from it.
   const setValue = Object.getOwnPropertyDescriptor(
     domWindow.HTMLInputElement.prototype,
     'value'
   )?.set
   assert.ok(setValue)
   await act(async () => {
-    setValue.call(input, 'MANUAL20')
+    setValue.call(input, 'PREVIEW20')
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
+  assert.equal(couponZone.textContent?.includes('% off'), false)
 
   const applyBtn = Array.from(
     container.querySelectorAll<HTMLButtonElement>('button')
@@ -1254,7 +1682,9 @@ test('manual discount code is not locked as URL discount and can be edited or re
   await act(async () => applyBtn.click())
 
   // Discount is applied
-  assert.ok(container.textContent?.includes('Discount applied: 20% off'))
+  assert.ok(couponZone.textContent?.includes('Discount applied: 28% off'))
+  assert.ok(couponZone.textContent?.includes('You save: 28 CNY'))
+  assert.equal(couponZone.textContent?.includes('20% off'), false)
   // Input is STILL NOT readOnly
   assert.equal(
     input.readOnly,
@@ -1282,9 +1712,11 @@ test('manual discount code is not locked as URL discount and can be edited or re
   // Discount is cleared
   assert.equal(input.value, '')
   assert.equal(
-    container.textContent?.includes('Discount applied: 20% off'),
+    container.textContent?.includes('Discount applied: 28% off'),
     false
   )
+  assert.equal(couponZone.textContent?.includes('% off'), false)
+  assert.ok(container.textContent?.includes('Discount applied: 10% off'))
   queryClient.clear()
 })
 
@@ -1293,12 +1725,12 @@ test('invalid URL discount code reverts to regular price and allows checkout wit
   let validationCalled = 0
   const validation = deferred<{ data: { success: boolean; message: string } }>()
   const quotes: AmountRequest[] = []
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       validationCalled++
       return validation.promise
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const req = request as AmountRequest
     quotes.push(req)
     return {
@@ -1307,7 +1739,7 @@ test('invalid URL discount code reverts to regular price and allows checkout wit
         data: '10.00',
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true)
   assert.equal(validationCalled, 1)
@@ -1353,15 +1785,15 @@ test('invalid URL discount code reverts to regular price and allows checkout wit
 
 test('typing a discount code draft and deleting it back to empty keeps Pay button enabled and opens confirmation dialog', async () => {
   window.history.replaceState({}, '', '/wallet')
-  api.post = (async (url) => {
-    assert.equal(url, '/api/user/amount')
+  api.post = v2PaymentPost((async (url) => {
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     return {
       data: {
         message: 'success',
         data: '10.00',
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true)
 
@@ -1422,12 +1854,12 @@ test('invalid URL discount code does not abort checkout when switching payment m
   const wxpayQuote = deferred<{ data: { message: string; data: string } }>()
   const quotes: AmountRequest[] = []
 
-  api.post = (async (url, request) => {
-    if (url === '/api/user/discount-code/validate') {
+  api.post = v2PaymentPost((async (url, request) => {
+    if (url === '/api/user/topup/currency/v2/discount-code/validate') {
       validationCalled++
       return validation.promise
     }
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     const req = request as AmountRequest
     quotes.push(req)
     if (req.payment_method === 'wxpay') {
@@ -1439,7 +1871,7 @@ test('invalid URL discount code does not abort checkout when switching payment m
         data: '10.00',
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
 
   const { container, queryClient } = await renderWallet(true)
   assert.equal(validationCalled, 1)
@@ -1499,16 +1931,16 @@ test('invalid URL discount code does not abort checkout when switching payment m
 test('an MCP top-up link only prefills the wallet and waits for user payment selection', async () => {
   window.history.replaceState({}, '', '/wallet?topup_amount=25')
   const requests: string[] = []
-  api.post = (async (url, request) => {
+  api.post = v2PaymentPost((async (url, request) => {
     requests.push(url)
-    assert.equal(url, '/api/user/amount')
+    assert.equal(url, '/api/user/topup/currency/v2/amount')
     return {
       data: {
         message: 'success',
-        data: String((request as AmountRequest).amount),
+        data: String((request as AmountRequest).amount / 500000),
       },
     }
-  }) as typeof api.post
+  }) as typeof api.post)
   const { container, queryClient } = await renderWallet()
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
@@ -1520,7 +1952,7 @@ test('an MCP top-up link only prefills the wallet and waits for user payment sel
   )
   assert.ok(pay)
   await act(async () => pay.click())
-  assert.deepEqual(requests, ['/api/user/amount'])
+  assert.deepEqual(requests, ['/api/user/topup/currency/v2/amount'])
   assert.ok(
     document.querySelector('[role="alertdialog"]'),
     'only a user payment selection opens confirmation'
@@ -1530,12 +1962,12 @@ test('an MCP top-up link only prefills the wallet and waits for user payment sel
 
 test('changing an MCP-prefilled amount keeps the user edit through later top-up data refreshes', async () => {
   window.history.replaceState({}, '', '/wallet?topup_amount=25')
-  api.post = (async (_url, request) => ({
+  api.post = v2PaymentPost((async (_url, request) => ({
     data: {
       message: 'success',
-      data: String((request as AmountRequest).amount),
+      data: String((request as AmountRequest).amount / 500000),
     },
-  })) as typeof api.post
+  })) as typeof api.post)
   const { container, queryClient } = await renderWallet()
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
@@ -1563,12 +1995,12 @@ test('duplicate and malformed MCP top-up amounts keep the normal wallet default'
     '?topup_amount=1e3',
   ]) {
     window.history.replaceState({}, '', `/wallet${search}`)
-    api.post = (async (_url, request) => ({
+    api.post = v2PaymentPost((async (_url, request) => ({
       data: {
         message: 'success',
-        data: String((request as AmountRequest).amount),
+        data: String((request as AmountRequest).amount / 500000),
       },
-    })) as typeof api.post
+    })) as typeof api.post)
     const { container, queryClient } = await renderWallet()
     const input = container.querySelector<HTMLInputElement>('#topup-amount')
     assert.ok(input)
@@ -1577,3 +2009,210 @@ test('duplicate and malformed MCP top-up amounts keep the normal wallet default'
     queryClient.clear()
   }
 })
+
+test('changing only wallet display currency preserves a pending checkout and its exact payment request', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const requests: Array<{ url: unknown; body: Record<string, unknown> }> = []
+  api.post = v2PaymentPost((async (url, body: Record<string, unknown>) => {
+    requests.push({ url, body })
+    if (url === '/api/user/topup/currency/v2/waffo-pancake/amount') {
+      return quoteResponse('12.3400', 'USD')
+    }
+    assert.equal(url, '/api/user/topup/currency/v2/waffo-pancake/pay')
+    return { data: { success: false, message: 'mock checkout rejected' } }
+  }) as typeof api.post)
+  const { container, queryClient } = await renderWallet(false, {
+    topupInfo: pancakeTopup,
+  })
+  await act(async () => paymentButton().click())
+  const dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(dialog)
+  const before = requests.length
+  for (const preference of ['CNY', 'CREDIT', 'USD'] as const) {
+    await act(async () => {
+      const auth = useAuthStore.getState().auth
+      assert.ok(auth.user)
+      auth.setUser({
+        ...auth.user,
+        setting: { wallet_display_currency: preference },
+      })
+    })
+    assert.equal(document.querySelector('[role="alertdialog"]'), dialog)
+    assert.ok(dialog.textContent?.includes('12.3400 USD'))
+    assert.equal(
+      requests.length,
+      before,
+      'display preferences never recalculate the order'
+    )
+  }
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+    '10'
+  )
+  await act(async () => confirmButton().click())
+  assert.deepEqual(requests.at(-1), {
+    url: '/api/user/topup/currency/v2/waffo-pancake/pay',
+    body: {
+      amount: 5000000,
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+      settlement_amount: '12.3400',
+      settlement_currency: 'USD',
+      checkout_region: 'global',
+      checkout_language: 'en',
+    },
+  })
+  queryClient.clear()
+})
+
+for (const quotaPerUnit of [300000, 500000]) {
+  for (const rawQuota of [1, 4503599627370497, 9007199254740987]) {
+    test(`canonical wallet keeps raw ${rawQuota} exact across three currencies at QPU ${quotaPerUnit}`, async () => {
+      window.history.replaceState({}, '', '/wallet')
+      useSystemConfigStore.setState((state) => ({
+        config: {
+          ...state.config,
+          currency: {
+            ...state.config.currency,
+            quotaPerUnit,
+            creditsPerUsd: 500000,
+            creditsPerUsdExact: '500000',
+            cnyPerUsd: 8,
+            cnyPerUsdExact: '8',
+          },
+        },
+      }))
+      const calls: Array<{ url: string; body: Record<string, unknown> }> = []
+      api.post = v2PaymentPost((async (
+        url: string,
+        body: Record<string, unknown>
+      ) => {
+        calls.push({ url, body })
+        assert.equal(body.amount_unit, 'LEDGER_QUOTA')
+        assert.equal(body.credit_metadata_version, 2)
+        assert.ok(Number.isSafeInteger(body.amount))
+        if (url.endsWith('/discount-code/validate')) return validDiscount
+        if (url.endsWith('/amount')) {
+          return {
+            data: {
+              success: true,
+              data: '0.0100',
+              settlement_currency: 'USD',
+              credited_quota: body.amount,
+            },
+          }
+        }
+        assert.equal(url, '/api/user/topup/currency/v2/pay')
+        return { data: { success: false, message: 'mock checkout rejected' } }
+      }) as typeof api.post)
+      const { container, queryClient } = await renderWallet(false, {
+        topupInfo: {
+          credit_amount_options: [rawQuota],
+          credit_discount: { [rawQuota]: 0.9 },
+          credit_min_topup: 1,
+          stripe_credit_min_topup: 1,
+          waffo_credit_min_topup: 1,
+          pancake_credit_min_topup: 1,
+          pay_methods: [
+            {
+              name: 'Card',
+              type: 'card',
+              min_topup: 0,
+              min_topup_credit: '1',
+              max_topup_credit: String(rawQuota),
+              settlement_currency: 'USD',
+            },
+          ],
+        },
+      })
+      const preset = container.querySelector<HTMLButtonElement>(
+        'button[aria-pressed]'
+      )
+      assert.ok(preset)
+      await act(async () => preset.click())
+      const input = container.querySelector<HTMLInputElement>('#topup-amount')
+      assert.ok(input)
+      const setter = Object.getOwnPropertyDescriptor(
+        domWindow.HTMLInputElement.prototype,
+        'value'
+      )?.set
+      assert.ok(setter)
+      const { displayAmountToQuota } = await import('@/lib/currency')
+      for (const preference of ['USD', 'CNY', 'CREDIT'] as const) {
+        const count = calls.length
+        await act(async () => {
+          const auth = useAuthStore.getState().auth
+          assert.ok(auth.user)
+          auth.setUser({
+            ...auth.user,
+            setting: { wallet_display_currency: preference },
+          })
+        })
+        assert.equal(
+          calls.length,
+          count,
+          'display changes never change or requote the selection'
+        )
+        await act(async () => input.blur())
+        assert.equal(
+          calls.length,
+          count,
+          'blurring the rounded display never creates a new quote'
+        )
+        await act(async () => input.focus())
+        assert.equal(displayAmountToQuota(input.value, 'USD'), rawQuota)
+        assert.equal(
+          input
+            .closest('[data-slot="input-group"]')
+            ?.textContent?.includes('USD'),
+          true
+        )
+        await act(async () => {
+          setter.call(input, input.value)
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+        })
+        await act(async () => input.focus())
+        assert.equal(displayAmountToQuota(input.value, 'USD'), rawQuota)
+        assert.equal(
+          input
+            .closest('[data-slot="input-group"]')
+            ?.textContent?.includes('USD'),
+          true
+        )
+      }
+      const codeInput =
+        container.querySelector<HTMLInputElement>('#discount-code')
+      assert.ok(codeInput)
+      await act(async () => {
+        setter.call(codeInput, 'SAVE')
+        codeInput.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      const apply = [...container.querySelectorAll('button')].find(
+        (button) => button.textContent?.trim() === 'Apply'
+      )
+      assert.ok(apply)
+      await act(async () => apply.click())
+      const coupon = calls.find((call) =>
+        call.url.endsWith('/discount-code/validate')
+      )
+      assert.ok(coupon)
+      assert.equal(coupon.body.amount, rawQuota)
+      assert.equal(coupon?.body.amount_unit, 'LEDGER_QUOTA')
+      assert.equal(coupon?.body.credit_metadata_version, 2)
+      await act(async () => paymentButton().click())
+      const dialog = document.querySelector('[role="alertdialog"]')
+      assert.ok(dialog)
+      assert.ok(dialog.textContent?.includes('0.01 USD'))
+      await act(async () => confirmButton().click())
+      const selectedCalls = calls.slice(calls.indexOf(coupon))
+      assert.ok(selectedCalls.some((call) => call.url.endsWith('/amount')))
+      assert.ok(selectedCalls.some((call) => call.url.endsWith('/pay')))
+      for (const call of selectedCalls) {
+        assert.equal(call.body.amount, rawQuota, call.url)
+        assert.equal(call.body.amount_unit, 'LEDGER_QUOTA', call.url)
+        assert.equal(call.body.credit_metadata_version, 2, call.url)
+      }
+      queryClient.clear()
+    })
+  }
+}

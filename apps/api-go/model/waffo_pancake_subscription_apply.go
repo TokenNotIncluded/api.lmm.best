@@ -122,7 +122,11 @@ func applyWaffoPancakePeriodTx(tx *gorm.DB, order *SubscriptionOrder, event *Waf
 	if initial || newPeriod {
 		subscription.StartTime = event.PeriodStart
 		subscription.EndTime = event.PeriodEnd
-		subscription.AmountTotal = plan.TotalAmount
+		if initial {
+			subscription.AmountTotal = plan.TotalAmount
+		} else {
+			subscription.applyRenewalGrant(plan.TotalAmount)
+		}
 		subscription.AmountUsed = 0
 		subscription.QuotaVersion++
 		subscription.LastResetTime = event.PeriodStart

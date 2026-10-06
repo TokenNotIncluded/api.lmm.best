@@ -27,6 +27,7 @@ type profileShareSVGOptions struct {
 	Title, Label, Footer, RequestLabel            string
 	ShowRequests                                  bool
 	CustomTitle, CustomLabel, CustomFooter        bool
+	Currency                                      string // Money display, used only by the models layout.
 }
 
 type profileShareSVGLanguage struct {

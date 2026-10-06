@@ -86,3 +86,51 @@ and verify balances, token usage and period ownership before considering any
 resumption of writes. Simply switching binaries or retaining the added columns
 does not establish N-1 runtime compatibility; old writes and cleanup must remain
 disabled until an explicit compatible recovery plan has been validated.
+
+## One-time correction of sold subscription credits
+
+The fixed billing unit remains 500,000 credits per USD. The balance correction
+uses the production exchange-rate snapshot once; runtime billing never divides
+that fixed unit by an exchange rate.
+
+For a finite existing `user_subscriptions` row, preserve `amount_used`. Set
+`amount_total = old_amount_used + round(max(old_amount_total - old_amount_used, 0)
+/ migration_rate)` and set nullable `reset_amount = round(old_amount_total /
+migration_rate)`. Thus current remaining credits are corrected without rewriting
+historical consumption. Use the same half-away-from-zero rounding as the wallet migration and audit each rounding difference. `reset_amount` is the corrected future grant for that
+paid period, independently of the current-period total that still includes
+historical usage. Also set nullable `renewal_amount` to the corrected full
+purchased grant from the original order plan snapshot (or the original total
+for an administrator contract with no order). Keep this full renewal grant
+independent of partial refunds of the current paid period. NULL retains the previous behavior and unlimited contracts
+(`old_amount_total = 0`) remain NULL. A non-NULL zero is a finite exhausted grant,
+never unlimited.
+
+Scheduled resets, administrator resets and redeemed reset vouchers use
+`reset_amount` when present. Paid renewals and Waffo lifecycle renewals restore
+`renewal_amount` and set `reset_amount` to that new full paid grant. Thus partial
+refunds reduce the current period reset grant without reducing the next paid
+contract renewal. If only `reset_amount` is present, renewal retains that
+corrected grant rather than resurrecting an unconverted snapshot. Reset audit quota
+is the increase in spendable remaining quota, not the unconverted historical
+`amount_used`. A reset preview freezes total and reset grant as well as usage;
+changing a grant invalidates the preview.
+
+The migration must snapshot original row IDs, totals, usage, reset and renewal grants,
+quota version, timestamps and full order plan snapshots, and retain its exact
+exchange-rate string. Increment `quota_version` and update `updated_at` for
+corrected subscriptions; invalidate existing reset previews and drain/reconcile
+in-flight subscription reservations before applying. Neither this runtime patch
+nor a migration preview authorizes changing historical consumption, fiat payment
+receipts, settlement amounts or the fixed USD-to-credit unit.
+
+Correct `subscription_plans.total_amount` for future purchases separately from
+sold contracts. Pending/unfulfilled subscription orders require their purchased
+`plan_snapshot.total_amount` to be corrected before the first paid callback can
+create a grant; preserve the original snapshot in the migration audit. Price and
+settlement fields are real fiat and are not quota migration targets. Reject a
+finite plan or pending snapshot whose corrected quota would be zero because the
+existing creation contract interprets a zero plan grant as unlimited. Completed
+orders may retain their original snapshots for audit: their migrated subscription
+`renewal_amount` prevents a later renewal from restoring the old grant. Refund
+reconciliation must use its separately captured corrected credit baseline.

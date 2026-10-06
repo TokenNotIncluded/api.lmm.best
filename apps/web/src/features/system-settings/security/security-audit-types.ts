@@ -209,6 +209,13 @@ export type ModerationReview = {
   input_truncated: boolean
   attempts: number
   completed_at: number
+  subject_identifier?: string
+  provider_calls?: Array<{
+    attempt: number
+    batch_index: number
+    response_id: string
+    request_id: string
+  }>
   error?: string
 }
 

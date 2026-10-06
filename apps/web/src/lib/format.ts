@@ -22,7 +22,9 @@ import dayjs from '@/lib/dayjs'
 import {
   formatQuotaWithCurrency,
   getCurrencyDisplay,
-  getCurrencyFractionDigits,
+  displayAmountToQuota,
+  quotaToDisplayAmount,
+  quotaToDisplayInput,
 } from './currency'
 
 // ============================================================================
@@ -71,80 +73,36 @@ export function formatPercent(value: number | null | undefined): string {
 }
 
 // ============================================================================
-// Quota Formatting (500,000 units = $1)
+// Quota formatting: integer ledger quota, with independent public credit presentation.
 // ============================================================================
 
-/**
- * Format quota into the configured display amount.
- * Quota is stored in units where `quotaPerUnit` equals 1 USD.
- */
 export function formatQuota(quota: number): string {
   return formatQuotaWithCurrency(quota, {
     digitsLarge: 2,
-    digitsSmall: 4,
-    abbreviate: true,
+    digitsSmall: 6,
+    abbreviate: false,
   })
 }
 
-/**
- * Parse quota from the current display input back to quota units.
- */
-export function parseQuotaFromDollars(amount: number): number {
-  if (!Number.isFinite(amount)) return 0
-
-  const { config, meta } = getCurrencyDisplay()
-
-  // Tokens-only or raw quota mode
-  if (meta.kind === 'tokens') {
-    return Math.round(amount)
-  }
-
-  const exchangeRate =
-    meta.kind === 'currency' || meta.kind === 'custom' ? meta.exchangeRate : 1
-
-  const usdAmount = exchangeRate > 0 ? amount / exchangeRate : amount
-
-  return Math.round(usdAmount * config.quotaPerUnit)
+/** Invalid input returns NaN, allowing the form to reject it instead of storing zero. */
+export function parseQuotaFromDollars(amount: number | string): number {
+  return displayAmountToQuota(amount)
 }
 
-/**
- * Convert quota units to the configured display amount.
- * Reverse of parseQuotaFromDollars.
- */
 export function quotaUnitsToDollars(units: number): number {
-  const { config, meta } = getCurrencyDisplay()
-
-  return quotaUnitsToDisplayAmount(units, config.quotaPerUnit, meta)
+  return quotaToDisplayAmount(units)
 }
 
-function quotaUnitsToDisplayAmount(
-  units: number,
-  quotaPerUnit: number,
-  meta: ReturnType<typeof getCurrencyDisplay>['meta']
-): number {
-  if (meta.kind === 'tokens') {
-    return units
-  }
-
-  const usdAmount = units / quotaPerUnit
-
-  return usdAmount * meta.exchangeRate
-}
-
-/** Convert quota units to a plain number suitable for an editable input. */
+/** String inputs should use quotaToDisplayInput to preserve every smallest ledger unit. */
 export function quotaUnitsToEditableAmount(units: number): number {
-  const { config, meta } = getCurrencyDisplay()
-  const amount = quotaUnitsToDisplayAmount(units, config.quotaPerUnit, meta)
-
-  if (meta.kind === 'tokens') return Math.round(amount)
-  return Number(amount.toFixed(getCurrencyFractionDigits(amount)))
+  const text = quotaToDisplayInput(units)
+  return text ? Number(text) : Number.NaN
 }
 
-/** Return the input step matching the configured editable quota precision. */
-export function getEditableQuotaStep(): number {
-  const { meta } = getCurrencyDisplay()
-  if (meta.kind === 'tokens') return 1
-  return 10 ** -getCurrencyFractionDigits(0)
+export function getEditableQuotaStep(): number | 'any' {
+  const { currency } = getCurrencyDisplay()
+  if (currency !== 'CREDIT') return 1e-15
+  return quotaToDisplayAmount(1, 'CREDIT') === 1 ? 1 : 'any'
 }
 
 // ============================================================================

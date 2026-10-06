@@ -11,17 +11,28 @@ import (
 )
 
 type ToolMarketCall struct {
-	ID               string `json:"id" gorm:"primaryKey;size:64"`
-	UserID           int    `json:"user_id" gorm:"not null;index"`
-	ClientID         string `json:"client_id" gorm:"size:128;not null"`
-	ServiceID        string `json:"service_id" gorm:"size:36;not null;index"`
-	ToolID           string `json:"tool_id" gorm:"size:36;not null;index"`
-	VersionID        string `json:"version_id" gorm:"size:36;not null"`
-	GrantID          string `json:"grant_id" gorm:"size:36;not null"`
-	InputDigest      string `json:"-" gorm:"size:64;not null"`
-	OwnerID          int    `json:"owner_id"`
-	RecipientID      int    `json:"recipient_id"`
-	PriceQuota       int    `json:"price_quota"`
+	ID                   string                  `json:"id" gorm:"primaryKey;size:64"`
+	UserID               int                     `json:"user_id" gorm:"not null;index"`
+	ClientID             string                  `json:"client_id" gorm:"size:128;not null"`
+	ServiceID            string                  `json:"service_id" gorm:"size:36;not null;index"`
+	ToolID               string                  `json:"tool_id" gorm:"size:36;not null;index"`
+	VersionID            string                  `json:"version_id" gorm:"size:36;not null"`
+	GrantID              string                  `json:"grant_id" gorm:"size:36;not null"`
+	InputDigest          string                  `json:"-" gorm:"size:64;not null"`
+	OwnerID              int                     `json:"owner_id"`
+	RecipientID          int                     `json:"recipient_id"`
+	PriceQuota           int                     `json:"price_quota"`
+	BillingMode          string                  `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
+	InputTokenPriceQuota int                     `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
+	MaxInputTokens       int                     `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
+	InputTokens          int                     `json:"input_tokens,omitempty" gorm:"not null;default:0"`
+	BillingRules         []ToolMarketBillingRule `json:"billing_rules,omitempty" gorm:"serializer:json;type:text"`
+	UsageQuantities      map[string]int64        `json:"usage_quantities,omitempty" gorm:"serializer:json;type:text"`
+
+	UsageSource  string                 `json:"usage_source,omitempty" gorm:"size:24;not null;default:''"`
+	UsageReport  ToolMarketDeliveryData `json:"-"`
+	ResultDigest string                 `json:"-" gorm:"size:64;not null;default:''"`
+
 	FeeBPS           int    `json:"fee_bps"`
 	FeeQuota         int    `json:"fee_quota"`
 	ExecutionStatus  string `json:"execution_status" gorm:"size:24;index"`
@@ -147,6 +158,7 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 			return ErrToolMarketBudget
 		}
 		call = ToolMarketCall{ID: id, UserID: in.UserID, ClientID: in.ClientID, ServiceID: service.ID, ToolID: in.ToolID, VersionID: in.VersionID, GrantID: in.GrantID,
+			BillingMode: version.BillingMode, InputTokenPriceQuota: version.InputTokenPriceQuota, MaxInputTokens: version.MaxInputTokens, BillingRules: version.BillingRules,
 			InputDigest: digest, OwnerID: service.OwnerID, RecipientID: config.RecipientID, PriceQuota: price, FeeBPS: config.FeeBPS, FeeQuota: marketFee(price, config.FeeBPS),
 			ExecutionStatus: "reserved", SettlementStatus: "held", CreatedAt: now, ResolveBy: in.ResolveBy}
 		budgets, err := marketBudgets(tx, call)
@@ -291,13 +303,32 @@ func finishToolMarketCall(id string, success, expire bool) error {
 			// marketCallTx's initial ordinary read can establish a MySQL RR
 			// snapshot before waiting for the service/call locks. A final state
 			// decision must read the current result after acquiring those locks.
-			outcomeErr = lockForUpdate(tx).Select("call_id", "success", "builtin_billing_pending").First(&outcome, "call_id = ?", call.ID).Error
+			outcomeErr = lockForUpdate(tx).Select("call_id", "success", "builtin_billing_pending", "input_tokens", "usage_recorded", "metering_verified", "usage_quantities", "usage_source", "usage_report", "result_digest").First(&outcome, "call_id = ?", call.ID).Error
 			if outcomeErr != nil && !errors.Is(outcomeErr, gorm.ErrRecordNotFound) {
 				return outcomeErr
 			}
 		}
 		if success && outcomeErr == nil && outcome.BuiltinBillingPending {
 			return ErrToolMarketConflict
+		}
+		held := call.PriceQuota
+		charged := held
+		if success && call.BillingMode != "" {
+			if outcomeErr != nil || !outcome.Success || !outcome.UsageRecorded || (outcome.UsageSource != ToolMarketUsageReported && !outcome.MeteringVerified) || outcome.UsageQuantities == nil {
+				return ErrToolMarketConflict
+			}
+			var err error
+			charged, err = toolMarketRulesQuota(toolMarketCallRules(*call), outcome.UsageQuantities)
+			if err != nil || charged > held {
+				return ErrToolMarketConflict
+			}
+			call.InputTokens = int(outcome.UsageQuantities["input_tokens"])
+			call.UsageQuantities = outcome.UsageQuantities
+			call.UsageSource = outcome.UsageSource
+			if call.UsageSource == "" && outcome.MeteringVerified {
+				call.UsageSource = ToolMarketUsageVerified
+			}
+			call.UsageReport, call.ResultDigest = outcome.UsageReport, outcome.ResultDigest
 		}
 		affected = []int{call.UserID, call.OwnerID, call.RecipientID}
 		if err := marketLockUsers(tx, append([]int(nil), affected...)...); err != nil {
@@ -314,7 +345,7 @@ func finishToolMarketCall(id string, success, expire bool) error {
 		grant.ReservedQuota -= call.PriceQuota
 		if success {
 			grant.SuccessfulCalls++
-			grant.SpentQuota += call.PriceQuota
+			grant.SpentQuota += charged
 		}
 		if err := tx.Save(&grant).Error; err != nil {
 			return err
@@ -329,13 +360,19 @@ func finishToolMarketCall(id string, success, expire bool) error {
 			}
 			budget.ReservedQuota -= call.PriceQuota
 			if success {
-				budget.SpentQuota += call.PriceQuota
+				budget.SpentQuota += charged
 			}
 			if err := marketSaveBudget(tx, budget); err != nil {
 				return err
 			}
 		}
 		if success {
+			if held > charged {
+				if err := ApplyWalletQuotaDelta(tx, call.UserID, held-charged); err != nil {
+					return err
+				}
+			}
+			call.PriceQuota, call.FeeQuota = charged, marketFee(charged, call.FeeBPS)
 			for _, part := range []struct {
 				kind      string
 				recipient int

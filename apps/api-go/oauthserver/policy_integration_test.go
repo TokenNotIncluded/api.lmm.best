@@ -12,6 +12,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/oauthserver"
 	"github.com/LIghtJUNction/api.lmm.best/service"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -24,6 +25,21 @@ const (
 
 func productionPolicyFixture(t *testing.T, db *gorm.DB, paid bool) *service.OAuthIntegration {
 	t.Helper()
+	oldK, oldBasisErr := common.CreditsPerUSD()
+	oldLegacyQ, _ := common.LegacyPricingQuotaPerUnit()
+	oldRuntimeQ := common.QuotaPerUnit
+	// Model an initialized historical site: the paid-access policy retains Q,
+	// independently of the literal seven-times-Q USD anchor K.
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	t.Cleanup(func() {
+		common.QuotaPerUnit = oldRuntimeQ
+		if oldBasisErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(oldK, oldLegacyQ))
+		}
+	})
 	previousDialect := common.MainDatabaseType()
 	common.SetMainDatabaseType(common.DatabaseType(db.Dialector.Name()))
 	t.Cleanup(func() { common.SetMainDatabaseType(previousDialect) })

@@ -303,7 +303,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_new_user_gift_status",
-				Description: "Read only the signed-in user's stored welcome-gift status and USD amount. Use for status, rules, eligibility questions, and whether a gift was already claimed. This never evaluates eligibility, creates a decision, consumes the opportunity, or claims a gift. An existing offer reopens its claim card. No stored decision does not establish eligibility; claimed and declined decisions cannot be reset by changing conversations.",
+				Description: "Read only the signed-in user's stored welcome-gift status, Credit grant and actual USD value. amount_cents is a legacy bridge, not US cents. Use for status, rules, eligibility questions, and whether a gift was already claimed. This never evaluates eligibility, creates a decision, consumes the opportunity, or claims a gift. An existing offer reopens its claim card. No stored decision does not establish eligibility; claimed and declined decisions cannot be reset by changing conversations.",
 				Parameters:  emptyObjectSchema(),
 			},
 		},
@@ -311,9 +311,10 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_new_user_gift",
-				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 US cents. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
+				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 LEGACY_CENTS, hundredths of one legacy pricing unit, preserving the existing Credit gift range. These are not US cents; explain the result using public_credit_amount or amount_usd. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
 				Parameters: objectSchema(map[string]any{
-					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
+					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000, "description": "LEGACY_CENTS: hundredths of one legacy pricing unit, preserving the existing Credit gift range. Not US cents. The result reports public_credit_amount and amount_usd."},
+					"amount_unit":  map[string]any{"type": "string", "enum": []string{"LEGACY_CENTS"}, "description": "The retained amount_cents input uses LEGACY_CENTS only."},
 					"reason":       map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
 				}, []string{"amount_cents", "reason"}),
 			},
@@ -2652,12 +2653,13 @@ func executeAssistantCostTool(input map[string]any) map[string]any {
 	inputCost := inputTokens / 1_000_000 * inputPrice
 	outputCost := outputTokens / 1_000_000 * outputPrice
 	return map[string]any{
-		"ok":              true,
-		"input_cost_usd":  inputCost * ratio,
-		"output_cost_usd": outputCost * ratio,
-		"total_cost_usd":  (inputCost + outputCost) * ratio,
-		"group_ratio":     ratio,
-		"formula":         "(input_tokens / 1,000,000 × input price + output_tokens / 1,000,000 × output price) × group ratio",
+		"ok":               true,
+		"input_cost_usd":   inputCost * ratio,
+		"output_cost_usd":  outputCost * ratio,
+		"total_cost_usd":   (inputCost + outputCost) * ratio,
+		"pricing_currency": "USD", "pricing_schema_version": 2,
+		"group_ratio": ratio,
+		"formula":     "(input_tokens / 1,000,000 × input price + output_tokens / 1,000,000 × output price) × group ratio",
 	}
 }
 
@@ -2969,7 +2971,10 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 			"group_ratio":          groupRatio,
 		}
 		if selected.QuotaType == 0 && selected.BillingMode != "tiered_expr" {
-			inputRate := selected.ModelRatio * 2 * groupRatio
+			inputRate, err := model.ModelRatioUSDPerMillion(selected.ModelRatio * groupRatio)
+			if err != nil {
+				return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+			}
 			entry["input_usd_per_million"] = inputRate
 			entry["output_usd_per_million"] = inputRate * selected.CompletionRatio
 			if selected.CacheRatio != nil {
@@ -2979,7 +2984,11 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 				entry["cache_write_usd_per_million"] = inputRate * *selected.CreateCacheRatio
 			}
 		} else if selected.QuotaType == 1 {
-			entry["request_usd"] = selected.ModelPrice * groupRatio
+			price, err := model.LegacyPricingAmountUSD(selected.ModelPrice * groupRatio)
+			if err != nil {
+				return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+			}
+			entry["request_usd"] = price
 		}
 		prices = append(prices, entry)
 	}
@@ -2993,14 +3002,19 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 		calculationInstruction = "The returned USD reference prices include the public default-group ratio and no account-specific discount. Pass group_ratio=1 to calculate_cost and explain that L1 access is still required to use the model."
 	}
 
+	usdExpression, err := model.USDExpression(selected.BillingExpr)
+	if err != nil {
+		return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+	}
 	return map[string]any{
+		"pricing_currency": "USD", "pricing_schema_version": 2,
 		"ok":                          true,
 		"model_id":                    selected.ModelName,
 		"trust_level":                 trustLevel,
 		"trust_discount_ratio":        trustDiscountRatio,
 		"quota_type":                  selected.QuotaType,
 		"billing_mode":                selected.BillingMode,
-		"billing_expression":          selected.BillingExpr,
+		"billing_expression":          usdExpression,
 		"prices":                      prices,
 		"supported_endpoint_types":    selected.SupportedEndpointTypes,
 		"administrator_scope":         isAdministrator,
@@ -3077,18 +3091,57 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 	if err != nil {
 		return map[string]any{"ok": false, "error": "invitation information could not be loaded"}
 	}
+	amounts := []int{user.AffQuota, user.AffHistoryQuota, common.QuotaForInviter, common.QuotaForInvitee}
+	usd := make([]any, len(amounts))
+	projectionUnavailable := false
+	for i, amount := range amounts {
+		converted, _, err := assistantFiatProjection(int64(amount))
+		if errors.Is(err, errAssistantCurrencyProjectionUnavailable) {
+			projectionUnavailable = true
+			continue // Preserve the ledger rewards; an unrepresentable USD field is null.
+		}
+		if err != nil {
+			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+		}
+		usd[i] = converted
+	}
 	result := map[string]any{
 		"ok":                           true,
 		"affiliate_code_available":     strings.TrimSpace(user.AffCode) != "",
 		"affiliate_code_path":          "/aff",
 		"invited_count":                user.AffCount,
-		"pending_reward_usd":           float64(user.AffQuota) / common.QuotaPerUnit,
-		"total_reward_usd":             float64(user.AffHistoryQuota) / common.QuotaPerUnit,
-		"reward_per_inviter_usd":       float64(common.QuotaForInviter) / common.QuotaPerUnit,
-		"reward_per_invitee_usd":       float64(common.QuotaForInvitee) / common.QuotaPerUnit,
+		"currency_unit":                "credit",
+		"pending_reward_credit":        user.AffQuota,
+		"total_reward_credit":          user.AffHistoryQuota,
+		"reward_per_inviter_credit":    common.QuotaForInviter,
+		"reward_per_invitee_credit":    common.QuotaForInvitee,
+		"pending_reward_usd":           usd[0],
+		"total_reward_usd":             usd[1],
+		"reward_per_inviter_usd":       usd[2],
+		"reward_per_invitee_usd":       usd[3],
 		"promotional_rewards_eligible": !model.IsDisposableEmail(user.Email),
 		"payment_compliance_confirmed": operation_setting.IsPaymentComplianceConfirmed(),
 		"next_step":                    "Open the invitation page to generate or copy the current invitation code.",
+	}
+	result["legacy_reward_credit_unit"] = common.LedgerQuotaUnit
+	if projectionUnavailable {
+		result["public_credit_status"] = "unavailable"
+		return result
+	}
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+	}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		result[key] = value
+	}
+	result["legacy_reward_credit_unit"] = common.LedgerQuotaUnit
+	for i, key := range []string{"pending_reward_public_credits", "total_reward_public_credits", "reward_per_inviter_public_credits", "reward_per_invitee_public_credits"} {
+		amount, err := units.ProjectLedgerQuota(int64(amounts[i]))
+		if err != nil {
+			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+		}
+		result[key] = amount.String()
 	}
 	if model.IsDisposableEmail(user.Email) {
 		result["message"] = "Known disposable email domains are not eligible for new-account or invitation promotional credits. Use a durable email for legitimate referrals; ordinary account support and tool-based registration verification remain available."
