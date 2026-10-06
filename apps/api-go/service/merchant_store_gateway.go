@@ -163,8 +163,14 @@ func merchantStorePublicGatewayView(sellerID int, provider string, enabled bool,
 func validateMerchantStoreGatewayConfig(provider string, config merchantStoreGatewayConfig) error {
 	switch provider {
 	case MerchantStoreExternalEpay:
-		if _, err := merchantStorePublicHTTPSURL(config.GatewayURL, false); err != nil {
+		gatewayURL, err := merchantStorePublicHTTPSURL(config.GatewayURL, false)
+		if err != nil {
 			return err
+		}
+		if strings.EqualFold(strings.TrimSuffix(gatewayURL.Hostname(), "."), "credit.linux.do") {
+			// Linux DO's ePay protocol charges LDC, never CNY. It is supported
+			// only through the dedicated explicitly priced LDC platform method.
+			return ErrMerchantStorePaymentConfiguration
 		}
 		if !merchantStoreProviderIDPattern.MatchString(config.PartnerID) || len(config.Key) < 8 || len(config.Key) > 512 || !merchantStoreProviderIDPattern.MatchString(config.PaymentType) || config.Currency != "CNY" {
 			return ErrMerchantStorePaymentConfiguration

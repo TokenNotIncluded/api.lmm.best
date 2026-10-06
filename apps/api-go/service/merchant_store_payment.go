@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"math"
 	"net"
 	"net/http"
@@ -58,6 +60,41 @@ type merchantStorePaymentContext struct {
 
 func merchantStorePaymentContextPurpose(orderID string) string {
 	return "merchant_store.order.payment." + orderID
+}
+
+func merchantStorePaymentScopeHash(paymentContext merchantStorePaymentContext) (string, error) {
+	provider, endpoint, account, environment := "", "", "", ""
+	switch paymentContext.Provider {
+	case MerchantStoreExternalEpay, MerchantStorePlatformLinuxDO:
+		provider = "epay"
+		if paymentContext.Provider == MerchantStorePlatformLinuxDO {
+			provider = "linuxdo"
+		}
+		u, err := merchantStorePublicHTTPSURL(paymentContext.Config.GatewayURL, false)
+		if err != nil {
+			return "", err
+		}
+		u.Host = strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+		// Explicit :443 and a trailing slash describe the same provider account.
+		if strings.Contains(u.Host, ":") {
+			u.Host = "[" + u.Host + "]"
+		}
+		u.Path, u.RawPath = strings.TrimRight(u.Path, "/"), strings.TrimRight(u.RawPath, "/")
+		endpoint, account = u.String(), paymentContext.Config.PartnerID
+	case MerchantStoreExternalPancake, MerchantStorePlatformPancake:
+		provider, endpoint = "waffo_pancake", pancake.DefaultBaseURL
+		account, environment = paymentContext.Config.MerchantID, paymentContext.Config.Environment
+	default:
+		return "", ErrMerchantStorePaymentConfiguration
+	}
+	// Keys can rotate while order receipts remain unique for this account.
+	// Product, FX, currency and current merchant balance are not its identity.
+	canonical, err := json.Marshal([]string{provider, endpoint, account, environment})
+	if err != nil {
+		return "", ErrMerchantStorePaymentConfiguration
+	}
+	hash := sha256.Sum256(canonical)
+	return hex.EncodeToString(hash[:]), nil
 }
 
 func merchantStoreParsePositiveRate(value string) (decimal.Decimal, error) {
@@ -136,6 +173,16 @@ func merchantStorePublicOrigin() (string, error) {
 	return value, nil
 }
 
+func merchantStoreOrderPaymentReturnURL(order *model.MerchantStoreOrder, paymentContext merchantStorePaymentContext) string {
+	query := url.Values{"pay": {"return"}}
+	if order.PaymentMethod != MerchantStorePlatformLinuxDO {
+		query.Set("order", order.ID)
+	}
+	// The order history route exists in the public web app. Query parameters
+	// identify a row only; the server must still verify actual payment state.
+	return paymentContext.PublicOrigin + "/store/orders?" + query.Encode()
+}
+
 func merchantStorePlatformGatewayConfig(provider string) (merchantStoreGatewayConfig, error) {
 	switch provider {
 	case MerchantStoreBalance:
@@ -165,17 +212,8 @@ func merchantStorePlatformGatewayConfig(provider string) (merchantStoreGatewayCo
 		if base.UnitsPerUSD != "" {
 			return base, validateMerchantStoreGatewayConfig(provider, base)
 		}
-		for _, method := range operation_setting.PayMethods {
-			unit := strings.ToUpper(strings.TrimSpace(method["settlement_unit"]))
-			if unit == "" {
-				unit = strings.ToUpper(strings.TrimSpace(method["settlement_currency"]))
-			}
-			if strings.TrimSpace(method["type"]) != "epay" || unit != "LDC" {
-				continue
-			}
-			base.UnitsPerUSD = strings.TrimSpace(method["settlement_units_per_usd"])
-			return base, validateMerchantStoreGatewayConfig(provider, base)
-		}
+		// An empty dedicated shop rate disables new Linux DO checkouts even
+		// if an unrelated legacy recharge method carries its own LDC rate.
 	}
 	return merchantStoreGatewayConfig{}, ErrMerchantStorePaymentConfiguration
 }
@@ -265,6 +303,12 @@ func loadMerchantStorePaymentContext(order *model.MerchantStoreOrder) (merchantS
 	if _, err := merchantStorePublicHTTPSURL(context.PublicOrigin, false); err != nil {
 		return context, ErrMerchantStorePaymentVerification
 	}
+	if order.PaymentScopeHash != "" {
+		scope, err := merchantStorePaymentScopeHash(context)
+		if err != nil || scope != order.PaymentScopeHash {
+			return context, ErrMerchantStorePaymentVerification
+		}
+	}
 	return context, nil
 }
 
@@ -328,7 +372,11 @@ func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, request
 	if err := model.BindMerchantStorePaymentQuote(order.ID, minor, currency, rate); err != nil {
 		return err
 	}
-	return model.BindMerchantStorePaymentContext(order.ID, ciphertext)
+	scope, err := merchantStorePaymentScopeHash(context)
+	if err != nil {
+		return err
+	}
+	return model.BindMerchantStorePaymentContext(order.ID, ciphertext, scope)
 }
 
 // CreateMerchantStorePaymentSession receives only a requested supported
@@ -385,10 +433,7 @@ func createMerchantStoreEpaySession(order *model.MerchantStoreOrder, paymentCont
 		callbackReference = order.TradeNo
 	}
 	notifyURL, _ := url.Parse(paymentContext.Origin + "/api/store/payments/epay/" + callbackReference + "/notify")
-	returnURL, _ := url.Parse(paymentContext.PublicOrigin + "/store/orders/" + order.ID + "?pay=return")
-	if order.PaymentMethod == MerchantStorePlatformLinuxDO {
-		returnURL, _ = url.Parse(paymentContext.PublicOrigin + "/store/orders?pay=return")
-	}
+	returnURL, _ := url.Parse(merchantStoreOrderPaymentReturnURL(order, paymentContext))
 	endpoint, parameters, err := client.Purchase(&epay.PurchaseArgs{
 		Type: config.PaymentType, ServiceTradeNo: order.TradeNo, Name: "Store order " + order.TradeNo,
 		Money: result.Amount, Device: epay.PC, NotifyUrl: notifyURL, ReturnUrl: returnURL,
@@ -437,7 +482,7 @@ func createMerchantStorePancakeSessionWithClient(ctx context.Context, order *mod
 	if expiresIn <= 0 || expiresIn > WaffoPancakeCheckoutExpirySeconds {
 		return nil, ErrMerchantStorePaymentConfiguration
 	}
-	returnURL := paymentContext.PublicOrigin + "/store/orders/" + order.ID + "?pay=return"
+	returnURL := merchantStoreOrderPaymentReturnURL(order, paymentContext)
 	params := pancake.AuthenticatedCheckoutParams{
 		CreateCheckoutSessionParams: pancake.CreateCheckoutSessionParams{
 			ProductID: paymentContext.Config.ProductID, Currency: order.Currency,
@@ -534,7 +579,36 @@ func HandleMerchantStoreEpayCallback(_ context.Context, orderID string, paramete
 	if err != nil {
 		return err
 	}
-	return model.CompleteMerchantStorePayment(order.ID, tradeID)
+	return completeMerchantStoreVerifiedPayment(order.ID, tradeID)
+}
+
+// Only verified provider adapters may enter this helper. Preserving paid
+// evidence is independent of settlement, and must never move stock or money.
+func completeMerchantStoreVerifiedPayment(orderID, receipt string) error {
+	err := model.CompleteMerchantStorePayment(orderID, receipt)
+	if err == nil {
+		return nil
+	}
+	code := ""
+	switch {
+	case errors.Is(err, model.ErrMerchantStoreDenied), errors.Is(err, model.ErrMerchantStoreBalance):
+		code = "settlement_unavailable"
+	case errors.Is(err, model.ErrWalletQuotaOutOfRange):
+		code = "wallet_bounds"
+	case errors.Is(err, model.ErrMerchantStoreStock):
+		code = "stock_unavailable"
+	case errors.Is(err, model.ErrMerchantStoreConflict):
+		code = "settlement_conflict"
+	}
+	if code != "" {
+		if recordErr := model.RecordMerchantStoreVerifiedPaymentIssue(orderID, receipt, code); recordErr != nil {
+			// No SQL/upstream error, receipt, email or secret enters this log.
+			common.SysError("merchant store verified payment recovery record failed")
+		}
+	}
+	// A known paid receipt is not a successful settlement. Return a failure so
+	// the provider retries while the order stays recoverable for reconciliation.
+	return err
 }
 
 func validateMerchantStorePancakeCallback(order *model.MerchantStoreOrder, paymentContext merchantStorePaymentContext, event *WaffoPancakeWebhookEvent) (string, error) {
@@ -595,5 +669,5 @@ func HandleMerchantStorePancakeWebhook(_ context.Context, scope string, sellerID
 	if err != nil {
 		return err
 	}
-	return model.CompleteMerchantStorePayment(order.ID, tradeID)
+	return completeMerchantStoreVerifiedPayment(order.ID, tradeID)
 }

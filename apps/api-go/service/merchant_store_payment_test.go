@@ -108,9 +108,14 @@ func TestMerchantStoreLinuxDORequiresOfficialGatewayAndExplicitRootRate(t *testi
 	method, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
 	require.NoError(t, err)
 	require.Equal(t, "20", method.UnitsPerUSD, "the explicit shop root rate wins")
+	config.LinuxDOUnitsPerUSD = ""
+	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, config))
+	_, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
+	require.Error(t, err, "clearing the shop rate disables new checkout even when a legacy LDC rate exists")
 	operation_setting.PayAddress = "https://some-fiat-gateway.example.com"
 	_, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
 	require.Error(t, err, "a generic ePay provider is never assumed to charge LDC")
+	require.Error(t, validateMerchantStoreGatewayConfig(MerchantStoreExternalEpay, merchantStoreGatewayConfig{GatewayURL: "https://credit.linux.do/epay", PartnerID: "123", Key: "merchant-key", PaymentType: "epay", Currency: "CNY"}), "the known LDC provider cannot masquerade as a CNY external ePay gateway")
 }
 
 func merchantStoreTestEpayOrder() (*model.MerchantStoreOrder, merchantStorePaymentContext) {
@@ -170,6 +175,19 @@ func TestMerchantStoreEpayQueryDoesNotGuessClosure(t *testing.T) {
 	payload, _ = json.Marshal(good)
 	_, err = validateMerchantStoreEpayQuery(order, payment, payload)
 	require.ErrorIs(t, err, ErrMerchantStorePaymentVerification)
+}
+
+func TestMerchantStorePaymentReturnURLUsesExistingOrderHistoryRoute(t *testing.T) {
+	order, payment := merchantStoreTestEpayOrder()
+	payment.PublicOrigin = "https://api.lmm.best"
+	want := "https://api.lmm.best/store/orders?order=" + order.ID + "&pay=return"
+	require.Equal(t, want, merchantStoreOrderPaymentReturnURL(order, payment))
+	order.PaymentMethod = MerchantStoreExternalPancake
+	require.Equal(t, want, merchantStoreOrderPaymentReturnURL(order, payment))
+	order.PaymentMethod = MerchantStorePlatformLinuxDO
+	short := merchantStoreOrderPaymentReturnURL(order, payment)
+	require.Equal(t, "https://api.lmm.best/store/orders?pay=return", short)
+	require.LessOrEqual(t, len(short), 100)
 }
 
 type merchantStoreTestTransport func(*http.Request) (*http.Response, error)
@@ -309,11 +327,17 @@ func merchantStoreTestOrder(t *testing.T, f merchantStoreServiceFixture, method 
 	}
 	order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "purchase", PaymentMethod: method})
 	require.NoError(t, err)
-	require.NoError(t, model.BindMerchantStorePaymentQuote(order.ID, minor, currency, "1"))
-	frozen := merchantStorePaymentContext{Provider: method, Config: config, AmountMinor: minor, Currency: currency, FrozenRate: "1", Origin: "https://api.example.com", PublicOrigin: "https://api.example.com", ExpiresIn: 1800}
+	rate := "1"
+	if currency == "LDC" {
+		rate = config.UnitsPerUSD
+	}
+	require.NoError(t, model.BindMerchantStorePaymentQuote(order.ID, minor, currency, rate))
+	frozen := merchantStorePaymentContext{Provider: method, Config: config, AmountMinor: minor, Currency: currency, FrozenRate: rate, Origin: "https://api.example.com", PublicOrigin: "https://api.example.com", ExpiresIn: 1800}
 	encrypted, err := encryptMerchantStorePaymentValue(merchantStorePaymentContextPurpose(order.ID), frozen)
 	require.NoError(t, err)
-	require.NoError(t, model.BindMerchantStorePaymentContext(order.ID, encrypted))
+	scope, err := merchantStorePaymentScopeHash(frozen)
+	require.NoError(t, err)
+	require.NoError(t, model.BindMerchantStorePaymentContext(order.ID, encrypted, scope))
 	order, err = model.GetMerchantStorePaymentOrder(order.ID)
 	require.NoError(t, err)
 	return order
@@ -333,6 +357,11 @@ func TestMerchantStoreEpayCallbackReplayAndSecretPrivacy(t *testing.T) {
 	order := merchantStoreTestOrder(t, f, MerchantStoreExternalEpay, config, 672, "CNY")
 	payment, err := loadMerchantStorePaymentContext(order)
 	require.NoError(t, err)
+	session, err := createMerchantStoreEpaySession(order, payment, &MerchantStorePaymentSession{OrderID: order.ID, AmountMinor: 672, Amount: "6.72", Currency: "CNY"})
+	require.NoError(t, err)
+	checkoutURL, err := url.Parse(session.PaymentURL)
+	require.NoError(t, err)
+	require.Equal(t, "https://api.example.com/store/orders?order="+order.ID+"&pay=return", checkoutURL.Query().Get("return_url"))
 	values := merchantStoreTestEpaySigned(order, payment, nil)
 	require.NoError(t, HandleMerchantStoreEpayCallback(context.Background(), order.ID, values))
 	require.NoError(t, HandleMerchantStoreEpayCallback(context.Background(), order.ID, values))
@@ -414,6 +443,11 @@ func TestMerchantStorePancakeSessionUsesRealSDKAndStoresProviderExpiry(t *testin
 		case "/v1/actions/checkout/create-session":
 			require.Contains(t, string(body), `"amount":"1.00"`)
 			require.Contains(t, string(body), order.TradeNo)
+			var checkoutBody struct {
+				SuccessURL string `json:"successUrl"`
+			}
+			require.NoError(t, json.Unmarshal(body, &checkoutBody))
+			require.Equal(t, "https://api.example.com/store/orders?order="+order.ID+"&pay=return", checkoutBody.SuccessURL)
 			payload = fmt.Sprintf(`{"data":{"sessionId":"SESSION_example","checkoutUrl":"https://checkout.waffo.ai/example","expiresAt":%q}}`, expiry.Format(time.RFC3339))
 		default:
 			t.Errorf("unexpected provider path %s", request.URL.Path)
@@ -489,6 +523,114 @@ func TestMerchantStoreReconcileRequiresOrderOwnerOrActiveAdmin(t *testing.T) {
 	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", f.root.Id).Update("status", common.UserStatusDisabled).Error)
 	_, err = ReconcileMerchantStoreOrderPayment(context.Background(), f.root.Id, order.ID)
 	require.ErrorIs(t, err, ErrMerchantStorePaymentAccess)
+}
+
+func TestMerchantStoreScopeTracksProviderAccountAndSurvivesKeyRotation(t *testing.T) {
+	_, payment := merchantStoreTestEpayOrder()
+	payment.Config.GatewayURL = "https://Pay.Example.com:443/epay/"
+	one, err := merchantStorePaymentScopeHash(payment)
+	require.NoError(t, err)
+	payment.Config.GatewayURL = "https://pay.example.com/epay"
+	payment.Config.Key = "rotated-secret-key"
+	payment.FrozenRate = "6.7"
+	payment.Config.Currency = "USD"
+	two, err := merchantStorePaymentScopeHash(payment)
+	require.NoError(t, err)
+	require.Equal(t, one, two)
+	payment.Config.PartnerID = "other-account"
+	other, err := merchantStorePaymentScopeHash(payment)
+	require.NoError(t, err)
+	require.NotEqual(t, one, other)
+	payment = merchantStorePaymentContext{Provider: MerchantStorePlatformPancake, Config: merchantStoreGatewayConfig{MerchantID: "MER_AbCdEfGhIjKlMnOpQrStUv", Environment: "prod"}}
+	one, err = merchantStorePaymentScopeHash(payment)
+	require.NoError(t, err)
+	payment.Config.Environment = "test"
+	other, err = merchantStorePaymentScopeHash(payment)
+	require.NoError(t, err)
+	require.NotEqual(t, one, other)
+}
+
+func TestMerchantStoreVerifiedCallbackFailurePreservesReceiptAndCannotReleaseStock(t *testing.T) {
+	f := merchantStoreServiceDB(t, MerchantStoreExternalEpay)
+	config := merchantStoreGatewayConfig{GatewayURL: "https://pay.example.com", PartnerID: "123", Key: "merchant-secret-key", PaymentType: "alipay", Currency: "CNY"}
+	order := merchantStoreTestOrder(t, f, MerchantStoreExternalEpay, config, 672, "CNY")
+	payment, err := loadMerchantStorePaymentContext(order)
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", f.root.Id).Update("role", common.RoleCommonUser).Error)
+	values := merchantStoreTestEpaySigned(order, payment, nil)
+	bad := merchantStoreTestEpaySigned(order, payment, nil)
+	bad.Set("sign", strings.Repeat("0", 32))
+	require.ErrorIs(t, HandleMerchantStoreEpayCallback(context.Background(), order.ID, bad), ErrMerchantStorePaymentVerification)
+	unchanged, err := model.GetMerchantStorePaymentOrder(order.ID)
+	require.NoError(t, err)
+	require.Empty(t, unchanged.ProviderTradeID)
+	require.Zero(t, unchanged.VerifiedPaymentIssueAt)
+	require.ErrorIs(t, HandleMerchantStoreEpayCallback(context.Background(), order.ID, values), model.ErrMerchantStoreDenied)
+	issue, err := model.GetMerchantStorePaymentOrder(order.ID)
+	require.NoError(t, err)
+	require.Equal(t, "reconciliation_pending", issue.Status)
+	require.Equal(t, "PROVIDER_123", issue.ProviderTradeID)
+	require.Equal(t, "settlement_unavailable", issue.PaymentIssueCode)
+	require.Positive(t, issue.VerifiedPaymentIssueAt)
+	require.True(t, issue.FeeHeld)
+	require.ErrorIs(t, model.ConfirmMerchantStoreOrderPaymentClosed(order.ID, "stale-negative-ledger"), model.ErrMerchantStoreConflict)
+	var reserved int64
+	require.NoError(t, model.DB.Model(&model.MerchantStoreStock{}).Where("order_id = ? AND state = ?", order.ID, "reserved").Count(&reserved).Error)
+	require.EqualValues(t, 1, reserved)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", f.root.Id).Update("role", common.RoleRootUser).Error)
+	// Reconciliation retries the already verified receipt locally, with no
+	// provider network request and no unsigned client assertion.
+	paid, err := ReconcileMerchantStoreOrderPayment(context.Background(), f.buyer.Id, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, "paid", paid.Status)
+	require.Empty(t, paid.PaymentIssueCode)
+	require.NoError(t, HandleMerchantStoreEpayCallback(context.Background(), order.ID, values))
+	var root, seller model.User
+	require.NoError(t, model.DB.First(&root, f.root.Id).Error)
+	require.Equal(t, 5000, root.Quota)
+	require.NoError(t, model.DB.First(&seller, f.seller.Id).Error)
+	require.Equal(t, 9995000, seller.Quota)
+}
+
+func TestMerchantStoreClearedLinuxDORateDisablesNewSessionAndPreservesIssuedPayment(t *testing.T) {
+	merchantStoreTestCreditBasis(t)
+	f := merchantStoreServiceDB(t, MerchantStorePlatformLinuxDO)
+	oldAddress, oldID, oldKey := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey
+	t.Cleanup(func() {
+		operation_setting.PayAddress = oldAddress
+		operation_setting.EpayId = oldID
+		operation_setting.EpayKey = oldKey
+	})
+	operation_setting.PayAddress = "https://credit.linux.do/epay"
+	operation_setting.EpayId = "123"
+	operation_setting.EpayKey = "platform-private-key"
+	shop, err := model.GetMerchantStoreConfig()
+	require.NoError(t, err)
+	shop.LinuxDOUnitsPerUSD = "20"
+	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, shop))
+	config, err := merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
+	require.NoError(t, err)
+	order := merchantStoreTestOrder(t, f, MerchantStorePlatformLinuxDO, config, 2000, "LDC")
+	payment, err := loadMerchantStorePaymentContext(order)
+	require.NoError(t, err)
+	shop.LinuxDOUnitsPerUSD = ""
+	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, shop))
+	_, err = merchantStorePlatformGatewayConfig(MerchantStorePlatformLinuxDO)
+	require.Error(t, err)
+	// The old quote and account are immutable; turning off new checkout must
+	// not make a real payment to an existing session unfulfillable.
+	require.NoError(t, HandleMerchantStoreEpayCallback(context.Background(), order.TradeNo, merchantStoreTestEpaySigned(order, payment, nil)))
+	var seller model.User
+	require.NoError(t, model.DB.First(&seller, f.seller.Id).Error)
+	require.Equal(t, 10495000, seller.Quota)
+	next, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "after-disable", PaymentMethod: MerchantStorePlatformLinuxDO})
+	require.NoError(t, err)
+	_, err = CreateMerchantStorePaymentSession(context.Background(), f.buyer.Id, next.ID, "LDC")
+	require.ErrorIs(t, err, ErrMerchantStorePaymentConfiguration)
+	next, err = model.GetMerchantStorePaymentOrder(next.ID)
+	require.NoError(t, err)
+	require.Empty(t, next.GatewaySnapshot)
+	require.NoError(t, model.CancelMerchantStoreOrder(f.buyer.Id, next.ID))
 }
 
 func TestMerchantStorePickupEmailOutboxUsesBuyerAndRetriesPrivately(t *testing.T) {

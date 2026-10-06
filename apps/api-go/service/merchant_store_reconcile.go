@@ -19,7 +19,7 @@ import (
 // A provider's expired checkout and a complete payment ledger are both needed
 // before releasing inventory. Local time alone cannot establish non-payment.
 func merchantStorePancakeMayClose(order *model.MerchantStoreOrder, payments []waffoPancakePayment, now int64) bool {
-	if order == nil || order.ProviderCheckoutExpiresAt <= 0 || now < order.ProviderCheckoutExpiresAt+900 {
+	if order == nil || order.ProviderTradeID != "" || order.ProviderCheckoutExpiresAt <= 0 || now < order.ProviderCheckoutExpiresAt+900 {
 		return false
 	}
 	canClose, _ := waffoPancakePaymentDisposition(payments)
@@ -136,6 +136,19 @@ func reconcileMerchantStorePayment(ctx context.Context, order *model.MerchantSto
 	if order == nil || (order.Status != "pending" && order.Status != "reconciliation_pending") || order.GatewaySnapshot == "" {
 		return nil
 	}
+	if order.ProviderTradeID != "" && order.VerifiedPaymentIssueAt > 0 {
+		// This receipt was already fully verified. Retry its frozen obligation,
+		// never replace positive paid evidence with a later negative ledger.
+		err := completeMerchantStoreVerifiedPayment(order.ID, order.ProviderTradeID)
+		code := ""
+		if err != nil {
+			code = "settlement_retry_pending"
+		}
+		if markErr := model.MarkMerchantStorePaymentChecked(order.ID, now, code); markErr != nil && err == nil {
+			return markErr
+		}
+		return err
+	}
 	paymentContext, err := loadMerchantStorePaymentContext(order)
 	if err != nil {
 		_ = model.MarkMerchantStorePaymentChecked(order.ID, now, "configuration_unavailable")
@@ -170,7 +183,7 @@ func reconcileMerchantStorePayment(ctx context.Context, order *model.MerchantSto
 		} else if queryErr != nil {
 			err = queryErr
 		} else {
-			err = model.CompleteMerchantStorePayment(order.ID, tradeID)
+			err = completeMerchantStoreVerifiedPayment(order.ID, tradeID)
 		}
 	default:
 		return ErrMerchantStorePaymentConfiguration
