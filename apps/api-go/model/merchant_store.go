@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -85,10 +87,11 @@ type MerchantStoreStock struct {
 	CreatedAt  int64  `json:"created_at"`
 }
 type MerchantStoreConfig struct {
-	ID             int `json:"-" gorm:"primaryKey"`
-	FeeBPS         int `json:"fee_bps"`
-	RecipientID    int `json:"recipient_id"`
-	PromotionQuota int `json:"promotion_quota" gorm:"type:bigint"`
+	ID                 int    `json:"-" gorm:"primaryKey"`
+	FeeBPS             int    `json:"fee_bps"`
+	RecipientID        int    `json:"recipient_id"`
+	PromotionQuota     int    `json:"promotion_quota" gorm:"type:bigint"`
+	LinuxDOUnitsPerUSD string `json:"linuxdo_units_per_usd" gorm:"size:64"`
 }
 type MerchantStoreDisclaimerAcceptance struct {
 	UserID     int    `json:"-" gorm:"primaryKey"`
@@ -165,7 +168,7 @@ func storeConfig(tx *gorm.DB) (MerchantStoreConfig, error) {
 	} else if e != nil {
 		return c, e
 	}
-	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) {
+	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) {
 		return c, ErrMerchantStoreInput
 	}
 	_, e = storeUser(tx, c.RecipientID, common.RoleRootUser)
@@ -173,7 +176,7 @@ func storeConfig(tx *gorm.DB) (MerchantStoreConfig, error) {
 }
 func GetMerchantStoreConfig() (MerchantStoreConfig, error) { return storeConfig(DB) }
 func SetMerchantStoreConfig(actor int, c MerchantStoreConfig) error {
-	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || c.RecipientID <= 0 {
+	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) || c.RecipientID <= 0 {
 		return ErrMerchantStoreInput
 	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
@@ -298,4 +301,17 @@ func SetMerchantStorePromotionPrice(actor, quota int) error {
 		}
 		return tx.Model(&MerchantStoreConfig{}).Where("id = ?", 1).Update("promotion_quota", quota).Error
 	})
+}
+
+var storeLinuxDORatePattern = regexp.MustCompile(`^[0-9]{1,12}(\.[0-9]{1,12})?$`)
+
+func storeLinuxDORateValid(rate string) bool {
+	if rate == "" {
+		return true
+	}
+	if len(rate) > 64 || !storeLinuxDORatePattern.MatchString(rate) {
+		return false
+	}
+	value, e := decimal.NewFromString(rate)
+	return e == nil && value.IsPositive()
 }

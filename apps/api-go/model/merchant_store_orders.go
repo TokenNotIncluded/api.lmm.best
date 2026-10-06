@@ -398,7 +398,10 @@ func BindMerchantStoreCheckoutSession(id, checkoutURL, sessionID string, expires
 		return ErrMerchantStoreInput
 	}
 	return storeOrderTx(id, func(tx *gorm.DB, o *MerchantStoreOrder) error {
-		if o.Status != "pending" || o.ExpiresAt <= common.GetTimestamp() {
+		if o.Status != "pending" && o.Status != "reconciliation_pending" {
+			return ErrMerchantStoreConflict
+		}
+		if (o.ExpiresAt <= common.GetTimestamp() || o.Status == "reconciliation_pending") && o.GatewaySnapshot == "" {
 			return ErrMerchantStoreConflict
 		}
 		if o.ProviderSessionID != "" {
@@ -445,9 +448,9 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		if e := marketLockUsers(tx, o.SellerID, o.RecipientID); e != nil {
 			return e
 		}
-		if _, e := storeUser(tx, o.SellerID, common.RoleCommonUser); e != nil {
-			return e
-		}
+		// New checkout rejects disabled merchants. A verified payment for an
+		// already reserved order still fulfills the frozen obligation; the wallet
+		// lock above proves this account exists and delta guards preserve its bounds.
 		if _, e := storeUser(tx, o.RecipientID, common.RoleRootUser); e != nil {
 			return e
 		}
@@ -462,7 +465,7 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 			return ErrMerchantStoreStock
 		}
 		if strings.HasPrefix(o.PaymentMethod, "platform:") {
-			if e := storeCredit(tx, o.SellerID, o.PriceQuota); e != nil {
+			if e := ApplyWalletQuotaDelta(tx, o.SellerID, o.PriceQuota); e != nil {
 				return e
 			}
 			if e := storeTransfer(tx, id, "sale", 0, o.SellerID, o.PriceQuota); e != nil {

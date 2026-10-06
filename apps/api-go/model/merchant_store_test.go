@@ -473,3 +473,76 @@ func TestMerchantStoreExpiredPromotionDoesNotOutrankNewListings(t *testing.T) {
 	require.NoError(t, e)
 	require.Equal(t, f.product.ID, rows[0].ID)
 }
+
+func TestMerchantStoreIssuedPaymentFulfillsAfterSellerDisabled(t *testing.T) {
+	for _, method := range []string{"platform:waffo_pancake", "external:epay"} {
+		t.Run(method, func(t *testing.T) {
+			f := newStoreFixture(t, method)
+			if method == "external:epay" {
+				_, e := SaveMerchantStoreGateway(f.seller.Id, method, true, `{"key":"fixture"}`)
+				require.NoError(t, e)
+			}
+			o, _, e := CreateMerchantStoreOrder(f.checkout("before-disable", method))
+			require.NoError(t, e)
+			require.NoError(t, BindMerchantStorePaymentQuote(o.ID, 100, "USD", "1"))
+			require.NoError(t, BindMerchantStorePaymentContext(o.ID, "v1:trusted-frozen"))
+			require.NoError(t, DB.Model(&User{}).Where("id = ?", f.seller.Id).Update("status", common.UserStatusDisabled).Error)
+			_, _, e = CreateMerchantStoreOrder(f.checkout("after-disable", method))
+			require.ErrorIs(t, e, ErrMerchantStoreDenied)
+			require.NoError(t, CompleteMerchantStorePayment(o.ID, "paid-before-disable"))
+			require.NoError(t, CompleteMerchantStorePayment(o.ID, "paid-before-disable"))
+			storeBalance(t, f.root.Id, 5000)
+			expected := 9995000
+			if method == "platform:waffo_pancake" {
+				expected += 500000
+			}
+			storeBalance(t, f.seller.Id, expected)
+			token, e := GetMerchantStoreOrderPickupToken(f.buyer.Id, o.ID)
+			require.NoError(t, e)
+			claim, e := ClaimMerchantStoreOrder(token, "safe-pickup-code", f.buyer.Id)
+			require.NoError(t, e)
+			require.Equal(t, []string{"CARD-SECRET-FIRST"}, claim.Items)
+		})
+	}
+}
+func TestMerchantStoreLinuxDOExplicitRateAndAdministratorIsolation(t *testing.T) {
+	f := newStoreFixture(t, "balance")
+	c, e := GetMerchantStoreConfig()
+	require.NoError(t, e)
+	require.Empty(t, c.LinuxDOUnitsPerUSD)
+	for _, invalid := range []string{"0", "0.00", "-1", "+1", "NaN", "Infinity", "1e3", " 6.7", "6.7 ", strings.Repeat("1", 65), strings.Repeat("1", 13), "0." + strings.Repeat("1", 13)} {
+		c.LinuxDOUnitsPerUSD = invalid
+		require.ErrorIs(t, SetMerchantStoreConfig(f.root.Id, c), ErrMerchantStoreInput)
+	}
+	c.LinuxDOUnitsPerUSD = "7.142857"
+	require.NoError(t, SetMerchantStoreConfig(f.root.Id, c))
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", f.seller.Id).Update("role", common.RoleAdminUser).Error)
+	require.NoError(t, SetMerchantStorePromotionPrice(f.seller.Id, 600000))
+	c, e = GetMerchantStoreConfig()
+	require.NoError(t, e)
+	require.Equal(t, "7.142857", c.LinuxDOUnitsPerUSD)
+	require.Equal(t, 100, c.FeeBPS)
+	require.Equal(t, f.root.Id, c.RecipientID)
+	c.LinuxDOUnitsPerUSD = ""
+	require.NoError(t, SetMerchantStoreConfig(f.root.Id, c))
+}
+
+func TestMerchantStoreIssuedSessionResponseSurvivesLocalExpiryReconciliation(t *testing.T) {
+	f := newStoreFixture(t, "platform:waffo_pancake")
+	o, _, e := CreateMerchantStoreOrder(f.checkout("slow-provider", "platform:waffo_pancake"))
+	require.NoError(t, e)
+	require.NoError(t, BindMerchantStorePaymentContext(o.ID, "v1:issued-context"))
+	require.NoError(t, DB.Model(&MerchantStoreOrder{}).Where("id = ?", o.ID).Update("expires_at", common.GetTimestamp()-1).Error)
+	n, e := ExpireMerchantStoreOrders(30)
+	require.NoError(t, e)
+	require.Equal(t, 1, n)
+	expiry := common.GetTimestamp() + 1200
+	require.NoError(t, BindMerchantStoreCheckoutSession(o.ID, "https://checkout.example.test/slow", "provider-slow", expiry))
+	fresh, e := GetMerchantStorePaymentOrder(o.ID)
+	require.NoError(t, e)
+	require.Equal(t, "reconciliation_pending", fresh.Status)
+	require.Equal(t, expiry, fresh.ProviderCheckoutExpiresAt)
+	require.Equal(t, "provider-slow", fresh.ProviderSessionID)
+	require.NoError(t, BindMerchantStoreCheckoutSession(o.ID, "https://checkout.example.test/slow", "provider-slow", expiry))
+	require.ErrorIs(t, BindMerchantStoreCheckoutSession(o.ID, "https://checkout.example.test/replaced", "provider-other", expiry), ErrMerchantStoreConflict)
+}
