@@ -40,6 +40,8 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusNotFound, "STORE_NOT_FOUND", "The shop item or order was not found."
 	case errors.Is(err, model.ErrMerchantStoreInput):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_INVALID_INPUT", "Please check the shop information and amounts."
+	case errors.Is(err, model.ErrMerchantStoreMinimumPrice):
+		status, code, message = http.StatusUnprocessableEntity, "STORE_MINIMUM_PRICE", "The product unit price is below the current minimum."
 	case errors.Is(err, model.ErrMerchantStorePaymentSelection):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_SELECTION_UNAVAILABLE", "Select only currently enabled merchant payment methods."
 	case errors.Is(err, model.ErrMerchantStorePaymentCategoryDisabled):
@@ -123,7 +125,7 @@ func GetMerchantStoreConfig(c *gin.Context) {
 	config, err := model.GetMerchantStoreConfig()
 	catalog := service.MerchantStorePlatformPaymentCatalog(availablePaymentMethods(operation_setting.IsPaymentComplianceConfirmed()))
 	merchantStoreRespond(c, gin.H{
-		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota,
+		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota, "minimum_unit_price_quota": config.MinimumUnitPriceQuota,
 		"linuxdo_units_per_usd": config.LinuxDOUnitsPerUSD,
 		"credits_per_usd":       common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
 		"disclaimer_version": model.MerchantStoreDisclaimerVersion, "disclaimer_text": merchantStoreDisclaimerText,
@@ -133,34 +135,12 @@ func GetMerchantStoreConfig(c *gin.Context) {
 }
 
 func SetMerchantStoreConfig(c *gin.Context) {
-	var input struct {
-		FeeBPS             *int    `json:"fee_bps"`
-		RecipientID        *int    `json:"recipient_id"`
-		PromotionQuota     *int    `json:"promotion_quota"`
-		LinuxDOUnitsPerUSD *string `json:"linuxdo_units_per_usd"`
-	}
+	var input model.MerchantStoreConfigPatch
 	if c.ShouldBindJSON(&input) != nil {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
 		return
 	}
-	current, err := model.GetMerchantStoreConfig()
-	if err != nil {
-		merchantStoreRespond(c, nil, err)
-		return
-	}
-	if input.FeeBPS != nil {
-		current.FeeBPS = *input.FeeBPS
-	}
-	if input.RecipientID != nil {
-		current.RecipientID = *input.RecipientID
-	}
-	if input.PromotionQuota != nil {
-		current.PromotionQuota = *input.PromotionQuota
-	}
-	if input.LinuxDOUnitsPerUSD != nil {
-		current.LinuxDOUnitsPerUSD = *input.LinuxDOUnitsPerUSD
-	}
-	merchantStoreRespond(c, nil, model.SetMerchantStoreConfig(c.GetInt("id"), current))
+	merchantStoreRespond(c, nil, model.PatchMerchantStoreConfig(c.GetInt("id"), input))
 }
 
 func SetMerchantStorePromotionPrice(c *gin.Context) {

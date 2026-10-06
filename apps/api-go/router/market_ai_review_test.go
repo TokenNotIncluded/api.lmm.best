@@ -36,7 +36,9 @@ func TestMarketAIReviewRouteRolesStayPrivateAndRootWritable(t *testing.T) {
 }
 
 func TestMarketAIReviewStoreResultsRequireCurrentOwnerOrAdministrator(t *testing.T) {
-	engine, db, sellerToken, seller, rootToken, _ := merchantStoreTestRouter(t)
+	engine, db, sellerToken, seller, rootToken, root := merchantStoreTestRouter(t)
+	zero := 0
+	require.NoError(t, model.PatchMerchantStoreConfig(root.Id, model.MerchantStoreConfigPatch{MinimumUnitPriceQuota: &zero}))
 	require.NoError(t, db.Create(&model.Option{Key: setting.StoreAIReviewModeOptionKey, Value: setting.MarketAIReviewAssist}).Error)
 	require.NoError(t, model.SetMerchantStorePaymentCategories(seller.Id, model.MerchantStorePaymentCategories{PlatformEnabled: true}))
 	_, gatewayErr := model.SaveMerchantStoreGateway(seller.Id, "balance", true, "")

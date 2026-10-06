@@ -98,7 +98,7 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 		}
 		require.True(t, found, "column %s.%s exists", entry.Table, entry.Column)
 	}
-	for _, entry := range []struct{ Table, Column string }{{"merchant_store_products", "price_quota"}, {"merchant_store_orders", "unit_price_quota"}, {"merchant_store_orders", "price_quota"}, {"merchant_store_orders", "fee_quota"}, {"merchant_store_orders", "amount_minor"}, {"merchant_store_configs", "promotion_quota"}, {"merchant_store_transfers", "quota"}} {
+	for _, entry := range []struct{ Table, Column string }{{"merchant_store_products", "price_quota"}, {"merchant_store_orders", "unit_price_quota"}, {"merchant_store_orders", "price_quota"}, {"merchant_store_orders", "fee_quota"}, {"merchant_store_orders", "amount_minor"}, {"merchant_store_configs", "promotion_quota"}, {"merchant_store_configs", "minimum_unit_price_quota"}, {"merchant_store_transfers", "quota"}} {
 		found := false
 		for _, column := range byTable[entry.Table].Columns {
 			if column.Name == entry.Column {
@@ -108,6 +108,13 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 		}
 		require.True(t, found)
 	}
+	configSchema, e := schema.Parse(&MerchantStoreConfig{}, &sync.Map{}, schema.NamingStrategy{})
+	require.NoError(t, e)
+	minimum := configSchema.LookUpField("MinimumUnitPriceQuota")
+	require.NotNil(t, minimum)
+	require.True(t, minimum.NotNull)
+	require.True(t, minimum.HasDefaultValue)
+	require.Equal(t, "500000", minimum.DefaultValue)
 	encoded, e := json.MarshalIndent(struct {
 		Scope  string                   `json:"scope"`
 		Tables []merchantStoreTablePlan `json:"tables"`

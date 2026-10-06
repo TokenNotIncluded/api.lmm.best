@@ -88,11 +88,12 @@ type MerchantStoreStock struct {
 	CreatedAt  int64  `json:"created_at"`
 }
 type MerchantStoreConfig struct {
-	ID                 int    `json:"-" gorm:"primaryKey"`
-	FeeBPS             int    `json:"fee_bps"`
-	RecipientID        int    `json:"recipient_id"`
-	PromotionQuota     int    `json:"promotion_quota" gorm:"type:bigint"`
-	LinuxDOUnitsPerUSD string `json:"linuxdo_units_per_usd" gorm:"size:64"`
+	ID                    int    `json:"-" gorm:"primaryKey"`
+	FeeBPS                int    `json:"fee_bps"`
+	RecipientID           int    `json:"recipient_id"`
+	PromotionQuota        int    `json:"promotion_quota" gorm:"type:bigint"`
+	MinimumUnitPriceQuota int    `json:"minimum_unit_price_quota" gorm:"type:bigint;not null;default:500000"`
+	LinuxDOUnitsPerUSD    string `json:"linuxdo_units_per_usd" gorm:"size:64"`
 }
 type MerchantStoreDisclaimerAcceptance struct {
 	UserID     int    `json:"-" gorm:"primaryKey"`
@@ -165,11 +166,11 @@ func storeConfig(tx *gorm.DB) (MerchantStoreConfig, error) {
 		if e = tx.Where("role = ? AND status = ?", common.RoleRootUser, common.UserStatusEnabled).Order("id ASC").First(&u).Error; e != nil {
 			return c, ErrMerchantStoreUnavailable
 		}
-		c = MerchantStoreConfig{ID: 1, FeeBPS: 100, RecipientID: u.Id, PromotionQuota: MerchantStoreCreditsPerUSD}
+		c = MerchantStoreConfig{ID: 1, FeeBPS: 100, RecipientID: u.Id, PromotionQuota: MerchantStoreCreditsPerUSD, MinimumUnitPriceQuota: MerchantStoreCreditsPerUSD}
 	} else if e != nil {
 		return c, e
 	}
-	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) {
+	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !marketQuotaValid(c.MinimumUnitPriceQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) {
 		return c, ErrMerchantStoreInput
 	}
 	_, e = storeUser(tx, c.RecipientID, common.RoleRootUser)
@@ -177,7 +178,7 @@ func storeConfig(tx *gorm.DB) (MerchantStoreConfig, error) {
 }
 func GetMerchantStoreConfig() (MerchantStoreConfig, error) { return storeConfig(DB) }
 func SetMerchantStoreConfig(actor int, c MerchantStoreConfig) error {
-	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) || c.RecipientID <= 0 {
+	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !marketQuotaValid(c.MinimumUnitPriceQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) || c.RecipientID <= 0 {
 		return ErrMerchantStoreInput
 	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
@@ -190,8 +191,7 @@ func SetMerchantStoreConfig(actor int, c MerchantStoreConfig) error {
 		if _, e := storeUser(tx, c.RecipientID, common.RoleRootUser); e != nil {
 			return e
 		}
-		c.ID = 1
-		return tx.Save(&c).Error
+		return storeWriteConfig(tx, c)
 	})
 }
 func storeFee(price, bps int) int { return marketFee(price, bps) }

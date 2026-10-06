@@ -33,6 +33,9 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 				return ErrMerchantStoreConflict
 			}
 		}
+		if e := storeRequireMinimumUnitPrice(tx, in.PriceQuota); e != nil {
+			return e
+		}
 		if e := storeValidatePaymentSelection(tx, seller, in.PaymentMethods); e != nil {
 			return e
 		}
@@ -73,6 +76,9 @@ func SubmitMerchantStoreProduct(actor int, id string) error {
 			return ErrMerchantStoreDenied
 		}
 		if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
+			return e
+		}
+		if e := storeRequireMinimumUnitPrice(tx, p.PriceQuota); e != nil {
 			return e
 		}
 		if p.Status == "pending" {
@@ -277,7 +283,7 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 	if public {
 		p.PaymentMethods = enabled
 	}
-	p.TradingPaused = u.Quota < fee || p.AvailableStock == 0 || len(enabled) == 0
+	p.TradingPaused = u.Quota < fee || p.AvailableStock == 0 || len(enabled) == 0 || p.PriceQuota < c.MinimumUnitPriceQuota
 	return nil
 }
 func GetPublicMerchantStoreProduct(id string) (*MerchantStoreProduct, error) {

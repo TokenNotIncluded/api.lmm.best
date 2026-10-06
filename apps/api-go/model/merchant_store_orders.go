@@ -173,6 +173,11 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e
 		}
+		// Existing orders above returned before current listing policy. Check
+		// the unit price, never quantity times price, under the current config.
+		if e = storeRequireMinimumUnitPrice(tx, p.PriceQuota); e != nil {
+			return e
+		}
 		if e = storeRequirePaymentCategory(tx, seller.Id, in.PaymentMethod); e != nil {
 			return e
 		}
