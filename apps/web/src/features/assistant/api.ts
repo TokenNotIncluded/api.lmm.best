@@ -862,11 +862,16 @@ function parseAssistantNavigationAction(
   if (queryValue !== undefined) {
     if (!queryValue || typeof queryValue !== 'object') return undefined
     if (Array.isArray(queryValue)) return undefined
-    const allowedKeys = ASSISTANT_NAVIGATION_QUERY_KEYS[path] ?? []
+    const allowedKeys = productPath
+      ? ['owner_preview']
+      : (ASSISTANT_NAVIGATION_QUERY_KEYS[path] ?? [])
     for (const [key, value] of Object.entries(
       queryValue as Record<string, unknown>
     )) {
       if (!allowedKeys.includes(key)) return undefined
+      if (productPath && (key !== 'owner_preview' || value !== true)) {
+        return undefined
+      }
       if (
         path === '/tool-market' &&
         key === 'service_id' &&

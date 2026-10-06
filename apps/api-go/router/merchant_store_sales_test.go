@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/stretchr/testify/require"
 )
@@ -48,6 +49,39 @@ func TestMerchantStoreSalesRouterRequiresExplicitNullableLimitAndOwner(t *testin
 	stored = model.MerchantStoreProduct{}
 	require.NoError(t, db.First(&stored, "id = ?", product.ID).Error)
 	require.Nil(t, stored.SaleLimit)
+}
+
+func TestMerchantStoreRemainingQuotaRouterRequiresExplicitNullableCount(t *testing.T) {
+	engine, db, sellerToken, seller, _, root := merchantStoreTestRouter(t)
+	product := shopPublishedProduct(t, db, seller, root)
+	path := "/api/store/products/" + product.ID + "/sales-availability"
+	response := shopRequest(engine, "PUT", path, "", `{"available_count":10}`)
+	require.NotEqual(t, 200, response.Code)
+	otherToken, _ := shopTestModeActor(t, db, common.RoleCommonUser)
+	response = shopRequest(engine, "PUT", path, otherToken, `{"available_count":10}`)
+	require.Equal(t, 403, response.Code, response.Body.String())
+	for _, body := range []string{`{}`, `null`, `{"available_count":-1}`, `{"available_count":1.5}`, `{"available_count":"10"}`, `{"available_count":true}`, `{"available_count":9007199254740992}`} {
+		response = shopRequest(engine, "PUT", path, sellerToken, body)
+		require.Equal(t, 422, response.Code, body)
+	}
+	response = shopRequest(engine, "PUT", path, sellerToken, `{"available_count":10}`)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	var stored model.MerchantStoreProduct
+	require.NoError(t, db.First(&stored, "id = ?", product.ID).Error)
+	require.EqualValues(t, 10, *stored.SaleLimit)
+	response = shopRequest(engine, "PUT", path, sellerToken, `{}`)
+	require.Equal(t, 422, response.Code)
+	response = shopRequest(engine, "PUT", path, sellerToken, `{"available_count":null}`)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	stored = model.MerchantStoreProduct{}
+	require.NoError(t, db.First(&stored, "id = ?", product.ID).Error)
+	require.Nil(t, stored.SaleLimit)
+	enabled := true
+	_, err := model.SaveMerchantStoreProduct(seller.Id, product.ID, shopTestModeInput(product, &enabled))
+	require.NoError(t, err)
+	adminToken, _ := shopTestModeActor(t, db, common.RoleAdminUser)
+	response = shopRequest(engine, "PUT", path, adminToken, `{"available_count":10}`)
+	require.Equal(t, 403, response.Code, response.Body.String())
 }
 
 func TestMerchantStoreSalesRouterOffShelfPreservesInventoryAndExplicitListing(t *testing.T) {

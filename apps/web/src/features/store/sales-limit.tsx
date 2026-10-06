@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -21,8 +21,23 @@ export function StoreSalesLimit({
 }) {
   const { t } = useTranslation()
   const [unlimited, setUnlimited] = useState(product.sale_limit === null)
-  const [limit, setLimit] = useState(String(product.sale_limit ?? 0))
+  const [limit, setLimit] = useState(
+    String(Math.max(0, (product.sale_limit ?? 0) - product.paid_quantity))
+  )
   const [busy, setBusy] = useState(false)
+  const [edited, setEdited] = useState(false)
+  const savedFromSnapshot = useRef<string | undefined>(undefined)
+  const snapshot = `${product.sale_limit ?? 'unlimited'}:${product.paid_quantity}`
+  const serverRemaining = Math.max(
+    0,
+    (product.sale_limit ?? 0) - product.paid_quantity
+  )
+  useEffect(() => {
+    if (edited || savedFromSnapshot.current === snapshot) return
+    savedFromSnapshot.current = undefined
+    setUnlimited(product.sale_limit === null)
+    setLimit(String(serverRemaining))
+  }, [edited, snapshot, product.sale_limit, serverRemaining])
   const [error, setError] = useState<unknown>(null)
   async function save(event: React.FormEvent) {
     event.preventDefault()
@@ -37,8 +52,10 @@ export function StoreSalesLimit({
       ) {
         throw new Error(t(copy.invalid))
       }
-      await storeApi.saleLimit(product.id, unlimited ? null : amount)
+      await storeApi.remainingQuota(product.id, unlimited ? null : amount)
+      savedFromSnapshot.current = snapshot
       await onSaved()
+      setEdited(false)
     } catch (issue) {
       setError(issue)
     } finally {
@@ -53,7 +70,11 @@ export function StoreSalesLimit({
       <h3 className='text-sm font-semibold'>{t(copy.title)}</h3>
       <StoreError error={error} />
       <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
-        <span>{t(copy.inventory, { count: product.available_stock })}</span>
+        <span>
+          {t(copy.inventory, {
+            count: product.inventory_total ?? product.available_stock,
+          })}
+        </span>
         <span>{t(copy.paid, { count: product.paid_quantity })}</span>
         <span>{t(copy.reserved, { count: product.reserved_quantity })}</span>
         <span>{t(copy.available, { count: product.sale_available })}</span>
@@ -66,7 +87,10 @@ export function StoreSalesLimit({
           id={`store-unlimited-${product.id}`}
           checked={unlimited}
           disabled={busy}
-          onCheckedChange={setUnlimited}
+          onCheckedChange={(value) => {
+            setEdited(true)
+            setUnlimited(value)
+          }}
         />
       </div>
       {!unlimited && (
@@ -78,7 +102,10 @@ export function StoreSalesLimit({
             id={`store-sale-limit-${product.id}`}
             inputMode='numeric'
             value={limit}
-            onChange={(event) => setLimit(event.target.value)}
+            onChange={(event) => {
+              setEdited(true)
+              setLimit(event.target.value)
+            }}
             disabled={busy}
           />
         </div>

@@ -725,6 +725,11 @@ describe('assistant response parsing', () => {
     for (const action of [
       { type: 'navigate', path: '/store', query: {} },
       { type: 'navigate', path: `/store/products/${id}`, query: {} },
+      {
+        type: 'navigate',
+        path: `/store/products/${id}`,
+        query: { owner_preview: true },
+      },
       { type: 'navigate', path: '/tool-market', query: { service_id: id } },
     ]) {
       assert.deepEqual(parseAssistantAction(action), action)
@@ -762,6 +767,16 @@ describe('assistant response parsing', () => {
       }),
       undefined
     )
+    for (const value of [false, 'true', 1, null]) {
+      assert.equal(
+        parseAssistantAction({
+          type: 'navigate',
+          path: `/store/products/${id}`,
+          query: { owner_preview: value },
+        }),
+        undefined
+      )
+    }
   })
 
   test('accepts only self display-name previews with a confirmation token', () => {

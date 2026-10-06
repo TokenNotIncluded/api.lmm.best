@@ -281,10 +281,14 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 			return assistantCatalogError("input_invalid")
 		}
 		if page == "store-product" {
-			if _, err := model.GetMerchantStoreProductForViewer(actorUserID, id); err != nil {
+			product, err := model.GetMerchantStoreProductForViewer(actorUserID, id)
+			if err != nil {
 				return assistantCatalogError("item_unavailable")
 			}
 			path = "/store/products/" + id
+			if product.TestMode {
+				query["owner_preview"] = true
+			}
 		} else {
 			if _, err := model.GetToolMarketDetail(actorUserID, id, false); err != nil {
 				return assistantCatalogError("item_unavailable")

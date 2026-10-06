@@ -42,7 +42,10 @@ func TestAssistantCatalogueToolsAreReadOnlyAndAvailableWithoutDeveloperAccess(t 
 
 func TestAssistantStoreCatalogueUsesPublishedVisibilityAndNoPrivateDeliveryData(t *testing.T) {
 	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
+	require.NoError(t, model.ActivateMerchantStoreVariants(db, 1))
 	root := model.User{Username: "catalog-root", AffCode: "catalog-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled}
 	seller := model.User{Username: "catalog-seller", AffCode: "catalog-seller", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 5000000}
 	buyer := model.User{Username: "catalog-buyer", AffCode: "catalog-buyer", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
@@ -53,6 +56,8 @@ func TestAssistantStoreCatalogueUsesPublishedVisibilityAndNoPrivateDeliveryData(
 	public := model.MerchantStoreProduct{ID: uuid.NewString(), SellerID: seller.Id, Title: "自定义软件卡", Description: "## 使用说明\nFAQ：按商家实际规格发货", Status: "published", PriceQuota: 750000,
 		ReviewNote: "PRIVATE-REVIEW", Contact: "PRIVATE-CONTACT", ReviewedBy: root.Id}
 	require.NoError(t, db.Create(&public).Error)
+	nativeVariant := model.MerchantStoreVariant{ID: model.MerchantStoreDefaultVariantID(public.ID), ProductID: public.ID, Name: "商家自定义 / 93天", PriceQuota: 750000, Template: "card-key", Enabled: true}
+	require.NoError(t, db.Create(&nativeVariant).Error)
 	require.NoError(t, db.Create(&model.MerchantStoreStock{ID: uuid.NewString(), ProductID: public.ID, Ciphertext: "PRIVATE-CARD-CIPHERTEXT", State: "available"}).Error)
 	for _, status := range []string{"draft", "pending", "paused", "unlisted", "deleted"} {
 		hidden := public
@@ -68,12 +73,16 @@ func TestAssistantStoreCatalogueUsesPublishedVisibilityAndNoPrivateDeliveryData(
 	require.Equal(t, public.ID, view.ID)
 	require.Equal(t, public.Description, view.Description)
 	require.Equal(t, "/store/products/"+public.ID, view.Href)
-	require.Equal(t, int64(1), view.AvailableStock)
+	require.Zero(t, view.AvailableStock, "there is no usable checkout channel")
 	require.Equal(t, 750000, view.PriceQuota)
 	require.Equal(t, common.FixedCreditsPerUSD, view.CreditsPerUSD)
 	require.False(t, view.Tradable, "no usable payment channel means no checkout")
-	require.False(t, view.VariantStockKnown, "aggregate stock never supplies missing SKU stock")
-	require.Empty(t, view.Variants, "no synthetic Standard/Premium specifications")
+	require.True(t, view.VariantStockKnown)
+	require.Len(t, view.Variants, 1)
+	require.Equal(t, nativeVariant.Name, view.Variants[0].Name)
+	require.Equal(t, nativeVariant.PriceQuota, view.Variants[0].PriceQuota)
+	require.EqualValues(t, 1, *view.Variants[0].InventoryAvailable)
+	require.False(t, view.Variants[0].Tradable)
 	encoded, err := json.Marshal(result)
 	require.NoError(t, err)
 	for _, secret := range []string{"PRIVATE-REVIEW", "PRIVATE-CONTACT", "PRIVATE-CARD-CIPHERTEXT", "seller_id", "reviewed_by", "ciphertext"} {
@@ -90,6 +99,19 @@ func TestAssistantStoreCatalogueUsesPublishedVisibilityAndNoPrivateDeliveryData(
 	for _, bad := range []string{"https://attacker.test", "../orders", public.ID + "/../orders", uuid.NewString()} {
 		require.Equal(t, false, executeAssistantNavigateTool(c, buyer.Id, map[string]any{"page": "store-product", "identifier": bad})["ok"])
 	}
+	require.NoError(t, db.Model(&public).Updates(map[string]any{"test_mode": true, "status": "draft"}).Error)
+	for _, actor := range []int{0, buyer.Id, root.Id} {
+		require.Equal(t, false, executeAssistantStoreCatalogTool(actor, map[string]any{"product_id": public.ID}, true)["ok"])
+		require.Equal(t, false, executeAssistantNavigateTool(c, actor, map[string]any{"page": "store-product", "identifier": public.ID})["ok"])
+	}
+	ownerView := executeAssistantStoreCatalogTool(seller.Id, map[string]any{"product_id": public.ID}, true)
+	require.Equal(t, true, ownerView["ok"])
+	require.Equal(t, "/store/products/"+public.ID+"?owner_preview=true", ownerView["product"].(assistantStoreProduct).Href)
+	ownerNavigation := executeAssistantNavigateTool(c, seller.Id, map[string]any{"page": "store-product", "identifier": public.ID})
+	require.Equal(t, map[string]any{"owner_preview": true}, ownerNavigation["query"])
+	require.NoError(t, db.Model(&public).Update("status", "paused").Error)
+	require.Equal(t, false, executeAssistantNavigateTool(c, seller.Id, map[string]any{"page": "store-product", "identifier": public.ID})["ok"])
+	require.NoError(t, db.Model(&public).Updates(map[string]any{"test_mode": false, "status": "published"}).Error)
 	require.NoError(t, db.Model(&seller).Update("status", common.UserStatusDisabled).Error)
 	require.Equal(t, false, executeAssistantStoreCatalogTool(buyer.Id, map[string]any{"product_id": public.ID}, true)["ok"])
 	result = executeAssistantStoreCatalogTool(buyer.Id, map[string]any{}, false)

@@ -41,3 +41,25 @@ func SetMerchantStoreProductListed(c *gin.Context) {
 	}
 	merchantStoreRespond(c, nil, model.SetMerchantStoreProductListed(c.GetInt("id"), c.Param("id"), *input.Listed))
 }
+
+func SetMerchantStoreProductRemainingQuota(c *gin.Context) {
+	var input struct {
+		AvailableCount *int64 `json:"available_count"`
+	}
+	if c.ShouldBindBodyWith(&input, binding.JSON) != nil {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+		return
+	}
+	var fields map[string]json.RawMessage
+	body, _ := c.Get(gin.BodyBytesKey)
+	data, ok := body.([]byte)
+	if !ok || json.Unmarshal(data, &fields) != nil {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+		return
+	}
+	if _, present := fields["available_count"]; !present {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+		return
+	}
+	merchantStoreRespond(c, nil, model.SetMerchantStoreProductRemainingQuota(c.GetInt("id"), c.Param("id"), input.AvailableCount))
+}

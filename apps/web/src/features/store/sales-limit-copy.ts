@@ -1,12 +1,12 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 export const STORE_SALES_LIMIT_COPY = {
-  title: 'Sales limit',
+  title: 'Available sales quota',
   unlimited: 'Unlimited sales',
-  limit: 'Total sales limit',
-  help: 'The limit includes paid items and unpaid reservations. Set 0 to stop new orders.',
-  save: 'Save sales limit',
+  limit: 'Remaining sales quota',
+  help: 'This quota includes unpaid reservations. Paid orders reduce it; adding inventory does not increase it. Set 0 to stop new orders.',
+  save: 'Save sales quota',
   invalid: 'Enter a whole sales limit of 0 or more.',
-  inventory: 'Inventory: {{count}}',
+  inventory: 'Undelivered inventory: {{count}}',
   paid: 'Paid: {{count}}',
   reserved: 'Reserved: {{count}}',
   available: 'Available to sell: {{count}}',

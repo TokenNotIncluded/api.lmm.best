@@ -467,16 +467,16 @@ test('taking a product off shelf and relisting use distinct listing requests wit
   await mount(<StoreSellerPage />)
   await click(button('Take off shelf'))
   assert.match(document.body.textContent || '', /Off shelf/)
-  assert.match(document.body.textContent || '', /Inventory: 100/)
+  assert.match(document.body.textContent || '', /Undelivered inventory: 100/)
   await click(button('Relist product'))
   assert.deepEqual(writes, [{ listed: false }, { listed: true }])
   assert.ok(button('Take off shelf'))
 })
-test('sales limits preserve 100 inventory items while setting 10, 0, and unlimited distinctly', async () => {
+test('remaining sales quota preserves 1000 physical items while setting 10, 0, and unlimited distinctly', async () => {
   const calls: unknown[] = []
   let refreshed = 0
   api.put = (async (url: string, body: unknown) => {
-    assert.equal(url, `/api/store/products/${product.id}/sale-limit`)
+    assert.equal(url, `/api/store/products/${product.id}/sales-availability`)
     calls.push(body)
     return result(null)
   }) as typeof api.put
@@ -484,18 +484,19 @@ test('sales limits preserve 100 inventory items while setting 10, 0, and unlimit
     <StoreSalesLimit
       product={{
         ...product,
-        available_stock: 100,
+        available_stock: 997,
+        inventory_total: 1000,
         sale_limit: null,
-        paid_quantity: 2,
+        paid_quantity: 20,
         reserved_quantity: 3,
-        sale_available: 100,
+        sale_available: 997,
       }}
       onSaved={async () => {
         refreshed++
       }}
     />
   )
-  assert.match(document.body.textContent || '', /Inventory: 100/)
+  assert.match(document.body.textContent || '', /Undelivered inventory: 1000/)
   const unlimited = document.querySelector<HTMLElement>('[role="switch"]')
   assert.ok(unlimited)
   await click(unlimited)
@@ -504,18 +505,18 @@ test('sales limits preserve 100 inventory items while setting 10, 0, and unlimit
   )
   assert.ok(limit)
   await input(limit, '10')
-  await click(button('Save sales limit'))
+  await click(button('Save sales quota'))
   await input(limit, '0')
-  await click(button('Save sales limit'))
+  await click(button('Save sales quota'))
   await click(unlimited)
-  await click(button('Save sales limit'))
+  await click(button('Save sales quota'))
   assert.deepEqual(calls, [
-    { sale_limit: 10 },
-    { sale_limit: 0 },
-    { sale_limit: null },
+    { available_count: 10 },
+    { available_count: 0 },
+    { available_count: null },
   ])
   assert.equal(refreshed, 3)
-  assert.match(document.body.textContent || '', /Inventory: 100/)
+  assert.match(document.body.textContent || '', /Undelivered inventory: 1000/)
 })
 test('a failed sales limit save keeps the merchant draft and rejects fractional caps', async () => {
   let calls = 0
@@ -542,15 +543,87 @@ test('a failed sales limit save keeps the merchant draft and rejects fractional 
     `#store-sale-limit-${product.id}`
   )
   assert.ok(limit)
+  assert.equal(
+    limit.value,
+    '9',
+    'the merchant edits remaining quota without adding lifetime paid quantity'
+  )
   await input(limit, '1.5')
-  await click(button('Save sales limit'))
+  await click(button('Save sales quota'))
   assert.equal(calls, 0)
   await input(limit, '20')
-  await click(button('Save sales limit'))
+  await click(button('Save sales quota'))
   assert.equal(calls, 1)
   assert.equal(refreshed, 0)
   assert.equal(limit.value, '20')
   assert.match(document.body.textContent || '', /Store request failed/)
+})
+test('remaining quota follows settlements only while pristine and preserves unsaved edits across refreshes', async () => {
+  let replaceProduct!: React.Dispatch<React.SetStateAction<StoreProduct>>
+  const saved: unknown[] = []
+  api.put = (async (_url: string, body: unknown) => {
+    saved.push(body)
+    return result(null)
+  }) as typeof api.put
+  function Harness() {
+    const [current, setCurrent] = useState<StoreProduct>({
+      ...product,
+      sale_limit: 30,
+      paid_quantity: 20,
+      reserved_quantity: 3,
+      sale_available: 7,
+    })
+    replaceProduct = setCurrent
+    return <StoreSalesLimit product={current} onSaved={async () => {}} />
+  }
+  await mount(<Harness />)
+  const limit = document.querySelector<HTMLInputElement>(
+    `#store-sale-limit-${product.id}`
+  )!
+  assert.equal(limit.value, '10')
+  await act(async () => {
+    replaceProduct((current) => ({
+      ...current,
+      paid_quantity: 23,
+      reserved_quantity: 0,
+    }))
+    await flush()
+  })
+  assert.equal(
+    limit.value,
+    '7',
+    'a payment cannot silently replenish an untouched quota form'
+  )
+  await input(limit, '12')
+  await act(async () => {
+    replaceProduct((current) => ({ ...current, paid_quantity: 24 }))
+    await flush()
+  })
+  assert.equal(
+    limit.value,
+    '12',
+    'background data does not discard a merchant draft'
+  )
+  await click(button('Save sales quota'))
+  assert.deepEqual(saved, [{ available_count: 12 }])
+  assert.equal(
+    limit.value,
+    '12',
+    'a delayed refresh cannot overwrite the successful input with stale props'
+  )
+  await act(async () => {
+    replaceProduct((current) => ({
+      ...current,
+      sale_limit: 37,
+      paid_quantity: 26,
+    }))
+    await flush()
+  })
+  assert.equal(
+    limit.value,
+    '11',
+    'after save, subsequent server settlements update the pristine form'
+  )
 })
 test('a missing minimum from an older API does not silently allow saving product prices', async () => {
   await mount(

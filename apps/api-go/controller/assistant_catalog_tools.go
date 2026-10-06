@@ -75,6 +75,9 @@ func assistantStoreProductView(p model.MerchantStoreProduct, full bool) assistan
 	view.EntityKind, view.PriceUnit = "store_product", "CREDIT"
 	view.CreditsPerUSD = common.FixedCreditsPerUSD
 	view.Href = "/store/products/" + p.ID
+	if p.TestMode {
+		view.Href += "?owner_preview=true"
+	}
 	active := p.Status == "published" || view.TestMode && (p.Status == "draft" || p.Status == "pending")
 	view.Tradable = active && !p.TradingPaused && p.AvailableStock > 0 && len(p.PaymentMethods) > 0
 	if view.SaleAvailable != nil && *view.SaleAvailable <= 0 {

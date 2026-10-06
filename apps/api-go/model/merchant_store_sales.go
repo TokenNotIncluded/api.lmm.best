@@ -108,6 +108,43 @@ func SetMerchantStoreProductSaleLimit(actor int, id string, limit *int64) error 
 	})
 }
 
+// Remaining quota includes already reserved unpaid items. Paid obligations are
+// counted from the ledger under the same product lock, never supplied by the UI.
+// Setting zero blocks new purchases while retaining every existing obligation.
+func SetMerchantStoreProductRemainingQuota(actor int, id string, remaining *int64) error {
+	if remaining != nil && (*remaining < 0 || *remaining > int64(common.MaxWalletQuota)) {
+		return ErrMerchantStoreInput
+	}
+	return storeWithActiveProduct(id, func(tx *gorm.DB, product *MerchantStoreProduct) error {
+		if err := storeRequireWriter(tx); err != nil {
+			return err
+		}
+		user, err := storeUser(tx, actor, common.RoleCommonUser)
+		if err != nil {
+			return err
+		}
+		if product.SellerID != actor && (product.TestMode || user.Role < common.RoleAdminUser) {
+			return ErrMerchantStoreDenied
+		}
+		var limit *int64
+		if remaining != nil {
+			usage, err := storeSalesUsage(tx, product.ID)
+			if err != nil {
+				return err
+			}
+			if usage.Paid > int64(common.MaxWalletQuota)-*remaining {
+				return ErrMerchantStoreInput
+			}
+			value := usage.Paid + *remaining
+			limit = &value
+		}
+		if err := tx.Model(product).Updates(map[string]any{"sale_limit": limit, "updated_at": common.GetTimestamp()}).Error; err != nil {
+			return err
+		}
+		return storeEvent(tx, actor, product.ID, "remaining_sales_quota_updated")
+	})
+}
+
 // Off-shelf listings retain their unedited approval and all fulfillment data.
 // Editing content still moves them to a fresh draft and requires another review.
 func SetMerchantStoreProductListed(actor int, id string, listed bool) error {
