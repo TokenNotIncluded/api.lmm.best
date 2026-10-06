@@ -278,7 +278,7 @@ for (const role of [1, 10, 100]) {
   test(`seller payment settings expose the administration link only to root (role ${role})`, async () => {
     useAuthStore.getState().auth.setUser({ id: 2, role, username: 'seller' })
     api.get = (async (url: string) => {
-      if (url === '/api/store/config')
+      if (url === '/api/store/config') {
         return result({
           fee_bps: 0,
           promotion_quota: 500000,
@@ -292,6 +292,7 @@ for (const role of [1, 10, 100]) {
             },
           ],
         })
+      }
       assert.equal(url, '/api/store/payments/settings')
       return result({
         items: [],
