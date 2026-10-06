@@ -60,6 +60,7 @@ export interface StoreProduct {
     | 'rejected'
     | 'paused'
     | 'off_shelf'
+    | 'unlisted'
   official: boolean
   available_stock: number
   sale_limit?: number | null
@@ -241,7 +242,12 @@ export interface StoreClaim {
   variant_name?: string
   delivery_template?: string
   order_id: string
+  trade_no?: string
+  quantity?: number
+  product_id?: string
   product_title: string
+  product_description?: string
+  product_links?: StoreLink[]
   items: string[]
 }
 export interface StoreStock {

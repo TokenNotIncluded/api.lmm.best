@@ -8,7 +8,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Outlet, useRouterState } from '@tanstack/react-router'
-import { Fragment, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
@@ -198,13 +198,19 @@ export function StoreBadges({ product }: { product: StoreProduct }) {
 export function CopyStoreValue({
   value,
   label = 'Copy',
+  disabled = false,
 }: {
   value: string
   label?: string
+  disabled?: boolean
 }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState(false)
+  useEffect(() => {
+    setCopied(false)
+    setError(false)
+  }, [value])
   async function copy() {
     try {
       await navigator.clipboard.writeText(value)
@@ -220,6 +226,7 @@ export function CopyStoreValue({
         type='button'
         size='sm'
         variant='outline'
+        disabled={disabled}
         onClick={() => void copy()}
       >
         <HugeiconsIcon

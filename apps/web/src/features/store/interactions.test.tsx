@@ -1,4 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+// @ts-expect-error Bun's test module is available only in the test runtime.
+import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
@@ -46,6 +48,14 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
 })
+// Happy DOM does not provide DOMPurify's browser realm. This suite checks the
+// page-to-renderer boundary; store-pickup-review.mjs verifies the real renderer
+// and sanitizer in Chromium.
+mock.module('@/components/ui/markdown', () => ({
+  Markdown: ({ children }: { children: string }) => (
+    <div data-store-markdown>{children}</div>
+  ),
+}))
 const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
@@ -87,6 +97,7 @@ const originalGet = api.get
 const originalPost = api.post
 const originalPut = api.put
 const originalDelete = api.delete
+const originalWriteText = dom.navigator.clipboard.writeText
 const originalConfig = useSystemConfigStore.getState().config
 let root: ReturnType<typeof createRoot> | undefined
 let client: InstanceType<typeof QueryClient> | undefined
@@ -197,6 +208,7 @@ afterEach(async () => {
   api.post = originalPost
   api.put = originalPut
   api.delete = originalDelete
+  dom.navigator.clipboard.writeText = originalWriteText
   owner(null)
   useSystemConfigStore.setState({ config: originalConfig })
   document.body.replaceChildren()
@@ -783,6 +795,389 @@ test('delivery content appears only after explicit collection and disappears on 
   })
   assert.equal(document.querySelector('textarea'), null)
   assert.equal(collections, 1)
+})
+test('pickup shows the merchant specification for each key and safely renders authorized product details', async () => {
+  owner(2)
+  const reads: string[] = []
+  const writes: string[] = []
+  const items = ['first key', 'second key\nextra line', 'third key']
+  const variantName = '商家自定义 <特别套餐> / 任意规格'
+  api.get = (async (url: string) => {
+    reads.push(url)
+    return result({
+      product_title: 'Fixture keys',
+      variant_name: variantName,
+      status: 'paid',
+      pickup_login_required: false,
+      pickup_code_required: false,
+    })
+  }) as typeof api.get
+  api.post = (async () =>
+    result({
+      order_id: 'order-fixture',
+      product_title: 'Fixture keys',
+      variant_name: variantName,
+      product_description:
+        '## Merchant instructions\n\n| Feature | Detail |\n| --- | --- |\n| Custom | Merchant description |\n\n- First step\n\n[Documentation](https://merchant.example.test/docs)\n\n<script>maliciousDescription()</script>\n<img src="https://merchant.example.test/image" onerror="maliciousDescription()">\n[Unsafe](javascript:alert(1))',
+      product_links: [
+        {
+          title: 'Merchant instructions',
+          url: 'https://merchant.example.test/help',
+          description: '<b>Plain link explanation</b>',
+        },
+        { title: 'Unsafe script', url: 'javascript:alert(1)', description: '' },
+        {
+          title: 'Credential URL',
+          url: 'https://user:password@merchant.example.test',
+          description: '',
+        },
+      ],
+      items,
+    })) as typeof api.post
+  dom.navigator.clipboard.writeText = async (value) => {
+    writes.push(value)
+  }
+  await mount(<StoreClaimPage token='selection-order' />)
+  assert.equal(document.querySelectorAll('textarea').length, 0)
+  assert.equal(
+    document.body.textContent?.includes('merchant description'),
+    false
+  )
+  await click(button('Collect items'))
+  const checkboxes = [
+    ...document.querySelectorAll<HTMLElement>('[role="checkbox"]'),
+  ]
+  assert.equal(checkboxes.length, 3)
+  assert.equal(document.querySelectorAll('script').length, 0)
+  assert.match(
+    document.querySelector('[data-store-markdown]')?.textContent || '',
+    /## Merchant instructions/
+  )
+  assert.match(
+    document.body.textContent || '',
+    /<b>Plain link explanation<\/b>/
+  )
+  const merchantLink = document.querySelector<HTMLAnchorElement>(
+    'a[href="https://merchant.example.test/help"]'
+  )
+  assert.ok(merchantLink)
+  assert.equal(merchantLink.rel, 'noopener noreferrer')
+  assert.equal(document.querySelector('a[href^="javascript:"]'), null)
+  assert.equal(document.body.textContent?.includes('Credential URL'), false)
+  assert.equal(
+    document.body.textContent?.split(`Specification: ${variantName}`).length,
+    5,
+    'the exact merchant name appears in the order heading and all three rows'
+  )
+  assert.equal(button('Copy selected items').disabled, true)
+  await click(checkboxes[2])
+  await click(checkboxes[0])
+  await click(button('Copy selected items'))
+  assert.equal(
+    writes.at(-1),
+    'first key\nthird key',
+    'selection keeps original item order'
+  )
+  await click(button('Invert selection'))
+  await click(button('Copy selected items'))
+  assert.equal(writes.at(-1), 'second key\nextra line')
+  await click(button('Select all'))
+  assert.equal(
+    checkboxes.every((node) => node.getAttribute('aria-checked') === 'true'),
+    true
+  )
+  await click(button('Copy selected items'))
+  assert.equal(writes.at(-1), items.join('\n'))
+  await click(button('Invert selection'))
+  assert.equal(button('Copy selected items').disabled, true)
+  await click(button('Copy all items'))
+  assert.equal(writes.at(-1), items.join('\n'))
+  const individualCopies = [
+    ...document.querySelectorAll<HTMLButtonElement>('button'),
+  ].filter((node) => node.textContent?.trim() === 'Copy')
+  await click(individualCopies[1])
+  assert.equal(writes.at(-1), items[1])
+  assert.deepEqual(
+    reads,
+    ['/api/user/auth/store-claim/selection-order'],
+    'pickup never looks up a public product endpoint'
+  )
+})
+test('pickup selection and private details reset when the account or pickup token changes', async () => {
+  owner(2)
+  api.get = (async () =>
+    result({
+      product_title: 'Fixture keys',
+      status: 'paid',
+      pickup_login_required: false,
+      pickup_code_required: false,
+    })) as typeof api.get
+  api.post = (async (url: string) =>
+    result({
+      order_id: url.endsWith('second') ? 'second-order' : 'first-order',
+      product_title: 'Fixture keys',
+      product_description: 'Private merchant details',
+      items: ['private selection key'],
+    })) as typeof api.post
+  let changeToken: (value: string) => void = () => {}
+  function ChangingToken() {
+    const [token, setToken] = useState('first')
+    changeToken = setToken
+    return <StoreClaimPage token={token} />
+  }
+  await mount(<ChangingToken />)
+  await click(button('Collect items'))
+  assert.equal(
+    document.body.textContent?.includes('Specification'),
+    false,
+    'legacy claims never invent a specification'
+  )
+  await click(button('Select all'))
+  assert.equal(button('Copy selected items').disabled, false)
+  await act(async () => {
+    owner(3)
+    await flush()
+  })
+  assert.equal(document.querySelector('textarea'), null)
+  assert.equal(
+    document.body.textContent?.includes('Private merchant details'),
+    false
+  )
+  await click(button('Collect items'))
+  assert.equal(button('Copy selected items').disabled, true)
+  await click(button('Select all'))
+  await act(async () => {
+    changeToken('second')
+    await flush()
+  })
+  await act(flush)
+  assert.equal(document.querySelector('textarea'), null)
+  await click(button('Collect items'))
+  assert.equal(button('Copy selected items').disabled, true)
+})
+test('public product descriptions pass the unchanged merchant source to the shared Markdown renderer', async () => {
+  api.get = (async (url: string) => {
+    if (url === '/api/store/products/product-fixture') {
+      return result({
+        ...product,
+        description:
+          '## Merchant-defined options\n\n| Specification | Description |\n| --- | --- |\n| 自定义规格 | 商家内容 |\n\n1. Read the guide\n2. Use your key\n\n[Guide](https://merchant.example.test/guide)\n\n<script>bad()</script>\n<a href="javascript:bad()" onclick="bad()">Unsafe</a>',
+      })
+    }
+    if (url === '/api/store/disclaimer') {
+      return result({ version: 'v1', text: 'Terms', accepted: false })
+    }
+    assert.fail(`Unexpected product request: ${url}`)
+  }) as typeof api.get
+  await mount(<StoreProductPage id='product-fixture' />)
+  const source =
+    document.querySelector('[data-store-markdown]')?.textContent || ''
+  assert.match(source, /## Merchant-defined options/)
+  assert.match(source, /\| Specification \| Description \|/)
+  assert.match(source, /\| 自定义规格 \| 商家内容 \|/)
+  assert.match(source, /\[Guide\]\(https:\/\/merchant\.example\.test\/guide\)/)
+})
+test('pickup clipboard failure keeps the selected text and offers manual copy', async () => {
+  api.get = (async () =>
+    result({ product_title: 'Fixture keys', status: 'paid' })) as typeof api.get
+  api.post = (async () =>
+    result({
+      order_id: 'failure-order',
+      items: ['still-copyable-key'],
+    })) as typeof api.post
+  dom.navigator.clipboard.writeText = async () => {
+    throw new Error('Clipboard denied')
+  }
+  await mount(<StoreClaimPage token='copy-failure' />)
+  await click(button('Collect items'))
+  await click(button('Select all'))
+  await click(button('Copy selected items'))
+  assert.match(
+    document.body.textContent || '',
+    /Copy failed\. Select and copy the text manually\./
+  )
+  assert.equal(
+    (document.querySelector('textarea') as HTMLTextAreaElement).value,
+    'still-copyable-key'
+  )
+  assert.equal(
+    document.querySelector('[role="checkbox"]')?.getAttribute('aria-checked'),
+    'true'
+  )
+})
+test('seller unlisting requires confirmation, retains failed rows, and invalidates sale queries after success', async () => {
+  owner(9)
+  let currentProduct = product
+  let attempts = 0
+  let reads = 0
+  api.get = (async (url: string) => {
+    if (url === '/api/store/my/products') {
+      reads++
+      return result({ items: [currentProduct], has_more: false })
+    }
+    if (url === '/api/store/config') {
+      return result({
+        fee_bps: 0,
+        promotion_quota: 0,
+        platform_payment_methods: [],
+      })
+    }
+    if (url === '/api/store/payments/settings') {
+      return result({ items: [], fee_bps: 0 })
+    }
+    assert.fail(`Unexpected seller request: ${url}`)
+  }) as typeof api.get
+  api.post = (async (url: string) => {
+    assert.equal(url, '/api/store/products/product-fixture/unlist')
+    attempts++
+    if (attempts === 1) {
+      return { data: { success: false, message: 'Unlisting failed' } }
+    }
+    currentProduct = { ...product, status: 'unlisted' }
+    return result(null)
+  }) as typeof api.post
+  await mount(<StoreSellerPage />)
+  const sellerClient = client
+  assert.ok(sellerClient)
+  sellerClient.setQueryData(['store', 'products', '', 1], { items: [product] })
+  sellerClient.setQueryData(['store', 'product', product.id], product)
+  sellerClient.setQueryData(['store', 'reviews'], { items: [product] })
+  sellerClient.setQueryData(['store', 'orders', 9], {
+    items: ['retained-order'],
+  })
+  await click(button('Unlist product'))
+  assert.equal(attempts, 0)
+  assert.ok(document.querySelector('[data-slot="alert-dialog-content"]'))
+  await click(button('Cancel'))
+  assert.equal(attempts, 0)
+  await click(button('Unlist product'))
+  await click(
+    document.querySelector('[data-slot="alert-dialog-action"]') as HTMLElement
+  )
+  assert.equal(attempts, 1)
+  assert.equal(document.querySelectorAll('article').length, 1)
+  assert.match(
+    document.querySelector('[data-slot="alert-dialog-content"]')?.textContent ||
+      '',
+    /Unlisting failed/
+  )
+  assert.equal(reads, 1, 'failed mutations do not invalidate or hide the row')
+  await click(
+    document.querySelector('[data-slot="alert-dialog-action"]') as HTMLElement
+  )
+  assert.equal(document.querySelectorAll('article').length, 1)
+  assert.match(document.body.textContent || '', /unlisted/)
+  assert.equal(
+    document.querySelector('[data-slot="alert-dialog-content"]'),
+    null
+  )
+  assert.equal(
+    [...document.querySelectorAll('button')].some(
+      (node) => node.textContent?.trim() === 'Unlist product'
+    ),
+    false
+  )
+  assert.equal(
+    [...document.querySelectorAll('button')].some(
+      (node) => node.textContent?.trim() === 'Resume trading'
+    ),
+    false
+  )
+  for (const key of [
+    ['store', 'products', '', 1],
+    ['store', 'reviews'],
+  ]) {
+    assert.equal(sellerClient.getQueryState(key)?.isInvalidated, true)
+  }
+  assert.deepEqual(sellerClient.getQueryData(['store', 'products', '', 1]), {
+    items: [],
+  })
+  assert.equal(
+    sellerClient.getQueryData(['store', 'product', product.id]),
+    undefined,
+    'A retired detail cannot reappear from an old successful cache entry'
+  )
+  assert.equal(
+    sellerClient.getQueryState(['store', 'orders', 9])?.isInvalidated,
+    false
+  )
+  assert.equal(reads, 2)
+})
+test('seller deletion waits for server success, supports retry, then removes the product', async () => {
+  owner(9)
+  let present = true
+  let attempts = 0
+  let resolveDelete: () => void = () => {}
+  api.get = (async (url: string) => {
+    if (url === '/api/store/my/products') {
+      return result({ items: present ? [product] : [], has_more: false })
+    }
+    if (url === '/api/store/config') {
+      return result({
+        fee_bps: 0,
+        promotion_quota: 0,
+        platform_payment_methods: [],
+      })
+    }
+    if (url === '/api/store/payments/settings') {
+      return result({ items: [], fee_bps: 0 })
+    }
+    assert.fail(`Unexpected seller request: ${url}`)
+  }) as typeof api.get
+  api.delete = (async (url: string) => {
+    assert.equal(url, '/api/store/products/product-fixture')
+    attempts++
+    if (attempts === 1) {
+      return { data: { success: false, message: 'Deletion failed' } }
+    }
+    await new Promise<void>((resolve) => {
+      resolveDelete = resolve
+    })
+    present = false
+    return result(null)
+  }) as typeof api.delete
+  await mount(<StoreSellerPage />)
+  await click(button('Delete product'))
+  assert.equal(attempts, 0)
+  await click(button('Cancel'))
+  assert.equal(document.querySelectorAll('article').length, 1)
+  await click(button('Delete product'))
+  await click(
+    document.querySelector('[data-slot="alert-dialog-action"]') as HTMLElement
+  )
+  assert.equal(document.querySelectorAll('article').length, 1)
+  assert.match(
+    document.querySelector('[data-slot="alert-dialog-content"]')?.textContent ||
+      '',
+    /Deletion failed/
+  )
+  await click(
+    document.querySelector('[data-slot="alert-dialog-action"]') as HTMLElement
+  )
+  assert.equal(attempts, 2)
+  assert.equal(
+    document.querySelectorAll('article').length,
+    1,
+    'pending request must not hide the product'
+  )
+  assert.equal(
+    (
+      document.querySelector(
+        '[data-slot="alert-dialog-action"]'
+      ) as HTMLButtonElement
+    ).disabled,
+    true
+  )
+  await act(async () => {
+    resolveDelete()
+    await flush()
+  })
+  assert.equal(document.querySelectorAll('article').length, 0)
+  assert.match(document.body.textContent || '', /No products yet/)
+  assert.equal(
+    document.querySelector('[data-slot="alert-dialog-content"]'),
+    null
+  )
 })
 test('pickup protection validates both minimum length and the bcrypt UTF-8 byte limit', async () => {
   owner(2)

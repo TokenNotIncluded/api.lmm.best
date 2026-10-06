@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Markdown } from '@/components/ui/markdown'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
@@ -121,9 +122,7 @@ export function StoreProductPage({
                 ))}
             </div>
           )}
-          <p className='max-w-prose text-sm leading-7 break-words whitespace-pre-wrap'>
-            {product.description}
-          </p>
+          <Markdown className='min-w-0'>{product.description}</Markdown>
           {product.contact && (
             <div className='space-y-1 border-t pt-4'>
               <h2 className='text-sm font-semibold'>{t('Seller contact')}</h2>

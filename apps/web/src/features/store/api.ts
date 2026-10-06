@@ -106,6 +106,10 @@ export const storeApi = {
     unwrap<null>(
       api.put(`${root}/products/${id}/listing`, { listed }, options)
     ),
+  unlistProduct: (id: string) =>
+    unwrap<null>(api.post(`${root}/products/${id}/unlist`, {}, options)),
+  deleteProduct: (id: string) =>
+    unwrap<null>(api.delete(`${root}/products/${id}`, options)),
   inventory: (id: string, items: string[]) =>
     unwrap<{ added: number }>(
       api.post(`${root}/products/${id}/inventory`, { items }, options)

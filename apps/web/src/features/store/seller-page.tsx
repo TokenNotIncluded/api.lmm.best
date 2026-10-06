@@ -3,6 +3,16 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -48,6 +58,7 @@ import type {
   StoreProduct,
   StoreProductInput,
   StoreVariant,
+  StorePage,
 } from './types'
 import {
   paymentLabel,
@@ -75,9 +86,10 @@ const EMPTY: StoreProductInput = {
   email_pickup_link: false,
 }
 export function StoreSellerPage() {
+  const user = useAuthStore((state) => state.auth.user)
   return (
     <StoreAuthGate>
-      <StoreSellerCenter />
+      <StoreSellerCenter key={user?.id || 'guest'} />
     </StoreAuthGate>
   )
 }
@@ -106,20 +118,34 @@ function StoreSellerCenter() {
   const [inventory, setInventory] = useState<StoreProduct | null>(null)
   const [aiReviewId, setAIReviewId] = useState<string | null>(null)
   const [promoting, setPromoting] = useState<StoreProduct | null>(null)
+  const [lifecycle, setLifecycle] = useState<{
+    product: StoreProduct
+    kind: 'unlist' | 'delete'
+  } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-  async function action(product: StoreProduct, fn: () => Promise<unknown>) {
+  async function action(
+    product: StoreProduct,
+    fn: () => Promise<unknown>,
+    onSuccess?: () => void
+  ) {
     if (busy !== null) return
     setBusy(product.id)
     setError(null)
     try {
       await fn()
+      onSuccess?.()
       await client.invalidateQueries({
         queryKey: ['market-ai-reviews', user.id, 'product', product.id],
       })
       await client.invalidateQueries({
         queryKey: ['store', 'my-products', user.id],
       })
+      await client.invalidateQueries({ queryKey: ['store', 'products'] })
+      await client.invalidateQueries({
+        queryKey: ['store', 'product', product.id],
+      })
+      await client.invalidateQueries({ queryKey: ['store', 'reviews'] })
       if (promoting) promotionKeys.current.delete(promoting.id)
       setPromoting(null)
     } catch (issue) {
@@ -127,6 +153,47 @@ function StoreSellerCenter() {
     } finally {
       setBusy(null)
     }
+  }
+  function confirmLifecycle() {
+    if (!lifecycle) return
+    const { product, kind } = lifecycle
+    void action(
+      product,
+      () =>
+        kind === 'delete'
+          ? storeApi.deleteProduct(product.id)
+          : storeApi.unlistProduct(product.id),
+      () => {
+        client.setQueriesData<StorePage<StoreProduct>>(
+          { queryKey: ['store', 'products'] },
+          (previous) =>
+            previous && {
+              ...previous,
+              items: previous.items.filter((item) => item.id !== product.id),
+            }
+        )
+        client.removeQueries({
+          queryKey: ['store', 'product', product.id],
+          exact: true,
+        })
+        client.setQueriesData<StorePage<StoreProduct>>(
+          { queryKey: ['store', 'my-products', user.id] },
+          (previous) =>
+            previous && {
+              ...previous,
+              items:
+                kind === 'delete'
+                  ? previous.items.filter((item) => item.id !== product.id)
+                  : previous.items.map((item) =>
+                      item.id === product.id
+                        ? { ...item, status: 'unlisted' as const }
+                        : item
+                    ),
+            }
+        )
+        setLifecycle(null)
+      }
+    )
   }
   const allowedMethods: StorePaymentMethod[] =
     settings.data?.items
@@ -275,6 +342,30 @@ function StoreSellerCenter() {
                         )}
                       </Button>
                     )}
+                    {product.status !== 'unlisted' && (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={busy !== null}
+                        onClick={() => {
+                          setError(null)
+                          setLifecycle({ product, kind: 'unlist' })
+                        }}
+                      >
+                        {t('Unlist product')}
+                      </Button>
+                    )}
+                    <Button
+                      size='sm'
+                      variant='destructive'
+                      disabled={busy !== null}
+                      onClick={() => {
+                        setError(null)
+                        setLifecycle({ product, kind: 'delete' })
+                      }}
+                    >
+                      {t('Delete product')}
+                    </Button>
                   </div>
                 </div>
                 <StoreInventoryTotals product={product} />
@@ -366,6 +457,51 @@ function StoreSellerCenter() {
           'Edits to approved product details require another review. Inventory contents are never shown publicly.'
         )}
       </p>
+      <AlertDialog
+        open={lifecycle !== null}
+        onOpenChange={(open) => {
+          if (!open && busy === null) setLifecycle(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t(
+                lifecycle?.kind === 'delete'
+                  ? 'Delete product?'
+                  : 'Unlist product?'
+              )}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                lifecycle?.kind === 'delete'
+                  ? 'Remove {{title}} from your products and the store. Existing orders and delivered items remain accessible.'
+                  : 'Remove {{title}} from the store. You can edit and submit it for review again. Existing orders remain accessible.',
+                { title: lifecycle?.product.title || '' }
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <StoreError error={error} />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy !== null}>
+              {t('Cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant={lifecycle?.kind === 'delete' ? 'destructive' : 'default'}
+              disabled={busy !== null}
+              onClick={confirmLifecycle}
+            >
+              {t(
+                busy !== null
+                  ? 'Saving...'
+                  : lifecycle?.kind === 'delete'
+                    ? 'Delete product'
+                    : 'Unlist product'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {editing !== null && (
         <StoreProductEditor
           key={editing === 'new' ? 'new' : editing.id}

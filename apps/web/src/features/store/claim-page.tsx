@@ -6,13 +6,14 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Markdown } from '@/components/ui/markdown'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
-import { StoreDeliveredItem } from './delivered-item'
-import { deliveryItemText } from './delivery-template'
+import { StoreClaimItems } from './claim-items'
 import { CopyStoreValue, StoreError, StoreLoading } from './shared'
 import type { StoreClaim } from './types'
+import { safeStoreUrl } from './utils'
 
 export function StoreClaimPage({ token }: { token: string }) {
   const user = useAuthStore((state) => state.auth.user)
@@ -74,6 +75,11 @@ function StoreClaimContent({ token }: { token: string }) {
           {t('Collect your items')}
         </h1>
         <h2 className='text-lg break-words'>{metadata.product_title}</h2>
+        {(claim?.variant_name || metadata.variant_name) && (
+          <p className='text-muted-foreground text-sm break-words'>
+            {t('Specification')}: {claim?.variant_name || metadata.variant_name}
+          </p>
+        )}
         <p className='text-muted-foreground text-sm'>
           {claim?.variant_name ||
             metadata.variant_name ||
@@ -115,28 +121,42 @@ function StoreClaimContent({ token }: { token: string }) {
           </Button>
         </div>
       ) : claim ? (
-        <div className='space-y-4'>
-          <div className='flex items-center justify-between gap-3'>
-            <span className='text-sm'>
-              {t('{{count}} items', { count: claim.items.length })}
-            </span>
-            <CopyStoreValue
-              value={claim.items
-                .map((item) =>
-                  deliveryItemText(item, claim.delivery_template, t)
+        <div className='flex flex-col gap-6'>
+          {claim.product_description && (
+            <Markdown className='min-w-0'>{claim.product_description}</Markdown>
+          )}
+          {!!claim.product_links?.length && (
+            <div className='flex flex-col gap-3'>
+              <h3 className='text-sm font-semibold'>{t('Product links')}</h3>
+              {claim.product_links.map((link, index) => {
+                const url = safeStoreUrl(link.url)
+                if (!url) return null
+                return (
+                  <div key={index} className='flex flex-col gap-1 text-sm'>
+                    <a
+                      href={url}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='focus-visible:outline-ring underline underline-offset-4 focus-visible:outline-2'
+                    >
+                      {link.title || url}
+                    </a>
+                    {link.description && (
+                      <p className='text-muted-foreground break-words whitespace-pre-wrap'>
+                        {link.description}
+                      </p>
+                    )}
+                  </div>
                 )
-                .join('\n')}
-              label='Copy all items'
-            />
-          </div>
-          {claim.items.map((item, index) => (
-            <StoreDeliveredItem
-              key={index}
-              raw={item}
-              template={claim.delivery_template}
-              index={index}
-            />
-          ))}
+              })}
+            </div>
+          )}
+          <StoreClaimItems
+            key={claim.order_id}
+            items={claim.items}
+            deliveryTemplate={claim.delivery_template}
+            variantName={claim.variant_name || metadata.variant_name}
+          />
         </div>
       ) : (
         <form
