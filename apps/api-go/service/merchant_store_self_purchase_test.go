@@ -15,6 +15,9 @@ func merchantStoreSelfPurchaseServiceFixture(t *testing.T, method string) mercha
 	t.Helper()
 	f := merchantStoreServiceDB(t, method)
 	f.buyer = f.seller
+	// The payment fixture passes this as the explicitly selected pickup email;
+	// the seller account itself has no email verification prerequisite.
+	f.buyer.Email = "merchant-pickup@example.invalid"
 	require.NoError(t, model.AcceptMerchantStoreDisclaimer(f.seller.Id, model.MerchantStoreDisclaimerVersion))
 	return f
 }
