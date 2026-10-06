@@ -922,9 +922,11 @@ describe('wallet payment clarity', () => {
     )
 
     const discountPreset = rendered.container.querySelector(
-      '[aria-label="Preset amount: 200 CNY. Select to get the current payment quote."]'
+      '[aria-label="Preset amount: 200 CNY. Select to get the current payment quote. · 20% off"]'
     )
     assert.ok(discountPreset)
+    assert.equal(discountPreset.getAttribute('aria-pressed'), 'false')
+    assert.equal(discountPreset.textContent?.includes('20% off'), true)
     assert.equal(
       discountPreset?.textContent?.includes('Platform discount 20%'),
       false
