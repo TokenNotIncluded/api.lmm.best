@@ -76,6 +76,7 @@ const { StorePaymentCategoriesForm } = await import('./payment-categories')
 const { MerchantStoreSettingsSection } =
   await import('@/features/system-settings/integrations/merchant-store-settings-section')
 const { StoreOrderRow, StoreOrdersPage } = await import('./orders-page')
+const { StoreAmount } = await import('./shared')
 const { StoreDeliveryEmail } = await import('./delivery-email')
 const { StoreProductEditor } = await import('./seller-page')
 const { StoreInventoryImport } = await import('./seller-page')
@@ -1977,9 +1978,8 @@ test('delivery email verification uses only the account address and confirms a s
   assert.ok(document.body.textContent?.includes('Email verified'))
 })
 
-test('an updated paid order clears a previously prepared payment session', async () => {
-  owner(2)
-  const pending: StoreOrder = {
+function pendingPaymentOrder(): StoreOrder {
+  return {
     id: 'order-fixture',
     trade_no: 'MS-fixture',
     buyer_id: 2,
@@ -2003,6 +2003,11 @@ test('an updated paid order clears a previously prepared payment session', async
     email_pickup_link: false,
     payment_issued: true,
   }
+}
+
+test('an updated paid order clears a previously prepared payment session', async () => {
+  owner(2)
+  const pending = pendingPaymentOrder()
   let update: React.Dispatch<React.SetStateAction<StoreOrder>> | undefined
   function Harness() {
     const [order, setOrder] = useState(pending)
@@ -2034,6 +2039,109 @@ test('an updated paid order clears a previously prepared payment session', async
   )
   assert.ok(button('Get pickup link'))
 })
+
+for (const matching of [true, false]) {
+  test(`order history refreshes only a matching confirmed minimum cancellation (${matching})`, async () => {
+    owner(2)
+    const pending = pendingPaymentOrder()
+    let status: StoreOrder['status'] = 'pending'
+    let reads = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/store/my/orders') {
+        reads++
+        return result({ items: [{ ...pending, status }], has_more: false })
+      }
+      return result(null)
+    }) as typeof api.get
+    api.post = (async () => {
+      if (matching) status = 'cancelled'
+      throw {
+        response: {
+          data: {
+            success: false,
+            code: 'STORE_PAYMENT_MINIMUM',
+            message: 'Payment amount is below the gateway minimum.',
+            order_id: matching ? pending.id : 'another-order',
+            order_status: 'cancelled',
+            order_cancelled: true,
+          },
+        },
+      }
+    }) as typeof api.post
+    await mount(<StoreOrdersPage />)
+    const initialReads = reads
+    await click(button('Prepare payment'))
+    assert.equal(reads > initialReads, matching)
+    const hasPaymentButton = [...document.querySelectorAll('button')].some(
+      (node) => node.textContent?.trim() === 'Prepare payment'
+    )
+    assert.equal(hasPaymentButton, !matching)
+    assert.ok(document.body.textContent?.includes('Payment amount is below'))
+  })
+}
+
+test('order history reads the server balance after a confirmed balance payment', async () => {
+  owner(2)
+  const pending = {
+    ...pendingPaymentOrder(),
+    payment_method: 'balance',
+    payment_issued: false,
+  }
+  let paid = false
+  let accountReads = 0
+  api.get = (async (url: string) => {
+    if (url === '/api/user/self') {
+      accountReads++
+      return result({ id: 2, role: 1, username: 'buyer-2', quota: 1234567 })
+    }
+    if (url === '/api/store/my/orders') {
+      return result({
+        items: [{ ...pending, status: paid ? 'paid' : 'pending' }],
+        has_more: false,
+      })
+    }
+    return result([])
+  }) as typeof api.get
+  api.post = (async () => {
+    paid = true
+    return result({ order_id: pending.id, status: 'paid' })
+  }) as typeof api.post
+  await mount(<StoreOrdersPage />)
+  assert.equal(accountReads, 0)
+  await click(button('Pay with balance'))
+  assert.equal(accountReads, 1)
+  assert.equal(useAuthStore.getState().auth.user?.quota, 1234567)
+  assert.ok(button('Get pickup link'))
+})
+
+for (const { currency, quota, expected } of [
+  { currency: 'CNY', quota: 68493, expected: '1 CNY' },
+  { currency: 'USD', quota: 1, expected: '0.000002 USD' },
+  { currency: 'CREDIT', quota: 68493, expected: '68,493 Credits' },
+]) {
+  test(`store price display remains usable for ${currency}`, async () => {
+    owner(2)
+    const current = useAuthStore.getState().auth.user
+    assert.ok(current)
+    useAuthStore.getState().auth.setUser({
+      ...current,
+      setting: JSON.stringify({ wallet_display_currency: currency }),
+    })
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...originalConfig.currency,
+        currencyUnit: 'credit',
+        quotaPerUnit: 500000,
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7.3,
+        cnyPerUsdExact: '7.3',
+      },
+    })
+    await mount(<StoreAmount quota={quota} />)
+    assert.equal(document.body.textContent, expected)
+  })
+}
 
 test('ordinary owners can place a real order for their own published product', async () => {
   owner(product.seller_id)

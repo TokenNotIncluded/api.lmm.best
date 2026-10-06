@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { storeApi } from './api'
+import { StoreAPIError, storeApi } from './api'
 import { StoreDeliveryEmail } from './delivery-email'
 import { StoreRefundPanel } from './refund-panel'
 import {
@@ -62,6 +63,7 @@ function StoreOrders() {
           onClick={() => {
             void query.refetch()
             if (selectedValid) void selected.refetch()
+            void refreshCurrentAccount()
           }}
         >
           {t('Refresh')}
@@ -185,6 +187,10 @@ export function StoreOrderRow({
       client.invalidateQueries({
         queryKey: ['store', 'order', user.id, order.id],
       }),
+      client.invalidateQueries({ queryKey: ['store', 'payments', user.id] }),
+      ...(useAuthStore.getState().auth.user?.id === user.id
+        ? [refreshCurrentAccount()]
+        : []),
     ])
   }
   async function action(fn: () => Promise<void>) {
@@ -195,6 +201,16 @@ export function StoreOrderRow({
       await fn()
     } catch (issue) {
       setError(issue)
+      if (
+        issue instanceof StoreAPIError &&
+        issue.code === 'STORE_PAYMENT_MINIMUM' &&
+        issue.orderCancelled === true &&
+        issue.orderStatus === 'cancelled' &&
+        issue.orderId === order.id
+      ) {
+        setPayment(null)
+        await refreshOrders()
+      }
     } finally {
       setBusy(false)
     }

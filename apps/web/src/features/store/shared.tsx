@@ -116,7 +116,7 @@ export function StoreAmount({ quota }: { quota: number }) {
   }
   return (
     <span className='tabular-nums'>
-      {money.formatQuota(quota, { abbreviate: false })}
+      {money.formatQuota(quota, { abbreviate: false, digitsSmall: 2 })}
     </span>
   )
 }
