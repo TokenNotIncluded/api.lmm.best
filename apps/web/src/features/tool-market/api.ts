@@ -12,6 +12,11 @@ import {
 import { marketDraftBody } from './draft-body'
 import { marketInvokeBody } from './invoke-body'
 
+export type MarketCapabilities = {
+  service_deletion: boolean
+  client_record_cleanup: boolean
+  meta_delegation: boolean
+}
 export type MarketConfig = {
   enabled: boolean
   fee_bps: number
@@ -20,6 +25,14 @@ export type MarketConfig = {
   web_client_id: string
   mcp_path: string
   builtin_enabled?: boolean
+  capabilities?: Partial<MarketCapabilities>
+}
+// Missing flags and truthy non-booleans never authorize a newer endpoint.
+export function marketSupports(
+  config: MarketConfig | undefined,
+  capability: keyof MarketCapabilities
+): boolean {
+  return config?.capabilities?.[capability] === true
 }
 export type MarketService = {
   id: string

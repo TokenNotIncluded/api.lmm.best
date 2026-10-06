@@ -103,6 +103,11 @@ const pausedConfig: MarketConfig = {
   quota_per_unit: 500000,
   web_client_id: 'web-market',
   mcp_path: '/mcp/market',
+  capabilities: {
+    service_deletion: true,
+    client_record_cleanup: true,
+    meta_delegation: true,
+  },
 }
 function detail(
   id: string,
@@ -460,6 +465,50 @@ test('ordinary catalog viewers cannot delete another service, while administrato
   await click(adminCard)
   await waitFor(() => Boolean(findButton('Delete', admin.container)))
   assert.equal(findButton('Edit draft', admin.container), undefined)
+})
+
+test('legacy server capabilities hide service deletion in authored detail, publications and review queue', async () => {
+  const item = structuredClone(remote)
+  stubNavigation([item], [item.service])
+  const { capabilities: _, ...legacy } = pausedConfig
+  marketAPI.config = async () => legacy
+  marketAPI.reviews = async () => [item.service]
+  marketAPI.deleteService = async () =>
+    assert.fail('Legacy server must never receive a service delete request')
+  metaDelegationAPI.oauthClients = async () =>
+    assert.fail('Legacy server must never receive a meta target request')
+  metaDelegationAPI.get = async () =>
+    assert.fail('Legacy server must never receive a meta read request')
+  metaDelegationAPI.set = async () =>
+    assert.fail('Legacy server must never receive a meta write request')
+  const { container } = await mount(100)
+  await waitFor(
+    () => container.textContent?.includes(item.version.name) === true
+  )
+  const card = [...container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === item.version.name
+  )
+  assert.ok(card)
+  await click(card)
+  await waitFor(() => Boolean(findButton('Back to list', container)))
+  assert.equal(findButton('Delete', container), undefined)
+  await click(button('Back to list', container))
+  await click(button('My publications', container))
+  await waitFor(
+    () =>
+      container.textContent?.includes(item.service.name || item.service.id) ===
+      true
+  )
+  assert.equal(findButton('Delete', container), undefined)
+  assert.ok(findButton('View', container))
+  await click(button('Review queue', container))
+  await waitFor(() => Boolean(findButton('Review', container)))
+  assert.equal(findButton('Delete', container), undefined)
+  await click(button('Connections and limits', container))
+  await waitFor(
+    () => container.textContent?.includes('Connect your MCP client') === true
+  )
+  assert.equal(container.textContent?.includes('AI delegation'), false)
 })
 
 test('catalog search and type filters reset pagination and clear together without invoking tools', async () => {

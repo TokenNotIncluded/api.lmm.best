@@ -28,6 +28,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import {
   MarketAPIError,
   marketAPI,
+  marketSupports,
   type Budget,
   type Grant,
   type Installation,
@@ -105,6 +106,8 @@ function ConnectionWorkspace({
     values?: Record<string, string | number>
   ) => String(t(key, { ...values, ns: marketConnectionNamespace }))
   const cache = useQueryClient()
+  const metaSupported = marketSupports(config, 'meta_delegation')
+  const cleanupSupported = marketSupports(config, 'client_record_cleanup')
   const tokens = useQuery({
     queryKey: ['tool-market', userID, 'tokens'],
     queryFn: ({ signal }) => marketAPI.mine<MarketToken>('tokens', signal),
@@ -125,8 +128,12 @@ function ConnectionWorkspace({
   const metaOAuthClients = useQuery({
     queryKey: ['tool-market', userID, 'meta-oauth-clients'],
     queryFn: ({ signal }) => metaDelegationAPI.oauthClients(signal),
+    enabled: metaSupported,
   })
-  const [metaSetup, setMetaSetup] = useState(defaultMetaDelegationSetup)
+  const [metaSetup, setMetaSetup] = useState(() => ({
+    ...defaultMetaDelegationSetup,
+    enabled: metaSupported && defaultMetaDelegationSetup.enabled,
+  }))
   const [metaMessage, setMetaMessage] = useState<string>()
   const [client, setClient] = useState('my-agent')
   const [profile, setProfile] = useState<MarketClientProfile>('codex')
@@ -204,7 +211,7 @@ function ConnectionWorkspace({
     grants.isError ||
     installations.isError ||
     budgets.isError ||
-    metaOAuthClients.isError
+    (metaSupported && metaOAuthClients.isError)
   const accessReady =
     tokens.isSuccess && grants.isSuccess && installations.isSuccess
   const savedGroups = useMemo(() => {
@@ -222,9 +229,17 @@ function ConnectionWorkspace({
     for (const row of installations.data ?? []) {
       ensure(row.client_id).installations.push(row)
     }
-    for (const row of metaOAuthClients.data ?? []) ensure(row.client_id)
+    if (metaSupported) {
+      for (const row of metaOAuthClients.data ?? []) ensure(row.client_id)
+    }
     return [...rows].sort(([a], [b]) => a.localeCompare(b))
-  }, [tokens.data, grants.data, installations.data, metaOAuthClients.data])
+  }, [
+    tokens.data,
+    grants.data,
+    installations.data,
+    metaOAuthClients.data,
+    metaSupported,
+  ])
   const groups = savedGroups
     .map(([id, group]): [string, ClientAccess] => [
       id,
@@ -237,7 +252,9 @@ function ConnectionWorkspace({
     .filter(
       ([id, group]) =>
         group.tokens.length + group.grants.length + group.installations.length >
-          0 || metaOAuthClients.data?.some((row) => row.client_id === id)
+          0 ||
+        (metaSupported &&
+          metaOAuthClients.data?.some((row) => row.client_id === id))
     )
   const revokedGroups = savedGroups
     .map(([id, group]): [string, ClientAccess] => [
@@ -307,7 +324,7 @@ function ConnectionWorkspace({
                 {m('disconnect')}
               </Button>
             )}
-            {isPersonalMarketClient(id) && allRevoked && (
+            {cleanupSupported && isPersonalMarketClient(id) && allRevoked && (
               <Button
                 variant='ghost'
                 disabled={action.isPending || !accessReady}
@@ -322,7 +339,8 @@ function ConnectionWorkspace({
               </Button>
             )}
           </div>
-          {!history &&
+          {metaSupported &&
+            !history &&
             metaOAuthClients.data?.some((row) => row.client_id === id) && (
               <MetaDelegationSettings
                 target={{ kind: 'oauth', id }}
@@ -362,7 +380,8 @@ function ConnectionWorkspace({
                   {new Date(token.expires_at * 1000).toLocaleString()}
                 </time>
               </div>
-              {connectionStatus(token, now) === 'active' &&
+              {metaSupported &&
+                connectionStatus(token, now) === 'active' &&
                 token.can_invoke &&
                 token.can_manage && (
                   <MetaDelegationSettings
@@ -370,22 +389,26 @@ function ConnectionWorkspace({
                     permitted
                   />
                 )}
-              <Button
-                variant='ghost'
-                disabled={action.isPending || !accessReady}
-                onClick={() =>
-                  action.mutate(async () => {
-                    if (token.revoked_at) {
-                      await marketAPI.removeTokenRecord(token.id)
-                    } else {
-                      await marketAPI.revokeToken(token.id)
-                    }
-                    if (issued?.record.id === token.id) setIssued(null)
-                  })
-                }
-              >
-                {token.revoked_at ? t('Delete connection token') : t('Revoke')}
-              </Button>
+              {(!token.revoked_at || cleanupSupported) && (
+                <Button
+                  variant='ghost'
+                  disabled={action.isPending || !accessReady}
+                  onClick={() =>
+                    action.mutate(async () => {
+                      if (token.revoked_at) {
+                        await marketAPI.removeTokenRecord(token.id)
+                      } else {
+                        await marketAPI.revokeToken(token.id)
+                      }
+                      if (issued?.record.id === token.id) setIssued(null)
+                    })
+                  }
+                >
+                  {token.revoked_at
+                    ? t('Delete connection token')
+                    : t('Revoke')}
+                </Button>
+              )}
             </div>
           ))}
           {(group.installations.length > 0 || group.grants.length > 0) && (
@@ -441,23 +464,25 @@ function ConnectionWorkspace({
                           )}
                         </p>
                       </div>
-                      <Button
-                        variant='ghost'
-                        disabled={action.isPending || !accessReady}
-                        onClick={() =>
-                          action.mutate(async () => {
-                            if (grant.revoked_at) {
-                              await marketAPI.removeGrantRecord(grant.id)
-                            } else {
-                              await marketAPI.revokeGrant(grant.id)
-                            }
-                          })
-                        }
-                      >
-                        {grant.revoked_at
-                          ? t('Delete authorization')
-                          : t('Revoke authorization')}
-                      </Button>
+                      {(!grant.revoked_at || cleanupSupported) && (
+                        <Button
+                          variant='ghost'
+                          disabled={action.isPending || !accessReady}
+                          onClick={() =>
+                            action.mutate(async () => {
+                              if (grant.revoked_at) {
+                                await marketAPI.removeGrantRecord(grant.id)
+                              } else {
+                                await marketAPI.revokeGrant(grant.id)
+                              }
+                            })
+                          }
+                        >
+                          {grant.revoked_at
+                            ? t('Delete authorization')
+                            : t('Revoke authorization')}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -485,7 +510,7 @@ function ConnectionWorkspace({
                   grants.refetch(),
                   installations.refetch(),
                   budgets.refetch(),
-                  metaOAuthClients.refetch(),
+                  ...(metaSupported ? [metaOAuthClients.refetch()] : []),
                 ])
               }
             >
@@ -514,7 +539,7 @@ function ConnectionWorkspace({
               event.preventDefault()
               const setup = {
                 ...metaSetup,
-                enabled: metaSetup.enabled && metaPermitted,
+                enabled: metaSupported && metaSetup.enabled && metaPermitted,
               }
               if (
                 !validClient ||
@@ -644,12 +669,14 @@ function ConnectionWorkspace({
                   <Badge variant='outline'>{m('readOnly')}</Badge>
                 )}
               </fieldset>
-              <MetaDelegationSetupFields
-                value={metaSetup}
-                onChange={setMetaSetup}
-                permitted={metaPermitted}
-                disabled={action.isPending}
-              />
+              {metaSupported && (
+                <MetaDelegationSetupFields
+                  value={metaSetup}
+                  onChange={setMetaSetup}
+                  permitted={metaPermitted}
+                  disabled={action.isPending}
+                />
+              )}
               <Field>
                 <FieldLabel htmlFor='mcp-expiry'>{m('expiry')}</FieldLabel>
                 <select
@@ -683,7 +710,8 @@ function ConnectionWorkspace({
                   action.isPending ||
                   !validClient ||
                   !endpoint ||
-                  (metaSetup.enabled &&
+                  (metaSupported &&
+                    metaSetup.enabled &&
                     metaPermitted &&
                     metaDelegationQuota(metaSetup.quota) === undefined)
                 }
