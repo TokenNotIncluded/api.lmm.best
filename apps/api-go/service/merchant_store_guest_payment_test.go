@@ -23,7 +23,9 @@ func TestMerchantStoreGuestMinimumCleanupKeepsExactAuthorityAndIssuedObligations
 	require.NoError(t, err)
 	public, no := "public", false
 	f.product, err = model.SaveMerchantStoreProduct(f.seller.Id, f.product.ID, model.MerchantStoreProductInput{
-		Title: f.product.Title, PriceQuota: 1, PaymentMethods: []string{MerchantStoreExternalEpay},
+		// 100 credits reserves one real fee credit at the unchanged 1% rate,
+		// while its CNY charge remains below a single gateway minor unit.
+		Title: f.product.Title, PriceQuota: 100, PaymentMethods: []string{MerchantStoreExternalEpay},
 		Visibility: &public, PurchaseLoginRequired: &no,
 	})
 	require.NoError(t, err)
