@@ -37,6 +37,7 @@ import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { homeTokenCopy } from './home-token-copy.mjs'
+import { merchantStoreCopy, merchantStoreRetiredKeys } from './merchant-store-copy.mjs'
 import { moderationAuditCopy } from './moderation-audit-copy.mjs'
 import { moderationCopy } from './moderation-copy.mjs'
 import { nativeBillingCopy } from './native-billing-copy.mjs'
@@ -11932,6 +11933,7 @@ async function main() {
   }
 
   // Allow scoped additions without overwriting unrelated in-progress translations.
+  const merchantStoreOnly = process.argv.includes('--only-merchant-store')
   const paymentOnly = process.argv.includes('--only-payment-pricing')
   const homeOnly = process.argv.includes('--only-home-editorial')
   const homeTokenOnly = process.argv.includes('--only-home-token')
@@ -11964,6 +11966,7 @@ async function main() {
     '--only-responses-websocket'
   )
   const scoped =
+    merchantStoreOnly ||
     moderationOnly ||
     nativeBillingOnly ||
     typeSafeOnly ||
@@ -12067,7 +12070,9 @@ async function main() {
                     ? passkeyCopy
                     : entries
   let totalAdded = 0
-  for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
+  for (const [locale, baseTranslations] of Object.entries(
+    merchantStoreOnly ? merchantStoreCopy : selectedEntries
+  )) {
     const translations = scoped
       ? baseTranslations
       : {
@@ -12093,6 +12098,7 @@ async function main() {
     let count = 0
     for (const key of [
       ...retiredPricingKeys,
+      ...(merchantStoreOnly ? merchantStoreRetiredKeys : []),
       ...(scoped ? [] : deprecatedCurrencyKeys),
     ]) {
       if (Object.hasOwn(json.translation, key)) {

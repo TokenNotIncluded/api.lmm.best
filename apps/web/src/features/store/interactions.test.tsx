@@ -1,0 +1,566 @@
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import assert from 'node:assert/strict'
+import { after, afterEach, test } from 'node:test'
+
+import { Window } from 'happy-dom'
+import type React from 'react'
+
+import type { StoreOrder, StoreProduct } from './types'
+
+const dom = new Window({
+  url: 'https://shop.example.test/store/products/product-fixture',
+})
+dom.document.write('<!doctype html><html><head></head><body></body></html>')
+Object.defineProperty(dom.document, 'compatMode', {
+  configurable: true,
+  value: 'CSS1Compat',
+})
+for (const key of [
+  'window',
+  'document',
+  'navigator',
+  'HTMLElement',
+  'HTMLInputElement',
+  'SVGElement',
+  'Node',
+  'Element',
+  'Event',
+  'MouseEvent',
+  'CustomEvent',
+  'MutationObserver',
+  'ResizeObserver',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'getComputedStyle',
+  'matchMedia',
+  'customElements',
+  'CSSStyleSheet',
+  'localStorage',
+] as const) {
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    value: dom[key],
+  })
+}
+Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+  configurable: true,
+  value: true,
+})
+const { act, useState } = await import('react')
+const { createRoot } = await import('react-dom/client')
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
+const { createInstance } = await import('i18next')
+const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const { useWalletCurrencyPreferenceStore } =
+  await import('@/stores/wallet-currency-preference-store')
+const { api } = await import('@/lib/api')
+const { StoreCheckout, StoreProductPage } = await import('./product-page')
+const { StoreClaimPage } = await import('./claim-page')
+const { StoreGatewayEditor } = await import('./settings-page')
+const { StoreOrderRow } = await import('./orders-page')
+const { StoreDeliveryEmail } = await import('./delivery-email')
+const { StoreProductEditor } = await import('./seller-page')
+const i18n = createInstance()
+await i18n.use(initReactI18next).init({
+  lng: 'en',
+  resources: {
+    en: {
+      translation: {
+        'Store purchase disclaimer v1':
+          'Independent seller terms. Read and accept before placing this order.',
+      },
+    },
+  },
+})
+const originalGet = api.get
+const originalPost = api.post
+const originalPut = api.put
+const originalConfig = useSystemConfigStore.getState().config
+let root: ReturnType<typeof createRoot> | undefined
+let client: InstanceType<typeof QueryClient> | undefined
+const product: StoreProduct = {
+  id: 'product-fixture',
+  seller_id: 9,
+  title: 'Fixture keys',
+  description: 'Text inventory fixture',
+  image_urls: [],
+  contact: '',
+  links: [],
+  price_quota: 500000,
+  template: 'card-key',
+  delivery_strategy: 'sequential',
+  payment_methods: ['balance'],
+  pickup_login_required: false,
+  pickup_code_required: false,
+  email_pickup_link: false,
+  status: 'published',
+  official: false,
+  available_stock: 5,
+  promotion_expires_at: 0,
+  created_at: 1,
+  updated_at: 1,
+  review_note: '',
+}
+const result = (data: unknown) => ({ data: { success: true, data } })
+function owner(id: number | null) {
+  useAuthStore
+    .getState()
+    .auth.setUser(
+      id ? { id, role: 1, username: `buyer-${id}`, quota: 5000000 } : null
+    )
+}
+async function flush() {
+  await new Promise((resolve) => setTimeout(resolve, 35))
+}
+async function mount(node: React.ReactNode) {
+  document.body.replaceChildren()
+  const host = document.createElement('div')
+  document.body.append(host)
+  root = createRoot(host)
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  await act(async () => {
+    root!.render(
+      <QueryClientProvider client={client!}>
+        <I18nextProvider i18n={i18n}>{node}</I18nextProvider>
+      </QueryClientProvider>
+    )
+    await flush()
+  })
+  await act(flush)
+}
+function button(text: string) {
+  const found = [
+    ...document.querySelectorAll<HTMLButtonElement>('button'),
+  ].find((node) => node.textContent?.trim() === text)
+  assert.ok(found, `button ${text}`)
+  return found
+}
+async function click(node: HTMLElement) {
+  await act(async () => {
+    node.click()
+    await flush()
+  })
+}
+async function input(node: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      dom.HTMLInputElement.prototype,
+      'value'
+    )!.set!.call(node, value)
+    node.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+  })
+}
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount())
+  root = undefined
+  client?.clear()
+  api.get = originalGet
+  api.post = originalPost
+  api.put = originalPut
+  owner(null)
+  useSystemConfigStore.setState({ config: originalConfig })
+  document.body.replaceChildren()
+})
+after(() => dom.happyDOM.abort())
+
+test('guests may inspect a product and disclaimer but cannot place an order', async () => {
+  owner(null)
+  let posts = 0
+  api.get = (async () =>
+    result({
+      version: 'merchant-store-v1',
+      text: 'Terms',
+      accepted: false,
+    })) as typeof api.get
+  api.post = (async () => {
+    posts++
+    return result(null)
+  }) as typeof api.post
+  await mount(<StoreCheckout product={product} />)
+  assert.ok(document.querySelector('a[href^="/sign-in?redirect="]'))
+  assert.equal(document.querySelectorAll('button').length > 0, true)
+  await click(button('Read purchase disclaimer'))
+  assert.match(document.body.textContent || '', /Independent seller terms/)
+  assert.equal(posts, 0)
+})
+test('first independent purchase requires explicit acceptance before checkout; integer quota stays server-owned', async () => {
+  owner(2)
+  const calls: { url: string; body: Record<string, unknown> }[] = []
+  api.get = (async () =>
+    result({
+      version: 'merchant-store-v1',
+      text: 'Terms',
+      accepted: false,
+    })) as typeof api.get
+  api.post = (async (url: string, body: Record<string, unknown>) => {
+    calls.push({ url, body })
+    return result(
+      url.endsWith('/accept')
+        ? null
+        : {
+            order: {
+              id: 'order-fixture',
+              status: 'pending',
+              trade_no: 'MS-fixture',
+            },
+            created: true,
+          }
+    )
+  }) as typeof api.post
+  await mount(<StoreCheckout product={product} />)
+  await click(button('Place order'))
+  assert.equal(calls.length, 0)
+  assert.equal(button('Agree and place order').disabled, true)
+  const reading = document.querySelector<HTMLDivElement>(
+    '[tabindex="0"].overflow-y-auto'
+  )
+  assert.ok(reading)
+  await act(async () => {
+    Object.defineProperty(reading, 'scrollHeight', {
+      configurable: true,
+      value: 500,
+    })
+    Object.defineProperty(reading, 'clientHeight', {
+      configurable: true,
+      value: 200,
+    })
+    reading.scrollTop = 300
+    reading.dispatchEvent(new Event('scroll', { bubbles: true }))
+    await flush()
+  })
+  const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]')
+  assert.ok(checkbox)
+  const checkboxInput = document.querySelector<HTMLInputElement>(
+    'input[type="checkbox"]'
+  )
+  assert.ok(checkboxInput)
+  await click(checkboxInput)
+  assert.equal(
+    checkbox.getAttribute('aria-checked'),
+    'true',
+    checkbox.outerHTML
+  )
+  await click(button('Agree and place order'))
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    ['/api/store/disclaimer/accept', '/api/store/orders']
+  )
+  assert.deepEqual(calls[0].body, {
+    version: 'merchant-store-v1',
+    accepted: true,
+  })
+  assert.equal(calls[1].body.product_id, product.id)
+  assert.equal(calls[1].body.payment_method, 'balance')
+  assert.equal('price_quota' in calls[1].body, false)
+  assert.equal('buyer_id' in calls[1].body, false)
+  assert.ok(calls[1].body.request_key)
+})
+test('official products skip independent disclaimer acceptance and unavailable stock disables checkout', async () => {
+  owner(2)
+  const calls: string[] = []
+  api.get = (async () =>
+    result({
+      version: 'merchant-store-v1',
+      text: 'Terms',
+      accepted: false,
+    })) as typeof api.get
+  api.post = (async (url: string) => {
+    calls.push(url)
+    return result({
+      order: { id: 'order-fixture', status: 'pending' },
+      created: true,
+    })
+  }) as typeof api.post
+  await mount(
+    <StoreCheckout
+      product={{ ...product, official: true, available_stock: 0 }}
+    />
+  )
+  assert.equal(button('Place order').disabled, true)
+  assert.equal(calls.length, 0)
+})
+test('delivery content appears only after explicit collection and disappears on account switch', async () => {
+  owner(2)
+  let collections = 0
+  api.get = (async () =>
+    result({
+      product_title: 'Fixture keys',
+      status: 'paid',
+      pickup_login_required: false,
+      pickup_code_required: false,
+    })) as typeof api.get
+  api.post = (async () => {
+    collections++
+    return result({
+      order_id: 'order-fixture',
+      product_title: 'Fixture keys',
+      items: ['private-key-fixture'],
+    })
+  }) as typeof api.post
+  await mount(<StoreClaimPage token='opaque-fixture-token' />)
+  assert.equal(collections, 0)
+  assert.equal(
+    document.body.textContent?.includes('private-key-fixture'),
+    false
+  )
+  await click(button('Collect items'))
+  assert.equal(
+    (document.querySelector('textarea') as HTMLTextAreaElement).value,
+    'private-key-fixture'
+  )
+  await act(async () => {
+    owner(3)
+    await flush()
+  })
+  assert.equal(document.querySelector('textarea'), null)
+  assert.equal(collections, 1)
+})
+test('pickup protection validates both minimum length and the bcrypt UTF-8 byte limit', async () => {
+  owner(2)
+  api.get = (async () =>
+    result({
+      version: 'merchant-store-v1',
+      text: 'Terms',
+      accepted: true,
+    })) as typeof api.get
+  await mount(
+    <StoreCheckout
+      product={{ ...product, official: true, pickup_code_required: true }}
+    />
+  )
+  const code = document.querySelector('#store-pickup-code') as HTMLInputElement
+  await input(code, '1234567')
+  assert.equal(button('Place order').disabled, true)
+  await input(code, '12345678')
+  assert.equal(button('Place order').disabled, false)
+  await input(code, '密'.repeat(25))
+  assert.equal(button('Place order').disabled, true)
+})
+test('login-protected claims never collect anonymously', async () => {
+  owner(null)
+  let collections = 0
+  api.get = (async () =>
+    result({
+      product_title: 'Fixture keys',
+      status: 'paid',
+      pickup_login_required: true,
+      pickup_code_required: true,
+    })) as typeof api.get
+  api.post = (async () => {
+    collections++
+    return result(null)
+  }) as typeof api.post
+  await mount(<StoreClaimPage token='opaque-fixture-token' />)
+  assert.ok(document.querySelector('a[href^="/sign-in?redirect="]'))
+  assert.equal(document.querySelector('input'), null)
+  assert.equal(collections, 0)
+})
+test('external gateway blank secrets remain write-only, metadata is not sent back', async () => {
+  owner(2)
+  let body: Record<string, unknown> | undefined
+  api.put = (async (_url: string, input: Record<string, unknown>) => {
+    body = input
+    return result({})
+  }) as typeof api.put
+  await mount(
+    <StoreGatewayEditor
+      gateway={{
+        provider: 'external:epay',
+        enabled: true,
+        configured: true,
+        has_key: true,
+        has_private_key: false,
+        gateway_url: 'https://gateway.example.test',
+        partner_id: '123',
+        payment_type: 'alipay',
+        currency: 'CNY',
+        callback_urls: {
+          notify:
+            'https://shop.example.test/api/store/payments/epay/{order_id}/notify',
+        },
+      }}
+      eligible
+      onSaved={async () => {}}
+    />
+  )
+  assert.equal(
+    (document.querySelector('input[type=password]') as HTMLInputElement).value,
+    ''
+  )
+  await click(button('Save payment method'))
+  assert.equal(body?.key, '')
+  assert.equal(body?.provider, 'external:epay')
+  assert.equal('callback_urls' in (body || {}), false)
+  assert.equal('has_key' in (body || {}), false)
+})
+test('seller local currency changes preserve integer credits and wallet preferences', async () => {
+  owner(2)
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  useSystemConfigStore.setState({
+    config: {
+      ...originalConfig,
+      currency: {
+        ...originalConfig.currency,
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+        quotaDisplayType: 'USD',
+        currencyUnit: 'credit',
+      },
+    },
+  })
+  let body: Record<string, unknown> | undefined
+  api.post = (async (_url: string, input: Record<string, unknown>) => {
+    body = input
+    return result(product)
+  }) as typeof api.post
+  await mount(
+    <StoreProductEditor
+      allowedMethods={['balance']}
+      onClose={() => {}}
+      onSaved={async () => {}}
+    />
+  )
+  await input(
+    document.querySelector('#store-title') as HTMLInputElement,
+    'New keys'
+  )
+  await input(document.querySelector('#store-price') as HTMLInputElement, '10')
+  const selector = document.querySelector(
+    'select[aria-label="Price currency"]'
+  ) as HTMLSelectElement
+  await act(async () => {
+    selector.value = 'CNY'
+    selector.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  assert.equal(
+    (document.querySelector('#store-price') as HTMLInputElement).value,
+    '70'
+  )
+  await act(async () => {
+    selector.value = 'CREDIT'
+    selector.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  assert.equal(
+    (document.querySelector('#store-price') as HTMLInputElement).value,
+    '5000000'
+  )
+  assert.equal(useWalletCurrencyPreferenceStore.getState().preference, 'USD')
+  await act(async () => {
+    document
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flush()
+  })
+  assert.equal(body?.price_quota, 5000000, document.body.textContent || '')
+  assert.equal('official' in (body || {}), false)
+})
+
+test('malformed product identifiers fail visibly without a disabled-query spinner or request', async () => {
+  owner(null)
+  let requests = 0
+  api.get = (async () => {
+    requests++
+    return result(product)
+  }) as typeof api.get
+  await mount(<StoreProductPage id='bad/identifier' />)
+  assert.equal(requests, 0)
+  assert.ok(document.body.textContent?.includes('Product not found'))
+})
+
+test('delivery email verification uses only the account address and confirms a six-digit code', async () => {
+  owner(2)
+  let verified = false
+  const writes: Array<{ url: string; body: unknown }> = []
+  api.get = (async () =>
+    result({ verified, email: 'fixture@example.invalid' })) as typeof api.get
+  api.post = (async (url: string, body: unknown) => {
+    writes.push({ url, body })
+    if (url.endsWith('/send')) return result({ sent: true })
+    verified = true
+    return result(null)
+  }) as typeof api.post
+  await mount(<StoreDeliveryEmail ownerId={2} />)
+  assert.equal(writes.length, 0)
+  await click(button('Send verification code'))
+  assert.deepEqual(writes[0].body, {})
+  await input(
+    document.querySelector('#delivery-email-code') as HTMLInputElement,
+    '12345'
+  )
+  assert.equal(button('Confirm email').disabled, true)
+  await input(
+    document.querySelector('#delivery-email-code') as HTMLInputElement,
+    '123456'
+  )
+  await click(button('Confirm email'))
+  assert.deepEqual(writes[1].body, { code: '123456' })
+  assert.ok(document.body.textContent?.includes('Email verified'))
+})
+
+test('an updated paid order clears a previously prepared payment session', async () => {
+  owner(2)
+  const pending: StoreOrder = {
+    id: 'order-fixture',
+    trade_no: 'MS-fixture',
+    buyer_id: 2,
+    seller_id: 9,
+    product_id: product.id,
+    product_title: product.title,
+    quantity: 1,
+    unit_price_quota: 500000,
+    price_quota: 500000,
+    fee_quota: 5000,
+    payment_method: 'platform:waffo_pancake',
+    status: 'pending',
+    amount_minor: 700,
+    currency: 'CNY',
+    frozen_usd_fx: '7',
+    created_at: 1,
+    paid_at: 0,
+    expires_at: 9999999999,
+    pickup_login_required: false,
+    pickup_code_required: false,
+    email_pickup_link: false,
+    payment_issued: true,
+  }
+  let update: React.Dispatch<React.SetStateAction<StoreOrder>> | undefined
+  function Harness() {
+    const [order, setOrder] = useState(pending)
+    update = setOrder
+    return <StoreOrderRow order={order} buyer locale='en' />
+  }
+  api.post = (async () =>
+    result({
+      order_id: pending.id,
+      method: 'GET',
+      payment_url: 'https://gateway.example.test/pay',
+      currency: 'CNY',
+      amount: '7.00',
+      amount_minor: 700,
+      status: 'pending',
+    })) as typeof api.post
+  await mount(<Harness />)
+  await click(button('Prepare payment'))
+  assert.ok(button('Continue to payment'))
+  await act(async () => {
+    update?.({ ...pending, status: 'paid' })
+    await flush()
+  })
+  assert.equal(
+    Array.from(document.querySelectorAll('button')).some(
+      (el) => el.textContent === 'Continue to payment'
+    ),
+    false
+  )
+  assert.ok(button('Get pickup link'))
+})
