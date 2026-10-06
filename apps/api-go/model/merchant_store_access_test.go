@@ -25,6 +25,10 @@ func storeAccessActivateTest(t *testing.T) {
 	if MerchantStoreWriterCapability < 5 {
 		t.Skip("requires the centrally signed capability-5 candidate; no test-only capability override")
 	}
+	// Existing products were written before catalogue installation. Populate
+	// the same new identity mapping required by the real preparation action;
+	// do not weaken the public reader's missing-mapping guard for a fixture.
+	require.NoError(t, BackfillMerchantStoreCatalogueMappings(DB))
 	require.NoError(t, DB.Model(&Option{}).Where("key = ?", MerchantStoreWriterCapabilityOption).Update("value", "5").Error)
 	require.True(t, MerchantStoreAccessSupported())
 }
