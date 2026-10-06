@@ -78,7 +78,7 @@ func TestMerchantStoreLifecycleKeepsExactVariantDeliveryAndRejectsEveryDeletedMu
 	token, err := GetMerchantStoreOrderPickupToken(f.buyer.Id, o.ID)
 	require.NoError(t, err)
 	for range 2 {
-		claim, e := ClaimMerchantStoreOrder(token, "", f.buyer.Id)
+		claim, e := ClaimMerchantStoreOrder(token, in.PickupCode, f.buyer.Id)
 		require.NoError(t, e)
 		require.Equal(t, v.ID, claim.VariantID)
 		require.Equal(t, v.Name, claim.VariantName)

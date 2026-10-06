@@ -630,6 +630,11 @@ func TestMerchantStorePickupEmailOutboxUsesBuyerAndRetriesPrivately(t *testing.T
 		calls++
 		require.Equal(t, f.buyer.Email, email.destination)
 		require.Equal(t, order.TradeNo, email.tradeNo)
+		require.NotNil(t, email.details)
+		require.Equal(t, order.ProductID, email.details.ProductID)
+		require.Equal(t, order.ProductTitle, email.details.ProductTitle)
+		require.Equal(t, order.Quantity, email.details.Quantity)
+		require.Equal(t, order.ID, email.details.OrderID)
 		require.True(t, strings.HasPrefix(email.pickupURL, "https://api.example.com/store/claim/"))
 		require.Len(t, strings.TrimPrefix(email.pickupURL, "https://api.example.com/store/claim/"), 43)
 		return fmt.Errorf("SMTP failed buyer@example.com secret-token")

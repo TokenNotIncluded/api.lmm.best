@@ -95,12 +95,17 @@ type MerchantStoreClaimMetadata struct {
 	PickupCodeRequired   bool   `json:"pickup_code_required"`
 }
 type MerchantStoreClaim struct {
-	OrderID          string   `json:"order_id"`
-	ProductTitle     string   `json:"product_title"`
-	VariantID        string   `json:"variant_id"`
-	VariantName      string   `json:"variant_name"`
-	DeliveryTemplate string   `json:"delivery_template"`
-	Items            []string `json:"items"`
+	OrderID            string              `json:"order_id"`
+	TradeNo            string              `json:"trade_no"`
+	ProductID          string              `json:"product_id"`
+	ProductTitle       string              `json:"product_title"`
+	ProductDescription string              `json:"product_description,omitempty"`
+	ProductLinks       []MerchantStoreLink `json:"product_links,omitempty"`
+	VariantID          string              `json:"variant_id"`
+	VariantName        string              `json:"variant_name"`
+	DeliveryTemplate   string              `json:"delivery_template"`
+	Quantity           int                 `json:"quantity"`
+	Items              []string            `json:"items"`
 }
 
 func fmtStoreActor(id int) string { return strconv.Itoa(id) }
@@ -797,7 +802,13 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 		if len(rows) != o.Quantity {
 			return ErrMerchantStoreConflict
 		}
-		result = MerchantStoreClaim{OrderID: o.ID, ProductTitle: o.ProductTitle, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows))}
+		details, e := storeOrderPickupDetails(tx, o)
+		if e != nil {
+			return e
+		}
+		result = MerchantStoreClaim{OrderID: o.ID, TradeNo: o.TradeNo, ProductID: o.ProductID,
+			ProductTitle: o.ProductTitle, ProductDescription: details.ProductDescription,
+			ProductLinks: details.ProductLinks, Quantity: o.Quantity, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows))}
 		for _, row := range rows {
 			value, e := storeDecrypt("stock", row.ProductID+":"+row.ID, row.Ciphertext)
 			if e != nil {
