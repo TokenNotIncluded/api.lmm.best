@@ -81,7 +81,8 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
         className: 'forge-public-header',
       }}
     >
-      <div className='forge-surface min-h-svh'>
+      {/* Keep page controls below the full-screen header navigation. */}
+      <div className='forge-surface relative z-0 min-h-svh'>
         {isHome && <HomeDirectoryLink />}
         {props.children}
       </div>
