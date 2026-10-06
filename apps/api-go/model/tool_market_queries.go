@@ -78,7 +78,14 @@ func GetToolMarketDetail(userID int, serviceID string, draft bool) (*ToolMarketD
 		if err := DB.First(&detail.Service, "id = ? AND owner_id = ?", serviceID, userID).Error; err != nil {
 			return nil, err
 		}
-		if err := DB.First(&detail.Version, "id = ? AND service_id = ?", detail.Service.DraftVersionID, serviceID).Error; err != nil {
+		// Publishing consumes the draft pointer. An author can start the next
+		// draft from the live snapshot without creating or changing a version
+		// during this read. A nonempty draft pointer must still resolve exactly.
+		versionID := detail.Service.DraftVersionID
+		if versionID == "" {
+			versionID = detail.Service.LiveVersionID
+		}
+		if err := DB.First(&detail.Version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(detail.Version.AllowedUsers), &detail.AllowedUsers)
