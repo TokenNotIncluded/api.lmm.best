@@ -67,6 +67,8 @@ const { MerchantStoreSettingsSection } =
 const { StoreOrderRow, StoreOrdersPage } = await import('./orders-page')
 const { StoreDeliveryEmail } = await import('./delivery-email')
 const { StoreProductEditor } = await import('./seller-page')
+const { StoreSellerPage } = await import('./seller-page')
+const { StoreSalesLimit } = await import('./sales-limit')
 const { StorePage } = await import('./store-page')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -83,6 +85,7 @@ await i18n.use(initReactI18next).init({
 const originalGet = api.get
 const originalPost = api.post
 const originalPut = api.put
+const originalDelete = api.delete
 const originalConfig = useSystemConfigStore.getState().config
 let root: ReturnType<typeof createRoot> | undefined
 let client: InstanceType<typeof QueryClient> | undefined
@@ -168,6 +171,7 @@ afterEach(async () => {
   api.get = originalGet
   api.post = originalPost
   api.put = originalPut
+  api.delete = originalDelete
   owner(null)
   useSystemConfigStore.setState({ config: originalConfig })
   document.body.replaceChildren()
@@ -385,6 +389,132 @@ for (const role of [1, 10]) {
     assert.equal(document.querySelector('form'), null)
   })
 }
+test('taking a product off shelf and relisting use distinct listing requests without deleting stock', async () => {
+  owner(2)
+  let listed = true
+  const writes: unknown[] = []
+  api.get = (async (url: string) => {
+    if (url === '/api/store/config') {
+      return result({ minimum_unit_price_quota: 0 })
+    }
+    if (url === '/api/store/payments/settings') {
+      return result({
+        items: [],
+        categories: { platform_enabled: false, external_enabled: false },
+      })
+    }
+    assert.equal(url, '/api/store/my/products')
+    return result({
+      items: [
+        {
+          ...product,
+          status: listed ? 'published' : 'off_shelf',
+          available_stock: 100,
+          sale_limit: 10,
+          paid_quantity: 2,
+          reserved_quantity: 3,
+          sale_available: 5,
+        },
+      ],
+      has_more: false,
+    })
+  }) as typeof api.get
+  api.put = (async (url: string, body: { listed: boolean }) => {
+    assert.equal(url, `/api/store/products/${product.id}/listing`)
+    writes.push(body)
+    listed = body.listed
+    return result(null)
+  }) as typeof api.put
+  api.delete = (async () =>
+    assert.fail('Listing must not delete inventory')) as typeof api.delete
+  await mount(<StoreSellerPage />)
+  await click(button('Take off shelf'))
+  assert.match(document.body.textContent || '', /Off shelf/)
+  assert.match(document.body.textContent || '', /Inventory: 100/)
+  await click(button('Relist product'))
+  assert.deepEqual(writes, [{ listed: false }, { listed: true }])
+  assert.ok(button('Take off shelf'))
+})
+test('sales limits preserve 100 inventory items while setting 10, 0, and unlimited distinctly', async () => {
+  const calls: unknown[] = []
+  let refreshed = 0
+  api.put = (async (url: string, body: unknown) => {
+    assert.equal(url, `/api/store/products/${product.id}/sale-limit`)
+    calls.push(body)
+    return result(null)
+  }) as typeof api.put
+  await mount(
+    <StoreSalesLimit
+      product={{
+        ...product,
+        available_stock: 100,
+        sale_limit: null,
+        paid_quantity: 2,
+        reserved_quantity: 3,
+        sale_available: 100,
+      }}
+      onSaved={async () => {
+        refreshed++
+      }}
+    />
+  )
+  assert.match(document.body.textContent || '', /Inventory: 100/)
+  const unlimited = document.querySelector<HTMLElement>('[role="switch"]')
+  assert.ok(unlimited)
+  await click(unlimited)
+  const limit = document.querySelector<HTMLInputElement>(
+    `#store-sale-limit-${product.id}`
+  )
+  assert.ok(limit)
+  await input(limit, '10')
+  await click(button('Save sales limit'))
+  await input(limit, '0')
+  await click(button('Save sales limit'))
+  await click(unlimited)
+  await click(button('Save sales limit'))
+  assert.deepEqual(calls, [
+    { sale_limit: 10 },
+    { sale_limit: 0 },
+    { sale_limit: null },
+  ])
+  assert.equal(refreshed, 3)
+  assert.match(document.body.textContent || '', /Inventory: 100/)
+})
+test('a failed sales limit save keeps the merchant draft and rejects fractional caps', async () => {
+  let calls = 0
+  let refreshed = 0
+  api.put = (async () => {
+    calls++
+    throw new Error('offline')
+  }) as typeof api.put
+  await mount(
+    <StoreSalesLimit
+      product={{
+        ...product,
+        sale_limit: 10,
+        paid_quantity: 1,
+        reserved_quantity: 1,
+        sale_available: 5,
+      }}
+      onSaved={async () => {
+        refreshed++
+      }}
+    />
+  )
+  const limit = document.querySelector<HTMLInputElement>(
+    `#store-sale-limit-${product.id}`
+  )
+  assert.ok(limit)
+  await input(limit, '1.5')
+  await click(button('Save sales limit'))
+  assert.equal(calls, 0)
+  await input(limit, '20')
+  await click(button('Save sales limit'))
+  assert.equal(calls, 1)
+  assert.equal(refreshed, 0)
+  assert.equal(limit.value, '20')
+  assert.match(document.body.textContent || '', /Store request failed/)
+})
 test('a missing minimum from an older API does not silently allow saving product prices', async () => {
   await mount(
     <StoreProductEditor

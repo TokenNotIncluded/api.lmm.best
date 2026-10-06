@@ -77,6 +77,14 @@ export const storeApi = {
     unwrap<null>(api.post(`${root}/products/${id}/submit`, {}, options)),
   pauseProduct: (id: string, paused: boolean) =>
     unwrap<null>(api.put(`${root}/products/${id}/paused`, { paused }, options)),
+  saleLimit: (id: string, sale_limit: number | null) =>
+    unwrap<null>(
+      api.put(`${root}/products/${id}/sale-limit`, { sale_limit }, options)
+    ),
+  listing: (id: string, listed: boolean) =>
+    unwrap<null>(
+      api.put(`${root}/products/${id}/listing`, { listed }, options)
+    ),
   inventory: (id: string, items: string[]) =>
     unwrap<{ added: number }>(
       api.post(`${root}/products/${id}/inventory`, { items }, options)

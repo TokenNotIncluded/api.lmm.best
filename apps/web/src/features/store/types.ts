@@ -25,9 +25,19 @@ export interface StoreProduct {
   pickup_login_required: boolean
   pickup_code_required: boolean
   email_pickup_link: boolean
-  status: 'draft' | 'pending' | 'published' | 'rejected' | 'paused'
+  status:
+    | 'draft'
+    | 'pending'
+    | 'published'
+    | 'rejected'
+    | 'paused'
+    | 'off_shelf'
   official: boolean
   available_stock: number
+  sale_limit?: number | null
+  paid_quantity?: number
+  reserved_quantity?: number
+  sale_available?: number
   promotion_expires_at: number
   created_at: number
   updated_at: number
@@ -40,6 +50,10 @@ export type StoreProductInput = Omit<
   | 'seller_id'
   | 'official'
   | 'available_stock'
+  | 'sale_limit'
+  | 'paid_quantity'
+  | 'reserved_quantity'
+  | 'sale_available'
   | 'promotion_expires_at'
   | 'created_at'
   | 'updated_at'

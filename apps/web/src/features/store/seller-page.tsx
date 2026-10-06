@@ -26,6 +26,8 @@ import { storeApi } from './api'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
+import { StoreSalesLimit } from './sales-limit'
+import { STORE_SALES_LIMIT_COPY as salesCopy } from './sales-limit-copy'
 import {
   StoreAmount,
   StoreAuthGate,
@@ -155,7 +157,13 @@ function StoreSellerCenter() {
                       {product.title}
                     </h2>
                     <div className='text-muted-foreground flex flex-wrap items-center gap-3 text-xs'>
-                      <span>{t(product.status)}</span>
+                      <span>
+                        {t(
+                          product.status === 'off_shelf'
+                            ? salesCopy.offShelfStatus
+                            : product.status
+                        )}
+                      </span>
                       <span>
                         {t('Stock: {{count}}', {
                           count: product.available_stock,
@@ -223,8 +231,42 @@ function StoreSellerCenter() {
                         {t('Promote product')}
                       </Button>
                     )}
+                    {['published', 'paused', 'off_shelf'].includes(
+                      product.status
+                    ) && (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={busy !== null}
+                        onClick={() =>
+                          void action(product, () =>
+                            storeApi.listing(
+                              product.id,
+                              product.status === 'off_shelf'
+                            )
+                          )
+                        }
+                      >
+                        {t(
+                          product.status === 'off_shelf'
+                            ? salesCopy.relist
+                            : salesCopy.offShelf
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </div>
+                {product.sale_limit !== undefined && (
+                  <StoreSalesLimit
+                    key={`${product.id}:${product.updated_at}:${product.sale_limit}`}
+                    product={product}
+                    onSaved={async () => {
+                      await client.invalidateQueries({
+                        queryKey: ['store', 'my-products', user.id],
+                      })
+                    }}
+                  />
+                )}
                 <MarketAIReviewHistory
                   source='product'
                   id={product.id}
