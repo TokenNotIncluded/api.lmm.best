@@ -42,6 +42,12 @@ for (const key of [
     value: dom[key],
   })
 }
+Object.defineProperty(dom.navigator, 'locks', {
+  configurable: true,
+  value: {
+    request: async (_name: string, task: () => Promise<unknown>) => task(),
+  },
+})
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
@@ -94,6 +100,28 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 35))
 }
 async function mount(node: React.ReactNode) {
+  const mockPost = api.post
+  api.post = (async (url: string, body: unknown, options?: unknown) => {
+    const buyerId = useAuthStore.getState().auth.user?.id
+    const response = await mockPost(url, body, options as never)
+    if (
+      url === '/api/store/orders' &&
+      response.data?.success === true &&
+      response.data?.data?.order
+    ) {
+      const request = body as Record<string, unknown>
+      response.data.data.order = {
+        product_id: request.product_id,
+        variant_id: request.variant_id,
+        quantity: request.quantity,
+        payment_method: request.payment_method,
+        buyer_id: buyerId,
+        ...response.data.data.order,
+      }
+    }
+    return response
+  }) as typeof api.post
+
   useAuthStore
     .getState()
     .auth.setUser({ id: 2, role: 1, username: 'buyer-2', quota: 5000000 })
@@ -176,6 +204,7 @@ afterEach(async () => {
   api.post = originalPost
   api.put = originalPut
   useAuthStore.getState().auth.setUser(null)
+  localStorage.clear()
   document.body.replaceChildren()
 })
 after(() => dom.happyDOM.abort())

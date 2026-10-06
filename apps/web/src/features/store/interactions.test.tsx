@@ -44,6 +44,12 @@ for (const key of [
     value: dom[key],
   })
 }
+Object.defineProperty(dom.navigator, 'locks', {
+  configurable: true,
+  value: {
+    request: async (_name: string, task: () => Promise<unknown>) => task(),
+  },
+})
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
@@ -157,6 +163,28 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 35))
 }
 async function mount(node: React.ReactNode) {
+  const mockPost = api.post
+  api.post = (async (url: string, body: unknown, options?: unknown) => {
+    const buyerId = useAuthStore.getState().auth.user?.id
+    const response = await mockPost(url, body, options as never)
+    if (
+      url === '/api/store/orders' &&
+      response.data?.success === true &&
+      response.data?.data?.order
+    ) {
+      const request = body as Record<string, unknown>
+      response.data.data.order = {
+        product_id: request.product_id,
+        variant_id: request.variant_id,
+        quantity: request.quantity,
+        payment_method: request.payment_method,
+        buyer_id: buyerId,
+        ...response.data.data.order,
+      }
+    }
+    return response
+  }) as typeof api.post
+
   document.body.replaceChildren()
   const host = document.createElement('div')
   document.body.append(host)
@@ -213,6 +241,7 @@ afterEach(async () => {
   dom.navigator.clipboard.writeText = originalWriteText
   owner(null)
   useSystemConfigStore.setState({ config: originalConfig })
+  localStorage.clear()
   document.body.replaceChildren()
 })
 after(() => dom.happyDOM.abort())
@@ -1191,6 +1220,14 @@ test('seller unlisting requires confirmation, retains failed rows, and invalidat
   assert.ok(sellerClient)
   sellerClient.setQueryData(['store', 'products', '', 1], { items: [product] })
   sellerClient.setQueryData(['store', 'product', product.id], product)
+  const retiredDetails = [
+    ['store', 'product', 'account:9', product.id],
+    ['store', 'product', 'anonymous', product.id],
+    ['store', 'product-preview', 'account:9', product.id],
+  ]
+  for (const key of retiredDetails) sellerClient.setQueryData(key, product)
+  const otherDetail = ['store', 'product', 'account:9', 'other-product']
+  sellerClient.setQueryData(otherDetail, { ...product, id: 'other-product' })
   sellerClient.setQueryData(['store', 'reviews'], { items: [product] })
   sellerClient.setQueryData(['store', 'orders', 9], {
     items: ['retained-order'],
@@ -1246,6 +1283,14 @@ test('seller unlisting requires confirmation, retains failed rows, and invalidat
     sellerClient.getQueryData(['store', 'product', product.id]),
     undefined,
     'A retired detail cannot reappear from an old successful cache entry'
+  )
+  for (const key of retiredDetails) {
+    assert.equal(sellerClient.getQueryData(key), undefined)
+  }
+  assert.equal(
+    sellerClient.getQueryData<StoreProduct>(otherDetail)?.id,
+    'other-product',
+    'Retiring one product preserves other viewer-scoped details'
   )
   assert.equal(
     sellerClient.getQueryState(['store', 'orders', 9])?.isInvalidated,
@@ -1350,7 +1395,7 @@ test('pickup protection validates both minimum length and the bcrypt UTF-8 byte 
   await input(code, '密'.repeat(25))
   assert.equal(button('Place order').disabled, true)
 })
-test('multi-variant checkout sends an exact ID, uses its shared-cap limit and separates retry keys between choices', async () => {
+test('multi-variant checkout binds retries to the original ID and refuses a new purchase while the result is unknown', async () => {
   owner(2)
   const writes: Record<string, unknown>[] = []
   api.get = (async () =>
@@ -1398,15 +1443,14 @@ test('multi-variant checkout sends an exact ID, uses its shared-cap limit and se
     document.body.textContent || '',
     /Shop upgrade is in progress. Existing orders are still accessible./
   )
-  await click(button('Place order'))
+  await click(button('Retry this order request'))
   await click(choose('plus'))
+  assert.equal(button('Place order').disabled, true)
   await click(button('Place order'))
-  assert.equal(writes.length, 3)
+  assert.equal(writes.length, 2)
   assert.equal(writes[0].variant_id, 'basic')
-  assert.equal(writes[2].variant_id, 'plus')
   assert.equal(writes[0].quantity, 2)
   assert.equal(writes[0].request_key, writes[1].request_key)
-  assert.notEqual(writes[0].request_key, writes[2].request_key)
   assert.ok(
     writes.every(
       (body) =>
@@ -2163,7 +2207,7 @@ test('ordinary owners can place a real order for their own published product', a
   assert.match(document.body.textContent || '', /MS-self/)
 })
 for (const preview of [false, true]) {
-  test(`test-mode draft checkout is available only through the owner's private preview (${preview})`, async () => {
+  test(`private draft checkout is available to its owner with or without preview (${preview})`, async () => {
     owner(product.seller_id)
     api.get = (async () => result({ accepted: true })) as typeof api.get
     await mount(
@@ -2177,7 +2221,7 @@ for (const preview of [false, true]) {
         ownerPreview={preview}
       />
     )
-    assert.equal(button('Place order').disabled, !preview)
+    assert.equal(button('Place order').disabled, false)
   })
 }
 test('non-owners cannot use a test-mode checkout even with a preview flag', async () => {

@@ -26,6 +26,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
+import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import {
   formatMinimumQuotaInCurrency,
@@ -33,6 +34,9 @@ import {
 } from '@/lib/currency'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
+import { StoreProductAccessSettings } from './access-settings'
+import { storeVisibility, storePurchaseLoginRequired } from './access-types'
 import { storeApi } from './api'
 import {
   DELIVERY_TEMPLATES,
@@ -50,6 +54,7 @@ import { storePurchaseLimit } from './purchase-limits'
 import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
 import { StoreSalesLimit } from './sales-limit'
 import { STORE_SALES_LIMIT_COPY as salesCopy } from './sales-limit-copy'
+import { SellerCatalogueEditor } from './seller-catalogue-editor'
 import {
   StoreAmount,
   StoreAuthGate,
@@ -121,6 +126,9 @@ function StoreSellerCenter() {
   })
   const promotionKeys = useRef(new Map<string, string>())
   const [editing, setEditing] = useState<StoreProduct | 'new' | null>(null)
+  const [catalogueProduct, setCatalogueProduct] = useState<StoreProduct | null>(
+    null
+  )
   const [inventory, setInventory] = useState<StoreProduct | null>(null)
   const [aiReviewId, setAIReviewId] = useState<string | null>(null)
   const [promoting, setPromoting] = useState<StoreProduct | null>(null)
@@ -143,6 +151,12 @@ function StoreSellerCenter() {
     setError(null)
     try {
       await fn()
+      if (promoting && useAuthStore.getState().auth.user?.id === user.id) {
+        void refreshCurrentAccount()
+        void client.invalidateQueries({
+          queryKey: ['store', 'payments', user.id],
+        })
+      }
       onSuccess?.()
       await client.invalidateQueries({
         queryKey: ['market-ai-reviews', user.id, 'product', product.id],
@@ -152,7 +166,7 @@ function StoreSellerCenter() {
       })
       await client.invalidateQueries({ queryKey: ['store', 'products'] })
       await client.invalidateQueries({
-        queryKey: ['store', 'product', product.id],
+        queryKey: ['store', 'product'],
       })
       await client.invalidateQueries({ queryKey: ['store', 'reviews'] })
       if (promoting) promotionKeys.current.delete(promoting.id)
@@ -182,8 +196,12 @@ function StoreSellerCenter() {
             }
         )
         client.removeQueries({
-          queryKey: ['store', 'product', product.id],
-          exact: true,
+          predicate: ({ queryKey }) =>
+            queryKey[0] === 'store' &&
+            (queryKey[1] === 'product' || queryKey[1] === 'product-preview') &&
+            (queryKey.length === 3
+              ? queryKey[2] === product.id
+              : queryKey[3] === product.id),
         })
         client.setQueriesData<StorePage<StoreProduct>>(
           { queryKey: ['store', 'my-products', user.id] },
@@ -221,7 +239,17 @@ function StoreSellerCenter() {
             )}
           </p>
         </div>
-        <Button onClick={() => setEditing('new')}>{t('New product')}</Button>
+        <div className='flex flex-wrap gap-2'>
+          {config.data?.store_access_supported === true && (
+            <Button
+              variant='outline'
+              render={<a href='/store/settings#seller-terms' />}
+            >
+              {t(accessCopy.termsTitle)}
+            </Button>
+          )}
+          <Button onClick={() => setEditing('new')}>{t('New product')}</Button>
+        </div>
       </div>
       <StoreError
         error={error || query.error}
@@ -264,6 +292,15 @@ function StoreSellerCenter() {
                     >
                       {t('Edit')}
                     </Button>
+                    {config.data?.store_catalogue_supported === true && (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        onClick={() => setCatalogueProduct(product)}
+                      >
+                        {t('Product tags')}
+                      </Button>
+                    )}
                     <Button
                       size='sm'
                       variant='outline'
@@ -278,7 +315,7 @@ function StoreSellerCenter() {
                     >
                       {t('Promotion codes')}
                     </Button>
-                    {!product.test_mode &&
+                    {storeVisibility(product) !== 'private' &&
                       ['draft', 'rejected'].includes(product.status) && (
                         <Button
                           size='sm'
@@ -313,16 +350,17 @@ function StoreSellerCenter() {
                         )}
                       </Button>
                     )}
-                    {!product.test_mode && product.status === 'published' && (
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        onClick={() => setPromoting(product)}
-                      >
-                        {t('Promote product')}
-                      </Button>
-                    )}
-                    {product.test_mode && (
+                    {storeVisibility(product) !== 'private' &&
+                      product.status === 'published' && (
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => setPromoting(product)}
+                        >
+                          {t('Promote product')}
+                        </Button>
+                      )}
+                    {storeVisibility(product) === 'private' && (
                       <Button
                         size='sm'
                         variant='outline'
@@ -339,7 +377,7 @@ function StoreSellerCenter() {
                         variant='outline'
                         disabled={
                           busy !== null ||
-                          (product.test_mode === true &&
+                          (storeVisibility(product) === 'private' &&
                             product.status === 'off_shelf')
                         }
                         onClick={() =>
@@ -397,7 +435,7 @@ function StoreSellerCenter() {
                         queryKey: ['store', 'products'],
                       }),
                       client.invalidateQueries({
-                        queryKey: ['store', 'product', product.id],
+                        queryKey: ['store', 'product'],
                       }),
                       client.invalidateQueries({
                         queryKey: [
@@ -518,6 +556,29 @@ function StoreSellerCenter() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog
+        open={!!catalogueProduct}
+        onOpenChange={(value) => {
+          if (!value) setCatalogueProduct(null)
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>{t('Product tags')}</DialogTitle>
+          <DialogDescription>{catalogueProduct?.title}</DialogDescription>
+          {catalogueProduct && (
+            <SellerCatalogueEditor
+              key={catalogueProduct.id}
+              product={catalogueProduct}
+              onSaved={() => {
+                setCatalogueProduct(null)
+                void client.invalidateQueries({
+                  queryKey: ['store', 'my-products', user.id],
+                })
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
       {promotionCodes && (
         <StorePromotionCodes
           key={promotionCodes.id}
@@ -533,6 +594,7 @@ function StoreSellerCenter() {
           minimumPriceQuota={config.data?.minimum_unit_price_quota}
           linkPresets={config.data?.product_link_presets}
           testModeSupported={config.data?.product_test_mode_supported === true}
+          accessSupported={config.data?.store_access_supported === true}
           purchaseLimitsSupported={
             config.data?.product_purchase_limits_supported === true
           }
@@ -547,15 +609,10 @@ function StoreSellerCenter() {
               ...(editing !== 'new'
                 ? [
                     client.invalidateQueries({
-                      queryKey: ['store', 'product', editing.id],
+                      queryKey: ['store', 'product'],
                     }),
                     client.invalidateQueries({
-                      queryKey: [
-                        'store',
-                        'product-preview',
-                        editing.id,
-                        user.id,
-                      ],
+                      queryKey: ['store', 'product-preview'],
                     }),
                   ]
                 : []),
@@ -662,6 +719,7 @@ export function StoreProductEditor({
   minimumPriceQuota,
   linkPresets = [],
   testModeSupported = false,
+  accessSupported = false,
   purchaseLimitsSupported = false,
   onClose,
   onSaved,
@@ -671,6 +729,7 @@ export function StoreProductEditor({
   minimumPriceQuota?: number
   linkPresets?: StoreLinkPreset[]
   testModeSupported?: boolean
+  accessSupported?: boolean
   purchaseLimitsSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
@@ -698,9 +757,13 @@ export function StoreProductEditor({
   const [draft, setDraft] = useState<StoreProductInput>(() => ({
     ...EMPTY,
     ...product,
+    visibility: storeVisibility(product || {}),
+    purchase_login_required: storePurchaseLoginRequired(product || {}),
     links: product?.links?.map((link) => ({ ...link })) || [],
     image_urls: [...(product?.image_urls || [])],
   }))
+  const [confirmAccountCollection, setConfirmAccountCollection] =
+    useState(false)
   const [images, setImages] = useState((product?.image_urls || []).join('\n'))
   const [orderLimit, setOrderLimit] = useState(
     String(product?.max_quantity_per_order ?? '')
@@ -758,7 +821,17 @@ export function StoreProductEditor({
         pickup_code_required: draft.pickup_code_required,
         email_pickup_link: draft.email_pickup_link,
       }
-      if (testModeSupported) body.test_mode = draft.test_mode === true
+      if (accessSupported) {
+        const visibility = storeVisibility(draft)
+        const loginRequired = storePurchaseLoginRequired(draft)
+        if (!loginRequired && draft.pickup_login_required) {
+          throw new Error(t(accessCopy.pickupConflict))
+        }
+        body.visibility = visibility
+        body.purchase_login_required = loginRequired
+      } else if (testModeSupported) {
+        body.test_mode = draft.test_mode === true
+      }
       if (purchaseLimitsSupported) {
         const perOrder = storePurchaseLimit(orderLimit)
         const perBuyer = storePurchaseLimit(buyerLimit)
@@ -786,6 +859,39 @@ export function StoreProductEditor({
     >
       <DialogContent className='sm:max-w-3xl'>
         <DialogTitle>{t(product ? 'Edit product' : 'New product')}</DialogTitle>
+        <AlertDialog
+          open={confirmAccountCollection}
+          onOpenChange={setConfirmAccountCollection}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t(accessCopy.accountCollectionTitle)}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t(accessCopy.accountCollectionHelp)}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>
+                {t('Cancel')}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                onClick={() => {
+                  setDraft((current) => ({
+                    ...current,
+                    pickup_login_required: true,
+                    purchase_login_required: true,
+                  }))
+                  setConfirmAccountCollection(false)
+                }}
+              >
+                {t(accessCopy.accountCollectionConfirm)}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <DialogDescription>
           {t(
             'Save a draft first. Submit it after adding stock and configuring payment methods.'
@@ -1083,9 +1189,17 @@ export function StoreProductEditor({
               </span>
               <Switch
                 checked={draft.pickup_login_required}
-                onCheckedChange={(value) =>
-                  change('pickup_login_required', value)
-                }
+                onCheckedChange={(value) => {
+                  if (
+                    accessSupported &&
+                    value &&
+                    !storePurchaseLoginRequired(draft)
+                  ) {
+                    setConfirmAccountCollection(true)
+                  } else {
+                    change('pickup_login_required', value)
+                  }
+                }}
               />
             </label>
             <p className='text-muted-foreground text-xs leading-5'>
@@ -1183,7 +1297,20 @@ export function StoreProductEditor({
               </p>
             </fieldset>
           )}
-          {testModeSupported && (
+          {accessSupported && (
+            <StoreProductAccessSettings
+              value={{
+                visibility: storeVisibility(draft),
+                purchase_login_required: storePurchaseLoginRequired(draft),
+                pickup_login_required: draft.pickup_login_required,
+              }}
+              disabled={busy}
+              onChange={(access) =>
+                setDraft((current) => ({ ...current, ...access }))
+              }
+            />
+          )}
+          {testModeSupported && !accessSupported && (
             <div className='space-y-2 rounded-lg border p-4'>
               <label className='flex items-center justify-between gap-4 text-sm'>
                 <span>{t(testCopy.label)}</span>
@@ -1363,6 +1490,7 @@ function StoreInventoryContent({
         : storeApi.stock(product.id, page),
     retry: false,
   })
+  const [removeId, setRemoveId] = useState<string | null>(null)
   const template = variant?.template ?? product.template
   const composed = template === 'custom-text' || structuredTemplate(template)
   const [composedItems, setComposedItems] = useState<string[]>([])
@@ -1433,6 +1561,59 @@ function StoreInventoryContent({
               'One text item per line. Empty lines are ignored. Duplicate lines remain separate stock items.'
             )}
       </DialogDescription>
+      <AlertDialog
+        open={!!removeId}
+        onOpenChange={(value) => {
+          if (!value && !busy) setRemoveId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Remove')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('Remove this inventory item? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <p className='text-sm break-words'>
+            {product.title} · {variant?.name || t('Historic/default variant')}
+          </p>
+          <p className='text-muted-foreground text-xs break-all'>{removeId}</p>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={() => {
+                if (
+                  busy ||
+                  !removeId ||
+                  !stock.data?.items.some(
+                    (item) => item.id === removeId && item.state === 'available'
+                  )
+                ) {
+                  return
+                }
+                const id = removeId
+                setBusy(true)
+                setError(null)
+                void (
+                  variant
+                    ? storeApi.removeVariantStock(product.id, variant.id, id)
+                    : storeApi.removeStock(product.id, id)
+                )
+                  .then(async () => {
+                    setRemoveId(null)
+                    await stock.refetch()
+                    await onChanged?.()
+                  })
+                  .catch(setError)
+                  .finally(() => setBusy(false))
+              }}
+            >
+              {t('Remove')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <StoreError error={error} />
       {!composed && (
         <div className='flex flex-wrap gap-2'>
@@ -1532,25 +1713,7 @@ function StoreInventoryContent({
                         size='sm'
                         variant='ghost'
                         disabled={busy}
-                        onClick={() => {
-                          setBusy(true)
-                          setError(null)
-                          void (
-                            variant
-                              ? storeApi.removeVariantStock(
-                                  product.id,
-                                  variant.id,
-                                  item.id
-                                )
-                              : storeApi.removeStock(product.id, item.id)
-                          )
-                            .then(async () => {
-                              await stock.refetch()
-                              await onChanged?.()
-                            })
-                            .catch((issue) => setError(issue))
-                            .finally(() => setBusy(false))
-                        }}
+                        onClick={() => setRemoveId(item.id)}
                       >
                         {t('Remove')}
                       </Button>

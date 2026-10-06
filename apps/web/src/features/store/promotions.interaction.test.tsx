@@ -52,6 +52,12 @@ originalGlobals.set(
   'IS_REACT_ACT_ENVIRONMENT',
   Object.getOwnPropertyDescriptor(globalThis, 'IS_REACT_ACT_ENVIRONMENT')
 )
+Object.defineProperty(dom.navigator, 'locks', {
+  configurable: true,
+  value: {
+    request: async (_name: string, task: () => Promise<unknown>) => task(),
+  },
+})
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
@@ -199,6 +205,28 @@ function owner(id = 12) {
 }
 const flush = () => new Promise((resolve) => setTimeout(resolve, 30))
 async function mount(node: React.ReactNode) {
+  const mockPost = api.post
+  api.post = (async (url: string, body: unknown, options?: unknown) => {
+    const buyerId = useAuthStore.getState().auth.user?.id
+    const response = await mockPost(url, body, options as never)
+    if (
+      url === '/api/store/orders' &&
+      response.data?.success === true &&
+      response.data?.data?.order
+    ) {
+      const request = body as Record<string, unknown>
+      response.data.data.order = {
+        product_id: request.product_id,
+        variant_id: request.variant_id,
+        quantity: request.quantity,
+        payment_method: request.payment_method,
+        buyer_id: buyerId,
+        ...response.data.data.order,
+      }
+    }
+    return response
+  }) as typeof api.post
+
   document.body.replaceChildren()
   const host = document.createElement('div')
   document.body.append(host)
@@ -284,6 +312,7 @@ afterEach(async () => {
   useAuthStore.getState().auth.setUser(originalUser)
   useSystemConfigStore.setState({ config: originalConfig })
   useWalletCurrencyPreferenceStore.getState().setPreference(originalPreference)
+  localStorage.clear()
   document.body.replaceChildren()
 })
 after(() => {
@@ -838,7 +867,7 @@ test('guests see a verified offer and retain the code through sign-in; buyer cha
   )!
   assert.equal(
     new URL(signIn.href).searchParams.get('redirect'),
-    '/store/products/product-fixture?promotion=FREE'
+    `/store/products/product-fixture?quantity=1&variant_id=${variant.id}&promotion=FREE`
   )
   await act(async () => {
     owner()
@@ -1035,6 +1064,7 @@ test('a typed minimum error confirmed cancelled by the server requotes and allow
   await click(button('Place order'))
   await click(button('Prepare payment'))
   assert.equal(quotes, 2)
+  await click(button('Buy again'))
   assert.equal(button('Place order').disabled, true)
   await act(async () => {
     release!(envelope(discounted()))

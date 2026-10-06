@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { api } from '@/lib/api'
 
+import { storeGuestRequestOptions } from './access-api'
 import type {
   StorePromotionAction,
   StorePromotionCode,
@@ -59,9 +60,13 @@ export const storePromotionApi = {
     ),
   quote: (
     productId: string,
-    body: { promotion_code: string; variant_id: string; quantity: number }
+    body: { promotion_code: string; variant_id: string; quantity: number },
+    guestToken?: string
   ) =>
     unwrap<StorePromotionQuote>(
-      api.post(`${root(productId)}/quote`, body, options)
+      api.post(`${root(productId)}/quote`, body, {
+        ...options,
+        ...(guestToken ? storeGuestRequestOptions(guestToken) : {}),
+      })
     ),
 }

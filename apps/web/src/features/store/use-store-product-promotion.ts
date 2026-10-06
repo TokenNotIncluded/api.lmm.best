@@ -13,17 +13,27 @@ export function useStoreProductPromotion({
   quantity,
   code,
   userId,
+  guestToken,
+  guestActorScope,
 }: {
   product: StoreProduct
   variantId: string
   quantity: number | undefined
   code: string
   userId?: number
+  guestToken?: string
+  guestActorScope?: string
 }) {
   const [revision, setRevision] = useState(0)
   const supplied = code.trim()
   const resolve = useQuery({
-    queryKey: ['store', 'promotion-resolve', userId, product.id, supplied],
+    queryKey: [
+      'store',
+      'promotion-resolve',
+      userId ?? guestActorScope,
+      product.id,
+      supplied,
+    ],
     queryFn: async () => {
       const promotion = await storePromotionApi.resolve(product.id, supplied)
       if (
@@ -46,7 +56,7 @@ export function useStoreProductPromotion({
     queryKey: [
       'store',
       'promotion-quote',
-      userId,
+      userId ?? guestActorScope,
       product.id,
       resolve.data?.code,
       variantId,
@@ -60,11 +70,15 @@ export function useStoreProductPromotion({
         quantity: quantity!,
         code: resolve.data!.code,
       }
-      const result = await storePromotionApi.quote(product.id, {
-        promotion_code: selection.code,
-        variant_id: variantId,
-        quantity: selection.quantity,
-      })
+      const result = await storePromotionApi.quote(
+        product.id,
+        {
+          promotion_code: selection.code,
+          variant_id: variantId,
+          quantity: selection.quantity,
+        },
+        guestToken
+      )
       const verified = verifiedPromotionQuote(result, selection)
       if (!verified) throw new Error('Store promotion unavailable')
       return verified

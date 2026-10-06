@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { StoreAPIError, storeApi } from './api'
 import { StoreDeliveryEmail } from './delivery-email'
+import { StoreGuestOrders } from './guest-orders'
 import { StoreRefundPanel } from './refund-panel'
 import {
   CopyStoreValue,
@@ -26,6 +27,16 @@ import {
 } from './utils'
 
 export function StoreOrdersPage() {
+  const user = useAuthStore((state) => state.auth.user)
+  const config = useQuery({
+    queryKey: ['store', 'config'],
+    queryFn: storeApi.config,
+    enabled: !user,
+    retry: false,
+  })
+  if (!user && config.data?.store_access_supported === true) {
+    return <StoreGuestOrders lookupSupported />
+  }
   return (
     <StoreAuthGate>
       <StoreOrders />

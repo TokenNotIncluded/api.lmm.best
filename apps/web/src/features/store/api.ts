@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { api } from '@/lib/api'
 
+import { STORE_ACCESS_COPY } from './access-copy'
 import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
 import type {
   StoreCheckoutInput,
@@ -34,6 +35,8 @@ type Envelope<T> = {
   order_id?: string
   order_status?: string
   order_cancelled?: boolean
+  request_key?: string
+  order_created?: boolean
   data: T
 }
 function errorMessage(body?: { code?: unknown; message?: unknown }) {
@@ -44,6 +47,9 @@ function errorMessage(body?: { code?: unknown; message?: unknown }) {
   }
   if (body?.code === 'STORE_UPGRADE_IN_PROGRESS') {
     return 'Shop upgrade is in progress. Existing orders are still accessible.'
+  }
+  if (body?.code === 'STORE_TERMS_UPDATED') {
+    return STORE_ACCESS_COPY.termsChanged
   }
   if (body?.code === 'STORE_PURCHASE_LIMIT') {
     return STORE_PURCHASE_LIMIT_COPY.error
@@ -57,12 +63,16 @@ export class StoreAPIError extends Error {
   readonly orderId?: string
   readonly orderStatus?: string
   readonly orderCancelled?: boolean
+  readonly requestKey?: string
+  readonly orderCreated?: boolean
   constructor(body?: {
     code?: unknown
     message?: unknown
     order_id?: unknown
     order_status?: unknown
     order_cancelled?: unknown
+    request_key?: unknown
+    order_created?: unknown
   }) {
     super(errorMessage(body))
     this.name = 'StoreAPIError'
@@ -71,6 +81,10 @@ export class StoreAPIError extends Error {
       typeof body?.order_id === 'string' ? body.order_id : undefined
     this.orderStatus =
       typeof body?.order_status === 'string' ? body.order_status : undefined
+    this.requestKey =
+      typeof body?.request_key === 'string' ? body.request_key : undefined
+    this.orderCreated =
+      typeof body?.order_created === 'boolean' ? body.order_created : undefined
     this.orderCancelled =
       typeof body?.order_cancelled === 'boolean'
         ? body.order_cancelled
@@ -93,6 +107,10 @@ async function unwrap<T>(request: Promise<{ data: Envelope<T> }>) {
     throw new StoreAPIError(response.data)
   }
   return response.data.data
+}
+type StoreAuthScope = {
+  userId: number | undefined
+  sessionId: string | undefined
 }
 const options = { skipErrorHandler: true, skipBusinessError: true }
 const root = '/api/store'
@@ -122,8 +140,10 @@ export const storeApi = {
     ),
   product: (id: string) =>
     unwrap<StoreProduct>(api.get(`${root}/products/${id}`, options)),
-  previewProduct: (id: string) =>
-    unwrap<StoreProduct>(api.get(`${root}/my/products/${id}/preview`, options)),
+  previewProduct: (id: string, signal?: AbortSignal) =>
+    unwrap<StoreProduct>(
+      api.get(`${root}/my/products/${id}/preview`, { ...options, signal })
+    ),
   myProducts: (page = 1) =>
     unwrap<StorePage<StoreProduct>>(
       api.get(`${root}/my/products`, {
@@ -227,17 +247,26 @@ export const storeApi = {
         params: { role, offset: (page - 1) * 20, limit: 20 },
       })
     ),
-  order: (id: string) =>
-    unwrap<StoreOrder>(api.get(`${root}/orders/${id}`, options)),
-  checkout: (body: StoreCheckoutInput) =>
-    unwrap<StoreCheckoutResult>(api.post(`${root}/orders`, body, options)),
-  pay: (id: string, currency?: string) =>
+  order: (id: string, authScope?: StoreAuthScope) =>
+    unwrap<StoreOrder>(
+      api.get(`${root}/orders/${id}`, {
+        ...options,
+        ...(authScope ? { authScope } : {}),
+      })
+    ),
+  checkout: (body: StoreCheckoutInput, authScope?: StoreAuthScope) =>
+    unwrap<StoreCheckoutResult>(
+      api.post(`${root}/orders`, body, {
+        ...options,
+        ...(authScope ? { authScope } : {}),
+      })
+    ),
+  pay: (id: string, currency?: string, authScope?: StoreAuthScope) =>
     unwrap<StorePaymentSession>(
-      api.post(
-        `${root}/orders/${id}/pay`,
-        currency ? { currency } : {},
-        options
-      )
+      api.post(`${root}/orders/${id}/pay`, currency ? { currency } : {}, {
+        ...options,
+        ...(authScope ? { authScope } : {}),
+      })
     ),
   cancel: (id: string) =>
     unwrap<null>(api.post(`${root}/orders/${id}/cancel`, {}, options)),
@@ -249,12 +278,12 @@ export const storeApi = {
     ),
   disclaimer: () =>
     unwrap<StoreDisclaimer>(api.get(`${root}/disclaimer`, options)),
-  acceptDisclaimer: (version: string) =>
+  acceptDisclaimer: (version: string, authScope?: StoreAuthScope) =>
     unwrap<null>(
       api.post(
         `${root}/disclaimer/accept`,
         { version, accepted: true },
-        options
+        { ...options, ...(authScope ? { authScope } : {}) }
       )
     ),
   paymentSettings: () =>

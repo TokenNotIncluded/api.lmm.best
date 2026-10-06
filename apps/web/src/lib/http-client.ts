@@ -40,7 +40,7 @@ declare module 'axios' {
     skipAuthRefresh?: boolean
     authRetry?: boolean
     acceptAuthRotation?: boolean
-    authScope?: { userId: number; sessionId: string | undefined }
+    authScope?: { userId: number | undefined; sessionId: string | undefined }
   }
 }
 

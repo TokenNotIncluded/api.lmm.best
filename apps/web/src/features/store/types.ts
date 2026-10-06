@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import type { StoreVisibility } from './access-types'
 import type { StoreDeliveryTemplate } from './delivery-template'
 
 export type StorePaymentMethod =
@@ -52,6 +53,8 @@ export interface StoreProduct {
   price_min_quota?: number
   price_max_quota?: number
   test_mode?: boolean
+  visibility?: StoreVisibility
+  purchase_login_required?: boolean
   title: string
   description: string
   image_urls: string[]
@@ -153,6 +156,8 @@ export interface StoreConfig {
   fee_bps: number
   promotion_quota: number
   product_test_mode_supported?: boolean
+  store_access_supported?: boolean
+  store_catalogue_supported?: boolean
   product_purchase_limits_supported?: boolean
   product_link_presets?: StoreLinkPreset[]
   minimum_unit_price_quota?: number
@@ -229,6 +234,8 @@ export interface StoreCheckoutInput {
   promotion_code?: string
   request_key: string
   disclaimer_version?: string
+  seller_terms_version?: string
+  accept_seller_terms?: boolean
   pickup_code?: string
   pickup_email?: string
 }
