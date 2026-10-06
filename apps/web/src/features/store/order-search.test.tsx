@@ -614,3 +614,51 @@ test('order-number errors are visible and unsafe pickup URLs never create links'
     false
   )
 })
+
+test('seller storefront sends its seller filter and displays seller identity rather than the signed-in buyer', async () => {
+  owner(99)
+  const requests = mockRequests(() =>
+    result({
+      items: [],
+      offset: 0,
+      limit: 24,
+      has_more: false,
+      seller: {
+        id: 27,
+        username: 'actual-merchant',
+        display_name: 'Actual merchant shop',
+        contact_email: 'public-sales@example.test',
+      },
+    })
+  )
+  await mount(<StorePage sellerId={27} />)
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].url, '/api/store/products')
+  assert.deepEqual((requests[0].config as { params: unknown }).params, {
+    q: '',
+    offset: 0,
+    limit: 24,
+    seller_id: 27,
+  })
+  assert.match(
+    document.querySelector('h1')?.textContent || '',
+    /Actual merchant shop/
+  )
+  assert.match(document.body.textContent || '', /@actual-merchant/)
+  assert.doesNotMatch(document.body.textContent || '', /buyer-99/)
+  const merchantLink = [
+    ...document.querySelectorAll<HTMLAnchorElement>('a'),
+  ].find((node) => node.textContent?.trim() === 'User ID: 27')
+  assert.equal(merchantLink?.getAttribute('href'), '/store?seller_id=27')
+  assert.equal(
+    document.querySelector('a[href^="mailto:"]')?.getAttribute('href'),
+    'mailto:public-sales%40example.test'
+  )
+  assert.ok(
+    [...document.querySelectorAll<HTMLAnchorElement>('a')].some(
+      (node) =>
+        node.getAttribute('href') === '/store' &&
+        node.textContent?.trim() === 'Browse all sellers'
+    )
+  )
+})

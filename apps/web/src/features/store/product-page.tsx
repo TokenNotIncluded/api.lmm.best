@@ -17,6 +17,7 @@ import { Markdown } from '@/components/ui/markdown'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StoreMerchantIdentity } from './merchant-identity'
 import { storeCheckoutCapacity, storeQuantity } from './quantity'
 import { StoreQuantityControl } from './quantity-control'
 import {
@@ -104,6 +105,10 @@ export function StoreProductPage({
             <h1 className='console-page-title text-2xl font-bold'>
               {product.title}
             </h1>
+            <StoreMerchantIdentity
+              seller={product.seller}
+              sellerId={product.seller_id}
+            />
           </div>
           {product.image_urls?.filter((url) => safeStoreUrl(url)).length >
             0 && (
@@ -205,10 +210,15 @@ export function StoreCheckout({
   }, [disclaimer.data?.version])
   const actualMethod = method || product.payment_methods?.[0] || ''
   const count = storeQuantity(quantity)
-  const capacity = storeCheckoutCapacity({ available_stock: variantCapacity, price_quota: unitPrice ?? 0 }, actualMethod)
+  const capacity = storeCheckoutCapacity(
+    { available_stock: variantCapacity, price_quota: unitPrice ?? 0 },
+    actualMethod
+  )
   let total: number | undefined
   try {
-    if (count !== undefined && unitPrice !== undefined) total = storeTotal(unitPrice, count)
+    if (count !== undefined && unitPrice !== undefined) {
+      total = storeTotal(unitPrice, count)
+    }
   } catch {
     /* invalid input remains disabled */
   }
@@ -414,16 +424,49 @@ export function StoreCheckout({
         </div>
       ) : (
         <>
-          {!legacyVariantProduct(product) && <fieldset className='space-y-2'>
-            <legend className='text-sm font-medium'>{t('Product variant')}</legend>
-            {!enabledStoreVariants(product).length && <p className='text-muted-foreground text-sm'>{t('No variants are currently available.')}</p>}
-            {enabledStoreVariants(product).map(variant => <label key={variant.id} className='has-[:checked]:border-primary flex items-start gap-2 rounded-md border p-3 text-sm'>
-              <input type='radio' name='store-variant' value={variant.id} checked={variantId === variant.id} onChange={() => setVariantId(variant.id)} disabled={variant.trading_paused || variant.sale_available <= 0} />
-              <span className='min-w-0 flex-1 break-words'>{variant.name || t('Default variant')}<span className='text-muted-foreground block text-xs'>{t('Available to buy: {{count}}', { count: variant.sale_available })}</span></span>
-              <StoreAmount quota={variant.price_quota} />
-            </label>)}
-            {!selectedVariant && enabledStoreVariants(product).length > 0 && <p className='text-muted-foreground text-xs'>{t('Choose a variant before ordering.')}</p>}
-          </fieldset>}
+          {!legacyVariantProduct(product) && (
+            <fieldset className='space-y-2'>
+              <legend className='text-sm font-medium'>
+                {t('Product variant')}
+              </legend>
+              {!enabledStoreVariants(product).length && (
+                <p className='text-muted-foreground text-sm'>
+                  {t('No variants are currently available.')}
+                </p>
+              )}
+              {enabledStoreVariants(product).map((variant) => (
+                <label
+                  key={variant.id}
+                  className='has-[:checked]:border-primary flex items-start gap-2 rounded-md border p-3 text-sm'
+                >
+                  <input
+                    type='radio'
+                    name='store-variant'
+                    value={variant.id}
+                    checked={variantId === variant.id}
+                    onChange={() => setVariantId(variant.id)}
+                    disabled={
+                      variant.trading_paused || variant.sale_available <= 0
+                    }
+                  />
+                  <span className='min-w-0 flex-1 break-words'>
+                    {variant.name || t('Default variant')}
+                    <span className='text-muted-foreground block text-xs'>
+                      {t('Available to buy: {{count}}', {
+                        count: variant.sale_available,
+                      })}
+                    </span>
+                  </span>
+                  <StoreAmount quota={variant.price_quota} />
+                </label>
+              ))}
+              {!selectedVariant && enabledStoreVariants(product).length > 0 && (
+                <p className='text-muted-foreground text-xs'>
+                  {t('Choose a variant before ordering.')}
+                </p>
+              )}
+            </fieldset>
+          )}
           <StoreQuantityControl
             value={quantity}
             max={capacity}

@@ -11,6 +11,7 @@ import type {
   StoreDisclaimer,
   StoreOrder,
   StorePage,
+  StoreSeller,
   StorePaymentSettings,
   StorePaymentCategories,
   StoreGatewayInput,
@@ -73,11 +74,16 @@ const claimOptions = {
 }
 export const storeApi = {
   config: () => unwrap<StoreConfig>(api.get(`${root}/config`, options)),
-  products: (search = '', page = 1) =>
-    unwrap<StorePage<StoreProduct>>(
+  products: (search = '', page = 1, sellerId?: number) =>
+    unwrap<StorePage<StoreProduct> & { seller?: StoreSeller | null }>(
       api.get(`${root}/products`, {
         ...options,
-        params: { q: search, offset: (page - 1) * 24, limit: 24 },
+        params: {
+          q: search,
+          offset: (page - 1) * 24,
+          limit: 24,
+          ...(sellerId ? { seller_id: sellerId } : {}),
+        },
       })
     ),
   product: (id: string) =>

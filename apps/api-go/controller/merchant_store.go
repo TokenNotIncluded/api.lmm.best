@@ -112,11 +112,34 @@ func ListMerchantStore(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, err := model.ListPublicMerchantStoreProducts(c.Query("q"), offset, limit)
+	sellerID := 0
+	if raw, present := c.GetQuery("seller_id"); present || len(c.Request.URL.Query()["seller_id"]) != 0 {
+		var parseErr error
+		sellerID, parseErr = strconv.Atoi(raw)
+		if parseErr != nil || len(c.Request.URL.Query()["seller_id"]) != 1 || sellerID < 1 || int64(sellerID) > 2147483647 || raw != strconv.Itoa(sellerID) {
+			merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+			return
+		}
+	}
+	items, err := model.ListPublicMerchantStoreProductsForSeller(c.Query("q"), sellerID, offset, limit)
 	for i := range items {
 		items[i] = publicStoreProduct(items[i])
 	}
-	merchantStoreList(c, items, offset, limit, err)
+	if err != nil {
+		merchantStoreRespond(c, nil, err)
+		return
+	}
+	if items == nil {
+		items = []model.MerchantStoreProduct{}
+	}
+	var seller *model.MerchantStorePublicSeller
+	if sellerID != 0 {
+		seller, err = model.GetPublicMerchantStoreSellerProfile(sellerID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+	}
+	merchantStoreRespond(c, gin.H{"items": items, "offset": offset, "limit": limit, "has_more": len(items) == limit, "seller": seller}, err)
 }
 
 func GetPublicMerchantStoreProduct(c *gin.Context) {

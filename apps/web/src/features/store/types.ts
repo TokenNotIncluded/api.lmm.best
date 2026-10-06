@@ -15,6 +15,12 @@ export interface StoreLink {
 export interface StoreLinkPreset extends StoreLink {
   id: string
 }
+export interface StoreSeller {
+  id: number
+  username: string
+  display_name: string
+  contact_email?: string
+}
 export interface StoreVariant {
   id: string
   product_id: string
@@ -38,6 +44,7 @@ export type StoreVariantInput = Pick<
 export interface StoreProduct {
   id: string
   seller_id: number
+  seller?: StoreSeller
   default_variant_id?: string
   variants?: StoreVariant[]
   inventory_total?: number

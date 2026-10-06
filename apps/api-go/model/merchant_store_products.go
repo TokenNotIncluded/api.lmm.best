@@ -408,6 +408,10 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 		return e
 	}
 	p.Official = u.Role >= common.RoleAdminUser
+	p.Seller, e = storePublicSeller(tx, p.SellerID, p.Contact)
+	if e != nil {
+		return e
+	}
 	if e = tx.Model(&MerchantStoreStock{}).Where("product_id = ? AND state = ?", p.ID, "available").Count(&p.AvailableStock).Error; e != nil {
 		return e
 	}
@@ -469,11 +473,19 @@ func GetMerchantStoreProduct(actor int, id string) (*MerchantStoreProduct, error
 	return &p, e
 }
 func ListPublicMerchantStoreProducts(search string, offset, limit int) ([]MerchantStoreProduct, error) {
+	return ListPublicMerchantStoreProductsForSeller(search, 0, offset, limit)
+}
+
+func ListPublicMerchantStoreProductsForSeller(search string, sellerID, offset, limit int) ([]MerchantStoreProduct, error) {
 	offset, limit = storePage(offset, limit)
-	if len(search) > 200 {
+	if len(search) > 200 || sellerID < 0 || int64(sellerID) > 2147483647 {
 		return nil, ErrMerchantStoreInput
 	}
-	q := DB.Where("status = ? AND test_mode = ?", "published", false)
+	q := DB.Where("status = ? AND test_mode = ?", "published", false).
+		Where("EXISTS (SELECT 1 FROM users WHERE users.id = merchant_store_products.seller_id AND users.status = ? AND users.role >= ?)", common.UserStatusEnabled, common.RoleCommonUser)
+	if sellerID != 0 {
+		q = q.Where("seller_id = ?", sellerID)
+	}
 	if search != "" {
 		literal := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(search)
 		q = q.Where("title LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!'", "%"+literal+"%", "%"+literal+"%")

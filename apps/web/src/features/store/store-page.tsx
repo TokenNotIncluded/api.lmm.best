@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreOrderSearch } from './order-search'
 import { StoreBadges, StoreError, StoreLoading } from './shared'
 import { safeStoreUrl } from './utils'
@@ -16,7 +17,7 @@ import { StoreProductPrice } from './variant-summary'
 
 type SearchType = 'auto' | 'products' | 'order' | 'email'
 
-export function StorePage() {
+export function StorePage({ sellerId }: { sellerId?: number } = {}) {
   const { t } = useTranslation()
   const [input, setInput] = useState('')
   const [search, setSearch] = useState('')
@@ -28,8 +29,8 @@ export function StorePage() {
   } | null>(null)
   const user = useAuthStore((state) => state.auth.user)
   const query = useQuery({
-    queryKey: ['store', 'products', search, page],
-    queryFn: () => storeApi.products(search, page),
+    queryKey: ['store', 'products', search, page, sellerId],
+    queryFn: () => storeApi.products(search, page, sellerId),
     retry: false,
   })
   return (
@@ -40,13 +41,30 @@ export function StorePage() {
         </div>
         <div className='relative z-10 space-y-1'>
           <h1 className='console-page-title text-xl font-bold'>
-            {t('Browse products')}
+            {query.data?.seller
+              ? t('Shop by {{name}}', {
+                  name:
+                    query.data.seller.display_name ||
+                    query.data.seller.username,
+                })
+              : t('Browse products')}
           </h1>
           <p className='text-muted-foreground text-sm'>
             {t(
               'Explore digital products from the community and official sellers.'
             )}
           </p>
+          {query.data?.seller && (
+            <StoreMerchantIdentity seller={query.data.seller} />
+          )}
+          {sellerId && (
+            <a
+              href='/store'
+              className='text-muted-foreground inline-block text-sm hover:underline'
+            >
+              {t('Browse all sellers')}
+            </a>
+          )}
         </div>
         <Button
           variant='outline'
@@ -189,6 +207,12 @@ export function StorePage() {
                             </div>
                           </div>
                         </a>
+                        <div className='border-t px-4 py-3'>
+                          <StoreMerchantIdentity
+                            seller={product.seller}
+                            sellerId={product.seller_id}
+                          />
+                        </div>
                       </article>
                     ))}
                   </div>
