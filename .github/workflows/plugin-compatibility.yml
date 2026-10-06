@@ -1,7 +1,7 @@
 name: Plugin compatibility
 on:
   push:
-    branches: [main, chore/plugin-compat-20261006]
+    branches: [main]
     paths: ['packages/**', '.gitmodules', '.github/workflows/plugin-compatibility.yml']
   pull_request:
     paths: ['packages/**', '.gitmodules', '.github/workflows/plugin-compatibility.yml']
@@ -52,11 +52,10 @@ jobs:
               npm run check
               npm test
               npm run pack:check
-              if node -e 'process.exit(JSON.parse(require("node:fs").readFileSync("package.json")).scripts["test:host"] ? 0 : 1)'; then
-                npm install --prefix "$RUNNER_TEMP/codewhale-host" codewhale@latest
-                export LMM_CODEWHALE_BIN=$(HOST_ROOT="$RUNNER_TEMP/codewhale-host/node_modules/codewhale" node --input-type=commonjs -e 'console.log(require(process.env.HOST_ROOT + "/scripts/install.js").getBinaryPath("codewhale"))')
-                npm run test:host
-              fi
+              npm install --prefix "$RUNNER_TEMP/codewhale-host" codewhale@0.10.0
+              export LMM_CODEWHALE_BIN=$(HOST_ROOT="$RUNNER_TEMP/codewhale-host/node_modules/codewhale" node --input-type=commonjs -e 'require(process.env.HOST_ROOT + "/scripts/install.js").getBinaryPath("codewhale").then(p=>console.log(p)).catch(e=>{console.error(e);process.exitCode=1})')
+              test -x "$LMM_CODEWHALE_BIN"
+              npm run test:host
               ;;
             opencode-lmm-auth)
               npm run build
