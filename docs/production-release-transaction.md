@@ -79,8 +79,34 @@ inherit neither historical financial-transition variable. The running service
 remains writable for ordinary user requests. Its loaded systemd environment,
 the private environment file, and its actual PID generation must enforce
 `LMM_DB_MIGRATION_MODE=verify` and have no financial-transition request. A loaded
-unit with additional environment files, unchecked environment overrides, or
-custom start/stop lifecycle commands is rejected before start or shutdown.
+unit with unsealed additional environment files, unchecked environment overrides,
+or custom start/stop lifecycle commands is rejected before start or shutdown.
+
+Hosts using root-owned tool/cluster environment sidecars can capture an explicit
+startup seal with `schema-contract --schema NAME --seal-startup`. The optional
+`startup_sha256` and `signed_unit_sha256` fields remain inside the canonical plan
+and manifest contract. The native reader preserves the actual systemd order of
+repeated `EnvironmentFiles` records and accepts omitted unset array properties;
+it never treats a duplicated scalar property as valid. Every sealed EnvFile is
+a stable root-owned `0600` regular file without symlinks or hard links. The first
+file must be the canonical Go environment. Sealed same-schema installation and
+rollback preserve its exact bytes instead of replaying optional environment
+hardening; the historical default path retains its hardening behavior.
+Current and future startup database identities are both checked read-only.
+
+An optional sealed readiness pair accepts only the exact existing curl GET to
+`http://127.0.0.1:3000/api/livez`, with proxy bypass and output to `/dev/null`,
+followed by `sleep 2`. Its complete argv and order are sealed; shells, other
+URLs, redirects, bodies, output files and arbitrary lifecycle hooks are refused.
+The root-owned `0644` loaded unit digest must also match the unit payload in
+both Sigstore-qualified candidate and N−1 packages before the plan authorizes
+mutation, and target apply repeats that binding. Command runtime timestamps
+and PIDs do not enter the startup seal. `GOMEMLIMIT` remains governed by the
+existing signed memory-drop-in validation and recognized override retirement.
+No other loaded environment assignments escape the startup digest. Changes to
+sidecar bytes, file order, PostgreSQL overrides or command semantics invalidate
+the sealed policy. Without these optional seal fields, the original single-file,
+no-lifecycle-hook policy still applies.
 The inspected process's effective search path is verified read-only; when
 stopped, the same check uses the loaded unit and private environment file in
 their real precedence order before restarting. It binds the effective cluster,

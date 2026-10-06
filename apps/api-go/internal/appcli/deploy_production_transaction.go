@@ -694,6 +694,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 		options.ExistingSchemaContract = plan.ExistingSchemaContract
+		if err := runtime.verifyExistingSchemaSignedUnitBinding(ctx, options.ExistingSchemaContract, options.GoPackage, options.GoRollbackPackage); err != nil {
+			return productionStatus{}, err
+		}
 	} else if options.SchemaMode != "" || options.ExistingSchemaContract != nil {
 		return productionStatus{}, errors.New("existing-schema activation policy is invalid")
 	} else if err := validateProductionExistingSchemaManifestPlan(workspace, productionManifest{}); err != nil {
@@ -1169,7 +1172,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := retireKnownMemoryOverrides(runtime.paths.DropInDir); err != nil {
 			return productionStatus{}, err
 		}
-		if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
+		if err := runtime.hardenProductionTransactionConfiguration(manifest); err != nil {
 			return productionStatus{}, err
 		}
 		if err := runtime.configureMaintenanceService(workspace, manifest, false); err != nil {
@@ -1536,7 +1539,7 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		}
 
 		if manifest.PreviousProviderTarget == backendGoName || manifest.PreviousProviderTarget == "legacy-regular" {
-			if err := hardenProductionConfiguration(productionHardenOptions{EnvFile: filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), DropInDir: runtime.paths.PackagedDropInDir, OverrideDropInDir: runtime.paths.DropInDir}); err != nil {
+			if err := runtime.hardenProductionTransactionConfiguration(manifest); err != nil {
 				return fail(err)
 			}
 		}
