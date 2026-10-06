@@ -24,58 +24,64 @@ import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatPlatformAmount } from '@/lib/currency'
 
 import {
-  paymentAmountOptionsSchema,
+  parsePaymentAmountOptions,
+  normalizePaymentAmount,
+  paymentAmountCredits,
+  serializePaymentAmountOptions,
+  type PaymentAmountUnit,
   isPaymentAmountInput,
 } from './payment-amount-options'
 
 type AmountOptionsVisualEditorProps = {
   value: string
   onChange: (value: string) => void
+  unit?: PaymentAmountUnit
 }
 
 export function AmountOptionsVisualEditor({
   value,
   onChange,
+  unit = 'USD',
 }: AmountOptionsVisualEditorProps) {
   const { t } = useTranslation()
   const [newAmount, setNewAmount] = useState('')
 
-  const amounts = useMemo(() => {
-    const parsed = paymentAmountOptionsSchema.safeParse(value)
-    if (!parsed.success) return []
-    return (JSON.parse(parsed.data) as number[]).sort((a, b) => a - b)
-  }, [value])
-
+  const parsedAmounts = useMemo(
+    () => parsePaymentAmountOptions(value, unit),
+    [value, unit]
+  )
+  const amounts = useMemo(
+    () =>
+      [...(parsedAmounts ?? [])].sort((a, b) => {
+        const delta =
+          paymentAmountCredits(a, unit) - paymentAmountCredits(b, unit)
+        return delta < 0n ? -1 : delta > 0n ? 1 : 0
+      }),
+    [parsedAmounts, unit]
+  )
+  const normalizedNewAmount = normalizePaymentAmount(newAmount, unit)
+  const canAdd =
+    parsedAmounts !== null &&
+    normalizedNewAmount !== null &&
+    !amounts.includes(normalizedNewAmount) &&
+    amounts.length < 100
   const handleAdd = () => {
-    const amount = Number(newAmount)
-    if (!isPaymentAmountInput(newAmount)) {
-      return
-    }
-
-    try {
-      const updatedAmounts = [...amounts, amount]
-        .filter((v, i, a) => a.indexOf(v) === i) // Remove duplicates
-        .sort((a, b) => a - b)
-
-      onChange(JSON.stringify(updatedAmounts, null, 2))
-      setNewAmount('')
-    } catch (_error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to add amount:', _error)
-    }
+    if (!canAdd || normalizedNewAmount === null) return
+    const updated = [...amounts, normalizedNewAmount].sort((a, b) => {
+      const delta =
+        paymentAmountCredits(a, unit) - paymentAmountCredits(b, unit)
+      return delta < 0n ? -1 : delta > 0n ? 1 : 0
+    })
+    onChange(serializePaymentAmountOptions(updated))
+    setNewAmount('')
   }
-
-  const handleRemove = (amount: number) => {
-    try {
-      const updatedAmounts = amounts.filter((a) => a !== amount)
-      onChange(JSON.stringify(updatedAmounts, null, 2))
-    } catch (_error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to remove amount:', _error)
-    }
+  const handleRemove = (amount: string) => {
+    if (parsedAmounts === null) return
+    onChange(
+      serializePaymentAmountOptions(amounts.filter((item) => item !== amount))
+    )
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -92,7 +98,11 @@ export function AmountOptionsVisualEditor({
           {t('Preset recharge amounts displayed to users')}
         </p>
 
-        {amounts.length === 0 ? (
+        {parsedAmounts === null ? (
+          <p role='alert' className='text-destructive text-sm'>
+            {t('JSON structure is invalid')}
+          </p>
+        ) : amounts.length === 0 ? (
           <div className='text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm'>
             {t(
               'No amount options configured. Add amounts below to get started.'
@@ -108,7 +118,7 @@ export function AmountOptionsVisualEditor({
                 copyable={false}
               >
                 <span className='font-mono'>
-                  {formatPlatformAmount(amount)}
+                  {amount} {unit}
                 </span>
                 <Button
                   type='button'
@@ -120,7 +130,7 @@ export function AmountOptionsVisualEditor({
                     handleRemove(amount)
                   }}
                   className='hover:bg-muted-foreground/20 size-auto p-0.5'
-                  aria-label={t('Remove ${{amount}}', { amount })}
+                  aria-label={`${t('Remove')} ${amount} ${unit}`}
                 >
                   <X className='h-3.5 w-3.5' />
                 </Button>
@@ -133,22 +143,24 @@ export function AmountOptionsVisualEditor({
       <div className='flex flex-col gap-2 sm:flex-row sm:items-end'>
         <div className='flex-1'>
           <Label htmlFor='new-amount' className='mb-2 block'>
-            {t('Add new amount')}
+            {t('Add new amount')} ({unit})
           </Label>
           <Input
             id='new-amount'
             type='number'
-            step='1'
-            min='1'
-            max={Number.MAX_SAFE_INTEGER}
+            step={unit === 'USD' ? 'any' : '1'}
+            min={unit === 'USD' ? '0.000002' : '1'}
+            max={unit === 'USD' ? '18014398509.481982' : '9007199254740991'}
             placeholder={t('e.g., 100')}
             value={newAmount}
             onChange={(e) => setNewAmount(e.target.value)}
             onKeyDown={handleKeyDown}
           />
-          {newAmount && !isPaymentAmountInput(newAmount) && (
+          {newAmount && !isPaymentAmountInput(newAmount, unit) && (
             <p role='alert' className='text-destructive mt-2 text-sm'>
-              {t('Enter a positive integer')}
+              {unit === 'CREDIT'
+                ? t('Enter a positive integer')
+                : t('Enter a positive USD amount that equals whole credits.')}
             </p>
           )}
         </div>
@@ -159,7 +171,7 @@ export function AmountOptionsVisualEditor({
             e.stopPropagation()
             handleAdd()
           }}
-          disabled={!isPaymentAmountInput(newAmount)}
+          disabled={!canAdd}
           className='w-full sm:w-auto'
         >
           <Plus className='h-4 w-4 sm:mr-2' />

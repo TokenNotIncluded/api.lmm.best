@@ -437,48 +437,208 @@ test('Waffo shows its integer minimum as actual USD and emits legacy integers fo
   }
 })
 
-test('visual recharge presets reject fractions and unsafe numbers without changing existing options', async () => {
+test('USD presets accept decimal amounts and preserve exact JSON even when the wallet displays CNY', async () => {
+  useSystemConfigStore
+    .getState()
+    .setConfig({ currency: { ...currencyConfig, quotaDisplayType: 'CNY' } })
   const changes: string[] = []
   const ui = await render(
     <AmountOptionsVisualEditor
-      value='[10,20,35,50,100,200,500,1000]'
+      value='[10,18014398509.481982]'
       onChange={(value) => changes.push(value)}
     />
   )
   try {
     const input = ui.container.querySelector<HTMLInputElement>('#new-amount')
     assert.ok(input)
-    assert.equal(input.step, '1')
-    assert.equal(input.min, '1')
+    assert.equal(input.step, 'any')
+    assert.equal(input.min, '0.000002')
+    assert.match(ui.container.textContent ?? '', /10 USD/)
+    assert.equal(ui.container.textContent?.includes('CNY'), false)
     const add = [
       ...ui.container.querySelectorAll<HTMLButtonElement>('button'),
-    ].find((button) => button.textContent?.includes('Add'))
+    ].find((button) => button.textContent === 'Add')
     assert.ok(add)
     for (const invalid of [
-      '3.5',
+      '0.000001',
       '0',
       '-1',
-      '9007199254740992',
+      '18014398509.481984',
       '9007199254740991.1',
     ]) {
       await edit(input, invalid)
-      assert.equal(add.disabled, true)
+      assert.equal(add.disabled, true, invalid)
       await act(async () => {
         add.click()
         await flush()
       })
       assert.deepEqual(changes, [])
     }
-    await edit(input, '75')
+    await edit(input, '3.5')
     assert.equal(add.disabled, false)
     await act(async () => {
       add.click()
       await flush()
     })
-    assert.deepEqual(
-      JSON.parse(changes[0]),
-      [10, 20, 35, 50, 75, 100, 200, 500, 1000]
+    assert.deepEqual(changes, ['[3.5,10,18014398509.481982]'])
+  } finally {
+    await ui.close()
+  }
+})
+
+test('CREDIT presets retain integer input rules and label the configuration basis', async () => {
+  const changes: string[] = []
+  const ui = await render(
+    <AmountOptionsVisualEditor
+      value='[10,20]'
+      unit='CREDIT'
+      onChange={(value) => changes.push(value)}
+    />
+  )
+  try {
+    const input = ui.container.querySelector<HTMLInputElement>('#new-amount')
+    const add = [
+      ...ui.container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((button) => button.textContent === 'Add')
+    assert.ok(input)
+    assert.ok(add)
+    assert.equal(input.step, '1')
+    assert.equal(input.min, '1')
+    assert.match(ui.container.textContent ?? '', /10 CREDIT/)
+    await edit(input, '3.5')
+    assert.equal(add.disabled, true)
+    assert.match(ui.container.textContent ?? '', /Enter a positive integer/)
+    await edit(input, '35')
+    await act(async () => {
+      add.click()
+      await flush()
+    })
+    assert.deepEqual(changes, ['[10,20,35]'])
+  } finally {
+    await ui.close()
+  }
+})
+
+test('invalid preset JSON is visible and cannot be replaced through Add', async () => {
+  const changes: string[] = []
+  const ui = await render(
+    <AmountOptionsVisualEditor
+      value='[3.5,]'
+      onChange={(value) => changes.push(value)}
+    />
+  )
+  try {
+    const input = ui.container.querySelector<HTMLInputElement>('#new-amount')
+    const add = [
+      ...ui.container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((button) => button.textContent === 'Add')
+    assert.ok(input)
+    assert.ok(add)
+    assert.match(
+      ui.container.querySelector('[role="alert"]')?.textContent ?? '',
+      /JSON structure is invalid/
     )
+    assert.equal(
+      ui.container.textContent?.includes('No amount options configured'),
+      false
+    )
+    await edit(input, '3.5')
+    assert.equal(add.disabled, true)
+    await act(async () => {
+      add.click()
+      await flush()
+    })
+    assert.deepEqual(changes, [])
+  } finally {
+    await ui.close()
+  }
+})
+
+test('production decimal discount displays 3.5 USD and 2% off, then editing preserves all monetary keys', async () => {
+  useSystemConfigStore
+    .getState()
+    .setConfig({ currency: { ...currencyConfig, quotaDisplayType: 'CNY' } })
+  const original = {
+    '1': 1,
+    '2': 0.99,
+    '5': 0.97,
+    '10': 0.96,
+    '20': 0.94,
+    '50': 0.92,
+    '100': 0.9,
+    '3.5': 0.98,
+  }
+  const changes: string[] = []
+  const ui = await render(
+    <AmountDiscountVisualEditor
+      value={JSON.stringify(original)}
+      onChange={(value) => changes.push(value)}
+    />
+  )
+  try {
+    assert.equal(
+      ui.container.textContent?.split('3.5 USD').length,
+      3,
+      'desktop and mobile retain the decimal amount'
+    )
+    assert.equal(ui.container.textContent?.split('2% off').length, 3)
+    assert.equal(ui.container.textContent?.includes('CNY'), false)
+    const editButton = ui.container.querySelector<HTMLButtonElement>(
+      '[aria-label="Edit 3.5 USD"]'
+    )
+    assert.ok(editButton)
+    await act(async () => {
+      editButton.click()
+      await flush()
+    })
+    const form = document.querySelector<HTMLFormElement>(
+      '#amount-discount-form'
+    )
+    assert.ok(form)
+    const amount = form.querySelector<HTMLInputElement>('input[type="text"]')
+    const rate = form.querySelector<HTMLInputElement>('input[type="number"]')
+    assert.ok(amount)
+    assert.ok(rate)
+    assert.equal(amount.value, '3.5')
+    assert.equal(amount.disabled, true)
+    await edit(rate, '0.97')
+    await submit(form)
+    assert.equal(changes.length, 1)
+    assert.deepEqual(JSON.parse(changes[0]), { ...original, '3.5': 0.97 })
+    assert.equal(Object.hasOwn(JSON.parse(changes[0]), '3'), false)
+  } finally {
+    await ui.close()
+  }
+})
+
+test('invalid discount JSON cannot be presented as empty or overwritten by Add', async () => {
+  const changes: string[] = []
+  const ui = await render(
+    <AmountDiscountVisualEditor
+      value='{"3.5":0.98,"3.50":0.97}'
+      onChange={(value) => changes.push(value)}
+    />
+  )
+  try {
+    const add = [
+      ...ui.container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((button) => button.textContent?.includes('Add discount tier'))
+    assert.ok(add)
+    assert.equal(add.disabled, true)
+    assert.match(
+      ui.container.querySelector('[role="alert"]')?.textContent ?? '',
+      /JSON structure is invalid/
+    )
+    assert.equal(
+      ui.container.textContent?.includes('No discount tiers configured'),
+      false
+    )
+    await act(async () => {
+      add.click()
+      await flush()
+    })
+    assert.equal(document.querySelector('#amount-discount-form'), null)
+    assert.deepEqual(changes, [])
   } finally {
     await ui.close()
   }

@@ -46,6 +46,7 @@ import { moderationAuditCopy } from './moderation-audit-copy.mjs'
 import { moderationCopy } from './moderation-copy.mjs'
 import { nativeBillingCopy } from './native-billing-copy.mjs'
 import { passkeyCopy } from './passkey-copy.mjs'
+import { paymentDecimalLunaCopy } from './payment-decimal-luna-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
@@ -11939,6 +11940,7 @@ async function main() {
   }
 
   // Allow scoped additions without overwriting unrelated in-progress translations.
+  const paymentDecimalOnly = process.argv.includes('--only-payment-decimal')
   const merchantStoreOnly = process.argv.includes('--only-merchant-store')
   const paymentOnly = process.argv.includes('--only-payment-pricing')
   const homeOnly = process.argv.includes('--only-home-editorial')
@@ -11972,6 +11974,7 @@ async function main() {
     '--only-responses-websocket'
   )
   const scoped =
+    paymentDecimalOnly ||
     merchantStoreOnly ||
     moderationOnly ||
     nativeBillingOnly ||
@@ -12056,25 +12059,27 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = moderationOnly
-    ? moderationCopy
-    : nativeBillingOnly
-      ? nativeBillingCopy
-      : typeSafeOnly
-        ? typeSafeCopy
-        : balanceOnly
-          ? balanceQueryCopy
-          : responsesWebSocketOnly
-            ? responsesWebSocketCopy
-            : responseModelOnly
-              ? responseModelCopy
-              : rssOnly
-                ? rssCopy
-                : forgeRefreshOnly
-                  ? forgeRefreshCopy
-                  : passkeyOnly
-                    ? passkeyCopy
-                    : entries
+  const selectedEntries = paymentDecimalOnly
+    ? paymentDecimalLunaCopy
+    : moderationOnly
+      ? moderationCopy
+      : nativeBillingOnly
+        ? nativeBillingCopy
+        : typeSafeOnly
+          ? typeSafeCopy
+          : balanceOnly
+            ? balanceQueryCopy
+            : responsesWebSocketOnly
+              ? responsesWebSocketCopy
+              : responseModelOnly
+                ? responseModelCopy
+                : rssOnly
+                  ? rssCopy
+                  : forgeRefreshOnly
+                    ? forgeRefreshCopy
+                    : passkeyOnly
+                      ? passkeyCopy
+                      : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(
     merchantStoreOnly ? merchantStoreCopy : selectedEntries

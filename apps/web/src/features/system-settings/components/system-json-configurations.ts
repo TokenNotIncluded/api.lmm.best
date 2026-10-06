@@ -927,23 +927,25 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
       },
     ]
   ),
-  'payment_setting.amount_options': configuration([10, 20, 50], 'integer[]', [
+  'payment_setting.amount_options': configuration([3.5, 10, 20], 'number[]', [
     {
       path: '[]',
-      type: 'integer',
+      type: 'number',
       required: true,
-      rules: 'minimum: 1; maximum: 9007199254740991',
-      example: '20',
+      rules:
+        'unit: USD unless general_setting.quota_display_type is TOKENS (integer CREDIT); USD × 500000 must be a positive integer CREDIT ≤ 9007199254740991; maximum 100 amounts; exact numeric tokens ≤ 64 bytes; exponent -18..18; canonical amounts must be unique',
+      example: '3.5',
     },
   ]),
   'payment_setting.amount_discount': configuration(
-    { '10': 1, '100': 0.95 },
+    { '3.5': 0.98, '10': 1, '100': 0.95 },
     'Record<string, number>',
     [
       {
         path: '<amount>',
         type: 'number',
-        rules: 'minimum: 0; finite: true',
+        rules:
+          'key: exact positive USD amount, or integer CREDIT when general_setting.quota_display_type is TOKENS; USD × 500000 must be whole CREDIT ≤ 9007199254740991; canonical keys with different rates conflict; value: finite rate > 0 and ≤ 1; exact amount matching',
         example: '0.95',
       },
     ]
@@ -1019,8 +1021,9 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
         path: '[].price',
         type: 'number',
         required: true,
-        rules: 'minimum: 0; finite: true',
-        example: '10',
+        rules:
+          'positive exact amount in the same USD/CREDIT basis as amount_options; exact matching, not a threshold; equivalent decimal keys cannot have different discount rates',
+        example: '3.5',
       },
       {
         path: '[].currency',
@@ -1173,7 +1176,20 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
 export type SystemJsonConfigurationKey = keyof typeof SYSTEM_JSON_CONFIGURATIONS
 
 export function getSystemJsonConfiguration(
-  key: SystemJsonConfigurationKey
+  key: SystemJsonConfigurationKey,
+  paymentAmountUnit?: 'USD' | 'CREDIT'
 ): SystemJsonConfiguration {
-  return SYSTEM_JSON_CONFIGURATIONS[key]
+  const config = SYSTEM_JSON_CONFIGURATIONS[key]
+  if (paymentAmountUnit === 'CREDIT') {
+    if (key === 'payment_setting.amount_options') {
+      return { ...config, example: JSON.stringify([1, 10, 20], null, 2) }
+    }
+    if (key === 'payment_setting.amount_discount') {
+      return {
+        ...config,
+        example: JSON.stringify({ '10': 0.99, '100': 0.9 }, null, 2),
+      }
+    }
+  }
+  return config
 }

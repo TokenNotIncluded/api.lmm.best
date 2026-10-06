@@ -20,8 +20,15 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, test } from 'node:test'
 
+import {
+  parsePaymentAmountDiscounts,
+  parsePaymentAmountOptions,
+} from '../../integrations/payment-amount-options'
 import { parseModerationGroupPolicies } from '../../security/moderation-config'
-import { SYSTEM_JSON_CONFIGURATIONS } from '../system-json-configurations'
+import {
+  getSystemJsonConfiguration,
+  SYSTEM_JSON_CONFIGURATIONS,
+} from '../system-json-configurations'
 
 function collectTsxFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -32,6 +39,46 @@ function collectTsxFiles(directory: string): string[] {
 }
 
 describe('system JSON configuration registry', () => {
+  test('recharge JSON documents decimal USD presets and exact discount matching', () => {
+    const options = SYSTEM_JSON_CONFIGURATIONS['payment_setting.amount_options']
+    const discount =
+      SYSTEM_JSON_CONFIGURATIONS['payment_setting.amount_discount']
+    assert.equal(options.specification.rootType, 'number[]')
+    assert.deepEqual(parsePaymentAmountOptions(options.example, 'USD'), [
+      '3.5',
+      '10',
+      '20',
+    ])
+    assert.equal(
+      parsePaymentAmountDiscounts(discount.example, 'USD')?.['3.5'],
+      0.98
+    )
+    for (const configuration of [options, discount]) {
+      assert.match(configuration.specification.fields[0].rules ?? '', /TOKENS/)
+      assert.match(configuration.specification.fields[0].rules ?? '', /500000/)
+    }
+    assert.match(
+      discount.specification.fields[0].rules ?? '',
+      /exact amount matching/
+    )
+    const creditOptions = getSystemJsonConfiguration(
+      'payment_setting.amount_options',
+      'CREDIT'
+    )
+    const creditDiscount = getSystemJsonConfiguration(
+      'payment_setting.amount_discount',
+      'CREDIT'
+    )
+    assert.deepEqual(
+      parsePaymentAmountOptions(creditOptions.example, 'CREDIT'),
+      ['1', '10', '20']
+    )
+    assert.deepEqual(
+      parsePaymentAmountDiscounts(creditDiscount.example, 'CREDIT'),
+      { '10': 0.99, '100': 0.9 }
+    )
+  })
+
   test('provides valid examples and non-empty field contracts for every key', () => {
     const entries = Object.entries(SYSTEM_JSON_CONFIGURATIONS)
     assert.ok(entries.length >= 40)

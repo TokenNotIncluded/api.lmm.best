@@ -24,80 +24,62 @@ import { StaticDataTable } from '@/components/data-table/static/static-data-tabl
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
-import { formatPlatformAmount } from '@/lib/currency'
 
-import { safeJsonParseWithValidation } from '../utils/json-parser'
-import { isObjectRecord } from '../utils/json-validators'
 import {
   AmountDiscountDialog,
   type AmountDiscountData,
 } from './amount-discount-dialog'
+import {
+  parsePaymentAmountDiscounts,
+  paymentAmountCredits,
+  type PaymentAmountUnit,
+} from './payment-amount-options'
 
 type AmountDiscountVisualEditorProps = {
   value: string
   onChange: (value: string) => void
+  unit?: PaymentAmountUnit
 }
 
 export function AmountDiscountVisualEditor({
   value,
   onChange,
+  unit = 'USD',
 }: AmountDiscountVisualEditorProps) {
   const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editData, setEditData] = useState<AmountDiscountData | null>(null)
 
-  const discounts = useMemo(() => {
-    const parsed = safeJsonParseWithValidation<Record<string, unknown>>(value, {
-      fallback: {},
-      validator: isObjectRecord,
-      validatorMessage: 'Amount discount must be a JSON object',
-      context: 'amount discounts',
-    })
-
-    return Object.entries(parsed)
-      .map(([amount, rate]) => ({
-        amount: Number.parseInt(amount, 10),
-        discountRate:
-          typeof rate === 'number' ? rate : Number.parseFloat(String(rate)),
-      }))
-      .filter(
-        (item) => !Number.isNaN(item.amount) && !Number.isNaN(item.discountRate)
-      )
-      .sort((a, b) => a.amount - b.amount)
-  }, [value])
-
+  const parsedDiscounts = useMemo(
+    () => parsePaymentAmountDiscounts(value, unit),
+    [value, unit]
+  )
+  const discounts = useMemo(
+    () =>
+      Object.entries(parsedDiscounts ?? {})
+        .map(([amount, discountRate]) => ({ amount, discountRate }))
+        .sort((a, b) => {
+          const delta =
+            paymentAmountCredits(a.amount, unit) -
+            paymentAmountCredits(b.amount, unit)
+          return delta < 0n ? -1 : delta > 0n ? 1 : 0
+        }),
+    [parsedDiscounts, unit]
+  )
   const handleSave = (data: AmountDiscountData) => {
-    const discountObject = safeJsonParseWithValidation<Record<string, unknown>>(
-      value,
-      {
-        fallback: {},
-        validator: isObjectRecord,
-        silent: true,
-      }
-    )
-
+    if (parsedDiscounts === null) return
+    const next = { ...parsedDiscounts }
     if (editData && editData.amount !== data.amount) {
-      delete discountObject[editData.amount.toString()]
+      delete next[editData.amount]
     }
-
-    discountObject[data.amount.toString()] = data.discountRate
-
-    onChange(JSON.stringify(discountObject, null, 2))
+    next[data.amount] = data.discountRate
+    onChange(JSON.stringify(next, null, 2))
   }
-
-  const handleDelete = (amount: number) => {
-    const discountObject = safeJsonParseWithValidation<Record<string, unknown>>(
-      value,
-      {
-        fallback: {},
-        validator: isObjectRecord,
-        silent: true,
-      }
-    )
-
-    delete discountObject[amount.toString()]
-
-    onChange(JSON.stringify(discountObject, null, 2))
+  const handleDelete = (amount: string) => {
+    if (parsedDiscounts === null) return
+    const next = { ...parsedDiscounts }
+    delete next[amount]
+    onChange(JSON.stringify(next, null, 2))
   }
 
   const handleEdit = (discount: AmountDiscountData) => {
@@ -106,6 +88,7 @@ export function AmountDiscountVisualEditor({
   }
 
   const handleAdd = () => {
+    if (parsedDiscounts === null) return
     setEditData(null)
     setDialogOpen(true)
   }
@@ -130,6 +113,7 @@ export function AmountDiscountVisualEditor({
             handleAdd()
           }}
           size='sm'
+          disabled={parsedDiscounts === null}
           className='w-full sm:w-auto'
         >
           <Plus className='h-4 w-4 sm:mr-2' />
@@ -137,7 +121,11 @@ export function AmountDiscountVisualEditor({
         </Button>
       </div>
 
-      {discounts.length === 0 ? (
+      {parsedDiscounts === null ? (
+        <p role='alert' className='text-destructive text-sm'>
+          {t('JSON structure is invalid')}
+        </p>
+      ) : discounts.length === 0 ? (
         <div className='text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm'>
           {t(
             'No discount tiers configured. Click "Add discount tier" to get started.'
@@ -153,10 +141,10 @@ export function AmountDiscountVisualEditor({
             columns={[
               {
                 id: 'amount',
-                header: t('Recharge Amount'),
+                header: `${t('Recharge Amount')} (${unit})`,
                 cell: (discount) => (
                   <span className='font-mono text-sm'>
-                    {formatPlatformAmount(discount.amount)}
+                    {discount.amount} {unit}
                   </span>
                 ),
               },
@@ -209,7 +197,7 @@ export function AmountDiscountVisualEditor({
                 <div className='mb-3 flex items-start justify-between'>
                   <div className='flex-1'>
                     <div className='mb-2 font-mono text-base font-medium'>
-                      {formatPlatformAmount(discount.amount)}
+                      {discount.amount} {unit}
                     </div>
                     <StatusBadge
                       variant={discount.discountRate < 1 ? 'info' : 'neutral'}
@@ -226,6 +214,7 @@ export function AmountDiscountVisualEditor({
                       type='button'
                       variant='ghost'
                       size='sm'
+                      aria-label={`${t('Edit')} ${discount.amount} ${unit}`}
                       onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
@@ -238,6 +227,7 @@ export function AmountDiscountVisualEditor({
                       type='button'
                       variant='ghost'
                       size='sm'
+                      aria-label={`${t('Delete')} ${discount.amount} ${unit}`}
                       onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
@@ -267,6 +257,7 @@ export function AmountDiscountVisualEditor({
         onOpenChange={setDialogOpen}
         onSave={handleSave}
         editData={editData}
+        unit={unit}
       />
     </div>
   )
