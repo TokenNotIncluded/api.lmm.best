@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { StoreDeliveryEmail } from './delivery-email'
+import { StoreRefundPanel } from './refund-panel'
 import {
   CopyStoreValue,
   StoreAmount,
@@ -235,7 +236,7 @@ export function StoreOrderRow({
       <StoreError error={error} />
       {buyer && (
         <div className='flex flex-wrap items-center gap-2'>
-          {order.status === 'paid' && (
+          {['paid', 'refund_pending'].includes(order.status) && (
             <Button
               size='sm'
               disabled={busy}
@@ -357,6 +358,13 @@ export function StoreOrderRow({
             'The pickup link will be sent to the email provided at checkout. You can always retrieve the link here.'
           )}
         </p>
+      )}
+      {['paid', 'refund_pending', 'refunded'].includes(order.status) && (
+        <StoreRefundPanel
+          orderId={order.id}
+          audience={buyer ? 'buyer' : 'seller'}
+          onChanged={refreshOrders}
+        />
       )}
     </article>
   )

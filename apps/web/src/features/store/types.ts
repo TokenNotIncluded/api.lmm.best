@@ -128,6 +128,8 @@ export interface StoreOrder {
     | 'cancelled'
     | 'expired'
     | 'reconciliation_pending'
+    | 'refund_pending'
+    | 'refunded'
   amount_minor: number
   currency: string
   frozen_usd_fx: string | number

@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { StoreClaimItems } from './claim-items'
+import { StorePickupRefunds } from './refund-panel'
 import { CopyStoreValue, StoreError, StoreLoading } from './shared'
 import type { StoreClaim } from './types'
 import { safeStoreUrl } from './utils'
@@ -87,9 +88,13 @@ function StoreClaimContent({ token }: { token: string }) {
         </p>
       </div>
       <StoreError error={error} />
-      {metadata.status !== 'paid' ? (
+      {!['paid', 'refund_pending'].includes(metadata.status) ? (
         <p className='rounded-lg border p-4 text-sm'>
-          {t('This order is not paid yet. Check its status in order history.')}
+          {t(
+            metadata.status === 'refunded'
+              ? 'This order has been refunded.'
+              : 'This order is not paid yet. Check its status in order history.'
+          )}
         </p>
       ) : metadata.pickup_login_required && !metadata.pickup_login_satisfied ? (
         <div className='space-y-3 rounded-lg border p-4'>
@@ -190,6 +195,16 @@ function StoreClaimContent({ token }: { token: string }) {
             {t(busy ? 'Collecting...' : 'Collect items')}
           </Button>
         </form>
+      )}
+      {['paid', 'refund_pending', 'refunded'].includes(metadata.status) && (
+        <StorePickupRefunds
+          metadata={metadata}
+          token={token}
+          onChanged={async () => {
+            setClaim(null)
+            await query.refetch()
+          }}
+        />
       )}
       <a
         href='/store/orders'

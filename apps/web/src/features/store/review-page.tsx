@@ -13,6 +13,7 @@ import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StoreRootRefunds } from './refund-panel'
 import { StoreAmount, StoreAuthGate, StoreError, StoreLoading } from './shared'
 import type { StoreProduct } from './types'
 import { safeStoreUrl } from './utils'
@@ -49,6 +50,7 @@ function StoreReviews() {
       <h1 className='console-page-title text-xl font-bold'>
         {t('Review products')}
       </h1>
+      <StoreRootRefunds />
       <p className='text-muted-foreground text-sm'>
         {t(
           'Administrators may review their own products. Approval publishes the product to the public store.'
