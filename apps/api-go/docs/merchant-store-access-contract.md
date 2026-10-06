@@ -21,8 +21,10 @@ purchases require published status. All financial, stock, sale quota, variant,
 promotion, and purchase-limit checks still apply. Saved collections additionally
 retain temporarily paused products but this never permits checkout.
 
-`test_mode` is a compatibility alias for private/public. The new canonical field
-and alias are saved together, and contradictory input is rejected. New products
+`test_mode=true` means private; false means nonprivate and preserves a configured
+registered scope. Leaving private with only the legacy false flag defaults to
+public. The canonical field and alias are saved together; contradictory input
+is rejected. New products
 default to `purchase_login_required=true`. Allowing guests is incompatible with
 account-only pickup; the model rejects that configuration and checkout.
 

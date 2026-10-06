@@ -127,14 +127,15 @@ func storeApplyProductAccess(tx *gorm.DB, p *MerchantStoreProduct, in MerchantSt
 		visibility = *in.Visibility
 	}
 	if in.TestMode != nil {
-		legacy := "public"
-		if *in.TestMode {
-			legacy = "private"
-		}
-		if in.Visibility != nil && visibility != legacy {
+		if in.Visibility != nil && *in.TestMode != (visibility == "private") {
 			return ErrMerchantStoreInput
 		}
-		visibility = legacy
+		if *in.TestMode {
+			visibility = "private"
+		} else if visibility == "private" {
+			// False means nonprivate; old editors must preserve registered.
+			visibility = "public"
+		}
 	}
 	if visibility != "public" && visibility != "registered" && visibility != "private" {
 		return ErrMerchantStoreInput

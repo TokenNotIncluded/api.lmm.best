@@ -32,6 +32,30 @@ func storeAccessActivateTest(t *testing.T) {
 func TestMerchantStoreAccessScopeFiltersBeforePagination(t *testing.T) {
 	f := newStoreFixture(t, "balance")
 	storeAccessActivateTest(t)
+	registered, private, yes, no := "registered", "private", true, false
+	in := storeModeInput(f.product, &no)
+	in.Visibility = &registered
+	product, err := SaveMerchantStoreProduct(f.seller.Id, f.product.ID, in)
+	require.NoError(t, err, "registered and false are compatible canonical/legacy fields")
+	require.Equal(t, "registered", product.Visibility)
+	require.False(t, product.TestMode)
+	in = storeModeInput(product, &no)
+	product, err = SaveMerchantStoreProduct(f.seller.Id, product.ID, in)
+	require.NoError(t, err)
+	require.Equal(t, "registered", product.Visibility, "a cached old editor sending false must not make registered public")
+	in.Visibility, in.TestMode = &registered, &yes
+	_, err = SaveMerchantStoreProduct(f.seller.Id, product.ID, in)
+	require.ErrorIs(t, err, ErrMerchantStoreInput)
+	in.Visibility, in.TestMode = &private, &no
+	_, err = SaveMerchantStoreProduct(f.seller.Id, product.ID, in)
+	require.ErrorIs(t, err, ErrMerchantStoreInput)
+	in.TestMode = &yes
+	product, err = SaveMerchantStoreProduct(f.seller.Id, product.ID, in)
+	require.NoError(t, err)
+	in = storeModeInput(product, &no)
+	product, err = SaveMerchantStoreProduct(f.seller.Id, product.ID, in)
+	require.NoError(t, err)
+	require.Equal(t, "public", product.Visibility, "leaving private with only the legacy flag defaults to public")
 	rows := []MerchantStoreProduct{
 		{ID: "hidden-private", SellerID: f.seller.Id, Title: "Private", Visibility: "private", Status: "published", CreatedAt: 50},
 		{ID: "hidden-registered", SellerID: f.seller.Id, Title: "Registered", Visibility: "registered", Status: "published", CreatedAt: 40},
