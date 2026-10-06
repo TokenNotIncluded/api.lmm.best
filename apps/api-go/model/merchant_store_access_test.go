@@ -83,6 +83,32 @@ func TestMerchantStoreAccessScopeFiltersBeforePagination(t *testing.T) {
 	require.Equal(t, []string{"hidden-private", "hidden-registered", "legacy-private", "visible-first", "visible-second"}, ids)
 	require.NoError(t, MerchantStoreVisibleProductsForViewer(DB, f.root.Id).Where("id <> ?", f.product.ID).Order("id").Pluck("id", &ids).Error)
 	require.NotContains(t, ids, "hidden-private")
+	for _, gate := range []string{"missing", "broken", "6"} {
+		t.Run("invalid gate cannot downgrade visibility/"+gate, func(t *testing.T) {
+			if gate == "missing" {
+				require.NoError(t, DB.Where("key = ?", MerchantStoreWriterCapabilityOption).Delete(&Option{}).Error)
+			} else {
+				storeWriterGateForTest(t, gate)
+			}
+			products, err := ListPublicMerchantStoreProducts("", 0, 30)
+			require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+			require.Empty(t, products)
+			product, err := GetPublicMerchantStoreProduct("hidden-registered")
+			require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+			require.Nil(t, product)
+			var retained []MerchantStoreProduct
+			require.ErrorIs(t, MerchantStoreRetainedProductsForViewer(DB, f.buyer.Id).Find(&retained).Error, ErrMerchantStoreWriterFrozen)
+			require.Empty(t, retained)
+			var original MerchantStoreProduct
+			require.NoError(t, DB.First(&original, "id = ?", "hidden-registered").Error)
+			require.Equal(t, "registered", original.Visibility)
+			if gate == "missing" {
+				require.NoError(t, DB.Create(&Option{Key: MerchantStoreWriterCapabilityOption, Value: "5"}).Error)
+			} else {
+				storeWriterGateForTest(t, "5")
+			}
+		})
+	}
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", f.buyer.Id).Update("status", common.UserStatusDisabled).Error)
 	require.NoError(t, MerchantStoreVisibleProductsForViewer(DB, f.buyer.Id).Where("id <> ?", f.product.ID).Order("id").Pluck("id", &ids).Error)
 	require.Equal(t, []string{"visible-first", "visible-second"}, ids)

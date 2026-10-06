@@ -37,17 +37,33 @@ func MerchantStoreRetainedProductsForViewer(tx *gorm.DB, actor int) *gorm.DB {
 }
 
 func storeProductsForViewer(tx *gorm.DB, actor int, sharedStatuses, privateStatuses []string) *gorm.DB {
+	active, err := storeAccessReadActive(tx)
+	if err != nil {
+		query := tx.Model(&MerchantStoreProduct{})
+		query.AddError(err)
+		return query
+	}
 	if actor < 1 {
 		actor = 0
 	}
 	enabledActor := `EXISTS (SELECT 1 FROM users AS viewer WHERE viewer.id = ? AND viewer.status = ? AND viewer.role >= ? AND viewer.deleted_at IS NULL)`
 	visibility := `(CASE WHEN test_mode THEN 'private' ELSE 'public' END)`
-	if storeAccessActive(tx) {
+	if active {
 		visibility = storeVisibilitySQL
 	}
 	return tx.Model(&MerchantStoreProduct{}).
 		Where("EXISTS (SELECT 1 FROM users WHERE users.id = merchant_store_products.seller_id AND users.status = ? AND users.role >= ? AND users.deleted_at IS NULL)", common.UserStatusEnabled, common.RoleCommonUser).
 		Where("("+visibility+" = 'public' AND status IN ?) OR ("+visibility+" = 'registered' AND status IN ? AND "+enabledActor+") OR ("+visibility+" = 'private' AND seller_id = ? AND status IN ? AND "+enabledActor+")", sharedStatuses, sharedStatuses, actor, common.UserStatusEnabled, common.RoleCommonUser, actor, privateStatuses, actor, common.UserStatusEnabled, common.RoleCommonUser)
+}
+
+// Only a known earlier floor permits the legacy-column reader. An unknown or
+// damaged gate must not reclassify stored registered products as public.
+func storeAccessReadActive(tx *gorm.DB) (bool, error) {
+	required, err := storeWriterGateRow(tx.Session(&gorm.Session{NewDB: true}), "")
+	if err != nil || required > MerchantStoreWriterCapability {
+		return false, ErrMerchantStoreWriterFrozen
+	}
+	return required >= 5, nil
 }
 
 func storeAccessActive(tx *gorm.DB) bool {

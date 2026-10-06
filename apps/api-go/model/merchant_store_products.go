@@ -436,7 +436,11 @@ func storePage(offset, limit int) (int, int) {
 	return offset, limit
 }
 func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public bool) error {
-	if !storeAccessActive(tx) {
+	active, err := storeAccessReadActive(tx)
+	if err != nil {
+		return err
+	}
+	if !active {
 		p.Visibility = ""
 		p.PurchaseLoginRequired = true
 	}
