@@ -76,12 +76,13 @@ type MerchantStoreCheckoutInput struct {
 	DisclaimerVersion string `json:"disclaimer_version"`
 }
 type MerchantStoreClaimMetadata struct {
-	Status              string `json:"status"`
-	OrderID             string `json:"order_id"`
-	ProductTitle        string `json:"product_title"`
-	Quantity            int    `json:"quantity"`
-	PickupLoginRequired bool   `json:"pickup_login_required"`
-	PickupCodeRequired  bool   `json:"pickup_code_required"`
+	PickupLoginSatisfied bool   `json:"pickup_login_satisfied"`
+	Status               string `json:"status"`
+	OrderID              string `json:"order_id"`
+	ProductTitle         string `json:"product_title"`
+	Quantity             int    `json:"quantity"`
+	PickupLoginRequired  bool   `json:"pickup_login_required"`
+	PickupCodeRequired   bool   `json:"pickup_code_required"`
 }
 type MerchantStoreClaim struct {
 	OrderID      string   `json:"order_id"`
@@ -692,6 +693,13 @@ func InspectMerchantStoreClaim(token string) (*MerchantStoreClaimMetadata, error
 	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired}, nil
 }
 func ClaimMerchantStoreOrder(token, code string, buyerID int) (*MerchantStoreClaim, error) {
+	return ClaimMerchantStoreOrderWithAuthorization(token, code, buyerID, nil)
+}
+
+// ClaimMerchantStoreOrderWithAuthorization lets a server-side, order-scoped
+// credential be rechecked inside the delivery transaction before any stock is
+// decrypted. The callback must never be supplied or selected by a client.
+func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, authorize func(*gorm.DB, *MerchantStoreOrder) error) (*MerchantStoreClaim, error) {
 	if !storeTokenValid(token) || len(code) > 72 {
 		return nil, ErrMerchantStoreDenied
 	}
@@ -703,6 +711,11 @@ func ClaimMerchantStoreOrder(token, code string, buyerID int) (*MerchantStoreCla
 	e := storeOrderTx(lookup.ID, func(tx *gorm.DB, o *MerchantStoreOrder) error {
 		if o.Status != "paid" || o.PickupTokenHash != storeHash(token) {
 			return ErrMerchantStoreDenied
+		}
+		if authorize != nil {
+			if e := authorize(tx, o); e != nil {
+				return e
+			}
 		}
 		if o.PickupLoginRequired {
 			if buyerID != o.BuyerID {
