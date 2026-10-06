@@ -6,6 +6,8 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
+import { normalizedUserUsage } from '@/lib/cumulative-user-usage'
+
 import type { ApiKey } from '../types'
 
 /** Remaining-quota share at or below which the bar turns destructive. */
@@ -14,14 +16,14 @@ export const QUOTA_DANGER_PERCENT = 10
 export const QUOTA_WARNING_PERCENT = 30
 
 export type QuotaUsage = {
-  used: number
+  used: number | null
   remaining: number
-  /** Lifetime allowance, i.e. used + remaining. */
-  total: number
+  /** Current-unit allowance; unknown when cumulative usage is not projected. */
+  total: number | null
   /** Share of the allowance still available, 0-100. */
-  remainingPercent: number
+  remainingPercent: number | null
   /** Share of the allowance already spent, 0-100. */
-  usedPercent: number
+  usedPercent: number | null
 }
 
 /**
@@ -29,12 +31,32 @@ export type QuotaUsage = {
  * percentage, so callers should branch on `unlimited_quota` before using this.
  */
 export function getQuotaUsage(
-  apiKey: Pick<ApiKey, 'used_quota' | 'remain_quota'>
+  apiKey: Pick<
+    ApiKey,
+    | 'used_quota'
+    | 'remain_quota'
+    | 'normalized_used_quota'
+    | 'usage_projection_available'
+  >
 ): QuotaUsage {
-  const used = Number.isFinite(apiKey.used_quota) ? apiKey.used_quota : 0
+  const used = normalizedUserUsage(apiKey)
   const remaining = Number.isFinite(apiKey.remain_quota)
     ? apiKey.remain_quota
     : 0
+  if (
+    used === null ||
+    !Number.isSafeInteger(apiKey.remain_quota) ||
+    remaining < 0 ||
+    !Number.isSafeInteger(used + remaining)
+  ) {
+    return {
+      used,
+      remaining,
+      total: null,
+      remainingPercent: null,
+      usedPercent: null,
+    }
+  }
   const total = used + remaining
   const remainingPercent = total > 0 ? (remaining / total) * 100 : 0
   return {

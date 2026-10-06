@@ -37,7 +37,6 @@ import {
 } from '@/components/ui/tooltip'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
-import { formatQuota } from '@/lib/format'
 
 import { isAssistantRuntimeKey } from '../lib'
 import type { ApiKey } from '../types'
@@ -281,12 +280,16 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
 }
 
 type UnlimitedQuotaBadgeProps = {
-  used: number
+  apiKey: Pick<
+    ApiKey,
+    'used_quota' | 'normalized_used_quota' | 'usage_projection_available'
+  >
 }
 
 export function UnlimitedQuotaBadge(props: UnlimitedQuotaBadgeProps) {
   const { t } = useTranslation()
-  const formattedUsed = formatQuota(props.used)
+  const { formatUserUsage } = useWalletCurrency()
+  const formattedUsed = formatUserUsage(props.apiKey)
 
   return (
     <Popover>
@@ -314,11 +317,11 @@ export function UnlimitedQuotaBadge(props: UnlimitedQuotaBadgeProps) {
   )
 }
 
-export function ApiKeyUsedQuota({ used }: { used: number }) {
-  const { formatQuota } = useWalletCurrency()
+export function ApiKeyUsedQuota({ apiKey }: UnlimitedQuotaBadgeProps) {
+  const { formatUserUsage } = useWalletCurrency()
   return (
     <span data-api-key-used-quota className='font-medium tabular-nums'>
-      {formatQuota(used)}
+      {formatUserUsage(apiKey)}
     </span>
   )
 }

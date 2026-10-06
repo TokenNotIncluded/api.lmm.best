@@ -30,6 +30,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useMediaQuery } from '@/hooks'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
 import { getUserGroups } from '@/lib/api'
 import dayjs from '@/lib/dayjs'
@@ -73,6 +74,7 @@ export function useApiKeysColumns(
   creationMode: ApiKeyCreationMode
 ): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
+  const { formatUserUsage } = useWalletCurrency()
   const { options: groupOptions, isLoading: groupOptionsLoading } =
     useGroupOptions()
   const groupRatios = useMemo(() => {
@@ -179,11 +181,10 @@ export function useApiKeysColumns(
           )
         }
         if (apiKey.unlimited_quota) {
-          return <UnlimitedQuotaBadge used={apiKey.used_quota} />
+          return <UnlimitedQuotaBadge apiKey={apiKey} />
         }
 
-        const { used, remaining, total, remainingPercent } =
-          getQuotaUsage(apiKey)
+        const { remaining, total, remainingPercent } = getQuotaUsage(apiKey)
 
         return (
           <Tooltip>
@@ -193,25 +194,33 @@ export function useApiKeysColumns(
                   {formatQuota(remaining)}
                 </span>
                 <span className='text-muted-foreground tabular-nums'>
-                  {formatQuota(total)}
+                  {total === null ? t('Unavailable') : formatQuota(total)}
                 </span>
               </div>
-              <Progress
-                value={remainingPercent}
-                className={cn('h-1.5', getQuotaProgressColor(remainingPercent))}
-              />
+              {remainingPercent === null ? null : (
+                <Progress
+                  value={remainingPercent}
+                  className={cn(
+                    'h-1.5',
+                    getQuotaProgressColor(remainingPercent)
+                  )}
+                />
+              )}
             </TooltipTrigger>
             <TooltipContent>
               <div className='space-y-1 text-xs'>
                 <div>
-                  {t('Used:')} {formatQuota(used)}
+                  {t('Used:')} {formatUserUsage(apiKey)}
                 </div>
                 <div>
-                  {t('Remaining:')} {formatQuota(remaining)} (
-                  {remainingPercent.toFixed(1)}%)
+                  {t('Remaining:')} {formatQuota(remaining)}
+                  {remainingPercent === null
+                    ? ''
+                    : ` (${remainingPercent.toFixed(1)}%)`}
                 </div>
                 <div>
-                  {t('Total:')} {formatQuota(total)}
+                  {t('Total:')}{' '}
+                  {total === null ? t('Unavailable') : formatQuota(total)}
                 </div>
               </div>
             </TooltipContent>
@@ -230,7 +239,7 @@ export function useApiKeysColumns(
             {t('Tracked in assistant funding')}
           </span>
         ) : (
-          <ApiKeyUsedQuota used={row.original.used_quota} />
+          <ApiKeyUsedQuota apiKey={row.original} />
         ),
       size: 140,
     },
