@@ -37,7 +37,10 @@ import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { homeTokenCopy } from './home-token-copy.mjs'
-import { merchantStoreCopy, merchantStoreRetiredKeys } from './merchant-store-copy.mjs'
+import {
+  merchantStoreCopy,
+  merchantStoreRetiredKeys,
+} from './merchant-store-copy.mjs'
 import { moderationAuditCopy } from './moderation-audit-copy.mjs'
 import { moderationCopy } from './moderation-copy.mjs'
 import { nativeBillingCopy } from './native-billing-copy.mjs'
