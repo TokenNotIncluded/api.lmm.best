@@ -32,6 +32,12 @@ func storeAccessActivateTest(t *testing.T) {
 func TestMerchantStoreAccessScopeFiltersBeforePagination(t *testing.T) {
 	f := newStoreFixture(t, "balance")
 	storeAccessActivateTest(t)
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		required, err := storeWriterGateRow(tx.Model(&MerchantStoreProduct{}).Where("id = ?", "not-an-option-key"), "SHARE")
+		require.NoError(t, err, "the product statement must not filter or poison the gate read")
+		require.Equal(t, 5, required)
+		return nil
+	}))
 	registered, private, yes, no := "registered", "private", true, false
 	in := storeModeInput(f.product, &no)
 	in.Visibility = &registered

@@ -36,7 +36,10 @@ func storeWriterGateRow(db *gorm.DB, lock string) (int, error) {
 		return 0, ErrMerchantStoreWriterFrozen
 	}
 	var option Option
-	q := db.Session(&gorm.Session{})
+	// Callers include GORM save hooks and scoped product queries. Build a fresh
+	// statement on the same transaction/physical connection, so product WHERE
+	// clauses and pending INSERT/UPDATE values cannot contaminate this read.
+	q := db.Session(&gorm.Session{NewDB: true}).Model(&Option{})
 	if lock != "" && db.Dialector.Name() != "sqlite" {
 		q = q.Clauses(clause.Locking{Strength: lock})
 	}
