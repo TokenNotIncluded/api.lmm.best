@@ -1,4 +1,6 @@
 {
+  "Check your order history before trying another payment.": "再次付款前，请先查看订单记录。",
+  "Payment confirmation may take a moment. Check your order history for the result.": "到账确认可能需要一点时间，请在订单记录中查看结果。",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -8972,6 +8974,7 @@
     "Text or array of texts to embed": "需要向量化的文本或文本数组",
     "Text Output": "文字输出",
     "Text to Video": "文生视频",
+    "Thank you for your support": "感谢你的支持",
     "Thanked": "已感谢",
     "Thanks received": "收到的感谢",
     "Thanks sent": "感谢已发送",

@@ -1,4 +1,6 @@
 {
+  "Check your order history before trying another payment.": "再度お支払いする前に、注文履歴をご確認ください。",
+  "Payment confirmation may take a moment. Check your order history for the result.": "お支払いの確認には少し時間がかかる場合があります。結果は注文履歴をご確認ください。",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -8972,6 +8974,7 @@
     "Text or array of texts to embed": "ベクトル化するテキストまたは配列",
     "Text Output": "テキスト出力",
     "Text to Video": "テキストから動画",
+    "Thank you for your support": "ご支援ありがとうございます",
     "Thanked": "感謝済み",
     "Thanks received": "受け取った感謝",
     "Thanks sent": "感謝を送信しました",

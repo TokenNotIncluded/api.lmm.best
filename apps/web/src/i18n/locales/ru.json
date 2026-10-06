@@ -1,4 +1,6 @@
 {
+  "Check your order history before trying another payment.": "Перед повторной оплатой проверьте историю заказов.",
+  "Payment confirmation may take a moment. Check your order history for the result.": "Подтверждение оплаты может занять некоторое время. Проверьте результат в истории заказов.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -8972,6 +8974,7 @@
     "Text or array of texts to embed": "Текст или массив текстов для векторизации",
     "Text Output": "Текстовый выход",
     "Text to Video": "Текст в видео",
+    "Thank you for your support": "Спасибо за вашу поддержку",
     "Thanked": "Благодарность отправлена",
     "Thanks received": "Полученные благодарности",
     "Thanks sent": "Благодарность отправлена",

@@ -1,4 +1,6 @@
 {
+  "Check your order history before trying another payment.": "Check your order history before trying another payment.",
+  "Payment confirmation may take a moment. Check your order history for the result.": "Payment confirmation may take a moment. Check your order history for the result.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -8972,6 +8974,7 @@
     "Text or array of texts to embed": "Text or array of texts to embed",
     "Text Output": "Text Output",
     "Text to Video": "Text to Video",
+    "Thank you for your support": "Thank you for your support",
     "Thanked": "Thanked",
     "Thanks received": "Thanks received",
     "Thanks sent": "Thanks sent",

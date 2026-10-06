@@ -1,4 +1,6 @@
 {
+  "Check your order history before trying another payment.": "Kiểm tra lịch sử đơn hàng trước khi thanh toán lại.",
+  "Payment confirmation may take a moment. Check your order history for the result.": "Việc xác nhận thanh toán có thể mất chút thời gian. Kiểm tra kết quả trong lịch sử đơn hàng.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -8972,6 +8974,7 @@
     "Text or array of texts to embed": "Văn bản hoặc mảng văn bản cần vector hoá",
     "Text Output": "Đầu ra văn bản",
     "Text to Video": "Văn bản sang video",
+    "Thank you for your support": "Cảm ơn bạn đã ủng hộ",
     "Thanked": "Đã cảm ơn",
     "Thanks received": "Lời cảm ơn đã nhận",
     "Thanks sent": "Đã gửi lời cảm ơn",

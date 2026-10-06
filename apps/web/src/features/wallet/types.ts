@@ -320,6 +320,9 @@ export interface RedemptionRequest {
  * Payment request parameters
  */
 export interface PaymentRequest {
+  /** Same-origin wallet return destinations for Stripe checkout. */
+  success_url?: string
+  cancel_url?: string
   /** Explicit legacy batch unit; display currency never changes this request. */
   amount_unit?: 'LEGACY'
   /** Topup amount */

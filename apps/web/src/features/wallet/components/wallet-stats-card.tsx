@@ -125,7 +125,11 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   ]
 
   return (
-    <div className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'>
+    <div
+      id='wallet-balance'
+      tabIndex={-1}
+      className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'
+    >
       {stats.map((item, index) => (
         <div
           key={item.label}
