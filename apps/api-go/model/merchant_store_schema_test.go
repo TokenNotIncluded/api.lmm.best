@@ -98,7 +98,7 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 		}
 		require.True(t, found, "column %s.%s exists", entry.Table, entry.Column)
 	}
-	for _, entry := range []struct{ Table, Column string }{{"merchant_store_products", "price_quota"}, {"merchant_store_orders", "unit_price_quota"}, {"merchant_store_orders", "price_quota"}, {"merchant_store_orders", "fee_quota"}, {"merchant_store_orders", "amount_minor"}, {"merchant_store_configs", "promotion_quota"}, {"merchant_store_configs", "minimum_unit_price_quota"}, {"merchant_store_transfers", "quota"}} {
+	for _, entry := range []struct{ Table, Column string }{{"merchant_store_products", "price_quota"}, {"merchant_store_variants", "price_quota"}, {"merchant_store_orders", "unit_price_quota"}, {"merchant_store_orders", "price_quota"}, {"merchant_store_orders", "fee_quota"}, {"merchant_store_orders", "amount_minor"}, {"merchant_store_configs", "promotion_quota"}, {"merchant_store_configs", "minimum_unit_price_quota"}, {"merchant_store_transfers", "quota"}} {
 		found := false
 		for _, column := range byTable[entry.Table].Columns {
 			if column.Name == entry.Column {
@@ -115,10 +115,34 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 	require.True(t, minimum.NotNull)
 	require.True(t, minimum.HasDefaultValue)
 	require.Equal(t, "500000", minimum.DefaultValue)
+	// Legacy stock stays nullable and untouched. Historical orders acquire empty
+	// snapshots, rather than an invented association to today's default variant.
+	stockSchema, e := schema.Parse(&MerchantStoreStock{}, &sync.Map{}, schema.NamingStrategy{})
+	require.NoError(t, e)
+	stockVariant := stockSchema.LookUpField("VariantID")
+	require.NotNil(t, stockVariant)
+	require.False(t, stockVariant.NotNull)
+	require.False(t, stockVariant.HasDefaultValue)
+	require.Equal(t, "varchar(36)", stockVariant.TagSettings["TYPE"])
+	orderSchema, e := schema.Parse(&MerchantStoreOrder{}, &sync.Map{}, schema.NamingStrategy{})
+	require.NoError(t, e)
+	for _, fieldName := range []string{"VariantID", "VariantName"} {
+		field := orderSchema.LookUpField(fieldName)
+		require.NotNil(t, field)
+		require.True(t, field.NotNull)
+		require.True(t, field.HasDefaultValue)
+		require.Empty(t, field.DefaultValue)
+	}
+	stockIndexes := map[string][]string{}
+	for _, index := range byTable["merchant_store_stocks"].Indexes {
+		stockIndexes[index.Name] = index.Columns
+	}
+	require.Equal(t, []string{"product_id", "state", "position"}, stockIndexes["store_stock_available"], "retain the N-1 lookup index")
+	require.Equal(t, []string{"product_id", "variant_id", "state", "position"}, stockIndexes["store_stock_variant_available"])
 	encoded, e := json.MarshalIndent(struct {
 		Scope  string                   `json:"scope"`
 		Tables []merchantStoreTablePlan `json:"tables"`
-	}{Scope: "15 additive merchant-store tables only; no existing user, wallet or financial-history DDL", Tables: plan}, "", "  ")
+	}{Scope: "16 merchant-store tables in the final schema; variants add one table and three stock/order columns, with no user, wallet or financial-history DDL", Tables: plan}, "", "  ")
 	require.NoError(t, e)
 	if output := os.Getenv("MERCHANT_STORE_SCHEMA_PLAN_OUTPUT"); output != "" {
 		file, e := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)

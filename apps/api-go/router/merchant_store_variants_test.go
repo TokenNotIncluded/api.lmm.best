@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -9,6 +10,18 @@ import (
 )
 
 func TestMerchantStoreVariantsRouterSelectedSKUReviewAndSecretBoundaries(t *testing.T) {
+	var contracts map[string]struct {
+		Status string `json:"contract_status"`
+		Path   struct {
+			Required []string `json:"required"`
+		} `json:"path_schema"`
+	}
+	contractJSON, err := os.ReadFile("../controller/assistant_admin_operation_contracts.json")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(contractJSON, &contracts))
+	require.Equal(t, "derived", contracts["CreateMerchantStoreVariant"].Status)
+	require.Equal(t, []string{"id"}, contracts["CreateMerchantStoreVariant"].Path.Required, "creation has no variant ID yet")
+	require.Equal(t, []string{"id", "variant_id"}, contracts["SaveMerchantStoreVariant"].Path.Required)
 	engine, db, sellerToken, seller, rootToken, root := merchantStoreTestRouter(t)
 	p := shopPublishedProduct(t, db, seller, root)
 	require.NoError(t, model.ActivateMerchantStoreVariants(db, 1))

@@ -47,7 +47,7 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	self.GET("/products/:id/inventory", controller.ListMerchantStoreInventory)
 	self.POST("/products/:id/inventory", middleware.RequestBodyLimit(2<<20), middleware.CriticalRateLimit(), controller.AddMerchantStoreInventory)
 	self.DELETE("/products/:id/inventory/:stock_id", middleware.CriticalRateLimit(), controller.DeleteMerchantStoreInventory)
-	self.POST("/products/:id/variants", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreVariant)
+	self.POST("/products/:id/variants", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.CreateMerchantStoreVariant)
 	self.PUT("/products/:id/variants/:variant_id", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreVariant)
 	self.PUT("/products/:id/variants/:variant_id/enabled", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStoreVariantEnabled)
 	self.GET("/products/:id/variants/:variant_id/inventory", controller.ListMerchantStoreVariantInventory)

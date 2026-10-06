@@ -5,6 +5,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func CreateMerchantStoreVariant(c *gin.Context) {
+	var input model.MerchantStoreVariantInput
+	if c.ShouldBindJSON(&input) != nil {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+		return
+	}
+	v, err := model.SaveMerchantStoreVariant(c.GetInt("id"), c.Param("id"), "", input)
+	if err == nil {
+		v, err = model.GetMerchantStoreVariant(c.GetInt("id"), c.Param("id"), v.ID)
+	}
+	merchantStoreRespond(c, v, err)
+}
+
 func SaveMerchantStoreVariant(c *gin.Context) {
 	var input model.MerchantStoreVariantInput
 	if c.ShouldBindJSON(&input) != nil {
