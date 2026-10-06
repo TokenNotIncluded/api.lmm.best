@@ -583,7 +583,7 @@ func ListMarketAIReviews(ctx context.Context, actor int, source, target, version
 		}
 	} else {
 		var p MerchantStoreProduct
-		if err := db.Where("id = ?", target).First(&p).Error; err != nil {
+		if err := db.Where("id = ? AND status <> ?", target, "deleted").First(&p).Error; err != nil {
 			return nil, err
 		}
 		owner = p.SellerID

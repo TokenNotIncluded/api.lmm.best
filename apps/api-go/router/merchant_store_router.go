@@ -41,6 +41,8 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	self.POST("/products", middleware.RequestBodyLimit(512<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreProduct)
 	self.PUT("/products/:id", middleware.RequestBodyLimit(512<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreProduct)
 	self.POST("/products/:id/submit", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SubmitMerchantStoreProduct)
+	self.POST("/products/:id/unlist", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.UnlistMerchantStoreProduct)
+	self.DELETE("/products/:id", middleware.CriticalRateLimit(), controller.DeleteMerchantStoreProduct)
 	self.PUT("/products/:id/paused", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStoreProductPaused)
 	self.PUT("/products/:id/sale-limit", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStoreProductSaleLimit)
 	self.PUT("/products/:id/listing", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStoreProductListed)

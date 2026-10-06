@@ -93,7 +93,7 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 	return &p, e
 }
 func SubmitMerchantStoreProduct(actor int, id string) error {
-	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	return storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
@@ -134,7 +134,7 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 	if len(note) > 4096 {
 		return ErrMerchantStoreInput
 	}
-	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	return storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
@@ -177,7 +177,7 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 	})
 }
 func SetMerchantStoreProductPaused(actor int, id string, paused bool) error {
-	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	return storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
@@ -213,6 +213,53 @@ func SetMerchantStoreProductPaused(actor int, id string, paused bool) error {
 		return storeEvent(tx, actor, p.ID, p.Status)
 	})
 }
+
+// Unlisting withdraws the approval rather than pausing an approved listing.
+// Saving an unlisted product makes it a draft and requires a fresh review.
+func UnlistMerchantStoreProduct(actor int, id string) error {
+	return retireMerchantStoreProduct(actor, id, "unlisted")
+}
+
+// Deleted products are retained for order, stock, payment and audit references.
+// The product row lock also serializes withdrawal with new checkout creation.
+func DeleteMerchantStoreProduct(actor int, id string) error {
+	return retireMerchantStoreProduct(actor, id, "deleted")
+}
+
+func retireMerchantStoreProduct(actor int, id, status string) error {
+	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if p.SellerID != actor {
+			return ErrMerchantStoreDenied
+		}
+		if _, err := storeUser(tx, actor, common.RoleCommonUser); err != nil {
+			return err
+		}
+		if p.Status == status {
+			return nil
+		}
+		if p.Status == "deleted" {
+			return gorm.ErrRecordNotFound
+		}
+		// Seal any applied result, then cancel all outstanding reviews, including
+		// historical tokens, before clearing the listing's current review token.
+		if p.AIReviewToken != "" {
+			if err := invalidateMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken, "market_review_stale"); err != nil {
+				return err
+			}
+		}
+		if err := invalidateMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, "", "market_review_stale"); err != nil {
+			return err
+		}
+		p.AIReviewToken = ""
+		p.Status = status
+		p.UpdatedAt = common.GetTimestamp()
+		if err := tx.Save(p).Error; err != nil {
+			return err
+		}
+		return storeEvent(tx, actor, p.ID, status)
+	})
+}
+
 func AddMerchantStoreStock(actor int, id string, items []string) (int, error) {
 	return AddMerchantStoreVariantStock(actor, id, MerchantStoreDefaultVariantID(id), items)
 }
@@ -233,7 +280,7 @@ func AddMerchantStoreVariantStock(actor int, id, variantID string, items []strin
 		row.Ciphertext = cipher
 		rows = append(rows, row)
 	}
-	e := storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	e := storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
@@ -273,7 +320,7 @@ func RemoveMerchantStoreStock(actor int, productID, stockID string) error {
 	return RemoveMerchantStoreVariantStock(actor, productID, "", stockID)
 }
 func RemoveMerchantStoreVariantStock(actor int, productID, variantID, stockID string) error {
-	return storeWithProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	return storeWithActiveProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
@@ -308,7 +355,7 @@ func ListMerchantStoreStock(actor int, productID string, offset, limit int) ([]M
 }
 func ListMerchantStoreVariantStock(actor int, productID, variantID string, offset, limit int) ([]MerchantStoreStock, error) {
 	var p MerchantStoreProduct
-	if e := DB.First(&p, "id = ?", productID).Error; e != nil {
+	if e := DB.First(&p, "id = ? AND status <> ?", productID, "deleted").Error; e != nil {
 		return nil, e
 	}
 	if p.SellerID != actor {
@@ -405,7 +452,7 @@ func GetPublicMerchantStoreProduct(id string) (*MerchantStoreProduct, error) {
 }
 func GetMerchantStoreProduct(actor int, id string) (*MerchantStoreProduct, error) {
 	var p MerchantStoreProduct
-	if e := DB.First(&p, "id = ?", id).Error; e != nil {
+	if e := DB.First(&p, "id = ? AND status <> ?", id, "deleted").Error; e != nil {
 		return nil, e
 	}
 	u, e := storeUser(DB, actor, common.RoleCommonUser)
@@ -461,7 +508,7 @@ func ListMerchantStoreProducts(actor int, review bool, offset, limit int) ([]Mer
 		q = q.Where("test_mode = ? AND (status = ? OR (status IN ? AND ai_review_token <> '' AND EXISTS (SELECT 1 FROM moderation_jobs WHERE source = ? AND target_id = merchant_store_products.id AND request_id = merchant_store_products.ai_review_token AND status = ? AND market_outcome IN ?)))", false, "pending", []string{"published", "rejected"}, ModerationSourceMarketProduct, ModerationJobCompleted, []string{"approved", "rejected"}).
 			Order("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
 	} else {
-		q = q.Where("seller_id = ?", actor)
+		q = q.Where("seller_id = ? AND status <> ?", actor, "deleted")
 	}
 	var rows []MerchantStoreProduct
 	e := q.Order("created_at DESC,id ASC").Offset(offset).Limit(limit).Find(&rows).Error
@@ -481,7 +528,7 @@ func PurchaseMerchantStorePromotion(actor int, productID string, months int, req
 	}
 	var promo MerchantStorePromotion
 	var recipientID int
-	e := storeWithProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	e := storeWithActiveProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if p.SellerID != actor {
 			return ErrMerchantStoreDenied
 		}

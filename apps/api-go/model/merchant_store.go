@@ -284,6 +284,9 @@ func storeProductOwner(tx *gorm.DB, actor int, id string) (*MerchantStoreProduct
 	if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
 		return nil, e
 	}
+	if p.Status == "deleted" {
+		return nil, gorm.ErrRecordNotFound
+	}
 	return &p, nil
 }
 func storeWithProduct(id string, fn func(*gorm.DB, *MerchantStoreProduct) error) error {
@@ -293,6 +296,17 @@ func storeWithProduct(id string, fn func(*gorm.DB, *MerchantStoreProduct) error)
 			return e
 		}
 		return fn(tx, &p)
+	})
+}
+
+// Product management rejects retained deleted rows. Order transactions still
+// use storeWithProduct so paid and pending orders can settle and deliver stock.
+func storeWithActiveProduct(id string, fn func(*gorm.DB, *MerchantStoreProduct) error) error {
+	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if p.Status == "deleted" {
+			return gorm.ErrRecordNotFound
+		}
+		return fn(tx, p)
 	})
 }
 

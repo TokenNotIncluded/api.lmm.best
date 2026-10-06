@@ -218,6 +218,14 @@ func SubmitMerchantStoreProduct(c *gin.Context) {
 	merchantStoreRespond(c, nil, model.SubmitMerchantStoreProduct(c.GetInt("id"), c.Param("id")))
 }
 
+func UnlistMerchantStoreProduct(c *gin.Context) {
+	merchantStoreRespond(c, nil, model.UnlistMerchantStoreProduct(c.GetInt("id"), c.Param("id")))
+}
+
+func DeleteMerchantStoreProduct(c *gin.Context) {
+	merchantStoreRespond(c, nil, model.DeleteMerchantStoreProduct(c.GetInt("id"), c.Param("id")))
+}
+
 func SetMerchantStoreProductPaused(c *gin.Context) {
 	var input struct {
 		Paused bool `json:"paused"`
