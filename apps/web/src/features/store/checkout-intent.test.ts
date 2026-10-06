@@ -12,6 +12,7 @@ import {
   type StoreCheckoutActor,
   type StoreCheckoutIntentFailure,
   type StoreCheckoutRecoveryOrder,
+  type StoreCheckoutRejectedBeforeCreateProof,
   type StoreCheckoutSelection,
 } from './checkout-intent'
 
@@ -1017,4 +1018,173 @@ test('clearing settled local records performs no checkout; only a subsequent exp
   const second = await purchase()
   assert.equal(creations, 2)
   assert.notEqual(second.record.requestKey, first.record.requestKey)
+})
+
+test('precreate terms proof releases only its unknown local request before a separate confirmed new purchase', async () => {
+  const f = fixture()
+  const journal = f.make()
+  const initial = await journal.prepare(account, selection, body())
+  let creations = 1
+  await journal.releaseRejectedBeforeCreate(
+    account,
+    initial.record.requestKey,
+    {
+      code: 'STORE_TERMS_UPDATED',
+      requestKey: initial.record.requestKey,
+      orderCreated: false,
+    },
+    initial.record.revision
+  )
+  assert.equal(creations, 1)
+  assert.deepEqual(await f.make().list(account), [])
+  // Only a later explicit click after accepting the current version prepares
+  // and sends the new purchase; release itself has no create/pay callback.
+  const confirmed = {
+    ...body(),
+    seller_terms_version: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    accept_seller_terms: true,
+  }
+  const next = await journal.prepare(account, selection, confirmed)
+  next.assertActorCurrent()
+  creations++
+  assert.equal(creations, 2)
+  assert.notEqual(next.record.requestKey, initial.record.requestKey)
+  assert.equal(
+    next.record.replayVersions.seller_terms_version,
+    confirmed.seller_terms_version
+  )
+})
+
+test('precreate terms release rejects generic errors lookup absence and other request keys without clearing unknown', async () => {
+  const f = fixture()
+  const journal = f.make()
+  const initial = await journal.prepare(account, selection, body())
+  const key = initial.record.requestKey
+  const stored = f.storage.getItem(STORE_CHECKOUT_INTENT_STORAGE_KEY)
+  const invalid = [
+    {},
+    { code: 'NETWORK_ERROR' },
+    { code: 'STORE_CONFLICT', requestKey: key, orderCreated: false },
+    { code: 'STORE_TERMS_UPDATED', requestKey: key },
+    { code: 'STORE_TERMS_UPDATED', requestKey: key, orderCreated: true },
+  ]
+  for (const proof of invalid) {
+    await rejects(
+      () => journal.releaseRejectedBeforeCreate(account, key, proof, 0),
+      'needs-recovery'
+    )
+    assert.equal(f.storage.getItem(STORE_CHECKOUT_INTENT_STORAGE_KEY), stored)
+  }
+  const absence = await journal.recover(account, key, async () => undefined)
+  assert.equal(absence.kind, 'absent')
+  await rejects(
+    () =>
+      journal.releaseRejectedBeforeCreate(
+        account,
+        key,
+        absence as unknown as StoreCheckoutRejectedBeforeCreateProof,
+        0
+      ),
+    'needs-recovery'
+  )
+  await rejects(
+    () =>
+      journal.releaseRejectedBeforeCreate(
+        account,
+        key,
+        {
+          code: 'STORE_TERMS_UPDATED',
+          requestKey: 'other-key',
+          orderCreated: false,
+        },
+        0
+      ),
+    'request-mismatch'
+  )
+  assert.equal(f.storage.getItem(STORE_CHECKOUT_INTENT_STORAGE_KEY), stored)
+})
+
+test('precreate terms release checks current actor revision and absence of an already known order', async () => {
+  const f = fixture()
+  const journal = f.make()
+  const initial = await journal.prepare(account, selection, body())
+  const key = initial.record.requestKey
+  const proof = {
+    code: 'STORE_TERMS_UPDATED',
+    requestKey: key,
+    orderCreated: false,
+  }
+  f.activate(guest)
+  await rejects(
+    () => journal.releaseRejectedBeforeCreate(account, key, proof, 0),
+    'actor-changed'
+  )
+  await rejects(
+    () => journal.releaseRejectedBeforeCreate(guest, key, proof, 0),
+    'request-mismatch'
+  )
+  f.activate(account)
+  const pending = await journal.recordKnown(account, key, order('pending'), 0)
+  await rejects(
+    () => journal.releaseRejectedBeforeCreate(account, key, proof, 0),
+    'stale-recovery'
+  )
+  await rejects(
+    () =>
+      journal.releaseRejectedBeforeCreate(
+        account,
+        key,
+        proof,
+        pending.revision
+      ),
+    'needs-recovery'
+  )
+  const paid = await journal.recordKnown(
+    account,
+    key,
+    order(),
+    pending.revision
+  )
+  await rejects(
+    () =>
+      journal.releaseRejectedBeforeCreate(account, key, proof, paid.revision),
+    'needs-recovery'
+  )
+  assert.equal((await journal.list(account))[0].orderStatus, 'paid')
+})
+
+test('precreate terms release must persist its deletion before another request can be prepared', async () => {
+  for (const mode of ['failWrite', 'dropWrite'] as const) {
+    const f = fixture()
+    const journal = f.make()
+    const initial = await journal.prepare(account, selection, body())
+    const key = initial.record.requestKey
+    const stored = f.storage.getItem(STORE_CHECKOUT_INTENT_STORAGE_KEY)
+    f.storage[mode] = true
+    await rejects(
+      () =>
+        journal.releaseRejectedBeforeCreate(
+          account,
+          key,
+          {
+            code: 'STORE_TERMS_UPDATED',
+            requestKey: key,
+            orderCreated: false,
+          },
+          0
+        ),
+      mode === 'failWrite' ? 'storage-unavailable' : 'persistence-unverified'
+    )
+    f.storage[mode] = false
+    assert.equal(f.storage.getItem(STORE_CHECKOUT_INTENT_STORAGE_KEY), stored)
+    await rejects(
+      () =>
+        journal.prepare(account, selection, {
+          ...body(),
+          seller_terms_version: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        }),
+      'needs-recovery'
+    )
+    assert.equal((await f.make().list(account))[0].requestKey, key)
+  }
 })

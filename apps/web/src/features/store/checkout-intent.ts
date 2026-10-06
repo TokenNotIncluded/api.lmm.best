@@ -376,6 +376,12 @@ export interface StoreCheckoutLookupAbsence {
   readonly record: StoreCheckoutIntentRecord
 }
 
+export interface StoreCheckoutRejectedBeforeCreateProof {
+  code?: string
+  requestKey?: string
+  orderCreated?: boolean
+}
+
 /**
  * Storage and lock failures fail closed. Successful set/readback protects a
  * refresh; it cannot promise retention after private-session closure or manual
@@ -728,6 +734,44 @@ export function createStoreCheckoutIntentJournal(options: JournalOptions) {
         }
         assertCurrent(actor)
         return prepared(actor, value, exact, 'ready')
+      })
+    },
+    // Only the captured create's typed server proof can release an unknown
+    // request. A lookup 404 cannot prove that an earlier create is not in flight.
+    // This saves local state only; new terms and a new purchase require a
+    // separate user confirmation, never an automatic create after release.
+    async releaseRejectedBeforeCreate(
+      identity: StoreCheckoutActor,
+      key: string,
+      response: StoreCheckoutRejectedBeforeCreateProof,
+      expectedRevision: number
+    ) {
+      const actor = captureActor(identity)
+      const proof = Object.freeze({
+        code: response.code,
+        requestKey: response.requestKey,
+        orderCreated: response.orderCreated,
+      })
+      assertCurrent(actor)
+      return locked(async () => {
+        assertCurrent(actor)
+        const ledger = read()
+        const value = record(ledger, actor, key)
+        if (value.revision !== expectedRevision) return fail('stale-recovery')
+        if (value.state !== 'unknown' || value.orderId) {
+          return fail('needs-recovery')
+        }
+        if (
+          proof.code !== 'STORE_TERMS_UPDATED' ||
+          proof.orderCreated !== false
+        ) {
+          return fail('needs-recovery')
+        }
+        if (proof.requestKey !== value.requestKey) {
+          return fail('request-mismatch')
+        }
+        ledger.records = ledger.records.filter((item) => item !== value)
+        write(ledger)
       })
     },
     // Explicit user cleanup only. For servers with lookup support the caller
