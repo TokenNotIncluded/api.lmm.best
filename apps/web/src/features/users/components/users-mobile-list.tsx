@@ -60,10 +60,7 @@ import {
   formatCumulativeUserUsage,
   formatRawCreditCount,
 } from '@/lib/cumulative-user-usage'
-import {
-  formatFiatCurrencyAmount,
-  getCurrencyFormattingLocale,
-} from '@/lib/currency'
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -75,6 +72,7 @@ import {
 } from '../constants'
 import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
+import { TopupCreditsValue, TopupPaymentValue } from './topup-values'
 import { UserAssistantHistoryDialog } from './user-assistant-history-dialog'
 import { UserAssistantReviewDialog } from './user-assistant-review-dialog'
 import { UserQuotaCell } from './user-quota-cell'
@@ -152,30 +150,6 @@ function getStatusBadge(user: User, t: (key: string) => string) {
   )
 }
 
-function resolveTopupCurrency(
-  summary: NonNullable<User['topup_summary']>
-): string | null {
-  const preferred = summary.currency?.trim().toUpperCase()
-  if (preferred && preferred !== 'MULTIPLE' && preferred !== 'UNKNOWN') {
-    return preferred
-  }
-  const currencies = new Set(
-    summary.methods
-      .map((method) => method.settlement_currency?.trim().toUpperCase())
-      .filter((currency): currency is string =>
-        Boolean(currency && currency !== 'UNKNOWN')
-      )
-  )
-  if (!preferred && currencies.size === 1) return [...currencies][0]
-  return null
-}
-
-function formatUnknownCurrencyAmount(micros: number): string {
-  return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: 6,
-  }).format(micros / 1_000_000)
-}
-
 function UserMobileRow({ row }: { row: Row<User> }) {
   const { t, i18n } = useTranslation()
   const rawCreditLocale = getCurrencyFormattingLocale(
@@ -188,18 +162,6 @@ function UserMobileRow({ row }: { row: Row<User> }) {
   const email = user.email?.trim()
   const displayName = user.display_name?.trim()
   const topup = user.topup_summary
-  const topupCurrency = topup ? resolveTopupCurrency(topup) : null
-  let topupMoneyDisplay = '—'
-  if (topup?.currency === 'MULTIPLE') {
-    topupMoneyDisplay = t('Multiple fiat currencies')
-  } else if (topup && topupCurrency) {
-    topupMoneyDisplay = formatFiatCurrencyAmount(
-      topup.money_micros / 1_000_000,
-      topupCurrency
-    )
-  } else if (topup?.methods.length) {
-    topupMoneyDisplay = t('Currency unavailable')
-  }
   const disabled = isUserDeleted(user) || user.status === USER_STATUS.DISABLED
 
   return (
@@ -265,8 +227,10 @@ function UserMobileRow({ row }: { row: Row<User> }) {
             {formatQuota(user.quota)}
           </span>
         </MobileMetric>
-        <MobileMetric label={t('Top-up')}>
-          <span className='font-medium tabular-nums'>{topupMoneyDisplay}</span>
+        <MobileMetric label={t('Actual payment')}>
+          <span className='font-medium tabular-nums'>
+            <TopupPaymentValue record={topup} />
+          </span>
         </MobileMetric>
       </div>
       <div className='mt-2 flex min-w-0 items-center justify-between gap-2'>
@@ -328,10 +292,13 @@ function UserMobileRow({ row }: { row: Row<User> }) {
               )}
             </p>
           </MobileMetric>
-          <MobileMetric label={t('Top-up')}>
-            <div className='tabular-nums'>{topupMoneyDisplay}</div>
+          <MobileMetric label={t('Actual payment')}>
+            <div className='tabular-nums'>
+              <TopupPaymentValue record={topup} />
+            </div>
             <div className='text-muted-foreground mt-0.5 text-xs tabular-nums'>
-              {formatQuota(topup?.quota ?? 0)} · {topup?.orders ?? 0}
+              {t('Top-up credits')}: <TopupCreditsValue record={topup} /> ·{' '}
+              {topup?.orders ?? 0}
             </div>
             {topup?.methods && topup.methods.length > 0 ? (
               <details className='mt-1 text-xs'>
@@ -346,26 +313,17 @@ function UserMobileRow({ row }: { row: Row<User> }) {
                     ]
                       .filter(Boolean)
                       .join(' · ')
-                    const currency = method.settlement_currency
-                      ?.trim()
-                      .toUpperCase()
-                    const amount =
-                      currency && currency !== 'UNKNOWN'
-                        ? formatFiatCurrencyAmount(
-                            method.money_micros / 1_000_000,
-                            currency
-                          )
-                        : `${formatUnknownCurrencyAmount(method.money_micros)} (${t('Currency unavailable')})`
                     return (
                       <div
-                        key={`${label}-${currency}-${method.orders}`}
+                        key={`${label}-${method.settlement_currency}-${method.orders}`}
                         className='min-w-0 space-y-1'
                       >
                         <span className='block'>{label || '—'}</span>
                         <span className='block tabular-nums'>
-                          {amount}
+                          <TopupPaymentValue record={method} />
                           <span className='text-muted-foreground block text-[11px]'>
-                            {formatQuota(method.quota)} · {method.orders}
+                            <TopupCreditsValue record={method} /> ·{' '}
+                            {method.orders}
                           </span>
                         </span>
                       </div>

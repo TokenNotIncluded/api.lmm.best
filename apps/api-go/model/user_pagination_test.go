@@ -67,72 +67,204 @@ func TestSearchUsersSortsBeforePagination(t *testing.T) {
 	assert.Equal(t, []int{21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40}, collectUserIDs(users))
 }
 
-func TestUserListsSortByActualTopUpMoney(t *testing.T) {
+func TestAdminUserTopupMoneySortsBeforePagination(t *testing.T) {
 	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	truncateTables(t)
-	insertUsersForPaginationTest(t, 4)
+	insertUsersForPaginationTest(t, 8)
 
 	fixtures := []TopUp{
 		{
-			UserId:          2,
-			TradeNo:         "user-topup-money-legacy",
-			Amount:          1,
-			CreditedQuota:   int64(common.QuotaPerUnit),
-			Money:           2,
-			Status:          common.TopUpStatusSuccess,
-			PaymentMethod:   PaymentMethodStripe,
-			PaymentProvider: PaymentProviderStripe,
+			UserId:               1,
+			TradeNo:              "user-topup-money-legacy",
+			Amount:               1,
+			CreditedQuota:        int64(common.QuotaPerUnit),
+			Money:                999,
+			ExpectedAmountMicros: 999_000_000,
+			SettlementCurrency:   "USD",
+			Status:               common.TopUpStatusSuccess,
+			PaymentMethod:        PaymentMethodStripe,
+			PaymentProvider:      PaymentProviderStripe,
 		},
 		{
-			UserId:              3,
-			TradeNo:             "user-topup-money-settled",
+			UserId:              2,
+			TradeNo:             "user-topup-money-unknown-currency",
 			Amount:              1,
 			CreditedQuota:       int64(common.QuotaPerUnit),
 			Money:               999,
-			SettledAmountMicros: 5_000_000,
+			SettledAmountMicros: 900_000_000,
+			Status:              common.TopUpStatusSuccess,
+			PaymentMethod:       PaymentMethodStripe,
+			PaymentProvider:     PaymentProviderStripe,
+		},
+		{
+			UserId:              3,
+			TradeNo:             "user-topup-money-cny-high",
+			Amount:              1,
+			CreditedQuota:       int64(common.QuotaPerUnit),
+			Money:               999,
+			SettledAmountMicros: 8_000_000,
+			SettlementCurrency:  "CNY",
 			Status:              common.TopUpStatusSuccess,
 			PaymentMethod:       PaymentMethodStripe,
 			PaymentProvider:     PaymentProviderStripe,
 		},
 		{
 			UserId:              4,
-			TradeNo:             "user-topup-money-mixed-settled",
+			TradeNo:             "user-topup-money-multiple-usd",
 			Amount:              1,
 			CreditedQuota:       int64(common.QuotaPerUnit),
-			Money:               999,
-			SettledAmountMicros: 4_000_000,
+			SettledAmountMicros: 500_000_000,
+			SettlementCurrency:  "USD",
 			Status:              common.TopUpStatusSuccess,
 			PaymentMethod:       PaymentMethodStripe,
 			PaymentProvider:     PaymentProviderStripe,
 		},
 		{
-			UserId:          4,
-			TradeNo:         "user-topup-money-mixed-legacy",
-			Amount:          1,
-			CreditedQuota:   int64(common.QuotaPerUnit),
-			Money:           3,
-			Status:          common.TopUpStatusSuccess,
-			PaymentMethod:   PaymentMethodStripe,
-			PaymentProvider: PaymentProviderStripe,
+			UserId:              4,
+			TradeNo:             "user-topup-money-multiple-cny",
+			Amount:              1,
+			CreditedQuota:       int64(common.QuotaPerUnit),
+			SettledAmountMicros: 500_000_000,
+			SettlementCurrency:  "CNY",
+			Status:              common.TopUpStatusSuccess,
+			PaymentMethod:       PaymentMethodStripe,
+			PaymentProvider:     PaymentProviderStripe,
+		},
+		{
+			UserId:              5,
+			TradeNo:             "user-topup-money-cny-low",
+			Amount:              1,
+			CreditedQuota:       int64(common.QuotaPerUnit),
+			Money:               999,
+			SettledAmountMicros: 1_000_000,
+			SettlementCurrency:  "CNY",
+			Status:              common.TopUpStatusSuccess,
+			PaymentMethod:       PaymentMethodStripe,
+			PaymentProvider:     PaymentProviderStripe,
+		},
+		{
+			UserId:              6,
+			TradeNo:             "user-topup-money-usd-low",
+			Amount:              1,
+			CreditedQuota:       int64(common.QuotaPerUnit),
+			Money:               999,
+			SettledAmountMicros: 5_000_000,
+			SettlementCurrency:  "USD",
+			Status:              common.TopUpStatusSuccess,
+			PaymentMethod:       PaymentMethodStripe,
+			PaymentProvider:     PaymentProviderStripe,
+		},
+		{
+			UserId:              8,
+			TradeNo:             "user-topup-money-usd-high-first",
+			Amount:              1,
+			CreditedQuota:       int64(common.QuotaPerUnit),
+			Money:               999,
+			SettledAmountMicros: 60_000_000,
+			SettlementCurrency:  " usd ",
+			Status:              common.TopUpStatusSuccess,
+			PaymentMethod:       PaymentMethodStripe,
+			PaymentProvider:     PaymentProviderStripe,
+		},
+		{
+			UserId:              8,
+			TradeNo:             "user-topup-money-usd-high-second",
+			Amount:              1,
+			CreditedQuota:       int64(common.QuotaPerUnit),
+			Money:               999,
+			SettledAmountMicros: 40_000_000,
+			SettlementCurrency:  "USD",
+			Status:              common.TopUpStatusSuccess,
+			PaymentMethod:       PaymentMethodWaffo,
+			PaymentProvider:     PaymentProviderWaffo,
 		},
 	}
 	require.NoError(t, DB.Create(&fixtures).Error)
 
-	users, total, err := GetAllUsers(
-		&common.PageInfo{Page: 1, PageSize: 4},
-		false,
-		NewUserSortOptions("topup_money", "desc"),
-	)
-	require.NoError(t, err)
-	assert.Equal(t, int64(4), total)
-	assert.Equal(t, []int{4, 3, 2, 1}, collectUserIDs(users))
-	require.NoError(t, PopulateUserTopups(users))
-	assert.EqualValues(t, 7_000_000, users[0].TopupSummary.MoneyMicros)
-	assert.EqualValues(t, 5_000_000, users[1].TopupSummary.MoneyMicros)
-	assert.EqualValues(t, 2_000_000, users[2].TopupSummary.MoneyMicros)
+	for _, test := range []struct {
+		order string
+		known []int
+	}{
+		{order: "asc", known: []int{5, 3, 6, 8}},
+		{order: "desc", known: []int{3, 5, 8, 6}},
+	} {
+		t.Run(test.order, func(t *testing.T) {
+			sort := NewUserSortOptions("topup_money", test.order)
+			for _, list := range []struct {
+				name string
+				page func(int) ([]*User, int64, error)
+			}{
+				{
+					name: "all",
+					page: func(page int) ([]*User, int64, error) {
+						return GetAllUsers(&common.PageInfo{Page: page, PageSize: 2}, false, sort)
+					},
+				},
+				{
+					name: "search",
+					page: func(page int) ([]*User, int64, error) {
+						return SearchUsers("user", "", nil, nil, false, (page-1)*2, 2, sort)
+					},
+				},
+			} {
+				t.Run(list.name, func(t *testing.T) {
+					var ordered []*User
+					for page := 1; page <= 4; page++ {
+						users, total, err := list.page(page)
+						require.NoError(t, err)
+						assert.Equal(t, int64(8), total)
+						require.Len(t, users, 2)
+						if page <= 2 {
+							assert.Equal(t, test.known[(page-1)*2:page*2], collectUserIDs(users))
+						}
+						ordered = append(ordered, users...)
+					}
+					assert.ElementsMatch(t, []int{1, 2, 4, 7}, collectUserIDs(ordered[4:]))
+					require.NoError(t, PopulateUserTopups(ordered))
+					for _, user := range ordered {
+						require.NotNil(t, user.TopupSummary)
+						switch user.Id {
+						case 1:
+							assert.EqualValues(t, 999_000_000, user.TopupSummary.MoneyMicros)
+							assert.Zero(t, user.TopupSummary.SettledMoneyMicros)
+							assert.EqualValues(t, 999_000_000, user.TopupSummary.HistoricalMoneyMicros)
+							assert.Equal(t, "historical", user.TopupSummary.PaymentBasis)
+						case 2:
+							assert.EqualValues(t, 900_000_000, user.TopupSummary.MoneyMicros)
+							assert.Zero(t, user.TopupSummary.SettledMoneyMicros)
+							assert.Equal(t, "UNKNOWN", user.TopupSummary.Currency)
+							assert.Equal(t, "settled", user.TopupSummary.PaymentBasis)
+							require.Len(t, user.TopupSummary.Methods, 1)
+							assert.EqualValues(t, 900_000_000, user.TopupSummary.Methods[0].SettledMoneyMicros)
+						case 3:
+							assert.EqualValues(t, 8_000_000, user.TopupSummary.MoneyMicros)
+							assert.Equal(t, "CNY", user.TopupSummary.Currency)
+						case 5:
+							assert.EqualValues(t, 1_000_000, user.TopupSummary.MoneyMicros)
+							assert.Equal(t, "CNY", user.TopupSummary.Currency)
+						case 6:
+							assert.EqualValues(t, 5_000_000, user.TopupSummary.MoneyMicros)
+							assert.Equal(t, "USD", user.TopupSummary.Currency)
+						case 8:
+							assert.EqualValues(t, 100_000_000, user.TopupSummary.MoneyMicros)
+							assert.Equal(t, "USD", user.TopupSummary.Currency)
+						case 4:
+							assert.Zero(t, user.TopupSummary.MoneyMicros)
+							assert.Zero(t, user.TopupSummary.SettledMoneyMicros)
+							assert.Equal(t, "MULTIPLE", user.TopupSummary.Currency)
+						case 7:
+							assert.Zero(t, user.TopupSummary.MoneyMicros)
+							assert.Zero(t, user.TopupSummary.SettledMoneyMicros)
+							assert.Equal(t, "none", user.TopupSummary.PaymentBasis)
+						}
+					}
+				})
+			}
+		})
+	}
 }
 
-func TestPopulateUserTopupsDoesNotAddDifferentFiatCurrencies(t *testing.T) {
+func TestAdminUserTopupSummaryDoesNotAddDifferentFiatCurrencies(t *testing.T) {
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 1)
 	require.NoError(t, DB.Create(&[]TopUp{
@@ -162,7 +294,7 @@ func TestPopulateUserTopupsDoesNotAddDifferentFiatCurrencies(t *testing.T) {
 	})
 }
 
-func TestUserTopupSummaryExcludesLinuxDOCredit(t *testing.T) {
+func TestAdminUserTopupSummaryExcludesLinuxDOCredit(t *testing.T) {
 	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	truncateTables(t)
 	insertUsersForPaginationTest(t, 2)
@@ -179,14 +311,16 @@ func TestUserTopupSummaryExcludesLinuxDOCredit(t *testing.T) {
 			PaymentProvider: PaymentProviderEpay,
 		},
 		{
-			UserId:          2,
-			TradeNo:         "user-topup-real-money",
-			Amount:          10,
-			CreditedQuota:   int64(common.QuotaPerUnit) * 10,
-			Money:           10,
-			Status:          common.TopUpStatusSuccess,
-			PaymentMethod:   PaymentMethodStripe,
-			PaymentProvider: PaymentProviderStripe,
+			UserId:              2,
+			TradeNo:             "user-topup-real-money",
+			Amount:              10,
+			CreditedQuota:       int64(common.QuotaPerUnit) * 10,
+			Money:               10,
+			SettledAmountMicros: 10_000_000,
+			SettlementCurrency:  "USD",
+			Status:              common.TopUpStatusSuccess,
+			PaymentMethod:       PaymentMethodStripe,
+			PaymentProvider:     PaymentProviderStripe,
 		},
 	}).Error)
 
