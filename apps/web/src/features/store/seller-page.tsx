@@ -23,6 +23,12 @@ import {
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import {
+  DELIVERY_TEMPLATES,
+  structuredTemplate,
+  validateComposedItems,
+} from './delivery-template'
+import { StoreInventoryComposer } from './inventory-composer'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
@@ -693,10 +699,15 @@ export function StoreProductEditor({
                   )
                 }
               >
-                <option value='card-key'>{t('Activation keys')}</option>
-                <option value='text'>{t('Text items')}</option>
-                <option value='custom-text'>{t('Custom text')}</option>
+                {Object.entries(DELIVERY_TEMPLATES).map(([key, template]) => (
+                  <option key={key} value={key}>
+                    {t(template.label)}
+                  </option>
+                ))}
               </select>
+              <p className='text-muted-foreground text-xs'>
+                {t(DELIVERY_TEMPLATES[draft.template].help)}
+              </p>
             </div>
             <div className='space-y-2'>
               <Label htmlFor='store-delivery'>{t('Delivery strategy')}</Label>
@@ -880,9 +891,12 @@ export function StoreInventoryImport({
     queryFn: () => storeApi.stock(product.id, page),
     retry: false,
   })
-  let count = 0
+  const composed =
+    product.template === 'custom-text' || structuredTemplate(product.template)
+  const [composedItems, setComposedItems] = useState<string[]>([])
+  let count = composed ? composedItems.length : 0
   try {
-    count = parseInventoryText(text).length
+    if (!composed) count = parseInventoryText(text).length
   } catch {
     /* submit validates size */
   }
@@ -910,10 +924,12 @@ export function StoreInventoryImport({
     setBusy(true)
     setError(null)
     try {
-      const items = parseInventoryText(text)
+      const items = composed ? composedItems : parseInventoryText(text)
+      if (composed) validateComposedItems(items)
       if (!items.length) throw new Error('Add at least one inventory item')
       await storeApi.inventory(product.id, items)
       setText('')
+      setComposedItems([])
       await onSaved()
     } catch (issue) {
       setError(issue)
@@ -932,55 +948,68 @@ export function StoreInventoryImport({
         <DialogTitle>{t('Add inventory')}</DialogTitle>
         <DialogDescription>
           {product.title} ·{' '}
-          {t(
-            'One text item per line. Empty lines are ignored. Duplicate lines remain separate stock items.'
-          )}
+          {composed
+            ? t(DELIVERY_TEMPLATES[product.template].help)
+            : t(
+                'One text item per line. Empty lines are ignored. Duplicate lines remain separate stock items.'
+              )}
         </DialogDescription>
         <StoreError error={error} />
-        <div className='flex flex-wrap gap-2'>
-          <Button
-            type='button'
-            size='sm'
-            variant='outline'
-            onClick={() =>
-              void navigator.clipboard
-                .readText()
-                .then((value) => {
-                  parseInventoryText(value)
-                  setText(value)
-                  setError(null)
-                })
-                .catch(() =>
-                  setError(
-                    new Error(
-                      'Clipboard access failed. Paste into the text box instead.'
+        {!composed && (
+          <div className='flex flex-wrap gap-2'>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              onClick={() =>
+                void navigator.clipboard
+                  .readText()
+                  .then((value) => {
+                    parseInventoryText(value)
+                    setText(value)
+                    setError(null)
+                  })
+                  .catch(() =>
+                    setError(
+                      new Error(
+                        'Clipboard access failed. Paste into the text box instead.'
+                      )
                     )
                   )
-                )
-            }
-          >
-            {t('Paste from clipboard')}
-          </Button>
-          <label className='hover:bg-muted inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-xs font-medium'>
-            {t('Import file')}
-            <input
-              type='file'
-              accept='.txt,.csv,text/plain,text/csv'
-              className='sr-only'
-              onChange={(event) => {
-                void loadFile(event.target.files?.[0])
-                event.target.value = ''
-              }}
-            />
-          </label>
-        </div>
-        <Textarea
-          rows={9}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          aria-label={t('Inventory text')}
-          placeholder={t('One item per line')}
-        />
+              }
+            >
+              {t('Paste from clipboard')}
+            </Button>
+            <label className='hover:bg-muted inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-xs font-medium'>
+              {t('Import file')}
+              <input
+                type='file'
+                accept='.txt,.csv,text/plain,text/csv'
+                className='sr-only'
+                onChange={(event) => {
+                  void loadFile(event.target.files?.[0])
+                  event.target.value = ''
+                }}
+              />
+            </label>
+          </div>
+        )}
+        {composed ? (
+          <StoreInventoryComposer
+            template={product.template}
+            items={composedItems}
+            onChange={setComposedItems}
+            disabled={busy}
+          />
+        ) : (
+          <Textarea
+            rows={9}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            aria-label={t('Inventory text')}
+            placeholder={t('One item per line')}
+          />
+        )}
         <p className='text-muted-foreground text-xs'>
           {t('{{count}} items ready to import', { count })} ·{' '}
           {t('Maximum 10,000 items or 2 MB per import.')}

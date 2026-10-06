@@ -6,10 +6,11 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StoreDeliveredItem } from './delivered-item'
+import { deliveryItemText } from './delivery-template'
 import { CopyStoreValue, StoreError, StoreLoading } from './shared'
 import type { StoreClaim } from './types'
 
@@ -115,25 +116,21 @@ function StoreClaimContent({ token }: { token: string }) {
               {t('{{count}} items', { count: claim.items.length })}
             </span>
             <CopyStoreValue
-              value={claim.items.join('\n')}
+              value={claim.items
+                .map((item) =>
+                  deliveryItemText(item, claim.delivery_template, t)
+                )
+                .join('\n')}
               label='Copy all items'
             />
           </div>
           {claim.items.map((item, index) => (
-            <div key={index} className='space-y-2 border-t pt-4'>
-              <Label htmlFor={`pickup-item-${index}`}>
-                {t('Item {{number}}', { number: index + 1 })}
-              </Label>
-              <Textarea
-                id={`pickup-item-${index}`}
-                value={item}
-                readOnly
-                rows={Math.min(6, Math.max(2, item.split('\n').length))}
-                autoComplete='off'
-                spellCheck={false}
-              />
-              <CopyStoreValue value={item} />
-            </div>
+            <StoreDeliveredItem
+              key={index}
+              raw={item}
+              template={claim.delivery_template}
+              index={index}
+            />
           ))}
         </div>
       ) : (

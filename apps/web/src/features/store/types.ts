@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import type { StoreDeliveryTemplate } from './delivery-template'
 export type StorePaymentMethod =
   | 'balance'
   | 'platform:waffo_pancake'
@@ -19,7 +20,7 @@ export interface StoreProduct {
   contact: string
   links: StoreLink[]
   price_quota: number
-  template: 'card-key' | 'text' | 'custom-text'
+  template: StoreDeliveryTemplate
   delivery_strategy: 'sequential' | 'random'
   payment_methods: StorePaymentMethod[]
   pickup_login_required: boolean
@@ -62,6 +63,7 @@ export type StoreProductInput = Omit<
   | 'trading_paused'
 >
 export interface StoreOrder {
+  delivery_template?: string
   id: string
   trade_no: string
   buyer_id: number
@@ -186,6 +188,7 @@ export interface StoreCheckoutResult {
   created: boolean
 }
 export interface StoreClaimMetadata {
+  delivery_template?: string
   order_id: string
   quantity: number
   product_title: string
@@ -195,6 +198,7 @@ export interface StoreClaimMetadata {
   pickup_login_satisfied: boolean
 }
 export interface StoreClaim {
+  delivery_template?: string
   order_id: string
   product_title: string
   items: string[]

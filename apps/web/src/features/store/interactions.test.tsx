@@ -67,6 +67,7 @@ const { MerchantStoreSettingsSection } =
 const { StoreOrderRow, StoreOrdersPage } = await import('./orders-page')
 const { StoreDeliveryEmail } = await import('./delivery-email')
 const { StoreProductEditor } = await import('./seller-page')
+const { StoreInventoryImport } = await import('./seller-page')
 const { StoreSellerPage } = await import('./seller-page')
 const { StoreSalesLimit } = await import('./sales-limit')
 const { StorePage } = await import('./store-page')
@@ -154,10 +155,15 @@ async function click(node: HTMLElement) {
     await flush()
   })
 }
-async function input(node: HTMLInputElement, value: string) {
+async function input(
+  node: HTMLInputElement | HTMLTextAreaElement,
+  value: string
+) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(
-      dom.HTMLInputElement.prototype,
+      node.tagName === 'TEXTAREA'
+        ? dom.HTMLTextAreaElement.prototype
+        : dom.HTMLInputElement.prototype,
       'value'
     )!.set!.call(node, value)
     node.dispatchEvent(new Event('input', { bubbles: true }))
@@ -780,6 +786,201 @@ test('pickup protection validates both minimum length and the bcrypt UTF-8 byte 
   await input(code, '密'.repeat(25))
   assert.equal(button('Place order').disabled, true)
 })
+test('multi-line custom inventory remains one item and failed import preserves the composed queue', async () => {
+  owner(2)
+  let fail = true
+  const calls: unknown[] = []
+  api.get = (async () =>
+    result({ items: [], has_more: false })) as typeof api.get
+  api.post = (async (url: string, body: unknown) => {
+    assert.equal(url, `/api/store/products/${product.id}/inventory`)
+    calls.push(body)
+    if (fail) throw new Error('offline')
+    return result({ added: 1 })
+  }) as typeof api.post
+  await mount(
+    <StoreInventoryImport
+      product={{ ...product, template: 'custom-text' }}
+      onClose={() => {}}
+      onSaved={async () => {}}
+    />
+  )
+  assert.equal(document.querySelector('input[type=file]'), null)
+  const text = document.querySelector<HTMLTextAreaElement>(
+    '#store-complete-item'
+  )
+  assert.ok(text)
+  await input(text, 'line one\nline two')
+  await click(button('Add one item'))
+  assert.match(document.body.textContent || '', /1 items ready to import/)
+  await click(button('Import inventory'))
+  assert.match(document.body.textContent || '', /1 items ready to import/)
+  fail = false
+  await click(button('Import inventory'))
+  assert.deepEqual(calls, [
+    { items: ['line one\nline two'] },
+    { items: ['line one\nline two'] },
+  ])
+})
+test('account inventory combines its fields into one item without showing an internal marker', async () => {
+  owner(2)
+  api.get = (async () =>
+    result({ items: [], has_more: false })) as typeof api.get
+  let saved: { items: string[] } | undefined
+  api.post = (async (_: string, body: { items: string[] }) => {
+    saved = body
+    return result({ added: 1 })
+  }) as typeof api.post
+  await mount(
+    <StoreInventoryImport
+      product={{ ...product, template: 'account-details' }}
+      onClose={() => {}}
+      onSaved={async () => {}}
+    />
+  )
+  const username = document.querySelector<HTMLInputElement>(
+    '#store-delivery-username'
+  )
+  const password = document.querySelector<HTMLInputElement>(
+    '#store-delivery-password'
+  )
+  assert.ok(username && password)
+  await input(username, 'fixture-user')
+  await input(password, 'fixture-password')
+  assert.equal(password.type, 'password')
+  await click(button('Add one item'))
+  assert.doesNotMatch(document.body.textContent || '', /lmm_store_delivery/)
+  await click(button('Import inventory'))
+  assert.ok(saved)
+  assert.equal(saved.items.length, 1)
+  assert.deepEqual(JSON.parse(saved.items[0]), {
+    lmm_store_delivery: 1,
+    template: 'account-details',
+    fields: { username: 'fixture-user', password: 'fixture-password' },
+  })
+})
+test('structured collection respects the order template and reveals passwords only on request', async () => {
+  owner(null)
+  api.get = (async () =>
+    result({
+      product_title: 'Fixture account',
+      status: 'paid',
+      delivery_template: 'account-details',
+      pickup_login_required: false,
+      pickup_code_required: false,
+      pickup_login_satisfied: false,
+    })) as typeof api.get
+  const raw = JSON.stringify({
+    lmm_store_delivery: 1,
+    template: 'account-details',
+    fields: {
+      username: 'fixture-user',
+      password: 'fixture-password',
+      url: 'https://example.test/login',
+    },
+  })
+  api.post = (async () =>
+    result({
+      product_title: 'Fixture account',
+      order_id: 'fixture-order',
+      delivery_template: 'account-details',
+      items: [raw],
+    })) as typeof api.post
+  await mount(<StoreClaimPage token={'x'.repeat(43)} />)
+  await click(button('Collect items'))
+  const password = document.querySelector<HTMLInputElement>(
+    '#pickup-item-0-password'
+  )
+  assert.ok(password)
+  assert.equal(password.type, 'password')
+  assert.doesNotMatch(document.body.textContent || '', /lmm_store_delivery/)
+  await click(button('Show delivered password'))
+  assert.equal(password.type, 'text')
+  assert.equal(password.value, 'fixture-password')
+  await click(button('Hide delivered password'))
+  assert.equal(password.type, 'password')
+  const link = document.querySelector<HTMLAnchorElement>(
+    'a[href="https://example.test/login"]'
+  )
+  assert.ok(link)
+  assert.equal(link.rel, 'noopener noreferrer')
+})
+for (const frozenTemplate of ['', 'license-key', 'unknown-future-kind']) {
+  test(`legacy or mismatched collection (${frozenTemplate || 'legacy'}) keeps the exact raw inventory`, async () => {
+    owner(null)
+    const raw = JSON.stringify({
+      lmm_store_delivery: 1,
+      template: 'download-link',
+      fields: { url: 'https://example.test/file' },
+    })
+    api.get = (async () =>
+      result({
+        product_title: 'Fixture',
+        status: 'paid',
+        delivery_template: frozenTemplate,
+        pickup_login_required: false,
+        pickup_code_required: false,
+        pickup_login_satisfied: false,
+      })) as typeof api.get
+    api.post = (async () =>
+      result({
+        product_title: 'Fixture',
+        order_id: 'fixture',
+        delivery_template: frozenTemplate,
+        items: [raw],
+      })) as typeof api.post
+    await mount(<StoreClaimPage token={'y'.repeat(43)} />)
+    await click(button('Collect items'))
+    const item = document.querySelector<HTMLTextAreaElement>('#pickup-item-0')
+    assert.ok(item)
+    assert.equal(item.value, raw)
+    assert.equal(
+      document.querySelector('a[href="https://example.test/file"]'),
+      null
+    )
+  })
+}
+for (const raw of [
+  '{"lmm_store_delivery":1e0,"template":"download-link","fields":{"url":"https://example.test/download"}}',
+  '{"lmm_store_delivery":1.0,"template":"download-link","fields":{"url":"javascript:alert(1)"}}',
+  '{"lmm_store_delivery":1,"template":"download-link","fields":{"url":"https://example.test/download","unknown":"field"}}',
+]) {
+  test(`collection only exposes a download link for the complete safe delivery schema (${raw.length})`, async () => {
+    owner(null)
+    api.get = (async () =>
+      result({
+        product_title: 'Fixture download',
+        status: 'paid',
+        pickup_login_required: false,
+        pickup_code_required: false,
+        pickup_login_satisfied: false,
+        delivery_template: 'download-link',
+      })) as typeof api.get
+    api.post = (async () =>
+      result({
+        order_id: 'fixture',
+        product_title: 'Fixture download',
+        delivery_template: 'download-link',
+        items: [raw],
+      })) as typeof api.post
+    await mount(<StoreClaimPage token={'z'.repeat(43)} />)
+    await click(button('Collect items'))
+    const link = document.querySelector<HTMLAnchorElement>(
+      'a[href="https://example.test/download"]'
+    )
+    if (raw.includes('1e0')) {
+      assert.ok(link)
+      assert.doesNotMatch(document.body.textContent || '', /lmm_store_delivery/)
+    } else {
+      assert.equal(link, null)
+      const contents =
+        document.querySelector<HTMLTextAreaElement>('#pickup-item-0')
+      assert.ok(contents)
+      assert.equal(contents.value, raw)
+      assert.equal(document.querySelector('a[href^="javascript:"]'), null)
+    }
+  })
+}
 test('login-protected claims never collect anonymously', async () => {
   owner(null)
   let collections = 0

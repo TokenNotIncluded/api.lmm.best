@@ -59,6 +59,7 @@ import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
 import { storeEmptyStateCopy } from './store-empty-state-copy.mjs'
+import { storeDeliveryTemplateLunaCopy } from './store-delivery-template-luna-copy.mjs'
 import { storeMinimumPriceLunaCopy } from './store-minimum-price-luna-copy.mjs'
 import { storePaymentCategoryLunaCopy } from './store-payment-category-luna-copy.mjs'
 import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
@@ -13291,6 +13292,9 @@ for (const [locale, values] of Object.entries(storeEmptyStateCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
+for (const [locale, values] of Object.entries(storeDeliveryTemplateLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
 for (const [locale, values] of Object.entries(storeSalesLimitLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
