@@ -98,7 +98,7 @@ async function setup() {
   const original = api.get
   const pending: Pending[] = []
   api.get = ((url: string, config?: RequestConfig) => {
-    assert.equal(url, '/api/user/self/aff/rewards')
+    assert.equal(url, '/api/user/aff/rewards')
     assert.equal(config?.disableDuplicate, true)
     assert.equal(config?.skipBusinessError, true)
     assert.equal(config?.skipErrorHandler, true)

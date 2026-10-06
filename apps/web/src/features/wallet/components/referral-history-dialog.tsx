@@ -85,7 +85,7 @@ export function ReferralHistoryDialog() {
         success: boolean
         message?: string
         data: History
-      }>('/api/user/self/aff/rewards', {
+      }>('/api/user/aff/rewards', {
         params: before ? { before } : undefined,
         signal: current.controller.signal,
         // This dialog owns cancellation; do not reuse another GET promise.
