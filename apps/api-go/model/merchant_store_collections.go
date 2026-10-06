@@ -47,11 +47,8 @@ type MerchantStoreFavoriteView struct {
 
 func storeCollectionProduct(tx *gorm.DB, actor int, id string) (*MerchantStoreProduct, error) {
 	var p MerchantStoreProduct
-	if err := MerchantStoreVisibleProductsForViewer(tx, actor).Where("merchant_store_products.id = ?", id).First(&p).Error; err != nil {
+	if err := MerchantStoreRetainedProductsForViewer(tx, actor).Where("merchant_store_products.id = ?", id).First(&p).Error; err != nil {
 		return nil, err
-	}
-	if err := storeProductNewBuyer(&p, actor); err != nil {
-		return nil, gorm.ErrRecordNotFound
 	}
 	if err := populateMerchantStoreProduct(tx, &p, true); err != nil {
 		return nil, err
@@ -72,6 +69,12 @@ func storeCheckCartItem(tx *gorm.DB, actor int, in MerchantStoreCartInput) (*Mer
 	p, err := storeCollectionProduct(tx, actor, in.ProductID)
 	if err != nil {
 		return nil, "", err
+	}
+	if err := storeProductNewBuyer(p, actor); err != nil {
+		if errors.Is(err, ErrMerchantStoreDenied) {
+			return nil, "", gorm.ErrRecordNotFound
+		}
+		return p, in.VariantID, err
 	}
 	id := in.VariantID
 	if id == "" {
@@ -243,7 +246,7 @@ func CleanupMerchantStoreCollections(actor int) (int64, int64, error) {
 		if err := storeRequireCatalogueWriter(tx); err != nil {
 			return err
 		}
-		visible := MerchantStoreVisibleProductsForViewer(tx, actor).Select("merchant_store_products.id")
+		visible := MerchantStoreRetainedProductsForViewer(tx, actor).Select("merchant_store_products.id")
 		result := tx.Where("user_id = ? AND product_id NOT IN (?)", actor, visible).Delete(&MerchantStoreCartItem{})
 		if result.Error != nil {
 			return result.Error
