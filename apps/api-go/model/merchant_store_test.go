@@ -35,6 +35,8 @@ func newStoreFixture(t *testing.T, methods ...string) storeFixture {
 			require.NoError(t, e)
 		}
 	}
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", f.buyer.Id).Update("email", "store-buyer@example.test").Error)
+	require.NoError(t, MarkMerchantStoreEmailVerified(f.buyer.Id, "store-buyer@example.test"))
 	require.NoError(t, AcceptMerchantStoreDisclaimer(f.buyer.Id, MerchantStoreDisclaimerVersion))
 	return f
 }

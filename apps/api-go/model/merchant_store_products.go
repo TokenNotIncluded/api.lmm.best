@@ -340,6 +340,7 @@ func PurchaseMerchantStorePromotion(actor int, productID string, months int, req
 		return nil, ErrMerchantStoreInput
 	}
 	var promo MerchantStorePromotion
+	var recipientID int
 	e := storeWithProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if p.SellerID != actor {
 			return ErrMerchantStoreDenied
@@ -357,6 +358,10 @@ func PurchaseMerchantStorePromotion(actor int, productID string, months int, req
 		if _, e = storeUser(tx, actor, common.RoleCommonUser); e != nil {
 			return e
 		}
+		if _, e = storeUser(tx, c.RecipientID, common.RoleRootUser); e != nil {
+			return e
+		}
+		recipientID = c.RecipientID
 		id := storeHash("promotion:" + fmtStoreActor(actor) + ":" + requestKey)
 		if e = tx.First(&promo, "id = ?", id).Error; e == nil {
 			if promo.ProductID != productID || promo.Months != months {
@@ -392,11 +397,7 @@ func PurchaseMerchantStorePromotion(actor int, productID string, months int, req
 		return tx.Create(&promo).Error
 	})
 	if e == nil {
-		marketInvalidate(actor, promo.SellerID)
-		c, ce := GetMerchantStoreConfig()
-		if ce == nil {
-			marketInvalidate(c.RecipientID)
-		}
+		marketInvalidate(actor, recipientID)
 	}
 	return &promo, e
 }

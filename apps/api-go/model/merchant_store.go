@@ -122,7 +122,7 @@ type MerchantStoreEvent struct {
 }
 
 func MerchantStoreModels() []interface{} {
-	return []interface{}{&MerchantStoreProduct{}, &MerchantStoreStock{}, &MerchantStoreConfig{}, &MerchantStoreOrder{}, &MerchantStoreTransfer{}, &MerchantStoreDisclaimerAcceptance{}, &MerchantStoreGateway{}, &MerchantStorePromotion{}, &MerchantStoreEvent{}, &MerchantStoreEmailDelivery{}, &MerchantStorePaymentReceipt{}}
+	return []interface{}{&MerchantStoreProduct{}, &MerchantStoreStock{}, &MerchantStoreConfig{}, &MerchantStoreOrder{}, &MerchantStoreTransfer{}, &MerchantStoreDisclaimerAcceptance{}, &MerchantStoreGateway{}, &MerchantStorePromotion{}, &MerchantStoreEvent{}, &MerchantStoreEmailDelivery{}, &MerchantStorePaymentReceipt{}, &MerchantStoreVerifiedEmail{}, &MerchantStoreEmailVerificationChallenge{}}
 }
 func storeHash(s string) string { sum := sha256.Sum256([]byte(s)); return hex.EncodeToString(sum[:]) }
 func storeToken() (string, error) {
@@ -177,6 +177,9 @@ func SetMerchantStoreConfig(actor int, c MerchantStoreConfig) error {
 		return ErrMerchantStoreInput
 	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
+		if e := marketLockUsers(tx, actor, c.RecipientID); e != nil {
+			return e
+		}
 		if _, e := storeUser(tx, actor, common.RoleRootUser); e != nil {
 			return e
 		}

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
 )
@@ -11,7 +12,7 @@ type MerchantStoreEmailDelivery struct {
 	ID            string `json:"id" gorm:"primaryKey;size:64"`
 	OrderID       string `json:"order_id" gorm:"size:64;not null;uniqueIndex"`
 	BuyerID       int    `json:"-"`
-	State         string `json:"state" gorm:"size:16;index"`
+	State         string `json:"state" gorm:"size:32;index"`
 	Attempts      int    `json:"attempts"`
 	NextAttempt   int64  `json:"next_attempt" gorm:"index"`
 	LeaseUntil    int64  `json:"-"`
@@ -25,7 +26,14 @@ func enqueueMerchantStoreEmail(tx *gorm.DB, o *MerchantStoreOrder) error {
 	if !o.EmailPickupLink {
 		return nil
 	}
-	return tx.Create(&MerchantStoreEmailDelivery{ID: o.ID, OrderID: o.ID, BuyerID: o.BuyerID, State: "pending", NextAttempt: common.GetTimestamp(), CreatedAt: common.GetTimestamp()}).Error
+	state := "pending"
+	if _, e := storeVerifiedEmailAddress(tx, o.BuyerID); errors.Is(e, ErrMerchantStoreEmailUnverified) {
+		state = "awaiting_verification"
+	} else if e != nil {
+		return e
+	}
+	o.EmailDeliveryStatus = state
+	return tx.Create(&MerchantStoreEmailDelivery{ID: o.ID, OrderID: o.ID, BuyerID: o.BuyerID, State: state, NextAttempt: common.GetTimestamp(), CreatedAt: common.GetTimestamp()}).Error
 }
 func ClaimMerchantStoreEmailDelivery(now int64) (*MerchantStoreEmailDelivery, error) {
 	var row MerchantStoreEmailDelivery
@@ -83,4 +91,56 @@ func RetryMerchantStoreEmailDelivery(id, leaseToken string, now int64, code stri
 		row.LeaseUntil = 0
 		return tx.Save(&row).Error
 	})
+}
+
+func DeferMerchantStoreEmailVerification(id, leaseToken string) error {
+	if !storeTokenValid(leaseToken) {
+		return ErrMerchantStoreInput
+	}
+	return marketTransaction(DB, func(tx *gorm.DB) error {
+		var row MerchantStoreEmailDelivery
+		if e := lockForUpdate(tx).Where("id = ? AND state = ? AND lease_token = ?", id, "sending", leaseToken).First(&row).Error; e != nil {
+			return ErrMerchantStoreConflict
+		}
+		row.State = "awaiting_verification"
+		row.LeaseToken = ""
+		row.LeaseUntil = 0
+		row.LastErrorCode = "email_unverified"
+		if row.Attempts > 0 {
+			row.Attempts--
+		}
+		return tx.Save(&row).Error
+	})
+}
+func storeOrderEmailViews(tx *gorm.DB, buyerID int, orders []*MerchantStoreOrder) error {
+	ids := make([]string, 0, len(orders))
+	for _, o := range orders {
+		if o.BuyerID == buyerID {
+			o.EmailDeliveryStatus = "none"
+			ids = append(ids, o.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var rows []MerchantStoreEmailDelivery
+	if e := tx.Select("order_id,state").Where("buyer_id = ? AND order_id IN ?", buyerID, ids).Find(&rows).Error; e != nil {
+		return e
+	}
+	states := map[string]string{}
+	for _, r := range rows {
+		state := r.State
+		if state == "retry" {
+			state = "pending"
+		}
+		states[r.OrderID] = state
+	}
+	for _, o := range orders {
+		if o.BuyerID == buyerID {
+			if state, ok := states[o.ID]; ok {
+				o.EmailDeliveryStatus = state
+			}
+		}
+	}
+	return nil
 }

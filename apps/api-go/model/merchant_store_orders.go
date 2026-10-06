@@ -13,6 +13,7 @@ import (
 )
 
 type MerchantStoreOrder struct {
+	EmailDeliveryStatus       string `json:"email_delivery_status,omitempty" gorm:"-"`
 	PaymentIssued             bool   `json:"payment_issued" gorm:"-"`
 	ID                        string `json:"id" gorm:"primaryKey;size:64"`
 	TradeNo                   string `json:"trade_no" gorm:"size:32;uniqueIndex;not null"`
@@ -29,7 +30,7 @@ type MerchantStoreOrder struct {
 	FeeHeld                   bool   `json:"-"`
 	PaymentMethod             string `json:"payment_method" gorm:"size:40"`
 	InputDigest               string `json:"-" gorm:"size:64"`
-	Status                    string `json:"status" gorm:"size:16;not null;index"`
+	Status                    string `json:"status" gorm:"size:32;not null;index"`
 	AmountMinor               int64  `json:"amount_minor" gorm:"type:bigint"`
 	Currency                  string `json:"currency" gorm:"size:16"`
 	FrozenUSDFX               string `json:"frozen_usd_fx" gorm:"size:64;column:frozen_usd_fx"`
@@ -133,6 +134,9 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if e = marketLockUsers(tx, in.BuyerID, p.SellerID, c.RecipientID); e != nil {
 			return e
 		}
+		if _, e = storeUser(tx, c.RecipientID, common.RoleRootUser); e != nil {
+			return e
+		}
 		buyer, e := storeUser(tx, in.BuyerID, common.RoleCommonUser)
 		if e != nil {
 			return e
@@ -150,7 +154,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			if o.InputDigest != digest {
 				return ErrMerchantStoreConflict
 			}
-			return nil
+			return storeOrderEmailViews(tx, in.BuyerID, []*MerchantStoreOrder{&o})
 		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e
 		}
@@ -308,6 +312,9 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		marketInvalidate(invalidations...)
 	}
 	o.PaymentIssued = o.GatewaySnapshot != "" || o.ProviderSessionID != ""
+	if o.EmailDeliveryStatus == "" {
+		o.EmailDeliveryStatus = "none"
+	}
 	return &o, created && e == nil, e
 }
 func storeOrderTx(id string, fn func(*gorm.DB, *MerchantStoreOrder) error) error {
@@ -465,7 +472,7 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		if e := storeCredit(tx, o.RecipientID, o.FeeQuota); e != nil {
 			return e
 		}
-		if e := storeTransfer(tx, id, "fee", o.SellerID, o.RecipientID, o.FeeQuota); e != nil {
+		if e := storeTransfer(tx, id, "fee", 0, o.RecipientID, o.FeeQuota); e != nil {
 			return e
 		}
 		o.Status = "paid"
@@ -599,6 +606,9 @@ func GetMerchantStoreOrder(actor int, id string) (*MerchantStoreOrder, error) {
 		o.CheckoutURL = ""
 	}
 	o.PaymentIssued = o.GatewaySnapshot != "" || o.ProviderSessionID != ""
+	if e := storeOrderEmailViews(DB, actor, []*MerchantStoreOrder{&o}); e != nil {
+		return nil, e
+	}
 	return &o, nil
 }
 func ListMerchantStoreOrders(actor int, seller bool, offset, limit int) ([]MerchantStoreOrder, error) {
@@ -619,6 +629,13 @@ func ListMerchantStoreOrders(actor int, seller bool, offset, limit int) ([]Merch
 		for i := range rows {
 			rows[i].CheckoutURL = ""
 		}
+	}
+	if e == nil && !seller {
+		views := make([]*MerchantStoreOrder, len(rows))
+		for i := range rows {
+			views[i] = &rows[i]
+		}
+		e = storeOrderEmailViews(DB, actor, views)
 	}
 	return rows, e
 }
