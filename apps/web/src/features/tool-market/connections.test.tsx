@@ -42,6 +42,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { marketAPI } = await import('./api')
+const { marketSupports } = await import('./api')
 const { metaDelegationAPI } = await import('./meta-delegation-api')
 const { metaDelegationCopy } = await import('./meta-delegation-copy')
 const metaOriginals = { ...metaDelegationAPI }
@@ -75,6 +76,11 @@ const config = {
   quota_per_unit: 500000,
   web_client_id: 'web-market',
   mcp_path: '/mcp/market',
+  capabilities: {
+    service_deletion: true,
+    client_record_cleanup: true,
+    meta_delegation: true,
+  },
 }
 const record = {
   id: 'token-test',
@@ -113,7 +119,11 @@ function element<T extends Element>(container: HTMLElement, selector: string) {
 function previewText(container: HTMLElement) {
   return element<HTMLPreElement>(container, 'pre').textContent ?? ''
 }
-async function mount(onChooseClient: (clientID: string) => void) {
+async function mount(
+  onChooseClient: (clientID: string) => void,
+  marketConfig: typeof config | Omit<typeof config, 'capabilities'> = config,
+  configure?: () => void
+) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'test', role: 1 })
   metaDelegationAPI.oauthClients = async () => []
   marketAPI.mine = (async () => []) as typeof marketAPI.mine
@@ -125,6 +135,7 @@ async function mount(onChooseClient: (clientID: string) => void) {
   marketAPI.grant = async () =>
     assert.fail('Navigation must not authorize payment')
   marketAPI.invoke = async () => assert.fail('Navigation must not call a tool')
+  configure?.()
   const cache = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   })
@@ -136,7 +147,10 @@ async function mount(onChooseClient: (clientID: string) => void) {
     root.render(
       <QueryClientProvider client={cache}>
         <I18nextProvider i18n={i18n}>
-          <MarketConnections config={config} onChooseClient={onChooseClient} />
+          <MarketConnections
+            config={marketConfig}
+            onChooseClient={onChooseClient}
+          />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -164,6 +178,39 @@ afterEach(async () => {
   document.body.replaceChildren()
 })
 after(() => dom.close())
+
+test('only explicit boolean capabilities enable newer endpoints', () => {
+  assert.equal(marketSupports(undefined, 'meta_delegation'), false)
+  const { capabilities: _, ...legacy } = config
+  for (const capability of [
+    'service_deletion',
+    'client_record_cleanup',
+    'meta_delegation',
+  ] as const) {
+    assert.equal(marketSupports(legacy, capability), false)
+    assert.equal(
+      marketSupports(
+        {
+          ...config,
+          capabilities: { ...config.capabilities, [capability]: false },
+        },
+        capability
+      ),
+      false
+    )
+    assert.equal(
+      marketSupports(
+        {
+          ...config,
+          capabilities: { ...config.capabilities, [capability]: 'true' },
+        } as unknown as typeof config,
+        capability
+      ),
+      false
+    )
+    assert.equal(marketSupports(config, capability), true)
+  }
+})
 
 const accessGrant = {
   id: 'grant-test',
@@ -591,6 +638,85 @@ async function enableManage(container: HTMLElement) {
     await flush()
   })
 }
+
+test('legacy config keeps token creation and revocation usable without any new meta or cleanup request', async () => {
+  const { capabilities: _, ...legacy } = config
+  let tokenCalls = 0
+  const { container, cache } = await mount(
+    () => {},
+    legacy,
+    () => {
+      metaDelegationAPI.oauthClients = async () =>
+        assert.fail('Legacy config must not query meta OAuth targets')
+      metaDelegationAPI.get = async () =>
+        assert.fail('Legacy config must not read a meta delegation')
+      metaDelegationAPI.set = async () =>
+        assert.fail('Legacy token creation must not append meta delegation')
+      marketAPI.removeClient = async () =>
+        assert.fail('Legacy config must not delete client history')
+      marketAPI.removeTokenRecord = async () =>
+        assert.fail('Legacy config must not delete token history')
+      marketAPI.removeGrantRecord = async () =>
+        assert.fail('Legacy config must not delete authorization history')
+      marketAPI.token = async (client, permissions) => {
+        tokenCalls++
+        assert.equal(permissions?.can_manage, true)
+        return {
+          token: secret,
+          record: { ...record, client_id: client, can_manage: true },
+        }
+      }
+    }
+  )
+  assert.equal(container.textContent?.includes(metaDelegationCopy.title), false)
+  await enableManage(container)
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(
+    () =>
+      container.querySelector<HTMLInputElement>('#mcp-secret')?.value === secret
+  )
+  assert.equal(tokenCalls, 1)
+  const state = {
+    tokens: [{ ...record, can_manage: true }],
+    grants: [accessGrant],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  let revoked = 0
+  marketAPI.revokeToken = async (id) => {
+    assert.equal(id, record.id)
+    revoked++
+    state.tokens = [{ ...record, can_manage: true, revoked_at: 1 }]
+    return null
+  }
+  const current = element<HTMLElement>(
+    container,
+    '[data-testid="market-client-list"]'
+  )
+  await act(async () => {
+    button(current, 'Revoke').click()
+    await flush()
+  })
+  await waitFor(() => revoked === 1)
+  state.grants = [{ ...accessGrant, revoked_at: 1 }]
+  await clientRecords(cache, state)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  for (const title of [
+    'Delete client',
+    'Delete connection token',
+    'Delete authorization',
+  ]) {
+    assert.equal(history.textContent?.includes(title), false)
+  }
+  assert.equal(history.textContent?.includes('my-agent'), true)
+  assert.equal(container.textContent?.includes(metaDelegationCopy.title), false)
+})
 
 test('real connection creation delegates free AI management only after explicit manage consent', async () => {
   const { container, cache } = await mount(() => {})

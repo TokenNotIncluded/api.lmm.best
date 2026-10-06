@@ -45,6 +45,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   marketAPI,
+  marketSupports,
   MarketAPIError,
   type CallResponse,
   type Grant,
@@ -175,6 +176,7 @@ function ToolMarketWorkspace() {
     },
   })
   const requestDelete = (service: MarketService) => {
+    if (!marketSupports(config.data, 'service_deletion')) return
     deletion.reset()
     setDeleteTarget(service)
   }
@@ -229,6 +231,10 @@ function ToolMarketWorkspace() {
     queryKey: [...key, 'config'],
     queryFn: marketAPI.config,
   })
+  const serviceDeletionSupported = marketSupports(
+    config.data,
+    'service_deletion'
+  )
   const catalog = useQuery({
     queryKey: [...key, 'catalog', search, offset, executionType],
     queryFn: () => marketAPI.list(search, offset, executionType),
@@ -459,7 +465,9 @@ function ToolMarketWorkspace() {
           destructive
           isLoading={deletion.isPending}
           handleConfirm={() => {
-            if (deleteTarget) deletion.mutate(deleteTarget.id)
+            if (serviceDeletionSupported && deleteTarget) {
+              deletion.mutate(deleteTarget.id)
+            }
           }}
         >
           {deletion.isError && (
@@ -718,8 +726,9 @@ function ToolMarketWorkspace() {
                                 {t('Edit draft')}
                               </Button>
                             )}
-                          {(current.service.owner_id === user?.id ||
-                            (user?.role ?? 0) >= 10) &&
+                          {serviceDeletionSupported &&
+                            (current.service.owner_id === user?.id ||
+                              (user?.role ?? 0) >= 10) &&
                             current.version.execution_type !== 'builtin' && (
                               <Button
                                 variant='outline'
@@ -1356,13 +1365,15 @@ function ToolMarketWorkspace() {
                           </p>
                         </div>
                         <div className='flex flex-wrap gap-2'>
-                          <Button
-                            variant='outline'
-                            disabled={deletion.isPending}
-                            onClick={() => requestDelete(item)}
-                          >
-                            {t('Delete')}
-                          </Button>
+                          {serviceDeletionSupported && (
+                            <Button
+                              variant='outline'
+                              disabled={deletion.isPending}
+                              onClick={() => requestDelete(item)}
+                            >
+                              {t('Delete')}
+                            </Button>
+                          )}
                           {item.draft_version_id && (
                             <Button
                               variant='outline'
@@ -1597,13 +1608,15 @@ function ToolMarketWorkspace() {
                             >
                               {t('Review')}
                             </Button>
-                            <Button
-                              variant='outline'
-                              disabled={deletion.isPending}
-                              onClick={() => requestDelete(item)}
-                            >
-                              {t('Delete')}
-                            </Button>
+                            {serviceDeletionSupported && (
+                              <Button
+                                variant='outline'
+                                disabled={deletion.isPending}
+                                onClick={() => requestDelete(item)}
+                              >
+                                {t('Delete')}
+                              </Button>
+                            )}
                           </div>
                         </div>
                       ))}
