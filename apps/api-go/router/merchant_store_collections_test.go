@@ -23,6 +23,14 @@ func TestMerchantStoreCatalogueCollectionRoutesUseActualAccountAndCurrentFacts(t
 	response = shopRequest(engine, "PUT", "/api/store/products/"+product.ID+"/catalogue", sellerToken, `{"custom_tags":["custom annotation"],"auto_delivery":true,"ai_processing":false,"default_variant_id":"caller-cannot-change-this"}`)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	require.NotContains(t, response.Body.String(), "default_variant_id")
+	response = shopRequest(engine, "GET", "/api/store/products?tag=custom%20annotation&stock=in_stock&auto_delivery=true&sort=newest", "", "")
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), product.ID)
+	require.Contains(t, response.Body.String(), `"net_paid_quantity":0`)
+	for _, query := range []string{"auto_delivery=1", "stock=in_stock&stock=out_of_stock", "sort=arbitrary"} {
+		response = shopRequest(engine, "GET", "/api/store/products?"+query, "", "")
+		require.Equal(t, 422, response.Code, response.Body.String())
+	}
 	response = shopRequest(engine, "PUT", "/api/store/cart", rootToken, `{"product_id":"`+product.ID+`","quantity":1,"user_id":`+strconv.Itoa(seller.Id)+`}`)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	var body struct {
