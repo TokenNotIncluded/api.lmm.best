@@ -70,6 +70,10 @@ func merchantStorePickupEmailMessage(email merchantStorePickupEmail) ([]byte, st
 			subject = "商店订单查询验证码"
 			content = "商店订单查询验证码：" + email.verificationCode + "\r\n\r\n验证码仅用于验证此邮箱的订单查询权限，10 分钟内有效。若不是你本人操作，请忽略此邮件。请勿将验证码提供给他人。\r\n"
 		}
+		htmlContent, err = renderMerchantStoreVerificationEmail(subject, email.verificationCode)
+		if err != nil {
+			return nil, "", "", errMerchantStoreEmail
+		}
 	} else {
 		content, htmlContent, err = renderMerchantStorePickupEmail(email)
 		if err != nil {
@@ -243,8 +247,15 @@ func processMerchantStorePickupEmailBatch(ctx context.Context, limit int, sender
 			return processed, err
 		}
 		errorCode := ""
-		email, err := model.GetMerchantStoreOrderDeliveryEmail(row.BuyerID, row.OrderID)
-		if errors.Is(err, model.ErrMerchantStoreEmailUnverified) || (err == nil && email == "") {
+		payload, err := model.GetMerchantStoreEmailDeliveryPayload(row.ID, row.LeaseToken)
+		if errors.Is(err, model.ErrMerchantStoreEmailDeliveryClosed) {
+			if err := model.CloseMerchantStoreEmailDelivery(row.ID, row.LeaseToken); err != nil {
+				return processed, err
+			}
+			processed++
+			continue
+		}
+		if errors.Is(err, model.ErrMerchantStoreEmailUnverified) {
 			if err := model.DeferMerchantStoreEmailVerification(row.ID, row.LeaseToken); err != nil {
 				return processed, err
 			}
@@ -252,27 +263,16 @@ func processMerchantStorePickupEmailBatch(ctx context.Context, limit int, sender
 			continue
 		}
 		if err != nil {
-			errorCode = "buyer_unavailable"
-		} else if _, err := merchantStoreMailAddress(email); err != nil {
+			errorCode = "delivery_unavailable"
+		} else if _, err := merchantStoreMailAddress(payload.Destination); err != nil {
 			errorCode = "buyer_email_unavailable"
-		}
-		token, err := model.GetMerchantStoreOrderPickupToken(row.BuyerID, row.OrderID)
-		if err != nil {
-			errorCode = "pickup_unavailable"
-		}
-		order, err := model.GetMerchantStorePaymentOrder(row.OrderID)
-		if err != nil || order == nil || order.BuyerID != row.BuyerID || (order.Status != "paid" && order.Status != "refund_pending") || !order.EmailPickupLink {
-			errorCode = "order_unavailable"
 		}
 		origin, err := merchantStorePublicOrigin()
 		if err != nil {
 			errorCode = "origin_unavailable"
 		}
 		if errorCode == "" {
-			details, err := model.GetMerchantStoreOrderPickupDetails(row.BuyerID, row.OrderID)
-			if err != nil {
-				errorCode = "order_details_unavailable"
-			} else if err := sender(ctx, merchantStorePickupEmail{destination: email, tradeNo: order.TradeNo, pickupURL: origin + "/store/claim/" + token, details: details}); err != nil {
+			if err := sender(ctx, merchantStorePickupEmail{destination: payload.Destination, tradeNo: payload.TradeNo, pickupURL: origin + "/store/claim/" + payload.PickupToken, details: payload.Details}); err != nil {
 				errorCode = "smtp_delivery_failed"
 			}
 		}

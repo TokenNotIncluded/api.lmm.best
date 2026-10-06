@@ -87,9 +87,11 @@ func TestMerchantStorePickupEmailRejectsHeaderInjectionAndSeparatesVerification(
 	message, _, _, err = merchantStorePickupEmailMessage(email)
 	require.NoError(t, err)
 	bodies = merchantStoreEmailTestBodies(t, message)
-	require.Len(t, bodies, 1)
+	require.Len(t, bodies, 2)
 	require.Contains(t, bodies["text/plain"], "123456")
 	require.NotContains(t, bodies["text/plain"], "/store/claim/")
+	require.Contains(t, bodies["text/html"], "123456")
+	require.NotContains(t, bodies["text/html"], "/store/claim/")
 	email.verificationCode = "１２３４５６"
 	_, _, _, err = merchantStorePickupEmailMessage(email)
 	require.Error(t, err)

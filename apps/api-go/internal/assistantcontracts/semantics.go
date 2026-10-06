@@ -7,6 +7,20 @@ import "go/ast"
 // Normal request fields continue to come from the decoder's real Go type.
 func (g *generator) refine(name string, c *contract) {
 	switch name {
+	case "GetMerchantStoreGuestEmailStatus", "SendMerchantStoreGuestEmailVerification":
+		c.body = object(map[string]any{"email": map[string]any{"type": "string", "maxLength": 254}})
+		c.body["required"], c.body["additionalProperties"] = []string{"email"}, false
+		c.hasBody, c.unknown = true, false
+		c.notes = append(c.notes, "Guest identity comes only from the X-Store-Guest header. This proves one normalized address for that guest; it does not grant order search, account authentication, or a pickup capability.")
+	case "ConfirmMerchantStoreGuestEmailVerification":
+		c.body = object(map[string]any{
+			"email":        map[string]any{"type": "string", "maxLength": 254},
+			"challenge_id": map[string]any{"type": "string", "minLength": 36, "maxLength": 36},
+			"code":         map[string]any{"type": "string", "pattern": "^[0-9]{6}$"},
+		})
+		c.body["required"], c.body["additionalProperties"] = []string{"email", "challenge_id", "code"}, false
+		c.hasBody, c.unknown = true, false
+		c.notes = append(c.notes, "Confirm the challenge issued for the exact email and X-Store-Guest identity. Address changes require a new challenge; confirmation never returns delivery content or a pickup link.")
 	case "CreateWalletTransfer":
 		// The raw compatibility request and the public denomination request
 		// are mutually exclusive. RawMessage alone cannot describe that rule.
