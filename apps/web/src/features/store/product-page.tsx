@@ -16,8 +16,9 @@ import { Label } from '@/components/ui/label'
 import { Markdown } from '@/components/ui/markdown'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { storeApi } from './api'
+import { StoreAPIError, storeApi } from './api'
 import { StoreMerchantIdentity } from './merchant-identity'
+import { StoreProductPromotion } from './product-promotion'
 import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
 import {
   storeCheckoutCapacity,
@@ -39,6 +40,7 @@ import type {
   StorePaymentMethod,
   StoreProduct,
 } from './types'
+import { useStoreProductPromotion } from './use-store-product-promotion'
 import {
   paymentLabel,
   continueStorePayment,
@@ -59,9 +61,11 @@ import {
 export function StoreProductPage({
   id,
   ownerPreview = false,
+  promotionCode = '',
 }: {
   id: string
   ownerPreview?: boolean
+  promotionCode?: string
 }) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
@@ -169,9 +173,10 @@ export function StoreProductPage({
           )}
         </section>
         <StoreCheckout
-          key={`${product.id}-${user?.id || 'guest'}`}
+          key={`${product.id}-${user?.id || 'guest'}-${promotionCode}`}
           product={product}
           ownerPreview={ownerPreview}
+          promotionCode={promotionCode}
         />
       </div>
     </div>
@@ -181,9 +186,11 @@ export function StoreProductPage({
 export function StoreCheckout({
   product,
   ownerPreview = false,
+  promotionCode: initialPromotionCode = '',
 }: {
   product: StoreProduct
   ownerPreview?: boolean
+  promotionCode?: string
 }) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
@@ -199,6 +206,7 @@ export function StoreCheckout({
   const variantCapacity = storeVariantCapacity(product, variantId)
   const unitPrice = storeVariantPrice(product, variantId)
   const [method, setMethod] = useState<StorePaymentMethod | ''>('')
+  const [promotionCode, setPromotionCode] = useState(initialPromotionCode)
   const [code, setCode] = useState('')
   const [email, setEmail] = useState('')
   const [open, setOpen] = useState(false)
@@ -213,25 +221,59 @@ export function StoreCheckout({
     setRead(false)
     setAcknowledged(false)
   }, [disclaimer.data?.version])
-  const actualMethod = method || product.payment_methods?.[0] || ''
   const count = storeQuantity(quantity)
-  const capacity = storeCheckoutCapacity(
-    {
-      ...product,
-      available_stock: variantCapacity,
-      price_quota: unitPrice ?? 0,
-    },
-    actualMethod
-  )
-  // A stock refresh, changed variant or tighter allowance must update the
-  // visible quantity before another order can be submitted.
+  const promotion = useStoreProductPromotion({
+    product,
+    variantId,
+    quantity: count,
+    code: promotionCode,
+    userId: user?.id,
+  })
+  const free = promotion.quote?.free === true
+  const promotionEligible = promotion.quote?.checkout_allowed === true
+  const paymentMethods = promotion.supplied
+    ? promotion.quote?.payment_methods.filter(
+        (item): item is StorePaymentMethod => item !== 'free'
+      ) || []
+    : product.payment_methods || []
+  const actualMethod = free
+    ? 'free'
+    : paymentMethods.includes(method as StorePaymentMethod)
+      ? method
+      : paymentMethods[0] || ''
   useEffect(() => {
+    const scoped = promotion.resolved?.variant_ids
+    if (
+      !variantId &&
+      scoped?.length === 1 &&
+      selectedStoreVariant(product, scoped[0])
+    ) {
+      setVariantId(scoped[0])
+    }
+  }, [variantId, promotion.resolved, product])
+  // Product availability uses the original seller fee. Promotion quotes check
+  // the discounted fee, stock, sales and buyer limit together on the server.
+  const capacity = promotion.supplied
+    ? Math.min(
+        promotion.quote?.max_quantity ?? 0,
+        free || actualMethod === 'balance' ? 1000 : 100
+      )
+    : storeCheckoutCapacity(
+        { ...product, available_stock: variantCapacity, price_quota: unitPrice ?? 0 },
+        actualMethod === 'free' ? '' : actualMethod
+      )
+  // A pending promotion request has no new maximum yet. Keep the buyer
+  // quantity while it loads; only a resolved limit may clamp the selection.
+  useEffect(() => {
+    if (promotion.supplied && !promotion.quote) return
     setQuantity((current) => storeClampQuantity(current, capacity))
-  }, [capacity])
+  }, [capacity, promotion.supplied, promotion.quote])
   let total: number | undefined
   try {
     if (count !== undefined && unitPrice !== undefined) {
-      total = storeTotal(unitPrice, count)
+      total = promotion.supplied
+        ? promotion.quote?.price_quota
+        : storeTotal(unitPrice, count)
     }
   } catch {
     /* invalid input remains disabled */
@@ -244,16 +286,18 @@ export function StoreCheckout({
   const valid =
     !!user &&
     total !== undefined &&
+    (free || total > 0) &&
     count !== undefined &&
     count <= capacity &&
-    !product.trading_paused &&
+    (!product.trading_paused || promotionEligible) &&
     (product.test_mode === true
       ? ownerPreview &&
         product.seller_id === user?.id &&
         ['draft', 'pending', 'published'].includes(product.status)
       : product.status === 'published') &&
     !!actualMethod &&
-    product.payment_methods?.includes(actualMethod) &&
+    (free || paymentMethods.includes(actualMethod as StorePaymentMethod)) &&
+    (!promotion.supplied || promotion.quote?.checkout_allowed === true) &&
     (code ? codeValid : !product.pickup_code_required) &&
     (pickupEmail ? emailValid : !product.email_pickup_link)
   async function checkout(accept = false) {
@@ -281,6 +325,7 @@ export function StoreCheckout({
         legacyVariantProduct(product) ? '' : variantId,
         quantity,
         actualMethod,
+        promotion.quote?.promotion_code || '',
         code,
         pickupEmail,
       ])
@@ -290,7 +335,10 @@ export function StoreCheckout({
         product_id: product.id,
         ...(!legacyVariantProduct(product) ? { variant_id: variantId } : {}),
         quantity: count,
-        payment_method: actualMethod as StorePaymentMethod,
+        payment_method: actualMethod as StorePaymentMethod | 'free',
+        ...(promotion.quote
+          ? { promotion_code: promotion.quote.promotion_code }
+          : {}),
         request_key: requestKey,
         ...(!product.official && version
           ? { disclaimer_version: version }
@@ -315,6 +363,29 @@ export function StoreCheckout({
       setBusy(false)
     }
   }
+  const resultNeedsPayment =
+    result?.order.status === 'pending' &&
+    result.order.payment_method !== 'free' &&
+    result.order.price_quota > 0
+  function paymentError(issue: unknown) {
+    setError(issue)
+    if (
+      issue instanceof StoreAPIError &&
+      issue.code === 'STORE_PAYMENT_MINIMUM' &&
+      issue.orderCancelled === true &&
+      issue.orderStatus === 'cancelled' &&
+      issue.orderId === result?.order.id
+    ) {
+      // Only the server can confirm that no payment obligation was issued.
+      // A fresh quote must reclaim the released promotion use and buyer limits.
+      setResult(null)
+      setPayment(null)
+      keys.current.clear()
+      setMethod(paymentMethods.includes('balance') ? 'balance' : '')
+      promotion.refresh()
+      void client.invalidateQueries({ queryKey: ['store', 'orders', user?.id] })
+    }
+  }
   return (
     <aside className='bg-card space-y-4 rounded-lg border p-5 lg:sticky lg:top-24'>
       <div className='space-y-1'>
@@ -329,11 +400,13 @@ export function StoreCheckout({
         </div>
         <p className='text-muted-foreground text-xs'>
           {t('Unit price')} ·{' '}
-          {t('Stock: {{count}}', { count: variantCapacity })}
+          {t('Stock: {{count}}', {
+            count: promotion.quote ? capacity : variantCapacity,
+          })}
         </p>
       </div>
       <StoreError error={error} />
-      {product.trading_paused && (
+      {product.trading_paused && !promotionEligible && (
         <p className='text-muted-foreground text-sm'>
           {t('This product or payment method is currently unavailable.')}
         </p>
@@ -349,7 +422,7 @@ export function StoreCheckout({
           <p className='text-muted-foreground text-xs break-all'>
             {result.order.trade_no}
           </p>
-          {result.order.status === 'pending' && !payment && (
+          {resultNeedsPayment && !payment && (
             <Button
               className='w-full'
               disabled={busy}
@@ -370,7 +443,7 @@ export function StoreCheckout({
                       )
                     }
                   })
-                  .catch((issue) => setError(issue))
+                  .catch(paymentError)
                   .finally(() => setBusy(false))
               }}
             >
@@ -381,59 +454,56 @@ export function StoreCheckout({
               )}
             </Button>
           )}
-          {result.order.status === 'pending' &&
-            payment?.status === 'pending' && (
-              <div className='space-y-3'>
-                <p className='text-sm'>
-                  {t('Actual payment')}:{' '}
-                  <strong>
-                    {payment.amount} {payment.currency}
-                  </strong>
-                </p>
-                <Button
-                  className='w-full'
-                  disabled={busy}
-                  onClick={() => {
-                    if (busy) return
-                    setBusy(true)
-                    setError(null)
-                    void storeApi
-                      .pay(result.order.id, payment.currency)
-                      .then(async (current) => {
-                        setPayment(
-                          current.status === 'pending' ? current : null
+          {resultNeedsPayment && payment?.status === 'pending' && (
+            <div className='space-y-3'>
+              <p className='text-sm'>
+                {t('Actual payment')}:{' '}
+                <strong>
+                  {payment.amount} {payment.currency}
+                </strong>
+              </p>
+              <Button
+                className='w-full'
+                disabled={busy}
+                onClick={() => {
+                  if (busy) return
+                  setBusy(true)
+                  setError(null)
+                  void storeApi
+                    .pay(result.order.id, payment.currency)
+                    .then(async (current) => {
+                      setPayment(current.status === 'pending' ? current : null)
+                      if (current.status !== 'pending') {
+                        const authoritative = await storeApi.order(
+                          result.order.id
                         )
-                        if (current.status !== 'pending') {
-                          const authoritative = await storeApi.order(
-                            result.order.id
-                          )
-                          setResult((previous) =>
-                            previous
-                              ? { ...previous, order: authoritative }
-                              : previous
-                          )
-                          await client.invalidateQueries({
-                            queryKey: ['store', 'orders', user?.id],
-                          })
-                          return
-                        }
-                        // Revalidate the frozen session before leaving; changed quotes need another click.
-                        if (
-                          current.amount_minor !== payment.amount_minor ||
-                          current.currency !== payment.currency
-                        ) {
-                          return
-                        }
-                        continueStorePayment(current)
-                      })
-                      .catch((issue) => setError(issue))
-                      .finally(() => setBusy(false))
-                  }}
-                >
-                  {t('Continue to payment')}
-                </Button>
-              </div>
-            )}
+                        setResult((previous) =>
+                          previous
+                            ? { ...previous, order: authoritative }
+                            : previous
+                        )
+                        await client.invalidateQueries({
+                          queryKey: ['store', 'orders', user?.id],
+                        })
+                        return
+                      }
+                      // Revalidate the frozen session before leaving; changed quotes need another click.
+                      if (
+                        current.amount_minor !== payment.amount_minor ||
+                        current.currency !== payment.currency
+                      ) {
+                        return
+                      }
+                      continueStorePayment(current)
+                    })
+                    .catch(paymentError)
+                    .finally(() => setBusy(false))
+                }}
+              >
+                {t('Continue to payment')}
+              </Button>
+            </div>
+          )}
           <Button
             variant='outline'
             className='w-full'
@@ -444,6 +514,10 @@ export function StoreCheckout({
         </div>
       ) : (
         <>
+          <StoreProductPromotion
+            promotion={promotion}
+            onRemove={() => setPromotionCode('')}
+          />
           {!legacyVariantProduct(product) && (
             <fieldset className='space-y-2'>
               <legend className='text-sm font-medium'>
@@ -466,14 +540,22 @@ export function StoreCheckout({
                     checked={variantId === variant.id}
                     onChange={() => setVariantId(variant.id)}
                     disabled={
-                      variant.trading_paused || variant.sale_available <= 0
+                      !(
+                        promotion.resolved &&
+                        (promotion.resolved.variant_ids.length === 0 ||
+                          promotion.resolved.variant_ids.includes(variant.id))
+                      ) &&
+                      (variant.trading_paused || variant.sale_available <= 0)
                     }
                   />
                   <span className='min-w-0 flex-1 break-words'>
                     {variant.name || t('Default variant')}
                     <span className='text-muted-foreground block text-xs'>
                       {t('Available to buy: {{count}}', {
-                        count: variant.sale_available,
+                        count:
+                          promotion.quote?.variant_id === variant.id
+                            ? promotion.quote.max_quantity
+                            : variant.sale_available,
                       })}
                     </span>
                   </span>
@@ -507,31 +589,33 @@ export function StoreCheckout({
               })}
             </p>
           )}
-          <fieldset className='space-y-2'>
-            <legend className='mb-2 text-sm font-medium'>
-              {t('Payment method')}
-            </legend>
-            {product.payment_methods?.map((item) => (
-              <label
-                key={item}
-                className='has-[:checked]:border-primary flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm'
-              >
-                <input
-                  type='radio'
-                  name='store-payment'
-                  value={item}
-                  checked={actualMethod === item}
-                  onChange={() => setMethod(item)}
-                />
-                {t(paymentLabel(item))}
-              </label>
-            ))}
-            {!product.payment_methods?.length && (
-              <p className='text-muted-foreground text-sm'>
-                {t('This seller has no available payment method.')}
-              </p>
-            )}
-          </fieldset>
+          {!free && (
+            <fieldset className='space-y-2'>
+              <legend className='mb-2 text-sm font-medium'>
+                {t('Payment method')}
+              </legend>
+              {paymentMethods.map((item) => (
+                <label
+                  key={item}
+                  className='has-[:checked]:border-primary flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm'
+                >
+                  <input
+                    type='radio'
+                    name='store-payment'
+                    value={item}
+                    checked={actualMethod === item}
+                    onChange={() => setMethod(item)}
+                  />
+                  {t(paymentLabel(item))}
+                </label>
+              ))}
+              {!paymentMethods.length && !promotion.supplied && (
+                <p className='text-muted-foreground text-sm'>
+                  {t('This seller has no available payment method.')}
+                </p>
+              )}
+            </fieldset>
+          )}
           <div className='space-y-2'>
             <div className='flex items-center justify-between gap-2'>
               <Label htmlFor='store-pickup-code'>{t('Pickup code')}</Label>
@@ -612,14 +696,16 @@ export function StoreCheckout({
               }
               onClick={() => void checkout()}
             >
-              {t(busy ? 'Creating order...' : 'Place order')}
+              {t(
+                busy ? 'Creating order...' : free ? 'Free claim' : 'Place order'
+              )}
             </Button>
           ) : (
             <Button
               className='w-full'
               render={
                 <a
-                  href={`/sign-in?redirect=${encodeURIComponent(`/store/products/${product.id}`)}`}
+                  href={`/sign-in?redirect=${encodeURIComponent(`/store/products/${product.id}${promotion.supplied ? `?promotion=${encodeURIComponent(promotion.supplied)}` : ''}`)}`}
                 />
               }
             >

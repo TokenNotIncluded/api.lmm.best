@@ -44,6 +44,7 @@ import { StoreLinkPresetChooser } from './link-presets'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
+import { StorePromotionCodes } from './promotion-codes'
 import { storePurchaseLimit } from './purchase-limits'
 import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
 import { StoreSalesLimit } from './sales-limit'
@@ -122,6 +123,9 @@ function StoreSellerCenter() {
   const [inventory, setInventory] = useState<StoreProduct | null>(null)
   const [aiReviewId, setAIReviewId] = useState<string | null>(null)
   const [promoting, setPromoting] = useState<StoreProduct | null>(null)
+  const [promotionCodes, setPromotionCodes] = useState<StoreProduct | null>(
+    null
+  )
   const [lifecycle, setLifecycle] = useState<{
     product: StoreProduct
     kind: 'unlist' | 'delete'
@@ -265,6 +269,13 @@ function StoreSellerCenter() {
                       onClick={() => setInventory(product)}
                     >
                       {t('Add inventory')}
+                    </Button>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      onClick={() => setPromotionCodes(product)}
+                    >
+                      {t('Promotion codes')}
                     </Button>
                     {!product.test_mode &&
                       ['draft', 'rejected'].includes(product.status) && (
@@ -506,6 +517,13 @@ function StoreSellerCenter() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {promotionCodes && (
+        <StorePromotionCodes
+          key={promotionCodes.id}
+          product={promotionCodes}
+          onClose={() => setPromotionCodes(null)}
+        />
+      )}
       {editing !== null && (
         <StoreProductEditor
           key={editing === 'new' ? 'new' : editing.id}

@@ -31,6 +31,9 @@ type Envelope<T> = {
   success: boolean
   code?: string
   message?: string
+  order_id?: string
+  order_status?: string
+  order_cancelled?: boolean
   data: T
 }
 function errorMessage(body?: { code?: unknown; message?: unknown }) {
@@ -49,18 +52,45 @@ function errorMessage(body?: { code?: unknown; message?: unknown }) {
     ? body.message
     : 'Store request failed'
 }
+export class StoreAPIError extends Error {
+  readonly code?: string
+  readonly orderId?: string
+  readonly orderStatus?: string
+  readonly orderCancelled?: boolean
+  constructor(body?: {
+    code?: unknown
+    message?: unknown
+    order_id?: unknown
+    order_status?: unknown
+    order_cancelled?: unknown
+  }) {
+    super(errorMessage(body))
+    this.name = 'StoreAPIError'
+    this.code = typeof body?.code === 'string' ? body.code : undefined
+    this.orderId =
+      typeof body?.order_id === 'string' ? body.order_id : undefined
+    this.orderStatus =
+      typeof body?.order_status === 'string' ? body.order_status : undefined
+    this.orderCancelled =
+      typeof body?.order_cancelled === 'boolean'
+        ? body.order_cancelled
+        : undefined
+  }
+}
 async function unwrap<T>(request: Promise<{ data: Envelope<T> }>) {
   let response: { data: Envelope<T> }
   try {
     response = await request
   } catch (error) {
     const body = (
-      error as { response?: { data?: { code?: unknown; message?: unknown } } }
+      error as {
+        response?: { data?: ConstructorParameters<typeof StoreAPIError>[0] }
+      }
     )?.response?.data
-    throw new Error(errorMessage(body))
+    throw new StoreAPIError(body)
   }
   if (response.data.success !== true) {
-    throw new Error(errorMessage(response.data))
+    throw new StoreAPIError(response.data)
   }
   return response.data.data
 }

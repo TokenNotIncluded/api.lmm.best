@@ -125,7 +125,8 @@ export interface StoreOrder {
   unit_price_quota: number
   price_quota: number
   fee_quota: number
-  payment_method: StorePaymentMethod
+  payment_method: StorePaymentMethod | 'free'
+  promotion_code?: string
   status:
     | 'pending'
     | 'paid'
@@ -224,7 +225,8 @@ export interface StoreCheckoutInput {
   variant_id?: string
   product_id: string
   quantity: number
-  payment_method: StorePaymentMethod
+  payment_method: StorePaymentMethod | 'free'
+  promotion_code?: string
   request_key: string
   disclaimer_version?: string
   pickup_code?: string

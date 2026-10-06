@@ -87,7 +87,8 @@ export function continueStorePayment(
   }
 }
 
-export function paymentLabel(method: StorePaymentMethod) {
+export function paymentLabel(method: StorePaymentMethod | 'free') {
+  if (method === 'free') return 'Free claim'
   if (method === 'balance') return 'Balance payment'
   if (method.endsWith('waffo_pancake')) return 'Waffo Pancake'
   if (method === 'platform:linuxdo') return 'Linux DO payment'
