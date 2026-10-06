@@ -1,0 +1,94 @@
+package model
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/url"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+// Synthetic test-only probe. The capability-one production source is exactly
+// signed 1b639247; no migration, seed, provider payment, or production lookup.
+func TestMerchantStoreCapabilityOneVariantProbe(t *testing.T) {
+	require.Equal(t, 1, MerchantStoreWriterCapability)
+	schemaName := os.Getenv("MERCHANT_STORE_CAP1_PROBE_SCHEMA")
+	require.True(t, regexp.MustCompile(`^lmm_merchant_store_test_[a-f0-9]{32}$`).MatchString(schemaName))
+	dsn, err := merchantStoreLocalPostgresDSN(os.Getenv("MERCHANT_STORE_POSTGRES_TEST_DSN"))
+	require.NoError(t, err)
+	u, err := url.Parse(dsn)
+	require.NoError(t, err)
+	query := u.Query()
+	query.Set("search_path", schemaName)
+	query.Set("application_name", schemaName+"_cap1")
+	query.Set("statement_timeout", "10000")
+	query.Set("lock_timeout", "5000")
+	u.RawQuery = query.Encode()
+	db, err := gorm.Open(postgres.New(postgres.Config{DSN: u.String(), PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(2)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	require.NoError(t, sqlDB.PingContext(ctx))
+	cancel()
+	DB, LOG_DB, common.RedisEnabled = db, db, false
+	usePostgresDatabaseType(t)
+	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "C5wmMzDh1QsVZb0saEW9ulAPzVN87Boqv3DK6eIrKXc2YLfg")
+	buyer, err := strconv.Atoi(os.Getenv("MERCHANT_STORE_CAP1_PROBE_BUYER"))
+	require.NoError(t, err)
+	seller, err := strconv.Atoi(os.Getenv("MERCHANT_STORE_CAP1_PROBE_SELLER"))
+	require.NoError(t, err)
+	require.Positive(t, buyer)
+	require.Positive(t, seller)
+	productID := os.Getenv("MERCHANT_STORE_CAP1_PROBE_PRODUCT")
+	product, err := GetMerchantStoreProduct(seller, productID)
+	require.NoError(t, err)
+	status, err := GetMerchantStoreWriterGateStatus(db)
+	require.NoError(t, err)
+	require.Equal(t, 2, status.RequiredCapability)
+	require.Equal(t, 1, status.WriterCapability)
+	require.False(t, status.NewWritesAllowed)
+	require.False(t, status.SupportsVariants)
+	snapshot := func() string {
+		parts := []string{}
+		for _, table := range merchantStorePGTables(t, db, schemaName) {
+			var rows string
+			quoted := pgx.Identifier{schemaName, table}.Sanitize()
+			require.NoError(t, db.Raw("SELECT COALESCE(string_agg(row_to_json(s)::text, E'\\n' ORDER BY row_to_json(s)::text),'') FROM "+quoted+" AS s").Scan(&rows).Error)
+			parts = append(parts, table, rows)
+		}
+		hash := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+		return hex.EncodeToString(hash[:])
+	}
+	before := snapshot()
+	_, _, err = CreateMerchantStoreOrder(MerchantStoreCheckoutInput{BuyerID: buyer, ProductID: productID, Quantity: 1, PaymentMethod: "balance", RequestKey: "actual-capability-one-must-freeze"})
+	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+	_, err = SaveMerchantStoreProduct(seller, productID, MerchantStoreProductInput{Title: "Must never edit", PriceQuota: product.PriceQuota, Template: product.Template, PaymentMethods: product.PaymentMethods})
+	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+	_, err = AddMerchantStoreStock(seller, productID, []string{"MUST-NEVER-IMPORT"})
+	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+	after := snapshot()
+	require.Equal(t, before, after, "all owned-table rows remain unchanged after actual capability-one checkout/edit/import rejections")
+	t.Logf("actual compiled capability=1 required=2; checkout/edit/import rejected; owned-row fingerprint before=%s after=%s", before, after)
+	orderID := os.Getenv("MERCHANT_STORE_CAP1_PROBE_PAID_ORDER")
+	token, err := GetMerchantStoreOrderPickupToken(buyer, orderID)
+	require.NoError(t, err)
+	claim, err := ClaimMerchantStoreOrder(token, "", buyer)
+	require.NoError(t, err)
+	require.Equal(t, []string{"PAID-BEFORE-ACTIVATION"}, claim.Items)
+	t.Log("actual capability-one frozen paid-order pickup passed at gate 2")
+}
