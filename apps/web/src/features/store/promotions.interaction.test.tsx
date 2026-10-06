@@ -519,11 +519,20 @@ test('quantity change discards the old quote and free orders keep server sales/b
     document.body.textContent?.includes('Promotion code applied'),
     false
   )
+  assert.equal(
+    document.querySelector<HTMLInputElement>('#store-quantity')!.value,
+    '2',
+    'a pending quote has no new maximum and cannot silently reduce the buyer quantity'
+  )
   await act(async () => {
     release!(envelope(quote(2)))
     await flush()
   })
   assert.equal(button('Free claim').disabled, false)
+  assert.equal(
+    document.querySelector<HTMLInputElement>('#store-quantity')!.value,
+    '2'
+  )
   assert.equal(
     document.querySelector('#store-quantity')?.getAttribute('aria-valuemax'),
     '2'

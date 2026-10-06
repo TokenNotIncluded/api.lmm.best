@@ -16,15 +16,48 @@ import { StoreDeliveredItem } from './delivered-item'
 import { deliveryItemText } from './delivery-template'
 import { CopyStoreValue } from './shared'
 
-export function StoreClaimItems({
+interface StoreClaimItemsProps {
+  items: string[]
+  itemStockIds?: string[]
+  itemPositions?: number[]
+  variantName?: string
+  deliveryTemplate?: string
+}
+
+export function StoreClaimItems(props: StoreClaimItemsProps) {
+  const positions =
+    props.itemPositions?.length === props.items.length &&
+    props.itemPositions.every(
+      (value) => Number.isSafeInteger(value) && value > 0
+    ) &&
+    new Set(props.itemPositions).size === props.items.length
+      ? props.itemPositions
+      : props.items.map((_, index) => index + 1)
+  const stockIds =
+    props.itemStockIds?.length === props.items.length &&
+    props.itemStockIds.every(
+      (value) => typeof value === 'string' && value.length > 0
+    ) &&
+    new Set(props.itemStockIds).size === props.items.length
+      ? props.itemStockIds
+      : undefined
+  return (
+    <StoreClaimSelection
+      key={JSON.stringify([stockIds, positions])}
+      {...props}
+      positions={positions}
+      stockIds={stockIds}
+    />
+  )
+}
+
+function StoreClaimSelection({
   items,
   variantName,
   deliveryTemplate,
-}: {
-  items: string[]
-  variantName?: string
-  deliveryTemplate?: string
-}) {
+  positions,
+  stockIds,
+}: StoreClaimItemsProps & { positions: number[]; stockIds?: string[] }) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState<Set<number>>(() => new Set())
   const selectedItems = items.filter((_, index) => selected.has(index))
@@ -78,10 +111,14 @@ export function StoreClaimItems({
       </div>
       <FieldGroup className='gap-4'>
         {items.map((item, index) => {
-          const itemId = `pickup-item-${index}`
+          const position = positions[index]
+          const itemId = `pickup-item-${position - 1}`
           const selectionId = `${itemId}-selected`
           return (
-            <div key={index} className='flex min-w-0 flex-col gap-3'>
+            <div
+              key={stockIds?.[index] || position}
+              className='flex min-w-0 flex-col gap-3'
+            >
               <Field orientation='horizontal'>
                 <Checkbox
                   id={selectionId}
@@ -96,13 +133,13 @@ export function StoreClaimItems({
                   }}
                 />
                 <FieldLabel htmlFor={selectionId}>
-                  {t('Select item {{number}}', { number: index + 1 })}
+                  {t('Select item {{number}}', { number: position })}
                 </FieldLabel>
               </Field>
               <StoreDeliveredItem
                 raw={item}
                 template={deliveryTemplate}
-                index={index}
+                index={position - 1}
                 variantName={variantName}
               />
             </div>

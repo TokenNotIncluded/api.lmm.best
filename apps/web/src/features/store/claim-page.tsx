@@ -154,6 +154,8 @@ function StoreClaimContent({ token }: { token: string }) {
           <StoreClaimItems
             key={claim.order_id}
             items={claim.items}
+            itemStockIds={claim.item_stock_ids}
+            itemPositions={claim.item_positions}
             deliveryTemplate={claim.delivery_template}
             variantName={claim.variant_name || metadata.variant_name}
           />

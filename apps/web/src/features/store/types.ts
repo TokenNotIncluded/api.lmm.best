@@ -270,12 +270,14 @@ export interface StoreClaim {
   product_description?: string
   product_links?: StoreLink[]
   items: string[]
+  item_stock_ids?: string[]
+  item_positions?: number[]
 }
 export interface StoreStock {
   variant_id?: string | null
   id: string
   product_id: string
-  state: 'available' | 'reserved' | 'delivered'
+  state: 'available' | 'reserved' | 'delivered' | 'refunded'
   created_at: number
 }
 export interface StorePromotion {

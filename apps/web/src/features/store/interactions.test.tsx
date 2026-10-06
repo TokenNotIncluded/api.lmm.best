@@ -69,6 +69,7 @@ const { useWalletCurrencyPreferenceStore } =
 const { api } = await import('@/lib/api')
 const { StoreCheckout, StoreProductPage } = await import('./product-page')
 const { StoreClaimPage } = await import('./claim-page')
+const { StoreClaimItems } = await import('./claim-items')
 const { StoreGatewayEditor } = await import('./settings-page')
 const { StoreSettingsPage } = await import('./settings-page')
 const { StorePaymentCategoriesForm } = await import('./payment-categories')
@@ -998,6 +999,59 @@ test('pickup shows the merchant specification for each key and safely renders au
     'pickup never looks up a public product endpoint'
   )
 })
+test('a partial refund preserves original item numbers and clears selection for the changed delivery set', async () => {
+  let update: React.Dispatch<
+    React.SetStateAction<{
+      items: string[]
+      positions: number[]
+      ids: string[]
+    }>
+  >
+  const writes: string[] = []
+  dom.navigator.clipboard.writeText = async (value) => {
+    writes.push(value)
+  }
+  function RemainingDelivery() {
+    const [value, setValue] = useState({
+      items: ['first purchased card', 'second purchased card'],
+      positions: [1, 2],
+      ids: ['first-stock-id', 'second-stock-id'],
+    })
+    update = setValue
+    return (
+      <StoreClaimItems
+        items={value.items}
+        itemPositions={value.positions}
+        itemStockIds={value.ids}
+        variantName='商家任意规格'
+      />
+    )
+  }
+  await mount(<RemainingDelivery />)
+  await click(document.querySelector<HTMLElement>('[role="checkbox"]')!)
+  assert.equal(button('Copy selected items').disabled, false)
+  await act(async () => {
+    update!({
+      items: ['second purchased card'],
+      positions: [2],
+      ids: ['second-stock-id'],
+    })
+    await flush()
+  })
+  assert.equal(
+    button('Copy selected items').disabled,
+    true,
+    'old selection cannot silently select another card'
+  )
+  assert.equal(document.body.textContent?.includes('Select item 2'), true)
+  assert.equal(document.body.textContent?.includes('Select item 1'), false)
+  assert.ok(document.querySelector('#pickup-item-1'))
+  assert.equal(document.querySelector('#pickup-item-0'), null)
+  await click(document.querySelector<HTMLElement>('[role="checkbox"]')!)
+  await click(button('Copy selected items'))
+  assert.equal(writes.at(-1), 'second purchased card')
+})
+
 test('pickup selection and private details reset when the account or pickup token changes', async () => {
   owner(2)
   api.get = (async () =>

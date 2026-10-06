@@ -259,13 +259,17 @@ export function StoreCheckout({
         free || actualMethod === 'balance' ? 1000 : 100
       )
     : storeCheckoutCapacity(
-        { ...product, available_stock: variantCapacity, price_quota: unitPrice ?? 0 },
+        {
+          ...product,
+          available_stock: variantCapacity,
+          price_quota: unitPrice ?? 0,
+        },
         actualMethod === 'free' ? '' : actualMethod
       )
-  // A pending promotion request has no new maximum yet. Keep the buyer
-  // quantity while it loads; only a resolved limit may clamp the selection.
+  // Promotion quotes are tied to the chosen quantity. Keep that selection
+  // while quoting; the trusted maximum disables an invalid purchase.
   useEffect(() => {
-    if (promotion.supplied && !promotion.quote) return
+    if (promotion.supplied) return
     setQuantity((current) => storeClampQuantity(current, capacity))
   }, [capacity, promotion.supplied, promotion.quote])
   let total: number | undefined
