@@ -112,7 +112,6 @@ import type {
 } from '../types'
 import { CreemProductsSection } from './creem-products-section'
 import { PlatformCreditHelp } from './platform-credit-help'
-import { WalletTokenCloud } from './wallet-token-cloud'
 
 interface RechargeFormCardProps {
   topupInfo: TopupInfo | null
@@ -628,7 +627,7 @@ export function RechargeFormCard({
                               key={preset.value}
                               variant='outline'
                               className={cn(
-                                'relative isolate flex h-auto min-h-28 min-w-0 flex-col items-start justify-start gap-2 overflow-hidden rounded-lg px-3 py-3 text-left whitespace-normal transition-colors [&_.wallet-token-cloud]:opacity-30',
+                                'relative isolate flex h-auto min-h-28 min-w-0 flex-col items-start justify-start gap-2 overflow-hidden rounded-lg px-3 py-3 text-left whitespace-normal transition-colors',
                                 activeSelectedPreset === preset.value
                                   ? 'border-primary bg-primary/10 text-foreground ring-1 ring-primary/30 hover:bg-primary/15 dark:border-primary dark:bg-primary/10 dark:hover:bg-primary/15'
                                   : 'border-border/70 bg-background hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/5'
@@ -658,12 +657,6 @@ export function RechargeFormCard({
                                 .filter(Boolean)
                                 .join(' · ')}
                             >
-                              <WalletTokenCloud
-                                amount={currency.quotaToLegacyAmount(
-                                  preset.value
-                                )}
-                                variant='preset'
-                              />
                               <div className='pointer-events-none relative z-10 flex w-full min-w-0 flex-col items-start gap-1'>
                                 <div
                                   data-slot='wallet-credit-value'
