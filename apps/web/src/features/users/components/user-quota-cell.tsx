@@ -48,6 +48,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   formatCumulativeUserUsage,
+  formatRawCreditCount,
   normalizedUserUsage,
 } from '@/lib/cumulative-user-usage'
 import { formatQuota } from '@/lib/format'
@@ -76,9 +77,9 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
   }
   const normalized = normalizedUserUsage(usage)
   const total =
-    normalized === null
+    normalized === null || (props.transferred ?? 0) !== 0
       ? null
-      : normalized + props.remaining + (props.transferred ?? 0)
+      : normalized + props.remaining
   const percentage =
     total !== null && total > 0 ? (props.remaining / total) * 100 : 0
   const formattedRemaining = formatQuota(props.remaining)
@@ -127,7 +128,8 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
             {t('Remaining:')} {formattedRemaining}
           </div>
           <div>
-            {t('Transferred out')}: {formatQuota(props.transferred ?? 0)}
+            {t('Transferred out')}:{' '}
+            {formatRawCreditCount(props.transferred ?? 0, t('Credits'))}
           </div>
           <div>
             {t('Total:')} {formattedTotal}

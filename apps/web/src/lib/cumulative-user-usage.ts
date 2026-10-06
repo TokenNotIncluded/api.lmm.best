@@ -33,7 +33,15 @@ export function formatCumulativeUserUsage(
 ): string {
   const normalized = normalizedUserUsage(user)
   if (normalized !== null) return formatNormalized(normalized)
-  const raw = user?.used_quota
+  return formatRawCreditCount(user?.used_quota, creditLabel, locale)
+}
+
+/** Raw audit counters carry no current fiat valuation or inferred scale. */
+export function formatRawCreditCount(
+  raw: number | null | undefined,
+  creditLabel: string,
+  locale?: ConstructorParameters<typeof Intl.NumberFormat>[0]
+): string {
   if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 0) {
     return '-'
   }

@@ -56,7 +56,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatCumulativeUserUsage } from '@/lib/cumulative-user-usage'
+import {
+  formatCumulativeUserUsage,
+  formatRawCreditCount,
+} from '@/lib/cumulative-user-usage'
 import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -301,9 +304,15 @@ function UserMobileRow({ row }: { row: Row<User> }) {
             </p>
             <p className='text-muted-foreground text-xs'>
               {t('Transferred out')}:{' '}
-              {formatQuota(user.wallet_risk?.transferred_quota ?? 0)} ·{' '}
-              {t('Received transfers')}:{' '}
-              {formatQuota(user.wallet_risk?.received_quota ?? 0)}
+              {formatRawCreditCount(
+                user.wallet_risk?.transferred_quota ?? 0,
+                t('Credits')
+              )}{' '}
+              · {t('Received transfers')}:{' '}
+              {formatRawCreditCount(
+                user.wallet_risk?.received_quota ?? 0,
+                t('Credits')
+              )}
             </p>
           </MobileMetric>
           <MobileMetric label={t('Top-up')}>
