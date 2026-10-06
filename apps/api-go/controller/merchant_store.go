@@ -74,6 +74,12 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusTooManyRequests, "STORE_EMAIL_VERIFICATION_COOLDOWN", "Wait one minute before requesting another email verification code."
 	case errors.Is(err, model.ErrMerchantStoreUnavailable):
 		status, code, message = http.StatusConflict, "STORE_TRADING_PAUSED", "This product or payment method is currently unavailable."
+	case errors.Is(err, model.ErrMerchantStoreDiscountUnavailable):
+		status, code, message = http.StatusConflict, "STORE_PROMOTION_UNAVAILABLE", "Store promotion unavailable"
+	case errors.Is(err, model.ErrMerchantStoreDiscountLimit):
+		status, code, message = http.StatusConflict, "STORE_PROMOTION_LIMIT", "Store promotion limit reached"
+	case errors.Is(err, service.ErrMerchantStorePaymentMinimum):
+		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_MINIMUM", "Payment amount is below the gateway minimum; choose balance"
 	case errors.Is(err, service.ErrMerchantStorePaymentConfiguration):
 		status, code, message = http.StatusConflict, "STORE_PAYMENT_CONFIGURATION", "This payment method needs a valid configuration."
 	case errors.Is(err, service.ErrMerchantStorePaymentVerification):
@@ -85,7 +91,15 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 	}
 	// Database, gateway, crypto and provider errors can contain credentials or
 	// private delivery data. Never serialize their raw error strings.
-	c.AbortWithStatusJSON(status, gin.H{"success": false, "code": code, "message": message})
+	response := gin.H{"success": false, "code": code, "message": message}
+	var minimum *service.MerchantStorePaymentMinimumError
+	if errors.As(err, &minimum) {
+		response["order_id"], response["order_status"], response["order_cancelled"] = minimum.OrderID, minimum.OrderStatus, minimum.OrderCancelled
+		if !minimum.OrderCancelled {
+			response["message"] = "The order or product state has changed. Please refresh."
+		}
+	}
+	c.AbortWithStatusJSON(status, response)
 }
 
 func merchantStorePage(c *gin.Context) (int, int, bool) {

@@ -27,6 +27,11 @@ type MerchantStoreOrder struct {
 	Quantity                   int    `json:"quantity"`
 	UnitPriceQuota             int    `json:"unit_price_quota" gorm:"type:bigint"`
 	PriceQuota                 int    `json:"price_quota" gorm:"type:bigint"`
+	OriginalPriceQuota         int    `json:"original_price_quota" gorm:"type:bigint;not null;default:0"`
+	DiscountQuota              int    `json:"discount_quota" gorm:"type:bigint;not null;default:0"`
+	DiscountBPS                int    `json:"discount_bps" gorm:"not null;default:0"`
+	PromotionID                string `json:"promotion_id" gorm:"type:varchar(36);not null;default:'';index"`
+	PromotionCode              string `json:"promotion_code" gorm:"type:varchar(128);not null;default:''"`
 	FeeQuota                   int    `json:"fee_quota" gorm:"type:bigint"`
 	FeeBPS                     int    `json:"fee_bps"`
 	RecipientID                int    `json:"-"`
@@ -78,6 +83,7 @@ type MerchantStoreCheckoutInput struct {
 	Quantity          int    `json:"quantity"`
 	RequestKey        string `json:"request_key"`
 	PaymentMethod     string `json:"payment_method"`
+	PromotionCode     string `json:"promotion_code"`
 	PickupCode        string `json:"pickup_code"`
 	PickupEmail       string `json:"pickup_email"`
 	DisclaimerVersion string `json:"disclaimer_version"`
@@ -122,6 +128,9 @@ func storeCheckoutDigest(in MerchantStoreCheckoutInput) string {
 	if in.VariantID != "" && in.VariantID != MerchantStoreDefaultVariantID(in.ProductID) {
 		values = append(values, in.VariantID)
 	}
+	if in.PromotionCode != "" {
+		values = append(values, []any{"promotion", in.PromotionCode})
+	}
 	return marketDigest(values)
 }
 func storeAcceptDisclaimer(tx *gorm.DB, in MerchantStoreCheckoutInput, official bool) error {
@@ -156,11 +165,12 @@ func HasMerchantStoreDisclaimerAcceptance(buyerID int) (bool, error) {
 }
 func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrder, bool, error) {
 	var e error
+	in.PromotionCode = strings.TrimSpace(in.PromotionCode)
 	in.PickupEmail, e = NormalizeMerchantStorePickupEmail(in.PickupEmail)
 	if e != nil {
 		return nil, false, e
 	}
-	if in.BuyerID <= 0 || in.Quantity < 1 || in.Quantity > 1000 || in.RequestKey == "" || len(in.RequestKey) > 128 || !storePaymentMethod(in.PaymentMethod) || len(in.PickupCode) > 72 || len(in.VariantID) > 36 {
+	if in.BuyerID <= 0 || in.Quantity < 1 || in.Quantity > 1000 || in.RequestKey == "" || len(in.RequestKey) > 128 || (!storePaymentMethod(in.PaymentMethod) && in.PaymentMethod != "free") || len(in.PickupCode) > 72 || len(in.VariantID) > 36 || len(in.PromotionCode) > 128 {
 		return nil, false, ErrMerchantStoreInput
 	}
 	var o MerchantStoreOrder
@@ -209,10 +219,26 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if e != nil {
 			return e
 		}
-		if e = storeRequirePaymentCategory(tx, seller.Id, in.PaymentMethod); e != nil {
+		if variant.PriceQuota <= 0 || variant.PriceQuota > common.MaxWalletQuota/in.Quantity {
+			return ErrMerchantStoreInput
+		}
+		originalPrice := variant.PriceQuota * in.Quantity
+		promotion, price, e := storeDiscountCodeTx(tx, p, in.PromotionCode, variant.ID, in.Quantity, originalPrice)
+		if e != nil {
 			return e
 		}
-		if in.PaymentMethod != "balance" {
+		free := promotion != nil && promotion.DiscountBPS == 10000 && price == 0
+		// Zero-price fulfilment requires an explicit, validated full discount.
+		// Keep it inside this transaction: stock and both quantity limits follow.
+		if free != (in.PaymentMethod == "free") {
+			return ErrMerchantStoreInput
+		}
+		if !free {
+			if e = storeRequirePaymentCategory(tx, seller.Id, in.PaymentMethod); e != nil {
+				return e
+			}
+		}
+		if !free && in.PaymentMethod != "balance" {
 			if in.Quantity > 100 {
 				return ErrMerchantStoreInput
 			}
@@ -234,7 +260,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if e = storeCheckPurchaseLimits(tx, p, buyer.Id, in.Quantity); e != nil {
 			return e
 		}
-		allowed := false
+		allowed := free
 		for _, method := range p.PaymentMethods {
 			if method == in.PaymentMethod {
 				allowed = true
@@ -249,10 +275,6 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if p.EmailPickupLink && in.PickupEmail == "" {
 			return ErrMerchantStoreInput
 		}
-		if variant.PriceQuota <= 0 || variant.PriceQuota > common.MaxWalletQuota/in.Quantity {
-			return ErrMerchantStoreInput
-		}
-		price := variant.PriceQuota * in.Quantity
 		fee := storeFee(price, c.FeeBPS)
 		if seller.Role == common.RoleRootUser {
 			fee = 0
@@ -260,9 +282,11 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if seller.Quota < fee {
 			return ErrMerchantStoreBalance
 		}
-		var gateway MerchantStoreGateway
-		if e = tx.Where("seller_id = ? AND provider = ? AND enabled = ?", seller.Id, in.PaymentMethod, true).First(&gateway).Error; e != nil {
-			return ErrMerchantStoreUnavailable
+		if !free {
+			var gateway MerchantStoreGateway
+			if e = tx.Where("seller_id = ? AND provider = ? AND enabled = ?", seller.Id, in.PaymentMethod, true).First(&gateway).Error; e != nil {
+				return ErrMerchantStoreUnavailable
+			}
 		}
 		if strings.HasPrefix(in.PaymentMethod, "external:") {
 			if seller.Quota <= MerchantStoreExternalMinimumQuota {
@@ -287,6 +311,11 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		}
 		now := common.GetTimestamp()
 		o = MerchantStoreOrder{ID: id, BuyerID: buyer.Id, SellerID: seller.Id, ProductID: p.ID, VariantID: variant.ID, VariantName: variant.Name, ProductTitle: p.Title, DeliveryTemplate: variant.Template, Quantity: in.Quantity, UnitPriceQuota: variant.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: in.PickupCode != "", EmailPickupLink: in.PickupEmail != "", OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
+		o.OriginalPriceQuota = originalPrice
+		if promotion != nil {
+			o.PromotionID, o.PromotionCode = promotion.ID, promotion.Code
+			o.DiscountBPS, o.DiscountQuota = promotion.DiscountBPS, originalPrice-price
+		}
 		if in.PickupEmail != "" {
 			o.PickupEmailHash = storeHash(in.PickupEmail)
 			o.PickupEmailCiphertext, e = storeEncrypt("order-pickup-email", id, in.PickupEmail)
@@ -330,7 +359,13 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if r.RowsAffected != int64(in.Quantity) {
 			return ErrMerchantStoreStock
 		}
-		if in.PaymentMethod == "balance" {
+		if free {
+			// No wallet movement, fee hold, or gateway request exists for a gift.
+			o.Status, o.PaidAt, o.Currency = "paid", now, "CREDIT"
+			if e = storeOrderStock(tx.Model(&MerchantStoreStock{}), &o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
+				return e
+			}
+		} else if in.PaymentMethod == "balance" {
 			if e = storeDebit(tx, buyer.Id, price); e != nil {
 				return e
 			}

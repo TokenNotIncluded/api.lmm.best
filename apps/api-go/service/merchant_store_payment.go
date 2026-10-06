@@ -47,6 +47,20 @@ type MerchantStorePaymentSession struct {
 	Status      string            `json:"status"`
 }
 
+// The API exposes only these recovery facts, never raw gateway/database errors.
+// A minimum refusal may race first issuance; only confirmed cancellation lets
+// the buyer create a replacement balance order without retaining obligations.
+type MerchantStorePaymentMinimumError struct {
+	OrderID        string
+	OrderStatus    string
+	OrderCancelled bool
+}
+
+func (e *MerchantStorePaymentMinimumError) Error() string {
+	return ErrMerchantStorePaymentMinimum.Error()
+}
+func (e *MerchantStorePaymentMinimumError) Unwrap() error { return ErrMerchantStorePaymentMinimum }
+
 type merchantStorePaymentContext struct {
 	Provider        string                            `json:"provider"`
 	Config          merchantStoreGatewayConfig        `json:"config"`
@@ -357,6 +371,67 @@ func loadMerchantStorePaymentContext(order *model.MerchantStoreOrder) (merchantS
 	return context, nil
 }
 
+// A new gateway invoice must reach one actual settlement minor unit before
+// rounding. Never turn a fractional-cent price into a larger gateway bill.
+func merchantStoreDiscountPaymentMinimum(order *model.MerchantStoreOrder, rate string, pricing *paymentpricing.SettlementPricing) error {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil || !anchor.Equal(decimal.NewFromInt(merchantStoreCreditsPerUSD)) || order.PriceQuota <= 0 {
+		return ErrMerchantStorePaymentConfiguration
+	}
+	numerator := decimal.NewFromInt(int64(order.PriceQuota))
+	denominator := anchor
+	if pricing != nil {
+		quotaBasis, err := common.LegacyPricingQuotaPerUnit()
+		if err != nil || !quotaBasis.Equal(anchor) {
+			return ErrMerchantStorePaymentConfiguration
+		}
+		switch {
+		case pricing.UsesFixedCreditDenomination:
+			numerator = numerator.Mul(pricing.SettlementUnitsPerUSD)
+		case pricing.UsesSettlementUnitsPerPlatformUnit:
+			numerator = numerator.Mul(pricing.SettlementUnitsPerPlatformUnit)
+			denominator = quotaBasis
+		default:
+			numerator = numerator.Mul(pricing.SettlementUnitsPerUSD)
+			denominator = quotaBasis.Mul(pricing.PlatformUnitsPerUSD)
+		}
+	} else {
+		ratio, err := merchantStoreParsePositiveRate(rate)
+		if err != nil {
+			return err
+		}
+		numerator = numerator.Mul(ratio)
+	}
+	if !numerator.IsPositive() || !denominator.IsPositive() {
+		return ErrMerchantStorePaymentConfiguration
+	}
+	if numerator.Mul(decimal.NewFromInt(100)).LessThan(denominator) {
+		return ErrMerchantStorePaymentMinimum
+	}
+	return nil
+}
+
+func merchantStorePaymentPreparationFailure(order *model.MerchantStoreOrder, err error) error {
+	if !errors.Is(err, ErrMerchantStorePaymentMinimum) {
+		return err
+	}
+	if order == nil {
+		return ErrMerchantStorePaymentAccess
+	}
+	// The minimum check runs before binding an invoice or sending provider HTTP.
+	// Cancellation rechecks stock/payment obligations under the order's product
+	// lock. A concurrent issued/verified/unknown obligation refuses this cleanup.
+	cancelErr := model.CancelMerchantStoreOrder(order.BuyerID, order.ID)
+	if cancelErr != nil && !errors.Is(cancelErr, model.ErrMerchantStoreConflict) {
+		return cancelErr
+	}
+	current, loadErr := model.GetMerchantStorePaymentOrder(order.ID)
+	if loadErr != nil {
+		return loadErr
+	}
+	return &MerchantStorePaymentMinimumError{OrderID: current.ID, OrderStatus: current.Status, OrderCancelled: current.Status == "cancelled"}
+}
+
 func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, requestedCurrency string) error {
 	if order.GatewaySnapshot != "" {
 		context, err := loadMerchantStorePaymentContext(order)
@@ -419,6 +494,9 @@ func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, request
 	if err != nil {
 		return err
 	}
+	if err := merchantStoreDiscountPaymentMinimum(order, rate, platformPricing); err != nil {
+		return err
+	}
 	origin, err := merchantStoreCallbackOrigin()
 	if err != nil {
 		return err
@@ -460,6 +538,12 @@ func CreateMerchantStorePaymentSession(ctx context.Context, buyerID int, orderID
 	if order.PaymentMethod == MerchantStoreBalance {
 		return &MerchantStorePaymentSession{OrderID: order.ID, Method: "balance", Currency: "CREDIT", Status: order.Status}, nil
 	}
+	if order.PaymentMethod == "free" {
+		if order.Status != "paid" || order.PaidAt <= 0 || order.PriceQuota != 0 || order.DiscountBPS != 10000 || order.PromotionID == "" || order.FeeQuota != 0 || order.GatewaySnapshot != "" {
+			return nil, ErrMerchantStorePaymentAccess
+		}
+		return &MerchantStorePaymentSession{OrderID: order.ID, Method: "free", Currency: "CREDIT", Amount: "0", Status: order.Status}, nil
+	}
 	if order.Status != "pending" {
 		return nil, ErrMerchantStorePaymentAccess
 	}
@@ -468,7 +552,7 @@ func CreateMerchantStorePaymentSession(ctx context.Context, buyerID int, orderID
 	}
 	requestedCurrency = strings.ToUpper(strings.TrimSpace(requestedCurrency))
 	if err := prepareMerchantStorePaymentContext(order, requestedCurrency); err != nil {
-		return nil, err
+		return nil, merchantStorePaymentPreparationFailure(order, err)
 	}
 	order, err = model.GetMerchantStorePaymentOrder(orderID)
 	if err != nil {

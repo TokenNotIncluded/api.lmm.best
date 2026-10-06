@@ -31,7 +31,7 @@ type merchantStoreTablePlan struct {
 }
 
 var merchantStoreExpectedTables = []string{
-	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_refund_items", "merchant_store_refund_payment_bases", "merchant_store_refunds", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_variants", "merchant_store_verified_emails",
+	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_discount_codes", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_refund_items", "merchant_store_refund_payment_bases", "merchant_store_refunds", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_variants", "merchant_store_verified_emails",
 }
 
 func merchantStoreSourceSchemaPlan(t *testing.T) []merchantStoreTablePlan {
@@ -133,6 +133,12 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 		require.True(t, field.HasDefaultValue)
 		require.Empty(t, field.DefaultValue)
 	}
+	for _, fieldName := range []string{"OriginalPriceQuota", "DiscountQuota", "DiscountBPS", "PromotionID", "PromotionCode"} {
+		field := orderSchema.LookUpField(fieldName)
+		require.NotNil(t, field)
+		require.True(t, field.NotNull)
+		require.True(t, field.HasDefaultValue, "historical orders retain empty promotion snapshots")
+	}
 	stockIndexes := map[string][]string{}
 	for _, index := range byTable["merchant_store_stocks"].Indexes {
 		stockIndexes[index.Name] = index.Columns
@@ -142,7 +148,7 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 	encoded, e := json.MarshalIndent(struct {
 		Scope  string                   `json:"scope"`
 		Tables []merchantStoreTablePlan `json:"tables"`
-	}{Scope: "19 merchant-store tables in the final schema; refunds add three tables and no historical order columns; variants add one table and three stock/order columns, with no user, wallet or financial-history DDL", Tables: plan}, "", "  ")
+	}{Scope: "20 merchant-store tables in this source plan; refunds add three tables, discount codes add one table and five frozen order columns, variants add one table and three stock/order columns; no user, wallet or financial-history DDL", Tables: plan}, "", "  ")
 	require.NoError(t, e)
 	if output := os.Getenv("MERCHANT_STORE_SCHEMA_PLAN_OUTPUT"); output != "" {
 		file, e := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
