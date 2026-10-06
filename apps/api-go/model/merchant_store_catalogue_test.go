@@ -20,9 +20,14 @@ func storeCatalogueFixture(t *testing.T) storeFixture {
 
 func TestMerchantStoreCatalogueSalesIgnoreSelfGiftPendingAndOnlySubtractQuantityRefunds(t *testing.T) {
 	f := storeCatalogueFixture(t)
+	guest, err := CreateMerchantStoreGuestSession()
+	require.NoError(t, err)
+	require.Len(t, guest.GuestID, 36)
 	orders := []MerchantStoreOrder{
 		{ID: "real", TradeNo: "real", BuyerID: f.buyer.Id, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 5, PriceQuota: 2500000, Status: "paid", PaidAt: 10},
-		{ID: "guest", TradeNo: "guest", BuyerID: 0, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 2, PriceQuota: 1000000, Status: "paid", PaidAt: 10},
+		{ID: "guest", TradeNo: "guest", GuestID: guest.GuestID, BuyerID: 0, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 2, PriceQuota: 1000000, Status: "paid", PaidAt: 10},
+		{ID: "anonymous-not-guest", TradeNo: "anonymous-not-guest", BuyerID: 0, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 100, PriceQuota: 500000, Status: "paid", PaidAt: 10},
+		{ID: "invalid-guest", TradeNo: "invalid-guest", GuestID: "invalid", BuyerID: 0, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 100, PriceQuota: 500000, Status: "paid", PaidAt: 10},
 		{ID: "self", TradeNo: "self", BuyerID: f.seller.Id, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 500, PriceQuota: 500000, Status: "paid", PaidAt: 10},
 		{ID: "gift", TradeNo: "gift", BuyerID: f.buyer.Id, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 100, PriceQuota: 0, Status: "paid", PaidAt: 10},
 		{ID: "pending", TradeNo: "pending", BuyerID: f.buyer.Id, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 100, PriceQuota: 500000, Status: "pending"},

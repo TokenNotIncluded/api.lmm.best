@@ -88,7 +88,7 @@ func SetMerchantStoreCatalogueMetadata(actor int, id string, in MerchantStoreCat
 // manufacture or subtract delivered item sales.
 func storeCatalogueNetSalesSQL() string {
 	refunded := "COALESCE((SELECT SUM(r.quantity) FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND r.mode='quantity' AND r.completed_at>0),0)"
-	return "COALESCE((SELECT SUM(CASE WHEN o.quantity>" + refunded + " THEN o.quantity-" + refunded + " ELSE 0 END) FROM merchant_store_orders o WHERE o.product_id=merchant_store_products.id AND o.price_quota>0 AND o.buyer_id<>o.seller_id AND (o.paid_at>0 OR o.status='paid' OR o.verified_payment_issue_at>0)),0)"
+	return "COALESCE((SELECT SUM(CASE WHEN o.quantity>" + refunded + " THEN o.quantity-" + refunded + " ELSE 0 END) FROM merchant_store_orders o WHERE o.product_id=merchant_store_products.id AND o.price_quota>0 AND o.buyer_id<>o.seller_id AND (o.buyer_id>0 OR (o.buyer_id=0 AND LENGTH(COALESCE(o.guest_id,''))=36)) AND (o.paid_at>0 OR o.status='paid' OR o.verified_payment_issue_at>0)),0)"
 }
 
 func PopulateMerchantStoreCatalogue(tx *gorm.DB, p *MerchantStoreProduct) error {
@@ -120,8 +120,9 @@ func PopulateMerchantStoreCatalogue(tx *gorm.DB, p *MerchantStoreProduct) error 
 	if metadata.AIProcessing {
 		p.DisplayTags = append(p.DisplayTags, "ai_processing")
 	}
-	// Legacy installations without the refund table retain gross paid facts.
-	if tx.Migrator().HasTable(&MerchantStoreRefund{}) {
+	// Older floors cannot prove the guest identity/refund schema: unknown net
+	// sales remain null rather than executing newer-column SQL or faking gross.
+	if MerchantStoreCatalogueSupported() && tx.Migrator().HasTable(&MerchantStoreRefund{}) {
 		var net int64
 		if err := tx.Model(&MerchantStoreProduct{}).Where("merchant_store_products.id = ?", p.ID).Select(storeCatalogueNetSalesSQL()).Scan(&net).Error; err != nil {
 			return err
