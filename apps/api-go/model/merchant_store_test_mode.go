@@ -59,7 +59,7 @@ func GetMerchantStoreProductPreview(actor int, id string) (*MerchantStoreProduct
 		return nil, err
 	}
 	var p MerchantStoreProduct
-	if err := DB.Where("id = ? AND seller_id = ?", id, actor).First(&p).Error; err != nil {
+	if err := DB.Where("id = ? AND seller_id = ? AND status <> ?", id, actor, "deleted").First(&p).Error; err != nil {
 		return nil, err
 	}
 	if err := populateMerchantStoreProduct(DB, &p, true); err != nil {

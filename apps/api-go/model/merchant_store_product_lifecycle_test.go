@@ -57,6 +57,8 @@ func TestMerchantStoreDeletedProductCannotBeReadEditedOrReactivated(t *testing.T
 	}
 	_, err = GetPublicMerchantStoreProduct(f.product.ID)
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	_, err = GetMerchantStoreProductPreview(f.seller.Id, f.product.ID)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	_, err = ListMerchantStoreStock(f.seller.Id, f.product.ID, 0, 30)
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	public, err := ListPublicMerchantStoreProducts("", 0, 30)
