@@ -175,7 +175,11 @@ export const storeApi = {
   saveConfig: (
     body: Pick<
       StoreConfig,
-      'fee_bps' | 'promotion_quota' | 'recipient_id' | 'linuxdo_units_per_usd'
+      | 'fee_bps'
+      | 'promotion_quota'
+      | 'minimum_unit_price_quota'
+      | 'recipient_id'
+      | 'linuxdo_units_per_usd'
     >
   ) => unwrap<null>(api.put(`${root}/config`, body, options)),
   savePromotionPrice: (promotion_quota: number) =>

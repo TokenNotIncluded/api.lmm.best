@@ -82,6 +82,7 @@ export interface StoreOrder {
 export interface StoreConfig {
   fee_bps: number
   promotion_quota: number
+  minimum_unit_price_quota?: number
   recipient_id?: number
   linuxdo_units_per_usd?: string
   disclaimer_version: string

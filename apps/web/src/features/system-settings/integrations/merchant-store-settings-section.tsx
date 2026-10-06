@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { storeApi } from '@/features/store/api'
+import { STORE_MINIMUM_PRICE_COPY as copy } from '@/features/store/minimum-price-copy'
 import { StoreError, StoreLoading } from '@/features/store/shared'
 import type { StoreConfig } from '@/features/store/types'
 import { useMarketMoneyDraft } from '@/features/tool-market/money'
@@ -61,6 +62,9 @@ function StoreRootConfig({
   const { t } = useTranslation()
   const money = useWalletCurrency()
   const promotion = useMarketMoneyDraft(config.promotion_quota)
+  const minimum = useMarketMoneyDraft(
+    config.minimum_unit_price_quota ?? Number.NaN
+  )
   const [fee, setFee] = useState(String(config.fee_bps / 100))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -74,13 +78,20 @@ function StoreRootConfig({
         !/^\d+(\.\d{1,2})?$/.test(fee) ||
         bps < 0 ||
         bps > 10000 ||
-        !promotion.quota
+        !promotion.quota ||
+        (config.minimum_unit_price_quota !== undefined &&
+          minimum.quota === undefined)
       ) {
         throw new Error('Invalid amount')
       }
       await storeApi.saveConfig({
         fee_bps: bps,
         promotion_quota: promotion.quota,
+        ...(config.minimum_unit_price_quota === undefined
+          ? {}
+          : {
+              minimum_unit_price_quota: minimum.quota,
+            }),
       })
       await onSaved()
     } catch (issue) {
@@ -98,6 +109,19 @@ function StoreRootConfig({
       <form onSubmit={(event) => void save(event)} className='space-y-4'>
         <StoreError error={error} />
         <div className='grid gap-4 sm:grid-cols-2'>
+          {config.minimum_unit_price_quota !== undefined && (
+            <div className='space-y-2'>
+              <Label htmlFor='store-minimum-price'>
+                {t(copy.label)} ({money.label})
+              </Label>
+              <Input
+                id='store-minimum-price'
+                inputMode='decimal'
+                value={minimum.input}
+                onChange={(event) => minimum.setInput(event.target.value)}
+              />
+            </div>
+          )}
           <div className='space-y-2'>
             <Label htmlFor='store-fee'>{t('Seller fee')} (%)</Label>
             <Input

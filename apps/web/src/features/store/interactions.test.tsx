@@ -330,6 +330,49 @@ test('root store administration saves only fees and native promotion credits, wi
   assert.deepEqual(saved, { fee_bps: 200, promotion_quota: 500000 })
   assert.equal(document.querySelector('#store-linuxdo-rate'), null)
 })
+test('root can set the configured minimum to zero while preserving fee and promotion credits', async () => {
+  useAuthStore.getState().auth.setUser({ id: 2, role: 100, username: 'root' })
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  useSystemConfigStore.setState({
+    config: {
+      ...originalConfig,
+      currency: {
+        ...originalConfig.currency,
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+        quotaDisplayType: 'USD',
+        currencyUnit: 'credit',
+      },
+    },
+  })
+  api.get = (async () =>
+    result({
+      fee_bps: 100,
+      promotion_quota: 500000,
+      minimum_unit_price_quota: 750000,
+      platform_payment_methods: [],
+    })) as typeof api.get
+  let saved: unknown
+  api.put = (async (url: string, body: unknown) => {
+    assert.equal(url, '/api/store/config')
+    saved = body
+    return result(null)
+  }) as typeof api.put
+  await mount(<MerchantStoreSettingsSection />)
+  const minimum = document.querySelector<HTMLInputElement>(
+    '#store-minimum-price'
+  )
+  assert.ok(minimum)
+  await input(minimum, '0')
+  await click(button('Save store settings'))
+  assert.deepEqual(saved, {
+    fee_bps: 100,
+    promotion_quota: 500000,
+    minimum_unit_price_quota: 0,
+  })
+})
 for (const role of [1, 10]) {
   test(`store fee administration does not load or render for non-root role ${role}`, async () => {
     useAuthStore.getState().auth.setUser({ id: 2, role, username: 'seller' })
@@ -340,6 +383,67 @@ for (const role of [1, 10]) {
     await mount(<MerchantStoreSettingsSection />)
     assert.equal(document.querySelector('#store-fee'), null)
     assert.equal(document.querySelector('form'), null)
+  })
+}
+test('a missing minimum from an older API does not silently allow saving product prices', async () => {
+  await mount(
+    <StoreProductEditor
+      product={product}
+      allowedMethods={product.payment_methods}
+      onClose={() => {}}
+      onSaved={async () => {}}
+    />
+  )
+  assert.equal(button('Save draft').disabled, true)
+})
+for (const minimum of [0, 750000]) {
+  test(`product prices honor the configured minimum ${minimum} without changing raw credits`, async () => {
+    const saved: number[] = []
+    api.put = (async (_: string, body: { price_quota: number }) => {
+      saved.push(body.price_quota)
+      return result(product)
+    }) as typeof api.put
+    await mount(
+      <StoreProductEditor
+        product={product}
+        minimumPriceQuota={minimum}
+        allowedMethods={product.payment_methods}
+        onClose={() => {}}
+        onSaved={async () => {}}
+      />
+    )
+    const currency = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Price currency"]'
+    )
+    assert.ok(currency)
+    await act(async () => {
+      currency.value = 'CREDIT'
+      currency.dispatchEvent(new Event('change', { bubbles: true }))
+      await flush()
+    })
+    const price = document.querySelector<HTMLInputElement>('#store-price')
+    assert.ok(price)
+    await input(price, '500000')
+    await click(button('Save draft'))
+    if (minimum > 500000) {
+      assert.deepEqual(saved, [])
+      assert.match(
+        document.body.textContent || '',
+        /The unit price must be at least/
+      )
+      await input(price, String(minimum))
+      await click(button('Save draft'))
+      assert.deepEqual(saved, [minimum])
+    } else {
+      assert.deepEqual(saved, [500000])
+      await input(price, '0')
+      await click(button('Save draft'))
+      assert.deepEqual(
+        saved,
+        [500000],
+        'a disabled minimum does not enable free products'
+      )
+    }
   })
 }
 test('a previously selected disabled payment remains visible until explicitly removed and cannot be saved as available', async () => {
@@ -353,6 +457,7 @@ test('a previously selected disabled payment remains visible until explicitly re
   await mount(
     <StoreProductEditor
       product={{ ...product, payment_methods: ['balance'] }}
+      minimumPriceQuota={0}
       allowedMethods={[]}
       onClose={() => {}}
       onSaved={async () => {}}
@@ -701,6 +806,7 @@ test('seller local currency changes preserve integer credits and wallet preferen
   await mount(
     <StoreProductEditor
       allowedMethods={['balance']}
+      minimumPriceQuota={0}
       onClose={() => {}}
       onSaved={async () => {}}
     />

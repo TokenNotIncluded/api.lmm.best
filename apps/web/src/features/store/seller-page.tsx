@@ -15,9 +15,15 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import {
+  formatQuotaInCurrency,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
 import {
@@ -268,6 +274,7 @@ function StoreSellerCenter() {
           key={editing === 'new' ? 'new' : editing.id}
           product={editing === 'new' ? undefined : editing}
           allowedMethods={allowedMethods}
+          minimumPriceQuota={config.data?.minimum_unit_price_quota}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null)
@@ -347,16 +354,36 @@ function StoreSellerCenter() {
 export function StoreProductEditor({
   product,
   allowedMethods,
+  minimumPriceQuota,
   onClose,
   onSaved,
 }: {
   product?: StoreProduct
   allowedMethods: StorePaymentMethod[]
+  minimumPriceQuota?: number
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const money = useWalletCurrency()
   const price = useStoreMoneyDraft(product?.price_quota || EMPTY.price_quota)
+  const minimum =
+    Number.isSafeInteger(minimumPriceQuota) && (minimumPriceQuota ?? -1) >= 0
+      ? minimumPriceQuota
+      : undefined
+  const minimumAmount =
+    minimum === undefined
+      ? ''
+      : formatQuotaInCurrency(
+          minimum,
+          price.currency,
+          {
+            locale: getCurrencyFormattingLocale(i18n.language),
+            creditLabel: t('Credits'),
+            abbreviate: false,
+          },
+          money.config
+        )
   const [draft, setDraft] = useState<StoreProductInput>(() => ({
     ...EMPTY,
     ...product,
@@ -376,8 +403,14 @@ export function StoreProductEditor({
     setBusy(true)
     setError(null)
     try {
+      if (minimum === undefined) {
+        throw new Error(t('Loading...'))
+      }
       if (!price.quota || !draft.title.trim()) {
         throw new Error('Enter a valid title and price')
+      }
+      if (price.quota < minimum) {
+        throw new Error(t(minimumCopy.error, { amount: minimumAmount }))
       }
       if (
         draft.payment_methods.some((method) => !allowedMethods.includes(method))
@@ -483,11 +516,21 @@ export function StoreProductEditor({
                   required
                 />
               </div>
-              <p className='text-muted-foreground text-xs'>
-                {price.quota === undefined
-                  ? t('Invalid amount')
-                  : `${price.quota.toLocaleString()} ${t('Credits')}`}
-              </p>
+              {price.quota === undefined && (
+                <p className='text-destructive text-xs'>
+                  {t('Invalid amount')}
+                </p>
+              )}
+              {minimum !== undefined && minimum > 0 && (
+                <p className='text-muted-foreground text-xs'>
+                  {t(minimumCopy.current, { amount: minimumAmount })}
+                </p>
+              )}
+              {minimum === undefined && (
+                <p className='text-muted-foreground text-xs'>
+                  {t('Loading...')}
+                </p>
+              )}
             </div>
             <div className='space-y-2'>
               <Label htmlFor='store-contact'>{t('Seller contact')}</Label>
@@ -761,7 +804,12 @@ export function StoreProductEditor({
             >
               {t('Cancel')}
             </Button>
-            <Button type='submit' disabled={busy || price.quota === undefined}>
+            <Button
+              type='submit'
+              disabled={
+                busy || price.quota === undefined || minimum === undefined
+              }
+            >
               {t(busy ? 'Saving...' : 'Save draft')}
             </Button>
           </div>
