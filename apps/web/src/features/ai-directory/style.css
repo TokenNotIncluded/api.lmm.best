@@ -6,54 +6,35 @@
 }
 
 .ai-directory-intro {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 184px;
-  overflow: hidden;
-  padding: clamp(1.5rem, 4vw, 3rem);
-  border-radius: 20px;
-  background: color-mix(in oklch, var(--primary) 8%, var(--card));
-}
-
-.ai-directory-intro::after {
-  position: absolute;
-  right: -5rem;
-  bottom: -9rem;
-  width: 23rem;
-  height: 23rem;
-  border: 1px solid color-mix(in oklch, var(--primary) 18%, transparent);
-  border-radius: 50%;
-  content: '';
-  pointer-events: none;
+  gap: 1.5rem;
+  padding: 1.25rem;
+  border-radius: 12px;
+  background: var(--muted);
 }
 
 .ai-directory-intro h2 {
-  position: relative;
-  z-index: 1;
   max-width: 22ch;
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  font-size: 1.25rem;
   font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
 }
 
 .ai-directory-intro p {
-  position: relative;
-  z-index: 1;
   max-width: 55ch;
-  margin-top: 0.9rem;
+  margin-top: 0.5rem;
   color: var(--muted-foreground);
+  font-size: 0.875rem;
   line-height: 1.6;
 }
 
 .ai-directory-intro-symbol {
-  position: relative;
-  z-index: 1;
   display: grid;
-  width: clamp(5rem, 12vw, 8rem);
-  height: clamp(5rem, 12vw, 8rem);
+  width: 3rem;
+  height: 3rem;
   flex: none;
   place-items: center;
   border: 1px solid color-mix(in oklch, var(--primary) 25%, transparent);
@@ -63,8 +44,14 @@
 }
 
 .ai-directory-intro-symbol svg {
-  width: 57%;
-  height: 57%;
+  width: 70%;
+  height: 70%;
+}
+
+.ai-directory-help {
+  display: grid;
+  gap: 1rem;
+  margin-top: 3rem;
 }
 
 .ai-directory-tools {
@@ -76,7 +63,6 @@
 }
 
 .ai-sponsored-section {
-  margin-top: 1.5rem;
   overflow: hidden;
   border: 1px solid color-mix(in oklch, var(--primary) 22%, var(--border));
   border-radius: 16px;
@@ -106,7 +92,7 @@
 
 .ai-sponsored-empty {
   display: flex;
-  min-height: 6.5rem;
+  min-height: 3.5rem;
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
@@ -135,12 +121,21 @@
   padding: 1rem 1.4rem;
 }
 
+.ai-sponsored-item > :first-child {
+  overflow-wrap: anywhere;
+}
+
 .ai-sponsored-item:nth-child(odd) {
   border-right: 1px solid var(--border);
 }
 
 .ai-sponsored-item:nth-child(n + 3) {
   border-top: 1px solid var(--border);
+}
+
+.ai-sponsored-item:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+  border-right: 0;
 }
 
 .ai-sponsored-label {
@@ -322,8 +317,8 @@
 
 .ai-directory-groups {
   display: grid;
-  gap: 2.25rem;
-  margin-top: 2.25rem;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
 }
 
 .ai-directory-group-heading {
@@ -472,11 +467,7 @@
     width: 100%;
   }
   .ai-directory-intro {
-    min-height: 0;
-    padding: 1.4rem;
-  }
-  .ai-directory-intro h2 {
-    font-size: 1.6rem;
+    padding: 1rem;
   }
   .ai-directory-filters {
     flex-wrap: nowrap;
@@ -493,7 +484,7 @@
   }
   .ai-sponsored-empty {
     flex-wrap: wrap;
-    min-height: 5rem;
+    min-height: 3.5rem;
   }
   .ai-sponsored-item {
     flex-wrap: wrap;
