@@ -545,7 +545,7 @@ function ToolMarketWorkspace() {
                             void cache.invalidateQueries({
                               queryKey: [...key, 'reviews'],
                             })
-                            if (approved && selected.mode !== 'published') {
+                            if (approved && selected.mode === 'draft') {
                               const retired = {
                                 queryKey: [
                                   ...key,
@@ -564,7 +564,10 @@ function ToolMarketWorkspace() {
                                     : value
                                 )
                               })
-                            } else if (!approved) {
+                            } else if (
+                              !approved ||
+                              selected.mode === 'review'
+                            ) {
                               void cache.invalidateQueries({
                                 queryKey: [
                                   ...key,

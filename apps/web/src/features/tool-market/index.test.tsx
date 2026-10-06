@@ -845,6 +845,62 @@ test('catalog prices react to wallet units and rates while keeping native credit
   assert.equal(priced.tools[0].price_quota, 3500000)
 })
 
+for (const approved of [true, false]) {
+  test(`an AI ${approved ? 'published' : 'rejected'} service retains its administrator manual review entry`, async () => {
+    const applied = detail('AI decided service', 'remote', 100, 'public')
+    applied.service.owner_id = 7
+    applied.version.status = approved ? 'published' : 'rejected'
+    applied.service.draft_version_id = approved ? '' : applied.version.id
+    stubNavigation([applied])
+    marketAPI.reports = async () => []
+    marketAPI.reviews = async () => [applied.service]
+    const modes: string[] = []
+    marketAPI.detail = async (_, mode) => {
+      assert.ok(mode)
+      modes.push(mode)
+      return applied
+    }
+    api.defaults.adapter = async (config) => {
+      assert.ok(config.url?.endsWith('/ai-reviews'))
+      assert.equal(config.params?.version_id, applied.version.id)
+      return {
+        config,
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+        data: {
+          success: true,
+          data: {
+            rows: [
+              {
+                id: 1,
+                mode: 'auto',
+                status: 'completed',
+                applied: true,
+                outcome: approved ? 'approved' : 'rejected',
+                recommendation: approved ? 'approve' : 'reject',
+                categories: [],
+                error_code: null,
+                completed_at: 1,
+              },
+            ],
+          },
+        },
+      }
+    }
+    const { container } = await mount(10)
+    await waitFor(() => !!findButton('Review queue', container))
+    await click(button('Review queue', container))
+    await waitFor(() => !!findButton('Review', container))
+    await click(button('Review', container))
+    await waitFor(() => modes.length >= 2)
+    assert.ok(findButton('Approve and publish', container))
+    assert.ok(findButton('Reject', container))
+    assert.ok(container.querySelector('#market-review-note'))
+    assert.ok(modes.every((mode) => mode === 'review'))
+  })
+}
+
 for (const inflight of [false, true]) {
   test(`successful review retires draft queries without a false global error${inflight ? ' during an in-flight refresh' : ''}`, async () => {
     const pending = detail('Pending own service', 'remote', 100, 'public')
