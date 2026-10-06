@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const MerchantStoreWriterCapability = 1
+const MerchantStoreWriterCapability = 2
 const MerchantStoreWriterCapabilityOption = "MerchantStoreMinimumWriterCapability"
 
 var ErrMerchantStoreWriterFrozen = errors.New("merchant store writer is unavailable during an upgrade")

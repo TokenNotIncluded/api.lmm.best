@@ -20,6 +20,8 @@ type MerchantStoreOrder struct {
 	BuyerID                    int    `json:"buyer_id" gorm:"not null;index"`
 	SellerID                   int    `json:"seller_id" gorm:"not null;index"`
 	ProductID                  string `json:"product_id" gorm:"size:36;not null;index"`
+	VariantID                  string `json:"variant_id" gorm:"type:varchar(36);not null;default:''"`
+	VariantName                string `json:"variant_name" gorm:"type:varchar(200);not null;default:''"`
 	ProductTitle               string `json:"product_title" gorm:"size:200"`
 	DeliveryTemplate           string `json:"delivery_template" gorm:"type:varchar(32);not null;default:''"`
 	Quantity                   int    `json:"quantity"`
@@ -72,6 +74,7 @@ type MerchantStorePaymentReceipt struct {
 type MerchantStoreCheckoutInput struct {
 	BuyerID           int    `json:"-"`
 	ProductID         string `json:"product_id"`
+	VariantID         string `json:"variant_id"`
 	Quantity          int    `json:"quantity"`
 	RequestKey        string `json:"request_key"`
 	PaymentMethod     string `json:"payment_method"`
@@ -84,6 +87,8 @@ type MerchantStoreClaimMetadata struct {
 	Status               string `json:"status"`
 	OrderID              string `json:"order_id"`
 	ProductTitle         string `json:"product_title"`
+	VariantID            string `json:"variant_id"`
+	VariantName          string `json:"variant_name"`
 	DeliveryTemplate     string `json:"delivery_template"`
 	Quantity             int    `json:"quantity"`
 	PickupLoginRequired  bool   `json:"pickup_login_required"`
@@ -92,6 +97,8 @@ type MerchantStoreClaimMetadata struct {
 type MerchantStoreClaim struct {
 	OrderID          string   `json:"order_id"`
 	ProductTitle     string   `json:"product_title"`
+	VariantID        string   `json:"variant_id"`
+	VariantName      string   `json:"variant_name"`
 	DeliveryTemplate string   `json:"delivery_template"`
 	Items            []string `json:"items"`
 }
@@ -102,6 +109,11 @@ func storeCheckoutDigest(in MerchantStoreCheckoutInput) string {
 	// Preserve replay digests for orders placed before optional pickup email.
 	if in.PickupEmail != "" {
 		values = append(values, storeHash(in.PickupEmail))
+	}
+	// Preserve the legacy digest exactly for default/old requests. Never
+	// append an empty field and invalidate an already-paid request replay.
+	if in.VariantID != "" && in.VariantID != MerchantStoreDefaultVariantID(in.ProductID) {
+		values = append(values, in.VariantID)
 	}
 	return marketDigest(values)
 }
@@ -141,7 +153,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 	if e != nil {
 		return nil, false, e
 	}
-	if in.BuyerID <= 0 || in.Quantity < 1 || in.Quantity > 1000 || in.RequestKey == "" || len(in.RequestKey) > 128 || !storePaymentMethod(in.PaymentMethod) || len(in.PickupCode) > 72 {
+	if in.BuyerID <= 0 || in.Quantity < 1 || in.Quantity > 1000 || in.RequestKey == "" || len(in.RequestKey) > 128 || !storePaymentMethod(in.PaymentMethod) || len(in.PickupCode) > 72 || len(in.VariantID) > 36 {
 		return nil, false, ErrMerchantStoreInput
 	}
 	var o MerchantStoreOrder
@@ -186,7 +198,8 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		}
 		// Existing orders above returned before current listing policy. Check
 		// the unit price, never quantity times price, under the current config.
-		if e = storeRequireMinimumUnitPrice(tx, p.PriceQuota); e != nil {
+		variant, e := storeSelectedVariant(tx, p, in.VariantID)
+		if e != nil {
 			return e
 		}
 		if e = storeRequirePaymentCategory(tx, seller.Id, in.PaymentMethod); e != nil {
@@ -226,10 +239,10 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if p.EmailPickupLink && in.PickupEmail == "" {
 			return ErrMerchantStoreInput
 		}
-		if p.PriceQuota <= 0 || p.PriceQuota > common.MaxWalletQuota/in.Quantity {
+		if variant.PriceQuota <= 0 || variant.PriceQuota > common.MaxWalletQuota/in.Quantity {
 			return ErrMerchantStoreInput
 		}
-		price := p.PriceQuota * in.Quantity
+		price := variant.PriceQuota * in.Quantity
 		fee := storeFee(price, c.FeeBPS)
 		if seller.Role == common.RoleRootUser {
 			fee = 0
@@ -263,7 +276,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			return e
 		}
 		now := common.GetTimestamp()
-		o = MerchantStoreOrder{ID: id, BuyerID: buyer.Id, SellerID: seller.Id, ProductID: p.ID, ProductTitle: p.Title, DeliveryTemplate: p.Template, Quantity: in.Quantity, UnitPriceQuota: p.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: in.PickupCode != "", EmailPickupLink: in.PickupEmail != "", OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
+		o = MerchantStoreOrder{ID: id, BuyerID: buyer.Id, SellerID: seller.Id, ProductID: p.ID, VariantID: variant.ID, VariantName: variant.Name, ProductTitle: p.Title, DeliveryTemplate: variant.Template, Quantity: in.Quantity, UnitPriceQuota: variant.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: in.PickupCode != "", EmailPickupLink: in.PickupEmail != "", OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
 		if in.PickupEmail != "" {
 			o.PickupEmailHash = storeHash(in.PickupEmail)
 			o.PickupEmailCiphertext, e = storeEncrypt("order-pickup-email", id, in.PickupEmail)
@@ -279,7 +292,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			o.PickupCodeHash = string(hash)
 		}
 		var stock []MerchantStoreStock
-		q := tx.Select("id").Where("product_id = ? AND state = ?", p.ID, "available")
+		q := storeVariantStock(tx.Select("id"), p.ID, variant.ID).Where("state = ?", "available")
 		if p.DeliveryStrategy == "random" {
 			if tx.Dialector.Name() == "mysql" {
 				q = q.Order("RAND()")
@@ -325,7 +338,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			}
 			o.Status = "paid"
 			o.PaidAt = now
-			if e = tx.Model(&MerchantStoreStock{}).Where("order_id = ? AND state = ?", id, "reserved").Update("state", "delivered").Error; e != nil {
+			if e = storeOrderStock(tx.Model(&MerchantStoreStock{}), &o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
 				return e
 			}
 		} else if fee > 0 {
@@ -517,7 +530,7 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 			return ErrMerchantStoreConflict
 		}
 		var reserved int64
-		if e := tx.Model(&MerchantStoreStock{}).Where("order_id = ? AND state = ?", id, "reserved").Count(&reserved).Error; e != nil {
+		if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Count(&reserved).Error; e != nil {
 			return e
 		}
 		if reserved != int64(o.Quantity) {
@@ -547,7 +560,7 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		if e := tx.Save(o).Error; e != nil {
 			return e
 		}
-		if e := tx.Model(&MerchantStoreStock{}).Where("order_id = ? AND state = ?", id, "reserved").Update("state", "delivered").Error; e != nil {
+		if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
 			return e
 		}
 		if e := enqueueMerchantStoreEmail(tx, o); e != nil {
@@ -611,7 +624,7 @@ func closeMerchantStoreOrder(id string, actor int, expired, providerClosed bool,
 		if e := tx.Save(o).Error; e != nil {
 			return e
 		}
-		if e := tx.Model(&MerchantStoreStock{}).Where("order_id = ? AND state = ?", id, "reserved").Updates(map[string]any{"state": "available", "order_id": ""}).Error; e != nil {
+		if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Updates(map[string]any{"state": "available", "order_id": ""}).Error; e != nil {
 			return e
 		}
 		sellerID = o.SellerID
@@ -739,7 +752,7 @@ func InspectMerchantStoreClaim(token string) (*MerchantStoreClaimMetadata, error
 	if e := DB.Where("pickup_token_hash = ? AND status = ?", storeHash(token), "paid").First(&o).Error; e != nil {
 		return nil, ErrMerchantStoreDenied
 	}
-	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, DeliveryTemplate: o.DeliveryTemplate, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
+	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
 }
 func ClaimMerchantStoreOrder(token, code string, buyerID int) (*MerchantStoreClaim, error) {
 	return ClaimMerchantStoreOrderWithAuthorization(token, code, buyerID, nil)
@@ -778,13 +791,13 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 			return ErrMerchantStoreDenied
 		}
 		var rows []MerchantStoreStock
-		if e := tx.Where("order_id = ? AND state = ?", o.ID, "delivered").Order("position ASC,id ASC").Find(&rows).Error; e != nil {
+		if e := storeOrderStock(tx, o).Where("state = ?", "delivered").Order("position ASC,id ASC").Find(&rows).Error; e != nil {
 			return e
 		}
 		if len(rows) != o.Quantity {
 			return ErrMerchantStoreConflict
 		}
-		result = MerchantStoreClaim{OrderID: o.ID, ProductTitle: o.ProductTitle, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows))}
+		result = MerchantStoreClaim{OrderID: o.ID, ProductTitle: o.ProductTitle, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows))}
 		for _, row := range rows {
 			value, e := storeDecrypt("stock", row.ProductID+":"+row.ID, row.Ciphertext)
 			if e != nil {

@@ -20,6 +20,15 @@ func storeWriterGateForTest(t *testing.T, value string) {
 	require.NoError(t, DB.Model(&Option{}).Where("key = ?", MerchantStoreWriterCapabilityOption).Update("value", value).Error)
 }
 
+func storeUnsupportedWriterGateForTest(t *testing.T) {
+	t.Helper()
+	value := "2"
+	if MerchantStoreWriterCapability >= 2 {
+		value = "3"
+	}
+	storeWriterGateForTest(t, value)
+}
+
 func storeWriterSnapshot(t *testing.T) []byte {
 	t.Helper()
 	all := make(map[string]any)
@@ -46,13 +55,17 @@ func storeWriterSnapshot(t *testing.T) []byte {
 
 func TestMerchantStoreWriterGateMissingInvalidAndMigrationNeverRepair(t *testing.T) {
 	db := marketTestDB(t)
-	for _, value := range []string{"", "0", "3", "01", " 1", "2"} {
+	values := []string{"", "0", "3", "01", " 1"}
+	if MerchantStoreWriterCapability < 2 {
+		values = append(values, "2")
+	}
+	for _, value := range values {
 		storeWriterGateForTest(t, value)
 		require.ErrorIs(t, db.Transaction(storeRequireWriter), ErrMerchantStoreWriterFrozen)
 		status, _ := GetMerchantStoreWriterGateStatus(db)
 		require.False(t, status.NewWritesAllowed)
 		require.True(t, status.SupportsWriterGate)
-		require.Equal(t, 1, status.WriterCapability)
+		require.Equal(t, MerchantStoreWriterCapability, status.WriterCapability)
 		require.ErrorIs(t, checkMerchantStoreWriterMigration(db), ErrMerchantStoreWriterFrozen)
 	}
 	require.NoError(t, db.Where("key = ?", MerchantStoreWriterCapabilityOption).Delete(&Option{}).Error)
@@ -72,7 +85,7 @@ func TestMerchantStoreWriterGateBootstrapPreservesNewerGateAndRefusesSchemaDowng
 	status, err := GetMerchantStoreWriterGateStatus(db)
 	require.NoError(t, err)
 	require.Equal(t, 2, status.RequiredCapability)
-	require.False(t, status.NewWritesAllowed)
+	require.Equal(t, MerchantStoreWriterCapability >= 2, status.NewWritesAllowed)
 	require.NoError(t, db.Exec("CREATE TABLE merchant_store_variants (id TEXT PRIMARY KEY)").Error)
 	require.NoError(t, db.Where("key = ?", MerchantStoreWriterCapabilityOption).Delete(&Option{}).Error)
 	require.ErrorIs(t, BootstrapMerchantStoreWriterGate(db), ErrMerchantStoreWriterFrozen)
@@ -105,7 +118,7 @@ func TestMerchantStoreWriterGateFreezesEveryNewShopWriterWithoutSideEffects(t *t
 	require.NoError(t, DB.Where("product_id = ? AND state = ?", f.product.ID, "available").First(&stock).Error)
 	config, err := GetMerchantStoreConfig()
 	require.NoError(t, err)
-	storeWriterGateForTest(t, "2")
+	storeUnsupportedWriterGateForTest(t)
 	before := storeWriterSnapshot(t)
 	for name, action := range map[string]func() error{
 		"checkout": func() error { _, _, err := CreateMerchantStoreOrder(f.checkout("frozen-new", "balance")); return err },
@@ -207,7 +220,7 @@ func TestMerchantStoreWriterGateKeepsFrozenPaymentCancellationReplayAndClaim(t *
 	require.NoError(t, err)
 	require.NoError(t, BindMerchantStorePaymentQuote(paid.ID, 671, "CNY", "6.71"))
 	require.NoError(t, BindMerchantStorePaymentContext(paid.ID, "frozen-payment-context"))
-	storeWriterGateForTest(t, "2")
+	storeUnsupportedWriterGateForTest(t)
 	replayed, created, err := CreateMerchantStoreOrder(first)
 	require.NoError(t, err)
 	require.False(t, created)
@@ -239,7 +252,7 @@ func TestMerchantStoreWriterGateKeepsUnissuedFeeRefundAndIssuedClosure(t *testin
 				require.NoError(t, BindMerchantStorePaymentQuote(o.ID, 671, "CNY", "6.71"))
 				require.NoError(t, BindMerchantStorePaymentContext(o.ID, "frozen-gateway-context"))
 			}
-			storeWriterGateForTest(t, "2")
+			storeUnsupportedWriterGateForTest(t)
 			if issued {
 				require.NoError(t, ConfirmMerchantStoreOrderPaymentClosed(o.ID, "authentic-provider-closure"))
 			} else {
@@ -257,7 +270,7 @@ func TestMerchantStoreWriterGateKeepsUnissuedFeeRefundAndIssuedClosure(t *testin
 func TestMerchantStoreWriterGateStopsAsynchronousAIProductPublication(t *testing.T) {
 	db, seller, root, p := marketAIProduct(t, setting.MarketAIReviewAuto)
 	job := marketAIClaim(t)
-	storeWriterGateForTest(t, "2")
+	storeUnsupportedWriterGateForTest(t)
 	require.NoError(t, marketAIComplete(t, job, false, true))
 	require.NoError(t, db.First(p, "id = ?", p.ID).Error)
 	require.Equal(t, "pending", p.Status)
@@ -268,7 +281,8 @@ func TestMerchantStoreWriterGateStopsAsynchronousAIProductPublication(t *testing
 
 func TestMerchantStoreWriterGateActivationRequiresSchemaAndNeverDowngrades(t *testing.T) {
 	db := marketTestDB(t)
-	require.NoError(t, db.AutoMigrate(MerchantStoreModels()...))
+	require.NoError(t, db.Exec("CREATE TABLE merchant_store_stocks (id TEXT PRIMARY KEY)").Error)
+	require.NoError(t, db.Exec("CREATE TABLE merchant_store_orders (id TEXT PRIMARY KEY)").Error)
 	require.ErrorIs(t, ActivateMerchantStoreVariants(db, 1), ErrMerchantStoreWriterFrozen)
 	for _, statement := range []string{
 		"CREATE TABLE merchant_store_variants (id TEXT PRIMARY KEY, product_id TEXT, name TEXT, price_quota BIGINT, template TEXT, enabled BOOLEAN)",
@@ -286,6 +300,10 @@ func TestMerchantStoreWriterGateActivationRequiresSchemaAndNeverDowngrades(t *te
 	status, err := GetMerchantStoreWriterGateStatus(db)
 	require.NoError(t, err)
 	require.Equal(t, 2, status.RequiredCapability)
-	require.False(t, status.NewWritesAllowed)
-	require.ErrorIs(t, checkMerchantStoreWriterMigration(db), ErrMerchantStoreWriterFrozen)
+	require.Equal(t, MerchantStoreWriterCapability >= 2, status.NewWritesAllowed)
+	if MerchantStoreWriterCapability < 2 {
+		require.ErrorIs(t, checkMerchantStoreWriterMigration(db), ErrMerchantStoreWriterFrozen)
+	} else {
+		require.NoError(t, checkMerchantStoreWriterMigration(db))
+	}
 }

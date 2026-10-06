@@ -31,7 +31,7 @@ type merchantStoreTablePlan struct {
 }
 
 var merchantStoreExpectedTables = []string{
-	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_verified_emails",
+	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_variants", "merchant_store_verified_emails",
 }
 
 func merchantStoreSourceSchemaPlan(t *testing.T) []merchantStoreTablePlan {

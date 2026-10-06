@@ -77,6 +77,17 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		if e := tx.Save(&p).Error; e != nil {
 			return e
 		}
+		defaultVariant, e := storeEnsureDefaultVariant(tx, &p)
+		if e != nil {
+			return e
+		}
+		// The legacy editor updates only the compatibility default. Other
+		// variants keep their prices/templates and inventory associations.
+		if required, _ := storeWriterGateRow(tx, ""); required == 2 {
+			if e = tx.Model(defaultVariant).Updates(map[string]any{"price_quota": p.PriceQuota, "template": p.Template, "updated_at": now}).Error; e != nil {
+				return e
+			}
+		}
 		return storeEvent(tx, actor, p.ID, "save_draft")
 	})
 	return &p, e
@@ -95,7 +106,7 @@ func SubmitMerchantStoreProduct(actor int, id string) error {
 		if p.TestMode {
 			return ErrMerchantStoreTestMode
 		}
-		if e := storeRequireMinimumUnitPrice(tx, p.PriceQuota); e != nil {
+		if e := storeValidateEnabledVariants(tx, p); e != nil {
 			return e
 		}
 		if p.Status == "pending" {
@@ -142,6 +153,11 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 		if _, e := storeUser(tx, p.SellerID, common.RoleCommonUser); e != nil {
 			return e
 		}
+		if approve {
+			if e := storeValidateEnabledVariants(tx, p); e != nil {
+				return e
+			}
+		}
 		if err := invalidateMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken, "market_review_manual_override"); err != nil {
 			return err
 		}
@@ -178,6 +194,9 @@ func SetMerchantStoreProductPaused(actor int, id string, paused bool) error {
 			}
 			p.Status = "paused"
 		} else {
+			if e := storeRequireVariantPublication(tx, p); e != nil {
+				return e
+			}
 			if p.Status != "paused" || (!p.TestMode && p.ReviewedAt == 0) {
 				return ErrMerchantStoreConflict
 			}
@@ -195,6 +214,9 @@ func SetMerchantStoreProductPaused(actor int, id string, paused bool) error {
 	})
 }
 func AddMerchantStoreStock(actor int, id string, items []string) (int, error) {
+	return AddMerchantStoreVariantStock(actor, id, MerchantStoreDefaultVariantID(id), items)
+}
+func AddMerchantStoreVariantStock(actor int, id, variantID string, items []string) (int, error) {
 	if len(items) == 0 || len(items) > 10000 {
 		return 0, ErrMerchantStoreInput
 	}
@@ -203,7 +225,7 @@ func AddMerchantStoreStock(actor int, id string, items []string) (int, error) {
 		if len(strings.TrimSpace(item)) == 0 || len(item) > 32768 {
 			return 0, ErrMerchantStoreInput
 		}
-		row := MerchantStoreStock{ID: uuid.NewString(), ProductID: id, State: "available", CreatedAt: common.GetTimestamp()}
+		row := MerchantStoreStock{ID: uuid.NewString(), ProductID: id, VariantID: &variantID, State: "available", CreatedAt: common.GetTimestamp()}
 		cipher, e := storeEncrypt("stock", id+":"+row.ID, item)
 		if e != nil {
 			return 0, e
@@ -221,8 +243,12 @@ func AddMerchantStoreStock(actor int, id string, items []string) (int, error) {
 		if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
 			return e
 		}
+		variant, e := storeVariant(tx, p, variantID)
+		if e != nil {
+			return e
+		}
 		for _, item := range items {
-			if e := validateMerchantStoreDeliveryItem(p.Template, item); e != nil {
+			if e := validateMerchantStoreDeliveryItem(variant.Template, item); e != nil {
 				return e
 			}
 		}
@@ -244,8 +270,14 @@ func AddMerchantStoreStock(actor int, id string, items []string) (int, error) {
 	return len(rows), nil
 }
 func RemoveMerchantStoreStock(actor int, productID, stockID string) error {
+	return RemoveMerchantStoreVariantStock(actor, productID, "", stockID)
+}
+func RemoveMerchantStoreVariantStock(actor int, productID, variantID, stockID string) error {
 	return storeWithProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
+		if e := storeRequireVariantPublication(tx, p); e != nil {
 			return e
 		}
 		if p.SellerID != actor {
@@ -254,7 +286,14 @@ func RemoveMerchantStoreStock(actor int, productID, stockID string) error {
 		if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
 			return e
 		}
-		r := tx.Where("id = ? AND product_id = ? AND state = ?", stockID, productID, "available").Delete(&MerchantStoreStock{})
+		q := tx.Where("id = ? AND product_id = ? AND state = ?", stockID, productID, "available")
+		if variantID != "" {
+			if _, err := storeVariant(tx, p, variantID); err != nil {
+				return err
+			}
+			q = storeVariantStock(q, productID, variantID)
+		}
+		r := q.Delete(&MerchantStoreStock{})
 		if r.Error != nil {
 			return r.Error
 		}
@@ -265,6 +304,9 @@ func RemoveMerchantStoreStock(actor int, productID, stockID string) error {
 	})
 }
 func ListMerchantStoreStock(actor int, productID string, offset, limit int) ([]MerchantStoreStock, error) {
+	return ListMerchantStoreVariantStock(actor, productID, "", offset, limit)
+}
+func ListMerchantStoreVariantStock(actor int, productID, variantID string, offset, limit int) ([]MerchantStoreStock, error) {
 	var p MerchantStoreProduct
 	if e := DB.First(&p, "id = ?", productID).Error; e != nil {
 		return nil, e
@@ -277,7 +319,28 @@ func ListMerchantStoreStock(actor int, productID string, offset, limit int) ([]M
 	}
 	offset, limit = storePage(offset, limit)
 	var rows []MerchantStoreStock
-	e := DB.Select("id,product_id,state,position,created_at").Where("product_id = ?", productID).Order("position ASC,id ASC").Offset(offset).Limit(limit).Find(&rows).Error
+	q := DB.Select("id,product_id,variant_id,state,position,created_at").Where("product_id = ?", productID)
+	if variantID != "" {
+		variants, err := storeVariants(DB, &p)
+		if err != nil {
+			return nil, err
+		}
+		found := false
+		for _, v := range variants {
+			found = found || v.ID == variantID
+		}
+		if !found {
+			return nil, gorm.ErrRecordNotFound
+		}
+		q = storeVariantStock(q, productID, variantID)
+	}
+	e := q.Order("position ASC,id ASC").Offset(offset).Limit(limit).Find(&rows).Error
+	defaultID := MerchantStoreDefaultVariantID(productID)
+	for i := range rows {
+		if rows[i].VariantID == nil || *rows[i].VariantID == "" {
+			rows[i].VariantID = &defaultID
+		}
+	}
 	return rows, e
 }
 func storePage(offset, limit int) (int, int) {
@@ -305,10 +368,6 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 	if e != nil {
 		return e
 	}
-	fee := storeFee(p.PriceQuota, c.FeeBPS)
-	if u.Role == common.RoleRootUser {
-		fee = 0
-	}
 	enabled := make([]string, 0, len(p.PaymentMethods))
 	categories, e := storePaymentCategories(tx, p.SellerID)
 	if e != nil {
@@ -330,12 +389,7 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 	if public {
 		p.PaymentMethods = enabled
 	}
-	p.TradingPaused = !storeProductPurchaseStatus(p) || u.Quota < fee || p.SaleAvailable == 0 || len(enabled) == 0 || p.PriceQuota < c.MinimumUnitPriceQuota
-	if public {
-		// Existing public clients interpret available_stock as purchasable stock.
-		p.AvailableStock = p.SaleAvailable
-	}
-	return nil
+	return populateMerchantStoreVariants(tx, p, u, c, enabled, public)
 }
 func GetPublicMerchantStoreProduct(id string) (*MerchantStoreProduct, error) {
 	var p MerchantStoreProduct

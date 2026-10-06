@@ -123,6 +123,9 @@ func SetMerchantStoreProductListed(actor int, id string, listed bool) error {
 			return ErrMerchantStoreDenied
 		}
 		if listed {
+			if err := storeRequireVariantPublication(tx, p); err != nil {
+				return err
+			}
 			if p.TestMode {
 				return ErrMerchantStoreTestMode
 			}

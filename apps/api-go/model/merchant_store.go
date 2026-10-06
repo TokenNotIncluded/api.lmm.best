@@ -38,36 +38,42 @@ type MerchantStoreLink struct {
 	Description string `json:"description"`
 }
 type MerchantStoreProduct struct {
-	ID                  string              `json:"id" gorm:"primaryKey;size:36"`
-	SellerID            int                 `json:"seller_id" gorm:"not null;index"`
-	Title               string              `json:"title" gorm:"size:200;not null"`
-	Description         string              `json:"description" gorm:"type:text"`
-	ImageURLs           []string            `json:"image_urls" gorm:"serializer:json;type:text"`
-	Contact             string              `json:"contact" gorm:"type:text"`
-	Links               []MerchantStoreLink `json:"links" gorm:"serializer:json;type:text"`
-	PriceQuota          int                 `json:"price_quota" gorm:"type:bigint;not null"`
-	SaleLimit           *int64              `json:"sale_limit" gorm:"type:bigint"`
-	TestMode            bool                `json:"test_mode" gorm:"not null;default:false"`
-	Template            string              `json:"template" gorm:"size:32"`
-	DeliveryStrategy    string              `json:"delivery_strategy" gorm:"size:16"`
-	PaymentMethods      []string            `json:"payment_methods" gorm:"serializer:json;type:text"`
-	PickupLoginRequired bool                `json:"pickup_login_required"`
-	PickupCodeRequired  bool                `json:"pickup_code_required"`
-	EmailPickupLink     bool                `json:"email_pickup_link"`
-	Status              string              `json:"status" gorm:"size:16;not null;index"`
-	ReviewNote          string              `json:"review_note" gorm:"type:text"`
-	ReviewedBy          int                 `json:"reviewed_by"`
-	ReviewedAt          int64               `json:"reviewed_at"`
-	AIReviewToken       string              `json:"-" gorm:"type:varchar(36);not null;default:''"`
-	PromotionExpiresAt  int64               `json:"promotion_expires_at" gorm:"index"`
-	CreatedAt           int64               `json:"created_at"`
-	UpdatedAt           int64               `json:"updated_at"`
-	Official            bool                `json:"official" gorm:"-"`
-	AvailableStock      int64               `json:"available_stock" gorm:"-"`
-	PaidQuantity        int64               `json:"paid_quantity" gorm:"-"`
-	ReservedQuantity    int64               `json:"reserved_quantity" gorm:"-"`
-	SaleAvailable       int64               `json:"sale_available" gorm:"-"`
-	TradingPaused       bool                `json:"trading_paused" gorm:"-"`
+	ID                  string                 `json:"id" gorm:"primaryKey;size:36"`
+	SellerID            int                    `json:"seller_id" gorm:"not null;index"`
+	Title               string                 `json:"title" gorm:"size:200;not null"`
+	Description         string                 `json:"description" gorm:"type:text"`
+	ImageURLs           []string               `json:"image_urls" gorm:"serializer:json;type:text"`
+	Contact             string                 `json:"contact" gorm:"type:text"`
+	Links               []MerchantStoreLink    `json:"links" gorm:"serializer:json;type:text"`
+	PriceQuota          int                    `json:"price_quota" gorm:"type:bigint;not null"`
+	TestMode            bool                   `json:"test_mode" gorm:"not null;default:false"`
+	SaleLimit           *int64                 `json:"sale_limit" gorm:"type:bigint"`
+	Template            string                 `json:"template" gorm:"size:32"`
+	DeliveryStrategy    string                 `json:"delivery_strategy" gorm:"size:16"`
+	PaymentMethods      []string               `json:"payment_methods" gorm:"serializer:json;type:text"`
+	PickupLoginRequired bool                   `json:"pickup_login_required"`
+	PickupCodeRequired  bool                   `json:"pickup_code_required"`
+	EmailPickupLink     bool                   `json:"email_pickup_link"`
+	Status              string                 `json:"status" gorm:"size:16;not null;index"`
+	ReviewNote          string                 `json:"review_note" gorm:"type:text"`
+	ReviewedBy          int                    `json:"reviewed_by"`
+	ReviewedAt          int64                  `json:"reviewed_at"`
+	AIReviewToken       string                 `json:"-" gorm:"type:varchar(36);not null;default:''"`
+	PromotionExpiresAt  int64                  `json:"promotion_expires_at" gorm:"index"`
+	CreatedAt           int64                  `json:"created_at"`
+	UpdatedAt           int64                  `json:"updated_at"`
+	Official            bool                   `json:"official" gorm:"-"`
+	AvailableStock      int64                  `json:"available_stock" gorm:"-"`
+	PaidQuantity        int64                  `json:"paid_quantity" gorm:"-"`
+	ReservedQuantity    int64                  `json:"reserved_quantity" gorm:"-"`
+	SaleAvailable       int64                  `json:"sale_available" gorm:"-"`
+	TradingPaused       bool                   `json:"trading_paused" gorm:"-"`
+	DefaultVariantID    string                 `json:"default_variant_id" gorm:"-"`
+	Variants            []MerchantStoreVariant `json:"variants" gorm:"-"`
+	InventoryTotal      int64                  `json:"inventory_total" gorm:"-"`
+	InventoryAvailable  int64                  `json:"inventory_available" gorm:"-"`
+	PriceMinQuota       int                    `json:"price_min_quota" gorm:"-"`
+	PriceMaxQuota       int                    `json:"price_max_quota" gorm:"-"`
 }
 type MerchantStoreProductInput struct {
 	Title               string              `json:"title"`
@@ -85,13 +91,14 @@ type MerchantStoreProductInput struct {
 	EmailPickupLink     bool                `json:"email_pickup_link"`
 }
 type MerchantStoreStock struct {
-	ID         string `json:"id" gorm:"primaryKey;size:36"`
-	ProductID  string `json:"product_id" gorm:"size:36;not null;index:store_stock_available,priority:1"`
-	Ciphertext string `json:"-" gorm:"type:text;not null"`
-	State      string `json:"state" gorm:"size:16;not null;index:store_stock_available,priority:2"`
-	OrderID    string `json:"-" gorm:"size:64;index"`
-	Position   int64  `json:"position" gorm:"index:store_stock_available,priority:3"`
-	CreatedAt  int64  `json:"created_at"`
+	ID         string  `json:"id" gorm:"primaryKey;size:36"`
+	ProductID  string  `json:"product_id" gorm:"size:36;not null;index:store_stock_available,priority:1;index:store_stock_variant_available,priority:1"`
+	VariantID  *string `json:"variant_id" gorm:"type:varchar(36);index:store_stock_variant_available,priority:2"`
+	Ciphertext string  `json:"-" gorm:"type:text;not null"`
+	State      string  `json:"state" gorm:"size:16;not null;index:store_stock_available,priority:2;index:store_stock_variant_available,priority:3"`
+	OrderID    string  `json:"-" gorm:"size:64;index"`
+	Position   int64   `json:"position" gorm:"index:store_stock_available,priority:3;index:store_stock_variant_available,priority:4"`
+	CreatedAt  int64   `json:"created_at"`
 }
 type MerchantStoreConfig struct {
 	ID                    int    `json:"-" gorm:"primaryKey"`
@@ -133,7 +140,7 @@ type MerchantStoreEvent struct {
 }
 
 func MerchantStoreModels() []interface{} {
-	return []interface{}{&MerchantStoreProduct{}, &MerchantStoreStock{}, &MerchantStoreConfig{}, &MerchantStoreOrder{}, &MerchantStoreTransfer{}, &MerchantStoreDisclaimerAcceptance{}, &MerchantStoreGateway{}, &MerchantStorePromotion{}, &MerchantStoreEvent{}, &MerchantStoreEmailDelivery{}, &MerchantStorePaymentReceipt{}, &MerchantStoreVerifiedEmail{}, &MerchantStoreEmailVerificationChallenge{}, &MerchantStoreOrderSearchChallenge{}, &MerchantStoreOrderSearchAuthorization{}}
+	return []interface{}{&MerchantStoreProduct{}, &MerchantStoreStock{}, &MerchantStoreConfig{}, &MerchantStoreOrder{}, &MerchantStoreTransfer{}, &MerchantStoreDisclaimerAcceptance{}, &MerchantStoreGateway{}, &MerchantStorePromotion{}, &MerchantStoreEvent{}, &MerchantStoreEmailDelivery{}, &MerchantStorePaymentReceipt{}, &MerchantStoreVerifiedEmail{}, &MerchantStoreEmailVerificationChallenge{}, &MerchantStoreOrderSearchChallenge{}, &MerchantStoreOrderSearchAuthorization{}, &MerchantStoreVariant{}}
 }
 func storeHash(s string) string { sum := sha256.Sum256([]byte(s)); return hex.EncodeToString(sum[:]) }
 func storeToken() (string, error) {

@@ -132,6 +132,7 @@ type marketReviewText struct {
 	Description string             `json:"description"`
 	Tools       []marketReviewName `json:"tools,omitempty"`
 	Links       []marketReviewName `json:"links,omitempty"`
+	Variants    []marketReviewName `json:"variants,omitempty"`
 }
 type marketReviewName struct {
 	Name        string `json:"name"`
@@ -161,6 +162,17 @@ func marketReviewContent(tx *gorm.DB, source, target, version string) (string, s
 		text.Title, text.Description = p.Title, p.Description
 		for _, link := range p.Links {
 			text.Links = append(text.Links, marketReviewName{link.Title, link.Description})
+		}
+		variants, err := storeVariants(tx, &p)
+		if err != nil {
+			return "", "", err
+		}
+		for _, variant := range variants {
+			// A compatibility default adds no new public content and must not
+			// change the digest of an already queued legacy review.
+			if !variant.IsDefault || variant.Name != "Default" {
+				text.Variants = append(text.Variants, marketReviewName{variant.Name, ""})
+			}
 		}
 	} else {
 		return "", "", ErrModerationJobInvalid
@@ -432,6 +444,10 @@ func CompleteMarketAIReview(ctx context.Context, id int64, owner string, c Marke
 			values["market_outcome"] = outcome
 			if product != nil {
 				if err := storeRequireWriter(tx); err != nil {
+					values["market_outcome"], values["error_message"] = "manual_required", "market_review_writer_upgrade"
+					return tx.Model(&j).Updates(values).Error
+				}
+				if err := storeRequireVariantPublication(tx, product); err != nil {
 					values["market_outcome"], values["error_message"] = "manual_required", "market_review_writer_upgrade"
 					return tx.Model(&j).Updates(values).Error
 				}
