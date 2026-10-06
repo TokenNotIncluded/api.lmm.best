@@ -29,7 +29,7 @@ func merchantStoreRefundVerifyWebhook(order *model.MerchantStoreOrder, frozen me
 	if err != nil || event == nil || json.Unmarshal(event.Data, &data) != nil {
 		return nil, data, ErrMerchantStoreRefundProvider
 	}
-	if string(event.Mode) != frozen.Config.Environment || event.StoreID != frozen.Config.StoreID || data.OrderID != order.ProviderTradeID || data.Currency != order.Currency || data.OrderMerchantExternalID == nil || *data.OrderMerchantExternalID != order.TradeNo || data.MerchantProvidedBuyerIdentity == nil || *data.MerchantProvidedBuyerIdentity != WaffoPancakeBuyerIdentityFromUserID(order.BuyerID) || data.OrderMetadata["lmm_store_order_id"] != order.ID || data.OrderMetadata["lmm_store_product_id"] != order.ProductID || data.OrderMetadata["lmm_pancake_product_id"] != frozen.Config.ProductID || data.OrderMetadata["lmm_store_seller_id"] != strconv.Itoa(order.SellerID) {
+	if string(event.Mode) != frozen.Config.Environment || event.StoreID != frozen.Config.StoreID || data.OrderID != order.ProviderTradeID || data.Currency != order.Currency || data.OrderMerchantExternalID == nil || *data.OrderMerchantExternalID != order.TradeNo || data.MerchantProvidedBuyerIdentity == nil || *data.MerchantProvidedBuyerIdentity != model.MerchantStoreOrderBuyerIdentity(order) || data.OrderMetadata["lmm_store_order_id"] != order.ID || data.OrderMetadata["lmm_store_product_id"] != order.ProductID || data.OrderMetadata["lmm_pancake_product_id"] != frozen.Config.ProductID || data.OrderMetadata["lmm_store_seller_id"] != strconv.Itoa(order.SellerID) {
 		return nil, data, ErrMerchantStoreRefundProvider
 	}
 	return event, data, nil

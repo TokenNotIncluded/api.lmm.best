@@ -39,7 +39,13 @@ type MerchantStoreRefundDispatch struct {
 }
 
 func storeRefundDispatchHash(o *MerchantStoreOrder, r *MerchantStoreRefund, b *MerchantStoreRefundPaymentBasis) string {
-	data, _ := json.Marshal([]any{"merchant-store-refund-dispatch-v1", o.ID, r.ID, o.PaymentMethod, o.PaymentScopeHash, storeHash(o.GatewaySnapshot), o.BuyerID, o.TradeNo, r.Mode, r.AmountMinor, r.Currency, storeHash(r.Reason), b.ReceiptReference, b.PaymentReference, b.AmountMinor, b.Currency, b.EvidenceHash})
+	values := []any{"merchant-store-refund-dispatch-v1", o.ID, r.ID, o.PaymentMethod, o.PaymentScopeHash, storeHash(o.GatewaySnapshot), o.BuyerID, o.TradeNo, r.Mode, r.AmountMinor, r.Currency, storeHash(r.Reason), b.ReceiptReference, b.PaymentReference, b.AmountMinor, b.Currency, b.EvidenceHash}
+	// Preserve every old member request digest; only guest operations bind the
+	// additional immutable subject, never the generic buyer_id=0.
+	if o.GuestID != "" {
+		values = append(values, []string{"guest", o.GuestID})
+	}
+	data, _ := json.Marshal(values)
 	return storeHash(string(data))
 }
 

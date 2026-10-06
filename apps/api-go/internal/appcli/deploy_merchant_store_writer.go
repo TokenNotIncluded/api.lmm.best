@@ -56,10 +56,10 @@ type productionMerchantStoreWriterContract struct {
 	Rollback           productionMerchantStoreWriterTarget `json:"rollback"`
 }
 
-func validMerchantStoreCapability(value int) bool { return value >= 1 && value <= 4 }
+func validMerchantStoreCapability(value int) bool { return value >= 1 && value <= 5 }
 
 func parseMerchantStoreCapability(data []byte) (int, error) {
-	if len(data) == 2 && data[1] == '\n' && data[0] >= '1' && data[0] <= '4' {
+	if len(data) == 2 && data[1] == '\n' && data[0] >= '1' && data[0] <= '5' {
 		return int(data[0] - '0'), nil
 	}
 	return 0, errors.New("invalid signed merchant-store writer capability")

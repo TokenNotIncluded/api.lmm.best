@@ -74,7 +74,27 @@ func (o *MerchantStoreOrder) BeforeSave(tx *gorm.DB) error {
 
 func MerchantStoreAccessSupported() bool {
 	required, e := storeWriterGateRow(DB, "")
-	return e == nil && required >= 5 && required <= MerchantStoreWriterCapability
+	if e != nil || required < 5 || required > MerchantStoreWriterCapability {
+		return false
+	}
+	for _, item := range []any{&MerchantStoreGuest{}, &MerchantStoreSellerTerms{}, &MerchantStoreTermsAcceptance{}, &MerchantStoreGuestEmailVerification{}} {
+		if !DB.Migrator().HasTable(item) {
+			return false
+		}
+	}
+	for _, check := range []struct {
+		model  any
+		column string
+	}{
+		{&MerchantStoreProduct{}, "visibility"}, {&MerchantStoreProduct{}, "purchase_login_required"},
+		{&MerchantStoreOrder{}, "guest_id"}, {&MerchantStoreOrder{}, "seller_terms_version"},
+		{&MerchantStoreOrder{}, "seller_terms_content"}, {&MerchantStoreOrder{}, "seller_terms_accepted_at"},
+	} {
+		if !DB.Migrator().HasColumn(check.model, check.column) {
+			return false
+		}
+	}
+	return true
 }
 
 func MerchantStoreAccessRequiresWriter(tx *gorm.DB) error {

@@ -132,10 +132,20 @@ func storeRefundActivationNullable(tx *gorm.DB, table, name string, column gorm.
 // The provider dispatch fence, coupon snapshots and purchase-limit columns are
 // part of the same reviewed capability. Missing uniqueness must fail closed.
 func storeCheckRefundActivationSchema(tx *gorm.DB) error {
+	return storeCheckMerchantStoreSchema(tx, 4)
+}
+
+func storeCheckMerchantStoreSchema(tx *gorm.DB, capability int) error {
 	cache := &sync.Map{}
 	for _, model := range MerchantStoreModels() {
 		parsed, err := schema.Parse(model, cache, schema.NamingStrategy{})
-		if err != nil || !tx.Migrator().HasTable(model) {
+		if err != nil {
+			return fmt.Errorf("%w: invalid model", ErrMerchantStoreWriterFrozen)
+		}
+		if capability < 5 && storeAccessTable(parsed.Table) {
+			continue
+		}
+		if !tx.Migrator().HasTable(model) {
 			return fmt.Errorf("%w: missing table", ErrMerchantStoreWriterFrozen)
 		}
 		types, err := tx.Migrator().ColumnTypes(model)
@@ -147,7 +157,7 @@ func storeCheckRefundActivationSchema(tx *gorm.DB) error {
 			columns[column.Name()] = column
 		}
 		for _, field := range parsed.Fields {
-			if field.DBName == "" {
+			if field.DBName == "" || (capability < 5 && storeAccessColumn(parsed.Table, field.DBName)) {
 				continue
 			}
 			column, found := columns[field.DBName]
@@ -200,6 +210,13 @@ func storeCheckRefundActivationSchema(tx *gorm.DB) error {
 			}
 		}
 		for name, expected := range parsed.ParseIndexes() {
+			phase5Index := false
+			for _, field := range expected.Fields {
+				phase5Index = phase5Index || storeAccessColumn(parsed.Table, field.DBName)
+			}
+			if capability < 5 && phase5Index {
+				continue
+			}
 			index, found := actual[name]
 			unique, known := false, false
 			if found {

@@ -47,8 +47,8 @@ func TestProductionMerchantStoreCapsuleClosedProjection(t *testing.T) {
 		"physical identity": func(c *productionMerchantStoreCapsule) { c.ExistingSchemaContract.SystemIdentifier = "3" },
 		"ordered startup":   func(c *productionMerchantStoreCapsule) { c.Writer.StartupSHA256 = strings.Repeat("4", 64) },
 		"future capability": func(c *productionMerchantStoreCapsule) {
-			c.Writer.Candidate.Capability = 5
-			c.Candidate.MerchantStoreWriterCapability = 5
+			c.Writer.Candidate.Capability = 6
+			c.Candidate.MerchantStoreWriterCapability = 6
 		},
 		"legacy retained": func(c *productionMerchantStoreCapsule) {
 			c.Writer.Rollback.Capability = 0

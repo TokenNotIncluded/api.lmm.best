@@ -58,7 +58,7 @@ func merchantStoreRefundCustomer(ctx context.Context, d *model.MerchantStoreRefu
 	if e != nil {
 		return nil, e
 	}
-	tok, e := merchant.Auth.IssueSessionToken(ctx, pancake.IssueSessionTokenParams{StoreID: &frozen.Config.StoreID, BuyerIdentity: WaffoPancakeBuyerIdentityFromUserID(d.Order.BuyerID)})
+	tok, e := merchant.Auth.IssueSessionToken(ctx, pancake.IssueSessionTokenParams{StoreID: &frozen.Config.StoreID, BuyerIdentity: model.MerchantStoreOrderBuyerIdentity(&d.Order)})
 	if e != nil || tok == nil || tok.Token == "" || len(tok.Token) > 8192 || strings.ContainsAny(tok.Token, "\r\n\x00") {
 		return nil, ErrMerchantStoreRefundProvider
 	}

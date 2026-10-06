@@ -173,5 +173,13 @@ func BackfillMerchantStoreCatalogueMappings(tx *gorm.DB) error {
 
 func MerchantStoreCatalogueSupported() bool {
 	required, err := storeWriterGateRow(DB, "")
-	return err == nil && required >= 5 && required <= MerchantStoreWriterCapability && DB.Migrator().HasTable(&MerchantStoreCatalogueMetadata{})
+	if err != nil || required < 5 || required > MerchantStoreWriterCapability || !MerchantStoreAccessSupported() {
+		return false
+	}
+	for _, item := range MerchantStoreCatalogueModels() {
+		if !DB.Migrator().HasTable(item) {
+			return false
+		}
+	}
+	return true
 }
