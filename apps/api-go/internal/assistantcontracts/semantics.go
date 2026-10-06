@@ -121,6 +121,10 @@ func (g *generator) refine(name string, c *contract) {
 		c.body["additionalProperties"] = false
 		c.hasBody, c.unknown = true, false
 		c.notes = append(c.notes, "decision is approve or reject. Only the original seller or a current root administrator can decide requested refunds. Approved external payments retain a reservation until verified provider reconciliation; seller approval alone does not return money.")
+	case "ReconcileMerchantStoreRefund":
+		c.body = map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}
+		c.hasBody, c.unknown = true, false
+		c.notes = append(c.notes, "Only the original seller or a current root administrator may wake/query this approved immutable refund. Send no amount, payout destination or completion proof. A single durable submission fence is committed before the first provider POST; unknown operations are only queried and never re-submitted. A ticket acceptance does not mean money was refunded.")
 	case "GetMerchantStorePickupRefunds", "RequestMerchantStorePickupRefund":
 		_ = g.load("model")
 		c.body, _ = g.schema(definition{ast.NewIdent("MerchantStoreRefundPickupProof"), &source{pkg: "model"}}, nil, map[string]bool{})

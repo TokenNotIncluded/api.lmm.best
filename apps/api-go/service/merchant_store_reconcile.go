@@ -184,6 +184,9 @@ func reconcileMerchantStorePayment(ctx context.Context, order *model.MerchantSto
 			err = queryErr
 		} else {
 			err = completeMerchantStoreVerifiedPayment(order.ID, tradeID)
+			if err == nil && order.PaymentMethod == MerchantStorePlatformLinuxDO {
+				err = merchantStoreRecordLinuxDORefundBasis(order.ID, tradeID, order.AmountMinor)
+			}
 		}
 	default:
 		return ErrMerchantStorePaymentConfiguration

@@ -77,4 +77,10 @@ func TestMerchantStoreRefundRouterOwnershipStrictBodyAndPurePickup(t *testing.T)
 		response = shopRequest(engine, "POST", path+suffix, rootToken, `{"success":true}`)
 		require.Equal(t, 404, response.Code)
 	}
+	response = shopRequest(engine, "POST", path+"/"+r.ID+"/reconcile", buyerToken, `{}`)
+	require.Equal(t, 403, response.Code, "buyer cannot trigger seller's provider operation")
+	response = shopRequest(engine, "POST", path+"/"+r.ID+"/reconcile", adminToken, `{}`)
+	require.Equal(t, 403, response.Code)
+	response = shopRequest(engine, "POST", path+"/"+r.ID+"/reconcile", rootToken, `{"completed":true}`)
+	require.Equal(t, 422, response.Code, "no browser-supplied evidence")
 }

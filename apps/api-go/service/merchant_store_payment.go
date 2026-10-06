@@ -734,7 +734,13 @@ func HandleMerchantStoreEpayCallback(_ context.Context, orderID string, paramete
 	if err != nil {
 		return err
 	}
-	return completeMerchantStoreVerifiedPayment(order.ID, tradeID)
+	if err := completeMerchantStoreVerifiedPayment(order.ID, tradeID); err != nil {
+		return err
+	}
+	if order.PaymentMethod == MerchantStorePlatformLinuxDO {
+		return merchantStoreRecordLinuxDORefundBasis(order.ID, tradeID, order.AmountMinor)
+	}
+	return nil
 }
 
 // Only verified provider adapters may enter this helper. Preserving paid
@@ -806,7 +812,7 @@ func HandleMerchantStorePancakeWebhook(_ context.Context, scope string, sellerID
 	if err != nil {
 		return ErrMerchantStorePaymentVerification
 	}
-	if event.EventType != "order.completed" || !merchantStoreTradeNoPattern.MatchString(event.Data.OrderMerchantExternalID) {
+	if (event.EventType != "order.completed" && event.EventType != "refund.succeeded" && event.EventType != "refund.failed") || !merchantStoreTradeNoPattern.MatchString(event.Data.OrderMerchantExternalID) {
 		return ErrMerchantStorePaymentIgnored
 	}
 	order, err := model.GetMerchantStorePaymentOrderByTradeNo(event.Data.OrderMerchantExternalID)
@@ -820,9 +826,15 @@ func HandleMerchantStorePancakeWebhook(_ context.Context, scope string, sellerID
 	if err != nil {
 		return err
 	}
+	if event.EventType == "refund.succeeded" || event.EventType == "refund.failed" {
+		return merchantStoreHandleRefundNotification(order, payload, signature, event.Data.RefundTicketMerchantExternalID)
+	}
 	tradeID, err := validateMerchantStorePancakeCallback(order, paymentContext, event)
 	if err != nil {
 		return err
 	}
-	return completeMerchantStoreVerifiedPayment(order.ID, tradeID)
+	if err := completeMerchantStoreVerifiedPayment(order.ID, tradeID); err != nil {
+		return err
+	}
+	return merchantStoreRecordPancakeRefundBasis(order.ID, payload, signature)
 }

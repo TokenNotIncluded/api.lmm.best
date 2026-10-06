@@ -70,9 +70,11 @@ func merchantStoreRefundProviderWebhook(t *testing.T, order *model.MerchantStore
 }
 
 func merchantStoreRefundProviderQueryFixture(request MerchantStoreRefundNativeRequest) merchantStorePancakeRefundQueryData {
+	ticketCount, refundCount := 1, 1
 	ticket := merchantStorePancakeRefundQueryTicket{ID: "TKT_AbCdEfGhIjKlMnOpQrStUv", Status: "succeeded", RefundTicketMerchantExternalID: request.RefundID, RequestedAmountDetails: merchantStoreRefundQueryAmount{Amount: "0.25", Currency: request.Currency}}
 	ticket.Payment.ID, ticket.Payment.Status, ticket.Payment.OnetimeOrder.ID = request.Payment.PaymentReference, "succeeded", request.Payment.ReceiptReference
 	return merchantStorePancakeRefundQueryData{
+		RefundTicketsCount: &ticketCount, RefundsCount: &refundCount,
 		RefundTickets: []merchantStorePancakeRefundQueryTicket{ticket},
 		Refunds:       []merchantStorePancakeRefundQueryExecution{{ID: "provider-refund-execution-1", Status: "succeeded", OrderMerchantExternalID: "MS123456789012345678901234567890", RefundTicketMerchantExternalID: request.RefundID, PSPAmountDetails: merchantStoreRefundQueryAmount{Amount: "0.25", Currency: request.Currency}}},
 	}

@@ -75,6 +75,7 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	self.POST("/orders/:id/refunds/proactive", middleware.RequestBodyLimit(64<<10), middleware.CriticalRateLimit(), controller.ProactivelyRefundMerchantStoreOrder)
 	self.POST("/orders/:id/refunds/:refund_id/decision", middleware.RequestBodyLimit(8<<10), middleware.CriticalRateLimit(), controller.DecideMerchantStoreRefund)
 	self.POST("/orders/:id/refunds/:refund_id/cancel", middleware.CriticalRateLimit(), controller.CancelMerchantStoreRefund)
+	self.POST("/orders/:id/refunds/:refund_id/reconcile", middleware.RequestBodyLimit(1<<10), middleware.CriticalRateLimit(), controller.ReconcileMerchantStoreRefund)
 	self.GET("/orders/:id/pickup-link", controller.GetMerchantStorePickupLink)
 	self.POST("/orders/:id/cancel", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.CancelMerchantStoreOrder)
 	self.POST("/orders/:id/pay", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.RequestMerchantStorePayment)

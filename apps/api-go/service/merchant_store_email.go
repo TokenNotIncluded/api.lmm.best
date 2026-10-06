@@ -308,6 +308,9 @@ func RunMerchantStoreWorker(ctx context.Context) {
 		if err := reconcileMerchantStorePaymentBatch(ctx, 5); err != nil && ctx.Err() == nil {
 			common.SysError("merchant store payment reconciliation failed")
 		}
+		if err := reconcileMerchantStoreRefundBatch(ctx, 5); err != nil && ctx.Err() == nil {
+			common.SysError("merchant store refund reconciliation failed")
+		}
 		// Unconfigured SMTP should leave queued emails recoverable instead of
 		// consuming all retry attempts before the operator enables mail.
 		if common.SMTPServer != "" && (common.SMTPFrom != "" || common.SMTPAccount != "") {

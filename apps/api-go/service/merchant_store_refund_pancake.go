@@ -125,15 +125,17 @@ func VerifyMerchantStorePancakeRefundNotification(order *model.MerchantStoreOrde
 // the ticket provides PAY -> original ORD linkage and requested amount; the
 // execution provides its own stable ID and actual PSP refunded amount.
 const merchantStorePancakeRefundExecutionQuery = `query ($ref: String!) {
-    refundTickets(filter: { refundTicketMerchantExternalId: { eq: $ref } }) {
+    refundTickets(limit: 2, filter: { refundTicketMerchantExternalId: { eq: $ref } }) {
         id status refundTicketMerchantExternalId
         requestedAmountDetails { amount currency }
         payment { id status onetimeOrder { id } }
     }
-    refunds(filter: { refundTicketMerchantExternalId: { eq: $ref } }) {
+    refundTicketsCount(filter: { refundTicketMerchantExternalId: { eq: $ref } })
+    refunds(limit: 2, filter: { refundTicketMerchantExternalId: { eq: $ref } }) {
         id status orderMerchantExternalId refundTicketMerchantExternalId
         pspAmountDetails { amount currency }
     }
+    refundsCount(filter: { refundTicketMerchantExternalId: { eq: $ref } })
 }`
 
 type merchantStoreRefundQueryAmount struct {
@@ -164,8 +166,10 @@ type merchantStorePancakeRefundQueryExecution struct {
 }
 
 type merchantStorePancakeRefundQueryData struct {
-	RefundTickets []merchantStorePancakeRefundQueryTicket    `json:"refundTickets"`
-	Refunds       []merchantStorePancakeRefundQueryExecution `json:"refunds"`
+	RefundTickets      []merchantStorePancakeRefundQueryTicket    `json:"refundTickets"`
+	Refunds            []merchantStorePancakeRefundQueryExecution `json:"refunds"`
+	RefundTicketsCount *int                                       `json:"refundTicketsCount"`
+	RefundsCount       *int                                       `json:"refundsCount"`
 }
 
 // QueryMerchantStorePancakeRefund is read-only at the provider. It uses only
@@ -194,6 +198,9 @@ func merchantStoreQueryPancakeRefundWithClient(ctx context.Context, order *model
 	if err != nil || response == nil || len(response.Errors) != 0 {
 		// Do not expose SDK/network errors, which can contain provider bodies or
 		// credential-bearing URLs. A failed read is not evidence of failed funds.
+		return result, ErrMerchantStoreRefundProvider
+	}
+	if response.Data.RefundTicketsCount == nil || response.Data.RefundsCount == nil || *response.Data.RefundTicketsCount != len(response.Data.RefundTickets) || *response.Data.RefundsCount != len(response.Data.Refunds) {
 		return result, ErrMerchantStoreRefundProvider
 	}
 	return merchantStorePancakeRefundExecutionResult(order, request, response.Data)
