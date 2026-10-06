@@ -36,6 +36,7 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	self.POST("/email/verification/confirm", middleware.RequestBodyLimit(1<<10), middleware.CriticalRateLimit(), controller.ConfirmMerchantStoreEmailVerification)
 	self.GET("/my/products", controller.ListMyMerchantStoreProducts)
 	self.GET("/my/products/:id", controller.GetMerchantStoreProductDraft)
+	self.GET("/my/products/:id/preview", controller.GetMerchantStoreProductPreview)
 	self.GET("/products/:id/ai-reviews", controller.ListStoreAIReviews)
 	self.POST("/products", middleware.RequestBodyLimit(512<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreProduct)
 	self.PUT("/products/:id", middleware.RequestBodyLimit(512<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreProduct)

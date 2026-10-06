@@ -42,6 +42,8 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusUnprocessableEntity, "STORE_INVALID_INPUT", "Please check the shop information and amounts."
 	case errors.Is(err, model.ErrMerchantStoreMinimumPrice):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_MINIMUM_PRICE", "The product unit price is below the current minimum."
+	case errors.Is(err, model.ErrMerchantStoreTestMode):
+		status, code, message = http.StatusUnprocessableEntity, "STORE_TEST_MODE", "Exit product test mode before submitting or publishing."
 	case errors.Is(err, model.ErrMerchantStorePaymentSelection):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_SELECTION_UNAVAILABLE", "Select only currently enabled merchant payment methods."
 	case errors.Is(err, model.ErrMerchantStorePaymentCategoryDisabled):
@@ -126,8 +128,9 @@ func GetMerchantStoreConfig(c *gin.Context) {
 	catalog := service.MerchantStorePlatformPaymentCatalog(availablePaymentMethods(operation_setting.IsPaymentComplianceConfirmed()))
 	merchantStoreRespond(c, gin.H{
 		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota, "minimum_unit_price_quota": config.MinimumUnitPriceQuota,
-		"linuxdo_units_per_usd": config.LinuxDOUnitsPerUSD,
-		"credits_per_usd":       common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
+		"product_test_mode_supported": true,
+		"linuxdo_units_per_usd":       config.LinuxDOUnitsPerUSD,
+		"credits_per_usd":             common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
 		"disclaimer_version": model.MerchantStoreDisclaimerVersion, "disclaimer_text": merchantStoreDisclaimerText,
 		"platform_payment_methods": service.AvailableMerchantStorePlatformMethods(catalog),
 		"platform_payment_catalog": catalog,
@@ -186,6 +189,14 @@ func ListMyMerchantStoreProducts(c *gin.Context) {
 
 func GetMerchantStoreProductDraft(c *gin.Context) {
 	p, err := model.GetMerchantStoreProduct(c.GetInt("id"), c.Param("id"))
+	merchantStoreRespond(c, p, err)
+}
+
+func GetMerchantStoreProductPreview(c *gin.Context) {
+	p, err := model.GetMerchantStoreProductPreview(c.GetInt("id"), c.Param("id"))
+	if err == nil {
+		*p = publicStoreProduct(*p)
+	}
 	merchantStoreRespond(c, p, err)
 }
 

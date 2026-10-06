@@ -29,7 +29,7 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 				return e
 			}
 			p = *v
-			if p.Status == "pending" {
+			if p.Status == "pending" && (in.TestMode == nil || *in.TestMode == p.TestMode) {
 				return ErrMerchantStoreConflict
 			}
 		}
@@ -45,6 +45,10 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		p.Contact = in.Contact
 		p.Links = in.Links
 		p.PriceQuota = in.PriceQuota
+		priorStatus := p.Status
+		if in.TestMode != nil {
+			p.TestMode = *in.TestMode
+		}
 		p.Template = in.Template
 		p.DeliveryStrategy = in.DeliveryStrategy
 		p.PaymentMethods = in.PaymentMethods
@@ -59,6 +63,10 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		}
 		p.AIReviewToken = ""
 		p.Status = "draft"
+		// Editing a private test must not silently undo an explicit trading stop.
+		if p.TestMode && (priorStatus == "paused" || priorStatus == "off_shelf") {
+			p.Status = priorStatus
+		}
 		p.ReviewNote = ""
 		p.ReviewedBy = 0
 		p.ReviewedAt = 0
@@ -77,6 +85,9 @@ func SubmitMerchantStoreProduct(actor int, id string) error {
 		}
 		if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
 			return e
+		}
+		if p.TestMode {
+			return ErrMerchantStoreTestMode
 		}
 		if e := storeRequireMinimumUnitPrice(tx, p.PriceQuota); e != nil {
 			return e
@@ -110,6 +121,12 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 		if _, e := storeUser(tx, actor, common.RoleAdminUser); e != nil {
 			return e
 		}
+		if p.TestMode {
+			if actor != p.SellerID {
+				return ErrMerchantStoreDenied
+			}
+			return ErrMerchantStoreTestMode
+		}
 		if p.Status != "pending" && !marketAIReviewApplied(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken) {
 			return ErrMerchantStoreConflict
 		}
@@ -140,19 +157,23 @@ func SetMerchantStoreProductPaused(actor int, id string, paused bool) error {
 		if e != nil {
 			return e
 		}
-		if p.SellerID != actor && u.Role < common.RoleAdminUser {
+		if p.SellerID != actor && (p.TestMode || u.Role < common.RoleAdminUser) {
 			return ErrMerchantStoreDenied
 		}
 		if paused {
-			if p.Status != "published" && p.Status != "paused" {
+			if p.Status != "published" && p.Status != "paused" && !(p.TestMode && storeProductPurchaseStatus(p)) {
 				return ErrMerchantStoreConflict
 			}
 			p.Status = "paused"
 		} else {
-			if p.Status != "paused" || p.ReviewedAt == 0 {
+			if p.Status != "paused" || (!p.TestMode && p.ReviewedAt == 0) {
 				return ErrMerchantStoreConflict
 			}
-			p.Status = "published"
+			if p.TestMode {
+				p.Status = "draft"
+			} else {
+				p.Status = "published"
+			}
 		}
 		p.UpdatedAt = common.GetTimestamp()
 		if e := tx.Save(p).Error; e != nil {
@@ -291,7 +312,7 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 	if public {
 		p.PaymentMethods = enabled
 	}
-	p.TradingPaused = p.Status != "published" || u.Quota < fee || p.SaleAvailable == 0 || len(enabled) == 0 || p.PriceQuota < c.MinimumUnitPriceQuota
+	p.TradingPaused = !storeProductPurchaseStatus(p) || u.Quota < fee || p.SaleAvailable == 0 || len(enabled) == 0 || p.PriceQuota < c.MinimumUnitPriceQuota
 	if public {
 		// Existing public clients interpret available_stock as purchasable stock.
 		p.AvailableStock = p.SaleAvailable
@@ -300,7 +321,7 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 }
 func GetPublicMerchantStoreProduct(id string) (*MerchantStoreProduct, error) {
 	var p MerchantStoreProduct
-	if e := DB.Where("id = ? AND status = ?", id, "published").First(&p).Error; e != nil {
+	if e := DB.Where("id = ? AND status = ? AND test_mode = ?", id, "published", false).First(&p).Error; e != nil {
 		return nil, e
 	}
 	if e := populateMerchantStoreProduct(DB, &p, true); e != nil {
@@ -319,7 +340,7 @@ func GetMerchantStoreProduct(actor int, id string) (*MerchantStoreProduct, error
 	if e != nil {
 		return nil, e
 	}
-	if p.SellerID != actor && u.Role < common.RoleAdminUser {
+	if p.SellerID != actor && (p.TestMode || u.Role < common.RoleAdminUser) {
 		return nil, ErrMerchantStoreDenied
 	}
 	e = populateMerchantStoreProduct(DB, &p, false)
@@ -330,7 +351,7 @@ func ListPublicMerchantStoreProducts(search string, offset, limit int) ([]Mercha
 	if len(search) > 200 {
 		return nil, ErrMerchantStoreInput
 	}
-	q := DB.Where("status = ?", "published")
+	q := DB.Where("status = ? AND test_mode = ?", "published", false)
 	if search != "" {
 		literal := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(search)
 		q = q.Where("title LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!'", "%"+literal+"%", "%"+literal+"%")
@@ -365,7 +386,7 @@ func ListMerchantStoreProducts(actor int, review bool, offset, limit int) ([]Mer
 	offset, limit = storePage(offset, limit)
 	q := DB
 	if review {
-		q = q.Where("status = ? OR (status IN ? AND ai_review_token <> '' AND EXISTS (SELECT 1 FROM moderation_jobs WHERE source = ? AND target_id = merchant_store_products.id AND request_id = merchant_store_products.ai_review_token AND status = ? AND market_outcome IN ?))", "pending", []string{"published", "rejected"}, ModerationSourceMarketProduct, ModerationJobCompleted, []string{"approved", "rejected"}).
+		q = q.Where("test_mode = ? AND (status = ? OR (status IN ? AND ai_review_token <> '' AND EXISTS (SELECT 1 FROM moderation_jobs WHERE source = ? AND target_id = merchant_store_products.id AND request_id = merchant_store_products.ai_review_token AND status = ? AND market_outcome IN ?)))", false, "pending", []string{"published", "rejected"}, ModerationSourceMarketProduct, ModerationJobCompleted, []string{"approved", "rejected"}).
 			Order("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
 	} else {
 		q = q.Where("seller_id = ?", actor)
@@ -391,6 +412,9 @@ func PurchaseMerchantStorePromotion(actor int, productID string, months int, req
 	e := storeWithProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if p.SellerID != actor {
 			return ErrMerchantStoreDenied
+		}
+		if p.TestMode {
+			return ErrMerchantStoreTestMode
 		}
 		if p.Status != "published" {
 			return ErrMerchantStoreUnavailable

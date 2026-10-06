@@ -95,7 +95,7 @@ func SetMerchantStoreProductSaleLimit(actor int, id string, limit *int64) error 
 		if err != nil {
 			return err
 		}
-		if p.SellerID != actor && user.Role < common.RoleAdminUser {
+		if p.SellerID != actor && (p.TestMode || user.Role < common.RoleAdminUser) {
 			return ErrMerchantStoreDenied
 		}
 		if err := tx.Model(p).Updates(map[string]any{"sale_limit": limit, "updated_at": common.GetTimestamp()}).Error; err != nil {
@@ -113,10 +113,13 @@ func SetMerchantStoreProductListed(actor int, id string, listed bool) error {
 		if err != nil {
 			return err
 		}
-		if p.SellerID != actor && user.Role < common.RoleAdminUser {
+		if p.SellerID != actor && (p.TestMode || user.Role < common.RoleAdminUser) {
 			return ErrMerchantStoreDenied
 		}
 		if listed {
+			if p.TestMode {
+				return ErrMerchantStoreTestMode
+			}
 			if p.Status == "published" {
 				return nil
 			}
@@ -128,7 +131,7 @@ func SetMerchantStoreProductListed(actor int, id string, listed bool) error {
 			if p.Status == "off_shelf" {
 				return nil
 			}
-			if p.Status != "published" && p.Status != "paused" {
+			if p.Status != "published" && p.Status != "paused" && !(p.TestMode && storeProductPurchaseStatus(p)) {
 				return ErrMerchantStoreConflict
 			}
 			if err := invalidateMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken, "market_review_stale"); err != nil {

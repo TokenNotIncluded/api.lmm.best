@@ -269,7 +269,7 @@ func marketAIReviewTarget(tx *gorm.DB, j *ModerationJob, locked bool) (*ToolMark
 		if err := q.Where("id = ?", j.TargetID).First(&p).Error; err != nil {
 			return nil, nil, nil, false, err
 		}
-		return nil, nil, &p, p.SellerID == j.UserID && p.Status == "pending" && p.AIReviewToken == j.RequestID, nil
+		return nil, nil, &p, !p.TestMode && p.SellerID == j.UserID && p.Status == "pending" && p.AIReviewToken == j.RequestID, nil
 	}
 	return nil, nil, nil, false, ErrModerationJobInvalid
 }
@@ -567,6 +567,9 @@ func ListMarketAIReviews(ctx context.Context, actor int, source, target, version
 			return nil, err
 		}
 		owner = p.SellerID
+		if p.TestMode && actor != owner {
+			return nil, ErrToolMarketDenied
+		}
 	}
 	if actor != owner && user.Role < common.RoleAdminUser {
 		return nil, ErrToolMarketDenied

@@ -176,6 +176,11 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e
 		}
+		// A valid existing order retains its frozen obligations when the listing
+		// changes mode. Only new orders use the current visibility/buyer policy.
+		if e = storeProductNewBuyer(p, buyer.Id); e != nil {
+			return e
+		}
 		// Existing orders above returned before current listing policy. Check
 		// the unit price, never quantity times price, under the current config.
 		if e = storeRequireMinimumUnitPrice(tx, p.PriceQuota); e != nil {
@@ -199,9 +204,6 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			if pending >= 3 || sameProduct >= 1 {
 				return ErrMerchantStorePendingLimit
 			}
-		}
-		if p.Status != "published" {
-			return ErrMerchantStoreUnavailable
 		}
 		if e = storeCheckSaleLimit(tx, p, in.Quantity); e != nil {
 			return e

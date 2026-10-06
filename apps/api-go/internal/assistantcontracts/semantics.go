@@ -93,6 +93,11 @@ func (g *generator) refine(name string, c *contract) {
 	case "CreateUser":
 		c.body["required"] = []string{"username", "password"}
 		c.notes = append(c.notes, "Create only a user with a lower role than the caller. Server-generated and read-only fields should be omitted. Administrator permissions are separately checked by the server.")
+	case "SaveMerchantStoreProduct":
+		if properties, ok := c.body["properties"].(map[string]any); ok {
+			properties["test_mode"] = map[string]any{"type": "boolean"}
+		}
+		c.notes = append(c.notes, "test_mode is optional: omission preserves the existing flag on edits and defaults to false for a new product. Explicit null is rejected. Only the authenticated product owner may edit it. Saving content or changing the mode creates a draft and invalidates the prior AI review; leaving test mode requires normal submission and review before public sale. Test products are owner-only, including preview and new purchase; administrators do not gain access to another seller's test product. All normal financial and inventory checks remain active.")
 	case "SetMerchantStoreProductSaleLimit":
 		c.body["required"] = []string{"sale_limit"}
 		if properties, ok := c.body["properties"].(map[string]any); ok {

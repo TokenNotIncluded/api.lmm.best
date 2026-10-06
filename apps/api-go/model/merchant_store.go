@@ -47,6 +47,7 @@ type MerchantStoreProduct struct {
 	Links               []MerchantStoreLink `json:"links" gorm:"serializer:json;type:text"`
 	PriceQuota          int                 `json:"price_quota" gorm:"type:bigint;not null"`
 	SaleLimit           *int64              `json:"sale_limit" gorm:"type:bigint"`
+	TestMode            bool                `json:"test_mode" gorm:"not null;default:false"`
 	Template            string              `json:"template" gorm:"size:32"`
 	DeliveryStrategy    string              `json:"delivery_strategy" gorm:"size:16"`
 	PaymentMethods      []string            `json:"payment_methods" gorm:"serializer:json;type:text"`
@@ -75,6 +76,7 @@ type MerchantStoreProductInput struct {
 	Contact             string              `json:"contact"`
 	Links               []MerchantStoreLink `json:"links"`
 	PriceQuota          int                 `json:"price_quota"`
+	TestMode            *bool               `json:"test_mode,omitempty"`
 	Template            string              `json:"template"`
 	DeliveryStrategy    string              `json:"delivery_strategy"`
 	PaymentMethods      []string            `json:"payment_methods"`
