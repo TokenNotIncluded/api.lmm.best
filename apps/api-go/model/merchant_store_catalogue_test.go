@@ -156,3 +156,27 @@ func TestMerchantStoreCatalogueRankingIsStableAndVisibilityPrecedesPage(t *testi
 	require.NoError(t, err)
 	require.NotContains(t, ids(rows), hidden.ID) // Administrator status never exposes another seller's private item.
 }
+
+func TestMerchantStoreCatalogueGuestLabelRespectsVisibilityLoginBoundary(t *testing.T) {
+	f := storeCatalogueFixture(t)
+	for _, visibility := range []string{"public", "registered", "private"} {
+		require.NoError(t, DB.Model(&MerchantStoreProduct{}).Where("id = ?", f.product.ID).Updates(map[string]interface{}{"visibility": visibility, "test_mode": visibility == "private", "purchase_login_required": false, "pickup_login_required": false}).Error)
+		p, err := GetMerchantStoreProductForViewer(f.seller.Id, f.product.ID)
+		require.NoError(t, err)
+		guestAllowed := visibility == "public"
+		if guestAllowed {
+			require.Contains(t, p.DisplayTags, "guest_purchase")
+			require.NoError(t, storeProductNewBuyer(p, 0))
+		} else {
+			require.NotContains(t, p.DisplayTags, "guest_purchase")
+			require.ErrorIs(t, storeProductNewBuyer(p, 0), ErrMerchantStoreDenied)
+		}
+		rows, err := ListMerchantStoreCatalogue(f.seller.Id, "", 0, 0, 10, MerchantStoreCatalogueQuery{GuestPurchase: &guestAllowed})
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		opposite := !guestAllowed
+		rows, err = ListMerchantStoreCatalogue(f.seller.Id, "", 0, 0, 10, MerchantStoreCatalogueQuery{GuestPurchase: &opposite})
+		require.NoError(t, err)
+		require.Empty(t, rows)
+	}
+}

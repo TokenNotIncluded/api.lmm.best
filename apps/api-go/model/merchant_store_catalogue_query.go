@@ -101,7 +101,8 @@ func ListMerchantStoreCatalogue(viewer int, search string, sellerID, offset, lim
 		query = query.Where("COALESCE(cm.ai_processing,FALSE) = ?", *in.AIProcessing)
 	}
 	if in.GuestPurchase != nil {
-		query = query.Where("merchant_store_products.purchase_login_required = ?", !*in.GuestPurchase)
+		guestAllowed := "(" + storeVisibilitySQL + " = 'public' AND merchant_store_products.purchase_login_required=FALSE)"
+		query = query.Where(guestAllowed+" = ?", *in.GuestPurchase)
 	}
 	tradable := storeCatalogueTradableSQL(config)
 	if in.Stock != "" {
