@@ -82,6 +82,8 @@ export interface AuthUser {
   group?: string
   quota?: number
   used_quota?: number
+  normalized_used_quota?: number | null
+  usage_projection_available?: boolean
   request_count?: number
   aff_code?: string
   aff_count?: number

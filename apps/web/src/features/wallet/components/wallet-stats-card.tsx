@@ -56,7 +56,7 @@ interface WalletStatsCardProps {
 export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
   const walletCurrency = useWalletCurrency()
-  const { formatQuota } = walletCurrency
+  const { formatQuota, formatUserUsage } = walletCurrency
   const configuredQuotaPerUnit = useSystemConfigStore(
     (state) => state.config.currency.quotaPerUnit
   )
@@ -103,7 +103,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     },
     {
       label: t('Total Usage'),
-      value: formatQuota(props.user?.used_quota ?? 0),
+      value: formatUserUsage(props.user),
       description: t('Total consumed quota'),
       icon: BarChart3,
       tone: 'neutral',

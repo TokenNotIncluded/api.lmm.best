@@ -282,6 +282,8 @@ export function useUsersColumns(): ColumnDef<User>[] {
         return (
           <UserQuotaCell
             used={user.used_quota}
+            normalizedUsed={user.normalized_used_quota}
+            projectionAvailable={user.usage_projection_available}
             remaining={user.quota}
             transferred={user.wallet_risk?.transferred_quota}
           />

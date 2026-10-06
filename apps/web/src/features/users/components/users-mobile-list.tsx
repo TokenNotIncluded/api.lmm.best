@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import type { Row, Table } from '@tanstack/react-table'
 import { ChevronDown, Database } from 'lucide-react'
 import { useId, useState } from 'react'
@@ -35,6 +38,25 @@ import {
 } from '@/components/ui/empty'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { formatCumulativeUserUsage } from '@/lib/cumulative-user-usage'
 import { formatFiatCurrencyAmount } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -267,12 +289,15 @@ function UserMobileRow({ row }: { row: Row<User> }) {
             <div className='[&_.truncate]:overflow-visible [&_.truncate]:[overflow-wrap:anywhere] [&_.truncate]:whitespace-normal'>
               <UserQuotaCell
                 used={user.used_quota}
+                normalizedUsed={user.normalized_used_quota}
+                projectionAvailable={user.usage_projection_available}
                 remaining={user.quota}
                 transferred={user.wallet_risk?.transferred_quota}
               />
             </div>
             <p className='text-muted-foreground mt-1 text-xs'>
-              {t('Used:')} {formatQuota(user.used_quota)}
+              {t('Used:')}{' '}
+              {formatCumulativeUserUsage(user, formatQuota, t('Credits'))}
             </p>
             <p className='text-muted-foreground text-xs'>
               {t('Transferred out')}:{' '}

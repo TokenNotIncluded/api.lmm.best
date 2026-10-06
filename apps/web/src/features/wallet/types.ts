@@ -450,6 +450,8 @@ export interface UserWalletData {
   quota: number
   /** Total used quota */
   used_quota: number
+  normalized_used_quota?: number | null
+  usage_projection_available?: boolean
   /** Total request count */
   request_count: number
   /** Affiliate quota (pending rewards) */

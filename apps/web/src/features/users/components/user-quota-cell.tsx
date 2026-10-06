@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -25,11 +28,35 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import {
+  formatCumulativeUserUsage,
+  normalizedUserUsage,
+} from '@/lib/cumulative-user-usage'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 type UserQuotaCellProps = {
   used: number
+  normalizedUsed?: number | null
+  projectionAvailable?: boolean
   transferred?: number
   remaining: number
 }
@@ -42,10 +69,20 @@ function getQuotaProgressColor(percentage: number): string {
 
 export function UserQuotaCell(props: UserQuotaCellProps) {
   const { t } = useTranslation()
-  const total = props.used + props.remaining + (props.transferred ?? 0)
-  const percentage = total > 0 ? (props.remaining / total) * 100 : 0
+  const usage = {
+    used_quota: props.used,
+    normalized_used_quota: props.normalizedUsed,
+    usage_projection_available: props.projectionAvailable,
+  }
+  const normalized = normalizedUserUsage(usage)
+  const total =
+    normalized === null
+      ? null
+      : normalized + props.remaining + (props.transferred ?? 0)
+  const percentage =
+    total !== null && total > 0 ? (props.remaining / total) * 100 : 0
   const formattedRemaining = formatQuota(props.remaining)
-  const formattedTotal = formatQuota(total)
+  const formattedTotal = total === null ? t('Unavailable') : formatQuota(total)
 
   if (total === 0) {
     return (
@@ -73,15 +110,18 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
             {formattedTotal}
           </span>
         </div>
-        <Progress
-          value={percentage}
-          className={cn('h-1.5', getQuotaProgressColor(percentage))}
-        />
+        {total !== null && (
+          <Progress
+            value={percentage}
+            className={cn('h-1.5', getQuotaProgressColor(percentage))}
+          />
+        )}
       </TooltipTrigger>
       <TooltipContent>
         <div className='space-y-1 text-xs'>
           <div>
-            {t('Used:')} {formatQuota(props.used)}
+            {t('Used:')}{' '}
+            {formatCumulativeUserUsage(usage, formatQuota, t('Credits'))}
           </div>
           <div>
             {t('Remaining:')} {formattedRemaining}
@@ -93,7 +133,8 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
             {t('Total:')} {formattedTotal}
           </div>
           <div>
-            {t('Percentage:')} {percentage.toFixed(1)}%
+            {t('Percentage:')}{' '}
+            {total === null ? t('Unavailable') : `${percentage.toFixed(1)}%`}
           </div>
         </div>
       </TooltipContent>

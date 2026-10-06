@@ -45,6 +45,8 @@ export const userSchema = z.object({
   email: z.string().optional(),
   quota: z.number(),
   used_quota: z.number(),
+  normalized_used_quota: z.number().nullable().optional(),
+  usage_projection_available: z.boolean().optional(),
   request_count: z.number(),
   group: z.string(),
   aff_code: z.string().optional(),

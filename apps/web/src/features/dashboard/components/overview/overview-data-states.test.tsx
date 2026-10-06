@@ -195,6 +195,8 @@ test('failed usage stays unknown and a new account fetches its own usage', async
   )
   assert.doesNotMatch(container.textContent ?? '', /Healthy|No recent usage/)
   assert.match(container.textContent ?? '', /Unknown/)
+  assert.match(container.textContent ?? '', /1,000 Credits/)
+  assert.match(container.textContent ?? '', /Total consumed \(Credits\)/)
   await act(async () =>
     useAuthStore.getState().auth.setUser({ ...user, id: 902 })
   )
