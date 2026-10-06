@@ -164,6 +164,17 @@ test('Go/Web publication explicitly selects its component without changing serve
   assert.deepEqual(jobNeeds(gate).sort(), ['go-server', 'harness-contracts']);
 });
 
+test('standalone STAGED archival runs in both offline owner and required release contracts', () => {
+  for (const [name, id] of [
+    ['standalone-deployment-tests', 'standalone-deployment-tests'],
+    ['server-release-qualification', 'harness-contracts'],
+  ]) {
+    const contracts = job(workflow(name), id);
+    assert.match(contracts, /python3 -B scripts\/test-deploy-systemd-archive-staged\.py(?: -v)?\n/);
+    assert.doesNotMatch(contracts, /continue-on-error:/);
+  }
+});
+
 test('PR formatting checks stay removed while code checks remain', () => {
   assert.throws(() => workflow('pr-check'), /ENOENT/);
   assert.throws(() => read('scripts/pr-quality.mjs'), /ENOENT/);

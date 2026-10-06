@@ -50,6 +50,7 @@ jobs:
           python3 -B scripts/test-credit-financial-maintenance.py
           python3 -B scripts/test-build-credit-financial-plan.py
           python3 -B scripts/test-deploy-systemd.py
+          python3 -B scripts/test-deploy-systemd-archive-staged.py
           python3 -B scripts/test-maintenance-deploy-guardian.py
       - name: Validate qualification harnesses
         run: |
