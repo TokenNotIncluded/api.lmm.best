@@ -16,6 +16,8 @@ import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { storeCheckoutCapacity, storeQuantity } from './quantity'
+import { StoreQuantityControl } from './quantity-control'
 import { StoreAmount, StoreBadges, StoreError, StoreLoading } from './shared'
 import type {
   StoreCheckoutResult,
@@ -159,9 +161,11 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
     setAcknowledged(false)
   }, [disclaimer.data?.version])
   const actualMethod = method || product.payment_methods?.[0] || ''
+  const count = storeQuantity(quantity)
+  const capacity = storeCheckoutCapacity(product, actualMethod)
   let total: number | undefined
   try {
-    total = storeTotal(product.price_quota, Number(quantity))
+    if (count !== undefined) total = storeTotal(product.price_quota, count)
   } catch {
     /* invalid input remains disabled */
   }
@@ -173,18 +177,16 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
   const valid =
     !!user &&
     total !== undefined &&
-    Number(quantity) <=
-      Math.min(
-        product.available_stock,
-        actualMethod === 'balance' ? 1000 : 100
-      ) &&
+    count !== undefined &&
+    count <= capacity &&
     !product.trading_paused &&
     product.status === 'published' &&
     !!actualMethod &&
+    product.payment_methods?.includes(actualMethod) &&
     (code ? codeValid : !product.pickup_code_required) &&
     (pickupEmail ? emailValid : !product.email_pickup_link)
   async function checkout(accept = false) {
-    if (!valid || busy || !user) return
+    if (!valid || busy || !user || count === undefined) return
     setBusy(true)
     setError(null)
     try {
@@ -214,7 +216,7 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
       keys.current.set(signature, requestKey)
       const created = await storeApi.checkout({
         product_id: product.id,
-        quantity: Number(quantity),
+        quantity: count,
         payment_method: actualMethod as StorePaymentMethod,
         request_key: requestKey,
         ...(!product.official && version
@@ -354,21 +356,12 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
         </div>
       ) : (
         <>
-          <div className='space-y-2'>
-            <Label htmlFor='store-quantity'>{t('Quantity')}</Label>
-            <Input
-              id='store-quantity'
-              type='number'
-              min={1}
-              max={Math.min(
-                product.available_stock,
-                actualMethod === 'balance' ? 1000 : 100
-              )}
-              step={1}
-              value={quantity}
-              onChange={(event) => setQuantity(event.target.value)}
-            />
-          </div>
+          <StoreQuantityControl
+            value={quantity}
+            max={capacity}
+            disabled={busy}
+            onChange={setQuantity}
+          />
           <fieldset className='space-y-2'>
             <legend className='mb-2 text-sm font-medium'>
               {t('Payment method')}

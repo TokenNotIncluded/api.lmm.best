@@ -58,6 +58,7 @@ import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
 import { storeConstellationLunaCopy } from './store-constellation-luna-copy.mjs'
 import { storePaymentCategoryLunaCopy } from './store-payment-category-luna-copy.mjs'
+import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
 import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
@@ -11864,6 +11865,22 @@ for (const [locale, values] of Object.entries(paymentReturnCopy)) {
 }
 
 async function main() {
+  if (process.argv.includes('--store-quantity-only')) {
+    for (const [locale, translations] of Object.entries(
+      storeQuantityLunaCopy
+    )) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      Object.assign(json.translation, translations)
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: quantity translation applied`)
+    }
+    return
+  }
+
   if (process.argv.includes('--payment-return-only')) {
     // Repair only these checkout hints; preserve every unrelated root field.
     for (const [locale, translations] of Object.entries(paymentReturnCopy)) {
@@ -13217,6 +13234,10 @@ for (const [locale, values] of Object.entries(storeConstellationLunaCopy)) {
 }
 
 for (const [locale, values] of Object.entries(storePaymentCategoryLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeQuantityLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
