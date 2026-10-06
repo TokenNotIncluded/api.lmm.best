@@ -279,12 +279,30 @@ func GetMerchantStoreOrderSearchSummary(tradeNo string) (*MerchantStoreOrderSear
 }
 
 func GetMerchantStoreOrderSearchSummaryForActor(tradeNo string, actorID int) (*MerchantStoreOrderSearchSummary, error) {
+	return GetMerchantStoreOrderSearchSummaryWithGuest(tradeNo, actorID, "")
+}
+
+func GetMerchantStoreOrderSearchSummaryWithGuest(tradeNo string, actorID int, guestToken string) (*MerchantStoreOrderSearchSummary, error) {
 	if !storeValidTradeNo(tradeNo) {
 		return nil, ErrMerchantStoreInput
 	}
 	var row MerchantStoreOrder
 	if err := DB.Scopes(marketExactTextScope("trade_no", tradeNo)).First(&row).Error; err != nil {
 		return nil, err
+	}
+	if row.GuestID != "" {
+		allowed := false
+		if actorID > 0 {
+			actor, e := storeUser(DB, actorID, common.RoleCommonUser)
+			allowed = e == nil && (actorID == row.SellerID || actor.Role >= common.RoleRootUser)
+		}
+		if !allowed && guestToken != "" {
+			guest, e := ResolveMerchantStoreGuest(DB, guestToken)
+			allowed = e == nil && row.BuyerID == 0 && guest.ID == row.GuestID
+		}
+		if !allowed {
+			return nil, gorm.ErrRecordNotFound
+		}
 	}
 	// Legacy numbers were derived from a buyer's idempotency key. They can
 	// be predictable and must retain the old authenticated access boundary.

@@ -281,7 +281,15 @@ func marketAIReviewTarget(tx *gorm.DB, j *ModerationJob, locked bool) (*ToolMark
 		if err := q.Where("id = ?", j.TargetID).First(&p).Error; err != nil {
 			return nil, nil, nil, false, err
 		}
-		return nil, nil, &p, !p.TestMode && p.SellerID == j.UserID && p.Status == "pending" && p.AIReviewToken == j.RequestID, nil
+		valid := MerchantStoreProductVisibility(&p) != "private" && p.SellerID == j.UserID && p.Status == "pending" && p.AIReviewToken == j.RequestID
+		if valid {
+			if e := storeRequireConfiguredSellerTerms(tx, p.SellerID); errors.Is(e, ErrMerchantStoreSellerTerms) {
+				valid = false
+			} else if e != nil {
+				return nil, nil, &p, false, e
+			}
+		}
+		return nil, nil, &p, valid, nil
 	}
 	return nil, nil, nil, false, ErrModerationJobInvalid
 }

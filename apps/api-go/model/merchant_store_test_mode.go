@@ -23,7 +23,7 @@ func (in *MerchantStoreProductInput) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	for key, value := range fields {
-		if strings.EqualFold(key, "test_mode") && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if (strings.EqualFold(key, "test_mode") || strings.EqualFold(key, "visibility") || strings.EqualFold(key, "purchase_login_required")) && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return ErrMerchantStoreInput
 		}
 	}
@@ -36,14 +36,24 @@ func (in *MerchantStoreProductInput) UnmarshalJSON(data []byte) error {
 // Test mode only changes visibility and who may open a new order. Financial,
 // inventory, channel and minimum-price checks remain on the common checkout.
 func storeProductPurchaseStatus(p *MerchantStoreProduct) bool {
-	if p.TestMode {
+	if MerchantStoreProductVisibility(p) == "private" {
 		return p.Status == "draft" || p.Status == "pending" || p.Status == "published"
 	}
 	return p.Status == "published"
 }
 
 func storeProductNewBuyer(p *MerchantStoreProduct, buyerID int) error {
-	if p.TestMode {
+	visibility := MerchantStoreProductVisibility(p)
+	if visibility == "registered" && buyerID < 1 {
+		return ErrMerchantStoreDenied
+	}
+	if visibility != "public" && visibility != "registered" && visibility != "private" {
+		return ErrMerchantStoreDenied
+	}
+	if p.PurchaseLoginRequired && buyerID < 1 {
+		return ErrMerchantStoreLoginRequired
+	}
+	if MerchantStoreProductVisibility(p) == "private" {
 		if buyerID != p.SellerID {
 			return ErrMerchantStoreDenied
 		}

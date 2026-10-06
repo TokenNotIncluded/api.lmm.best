@@ -98,7 +98,7 @@ func SetMerchantStoreProductSaleLimit(actor int, id string, limit *int64) error 
 		if err != nil {
 			return err
 		}
-		if p.SellerID != actor && (p.TestMode || user.Role < common.RoleAdminUser) {
+		if p.SellerID != actor && (MerchantStoreProductVisibility(p) == "private" || user.Role < common.RoleAdminUser) {
 			return ErrMerchantStoreDenied
 		}
 		if err := tx.Model(p).Updates(map[string]any{"sale_limit": limit, "updated_at": common.GetTimestamp()}).Error; err != nil {
@@ -123,7 +123,7 @@ func SetMerchantStoreProductRemainingQuota(actor int, id string, remaining *int6
 		if err != nil {
 			return err
 		}
-		if product.SellerID != actor && (product.TestMode || user.Role < common.RoleAdminUser) {
+		if product.SellerID != actor && (MerchantStoreProductVisibility(product) == "private" || user.Role < common.RoleAdminUser) {
 			return ErrMerchantStoreDenied
 		}
 		var limit *int64
@@ -156,14 +156,20 @@ func SetMerchantStoreProductListed(actor int, id string, listed bool) error {
 		if err != nil {
 			return err
 		}
-		if p.SellerID != actor && (p.TestMode || user.Role < common.RoleAdminUser) {
+		if p.SellerID != actor && (MerchantStoreProductVisibility(p) == "private" || user.Role < common.RoleAdminUser) {
 			return ErrMerchantStoreDenied
 		}
 		if listed {
+			if err := marketLockUsers(tx, p.SellerID); err != nil {
+				return err
+			}
+			if err := storeRequireConfiguredSellerTerms(tx, p.SellerID); err != nil {
+				return err
+			}
 			if err := storeRequireVariantPublication(tx, p); err != nil {
 				return err
 			}
-			if p.TestMode {
+			if MerchantStoreProductVisibility(p) == "private" {
 				return ErrMerchantStoreTestMode
 			}
 			if p.Status == "published" {
@@ -177,7 +183,7 @@ func SetMerchantStoreProductListed(actor int, id string, listed bool) error {
 			if p.Status == "off_shelf" {
 				return nil
 			}
-			if p.Status != "published" && p.Status != "paused" && !(p.TestMode && storeProductPurchaseStatus(p)) {
+			if p.Status != "published" && p.Status != "paused" && !(MerchantStoreProductVisibility(p) == "private" && storeProductPurchaseStatus(p)) {
 				return ErrMerchantStoreConflict
 			}
 			if err := invalidateMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken, "market_review_stale"); err != nil {

@@ -66,6 +66,10 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusConflict, "STORE_PURCHASE_LIMIT", "This quantity exceeds the product purchase limit."
 	case errors.Is(err, model.ErrMerchantStoreDisclaimer):
 		status, code, message = http.StatusConflict, "STORE_DISCLAIMER_REQUIRED", "Read and accept the current merchant disclaimer before ordering."
+	case errors.Is(err, model.ErrMerchantStoreSellerTerms):
+		status, code, message = http.StatusConflict, "STORE_SELLER_TERMS_REQUIRED", "Read and accept the current seller terms before ordering."
+	case errors.Is(err, model.ErrMerchantStoreLoginRequired):
+		status, code, message = http.StatusUnauthorized, "STORE_LOGIN_REQUIRED", "Sign in before ordering this product."
 	case errors.Is(err, model.ErrMerchantStoreEmailUnverified):
 		status, code, message = http.StatusConflict, "STORE_EMAIL_VERIFICATION_REQUIRED", "Verify your current email address before receiving private delivery links."
 	case errors.Is(err, model.ErrMerchantStoreEmailVerificationInvalid):
@@ -139,7 +143,7 @@ func ListMerchantStore(c *gin.Context) {
 			return
 		}
 	}
-	items, err := model.ListPublicMerchantStoreProductsForSeller(c.Query("q"), sellerID, offset, limit)
+	items, err := model.ListMerchantStoreProductsForSellerViewer(merchantStoreViewer(c), c.Query("q"), sellerID, offset, limit)
 	for i := range items {
 		items[i] = publicStoreProduct(items[i])
 	}
@@ -152,7 +156,7 @@ func ListMerchantStore(c *gin.Context) {
 	}
 	var seller *model.MerchantStorePublicSeller
 	if sellerID != 0 {
-		seller, err = model.GetPublicMerchantStoreSellerProfile(sellerID)
+		seller, err = model.GetMerchantStoreSellerProfileForViewer(merchantStoreViewer(c), sellerID)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = nil
 		}
@@ -161,10 +165,14 @@ func ListMerchantStore(c *gin.Context) {
 }
 
 func GetPublicMerchantStoreProduct(c *gin.Context) {
-	p, err := model.GetPublicMerchantStoreProduct(c.Param("id"))
+	p, err := model.GetMerchantStoreProductForViewer(merchantStoreViewer(c), c.Param("id"))
 	if err == nil {
 		*p = publicStoreProduct(*p)
-		err = model.PopulateMerchantStoreBuyerPurchaseRemaining(c.GetInt("id"), p)
+		if len(c.Request.Header.Values("X-Store-Guest")) != 0 {
+			err = model.PopulateMerchantStoreGuestPurchaseRemaining(merchantStoreGuestHeader(c), p)
+		} else {
+			err = model.PopulateMerchantStoreBuyerPurchaseRemaining(merchantStoreViewer(c), p)
+		}
 	}
 	merchantStoreRespond(c, p, err)
 }
@@ -179,6 +187,7 @@ func GetMerchantStoreConfig(c *gin.Context) {
 	merchantStoreRespond(c, gin.H{
 		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota, "minimum_unit_price_quota": config.MinimumUnitPriceQuota,
 		"product_test_mode_supported":       true,
+		"store_access_supported":            model.MerchantStoreAccessSupported(),
 		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),
 		"product_link_presets":              presets,
 		"linuxdo_units_per_usd":             config.LinuxDOUnitsPerUSD,
@@ -225,8 +234,10 @@ func SetMerchantStorePromotionPrice(c *gin.Context) {
 func GetMerchantStoreDisclaimer(c *gin.Context) {
 	accepted := false
 	var err error
-	if c.GetInt("id") > 0 {
+	if merchantStoreViewer(c) > 0 {
 		accepted, err = model.HasMerchantStoreDisclaimerAcceptance(c.GetInt("id"))
+	} else {
+		accepted, err = model.HasMerchantStoreGuestDisclaimerAcceptance(merchantStoreGuestHeader(c))
 	}
 	merchantStoreRespond(c, gin.H{"version": model.MerchantStoreDisclaimerVersion, "text": merchantStoreDisclaimerText, "accepted": accepted}, err)
 }
@@ -361,6 +372,10 @@ func ReviewMerchantStoreProduct(c *gin.Context) {
 }
 
 func CreateMerchantStoreOrder(c *gin.Context) {
+	if len(c.Request.Header.Values("X-Store-Guest")) != 0 {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreDenied)
+		return
+	}
 	var input model.MerchantStoreCheckoutInput
 	if c.ShouldBindJSON(&input) != nil {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)

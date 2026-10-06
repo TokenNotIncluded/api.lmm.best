@@ -96,8 +96,21 @@ func (g *generator) refine(name string, c *contract) {
 	case "SaveMerchantStoreProduct":
 		if properties, ok := c.body["properties"].(map[string]any); ok {
 			properties["test_mode"] = map[string]any{"type": "boolean"}
+			properties["visibility"] = map[string]any{"type": "string", "enum": []string{"public", "registered", "private"}}
+			properties["purchase_login_required"] = map[string]any{"type": "boolean"}
 		}
-		c.notes = append(c.notes, "test_mode is optional: omission preserves the existing flag on edits and defaults to false for a new product. Explicit null is rejected. Only the authenticated product owner may edit it. Saving content or changing the mode creates a draft and invalidates the prior AI review; leaving test mode requires normal submission and review before public sale. Test products are owner-only, including preview and new purchase; administrators do not gain access to another seller's test product. All normal financial and inventory checks remain active.")
+		c.notes = append(c.notes, "visibility is public, registered or private; private is owner-only and administrators cannot bypass it. Legacy test_mode is an alias for private/public and contradictory values are rejected. Omitted access fields preserve edits; a new product requires purchase login by default. Explicit null is rejected. Guest purchasing requires the access capability and cannot combine with account-only pickup. Saving creates a draft and invalidates the prior AI review. Public sale requires review and current merchant-authored terms; normal inventory and financial checks remain active.")
+	case "SaveMyMerchantStoreTerms":
+		c.body["required"] = []string{"content", "expected_version"}
+		c.body["additionalProperties"] = false
+		c.notes = append(c.notes, "Only the authenticated merchant's terms are changed. Content must be nonempty UTF-8 text of at most 65536 bytes. Copy expected_version from GetMyMerchantStoreTerms, using an empty string only when unconfigured. A changed content version invalidates prior agreement for new orders; existing orders retain their frozen text and version.")
+	case "AcceptMerchantStoreGuestDisclaimer":
+		c.body["required"] = []string{"version", "accepted"}
+		c.body["additionalProperties"] = false
+		if fields, ok := c.body["properties"].(map[string]any); ok {
+			fields["accepted"] = map[string]any{"type": "boolean", "const": true}
+		}
+		c.notes = append(c.notes, "Requires the exact X-Store-Guest bearer. Read the current platform explanation first and submit explicit agreement. This agreement is distinct from merchant terms and applies only to this guest identity.")
 	case "SetMerchantStoreProductSaleLimit":
 		c.body["required"] = []string{"sale_limit"}
 		if properties, ok := c.body["properties"].(map[string]any); ok {

@@ -532,9 +532,13 @@ func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, request
 // currency. Price, owner, fees and converted amount always come from the order.
 func CreateMerchantStorePaymentSession(ctx context.Context, buyerID int, orderID, requestedCurrency string) (*MerchantStorePaymentSession, error) {
 	order, err := model.GetMerchantStorePaymentOrder(orderID)
-	if err != nil || order == nil || order.BuyerID != buyerID || buyerID <= 0 || !merchantStoreTradeNoPattern.MatchString(order.TradeNo) {
+	if err != nil || order == nil || order.BuyerID != buyerID || buyerID <= 0 || order.GuestID != "" || !merchantStoreTradeNoPattern.MatchString(order.TradeNo) {
 		return nil, ErrMerchantStorePaymentAccess
 	}
+	return createMerchantStorePaymentSessionForOrder(ctx, order, requestedCurrency)
+}
+
+func createMerchantStorePaymentSessionForOrder(ctx context.Context, order *model.MerchantStoreOrder, requestedCurrency string) (*MerchantStorePaymentSession, error) {
 	if order.PaymentMethod == MerchantStoreBalance {
 		return &MerchantStorePaymentSession{OrderID: order.ID, Method: "balance", Currency: "CREDIT", Status: order.Status}, nil
 	}
@@ -554,7 +558,7 @@ func CreateMerchantStorePaymentSession(ctx context.Context, buyerID int, orderID
 	if err := prepareMerchantStorePaymentContext(order, requestedCurrency); err != nil {
 		return nil, merchantStorePaymentPreparationFailure(order, err)
 	}
-	order, err = model.GetMerchantStorePaymentOrder(orderID)
+	order, err := model.GetMerchantStorePaymentOrder(order.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -645,7 +649,7 @@ func createMerchantStorePancakeSessionWithClient(ctx context.Context, order *mod
 			ExpiresInSeconds: &expiresIn, SuccessURL: &returnURL, OrderMerchantExternalID: &order.TradeNo,
 			Metadata: map[string]string{"lmm_store_order_id": order.ID, "lmm_store_product_id": order.ProductID, "lmm_pancake_product_id": paymentContext.Config.ProductID, "lmm_store_seller_id": strconv.Itoa(order.SellerID)},
 		},
-		BuyerIdentity: WaffoPancakeBuyerIdentityFromUserID(order.BuyerID),
+		BuyerIdentity: model.MerchantStoreOrderBuyerIdentity(order),
 	}
 	// BuyerEmail is deliberately omitted: a merchant does not receive the
 	// platform account email merely because the buyer purchases a product.
@@ -779,7 +783,7 @@ func validateMerchantStorePancakeCallback(order *model.MerchantStoreOrder, payme
 	if err := ValidateWaffoPancakeWebhookEvent(event); err != nil {
 		return "", ErrMerchantStorePaymentVerification
 	}
-	if event.Mode != paymentContext.Config.Environment || event.StoreID != paymentContext.Config.StoreID || event.Data.Currency != order.Currency || event.Data.OrderMerchantExternalID != order.TradeNo || event.Data.MerchantProvidedBuyerIdentity != WaffoPancakeBuyerIdentityFromUserID(order.BuyerID) || event.Data.OrderMetadata["lmm_store_order_id"] != order.ID || event.Data.OrderMetadata["lmm_store_product_id"] != order.ProductID || event.Data.OrderMetadata["lmm_pancake_product_id"] != paymentContext.Config.ProductID || event.Data.OrderMetadata["lmm_store_seller_id"] != strconv.Itoa(order.SellerID) {
+	if event.Mode != paymentContext.Config.Environment || event.StoreID != paymentContext.Config.StoreID || event.Data.Currency != order.Currency || event.Data.OrderMerchantExternalID != order.TradeNo || event.Data.MerchantProvidedBuyerIdentity != model.MerchantStoreOrderBuyerIdentity(order) || event.Data.OrderMetadata["lmm_store_order_id"] != order.ID || event.Data.OrderMetadata["lmm_store_product_id"] != order.ProductID || event.Data.OrderMetadata["lmm_pancake_product_id"] != paymentContext.Config.ProductID || event.Data.OrderMetadata["lmm_store_seller_id"] != strconv.Itoa(order.SellerID) {
 		return "", ErrMerchantStorePaymentVerification
 	}
 	minor, err := merchantStoreMoneyToMinor(event.Data.Amount)

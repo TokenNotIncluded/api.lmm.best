@@ -48,11 +48,15 @@ func storePublicSeller(tx *gorm.DB, id int, publicContact string) (*MerchantStor
 // is already explicitly public. Missing/non-email contact stays absent; it never
 // falls back to the account email or to a draft/test/deleted product.
 func GetPublicMerchantStoreSellerProfile(id int) (*MerchantStorePublicSeller, error) {
+	return GetMerchantStoreSellerProfileForViewer(0, id)
+}
+
+func GetMerchantStoreSellerProfileForViewer(actor, id int) (*MerchantStorePublicSeller, error) {
 	if id < 1 || int64(id) > 2147483647 {
 		return nil, ErrMerchantStoreInput
 	}
 	var product MerchantStoreProduct
-	if err := DB.Select("contact").Where("seller_id = ? AND status = ? AND test_mode = ?", id, "published", false).
+	if err := MerchantStoreVisibleProductsForViewer(DB, actor).Select("contact").Where("seller_id = ?", id).
 		Order("created_at DESC,id ASC").First(&product).Error; err != nil {
 		return nil, err
 	}

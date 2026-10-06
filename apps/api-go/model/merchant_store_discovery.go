@@ -4,14 +4,13 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 func merchantStoreViewerCatalogue(viewerID int) *gorm.DB {
-	return DB.Model(&MerchantStoreProduct{}).
-		Where("(test_mode = ? AND status = ?) OR (test_mode = ? AND seller_id = ? AND status IN ?)", false, "published", true, viewerID, []string{"draft", "pending", "published"}).
-		Where("EXISTS (SELECT 1 FROM users WHERE users.id = merchant_store_products.seller_id AND users.status = ? AND users.role >= ? AND users.deleted_at IS NULL)", common.UserStatusEnabled, common.RoleCommonUser)
+	return MerchantStoreVisibleProductsForViewer(DB, viewerID)
 }
 
 // These viewer-aware entry points share the public catalogue's filtering and
@@ -24,9 +23,6 @@ func GetMerchantStoreProductForViewer(viewerID int, id string) (*MerchantStorePr
 	var product MerchantStoreProduct
 	if err := merchantStoreViewerCatalogue(viewerID).Where("merchant_store_products.id = ?", id).First(&product).Error; err != nil {
 		return nil, err
-	}
-	if err := storeProductNewBuyer(&product, viewerID); err != nil {
-		return nil, gorm.ErrRecordNotFound
 	}
 	if err := populateMerchantStoreProduct(DB, &product, true); err != nil {
 		return nil, err

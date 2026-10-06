@@ -181,7 +181,7 @@ func storeRetireVariantListing(tx *gorm.DB, p *MerchantStoreProduct) error {
 	p.AIReviewToken = ""
 	priorStatus := p.Status
 	p.Status, p.ReviewNote = "draft", ""
-	if p.TestMode && (priorStatus == "paused" || priorStatus == "off_shelf") {
+	if MerchantStoreProductVisibility(p) == "private" && (priorStatus == "paused" || priorStatus == "off_shelf") {
 		p.Status = priorStatus
 	}
 	p.ReviewedBy, p.ReviewedAt = 0, 0

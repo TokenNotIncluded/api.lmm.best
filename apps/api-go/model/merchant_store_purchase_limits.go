@@ -59,13 +59,27 @@ const storeBuyerPaidOrder = `(COALESCE(o.paid_at,0) > 0 OR o.status IN ('paid','
 // variants of the product. Only completed refunds move frozen stock to refunded;
 // amount-only refunds and refund requests never release quantity here.
 func storeBuyerPurchaseUsage(tx *gorm.DB, productID string, buyerID int) (int64, error) {
+	return storeBuyerPurchaseUsageForSubject(tx, productID, buyerID, "")
+}
+
+func storeBuyerPurchaseUsageForSubject(tx *gorm.DB, productID string, buyerID int, guestID string) (int64, error) {
+	if buyerID == 0 && !storeAccessActive(tx) {
+		return 0, ErrMerchantStoreDenied
+	}
+	if buyerID < 1 && len(guestID) != 36 {
+		return 0, ErrMerchantStoreDenied
+	}
 	var paid []struct {
 		Quantity int64
 		Refunded int64
 	}
-	if err := tx.Table("merchant_store_orders AS o").
+	paidQuery := tx.Table("merchant_store_orders AS o").
 		Joins("LEFT JOIN merchant_store_stocks AS s ON "+storeBuyerStockPool+" AND s.state = 'refunded'", MerchantStoreDefaultVariantID(productID)).
-		Where("o.product_id = ? AND o.buyer_id = ?", productID, buyerID).
+		Where("o.product_id = ? AND o.buyer_id = ?", productID, buyerID)
+	if storeAccessActive(tx) {
+		paidQuery = paidQuery.Where("COALESCE(o.guest_id,'') = ?", guestID)
+	}
+	if err := paidQuery.
 		Where(storeBuyerPaidOrder).
 		Select("o.quantity AS quantity, COUNT(s.id) AS refunded").
 		Group("o.id, o.quantity").Scan(&paid).Error; err != nil {
@@ -79,9 +93,13 @@ func storeBuyerPurchaseUsage(tx *gorm.DB, productID string, buyerID int) (int64,
 		used += order.Quantity - order.Refunded
 	}
 	var held int64
-	if err := tx.Table("merchant_store_orders AS o").
+	heldQuery := tx.Table("merchant_store_orders AS o").
 		Joins("JOIN merchant_store_stocks AS s ON "+storeBuyerStockPool, MerchantStoreDefaultVariantID(productID)).
-		Where("o.product_id = ? AND o.buyer_id = ? AND s.state = 'reserved'", productID, buyerID).
+		Where("o.product_id = ? AND o.buyer_id = ? AND s.state = 'reserved'", productID, buyerID)
+	if storeAccessActive(tx) {
+		heldQuery = heldQuery.Where("COALESCE(o.guest_id,'') = ?", guestID)
+	}
+	if err := heldQuery.
 		Where("NOT " + storeBuyerPaidOrder).
 		Count(&held).Error; err != nil {
 		return 0, err
@@ -104,6 +122,10 @@ func storeBuyerPurchaseRemaining(tx *gorm.DB, p *MerchantStoreProduct, buyerID i
 }
 
 func storeCheckPurchaseLimits(tx *gorm.DB, p *MerchantStoreProduct, buyerID, quantity int) error {
+	return storeCheckPurchaseLimitsForSubject(tx, p, buyerID, "", quantity)
+}
+
+func storeCheckPurchaseLimitsForSubject(tx *gorm.DB, p *MerchantStoreProduct, buyerID int, guestID string, quantity int) error {
 	if p.MaxQuantityPerOrder == nil && p.MaxQuantityPerBuyer == nil {
 		return nil
 	}
@@ -117,7 +139,8 @@ func storeCheckPurchaseLimits(tx *gorm.DB, p *MerchantStoreProduct, buyerID, qua
 		return ErrMerchantStorePurchaseLimit
 	}
 	if p.MaxQuantityPerBuyer != nil {
-		remaining, err := storeBuyerPurchaseRemaining(tx, p, buyerID)
+		used, err := storeBuyerPurchaseUsageForSubject(tx, p.ID, buyerID, guestID)
+		remaining := max(0, *p.MaxQuantityPerBuyer-used)
 		if err != nil {
 			return err
 		}
@@ -139,6 +162,24 @@ func PopulateMerchantStoreBuyerPurchaseRemaining(actor int, p *MerchantStoreProd
 	if err != nil {
 		return err
 	}
+	p.BuyerPurchaseRemaining = &remaining
+	return nil
+}
+
+func PopulateMerchantStoreGuestPurchaseRemaining(token string, p *MerchantStoreProduct) error {
+	p.BuyerPurchaseRemaining = nil
+	if p.MaxQuantityPerBuyer == nil {
+		return nil
+	}
+	guest, err := ResolveMerchantStoreGuest(DB, token)
+	if err != nil {
+		return err
+	}
+	used, err := storeBuyerPurchaseUsageForSubject(DB, p.ID, 0, guest.ID)
+	if err != nil {
+		return err
+	}
+	remaining := max(0, *p.MaxQuantityPerBuyer-used)
 	p.BuyerPurchaseRemaining = &remaining
 	return nil
 }

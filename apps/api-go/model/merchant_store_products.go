@@ -29,11 +29,14 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 				return e
 			}
 			p = *v
-			if p.Status == "pending" && (in.TestMode == nil || *in.TestMode == p.TestMode) {
+			if p.Status == "pending" && in.Visibility == nil && (in.TestMode == nil || *in.TestMode == p.TestMode) {
 				return ErrMerchantStoreConflict
 			}
 		}
 		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
+		if e := storeApplyProductAccess(tx, &p, in, id == ""); e != nil {
 			return e
 		}
 		if e := storeApplyPurchaseLimits(tx, &p, in); e != nil {
@@ -52,9 +55,6 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		p.Links = in.Links
 		p.PriceQuota = in.PriceQuota
 		priorStatus := p.Status
-		if in.TestMode != nil {
-			p.TestMode = *in.TestMode
-		}
 		p.Template = in.Template
 		p.DeliveryStrategy = in.DeliveryStrategy
 		p.PaymentMethods = in.PaymentMethods
@@ -70,15 +70,24 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		p.AIReviewToken = ""
 		p.Status = "draft"
 		// Editing a private test must not silently undo an explicit trading stop.
-		if p.TestMode && (priorStatus == "paused" || priorStatus == "off_shelf") {
+		if MerchantStoreProductVisibility(&p) == "private" && (priorStatus == "paused" || priorStatus == "off_shelf") {
 			p.Status = priorStatus
 		}
 		p.ReviewNote = ""
 		p.ReviewedBy = 0
 		p.ReviewedAt = 0
 		p.UpdatedAt = now
+		guestCheckout := !p.PurchaseLoginRequired
 		if e := tx.Save(&p).Error; e != nil {
 			return e
+		}
+		// GORM fills a zero boolean from its migration default on INSERT.
+		// Preserve an explicit false for a newly created guest-enabled product.
+		if id == "" && guestCheckout {
+			if e := tx.Model(&p).UpdateColumn("purchase_login_required", false).Error; e != nil {
+				return e
+			}
+			p.PurchaseLoginRequired = false
 		}
 		defaultVariant, e := storeEnsureDefaultVariant(tx, &p)
 		if e != nil {
@@ -106,7 +115,13 @@ func SubmitMerchantStoreProduct(actor int, id string) error {
 		if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
 			return e
 		}
-		if p.TestMode {
+		if e := marketLockUsers(tx, p.SellerID); e != nil {
+			return e
+		}
+		if e := storeRequireConfiguredSellerTerms(tx, p.SellerID); e != nil {
+			return e
+		}
+		if MerchantStoreProductVisibility(p) == "private" {
 			return ErrMerchantStoreTestMode
 		}
 		if e := storeValidateEnabledVariants(tx, p); e != nil {
@@ -144,7 +159,7 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 		if _, e := storeUser(tx, actor, common.RoleAdminUser); e != nil {
 			return e
 		}
-		if p.TestMode {
+		if MerchantStoreProductVisibility(p) == "private" {
 			if actor != p.SellerID {
 				return ErrMerchantStoreDenied
 			}
@@ -157,6 +172,12 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 			return e
 		}
 		if approve {
+			if e := marketLockUsers(tx, p.SellerID); e != nil {
+				return e
+			}
+			if e := storeRequireConfiguredSellerTerms(tx, p.SellerID); e != nil {
+				return e
+			}
 			if e := storeValidateEnabledVariants(tx, p); e != nil {
 				return e
 			}
@@ -188,22 +209,28 @@ func SetMerchantStoreProductPaused(actor int, id string, paused bool) error {
 		if e != nil {
 			return e
 		}
-		if p.SellerID != actor && (p.TestMode || u.Role < common.RoleAdminUser) {
+		if p.SellerID != actor && (MerchantStoreProductVisibility(p) == "private" || u.Role < common.RoleAdminUser) {
 			return ErrMerchantStoreDenied
 		}
 		if paused {
-			if p.Status != "published" && p.Status != "paused" && !(p.TestMode && storeProductPurchaseStatus(p)) {
+			if p.Status != "published" && p.Status != "paused" && !(MerchantStoreProductVisibility(p) == "private" && storeProductPurchaseStatus(p)) {
 				return ErrMerchantStoreConflict
 			}
 			p.Status = "paused"
 		} else {
+			if e := marketLockUsers(tx, p.SellerID); e != nil {
+				return e
+			}
+			if e := storeRequireConfiguredSellerTerms(tx, p.SellerID); e != nil {
+				return e
+			}
 			if e := storeRequireVariantPublication(tx, p); e != nil {
 				return e
 			}
-			if p.Status != "paused" || (!p.TestMode && p.ReviewedAt == 0) {
+			if p.Status != "paused" || (MerchantStoreProductVisibility(p) != "private" && p.ReviewedAt == 0) {
 				return ErrMerchantStoreConflict
 			}
-			if p.TestMode {
+			if MerchantStoreProductVisibility(p) == "private" {
 				p.Status = "draft"
 			} else {
 				p.Status = "published"
@@ -406,6 +433,12 @@ func storePage(offset, limit int) (int, int) {
 	return offset, limit
 }
 func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public bool) error {
+	if !storeAccessActive(tx) {
+		p.Visibility = ""
+		p.PurchaseLoginRequired = true
+	}
+	p.Visibility = MerchantStoreProductVisibility(p)
+	p.TestMode = p.Visibility == "private"
 	u, e := storeUser(tx, p.SellerID, common.RoleCommonUser)
 	if e != nil {
 		return e
@@ -449,16 +482,7 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 	return populateMerchantStoreVariants(tx, p, u, c, enabled, public)
 }
 func GetPublicMerchantStoreProduct(id string) (*MerchantStoreProduct, error) {
-	var p MerchantStoreProduct
-	if e := DB.Where("id = ? AND status = ? AND test_mode = ?", id, "published", false).First(&p).Error; e != nil {
-		return nil, e
-	}
-	if e := populateMerchantStoreProduct(DB, &p, true); e != nil {
-		return nil, e
-	}
-	p.ReviewNote = ""
-	p.ReviewedBy = 0
-	return &p, nil
+	return GetMerchantStoreProductForViewer(0, id)
 }
 func GetMerchantStoreProduct(actor int, id string) (*MerchantStoreProduct, error) {
 	var p MerchantStoreProduct
@@ -469,7 +493,7 @@ func GetMerchantStoreProduct(actor int, id string) (*MerchantStoreProduct, error
 	if e != nil {
 		return nil, e
 	}
-	if p.SellerID != actor && (p.TestMode || u.Role < common.RoleAdminUser) {
+	if p.SellerID != actor && (MerchantStoreProductVisibility(&p) == "private" || u.Role < common.RoleAdminUser) {
 		return nil, ErrMerchantStoreDenied
 	}
 	e = populateMerchantStoreProduct(DB, &p, false)
@@ -480,12 +504,15 @@ func ListPublicMerchantStoreProducts(search string, offset, limit int) ([]Mercha
 }
 
 func ListPublicMerchantStoreProductsForSeller(search string, sellerID, offset, limit int) ([]MerchantStoreProduct, error) {
+	return ListMerchantStoreProductsForSellerViewer(0, search, sellerID, offset, limit)
+}
+
+func ListMerchantStoreProductsForSellerViewer(actor int, search string, sellerID, offset, limit int) ([]MerchantStoreProduct, error) {
 	offset, limit = storePage(offset, limit)
 	if len(search) > 200 || sellerID < 0 || int64(sellerID) > 2147483647 {
 		return nil, ErrMerchantStoreInput
 	}
-	q := DB.Where("status = ? AND test_mode = ?", "published", false).
-		Where("EXISTS (SELECT 1 FROM users WHERE users.id = merchant_store_products.seller_id AND users.status = ? AND users.role >= ? AND users.deleted_at IS NULL)", common.UserStatusEnabled, common.RoleCommonUser)
+	q := MerchantStoreVisibleProductsForViewer(DB, actor)
 	if sellerID != 0 {
 		q = q.Where("seller_id = ?", sellerID)
 	}
@@ -550,7 +577,7 @@ func PurchaseMerchantStorePromotion(actor int, productID string, months int, req
 		if p.SellerID != actor {
 			return ErrMerchantStoreDenied
 		}
-		if p.TestMode {
+		if MerchantStoreProductVisibility(p) == "private" {
 			return ErrMerchantStoreTestMode
 		}
 		if p.Status != "published" {
