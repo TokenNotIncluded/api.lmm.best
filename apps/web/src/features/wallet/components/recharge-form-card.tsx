@@ -604,21 +604,40 @@ export function RechargeFormCard({
                             activeSelectedPreset === preset.value &&
                             hasCurrentPaymentAmount &&
                             !isUpdatingQuote
+                          const presetDiscountPercent =
+                            typeof preset.discount === 'number' &&
+                            Number.isFinite(preset.discount) &&
+                            preset.discount > 0 &&
+                            preset.discount < 1
+                              ? (1 - preset.discount) * 100
+                              : null
+                          const visibleDiscountPercent =
+                            selectedQuote && discount
+                              ? discount.percent
+                              : presetDiscountPercent
+                          const discountLabel =
+                            visibleDiscountPercent !== null
+                              ? t('{{percent}}% off', {
+                                  percent: formatDiscountPercent(
+                                    visibleDiscountPercent
+                                  ),
+                                })
+                              : null
                           return (
                             <Button
                               key={preset.value}
                               variant='outline'
                               className={cn(
-                                'relative isolate flex min-h-15 min-w-0 flex-col items-start justify-center gap-1 overflow-hidden rounded-lg px-3 py-2 text-left whitespace-normal transition-colors sm:min-h-16',
+                                'relative isolate flex h-auto min-h-28 min-w-0 flex-col items-start justify-start gap-2 overflow-hidden rounded-lg px-3 py-3 text-left whitespace-normal transition-colors [&_.wallet-token-cloud]:opacity-30',
                                 activeSelectedPreset === preset.value
-                                  ? 'border-primary bg-primary/10 text-foreground ring-1 ring-primary/30'
-                                  : 'border-border/70 bg-background hover:border-primary/50 hover:bg-muted/40'
+                                  ? 'border-primary bg-primary/10 text-foreground ring-1 ring-primary/30 hover:bg-primary/15 dark:border-primary dark:bg-primary/10 dark:hover:bg-primary/15'
+                                  : 'border-border/70 bg-background hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/5'
                               )}
                               onClick={() => handlePresetSelect(preset)}
                               aria-pressed={
                                 activeSelectedPreset === preset.value
                               }
-                              aria-label={
+                              aria-label={[
                                 selectedQuote
                                   ? t(
                                       'Preset amount: {{credit}}. Actual payment: {{payment}}.',
@@ -633,8 +652,11 @@ export function RechargeFormCard({
                                   : t(
                                       'Preset amount: {{credit}}. Select to get the current payment quote.',
                                       { credit: credits }
-                                    )
-                              }
+                                    ),
+                                discountLabel,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
                             >
                               <WalletTokenCloud
                                 amount={currency.quotaToLegacyAmount(
@@ -645,12 +667,29 @@ export function RechargeFormCard({
                               <div className='pointer-events-none relative z-10 flex w-full min-w-0 flex-col items-start gap-1'>
                                 <div
                                   data-slot='wallet-credit-value'
-                                  className='min-w-0 text-sm font-semibold tabular-nums'
+                                  className='min-w-0 text-sm leading-5 font-semibold break-words tabular-nums'
                                 >
                                   {credits}
                                 </div>
+                                {visibleDiscountPercent !== null && (
+                                  <Badge
+                                    variant='outline'
+                                    className='border-primary/20 bg-primary/10 text-primary h-auto max-w-full justify-start py-1 text-left leading-4 whitespace-normal'
+                                  >
+                                    {discountLabel}
+                                  </Badge>
+                                )}
                                 {selectedQuote && (
-                                  <div className='flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs tabular-nums'>
+                                  <div className='flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-5 break-words tabular-nums'>
+                                    <span
+                                      className={cn(
+                                        discount && 'text-primary font-semibold'
+                                      )}
+                                    >
+                                      {formatSelectedPaymentAmount(
+                                        paymentAmount
+                                      )}
+                                    </span>
                                     {discount && (
                                       <span className='text-muted-foreground line-through'>
                                         {formatSelectedPaymentAmount(
@@ -658,21 +697,7 @@ export function RechargeFormCard({
                                         )}
                                       </span>
                                     )}
-                                    <span>
-                                      {formatSelectedPaymentAmount(
-                                        paymentAmount
-                                      )}
-                                    </span>
                                   </div>
-                                )}
-                                {selectedQuote && discount && (
-                                  <Badge variant='secondary'>
-                                    {t('Discount applied: {{percent}}% off', {
-                                      percent: formatDiscountPercent(
-                                        discount.percent
-                                      ),
-                                    })}
-                                  </Badge>
                                 )}
                               </div>
                             </Button>
@@ -937,7 +962,7 @@ export function RechargeFormCard({
                         </p>
                       ) : null}
                       {couponDiscount ? (
-                        <div className='text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
+                        <div className='text-primary flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
                           <span>
                             {t('Discount applied: {{percent}}% off', {
                               percent: formatDiscountPercent(
@@ -1294,8 +1319,8 @@ export function RechargeFormCard({
                           <span className='text-muted-foreground text-xs font-medium'>
                             {t('Total')}
                           </span>
-                          <div className='flex items-baseline gap-2'>
-                            <span className='text-2xl font-semibold tracking-tight tabular-nums'>
+                          <div className='flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1'>
+                            <span className='text-primary text-2xl font-semibold tracking-tight break-words tabular-nums'>
                               {paymentAmountLabel}
                             </span>
                             {discount &&
@@ -1311,14 +1336,17 @@ export function RechargeFormCard({
                         </div>
                         {discount && (
                           <div className='flex flex-wrap items-center gap-2 text-sm'>
-                            <Badge variant='secondary'>
+                            <Badge
+                              variant='outline'
+                              className='border-primary/20 bg-primary/10 text-primary h-auto max-w-full py-1 leading-4 whitespace-normal'
+                            >
                               {t('Discount applied: {{percent}}% off', {
                                 percent: formatDiscountPercent(
                                   discount.percent
                                 ),
                               })}
                             </Badge>
-                            <span>
+                            <span className='text-primary font-medium'>
                               {t('You save')}:{' '}
                               {formatSelectedPaymentAmount(discount.savings)}
                             </span>
