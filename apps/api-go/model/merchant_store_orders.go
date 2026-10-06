@@ -21,6 +21,7 @@ type MerchantStoreOrder struct {
 	SellerID                   int    `json:"seller_id" gorm:"not null;index"`
 	ProductID                  string `json:"product_id" gorm:"size:36;not null;index"`
 	ProductTitle               string `json:"product_title" gorm:"size:200"`
+	DeliveryTemplate           string `json:"delivery_template" gorm:"type:varchar(32);not null;default:''"`
 	Quantity                   int    `json:"quantity"`
 	UnitPriceQuota             int    `json:"unit_price_quota" gorm:"type:bigint"`
 	PriceQuota                 int    `json:"price_quota" gorm:"type:bigint"`
@@ -83,14 +84,16 @@ type MerchantStoreClaimMetadata struct {
 	Status               string `json:"status"`
 	OrderID              string `json:"order_id"`
 	ProductTitle         string `json:"product_title"`
+	DeliveryTemplate     string `json:"delivery_template"`
 	Quantity             int    `json:"quantity"`
 	PickupLoginRequired  bool   `json:"pickup_login_required"`
 	PickupCodeRequired   bool   `json:"pickup_code_required"`
 }
 type MerchantStoreClaim struct {
-	OrderID      string   `json:"order_id"`
-	ProductTitle string   `json:"product_title"`
-	Items        []string `json:"items"`
+	OrderID          string   `json:"order_id"`
+	ProductTitle     string   `json:"product_title"`
+	DeliveryTemplate string   `json:"delivery_template"`
+	Items            []string `json:"items"`
 }
 
 func fmtStoreActor(id int) string { return strconv.Itoa(id) }
@@ -255,7 +258,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			return e
 		}
 		now := common.GetTimestamp()
-		o = MerchantStoreOrder{ID: id, BuyerID: buyer.Id, SellerID: seller.Id, ProductID: p.ID, ProductTitle: p.Title, Quantity: in.Quantity, UnitPriceQuota: p.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: in.PickupCode != "", EmailPickupLink: in.PickupEmail != "", OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
+		o = MerchantStoreOrder{ID: id, BuyerID: buyer.Id, SellerID: seller.Id, ProductID: p.ID, ProductTitle: p.Title, DeliveryTemplate: p.Template, Quantity: in.Quantity, UnitPriceQuota: p.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: in.PickupCode != "", EmailPickupLink: in.PickupEmail != "", OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
 		if in.PickupEmail != "" {
 			o.PickupEmailHash = storeHash(in.PickupEmail)
 			o.PickupEmailCiphertext, e = storeEncrypt("order-pickup-email", id, in.PickupEmail)
@@ -731,7 +734,7 @@ func InspectMerchantStoreClaim(token string) (*MerchantStoreClaimMetadata, error
 	if e := DB.Where("pickup_token_hash = ? AND status = ?", storeHash(token), "paid").First(&o).Error; e != nil {
 		return nil, ErrMerchantStoreDenied
 	}
-	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
+	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, DeliveryTemplate: o.DeliveryTemplate, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
 }
 func ClaimMerchantStoreOrder(token, code string, buyerID int) (*MerchantStoreClaim, error) {
 	return ClaimMerchantStoreOrderWithAuthorization(token, code, buyerID, nil)
@@ -776,7 +779,7 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 		if len(rows) != o.Quantity {
 			return ErrMerchantStoreConflict
 		}
-		result = MerchantStoreClaim{OrderID: o.ID, ProductTitle: o.ProductTitle, Items: make([]string, 0, len(rows))}
+		result = MerchantStoreClaim{OrderID: o.ID, ProductTitle: o.ProductTitle, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows))}
 		for _, row := range rows {
 			value, e := storeDecrypt("stock", row.ProductID+":"+row.ID, row.Ciphertext)
 			if e != nil {

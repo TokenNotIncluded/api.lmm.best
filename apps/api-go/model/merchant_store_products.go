@@ -185,6 +185,11 @@ func AddMerchantStoreStock(actor int, id string, items []string) (int, error) {
 		if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
 			return e
 		}
+		for _, item := range items {
+			if e := validateMerchantStoreDeliveryItem(p.Template, item); e != nil {
+				return e
+			}
+		}
 		var last int64
 		if e := tx.Model(&MerchantStoreStock{}).Where("product_id = ?", p.ID).Select("COALESCE(MAX(position),0)").Scan(&last).Error; e != nil {
 			return e

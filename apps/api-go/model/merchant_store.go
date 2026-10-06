@@ -229,7 +229,7 @@ func validateStoreProduct(in *MerchantStoreProductInput) error {
 	if in.Template == "" {
 		in.Template = "card-key"
 	}
-	if in.Template != "card-key" && in.Template != "text" && in.Template != "custom-text" {
+	if !storeDeliveryTemplateSupported(in.Template) {
 		return ErrMerchantStoreInput
 	}
 	if in.DeliveryStrategy == "" {
