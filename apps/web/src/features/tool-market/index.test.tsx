@@ -233,6 +233,38 @@ async function mount(role = 1, id = 2) {
   return { container, client }
 }
 function stubNavigation(items: MarketDetail[], services: MarketService[] = []) {
+  // Navigation tests own every request. AI read panels must not leave real
+  // network promises that emit a delayed toast in a later review test.
+  api.defaults.adapter = async (config) => {
+    let data: unknown
+    if (config.method === 'get' && config.url?.endsWith('/ai-reviews')) {
+      data = { rows: [] }
+    } else if (
+      config.method === 'get' &&
+      config.url === '/api/security/market-ai-review/settings'
+    ) {
+      data = {
+        tool_mode: 'off',
+        store_mode: 'off',
+        review_group: 'default',
+        review_model: 'omni-moderation-latest',
+        engine: 'openai_moderation',
+        supported_inputs: ['text'],
+        categories: [],
+      }
+    } else {
+      assert.fail(
+        `Unexpected navigation HTTP request: ${config.method} ${config.url}`
+      )
+    }
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: { success: true, data },
+    }
+  }
   marketAPI.config = async () => pausedConfig
   marketAPI.list = async () => items.map(summary)
   marketAPI.mine = (async (kind: string) => {
@@ -284,7 +316,7 @@ after(() => {
   }
 })
 
-test('deleting an authored service requires confirmation and retires its selected detail without another read', async () => {
+test('deleting an authored service requires confirmation and removes it from the management list', async () => {
   const item = structuredClone(remote)
   const services = [item.service]
   stubNavigation([item], services)
