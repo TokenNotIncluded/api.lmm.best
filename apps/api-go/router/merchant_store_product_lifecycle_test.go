@@ -10,6 +10,8 @@ import (
 func TestMerchantStoreRouterSellerCanUnlistAndDeleteOnlyOwnProduct(t *testing.T) {
 	engine, db, sellerToken, seller, rootToken, root := merchantStoreTestRouter(t)
 	product := shopPublishedProduct(t, db, seller, root)
+	require.NoError(t, model.ActivateMerchantStoreVariants(db, 1))
+	require.NoError(t, model.ActivateMerchantStoreProductLifecycle(db, 2))
 	path := "/api/store/products/" + product.ID
 	for _, action := range []struct{ method, path string }{{"POST", path + "/unlist"}, {"DELETE", path}} {
 		response := shopRequest(engine, action.method, action.path, "", "")

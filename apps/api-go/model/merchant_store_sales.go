@@ -90,7 +90,7 @@ func SetMerchantStoreProductSaleLimit(actor int, id string, limit *int64) error 
 	if limit != nil && (*limit < 0 || *limit > int64(common.MaxWalletQuota)) {
 		return ErrMerchantStoreInput
 	}
-	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	return storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if err := storeRequireWriter(tx); err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ func SetMerchantStoreProductSaleLimit(actor int, id string, limit *int64) error 
 // Off-shelf listings retain their unedited approval and all fulfillment data.
 // Editing content still moves them to a fresh draft and requires another review.
 func SetMerchantStoreProductListed(actor int, id string, listed bool) error {
-	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	return storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if err := storeRequireWriter(tx); err != nil {
 			return err
 		}

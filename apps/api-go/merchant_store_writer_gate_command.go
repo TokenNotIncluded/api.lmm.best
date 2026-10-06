@@ -20,19 +20,23 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 	requireWritable := set.Bool("require-writable", false, "status: fail when this binary cannot create new shop writes")
 	expected := set.Int("expected-current", 0, "activate: exact current required writer capability")
 	ready := set.Bool("reviewed-variants-ready", false, "activate: operator confirms reviewed schema and all serving writers are ready")
+	lifecycleReady := set.Bool("reviewed-lifecycle-ready", false, "activate-lifecycle: operator confirms every serving writer supports retained product retirement")
 	if err := set.Parse(args[1:]); err != nil || set.NArg() != 0 {
 		return appcli.ExitUsage
 	}
-	if args[0] == "activate" && (!*ready || (*expected != 1 && *expected != 2) || *requireWritable) {
+	if args[0] == "activate" && (!*ready || *lifecycleReady || (*expected != 1 && *expected != 2) || *requireWritable) {
 		return appcli.ExitUsage
 	}
-	if args[0] != "activate" && (*expected != 0 || *ready) {
+	if args[0] == "activate-lifecycle" && (!*lifecycleReady || *ready || (*expected != 2 && *expected != 3) || *requireWritable) {
+		return appcli.ExitUsage
+	}
+	if args[0] != "activate" && args[0] != "activate-lifecycle" && (*expected != 0 || *ready || *lifecycleReady) {
 		return appcli.ExitUsage
 	}
 	if args[0] == "bootstrap" && *requireWritable {
 		return appcli.ExitUsage
 	}
-	if args[0] != "status" && args[0] != "bootstrap" && args[0] != "activate" {
+	if args[0] != "status" && args[0] != "bootstrap" && args[0] != "activate" && args[0] != "activate-lifecycle" {
 		return appcli.ExitUsage
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -51,6 +55,8 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 		err = model.BootstrapMerchantStoreWriterGate(db)
 	case "activate":
 		err = model.ActivateMerchantStoreVariants(db, *expected)
+	case "activate-lifecycle":
+		err = model.ActivateMerchantStoreProductLifecycle(db, *expected)
 	}
 	if err != nil {
 		return appcli.ExitError

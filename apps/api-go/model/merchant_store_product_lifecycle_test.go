@@ -12,6 +12,7 @@ import (
 
 func TestMerchantStoreUnlistWithdrawsApprovalAndRequiresFreshReview(t *testing.T) {
 	f := newStoreFixture(t, "balance")
+	storeWriterGateForTest(t, "3")
 	require.ErrorIs(t, UnlistMerchantStoreProduct(f.buyer.Id, f.product.ID), ErrMerchantStoreDenied)
 	require.ErrorIs(t, UnlistMerchantStoreProduct(f.root.Id, f.product.ID), ErrMerchantStoreDenied)
 	require.NoError(t, UnlistMerchantStoreProduct(f.seller.Id, f.product.ID))
@@ -41,6 +42,7 @@ func TestMerchantStoreUnlistWithdrawsApprovalAndRequiresFreshReview(t *testing.T
 
 func TestMerchantStoreDeletedProductCannotBeReadEditedOrReactivated(t *testing.T) {
 	f := newStoreFixture(t, "balance")
+	storeWriterGateForTest(t, "3")
 	stock, err := ListMerchantStoreStock(f.seller.Id, f.product.ID, 0, 30)
 	require.NoError(t, err)
 	require.ErrorIs(t, DeleteMerchantStoreProduct(f.buyer.Id, f.product.ID), ErrMerchantStoreDenied)
@@ -104,6 +106,7 @@ func TestMerchantStoreProductDeletionPreservesPaidAndPendingDelivery(t *testing.
 	for _, method := range []string{"balance", "platform:waffo_pancake", "external:epay"} {
 		t.Run(method, func(t *testing.T) {
 			f := newStoreFixture(t, method)
+			storeWriterGateForTest(t, "3")
 			in := f.checkout("before-delete", method)
 			o, _, err := CreateMerchantStoreOrder(in)
 			require.NoError(t, err)
@@ -162,6 +165,7 @@ func TestMerchantStoreProductDeletionPreservesPaidAndPendingDelivery(t *testing.
 
 func TestMerchantStoreDeletedPendingOrderCanCancelAndRefundOnce(t *testing.T) {
 	f := newStoreFixture(t, "platform:waffo_pancake")
+	storeWriterGateForTest(t, "3")
 	o, _, err := CreateMerchantStoreOrder(f.checkout("unissued-before-delete", "platform:waffo_pancake"))
 	require.NoError(t, err)
 	require.NoError(t, DeleteMerchantStoreProduct(f.seller.Id, f.product.ID))
@@ -174,6 +178,7 @@ func TestMerchantStoreProductDeletionCancelsRunningAndSealsAppliedAIReview(t *te
 	for _, complete := range []bool{false, true} {
 		t.Run(map[bool]string{false: "running", true: "applied"}[complete], func(t *testing.T) {
 			db, seller, root, p := marketAIProduct(t, setting.MarketAIReviewAuto)
+			storeWriterGateForTest(t, "3")
 			j := marketAIClaim(t)
 			if complete {
 				require.NoError(t, marketAIComplete(t, j, false, false))
@@ -210,6 +215,7 @@ func TestMerchantStoreProductLifecycleUsesOwnershipForEverySellerRole(t *testing
 	for _, role := range []int{common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser} {
 		t.Run(map[int]string{common.RoleCommonUser: "user", common.RoleAdminUser: "admin", common.RoleRootUser: "root"}[role], func(t *testing.T) {
 			f := newStoreFixture(t, "balance")
+			storeWriterGateForTest(t, "3")
 			require.NoError(t, DB.Model(&User{}).Where("id = ?", f.seller.Id).Update("role", role).Error)
 			require.NoError(t, UnlistMerchantStoreProduct(f.seller.Id, f.product.ID))
 			require.NoError(t, DeleteMerchantStoreProduct(f.seller.Id, f.product.ID))
@@ -222,6 +228,8 @@ func TestMerchantStorePostgresDeletionSerializesWithCheckout(t *testing.T) {
 		t.Run(map[bool]string{false: "deletion-wins", true: "checkout-wins"}[checkoutFirst], func(t *testing.T) {
 			db, name, observer, _ := merchantStorePGDB(t)
 			f := merchantStorePGFixture(t, db, "platform:waffo_pancake")
+			require.NoError(t, ActivateMerchantStoreVariants(db, 1))
+			require.NoError(t, ActivateMerchantStoreProductLifecycle(db, 2))
 			_, err := AddMerchantStoreStock(f.seller.Id, f.product.ID, []string{"reserved-before-delete"})
 			require.NoError(t, err)
 			var order *MerchantStoreOrder

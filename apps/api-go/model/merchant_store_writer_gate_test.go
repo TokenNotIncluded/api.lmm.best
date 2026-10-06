@@ -26,6 +26,9 @@ func storeUnsupportedWriterGateForTest(t *testing.T) {
 	if MerchantStoreWriterCapability >= 2 {
 		value = "3"
 	}
+	if MerchantStoreWriterCapability >= 3 {
+		value = "4"
+	}
 	storeWriterGateForTest(t, value)
 }
 
@@ -55,7 +58,7 @@ func storeWriterSnapshot(t *testing.T) []byte {
 
 func TestMerchantStoreWriterGateMissingInvalidAndMigrationNeverRepair(t *testing.T) {
 	db := marketTestDB(t)
-	values := []string{"", "0", "3", "01", " 1"}
+	values := []string{"", "0", "4", "01", " 1"}
 	if MerchantStoreWriterCapability < 2 {
 		values = append(values, "2")
 	}

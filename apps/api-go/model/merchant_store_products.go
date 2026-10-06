@@ -83,7 +83,7 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		}
 		// The legacy editor updates only the compatibility default. Other
 		// variants keep their prices/templates and inventory associations.
-		if required, _ := storeWriterGateRow(tx, ""); required == 2 {
+		if required, _ := storeWriterGateRow(tx, ""); required >= 2 {
 			if e = tx.Model(defaultVariant).Updates(map[string]any{"price_quota": p.PriceQuota, "template": p.Template, "updated_at": now}).Error; e != nil {
 				return e
 			}
@@ -232,6 +232,9 @@ func retireMerchantStoreProduct(actor int, id, status string) error {
 			return ErrMerchantStoreDenied
 		}
 		if _, err := storeUser(tx, actor, common.RoleCommonUser); err != nil {
+			return err
+		}
+		if err := storeRequireLifecycleWriter(tx); err != nil {
 			return err
 		}
 		if p.Status == status {

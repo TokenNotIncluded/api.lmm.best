@@ -47,7 +47,7 @@ func storeVirtualDefaultVariant(p *MerchantStoreProduct) MerchantStoreVariant {
 
 func storeRequireVariantWriter(tx *gorm.DB) error {
 	required, err := storeWriterGateRow(tx, "SHARE")
-	if err != nil || required != 2 || MerchantStoreWriterCapability < 2 {
+	if err != nil || required < 2 || required > MerchantStoreWriterCapability || MerchantStoreWriterCapability < 2 {
 		return ErrMerchantStoreWriterFrozen
 	}
 	return nil
@@ -194,7 +194,7 @@ func SaveMerchantStoreVariant(actor int, productID, id string, in MerchantStoreV
 		return nil, err
 	}
 	var result MerchantStoreVariant
-	err := storeWithProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	err := storeWithActiveProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if err := storeRequireVariantWriter(tx); err != nil {
 			return err
 		}
@@ -246,7 +246,7 @@ func SaveMerchantStoreVariant(actor int, productID, id string, in MerchantStoreV
 }
 
 func SetMerchantStoreVariantEnabled(actor int, productID, id string, enabled bool) error {
-	return storeWithProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	return storeWithActiveProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if err := storeRequireVariantWriter(tx); err != nil {
 			return err
 		}

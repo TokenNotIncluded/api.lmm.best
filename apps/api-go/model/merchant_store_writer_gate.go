@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const MerchantStoreWriterCapability = 2
+const MerchantStoreWriterCapability = 3
 const MerchantStoreWriterCapabilityOption = "MerchantStoreMinimumWriterCapability"
 
 var ErrMerchantStoreWriterFrozen = errors.New("merchant store writer is unavailable during an upgrade")
@@ -50,6 +50,8 @@ func storeWriterGateRow(db *gorm.DB, lock string) (int, error) {
 		return 1, nil
 	case "2":
 		return 2, nil
+	case "3":
+		return 3, nil
 	default:
 		return 0, ErrMerchantStoreWriterFrozen
 	}
@@ -60,6 +62,16 @@ func storeWriterGateRow(db *gorm.DB, lock string) (int, error) {
 func storeRequireWriter(tx *gorm.DB) error {
 	required, err := storeWriterGateRow(tx, "SHARE")
 	if err != nil || required > MerchantStoreWriterCapability {
+		return ErrMerchantStoreWriterFrozen
+	}
+	return nil
+}
+
+// Retirement must stay unavailable while older writers can still recreate a
+// deleted listing. Operators enable it only after every serving writer is ready.
+func storeRequireLifecycleWriter(tx *gorm.DB) error {
+	required, err := storeWriterGateRow(tx, "SHARE")
+	if err != nil || required != 3 || MerchantStoreWriterCapability < 3 {
 		return ErrMerchantStoreWriterFrozen
 	}
 	return nil
@@ -254,6 +266,33 @@ func ActivateMerchantStoreVariants(db *gorm.DB, expected int) error {
 				}
 			}
 			result := tx.Model(&Option{}).Where("key = ? AND value = ?", MerchantStoreWriterCapabilityOption, "1").Update("value", "2")
+			if result.Error != nil || result.RowsAffected != 1 {
+				return ErrMerchantStoreWriterFrozen
+			}
+			return nil
+		})
+	})
+}
+
+// ActivateMerchantStoreProductLifecycle raises the reviewed writer floor only;
+// it performs no DDL and never skips the variant readiness stage or downgrades.
+func ActivateMerchantStoreProductLifecycle(db *gorm.DB, expected int) error {
+	if db == nil || (expected != 2 && expected != 3) || MerchantStoreWriterCapability < 3 {
+		return ErrMerchantStoreWriterFrozen
+	}
+	return withMerchantStoreActivationDB(db, func(bound *gorm.DB) error {
+		return bound.Transaction(func(tx *gorm.DB) error {
+			required, err := storeWriterGateRow(tx, "UPDATE")
+			if err != nil {
+				return err
+			}
+			if required == 3 {
+				return nil
+			}
+			if required != expected || required != 2 || !tx.Migrator().HasColumn("merchant_store_products", "status") {
+				return ErrMerchantStoreWriterFrozen
+			}
+			result := tx.Model(&Option{}).Where("key = ? AND value = ?", MerchantStoreWriterCapabilityOption, "2").Update("value", "3")
 			if result.Error != nil || result.RowsAffected != 1 {
 				return ErrMerchantStoreWriterFrozen
 			}

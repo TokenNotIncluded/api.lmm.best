@@ -48,7 +48,7 @@ func Dispatch(args []string, version string, stdout, stderr io.Writer) Result {
 	case "migrate":
 		return dispatchMigration(args[1:], stdout, stderr)
 	case "merchant-store-writer-gate":
-		if len(args) > 1 && (args[1] == "status" || args[1] == "bootstrap" || args[1] == "activate") {
+		if len(args) > 1 && (args[1] == "status" || args[1] == "bootstrap" || args[1] == "activate" || args[1] == "activate-lifecycle") {
 			return Result{Mode: ModeMerchantStoreWriterGate, GateArgs: append([]string(nil), args[1:]...)}
 		}
 		_, _ = fmt.Fprintln(stderr, "choose merchant-store-writer-gate status|bootstrap|activate")
@@ -118,7 +118,7 @@ func WriteUsage(output io.Writer) {
 	_, _ = fmt.Fprintln(output, `Usage:
   lmm-api [serve] [server options]
   lmm-api migrate --apply|--verify
-  lmm-api merchant-store-writer-gate status|bootstrap|activate [operator options]
+  lmm-api merchant-store-writer-gate status|bootstrap|activate|activate-lifecycle [operator options]
   lmm-api request [request options] [URL-or-path]
   /usr/bin/lmm-api-deploy build|frontend|production ...
   lmm-api geoip update
