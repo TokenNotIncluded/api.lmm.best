@@ -250,9 +250,18 @@ export const marketAPI = {
         params: { q, offset, execution_type: executionType, limit: 30 },
       })
     ),
-  detail: (id: string, mode: 'published' | 'draft' | 'review' = 'published') =>
+  detail: (
+    id: string,
+    mode: 'published' | 'draft' | 'review' = 'published',
+    signal?: AbortSignal
+  ) =>
     unwrap<MarketDetail>(
-      api.get(`${base}/services/${id}${mode === 'published' ? '' : `/${mode}`}`)
+      api.get(
+        `${base}/services/${id}${mode === 'published' ? '' : `/${mode}`}`,
+        {
+          signal,
+        }
+      )
     ),
   mine: <T>(kind: string, signal?: AbortSignal) =>
     collectMarketPages<T>((offset, limit) =>

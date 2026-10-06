@@ -154,6 +154,53 @@ function ToolMarketWorkspace() {
   } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [record, setRecord] = useState<CallResponse | null>(null)
+  const review = useMutation({
+    retry: false,
+    mutationFn: async (input: {
+      serviceID: string
+      versionID: string
+      approve: boolean
+      note: string
+    }) => {
+      // Stop an older detail request before publishing removes the draft.
+      await cache.cancelQueries({
+        queryKey: [...key, 'detail', input.serviceID],
+        predicate: (query) => query.queryKey[4] !== 'published',
+      })
+      return marketAPI.review(
+        input.serviceID,
+        input.versionID,
+        input.approve,
+        input.note
+      )
+    },
+    onSuccess: async (_, input) => {
+      const retiredDetail = {
+        queryKey: [...key, 'detail', input.serviceID],
+        predicate: (query: { queryKey: readonly unknown[] }) =>
+          query.queryKey[4] !== 'published',
+      }
+      await cache.cancelQueries(retiredDetail)
+      cache.removeQueries(retiredDetail)
+      setSelected((current) =>
+        current?.id === input.serviceID && current.mode !== 'published'
+          ? null
+          : current
+      )
+      // React may not have committed the selection change yet. Never refetch
+      // the consumed draft through the still-mounted detail observer.
+      void cache.invalidateQueries({
+        queryKey: ['tool-market'],
+        predicate: (query) =>
+          !(
+            query.queryKey[1] === user?.id &&
+            query.queryKey[2] === 'detail' &&
+            query.queryKey[3] === input.serviceID &&
+            query.queryKey[4] !== 'published'
+          ),
+      })
+    },
+  })
   const config = useQuery({
     queryKey: [...key, 'config'],
     queryFn: marketAPI.config,
@@ -202,11 +249,11 @@ function ToolMarketWorkspace() {
   }, [client, oauthClients.isSuccess, oauthClients.data])
   const detail = useQuery({
     queryKey: [...key, 'detail', selected?.id, selected?.mode],
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (!selected) throw new Error('Missing service')
-      return marketAPI.detail(selected.id, selected.mode)
+      return marketAPI.detail(selected.id, selected.mode, signal)
     },
-    enabled: !!selected && !editor,
+    enabled: !!selected && !editor && !review.isPending,
   })
   const calls = useQuery({
     queryKey: [...key, 'calls', callsOffset],
@@ -238,6 +285,7 @@ function ToolMarketWorkspace() {
     setSelected(null)
     setEditor(false)
     action.reset()
+    review.reset()
   }
   const current = detail.data
   const clients = [
@@ -672,17 +720,14 @@ function ToolMarketWorkspace() {
                               <div className='flex gap-2'>
                                 <Button
                                   disabled={
-                                    action.isPending || !reviewNote.trim()
+                                    review.isPending || !reviewNote.trim()
                                   }
                                   onClick={() =>
-                                    action.mutate(async () => {
-                                      await marketAPI.review(
-                                        current.service.id,
-                                        current.version.id,
-                                        true,
-                                        reviewNote
-                                      )
-                                      setSelected(null)
+                                    review.mutate({
+                                      serviceID: current.service.id,
+                                      versionID: current.version.id,
+                                      approve: true,
+                                      note: reviewNote,
                                     })
                                   }
                                 >
@@ -691,17 +736,14 @@ function ToolMarketWorkspace() {
                                 <Button
                                   variant='outline'
                                   disabled={
-                                    action.isPending || !reviewNote.trim()
+                                    review.isPending || !reviewNote.trim()
                                   }
                                   onClick={() =>
-                                    action.mutate(async () => {
-                                      await marketAPI.review(
-                                        current.service.id,
-                                        current.version.id,
-                                        false,
-                                        reviewNote
-                                      )
-                                      setSelected(null)
+                                    review.mutate({
+                                      serviceID: current.service.id,
+                                      versionID: current.version.id,
+                                      approve: false,
+                                      note: reviewNote,
                                     })
                                   }
                                 >
@@ -1452,20 +1494,23 @@ function ToolMarketWorkspace() {
               )}
             </Tabs>
           )}
-          {action.isPending && (
+          {(action.isPending || review.isPending) && (
             <p role='status' className='text-muted-foreground text-sm'>
               {t('Processing…')}
             </p>
           )}
-          {action.isError && (
+          {(action.isError || review.isError) && (
             <div role='alert' className='space-y-2 text-sm'>
               <p className='text-destructive'>
-                {t(marketErrorKey(action.error))}
+                {t(
+                  marketErrorKey(review.isError ? review.error : action.error)
+                )}
               </p>
               <Button
                 variant='outline'
                 onClick={() => {
                   action.reset()
+                  review.reset()
                   void cache.invalidateQueries({ queryKey: key })
                 }}
               >

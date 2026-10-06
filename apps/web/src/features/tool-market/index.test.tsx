@@ -76,6 +76,8 @@ const { useAuthStore } = await import('@/stores/auth-store')
 const { api } = await import('@/lib/api')
 const { resetMarketCurrencyTest } = await import('./currency-test-support')
 const { marketAPI } = await import('./api')
+const { toast } = await import('sonner')
+const originalToastError = toast.error
 const { ToolMarket } = await import('./index')
 const originalAPI = { ...marketAPI }
 const originalAdapter = api.defaults.adapter
@@ -271,6 +273,7 @@ afterEach(async () => {
   }
   Object.assign(marketAPI, originalAPI)
   api.defaults.adapter = originalAdapter
+  toast.error = originalToastError
   useAuthStore.setState({ auth: originalAuth })
 })
 after(() => {
@@ -840,4 +843,180 @@ test('catalog prices react to wallet units and rates while keeping native credit
     (container.textContent ?? '').includes('98 CNY per successful call')
   )
   assert.equal(priced.tools[0].price_quota, 3500000)
+})
+
+for (const inflight of [false, true]) {
+  test(`successful review retires draft queries without a false global error${inflight ? ' during an in-flight refresh' : ''}`, async () => {
+    const pending = detail('Pending own service', 'remote', 100, 'public')
+    pending.version.status = 'pending'
+    pending.service.live_version_id = ''
+    pending.service.status = 'draft'
+    stubNavigation([pending])
+    let published = false
+    let getCount = 0
+    let getAfterPublish = 0
+    let resolveRefresh: (() => void) | undefined
+    let refreshSignal: AbortSignal | undefined
+    const errors: unknown[] = []
+    toast.error = ((message: unknown) => {
+      errors.push(message)
+      return 'review-test'
+    }) as typeof toast.error
+    marketAPI.reports = async () => []
+    marketAPI.reviews = async () => (published ? [] : [pending.service])
+    // Exercise Axios and its real global error interceptor, not API stubs.
+    marketAPI.detail = originalAPI.detail
+    marketAPI.review = originalAPI.review
+    api.defaults.adapter = async (config) => {
+      const isPost = config.method === 'post'
+      if (isPost) {
+        const input = JSON.parse(config.data)
+        assert.equal(input.version_id, pending.version.id)
+        assert.equal(input.approve, true)
+        if (inflight) assert.equal(refreshSignal?.aborted, true)
+        published = true
+        resolveRefresh?.()
+      } else {
+        assert.ok(config.url?.endsWith('/review'))
+        getCount++
+        if (published) getAfterPublish++
+        if (inflight && getCount === 2) {
+          refreshSignal = config.signal as AbortSignal
+          await new Promise<void>((resolve) => {
+            resolveRefresh = resolve
+          })
+        }
+      }
+      const unavailable = !isPost && published
+      return {
+        config,
+        headers: {},
+        status: unavailable ? 404 : 200,
+        statusText: unavailable ? 'Not Found' : 'OK',
+        data: unavailable
+          ? {
+              success: false,
+              code: 'TOOL_MARKET_NOT_FOUND',
+              message: 'tool market resource not found',
+            }
+          : { success: true, data: isPost ? null : pending },
+      }
+    }
+    const { container, client } = await mount(100)
+    await waitFor(() => !!findButton('Configure market', container))
+    await click(button('Configure market', container))
+    await waitFor(() => !!findButton('Review', container))
+    await click(button('Review', container))
+    await waitFor(() => !!findButton('Approve and publish', container))
+    const note = container.querySelector<HTMLTextAreaElement>(
+      '#market-review-note'
+    )
+    assert.ok(note)
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setter)
+    await act(async () => {
+      setter.call(note, 'Verified own exact draft')
+      note.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+    })
+    if (inflight) {
+      void client.invalidateQueries({
+        queryKey: ['tool-market', 2, 'detail', pending.service.id, 'review'],
+        exact: true,
+      })
+      await waitFor(() => !!refreshSignal)
+    }
+    await click(button('Approve and publish', container))
+    await waitFor(
+      () => published && !findButton('Approve and publish', container)
+    )
+    await act(flush)
+    assert.equal(
+      getAfterPublish,
+      0,
+      'publication must not refetch the consumed draft'
+    )
+    assert.equal(getCount, inflight ? 2 : 1)
+    assert.deepEqual(
+      errors,
+      [],
+      'canceled stale detail must never emit a global error toast'
+    )
+    assert.equal(
+      client.getQueryData([
+        'tool-market',
+        2,
+        'detail',
+        pending.service.id,
+        'review',
+      ]),
+      undefined
+    )
+    await waitFor(
+      () => container.textContent?.includes('No pending reviews') === true
+    )
+  })
+}
+
+test('a real failed review keeps its dialog and error available for retry', async () => {
+  const pending = detail('Retry own service', 'remote', 100, 'public')
+  pending.version.status = 'pending'
+  stubNavigation([pending])
+  marketAPI.reports = async () => []
+  marketAPI.reviews = async () => [pending.service]
+  let attempts = 0
+  const errors: unknown[] = []
+  toast.error = ((message: unknown) => {
+    errors.push(message)
+    return 'review-test'
+  }) as typeof toast.error
+  marketAPI.review = originalAPI.review
+  api.defaults.adapter = async (config) => {
+    attempts++
+    return {
+      config,
+      headers: {},
+      status: 409,
+      statusText: 'Conflict',
+      data: {
+        success: false,
+        code: 'TOOL_MARKET_CONFLICT',
+        message: 'Draft changed; reload and retry',
+      },
+    }
+  }
+  const { container } = await mount(100)
+  await waitFor(() => !!findButton('Configure market', container))
+  await click(button('Configure market', container))
+  await waitFor(() => !!findButton('Review', container))
+  await click(button('Review', container))
+  await waitFor(() => !!findButton('Approve and publish', container))
+  const note = container.querySelector<HTMLTextAreaElement>(
+    '#market-review-note'
+  )
+  assert.ok(note)
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(note, 'Verified draft')
+    note.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+  })
+  await click(button('Approve and publish', container))
+  await waitFor(
+    () => attempts === 1 && !button('Approve and publish', container).disabled
+  )
+  assert.equal(container.querySelector('#market-review-note'), note)
+  assert.equal(note.value, 'Verified draft')
+  assert.deepEqual(errors, ['Draft changed; reload and retry'])
+  await click(button('Approve and publish', container))
+  await waitFor(
+    () => attempts === 2 && !button('Approve and publish', container).disabled
+  )
 })
