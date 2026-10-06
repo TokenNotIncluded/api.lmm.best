@@ -58,16 +58,14 @@ import {
   getAffiliateCode,
   saveAffiliateCode,
 } from '@/features/auth/lib/storage'
+import type { AuthFormProps } from '@/features/auth/types'
 import { useStatus } from '@/hooks/use-status'
 import { isAuthBundle } from '@/lib/api'
 import { isLocalPreview } from '@/lib/local-preview'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
-export function SignUpForm({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLFormElement>) {
+export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
   const { t } = useTranslation()
   const localPreview = isLocalPreview()
   const [isLoading, setIsLoading] = useState(false)
@@ -190,7 +188,7 @@ export function SignUpForm({
 
       if (res?.success) {
         toast.success(t('Account created! Please sign in'))
-        redirectToLogin()
+        redirectToLogin(redirectTo)
       } else {
         toast.error(res?.message || t('Failed to create account'))
       }
@@ -272,7 +270,7 @@ export function SignUpForm({
     try {
       const res = await wechatLoginByCode(wechatCode, wechatFlowToken)
       if (res?.success && isAuthBundle(res.data)) {
-        await handleLoginSuccess(res.data)
+        await handleLoginSuccess(res.data, redirectTo)
         toast.success(t('Signed in via WeChat'))
         handleWeChatDialogChange(false)
       } else {
@@ -452,6 +450,7 @@ export function SignUpForm({
             isWeChatLoading={isWeChatSubmitting}
             className='pt-2'
             registrationOnly
+            redirectTo={redirectTo}
           />
         )}
       </form>

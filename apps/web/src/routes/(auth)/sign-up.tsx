@@ -17,19 +17,26 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { z } from 'zod'
 
+import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import { SignUp } from '@/features/auth/sign-up'
 import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/(auth)/sign-up')({
   component: SignUp,
-  beforeLoad: async () => {
+  validateSearch: z.object({
+    redirect: z.string().optional(),
+  }),
+  beforeLoad: async ({ search }) => {
     const { auth } = useAuthStore.getState()
 
-    // 已登录用户不需要再次注册，回到对应的悬赏工作区。
     if (auth.user) {
-      throw redirect({ to: getAuthenticatedLandingRoute(auth.user) })
+      const target =
+        sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
+        getAuthenticatedLandingRoute(auth.user)
+      throw redirect({ href: target })
     }
   },
 })

@@ -61,15 +61,34 @@ export function useAuthRedirect() {
   /**
    * Redirect to 2FA page
    */
-  const redirectTo2FA = useCallback(() => {
-    navigate({ to: '/otp', replace: true })
-  }, [navigate])
+  const redirectTo2FA = useCallback(
+    (redirectTo?: string) => {
+      const requestedPath = sanitizeAuthRedirect(
+        redirectTo,
+        window.location.origin
+      )
+      navigate({
+        to: '/otp',
+        search: requestedPath ? { redirect: requestedPath } : {},
+        replace: true,
+      })
+    },
+    [navigate]
+  )
 
   /**
    * Redirect to login page
    */
-  const redirectToLogin = () => {
-    navigate({ to: '/sign-in', replace: true })
+  const redirectToLogin = (redirectTo?: string) => {
+    const requestedPath = sanitizeAuthRedirect(
+      redirectTo,
+      window.location.origin
+    )
+    navigate({
+      to: '/sign-in',
+      search: requestedPath ? { redirect: requestedPath } : {},
+      replace: true,
+    })
   }
 
   /**

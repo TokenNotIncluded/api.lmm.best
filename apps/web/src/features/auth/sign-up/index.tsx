@@ -16,10 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link } from '@tanstack/react-router'
+import { Link, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import { useStatus } from '@/hooks/use-status'
 import { isLocalPreview } from '@/lib/local-preview'
 
@@ -33,6 +34,8 @@ import { SignUpForm } from './components/sign-up-form'
 
 export function SignUp() {
   const { t } = useTranslation()
+  const { redirect } = useSearch({ from: '/(auth)/sign-up' })
+  const requestedPath = sanitizeAuthRedirect(redirect, window.location.origin)
   const { status, error, capabilitiesReady, refetch } = useStatus()
   const localPreview = isLocalPreview()
 
@@ -72,6 +75,7 @@ export function SignUp() {
             {t('Already have an account?')}{' '}
             <Link
               to='/sign-in'
+              search={requestedPath ? { redirect: requestedPath } : {}}
               className='hover:text-primary font-medium underline underline-offset-4'
             >
               {t('Sign in')}
@@ -104,6 +108,7 @@ export function SignUp() {
             {t('Already have an account?')}{' '}
             <Link
               to='/sign-in'
+              search={requestedPath ? { redirect: requestedPath } : {}}
               className='hover:text-primary font-medium underline underline-offset-4'
             >
               {t('Sign in')}
@@ -126,6 +131,7 @@ export function SignUp() {
             {t('Already have an account?')}{' '}
             <Link
               to='/sign-in'
+              search={requestedPath ? { redirect: requestedPath } : {}}
               className='hover:text-primary font-medium underline underline-offset-4'
             >
               {t('Sign in')}
@@ -134,7 +140,7 @@ export function SignUp() {
           </p>
         </div>
 
-        <SignUpForm />
+        <SignUpForm redirectTo={requestedPath ?? undefined} />
 
         <TermsFooter
           variant='sign-up'

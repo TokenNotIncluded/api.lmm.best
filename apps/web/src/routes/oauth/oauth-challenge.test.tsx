@@ -145,8 +145,10 @@ after(() => {
   dom.close()
 })
 
-test('StrictMode exchanges once and stores the 2FA challenge before navigating', async () => {
-  search = { code: 'oauth-code', state: 'oauth-state' }
+test('StrictMode exchanges once and carries the product target with the 2FA challenge', async () => {
+  const productTarget =
+    '/store/products/product-fixture?variant_id=variant-fixture&quantity=3&promotion=SUMMER%2B10#purchase'
+  search = { code: 'oauth-code', state: 'oauth-state', redirect: productTarget }
   let exchanges = 0
   let resolve!: (response: unknown) => void
   const response = new Promise((next) => {
@@ -167,7 +169,12 @@ test('StrictMode exchanges once and stores the 2FA challenge before navigating',
   })
   assert.equal(exchanges, 1)
   assert.deepEqual(navigations, [
-    { to: '/otp', replace: true, flowTokenDuringNavigation: 'bound-2fa-flow' },
+    {
+      to: '/otp',
+      search: { redirect: productTarget },
+      replace: true,
+      flowTokenDuringNavigation: 'bound-2fa-flow',
+    },
   ])
   assert.equal(useAuthStore.getState().auth.accessToken, null)
 })
