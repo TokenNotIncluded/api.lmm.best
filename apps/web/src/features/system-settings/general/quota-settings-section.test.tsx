@@ -77,10 +77,7 @@ await i18n.use(initReactI18next).init({
 
 after(() => domWindow.close())
 
-function quotaDefaults(
-  inviteEnabled: boolean,
-  paidEnabled: boolean
-): QuotaDefaults {
+function quotaDefaults(inviteEnabled: boolean): QuotaDefaults {
   return {
     QuotaForNewUser: 0,
     PreConsumedQuota: 0,
@@ -95,8 +92,6 @@ function quotaDefaults(
     quota_setting: { enable_free_model_pre_consume: true },
     developer_access_setting: {
       invite_registration_enabled: inviteEnabled,
-      paid_activation_enabled: paidEnabled,
-      paid_activation_min_amount: 7.5,
     },
   }
 }
@@ -179,7 +174,7 @@ test('missing invitation settings default to disabled and preserve explicit save
   }
 })
 
-test('saves invitation access independently of recharge activation and threshold', async () => {
+test('saves invitation access without retaining a second recharge-threshold editor', async () => {
   const originalPut = api.put
   const updates: UpdateOptionRequest[] = []
   api.put = (async (url: string, request: UpdateOptionRequest) => {
@@ -190,23 +185,22 @@ test('saves invitation access independently of recharge activation and threshold
 
   try {
     for (const initiallyEnabled of [false, true]) {
-      const rendered = await renderQuota(
-        quotaDefaults(initiallyEnabled, initiallyEnabled)
-      )
+      const rendered = await renderQuota(quotaDefaults(initiallyEnabled))
       try {
         const invitationSwitch = getSwitch(
           rendered.container,
           'Grant L1 when registering through an invitation'
         )
-        const rechargeSwitch = getSwitch(
-          rendered.container,
-          'Let a recharge unlock the console'
-        )
         const threshold = rendered.container.querySelector<HTMLInputElement>(
           'input[name="developer_access_setting.paid_activation_min_amount"]'
         )
         const form = rendered.container.querySelector('form')
-        assert.ok(threshold && form)
+        assert.ok(form)
+        assert.equal(threshold, null)
+        assert.doesNotMatch(
+          rendered.container.textContent ?? '',
+          /Let a recharge unlock the console/
+        )
         assert.equal(
           invitationSwitch.getAttribute('aria-checked'),
           String(initiallyEnabled)
@@ -220,12 +214,6 @@ test('saves invitation access independently of recharge activation and threshold
           invitationSwitch.getAttribute('aria-checked'),
           String(!initiallyEnabled)
         )
-        assert.equal(
-          rechargeSwitch.getAttribute('aria-checked'),
-          String(initiallyEnabled)
-        )
-        assert.equal(threshold.value, '7.5')
-        assert.equal(threshold.disabled, !initiallyEnabled)
         await act(async () => {
           form.dispatchEvent(
             new Event('submit', { bubbles: true, cancelable: true })

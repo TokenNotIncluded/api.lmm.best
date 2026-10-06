@@ -32,7 +32,7 @@ export type SystemOptionsResponse = {
   success: boolean
   message: string
   data: SystemOption[]
-  capabilities?: { model_price_locks?: boolean }
+  capabilities?: { model_price_locks?: boolean; trust_level_benefits?: boolean }
 }
 
 export type UpdateOptionRequest = {
@@ -384,6 +384,7 @@ export type ModelSettings = {
 }
 
 export type BillingSettings = {
+  TrustLevelBenefits: string
   ReferralMinTopUpQuota: number
   ReferralMaxRewardQuota: number
   ReferralPenaltyPercent: number

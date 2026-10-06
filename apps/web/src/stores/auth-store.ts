@@ -33,11 +33,16 @@ export interface TrustLevelInfo {
   automatic_level: number
   override_level: number | null
   paid_amount: number
+  paid_credits?: string | null
+  paid_credit_projection_available?: boolean
   discount_ratio: number
   discount_percent: number
   next_level?: number | null
   next_level_paid_amount?: number | null
   amount_to_next_level?: number | null
+  next_level_paid_credits?: string | null
+  credits_to_next_level?: string | null
+  level_source?: 'role' | 'override' | 'automatic'
   next_decay_at?: number | null
   inactivity_decay_steps: number
   decay_period_days: number
@@ -47,11 +52,21 @@ export interface TrustLevelInfo {
 export interface TrustLevelTier {
   level: number
   min_paid_amount: number
+  min_paid_credits?: string
   discount_percent: number
   benefits?: string[]
   benefit_count?: number
   benefits_hidden?: boolean
   discount_hidden?: boolean
+}
+
+export interface TrustLevelRoleTier {
+  level: 5 | 6
+  role: 10 | 100
+  role_only: true
+  discount_ratio: number
+  discount_percent: number
+  benefits: string[]
 }
 
 export type OnboardingStage =
@@ -106,6 +121,7 @@ export interface AuthUser {
   developer_access_granted?: boolean
   trust_level_info?: TrustLevelInfo
   trust_level_tiers?: TrustLevelTier[]
+  trust_level_role_tiers?: TrustLevelRoleTier[]
   // The nested state is the current API contract. Flat fields remain optional
   // while locally running binaries transition to the nested response shape.
   onboarding?: OnboardingState

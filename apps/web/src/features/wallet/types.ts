@@ -463,8 +463,10 @@ export interface UserWalletData {
   aff_count: number
   /** User group */
   group: string
+  role?: number
   trust_level_info?: import('@/stores/auth-store').TrustLevelInfo
   trust_level_tiers?: import('@/stores/auth-store').TrustLevelTier[]
+  trust_level_role_tiers?: import('@/stores/auth-store').TrustLevelRoleTier[]
 }
 
 /**
