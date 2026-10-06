@@ -45,6 +45,12 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		p.PickupCodeRequired = in.PickupCodeRequired
 		p.EmailPickupLink = in.EmailPickupLink
 		// Every content, price, payment or delivery edit retires the approved listing.
+		if p.AIReviewToken != "" {
+			if err := invalidateMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken, "market_review_stale"); err != nil {
+				return err
+			}
+		}
+		p.AIReviewToken = ""
 		p.Status = "draft"
 		p.ReviewNote = ""
 		p.ReviewedBy = 0
@@ -71,10 +77,17 @@ func SubmitMerchantStoreProduct(actor int, id string) error {
 		if p.Status != "draft" && p.Status != "rejected" {
 			return ErrMerchantStoreConflict
 		}
+		if err := invalidateMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken, "market_review_resubmitted"); err != nil {
+			return err
+		}
+		p.AIReviewToken = uuid.NewString()
 		p.Status = "pending"
 		p.UpdatedAt = common.GetTimestamp()
 		if e := tx.Save(p).Error; e != nil {
 			return e
+		}
+		if err := queueMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, "", p.AIReviewToken, actor, false); err != nil {
+			return err
 		}
 		return storeEvent(tx, actor, p.ID, "submit")
 	})
@@ -87,12 +100,16 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 		if _, e := storeUser(tx, actor, common.RoleAdminUser); e != nil {
 			return e
 		}
-		if p.Status != "pending" {
+		if p.Status != "pending" && !marketAIReviewApplied(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken) {
 			return ErrMerchantStoreConflict
 		}
 		if _, e := storeUser(tx, p.SellerID, common.RoleCommonUser); e != nil {
 			return e
 		}
+		if err := invalidateMarketAIReview(tx, ModerationSourceMarketProduct, p.ID, p.AIReviewToken, "market_review_manual_override"); err != nil {
+			return err
+		}
+		p.AIReviewToken = ""
 		p.Status = "rejected"
 		if approve {
 			p.Status = "published"
@@ -319,7 +336,8 @@ func ListMerchantStoreProducts(actor int, review bool, offset, limit int) ([]Mer
 	offset, limit = storePage(offset, limit)
 	q := DB
 	if review {
-		q = q.Where("status = ?", "pending")
+		q = q.Where("status = ? OR (status IN ? AND ai_review_token <> '' AND EXISTS (SELECT 1 FROM moderation_jobs WHERE source = ? AND target_id = merchant_store_products.id AND request_id = merchant_store_products.ai_review_token AND status = ? AND market_outcome IN ?))", "pending", []string{"published", "rejected"}, ModerationSourceMarketProduct, ModerationJobCompleted, []string{"approved", "rejected"}).
+			Order("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
 	} else {
 		q = q.Where("seller_id = ?", actor)
 	}

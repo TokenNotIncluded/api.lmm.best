@@ -19,7 +19,7 @@ import (
 
 func TestToolMarketMCPUsesVerifiedClientAndRefreshesToolSet(t *testing.T) {
 	db, user, _ := setupOpenSourceBountyMCPControllerTest(t)
-	require.NoError(t, db.AutoMigrate(&model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketEvent{}, &model.ToolMarketToken{}, &model.ToolMarketCall{}, &model.ToolMarketResult{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModerationJob{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketEvent{}, &model.ToolMarketToken{}, &model.ToolMarketCall{}, &model.ToolMarketResult{}))
 	service, err := model.SaveToolMarketDraft(user.Id, "", model.ToolMarketDraftInput{Name: "MCP fixture", ExecutionType: "remote", Visibility: "public", Endpoint: "https://example.com/mcp", Tools: []model.ToolMarketToolInput{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"$ref":"#/$defs/q"}},"$defs":{"q":{"type":"string"}}}`), Permissions: []string{"read"}}}})
 	require.NoError(t, err)
 	require.NoError(t, model.SubmitToolMarketDraft(user.Id, service.ID, service.DraftVersionID))

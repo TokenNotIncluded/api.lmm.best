@@ -35,7 +35,7 @@ func marketTestDB(t *testing.T) *gorm.DB {
 	// exercise duplicate transactions without unrelated SQLITE_BUSY failures.
 	sqlDB.SetMaxOpenConns(1)
 	DB = db
-	require.NoError(t, db.AutoMigrate(append([]interface{}{&User{}}, toolMarketModels()...)...))
+	require.NoError(t, db.AutoMigrate(append([]interface{}{&User{}, &Option{}, &ModerationJob{}}, toolMarketModels()...)...))
 	t.Cleanup(func() {
 		DB = oldDB
 		common.RedisEnabled = oldRedis

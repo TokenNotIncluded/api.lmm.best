@@ -46,7 +46,7 @@ func toolMarketTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, string, model.Us
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Option{}))
 	require.NoError(t, db.Create(&[]model.Option{{Key: model.CreditsPerUSDOptionKey, Value: ledger.String()}, {Key: model.LegacyPricingQuotaPerUnitOptionKey, Value: legacy.String()}, {Key: "QuotaPerUnit", Value: legacy.String()}, {Key: model.PublicCreditsPerUSDOptionKey, Value: public.String()}}).Error)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketReport{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.ModerationJob{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketReport{}))
 	token := "market-router-token"
 	user := model.User{Username: "market-user", AffCode: "market-user", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AccessToken: &token}
 	require.NoError(t, db.Create(&user).Error)

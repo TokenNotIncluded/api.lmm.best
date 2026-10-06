@@ -113,7 +113,7 @@ func newPaidMarketHarness(t *testing.T, usePostgres ...bool) *paidMarketHarness 
 		pool.SetMaxOpenConns(1)
 	}
 	model.DB, model.LOG_DB = db, db
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Log{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketResult{}, &model.ToolMarketToken{}, &model.ToolMarketCredential{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Log{}, &model.Option{}, &model.ModerationJob{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketResult{}, &model.ToolMarketToken{}, &model.ToolMarketCredential{}))
 	harness := &paidMarketHarness{t: t, db: db, users: map[string]model.User{}, tokens: map[string]string{}}
 	for _, name := range []string{"buyer", "author", "outsider", "root"} {
 		role, quota := common.RoleCommonUser, 0

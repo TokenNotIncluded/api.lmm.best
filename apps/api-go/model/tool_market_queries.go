@@ -96,6 +96,10 @@ func GetToolMarketDetail(userID int, serviceID string, draft bool) (*ToolMarketD
 		// Draft identifiers are private author metadata, including on public services.
 		detail.Service.DraftVersionID = ""
 	}
+	return completeToolMarketDetail(userID, &detail)
+}
+
+func completeToolMarketDetail(userID int, detail *ToolMarketDetail) (*ToolMarketDetail, error) {
 	detail.Validated = marketBuiltinVersion(detail.Service, detail.Version) || (detail.Version.ValidationDigest != "" && detail.Version.ValidationDigest == detail.Version.Digest)
 	if detail.Service.OwnerID == userID {
 		_ = json.Unmarshal([]byte(detail.Version.AllowedUsers), &detail.AllowedUsers)
@@ -117,7 +121,7 @@ func GetToolMarketDetail(userID int, serviceID string, draft bool) (*ToolMarketD
 	} else if free > 0 {
 		detail.Pricing = "partially_free"
 	}
-	return &detail, nil
+	return detail, nil
 }
 
 // Author analytics never reuse the caller's private call view. The transfer

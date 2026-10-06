@@ -56,6 +56,7 @@ type MerchantStoreProduct struct {
 	ReviewNote          string              `json:"review_note" gorm:"type:text"`
 	ReviewedBy          int                 `json:"reviewed_by"`
 	ReviewedAt          int64               `json:"reviewed_at"`
+	AIReviewToken       string              `json:"-" gorm:"type:varchar(36);not null;default:''"`
 	PromotionExpiresAt  int64               `json:"promotion_expires_at" gorm:"index"`
 	CreatedAt           int64               `json:"created_at"`
 	UpdatedAt           int64               `json:"updated_at"`

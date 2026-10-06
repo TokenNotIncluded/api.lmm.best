@@ -15,6 +15,7 @@ func setToolMarketRouter(parent *assistantRouterGroup) {
 	self.Use(middleware.UserAuth(), middleware.DisableCache(), middleware.RequestBodyLimit(256<<10))
 	self.POST("/services", middleware.CriticalRateLimit(), controller.SaveToolMarketDraft)
 	self.GET("/services/:id/draft", controller.GetToolMarketDraft)
+	self.GET("/services/:id/ai-reviews", controller.ListToolMarketAIReviews)
 	self.PUT("/services/:id/draft", middleware.CriticalRateLimit(), controller.SaveToolMarketDraft)
 	self.POST("/services/:id/submit", middleware.CriticalRateLimit(), controller.SubmitToolMarketDraft)
 	self.POST("/services/:id/activate", middleware.CriticalRateLimit(), controller.ActivateToolMarketPrivate)
