@@ -143,7 +143,23 @@ func ListMerchantStore(c *gin.Context) {
 			return
 		}
 	}
-	items, err := model.ListMerchantStoreProductsForSellerViewer(merchantStoreViewer(c), c.Query("q"), sellerID, offset, limit)
+	catalogueQuery, ok := merchantStoreCatalogueQuery(c)
+	if !ok {
+		return
+	}
+	var items []model.MerchantStoreProduct
+	var err error
+	if model.MerchantStoreCatalogueSupported() {
+		items, err = model.ListMerchantStoreCatalogue(merchantStoreViewer(c), c.Query("q"), sellerID, offset, limit, catalogueQuery)
+	} else {
+		// Older floors retain their original read contract; supplied new filters
+		// cannot silently turn into client-side filtering over one page.
+		if catalogueQuery.Sort != "" || catalogueQuery.Tag != "" || catalogueQuery.Stock != "" || catalogueQuery.AutoDelivery != nil || catalogueQuery.AIProcessing != nil || catalogueQuery.GuestPurchase != nil {
+			merchantStoreRespond(c, nil, model.ErrMerchantStoreUnavailable)
+			return
+		}
+		items, err = model.ListMerchantStoreProductsForSellerViewer(merchantStoreViewer(c), c.Query("q"), sellerID, offset, limit)
+	}
 	for i := range items {
 		items[i] = publicStoreProduct(items[i])
 	}
@@ -187,6 +203,8 @@ func GetMerchantStoreConfig(c *gin.Context) {
 	merchantStoreRespond(c, gin.H{
 		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota, "minimum_unit_price_quota": config.MinimumUnitPriceQuota,
 		"product_test_mode_supported":       true,
+		"store_catalogue_supported":         model.MerchantStoreCatalogueSupported(),
+		"store_collections_supported":       model.MerchantStoreCollectionsSupported(),
 		"store_access_supported":            model.MerchantStoreAccessSupported(),
 		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),
 		"product_link_presets":              presets,

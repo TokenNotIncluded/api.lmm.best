@@ -8,6 +8,7 @@ import (
 // Store routes deliberately do not use ConsoleAccessGate. Public browsing and
 // authenticated shopping/selling are available before API console activation.
 func setMerchantStoreRouter(parent *assistantRouterGroup) {
+	setMerchantStoreCollectionRoutes(parent)
 	// The existing refresh cookie is scoped to /api/user/auth. Only these
 	// token-specific pickup endpoints may use it without issuing an access token.
 	claimSession := parent.Group("/user/auth/store-claim")

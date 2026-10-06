@@ -81,6 +81,9 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		if e := tx.Save(&p).Error; e != nil {
 			return e
 		}
+		if e := storeEnsureCatalogueMetadata(tx, &p); e != nil {
+			return e
+		}
 		// GORM fills a zero boolean from its migration default on INSERT.
 		// Preserve an explicit false for a newly created guest-enabled product.
 		if id == "" && guestCheckout {
@@ -479,7 +482,10 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 	if public {
 		p.PaymentMethods = enabled
 	}
-	return populateMerchantStoreVariants(tx, p, u, c, enabled, public)
+	if err := populateMerchantStoreVariants(tx, p, u, c, enabled, public); err != nil {
+		return err
+	}
+	return PopulateMerchantStoreCatalogue(tx, p)
 }
 func GetPublicMerchantStoreProduct(id string) (*MerchantStoreProduct, error) {
 	return GetMerchantStoreProductForViewer(0, id)
