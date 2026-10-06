@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { BubbleChatSparkIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { Link, type LinkProps } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -47,6 +48,7 @@ import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
 import { AccountBalanceBadge } from './account-balance-badge'
 import { Header } from './header'
+import { StoreIcon } from './store-icon'
 import { SystemBrand } from './system-brand'
 import { TopNav } from './top-nav'
 
@@ -67,6 +69,8 @@ type AppHeaderProps = {
   showAssistant?: boolean
   /** The console exposes its assistant here instead of a mobile floating pill. */
   showMobileAssistant?: boolean
+  /** Public community shop entry; available before console activation. */
+  showStore?: boolean
 }
 
 export function AppHeader({
@@ -83,6 +87,7 @@ export function AppHeader({
   showBalanceBadge = true,
   showAssistant = true,
   showMobileAssistant = false,
+  showStore = true,
 }: AppHeaderProps) {
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
@@ -161,6 +166,26 @@ export function AppHeader({
               <TooltipContent side='bottom'>
                 {t('Open AI assistant')}
               </TooltipContent>
+            </Tooltip>
+          )}
+          {showStore && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    className='size-11 rounded-lg sm:size-8'
+                    render={<Link to={'/store' as LinkProps['to']} />}
+                    aria-label={t('Open shop')}
+                    title={t('Open shop')}
+                    data-testid='header-store-link'
+                  />
+                }
+              >
+                <StoreIcon aria-hidden='true' />
+              </TooltipTrigger>
+              <TooltipContent side='bottom'>{t('Shop')}</TooltipContent>
             </Tooltip>
           )}
           {showNotifications && (

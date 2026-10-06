@@ -246,3 +246,18 @@ test('a header that hides the assistant does not expose the compact entry', asyn
     await rendered.cleanup()
   }
 })
+
+test('the shop link stays named and reachable when the assistant is hidden', async () => {
+  const rendered = await renderHeader(390, false)
+  try {
+    const shop = rendered.container.querySelector<HTMLAnchorElement>(
+      '[data-testid="header-store-link"]'
+    )
+    assert.ok(shop)
+    assert.equal(shop.getAttribute('href'), '/store')
+    assert.equal(shop.getAttribute('aria-label'), 'Open shop')
+    assert.equal(shop.tagName, 'A')
+  } finally {
+    await rendered.cleanup()
+  }
+})

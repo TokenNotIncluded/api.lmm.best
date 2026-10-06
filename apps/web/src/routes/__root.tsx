@@ -163,6 +163,7 @@ const NON_BLOCKING_PUBLIC_PATHS = [
   '/',
   '/ai-directory',
   '/challenges',
+  '/store',
   '/pricing',
   '/developers',
   '/status',
