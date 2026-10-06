@@ -8,8 +8,6 @@ import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
-import { StoreConstellation } from './constellation'
-import { STORE_CONSTELLATION_COPY as copy } from './constellation-copy'
 import { StoreOrderSearch } from './order-search'
 import { StoreAmount, StoreBadges, StoreError, StoreLoading } from './shared'
 import { safeStoreUrl } from './utils'
@@ -117,13 +115,15 @@ export function StorePage() {
                       <h2 className='font-semibold'>
                         {t(
                           !search && page === 1
-                            ? copy.emptyTitle
+                            ? 'Nothing on the shelves yet.'
                             : 'No products found'
                         )}
                       </h2>
                       {!search && page === 1 ? (
                         <p className='text-muted-foreground text-sm'>
-                          {t(copy.emptyHint)}
+                          {t(
+                            'Published products will appear here. You can be the first seller.'
+                          )}
                         </p>
                       ) : (
                         <Button
@@ -139,7 +139,6 @@ export function StorePage() {
                         </Button>
                       )}
                     </div>
-                    {!search && page === 1 && <StoreConstellation />}
                   </div>
                 ) : (
                   <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>

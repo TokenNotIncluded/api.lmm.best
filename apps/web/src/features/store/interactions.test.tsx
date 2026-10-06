@@ -194,7 +194,7 @@ test('guests may inspect a product and disclaimer but cannot place an order', as
   assert.match(document.body.textContent || '', /Independent seller terms/)
   assert.equal(posts, 0)
 })
-test('an empty public shelf offers an optional keyboard-accessible constellation without buying or refetching', async () => {
+test('an empty public shelf keeps browsing and seller access without games or orders', async () => {
   owner(null)
   let reads = 0
   api.get = (async (url: string) => {
@@ -203,36 +203,23 @@ test('an empty public shelf offers an optional keyboard-accessible constellation
     return result({ items: [], has_more: false })
   }) as typeof api.get
   api.post = (async () =>
-    assert.fail(
-      'The constellation must not submit an order'
-    )) as typeof api.post
+    assert.fail('An empty shelf must not submit an order')) as typeof api.post
   await mount(<StorePage />)
   assert.match(document.body.textContent || '', /Nothing on the shelves yet/)
-  assert.equal(document.querySelectorAll('article').length, 0)
-  assert.equal(document.body.textContent?.includes('Next page'), false)
-  const stars = [
-    ...document.querySelectorAll<HTMLButtonElement>('button[aria-pressed]'),
-  ]
-  assert.equal(stars.length, 7)
-  assert.ok(
-    stars.every((star) => star.getAttribute('aria-pressed') === 'false')
-  )
-  for (const star of stars) await click(star)
   assert.match(
-    document.querySelector('[role="status"]')?.textContent || '',
-    /Constellation complete/
+    document.body.textContent || '',
+    /Published products will appear here/
   )
-  await click(button('Reset'))
-  assert.ok(
-    stars.every((star) => star.getAttribute('aria-pressed') === 'false')
-  )
-  await click(button('Close'))
+  assert.equal(document.querySelectorAll('article').length, 0)
   assert.equal(document.querySelectorAll('button[aria-pressed]').length, 0)
-  await click(button('Show constellation'))
-  assert.equal(document.querySelectorAll('button[aria-pressed]').length, 7)
+  assert.equal(document.body.textContent?.includes('constellation'), false)
+  assert.equal(document.body.textContent?.includes('Next page'), false)
+  assert.ok(document.querySelector('a[href="/store/manage"]'))
+  assert.ok(document.querySelector('input[type="search"]'))
+  assert.ok(button('Search'))
   assert.equal(reads, 1)
 })
-test('real products keep their shelf without an empty-state toy or fake listings', async () => {
+test('real products retain their product links and shelf', async () => {
   api.get = (async () =>
     result({ items: [product], has_more: false })) as typeof api.get
   await mount(<StorePage />)

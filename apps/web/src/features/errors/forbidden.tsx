@@ -23,7 +23,6 @@ import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ErrorPageFrame } from './error-page-frame'
-import { SignalTuner } from './signal-tuner'
 
 export function ForbiddenError() {
   const { t } = useTranslation()
@@ -81,7 +80,6 @@ export function ForbiddenError() {
           </Button>
         </>
       }
-      play={<SignalTuner />}
     />
   )
 }

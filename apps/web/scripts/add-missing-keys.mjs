@@ -56,7 +56,7 @@ import { publicCreditDisplayCopy } from './public-credit-display-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
-import { storeConstellationLunaCopy } from './store-constellation-luna-copy.mjs'
+import { storeEmptyStateCopy } from './store-empty-state-copy.mjs'
 import { storePaymentCategoryLunaCopy } from './store-payment-category-luna-copy.mjs'
 import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
 import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
@@ -11865,7 +11865,38 @@ for (const [locale, values] of Object.entries(paymentReturnCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
+// Removed toys must not return through a later full locale synchronization.
+const retiredGameKeys = new Set([
+  'A little constellation',
+  'Constellation complete.',
+  'Light star {{number}}',
+  'Show constellation',
+  'Tap the stars to light them up.',
+  '{{count}} of {{total}} stars lit',
+  'Signal tuner',
+  'Tune the receiver by selecting the lit cell',
+  'Signal found',
+  'Empty frequency',
+  'Signal locked. Nice.',
+  'Tap the lit cell. Five in a row.',
+  'Five correct picks lock the signal.',
+])
+
 async function main() {
+  if (process.argv.includes('--retire-games-only')) {
+    for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      for (const key of retiredGameKeys) delete json.translation[key]
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: retired game keys removed`)
+    }
+    return
+  }
+
   if (process.argv.includes('--store-quantity-only')) {
     for (const [locale, translations] of Object.entries(
       storeQuantityLunaCopy
@@ -12127,6 +12158,7 @@ async function main() {
     let count = 0
     for (const key of [
       ...retiredPricingKeys,
+      ...retiredGameKeys,
       ...(merchantStoreOnly ? merchantStoreRetiredKeys : []),
       ...(scoped ? [] : deprecatedCurrencyKeys),
     ]) {
@@ -12143,7 +12175,7 @@ async function main() {
       count++
     }
     for (const [key, value] of Object.entries(translations)) {
-      if (retiredPricingKeys.has(key)) continue
+      if (retiredPricingKeys.has(key) || retiredGameKeys.has(key)) continue
       if (json.translation[key] !== value) {
         json.translation[key] = value
         count++
@@ -13230,7 +13262,7 @@ for (const [locale, values] of Object.entries(marketAIReviewLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
-for (const [locale, values] of Object.entries(storeConstellationLunaCopy)) {
+for (const [locale, values] of Object.entries(storeEmptyStateCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
