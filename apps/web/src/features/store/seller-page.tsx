@@ -44,6 +44,8 @@ import { StoreLinkPresetChooser } from './link-presets'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
+import { storePurchaseLimit } from './purchase-limits'
+import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
 import { StoreSalesLimit } from './sales-limit'
 import { STORE_SALES_LIMIT_COPY as salesCopy } from './sales-limit-copy'
 import {
@@ -512,6 +514,9 @@ function StoreSellerCenter() {
           minimumPriceQuota={config.data?.minimum_unit_price_quota}
           linkPresets={config.data?.product_link_presets}
           testModeSupported={config.data?.product_test_mode_supported === true}
+          purchaseLimitsSupported={
+            config.data?.product_purchase_limits_supported === true
+          }
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null)
@@ -638,6 +643,7 @@ export function StoreProductEditor({
   minimumPriceQuota,
   linkPresets = [],
   testModeSupported = false,
+  purchaseLimitsSupported = false,
   onClose,
   onSaved,
 }: {
@@ -646,6 +652,7 @@ export function StoreProductEditor({
   minimumPriceQuota?: number
   linkPresets?: StoreLinkPreset[]
   testModeSupported?: boolean
+  purchaseLimitsSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -676,6 +683,12 @@ export function StoreProductEditor({
     image_urls: [...(product?.image_urls || [])],
   }))
   const [images, setImages] = useState((product?.image_urls || []).join('\n'))
+  const [orderLimit, setOrderLimit] = useState(
+    String(product?.max_quantity_per_order ?? '')
+  )
+  const [buyerLimit, setBuyerLimit] = useState(
+    String(product?.max_quantity_per_buyer ?? '')
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const change = <K extends keyof StoreProductInput>(
@@ -727,6 +740,15 @@ export function StoreProductEditor({
         email_pickup_link: draft.email_pickup_link,
       }
       if (testModeSupported) body.test_mode = draft.test_mode === true
+      if (purchaseLimitsSupported) {
+        const perOrder = storePurchaseLimit(orderLimit)
+        const perBuyer = storePurchaseLimit(buyerLimit)
+        if (perOrder === undefined || perBuyer === undefined) {
+          throw new Error(t(purchaseCopy.invalid))
+        }
+        body.max_quantity_per_order = perOrder
+        body.max_quantity_per_buyer = perBuyer
+      }
       if (product) await storeApi.updateProduct(product.id, body)
       else await storeApi.createProduct(body)
       await onSaved()
@@ -1097,6 +1119,51 @@ export function StoreProductEditor({
               </div>
             ))}
           </fieldset>
+          {purchaseLimitsSupported && (
+            <fieldset className='space-y-3 rounded-lg border p-4'>
+              <legend className='px-1 text-sm font-medium'>
+                {t(purchaseCopy.title)}
+              </legend>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-2'>
+                  <Label htmlFor='store-order-limit'>
+                    {t(purchaseCopy.perOrder)}
+                  </Label>
+                  <Input
+                    id='store-order-limit'
+                    inputMode='numeric'
+                    pattern='[1-9][0-9]*'
+                    maxLength={16}
+                    placeholder={t(purchaseCopy.unlimited)}
+                    value={orderLimit}
+                    disabled={busy}
+                    onChange={(event) => setOrderLimit(event.target.value)}
+                  />
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='store-buyer-limit'>
+                    {t(purchaseCopy.perBuyer)}
+                  </Label>
+                  <Input
+                    id='store-buyer-limit'
+                    inputMode='numeric'
+                    pattern='[1-9][0-9]*'
+                    maxLength={16}
+                    placeholder={t(purchaseCopy.unlimited)}
+                    value={buyerLimit}
+                    disabled={busy}
+                    onChange={(event) => setBuyerLimit(event.target.value)}
+                  />
+                </div>
+              </div>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(purchaseCopy.help)}
+              </p>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(purchaseCopy.buyerHelp)}
+              </p>
+            </fieldset>
+          )}
           {testModeSupported && (
             <div className='space-y-2 rounded-lg border p-4'>
               <label className='flex items-center justify-between gap-4 text-sm'>

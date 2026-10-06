@@ -231,6 +231,9 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if e = storeCheckSaleLimit(tx, p, in.Quantity); e != nil {
 			return e
 		}
+		if e = storeCheckPurchaseLimits(tx, p, buyer.Id, in.Quantity); e != nil {
+			return e
+		}
 		allowed := false
 		for _, method := range p.PaymentMethods {
 			if method == in.PaymentMethod {

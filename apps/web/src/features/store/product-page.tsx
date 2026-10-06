@@ -18,7 +18,12 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { StoreMerchantIdentity } from './merchant-identity'
-import { storeCheckoutCapacity, storeQuantity } from './quantity'
+import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
+import {
+  storeCheckoutCapacity,
+  storeClampQuantity,
+  storeQuantity,
+} from './quantity'
 import { StoreQuantityControl } from './quantity-control'
 import {
   StoreAmount,
@@ -64,7 +69,7 @@ export function StoreProductPage({
   const query = useQuery({
     queryKey: ownerPreview
       ? ['store', 'product-preview', id, user?.id]
-      : ['store', 'product', id],
+      : ['store', 'product', id, user?.id],
     queryFn: () =>
       ownerPreview ? storeApi.previewProduct(id) : storeApi.product(id),
     enabled: validId && (!ownerPreview || !!user),
@@ -211,9 +216,18 @@ export function StoreCheckout({
   const actualMethod = method || product.payment_methods?.[0] || ''
   const count = storeQuantity(quantity)
   const capacity = storeCheckoutCapacity(
-    { available_stock: variantCapacity, price_quota: unitPrice ?? 0 },
+    {
+      ...product,
+      available_stock: variantCapacity,
+      price_quota: unitPrice ?? 0,
+    },
     actualMethod
   )
+  // A stock refresh, changed variant or tighter allowance must update the
+  // visible quantity before another order can be submitted.
+  useEffect(() => {
+    setQuantity((current) => storeClampQuantity(current, capacity))
+  }, [capacity])
   let total: number | undefined
   try {
     if (count !== undefined && unitPrice !== undefined) {
@@ -289,6 +303,12 @@ export function StoreCheckout({
       setEmail('')
       keys.current.clear()
       await client.invalidateQueries({ queryKey: ['store', 'orders', user.id] })
+      await client.invalidateQueries({
+        queryKey: ['store', 'product', product.id],
+      })
+      await client.invalidateQueries({
+        queryKey: ['store', 'product-preview', product.id],
+      })
     } catch (issue) {
       setError(issue)
     } finally {
@@ -473,6 +493,20 @@ export function StoreCheckout({
             disabled={busy}
             onChange={setQuantity}
           />
+          {product.max_quantity_per_order != null && (
+            <p className='text-muted-foreground text-xs'>
+              {t(purchaseCopy.orderSummary, {
+                count: product.max_quantity_per_order,
+              })}
+            </p>
+          )}
+          {product.buyer_purchase_remaining != null && (
+            <p className='text-muted-foreground text-xs'>
+              {t(purchaseCopy.buyerSummary, {
+                count: product.buyer_purchase_remaining,
+              })}
+            </p>
+          )}
           <fieldset className='space-y-2'>
             <legend className='mb-2 text-sm font-medium'>
               {t('Payment method')}

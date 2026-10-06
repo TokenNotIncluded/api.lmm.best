@@ -2,11 +2,77 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { storeCheckoutCapacity, storeQuantity } from './quantity'
+import {
+  storeCheckoutCapacity,
+  storeClampQuantity,
+  storeQuantity,
+} from './quantity'
 import type { StorePaymentMethod } from './types'
 import { storeTotal } from './utils'
 
 const product = { price_quota: 500000, available_stock: 2000 }
+
+test('quantity takes the minimum of stock, sales quota, order cap and buyer remainder', () => {
+  const limited = {
+    ...product,
+    sale_available: 30,
+    max_quantity_per_order: 7,
+    max_quantity_per_buyer: 20,
+    buyer_purchase_remaining: 5,
+  }
+  assert.equal(storeCheckoutCapacity(limited, 'balance'), 5)
+  assert.equal(
+    storeCheckoutCapacity({ ...limited, available_stock: 2 }, 'balance'),
+    2
+  )
+  assert.equal(
+    storeCheckoutCapacity({ ...limited, sale_available: 3 }, 'balance'),
+    3
+  )
+  assert.equal(
+    storeCheckoutCapacity(
+      { ...limited, buyer_purchase_remaining: 12 },
+      'balance'
+    ),
+    7
+  )
+  assert.equal(
+    storeCheckoutCapacity(
+      { ...limited, buyer_purchase_remaining: 0 },
+      'balance'
+    ),
+    0
+  )
+  assert.equal(
+    storeCheckoutCapacity(
+      { ...limited, buyer_purchase_remaining: undefined },
+      'balance'
+    ),
+    0
+  )
+  assert.equal(
+    storeCheckoutCapacity(
+      {
+        ...product,
+        max_quantity_per_order: null,
+        max_quantity_per_buyer: null,
+      },
+      'balance'
+    ),
+    1000
+  )
+  assert.equal(
+    storeCheckoutCapacity({ ...product, max_quantity_per_order: 0 }, 'balance'),
+    0
+  )
+})
+
+test('bounds updates retain valid counts and clamp stale or invalid counts to at least one', () => {
+  assert.equal(storeClampQuantity('7', 3), '3')
+  assert.equal(storeClampQuantity('3', 7), '3')
+  assert.equal(storeClampQuantity('3', 0), '1')
+  assert.equal(storeClampQuantity('', 7), '1')
+})
 
 test('only positive safe whole-number quantity input is accepted', () => {
   assert.equal(storeQuantity('1'), 1)

@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { api } from '@/lib/api'
 
+import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
 import type {
   StoreCheckoutInput,
   StoreCheckoutResult,
@@ -40,6 +41,9 @@ function errorMessage(body?: { code?: unknown; message?: unknown }) {
   }
   if (body?.code === 'STORE_UPGRADE_IN_PROGRESS') {
     return 'Shop upgrade is in progress. Existing orders are still accessible.'
+  }
+  if (body?.code === 'STORE_PURCHASE_LIMIT') {
+    return STORE_PURCHASE_LIMIT_COPY.error
   }
   return typeof body?.message === 'string' && body.message
     ? body.message

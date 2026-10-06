@@ -36,6 +36,9 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
+		if e := storeApplyPurchaseLimits(tx, &p, in); e != nil {
+			return e
+		}
 		if e := storeRequireMinimumUnitPrice(tx, in.PriceQuota); e != nil {
 			return e
 		}

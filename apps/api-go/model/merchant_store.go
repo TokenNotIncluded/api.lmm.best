@@ -49,6 +49,8 @@ type MerchantStoreProduct struct {
 	PriceQuota          int                        `json:"price_quota" gorm:"type:bigint;not null"`
 	TestMode            bool                       `json:"test_mode" gorm:"not null;default:false"`
 	SaleLimit           *int64                     `json:"sale_limit" gorm:"type:bigint"`
+	MaxQuantityPerOrder *int64                     `json:"max_quantity_per_order" gorm:"type:bigint"`
+	MaxQuantityPerBuyer *int64                     `json:"max_quantity_per_buyer" gorm:"type:bigint"`
 	Template            string                     `json:"template" gorm:"size:32"`
 	DeliveryStrategy    string                     `json:"delivery_strategy" gorm:"size:16"`
 	PaymentMethods      []string                   `json:"payment_methods" gorm:"serializer:json;type:text"`
@@ -75,6 +77,8 @@ type MerchantStoreProduct struct {
 	InventoryAvailable  int64                      `json:"inventory_available" gorm:"-"`
 	PriceMinQuota       int                        `json:"price_min_quota" gorm:"-"`
 	PriceMaxQuota       int                        `json:"price_max_quota" gorm:"-"`
+
+	BuyerPurchaseRemaining *int64 `json:"buyer_purchase_remaining,omitempty" gorm:"-"`
 }
 type MerchantStoreProductInput struct {
 	Title               string              `json:"title"`
@@ -84,12 +88,17 @@ type MerchantStoreProductInput struct {
 	Links               []MerchantStoreLink `json:"links"`
 	PriceQuota          int                 `json:"price_quota"`
 	TestMode            *bool               `json:"test_mode,omitempty"`
+	MaxQuantityPerOrder *int64              `json:"max_quantity_per_order,omitempty"`
+	MaxQuantityPerBuyer *int64              `json:"max_quantity_per_buyer,omitempty"`
 	Template            string              `json:"template"`
 	DeliveryStrategy    string              `json:"delivery_strategy"`
 	PaymentMethods      []string            `json:"payment_methods"`
 	PickupLoginRequired bool                `json:"pickup_login_required"`
 	PickupCodeRequired  bool                `json:"pickup_code_required"`
 	EmailPickupLink     bool                `json:"email_pickup_link"`
+
+	maxQuantityPerOrderPresent bool
+	maxQuantityPerBuyerPresent bool
 }
 type MerchantStoreStock struct {
 	ID         string  `json:"id" gorm:"primaryKey;size:36"`
@@ -237,6 +246,9 @@ func storeTransfer(tx *gorm.DB, ref, kind string, from, to, quota int) error {
 func validateStoreProduct(in *MerchantStoreProductInput) error {
 	in.Title = strings.TrimSpace(in.Title)
 	if in.Title == "" || len(in.Title) > 200 || len(in.Description) > 128<<10 || len(in.Contact) > 4096 || len(in.ImageURLs) > 32 || len(in.Links) > 2000 || in.PriceQuota <= 0 || !marketQuotaValid(in.PriceQuota) {
+		return ErrMerchantStoreInput
+	}
+	if !storePurchaseLimitValid(in.MaxQuantityPerOrder) || !storePurchaseLimitValid(in.MaxQuantityPerBuyer) {
 		return ErrMerchantStoreInput
 	}
 	if in.Template == "" {

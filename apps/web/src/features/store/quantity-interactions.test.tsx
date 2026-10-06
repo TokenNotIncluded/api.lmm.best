@@ -168,6 +168,22 @@ async function mount(node: React.ReactNode, signedIn = true) {
   })
   await act(flush)
 }
+async function replaceCheckout(next: StoreProduct) {
+  assert.ok(root)
+  assert.ok(client)
+  const mountedRoot = root
+  const mountedClient = client
+  await act(async () => {
+    mountedRoot.render(
+      <QueryClientProvider client={mountedClient}>
+        <I18nextProvider i18n={i18n}>
+          <StoreCheckout product={next} />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+    await flush()
+  })
+}
 function required<T>(value: T | null | undefined): T {
   assert.ok(value)
   return value
@@ -270,6 +286,106 @@ test('visible quantity controls obey stock and a merchant can order their own wh
   assert.equal('price_quota' in writes[0], false)
   assert.equal('unit_price_quota' in writes[0], false)
   assert.equal('variant_id' in writes[0], false)
+})
+
+test('restocking keeps quantity controls visible and a refreshed buyer or order cap clamps the count', async () => {
+  mockCheckout()
+  await mount(<StoreCheckout product={{ ...product, available_stock: 1 }} />)
+  const more = required(
+    document.querySelector<HTMLButtonElement>(
+      '[aria-label="Increase quantity"]'
+    )
+  )
+  assert.equal(more.disabled, true)
+  await replaceCheckout({ ...product, available_stock: 8 })
+  assert.equal(more.disabled, false)
+  await click(more)
+  await click(more)
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '3'
+  )
+  await replaceCheckout({
+    ...product,
+    available_stock: 8,
+    max_quantity_per_order: 2,
+  })
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '2'
+  )
+  assert.equal(more.disabled, true)
+  await replaceCheckout({
+    ...product,
+    available_stock: 8,
+    max_quantity_per_buyer: 4,
+    buyer_purchase_remaining: 1,
+  })
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '1'
+  )
+  assert.equal(more.disabled, true)
+  await replaceCheckout({
+    ...product,
+    available_stock: 8,
+    max_quantity_per_buyer: 4,
+    buyer_purchase_remaining: 0,
+  })
+  assert.equal(button('Place order').disabled, true)
+  assert.ok(document.getElementById('store-quantity'))
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '1'
+  )
+})
+
+test('switching to a smaller specification adjusts the selected quantity without changing sales quota', async () => {
+  mockCheckout()
+  const variant = (id: string, capacity: number) => ({
+    id,
+    product_id: product.id,
+    name: id,
+    price_quota: product.price_quota,
+    template: product.template,
+    enabled: true,
+    created_at: 1,
+    updated_at: 1,
+    is_default: false,
+    inventory_total: capacity,
+    inventory_available: capacity,
+    reserved_stock: 0,
+    sale_available: capacity,
+    trading_paused: false,
+  })
+  const withVariants = {
+    ...product,
+    sale_available: 8,
+    sale_limit: 20,
+    variants: [variant('large', 5), variant('small', 1)],
+  }
+  await mount(<StoreCheckout product={withVariants} />)
+  await click(
+    required(
+      document.querySelector<HTMLInputElement>(
+        'input[name="store-variant"][value="large"]'
+      )
+    )
+  )
+  await input('store-quantity', '4')
+  await click(
+    required(
+      document.querySelector<HTMLInputElement>(
+        'input[name="store-variant"][value="small"]'
+      )
+    )
+  )
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '1'
+  )
+  assert.equal(withVariants.sale_limit, 20)
+  assert.equal(withVariants.sale_available, 8)
 })
 
 test('fractional, exponent, excessive, empty and unsafe total inputs cannot place an order', async () => {

@@ -75,6 +75,9 @@ export interface StoreProduct {
   official: boolean
   available_stock: number
   sale_limit?: number | null
+  max_quantity_per_order?: number | null
+  max_quantity_per_buyer?: number | null
+  buyer_purchase_remaining?: number | null
   paid_quantity?: number
   reserved_quantity?: number
   sale_available?: number
@@ -97,6 +100,7 @@ export type StoreProductInput = Omit<
   | 'price_min_quota'
   | 'price_max_quota'
   | 'sale_limit'
+  | 'buyer_purchase_remaining'
   | 'paid_quantity'
   | 'reserved_quantity'
   | 'sale_available'
@@ -148,6 +152,7 @@ export interface StoreConfig {
   fee_bps: number
   promotion_quota: number
   product_test_mode_supported?: boolean
+  product_purchase_limits_supported?: boolean
   product_link_presets?: StoreLinkPreset[]
   minimum_unit_price_quota?: number
   recipient_id?: number

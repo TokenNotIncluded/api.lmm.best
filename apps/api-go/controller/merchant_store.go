@@ -62,6 +62,8 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusConflict, "STORE_INSUFFICIENT_BALANCE", "There are not enough credits to complete this operation."
 	case errors.Is(err, model.ErrMerchantStoreStock):
 		status, code, message = http.StatusConflict, "STORE_OUT_OF_STOCK", "The product has insufficient available stock."
+	case errors.Is(err, model.ErrMerchantStorePurchaseLimit):
+		status, code, message = http.StatusConflict, "STORE_PURCHASE_LIMIT", "This quantity exceeds the product purchase limit."
 	case errors.Is(err, model.ErrMerchantStoreDisclaimer):
 		status, code, message = http.StatusConflict, "STORE_DISCLAIMER_REQUIRED", "Read and accept the current merchant disclaimer before ordering."
 	case errors.Is(err, model.ErrMerchantStoreEmailUnverified):
@@ -148,6 +150,7 @@ func GetPublicMerchantStoreProduct(c *gin.Context) {
 	p, err := model.GetPublicMerchantStoreProduct(c.Param("id"))
 	if err == nil {
 		*p = publicStoreProduct(*p)
+		err = model.PopulateMerchantStoreBuyerPurchaseRemaining(c.GetInt("id"), p)
 	}
 	merchantStoreRespond(c, p, err)
 }
@@ -161,10 +164,11 @@ func GetMerchantStoreConfig(c *gin.Context) {
 	catalog := service.MerchantStorePlatformPaymentCatalog(availablePaymentMethods(operation_setting.IsPaymentComplianceConfirmed()))
 	merchantStoreRespond(c, gin.H{
 		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota, "minimum_unit_price_quota": config.MinimumUnitPriceQuota,
-		"product_test_mode_supported": true,
-		"product_link_presets":        presets,
-		"linuxdo_units_per_usd":       config.LinuxDOUnitsPerUSD,
-		"credits_per_usd":             common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
+		"product_test_mode_supported":       true,
+		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),
+		"product_link_presets":              presets,
+		"linuxdo_units_per_usd":             config.LinuxDOUnitsPerUSD,
+		"credits_per_usd":                   common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
 		"disclaimer_version": model.MerchantStoreDisclaimerVersion, "disclaimer_text": merchantStoreDisclaimerText,
 		"platform_payment_methods": service.AvailableMerchantStorePlatformMethods(catalog),
 		"platform_payment_catalog": catalog,
@@ -241,6 +245,9 @@ func GetMerchantStoreProductDraft(c *gin.Context) {
 
 func GetMerchantStoreProductPreview(c *gin.Context) {
 	p, err := model.GetMerchantStoreProductPreview(c.GetInt("id"), c.Param("id"))
+	if err == nil {
+		err = model.PopulateMerchantStoreBuyerPurchaseRemaining(c.GetInt("id"), p)
+	}
 	if err == nil {
 		*p = publicStoreProduct(*p)
 	}

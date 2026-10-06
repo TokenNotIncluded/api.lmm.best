@@ -8,7 +8,16 @@ export function storeQuantity(value: string): number | undefined {
 }
 
 export function storeCheckoutCapacity(
-  product: Pick<StoreProduct, 'available_stock' | 'price_quota'>,
+  product: Pick<StoreProduct, 'available_stock' | 'price_quota'> &
+    Partial<
+      Pick<
+        StoreProduct,
+        | 'sale_available'
+        | 'max_quantity_per_order'
+        | 'max_quantity_per_buyer'
+        | 'buyer_purchase_remaining'
+      >
+    >,
   method: StorePaymentMethod | ''
 ) {
   const { available_stock: stock, price_quota: price } = product
@@ -25,6 +34,34 @@ export function storeCheckoutCapacity(
     method === 'balance' ? 1000 : 100,
     Math.floor(Number.MAX_SAFE_INTEGER / price)
   )
+  const orderLimit = product.max_quantity_per_order
+  if (orderLimit !== undefined && orderLimit !== null) {
+    if (!Number.isSafeInteger(orderLimit) || orderLimit < 1) return 0
+    capacity = Math.min(capacity, orderLimit)
+  }
+  if (product.max_quantity_per_buyer != null) {
+    if (
+      !Number.isSafeInteger(product.max_quantity_per_buyer) ||
+      product.max_quantity_per_buyer < 1 ||
+      product.buyer_purchase_remaining == null
+    ) {
+      return 0
+    }
+    capacity = Math.min(capacity, product.max_quantity_per_buyer)
+  }
+  for (const available of [
+    product.sale_available,
+    product.buyer_purchase_remaining,
+  ]) {
+    if (available !== undefined && available !== null) {
+      if (!Number.isSafeInteger(available) || available < 0) return 0
+      capacity = Math.min(capacity, available)
+    }
+  }
   if (!Number.isSafeInteger(capacity * price)) capacity--
   return Math.max(0, capacity)
+}
+
+export function storeClampQuantity(value: string, capacity: number): string {
+  return String(Math.min(storeQuantity(value) ?? 1, Math.max(1, capacity)))
 }
