@@ -797,7 +797,7 @@ def history_locks():
     # Normal history repair cannot borrow a financial guardian's live lease.
     if NATIVE_TRANSACTION_LEASE.exists() or NATIVE_TRANSACTION_LEASE.is_symlink():
         raise RuntimeError('native deployment lease is present; history repair refused')
-    descriptors = []
+    descriptors, identities = [], []
     try:
         for path in sorted(guardian.LOCKS.values()):
             info = history_lock_path(path)
@@ -811,7 +811,14 @@ def history_locks():
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise RuntimeError('live owner or guardian holds a history lock') from None
-        yield
+            identities.append((path, fd, opened.st_dev, opened.st_ino))
+        def verify_held_paths():
+            for path, fd, device, inode in identities:
+                opened = os.fstat(fd)
+                named = history_lock_path(path)
+                if (opened.st_dev, opened.st_ino) != (device, inode) or (named.st_dev, named.st_ino) != (device, inode) or opened.st_nlink != 1:
+                    raise RuntimeError('held history lock inode changed')
+        yield verify_held_paths
     finally:
         for fd in descriptors:
             os.close(fd)
@@ -897,7 +904,7 @@ def incomplete_inventory(work):
     return rows
 
 
-def incomplete_authoritative_references(work):
+def incomplete_authoritative_references(work, staged_state=None):
     refs = cleanup_process_references(work, entire_workspace=True)
     # Logs and descriptive inventories are not authority. Current/N-1 and
     # active/STAGED owner states are; retain unknown ownership conservatively.
@@ -914,11 +921,19 @@ def incomplete_authoritative_references(work):
     selected = [state for state in confirmed if 'releases/' + state['release'] == current]
     current_state = max(selected or confirmed, key=terminal_order, default={})
     retained = {current_state.get('release'), current_state.get('previous_frontend')}
+    if staged_state is not None and (current == 'releases/' + work.name or work.name in retained):
+        refs.append({'kind': 'current or retained owner', 'release': work.name})
     for state in states:
         if state['phase'] == 'PREPARATION_INCOMPLETE':
             continue
+        if staged_state is not None and state['release'] == work.name:
+            if state != staged_state:
+                raise RuntimeError('bound STAGED owner state changed during reference inspection')
+            continue  # Only the exact unmutated, hash-bound state is excluded.
         if (state['phase'] in ('STAGED', 'MUTATION_PENDING', 'AWAITING_CONFIRMATION', 'ROLLBACK_REQUIRED', 'CAPTURED', 'ADMISSION_CLOSED', 'MAINTENANCE_CONFIRMED') or state['release'] in retained or (state['phase'] == 'FROZEN' and state['release'] not in registered)):
             values.extend(cleanup_strings(state))
+            if staged_state is not None and any(state.get(key) in (work.name, 'releases/' + work.name) for key in ('previous_frontend', 'previous_deployment_id')):
+                refs.append({'kind': 'retained owner reference', 'release': state['release']})
     for value in values:
         if isinstance(value, str) and value.startswith('/') and Path(os.path.normpath(value)).is_relative_to(work):
             refs.append({'kind': 'authoritative owner reference', 'path': value})
@@ -981,6 +996,171 @@ def archive_incomplete(args):
             history_sync(archive)
             immutable_write(archive / 'receipt.json', json.dumps(result, sort_keys=True).encode() + b'\n', 0o600)
             history_sync(archive)
+    return result
+
+
+STAGED_STATE_FIELDS = {'release', 'version', 'sha256', 'frontend_sha256', 'migrate', 'backup_exclude_tables', 'phase'}
+
+
+def staged_inventory(work, release, state_sha256):
+    """A complete ordinary preparation; never infer absence of mutation from phase alone."""
+    cleanup_path(work)
+    raw = guardian.bound_file(work / 'state.json', state_sha256)
+    def unique_fields(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise RuntimeError('duplicate STAGED state field')
+            value[key] = item
+        return value
+    state = json.loads(raw, object_pairs_hook=unique_fields)
+    if (not isinstance(state, dict) or set(state) != STAGED_STATE_FIELDS or
+            state.get('release') != release or state.get('phase') != 'STAGED' or
+            state.get('migrate') is not False or state.get('backup_exclude_tables') != [] or
+            not isinstance(state.get('version'), str) or not state['version'] or
+            any(not re.fullmatch(r'[0-9a-f]{64}', state.get(key, '') if isinstance(state.get(key), str) else '') for key in ('sha256', 'frontend_sha256'))):
+        raise RuntimeError('archive-staged requires an exact ordinary, unmutated STAGED owner without migrations')
+    allowed = {'state.json', 'lmm-api', 'lmm-api-go', 'frontend', 'logs', 'verify-stage.log'}
+    if any(path.name not in allowed for path in work.iterdir()):
+        raise RuntimeError('STAGED workspace contains unknown or mutation evidence')
+    rows = []
+    for path in sorted(work.rglob('*')):
+        info = path.lstat()
+        if path == work / 'lmm-api' and stat.S_ISLNK(info.st_mode) and os.readlink(path) == 'lmm-api-go' and info.st_uid == os.getuid():
+            rows.append({'path': 'lmm-api', 'symlink': 'lmm-api-go'})
+            continue
+        cleanup_path(path, private_file=path == work / 'state.json')
+        if path.name.startswith('previous_') or path.name.startswith('previous-') or path.name in {'state.next', 'previous.env', 'start.log', 'stop.log', 'frontend.log', 'verify-apply.log', 'verify-migrate.log'}:
+            raise RuntimeError('STAGED workspace contains mutation evidence')
+        if stat.S_ISDIR(info.st_mode):
+            if path.parent == work and path.name not in ('frontend', 'logs'):
+                raise RuntimeError('STAGED workspace has an unexpected directory')
+            rows.append({'path': str(path.relative_to(work)), 'directory': True, 'mode': stat.S_IMODE(info.st_mode)})
+        elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+            rows.append({'path': str(path.relative_to(work)), 'size': info.st_size, 'sha256': digest(path), 'mode': stat.S_IMODE(info.st_mode)})
+        else:
+            raise RuntimeError('STAGED workspace has unsafe links or file types')
+    if (not (work / 'lmm-api').is_symlink() or not (work / 'lmm-api-go').is_file() or
+            not (work / 'frontend').is_dir() or not (work / 'frontend/index.html').is_file() or
+            digest(work / 'lmm-api-go') != state['sha256'] or tree_digest(work / 'frontend') != state['frontend_sha256']):
+        raise RuntimeError('STAGED provider or frontend differs from its original state')
+    return state, rows
+
+
+def staged_current_observation():
+    # Read-only unit/file metadata. No candidate execution, service or database action.
+    unit = {key: property_value(key) for key in ('MainPID', 'InvocationID', 'ActiveState', 'SubState')}
+    if not unit['MainPID'].isdigit() or int(unit['MainPID']) <= 1 or unit['ActiveState'] != 'active' or unit['SubState'] != 'running' or not re.fullmatch(r'[0-9a-f]{32}', unit['InvocationID']):
+        raise RuntimeError('archive-staged requires a proved unchanged running current owner')
+    cleanup_path(BINARY)
+    cleanup_path(FRONTEND)
+    link = FRONTEND / 'current'
+    info = link.lstat()
+    current = os.readlink(link)
+    if not stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid() or not re.fullmatch(r'releases/[A-Za-z0-9][A-Za-z0-9._-]{0,127}', current):
+        raise RuntimeError('current frontend ownership or link is unsafe')
+    cleanup_path(FRONTEND / current)
+    return {'unit': unit, 'provider_sha256': digest(BINARY), 'frontend_current': current,
+            'frontend_sha256': tree_digest(FRONTEND / current)}
+
+
+def reject_archived_release_id(release):
+    root = history_root()
+    if root.exists() or root.is_symlink():
+        cleanup_path(root)
+        for kind in ('incomplete', 'staged'):
+            directory = root / kind
+            if directory.exists() or directory.is_symlink():
+                cleanup_path(directory)
+                if (directory / release).exists() or (directory / release).is_symlink():
+                    raise RuntimeError('release ID was already archived; stage with a new unique ID')
+
+
+def verify_staged_archives():
+    directory = history_root() / 'staged'
+    if not directory.exists() and not directory.is_symlink():
+        return
+    cleanup_path(directory)
+    for archive in sorted(directory.iterdir()):
+        cleanup_path(archive)
+        cleanup_path(archive / 'receipt.json', private_file=True)
+        raw = (archive / 'receipt.json').read_bytes()
+        receipt = json.loads(raw)
+        if (receipt.get('format') != 'lmm-systemd-staged-archive-v1' or receipt.get('release') != archive.name or
+                receipt.get('original_path') != str(ROOT / archive.name) or receipt.get('archive_path') != str(archive) or
+                receipt.get('execute') is not True or not re.fullmatch(r'[0-9a-f]{64}', receipt.get('state_sha256', '')) or
+                not re.fullmatch(r'[0-9a-f]{64}', receipt.get('owner_source_sha256', ''))):
+            raise RuntimeError('unknown STAGED archive receipt')
+        if guardian.bound_file(archive / 'intent.json', hashlib.sha256(raw).hexdigest()) != raw:
+            raise RuntimeError('STAGED archive intent differs from completion receipt')
+        if (ROOT / archive.name).exists() or (ROOT / archive.name).is_symlink():
+            raise RuntimeError('archived STAGED release ID was reused')
+        for name in ('copy', 'original'):
+            _, rows = staged_inventory(archive / name, archive.name, receipt['state_sha256'])
+            if rows != receipt['inventory']:
+                raise RuntimeError('full original STAGED archive changed')
+
+
+def archive_staged(args):
+    source = Path(__file__).absolute()
+    cleanup_path(source, private_file=True)
+    guardian.bound_file(source, args.owner_source_sha256)
+    guardian_source = Path(guardian.__file__).absolute()
+    cleanup_path(guardian_source)
+    work = ROOT / args.release
+    state, rows = staged_inventory(work, args.release, args.staged_state_sha256)
+    archive = history_root() / 'staged' / args.release
+    result = {'format': 'lmm-systemd-staged-archive-v1', 'release': args.release,
+              'original_path': str(work), 'archive_path': str(archive), 'inventory': rows,
+              'state_sha256': args.staged_state_sha256, 'owner_source_sha256': args.owner_source_sha256,
+              'guardian_source_sha256': digest(guardian_source), 'execute': args.execute}
+    with history_locks() as verify_locks:
+        verify_staged_archives()
+        if archive.exists() or archive.is_symlink():
+            raise RuntimeError('STAGED archive already exists; inspect its original evidence')
+        observed = staged_current_observation()
+        result['current_owner'] = observed
+        def unchanged():
+            verify_locks()
+            guardian.bound_file(source, args.owner_source_sha256)
+            if digest(guardian_source) != result['guardian_source_sha256'] or staged_inventory(work, args.release, args.staged_state_sha256) != (state, rows) or incomplete_authoritative_references(work, state) or staged_current_observation() != observed:
+                raise RuntimeError('STAGED evidence or authoritative owner references changed')
+        unchanged()
+        if args.execute:
+            history_directory(history_root())
+            history_directory(archive.parent)
+            archive.mkdir(mode=0o700)  # Never overwrite any completed or partial attempt.
+            history_sync(archive.parent)
+            shutil.copytree(work, archive / 'copy', symlinks=True)
+            if staged_inventory(archive / 'copy', args.release, args.staged_state_sha256) != (state, rows):
+                raise RuntimeError('full STAGED archive readback mismatch')
+            for path in (archive / 'copy').rglob('*'):
+                if path.is_file() and not path.is_symlink():
+                    with path.open('rb') as copied:
+                        os.fsync(copied.fileno())
+            for path in sorted((archive / 'copy').rglob('*'), reverse=True):
+                if path.is_dir() and not path.is_symlink():
+                    history_sync(path)
+            history_sync(archive / 'copy')
+            body = json.dumps(result, sort_keys=True).encode() + b'\n'
+            immutable_write(archive / 'intent.json', body, 0o600)
+            history_sync(archive)
+            unchanged()
+            work.rename(archive / 'original')
+            history_sync(ROOT)
+            history_sync(archive)
+            # Keep the old incomplete validator strict: only the real rename
+            # restores its original ROOT/ID-absent invariant. Never ignore ID.
+            verify_incomplete_archives()
+            verify_locks()
+            for name in ('copy', 'original'):
+                if staged_inventory(archive / name, args.release, args.staged_state_sha256) != (state, rows):
+                    raise RuntimeError('full STAGED archive changed before completion')
+            if staged_current_observation() != observed:
+                raise RuntimeError('current owner changed during STAGED archival')
+            immutable_write(archive / 'receipt.json', body, 0o600)
+            history_sync(archive)
+            verify_staged_archives()
     return result
 
 
@@ -1281,6 +1461,7 @@ def doctor(migrate=False):
 
     def transactions():
         verify_incomplete_archives()
+        verify_staged_archives()
         registered = released_ancestors()
         pending = [state['release'] for state in read_status()['deployments']
                    if state['phase'] not in ('STAGED', 'CONFIRMED', 'ROLLED_BACK')
@@ -1352,10 +1533,12 @@ def progress(args, message):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['doctor', 'upgrade', 'stage', 'apply', 'status', 'confirm', 'rollback', 'cleanup', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop', 'register-released-history', 'archive-incomplete'])
+    parser.add_argument('action', choices=['doctor', 'upgrade', 'stage', 'apply', 'status', 'confirm', 'rollback', 'cleanup', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop', 'register-released-history', 'archive-incomplete', 'archive-staged'])
     parser.add_argument('--release', help='explicit transaction ID; omit for status to list all transactions')
     parser.add_argument('--released-controller', type=Path)
     parser.add_argument('--released-controller-sha256')
+    parser.add_argument('--staged-state-sha256')
+    parser.add_argument('--owner-source-sha256')
     parser.add_argument('--binary', type=Path)
     parser.add_argument('--frontend', type=Path)
     parser.add_argument('--confirm')
@@ -1386,7 +1569,7 @@ def main(argv=None):
         parser.error('invalid release ID')
     if args.action not in ('doctor', 'status') and not args.release:
         parser.error('--release is required for this action')
-    if args.action in ('upgrade', 'apply', 'confirm', 'rollback', 'cleanup', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop', 'register-released-history', 'archive-incomplete') and args.confirm != 'api.lmm.best':
+    if args.action in ('upgrade', 'apply', 'confirm', 'rollback', 'cleanup', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop', 'register-released-history', 'archive-incomplete', 'archive-staged') and args.confirm != 'api.lmm.best':
         parser.error('mutations require --confirm api.lmm.best')
     if args.action not in ('stage', 'upgrade') and (args.binary or args.frontend or args.backup_exclude_table):
         parser.error('artifact and backup-exclusion arguments are only valid for stage/upgrade')
@@ -1405,23 +1588,31 @@ def main(argv=None):
             parser.error('cleanup requires current supersession, retained bridge rollback and a sealed financial backup')
         if not re.fullmatch(RELEASE_PATTERN, args.superseded_by) or not re.fullmatch(RELEASE_PATTERN, args.retain_rollback) or args.older_than < 86400:
             parser.error('cleanup requires valid protected release IDs and at least 86400 seconds retention')
-    elif (args.execute and args.action not in ('register-released-history', 'archive-incomplete')) or args.superseded_by or args.retain_rollback or args.financial_backup or args.financial_backup_sha256 or args.financial_backup_receipt or args.financial_backup_receipt_sha256 or args.older_than != 86400:
+    elif (args.execute and args.action not in ('register-released-history', 'archive-incomplete', 'archive-staged')) or args.superseded_by or args.retain_rollback or args.financial_backup or args.financial_backup_sha256 or args.financial_backup_receipt or args.financial_backup_receipt_sha256 or args.older_than != 86400:
         parser.error('cleanup arguments are only valid for cleanup')
     if args.action == 'register-released-history':
         if not (args.released_controller and args.released_controller_sha256 and args.global_confirmation and args.global_confirmation_sha256):
             parser.error('history registration requires exact RELEASED controller and all-node receipt')
     elif args.released_controller or args.released_controller_sha256:
         parser.error('released controller is only valid for history registration')
-    if args.action in ('register-released-history', 'archive-incomplete') and args.maintenance_handoff:
+    if args.action in ('register-released-history', 'archive-incomplete', 'archive-staged') and args.maintenance_handoff:
         parser.error('ordinary history commands cannot adopt a maintenance guardian')
+    if args.action == 'archive-staged':
+        if any(not re.fullmatch(r'[0-9a-f]{64}', value or '') for value in (args.staged_state_sha256, args.owner_source_sha256)):
+            parser.error('archive-staged requires exact owner source and original STAGED state digests')
+        if args.global_confirmation or args.global_confirmation_sha256 or args.all_admission_closed or args.all_admission_closed_sha256:
+            parser.error('archive-staged cannot consume financial admission or confirmation receipts')
+    elif args.staged_state_sha256 or args.owner_source_sha256:
+        parser.error('STAGED state and owner source digests are only valid for archive-staged')
     if os.geteuid() != 0:
         parser.error('run on the target as root')
     # Preserve JSON for existing non-interactive granular commands.
     args.human = args.human or (not args.json and (sys.stdout.isatty() or
                   args.action in ('doctor', 'upgrade') or not args.release))
     try:
-        if args.action in ('register-released-history', 'archive-incomplete'):
-            show(register_released_history(args) if args.action == 'register-released-history' else archive_incomplete(args), args.human)
+        if args.action in ('register-released-history', 'archive-incomplete', 'archive-staged'):
+            operation = {'register-released-history': register_released_history, 'archive-incomplete': archive_incomplete, 'archive-staged': archive_staged}[args.action]
+            show(operation(args), args.human)
             return 0
         if args.action == 'doctor':
             result = doctor(args.migrate)
@@ -1483,6 +1674,7 @@ def execute(args, parser):
             return
         if args.action in ('stage', 'upgrade'):
             progress(args, 'Checking prerequisites and preparing immutable artifacts...')
+            reject_archived_release_id(args.release)
             check_tools(args.migrate)
             check_layout()
             if work.exists() or work.is_symlink():
@@ -1597,6 +1789,7 @@ def execute(args, parser):
                     raise RuntimeError('apply requires STAGED; use status or explicit rollback')
                 if not maintenance:
                     verify_incomplete_archives()
+                    verify_staged_archives()
                     if any(item['phase'] == 'PREPARATION_INCOMPLETE' for item in read_status()['deployments']):
                         raise RuntimeError('incomplete preparation requires protected archival before ordinary apply')
                 transferred = set() if maintenance else released_ancestors()
