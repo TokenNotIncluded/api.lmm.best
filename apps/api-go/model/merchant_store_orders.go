@@ -150,9 +150,6 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if e != nil {
 			return e
 		}
-		if buyer.Id == seller.Id {
-			return ErrMerchantStoreDenied
-		}
 		id := storeHash("order:" + fmtStoreActor(in.BuyerID) + ":" + in.RequestKey)
 		digest := storeCheckoutDigest(in)
 		if e = tx.First(&o, "id = ?", id).Error; e == nil {
