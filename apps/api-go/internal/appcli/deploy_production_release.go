@@ -19,18 +19,20 @@ import (
 )
 
 const (
-	productionTargetAlias             = "ArchDmit"
-	productionOffhostAlias            = "archczy"
-	productionOffhostExpectedHost     = "archczy"
-	productionOffhostRoot             = "/home/arch/.local/state/lmm-api-production-backups"
-	productionReleasePlanFormat       = 6
-	productionReleaseStateFormat      = 3
-	productionReleasePlanFilename     = "release-plan.json"
-	productionReleasePlanHashFilename = "release-plan.sha256"
-	productionReleaseStateFilename    = "release-state.json"
-	productionReleaseRepository       = "https://github.com/TokenNotIncluded/api.lmm.best"
-	productionReleaseWorkflow         = ".github/workflows/"
-	productionReleaseOIDCIssuer       = "https://token.actions.githubusercontent.com"
+	productionTargetAlias              = "ArchDmit"
+	productionOffhostAlias             = "archczy"
+	productionOffhostExpectedHost      = "archczy"
+	productionOffhostRoot              = "/home/arch/.local/state/lmm-api-production-backups"
+	productionReleasePlanFormat        = 6
+	productionExistingSchemaPlanFormat = 7
+	productionSchemaModeVerifyExisting = "verify-existing"
+	productionReleaseStateFormat       = 3
+	productionReleasePlanFilename      = "release-plan.json"
+	productionReleasePlanHashFilename  = "release-plan.sha256"
+	productionReleaseStateFilename     = "release-state.json"
+	productionReleaseRepository        = "https://github.com/TokenNotIncluded/api.lmm.best"
+	productionReleaseWorkflow          = ".github/workflows/"
+	productionReleaseOIDCIssuer        = "https://token.actions.githubusercontent.com"
 )
 
 type historicalReleaseIdentityPin struct {
@@ -57,6 +59,9 @@ func productionReleaseIdentity(assetSHA256, component, workflow, tag string) str
 }
 
 type productionReleasePlanOptions struct {
+	SchemaMode               string
+	SchemaContract           string
+	SchemaContractSHA256     string
 	MaintenanceHandoffPath   string
 	MaintenanceHandoffSHA256 string
 
@@ -107,7 +112,9 @@ type productionReleaseFilePlan struct {
 }
 
 type productionReleasePlan struct {
-	MaintenanceHandoff *productionMaintenanceHandoff `json:"maintenance_handoff,omitempty"`
+	SchemaMode             string                            `json:"schema_mode,omitempty"`
+	ExistingSchemaContract *productionExistingSchemaContract `json:"existing_schema_contract,omitempty"`
+	MaintenanceHandoff     *productionMaintenanceHandoff     `json:"maintenance_handoff,omitempty"`
 
 	Format                    int                          `json:"format"`
 	DeploymentID              string                       `json:"deployment_id"`
@@ -172,6 +179,9 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	flags := flag.NewFlagSet(DeployProgramName+" production plan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Repo, "repo", "", "clean api.lmm.best source checkout with fetched release tags")
+	flags.StringVar(&options.SchemaMode, "schema-mode", "", "verify-existing preserves the exact existing PostgreSQL schema without applying migrations")
+	flags.StringVar(&options.SchemaContract, "schema-contract", "", "sealed existing PostgreSQL schema contract for verify-existing")
+	flags.StringVar(&options.SchemaContractSHA256, "schema-contract-sha256", "", "exact sealed existing schema contract SHA-256")
 	flags.StringVar(&options.MaintenanceHandoffPath, "maintenance-handoff", "", "immutable root-owned maintenance handoff")
 	flags.StringVar(&options.MaintenanceHandoffSHA256, "maintenance-handoff-sha256", "", "exact maintenance handoff digest")
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned controller workspace")
@@ -205,6 +215,19 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	if options.OperatorBinary == "" {
 		options.OperatorBinary = options.ProbeBinary
 	}
+	if options.SchemaMode != "" && options.SchemaMode != productionSchemaModeVerifyExisting {
+		return productionReleasePlanOptions{}, errors.New("--schema-mode must be verify-existing or omitted")
+	}
+	if options.SchemaMode == productionSchemaModeVerifyExisting {
+		if options.SchemaContract == "" || !productionSHA256Pattern.MatchString(options.SchemaContractSHA256) {
+			return productionReleasePlanOptions{}, errors.New("verify-existing requires --schema-contract and its exact SHA-256")
+		}
+		if options.MaintenanceHandoffPath != "" || options.MaintenanceHandoffSHA256 != "" {
+			return productionReleasePlanOptions{}, errors.New("verify-existing cannot use a maintenance handoff")
+		}
+	} else if options.SchemaContract != "" || options.SchemaContractSHA256 != "" {
+		return productionReleasePlanOptions{}, errors.New("schema contract requires --schema-mode verify-existing")
+	}
 	if !productionIDPattern.MatchString(options.DeploymentID) {
 		return productionReleasePlanOptions{}, errors.New("valid --deployment-id is required")
 	}
@@ -225,6 +248,9 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 		"--web-rollback-release-bundle": &options.WebRollbackReleaseBundle,
 		"--probe-binary":                &options.ProbeBinary,
 		"--operator-binary":             &options.OperatorBinary,
+	}
+	if options.SchemaMode == productionSchemaModeVerifyExisting {
+		paths["--schema-contract"] = &options.SchemaContract
 	}
 	if options.AgeRecipientFile != "" {
 		return productionReleasePlanOptions{}, errors.New("new plans import controller-only backups; --age-recipient-file cannot create target or off-host copies")
@@ -357,29 +383,40 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 	if handoff != nil && handoff.Stage == "post" {
 		goChanged = true
 	}
+	var existingSchemaContract *productionExistingSchemaContract
+	planFormat := productionReleasePlanFormat
+	if options.SchemaMode == productionSchemaModeVerifyExisting {
+		existingSchemaContract, err = loadProductionExistingSchemaContract(options.SchemaContract, options.SchemaContractSHA256)
+		if err != nil {
+			return productionReleasePlanResult{}, fmt.Errorf("existing schema contract: %w", err)
+		}
+		planFormat = productionExistingSchemaPlanFormat
+	}
 	plan := productionReleasePlan{
-		MaintenanceHandoff:  handoff,
-		Format:              productionReleasePlanFormat,
-		DeploymentID:        options.DeploymentID,
-		CreatedUTC:          utcSecond(runtime.now()),
-		ControllerWorkspace: options.Workspace,
-		Repository:          options.Repo,
-		TargetAlias:         productionTargetAlias,
-		ExpectedHost:        productionExpectedHost,
-		OperatorUser:        productionOperatorUser,
-		ExpectedVersion:     expectedVersion,
-		GoCandidate:         goCandidate,
-		GoRollback:          goRollback,
-		WebCandidate:        webCandidate,
-		WebRollback:         webRollback,
-		ProbeBinary:         productionReleaseFilePlan{Path: options.ProbeBinary, SHA256: probeSHA256},
-		OperatorBinary:      productionReleaseFilePlan{Path: options.ProbeBinary, SHA256: operatorSHA256},
-		GoChanged:           goChanged,
-		WebChanged:          webChanged,
-		ObservationSeconds:  options.ObservationSeconds,
-		PreserveEdgePolicy:  options.PreserveEdgePolicy,
-		WithBackups:         options.WithBackups,
-		BackupMode:          "disabled",
+		SchemaMode:             options.SchemaMode,
+		ExistingSchemaContract: existingSchemaContract,
+		MaintenanceHandoff:     handoff,
+		Format:                 planFormat,
+		DeploymentID:           options.DeploymentID,
+		CreatedUTC:             utcSecond(runtime.now()),
+		ControllerWorkspace:    options.Workspace,
+		Repository:             options.Repo,
+		TargetAlias:            productionTargetAlias,
+		ExpectedHost:           productionExpectedHost,
+		OperatorUser:           productionOperatorUser,
+		ExpectedVersion:        expectedVersion,
+		GoCandidate:            goCandidate,
+		GoRollback:             goRollback,
+		WebCandidate:           webCandidate,
+		WebRollback:            webRollback,
+		ProbeBinary:            productionReleaseFilePlan{Path: options.ProbeBinary, SHA256: probeSHA256},
+		OperatorBinary:         productionReleaseFilePlan{Path: options.ProbeBinary, SHA256: operatorSHA256},
+		GoChanged:              goChanged,
+		WebChanged:             webChanged,
+		ObservationSeconds:     options.ObservationSeconds,
+		PreserveEdgePolicy:     options.PreserveEdgePolicy,
+		WithBackups:            options.WithBackups,
+		BackupMode:             "disabled",
 	}
 	if options.WithBackups {
 		publicKey, err := initializeControllerBackupKey(options.Workspace)
@@ -1267,8 +1304,11 @@ func loadProductionReleasePlan(path, expectedSHA256 string) (productionReleasePl
 
 // pi-lens-ignore: go-bare-error
 func validateProductionReleasePlan(plan productionReleasePlan) error {
-	if plan.Format != productionReleasePlanFormat && plan.Format != 5 {
+	if plan.Format != productionReleasePlanFormat && plan.Format != 5 && plan.Format != productionExistingSchemaPlanFormat {
 		return errors.New("unsupported release plan format")
+	}
+	if err := validateProductionExistingSchemaPlan(plan); err != nil {
+		return err
 	}
 	if err := validateControllerOnlyReleasePlanPolicy(plan); err != nil {
 		return err
@@ -1371,6 +1411,24 @@ func validateProductionReleasePlan(plan productionReleasePlan) error {
 		return errors.New("release plan has undeclared backup evidence")
 	}
 	return validateReleaseBasenameCollisions(plan)
+}
+
+func productionReleasePlanSupportsControllerBackups(plan productionReleasePlan) bool {
+	return plan.Format == productionReleasePlanFormat || plan.Format == productionExistingSchemaPlanFormat
+}
+
+func validateProductionExistingSchemaPlan(plan productionReleasePlan) error {
+	if plan.Format != productionExistingSchemaPlanFormat {
+		if plan.SchemaMode != "" || plan.ExistingSchemaContract != nil {
+			return errors.New("historical release plans cannot contain an existing-schema policy")
+		}
+		return nil
+	}
+	if plan.SchemaMode != productionSchemaModeVerifyExisting || !plan.GoChanged || plan.MaintenanceHandoff != nil ||
+		plan.GoCandidate.ContractRevision != plan.GoRollback.ContractRevision {
+		return errors.New("verify-existing requires an ordinary Go upgrade with unchanged route contract")
+	}
+	return validateProductionExistingSchemaContract(plan.ExistingSchemaContract)
 }
 
 func validateReleaseBasenameCollisions(plan productionReleasePlan) error {

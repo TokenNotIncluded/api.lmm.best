@@ -21,7 +21,7 @@ func (runtime *productionReleaseRuntime) stageControllerReceipt(ctx context.Cont
 	if confirmation {
 		name = controllerBackupConfirmationName
 	}
-	if plan.Format != productionReleasePlanFormat || !plan.WithBackups || plan.BackupMode != "controller-only" || local != filepath.Join(plan.ControllerWorkspace, "state", name) || !productionSHA256Pattern.MatchString(digest) {
+	if !productionReleasePlanSupportsControllerBackups(plan) || !plan.WithBackups || plan.BackupMode != "controller-only" || local != filepath.Join(plan.ControllerWorkspace, "state", name) || !productionSHA256Pattern.MatchString(digest) {
 		return errors.New("controller receipt staging requires the selected plan and exact metadata path")
 	}
 	receipt, err := readControllerBackupReceipt(local, plan.ControllerBackupPublicKey, digest, uint32(os.Geteuid()))
