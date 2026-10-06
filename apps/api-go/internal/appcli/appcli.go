@@ -24,6 +24,7 @@ const (
 	ModeServe
 	ModeMigrateApply
 	ModeMigrateVerify
+	ModeMerchantStoreWriterGate
 )
 
 // Result is the side-effect-free command dispatch result.
@@ -31,6 +32,7 @@ type Result struct {
 	Mode      Mode
 	ExitCode  int
 	ServeArgs []string
+	GateArgs  []string
 }
 
 // Dispatch runs client-only commands or returns the arguments for the server.
@@ -45,6 +47,12 @@ func Dispatch(args []string, version string, stdout, stderr io.Writer) Result {
 		return Result{Mode: ModeServe, ServeArgs: append([]string(nil), args[1:]...)}
 	case "migrate":
 		return dispatchMigration(args[1:], stdout, stderr)
+	case "merchant-store-writer-gate":
+		if len(args) > 1 && (args[1] == "status" || args[1] == "bootstrap" || args[1] == "activate") {
+			return Result{Mode: ModeMerchantStoreWriterGate, GateArgs: append([]string(nil), args[1:]...)}
+		}
+		_, _ = fmt.Fprintln(stderr, "choose merchant-store-writer-gate status|bootstrap|activate")
+		return Result{ExitCode: ExitUsage}
 	case "request":
 		return Result{ExitCode: RunRequest(args[1:], version, stdout, stderr)}
 	case "operator":
@@ -110,6 +118,7 @@ func WriteUsage(output io.Writer) {
 	_, _ = fmt.Fprintln(output, `Usage:
   lmm-api [serve] [server options]
   lmm-api migrate --apply|--verify
+  lmm-api merchant-store-writer-gate status|bootstrap|activate [operator options]
   lmm-api request [request options] [URL-or-path]
   /usr/bin/lmm-api-deploy build|frontend|production ...
   lmm-api geoip update

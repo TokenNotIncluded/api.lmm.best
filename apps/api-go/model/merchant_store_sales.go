@@ -91,6 +91,9 @@ func SetMerchantStoreProductSaleLimit(actor int, id string, limit *int64) error 
 		return ErrMerchantStoreInput
 	}
 	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if err := storeRequireWriter(tx); err != nil {
+			return err
+		}
 		user, err := storeUser(tx, actor, common.RoleCommonUser)
 		if err != nil {
 			return err
@@ -109,6 +112,9 @@ func SetMerchantStoreProductSaleLimit(actor int, id string, limit *int64) error 
 // Editing content still moves them to a fresh draft and requires another review.
 func SetMerchantStoreProductListed(actor int, id string, listed bool) error {
 	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if err := storeRequireWriter(tx); err != nil {
+			return err
+		}
 		user, err := storeUser(tx, actor, common.RoleCommonUser)
 		if err != nil {
 			return err

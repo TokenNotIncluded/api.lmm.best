@@ -47,6 +47,9 @@ func PatchMerchantStoreConfig(actor int, patch MerchantStoreConfigPatch) error {
 		if _, err = storeUser(tx, actor, common.RoleRootUser); err != nil {
 			return err
 		}
+		if err = storeRequireWriter(tx); err != nil {
+			return err
+		}
 		var current MerchantStoreConfig
 		if err = lockForUpdate(tx).First(&current, 1).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 			current = initial // Initial default only; persisted zero is never replaced.

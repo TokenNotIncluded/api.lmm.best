@@ -197,6 +197,9 @@ func SetMerchantStoreConfig(actor int, c MerchantStoreConfig) error {
 		if _, e := storeUser(tx, c.RecipientID, common.RoleRootUser); e != nil {
 			return e
 		}
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
 		return storeWriteConfig(tx, c)
 	})
 }
@@ -293,6 +296,9 @@ func SetMerchantStorePromotionPrice(actor, quota int) error {
 	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if _, e := storeUser(tx, actor, common.RoleRootUser); e != nil {
+			return e
+		}
+		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
 		c, e := storeConfig(tx)

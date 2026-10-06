@@ -17,6 +17,7 @@ func merchantStoreTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, string, model
 	t.Helper()
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "store-router-fixture-encryption-key-20261006-123456789")
 	engine, db, sellerToken, seller := toolMarketTestRouter(t)
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
 	previousLog := model.LOG_DB
 	model.LOG_DB = db

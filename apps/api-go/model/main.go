@@ -254,8 +254,14 @@ func initDBWithMigrationSession(chooser databaseChooser) (*StartupMigrationSessi
 			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
 		}
 		err = session.runPrimaryPhase(DB, dbType, func() error {
+			if err := checkMerchantStoreWriterMigration(DB); err != nil {
+				return err
+			}
 			common.SysLog("database migration started")
-			return migrateDB()
+			if err := migrateDB(); err != nil {
+				return err
+			}
+			return nil
 		}, func() error {
 			common.SysLog("database migration verification started")
 			return verifyPostgresRuntimeAndSchema(DB)

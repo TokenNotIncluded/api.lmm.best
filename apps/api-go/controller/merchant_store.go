@@ -40,6 +40,8 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusNotFound, "STORE_NOT_FOUND", "The shop item or order was not found."
 	case errors.Is(err, model.ErrMerchantStoreInput):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_INVALID_INPUT", "Please check the shop information and amounts."
+	case errors.Is(err, model.ErrMerchantStoreWriterFrozen):
+		status, code, message = http.StatusServiceUnavailable, "STORE_UPGRADE_IN_PROGRESS", "Shop updates are in progress. Existing orders remain accessible."
 	case errors.Is(err, model.ErrMerchantStoreMinimumPrice):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_MINIMUM_PRICE", "The product unit price is below the current minimum."
 	case errors.Is(err, model.ErrMerchantStoreTestMode):

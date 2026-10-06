@@ -33,6 +33,9 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 				return ErrMerchantStoreConflict
 			}
 		}
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
 		if e := storeRequireMinimumUnitPrice(tx, in.PriceQuota); e != nil {
 			return e
 		}
@@ -80,6 +83,9 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 }
 func SubmitMerchantStoreProduct(actor int, id string) error {
 	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
 		if p.SellerID != actor {
 			return ErrMerchantStoreDenied
 		}
@@ -118,6 +124,9 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 		return ErrMerchantStoreInput
 	}
 	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
 		if _, e := storeUser(tx, actor, common.RoleAdminUser); e != nil {
 			return e
 		}
@@ -153,6 +162,9 @@ func ReviewMerchantStoreProduct(actor int, id string, approve bool, note string)
 }
 func SetMerchantStoreProductPaused(actor int, id string, paused bool) error {
 	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
 		u, e := storeUser(tx, actor, common.RoleCommonUser)
 		if e != nil {
 			return e
@@ -200,6 +212,9 @@ func AddMerchantStoreStock(actor int, id string, items []string) (int, error) {
 		rows = append(rows, row)
 	}
 	e := storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
 		if p.SellerID != actor {
 			return ErrMerchantStoreDenied
 		}
@@ -230,6 +245,9 @@ func AddMerchantStoreStock(actor int, id string, items []string) (int, error) {
 }
 func RemoveMerchantStoreStock(actor int, productID, stockID string) error {
 	return storeWithProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
 		if p.SellerID != actor {
 			return ErrMerchantStoreDenied
 		}
@@ -440,6 +458,9 @@ func PurchaseMerchantStorePromotion(actor int, productID string, months int, req
 			}
 			return nil
 		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
+			return e
+		}
+		if e = storeRequireWriter(tx); e != nil {
 			return e
 		}
 		if c.PromotionQuota > common.MaxWalletQuota/months {

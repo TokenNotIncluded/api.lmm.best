@@ -431,6 +431,10 @@ func CompleteMarketAIReview(ctx context.Context, id int64, owner string, c Marke
 			}
 			values["market_outcome"] = outcome
 			if product != nil {
+				if err := storeRequireWriter(tx); err != nil {
+					values["market_outcome"], values["error_message"] = "manual_required", "market_review_writer_upgrade"
+					return tx.Model(&j).Updates(values).Error
+				}
 				product.Status, product.ReviewedBy, product.ReviewedAt, product.UpdatedAt = status, 0, now, now
 				product.ReviewNote = "AI listing text review: " + outcome
 				if err = tx.Save(product).Error; err != nil {

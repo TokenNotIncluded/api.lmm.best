@@ -290,6 +290,7 @@ func merchantStoreServiceDB(t *testing.T, method string) merchantStoreServiceFix
 		_ = pool.Close()
 	})
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.ModerationJob{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "C5wmMzDh1QsVZb0saEW9ulAPzVN87Boqv3DK6eIrKXc2YLfg")
 	f := merchantStoreServiceFixture{buyer: model.User{Username: "store-buyer", AffCode: "store-buyer", Role: 1, Status: 1, Quota: 10000000, Email: "buyer@example.com"}, seller: model.User{Username: "store-seller", AffCode: "store-seller", Role: 1, Status: 1, Quota: 10000000}, root: model.User{Username: "store-root", AffCode: "store-root", Role: 100, Status: 1}}

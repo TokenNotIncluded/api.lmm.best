@@ -176,6 +176,9 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e
 		}
+		if e = storeRequireWriter(tx); e != nil {
+			return e
+		}
 		// A valid existing order retains its frozen obligations when the listing
 		// changes mode. Only new orders use the current visibility/buyer policy.
 		if e = storeProductNewBuyer(p, buyer.Id); e != nil {

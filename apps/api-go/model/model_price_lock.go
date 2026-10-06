@@ -309,6 +309,11 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 
 func updateOptionsWithPriceLocksUSD(values map[string]string, lockModel string, locked bool, usd *USDPriceUpdate) (OptionUpdateResult, error) {
 	result := OptionUpdateResult{}
+	for key := range values {
+		if storeReservedWriterOptionKey(key) {
+			return result, ErrMerchantStoreWriterGateReserved
+		}
+	}
 	if len(values) == 0 {
 		return result, nil
 	}
@@ -411,6 +416,9 @@ func updateOptionsWithPriceLocksUSD(values map[string]string, lockModel string, 
 		}
 		keys = sortedOptionUpdateKeys(accepted)
 		for _, key := range keys {
+			if err := storeRejectReservedOptionAlias(tx, key); err != nil {
+				return err
+			}
 			option := Option{Key: key, Value: accepted[key]}
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value"})}).Create(&option).Error; err != nil {
 				return err

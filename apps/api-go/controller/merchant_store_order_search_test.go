@@ -19,6 +19,8 @@ func storeSearchControllerFixture(t *testing.T) (model.User, *model.MerchantStor
 	db := setupManageUserTestDB(t)
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "store-controller-fixture-encryption-key-20261006-123456789")
 	require.NoError(t, db.AutoMigrate(&model.ModerationJob{}, &model.Option{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
 	users := []model.User{
 		{Username: "search-buyer", AffCode: "search-buyer", Email: "account@example.test", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 2000000},

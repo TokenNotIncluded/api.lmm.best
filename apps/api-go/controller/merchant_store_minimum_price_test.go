@@ -14,6 +14,8 @@ import (
 func merchantStoreMinimumControllerRoot(t *testing.T) model.User {
 	t.Helper()
 	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
 	root := model.User{Username: "minimum-controller-root", AffCode: "minimum-controller-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&root).Error)
