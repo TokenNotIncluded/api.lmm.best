@@ -13,46 +13,50 @@ import (
 )
 
 type MerchantStoreOrder struct {
-	EmailDeliveryStatus       string `json:"email_delivery_status,omitempty" gorm:"-"`
-	PaymentIssued             bool   `json:"payment_issued" gorm:"-"`
-	ID                        string `json:"id" gorm:"primaryKey;size:64"`
-	TradeNo                   string `json:"trade_no" gorm:"size:32;uniqueIndex;not null"`
-	BuyerID                   int    `json:"buyer_id" gorm:"not null;index"`
-	SellerID                  int    `json:"seller_id" gorm:"not null;index"`
-	ProductID                 string `json:"product_id" gorm:"size:36;not null;index"`
-	ProductTitle              string `json:"product_title" gorm:"size:200"`
-	Quantity                  int    `json:"quantity"`
-	UnitPriceQuota            int    `json:"unit_price_quota" gorm:"type:bigint"`
-	PriceQuota                int    `json:"price_quota" gorm:"type:bigint"`
-	FeeQuota                  int    `json:"fee_quota" gorm:"type:bigint"`
-	FeeBPS                    int    `json:"fee_bps"`
-	RecipientID               int    `json:"-"`
-	FeeHeld                   bool   `json:"-"`
-	PaymentMethod             string `json:"payment_method" gorm:"size:40"`
-	InputDigest               string `json:"-" gorm:"size:64"`
-	Status                    string `json:"status" gorm:"size:32;not null;index"`
-	AmountMinor               int64  `json:"amount_minor" gorm:"type:bigint"`
-	Currency                  string `json:"currency" gorm:"size:16"`
-	FrozenUSDFX               string `json:"frozen_usd_fx" gorm:"size:64;column:frozen_usd_fx"`
-	ProviderTradeID           string `json:"-" gorm:"size:128"`
-	GatewaySnapshot           string `json:"-" gorm:"type:text"`
-	CheckoutURL               string `json:"checkout_url,omitempty" gorm:"type:text"`
-	ProviderSessionID         string `json:"-" gorm:"size:128"`
-	ProviderCheckoutExpiresAt int64  `json:"-"`
-	ProviderClosureReference  string `json:"-" gorm:"size:128"`
-	PaymentCheckedAt          int64  `json:"-"`
-	PaymentCheckError         string `json:"-" gorm:"size:64"`
-	PickupTokenHash           string `json:"-" gorm:"size:64;uniqueIndex"`
-	PickupTokenCiphertext     string `json:"-" gorm:"type:text"`
-	PickupCodeHash            string `json:"-" gorm:"size:128"`
-	PickupLoginRequired       bool   `json:"pickup_login_required"`
-	PickupCodeRequired        bool   `json:"pickup_code_required"`
-	EmailPickupLink           bool   `json:"email_pickup_link"`
-	OfficialAtPurchase        bool   `json:"official_at_purchase"`
-	CreatedAt                 int64  `json:"created_at"`
-	PaidAt                    int64  `json:"paid_at"`
-	ExpiresAt                 int64  `json:"expires_at" gorm:"index"`
-	ClaimedAt                 int64  `json:"claimed_at"`
+	EmailDeliveryStatus        string `json:"email_delivery_status,omitempty" gorm:"-"`
+	PaymentIssued              bool   `json:"payment_issued" gorm:"-"`
+	ID                         string `json:"id" gorm:"primaryKey;size:64"`
+	TradeNo                    string `json:"trade_no" gorm:"size:32;uniqueIndex;not null"`
+	BuyerID                    int    `json:"buyer_id" gorm:"not null;index"`
+	SellerID                   int    `json:"seller_id" gorm:"not null;index"`
+	ProductID                  string `json:"product_id" gorm:"size:36;not null;index"`
+	ProductTitle               string `json:"product_title" gorm:"size:200"`
+	Quantity                   int    `json:"quantity"`
+	UnitPriceQuota             int    `json:"unit_price_quota" gorm:"type:bigint"`
+	PriceQuota                 int    `json:"price_quota" gorm:"type:bigint"`
+	FeeQuota                   int    `json:"fee_quota" gorm:"type:bigint"`
+	FeeBPS                     int    `json:"fee_bps"`
+	RecipientID                int    `json:"-"`
+	FeeHeld                    bool   `json:"-"`
+	PaymentMethod              string `json:"payment_method" gorm:"size:40"`
+	InputDigest                string `json:"-" gorm:"size:64"`
+	Status                     string `json:"status" gorm:"size:32;not null;index"`
+	AmountMinor                int64  `json:"amount_minor" gorm:"type:bigint"`
+	Currency                   string `json:"currency" gorm:"size:16"`
+	FrozenUSDFX                string `json:"frozen_usd_fx" gorm:"size:64;column:frozen_usd_fx"`
+	ProviderTradeID            string `json:"-" gorm:"size:128"`
+	GatewaySnapshot            string `json:"-" gorm:"type:text"`
+	PaymentScopeHash           string `json:"-" gorm:"size:64"`
+	PaymentIssueCode           string `json:"payment_issue_code,omitempty" gorm:"size:64"`
+	PaymentIssueOriginalStatus string `json:"payment_issue_original_status,omitempty" gorm:"size:32"`
+	VerifiedPaymentIssueAt     int64  `json:"verified_payment_issue_at,omitempty"`
+	CheckoutURL                string `json:"checkout_url,omitempty" gorm:"type:text"`
+	ProviderSessionID          string `json:"-" gorm:"size:128"`
+	ProviderCheckoutExpiresAt  int64  `json:"-"`
+	ProviderClosureReference   string `json:"-" gorm:"size:128"`
+	PaymentCheckedAt           int64  `json:"-"`
+	PaymentCheckError          string `json:"-" gorm:"size:64"`
+	PickupTokenHash            string `json:"-" gorm:"size:64;uniqueIndex"`
+	PickupTokenCiphertext      string `json:"-" gorm:"type:text"`
+	PickupCodeHash             string `json:"-" gorm:"size:128"`
+	PickupLoginRequired        bool   `json:"pickup_login_required"`
+	PickupCodeRequired         bool   `json:"pickup_code_required"`
+	EmailPickupLink            bool   `json:"email_pickup_link"`
+	OfficialAtPurchase         bool   `json:"official_at_purchase"`
+	CreatedAt                  int64  `json:"created_at"`
+	PaidAt                     int64  `json:"paid_at"`
+	ExpiresAt                  int64  `json:"expires_at" gorm:"index"`
+	ClaimedAt                  int64  `json:"claimed_at"`
 }
 
 // Provider transactions settle at most one order within a gateway scope.
@@ -366,7 +370,17 @@ func BindMerchantStorePaymentQuote(id string, amountMinor int64, currency, fx st
 		return tx.Model(o).Updates(map[string]any{"amount_minor": amountMinor, "currency": currency, "frozen_usd_fx": fx}).Error
 	})
 }
-func BindMerchantStorePaymentContext(id, snapshot string) error {
+func BindMerchantStorePaymentContext(id, snapshot string, scopeHashes ...string) error {
+	if len(scopeHashes) > 1 {
+		return ErrMerchantStoreInput
+	}
+	scopeHash := ""
+	if len(scopeHashes) == 1 {
+		scopeHash = scopeHashes[0]
+		if !storePaymentScopeValid(scopeHash) {
+			return ErrMerchantStoreInput
+		}
+	}
 	if snapshot == "" || len(snapshot) > 128<<10 {
 		return ErrMerchantStoreInput
 	}
@@ -375,12 +389,12 @@ func BindMerchantStorePaymentContext(id, snapshot string) error {
 			return ErrMerchantStoreConflict
 		}
 		if o.GatewaySnapshot != "" {
-			if o.GatewaySnapshot == snapshot {
+			if o.GatewaySnapshot == snapshot && o.PaymentScopeHash == scopeHash {
 				return nil
 			}
 			return ErrMerchantStoreConflict
 		}
-		return tx.Model(o).Update("gateway_snapshot", snapshot).Error
+		return tx.Model(o).Updates(map[string]any{"gateway_snapshot": snapshot, "payment_scope_hash": scopeHash}).Error
 	})
 }
 func BindMerchantStoreCheckoutSession(id, checkoutURL, sessionID string, expiresAt ...int64) error {
@@ -431,21 +445,16 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		if (o.Status != "pending" && o.Status != "reconciliation_pending") || o.PaymentMethod == "balance" || o.AmountMinor <= 0 {
 			return ErrMerchantStoreConflict
 		}
-		scopeSeller := o.SellerID
-		if strings.HasPrefix(o.PaymentMethod, "platform:") {
-			scopeSeller = 0
-		}
-		receiptID := storeHash(o.PaymentMethod + ":" + fmtStoreActor(scopeSeller) + ":" + providerTradeID)
-		var receipt MerchantStorePaymentReceipt
-		if e := tx.First(&receipt, "id = ?", receiptID).Error; e == nil {
+		if o.ProviderTradeID != "" && o.ProviderTradeID != providerTradeID {
 			return ErrMerchantStoreConflict
-		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
-			return e
 		}
-		if e := tx.Create(&MerchantStorePaymentReceipt{ID: receiptID, OrderID: o.ID, CreatedAt: common.GetTimestamp()}).Error; e != nil {
+		if e := storeReservePaymentReceipt(tx, o, providerTradeID); e != nil {
 			return e
 		}
 		if e := marketLockUsers(tx, o.SellerID, o.RecipientID); e != nil {
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return ErrMerchantStoreDenied
+			}
 			return e
 		}
 		// New checkout rejects disabled merchants. A verified payment for an
@@ -481,6 +490,9 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		o.Status = "paid"
 		o.PaidAt = common.GetTimestamp()
 		o.ProviderTradeID = providerTradeID
+		o.PaymentIssueCode = ""
+		o.VerifiedPaymentIssueAt = 0
+		o.PaymentIssueOriginalStatus = ""
 		o.FeeHeld = false
 		if e := tx.Save(o).Error; e != nil {
 			return e
@@ -517,6 +529,9 @@ func closeMerchantStoreOrder(id string, actor int, expired, providerClosed bool,
 		}
 		if o.Status == "cancelled" || o.Status == "expired" {
 			return nil
+		}
+		if o.ProviderTradeID != "" || o.VerifiedPaymentIssueAt > 0 {
+			return ErrMerchantStoreConflict
 		}
 		if o.Status != "pending" && !(providerClosed && o.Status == "reconciliation_pending") {
 			return ErrMerchantStoreConflict
@@ -570,6 +585,9 @@ func ExpireMerchantStoreOrders(limit int) (int, error) {
 	for _, o := range rows {
 		release := false
 		e := storeOrderTx(o.ID, func(tx *gorm.DB, current *MerchantStoreOrder) error {
+			if current.ProviderTradeID != "" || current.VerifiedPaymentIssueAt > 0 {
+				return ErrMerchantStoreConflict
+			}
 			if current.Status != "pending" || current.ExpiresAt > common.GetTimestamp() {
 				return ErrMerchantStoreConflict
 			}
@@ -748,4 +766,106 @@ func MarkMerchantStorePaymentChecked(id string, now int64, code string) error {
 		}
 	}
 	return DB.Model(&MerchantStoreOrder{}).Where("id = ? AND status IN ?", id, []string{"pending", "reconciliation_pending"}).Updates(map[string]any{"payment_checked_at": now, "payment_check_error": code}).Error
+}
+
+func storePaymentScopeValid(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+func storePaymentReceiptID(o *MerchantStoreOrder, receipt string) string {
+	scopeSeller := o.SellerID
+	if strings.HasPrefix(o.PaymentMethod, "platform:") {
+		scopeSeller = 0
+	}
+	scope := fmtStoreActor(scopeSeller)
+	if o.PaymentScopeHash != "" {
+		scope += ":" + o.PaymentScopeHash
+	}
+	return storeHash(o.PaymentMethod + ":" + scope + ":" + receipt)
+}
+func storeReservePaymentReceipt(tx *gorm.DB, o *MerchantStoreOrder, receipt string) error {
+	id := storePaymentReceiptID(o, receipt)
+	var row MerchantStorePaymentReceipt
+	e := tx.First(&row, "id = ?", id).Error
+	if e == nil {
+		if row.OrderID != o.ID {
+			return ErrMerchantStoreConflict
+		}
+		return nil
+	}
+	if !errors.Is(e, gorm.ErrRecordNotFound) {
+		return e
+	}
+	// The unique key arbitrates concurrent transactions on different products.
+	// Waiting for a competing insertion cannot abort this transaction with a raw
+	// constraint error; read committed then checks its authoritative ownership.
+	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&MerchantStorePaymentReceipt{ID: id, OrderID: o.ID, CreatedAt: common.GetTimestamp()})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 1 {
+		return nil
+	}
+	if e = tx.First(&row, "id = ?", id).Error; e != nil {
+		return e
+	}
+	if row.OrderID != o.ID {
+		return ErrMerchantStoreConflict
+	}
+	return nil
+}
+func storePaymentIssueCodeValid(code string) bool {
+	switch code {
+	case "settlement_unavailable", "recipient_unavailable", "seller_unavailable", "wallet_bounds", "stock_unavailable", "verified_payment_after_closed", "settlement_conflict":
+		return true
+	}
+	return false
+}
+
+// Only a trusted adapter after signature and exact account/order/currency/amount
+// verification may preserve this evidence. It makes no financial or inventory
+// changes and can record failures even when the original merchant disappeared.
+func RecordMerchantStoreVerifiedPaymentIssue(id, receipt, code string) error {
+	if receipt == "" || len(receipt) > 128 || !storePaymentIssueCodeValid(code) {
+		return ErrMerchantStoreInput
+	}
+	return marketTransaction(DB, func(tx *gorm.DB) error {
+		var o MerchantStoreOrder
+		if e := lockForUpdate(tx).First(&o, "id = ?", id).Error; e != nil {
+			return e
+		}
+		if o.PaymentMethod == "balance" || o.AmountMinor <= 0 {
+			return ErrMerchantStoreConflict
+		}
+		if o.ProviderTradeID != "" && o.ProviderTradeID != receipt {
+			return ErrMerchantStoreConflict
+		}
+		if o.Status == "paid" {
+			if o.ProviderTradeID == receipt {
+				return nil
+			}
+			return ErrMerchantStoreConflict
+		}
+		if e := storeReservePaymentReceipt(tx, &o, receipt); e != nil {
+			return e
+		}
+		if o.Status == "cancelled" || o.Status == "expired" {
+			code = "verified_payment_after_closed"
+		}
+		if o.VerifiedPaymentIssueAt == 0 {
+			o.PaymentIssueOriginalStatus = o.Status
+			o.VerifiedPaymentIssueAt = common.GetTimestamp()
+		}
+		o.ProviderTradeID = receipt
+		o.PaymentIssueCode = code
+		o.Status = "reconciliation_pending"
+		return tx.Save(&o).Error
+	})
 }
