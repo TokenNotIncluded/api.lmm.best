@@ -29,6 +29,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { formatRawCreditCount } from '@/lib/cumulative-user-usage'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -47,7 +48,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatRawCreditCount } from '@/lib/cumulative-user-usage'
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 
 import type { User } from '../types'
 
@@ -62,7 +63,10 @@ const reasonLabels: Record<string, string> = {
   moderation_violations: 'Moderation violations in user input',
 }
 export function UserRiskCell({ user }: { user: User }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const rawCreditLocale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
   const risk = user.wallet_risk
   if (!risk) return <span className='text-muted-foreground'>—</span>
   const label = risk.high_risk
@@ -117,19 +121,35 @@ export function UserRiskCell({ user }: { user: User }) {
         <dl className='grid grid-cols-2 gap-2 text-xs'>
           <dt>{t('Check-in rewards')}</dt>
           <dd className='text-right tabular-nums'>
-            {formatRawCreditCount(risk.checkin_quota, t('Credits'))}
+            {formatRawCreditCount(
+              risk.checkin_quota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </dd>
           <dt>{t('Transferred out')}</dt>
           <dd className='text-right tabular-nums'>
-            {formatRawCreditCount(risk.transferred_quota, t('Credits'))}
+            {formatRawCreditCount(
+              risk.transferred_quota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </dd>
           <dt>{t('Pending transfers')}</dt>
           <dd className='text-right tabular-nums'>
-            {formatRawCreditCount(risk.pending_quota, t('Credits'))}
+            {formatRawCreditCount(
+              risk.pending_quota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </dd>
           <dt>{t('Received transfers')}</dt>
           <dd className='text-right tabular-nums'>
-            {formatRawCreditCount(risk.received_quota, t('Credits'))}
+            {formatRawCreditCount(
+              risk.received_quota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </dd>
           <dt>{t('High-risk senders')}</dt>
           <dd className='text-right tabular-nums'>{risk.high_risk_senders}</dd>

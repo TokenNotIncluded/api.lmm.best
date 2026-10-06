@@ -46,6 +46,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { formatCumulativeUserUsage } from '@/lib/cumulative-user-usage'
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { formatCompactNumber } from '@/lib/format'
 
 import { getUserInfo } from '../../api'
@@ -71,7 +72,10 @@ export function UserInfoDialog({
   open,
   onOpenChange,
 }: UserInfoDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const rawCreditLocale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
   const { formatQuota } = useBillingUSD()
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -143,7 +147,8 @@ export function UserInfoDialog({
               value={formatCumulativeUserUsage(
                 userInfo,
                 formatQuota,
-                t('Credits')
+                t('Credits'),
+                rawCreditLocale
               )}
             />
           </div>

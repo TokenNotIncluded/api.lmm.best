@@ -215,3 +215,28 @@ test('wallet risk source counters remain raw credits without inferred current fi
     await act(async () => rendered.root.unmount())
   }
 })
+
+test('raw transfer counters follow French app language even when browser language is English', async () => {
+  assert.equal(navigator.language, 'en-US')
+  await i18n.changeLanguage('fr')
+  const value = user()
+  assert.ok(value.wallet_risk)
+  value.wallet_risk.transferred_quota = 6710363
+  const rendered = await renderRisk(value)
+  try {
+    const entry = [...rendered.popup.querySelectorAll('dt')].find(
+      (item) => item.textContent === 'Transferred out'
+    )
+    assert.equal(
+      entry?.nextElementSibling?.textContent,
+      '6\u202f710\u202f363 Credits'
+    )
+    assert.doesNotMatch(
+      entry?.nextElementSibling?.textContent ?? '',
+      /6,710,363/
+    )
+  } finally {
+    await act(async () => rendered.root.unmount())
+    await i18n.changeLanguage('en')
+  }
+})

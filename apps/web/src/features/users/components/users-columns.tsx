@@ -52,7 +52,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { formatRawCreditCount } from '@/lib/cumulative-user-usage'
-import { formatFiatCurrencyAmount } from '@/lib/currency'
+import {
+  formatFiatCurrencyAmount,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { formatQuota, formatTimestamp } from '@/lib/format'
 
 import {
@@ -94,7 +97,10 @@ function formatUnknownCurrencyAmount(micros: number): string {
 }
 
 export function useUsersColumns(): ColumnDef<User>[] {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const rawCreditLocale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
   return [
     {
       id: 'select',
@@ -231,7 +237,8 @@ export function useUsersColumns(): ColumnDef<User>[] {
       cell: ({ row }) =>
         formatRawCreditCount(
           row.original.wallet_risk?.transferred_quota ?? 0,
-          t('Credits')
+          t('Credits'),
+          rawCreditLocale
         ),
       size: 170,
     },
@@ -242,7 +249,8 @@ export function useUsersColumns(): ColumnDef<User>[] {
       cell: ({ row }) =>
         formatRawCreditCount(
           row.original.wallet_risk?.received_quota ?? 0,
-          t('Credits')
+          t('Credits'),
+          rawCreditLocale
         ),
       size: 170,
     },

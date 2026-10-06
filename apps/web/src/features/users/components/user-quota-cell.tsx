@@ -51,6 +51,7 @@ import {
   formatRawCreditCount,
   normalizedUserUsage,
 } from '@/lib/cumulative-user-usage'
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -69,7 +70,10 @@ function getQuotaProgressColor(percentage: number): string {
 }
 
 export function UserQuotaCell(props: UserQuotaCellProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const rawCreditLocale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
   const usage = {
     used_quota: props.used,
     normalized_used_quota: props.normalizedUsed,
@@ -122,14 +126,23 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
         <div className='space-y-1 text-xs'>
           <div>
             {t('Used:')}{' '}
-            {formatCumulativeUserUsage(usage, formatQuota, t('Credits'))}
+            {formatCumulativeUserUsage(
+              usage,
+              formatQuota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </div>
           <div>
             {t('Remaining:')} {formattedRemaining}
           </div>
           <div>
             {t('Transferred out')}:{' '}
-            {formatRawCreditCount(props.transferred ?? 0, t('Credits'))}
+            {formatRawCreditCount(
+              props.transferred ?? 0,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </div>
           <div>
             {t('Total:')} {formattedTotal}

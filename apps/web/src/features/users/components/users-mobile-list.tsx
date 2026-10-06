@@ -60,7 +60,10 @@ import {
   formatCumulativeUserUsage,
   formatRawCreditCount,
 } from '@/lib/cumulative-user-usage'
-import { formatFiatCurrencyAmount } from '@/lib/currency'
+import {
+  formatFiatCurrencyAmount,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -174,7 +177,10 @@ function formatUnknownCurrencyAmount(micros: number): string {
 }
 
 function UserMobileRow({ row }: { row: Row<User> }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const rawCreditLocale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
   const [expanded, setExpanded] = useState(false)
   const detailsId = useId()
   const selectionId = useId()
@@ -300,18 +306,25 @@ function UserMobileRow({ row }: { row: Row<User> }) {
             </div>
             <p className='text-muted-foreground mt-1 text-xs'>
               {t('Used:')}{' '}
-              {formatCumulativeUserUsage(user, formatQuota, t('Credits'))}
+              {formatCumulativeUserUsage(
+                user,
+                formatQuota,
+                t('Credits'),
+                rawCreditLocale
+              )}
             </p>
             <p className='text-muted-foreground text-xs'>
               {t('Transferred out')}:{' '}
               {formatRawCreditCount(
                 user.wallet_risk?.transferred_quota ?? 0,
-                t('Credits')
+                t('Credits'),
+                rawCreditLocale
               )}{' '}
               · {t('Received transfers')}:{' '}
               {formatRawCreditCount(
                 user.wallet_risk?.received_quota ?? 0,
-                t('Credits')
+                t('Credits'),
+                rawCreditLocale
               )}
             </p>
           </MobileMetric>
