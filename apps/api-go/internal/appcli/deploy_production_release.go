@@ -390,6 +390,9 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 		if err != nil {
 			return productionReleasePlanResult{}, fmt.Errorf("existing schema contract: %w", err)
 		}
+		if err := localRuntime.verifyExistingSchemaSignedUnitBinding(ctx, existingSchemaContract, goCandidate.PackagePath, goRollback.PackagePath); err != nil {
+			return productionReleasePlanResult{}, err
+		}
 		planFormat = productionExistingSchemaPlanFormat
 	}
 	plan := productionReleasePlan{

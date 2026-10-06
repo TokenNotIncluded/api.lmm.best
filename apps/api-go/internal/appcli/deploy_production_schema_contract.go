@@ -28,6 +28,8 @@ type productionExistingSchemaContract struct {
 	Schema           string `json:"schema"`
 	SchemaOID        int64  `json:"schema_oid"`
 	MetadataSHA256   string `json:"metadata_sha256"`
+	StartupSHA256    string `json:"startup_sha256,omitempty"`
+	SignedUnitSHA256 string `json:"signed_unit_sha256,omitempty"`
 }
 
 func validateProductionExistingSchemaContract(contract *productionExistingSchemaContract) error {
@@ -35,6 +37,10 @@ func validateProductionExistingSchemaContract(contract *productionExistingSchema
 		contract.Database == "" || len(contract.Database) > 63 || strings.ContainsRune(contract.Database, 0) ||
 		contract.DatabaseOID <= 0 || contract.SchemaOID <= 0 || !productionSHA256Pattern.MatchString(contract.MetadataSHA256) {
 		return errors.New("existing PostgreSQL schema contract is incomplete")
+	}
+	if (contract.StartupSHA256 == "") != (contract.SignedUnitSHA256 == "") ||
+		(contract.StartupSHA256 != "" && (!productionSHA256Pattern.MatchString(contract.StartupSHA256) || !productionSHA256Pattern.MatchString(contract.SignedUnitSHA256))) {
+		return errors.New("existing PostgreSQL startup seal is incomplete")
 	}
 	identifier, err := strconv.ParseUint(contract.SystemIdentifier, 10, 64)
 	if err != nil || identifier == 0 || strconv.FormatUint(identifier, 10) != contract.SystemIdentifier {
@@ -108,7 +114,9 @@ func (runtime *productionRuntime) verifyExistingSchemaContract(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	if actual != *expected {
+	schemaExpected := *expected
+	schemaExpected.StartupSHA256, schemaExpected.SignedUnitSHA256 = "", ""
+	if actual != schemaExpected {
 		return errors.New("existing PostgreSQL database identity or schema metadata changed")
 	}
 	return nil
@@ -235,6 +243,8 @@ func runProductionSchemaContract(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet(DeployProgramName+" production schema-contract", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var schema string
+	var sealStartup bool
+	flags.BoolVar(&sealStartup, "seal-startup", false, "seal root-owned effective startup configuration and read-only readiness hooks")
 	flags.StringVar(&schema, "schema", "", "existing production PostgreSQL schema to inspect read-only")
 	if err := flags.Parse(args); errors.Is(err, flag.ErrHelp) {
 		return ExitOK
@@ -251,6 +261,12 @@ func runProductionSchemaContract(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "inspect production schema contract: %v\n", err)
 		return ExitError
+	}
+	if sealStartup {
+		if err := runtime.sealExistingSchemaStartup(context.Background(), &contract); err != nil {
+			_, _ = fmt.Fprintf(stderr, "seal production startup: %v\n", err)
+			return ExitError
+		}
 	}
 	return writeJSONCommandResult(contract, stdout, stderr, "existing production schema contract")
 }

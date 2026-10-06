@@ -19,7 +19,7 @@ import (
 var existingSchemaFinancialEnvironment = []string{"LMM_CREDIT_TRANSITION_PLAN", "LMM_CREDIT_TRANSITION_SHA256"}
 var existingSchemaInvocationPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
-const existingSchemaUnitProperties = "Environment,EnvironmentFiles,PassEnvironment,UnsetEnvironment,MainPID,InvocationID,ActiveState,ExecStart,ExecStartPre,ExecStartPost,ExecCondition,ExecStop,ExecStopPost"
+const existingSchemaUnitProperties = "Environment,EnvironmentFiles,PassEnvironment,UnsetEnvironment,MainPID,InvocationID,ActiveState,ExecStart,ExecStartPre,ExecStartPost,ExecCondition,ExecStop,ExecStopPost,FragmentPath"
 
 // Only the disposable verification child receives a read-only connection. The
 // running service must remain able to serve ordinary business transactions.
@@ -126,24 +126,41 @@ func (runtime *productionRuntime) verifyExistingSchemaStartupMode(ctx context.Co
 	// No later EnvironmentFile or UnsetEnvironment can silently override the
 	// checked mode or introduce financial preparation into the next process.
 	files := loaded["EnvironmentFiles"]
-	if files != configPath+" (ignore_errors=yes)" && files != configPath+" (ignore_errors=no)" {
-		return errors.New("loaded production unit has unexpected environment files")
+	sealed := manifest.ExistingSchemaContract != nil && manifest.ExistingSchemaContract.StartupSHA256 != ""
+	if sealed {
+		effective, digest, unitDigest, err := runtime.existingSchemaSealedStartup(ctx, loaded)
+		if err != nil || digest != manifest.ExistingSchemaContract.StartupSHA256 || unitDigest != manifest.ExistingSchemaContract.SignedUnitSHA256 {
+			return errors.New("effective production startup differs from its immutable seal")
+		}
+		values = effective
+	} else {
+		if files != configPath+" (ignore_errors=yes)" && files != configPath+" (ignore_errors=no)" {
+			return errors.New("loaded production unit has unexpected unsealed environment files")
+		}
+		for key, value := range configured {
+			values[key] = value
+		}
 	}
 	if loaded["PassEnvironment"] != "" || loaded["UnsetEnvironment"] != "" {
 		return errors.New("loaded production unit has unchecked environment overrides")
 	}
-	if err := verifyExistingSchemaLoadedCommands(loaded, runtime.paths.InstalledBinary); err != nil {
-		return err
+	if !sealed {
+		if err := verifyExistingSchemaLoadedCommands(loaded, runtime.paths.InstalledBinary); err != nil {
+			return err
+		}
 	}
 	if err := validateProductionExistingSchemaContract(manifest.ExistingSchemaContract); err != nil {
 		return err
 	}
+	futureDSN, err := productionDatabaseURL(values)
+	if err != nil || futureDSN != configuredDSN {
+		return errors.New("effective startup database differs from canonical configuration")
+	}
+	if err := runtime.verifyExistingSchemaEffectiveSearchPath(ctx, values, manifest.ExistingSchemaContract); err != nil {
+		return err
+	}
 	if loaded["ActiveState"] == "inactive" && loaded["MainPID"] == "0" {
-		// EnvironmentFile values override the unit's Environment assignments.
-		for key, value := range configured {
-			values[key] = value
-		}
-		return runtime.verifyExistingSchemaEffectiveSearchPath(ctx, values, manifest.ExistingSchemaContract)
+		return nil
 	}
 	pid, err := strconv.Atoi(loaded["MainPID"])
 	if err != nil || pid <= 1 || loaded["ActiveState"] != "active" || !existingSchemaInvocationPattern.MatchString(loaded["InvocationID"]) {
@@ -191,7 +208,12 @@ func (runtime *productionRuntime) verifyExistingSchemaStartupMode(ctx context.Co
 		current["Environment"] != loaded["Environment"] || current["EnvironmentFiles"] != files || current["PassEnvironment"] != "" || current["UnsetEnvironment"] != "" {
 		return errors.New("verify-existing loaded unit or process generation changed during inspection")
 	}
-	if err := verifyExistingSchemaLoadedCommands(current, runtime.paths.InstalledBinary); err != nil || current["ExecStart"] != loaded["ExecStart"] {
+	if sealed {
+		_, digest, unitDigest, err := runtime.existingSchemaSealedStartup(ctx, current)
+		if err != nil || digest != manifest.ExistingSchemaContract.StartupSHA256 || unitDigest != manifest.ExistingSchemaContract.SignedUnitSHA256 {
+			return errors.New("verify-existing sealed startup changed during inspection")
+		}
+	} else if err := verifyExistingSchemaLoadedCommands(current, runtime.paths.InstalledBinary); err != nil || current["ExecStart"] != loaded["ExecStart"] {
 		return errors.New("verify-existing loaded startup commands changed during inspection")
 	}
 	return nil
@@ -283,7 +305,7 @@ func verifyExistingSchemaLoadedCommands(loaded map[string]string, binary string)
 
 func (runtime *productionRuntime) loadedExistingSchemaUnit(ctx context.Context) (map[string]string, error) {
 	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl,
-		Args:      []string{"show", runtime.paths.Service, "--property=" + existingSchemaUnitProperties},
+		Args:      []string{"show", runtime.paths.Service, "--all", "--property=" + existingSchemaUnitProperties},
 		Sensitive: true, Timeout: 15 * time.Second, OutputLimit: 1 << 20})
 	if err != nil {
 		return nil, errors.New("cannot inspect loaded verify-existing startup unit")
@@ -294,14 +316,27 @@ func (runtime *productionRuntime) loadedExistingSchemaUnit(ctx context.Context) 
 		if !found {
 			return nil, errors.New("loaded startup unit evidence is malformed")
 		}
-		if _, duplicate := values[key]; duplicate {
-			return nil, errors.New("loaded startup unit evidence contains duplicate properties")
+		if !strings.Contains(","+existingSchemaUnitProperties+",", ","+key+",") {
+			return nil, errors.New("loaded startup unit evidence contains an unexpected property")
 		}
-		values[key] = value
+		if previous, duplicate := values[key]; duplicate {
+			if (key != "EnvironmentFiles" && key != "ExecStartPost") || previous == "" || value == "" {
+				return nil, errors.New("loaded startup unit evidence contains ambiguous duplicate properties")
+			}
+			values[key] = previous + "\n" + value
+		} else {
+			values[key] = value
+		}
 	}
 	for _, key := range strings.Split(existingSchemaUnitProperties, ",") {
 		if _, present := values[key]; !present {
-			return nil, fmt.Errorf("loaded startup unit evidence is missing %s", key)
+			switch key {
+			case "PassEnvironment", "UnsetEnvironment", "ExecStartPre", "ExecStartPost", "ExecCondition", "ExecStop", "ExecStopPost", "FragmentPath":
+				// systemctl omits unset array properties, including with --all.
+				values[key] = ""
+			default:
+				return nil, fmt.Errorf("loaded startup unit evidence is missing %s", key)
+			}
 		}
 	}
 	return values, nil
