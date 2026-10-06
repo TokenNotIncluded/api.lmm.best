@@ -1,6 +1,4 @@
 {
-  "Check your order history before trying another payment.": "Consultez votre historique des commandes avant de réessayer de payer.",
-  "Payment confirmation may take a moment. Check your order history for the result.": "La confirmation du paiement peut prendre un moment. Consultez votre historique des commandes pour connaître le résultat.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1648,6 +1646,7 @@
     "Check your connection and retry without losing filters.": "Vérifiez votre connexion et réessayez sans perdre les filtres.",
     "Check your connection and try again.": "Vérifiez la connexion et réessayez.",
     "Check your current authentication code or recovery code and try again.": "Vérifiez votre code d’authentification actuel ou votre code de récupération, puis réessayez.",
+    "Check your order history before trying another payment.": "Consultez votre historique des commandes avant de réessayer de payer.",
     "Check-in": "Pointage",
     "Check-in failed": "Échec de la connexion",
     "Check-in rewards": "Récompenses de pointage",
@@ -6488,6 +6487,7 @@
     "Payment availability could not be verified. Contact support before attempting to add funds.": "Impossible de vérifier la disponibilité du paiement. Contactez le support avant d'ajouter des fonds.",
     "Payment availability could not be verified. You can submit an administrator unlock request instead.": "La disponibilité du paiement n'a pas pu être vérifiée. Vous pouvez envoyer une demande de déverrouillage à un administrateur.",
     "Payment Channel": "Canal de paiement",
+    "Payment confirmation may take a moment. Check your order history for the result.": "La confirmation du paiement peut prendre un moment. Consultez votre historique des commandes pour connaître le résultat.",
     "Payment Gateway": "Passerelle de paiement",
     "Payment initiated": "Paiement initié",
     "Payment is unavailable for this account.": "Le paiement est indisponible pour ce compte.",

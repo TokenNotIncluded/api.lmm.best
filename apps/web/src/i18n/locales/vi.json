@@ -1,6 +1,4 @@
 {
-  "Check your order history before trying another payment.": "Kiểm tra lịch sử đơn hàng trước khi thanh toán lại.",
-  "Payment confirmation may take a moment. Check your order history for the result.": "Việc xác nhận thanh toán có thể mất chút thời gian. Kiểm tra kết quả trong lịch sử đơn hàng.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1648,6 +1646,7 @@
     "Check your connection and retry without losing filters.": "Kiểm tra kết nối rồi thử lại mà không mất bộ lọc.",
     "Check your connection and try again.": "Kiểm tra kết nối rồi thử lại.",
     "Check your current authentication code or recovery code and try again.": "Kiểm tra mã xác thực hiện tại hoặc mã khôi phục rồi thử lại.",
+    "Check your order history before trying another payment.": "Kiểm tra lịch sử đơn hàng trước khi thanh toán lại.",
     "Check-in": "Điểm danh",
     "Check-in failed": "Điểm danh thất bại",
     "Check-in rewards": "Thưởng điểm danh",
@@ -6488,6 +6487,7 @@
     "Payment availability could not be verified. Contact support before attempting to add funds.": "Không thể xác minh khả dụng thanh toán. Hãy liên hệ bộ phận hỗ trợ trước khi nạp tiền.",
     "Payment availability could not be verified. You can submit an administrator unlock request instead.": "Không thể xác minh khả dụng thanh toán. Bạn có thể gửi yêu cầu mở khóa cho quản trị viên.",
     "Payment Channel": "Kênh thanh toán",
+    "Payment confirmation may take a moment. Check your order history for the result.": "Việc xác nhận thanh toán có thể mất chút thời gian. Kiểm tra kết quả trong lịch sử đơn hàng.",
     "Payment Gateway": "Cổng thanh toán",
     "Payment initiated": "Đã khởi tạo thanh toán",
     "Payment is unavailable for this account.": "Tài khoản này không thể thanh toán.",

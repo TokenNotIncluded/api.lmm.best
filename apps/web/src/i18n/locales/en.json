@@ -1,6 +1,4 @@
 {
-  "Check your order history before trying another payment.": "Check your order history before trying another payment.",
-  "Payment confirmation may take a moment. Check your order history for the result.": "Payment confirmation may take a moment. Check your order history for the result.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1648,6 +1646,7 @@
     "Check your connection and retry without losing filters.": "Check your connection and retry without losing filters.",
     "Check your connection and try again.": "Check your connection and try again.",
     "Check your current authentication code or recovery code and try again.": "Check your current authentication code or recovery code and try again.",
+    "Check your order history before trying another payment.": "Check your order history before trying another payment.",
     "Check-in": "Check-in",
     "Check-in failed": "Check-in failed",
     "Check-in rewards": "Check-in rewards",
@@ -6488,6 +6487,7 @@
     "Payment availability could not be verified. Contact support before attempting to add funds.": "Payment availability could not be verified. Contact support before attempting to add funds.",
     "Payment availability could not be verified. You can submit an administrator unlock request instead.": "Payment availability could not be verified. You can submit an administrator unlock request instead.",
     "Payment Channel": "Payment Channel",
+    "Payment confirmation may take a moment. Check your order history for the result.": "Payment confirmation may take a moment. Check your order history for the result.",
     "Payment Gateway": "Payment Gateway",
     "Payment initiated": "Payment initiated",
     "Payment is unavailable for this account.": "Payment is unavailable for this account.",

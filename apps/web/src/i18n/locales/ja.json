@@ -1,6 +1,4 @@
 {
-  "Check your order history before trying another payment.": "再度お支払いする前に、注文履歴をご確認ください。",
-  "Payment confirmation may take a moment. Check your order history for the result.": "お支払いの確認には少し時間がかかる場合があります。結果は注文履歴をご確認ください。",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1648,6 +1646,7 @@
     "Check your connection and retry without losing filters.": "フィルターを維持したまま、接続を確認して再試行してください。",
     "Check your connection and try again.": "接続を確認して再試行してください。",
     "Check your current authentication code or recovery code and try again.": "現在の認証コードまたはリカバリーコードを確認し、もう一度お試しください。",
+    "Check your order history before trying another payment.": "再度お支払いする前に、注文履歴をご確認ください。",
     "Check-in": "チェックイン",
     "Check-in failed": "チェックインできませんでした",
     "Check-in rewards": "チェックイン報酬",
@@ -6488,6 +6487,7 @@
     "Payment availability could not be verified. Contact support before attempting to add funds.": "支払いの利用可能状況を確認できませんでした。入金を試みる前にサポートへお問い合わせください。",
     "Payment availability could not be verified. You can submit an administrator unlock request instead.": "支払いの可否を確認できませんでした。管理者へのアクセス解除申請を送信できます。",
     "Payment Channel": "決済チャネル",
+    "Payment confirmation may take a moment. Check your order history for the result.": "お支払いの確認には少し時間がかかる場合があります。結果は注文履歴をご確認ください。",
     "Payment Gateway": "決済ゲートウェイ",
     "Payment initiated": "支払いが開始されました",
     "Payment is unavailable for this account.": "このアカウントでは支払いを利用できません。",

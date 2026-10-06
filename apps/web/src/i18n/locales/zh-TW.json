@@ -1,6 +1,4 @@
 {
-  "Check your order history before trying another payment.": "再次付款前，請先查看訂單記錄。",
-  "Payment confirmation may take a moment. Check your order history for the result.": "入帳確認可能需要一點時間，請在訂單記錄中查看結果。",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1648,6 +1646,7 @@
     "Check your connection and retry without losing filters.": "請檢查網路連線後重試，目前的篩選條件不會遺失。",
     "Check your connection and try again.": "檢查網路後重試。",
     "Check your current authentication code or recovery code and try again.": "請檢查目前的驗證碼或復原碼後重試。",
+    "Check your order history before trying another payment.": "再次付款前，請先查看訂單記錄。",
     "Check-in": "簽到",
     "Check-in failed": "簽到失敗",
     "Check-in rewards": "簽到領取",
@@ -6488,6 +6487,7 @@
     "Payment availability could not be verified. Contact support before attempting to add funds.": "無法驗證付款可用性。嘗試加值前請聯絡支援。",
     "Payment availability could not be verified. You can submit an administrator unlock request instead.": "無法確認付款是否可用。你可以改為提交管理員解鎖申請。",
     "Payment Channel": "支付渠道",
+    "Payment confirmation may take a moment. Check your order history for the result.": "入帳確認可能需要一點時間，請在訂單記錄中查看結果。",
     "Payment Gateway": "支付閘道",
     "Payment initiated": "已發起支付",
     "Payment is unavailable for this account.": "此帳號暫不支援付款。",

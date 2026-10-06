@@ -1,6 +1,4 @@
 {
-  "Check your order history before trying another payment.": "Перед повторной оплатой проверьте историю заказов.",
-  "Payment confirmation may take a moment. Check your order history for the result.": "Подтверждение оплаты может занять некоторое время. Проверьте результат в истории заказов.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1648,6 +1646,7 @@
     "Check your connection and retry without losing filters.": "Проверьте подключение и повторите попытку — фильтры сохранятся.",
     "Check your connection and try again.": "Проверьте соединение и повторите попытку.",
     "Check your current authentication code or recovery code and try again.": "Проверьте текущий код аутентификации или код восстановления и повторите попытку.",
+    "Check your order history before trying another payment.": "Перед повторной оплатой проверьте историю заказов.",
     "Check-in": "Отметка",
     "Check-in failed": "Регистрация не удалась.",
     "Check-in rewards": "Награды за отметки",
@@ -6488,6 +6487,7 @@
     "Payment availability could not be verified. Contact support before attempting to add funds.": "Не удалось проверить доступность платежей. Обратитесь в поддержку перед пополнением счёта.",
     "Payment availability could not be verified. You can submit an administrator unlock request instead.": "Не удалось проверить доступность оплаты. Вместо этого можно отправить администратору запрос на разблокировку.",
     "Payment Channel": "Платёжный канал",
+    "Payment confirmation may take a moment. Check your order history for the result.": "Подтверждение оплаты может занять некоторое время. Проверьте результат в истории заказов.",
     "Payment Gateway": "Платежный шлюз",
     "Payment initiated": "Платёж инициирован",
     "Payment is unavailable for this account.": "Оплата недоступна для этой учетной записи.",

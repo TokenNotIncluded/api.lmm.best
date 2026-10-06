@@ -1,6 +1,4 @@
 {
-  "Check your order history before trying another payment.": "再次付款前，请先查看订单记录。",
-  "Payment confirmation may take a moment. Check your order history for the result.": "到账确认可能需要一点时间，请在订单记录中查看结果。",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1648,6 +1646,7 @@
     "Check your connection and retry without losing filters.": "请检查网络连接后重试，当前筛选条件不会丢失。",
     "Check your connection and try again.": "检查网络后重试。",
     "Check your current authentication code or recovery code and try again.": "请检查当前验证码或恢复码后重试。",
+    "Check your order history before trying another payment.": "再次付款前，请先查看订单记录。",
     "Check-in": "签到",
     "Check-in failed": "签到失败",
     "Check-in rewards": "签到领取",
@@ -6488,6 +6487,7 @@
     "Payment availability could not be verified. Contact support before attempting to add funds.": "无法验证支付可用性。尝试充值前请联系支持。",
     "Payment availability could not be verified. You can submit an administrator unlock request instead.": "无法确认支付是否可用。你可以改为提交管理员解锁申请。",
     "Payment Channel": "支付渠道",
+    "Payment confirmation may take a moment. Check your order history for the result.": "到账确认可能需要一点时间，请在订单记录中查看结果。",
     "Payment Gateway": "支付网关",
     "Payment initiated": "已发起支付",
     "Payment is unavailable for this account.": "此账号暂不支持付款。",

@@ -11805,7 +11805,85 @@ const operationsFinishCopy = {
   },
 }
 
+const paymentReturnCopy = {
+  en: {
+    'Check your order history before trying another payment.':
+      'Check your order history before trying another payment.',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'Payment confirmation may take a moment. Check your order history for the result.',
+  },
+  zh: {
+    'Check your order history before trying another payment.':
+      '再次付款前，请先查看订单记录。',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      '到账确认可能需要一点时间，请在订单记录中查看结果。',
+  },
+  'zh-TW': {
+    'Check your order history before trying another payment.':
+      '再次付款前，請先查看訂單記錄。',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      '入帳確認可能需要一點時間，請在訂單記錄中查看結果。',
+  },
+  fr: {
+    'Check your order history before trying another payment.':
+      'Consultez votre historique des commandes avant de réessayer de payer.',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'La confirmation du paiement peut prendre un moment. Consultez votre historique des commandes pour connaître le résultat.',
+  },
+  ja: {
+    'Check your order history before trying another payment.':
+      '再度お支払いする前に、注文履歴をご確認ください。',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'お支払いの確認には少し時間がかかる場合があります。結果は注文履歴をご確認ください。',
+  },
+  ru: {
+    'Check your order history before trying another payment.':
+      'Перед повторной оплатой проверьте историю заказов.',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'Подтверждение оплаты может занять некоторое время. Проверьте результат в истории заказов.',
+  },
+  vi: {
+    'Check your order history before trying another payment.':
+      'Kiểm tra lịch sử đơn hàng trước khi thanh toán lại.',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'Việc xác nhận thanh toán có thể mất chút thời gian. Kiểm tra kết quả trong lịch sử đơn hàng.',
+  },
+}
+
+for (const [locale, values] of Object.entries(paymentReturnCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
 async function main() {
+  if (process.argv.includes('--payment-return-only')) {
+    // Repair only these checkout hints; preserve every unrelated root field.
+    for (const [locale, translations] of Object.entries(paymentReturnCopy)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      let changed = false
+      for (const [key, value] of Object.entries(translations)) {
+        if (json.translation[key] !== value) {
+          json.translation[key] = value
+          changed = true
+        }
+        if (Object.hasOwn(json, key)) {
+          delete json[key]
+          changed = true
+        }
+      }
+      if (changed) {
+        json.translation = Object.fromEntries(
+          Object.entries(json.translation).sort(([a], [b]) =>
+            a.localeCompare(b)
+          )
+        )
+        await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      }
+      console.log(`${locale}: payment return hints migrated`)
+    }
+    return
+  }
+
   if (process.argv.includes('--merge-locale-conflicts')) {
     const { execFileSync } = await import('node:child_process')
     for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
