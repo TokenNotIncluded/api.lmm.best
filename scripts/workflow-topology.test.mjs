@@ -196,6 +196,23 @@ test('signed publication is manual and never deploys', () => {
   }
 });
 
+test('signed Go archives derive merchant capability from the compiled source for both architectures', () => {
+  const source = workflow('release-go');
+  const prepare = job(source, 'prepare');
+  const build = job(source, 'build');
+  assert.ok(prepare.includes('merchant_writer_capability: ${{ steps.identity.outputs.merchant_writer_capability }}'));
+  assert.ok(prepare.includes('merchant_writer_capability=$("$contract_cli_dir/lmm-api" merchant-store-writer-gate capability)'));
+  assert.ok(prepare.includes('echo "merchant_writer_capability=$merchant_writer_capability"'));
+  assert.match(build, /arch: \[amd64, arm64\]/);
+  assert.ok(build.includes('MERCHANT_WRITER_CAPABILITY: ${{ needs.prepare.outputs.merchant_writer_capability }}'));
+  assert.ok(build.includes('printf \'%s\\n\' "$MERCHANT_WRITER_CAPABILITY" > \\\n            "$bundle/MERCHANT_STORE_WRITER_CAPABILITY"'));
+  assert.doesNotMatch(build, /merchant-store-writer-gate|MERCHANT_WRITER_CAPABILITY:\s*[1-9]\b/);
+  for (const contracts of [job(source, 'package-contract'), job(workflow('ci'), 'aur-package-matrix')]) {
+    assert.match(contracts, /bash packaging\/aur\/test-merchant-writer-marker\.sh\n/);
+    assert.doesNotMatch(contracts, /continue-on-error:/);
+  }
+});
+
 test('consolidation retains specialist evidence without independent trigger storms', () => {
   const ci = workflow('ci');
   assert.match(job(ci, 'web'), /assistant-handoff-confirmation.test.ts/);

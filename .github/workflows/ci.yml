@@ -612,6 +612,8 @@ jobs:
         run: |
           chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-matrix.sh
+          shellcheck packaging/aur/test-merchant-writer-marker.sh
+          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-merchant-writer-marker.sh
 
       - name: Verify pinned Go release integrity
         env:

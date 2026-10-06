@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"time"
 
@@ -14,6 +15,17 @@ import (
 func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return appcli.ExitUsage
+	}
+	// Publication reads the compiled source capability without opening a
+	// database, starting resources, or treating it as a writable-floor proof.
+	if args[0] == "capability" {
+		if len(args) != 1 {
+			return appcli.ExitUsage
+		}
+		if _, err := fmt.Fprintf(stdout, "%d\n", model.MerchantStoreWriterCapability); err != nil {
+			return appcli.ExitError
+		}
+		return appcli.ExitOK
 	}
 	set := flag.NewFlagSet("merchant-store-writer-gate "+args[0], flag.ContinueOnError)
 	set.SetOutput(stderr)

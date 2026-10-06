@@ -703,6 +703,15 @@ func (runtime *productionReleaseRuntime) verifySignedPackageLayout(ctx context.C
 		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || (info.Size() == 0 && !emptyAgentMarker) || info.Mode().Perm()&0o022 != 0 {
 			return fmt.Errorf("signed release contains an unsafe payload: %s", path)
 		}
+		if packageName == productionAURPackageName && relative == merchantStoreCapabilityMember {
+			body, err := os.ReadFile(path)
+			if err != nil || info.Size() != 2 || info.Mode().Perm() != 0644 {
+				return errors.New("signed merchant capability marker is not a canonical regular payload")
+			}
+			if _, err := parseMerchantStoreCapability(body); err != nil {
+				return err
+			}
+		}
 		packageRelative, ignored, err := signedPackageMember(packageName, packageVersion, relative)
 		if err != nil {
 			return err
