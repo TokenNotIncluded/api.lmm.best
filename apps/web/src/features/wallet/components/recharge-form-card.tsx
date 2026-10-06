@@ -21,6 +21,7 @@ import {
   GiftIcon,
   Invoice01Icon,
   Loading03Icon,
+  Tick02Icon,
   WalletCardsIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
@@ -64,6 +65,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { WaitCompanion } from '@/components/wait-companion'
+import {
+  formatFiatCurrencyAmount,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
@@ -434,6 +439,11 @@ export function RechargeFormCard({
       : t('Payment unavailable')
   const pancakeCurrencySupported = isWaffoPancakeCurrencySupported()
   const interfaceLanguage = i18n.resolvedLanguage || i18n.language
+  const paymentFormattingLocale = getCurrencyFormattingLocale(interfaceLanguage)
+  const displayedPresetAmounts = presetAmounts.filter(
+    (preset, index, all) =>
+      all.findIndex((candidate) => candidate.value === preset.value) === index
+  )
   const effectiveWaffoPancakeCheckoutRegion =
     waffoPancakeCheckoutRegion ??
     localWaffoPancakeRegionOverride ??
@@ -485,10 +495,10 @@ export function RechargeFormCard({
             {/* Preset Amounts Skeleton */}
             <div className='space-y-3'>
               <Skeleton className='h-3 w-16' />
-              <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+              <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
                 {Array.from({ length: 8 }, (_, index) => `preset-${index}`).map(
                   (key) => (
-                    <Skeleton key={key} className='h-[72px] rounded-lg' />
+                    <Skeleton key={key} className='h-14 rounded-lg' />
                   )
                 )}
               </div>
@@ -589,20 +599,31 @@ export function RechargeFormCard({
           {hasConfigurableTopup && (
             <div className='grid gap-7 lg:grid-cols-[minmax(0,1.18fr)_minmax(0,1fr)] lg:gap-0'>
               <div className='min-w-0 space-y-6 lg:pr-7'>
-                {presetAmounts.length > 0 && (
+                {displayedPresetAmounts.length > 0 && (
                   <FieldGroup>
                     <Field>
                       <div className='flex items-center gap-1'>
                         <FieldLabel>{t('Credited balance')}</FieldLabel>
                         <PlatformCreditHelp />
                       </div>
-                      <div className='grid grid-cols-2 gap-2 lg:grid-cols-3'>
-                        {presetAmounts.map((preset) => {
+                      <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+                        {displayedPresetAmounts.map((preset) => {
                           const credits = formatCreditQuota(preset.value)
+                          const isSelected =
+                            activeSelectedPreset === preset.value
                           const selectedQuote =
-                            activeSelectedPreset === preset.value &&
+                            isSelected &&
                             hasCurrentPaymentAmount &&
                             !isUpdatingQuote
+                          const showSelectedPayment =
+                            selectedQuote &&
+                            (Boolean(discount) ||
+                              actualPaymentCurrency !== currency.currency ||
+                              formatFiatCurrencyAmount(
+                                paymentAmount,
+                                actualPaymentCurrency,
+                                { locale: paymentFormattingLocale }
+                              ) !== credits)
                           const presetDiscountPercent =
                             typeof preset.discount === 'number' &&
                             Number.isFinite(preset.discount) &&
@@ -627,15 +648,13 @@ export function RechargeFormCard({
                               key={preset.value}
                               variant='outline'
                               className={cn(
-                                'relative isolate flex h-auto min-h-28 min-w-0 flex-col items-start justify-start gap-2 overflow-hidden rounded-lg px-3 py-3 text-left whitespace-normal transition-colors',
-                                activeSelectedPreset === preset.value
-                                  ? 'border-primary bg-primary/10 text-foreground ring-1 ring-primary/30 hover:bg-primary/15 dark:border-primary dark:bg-primary/10 dark:hover:bg-primary/15'
-                                  : 'border-border/70 bg-background hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/5'
+                                'relative isolate flex h-auto min-h-14 min-w-0 flex-col items-start justify-center gap-1 overflow-hidden rounded-lg px-3 py-2.5 text-left whitespace-normal transition-colors',
+                                isSelected
+                                  ? 'border-primary bg-primary/5 text-foreground hover:bg-primary/10 dark:border-primary dark:bg-primary/5 dark:hover:bg-primary/10'
+                                  : 'border-border/70 bg-background hover:border-primary/40 hover:bg-muted/40 dark:hover:bg-muted/30'
                               )}
                               onClick={() => handlePresetSelect(preset)}
-                              aria-pressed={
-                                activeSelectedPreset === preset.value
-                              }
+                              aria-pressed={isSelected}
                               aria-label={[
                                 selectedQuote
                                   ? t(
@@ -658,38 +677,48 @@ export function RechargeFormCard({
                                 .join(' · ')}
                             >
                               <div className='pointer-events-none relative z-10 flex w-full min-w-0 flex-col items-start gap-1'>
-                                <div
-                                  data-slot='wallet-credit-value'
-                                  className='min-w-0 text-sm leading-5 font-semibold break-words tabular-nums'
-                                >
-                                  {credits}
+                                <div className='flex w-full min-w-0 items-center gap-2'>
+                                  <span
+                                    data-slot='wallet-credit-value'
+                                    className='min-w-0 flex-1 text-sm leading-5 font-semibold wrap-anywhere tabular-nums'
+                                  >
+                                    {credits}
+                                  </span>
+                                  {isSelected && (
+                                    <span className='bg-primary text-primary-foreground flex size-4 shrink-0 items-center justify-center rounded-full'>
+                                      <HugeiconsIcon
+                                        icon={Tick02Icon}
+                                        className='size-3'
+                                        strokeWidth={2.5}
+                                        aria-hidden='true'
+                                      />
+                                    </span>
+                                  )}
                                 </div>
                                 {visibleDiscountPercent !== null && (
                                   <Badge
                                     variant='outline'
-                                    className='border-primary/20 bg-primary/10 text-primary h-auto max-w-full justify-start py-1 text-left leading-4 whitespace-normal'
+                                    className='border-success/25 bg-success/10 dark:text-success h-auto max-w-full justify-start px-1.5 py-0.5 text-left leading-4 whitespace-normal text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'
                                   >
                                     {discountLabel}
                                   </Badge>
                                 )}
-                                {selectedQuote && (
-                                  <div className='flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-5 break-words tabular-nums'>
+                                {showSelectedPayment && (
+                                  <div className='w-full min-w-0 text-xs leading-4 wrap-anywhere tabular-nums'>
                                     <span
                                       className={cn(
-                                        discount && 'text-primary font-semibold'
+                                        discount
+                                          ? 'font-medium text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)] dark:text-success'
+                                          : 'text-muted-foreground'
                                       )}
                                     >
-                                      {formatSelectedPaymentAmount(
-                                        paymentAmount
-                                      )}
+                                      {t('Pay {{amount}}', {
+                                        amount:
+                                          formatSelectedPaymentAmount(
+                                            paymentAmount
+                                          ),
+                                      })}
                                     </span>
-                                    {discount && (
-                                      <span className='text-muted-foreground line-through'>
-                                        {formatSelectedPaymentAmount(
-                                          discount.original
-                                        )}
-                                      </span>
-                                    )}
                                   </div>
                                 )}
                               </div>
@@ -710,7 +739,7 @@ export function RechargeFormCard({
                               )}
                             </p>
                             {selectedPresetQuoteBreakdown?.hasDiscount && (
-                              <p className='text-muted-foreground'>
+                              <p className='dark:text-success text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'>
                                 {t('Discount applied {{amount}}', {
                                   amount: formatSelectedPaymentAmount(
                                     selectedPresetQuoteBreakdown.savedAmount
@@ -881,8 +910,8 @@ export function RechargeFormCard({
                         </div>
                         {couponDiscount && (
                           <Badge
-                            variant='secondary'
-                            className='text-xs font-medium'
+                            variant='outline'
+                            className='border-success/25 bg-success/10 dark:text-success text-xs font-medium text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'
                           >
                             {t('Discount applied: {{percent}}% off', {
                               percent: formatDiscountPercent(
@@ -955,7 +984,7 @@ export function RechargeFormCard({
                         </p>
                       ) : null}
                       {couponDiscount ? (
-                        <div className='text-primary flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
+                        <div className='dark:text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'>
                           <span>
                             {t('Discount applied: {{percent}}% off', {
                               percent: formatDiscountPercent(
@@ -1331,7 +1360,7 @@ export function RechargeFormCard({
                           <div className='flex flex-wrap items-center gap-2 text-sm'>
                             <Badge
                               variant='outline'
-                              className='border-primary/20 bg-primary/10 text-primary h-auto max-w-full py-1 leading-4 whitespace-normal'
+                              className='border-success/25 bg-success/10 dark:text-success h-auto max-w-full py-1 leading-4 whitespace-normal text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'
                             >
                               {t('Discount applied: {{percent}}% off', {
                                 percent: formatDiscountPercent(
@@ -1339,7 +1368,7 @@ export function RechargeFormCard({
                                 ),
                               })}
                             </Badge>
-                            <span className='text-primary font-medium'>
+                            <span className='dark:text-success font-medium text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'>
                               {t('You save')}:{' '}
                               {formatSelectedPaymentAmount(discount.savings)}
                             </span>

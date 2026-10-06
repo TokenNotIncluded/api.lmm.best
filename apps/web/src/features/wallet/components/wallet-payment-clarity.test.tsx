@@ -580,6 +580,105 @@ describe('wallet payment clarity', () => {
     }
   })
 
+  test('preset payment details appear only when they add information', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    for (const scenario of [
+      { value: 745000, amount: '1.4900', currency: 'USD', show: false },
+      { value: 745000, amount: '1.39', currency: 'USD', show: true },
+      { value: 745000, amount: '1.49', currency: 'CNY', show: true },
+      { value: 50000, amount: '0.101', currency: 'USD', show: true },
+    ] as const) {
+      const rendered = await render(
+        <RechargeFormCard
+          topupInfo={topupInfo}
+          presetAmounts={[{ value: scenario.value }]}
+          selectedPreset={scenario.value}
+          onSelectPreset={() => undefined}
+          topupAmount={scenario.value}
+          onTopupAmountChange={() => undefined}
+          paymentAmount={999}
+          settlementQuote={{
+            amount: scenario.amount,
+            currency: scenario.currency,
+          }}
+          selectedPaymentMethod={{
+            name: 'Waffo Pancake',
+            type: 'waffo_pancake',
+            min_topup_credit: '0',
+          }}
+          calculating={false}
+          onPaymentMethodSelect={() => undefined}
+          paymentLoading={null}
+          redemptionCode=''
+          onRedemptionCodeChange={() => undefined}
+          onRedeem={() => undefined}
+          redeeming={false}
+        />
+      )
+      const preset = rendered.container.querySelector('button[aria-pressed]')
+      assert.ok(preset)
+      assert.equal(preset.textContent?.includes('Pay '), scenario.show)
+      assert.equal(
+        preset.getAttribute('aria-label')?.includes(scenario.amount),
+        true,
+        'the accessible name still identifies the authoritative quote'
+      )
+      assert.equal(preset.textContent?.includes('999'), false)
+      await unmount(rendered)
+    }
+  })
+
+  test('deduplicates identical preset credits without merging distinct rounded amounts', async () => {
+    await i18n.changeLanguage('en')
+    setUsdBillingCurrency()
+    let selected = 0
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={topupInfo}
+        presetAmounts={[
+          { value: 5000000, discount: 0.9 },
+          { value: 5000000, discount: 0.9 },
+          { value: 5000001, discount: 0.9 },
+        ]}
+        selectedPreset={null}
+        onSelectPreset={(preset) => {
+          selected = preset.value
+        }}
+        topupAmount={5000000}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={0}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+    const presets = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-pressed]'
+      )
+    )
+    assert.equal(presets.length, 2)
+    assert.deepEqual(
+      presets.map(
+        (button) =>
+          button.querySelector('[data-slot="wallet-credit-value"]')?.textContent
+      ),
+      ['10 USD', '10 USD']
+    )
+    assert.equal(
+      presets.every((button) => button.textContent?.includes('10% off')),
+      true
+    )
+    await act(async () => presets[1].click())
+    assert.equal(selected, 5000001)
+    await unmount(rendered)
+  })
+
   test('failed quotes explain the server reason and allow a quote-only retry', async () => {
     await i18n.changeLanguage('en')
     let retries = 0
