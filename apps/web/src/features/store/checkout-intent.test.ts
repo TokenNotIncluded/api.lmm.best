@@ -11,6 +11,7 @@ import {
   storeCheckoutReplayFields,
   type StoreCheckoutActor,
   type StoreCheckoutIntentFailure,
+  type StoreCheckoutPrepared,
   type StoreCheckoutRecoveryOrder,
   type StoreCheckoutRejectedBeforeCreateProof,
   type StoreCheckoutSelection,
@@ -407,7 +408,7 @@ test('actor switch while hashing prevents a new creation, and a previously prepa
     finish = resolve
   })
   const crypto = {
-    getRandomValues: (bytes: Uint8Array) =>
+    getRandomValues: (bytes: Uint8Array<ArrayBuffer>) =>
       globalThis.crypto.getRandomValues(bytes),
     randomUUID: () => globalThis.crypto.randomUUID(),
     subtle: {
@@ -684,7 +685,7 @@ test('a caller mutating its actor during an async hash cannot move a ready reque
     began = resolve
   })
   const crypto = {
-    getRandomValues: (bytes: Uint8Array) =>
+    getRandomValues: (bytes: Uint8Array<ArrayBuffer>) =>
       globalThis.crypto.getRandomValues(bytes),
     randomUUID: () => globalThis.crypto.randomUUID(),
     subtle: {
@@ -794,6 +795,7 @@ test('explicit settled cleanup frees bounded capacity, preserves pending records
     (item) => item.requestKey === paid.record.requestKey
   )
   assert.ok(current?.orderId)
+  const currentOrderId = current.orderId
   await rejects(
     () =>
       journal.cleanupOwnSettled(account, [
@@ -811,7 +813,7 @@ test('explicit settled cleanup frees bounded capacity, preserves pending records
       journal.cleanupOwnSettled(guest, [
         {
           requestKey: current.requestKey,
-          orderId: current.orderId,
+          orderId: currentOrderId,
           revision: current.revision,
         },
       ]),
@@ -822,7 +824,7 @@ test('explicit settled cleanup frees bounded capacity, preserves pending records
     await journal.cleanupOwnSettled(account, [
       {
         requestKey: current.requestKey,
-        orderId: current.orderId,
+        orderId: currentOrderId,
         revision: current.revision,
       },
     ]),
@@ -1157,8 +1159,9 @@ test('precreate terms release must persist its deletion before another request c
   for (const mode of ['failWrite', 'dropWrite'] as const) {
     const f = fixture()
     const journal = f.make()
-    const initial = await journal.prepare(account, selection, body())
-    const key = initial.record.requestKey
+    const initial: StoreCheckoutPrepared<ReturnType<typeof body>> =
+      await journal.prepare(account, selection, body())
+    const key: string = initial.record.requestKey
     const stored = f.storage.getItem(STORE_CHECKOUT_INTENT_STORAGE_KEY)
     f.storage[mode] = true
     await rejects(
