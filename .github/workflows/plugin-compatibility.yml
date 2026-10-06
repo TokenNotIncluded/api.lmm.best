@@ -47,6 +47,8 @@ jobs:
               npm test
               npm run pack:check
               npm run test:host
+              archive=$(npm pack --ignore-scripts --json | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>console.log(JSON.parse(s)[0].filename))')
+              LMM_DSH_PLUGIN="$PWD/$archive" npm run test:host
               ;;
             codewhale-lmm-provider)
               npm run check
