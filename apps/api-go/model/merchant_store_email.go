@@ -7,7 +7,8 @@ import (
 )
 
 // The outbox intentionally holds no email address, URL or delivered card data.
-// Workers resolve the current buyer email and encrypted token only while sending.
+// Workers resolve an encrypted order-bound address and token only while sending.
+// Legacy orders without an address snapshot keep their verified-account flow.
 type MerchantStoreEmailDelivery struct {
 	ID            string `json:"id" gorm:"primaryKey;size:64"`
 	OrderID       string `json:"order_id" gorm:"size:64;not null;uniqueIndex"`
@@ -27,13 +28,38 @@ func enqueueMerchantStoreEmail(tx *gorm.DB, o *MerchantStoreOrder) error {
 		return nil
 	}
 	state := "pending"
-	if _, e := storeVerifiedEmailAddress(tx, o.BuyerID); errors.Is(e, ErrMerchantStoreEmailUnverified) {
+	if _, e := storeOrderDeliveryEmail(tx, o); errors.Is(e, ErrMerchantStoreEmailUnverified) {
 		state = "awaiting_verification"
 	} else if e != nil {
 		return e
 	}
 	o.EmailDeliveryStatus = state
 	return tx.Create(&MerchantStoreEmailDelivery{ID: o.ID, OrderID: o.ID, BuyerID: o.BuyerID, State: state, NextAttempt: common.GetTimestamp(), CreatedAt: common.GetTimestamp()}).Error
+}
+
+func storeOrderDeliveryEmail(tx *gorm.DB, o *MerchantStoreOrder) (string, error) {
+	if o.PickupEmailHash == "" && o.PickupEmailCiphertext == "" {
+		return storeVerifiedEmailAddress(tx, o.BuyerID)
+	}
+	if o.PickupEmailHash == "" || o.PickupEmailCiphertext == "" {
+		return "", ErrMerchantStoreDenied
+	}
+	email, err := storeDecrypt("order-pickup-email", o.ID, o.PickupEmailCiphertext)
+	if err != nil {
+		return "", err
+	}
+	if !storeEmailValid(email) || storeHash(email) != o.PickupEmailHash {
+		return "", ErrMerchantStoreDenied
+	}
+	return email, nil
+}
+
+func GetMerchantStoreOrderDeliveryEmail(buyerID int, orderID string) (string, error) {
+	var o MerchantStoreOrder
+	if err := DB.Where("id = ? AND buyer_id = ? AND status = ? AND email_pickup_link = ?", orderID, buyerID, "paid", true).First(&o).Error; err != nil {
+		return "", ErrMerchantStoreDenied
+	}
+	return storeOrderDeliveryEmail(DB, &o)
 }
 func ClaimMerchantStoreEmailDelivery(now int64) (*MerchantStoreEmailDelivery, error) {
 	var row MerchantStoreEmailDelivery

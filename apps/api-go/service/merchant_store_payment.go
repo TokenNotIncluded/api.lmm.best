@@ -30,7 +30,7 @@ import (
 const merchantStoreCreditsPerUSD int64 = 500000
 
 var (
-	merchantStoreTradeNoPattern = regexp.MustCompile(`^MS[a-f0-9]{30}$`)
+	merchantStoreTradeNoPattern = regexp.MustCompile(`^MS[A-Za-z0-9]{30}$`)
 	merchantStoreMoneyPattern   = regexp.MustCompile(`^[0-9]{1,16}(?:\.[0-9]{1,2})?$`)
 	merchantStoreRatePattern    = regexp.MustCompile(`^[0-9]{1,12}(?:\.[0-9]{1,12})?$`)
 	merchantStoreSignature      = regexp.MustCompile(`^[a-f0-9]{32}$`)

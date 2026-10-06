@@ -29,6 +29,7 @@ import {
   safeStoreUrl,
   storeRequestKey,
   storeTotal,
+  isStoreEmail,
 } from './utils'
 
 export function StoreProductPage({ id }: { id: string }) {
@@ -144,6 +145,7 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
   const [quantity, setQuantity] = useState('1')
   const [method, setMethod] = useState<StorePaymentMethod | ''>('')
   const [code, setCode] = useState('')
+  const [email, setEmail] = useState('')
   const [open, setOpen] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
   const [read, setRead] = useState(false)
@@ -164,6 +166,10 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
     /* invalid input remains disabled */
   }
   const disclaimerNeeded = !product.official && !disclaimer.data?.accepted
+  const pickupEmail = email.trim()
+  const codeValid =
+    code.length >= 8 && new TextEncoder().encode(code).length <= 72
+  const emailValid = isStoreEmail(pickupEmail)
   const valid =
     !!user &&
     total !== undefined &&
@@ -175,8 +181,8 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
     !product.trading_paused &&
     product.status === 'published' &&
     !!actualMethod &&
-    (!product.pickup_code_required ||
-      (code.length >= 8 && new TextEncoder().encode(code).length <= 72))
+    (code ? codeValid : !product.pickup_code_required) &&
+    (pickupEmail ? emailValid : !product.email_pickup_link)
   async function checkout(accept = false) {
     if (!valid || busy || !user) return
     setBusy(true)
@@ -202,6 +208,7 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
         quantity,
         actualMethod,
         code,
+        pickupEmail,
       ])
       const requestKey = keys.current.get(signature) || storeRequestKey()
       keys.current.set(signature, requestKey)
@@ -213,10 +220,12 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
         ...(!product.official && version
           ? { disclaimer_version: version }
           : {}),
-        ...(product.pickup_code_required ? { pickup_code: code } : {}),
+        ...(code ? { pickup_code: code } : {}),
+        ...(pickupEmail ? { pickup_email: pickupEmail } : {}),
       })
       setResult(created)
       setCode('')
+      setEmail('')
       keys.current.clear()
       await client.invalidateQueries({ queryKey: ['store', 'orders', user.id] })
     } catch (issue) {
@@ -385,34 +394,72 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
               </p>
             )}
           </fieldset>
-          {product.pickup_code_required && (
-            <div className='space-y-2'>
-              <Label htmlFor='store-pickup-code'>
-                {t('Set a pickup code')}
-              </Label>
-              <Input
-                id='store-pickup-code'
-                type='password'
-                autoComplete='new-password'
-                value={code}
-                minLength={8}
-                maxLength={64}
-                onChange={(event) => setCode(event.target.value)}
-              />
-              <p className='text-muted-foreground text-xs'>
-                {t(
-                  'Use at least 8 characters. Keep this code safe; you will need it to collect your items.'
-                )}
-              </p>
-              {new TextEncoder().encode(code).length > 72 && (
-                <p role='alert' className='text-destructive text-xs'>
-                  {t(
-                    'Pickup code is too long. Please shorten it and try again.'
-                  )}
-                </p>
-              )}
+          <div className='space-y-2'>
+            <div className='flex items-center justify-between gap-2'>
+              <Label htmlFor='store-pickup-code'>{t('Pickup code')}</Label>
+              <span className='text-muted-foreground text-xs'>
+                {product.pickup_code_required
+                  ? t('Required field', { defaultValue: t('Required') })
+                  : t('Optional')}
+              </span>
             </div>
-          )}
+            <Input
+              id='store-pickup-code'
+              className='h-11'
+              type='password'
+              autoComplete='new-password'
+              value={code}
+              minLength={8}
+              maxLength={64}
+              required={product.pickup_code_required}
+              aria-describedby='store-pickup-code-help'
+              aria-invalid={!!code && !codeValid}
+              onChange={(event) => setCode(event.target.value)}
+            />
+            <p
+              id='store-pickup-code-help'
+              className='text-muted-foreground text-xs'
+            >
+              {t(
+                'If filled in, this code protects collection. Use at least 8 characters and keep it safe.'
+              )}
+            </p>
+            {new TextEncoder().encode(code).length > 72 && (
+              <p role='alert' className='text-destructive text-xs'>
+                {t('Pickup code is too long. Please shorten it and try again.')}
+              </p>
+            )}
+          </div>
+          <div className='space-y-2'>
+            <div className='flex items-center justify-between gap-2'>
+              <Label htmlFor='store-pickup-email'>{t('Pickup email')}</Label>
+              <span className='text-muted-foreground text-xs'>
+                {product.email_pickup_link
+                  ? t('Required field', { defaultValue: t('Required') })
+                  : t('Optional')}
+              </span>
+            </div>
+            <Input
+              id='store-pickup-email'
+              className='h-11'
+              type='email'
+              autoComplete='email'
+              value={email}
+              maxLength={254}
+              required={product.email_pickup_link}
+              aria-describedby='store-pickup-email-help'
+              aria-invalid={!!pickupEmail && !emailValid}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+            <p
+              id='store-pickup-email-help'
+              className='text-muted-foreground text-xs'
+            >
+              {t(
+                'If filled in, the pickup link will be sent to this email after payment.'
+              )}
+            </p>
+          </div>
           <div className='flex justify-between border-t pt-4 text-sm'>
             <span>{t('Total')}</span>
             <strong>
@@ -465,7 +512,7 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
             {t(
               product.pickup_login_required
                 ? 'Only the purchasing account can collect this order.'
-                : 'Anyone with the pickup link and required code can collect this order.'
+                : 'Anyone with the pickup link and the pickup code, if set, can collect this order.'
             )}
           </p>
         </>

@@ -321,7 +321,7 @@ func merchantStoreTestOrder(t *testing.T, f merchantStoreServiceFixture, method 
 		_, err := model.SaveMerchantStoreGateway(f.seller.Id, method, true, string(encoded))
 		require.NoError(t, err)
 	}
-	order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "purchase", PaymentMethod: method})
+	order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{PickupEmail: f.buyer.Email, BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "purchase", PaymentMethod: method})
 	require.NoError(t, err)
 	rate := "1"
 	if currency == "LDC" {
@@ -502,7 +502,7 @@ func TestMerchantStorePaymentContextCannotMoveBetweenOrders(t *testing.T) {
 
 func TestMerchantStoreReconcileRequiresOrderOwnerOrActiveAdmin(t *testing.T) {
 	f := merchantStoreServiceDB(t, MerchantStoreBalance)
-	order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "paid", PaymentMethod: MerchantStoreBalance})
+	order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{PickupEmail: f.buyer.Email, BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "paid", PaymentMethod: MerchantStoreBalance})
 	require.NoError(t, err)
 	outsider := model.User{Username: "outsider", AffCode: "outsider", Role: 1, Status: 1}
 	require.NoError(t, model.DB.Create(&outsider).Error)
@@ -606,7 +606,7 @@ func TestMerchantStoreDisabledPlatformLinuxDOPreservesIssuedPayment(t *testing.T
 	var seller model.User
 	require.NoError(t, model.DB.First(&seller, f.seller.Id).Error)
 	require.Equal(t, 10495000, seller.Quota)
-	next, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "after-disable", PaymentMethod: MerchantStorePlatformLinuxDO})
+	next, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{PickupEmail: f.buyer.Email, BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "after-disable", PaymentMethod: MerchantStorePlatformLinuxDO})
 	require.NoError(t, err)
 	_, err = CreateMerchantStorePaymentSession(context.Background(), f.buyer.Id, next.ID, "LDC")
 	require.ErrorIs(t, err, ErrMerchantStorePaymentConfiguration)
@@ -622,7 +622,7 @@ func TestMerchantStorePickupEmailOutboxUsesBuyerAndRetriesPrivately(t *testing.T
 	oldOrigin := system_setting.ServerAddress
 	system_setting.ServerAddress = "https://api.example.com"
 	t.Cleanup(func() { system_setting.ServerAddress = oldOrigin })
-	order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "paid", PaymentMethod: MerchantStoreBalance})
+	order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{PickupEmail: f.buyer.Email, BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "paid", PaymentMethod: MerchantStoreBalance})
 	require.NoError(t, err)
 	calls := 0
 	n, err := processMerchantStorePickupEmailBatch(context.Background(), 5, func(_ context.Context, email merchantStorePickupEmail) error {
@@ -656,8 +656,12 @@ func TestMerchantStorePickupEmailWaitsForVerifiedCurrentAddress(t *testing.T) {
 	oldOrigin := system_setting.ServerAddress
 	system_setting.ServerAddress = "https://api.example.com"
 	t.Cleanup(func() { system_setting.ServerAddress = oldOrigin })
-	_, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "paid", PaymentMethod: MerchantStoreBalance})
+	order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{PickupEmail: f.buyer.Email, BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "paid", PaymentMethod: MerchantStoreBalance})
 	require.NoError(t, err)
+	// A pre-upgrade order has no address snapshot and still requires account
+	// verification. New orders use their explicitly supplied frozen address.
+	require.NoError(t, model.DB.Model(order).Updates(map[string]any{"pickup_email_hash": "", "pickup_email_ciphertext": ""}).Error)
+	require.NoError(t, model.DB.Model(&model.MerchantStoreEmailDelivery{}).Where("order_id = ?", order.ID).Update("state", "awaiting_verification").Error)
 	calls := 0
 	sender := func(context.Context, merchantStorePickupEmail) error { calls++; return nil }
 	n, err := processMerchantStorePickupEmailBatch(context.Background(), 5, sender)

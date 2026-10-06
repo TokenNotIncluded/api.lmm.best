@@ -5,12 +5,30 @@ import { test } from 'node:test'
 import {
   CREDITS_PER_USD,
   EXTERNAL_MINIMUM_QUOTA,
+  isStoreEmail,
   MAX_IMPORT_BYTES,
   parseInventoryText,
   safeStoreUrl,
   storeDate,
   storeTotal,
 } from './utils'
+
+test('pickup email accepts plain addresses and rejects malformed or oversized input', () => {
+  assert.equal(isStoreEmail('buyer+store@mail.example.test'), true)
+  for (const value of [
+    '',
+    'buyer',
+    'buyer@',
+    '@example.test',
+    'buyer@@example.test',
+    'buyer@example',
+    'buyer@example.test extra',
+    'buyer@example.test\nBcc: another@example.test',
+    `${'b'.repeat(250)}@example.test`,
+  ]) {
+    assert.equal(isStoreEmail(value), false, value)
+  }
+})
 
 test('store integer credits retain the immutable USD anchor and strict external threshold', () => {
   assert.equal(CREDITS_PER_USD, 500000)

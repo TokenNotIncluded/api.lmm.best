@@ -64,7 +64,7 @@ const { StoreSettingsPage } = await import('./settings-page')
 const { StorePaymentCategoriesForm } = await import('./payment-categories')
 const { MerchantStoreSettingsSection } =
   await import('@/features/system-settings/integrations/merchant-store-settings-section')
-const { StoreOrderRow } = await import('./orders-page')
+const { StoreOrderRow, StoreOrdersPage } = await import('./orders-page')
 const { StoreDeliveryEmail } = await import('./delivery-email')
 const { StoreProductEditor } = await import('./seller-page')
 const { StorePage } = await import('./store-page')
@@ -854,3 +854,44 @@ test('an updated paid order clears a previously prepared payment session', async
   )
   assert.ok(button('Get pickup link'))
 })
+
+for (const state of ['pending', 'sent', 'awaiting_verification']) {
+  test(`account email verification is shown only for legacy awaiting verification orders (${state})`, async () => {
+    owner(2)
+    let accountEmailReads = 0
+    api.get = (async (url: string) => {
+      if (url.endsWith('/email/status')) {
+        accountEmailReads++
+        return result({ verified: false, email: 'account@example.invalid' })
+      }
+      return result({
+        items: [
+          {
+            id: 'order-email-fixture',
+            trade_no: 'MS-fixture',
+            buyer_id: 2,
+            seller_id: 9,
+            product_title: 'Fixture keys',
+            quantity: 1,
+            price_quota: 500000,
+            payment_method: 'balance',
+            status: 'paid',
+            created_at: 1,
+            email_pickup_link: true,
+            email_delivery_status: state,
+          },
+        ],
+        offset: 0,
+        limit: 20,
+        has_more: false,
+      })
+    }) as typeof api.get
+    await mount(<StoreOrdersPage />)
+    const expected = state === 'awaiting_verification'
+    assert.equal(accountEmailReads > 0, expected)
+    assert.equal(
+      document.body.textContent?.includes('Verify delivery email'),
+      expected
+    )
+  })
+}

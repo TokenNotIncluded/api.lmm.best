@@ -109,10 +109,10 @@ function StoreOrders() {
       <StoreError error={query.error} retry={() => void query.refetch()} />
       {role === 'buyer' &&
         ((selected.data?.buyer_id === user.id &&
-          selected.data.email_pickup_link) ||
-          query.data?.items.some((order) => order.email_pickup_link)) && (
-          <StoreDeliveryEmail key={user.id} ownerId={user.id} />
-        )}
+          selected.data.email_delivery_status === 'awaiting_verification') ||
+          query.data?.items.some(
+            (order) => order.email_delivery_status === 'awaiting_verification'
+          )) && <StoreDeliveryEmail key={user.id} ownerId={user.id} />}
       {query.isPending ? (
         <StoreLoading />
       ) : (
@@ -351,7 +351,7 @@ export function StoreOrderRow({
       {buyer && order.email_pickup_link && (
         <p className='text-muted-foreground text-xs'>
           {t(
-            'The seller enabled pickup links by email. You can always retrieve the link here.'
+            'The pickup link will be sent to the email provided at checkout. You can always retrieve the link here.'
           )}
         </p>
       )}

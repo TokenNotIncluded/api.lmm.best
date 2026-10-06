@@ -31,7 +31,7 @@ type merchantStoreTablePlan struct {
 }
 
 var merchantStoreExpectedTables = []string{
-	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_verified_emails",
+	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_verified_emails",
 }
 
 func merchantStoreSourceSchemaPlan(t *testing.T) []merchantStoreTablePlan {
@@ -111,7 +111,7 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 	encoded, e := json.MarshalIndent(struct {
 		Scope  string                   `json:"scope"`
 		Tables []merchantStoreTablePlan `json:"tables"`
-	}{Scope: "13 additive merchant-store tables only; no existing user, wallet or financial-history DDL", Tables: plan}, "", "  ")
+	}{Scope: "15 additive merchant-store tables only; no existing user, wallet or financial-history DDL", Tables: plan}, "", "  ")
 	require.NoError(t, e)
 	if output := os.Getenv("MERCHANT_STORE_SCHEMA_PLAN_OUTPUT"); output != "" {
 		file, e := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)

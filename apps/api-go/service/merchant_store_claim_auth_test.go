@@ -34,7 +34,7 @@ func merchantStoreClaimAuthDB(t *testing.T) merchantStoreClaimAuthFixture {
 	require.NoError(t, model.DB.AutoMigrate(&model.UserSession{}))
 	require.NoError(t, model.DB.Model(f.product).Updates(map[string]any{"pickup_login_required": true, "pickup_code_required": true}).Error)
 	var err error
-	f.order, _, err = model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "claim-cookie-order", PaymentMethod: MerchantStoreBalance, PickupCode: "private-pickup-code"})
+	f.order, _, err = model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "claim-cookie-order", PaymentMethod: MerchantStoreBalance, PickupCode: "private-pickup-code", PickupEmail: f.buyer.Email})
 	require.NoError(t, err)
 	require.Equal(t, "paid", f.order.Status)
 	f.token, err = model.GetMerchantStoreOrderPickupToken(f.buyer.Id, f.order.ID)

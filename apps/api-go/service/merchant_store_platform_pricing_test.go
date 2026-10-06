@@ -58,7 +58,7 @@ func TestMerchantStorePlatformPricingExactMinorAndGo85FrozenReaderCompatibility(
 		t.Run(tc.name, func(t *testing.T) {
 			f := merchantStoreServiceDB(t, MerchantStorePlatformLinuxDO)
 			merchantStoreTestLinuxDOSettings(t, tc.method)
-			order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "priced-order", PaymentMethod: MerchantStorePlatformLinuxDO})
+			order, _, err := model.CreateMerchantStoreOrder(model.MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: "priced-order", PaymentMethod: MerchantStorePlatformLinuxDO, PickupEmail: f.buyer.Email})
 			require.NoError(t, err)
 			require.NoError(t, prepareMerchantStorePaymentContext(order, "LDC"))
 			order, err = model.GetMerchantStorePaymentOrder(order.ID)

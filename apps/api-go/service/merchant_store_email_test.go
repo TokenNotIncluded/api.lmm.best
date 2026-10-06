@@ -101,3 +101,19 @@ func TestMerchantStoreVerificationEmailRefusesChangedAddress(t *testing.T) {
 	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", f.buyer.Id).Update("email", "new@example.com").Error)
 	require.Error(t, SendMerchantStoreVerificationEmail(context.Background(), f.buyer.Id, f.buyer.Email, "123456"))
 }
+
+func TestMerchantStoreOrderSearchEmailHasIndependentPurposeAndNoOrderContent(t *testing.T) {
+	merchantStoreSMTPTestSettings(t)
+	message, _, destination, err := merchantStorePickupEmailMessage(merchantStorePickupEmail{destination: "search@example.test", verificationCode: "123456", orderSearch: true})
+	require.NoError(t, err)
+	require.Equal(t, "search@example.test", destination)
+	parts := strings.SplitN(string(message), "\r\n\r\n", 2)
+	content, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(parts[1], "\r\n", ""))
+	require.NoError(t, err)
+	require.Contains(t, string(content), "订单查询验证码：123456")
+	require.Contains(t, string(content), "10 分钟")
+	require.NotContains(t, string(content), "/store/claim/")
+	require.NotContains(t, string(content), "订单号：")
+	_, _, _, err = merchantStorePickupEmailMessage(merchantStorePickupEmail{destination: "search@example.test", verificationCode: "123456", orderSearch: true, pickupURL: "https://api.example.test/store/claim/private"})
+	require.Error(t, err)
+}
