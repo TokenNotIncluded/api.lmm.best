@@ -130,6 +130,7 @@ Jev 的 `usage.input_tokens` 可直接读取。平台仅接受价格快照所需
 | `PUT /installations` | 为 `client_id` 加载或卸载指定 `tool_id/version_id`。 |
 | `POST /grants` | 为精确客户端、Tool 和版本创建有次数、金额及有效期上限的授权。 |
 | `DELETE /grants/:id` | 撤销本人的授权。 |
+| `DELETE /grants/:id/record` | 仅从列表移除本人已撤销授权；保留授权与使用、审计记录。 |
 | `PUT /budgets` | 设置 `account/client/tool` 累计预算。 |
 | `GET /mine/:kind` | 分页查询本人的 `services/grants/installations/budgets/favorites/tokens/oauth-clients`。 |
 | `POST /invoke` | 网页客户端执行已加载且获授权的 Tool，不接受用户自报结果。 |
@@ -138,6 +139,8 @@ Jev 的 `usage.input_tokens` 可直接读取。平台仅接受价格快照所需
 | `GET /income` | 查询本人的入账流水。 |
 | `POST /tokens`、`DELETE /tokens/:id` | 创建和撤销客户端专用市场令牌。 |
 | `POST /clients/disconnect` | 原子撤销本人的指定客户端令牌和授权，并卸载工具；不取消已受理调用。详见连接指南。 |
+| `DELETE /tokens/:id/record` | 仅从列表移除本人已撤销连接令牌；保留令牌摘要及撤销记录。 |
+| `POST /clients/remove` | 本人指定客户端的令牌和授权全部撤销后，移除列表记录并卸载工具；调用、使用和预算不变。 |
 | `PUT /config` | 超级管理员设置开关、费率及唯一收款账户。 |
 
 ## 内部执行约定

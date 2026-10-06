@@ -24,6 +24,34 @@ Disconnect does not refund reservations or change execution/settlement records, 
 
 ## Listing and search
 
+The default client view excludes revoked tokens and tool grants before grouping
+and counting clients. Revoked records remain available in a collapsed history
+section until their owner explicitly removes them. Loaded tool installations
+remain in the current client view until unloaded or removed with the client.
+
+`DELETE /api/tool-market/grants/:id/record` and
+`DELETE /api/tool-market/tokens/:id/record` remove a previously revoked record
+from account-resource lists. They require ownership and explicit revocation;
+an unrevoked record returns a conflict, and another account's record is not
+found. The existing `DELETE /grants/:id` and `DELETE /tokens/:id` endpoints
+continue to revoke without hiding the stored record.
+
+`POST /api/tool-market/clients/remove` accepts the same authenticated
+`{"client_id":"my-agent"}` shape as disconnect. All of that account's tokens
+and grants for the exact personal client ID must already be revoked. In one
+account-locked transaction it hides those records and removes installations.
+It returns `client_id`, `tokens_hidden`, `grants_hidden`, and `tools_unloaded`.
+An unrevoked token or grant prevents the entire operation. Reserved `web-market`
+and `oauth:` client IDs are rejected. Repeating removal returns zero changes.
+
+Removal records account-owned `grant.hide`, `token.hide`, and `client.remove`
+events in the existing event table. It preserves authorization rows, token
+digests, revocation timestamps, audit events, calls, reservations, transfers,
+usage and cumulative budgets. This change requires no DDL. An N−1 binary ignores
+the visibility events and can display those revoked rows again; it still
+rejects their revoked credentials. Reconnecting creates a new token or grant
+through the existing setup and choose-tools flow; no old row is restored.
+
 Account-resource reads follow the existing 100-record pages. A failed page or the bounded pagination ceiling fails the read instead of exposing a successful partial permission snapshot. This is offset pagination, not a transactional snapshot across concurrent account changes. Calls and income remain recent-record views.
 
 Market search accepts up to 120 valid Unicode code points after trimming. SQL wildcard characters remain escaped literally, and visibility checks are unchanged. No schema migration or wallet change is required.

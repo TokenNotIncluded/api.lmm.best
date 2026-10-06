@@ -200,6 +200,12 @@ export type ClientDisconnect = {
   grants_revoked: number
   tools_unloaded: number
 }
+export type ClientRemoval = {
+  client_id: string
+  tokens_hidden: number
+  grants_hidden: number
+  tools_unloaded: number
+}
 export class MarketAPIError extends Error {
   readonly code: string
 
@@ -332,6 +338,8 @@ export const marketAPI = {
     }
   ) => unwrap<Grant>(api.post(`${base}/grants`, input)),
   revokeGrant: (id: string) => unwrap<null>(api.delete(`${base}/grants/${id}`)),
+  removeGrantRecord: (id: string) =>
+    unwrap<null>(api.delete(`${base}/grants/${id}/record`)),
   invoke: (input: {
     tool_id: string
     version_id: string
@@ -371,9 +379,15 @@ export const marketAPI = {
       api.post(`${base}/tokens`, connectionTokenInput(clientID, permissions))
     ),
   revokeToken: (id: string) => unwrap<null>(api.delete(`${base}/tokens/${id}`)),
+  removeTokenRecord: (id: string) =>
+    unwrap<null>(api.delete(`${base}/tokens/${id}/record`)),
   disconnectClient: (clientID: string) =>
     unwrap<ClientDisconnect>(
       api.post(`${base}/clients/disconnect`, { client_id: clientID })
+    ),
+  removeClient: (clientID: string) =>
+    unwrap<ClientRemoval>(
+      api.post(`${base}/clients/remove`, { client_id: clientID })
     ),
   budget: (input: { scope: string; scope_id: string; limit_quota: number }) =>
     unwrap<null>(api.put(`${base}/budgets`, input)),

@@ -59,6 +59,11 @@ const originals = {
   grant: marketAPI.grant,
   invoke: marketAPI.invoke,
   budget: marketAPI.budget,
+  revokeGrant: marketAPI.revokeGrant,
+  revokeToken: marketAPI.revokeToken,
+  removeGrantRecord: marketAPI.removeGrantRecord,
+  removeTokenRecord: marketAPI.removeTokenRecord,
+  removeClient: marketAPI.removeClient,
 }
 const config = {
   enabled: false,
@@ -154,6 +159,252 @@ afterEach(async () => {
   document.body.replaceChildren()
 })
 after(() => dom.close())
+
+const accessGrant = {
+  id: 'grant-test',
+  user_id: 1,
+  client_id: 'my-agent',
+  tool_id: 'lookup',
+  version_id: 'version-test',
+  max_price_quota: 100,
+  max_total_quota: 1000,
+  max_calls: 10,
+  reserved_quota: 0,
+  spent_quota: 0,
+  reserved_calls: 0,
+  successful_calls: 0,
+  expires_at: record.expires_at,
+  revoked_at: 0,
+}
+async function clientRecords(
+  cache: InstanceType<typeof QueryClient>,
+  state: {
+    tokens: (typeof record)[]
+    grants: (typeof accessGrant)[]
+    installations: {
+      client_id: string
+      tool_id: string
+      version_id: string
+    }[]
+  }
+) {
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'tokens') return [...state.tokens]
+    if (kind === 'grants') return [...state.grants]
+    if (kind === 'installations') return [...state.installations]
+    return []
+  }) as typeof marketAPI.mine
+  await act(async () => {
+    for (const [kind, rows] of Object.entries(state)) {
+      cache.setQueryData(['tool-market', 1, kind], rows)
+    }
+    await flush()
+  })
+}
+
+test('revoking an authorization immediately removes it from the default list and keeps collapsed history', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = { tokens: [], grants: [accessGrant], installations: [] }
+  await clientRecords(cache, state)
+  const current = element<HTMLElement>(
+    container,
+    '[data-testid="market-client-list"]'
+  )
+  assert.equal(current.querySelectorAll('article').length, 1)
+  assert.equal(current.textContent?.includes('my-agent'), true)
+  marketAPI.revokeGrant = async (id) => {
+    assert.equal(id, accessGrant.id)
+    state.grants = [{ ...accessGrant, revoked_at: 1 }]
+    return null
+  }
+  await act(async () => {
+    button(current, 'Revoke authorization').click()
+    await flush()
+  })
+  await waitFor(() => current.querySelectorAll('article').length === 0)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  assert.equal(history.open, false)
+  assert.equal(history.textContent?.includes('Revoked records'), true)
+  assert.equal(history.querySelectorAll('article').length, 1)
+  assert.equal(history.textContent?.includes('my-agent'), true)
+  assert.equal(button(history, 'Delete authorization').disabled, false)
+  assert.equal(container.textContent?.includes('No connections yet'), true)
+})
+
+test('deleting a revoked authorization empties its history group after the server refresh', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = {
+    tokens: [],
+    grants: [{ ...accessGrant, revoked_at: 1 }],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  marketAPI.removeGrantRecord = async (id) => {
+    assert.equal(id, accessGrant.id)
+    state.grants = []
+    return null
+  }
+  await act(async () => {
+    history.open = true
+    button(history, 'Delete authorization').click()
+    await flush()
+  })
+  await waitFor(
+    () => !container.querySelector('[data-testid="market-revoked-records"]')
+  )
+  assert.equal(
+    element<HTMLElement>(
+      container,
+      '[data-testid="market-client-list"]'
+    ).querySelectorAll('article').length,
+    0
+  )
+})
+
+test('a revoked token can leave history and an unrevoked expired token still requires revocation', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = {
+    tokens: [
+      { ...record, revoked_at: 1 },
+      {
+        ...record,
+        id: 'expired-token',
+        client_id: 'expired-client',
+        expires_at: 1,
+      },
+    ],
+    grants: [],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  const current = element<HTMLElement>(
+    container,
+    '[data-testid="market-client-list"]'
+  )
+  assert.equal(current.textContent?.includes('expired-client'), true)
+  assert.equal(current.textContent?.includes('my-agent'), false)
+  assert.equal(button(current, 'Revoke').disabled, false)
+  assert.equal(current.textContent?.includes('Delete connection token'), false)
+  marketAPI.removeTokenRecord = async (id) => {
+    assert.equal(id, record.id)
+    state.tokens = state.tokens.filter((row) => row.id !== id)
+    return null
+  }
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  await act(async () => {
+    history.open = true
+    button(history, 'Delete connection token').click()
+    await flush()
+  })
+  await waitFor(
+    () => !container.querySelector('[data-testid="market-revoked-records"]')
+  )
+  assert.equal(current.textContent?.includes('expired-client'), true)
+})
+
+test('setup from revoked history chooses the same client without restoring or creating access', async () => {
+  const chosen: string[] = []
+  const { container, cache } = await mount((id) => chosen.push(id))
+  const state = {
+    tokens: [record],
+    grants: [{ ...accessGrant, revoked_at: 1 }],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  assert.equal(
+    history.textContent?.includes('Delete client'),
+    false,
+    'an active token blocks whole-client deletion'
+  )
+  await act(async () => {
+    history.open = true
+    button(history, 'Set up again').click()
+  })
+  assert.deepEqual(chosen, ['my-agent'])
+  assert.equal(state.grants[0].revoked_at, 1)
+})
+
+test('deleting a revoked client removes its history and loaded-tool group together', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = {
+    tokens: [{ ...record, revoked_at: 1 }],
+    grants: [{ ...accessGrant, revoked_at: 1 }],
+    installations: [
+      { client_id: 'my-agent', tool_id: 'lookup', version_id: 'version-test' },
+    ],
+  }
+  await clientRecords(cache, state)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  marketAPI.removeClient = async (id) => {
+    assert.equal(id, 'my-agent')
+    state.tokens = []
+    state.grants = []
+    state.installations = []
+    return {
+      client_id: id,
+      tokens_hidden: 1,
+      grants_hidden: 1,
+      tools_unloaded: 1,
+    }
+  }
+  await act(async () => {
+    history.open = true
+    button(history, 'Delete client').click()
+    await flush()
+  })
+  await waitFor(
+    () => !container.querySelector('[data-testid="market-revoked-records"]')
+  )
+  assert.equal(
+    element<HTMLElement>(
+      container,
+      '[data-testid="market-client-list"]'
+    ).querySelectorAll('article').length,
+    0
+  )
+})
+
+test('failed record removal keeps revoked history visible for retry', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = {
+    tokens: [],
+    grants: [{ ...accessGrant, revoked_at: 1 }],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  marketAPI.removeGrantRecord = async () => {
+    throw new Error('fixture removal failure')
+  }
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  await act(async () => {
+    history.open = true
+    button(history, 'Delete authorization').click()
+    await flush()
+  })
+  await waitFor(() => container.querySelector('[role="alert"]') !== null)
+  assert.equal(history.querySelectorAll('article').length, 1)
+  assert.equal(button(history, 'Delete authorization').disabled, false)
+})
 
 test('editing a one-credit budget preserves raw quota across account currency changes', async () => {
   const { container, cache } = await mount(() => {})

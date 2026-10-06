@@ -186,7 +186,7 @@ function ConnectionWorkspace({
     tokens.isError || grants.isError || installations.isError || budgets.isError
   const accessReady =
     tokens.isSuccess && grants.isSuccess && installations.isSuccess
-  const groups = useMemo(() => {
+  const savedGroups = useMemo(() => {
     const rows = new Map<string, ClientAccess>()
     const ensure = (id: string) => {
       let row = rows.get(id)
@@ -203,6 +203,30 @@ function ConnectionWorkspace({
     }
     return [...rows].sort(([a], [b]) => a.localeCompare(b))
   }, [tokens.data, grants.data, installations.data])
+  const groups = savedGroups
+    .map(([id, group]): [string, ClientAccess] => [
+      id,
+      {
+        tokens: group.tokens.filter((row) => !row.revoked_at),
+        grants: group.grants.filter((row) => !row.revoked_at),
+        installations: group.installations,
+      },
+    ])
+    .filter(
+      ([, group]) =>
+        group.tokens.length + group.grants.length + group.installations.length >
+        0
+    )
+  const revokedGroups = savedGroups
+    .map(([id, group]): [string, ClientAccess] => [
+      id,
+      {
+        tokens: group.tokens.filter((row) => !!row.revoked_at),
+        grants: group.grants.filter((row) => !!row.revoked_at),
+        installations: [],
+      },
+    ])
+    .filter(([, group]) => group.tokens.length + group.grants.length > 0)
   const errorKeys: Record<string, MarketConnectionCopyKey> = {
     TOOL_MARKET_BUDGET: 'budgetError',
     TOOL_MARKET_BALANCE: 'balanceError',
@@ -223,6 +247,189 @@ function ConnectionWorkspace({
     action.reset()
     document.getElementById('budget-limit')?.focus()
   }
+
+  const renderClientGroups = (rows: typeof groups, history = false) =>
+    rows.map(([id, group]) => {
+      const saved =
+        savedGroups.find(([clientID]) => clientID === id)?.[1] ?? group
+      const allRevoked =
+        saved.tokens.every((row) => !!row.revoked_at) &&
+        saved.grants.every((row) => !!row.revoked_at)
+      const hasAccess =
+        group.tokens.some((row) => !row.revoked_at) ||
+        group.grants.some((row) => !row.revoked_at) ||
+        group.installations.length > 0
+      return (
+        <article
+          key={id}
+          className='bg-card min-w-0 space-y-4 rounded-xl border p-4 sm:p-5'
+        >
+          <div className='flex flex-wrap items-start justify-between gap-3'>
+            <h4 className='min-w-0 flex-1 basis-40 font-semibold break-all'>
+              {id}
+            </h4>
+            {onChooseClient && (
+              <Button variant='outline' onClick={() => onChooseClient(id)}>
+                {history ? t('Set up again') : m('chooseTools')}
+              </Button>
+            )}
+            {!history && isPersonalMarketClient(id) && hasAccess && (
+              <Button
+                variant='outline'
+                disabled={action.isPending || !accessReady}
+                onClick={() => {
+                  action.reset()
+                  setDisconnect(id)
+                }}
+              >
+                {m('disconnect')}
+              </Button>
+            )}
+            {isPersonalMarketClient(id) && allRevoked && (
+              <Button
+                variant='ghost'
+                disabled={action.isPending || !accessReady}
+                onClick={() =>
+                  action.mutate(async () => {
+                    await marketAPI.removeClient(id)
+                    if (issued?.record.client_id === id) setIssued(null)
+                  })
+                }
+              >
+                {t('Delete client')}
+              </Button>
+            )}
+          </div>
+          {group.tokens.map((token) => (
+            <div
+              key={token.id}
+              className='flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm'
+            >
+              <div className='min-w-0 space-y-2'>
+                <div className='flex flex-wrap gap-2'>
+                  <Badge
+                    variant={
+                      connectionStatus(token, now) === 'active'
+                        ? 'secondary'
+                        : 'outline'
+                    }
+                  >
+                    {m(connectionStatus(token, now))}
+                  </Badge>
+                  {token.can_invoke && (
+                    <Badge variant='outline'>{m('invoke')}</Badge>
+                  )}
+                  {token.can_manage && (
+                    <Badge variant='outline'>{m('manage')}</Badge>
+                  )}
+                  {!token.can_invoke && !token.can_manage && (
+                    <Badge variant='outline'>{m('readOnly')}</Badge>
+                  )}
+                </div>
+                <time
+                  className='text-muted-foreground text-xs'
+                  dateTime={new Date(token.expires_at * 1000).toISOString()}
+                >
+                  {new Date(token.expires_at * 1000).toLocaleString()}
+                </time>
+              </div>
+              <Button
+                variant='ghost'
+                disabled={action.isPending || !accessReady}
+                onClick={() =>
+                  action.mutate(async () => {
+                    if (token.revoked_at) {
+                      await marketAPI.removeTokenRecord(token.id)
+                    } else {
+                      await marketAPI.revokeToken(token.id)
+                    }
+                    if (issued?.record.id === token.id) setIssued(null)
+                  })
+                }
+              >
+                {token.revoked_at ? t('Delete connection token') : t('Revoke')}
+              </Button>
+            </div>
+          ))}
+          {(group.installations.length > 0 || group.grants.length > 0) && (
+            <details className='border-t pt-3 text-sm'>
+              <summary className='focus-visible:ring-ring cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
+                {t('Loaded tools and authorizations')}
+              </summary>
+              <div className='mt-3 space-y-4'>
+                {group.installations.map((item) => (
+                  <div
+                    key={`${item.tool_id}:${item.version_id}`}
+                    className='flex flex-wrap items-center justify-between gap-3'
+                  >
+                    <code className='text-muted-foreground min-w-0 text-xs break-all'>
+                      {item.tool_id}
+                    </code>
+                    <Button
+                      variant='outline'
+                      disabled={action.isPending || !accessReady}
+                      onClick={() =>
+                        action.mutate(async () => {
+                          await marketAPI.install(item, false)
+                        })
+                      }
+                    >
+                      {t('Unload')}
+                    </Button>
+                  </div>
+                ))}
+                {group.grants.map((grant) => (
+                  <div key={grant.id} className='space-y-2 border-t pt-3'>
+                    <code className='text-muted-foreground block text-xs break-all'>
+                      {grant.tool_id}
+                    </code>
+                    <div className='flex flex-wrap items-center justify-between gap-3'>
+                      <div className='space-y-1'>
+                        <Badge variant='outline'>
+                          {m(connectionStatus(grant, now))}
+                        </Badge>
+                        <p className='tabular-nums'>
+                          {formatQuota(
+                            grant.spent_quota + grant.reserved_quota
+                          )}{' '}
+                          / {formatQuota(grant.max_total_quota)}
+                        </p>
+                        <p className='text-muted-foreground text-xs'>
+                          {t('Remaining successful calls')}:{' '}
+                          {Math.max(
+                            0,
+                            grant.max_calls -
+                              grant.successful_calls -
+                              grant.reserved_calls
+                          )}
+                        </p>
+                      </div>
+                      <Button
+                        variant='ghost'
+                        disabled={action.isPending || !accessReady}
+                        onClick={() =>
+                          action.mutate(async () => {
+                            if (grant.revoked_at) {
+                              await marketAPI.removeGrantRecord(grant.id)
+                            } else {
+                              await marketAPI.revokeGrant(grant.id)
+                            }
+                          })
+                        }
+                      >
+                        {grant.revoked_at
+                          ? t('Delete authorization')
+                          : t('Revoke authorization')}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </article>
+      )
+    })
 
   return (
     <div className='space-y-8'>
@@ -516,170 +723,20 @@ function ConnectionWorkspace({
               </p>
             </div>
           )}
-          {groups.map(([id, group]) => {
-            const hasAccess =
-              group.tokens.some((row) => !row.revoked_at) ||
-              group.grants.some((row) => !row.revoked_at) ||
-              group.installations.length > 0
-            return (
-              <article
-                key={id}
-                className='bg-card min-w-0 space-y-4 rounded-xl border p-4 sm:p-5'
-              >
-                <div className='flex flex-wrap items-start justify-between gap-3'>
-                  <h4 className='min-w-0 flex-1 basis-40 font-semibold break-all'>
-                    {id}
-                  </h4>
-                  {onChooseClient && (
-                    <Button
-                      variant='outline'
-                      onClick={() => onChooseClient(id)}
-                    >
-                      {m('chooseTools')}
-                    </Button>
-                  )}
-                  {isPersonalMarketClient(id) && hasAccess && (
-                    <Button
-                      variant='outline'
-                      disabled={action.isPending || !accessReady}
-                      onClick={() => {
-                        action.reset()
-                        setDisconnect(id)
-                      }}
-                    >
-                      {m('disconnect')}
-                    </Button>
-                  )}
-                </div>
-                {group.tokens.map((token) => (
-                  <div
-                    key={token.id}
-                    className='flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm'
-                  >
-                    <div className='min-w-0 space-y-2'>
-                      <div className='flex flex-wrap gap-2'>
-                        <Badge
-                          variant={
-                            connectionStatus(token, now) === 'active'
-                              ? 'secondary'
-                              : 'outline'
-                          }
-                        >
-                          {m(connectionStatus(token, now))}
-                        </Badge>
-                        {token.can_invoke && (
-                          <Badge variant='outline'>{m('invoke')}</Badge>
-                        )}
-                        {token.can_manage && (
-                          <Badge variant='outline'>{m('manage')}</Badge>
-                        )}
-                        {!token.can_invoke && !token.can_manage && (
-                          <Badge variant='outline'>{m('readOnly')}</Badge>
-                        )}
-                      </div>
-                      <time
-                        className='text-muted-foreground text-xs'
-                        dateTime={new Date(
-                          token.expires_at * 1000
-                        ).toISOString()}
-                      >
-                        {new Date(token.expires_at * 1000).toLocaleString()}
-                      </time>
-                    </div>
-                    <Button
-                      variant='ghost'
-                      disabled={
-                        !!token.revoked_at || action.isPending || !accessReady
-                      }
-                      onClick={() =>
-                        action.mutate(async () => {
-                          await marketAPI.revokeToken(token.id)
-                          if (issued?.record.id === token.id) setIssued(null)
-                        })
-                      }
-                    >
-                      {t('Revoke')}
-                    </Button>
-                  </div>
-                ))}
-                {(group.installations.length > 0 ||
-                  group.grants.length > 0) && (
-                  <details className='border-t pt-3 text-sm'>
-                    <summary className='focus-visible:ring-ring cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
-                      {t('Loaded tools and authorizations')}
-                    </summary>
-                    <div className='mt-3 space-y-4'>
-                      {group.installations.map((item) => (
-                        <div
-                          key={`${item.tool_id}:${item.version_id}`}
-                          className='flex flex-wrap items-center justify-between gap-3'
-                        >
-                          <code className='text-muted-foreground min-w-0 text-xs break-all'>
-                            {item.tool_id}
-                          </code>
-                          <Button
-                            variant='outline'
-                            disabled={action.isPending || !accessReady}
-                            onClick={() =>
-                              action.mutate(async () => {
-                                await marketAPI.install(item, false)
-                              })
-                            }
-                          >
-                            {t('Unload')}
-                          </Button>
-                        </div>
-                      ))}
-                      {group.grants.map((grant) => (
-                        <div key={grant.id} className='space-y-2 border-t pt-3'>
-                          <code className='text-muted-foreground block text-xs break-all'>
-                            {grant.tool_id}
-                          </code>
-                          <div className='flex flex-wrap items-center justify-between gap-3'>
-                            <div className='space-y-1'>
-                              <Badge variant='outline'>
-                                {m(connectionStatus(grant, now))}
-                              </Badge>
-                              <p className='tabular-nums'>
-                                {formatQuota(
-                                  grant.spent_quota + grant.reserved_quota
-                                )}{' '}
-                                / {formatQuota(grant.max_total_quota)}
-                              </p>
-                              <p className='text-muted-foreground text-xs'>
-                                {t('Remaining successful calls')}:{' '}
-                                {Math.max(
-                                  0,
-                                  grant.max_calls -
-                                    grant.successful_calls -
-                                    grant.reserved_calls
-                                )}
-                              </p>
-                            </div>
-                            <Button
-                              variant='ghost'
-                              disabled={
-                                !!grant.revoked_at ||
-                                action.isPending ||
-                                !accessReady
-                              }
-                              onClick={() =>
-                                action.mutate(async () => {
-                                  await marketAPI.revokeGrant(grant.id)
-                                })
-                              }
-                            >
-                              {t('Revoke authorization')}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
-              </article>
-            )
-          })}
+          <div data-testid='market-client-list' className='space-y-4'>
+            {renderClientGroups(groups)}
+          </div>
+          {accessReady && revokedGroups.length > 0 && (
+            <details
+              data-testid='market-revoked-records'
+              className='space-y-4 border-t pt-3'
+            >
+              <summary className='focus-visible:ring-ring cursor-pointer rounded-sm py-2 text-sm font-medium outline-none focus-visible:ring-2'>
+                {t('Revoked records')}
+              </summary>
+              {renderClientGroups(revokedGroups, true)}
+            </details>
+          )}
         </section>
       </div>
 

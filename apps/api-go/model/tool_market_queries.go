@@ -168,7 +168,7 @@ func ListToolMarketAccountResources(userID int, kind string, offset, limit int) 
 	switch kind {
 	case "tokens":
 		rows := []ToolMarketToken{}
-		err := q.Where("user_id = ?", userID).Order("created_at DESC, id").Find(&rows).Error
+		err := q.Where("user_id = ?", userID).Scopes(marketVisibleAccountRecords(userID, toolMarketTokenHiddenAction)).Order("created_at DESC, id").Find(&rows).Error
 		return rows, err
 	case "services":
 		rows := []struct {
@@ -179,7 +179,7 @@ func ListToolMarketAccountResources(userID int, kind string, offset, limit int) 
 		return rows, err
 	case "grants":
 		rows := []ToolMarketGrant{}
-		err := q.Where("user_id = ?", userID).Order("created_at DESC, id").Find(&rows).Error
+		err := q.Where("user_id = ?", userID).Scopes(marketVisibleAccountRecords(userID, toolMarketGrantHiddenAction)).Order("created_at DESC, id").Find(&rows).Error
 		return rows, err
 	case "installations":
 		rows := []ToolMarketInstallation{}

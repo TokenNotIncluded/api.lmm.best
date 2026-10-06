@@ -23,7 +23,6 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import { aboutTranslations } from './about-luna-copy.mjs'
-import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
 import { toolMarketDeleteLunaCopy } from './tool-market-delete-luna-copy.mjs'
 import { acquisitionCopy as acquisitionLinkCopy } from './acquisition-copy.mjs'
 import { aiDirectoryCopy } from './ai-directory-copy.mjs'
@@ -63,6 +62,7 @@ import { storeEmptyStateCopy } from './store-empty-state-copy.mjs'
 import { storePaymentCategoryLunaCopy } from './store-payment-category-luna-copy.mjs'
 import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
 import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
+import { toolMarketClientRecordsLunaCopy } from './tool-market-client-records-luna-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
 import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
@@ -12006,6 +12006,7 @@ async function main() {
   }
 
   // Allow scoped additions without overwriting unrelated in-progress translations.
+  const clientRecordsOnly = process.argv.includes('--only-client-records')
   const paymentDecimalOnly = process.argv.includes('--only-payment-decimal')
   const merchantStoreOnly = process.argv.includes('--only-merchant-store')
   const paymentOnly = process.argv.includes('--only-payment-pricing')
@@ -12040,6 +12041,7 @@ async function main() {
     '--only-responses-websocket'
   )
   const scoped =
+    clientRecordsOnly ||
     paymentDecimalOnly ||
     merchantStoreOnly ||
     moderationOnly ||
@@ -12148,7 +12150,11 @@ async function main() {
                       : entries
   let totalAdded = 0
   for (const [locale, baseTranslations] of Object.entries(
-    merchantStoreOnly ? merchantStoreCopy : selectedEntries
+    clientRecordsOnly
+      ? toolMarketClientRecordsLunaCopy
+      : merchantStoreOnly
+        ? merchantStoreCopy
+        : selectedEntries
   )) {
     const translations = scoped
       ? baseTranslations
