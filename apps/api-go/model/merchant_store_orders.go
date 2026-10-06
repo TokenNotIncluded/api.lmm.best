@@ -106,6 +106,8 @@ type MerchantStoreClaim struct {
 	DeliveryTemplate   string              `json:"delivery_template"`
 	Quantity           int                 `json:"quantity"`
 	Items              []string            `json:"items"`
+	ItemStockIDs       []string            `json:"item_stock_ids"`
+	ItemPositions      []int               `json:"item_positions"`
 }
 
 func fmtStoreActor(id int) string { return strconv.Itoa(id) }
@@ -806,6 +808,10 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 		if len(rows)+int(refunded) != o.Quantity {
 			return ErrMerchantStoreConflict
 		}
+		positions, e := storeOrderItemPositions(tx, o)
+		if e != nil {
+			return e
+		}
 		details, e := storeOrderPickupDetails(tx, o)
 		if e != nil {
 			return e
@@ -828,13 +834,15 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 		}
 		result = MerchantStoreClaim{OrderID: o.ID, TradeNo: o.TradeNo, ProductID: o.ProductID,
 			ProductTitle: o.ProductTitle, ProductDescription: details.ProductDescription,
-			ProductLinks: details.ProductLinks, Quantity: len(rows), VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows))}
+			ProductLinks: details.ProductLinks, Quantity: len(rows), VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows)), ItemStockIDs: make([]string, 0, len(rows)), ItemPositions: make([]int, 0, len(rows))}
 		for _, row := range rows {
 			value, e := storeDecrypt("stock", row.ProductID+":"+row.ID, row.Ciphertext)
 			if e != nil {
 				return e
 			}
 			result.Items = append(result.Items, value)
+			result.ItemStockIDs = append(result.ItemStockIDs, row.ID)
+			result.ItemPositions = append(result.ItemPositions, positions[row.ID])
 		}
 		if o.ClaimedAt == 0 {
 			o.ClaimedAt = common.GetTimestamp()

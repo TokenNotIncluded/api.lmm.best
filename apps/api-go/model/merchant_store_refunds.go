@@ -201,6 +201,24 @@ func MerchantStoreCompletedRefundQuantity(tx *gorm.DB, o *MerchantStoreOrder) (i
 	}
 	return n, e
 }
+
+// Stable original order ordinals include retired cards. Inventory positions
+// belong to the product and can be sparse/random; they are not item numbers.
+func storeOrderItemPositions(tx *gorm.DB, o *MerchantStoreOrder) (map[string]int, error) {
+	var rows []MerchantStoreStock
+	if e := storeOrderStock(tx, o).Select("id").Where("state IN ?", []string{"delivered", "refunded"}).Order("position ASC,id ASC").Find(&rows).Error; e != nil {
+		return nil, e
+	}
+	if len(rows) != o.Quantity {
+		return nil, ErrMerchantStoreConflict
+	}
+	result := make(map[string]int, len(rows))
+	for index, row := range rows {
+		result[row.ID] = index + 1
+	}
+	return result, nil
+}
+
 func storeRefundHeldStockIDs(tx *gorm.DB, o *MerchantStoreOrder) (map[string]bool, error) {
 	ids := []string{}
 	active := tx.Model(&MerchantStoreRefund{}).Select("id").Where("order_id = ? AND status IN ?", o.ID, []string{"awaiting_provider", "reconciliation_required"})
@@ -273,8 +291,12 @@ func storeRefundView(tx *gorm.DB, o *MerchantStoreOrder) (*MerchantStoreRefundVi
 			}
 		}
 	}
+	positions, e := storeOrderItemPositions(tx, o)
+	if e != nil {
+		return nil, e
+	}
 	for _, s := range items {
-		v.EligibleItems = append(v.EligibleItems, MerchantStoreRefundEligibleItem{s.ID, s.Position})
+		v.EligibleItems = append(v.EligibleItems, MerchantStoreRefundEligibleItem{s.ID, int64(positions[s.ID])})
 	}
 	if b != nil {
 		total, done, left := b.AmountMinor, u.nativeCompleted, b.AmountMinor-u.nativeCompleted-u.nativeReserved

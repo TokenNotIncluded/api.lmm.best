@@ -25,7 +25,10 @@ accepts integer `amount_quota` for balance payments, or integer `amount_minor`
 for a payment method with a verified native basis. Fields for other modes are
 rejected. Retry with the same key and exact typed body; a different body conflicts.
 Read `max_quantity`, eligible item IDs and remaining totals from the authorized
-view. Item IDs never include plaintext card data.
+view. Item IDs never include plaintext card data. Eligible item positions are stable
+original order ordinals, including retired cards, not product inventory positions.
+The authorized Claim response pairs `items` with `item_stock_ids` and
+`item_positions`; public claim metadata does not expose these item IDs.
 
 Anonymous pickup access uses `POST /api/store/pickup/refunds/read` with
 `order_id`, private `token` and optional `code`; requesting adds `input` at
