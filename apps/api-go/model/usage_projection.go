@@ -167,7 +167,7 @@ func (p *UsageProjector) loadUsageReversals(tx *gorm.DB, plan usagePlan, selecte
 		}
 		var source ViolationFeeRecord
 		id, err := strconv.ParseUint(base.SourceID, 10, 64)
-		if err != nil || id == 0 || seen[base.SourceID] || !selected[base.UserID] || json.Unmarshal(base.Source, &source) != nil || uint64(source.ID) != id || source.UserID != base.UserID || source.ChargedQuota != base.OriginalQuota || source.ChargedQuota <= 0 || source.ChargedQuota > common.MaxWalletQuota || source.Status != ViolationFeeRecordStatusCharged || source.ReversedAt != 0 || source.CreatedAt > plan.SnapshotAt {
+		if err != nil || id == 0 || strconv.FormatUint(id, 10) != base.SourceID || seen[base.SourceID] || !selected[base.UserID] || json.Unmarshal(base.Source, &source) != nil || uint64(source.ID) != id || source.UserID != base.UserID || source.ChargedQuota != base.OriginalQuota || source.ChargedQuota <= 0 || source.ChargedQuota > common.MaxWalletQuota || source.Status != ViolationFeeRecordStatusCharged || source.ReversedAt != 0 || source.CreatedAt > plan.SnapshotAt {
 			return usageError("invalid historical fee reversal basis")
 		}
 		seen[base.SourceID] = true

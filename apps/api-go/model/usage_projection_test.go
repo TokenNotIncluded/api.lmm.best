@@ -219,3 +219,29 @@ func TestUsageProjectionRejectsUnexplainedCounterDecrease(t *testing.T) {
 	require.Equal(t, before.NormalizedUsedQuota+100, charged.NormalizedUsedQuota)
 	require.Equal(t, before.NormalizedUsedQuota, refunded.NormalizedUsedQuota)
 }
+
+func TestUsageProjectionRejectsAliasOfHistoricalReversalID(t *testing.T) {
+	plan := usageTestPlan()
+	plan["divisor"] = "2"
+	plan["user_sources"] = []map[string]any{{"id": 1, "used_quota": 20}}
+	source := map[string]any{"id": 7, "user_id": 1, "charged_quota": 4, "created_at": 900, "status": "charged", "reversed_at": 0, "error_code": "legacy.violation"}
+	basis := map[string]any{"kind": "violation_fee_refund", "source_id": "7", "user_id": 1, "original_quota": 4, "rebased_quota": 2, "source": source}
+	plan["other_credit_bases"] = []map[string]any{basis}
+	db := usageTestDB(t, plan)
+	require.NoError(t, db.AutoMigrate(&ViolationFeeRecord{}))
+	require.NoError(t, db.Create(&ViolationFeeRecord{ID: 7, UserID: 1, RequestID: "alias-refund", ChargedQuota: 4, CreatedAt: 900, Status: ViolationFeeRecordStatusReversed, ReversedAt: 1001, ReversedBy: 99, ErrorCode: "legacy.violation"}).Error)
+	projector, err := LoadUsageProjector(db)
+	require.NoError(t, err)
+	got, err := projector.User(1, 16)
+	require.NoError(t, err)
+	require.Equal(t, 8, got.NormalizedUsedQuota)
+	alias := map[string]any{"kind": "violation_fee_refund", "source_id": "07", "user_id": 1, "original_quota": 4, "rebased_quota": 2, "source": source}
+	for _, bases := range [][]map[string]any{{basis, alias}, {alias, basis}, {alias}} {
+		plan["other_credit_bases"] = bases
+		encoded, err := json.Marshal(plan)
+		require.NoError(t, err)
+		require.NoError(t, db.Exec("UPDATE wallet_credit_rebases SET plan=?", string(encoded)).Error)
+		_, err = LoadUsageProjector(db)
+		require.ErrorIs(t, err, ErrUsageProjectionUnavailable)
+	}
+}
