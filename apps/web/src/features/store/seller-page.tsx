@@ -40,6 +40,7 @@ import {
   validateComposedItems,
 } from './delivery-template'
 import { StoreInventoryComposer } from './inventory-composer'
+import { StoreInventoryImportPreview } from './inventory-import-preview'
 import { StoreLinkPresetChooser } from './link-presets'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
@@ -1365,17 +1366,22 @@ function StoreInventoryContent({
   const template = variant?.template ?? product.template
   const composed = template === 'custom-text' || structuredTemplate(template)
   const [composedItems, setComposedItems] = useState<string[]>([])
+  const [composerDirty, setComposerDirty] = useState(false)
   useEffect(() => onBusyChange(busy), [busy, onBusyChange])
   useEffect(
-    () => onDirtyChange(text.length > 0 || composedItems.length > 0),
-    [text, composedItems, onDirtyChange]
+    () =>
+      onDirtyChange(
+        text.length > 0 || composedItems.length > 0 || composerDirty
+      ),
+    [text, composedItems, composerDirty, onDirtyChange]
   )
-  let count = composed ? composedItems.length : 0
+  let previewItems = composed ? composedItems : []
   try {
-    if (!composed) count = parseInventoryText(text).length
+    if (!composed) previewItems = parseInventoryText(text)
   } catch {
     /* submit validates size */
   }
+  const count = previewItems.length
   async function loadFile(file?: File) {
     if (!file) return
     try {
@@ -1473,6 +1479,7 @@ function StoreInventoryContent({
           items={composedItems}
           onChange={setComposedItems}
           disabled={busy}
+          onDraftChange={setComposerDirty}
         />
       ) : (
         <Textarea
@@ -1483,8 +1490,16 @@ function StoreInventoryContent({
           placeholder={t('One item per line')}
         />
       )}
+      <StoreInventoryImportPreview
+        items={previewItems}
+        target={variant?.name || t('Historic/default variant')}
+        disabled={busy}
+        onRemoveDuplicates={(items) => {
+          if (composed) setComposedItems(items)
+          else setText(items.join('\n'))
+        }}
+      />
       <p className='text-muted-foreground text-xs'>
-        {t('{{count}} items ready to import', { count })} ·{' '}
         {t('Maximum 10,000 items or 2 MB per import.')}
       </p>
       <Button disabled={!count || busy} onClick={() => void save()}>

@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -24,16 +24,23 @@ export function StoreInventoryComposer({
   items,
   onChange,
   disabled,
+  onDraftChange,
 }: {
   template: StoreDeliveryTemplate
   items: string[]
   onChange: (items: string[]) => void
   disabled: boolean
+  onDraftChange?: (dirty: boolean) => void
 }) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
   const [fields, setFields] = useState<Record<string, string>>({})
   const [error, setError] = useState<unknown>(null)
+  useEffect(() => {
+    onDraftChange?.(
+      text.length > 0 || Object.values(fields).some((value) => value.length > 0)
+    )
+  }, [text, fields, onDraftChange])
   function add() {
     setError(null)
     try {
