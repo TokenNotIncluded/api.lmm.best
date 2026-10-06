@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -199,4 +200,41 @@ func TestMerchantStoreClaimRouterRevokedCookieCannotReuseMetadataPermission(t *t
 	w := merchantStoreCookieRouterRequest(f, http.MethodPost, path, "", false)
 	require.Equal(t, 403, w.Code, w.Body.String())
 	require.NotContains(t, w.Body.String(), "PRIVATE-CARD")
+}
+
+func TestMerchantStoreClaimRouterExactPathInEveryAuthenticationMode(t *testing.T) {
+	f := merchantStoreCookieRouter(t)
+	// A public pickup protected only by a pickup code still uses the exact new
+	// route boundary, even though it intentionally needs no login credential.
+	require.NoError(t, f.db.Model(f.order).Update("pickup_login_required", false).Error)
+	prefix := "/api/user/auth/store-claim/"
+	encoded := fmt.Sprintf("%s%%%02X%s", prefix, f.pickupToken[0], f.pickupToken[1:])
+	for _, auth := range []struct {
+		name   string
+		bearer bool
+		cookie bool
+	}{{"bearer", true, false}, {"cookie", false, true}, {"anonymous_code_only", false, false}} {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			for _, path := range []string{encoded, prefix + f.pickupToken[:42], prefix + f.pickupToken + "/extra"} {
+				req := httptest.NewRequest(method, "https://api.example.com"+path, strings.NewReader(`{"pickup_code":"private-pickup-code"}`))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Sec-Fetch-Site", "same-origin")
+				if method == http.MethodPost {
+					req.Header.Set("Origin", "https://api.example.com")
+				}
+				if auth.bearer {
+					req.Header.Set("Authorization", "Bearer "+f.buyerPAT)
+				}
+				if auth.cookie {
+					req.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: f.bundle.RefreshToken})
+				}
+				w := httptest.NewRecorder()
+				f.engine.ServeHTTP(w, req)
+				require.NotEqual(t, 200, w.Code, auth.name+" "+method+" "+path)
+				require.NotContains(t, w.Body.String(), "PRIVATE-CARD")
+			}
+		}
+	}
+	response := merchantStoreCookieRouterRequest(f, http.MethodGet, prefix+f.pickupToken+"?view=metadata", "", false)
+	merchantStoreCookieRouterSatisfied(t, response, true)
 }

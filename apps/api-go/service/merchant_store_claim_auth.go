@@ -16,6 +16,23 @@ import (
 
 const merchantStoreCookieClaimPrefix = "/api/user/auth/store-claim/"
 
+// ValidateMerchantStoreClaimPath applies the same exact endpoint boundary to
+// bearer, cookie and anonymous pickup modes. Encoded aliases are not accepted.
+func ValidateMerchantStoreClaimPath(request *http.Request, token string) error {
+	if request == nil || request.URL == nil ||
+		(request.Method != http.MethodGet && request.Method != http.MethodPost) ||
+		len(token) != 43 || request.URL.Path != merchantStoreCookieClaimPrefix+token ||
+		request.URL.EscapedPath() != request.URL.Path {
+		return model.ErrMerchantStoreDenied
+	}
+	for _, r := range token {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+			return model.ErrMerchantStoreDenied
+		}
+	}
+	return nil
+}
+
 // MerchantStoreClaimHasAuthorization distinguishes an absent header from a
 // malformed or empty credential. Neither may be replaced by a refresh cookie.
 func MerchantStoreClaimHasAuthorization(request *http.Request) bool {
@@ -93,16 +110,8 @@ func ClaimMerchantStoreOrderWithCookie(request *http.Request, token, code string
 }
 
 func merchantStoreClaimCookieCredential(request *http.Request, token string) (string, string, error) {
-	if request == nil || request.URL == nil || MerchantStoreClaimHasAuthorization(request) ||
-		(request.Method != http.MethodGet && request.Method != http.MethodPost) ||
-		len(token) != 43 || request.URL.Path != merchantStoreCookieClaimPrefix+token ||
-		request.URL.EscapedPath() != request.URL.Path || !merchantStoreClaimSameOrigin(request) {
+	if ValidateMerchantStoreClaimPath(request, token) != nil || MerchantStoreClaimHasAuthorization(request) || !merchantStoreClaimSameOrigin(request) {
 		return "", "", model.ErrMerchantStoreDenied
-	}
-	for _, r := range token {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
-			return "", "", model.ErrMerchantStoreDenied
-		}
 	}
 	var raw string
 	count := 0

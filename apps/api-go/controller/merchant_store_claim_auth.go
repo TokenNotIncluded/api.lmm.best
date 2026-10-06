@@ -8,6 +8,10 @@ import (
 
 func InspectMerchantStoreSessionClaim(c *gin.Context) {
 	c.Header("Referrer-Policy", "no-referrer")
+	if err := service.ValidateMerchantStoreClaimPath(c.Request, c.Param("token")); err != nil {
+		merchantStoreRespond(c, nil, err)
+		return
+	}
 	metadata, err := model.InspectMerchantStoreClaim(c.Param("token"))
 	if err != nil {
 		merchantStoreRespond(c, nil, err)
@@ -24,6 +28,10 @@ func InspectMerchantStoreSessionClaim(c *gin.Context) {
 
 func ClaimMerchantStoreSessionOrder(c *gin.Context) {
 	c.Header("Referrer-Policy", "no-referrer")
+	if err := service.ValidateMerchantStoreClaimPath(c.Request, c.Param("token")); err != nil {
+		merchantStoreRespond(c, nil, err)
+		return
+	}
 	var input struct {
 		PickupCode string `json:"pickup_code"`
 	}
