@@ -1,17 +1,24 @@
 name: Plugin compatibility
-
 on:
   push:
-    branches: [chore/plugin-compat-20261006]
-    paths: [.github/workflows/plugin-compatibility.yml]
-
+    branches: [main, chore/plugin-compat-20261006]
+    paths: ['packages/**', '.gitmodules', '.github/workflows/plugin-compatibility.yml']
+  pull_request:
+    paths: ['packages/**', '.gitmodules', '.github/workflows/plugin-compatibility.yml']
+  workflow_dispatch:
 permissions:
   contents: read
-
+concurrency:
+  group: plugin-compatibility-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  inspect:
+  plugin:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [pi-lmm-provider, dsh-lmm-provider, codewhale-lmm-provider, opencode-lmm-auth]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,39 +27,63 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Record pinned and latest submodule revisions
-        shell: bash
+      - name: Validate the exact pinned plugin source
+        working-directory: packages/${{ matrix.plugin }}
+        env:
+          PLUGIN: ${{ matrix.plugin }}
         run: |
           set -euo pipefail
-          mkdir -p compatibility-inputs
-          git rev-parse HEAD > compatibility-inputs/parent-head.txt
-          git ls-tree HEAD packages/ apps/ > compatibility-inputs/parent-tree.txt
-          git submodule status --recursive > compatibility-inputs/pinned-submodules.txt
-          git submodule foreach --recursive 'git fetch --depth=1 origin HEAD && git checkout --detach FETCH_HEAD'
-          git submodule status --recursive > compatibility-inputs/latest-submodules.txt
-          git submodule foreach 'git log -1 --format="%H %cI %s"' > compatibility-inputs/latest-commits.txt
-      - name: Collect published host metadata and source packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p compatibility-inputs/upstream
-          for package in @earendil-works/pi-ai @earendil-works/pi-coding-agent @deepseek-ai/dsh @deepseek-ai/dsh-llm @deepseek-ai/dsh-llm-pi-ai @deepseek-ai/dsh-credentials @deepseek-ai/dsh-authorization @deepseek-ai/dsh-client-connection @deepseek-ai/cordis @opencode-ai/plugin @opencode-ai/sdk opencode-ai; do
-            name="${package//@/}"
-            name="${name//\//-}"
-            npm view "$package" dist-tags version engines repository --json > "compatibility-inputs/upstream/$name.json"
-            npm pack "$package" --ignore-scripts --pack-destination compatibility-inputs/upstream
-          done
-          git clone --depth 1 https://github.com/Hmbown/Codewhale.git compatibility-inputs/upstream/Codewhale
-          git -C compatibility-inputs/upstream/Codewhale log -1 --format='%H %cI %s' > compatibility-inputs/upstream/codewhale-head.txt
-      - name: Package source snapshot without Git metadata
-        if: always()
-        shell: bash
-        run: |
-          tar --exclude=.git --exclude=node_modules -czf "$RUNNER_TEMP/plugin-compatibility-inputs.tar.gz" packages apps/coweft .gitmodules scripts .github compatibility-inputs
-      - uses: actions/upload-artifact@v4
-        if: always()
+          if test -f package-lock.json; then npm ci --ignore-scripts; fi
+          case "$PLUGIN" in
+            pi-lmm-provider)
+              npm run typecheck
+              npm test
+              npm run pack:check
+              npm run test:pi
+              ;;
+            dsh-lmm-provider)
+              npm install --global pnpm@latest
+              npm run typecheck
+              npm test
+              npm run pack:check
+              npm run test:host
+              ;;
+            codewhale-lmm-provider)
+              npm run check
+              npm test
+              npm run pack:check
+              if node -e 'process.exit(JSON.parse(require("node:fs").readFileSync("package.json")).scripts["test:host"] ? 0 : 1)'; then
+                npm install --prefix "$RUNNER_TEMP/codewhale-host" codewhale@latest
+                export LMM_CODEWHALE_BIN=$(HOST_ROOT="$RUNNER_TEMP/codewhale-host/node_modules/codewhale" node --input-type=commonjs -e 'console.log(require(process.env.HOST_ROOT + "/scripts/install.js").getBinaryPath("codewhale"))')
+                npm run test:host
+              fi
+              ;;
+            opencode-lmm-auth)
+              npm run build
+              git diff --exit-code -- dist
+              npm run typecheck
+              npm test
+              npm run pack:check
+              npm install --prefix "$RUNNER_TEMP/opencode-host" opencode-ai@1.18.34
+              export OPENCODE_BIN="$RUNNER_TEMP/opencode-host/node_modules/opencode-ai/bin/opencode.exe"
+              npm run test:host
+              npm run test:integration
+              ;;
+          esac
+  installer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: plugin-compatibility-inputs
-          path: ${{ runner.temp }}/plugin-compatibility-inputs.tar.gz
-          retention-days: 3
-          if-no-files-found: error
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check installer contracts
+        working-directory: packages/lmm-scripts
+        run: |
+          set -euo pipefail
+          for script in *.sh; do bash -n "$script"; done
+          node --test test-codewhale.mjs test-opencode.mjs test-opencode-entry.mjs
