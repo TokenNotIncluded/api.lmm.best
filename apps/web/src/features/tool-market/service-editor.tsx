@@ -495,6 +495,17 @@ export function ServiceEditor({
                   type='password'
                   autoComplete='new-password'
                   aria-label={t('Service credential')}
+                  placeholder={
+                    credentials.data?.configured &&
+                    credentials.data.mode === authMode &&
+                    initial?.version.endpoint === endpoint
+                      ? t(
+                          'Saved. Leave empty to keep it, or enter a replacement.'
+                        )
+                      : authMode === 'bearer'
+                        ? t('Paste a Bearer token')
+                        : t('Paste an API key')
+                  }
                   value={secret}
                   maxLength={4096}
                   disabled={pending || !credentialsReady}

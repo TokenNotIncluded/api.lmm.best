@@ -59,6 +59,7 @@ import { rssCopy } from './rss-copy.mjs'
 import { storeConstellationLunaCopy } from './store-constellation-luna-copy.mjs'
 import { storePaymentCategoryLunaCopy } from './store-payment-category-luna-copy.mjs'
 import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
+import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
 import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
@@ -13238,6 +13239,10 @@ for (const [locale, values] of Object.entries(storePaymentCategoryLunaCopy)) {
 }
 
 for (const [locale, values] of Object.entries(storeQuantityLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(toolMarketAuthLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
