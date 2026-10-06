@@ -37,6 +37,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -530,6 +531,51 @@ function ToolMarketWorkspace() {
                           {marketStatus(current.version.status, t)}
                         </Badge>
                       </div>
+                      {((tab === 'mine' &&
+                        current.service.owner_id === user?.id) ||
+                        (tab === 'review' && (user?.role ?? 0) >= 10)) && (
+                        <MarketAIReviewHistory
+                          source='tool'
+                          id={current.service.id}
+                          versionId={current.version.id}
+                          onApplied={(approved) => {
+                            void cache.invalidateQueries({
+                              queryKey: [...key, 'services'],
+                            })
+                            void cache.invalidateQueries({
+                              queryKey: [...key, 'reviews'],
+                            })
+                            if (approved && selected.mode !== 'published') {
+                              const retired = {
+                                queryKey: [
+                                  ...key,
+                                  'detail',
+                                  current.service.id,
+                                ],
+                                predicate: (query: {
+                                  queryKey: readonly unknown[]
+                                }) => query.queryKey[4] !== 'published',
+                              }
+                              void cache.cancelQueries(retired).then(() => {
+                                cache.removeQueries(retired)
+                                setSelected((value) =>
+                                  value?.id === current.service.id
+                                    ? { id: value.id, mode: 'published' }
+                                    : value
+                                )
+                              })
+                            } else if (!approved) {
+                              void cache.invalidateQueries({
+                                queryKey: [
+                                  ...key,
+                                  'detail',
+                                  current.service.id,
+                                ],
+                              })
+                            }
+                          }}
+                        />
+                      )}
                       <dl className='bg-muted/40 grid gap-4 rounded-lg p-4 text-sm sm:grid-cols-2'>
                         <div>
                           <dt className='text-muted-foreground'>
@@ -1570,6 +1616,7 @@ function MarketSettings({ config }: { config: MarketConfig }) {
     },
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: ['tool-market'] })
+      void cache.invalidateQueries({ queryKey: ['market-ai-reviews'] })
     },
   })
   return (

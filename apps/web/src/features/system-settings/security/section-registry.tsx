@@ -54,7 +54,17 @@ const ModerationSettingsSection = lazyNamedSection(
   'ModerationSettingsSection'
 )
 
+const MarketAIReviewSettingsSection = lazyNamedSection(
+  () => import('@/features/market-ai-review/settings'),
+  'MarketAIReviewSettingsSection'
+)
+
 const SECURITY_SECTIONS = [
+  {
+    id: 'market-ai-review',
+    titleKey: 'Market AI first review',
+    build: () => <MarketAIReviewSettingsSection />,
+  },
   {
     id: 'moderation',
     titleKey: 'Content safety review',

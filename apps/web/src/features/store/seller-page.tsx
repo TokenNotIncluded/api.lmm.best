@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
@@ -82,6 +83,7 @@ function StoreSellerCenter() {
   const promotionKeys = useRef(new Map<string, string>())
   const [editing, setEditing] = useState<StoreProduct | 'new' | null>(null)
   const [inventory, setInventory] = useState<StoreProduct | null>(null)
+  const [aiReviewId, setAIReviewId] = useState<string | null>(null)
   const [promoting, setPromoting] = useState<StoreProduct | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -91,6 +93,9 @@ function StoreSellerCenter() {
     setError(null)
     try {
       await fn()
+      await client.invalidateQueries({
+        queryKey: ['market-ai-reviews', user.id, 'product', product.id],
+      })
       await client.invalidateQueries({
         queryKey: ['store', 'my-products', user.id],
       })
@@ -213,6 +218,15 @@ function StoreSellerCenter() {
                     )}
                   </div>
                 </div>
+                <MarketAIReviewHistory
+                  source='product'
+                  id={product.id}
+                  lazy
+                  open={aiReviewId === product.id}
+                  onOpenChange={(open) =>
+                    setAIReviewId(open ? product.id : null)
+                  }
+                />
                 {product.review_note && (
                   <p className='bg-muted rounded-md px-3 py-2 text-sm'>
                     {t('Review note')}: {product.review_note}

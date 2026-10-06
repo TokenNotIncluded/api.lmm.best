@@ -37,6 +37,7 @@ import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { homeTokenCopy } from './home-token-copy.mjs'
+import { marketAIReviewLunaCopy } from './market-ai-review-luna-copy.mjs'
 import {
   merchantStoreCopy,
   merchantStoreRetiredKeys,
@@ -13197,6 +13198,10 @@ for (const [locale, values] of Object.entries(queryRateLimitCopy)) {
 }
 
 for (const [locale, values] of Object.entries(moderationAuditCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(marketAIReviewLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

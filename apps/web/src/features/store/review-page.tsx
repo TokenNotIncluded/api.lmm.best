@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
 import { useMarketMoneyDraft } from '@/features/tool-market/money'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
@@ -27,6 +28,7 @@ function StoreReviews() {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)!
   const [page, setPage] = useState(1)
+  const [aiReviewId, setAIReviewId] = useState<string | null>(null)
   const query = useQuery({
     queryKey: ['store', 'reviews', user.id, page],
     queryFn: () => storeApi.reviews(page),
@@ -65,7 +67,14 @@ function StoreReviews() {
                 </p>
               )}
               {query.data.items.map((product) => (
-                <StoreReviewRow key={product.id} product={product} />
+                <StoreReviewRow
+                  key={product.id}
+                  product={product}
+                  aiReviewOpen={aiReviewId === product.id}
+                  onAIReviewOpenChange={(open) =>
+                    setAIReviewId(open ? product.id : null)
+                  }
+                />
               ))}
             </div>
             <div className='flex justify-end gap-2'>
@@ -140,7 +149,15 @@ function StorePromotionPrice({ quota }: { quota: number }) {
     </form>
   )
 }
-function StoreReviewRow({ product }: { product: StoreProduct }) {
+function StoreReviewRow({
+  product,
+  aiReviewOpen,
+  onAIReviewOpenChange,
+}: {
+  product: StoreProduct
+  aiReviewOpen: boolean
+  onAIReviewOpenChange: (open: boolean) => void
+}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const [note, setNote] = useState('')
@@ -152,6 +169,7 @@ function StoreReviewRow({ product }: { product: StoreProduct }) {
     setError(null)
     try {
       await storeApi.review(product.id, approved, note)
+      await client.invalidateQueries({ queryKey: ['market-ai-reviews'] })
       await client.invalidateQueries({ queryKey: ['store', 'reviews'] })
     } catch (issue) {
       setError(issue)
@@ -210,6 +228,13 @@ function StoreReviewRow({ product }: { product: StoreProduct }) {
           )
         )
       })}
+      <MarketAIReviewHistory
+        source='product'
+        id={product.id}
+        lazy
+        open={aiReviewOpen}
+        onOpenChange={onAIReviewOpenChange}
+      />
       <Textarea
         rows={2}
         value={note}
