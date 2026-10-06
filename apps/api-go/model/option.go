@@ -273,6 +273,8 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	common.OptionMap["ExposeRatioEnabled"] = strconv.FormatBool(ratio_setting.IsExposeRatioEnabled())
 
+	common.OptionMap[TrustLevelBenefitsOptionKey] = ""
+
 	// 自动添加所有注册的模型配置
 	modelConfigs := config.GlobalConfig.ExportAllConfigs()
 	for k, v := range modelConfigs {
@@ -324,6 +326,10 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == MerchantStoreProductLinkPresetsOption {
 		_, err := parseStoreLinkPresets(value)
+		return err
+	}
+	if key == TrustLevelBenefitsOptionKey {
+		_, err := ParseTrustLevelConfiguration(value)
 		return err
 	}
 	if key == "payment_setting.amount_options" || key == "payment_setting.amount_discount" {

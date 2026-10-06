@@ -49,6 +49,9 @@ func GetOptions(c *gin.Context) {
 			continue
 		}
 		value := common.Interface2String(v)
+		if k == model.TrustLevelBenefitsOptionKey {
+			value = model.TrustLevelConfigurationJSON()
+		}
 		isSensitiveKey := strings.HasSuffix(k, "Token") ||
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
@@ -66,7 +69,7 @@ func GetOptions(c *gin.Context) {
 		"success":               true,
 		"message":               "",
 		"data":                  options,
-		"capabilities":          gin.H{"model_price_locks": true, "usd_pricing_options": true},
+		"capabilities":          gin.H{"model_price_locks": true, "usd_pricing_options": true, "trust_level_benefits": true},
 		"pricing_storage_basis": "legacy_pricing_unit",
 	})
 }
