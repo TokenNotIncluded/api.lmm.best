@@ -331,11 +331,11 @@ function mockAccess(supported = true, official = true) {
   }) as typeof api.post
   return { writes, reads }
 }
-const guestProduct = {
+const guestProduct: StoreProduct = {
   ...product,
   visibility: 'public' as const,
   purchase_login_required: false,
-  payment_methods: ['balance', 'external:epay'] as const,
+  payment_methods: ['balance', 'external:epay'],
 }
 async function agreeTerms() {
   await click(button('Place order'))
@@ -644,8 +644,26 @@ test('legacy unknown checkout never calls a new lookup endpoint and explicit rep
   assert.match(document.body.textContent || '', /Order paid/)
 })
 
-test('cart selection survives sign-in with safe variant, quantity and promotion parameters; an invalid SKU falls back to the fresh product', async () => {
-  mockAccess(false)
+test('cart selection survives sign-in and an unavailable linked SKU requires an explicit replacement before order or cart writes', async () => {
+  const { writes } = mockAccess(false)
+  const get = api.get
+  api.get = (async (url: string, options?: unknown) => {
+    if (url === '/api/store/config') {
+      return result({
+        store_catalogue_supported: true,
+        store_collections_supported: true,
+      })
+    }
+    if (url === '/api/store/favorites') {
+      return result({ items: [], has_more: false })
+    }
+    return get(url, options as never)
+  }) as typeof api.get
+  const cartWrites: unknown[] = []
+  api.put = (async (url: string, body: unknown) => {
+    cartWrites.push({ url, body })
+    return result(null)
+  }) as typeof api.put
   const variant = {
     id: 'sku-blue',
     name: 'Blue size',
@@ -677,8 +695,8 @@ test('cart selection survives sign-in with safe variant, quantity and promotion 
     />,
     true
   )
-  const href = document
-    .querySelector<HTMLAnchorElement>('a[href^="/sign-in?"]')
+  const href = [...document.querySelectorAll<HTMLAnchorElement>('a')]
+    .find((link) => link.textContent === 'Sign in to buy')
     ?.getAttribute('href')
   assert.ok(href)
   const redirect = new URL(href, 'https://shop.example.test').searchParams.get(
@@ -690,21 +708,56 @@ test('cart selection survives sign-in with safe variant, quantity and promotion 
   assert.equal(selection.searchParams.get('variant_id'), variant.id)
   assert.equal(selection.searchParams.get('quantity'), '3')
   assert.equal(selection.searchParams.get('cart_item_id'), 'cart-item-1')
-  await remount(
-    <StoreCheckout
-      product={fresh}
-      initialVariantId='unknown-sku'
-      initialQuantity={1000}
-    />,
-    true
-  )
+  await remount(<StoreCheckout product={fresh} />)
   assert.equal(
     document.querySelector<HTMLInputElement>(
       'input[name="store-variant"]:checked'
     )?.value,
     variant.id
   )
-  assert.equal(field('store-quantity').value, '5')
+  assert.equal(button('Place order').disabled, false)
+  for (const linkedId of ['disabled-sku', 'deleted-sku']) {
+    await remount(
+      <StoreCheckout
+        product={{
+          ...fresh,
+          variants: [
+            { ...variant, id: 'disabled-sku', enabled: false },
+            variant,
+          ],
+        }}
+        initialVariantId={linkedId}
+        initialQuantity={2}
+        cartItemId='stale-cart-item'
+      />
+    )
+    assert.equal(
+      document.querySelector('input[name="store-variant"]:checked'),
+      null
+    )
+    assert.match(
+      document.body.textContent || '',
+      /Choose a variant before ordering/
+    )
+    assert.equal(button('Place order').disabled, true)
+    assert.equal(button('Add to cart').disabled, true)
+    await click(button('Place order'))
+    await click(button('Add to cart'))
+    assert.equal(writes.length, 0)
+    assert.equal(cartWrites.length, 0)
+  }
+  const choice = document.querySelector<HTMLInputElement>(
+    `input[name="store-variant"][value="${variant.id}"]`
+  )
+  assert.ok(choice)
+  await click(choice)
+  assert.equal(choice.checked, true)
+  assert.equal(button('Place order').disabled, false)
+  assert.equal(button('Add to cart').disabled, false)
+  await click(button('Place order'))
+  const create = writes.find((write) => write.url === '/api/store/orders')
+  assert.ok(create)
+  assert.equal(create.body.variant_id, variant.id)
 })
 
 test('a guest free offer uses the authenticated guest quote and dedicated create route; anonymous false is never promoted locally', async () => {
@@ -798,7 +851,7 @@ test('an account switch before a late create response keeps the original actor r
     options?: Record<string, unknown>
   ) => {
     if (url !== '/api/store/orders') return post(url, body, options)
-    return new Promise((resolve) => {
+    return new Promise<unknown>((resolve) => {
       finish = resolve
     })
   }) as typeof api.post

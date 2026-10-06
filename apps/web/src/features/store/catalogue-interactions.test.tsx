@@ -457,6 +457,66 @@ test('favorites save through the real endpoint and switching accounts removes th
   )
 })
 
+test('paused favorites retain their title and removal without a broken detail link; sold-out published products retain their link', async () => {
+  owner(27)
+  const paused = {
+    ...product,
+    status: 'paused' as const,
+    title: 'Paused retained product',
+  }
+  const soldOut = {
+    ...product,
+    id: 'sold-out-product',
+    title: 'Sold-out published product',
+    sale_available: 0,
+    available_stock: 0,
+  }
+  let rows = [paused, soldOut].map((item) => ({
+    product_id: item.id,
+    created_at: 1,
+    valid: true,
+    unavailable_reason: null,
+    product: item,
+  }))
+  const requests = mockRequests((request) => {
+    if (request.method === 'DELETE') {
+      assert.equal(request.url, `/api/store/favorites/${paused.id}`)
+      rows = rows.filter((item) => item.product_id !== paused.id)
+      return result(null)
+    }
+    assert.equal(request.url, '/api/store/favorites')
+    return page(rows)
+  })
+  await mount(<StoreFavoritesPage />)
+  await waitFor(
+    () => document.body.textContent?.includes(paused.title) === true
+  )
+  const pausedCard = [...document.querySelectorAll('article')].find(
+    (node) => node.querySelector('h2')?.textContent === paused.title
+  )
+  assert.ok(pausedCard)
+  assert.equal(pausedCard.querySelector('h2 a'), null)
+  assert.match(pausedCard.textContent || '', /paused/)
+  assert.equal(
+    document.querySelector<HTMLAnchorElement>(
+      `a[href="/store/products/${soldOut.id}"]`
+    )?.textContent,
+    soldOut.title
+  )
+  await click(button('Remove from favorites'))
+  assert.equal(
+    requests.filter((request) => request.method === 'DELETE').length,
+    1
+  )
+  await waitFor(() => !document.body.textContent?.includes(paused.title))
+  assert.equal(
+    document.querySelector<HTMLAnchorElement>(
+      `a[href="/store/products/${soldOut.id}"]`
+    )?.textContent,
+    soldOut.title
+  )
+})
+
 test('fresh cart projection preserves SKU rows, invalid stock and account clear uses the server', async () => {
   owner(27)
   let rows: StoreCartItem[] = [

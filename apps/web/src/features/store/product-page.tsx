@@ -304,11 +304,9 @@ export function StoreCheckout({
         : 1
     )
   )
-  const [variantId, setVariantId] = useState(() =>
-    initialVariantId &&
-    enabledStoreVariants(product).some((item) => item.id === initialVariantId)
-      ? initialVariantId
-      : initialStoreVariant(product)
+  // A deep link names a specific SKU. Only an unspecified SKU may default.
+  const [variantId, setVariantId] = useState(
+    () => initialVariantId || initialStoreVariant(product)
   )
   const selectedVariant = selectedStoreVariant(product, variantId)
   const variantCapacity = storeVariantCapacity(product, variantId)
@@ -448,6 +446,7 @@ export function StoreCheckout({
   const emailValid = isStoreEmail(pickupEmail)
   const valid =
     (!!user || (!!guestAllowed && !!guest.session && !guest.loading)) &&
+    (!initialVariantId || !!selectedVariant) &&
     (!guestAllowed ||
       (actualMethod !== 'balance' && guestEmail.ready && !!guestDetail)) &&
     total !== undefined &&
@@ -843,7 +842,7 @@ export function StoreCheckout({
           />
           <StoreCollectionActions
             product={product}
-            variantId={variantId || undefined}
+            variantId={variantId}
             quantity={count || 1}
           />
           {product.max_quantity_per_order != null && (

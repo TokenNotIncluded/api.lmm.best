@@ -144,7 +144,9 @@ function FavoriteItem({
   return (
     <article className='bg-card space-y-3 rounded-lg border p-4'>
       <h2 className='font-semibold'>
-        {product ? (
+        {product?.status === 'paused' ? (
+          product.title
+        ) : product ? (
           <a
             className='hover:underline'
             href={`/store/products/${encodeURIComponent(product.id)}`}
@@ -155,6 +157,9 @@ function FavoriteItem({
           t('Unavailable product')
         )}
       </h2>
+      {product?.status === 'paused' && (
+        <p className='text-muted-foreground text-sm'>{t(product.status)}</p>
+      )}
       {product ? (
         <>
           <StoreCatalogueTags product={product} />
