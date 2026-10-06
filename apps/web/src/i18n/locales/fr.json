@@ -8903,7 +8903,7 @@
     "Storage": "Stockage",
     "Storage GiB-hour": "Stockage GiB-heure",
     "Storage GiB-hours": "Stockage GiB-heures",
-    "Store": "Store",
+    "Store": "Boutique",
     "Store + product created": "Boutique + produit créés",
     "Store administration": "Administration de la boutique",
     "Store ID": "ID du magasin",
@@ -10944,6 +10944,18 @@
     "No orders found": "Aucune commande trouvée",
     "To collect this order, verify the pickup email or sign in to the purchasing account.": "Pour récupérer cette commande, vérifiez l’adresse e-mail de retrait ou connectez-vous avec le compte acheteur.",
     "Required field": "Obligatoire",
-    "Anyone with the pickup link and the pickup code, if set, can collect this order.": "Le lien permet de retirer la commande. Si un code a été défini, il est également requis."
+    "Anyone with the pickup link and the pickup code, if set, can collect this order.": "Le lien permet de retirer la commande. Si un code a été défini, il est également requis.",
+    "A store for our community.": "Une boutique pour notre communauté.",
+    "Discover digital goods from community sellers. Browse, order, and collect in one place.": "Découvrez les produits numériques proposés par des vendeurs de la communauté. Parcourez, commandez et récupérez vos achats au même endroit.",
+    "Put more tools in your AI’s hands.": "Donnez plus d’outils à votre IA.",
+    "Explore MCP tool services in the tool market. Connect the capabilities your next idea needs.": "Explorez les services MCP sur le marché d’outils. Connectez les capacités qu’exige votre prochaine idée.",
+    "Browse MCP tools": "Parcourir les outils MCP",
+    "One ecosystem. Many ways in.": "Un écosystème. Plusieurs façons d’y entrer.",
+    "Pi and dsh plugins, useful websites, and new connections. Find your place in the LMM ecosystem.": "Plugins Pi et dsh, sites web utiles et nouvelles connexions. Trouvez votre place dans l’écosystème LMM.",
+    "Explore plugins": "Explorer les plugins",
+    "The next world is ours to build.": "À nous de bâtir le monde de demain.",
+    "An idea becomes a tool. A tool opens a new path. Bring your imagination, and help shape what comes next.": "Une idée devient un outil. Un outil ouvre une nouvelle voie. Apportez votre imagination et contribuez à façonner la suite.",
+    "Explore the project": "Explorer le projet",
+    "Future": "Avenir"
   }
 }

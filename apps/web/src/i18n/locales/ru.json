@@ -1392,7 +1392,7 @@
     "Browse open challenges": "Открытые задачи",
     "Browse open work": "Смотреть открытые задачи",
     "Browse open-source work": "Открытые проекты",
-    "Browse products": "Просмотр товаров",
+    "Browse products": "Смотреть товары",
     "Browse rankings by category": "Просмотр рейтингов по категориям",
     "Browse shared channels": "Просмотреть общие каналы",
     "Browse the board": "Перейти к доске",
@@ -10944,6 +10944,18 @@
     "No orders found": "Заказы не найдены",
     "To collect this order, verify the pickup email or sign in to the purchasing account.": "Чтобы получить этот заказ, подтвердите почту для получения или войдите в аккаунт покупателя.",
     "Required field": "Обязательно",
-    "Anyone with the pickup link and the pickup code, if set, can collect this order.": "По ссылке можно получить заказ. Если задан код получения, он также необходим."
+    "Anyone with the pickup link and the pickup code, if set, can collect this order.": "По ссылке можно получить заказ. Если задан код получения, он также необходим.",
+    "A store for our community.": "Магазин для нашего сообщества.",
+    "Discover digital goods from community sellers. Browse, order, and collect in one place.": "Находите цифровые товары от участников сообщества. Просматривайте, заказывайте и получайте покупки в одном месте.",
+    "Put more tools in your AI’s hands.": "Дайте своему ИИ больше инструментов.",
+    "Explore MCP tool services in the tool market. Connect the capabilities your next idea needs.": "Изучите сервисы MCP в каталоге инструментов. Подключите возможности, нужные для вашей следующей идеи.",
+    "Browse MCP tools": "Смотреть инструменты MCP",
+    "One ecosystem. Many ways in.": "Одна экосистема. Много способов присоединиться.",
+    "Pi and dsh plugins, useful websites, and new connections. Find your place in the LMM ecosystem.": "Плагины Pi и dsh, полезные сайты и новые связи. Найдите своё место в экосистеме LMM.",
+    "Explore plugins": "Изучить плагины",
+    "The next world is ours to build.": "Будущее строим мы.",
+    "An idea becomes a tool. A tool opens a new path. Bring your imagination, and help shape what comes next.": "Идея становится инструментом. Инструмент открывает новый путь. Внесите свою идею и помогите создать то, что будет дальше.",
+    "Explore the project": "О проекте",
+    "Future": "Будущее"
   }
 }
