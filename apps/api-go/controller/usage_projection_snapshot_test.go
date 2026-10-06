@@ -5,6 +5,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/glebarez/sqlite"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -33,12 +34,9 @@ func TestUsageProjectionSnapshotPostgresKeepsConcurrentHistoricalRefundConsisten
 	if dsn == "" {
 		t.Skip("requires disposable loopback PostgreSQL test database")
 	}
+	require.True(t, usageSnapshotTestDSNAllowed(dsn), "fixture requires an effective disposable loopback lmm_test_ role/database with no target overrides")
 	parsed, err := url.Parse(dsn)
 	require.NoError(t, err)
-	require.Equal(t, "127.0.0.1", parsed.Hostname(), "never connect this write fixture to production")
-	require.NotNil(t, parsed.User)
-	require.True(t, strings.HasPrefix(parsed.User.Username(), "lmm_test_"))
-	require.True(t, strings.HasPrefix(strings.TrimPrefix(parsed.Path, "/"), "lmm_test_"))
 	admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	schema := "lmm_test_usage_snapshot_" + strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -95,12 +93,13 @@ func testUsageSnapshotConcurrentRefund(t *testing.T, db *gorm.DB) {
 			return
 		}
 		if db.Dialector.Name() == "postgres" {
+			// A fresh statement clears SELECT arguments while keeping the same transaction.
 			var readonly, isolation string
-			if err := tx.Raw("SHOW transaction_read_only").Scan(&readonly).Error; err != nil {
+			if err := tx.Session(&gorm.Session{NewDB: true}).Raw("SHOW transaction_read_only").Scan(&readonly).Error; err != nil {
 				tx.AddError(err)
 				return
 			}
-			if err := tx.Raw("SHOW transaction_isolation").Scan(&isolation).Error; err != nil {
+			if err := tx.Session(&gorm.Session{NewDB: true}).Raw("SHOW transaction_isolation").Scan(&isolation).Error; err != nil {
 				tx.AddError(err)
 				return
 			}
@@ -161,4 +160,36 @@ type assertSnapshotIsolation struct{}
 
 func (assertSnapshotIsolation) Error() string {
 	return "usage snapshot must enforce read-only repeatable read"
+}
+
+// URL query values override pgx URL targets. Check both the URL and effective
+// configuration before opening any connection or creating a fixture schema.
+func usageSnapshotTestDSNAllowed(dsn string) bool {
+	parsed, err := url.Parse(dsn)
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") || parsed.Hostname() != "127.0.0.1" || parsed.User == nil || !strings.HasPrefix(parsed.User.Username(), "lmm_test_") || !strings.HasPrefix(strings.TrimPrefix(parsed.Path, "/"), "lmm_test_") {
+		return false
+	}
+	for key := range parsed.Query() {
+		if key != "sslmode" {
+			return false
+		}
+	}
+	config, err := pgx.ParseConfig(dsn)
+	if err != nil || config.Host != "127.0.0.1" || config.User != parsed.User.Username() || config.Database != strings.TrimPrefix(parsed.Path, "/") {
+		return false
+	}
+	for _, fallback := range config.Fallbacks {
+		if fallback.Host != "127.0.0.1" || fallback.Port != config.Port {
+			return false
+		}
+	}
+	return true
+}
+
+func TestUsageProjectionSnapshotPostgresFixtureRejectsTargetOverrides(t *testing.T) {
+	base := "postgres://lmm_test_fixture:fixture@127.0.0.1:5432/lmm_test_fixture?sslmode=disable"
+	require.True(t, usageSnapshotTestDSNAllowed(base))
+	for _, query := range []string{"host=remote.example", "host=127.0.0.1", "user=production", "dbname=production", "database=production", "port=5433", "service=production", "servicefile=/tmp/service", "search_path=public"} {
+		require.False(t, usageSnapshotTestDSNAllowed(base+"&"+query), query)
+	}
 }
