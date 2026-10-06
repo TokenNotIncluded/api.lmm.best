@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { storeApi } from '@/features/store/api'
+import { StoreLinkPresetsSettings } from '@/features/store/link-presets'
 import { STORE_MINIMUM_PRICE_COPY as copy } from '@/features/store/minimum-price-copy'
 import { StoreError, StoreLoading } from '@/features/store/shared'
 import type { StoreConfig } from '@/features/store/types'
@@ -152,6 +153,12 @@ function StoreRootConfig({
           {t(busy ? 'Saving...' : 'Save store settings')}
         </Button>
       </form>
+      {config.product_link_presets !== undefined && (
+        <StoreLinkPresetsSettings
+          presets={config.product_link_presets}
+          onSaved={onSaved}
+        />
+      )}
     </section>
   )
 }

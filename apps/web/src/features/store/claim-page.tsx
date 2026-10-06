@@ -75,12 +75,8 @@ function StoreClaimContent({ token }: { token: string }) {
           {t('Collect your items')}
         </h1>
         <h2 className='text-lg break-words'>{metadata.product_title}</h2>
-        {(claim?.variant_name || metadata.variant_name) && (
-          <p className='text-muted-foreground text-sm break-words'>
-            {t('Specification')}: {claim?.variant_name || metadata.variant_name}
-          </p>
-        )}
-        <p className='text-muted-foreground text-sm'>
+        <p className='text-muted-foreground text-sm break-words'>
+          {t('Specification')}:{' '}
           {claim?.variant_name ||
             metadata.variant_name ||
             t('Historic/default variant')}

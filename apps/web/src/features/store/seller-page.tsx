@@ -40,6 +40,7 @@ import {
   validateComposedItems,
 } from './delivery-template'
 import { StoreInventoryComposer } from './inventory-composer'
+import { StoreLinkPresetChooser } from './link-presets'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
@@ -54,6 +55,7 @@ import {
 } from './shared'
 import { STORE_TEST_MODE_COPY as testCopy } from './test-mode-copy'
 import type {
+  StoreLinkPreset,
   StorePaymentMethod,
   StoreProduct,
   StoreProductInput,
@@ -77,7 +79,7 @@ const EMPTY: StoreProductInput = {
   image_urls: [],
   contact: '',
   links: [],
-  price_quota: 500000,
+  price_quota: 0,
   template: 'card-key',
   delivery_strategy: 'sequential',
   payment_methods: [],
@@ -508,6 +510,7 @@ function StoreSellerCenter() {
           product={editing === 'new' ? undefined : editing}
           allowedMethods={allowedMethods}
           minimumPriceQuota={config.data?.minimum_unit_price_quota}
+          linkPresets={config.data?.product_link_presets}
           testModeSupported={config.data?.product_test_mode_supported === true}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -633,6 +636,7 @@ export function StoreProductEditor({
   product,
   allowedMethods,
   minimumPriceQuota,
+  linkPresets = [],
   testModeSupported = false,
   onClose,
   onSaved,
@@ -640,13 +644,14 @@ export function StoreProductEditor({
   product?: StoreProduct
   allowedMethods: StorePaymentMethod[]
   minimumPriceQuota?: number
+  linkPresets?: StoreLinkPreset[]
   testModeSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
   const { t, i18n } = useTranslation()
   const money = useWalletCurrency()
-  const price = useStoreMoneyDraft(product?.price_quota || EMPTY.price_quota)
+  const price = useStoreMoneyDraft(product?.price_quota ?? Number.NaN)
   const minimum =
     Number.isSafeInteger(minimumPriceQuota) && (minimumPriceQuota ?? -1) >= 0
       ? minimumPriceQuota
@@ -911,6 +916,10 @@ export function StoreProductEditor({
                 />
               </div>
             ))}
+            <StoreLinkPresetChooser
+              presets={linkPresets}
+              onAdd={(link) => change('links', [...draft.links, link])}
+            />
             <Button
               type='button'
               size='sm'
@@ -1158,8 +1167,9 @@ export function StoreInventoryImport({
       !window.confirm(
         t('Switching variants clears the unsaved inventory draft. Continue?')
       )
-    )
+    ) {
       return
+    }
     setVariantId(id)
     setDirty(false)
   }
@@ -1308,9 +1318,11 @@ function StoreInventoryContent({
       const items = composed ? composedItems : parseInventoryText(text)
       if (composed) validateComposedItems(items)
       if (!items.length) throw new Error('Add at least one inventory item')
-      if (variant)
+      if (variant) {
         await storeApi.importVariantStock(product.id, variant.id, items)
-      else await storeApi.inventory(product.id, items)
+      } else {
+        await storeApi.inventory(product.id, items)
+      }
       setText('')
       setComposedItems([])
       await onSaved()

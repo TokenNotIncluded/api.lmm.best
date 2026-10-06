@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import type { StoreDeliveryTemplate } from './delivery-template'
+
 export type StorePaymentMethod =
   | 'balance'
   | 'platform:waffo_pancake'
@@ -10,6 +11,9 @@ export interface StoreLink {
   title: string
   url: string
   description: string
+}
+export interface StoreLinkPreset extends StoreLink {
+  id: string
 }
 export interface StoreVariant {
   id: string
@@ -135,6 +139,7 @@ export interface StoreConfig {
   fee_bps: number
   promotion_quota: number
   product_test_mode_supported?: boolean
+  product_link_presets?: StoreLinkPreset[]
   minimum_unit_price_quota?: number
   recipient_id?: number
   linuxdo_units_per_usd?: string

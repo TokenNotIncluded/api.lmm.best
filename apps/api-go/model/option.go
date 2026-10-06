@@ -322,6 +322,10 @@ func validateOptionValue(key string, value string) error {
 	if storeReservedWriterOptionKey(key) {
 		return ErrMerchantStoreWriterGateReserved
 	}
+	if key == MerchantStoreProductLinkPresetsOption {
+		_, err := parseStoreLinkPresets(value)
+		return err
+	}
 	if key == "payment_setting.amount_options" || key == "payment_setting.amount_discount" {
 		return operation_setting.ValidatePaymentCatalogJSON(key, value, operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens)
 	}

@@ -74,6 +74,7 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	admin.POST("/products/:id/review", middleware.RequestBodyLimit(8<<10), middleware.CriticalRateLimit(), controller.ReviewMerchantStoreProduct)
 	admin.PUT("/promotion-config", middleware.RootAuth(), middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStorePromotionPrice)
 	admin.PUT("/config", middleware.RootAuth(), middleware.RequestBodyLimit(8<<10), middleware.CriticalRateLimit(), controller.SetMerchantStoreConfig)
+	admin.PUT("/product-link-presets", middleware.RootAuth(), middleware.RequestBodyLimit(128<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreLinkPresets)
 
 	// Dedicated, unauthenticated callbacks are separate from top-up callbacks.
 	// Only the service adapter may attest a verified payment to the store model.

@@ -7,6 +7,7 @@ import type {
   StoreClaim,
   StoreClaimMetadata,
   StoreConfig,
+  StoreLinkPreset,
   StoreDisclaimer,
   StoreOrder,
   StorePage,
@@ -265,6 +266,8 @@ export const storeApi = {
     unwrap<null>(
       api.put(`${root}/promotion-config`, { promotion_quota }, options)
     ),
+  saveLinkPresets: (presets: StoreLinkPreset[]) =>
+    unwrap<null>(api.put(`${root}/product-link-presets`, { presets }, options)),
   deliveryEmailStatus: () =>
     unwrap<{ verified: boolean; email?: string }>(
       api.get(`${root}/email/status`, options)

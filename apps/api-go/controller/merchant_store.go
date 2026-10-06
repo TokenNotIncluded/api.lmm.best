@@ -129,16 +129,34 @@ func GetPublicMerchantStoreProduct(c *gin.Context) {
 
 func GetMerchantStoreConfig(c *gin.Context) {
 	config, err := model.GetMerchantStoreConfig()
+	var presets []model.MerchantStoreLinkPreset
+	if err == nil {
+		presets, err = model.GetMerchantStoreLinkPresets()
+	}
 	catalog := service.MerchantStorePlatformPaymentCatalog(availablePaymentMethods(operation_setting.IsPaymentComplianceConfirmed()))
 	merchantStoreRespond(c, gin.H{
 		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota, "minimum_unit_price_quota": config.MinimumUnitPriceQuota,
 		"product_test_mode_supported": true,
+		"product_link_presets":        presets,
 		"linuxdo_units_per_usd":       config.LinuxDOUnitsPerUSD,
 		"credits_per_usd":             common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
 		"disclaimer_version": model.MerchantStoreDisclaimerVersion, "disclaimer_text": merchantStoreDisclaimerText,
 		"platform_payment_methods": service.AvailableMerchantStorePlatformMethods(catalog),
 		"platform_payment_catalog": catalog,
 	}, err)
+}
+
+func SaveMerchantStoreLinkPresets(c *gin.Context) {
+	var input struct {
+		Presets []model.MerchantStoreLinkPreset `json:"presets"`
+	}
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+		return
+	}
+	merchantStoreRespond(c, nil, model.SaveMerchantStoreLinkPresets(c.GetInt("id"), input.Presets))
 }
 
 func SetMerchantStoreConfig(c *gin.Context) {
