@@ -27,7 +27,10 @@ export interface StoreVariant {
   sale_available: number
   trading_paused: boolean
 }
-export type StoreVariantInput = Pick<StoreVariant, 'name' | 'price_quota' | 'template' | 'enabled'>
+export type StoreVariantInput = Pick<
+  StoreVariant,
+  'name' | 'price_quota' | 'template' | 'enabled'
+>
 export interface StoreProduct {
   id: string
   seller_id: number

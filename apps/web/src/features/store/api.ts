@@ -24,20 +24,37 @@ import type {
   StoreOrderSummary,
 } from './types'
 
-type Envelope<T> = { success: boolean; message?: string; data: T }
+type Envelope<T> = {
+  success: boolean
+  code?: string
+  message?: string
+  data: T
+}
+function errorMessage(body?: { code?: unknown; message?: unknown }) {
+  // Known codes have stable localized copy; arbitrary server messages retain
+  // their original meaning instead of being guessed from HTTP status.
+  if (body?.code === 'STORE_VARIANT_REQUIRED') {
+    return 'Choose a variant before ordering.'
+  }
+  if (body?.code === 'STORE_UPGRADE_IN_PROGRESS') {
+    return 'Shop upgrade is in progress. Existing orders are still accessible.'
+  }
+  return typeof body?.message === 'string' && body.message
+    ? body.message
+    : 'Store request failed'
+}
 async function unwrap<T>(request: Promise<{ data: Envelope<T> }>) {
   let response: { data: Envelope<T> }
   try {
     response = await request
   } catch (error) {
-    const body = (error as { response?: { data?: { message?: unknown } } })
-      ?.response?.data
-    throw new Error(
-      typeof body?.message === 'string' ? body.message : 'Store request failed'
-    )
+    const body = (
+      error as { response?: { data?: { code?: unknown; message?: unknown } } }
+    )?.response?.data
+    throw new Error(errorMessage(body))
   }
   if (response.data.success !== true) {
-    throw new Error(response.data.message || 'Store request failed')
+    throw new Error(errorMessage(response.data))
   }
   return response.data.data
 }
@@ -105,19 +122,43 @@ export const storeApi = {
       api.delete(`${root}/products/${id}/inventory/${stockId}`, options)
     ),
   createVariant: (id: string, body: StoreVariantInput) =>
-    unwrap<StoreVariant>(api.post(`${root}/products/${id}/variants`, body, options)),
+    unwrap<StoreVariant>(
+      api.post(`${root}/products/${id}/variants`, body, options)
+    ),
   updateVariant: (id: string, variantId: string, body: StoreVariantInput) =>
-    unwrap<StoreVariant>(api.put(`${root}/products/${id}/variants/${variantId}`, body, options)),
+    unwrap<StoreVariant>(
+      api.put(`${root}/products/${id}/variants/${variantId}`, body, options)
+    ),
   enableVariant: (id: string, variantId: string, enabled: boolean) =>
-    unwrap<StoreVariant>(api.put(`${root}/products/${id}/variants/${variantId}/enabled`, { enabled }, options)),
+    unwrap<StoreVariant>(
+      api.put(
+        `${root}/products/${id}/variants/${variantId}/enabled`,
+        { enabled },
+        options
+      )
+    ),
   variantStock: (id: string, variantId: string, page = 1) =>
-    unwrap<StorePage<StoreStock>>(api.get(`${root}/products/${id}/variants/${variantId}/inventory`, {
-      ...options, params: { offset: (page - 1) * 20, limit: 20 },
-    })),
+    unwrap<StorePage<StoreStock>>(
+      api.get(`${root}/products/${id}/variants/${variantId}/inventory`, {
+        ...options,
+        params: { offset: (page - 1) * 20, limit: 20 },
+      })
+    ),
   importVariantStock: (id: string, variantId: string, items: string[]) =>
-    unwrap<{ added: number }>(api.post(`${root}/products/${id}/variants/${variantId}/inventory`, { items }, options)),
+    unwrap<{ added: number }>(
+      api.post(
+        `${root}/products/${id}/variants/${variantId}/inventory`,
+        { items },
+        options
+      )
+    ),
   removeVariantStock: (id: string, variantId: string, stockId: string) =>
-    unwrap<null>(api.delete(`${root}/products/${id}/variants/${variantId}/inventory/${stockId}`, options)),
+    unwrap<null>(
+      api.delete(
+        `${root}/products/${id}/variants/${variantId}/inventory/${stockId}`,
+        options
+      )
+    ),
   promoteProduct: (id: string, request_key: string) =>
     unwrap<StorePromotion>(
       api.post(

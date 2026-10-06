@@ -32,9 +32,6 @@ import {
 import { StoreInventoryComposer } from './inventory-composer'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
-import { StoreInventoryTotals, StoreProductPrice } from './variant-summary'
-import { StoreVariantsManager } from './variants-manager'
-import { legacyVariantProduct } from './variant-utils'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
 import { StoreSalesLimit } from './sales-limit'
 import { STORE_SALES_LIMIT_COPY as salesCopy } from './sales-limit-copy'
@@ -59,6 +56,9 @@ import {
   safeStoreUrl,
   storeRequestKey,
 } from './utils'
+import { StoreInventoryTotals, StoreProductPrice } from './variant-summary'
+import { legacyVariantProduct } from './variant-utils'
+import { StoreVariantsManager } from './variants-manager'
 
 const EMPTY: StoreProductInput = {
   title: '',
@@ -278,14 +278,39 @@ function StoreSellerCenter() {
                   </div>
                 </div>
                 <StoreInventoryTotals product={product} />
-                <StoreVariantsManager product={product} minimumPriceQuota={config.data?.minimum_unit_price_quota} onChanged={async () => {
-                  await Promise.all([
-                    client.invalidateQueries({ queryKey: ['store', 'my-products', user.id] }),
-                    client.invalidateQueries({ queryKey: ['store', 'product', product.id] }),
-                    client.invalidateQueries({ queryKey: ['store', 'preview-product', user.id, product.id] }),
-                    client.invalidateQueries({ queryKey: ['market-ai-reviews', user.id, 'product', product.id] }),
-                  ])
-                }} />
+                <StoreVariantsManager
+                  product={product}
+                  minimumPriceQuota={config.data?.minimum_unit_price_quota}
+                  onChanged={async () => {
+                    await Promise.all([
+                      client.invalidateQueries({
+                        queryKey: ['store', 'my-products', user.id],
+                      }),
+                      client.invalidateQueries({
+                        queryKey: ['store', 'products'],
+                      }),
+                      client.invalidateQueries({
+                        queryKey: ['store', 'product', product.id],
+                      }),
+                      client.invalidateQueries({
+                        queryKey: [
+                          'store',
+                          'product-preview',
+                          product.id,
+                          user.id,
+                        ],
+                      }),
+                      client.invalidateQueries({
+                        queryKey: [
+                          'market-ai-reviews',
+                          user.id,
+                          'product',
+                          product.id,
+                        ],
+                      }),
+                    ])
+                  }}
+                />
                 {product.sale_limit !== undefined && (
                   <StoreSalesLimit
                     key={`${product.id}:${product.updated_at}:${product.sale_limit}`}
@@ -351,22 +376,66 @@ function StoreSellerCenter() {
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null)
-            await client.invalidateQueries({
-              queryKey: ['store', 'my-products', user.id],
-            })
+            await Promise.all([
+              client.invalidateQueries({
+                queryKey: ['store', 'my-products', user.id],
+              }),
+              client.invalidateQueries({ queryKey: ['store', 'products'] }),
+              ...(editing !== 'new'
+                ? [
+                    client.invalidateQueries({
+                      queryKey: ['store', 'product', editing.id],
+                    }),
+                    client.invalidateQueries({
+                      queryKey: [
+                        'store',
+                        'product-preview',
+                        editing.id,
+                        user.id,
+                      ],
+                    }),
+                  ]
+                : []),
+            ])
           }}
         />
       )}
       {inventory && (
         <StoreInventoryImport
           key={inventory.id}
-          product={inventory}
+          product={
+            query.data?.items.find((product) => product.id === inventory.id) ||
+            inventory
+          }
           onClose={() => setInventory(null)}
+          onChanged={async () => {
+            await Promise.all([
+              client.invalidateQueries({
+                queryKey: ['store', 'my-products', user.id],
+              }),
+              client.invalidateQueries({ queryKey: ['store', 'products'] }),
+              client.invalidateQueries({
+                queryKey: ['store', 'product', inventory.id],
+              }),
+              client.invalidateQueries({
+                queryKey: ['store', 'product-preview', inventory.id, user.id],
+              }),
+            ])
+          }}
           onSaved={async () => {
             setInventory(null)
-            await client.invalidateQueries({
-              queryKey: ['store', 'my-products', user.id],
-            })
+            await Promise.all([
+              client.invalidateQueries({
+                queryKey: ['store', 'my-products', user.id],
+              }),
+              client.invalidateQueries({ queryKey: ['store', 'products'] }),
+              client.invalidateQueries({
+                queryKey: ['store', 'product', inventory.id],
+              }),
+              client.invalidateQueries({
+                queryKey: ['store', 'product-preview', inventory.id, user.id],
+              }),
+            ])
           }}
         />
       )}
@@ -564,7 +633,13 @@ export function StoreProductEditor({
               />
             </div>
             <div className='space-y-2'>
-              {product?.variants && <p className='text-muted-foreground text-xs leading-5'>{t('Product price and template edits apply only to the default variant. Other variants are managed separately.')}</p>}
+              {product?.variants && (
+                <p className='text-muted-foreground text-xs leading-5'>
+                  {t(
+                    'Product price and template edits apply only to the default variant. Other variants are managed separately.'
+                  )}
+                </p>
+              )}
               <Label htmlFor='store-price'>
                 {t('Unit price')} ({price.currency})
               </Label>
@@ -917,47 +992,114 @@ export function StoreProductEditor({
     </Dialog>
   )
 }
-export function StoreInventoryImport({ product, onClose, onSaved }: {
+export function StoreInventoryImport({
+  product,
+  onClose,
+  onSaved,
+  onChanged,
+}: {
   product: StoreProduct
   onClose: () => void
   onSaved: () => Promise<void>
+  onChanged?: () => Promise<void>
 }) {
   const { t } = useTranslation()
-  const [variantId, setVariantId] = useState(product.default_variant_id || product.variants?.find(variant => variant.is_default)?.id || '')
+  const [variantId, setVariantId] = useState(
+    product.default_variant_id ||
+      product.variants?.find((variant) => variant.is_default)?.id ||
+      ''
+  )
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
   const legacy = legacyVariantProduct(product)
-  const variant = product.variants?.find(item => item.id === variantId && item.product_id === product.id)
+  const variant = product.variants?.find(
+    (item) => item.id === variantId && item.product_id === product.id
+  )
   function selectVariant(id: string) {
     if (busy || id === variantId) return
-    if (dirty && !window.confirm(t('Switching variants clears the unsaved inventory draft. Continue?'))) return
+    if (
+      dirty &&
+      !window.confirm(
+        t('Switching variants clears the unsaved inventory draft. Continue?')
+      )
+    )
+      return
     setVariantId(id)
     setDirty(false)
   }
-  return <Dialog open onOpenChange={open => { if (!open && !busy) onClose() }}>
-    <DialogContent className='sm:max-w-xl'>
-      <DialogTitle>{t('Add inventory')}</DialogTitle>
-      <Tabs value={variantId} onValueChange={id => selectVariant(String(id))}>
-      {!legacy && <div className='space-y-2'>
-        <TabsList aria-label={t('Variant inventory')} variant='line' className='h-auto flex-wrap justify-start'>
-          {product.variants?.map(item => <TabsTrigger key={item.id} value={item.id} disabled={busy} className='min-h-11 whitespace-normal break-words'>
-            {item.name || t('Default variant')}{!item.enabled && <span className='text-muted-foreground ml-1 text-xs'>({t('Disabled')})</span>}
-          </TabsTrigger>)}
-        </TabsList>
-        <p className='text-muted-foreground text-xs'>{t('Imports go only to the selected variant. Disabled variants can still be restocked.')}</p>
-        {variant && <StoreInventoryTotals product={product} variant={variant} />}
-      </div>}
-      {legacy || variant ? <TabsContent value={variantId}>
-        <StoreInventoryContent key={variant?.id || 'legacy-default'} product={product} variant={variant} onSaved={onSaved} onBusyChange={setBusy} onDirtyChange={setDirty} />
-      </TabsContent> : <p className='text-muted-foreground text-sm'>{t('Choose a variant before importing inventory.')}</p>}
-      </Tabs>
-    </DialogContent>
-  </Dialog>
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose()
+      }}
+    >
+      <DialogContent className='sm:max-w-xl'>
+        <DialogTitle>{t('Add inventory')}</DialogTitle>
+        <Tabs
+          value={variantId}
+          onValueChange={(id) => selectVariant(String(id))}
+        >
+          {!legacy && (
+            <div className='space-y-2'>
+              <TabsList
+                aria-label={t('Variant inventory')}
+                variant='line'
+                className='h-auto flex-wrap justify-start'
+              >
+                {product.variants?.map((item) => (
+                  <TabsTrigger
+                    key={item.id}
+                    value={item.id}
+                    disabled={busy}
+                    className='min-h-11 break-words whitespace-normal'
+                  >
+                    {item.name || t('Default variant')}
+                    {!item.enabled && (
+                      <span className='text-muted-foreground ml-1 text-xs'>
+                        ({t('Disabled')})
+                      </span>
+                    )}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Imports go only to the selected variant. Disabled variants can still be restocked.'
+                )}
+              </p>
+              {variant && (
+                <StoreInventoryTotals product={product} variant={variant} />
+              )}
+            </div>
+          )}
+          {legacy || variant ? (
+            <TabsContent value={variantId}>
+              <StoreInventoryContent
+                key={variant?.id || 'legacy-default'}
+                product={product}
+                variant={variant}
+                onSaved={onSaved}
+                onChanged={onChanged}
+                onBusyChange={setBusy}
+                onDirtyChange={setDirty}
+              />
+            </TabsContent>
+          ) : (
+            <p className='text-muted-foreground text-sm'>
+              {t('Choose a variant before importing inventory.')}
+            </p>
+          )}
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  )
 }
 function StoreInventoryContent({
   product,
   variant,
   onSaved,
+  onChanged,
   onBusyChange,
   onDirtyChange,
 }: {
@@ -966,6 +1108,7 @@ function StoreInventoryContent({
   onBusyChange: (value: boolean) => void
   onDirtyChange: (value: boolean) => void
   onSaved: () => Promise<void>
+  onChanged?: () => Promise<void>
 }) {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
@@ -974,15 +1117,28 @@ function StoreInventoryContent({
   const [error, setError] = useState<unknown>(null)
   const user = useAuthStore((state) => state.auth.user)!
   const stock = useQuery({
-    queryKey: ['store', 'stock', user.id, product.id, variant?.id || 'legacy-default', page],
-    queryFn: () => variant ? storeApi.variantStock(product.id, variant.id, page) : storeApi.stock(product.id, page),
+    queryKey: [
+      'store',
+      'stock',
+      user.id,
+      product.id,
+      variant?.id || 'legacy-default',
+      page,
+    ],
+    queryFn: () =>
+      variant
+        ? storeApi.variantStock(product.id, variant.id, page)
+        : storeApi.stock(product.id, page),
     retry: false,
   })
   const template = variant?.template ?? product.template
   const composed = template === 'custom-text' || structuredTemplate(template)
   const [composedItems, setComposedItems] = useState<string[]>([])
   useEffect(() => onBusyChange(busy), [busy, onBusyChange])
-  useEffect(() => onDirtyChange(text.length > 0 || composedItems.length > 0), [text, composedItems, onDirtyChange])
+  useEffect(
+    () => onDirtyChange(text.length > 0 || composedItems.length > 0),
+    [text, composedItems, onDirtyChange]
+  )
   let count = composed ? composedItems.length : 0
   try {
     if (!composed) count = parseInventoryText(text).length
@@ -1016,7 +1172,8 @@ function StoreInventoryContent({
       const items = composed ? composedItems : parseInventoryText(text)
       if (composed) validateComposedItems(items)
       if (!items.length) throw new Error('Add at least one inventory item')
-      if (variant) await storeApi.importVariantStock(product.id, variant.id, items)
+      if (variant)
+        await storeApi.importVariantStock(product.id, variant.id, items)
       else await storeApi.inventory(product.id, items)
       setText('')
       setComposedItems([])
@@ -1029,141 +1186,152 @@ function StoreInventoryContent({
   }
   return (
     <div className='space-y-4'>
-        <DialogDescription>
-          {product.title} ·{' '}
-          {composed
-            ? t(DELIVERY_TEMPLATES[template].help)
-            : t(
-                'One text item per line. Empty lines are ignored. Duplicate lines remain separate stock items.'
-              )}
-        </DialogDescription>
-        <StoreError error={error} />
-        {!composed && (
-          <div className='flex flex-wrap gap-2'>
-            <Button
-              type='button'
-              size='sm'
-              variant='outline'
-              onClick={() =>
-                void navigator.clipboard
-                  .readText()
-                  .then((value) => {
-                    parseInventoryText(value)
-                    setText(value)
-                    setError(null)
-                  })
-                  .catch(() =>
-                    setError(
-                      new Error(
-                        'Clipboard access failed. Paste into the text box instead.'
-                      )
+      <DialogDescription>
+        {product.title} ·{' '}
+        {composed
+          ? t(DELIVERY_TEMPLATES[template].help)
+          : t(
+              'One text item per line. Empty lines are ignored. Duplicate lines remain separate stock items.'
+            )}
+      </DialogDescription>
+      <StoreError error={error} />
+      {!composed && (
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            onClick={() =>
+              void navigator.clipboard
+                .readText()
+                .then((value) => {
+                  parseInventoryText(value)
+                  setText(value)
+                  setError(null)
+                })
+                .catch(() =>
+                  setError(
+                    new Error(
+                      'Clipboard access failed. Paste into the text box instead.'
                     )
                   )
-              }
-            >
-              {t('Paste from clipboard')}
-            </Button>
-            <label className='hover:bg-muted inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-xs font-medium'>
-              {t('Import file')}
-              <input
-                type='file'
-                accept='.txt,.csv,text/plain,text/csv'
-                className='sr-only'
-                onChange={(event) => {
-                  void loadFile(event.target.files?.[0])
-                  event.target.value = ''
-                }}
-              />
-            </label>
-          </div>
-        )}
-        {composed ? (
-          <StoreInventoryComposer
-            template={template}
-            items={composedItems}
-            onChange={setComposedItems}
-            disabled={busy}
-          />
+                )
+            }
+          >
+            {t('Paste from clipboard')}
+          </Button>
+          <label className='hover:bg-muted inline-flex cursor-pointer items-center rounded-md border px-3 py-2 text-xs font-medium'>
+            {t('Import file')}
+            <input
+              type='file'
+              accept='.txt,.csv,text/plain,text/csv'
+              className='sr-only'
+              onChange={(event) => {
+                void loadFile(event.target.files?.[0])
+                event.target.value = ''
+              }}
+            />
+          </label>
+        </div>
+      )}
+      {composed ? (
+        <StoreInventoryComposer
+          template={template}
+          items={composedItems}
+          onChange={setComposedItems}
+          disabled={busy}
+        />
+      ) : (
+        <Textarea
+          rows={9}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          aria-label={t('Inventory text')}
+          placeholder={t('One item per line')}
+        />
+      )}
+      <p className='text-muted-foreground text-xs'>
+        {t('{{count}} items ready to import', { count })} ·{' '}
+        {t('Maximum 10,000 items or 2 MB per import.')}
+      </p>
+      <Button disabled={!count || busy} onClick={() => void save()}>
+        {t(busy ? 'Importing...' : 'Import inventory')}
+      </Button>
+      <section className='space-y-3 border-t pt-4'>
+        <h2 className='text-sm font-semibold'>{t('Inventory records')}</h2>
+        <StoreError error={stock.error} retry={() => void stock.refetch()} />
+        {stock.isPending ? (
+          <StoreLoading />
         ) : (
-          <Textarea
-            rows={9}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            aria-label={t('Inventory text')}
-            placeholder={t('One item per line')}
-          />
+          stock.data && (
+            <>
+              <div className='divide-y'>
+                {!stock.data.items.length && (
+                  <p className='text-muted-foreground py-2 text-xs'>
+                    {t('No inventory yet')}
+                  </p>
+                )}
+                {stock.data.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className='flex items-center justify-between gap-2 py-2 text-xs'
+                  >
+                    <span className='min-w-0 break-all'>
+                      {item.id} · {t(item.state)}
+                    </span>
+                    {item.state === 'available' && (
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        disabled={busy}
+                        onClick={() => {
+                          setBusy(true)
+                          setError(null)
+                          void (
+                            variant
+                              ? storeApi.removeVariantStock(
+                                  product.id,
+                                  variant.id,
+                                  item.id
+                                )
+                              : storeApi.removeStock(product.id, item.id)
+                          )
+                            .then(async () => {
+                              await stock.refetch()
+                              await onChanged?.()
+                            })
+                            .catch((issue) => setError(issue))
+                            .finally(() => setBusy(false))
+                        }}
+                      >
+                        {t('Remove')}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className='flex justify-end gap-2'>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={page === 1}
+                  onClick={() => setPage((value) => value - 1)}
+                >
+                  {t('Previous page')}
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={!stock.data.has_more}
+                  onClick={() => setPage((value) => value + 1)}
+                >
+                  {t('Next page')}
+                </Button>
+              </div>
+            </>
+          )
         )}
-        <p className='text-muted-foreground text-xs'>
-          {t('{{count}} items ready to import', { count })} ·{' '}
-          {t('Maximum 10,000 items or 2 MB per import.')}
-        </p>
-        <Button disabled={!count || busy} onClick={() => void save()}>
-          {t(busy ? 'Importing...' : 'Import inventory')}
-        </Button>
-        <section className='space-y-3 border-t pt-4'>
-          <h2 className='text-sm font-semibold'>{t('Inventory records')}</h2>
-          <StoreError error={stock.error} retry={() => void stock.refetch()} />
-          {stock.isPending ? (
-            <StoreLoading />
-          ) : (
-            stock.data && (
-              <>
-                <div className='divide-y'>
-                  {!stock.data.items.length && (
-                    <p className='text-muted-foreground py-2 text-xs'>
-                      {t('No inventory yet')}
-                    </p>
-                  )}
-                  {stock.data.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className='flex items-center justify-between gap-2 py-2 text-xs'
-                    >
-                      <span className='min-w-0 break-all'>
-                        {item.id} · {t(item.state)}
-                      </span>
-                      {item.state === 'available' && (
-                        <Button
-                          size='sm'
-                          variant='ghost'
-                          disabled={busy}
-                          onClick={() => {
-                            setBusy(true)
-                            setError(null)
-                            void (variant ? storeApi.removeVariantStock(product.id, variant.id, item.id) : storeApi.removeStock(product.id, item.id))
-                              .then(() => stock.refetch())
-                              .catch((issue) => setError(issue))
-                              .finally(() => setBusy(false))
-                          }}
-                        >
-                          {t('Remove')}
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className='flex justify-end gap-2'>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    disabled={page === 1}
-                    onClick={() => setPage((value) => value - 1)}
-                  >
-                    {t('Previous page')}
-                  </Button>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    disabled={!stock.data.has_more}
-                    onClick={() => setPage((value) => value + 1)}
-                  >
-                    {t('Next page')}
-                  </Button>
-                </div>
-              </>
-            )
-          )}
-        </section>
+      </section>
     </div>
   )
 }

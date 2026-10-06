@@ -44,6 +44,7 @@ import {
   merchantStoreCopy,
   merchantStoreRetiredKeys,
 } from './merchant-store-copy.mjs'
+import { merchantStoreVariantsCopy } from './merchant-store-variants-copy.mjs'
 import { moderationAuditCopy } from './moderation-audit-copy.mjs'
 import { moderationCopy } from './moderation-copy.mjs'
 import { nativeBillingCopy } from './native-billing-copy.mjs'
@@ -12013,6 +12014,9 @@ async function main() {
   const clientRecordsOnly = process.argv.includes('--only-client-records')
   const paymentDecimalOnly = process.argv.includes('--only-payment-decimal')
   const merchantStoreOnly = process.argv.includes('--only-merchant-store')
+  const merchantStoreVariantsOnly = process.argv.includes(
+    '--only-merchant-store-variants'
+  )
   const paymentOnly = process.argv.includes('--only-payment-pricing')
   const homeOnly = process.argv.includes('--only-home-editorial')
   const homeTokenOnly = process.argv.includes('--only-home-token')
@@ -12047,6 +12051,7 @@ async function main() {
   const scoped =
     clientRecordsOnly ||
     paymentDecimalOnly ||
+    merchantStoreVariantsOnly ||
     merchantStoreOnly ||
     moderationOnly ||
     nativeBillingOnly ||
@@ -12156,6 +12161,8 @@ async function main() {
   for (const [locale, baseTranslations] of Object.entries(
     clientRecordsOnly
       ? toolMarketClientRecordsLunaCopy
+      : merchantStoreVariantsOnly
+        ? merchantStoreVariantsCopy
       : merchantStoreOnly
         ? merchantStoreCopy
         : selectedEntries
@@ -13294,6 +13301,9 @@ for (const [locale, values] of Object.entries(storeEmptyStateCopy)) {
 }
 
 for (const [locale, values] of Object.entries(storeTestModeLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+for (const [locale, values] of Object.entries(merchantStoreVariantsCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

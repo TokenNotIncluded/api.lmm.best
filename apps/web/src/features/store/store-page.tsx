@@ -9,10 +9,10 @@ import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
-import { StoreProductPrice } from './variant-summary'
 import { StoreOrderSearch } from './order-search'
 import { StoreBadges, StoreError, StoreLoading } from './shared'
 import { safeStoreUrl } from './utils'
+import { StoreProductPrice } from './variant-summary'
 
 type SearchType = 'auto' | 'products' | 'order' | 'email'
 

@@ -5,7 +5,7 @@ import { after, afterEach, test } from 'node:test'
 import { Window } from 'happy-dom'
 import type React from 'react'
 
-import type { StoreOrder, StoreProduct } from './types'
+import type { StoreOrder, StoreProduct, StoreVariant } from './types'
 
 const dom = new Window({
   url: 'https://shop.example.test/store/products/product-fixture',
@@ -114,6 +114,25 @@ const product: StoreProduct = {
   review_note: '',
 }
 const result = (data: unknown) => ({ data: { success: true, data } })
+function spec(id: string, changes: Partial<StoreVariant> = {}): StoreVariant {
+  return {
+    id,
+    product_id: product.id,
+    name: id,
+    price_quota: 1500000,
+    template: 'card-key',
+    enabled: true,
+    is_default: false,
+    inventory_total: 5,
+    inventory_available: 5,
+    reserved_stock: 0,
+    sale_available: 2,
+    trading_paused: false,
+    created_at: 1,
+    updated_at: 1,
+    ...changes,
+  }
+}
 function owner(id: number | null) {
   useAuthStore
     .getState()
@@ -785,6 +804,180 @@ test('pickup protection validates both minimum length and the bcrypt UTF-8 byte 
   assert.equal(button('Place order').disabled, false)
   await input(code, '密'.repeat(25))
   assert.equal(button('Place order').disabled, true)
+})
+test('multi-variant checkout sends an exact ID, uses its shared-cap limit and separates retry keys between choices', async () => {
+  owner(2)
+  const writes: Record<string, unknown>[] = []
+  api.get = (async () =>
+    result({ version: 'merchant-store-v1', accepted: true })) as typeof api.get
+  api.post = (async (url: string, body: Record<string, unknown>) => {
+    assert.equal(url, '/api/store/orders')
+    writes.push(body)
+    throw {
+      response: {
+        data: {
+          code: 'STORE_UPGRADE_IN_PROGRESS',
+          message: 'Server upgrade gate',
+        },
+      },
+    }
+  }) as typeof api.post
+  await mount(
+    <StoreCheckout
+      product={{
+        ...product,
+        official: true,
+        available_stock: 10,
+        default_variant_id: 'basic',
+        variants: [spec('basic'), spec('plus', { price_quota: 5000000 })],
+      }}
+    />
+  )
+  assert.equal(button('Place order').disabled, true)
+  assert.match(
+    document.body.textContent || '',
+    /Choose a variant before ordering/
+  )
+  const choose = (id: string) =>
+    document.querySelector<HTMLInputElement>(
+      `input[type="radio"][value="${id}"]`
+    )!
+  await click(choose('basic'))
+  const quantity = document.querySelector<HTMLInputElement>('#store-quantity')!
+  await input(quantity, '3')
+  assert.equal(button('Place order').disabled, true)
+  assert.equal(quantity.max, '2')
+  await input(quantity, '2')
+  await click(button('Place order'))
+  assert.match(
+    document.body.textContent || '',
+    /Shop upgrade is in progress. Existing orders are still accessible./
+  )
+  await click(button('Place order'))
+  await click(choose('plus'))
+  await click(button('Place order'))
+  assert.equal(writes.length, 3)
+  assert.equal(writes[0].variant_id, 'basic')
+  assert.equal(writes[2].variant_id, 'plus')
+  assert.equal(writes[0].quantity, 2)
+  assert.equal(writes[0].request_key, writes[1].request_key)
+  assert.notEqual(writes[0].request_key, writes[2].request_key)
+  assert.ok(
+    writes.every(
+      (body) =>
+        !('price_quota' in body) &&
+        !('unit_price_quota' in body) &&
+        !('buyer_id' in body)
+    )
+  )
+})
+test('a variant-required response stays in the checkout form and displays the known localized hint', async () => {
+  owner(2)
+  api.get = (async () =>
+    result({ version: 'merchant-store-v1', accepted: true })) as typeof api.get
+  api.post = (async () => ({
+    data: {
+      success: false,
+      code: 'STORE_VARIANT_REQUIRED',
+      message: 'Select a product variant before ordering.',
+    },
+  })) as typeof api.post
+  await mount(<StoreCheckout product={{ ...product, official: true }} />)
+  await click(button('Place order'))
+  assert.match(
+    document.body.textContent || '',
+    /Choose a variant before ordering/
+  )
+  assert.ok(document.querySelector('#store-quantity'))
+})
+test('variant inventory tabs require confirmation before discarding drafts and import only to the selected target', async () => {
+  owner(2)
+  const reads: string[] = []
+  const writes: Array<{ url: string; body: unknown }> = []
+  api.get = (async (url: string) => {
+    reads.push(url)
+    return result({ items: [], has_more: false })
+  }) as typeof api.get
+  api.post = (async (url: string, body: unknown) => {
+    writes.push({ url, body })
+    return result({ added: 1 })
+  }) as typeof api.post
+  const originalConfirm = window.confirm
+  let allow = false
+  window.confirm = () => allow
+  try {
+    await mount(
+      <StoreInventoryImport
+        product={{
+          ...product,
+          default_variant_id: 'basic',
+          variants: [
+            spec('basic', { is_default: true }),
+            spec('plus', { enabled: false }),
+          ],
+        }}
+        onClose={() => {}}
+        onSaved={async () => {}}
+      />
+    )
+    const text = () =>
+      document.querySelector<HTMLTextAreaElement>(
+        '[aria-label="Inventory text"]'
+      )!
+    await input(text(), ' unsaved-basic ')
+    const plusTab = [
+      ...document.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ].find((tab) => tab.textContent?.startsWith('plus'))!
+    await click(plusTab)
+    assert.equal(text().value, ' unsaved-basic ')
+    assert.equal(reads.length, 1)
+    allow = true
+    await click(plusTab)
+    assert.equal(text().value, '')
+    assert.equal(
+      reads[1],
+      `/api/store/products/${product.id}/variants/plus/inventory`
+    )
+    await input(text(), ' plus-key ')
+    await click(button('Import inventory'))
+    assert.deepEqual(writes, [
+      {
+        url: `/api/store/products/${product.id}/variants/plus/inventory`,
+        body: { items: [' plus-key '] },
+      },
+    ])
+  } finally {
+    window.confirm = originalConfirm
+  }
+})
+test('collection displays the frozen variant name and never queries a current product specification', async () => {
+  owner(null)
+  api.get = (async (url: string) => {
+    assert.equal(url, `/api/user/auth/store-claim/${'y'.repeat(43)}`)
+    return result({
+      product_title: 'Fixture',
+      variant_name: 'Original Plus',
+      status: 'paid',
+      pickup_login_required: false,
+      pickup_code_required: false,
+      pickup_login_satisfied: false,
+    })
+  }) as typeof api.get
+  api.post = (async () =>
+    result({
+      order_id: 'fixture',
+      product_title: 'Fixture',
+      variant_name: 'Original Plus',
+      items: ['fixture-only-secret'],
+    })) as typeof api.post
+  await mount(<StoreClaimPage token={'y'.repeat(43)} />)
+  assert.match(document.body.textContent || '', /Original Plus/)
+  await click(button('Collect items'))
+  assert.match(document.body.textContent || '', /Original Plus/)
+  assert.equal(
+    document.querySelector<HTMLTextAreaElement>('#pickup-item-0')?.value,
+    'fixture-only-secret'
+  )
 })
 test('multi-line custom inventory remains one item and failed import preserves the composed queue', async () => {
   owner(2)

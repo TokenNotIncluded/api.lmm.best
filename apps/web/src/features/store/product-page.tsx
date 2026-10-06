@@ -18,7 +18,6 @@ import { useAuthStore } from '@/stores/auth-store'
 import { storeApi } from './api'
 import { storeCheckoutCapacity, storeQuantity } from './quantity'
 import { StoreQuantityControl } from './quantity-control'
-import { enabledStoreVariants, initialStoreVariant, legacyVariantProduct, selectedStoreVariant, storeVariantCapacity, storeVariantPrice } from './variant-utils'
 import {
   StoreAmount,
   StoreAuthGate,
@@ -41,6 +40,14 @@ import {
   storeTotal,
   isStoreEmail,
 } from './utils'
+import {
+  enabledStoreVariants,
+  initialStoreVariant,
+  legacyVariantProduct,
+  selectedStoreVariant,
+  storeVariantCapacity,
+  storeVariantPrice,
+} from './variant-utils'
 
 export function StoreProductPage({
   id,
@@ -283,7 +290,13 @@ export function StoreCheckout({
     <aside className='bg-card space-y-4 rounded-lg border p-5 lg:sticky lg:top-24'>
       <div className='space-y-1'>
         <div className='text-xl font-semibold'>
-          {(result?.order.unit_price_quota ?? unitPrice) === undefined ? '—' : <StoreAmount quota={(result?.order.unit_price_quota ?? unitPrice)!} />}
+          {(result?.order.unit_price_quota ?? unitPrice) === undefined ? (
+            '—'
+          ) : (
+            <StoreAmount
+              quota={(result?.order.unit_price_quota ?? unitPrice)!}
+            />
+          )}
         </div>
         <p className='text-muted-foreground text-xs'>
           {t('Unit price')} ·{' '}
@@ -301,7 +314,9 @@ export function StoreCheckout({
           <h2 className='font-semibold'>
             {t(result.order.status === 'paid' ? 'Order paid' : 'Order created')}
           </h2>
-          <p className='text-muted-foreground text-sm'>{result.order.variant_name || t('Historic/default variant')}</p>
+          <p className='text-muted-foreground text-sm'>
+            {result.order.variant_name || t('Historic/default variant')}
+          </p>
           <p className='text-muted-foreground text-xs break-all'>
             {result.order.trade_no}
           </p>
