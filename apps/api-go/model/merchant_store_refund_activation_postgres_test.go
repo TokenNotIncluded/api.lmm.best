@@ -49,7 +49,7 @@ func TestMerchantStoreRefundActivationPostgresQualifiesActualSchemaAndTerminalCa
 	require.NoError(t, RecordMerchantStoreVerifiedPaymentIssue(o.ID, "immutable-provider-receipt", "settlement_unavailable"))
 	require.Equal(t, paidSnapshot, storeWriterSnapshot(t), "a late original callback cannot resurrect a refunded order or ledger")
 	_, err = ClaimMerchantStoreOrder(token, "", f.buyer.Id)
-	require.ErrorIs(t, err, ErrMerchantStoreConflict)
+	require.ErrorIs(t, err, ErrMerchantStoreDenied, "a fully refunded order remains outside the pickup disclosure surface")
 	require.Equal(t, fingerprint, merchantStorePGFingerprint(t, db, schemaName))
 	status, err := GetMerchantStoreWriterGateStatus(db)
 	require.NoError(t, err)
