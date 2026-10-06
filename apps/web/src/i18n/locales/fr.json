@@ -9449,6 +9449,8 @@
     "Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.": "Trop de sessions de connexion ont été créées récemment. Attendez la fin de la fenêtre glissante, puis réessayez.",
     "Too many requests": "Trop de requêtes",
     "Too many requests. Give it a beat.": "Trop de requêtes. Patientez un instant.",
+    "Too many requests. Please try again in {{seconds}} seconds.": "Trop de requêtes. Réessayez dans {{seconds}} secondes.",
+    "Too many requests. Please wait before trying again.": "Trop de requêtes. Veuillez patienter avant de réessayer.",
     "Tool": "Outil",
     "Tool / function declarations the model may call": "Déclarations d'outils / fonctions que le modèle peut appeler",
     "Tool calls, timeouts and caching": "Appels d’outils, délais d’attente et cache",

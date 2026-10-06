@@ -9449,6 +9449,8 @@
     "Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.": "Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.",
     "Too many requests": "Too many requests",
     "Too many requests. Give it a beat.": "Too many requests. Give it a beat.",
+    "Too many requests. Please try again in {{seconds}} seconds.": "Too many requests. Please try again in {{seconds}} seconds.",
+    "Too many requests. Please wait before trying again.": "Too many requests. Please wait before trying again.",
     "Tool": "Tool",
     "Tool / function declarations the model may call": "Tool / function declarations the model may call",
     "Tool calls, timeouts and caching": "Tool calls, timeouts and caching",

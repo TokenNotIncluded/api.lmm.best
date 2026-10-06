@@ -13071,6 +13071,43 @@ for (const [locale, values] of Object.entries(publicCreditDisplayCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
+const queryRateLimitCopy = {
+  en: [
+    'Too many requests. Please try again in {{seconds}} seconds.',
+    'Too many requests. Please wait before trying again.',
+  ],
+  zh: [
+    '请求过于频繁，请在 {{seconds}} 秒后再试。',
+    '请求过于频繁，请稍后再试。',
+  ],
+  'zh-TW': [
+    '請求過於頻繁，請在 {{seconds}} 秒後再試。',
+    '請求過於頻繁，請稍後再試。',
+  ],
+  fr: [
+    'Trop de requêtes. Réessayez dans {{seconds}} secondes.',
+    'Trop de requêtes. Veuillez patienter avant de réessayer.',
+  ],
+  ja: [
+    'リクエストが多すぎます。{{seconds}} 秒後に再試行してください。',
+    'リクエストが多すぎます。しばらく待ってから再試行してください。',
+  ],
+  ru: [
+    'Слишком много запросов. Повторите попытку через {{seconds}} сек.',
+    'Слишком много запросов. Подождите перед повторной попыткой.',
+  ],
+  vi: [
+    'Quá nhiều yêu cầu. Vui lòng thử lại sau {{seconds}} giây.',
+    'Quá nhiều yêu cầu. Vui lòng chờ rồi thử lại.',
+  ],
+}
+for (const [locale, values] of Object.entries(queryRateLimitCopy)) {
+  Object.assign(newKeys[locale], {
+    'Too many requests. Please try again in {{seconds}} seconds.': values[0],
+    'Too many requests. Please wait before trying again.': values[1],
+  })
+}
+
 main().catch((error) => {
   console.error(error)
   process.exitCode = 1

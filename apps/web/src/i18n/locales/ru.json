@@ -9449,6 +9449,8 @@
     "Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.": "За последнее время создано слишком много сеансов входа. Дождитесь окончания скользящего временного окна и повторите попытку.",
     "Too many requests": "Слишком много запросов",
     "Too many requests. Give it a beat.": "Слишком много запросов. Подождите немного.",
+    "Too many requests. Please try again in {{seconds}} seconds.": "Слишком много запросов. Повторите попытку через {{seconds}} сек.",
+    "Too many requests. Please wait before trying again.": "Слишком много запросов. Подождите перед повторной попыткой.",
     "Tool": "Инструмент",
     "Tool / function declarations the model may call": "Объявления инструментов и функций, которые модель может вызывать",
     "Tool calls, timeouts and caching": "Вызовы инструментов, тайм-ауты и кэширование",

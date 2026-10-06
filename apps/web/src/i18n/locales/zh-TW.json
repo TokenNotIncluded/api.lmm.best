@@ -9449,6 +9449,8 @@
     "Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.": "近期建立的登入工作階段過多。請等待滾動時間窗口結束後再試。",
     "Too many requests": "請求過於頻繁",
     "Too many requests. Give it a beat.": "請求太頻繁，請稍後再試。",
+    "Too many requests. Please try again in {{seconds}} seconds.": "請求過於頻繁，請在 {{seconds}} 秒後再試。",
+    "Too many requests. Please wait before trying again.": "請求過於頻繁，請稍後再試。",
     "Tool": "工具",
     "Tool / function declarations the model may call": "模型可呼叫的工具 / 函數聲明",
     "Tool calls, timeouts and caching": "工具呼叫、逾時與快取",

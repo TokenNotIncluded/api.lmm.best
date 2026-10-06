@@ -9449,6 +9449,8 @@
     "Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.": "Gần đây đã tạo quá nhiều phiên đăng nhập. Vui lòng chờ cửa sổ thời gian trượt kết thúc rồi thử lại.",
     "Too many requests": "Quá nhiều yêu cầu",
     "Too many requests. Give it a beat.": "Quá nhiều yêu cầu. Hãy đợi một chút.",
+    "Too many requests. Please try again in {{seconds}} seconds.": "Quá nhiều yêu cầu. Vui lòng thử lại sau {{seconds}} giây.",
+    "Too many requests. Please wait before trying again.": "Quá nhiều yêu cầu. Vui lòng chờ rồi thử lại.",
     "Tool": "Công cụ",
     "Tool / function declarations the model may call": "Khai báo công cụ / hàm mà mô hình có thể gọi",
     "Tool calls, timeouts and caching": "Lệnh gọi công cụ, thời gian chờ và bộ nhớ đệm",

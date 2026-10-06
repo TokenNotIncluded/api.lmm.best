@@ -24,6 +24,7 @@ import {
   getCapabilitySafeStatus,
   normalizeBackendCapabilities,
 } from '@/lib/backend-capabilities'
+import { createQueryRetry } from '@/lib/query-retry'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -110,7 +111,7 @@ export function useStatus() {
     refetchOnReconnect: true,
     refetchInterval: 5 * 60_000,
     refetchIntervalInBackground: false,
-    retry: 1,
+    retry: createQueryRetry(true, 1),
     retryDelay: 1_000,
     // Cache expires after 30 minutes
     gcTime: 30 * 60 * 1000,

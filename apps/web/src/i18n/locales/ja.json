@@ -9449,6 +9449,8 @@
     "Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.": "最近作成されたログインセッションが多すぎます。ローリングウィンドウが経過してから、もう一度お試しください。",
     "Too many requests": "リクエストが多すぎます",
     "Too many requests. Give it a beat.": "リクエストが多すぎます。少しお待ちください。",
+    "Too many requests. Please try again in {{seconds}} seconds.": "リクエストが多すぎます。{{seconds}} 秒後に再試行してください。",
+    "Too many requests. Please wait before trying again.": "リクエストが多すぎます。しばらく待ってから再試行してください。",
     "Tool": "ツール",
     "Tool / function declarations the model may call": "モデルが呼び出せるツール / 関数の宣言",
     "Tool calls, timeouts and caching": "ツール呼び出し、タイムアウト、キャッシュ",
