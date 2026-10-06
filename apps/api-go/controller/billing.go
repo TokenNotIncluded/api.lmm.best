@@ -49,7 +49,11 @@ func GetSubscription(c *gin.Context) {
 		return
 	}
 	// OpenAI's USD fields always represent real USD, regardless of UI display.
-	usage := projectBillingUsage(loadUsageProjector(), token, c.GetInt("id"), usedQuota)
+	usage, currentRemain := captureBillingUsage(token, c.GetInt("id"), remainQuota, usedQuota)
+	remainQuota = currentRemain
+	if token != nil {
+		expiredTime = max(0, token.ExpiredTime)
+	}
 	quota := decimal.NewFromInt(int64(remainQuota))
 	if usage.NormalizedUsedQuota != nil {
 		quota = quota.Add(decimal.NewFromInt(int64(*usage.NormalizedUsedQuota)))
@@ -103,7 +107,7 @@ func GetUsage(c *gin.Context) {
 		writeBillingOpenAIError(c, err, "billing_unavailable")
 		return
 	}
-	usageProjection := projectBillingUsage(loadUsageProjector(), token, c.GetInt("id"), quota)
+	usageProjection, _ := captureBillingUsage(token, c.GetInt("id"), 0, quota)
 	if !usageProjection.UsageProjectionAvailable {
 		writeBillingOpenAIError(c, errors.New("usage projection unavailable"), "billing_unavailable")
 		return

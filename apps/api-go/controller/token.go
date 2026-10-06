@@ -48,7 +48,9 @@ type tokenResponse struct {
 }
 
 func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
-	return buildMaskedTokenResponseWithProjector(token, loadUsageProjector())
+	snapshot := loadUsageSnapshot(nil, []*model.Token{token})
+	current, projector := snapshot.token(token)
+	return buildMaskedTokenResponseWithProjector(current, projector)
 }
 
 func buildMaskedTokenResponseWithProjector(token *model.Token, projector usageProjector) *tokenResponse {
@@ -70,9 +72,10 @@ func buildMaskedTokenResponseWithProjector(token *model.Token, projector usagePr
 
 func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {
 	maskedTokens := make([]*tokenResponse, 0, len(tokens))
-	projector := loadUsageProjector()
+	snapshot := loadUsageSnapshot(nil, tokens)
 	for _, token := range tokens {
-		maskedTokens = append(maskedTokens, buildMaskedTokenResponseWithProjector(token, projector))
+		current, projector := snapshot.token(token)
+		maskedTokens = append(maskedTokens, buildMaskedTokenResponseWithProjector(current, projector))
 	}
 	return maskedTokens
 }

@@ -26,7 +26,10 @@ func GetQuotaQuery(c *gin.Context) {
 	}
 	now := time.Now().UTC()
 	amount := func(quota decimal.Decimal) float64 { value, _ := quota.Div(divisor).Float64(); return value }
-	usage := projectTokenUsage(loadUsageProjector(), token)
+	snapshot := loadUsageSnapshot(nil, []*model.Token{token})
+	current, projector := snapshot.token(token)
+	token = current
+	usage := projectTokenUsage(projector, token)
 	var remaining, total, today, usedTotal any
 	if usage.NormalizedUsedQuota != nil {
 		usedTotal = amount(decimal.NewFromInt(int64(*usage.NormalizedUsedQuota)))

@@ -43,7 +43,9 @@ func buildPublicUserCreditResponse(user *model.User) (*publicUserCreditResponse,
 	if err != nil {
 		return nil, err
 	}
-	return buildPublicUserCreditResponseWithBasis(user, basis, loadUsageProjector())
+	snapshot := loadUsageSnapshot([]*model.User{user}, nil)
+	current, projector := snapshot.user(user)
+	return buildPublicUserCreditResponseWithBasis(current, basis, projector)
 }
 
 func buildPublicUserCreditResponseWithBasis(user *model.User, basis creditBoundaryBasis, projector usageProjector) (*publicUserCreditResponse, error) {
@@ -69,9 +71,10 @@ func buildPublicUserCreditResponses(users []*model.User) ([]*publicUserCreditRes
 	if err != nil {
 		return nil, err
 	}
-	projector := loadUsageProjector()
+	snapshot := loadUsageSnapshot(users, nil)
 	for _, user := range users {
-		response, err := buildPublicUserCreditResponseWithBasis(user, basis, projector)
+		current, projector := snapshot.user(user)
+		response, err := buildPublicUserCreditResponseWithBasis(current, basis, projector)
 		if err != nil {
 			return nil, err
 		}
