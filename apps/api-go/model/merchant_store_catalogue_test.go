@@ -179,4 +179,11 @@ func TestMerchantStoreCatalogueGuestLabelRespectsVisibilityLoginBoundary(t *test
 		require.NoError(t, err)
 		require.Empty(t, rows)
 	}
+	// Missing legacy input is not affirmative permission for anonymous purchase.
+	require.NoError(t, DB.Model(&Option{}).Where("key = ?", MerchantStoreWriterCapabilityOption).Update("value", "4").Error)
+	legacy := MerchantStoreProduct{ID: f.product.ID}
+	require.NoError(t, PopulateMerchantStoreCatalogue(DB, &legacy))
+	require.NotContains(t, legacy.DisplayTags, "guest_purchase")
+	require.Nil(t, legacy.NetPaidQuantity)
+
 }

@@ -112,7 +112,7 @@ func PopulateMerchantStoreCatalogue(tx *gorm.DB, p *MerchantStoreProduct) error 
 	} else {
 		p.DisplayTags = append(p.DisplayTags, "out_of_stock")
 	}
-	if MerchantStoreProductVisibility(p) == "public" && !p.PurchaseLoginRequired {
+	if supported && MerchantStoreProductVisibility(p) == "public" && !p.PurchaseLoginRequired {
 		p.DisplayTags = append(p.DisplayTags, "guest_purchase")
 	}
 	if metadata.AutoDelivery {
