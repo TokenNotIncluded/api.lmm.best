@@ -776,6 +776,22 @@ def released_ancestors():
     return result
 
 
+def history_lock_path(path, uid=0, native_lock=Path('/run/lock/lmm-api-go-deploy.lock')):
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts or str(path) != os.path.normpath(str(path)):
+        raise RuntimeError('history lock path must be canonical')
+    for parent in path.parents:
+        info = parent.lstat()
+        sticky_native = (path == native_lock and parent == native_lock.parent and
+                         info.st_uid == uid and stat.S_IMODE(info.st_mode) == 0o1777)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, uid) or (info.st_mode & 0o022 and not sticky_native):
+            raise RuntimeError('history lock ancestor ownership or permissions are unsafe')
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_nlink != 1 or info.st_mode & 0o022:
+        raise RuntimeError('history lock must be root-owned, regular, single-linked and not writable by others')
+    return info
+
+
 @contextlib.contextmanager
 def history_locks():
     # Normal history repair cannot borrow a financial guardian's live lease.
@@ -784,10 +800,12 @@ def history_locks():
     descriptors = []
     try:
         for path in sorted(guardian.LOCKS.values()):
-            cleanup_path(Path(path))
+            info = history_lock_path(path)
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
             descriptors.append(fd)
-            if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink != 1:
+            opened = os.fstat(fd)
+            named = os.stat(path, follow_symlinks=False)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_uid != info.st_uid or opened.st_nlink != 1 or opened.st_mode & 0o022 or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino) or (named.st_dev, named.st_ino) != (opened.st_dev, opened.st_ino):
                 raise RuntimeError('history lock is not a single-linked regular file')
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

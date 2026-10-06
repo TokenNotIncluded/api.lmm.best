@@ -918,6 +918,8 @@ class OrdinaryHistoryTests(unittest.TestCase):
         self.stack.enter_context(patch.object(deploy, 'NATIVE_TRANSACTION_LEASE', self.base / 'native.lease'))
         self.locks = {key: str(self.write(self.base / (key + '.lock'), b'')) for key in ['native', 'systemd', 'frontend']}
         self.stack.enter_context(patch.object(deploy.guardian, 'LOCKS', self.locks))
+        real_lock_path = deploy.history_lock_path
+        self.stack.enter_context(patch.object(deploy, 'history_lock_path', side_effect=lambda path: real_lock_path(path, uid=self.uid)))
         return controller
 
     def register(self):
@@ -936,6 +938,49 @@ class OrdinaryHistoryTests(unittest.TestCase):
         self.write(work / 'logs/oneapi.log', b'all historical logs preserved')
         self.write(work / 'verify-stage.log', b'failed before state publication')
         return work, SimpleNamespace(release=work.name, execute=False)
+
+    def test_only_exact_native_lock_accepts_real_sticky_parent(self):
+        sticky = self.base / 'run-lock';sticky.mkdir(mode=0o700);sticky.chmod(0o1777)
+        native = self.write(sticky / 'lmm-api-go-deploy.lock', b'')
+        # Actual filesystem ownership/mode inspection, with fixture UID only.
+        deploy.history_lock_path(native, uid=self.uid, native_lock=native)
+        other = self.write(sticky / 'another.lock', b'')
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(other, uid=self.uid, native_lock=native)
+        sticky.chmod(0o777)
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(native, uid=self.uid, native_lock=native)
+        sticky.chmod(0o1777)
+        outside = self.base / 'another-sticky';outside.mkdir();outside.chmod(0o1777)
+        wrong = self.write(outside / native.name, b'')
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(wrong, uid=self.uid, native_lock=native)
+        link = sticky / 'link';link.symlink_to(native)
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(link, uid=self.uid, native_lock=link)
+        hardlink = self.base / 'hardlink';os.link(native, hardlink)
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(native, uid=self.uid, native_lock=native)
+        hardlink.unlink()
+        native.chmod(0o666)
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(native, uid=self.uid, native_lock=native)
+        native.chmod(0o600)
+
+    def test_history_lock_name_replacement_is_rejected_after_nofollow_open(self):
+        self.proof()
+        actual_open = os.open
+        selected = sorted(self.locks.values())[0]
+        def replace_after_open(path, flags, *args):
+            fd = actual_open(path, flags, *args)
+            if str(path) == selected:
+                Path(path).unlink()
+                self.write(Path(path), b'replacement inode')
+            return fd
+        with patch.object(deploy.os, 'open', side_effect=replace_after_open):
+            with self.assertRaisesRegex(RuntimeError, 'single-linked'):
+                with deploy.history_locks():
+                    self.fail('changed named lock must never enter the protected section')
 
     def test_registration_dry_run_and_exact_chain_preserve_original_bytes(self):
         self.proof()
