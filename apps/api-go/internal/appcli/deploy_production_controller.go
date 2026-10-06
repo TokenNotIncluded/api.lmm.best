@@ -60,6 +60,7 @@ type productionReleaseControllerState struct {
 }
 
 type productionReleaseControllerResult struct {
+	SchemaMode                   string `json:"schema_mode,omitempty"`
 	DispatchVerifiedAbsent       bool   `json:"dispatch_verified_absent,omitempty"`
 	ProviderSHA256               string `json:"provider_sha256,omitempty"`
 	Phase                        string `json:"phase,omitempty"`
@@ -256,6 +257,9 @@ func (runtime *productionReleaseRuntime) stage(ctx context.Context, options prod
 	if err := runtime.verifyRemoteStagedRelease(ctx, plan, state); err != nil {
 		return productionReleaseControllerResult{}, err
 	}
+	if err := runtime.verifyRemoteExistingSchema(ctx, plan, state); err != nil {
+		return productionReleaseControllerResult{}, fmt.Errorf("staged existing-schema preflight: %w", err)
+	}
 	if state.Phase == productionReleasePhaseWorkspaceCreated || state.Phase == "" {
 		state.Phase = productionReleasePhaseStaged
 		state.UpdatedUTC = utcSecond(runtime.now())
@@ -287,7 +291,7 @@ func (runtime *productionReleaseRuntime) promote(ctx context.Context, options pr
 	if !plan.WithBackups && options.AgeIdentityFile != "" {
 		return productionReleaseControllerResult{}, errors.New("disabled backup plans forbid --age-identity-file")
 	}
-	if plan.Format == productionReleasePlanFormat && plan.WithBackups && state.DispatchAttempts == 0 &&
+	if productionReleasePlanSupportsControllerBackups(plan) && plan.WithBackups && state.DispatchAttempts == 0 &&
 		(state.Phase == productionReleasePhaseStaged || state.Phase == productionReleasePhaseBackupsReady) {
 		if err := runtime.prepareControllerOnlyBackup(ctx, plan, &state, options.AgeIdentityFile); err != nil {
 			return productionReleaseControllerResult{}, err
@@ -460,6 +464,10 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 	if plan.MaintenanceHandoff != nil {
 		arguments = append(arguments, "--maintenance-handoff", productionRemoteHandoffPath(*plan.MaintenanceHandoff), "--maintenance-handoff-sha256", plan.MaintenanceHandoff.SHA256)
 	}
+	if plan.SchemaMode == productionSchemaModeVerifyExisting {
+		arguments = append(arguments, "--schema-mode", plan.SchemaMode,
+			"--staged-plan", filepath.Join(remoteStage, productionReleasePlanFilename), "--staged-plan-sha256", state.PlanSHA256)
+	}
 	if plan.GoChanged {
 		arguments = append(arguments, "--go-changed")
 	}
@@ -467,7 +475,7 @@ func (runtime *productionReleaseRuntime) productionApplyArguments(plan productio
 		arguments = append(arguments, "--web-changed")
 	}
 	if plan.WithBackups {
-		if plan.Format == productionReleasePlanFormat {
+		if productionReleasePlanSupportsControllerBackups(plan) {
 			arguments = append(arguments, "--with-backups",
 				"--controller-backup-public-key", plan.ControllerBackupPublicKey,
 				"--release-plan-sha256", state.PlanSHA256,
@@ -628,7 +636,7 @@ func (runtime *productionReleaseRuntime) waitForDispatchObservation(ctx context.
 }
 
 func (runtime *productionReleaseRuntime) controllerRecoveryOperator(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) (string, error) {
-	if plan.Format == productionReleasePlanFormat && plan.WithBackups {
+	if plan.Format == productionExistingSchemaPlanFormat || (productionReleasePlanSupportsControllerBackups(plan) && plan.WithBackups) {
 		// After activation the installed, package-bound CLI is sufficient even
 		// if disposable staging has disappeared. Never infer compatibility from
 		// a version string or fall back to an unverified N-1 provider.
@@ -813,6 +821,9 @@ func (runtime *productionReleaseRuntime) verifyRemoteStagedRelease(ctx context.C
 		plan.ProbeBinary,
 		plan.OperatorBinary,
 	}
+	if plan.SchemaMode == productionSchemaModeVerifyExisting {
+		files = append(files, productionReleaseFilePlan{Path: filepath.Join(plan.ControllerWorkspace, productionReleasePlanFilename), SHA256: state.PlanSHA256})
+	}
 	if plan.WithBackups && plan.Format == 5 {
 		files = append(files, plan.AgeRecipient)
 	}
@@ -833,6 +844,28 @@ func (runtime *productionReleaseRuntime) verifyRemoteStagedRelease(ctx context.C
 		}
 	}
 	return runtime.verifyRemoteCandidateEntrypoint(ctx, plan, state)
+}
+
+func (runtime *productionReleaseRuntime) verifyRemoteExistingSchema(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState) error {
+	if plan.SchemaMode != productionSchemaModeVerifyExisting {
+		return nil
+	}
+	operator, err := runtime.remoteCandidateCommand(ctx, plan, state)
+	if err != nil {
+		return err
+	}
+	output, err := runtime.ssh(ctx, plan.TargetAlias, 2*time.Minute, operator, "operator", "production", "schema-verify",
+		"--workspace", state.RemoteWorkspace,
+		"--staged-plan", filepath.Join(state.RemoteWorkspace, "staging", productionReleasePlanFilename), "--staged-plan-sha256", state.PlanSHA256)
+	if err != nil {
+		return errors.New("target existing-schema verification failed")
+	}
+	var status productionStatus
+	if err := decodeControllerBackupJSON(output, &status); err != nil || status.DeploymentID != plan.DeploymentID ||
+		status.PlanSHA256 != state.PlanSHA256 || status.Version != plan.ExpectedVersion || status.Phase != "SCHEMA_VERIFIED" {
+		return errors.New("target existing-schema verification evidence differs")
+	}
+	return nil
 }
 
 type productionPreparedBackups struct {
@@ -1085,7 +1118,7 @@ func (runtime *productionReleaseRuntime) verifyRemoteExternalBackupCopy(ctx cont
 }
 
 func (runtime *productionReleaseRuntime) reverifyControllerBackups(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState, ageIdentityFile string) error {
-	if plan.Format == productionReleasePlanFormat {
+	if productionReleasePlanSupportsControllerBackups(plan) {
 		return runtime.reverifyControllerOnlyBackup(ctx, plan, state, ageIdentityFile)
 	}
 	if plan.Format != 5 || !plan.WithBackups {
@@ -1279,6 +1312,7 @@ func validateProductionReleaseControllerState(plan productionReleasePlan, planSH
 
 func releaseControllerResult(plan productionReleasePlan, state productionReleaseControllerState) productionReleaseControllerResult {
 	result := productionReleaseControllerResult{
+		SchemaMode:             plan.SchemaMode,
 		DispatchVerifiedAbsent: state.DispatchVerifiedAbsent,
 		Phase:                  state.Phase, MaintenanceConfirmation: state.MaintenanceConfirmation, MaintenanceAdmissionReopened: state.MaintenanceAdmissionReopened, CaptureReceiptPath: state.CaptureReceiptPath, CaptureReceiptSHA256: state.CaptureReceiptSHA256,
 		DeploymentID:     plan.DeploymentID,

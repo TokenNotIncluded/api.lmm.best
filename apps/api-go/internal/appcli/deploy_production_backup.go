@@ -558,6 +558,10 @@ func (runtime *productionRuntime) runMigration(
 	if run.mode != "apply" && run.mode != "verify" {
 		return errors.New("migration mode must be apply or verify")
 	}
+	if manifest.SchemaMode == productionSchemaModeVerifyExisting &&
+		(run.mode != "verify" || manifest.MaintenanceHandoff != nil || runtime.maintenanceHandoff != nil) {
+		return errors.New("verify-existing cannot execute apply or a financial maintenance handoff")
+	}
 	if !productionReasonPattern.MatchString(run.name) || run.binary == "" {
 		return errors.New("migration run identity is invalid")
 	}
@@ -565,7 +569,17 @@ func (runtime *productionRuntime) runMigration(
 	if err != nil {
 		return fmt.Errorf("read migration environment: %w", err)
 	}
-	childEnvironment, err := runtime.migrationEnvironment(environment, manifest.DatabaseSchema)
+	var childEnvironment []string
+	if manifest.SchemaMode == productionSchemaModeVerifyExisting {
+		if err = validateProductionExistingSchemaContract(manifest.ExistingSchemaContract); err == nil && manifest.ExistingSchemaContract.Schema != manifest.DatabaseSchema {
+			err = errors.New("verify-existing migration schema differs from the sealed schema")
+		}
+		if err == nil {
+			childEnvironment, err = runtime.existingSchemaMigrationEnvironment(environment, manifest.DatabaseSchema)
+		}
+	} else {
+		childEnvironment, err = runtime.migrationEnvironment(environment, manifest.DatabaseSchema)
+	}
 	if err != nil {
 		return fmt.Errorf("prepare migration environment: %w", err)
 	}

@@ -20,6 +20,83 @@ type productionStagedFile struct {
 	executable bool
 }
 
+// Bind target activation arguments to the canonical controller plan. A schema
+// policy is never a target-side escape hatch for another package tuple.
+func validateProductionExistingSchemaApply(options productionTransactionOptions, plan productionReleasePlan) error {
+	if err := validateProductionExistingSchemaPlan(plan); err != nil {
+		return err
+	}
+	if options.Action != "apply" || options.SchemaMode != productionSchemaModeVerifyExisting ||
+		plan.Format != productionExistingSchemaPlanFormat || options.MaintenanceHandoffPath != "" || options.MaintenanceHandoffSHA256 != "" ||
+		options.OperatorUser != plan.OperatorUser || options.ExpectedVersion != plan.ExpectedVersion ||
+		options.GoChanged != plan.GoChanged || options.WebChanged != plan.WebChanged ||
+		options.WithBackups != plan.WithBackups || options.PreserveEdgePolicy != plan.PreserveEdgePolicy ||
+		options.ObservationWindow != time.Duration(plan.ObservationSeconds)*time.Second {
+		return errors.New("verify-existing activation arguments differ from the immutable release plan")
+	}
+	stage := filepath.Join(options.Workspace, "staging")
+	if filepath.Base(options.Workspace) != plan.DeploymentID || options.StagedPlanPath != filepath.Join(stage, productionReleasePlanFilename) ||
+		!productionSHA256Pattern.MatchString(options.StagedPlanSHA256) {
+		return errors.New("verify-existing activation workspace differs from the immutable release plan")
+	}
+	for _, pair := range []struct {
+		path, digest string
+		planned      productionReleasePackagePlan
+	}{
+		{options.GoPackage, options.GoPackageSHA256, plan.GoCandidate},
+		{options.GoRollbackPackage, options.GoRollbackSHA256, plan.GoRollback},
+		{options.WebPackage, options.WebPackageSHA256, plan.WebCandidate},
+		{options.WebRollbackPackage, options.WebRollbackSHA256, plan.WebRollback},
+	} {
+		if pair.path != filepath.Join(stage, filepath.Base(pair.planned.PackagePath)) || pair.digest != pair.planned.PackageSHA256 {
+			return errors.New("verify-existing activation package differs from the immutable release plan")
+		}
+	}
+	if options.ProbeBinary != filepath.Join(stage, backendGoName) || options.ProbeBinarySHA256 != plan.ProbeBinary.SHA256 ||
+		options.OperatorBinary != options.ProbeBinary || options.OperatorBinarySHA256 != plan.OperatorBinary.SHA256 {
+		return errors.New("verify-existing activation provider differs from the immutable release plan")
+	}
+	if plan.WithBackups && (options.BackupDir != "" || options.ControllerBackup.PublicKey != plan.ControllerBackupPublicKey ||
+		options.ControllerBackup.PlanSHA256 != options.StagedPlanSHA256) {
+		return errors.New("verify-existing activation backup binding differs from the immutable release plan")
+	}
+	return nil
+}
+
+func productionSchemaMigrationRuns(manifest productionManifest, candidate, rollback string) ([]migrationRun, error) {
+	switch manifest.SchemaMode {
+	case "":
+		if manifest.ExistingSchemaContract != nil || manifest.SchemaPlanSHA256 != "" {
+			return nil, errors.New("historical schema activation cannot contain an existing-schema policy")
+		}
+		return []migrationRun{
+			{name: "candidate-apply", binary: candidate, mode: "apply"},
+			{name: "candidate-verify", binary: candidate, mode: "verify"},
+			{name: "rollback-verify", binary: rollback, mode: "verify"},
+		}, nil
+	case productionSchemaModeVerifyExisting:
+		if err := validateProductionExistingSchemaManifest(manifest); err != nil {
+			return nil, err
+		}
+		return []migrationRun{
+			{name: "candidate-verify", binary: candidate, mode: "verify"},
+			{name: "rollback-verify", binary: rollback, mode: "verify"},
+		}, nil
+	default:
+		return nil, errors.New("unsupported schema activation policy")
+	}
+}
+
+func (runtime *productionRuntime) verifyExistingSchemaLifecycle(ctx context.Context, manifest productionManifest) error {
+	if manifest.SchemaMode != productionSchemaModeVerifyExisting {
+		return nil
+	}
+	if err := runtime.verifyExistingSchemaStartupMode(ctx, manifest); err != nil {
+		return err
+	}
+	return runtime.verifyExistingSchemaContract(ctx, manifest.ExistingSchemaContract)
+}
+
 func (runtime *productionRuntime) loadRollbackEnvironment(ctx context.Context, workspace productionWorkspace, backupDir string) ([]byte, error) {
 	if backupDir == "" {
 		content, err := readPrivateRegularFile(filepath.Join(runtime.paths.ConfigDir, "lmm-api-go.env"), 1<<20)
@@ -605,6 +682,23 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err := validateControllerBackupTransactionOptions(options); err != nil {
 		return productionStatus{}, err
 	}
+	if options.SchemaMode == productionSchemaModeVerifyExisting {
+		if runtime.maintenanceHandoff != nil {
+			return productionStatus{}, errors.New("verify-existing cannot use a financial maintenance handoff")
+		}
+		plan, err := loadStagedProductionExistingSchemaPlan(workspace, options.StagedPlanPath, options.StagedPlanSHA256)
+		if err != nil {
+			return productionStatus{}, err
+		}
+		if err := validateProductionExistingSchemaApply(options, plan); err != nil {
+			return productionStatus{}, err
+		}
+		options.ExistingSchemaContract = plan.ExistingSchemaContract
+	} else if options.SchemaMode != "" || options.ExistingSchemaContract != nil {
+		return productionStatus{}, errors.New("existing-schema activation policy is invalid")
+	} else if err := validateProductionExistingSchemaManifestPlan(workspace, productionManifest{}); err != nil {
+		return productionStatus{}, fmt.Errorf("activation cannot omit its immutable schema policy: %w", err)
+	}
 	if options.Action == "maintenance-retry" {
 		if err := runtime.archiveMaintenancePrearmFailure(ctx, workspace); err != nil {
 			return productionStatus{}, err
@@ -888,13 +982,33 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	if err != nil {
 		return productionStatus{}, fmt.Errorf("capture previous provider link: %w", err)
 	}
-	preflightManifest := productionManifest{DatabaseSchema: databaseSchema}
+	preflightManifest := productionManifest{DatabaseSchema: databaseSchema, SchemaMode: options.SchemaMode, ExistingSchemaContract: options.ExistingSchemaContract}
+	if options.SchemaMode == productionSchemaModeVerifyExisting {
+		if databaseSchema != options.ExistingSchemaContract.Schema {
+			return productionStatus{}, errors.New("existing-schema contract differs from migration search path")
+		}
+		if err := runtime.verifyExistingSchemaContract(ctx, options.ExistingSchemaContract); err != nil {
+			return productionStatus{}, fmt.Errorf("existing-schema preflight: %w", err)
+		}
+		if err := runtime.runMigration(ctx, workspace, preflightManifest, migrationRun{name: "candidate-preflight", binary: candidateEntrypoint, mode: "verify"}); err != nil {
+			return productionStatus{}, fmt.Errorf("candidate existing-schema preflight hard stop: %w", err)
+		}
+		if err := runtime.verifyExistingSchemaContract(ctx, options.ExistingSchemaContract); err != nil {
+			return productionStatus{}, err
+		}
+	}
 	if options.GoChanged {
 		if err := runtime.runMigration(ctx, workspace, preflightManifest, migrationRun{name: "rollback-preflight", binary: runtime.paths.InstalledBinary, mode: "verify"}); err != nil {
 			return productionStatus{}, fmt.Errorf("N-1 schema preflight hard stop: %w", err)
 		}
 	}
+	if options.SchemaMode == productionSchemaModeVerifyExisting {
+		if err := runtime.verifyExistingSchemaContract(ctx, options.ExistingSchemaContract); err != nil {
+			return productionStatus{}, err
+		}
+	}
 	manifest := productionManifest{
+		SchemaMode: options.SchemaMode, ExistingSchemaContract: options.ExistingSchemaContract,
 		MaintenanceHandoff: runtime.maintenanceHandoff,
 		Format:             productionTransactionFormat, DeploymentID: workspace.id,
 		OperatorUser: options.OperatorUser,
@@ -912,6 +1026,13 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		ObservationSeconds: int64(options.ObservationWindow / time.Second), ConfigRestorePath: workspace.configRestore, EnvironmentRestoreSHA256: environmentRestoreSHA256,
 		NginxEdgeRestoreSHA256: nginxEdgeRestoreSHA256, PreserveEdgePolicy: options.PreserveEdgePolicy,
 	}
+	if options.SchemaMode == productionSchemaModeVerifyExisting {
+		manifest.Format = productionExistingSchemaTransactionFormat
+		manifest.SchemaPlanSHA256 = options.StagedPlanSHA256
+		if err := runtime.verifyExistingSchemaStartupMode(ctx, manifest); err != nil {
+			return productionStatus{}, err
+		}
+	}
 	if options.ControllerBackup != (controllerBackupBinding{}) {
 		binding := options.ControllerBackup
 		receipt, err := readControllerBackupReceipt(binding.ReceiptPath, binding.PublicKey, binding.ReceiptSHA256, runtime.requiredOwnerUID)
@@ -926,6 +1047,11 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, errors.New("controller backup payload does not match the verified rollback Go package")
 		}
 		if err := runtime.verifyControllerBackupEvidence(workspace, manifest, true); err != nil {
+			return productionStatus{}, err
+		}
+	}
+	if options.SchemaMode == productionSchemaModeVerifyExisting {
+		if err := validateProductionExistingSchemaManifestPlan(workspace, manifest); err != nil {
 			return productionStatus{}, err
 		}
 	}
@@ -984,11 +1110,19 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		return productionStatus{}, err
 	}
 	if manifest.Go.Changed {
+		if manifest.SchemaMode == productionSchemaModeVerifyExisting {
+			if err := runtime.verifyExistingSchemaContract(ctx, manifest.ExistingSchemaContract); err != nil {
+				return productionStatus{}, err
+			}
+		}
 		if err := runtime.removeLegacyDeployPackageForProviderMigration(ctx, goCandidate); err != nil {
 			return productionStatus{}, err
 		}
 		if err := runtime.closeBillingAdmission(ctx, workspace, &manifest); err != nil {
 			return productionStatus{}, err
+		}
+		if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+			return productionStatus{}, fmt.Errorf("pre-stop existing-schema invariant: %w", err)
 		}
 		if runtime.maintenanceStopped() {
 			if err := runtime.validateStoppedMaintenanceWriter(ctx); err != nil {
@@ -1000,9 +1134,23 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "MIGRATING", Version: options.ExpectedVersion, Previous: oldVersion}); err != nil {
 			return productionStatus{}, err
 		}
-		for _, migration := range []migrationRun{{name: "candidate-apply", binary: candidateEntrypoint, mode: "apply"}, {name: "candidate-verify", binary: candidateEntrypoint, mode: "verify"}, {name: "rollback-verify", binary: runtime.paths.InstalledBinary, mode: "verify"}} {
+		if manifest.SchemaMode == productionSchemaModeVerifyExisting {
+			if err := runtime.verifyExistingSchemaContract(ctx, manifest.ExistingSchemaContract); err != nil {
+				return productionStatus{}, err
+			}
+		}
+		migrationRuns, err := productionSchemaMigrationRuns(manifest, candidateEntrypoint, runtime.paths.InstalledBinary)
+		if err != nil {
+			return productionStatus{}, err
+		}
+		for _, migration := range migrationRuns {
 			if err := runtime.runMigration(ctx, workspace, manifest, migration); err != nil {
 				return productionStatus{}, err
+			}
+			if manifest.SchemaMode == productionSchemaModeVerifyExisting {
+				if err := runtime.verifyExistingSchemaContract(ctx, manifest.ExistingSchemaContract); err != nil {
+					return productionStatus{}, err
+				}
 			}
 		}
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "DEPLOYING_GO", Version: options.ExpectedVersion, Previous: oldVersion}); err != nil {
@@ -1051,6 +1199,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"reset-failed", runtime.paths.Service}}); err != nil {
 			return productionStatus{}, fmt.Errorf("reset candidate Go service restart counter: %w", err)
 		}
+		if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+			return productionStatus{}, fmt.Errorf("candidate startup existing-schema invariant: %w", err)
+		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
 			return productionStatus{}, fmt.Errorf("start candidate Go service: %w", err)
 		}
@@ -1082,6 +1233,14 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	}
 	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("candidate local backend health gate changed restart baseline: %w", err)
+	}
+	if manifest.SchemaMode == productionSchemaModeVerifyExisting {
+		if err := runtime.verifyExistingSchemaStartupMode(ctx, manifest); err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.verifyExistingSchemaContract(ctx, manifest.ExistingSchemaContract); err != nil {
+			return productionStatus{}, err
+		}
 	}
 	if err := runtime.reopenBillingAdmission(ctx, workspace, &manifest); err != nil {
 		return productionStatus{}, err
@@ -1225,6 +1384,9 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	if manifest.ObservationStartedUTC.IsZero() || observationWindow < 2*time.Minute || runtime.now().Before(observationEnd) {
 		return productionStatus{}, errors.New("confirmation requires a completed observation window of at least 120 seconds")
 	}
+	if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+		return productionStatus{}, fmt.Errorf("final existing-schema invariant failed: %w", err)
+	}
 	if err := runtime.healthCheck(ctx, workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("final production health and identity gate failed: %w", err)
 	}
@@ -1253,6 +1415,9 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	}
 	if err := runtime.healthCheck(ctx, workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("final production health and identity recheck failed: %w", err)
+	}
+	if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+		return productionStatus{}, fmt.Errorf("final existing-schema invariant recheck failed: %w", err)
 	}
 	confirmed := productionStatus{
 		Phase: "CONFIRMED", Version: manifest.ExpectedVersion, Previous: manifest.OldVersion,
@@ -1324,6 +1489,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	if err := validateMemoryOverrides(runtime.paths.DropInDir); err != nil {
 		return fail(fmt.Errorf("rollback memory configuration preflight: %w", err))
 	}
+	if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+		return fail(fmt.Errorf("rollback existing-schema preflight: %w", err))
+	}
 	if early, earlyStatus, earlyErr := runtime.rollbackBeforeWriterStop(ctx, workspace, &manifest, status); early {
 		if earlyErr != nil {
 			return fail(earlyErr)
@@ -1343,8 +1511,14 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		if err := runtime.closeBillingAdmission(ctx, workspace, &manifest); err != nil {
 			return fail(err)
 		}
+		if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+			return fail(fmt.Errorf("rollback pre-stop existing-schema invariant: %w", err))
+		}
 		if err := runtime.stopBillingWriter(ctx, workspace, &manifest); err != nil {
 			return fail(err)
+		}
+		if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+			return fail(fmt.Errorf("rollback stopped existing-schema invariant: %w", err))
 		}
 		if err := runtime.prepareLegacyProviderRollback(manifest); err != nil {
 			return fail(err)
@@ -1387,6 +1561,14 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		if err := runtime.verifyTransitionCLI(ctx, manifest.Go, true); err != nil {
 			return fail(err)
 		}
+		if manifest.SchemaMode == productionSchemaModeVerifyExisting {
+			if err := runtime.runMigration(ctx, workspace, manifest, migrationRun{name: "rollback-recovery-verify", binary: runtime.paths.InstalledBinary, mode: "verify"}); err != nil {
+				return fail(fmt.Errorf("installed N-1 existing-schema recovery verification failed: %w", err))
+			}
+			if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+				return fail(fmt.Errorf("N-1 existing-schema restart invariant: %w", err))
+			}
+		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
 			return fail(fmt.Errorf("start rolled-back backend service: %w", err))
 		}
@@ -1405,6 +1587,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	if err := verifyFrontendIdentity(runtime.paths.FrontendRoot, manifest.Frontend.OldTarget, manifest.Frontend.OldIndexSHA256); err != nil {
 		return fail(err)
 	}
+	if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+		return fail(fmt.Errorf("rollback existing-schema admission invariant: %w", err))
+	}
 	if err := runtime.reopenBillingAdmission(ctx, workspace, &manifest); err != nil {
 		return fail(err)
 	}
@@ -1415,6 +1600,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	}
 	if err := runtime.probeReleaseWithBinary(ctx, workspace, runtime.paths.InstalledBinary, manifest.OldVersion, manifest.Frontend.OldIndexSHA256); err != nil {
 		return fail(fmt.Errorf("rolled-back release probes failed: %w", err))
+	}
+	if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
+		return fail(fmt.Errorf("rollback final existing-schema invariant: %w", err))
 	}
 	rolledBack := productionStatus{Phase: "ROLLED_BACK", Version: manifest.OldVersion, Previous: manifest.ExpectedVersion, Reason: reason}
 	if runtime.maintenancePost() {
@@ -1526,8 +1714,14 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 	if err := runtime.verifyPreStopEdgeState(workspace, *manifest); err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback edge evidence failed: %w", err)
 	}
+	if err := runtime.verifyExistingSchemaLifecycle(ctx, *manifest); err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback existing-schema invariant: %w", err)
+	}
 	if resumeStopped {
 		if err := runtime.runMigration(ctx, workspace, *manifest, migrationRun{name: "unchanged-provider-recovery", binary: runtime.paths.InstalledBinary, mode: "verify"}); err != nil {
+			return true, productionStatus{}, err
+		}
+		if err := runtime.verifyExistingSchemaLifecycle(ctx, *manifest); err != nil {
 			return true, productionStatus{}, err
 		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
@@ -1537,11 +1731,17 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 			return true, productionStatus{}, err
 		}
 	}
+	if err := runtime.verifyExistingSchemaLifecycle(ctx, *manifest); err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback admission invariant: %w", err)
+	}
 	if err := runtime.reopenBillingAdmission(ctx, workspace, manifest); err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback billing restore failed: %w", err)
 	}
 	if err := runtime.probeReleaseWithBinary(ctx, workspace, runtime.paths.InstalledBinary, manifest.OldVersion, manifest.Frontend.OldIndexSHA256); err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback N-1 probe failed: %w", err)
+	}
+	if err := runtime.verifyExistingSchemaLifecycle(ctx, *manifest); err != nil {
+		return true, productionStatus{}, fmt.Errorf("pre-stop rollback final existing-schema invariant: %w", err)
 	}
 	rolledBack := productionStatus{Phase: "ROLLED_BACK", Version: manifest.OldVersion, Previous: manifest.ExpectedVersion, Reason: "unchanged-writer-restored"}
 	if err := runtime.writeStatus(workspace, rolledBack); err != nil {

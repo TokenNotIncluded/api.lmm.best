@@ -54,6 +54,8 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return runProductionWorkspace(args[1:], stdout, stderr)
 	case "backup":
 		return runProductionBackup(args[1:], stdout, stderr)
+	case "schema-contract":
+		return runProductionSchemaContract(args[1:], stdout, stderr)
 	case "harden":
 		options, err := parseProductionHardenOptions(args[1:], stderr)
 		if errors.Is(err, flag.ErrHelp) {
@@ -74,7 +76,7 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return runProductionEdgePolicy(args[1:], stdout, stderr)
 	case "dispatch-evidence":
 		return runProductionDispatchEvidence(args[1:], stdout, stderr)
-	case "apply":
+	case "apply", "schema-verify":
 		return runProductionTransaction(args[0], args[1:], stdout, stderr)
 	case "status", "confirm", "rollback", "maintenance-release", "maintenance-close", "maintenance-stop", "maintenance-capture", "maintenance-retry":
 		if productionControllerPlanMode(args[1:]) {
@@ -109,11 +111,13 @@ func writeProductionDeployUsage(output io.Writer) {
        --web-package FILE --web-release-asset FILE --web-release-bundle FILE \\
        --web-rollback-package FILE --web-rollback-release-asset FILE --web-rollback-release-bundle FILE \\
        --probe-binary FILE [--operator-binary FILE] [--with-backups --controller-backup-dir DIR]
+       [--schema-mode verify-existing --schema-contract FILE --schema-contract-sha256 HEX]
   %s production stage|promote|status|confirm|rollback \\
        --plan FILE --plan-sha256 HEX --confirm api.lmm.best \\
        [--age-identity-file FILE for backup-enabled promote or confirm]
 
 Target-only recovery commands (normally invoked by the controller):
+  %s production schema-contract --schema NAME
   %s production workspace create --deployment-id ID
   %s production apply --workspace DIR --operator-user USER \\
        --go-package FILE --go-package-sha256 HEX --go-rollback-package FILE --go-rollback-sha256 HEX \\
@@ -128,7 +132,7 @@ Backups are optional for Go-only, Web-only, and combined releases.
 New plans import controller-only encrypted backup sets; no full target or off-host copy is created.
 Selected backups require the local age identity at promote and confirm. Only signed metadata reaches production.
 Legacy format-5 plans and --with-backups --backup-dir transactions remain readable for recovery.
-`, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName)
+`, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName, DeployProgramName)
 }
 
 func parseProductionHardenOptions(args []string, stderr io.Writer) (productionHardenOptions, error) {
