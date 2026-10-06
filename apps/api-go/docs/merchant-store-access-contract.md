@@ -81,8 +81,9 @@ New models are `MerchantStoreGuest`, `MerchantStoreSellerTerms` and
 `seller_terms_version`, `seller_terms_content`, `seller_terms_accepted_at`.
 Guest ID/hash/expiry and subject/kind/seller/version facts are server controlled.
 
-This initial source keeps guest email checkout closed until the independently
-signed verification/outbox helper is integrated. Capability-5 positive tests,
+Guest checkout requires the exact guest/address verification fact before
+freezing any supplied delivery email; account verification does not qualify.
+Capability-5 positive tests,
 guest paid and promoted-free checkout, verified guest mail delivery, final
 provider guest identity mapping and native rollback eligibility remain separate
 acceptance work. A pending provider operation is not evidence of payment or

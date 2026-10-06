@@ -205,7 +205,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			return nil, false, err
 		}
 		guestID = guest.ID
-		if in.PaymentMethod == "balance" || in.PickupEmail != "" {
+		if in.PaymentMethod == "balance" {
 			return nil, false, ErrMerchantStoreDenied
 		}
 	} else if in.GuestToken != "" {
@@ -271,10 +271,8 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			if p.PurchaseLoginRequired || p.PickupLoginRequired {
 				return ErrMerchantStoreLoginRequired
 			}
-			// Guest email verification/outbox is integrated separately using
-			// GuestID; never share an account verification with buyer_id=0.
-			if p.EmailPickupLink {
-				return ErrMerchantStoreDenied
+			if e := storeRequireGuestCheckoutEmail(tx, guestID, p.EmailPickupLink, in.PickupEmail); e != nil {
+				return e
 			}
 		}
 		terms, termsAt, e := storeCheckoutSellerTerms(tx, seller.Id, subject, in)
