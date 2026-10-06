@@ -606,16 +606,22 @@ for (const quote of [
     assert.ok(
       container.textContent?.includes(`You save: ${Number(quote.savings)} CNY`)
     )
+    const preset = container.querySelector('button[aria-pressed="true"]')
+    assert.ok(preset)
+    assert.equal(
+      preset.querySelector('.line-through'),
+      null,
+      'the compact preset leaves the original price in the checkout summary'
+    )
+    assert.ok(preset.textContent?.includes(`${quote.displayedPercent}% off`))
+    assert.ok(preset.textContent?.includes(`Pay ${Number(quote.paid)} CNY`))
     const original = [...container.querySelectorAll('.line-through')]
-    assert.ok(
-      original.length >= 2,
-      'preset and checkout both show the real original'
+    assert.equal(
+      original.length,
+      1,
+      'checkout shows the authoritative original'
     )
-    assert.ok(
-      original.every(
-        (element) => element.textContent === `${Number(quote.original)} CNY`
-      )
-    )
+    assert.equal(original[0].textContent, `${Number(quote.original)} CNY`)
     await choose(container, 'Balance display currency', 'Credits')
     assert.equal(input(container).value, '100')
     assert.ok(container.textContent?.includes(`${Number(quote.paid)} CNY`))
