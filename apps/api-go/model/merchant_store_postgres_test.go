@@ -158,7 +158,7 @@ func merchantStorePGDB(t *testing.T) (*gorm.DB, string, *gorm.DB, string) {
 			added = append(added, name)
 		}
 	}
-	require.Equal(t, merchantStoreExpectedTables, added, "exactly the declared 13 merchant tables were added")
+	require.Equal(t, merchantStoreExpectedTables, added, "exactly the declared merchant tables were added")
 	t.Cleanup(func() {
 		require.Equal(t, before, merchantStorePGFingerprint(t, db, schemaName), "all concurrent merchant transactions preserve the unrelated legacy fixture")
 	})

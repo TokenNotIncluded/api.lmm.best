@@ -504,7 +504,7 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 	}
 	var invalidations []int
 	e := storeOrderTx(id, func(tx *gorm.DB, o *MerchantStoreOrder) error {
-		if o.Status == "paid" {
+		if o.Status == "paid" || o.Status == "refund_pending" || o.Status == "refunded" {
 			if o.ProviderTradeID == providerTradeID {
 				return nil
 			}
@@ -733,7 +733,7 @@ func GetMerchantStoreOrderPickupToken(buyerID int, id string) (string, error) {
 	if e != nil {
 		return "", e
 	}
-	if o.BuyerID != buyerID || o.Status != "paid" {
+	if o.BuyerID != buyerID || (o.Status != "paid" && o.Status != "refund_pending") {
 		return "", ErrMerchantStoreDenied
 	}
 	return storeDecrypt("pickup", o.ID, o.PickupTokenCiphertext)
@@ -754,7 +754,7 @@ func InspectMerchantStoreClaim(token string) (*MerchantStoreClaimMetadata, error
 		return nil, ErrMerchantStoreDenied
 	}
 	var o MerchantStoreOrder
-	if e := DB.Where("pickup_token_hash = ? AND status = ?", storeHash(token), "paid").First(&o).Error; e != nil {
+	if e := DB.Where("pickup_token_hash = ? AND status IN ?", storeHash(token), []string{"paid", "refund_pending"}).First(&o).Error; e != nil {
 		return nil, ErrMerchantStoreDenied
 	}
 	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
@@ -776,7 +776,7 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 	}
 	var result MerchantStoreClaim
 	e := storeOrderTx(lookup.ID, func(tx *gorm.DB, o *MerchantStoreOrder) error {
-		if o.Status != "paid" || o.PickupTokenHash != storeHash(token) {
+		if (o.Status != "paid" && o.Status != "refund_pending") || o.PickupTokenHash != storeHash(token) {
 			return ErrMerchantStoreDenied
 		}
 		if authorize != nil {
@@ -799,16 +799,36 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 		if e := storeOrderStock(tx, o).Where("state = ?", "delivered").Order("position ASC,id ASC").Find(&rows).Error; e != nil {
 			return e
 		}
-		if len(rows) != o.Quantity {
+		refunded, e := MerchantStoreCompletedRefundQuantity(tx, o)
+		if e != nil {
+			return e
+		}
+		if len(rows)+int(refunded) != o.Quantity {
 			return ErrMerchantStoreConflict
 		}
 		details, e := storeOrderPickupDetails(tx, o)
 		if e != nil {
 			return e
 		}
+		if o.Status == "refund_pending" {
+			held, e := storeRefundHeldStockIDs(tx, o)
+			if e != nil {
+				return e
+			}
+			remaining := make([]MerchantStoreStock, 0, len(rows))
+			for _, row := range rows {
+				if !held[row.ID] {
+					remaining = append(remaining, row)
+				}
+			}
+			rows = remaining
+			if len(rows) == 0 {
+				return ErrMerchantStoreConflict
+			}
+		}
 		result = MerchantStoreClaim{OrderID: o.ID, TradeNo: o.TradeNo, ProductID: o.ProductID,
 			ProductTitle: o.ProductTitle, ProductDescription: details.ProductDescription,
-			ProductLinks: details.ProductLinks, Quantity: o.Quantity, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows))}
+			ProductLinks: details.ProductLinks, Quantity: len(rows), VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows))}
 		for _, row := range rows {
 			value, e := storeDecrypt("stock", row.ProductID+":"+row.ID, row.Ciphertext)
 			if e != nil {
@@ -943,7 +963,7 @@ func RecordMerchantStoreVerifiedPaymentIssue(id, receipt, code string) error {
 		if o.ProviderTradeID != "" && o.ProviderTradeID != receipt {
 			return ErrMerchantStoreConflict
 		}
-		if o.Status == "paid" {
+		if o.Status == "paid" || o.Status == "refund_pending" || o.Status == "refunded" {
 			if o.ProviderTradeID == receipt {
 				return nil
 			}

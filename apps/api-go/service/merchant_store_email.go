@@ -261,7 +261,7 @@ func processMerchantStorePickupEmailBatch(ctx context.Context, limit int, sender
 			errorCode = "pickup_unavailable"
 		}
 		order, err := model.GetMerchantStorePaymentOrder(row.OrderID)
-		if err != nil || order == nil || order.BuyerID != row.BuyerID || order.Status != "paid" || !order.EmailPickupLink {
+		if err != nil || order == nil || order.BuyerID != row.BuyerID || (order.Status != "paid" && order.Status != "refund_pending") || !order.EmailPickupLink {
 			errorCode = "order_unavailable"
 		}
 		origin, err := merchantStorePublicOrigin()

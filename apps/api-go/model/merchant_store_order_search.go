@@ -263,7 +263,7 @@ func ListMerchantStoreOrdersByVerifiedEmail(searchToken string, offset, limit in
 	summaries := make([]MerchantStoreOrderSearchSummary, 0, len(rows))
 	for _, row := range rows {
 		summary := storeOrderSearchSummary(row)
-		if row.Status == "paid" {
+		if row.Status == "paid" || row.Status == "refund_pending" {
 			summary.PickupToken, err = storeDecrypt("pickup", row.ID, row.PickupTokenCiphertext)
 			if err != nil {
 				return nil, err

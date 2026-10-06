@@ -18,7 +18,7 @@ func storeSalesUsage(tx *gorm.DB, productID string) (merchantStoreSalesUsage, er
 	// Verified but unfulfilled payments are real obligations, including payment
 	// evidence received after a provider previously attested a closed session.
 	if err := tx.Model(&MerchantStoreOrder{}).Where("product_id = ?", productID).
-		Where("status = ? OR verified_payment_issue_at > 0", "paid").
+		Where("paid_at > 0 OR status = ? OR verified_payment_issue_at > 0", "paid").
 		Select("COALESCE(SUM(quantity),0)").Scan(&usage.Paid).Error; err != nil {
 		return usage, err
 	}
@@ -27,7 +27,7 @@ func storeSalesUsage(tx *gorm.DB, productID string) (merchantStoreSalesUsage, er
 	// Count each unpaid order once, and only while it holds stock. Status alone
 	// cannot prove a reservation. A verified payment is counted above, not twice.
 	if err := tx.Model(&MerchantStoreOrder{}).Where("product_id = ?", productID).
-		Where("status <> ? AND COALESCE(verified_payment_issue_at,0) = 0", "paid").
+		Where("status <> ? AND COALESCE(paid_at,0) = 0 AND COALESCE(verified_payment_issue_at,0) = 0", "paid").
 		Where("id IN (?)", reservedOrders).
 		Select("COALESCE(SUM(quantity),0)").Scan(&usage.Reserved).Error; err != nil {
 		return usage, err

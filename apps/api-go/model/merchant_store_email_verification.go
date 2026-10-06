@@ -71,7 +71,7 @@ func storeMarkEmailVerified(tx *gorm.DB, userID int, email string) error {
 	}
 	// Only this buyer's paid, email-enabled orders may resume. No plaintext address
 	// or delivery payload is copied into the durable queue.
-	paid := tx.Model(&MerchantStoreOrder{}).Select("id").Where("buyer_id = ? AND status = ? AND email_pickup_link = ?", userID, "paid", true)
+	paid := tx.Model(&MerchantStoreOrder{}).Select("id").Where("buyer_id = ? AND status IN ? AND email_pickup_link = ?", userID, []string{"paid", "refund_pending"}, true)
 	return tx.Model(&MerchantStoreEmailDelivery{}).Where("buyer_id = ? AND state = ? AND order_id IN (?)", userID, "awaiting_verification", paid).Updates(map[string]any{"state": "pending", "next_attempt": now, "last_error_code": ""}).Error
 }
 

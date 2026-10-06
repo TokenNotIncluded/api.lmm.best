@@ -67,7 +67,7 @@ func GetMerchantStoreOrderPickupDetails(buyerID int, orderID string) (*MerchantS
 		return nil, ErrMerchantStoreDenied
 	}
 	var order MerchantStoreOrder
-	if err := DB.Where("id = ? AND buyer_id = ? AND status = ?", orderID, buyerID, "paid").First(&order).Error; err != nil {
+	if err := DB.Where("id = ? AND buyer_id = ? AND status IN ?", orderID, buyerID, []string{"paid", "refund_pending"}).First(&order).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrMerchantStoreDenied
 		}

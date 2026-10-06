@@ -56,7 +56,7 @@ func storeOrderDeliveryEmail(tx *gorm.DB, o *MerchantStoreOrder) (string, error)
 
 func GetMerchantStoreOrderDeliveryEmail(buyerID int, orderID string) (string, error) {
 	var o MerchantStoreOrder
-	if err := DB.Where("id = ? AND buyer_id = ? AND status = ? AND email_pickup_link = ?", orderID, buyerID, "paid", true).First(&o).Error; err != nil {
+	if err := DB.Where("id = ? AND buyer_id = ? AND status IN ? AND email_pickup_link = ?", orderID, buyerID, []string{"paid", "refund_pending"}, true).First(&o).Error; err != nil {
 		return "", ErrMerchantStoreDenied
 	}
 	return storeOrderDeliveryEmail(DB, &o)

@@ -64,7 +64,7 @@ func merchantStoreClaimPaidOrder(token string) (*model.MerchantStoreOrder, error
 		return nil, model.ErrMerchantStoreDenied
 	}
 	order, err := model.GetMerchantStorePaymentOrder(metadata.OrderID)
-	if err != nil || order.Status != "paid" || order.BuyerID <= 0 {
+	if err != nil || (order.Status != "paid" && order.Status != "refund_pending") || order.BuyerID <= 0 {
 		return nil, model.ErrMerchantStoreDenied
 	}
 	return order, nil

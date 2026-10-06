@@ -107,6 +107,34 @@ func (g *generator) refine(name string, c *contract) {
 			}}
 		}
 		c.notes = append(c.notes, "sale_limit is an explicit cumulative product sales ceiling, including paid obligations and outstanding reservations. null removes the ceiling; zero stops new orders. Lowering it preserves existing orders. Omitting the field is rejected, and saving product content never changes this separate limit.")
+	case "RequestMerchantStoreRefund", "ProactivelyRefundMerchantStoreOrder":
+		_ = g.load("model")
+		c.body, _ = g.schema(definition{ast.NewIdent("MerchantStoreRefundInput"), &source{pkg: "model"}}, nil, map[string]bool{})
+		c.body["required"] = []string{"request_key", "reason", "mode"}
+		c.body["additionalProperties"] = false
+		c.hasBody, c.unknown = true, false
+		c.notes = append(c.notes, "mode is full, quantity or amount. full omits quantity/stock_ids/amount fields. quantity requires quantity and optional exact stock_ids; amount uses exactly one positive integer amount_quota (balance) or amount_minor (verified native payment). Read the authorized refund view for remaining limits and max_quantity. Keep request_key and exact body on retry. Approval for external payments means awaiting_provider, never completed without provider evidence. Original fee is retained.")
+	case "DecideMerchantStoreRefund":
+		_ = g.load("model")
+		c.body, _ = g.schema(definition{ast.NewIdent("MerchantStoreRefundDecision"), &source{pkg: "model"}}, nil, map[string]bool{})
+		c.body["required"] = []string{"decision"}
+		c.body["additionalProperties"] = false
+		c.hasBody, c.unknown = true, false
+		c.notes = append(c.notes, "decision is approve or reject. Only the original seller or a current root administrator can decide requested refunds. Approved external payments retain a reservation until verified provider reconciliation; seller approval alone does not return money.")
+	case "GetMerchantStorePickupRefunds", "RequestMerchantStorePickupRefund":
+		_ = g.load("model")
+		c.body, _ = g.schema(definition{ast.NewIdent("MerchantStoreRefundPickupProof"), &source{pkg: "model"}}, nil, map[string]bool{})
+		c.body["required"] = []string{"order_id", "token"}
+		if name == "RequestMerchantStorePickupRefund" {
+			input, _ := g.schema(definition{ast.NewIdent("MerchantStoreRefundInput"), &source{pkg: "model"}}, nil, map[string]bool{})
+			input["required"] = []string{"request_key", "reason", "mode"}
+			input["additionalProperties"] = false
+			c.body["properties"].(map[string]any)["input"] = input
+			c.body["required"] = []string{"order_id", "token", "input"}
+		}
+		c.body["additionalProperties"] = false
+		c.hasBody, c.unknown = true, false
+		c.notes = append(c.notes, "Private pickup proof authorizes only this order. Respect its login and pickup-code requirements. Reading or requesting a refund does not reveal card plaintext or mark the order claimed. The beneficiary is the original buyer; never send another payout account.")
 	case "SetMerchantStoreProductListed":
 		c.body["required"] = []string{"listed"}
 		if properties, ok := c.body["properties"].(map[string]any); ok {

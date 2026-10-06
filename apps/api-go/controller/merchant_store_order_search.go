@@ -79,7 +79,7 @@ func ListMerchantStoreOrdersByEmail(c *gin.Context) {
 func GetMerchantStoreOrderByNumber(c *gin.Context) {
 	c.Header("Referrer-Policy", "no-referrer")
 	item, err := model.GetMerchantStoreOrderSearchSummaryForActor(c.Param("trade_no"), c.GetInt("id"))
-	if err == nil && item.Status == "paid" && c.GetInt("id") > 0 {
+	if err == nil && (item.Status == "paid" || item.Status == "refund_pending") && c.GetInt("id") > 0 {
 		// The public order number grants status access only. Existing buyer
 		// authorization or verified mailbox proof is required for a pickup link.
 		if token, tokenErr := model.GetMerchantStoreOrderPickupToken(c.GetInt("id"), item.RawOrderID); tokenErr == nil {

@@ -31,7 +31,7 @@ type merchantStoreTablePlan struct {
 }
 
 var merchantStoreExpectedTables = []string{
-	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_variants", "merchant_store_verified_emails",
+	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_refund_items", "merchant_store_refund_payment_bases", "merchant_store_refunds", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_variants", "merchant_store_verified_emails",
 }
 
 func merchantStoreSourceSchemaPlan(t *testing.T) []merchantStoreTablePlan {
@@ -98,7 +98,7 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 		}
 		require.True(t, found, "column %s.%s exists", entry.Table, entry.Column)
 	}
-	for _, entry := range []struct{ Table, Column string }{{"merchant_store_products", "price_quota"}, {"merchant_store_variants", "price_quota"}, {"merchant_store_orders", "unit_price_quota"}, {"merchant_store_orders", "price_quota"}, {"merchant_store_orders", "fee_quota"}, {"merchant_store_orders", "amount_minor"}, {"merchant_store_configs", "promotion_quota"}, {"merchant_store_configs", "minimum_unit_price_quota"}, {"merchant_store_transfers", "quota"}} {
+	for _, entry := range []struct{ Table, Column string }{{"merchant_store_products", "price_quota"}, {"merchant_store_variants", "price_quota"}, {"merchant_store_orders", "unit_price_quota"}, {"merchant_store_orders", "price_quota"}, {"merchant_store_orders", "fee_quota"}, {"merchant_store_orders", "amount_minor"}, {"merchant_store_configs", "promotion_quota"}, {"merchant_store_configs", "minimum_unit_price_quota"}, {"merchant_store_transfers", "quota"}, {"merchant_store_refunds", "principal_quota"}, {"merchant_store_refunds", "amount_minor"}, {"merchant_store_refunds", "retained_fee_quota"}, {"merchant_store_refund_payment_bases", "amount_minor"}} {
 		found := false
 		for _, column := range byTable[entry.Table].Columns {
 			if column.Name == entry.Column {
@@ -142,7 +142,7 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 	encoded, e := json.MarshalIndent(struct {
 		Scope  string                   `json:"scope"`
 		Tables []merchantStoreTablePlan `json:"tables"`
-	}{Scope: "16 merchant-store tables in the final schema; variants add one table and three stock/order columns, with no user, wallet or financial-history DDL", Tables: plan}, "", "  ")
+	}{Scope: "19 merchant-store tables in the final schema; refunds add three tables and no historical order columns; variants add one table and three stock/order columns, with no user, wallet or financial-history DDL", Tables: plan}, "", "  ")
 	require.NoError(t, e)
 	if output := os.Getenv("MERCHANT_STORE_SCHEMA_PLAN_OUTPUT"); output != "" {
 		file, e := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
