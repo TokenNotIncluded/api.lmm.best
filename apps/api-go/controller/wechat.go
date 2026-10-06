@@ -114,7 +114,8 @@ var newWeChatHTTPClient = func() *http.Client {
 }
 
 type wechatLoginStartRequest struct {
-	AcceptedLegal bool `json:"accepted_legal"`
+	AcceptedLegal bool   `json:"accepted_legal"`
+	Aff           string `json:"aff,omitempty"`
 }
 
 // WeChatAuthStart creates browser-bound state before the code is submitted.
@@ -133,7 +134,15 @@ func WeChatAuthStart(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	payload, err := common.Marshal(oauthFlowPayload{AcceptedLegal: request.AcceptedLegal})
+	request.Aff = strings.TrimSpace(request.Aff)
+	if len(request.Aff) > 32 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	payload, err := common.Marshal(oauthFlowPayload{
+		AcceptedLegal: request.AcceptedLegal,
+		AffiliateCode: request.Aff,
+	})
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -271,7 +280,7 @@ func WeChatAuth(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	user, ok := findOrCreateWeChatUser(c, wechatId, payload.AcceptedLegal)
+	user, ok := findOrCreateWeChatUser(c, wechatId, payload.AffiliateCode, payload.AcceptedLegal)
 	if !ok {
 		return
 	}
@@ -286,7 +295,7 @@ func WeChatAuth(c *gin.Context) {
 	setupLogin(user, c)
 }
 
-func findOrCreateWeChatUser(c *gin.Context, wechatId string, acceptedLegal bool) (*model.User, bool) {
+func findOrCreateWeChatUser(c *gin.Context, wechatId, affiliateCode string, acceptedLegal bool) (*model.User, bool) {
 	user := &model.User{WeChatId: wechatId}
 	if model.IsWeChatIdAlreadyTaken(wechatId) {
 		err := user.FillUserByWeChatId()
@@ -335,7 +344,8 @@ func findOrCreateWeChatUser(c *gin.Context, wechatId string, acceptedLegal bool)
 			user.Role = common.RoleCommonUser
 			user.Status = common.UserStatusEnabled
 
-			if err := user.Insert(0); err != nil {
+			inviterId, _ := model.GetUserIdByAffCode(affiliateCode)
+			if err := user.Insert(inviterId); err != nil {
 				c.JSON(http.StatusOK, gin.H{
 					"success": false,
 					"message": err.Error(),

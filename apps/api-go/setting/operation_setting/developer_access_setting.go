@@ -6,13 +6,16 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
 )
 
-// DeveloperAccessSetting describes when recharge history alone is allowed to
-// establish the L1 developer boundary. Everything it does not grant still
-// reaches the console through manual review.
+// DeveloperAccessSetting describes the independent registration and recharge
+// paths that can establish the L1 developer boundary without manual review.
 type DeveloperAccessSetting struct {
 	// PaidActivationEnabled lets a qualifying real-money recharge grant access
-	// without review. Turning it off routes every account through review.
+	// without review. Turning it off disables only the recharge path.
 	PaidActivationEnabled bool `json:"paid_activation_enabled"`
+	// InviteRegistrationEnabled activates only newly created accounts whose
+	// inviter has been validated in the account-creation transaction. Changing
+	// this switch never activates existing accounts or revokes granted access.
+	InviteRegistrationEnabled bool `json:"invite_registration_enabled"`
 	// PaidActivationMinAmount is the cumulative credited legacy policy amount
 	// (credits / immutable Q) an account has to reach, not USD. Existing
 	// thresholds retain this basis. Zero keeps the historical behaviour where any
@@ -24,6 +27,8 @@ var developerAccessSetting = DeveloperAccessSetting{
 	PaidActivationEnabled:   true,
 	PaidActivationMinAmount: 1,
 }
+
+const InviteRegistrationEnabledOptionKey = "developer_access_setting.invite_registration_enabled"
 
 func init() {
 	config.GlobalConfig.Register("developer_access_setting", &developerAccessSetting)
