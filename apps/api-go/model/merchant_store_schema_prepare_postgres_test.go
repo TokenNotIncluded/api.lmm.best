@@ -26,6 +26,8 @@ func TestMerchantStoreSchemaPreparationPostgresPreservesFactsAndRollsBackDDL(t *
 		oldTables := merchantStorePGTables(t, db, name)
 		require.ErrorIs(t, ActivateMerchantStoreAccess(db, 4), ErrMerchantStoreWriterFrozen)
 		require.NoError(t, PrepareMerchantStoreSchema(db, 4))
+		require.True(t, db.Migrator().HasColumn(&MerchantStoreCatalogueMetadata{}, "ai_processing"))
+		require.False(t, db.Migrator().HasColumn(&MerchantStoreCatalogueMetadata{}, "a_i_processing"), "catalogue SQL uses the canonical column without a duplicate acronym column")
 		require.Equal(t, before.rows, storePreparationFacts(t, db, before).rows, "every original column retains its original rows")
 		require.Equal(t, legacy, merchantStorePGFingerprint(t, db, name))
 		currentTables := merchantStorePGTables(t, db, name)

@@ -34,6 +34,9 @@ func TestMerchantStoreCatalogueSalesIgnoreSelfGiftPendingAndOnlySubtractQuantity
 		{ID: "pending", TradeNo: "pending", BuyerID: f.buyer.Id, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 100, PriceQuota: 500000, Status: "pending"},
 		{ID: "cancelled", TradeNo: "cancelled", BuyerID: f.buyer.Id, SellerID: f.seller.Id, ProductID: f.product.ID, Quantity: 100, PriceQuota: 500000, Status: "cancelled"},
 	}
+	for i := range orders {
+		orders[i].PickupTokenHash = storeHash(orders[i].ID)
+	}
 	require.NoError(t, DB.Create(&orders).Error)
 	refunds := []MerchantStoreRefund{
 		{ID: "quantity", OrderID: "real", RequestKey: "q", Mode: "quantity", Quantity: 2, Status: "completed", CompletedAt: 20},

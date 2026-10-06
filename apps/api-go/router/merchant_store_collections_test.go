@@ -13,6 +13,8 @@ func TestMerchantStoreCatalogueCollectionRoutesUseActualAccountAndCurrentFacts(t
 	require.GreaterOrEqual(t, model.MerchantStoreWriterCapability, 5, "collections require registered phase 5")
 	engine, db, sellerToken, seller, rootToken, root := merchantStoreTestRouter(t)
 	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", model.MerchantStoreWriterCapabilityOption).Update("value", "5").Error)
+	_, err := model.SaveMerchantStoreSellerTerms(seller.Id, model.MerchantStoreTermsInput{Content: "Delivery uses the selected specification. Contact the merchant for support."})
+	require.NoError(t, err)
 	product := shopPublishedProduct(t, db, seller, root)
 	for _, path := range []string{"/api/store/cart", "/api/store/favorites"} {
 		response := shopRequest(engine, "GET", path, "", "")

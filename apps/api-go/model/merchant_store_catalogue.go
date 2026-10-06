@@ -17,7 +17,7 @@ type MerchantStoreCatalogueMetadata struct {
 	DefaultVariantID string   `json:"-" gorm:"type:varchar(36);not null"`
 	CustomTags       []string `json:"custom_tags" gorm:"serializer:json;type:text"`
 	AutoDelivery     bool     `json:"auto_delivery" gorm:"not null;default:false"`
-	AIProcessing     bool     `json:"ai_processing" gorm:"not null;default:false"`
+	AIProcessing     bool     `json:"ai_processing" gorm:"column:ai_processing;not null;default:false"`
 	UpdatedAt        int64    `json:"-"`
 }
 
