@@ -23,7 +23,7 @@ function StoreClaimContent({ token }: { token: string }) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const query = useQuery({
-    queryKey: ['store', 'claim-metadata', token],
+    queryKey: ['store', 'claim-metadata', token, user?.id || 'guest'],
     queryFn: () => storeApi.claimMetadata(token),
     retry: false,
     gcTime: 0,
@@ -84,7 +84,7 @@ function StoreClaimContent({ token }: { token: string }) {
         <p className='rounded-lg border p-4 text-sm'>
           {t('This order is not paid yet. Check its status in order history.')}
         </p>
-      ) : metadata.pickup_login_required && !user ? (
+      ) : metadata.pickup_login_required && !metadata.pickup_login_satisfied ? (
         <div className='space-y-3 rounded-lg border p-4'>
           <p className='text-sm'>
             {t('Sign in with the purchasing account to collect this order.')}

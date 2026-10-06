@@ -351,6 +351,7 @@ test('login-protected claims never collect anonymously', async () => {
       status: 'paid',
       pickup_login_required: true,
       pickup_code_required: true,
+      pickup_login_satisfied: false,
     })) as typeof api.get
   api.post = (async () => {
     collections++
@@ -359,6 +360,79 @@ test('login-protected claims never collect anonymously', async () => {
   await mount(<StoreClaimPage token='opaque-fixture-token' />)
   assert.ok(document.querySelector('a[href^="/sign-in?redirect="]'))
   assert.equal(document.querySelector('input'), null)
+  assert.equal(collections, 0)
+})
+test('cold-open collection uses only order-scoped cookie authentication without bootstrapping a user', async () => {
+  owner(null)
+  const token = 'c'.repeat(43)
+  const requests: Array<{
+    method: string
+    url: string
+    config: Record<string, unknown>
+  }> = []
+  api.get = (async (url: string, config: Record<string, unknown>) => {
+    requests.push({ method: 'GET', url, config })
+    return result({
+      product_title: 'Fixture keys',
+      status: 'paid',
+      pickup_login_required: true,
+      pickup_code_required: false,
+      pickup_login_satisfied: true,
+    })
+  }) as typeof api.get
+  api.post = (async (
+    url: string,
+    _input: unknown,
+    config: Record<string, unknown>
+  ) => {
+    requests.push({ method: 'POST', url, config })
+    return result({
+      order_id: 'order-fixture',
+      product_title: 'Fixture keys',
+      items: ['cookie-authorized-private-item'],
+    })
+  }) as typeof api.post
+  await mount(<StoreClaimPage token={token} />)
+  assert.equal(document.querySelector('a[href^="/sign-in?redirect="]'), null)
+  assert.equal(requests.length, 1, 'GET must not collect private inventory')
+  await click(button('Collect items'))
+  assert.equal(
+    (document.querySelector('textarea') as HTMLTextAreaElement).value,
+    'cookie-authorized-private-item'
+  )
+  assert.deepEqual(
+    requests.map(({ method, url }) => ({ method, url })),
+    [
+      { method: 'GET', url: `/api/user/auth/store-claim/${token}` },
+      { method: 'POST', url: `/api/user/auth/store-claim/${token}` },
+    ]
+  )
+  for (const request of requests) {
+    assert.equal(request.config.skipAuthRefresh, true)
+    assert.equal(request.config.disableDuplicate, true)
+    assert.equal(request.config.withCredentials, true)
+  }
+  assert.equal(useAuthStore.getState().auth.user, null)
+  assert.equal(useAuthStore.getState().auth.accessToken, null)
+})
+test('a different signed-in account cannot override server collection authorization', async () => {
+  owner(3)
+  let collections = 0
+  api.get = (async () =>
+    result({
+      product_title: 'Fixture keys',
+      status: 'paid',
+      pickup_login_required: true,
+      pickup_code_required: false,
+      pickup_login_satisfied: false,
+    })) as typeof api.get
+  api.post = (async () => {
+    collections++
+    return result(null)
+  }) as typeof api.post
+  await mount(<StoreClaimPage token={'d'.repeat(43)} />)
+  assert.ok(document.querySelector('a[href^="/sign-in?redirect="]'))
+  assert.equal(document.querySelector('form'), null)
   assert.equal(collections, 0)
 })
 test('external gateway blank secrets remain write-only, metadata is not sent back', async () => {

@@ -39,6 +39,16 @@ async function unwrap<T>(request: Promise<{ data: Envelope<T> }>) {
 }
 const options = { skipErrorHandler: true, skipBusinessError: true }
 const root = '/api/store'
+// Cold-open collection authenticates only this order using the existing
+// HttpOnly cookie. Never refresh a broader session or redirect from this page.
+// An existing bearer remains attached and takes precedence on the server.
+const claimRoot = '/api/user/auth/store-claim'
+const claimOptions = {
+  ...options,
+  skipAuthRefresh: true,
+  disableDuplicate: true,
+  withCredentials: true,
+}
 export const storeApi = {
   config: () => unwrap<StoreConfig>(api.get(`${root}/config`, options)),
   products: (search = '', page = 1) =>
@@ -131,14 +141,14 @@ export const storeApi = {
     unwrap<StoreGateway>(api.put(`${root}/payments/settings`, body, options)),
   claimMetadata: (token: string) =>
     unwrap<StoreClaimMetadata>(
-      api.get(`${root}/claim/${encodeURIComponent(token)}`, options)
+      api.get(`${claimRoot}/${encodeURIComponent(token)}`, claimOptions)
     ),
   claim: (token: string, pickup_code: string) =>
     unwrap<StoreClaim>(
       api.post(
-        `${root}/claim/${encodeURIComponent(token)}`,
+        `${claimRoot}/${encodeURIComponent(token)}`,
         { pickup_code },
-        options
+        claimOptions
       )
     ),
   reviews: (page = 1) =>

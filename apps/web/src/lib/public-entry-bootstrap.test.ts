@@ -41,6 +41,19 @@ test('unavailable authentication does not reject public navigation', async () =>
   await new Promise((resolve) => setTimeout(resolve, 0))
 })
 
+test('exact private pickup links skip setup and global session bootstrap', () => {
+  let calls = 0
+  for (const token of ['a'.repeat(43), 'A_0-'.repeat(10) + 'xyz']) {
+    assert.equal(
+      bootstrapPublicEntry(`/store/claim/${token}`, async () => {
+        calls++
+      }),
+      true
+    )
+  }
+  assert.equal(calls, 0)
+})
+
 test('protected routes and similar prefixes keep normal bootstrap checks', () => {
   for (const pathname of [
     '/keys',
@@ -50,6 +63,16 @@ test('protected routes and similar prefixes keep normal bootstrap checks', () =>
     '/test-key-admin',
     '/test-key/nested',
     '/api/scripts/repository',
+    '/store',
+    '/store/orders',
+    '/store/claim',
+    '/store/claim/short',
+    `/store/claim/${'a'.repeat(42)}`,
+    `/store/claim/${'a'.repeat(44)}`,
+    `/store/claim/${'a'.repeat(43)}/extra`,
+    `/store/claim/${'a'.repeat(43)}/`,
+    `/store/claim/%61${'a'.repeat(42)}`,
+    `/store/claim/${'a'.repeat(42)}!`,
   ]) {
     assert.equal(
       bootstrapPublicEntry(pathname, async () => {

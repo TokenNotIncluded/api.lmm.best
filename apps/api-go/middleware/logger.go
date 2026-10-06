@@ -16,6 +16,9 @@ func loggedRequestPath(param gin.LogFormatterParams) string {
 		if strings.HasPrefix(path, "/api/store/claim/") {
 			return "/api/store/claim/[REDACTED]"
 		}
+		if strings.HasPrefix(path, "/api/user/auth/store-claim/") {
+			return "/api/user/auth/store-claim/[REDACTED]"
+		}
 		if strings.HasPrefix(path, "/store/claim/") {
 			return "/store/claim/[REDACTED]"
 		}

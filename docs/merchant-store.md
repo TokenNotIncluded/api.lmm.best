@@ -39,12 +39,23 @@ Pickup pages and responses use `Cache-Control: no-store` and
 `Referrer-Policy: no-referrer`; their credentials and referrers are excluded
 from Nginx access logging.
 
-The IP exception does not extend to sign-in, OAuth or session refresh. For a
-product requiring buyer login, a buyer on a restricted network needs an already
-valid session or must first sign in on an allowed network. The pickup page
-explains that requirement and lets the buyer save the private link. Merchants
-wanting pickup from any network may disable the login requirement and enable
-pickup-code protection instead.
+The IP exception does not extend to sign-in, OAuth or standard session refresh.
+Cold-open pickup uses the exact 43-character-token route
+`/api/user/auth/store-claim/{token}`, within the existing refresh cookie's path.
+It validates that existing session directly against the current database,
+including expiry, revocation, authentication version, active account and the
+order's buyer. It never issues a bearer token, rotates a session or widens the
+cookie's path. A supplied bearer always takes priority; an invalid bearer or
+another account cannot fall back to a cookie. Cookie-based collection requires
+positive same-origin evidence and rejects cross-site Fetch Metadata.
+The exact pickup page also skips the application's normal setup/session
+bootstrap, so cold-open collection does not call the standard refresh endpoint
+or populate a global authenticated account. Other shop pages keep that bootstrap.
+Anonymous GET returns safe order metadata and an authorization boolean only;
+private delivery text is available only from explicit, authorized POST.
+Without a valid buyer session, the page explains how to sign in from an allowed
+network and lets the buyer save the private link. Merchants wanting pickup
+without any login may disable account-only collection and require a pickup code.
 
 ## Prices, payment and fees
 

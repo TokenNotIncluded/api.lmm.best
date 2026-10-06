@@ -72,19 +72,21 @@ http {
     assert.equal(page.headers.get('cache-control'), 'no-store')
     assert.equal(page.headers.get('referrer-policy'), 'no-referrer')
     assert.match(await page.text(), /Pickup fixture/)
-    for (const method of ['GET', 'POST']) {
-      const response = await fetch(`${base}/api/store/claim/${token}`, { method, ...(method === 'POST' ? { body: '{"pickup_code":"secret"}' } : {}) })
-      assert.equal(response.status, 200)
-      assert.equal(response.headers.get('cache-control'), 'no-store')
-      assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
-      await response.text()
+    for (const prefix of ['/api/store/claim', '/api/user/auth/store-claim']) {
+      for (const method of ['GET', 'POST']) {
+        const response = await fetch(`${base}${prefix}/${token}`, { method, ...(method === 'POST' ? { body: '{"pickup_code":"secret"}' } : {}) })
+        assert.equal(response.status, 200)
+        assert.equal(response.headers.get('cache-control'), 'no-store')
+        assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
+        await response.text()
+      }
     }
     for (const endpoint of [`/api/store/payments/epay/${'a'.repeat(64)}/notify`, '/api/store/payments/pancake/external/17/prod/webhook', '/api/store/payments/pancake/platform/0/test/webhook']) {
       const response = await fetch(base + endpoint, { method: 'POST', body: 'signed callback fixture' })
       assert.equal(response.status, 200, endpoint)
       await response.text()
     }
-    for (const endpoint of ['/store', '/store/manage', '/api/store/products', '/api/store/config', '/api/store/payments/settings', `/store/claim/${token}x`, `/api/store/claim/${token}/settings`, '/api/store/claim/short', '/api/store/payments/pancake/external/17/live/webhook', '/api/store/payments/pancake/external/17/prod/webhook/extra']) {
+    for (const endpoint of ['/store', '/store/manage', '/api/store/products', '/api/store/config', '/api/store/payments/settings', `/store/claim/${token}x`, `/api/store/claim/${token}/settings`, '/api/store/claim/short', '/api/user/auth/refresh', '/api/user/auth/login', '/api/user/auth/store-claim', '/api/user/auth/store-claim/short', `/api/user/auth/store-claim/${token}x`, `/api/user/auth/store-claim/${token}/extra`, '/api/store/payments/pancake/external/17/live/webhook', '/api/store/payments/pancake/external/17/prod/webhook/extra']) {
       const response = await fetch(base + endpoint)
       assert.equal(response.status, 403, endpoint)
       await response.text()
@@ -92,6 +94,8 @@ http {
     }
     await fetch(`${base}/api/store/products?ordinary-store-retained=1`, { headers: { 'X-Fixture-Allow': '1' } })
     await fetch(`${base}/api/store/products`, { headers: { 'X-Fixture-Allow': '1', Referer: `https://api.lmm.best/store/claim/${token}` } })
+    await fetch(`${base}/api/store/products`, { headers: { 'X-Fixture-Allow': '1', Referer: `https://api.lmm.best/api/user/auth/store-claim/${token}` } })
+    await fetch(`${base}/api/user/auth/store-claim/short?token=${token}`, { headers: { 'X-Fixture-Allow': '1' } })
     const log = fs.readFileSync(path.join(dir, 'access.log'), 'utf8')
     assert.match(log, /ordinary-store-retained=1/)
     assert.ok(!log.includes(token), 'pickup credentials must never appear in access logs or referrers')

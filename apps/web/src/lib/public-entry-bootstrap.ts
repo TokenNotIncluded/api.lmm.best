@@ -6,6 +6,11 @@ export function bootstrapPublicEntry(
   pathname: string,
   authenticate: () => Promise<unknown>
 ): boolean {
+  // Pickup alone validates its existing cookie for this order. Starting the
+  // standard bootstrap here would mint a broader session or call an IP-blocked
+  // refresh endpoint before a buyer can collect from a cold-open private link.
+  if (/^\/store\/claim\/[A-Za-z0-9_-]{43}$/.test(pathname)) return true
+
   const publicEntry =
     pathname === '/scripts' ||
     pathname.startsWith('/scripts/') ||

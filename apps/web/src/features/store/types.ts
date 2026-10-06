@@ -156,6 +156,7 @@ export interface StoreClaimMetadata {
   status: StoreOrder['status']
   pickup_login_required: boolean
   pickup_code_required: boolean
+  pickup_login_satisfied: boolean
 }
 export interface StoreClaim {
   order_id: string
