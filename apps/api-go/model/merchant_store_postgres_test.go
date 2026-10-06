@@ -139,7 +139,7 @@ func merchantStorePGDB(t *testing.T) (*gorm.DB, string, *gorm.DB, string) {
 	t.Cleanup(func() { DB, LOG_DB, common.RedisEnabled = oldDB, oldLog, oldRedis })
 	usePostgresDatabaseType(t)
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "C5wmMzDh1QsVZb0saEW9ulAPzVN87Boqv3DK6eIrKXc2YLfg")
-	require.NoError(t, db.AutoMigrate(&User{}, &WalletTransfer{}, &ModerationJob{}))
+	require.NoError(t, db.AutoMigrate(&User{}, &WalletTransfer{}, &ModerationJob{}, &Option{}))
 	legacy := marketTestUser(t, db, "legacy-fixture", 1234567, common.RoleCommonUser)
 	require.NoError(t, db.Create(&WalletTransfer{SenderID: legacy.Id, RequestKey: "legacy-store-test-fixture", Token: strings.Repeat("a", 64), Quota: 34567, Status: "claimed", CreatedAt: 100, ClaimedAt: 200, RecipientID: legacy.Id, RecipientEmail: "legacy@example.test"}).Error)
 	before := merchantStorePGFingerprint(t, db, schemaName)
