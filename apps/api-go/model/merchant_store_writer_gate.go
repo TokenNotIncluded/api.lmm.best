@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LIghtJUNction/api.lmm.best/internal/deploymentfence"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -78,7 +79,7 @@ func storeRequireLifecycleWriter(tx *gorm.DB) error {
 }
 
 func storeReservedWriterOptionKey(key string) bool {
-	return strings.EqualFold(strings.TrimSpace(key), MerchantStoreWriterCapabilityOption)
+	return strings.EqualFold(strings.TrimSpace(key), MerchantStoreWriterCapabilityOption) || deploymentfence.ReservedOptionKey(key)
 }
 
 // MySQL may use an accent/case-insensitive key collation. Check the actual
@@ -154,11 +155,20 @@ func checkMerchantStoreWriterMigration(db *gorm.DB) error {
 	return nil
 }
 
-// The existing startup migration advisory lock serializes activation with
-// PostgreSQL AutoMigrate. Use its dedicated connection for the transaction so
-// SQL_MAX_OPEN_CONNS=1 cannot deadlock on a second pool acquisition.
+// Deployment's fence is acquired before startup migration's existing advisory
+// lock. Durable owner records survive a lost deployment session and block every
+// activation; no state or expiry value can silently release an unknown owner.
 func withMerchantStoreActivationDB(db *gorm.DB, run func(*gorm.DB) error) (err error) {
 	if db.Dialector.Name() != "postgres" {
+		var keys []string
+		if err := db.Model(&Option{}).Pluck("key", &keys).Error; err != nil {
+			return ErrMerchantStoreWriterFrozen
+		}
+		for _, key := range keys {
+			if deploymentfence.ReservedOptionKey(key) {
+				return ErrMerchantStoreWriterFrozen
+			}
+		}
 		return run(db)
 	}
 	return storeWithPostgresActivationSession(db, run)
@@ -181,19 +191,28 @@ func storeWithPostgresActivationSession(db *gorm.DB, run func(*gorm.DB) error) (
 	if err != nil {
 		return ErrMerchantStoreWriterFrozen
 	}
-	acquired := false
+	fenceAcquired, migrationAcquired := false, false
 	defer func() {
-		if acquired {
-			// A cancelled business deadline must not prevent releasing the lock.
+		// Reverse lock order; a failed release discards the physical connection,
+		// releasing both locks instead of returning a locked session to the pool.
+		for _, lock := range []struct {
+			acquired bool
+			key      int64
+		}{{migrationAcquired, MigrationAdvisoryLockKey}, {fenceAcquired, deploymentfence.AdvisoryKey}} {
+			if !lock.acquired {
+				continue
+			}
+			// Caller cancellation must not prevent releasing either lock.
 			releaseCtx, stop := context.WithTimeout(context.Background(), 2*time.Second)
 			var unlocked bool
-			unlockErr := conn.QueryRowContext(releaseCtx, "SELECT pg_catalog.pg_advisory_unlock($1)", MigrationAdvisoryLockKey).Scan(&unlocked)
+			unlockErr := conn.QueryRowContext(releaseCtx, "SELECT pg_catalog.pg_advisory_unlock($1)", lock.key).Scan(&unlocked)
 			stop()
 			if unlockErr != nil || !unlocked {
 				// Returning an unsuccessfully unlocked session to the pool would
 				// leave its advisory lock alive; discard that physical connection.
 				_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 				err = errors.Join(err, ErrMerchantStoreWriterFrozen)
+				break
 			}
 		}
 		if closeErr := conn.Close(); closeErr != nil && !errors.Is(closeErr, sql.ErrConnDone) {
@@ -203,7 +222,14 @@ func storeWithPostgresActivationSession(db *gorm.DB, run func(*gorm.DB) error) (
 	if _, err = storePostgresGateIdentity(ctx, conn); err != nil {
 		return ErrMerchantStoreWriterFrozen
 	}
-	if err = conn.QueryRowContext(ctx, "SELECT pg_catalog.pg_try_advisory_lock($1)", MigrationAdvisoryLockKey).Scan(&acquired); err != nil || !acquired {
+	if err = conn.QueryRowContext(ctx, "SELECT pg_catalog.pg_try_advisory_lock($1)", deploymentfence.AdvisoryKey).Scan(&fenceAcquired); err != nil || !fenceAcquired {
+		return ErrMerchantStoreWriterFrozen
+	}
+	var hasOwner bool
+	if err = conn.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM options WHERE "+deploymentfence.PostgreSQLPresencePredicate+")").Scan(&hasOwner); err != nil || hasOwner {
+		return ErrMerchantStoreWriterFrozen
+	}
+	if err = conn.QueryRowContext(ctx, "SELECT pg_catalog.pg_try_advisory_lock($1)", MigrationAdvisoryLockKey).Scan(&migrationAcquired); err != nil || !migrationAcquired {
 		return ErrMerchantStoreWriterFrozen
 	}
 	bound := db.Session(&gorm.Session{NewDB: true, Initialized: true}).WithContext(ctx)
