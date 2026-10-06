@@ -22,6 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { aboutTranslations } from './about-luna-copy.mjs'
 import { acquisitionCopy as acquisitionLinkCopy } from './acquisition-copy.mjs'
 import { aiDirectoryCopy } from './ai-directory-copy.mjs'
 import { apiKeySourceCopy } from './api-key-source-copy.mjs'
@@ -11897,6 +11898,20 @@ async function main() {
     return
   }
 
+  if (process.argv.includes('--about-only')) {
+    for (const [locale, translations] of Object.entries(aboutTranslations)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      Object.assign(json.translation, translations)
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: About translation applied`)
+    }
+    return
+  }
+
   if (process.argv.includes('--store-quantity-only')) {
     for (const [locale, translations] of Object.entries(
       storeQuantityLunaCopy
@@ -13275,6 +13290,10 @@ for (const [locale, values] of Object.entries(storeQuantityLunaCopy)) {
 }
 
 for (const [locale, values] of Object.entries(toolMarketAuthLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(aboutTranslations)) {
   Object.assign(newKeys[locale], values)
 }
 
