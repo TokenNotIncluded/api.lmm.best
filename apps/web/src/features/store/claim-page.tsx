@@ -74,6 +74,7 @@ function StoreClaimContent({ token }: { token: string }) {
           {t('Collect your items')}
         </h1>
         <h2 className='text-lg break-words'>{metadata.product_title}</h2>
+          <p className='text-muted-foreground text-sm'>{metadata.variant_name || t('Historic/default variant')}</p>
         <p className='text-muted-foreground text-sm'>
           {t(
             'Keep this link private. Anyone meeting its protection requirements can collect the items.'

@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StoreProductPrice } from './variant-summary'
 import { StoreOrderSearch } from './order-search'
-import { StoreAmount, StoreBadges, StoreError, StoreLoading } from './shared'
+import { StoreBadges, StoreError, StoreLoading } from './shared'
 import { safeStoreUrl } from './utils'
 
 type SearchType = 'auto' | 'products' | 'order' | 'email'
@@ -178,7 +179,7 @@ export function StorePage() {
                             </p>
                             <div className='flex items-center justify-between gap-2 text-sm'>
                               <strong>
-                                <StoreAmount quota={product.price_quota} />
+                                <StoreProductPrice product={product} />
                               </strong>
                               <span className='text-muted-foreground'>
                                 {t('Stock: {{count}}', {

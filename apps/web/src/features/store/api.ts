@@ -15,6 +15,8 @@ import type {
   StoreGatewayInput,
   StoreGateway,
   StoreProduct,
+  StoreVariant,
+  StoreVariantInput,
   StoreProductInput,
   StorePaymentSession,
   StoreStock,
@@ -102,6 +104,20 @@ export const storeApi = {
     unwrap<null>(
       api.delete(`${root}/products/${id}/inventory/${stockId}`, options)
     ),
+  createVariant: (id: string, body: StoreVariantInput) =>
+    unwrap<StoreVariant>(api.post(`${root}/products/${id}/variants`, body, options)),
+  updateVariant: (id: string, variantId: string, body: StoreVariantInput) =>
+    unwrap<StoreVariant>(api.put(`${root}/products/${id}/variants/${variantId}`, body, options)),
+  enableVariant: (id: string, variantId: string, enabled: boolean) =>
+    unwrap<StoreVariant>(api.put(`${root}/products/${id}/variants/${variantId}/enabled`, { enabled }, options)),
+  variantStock: (id: string, variantId: string, page = 1) =>
+    unwrap<StorePage<StoreStock>>(api.get(`${root}/products/${id}/variants/${variantId}/inventory`, {
+      ...options, params: { offset: (page - 1) * 20, limit: 20 },
+    })),
+  importVariantStock: (id: string, variantId: string, items: string[]) =>
+    unwrap<{ added: number }>(api.post(`${root}/products/${id}/variants/${variantId}/inventory`, { items }, options)),
+  removeVariantStock: (id: string, variantId: string, stockId: string) =>
+    unwrap<null>(api.delete(`${root}/products/${id}/variants/${variantId}/inventory/${stockId}`, options)),
   promoteProduct: (id: string, request_key: string) =>
     unwrap<StorePromotion>(
       api.post(

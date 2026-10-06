@@ -203,6 +203,7 @@ export function StoreOrderRow({
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div className='min-w-0 space-y-1'>
           <h2 className='font-semibold break-words'>{order.product_title}</h2>
+          <p className='text-muted-foreground text-sm'>{order.variant_name || t('Historic/default variant')}</p>
           <p className='text-muted-foreground text-xs break-all'>
             {order.trade_no}
           </p>

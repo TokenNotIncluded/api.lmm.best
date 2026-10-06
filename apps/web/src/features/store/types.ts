@@ -11,9 +11,32 @@ export interface StoreLink {
   url: string
   description: string
 }
+export interface StoreVariant {
+  id: string
+  product_id: string
+  name: string
+  price_quota: number
+  template: StoreDeliveryTemplate
+  enabled: boolean
+  created_at: number
+  updated_at: number
+  is_default: boolean
+  inventory_total: number
+  inventory_available: number
+  reserved_stock: number
+  sale_available: number
+  trading_paused: boolean
+}
+export type StoreVariantInput = Pick<StoreVariant, 'name' | 'price_quota' | 'template' | 'enabled'>
 export interface StoreProduct {
   id: string
   seller_id: number
+  default_variant_id?: string
+  variants?: StoreVariant[]
+  inventory_total?: number
+  inventory_available?: number
+  price_min_quota?: number
+  price_max_quota?: number
   test_mode?: boolean
   title: string
   description: string
@@ -52,6 +75,12 @@ export type StoreProductInput = Omit<
   | 'seller_id'
   | 'official'
   | 'available_stock'
+  | 'default_variant_id'
+  | 'variants'
+  | 'inventory_total'
+  | 'inventory_available'
+  | 'price_min_quota'
+  | 'price_max_quota'
   | 'sale_limit'
   | 'paid_quantity'
   | 'reserved_quantity'
@@ -64,6 +93,8 @@ export type StoreProductInput = Omit<
   | 'trading_paused'
 >
 export interface StoreOrder {
+  variant_id?: string
+  variant_name?: string
   delivery_template?: string
   id: string
   trade_no: string
@@ -167,6 +198,7 @@ export interface StoreDisclaimer {
   accepted: boolean
 }
 export interface StoreCheckoutInput {
+  variant_id?: string
   product_id: string
   quantity: number
   payment_method: StorePaymentMethod
@@ -190,6 +222,8 @@ export interface StoreCheckoutResult {
   created: boolean
 }
 export interface StoreClaimMetadata {
+  variant_id?: string
+  variant_name?: string
   delivery_template?: string
   order_id: string
   quantity: number
@@ -200,12 +234,15 @@ export interface StoreClaimMetadata {
   pickup_login_satisfied: boolean
 }
 export interface StoreClaim {
+  variant_id?: string
+  variant_name?: string
   delivery_template?: string
   order_id: string
   product_title: string
   items: string[]
 }
 export interface StoreStock {
+  variant_id?: string | null
   id: string
   product_id: string
   state: 'available' | 'reserved' | 'delivered'

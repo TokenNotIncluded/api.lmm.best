@@ -18,6 +18,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { storeApi } from './api'
 import { storeCheckoutCapacity, storeQuantity } from './quantity'
 import { StoreQuantityControl } from './quantity-control'
+import { enabledStoreVariants, initialStoreVariant, legacyVariantProduct, selectedStoreVariant, storeVariantCapacity, storeVariantPrice } from './variant-utils'
 import {
   StoreAmount,
   StoreAuthGate,
@@ -177,6 +178,10 @@ export function StoreCheckout({
     retry: false,
   })
   const [quantity, setQuantity] = useState('1')
+  const [variantId, setVariantId] = useState(() => initialStoreVariant(product))
+  const selectedVariant = selectedStoreVariant(product, variantId)
+  const variantCapacity = storeVariantCapacity(product, variantId)
+  const unitPrice = storeVariantPrice(product, variantId)
   const [method, setMethod] = useState<StorePaymentMethod | ''>('')
   const [code, setCode] = useState('')
   const [email, setEmail] = useState('')
@@ -194,10 +199,10 @@ export function StoreCheckout({
   }, [disclaimer.data?.version])
   const actualMethod = method || product.payment_methods?.[0] || ''
   const count = storeQuantity(quantity)
-  const capacity = storeCheckoutCapacity(product, actualMethod)
+  const capacity = storeCheckoutCapacity({ available_stock: variantCapacity, price_quota: unitPrice ?? 0 }, actualMethod)
   let total: number | undefined
   try {
-    if (count !== undefined) total = storeTotal(product.price_quota, count)
+    if (count !== undefined && unitPrice !== undefined) total = storeTotal(unitPrice, count)
   } catch {
     /* invalid input remains disabled */
   }
@@ -243,6 +248,7 @@ export function StoreCheckout({
       const signature = JSON.stringify([
         user.id,
         product.id,
+        legacyVariantProduct(product) ? '' : variantId,
         quantity,
         actualMethod,
         code,
@@ -252,6 +258,7 @@ export function StoreCheckout({
       keys.current.set(signature, requestKey)
       const created = await storeApi.checkout({
         product_id: product.id,
+        ...(!legacyVariantProduct(product) ? { variant_id: variantId } : {}),
         quantity: count,
         payment_method: actualMethod as StorePaymentMethod,
         request_key: requestKey,
@@ -276,11 +283,11 @@ export function StoreCheckout({
     <aside className='bg-card space-y-4 rounded-lg border p-5 lg:sticky lg:top-24'>
       <div className='space-y-1'>
         <div className='text-xl font-semibold'>
-          <StoreAmount quota={product.price_quota} />
+          {(result?.order.unit_price_quota ?? unitPrice) === undefined ? '—' : <StoreAmount quota={(result?.order.unit_price_quota ?? unitPrice)!} />}
         </div>
         <p className='text-muted-foreground text-xs'>
           {t('Unit price')} ·{' '}
-          {t('Stock: {{count}}', { count: product.available_stock })}
+          {t('Stock: {{count}}', { count: variantCapacity })}
         </p>
       </div>
       <StoreError error={error} />
@@ -294,6 +301,7 @@ export function StoreCheckout({
           <h2 className='font-semibold'>
             {t(result.order.status === 'paid' ? 'Order paid' : 'Order created')}
           </h2>
+          <p className='text-muted-foreground text-sm'>{result.order.variant_name || t('Historic/default variant')}</p>
           <p className='text-muted-foreground text-xs break-all'>
             {result.order.trade_no}
           </p>
@@ -392,6 +400,16 @@ export function StoreCheckout({
         </div>
       ) : (
         <>
+          {!legacyVariantProduct(product) && <fieldset className='space-y-2'>
+            <legend className='text-sm font-medium'>{t('Product variant')}</legend>
+            {!enabledStoreVariants(product).length && <p className='text-muted-foreground text-sm'>{t('No variants are currently available.')}</p>}
+            {enabledStoreVariants(product).map(variant => <label key={variant.id} className='has-[:checked]:border-primary flex items-start gap-2 rounded-md border p-3 text-sm'>
+              <input type='radio' name='store-variant' value={variant.id} checked={variantId === variant.id} onChange={() => setVariantId(variant.id)} disabled={variant.trading_paused || variant.sale_available <= 0} />
+              <span className='min-w-0 flex-1 break-words'>{variant.name || t('Default variant')}<span className='text-muted-foreground block text-xs'>{t('Available to buy: {{count}}', { count: variant.sale_available })}</span></span>
+              <StoreAmount quota={variant.price_quota} />
+            </label>)}
+            {!selectedVariant && enabledStoreVariants(product).length > 0 && <p className='text-muted-foreground text-xs'>{t('Choose a variant before ordering.')}</p>}
+          </fieldset>}
           <StoreQuantityControl
             value={quantity}
             max={capacity}
