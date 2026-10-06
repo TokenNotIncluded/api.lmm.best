@@ -269,7 +269,10 @@ test('email search asks for explicit verification without reading or sending the
   assert.equal(document.querySelector('#store-order-search-code'), null)
   assert.deepEqual(
     requests.map(({ method, url }) => ({ method, url })),
-    [{ method: 'GET', url: '/api/store/products' }]
+    [
+      { method: 'GET', url: '/api/store/config' },
+      { method: 'GET', url: '/api/store/products' },
+    ]
   )
   assert.equal(JSON.stringify(requests).includes(email), false)
   assertMemoryOnly(email)
@@ -522,6 +525,7 @@ test('automatic mode recognizes a new MS order number and displays only its safe
   assert.deepEqual(
     requests.map(({ method, url }) => ({ method, url })),
     [
+      { method: 'GET', url: '/api/store/config' },
       { method: 'GET', url: '/api/store/products' },
       { method: 'GET', url: `/api/store/order-search/${tradeNo}` },
     ]
@@ -632,12 +636,14 @@ test('seller storefront sends its seller filter and displays seller identity rat
     })
   )
   await mount(<StorePage sellerId={27} />)
-  assert.equal(requests.length, 1)
-  assert.equal(requests[0].url, '/api/store/products')
-  assert.deepEqual((requests[0].config as { params: unknown }).params, {
+  assert.equal(requests.length, 2)
+  const listing = requests.find(({ url }) => url === '/api/store/products')
+  assert.ok(listing)
+  assert.deepEqual((listing.config as { params: unknown }).params, {
     q: '',
     offset: 0,
     limit: 24,
+    sort: 'comprehensive',
     seller_id: 27,
   })
   assert.match(

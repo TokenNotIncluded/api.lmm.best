@@ -3,15 +3,25 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { storeApi } from './api'
+import { catalogueApi } from './catalogue-api'
+import { StoreCatalogueFiltersPanel } from './catalogue-filters'
+import { useStoreCatalogueSupport } from './catalogue-support'
+import { StoreCatalogueTags } from './catalogue-tags'
+import type { StoreCatalogueFilters } from './catalogue-types'
+import { StoreCollectionActions } from './collection-actions'
+import {
+  readStoreCatalogueView,
+  writeStoreCatalogueView,
+} from './collection-storage'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreOrderSearch } from './order-search'
 import { StoreBadges, StoreError, StoreLoading } from './shared'
+import { useStoreViewer } from './store-viewer'
 import { safeStoreUrl } from './utils'
 import { StoreProductPrice } from './variant-summary'
 
@@ -23,22 +33,43 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [searchType, setSearchType] = useState<SearchType>('auto')
+  const [filters, setFilters] = useState<StoreCatalogueFilters>({
+    sort: 'comprehensive',
+  })
+  const [view, setView] = useState(readStoreCatalogueView)
   const [lookup, setLookup] = useState<{
     mode: 'order' | 'email'
     value: string
   } | null>(null)
   const user = useAuthStore((state) => state.auth.user)
+  const viewer = useStoreViewer()
+  const support = useStoreCatalogueSupport()
   const query = useQuery({
-    queryKey: ['store', 'products', search, page, sellerId],
-    queryFn: () => storeApi.products(search, page, sellerId),
+    queryKey: [
+      'store',
+      'products',
+      viewer,
+      search,
+      page,
+      sellerId,
+      filters,
+      support.catalogueSupported,
+    ],
+    queryFn: ({ signal }) =>
+      catalogueApi.products(
+        {
+          search,
+          page,
+          sellerId,
+          ...(support.catalogueSupported ? filters : {}),
+        },
+        signal
+      ),
     retry: false,
   })
   return (
     <div className='flex flex-1 flex-col gap-5'>
-      <div className='relative isolate flex min-h-28 flex-wrap items-end justify-between gap-4 overflow-hidden border-b py-5'>
-        <div className='pointer-events-none absolute inset-y-0 end-0 w-2/5'>
-          <ForgeShaderSurface variant='store' className='opacity-40' />
-        </div>
+      <div className='flex min-h-28 flex-wrap items-end justify-between gap-4 border-b py-5'>
         <div className='relative z-10 space-y-1'>
           <h1 className='console-page-title text-xl font-bold'>
             {query.data?.seller
@@ -122,6 +153,20 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           {t('Search')}
         </Button>
       </form>
+      {!lookup && support.catalogueSupported && (
+        <StoreCatalogueFiltersPanel
+          value={filters}
+          onChange={(value) => {
+            setFilters(value)
+            setPage(1)
+          }}
+          view={view}
+          onViewChange={(value) => {
+            setView(value)
+            writeStoreCatalogueView(value)
+          }}
+        />
+      )}
       {lookup ? (
         <StoreOrderSearch
           key={`${lookup.mode}-${lookup.value}-${user?.id || 'guest'}`}
@@ -168,27 +213,43 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                     </div>
                   </div>
                 ) : (
-                  <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+                  <div
+                    className={cn(
+                      'grid gap-4',
+                      view === 'cards' && 'sm:grid-cols-2 lg:grid-cols-3'
+                    )}
+                  >
                     {query.data.items.map((product) => (
                       <article
                         key={product.id}
-                        className='bg-card overflow-hidden rounded-lg border'
+                        className={cn(
+                          'bg-card overflow-hidden rounded-lg border',
+                          view === 'list' &&
+                            'sm:grid sm:grid-cols-[minmax(0,1fr)_16rem]'
+                        )}
                       >
                         <a
                           href={`/store/products/${product.id}`}
-                          className='focus-visible:outline-ring block focus-visible:outline-2'
+                          className={cn(
+                            'focus-visible:outline-ring block focus-visible:outline-2',
+                            view === 'list' && 'sm:flex'
+                          )}
                         >
                           {safeStoreUrl(product.image_urls?.[0] || '') ? (
                             <img
                               src={safeStoreUrl(product.image_urls[0])}
                               alt={product.title}
-                              className='aspect-[16/9] w-full object-cover'
+                              className={cn(
+                                'aspect-[16/9] w-full object-cover',
+                                view === 'list' && 'sm:w-44 sm:self-start'
+                              )}
                               loading='lazy'
                               referrerPolicy='no-referrer'
                             />
                           ) : null}
                           <div className='space-y-3 p-4'>
                             <StoreBadges product={product} />
+                            <StoreCatalogueTags product={product} />
                             <h2 className='truncate font-semibold'>
                               {product.title}
                             </h2>
@@ -199,19 +260,32 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                               <strong>
                                 <StoreProductPrice product={product} />
                               </strong>
-                              <span className='text-muted-foreground'>
-                                {t('Stock: {{count}}', {
-                                  count: product.available_stock,
-                                })}
-                              </span>
+                              {typeof product.net_paid_quantity === 'number' &&
+                                Number.isSafeInteger(
+                                  product.net_paid_quantity
+                                ) &&
+                                product.net_paid_quantity !== null &&
+                                product.net_paid_quantity >= 0 && (
+                                  <span className='text-muted-foreground'>
+                                    {t('Sold: {{count}}', {
+                                      count: product.net_paid_quantity,
+                                    })}
+                                  </span>
+                                )}
                             </div>
                           </div>
                         </a>
-                        <div className='border-t px-4 py-3'>
+                        <div
+                          className={cn(
+                            'space-y-3 border-t px-4 py-3',
+                            view === 'list' && 'sm:border-t-0 sm:border-s'
+                          )}
+                        >
                           <StoreMerchantIdentity
                             seller={product.seller}
                             sellerId={product.seller_id}
                           />
+                          <StoreCollectionActions product={product} />
                         </div>
                       </article>
                     ))}

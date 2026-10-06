@@ -48,6 +48,8 @@ import { Route as SecurityIndexRouteImport } from './routes/security/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as StatusIndexRouteImport } from './routes/status/index'
 import { Route as StoreIndexRouteImport } from './routes/store/index'
+import { Route as StoreCartRouteImport } from './routes/store/cart'
+import { Route as StoreFavoritesRouteImport } from './routes/store/favorites'
 import { Route as StoreManageRouteImport } from './routes/store/manage'
 import { Route as StoreOrdersRouteImport } from './routes/store/orders'
 import { Route as StoreReviewRouteImport } from './routes/store/review'
@@ -304,6 +306,16 @@ const StatusIndexRoute = StatusIndexRouteImport.update({
 const StoreIndexRoute = StoreIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreCartRoute = StoreCartRouteImport.update({
+  id: '/cart',
+  path: '/cart',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreFavoritesRoute = StoreFavoritesRouteImport.update({
+  id: '/favorites',
+  path: '/favorites',
   getParentRoute: () => StoreRoute,
 } as any)
 const StoreManageRoute = StoreManageRouteImport.update({
@@ -696,6 +708,8 @@ export interface FileRoutesByFullPath {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
   '/store/manage': typeof StoreManageRoute
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
@@ -796,6 +810,8 @@ export interface FileRoutesByTo {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
   '/store/manage': typeof StoreManageRoute
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
@@ -901,6 +917,8 @@ export interface FileRoutesById {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
   '/store/manage': typeof StoreManageRoute
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
@@ -1005,6 +1023,8 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
     | '/store/manage'
     | '/store/orders'
     | '/store/review'
@@ -1105,6 +1125,8 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
     | '/store/manage'
     | '/store/orders'
     | '/store/review'
@@ -1209,6 +1231,8 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
     | '/store/manage'
     | '/store/orders'
     | '/store/review'
@@ -1592,6 +1616,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/store/'
       preLoaderRoute: typeof StoreIndexRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/cart': {
+      id: '/store/cart'
+      path: '/cart'
+      fullPath: '/store/cart'
+      preLoaderRoute: typeof StoreCartRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/favorites': {
+      id: '/store/favorites'
+      path: '/favorites'
+      fullPath: '/store/favorites'
+      preLoaderRoute: typeof StoreFavoritesRouteImport
       parentRoute: typeof StoreRoute
     }
     '/store/manage': {
@@ -2216,6 +2254,8 @@ const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
 interface StoreRouteChildren {
+  StoreCartRoute: typeof StoreCartRoute
+  StoreFavoritesRoute: typeof StoreFavoritesRoute
   StoreManageRoute: typeof StoreManageRoute
   StoreOrdersRoute: typeof StoreOrdersRoute
   StoreReviewRoute: typeof StoreReviewRoute
@@ -2227,6 +2267,8 @@ interface StoreRouteChildren {
 }
 
 const StoreRouteChildren: StoreRouteChildren = {
+  StoreCartRoute: StoreCartRoute,
+  StoreFavoritesRoute: StoreFavoritesRoute,
   StoreManageRoute: StoreManageRoute,
   StoreOrdersRoute: StoreOrdersRoute,
   StoreReviewRoute: StoreReviewRoute,
