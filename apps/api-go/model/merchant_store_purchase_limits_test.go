@@ -42,6 +42,23 @@ func TestMerchantStorePurchaseLimitInputPresenceAndValidation(t *testing.T) {
 	}
 }
 
+func TestMerchantStoreProductInputKeepsTestModeAndLimitPresenceTogether(t *testing.T) {
+	var in MerchantStoreProductInput
+	require.NoError(t, json.Unmarshal([]byte(`{"test_mode":false,"max_quantity_per_order":null,"max_quantity_per_buyer":2}`), &in))
+	require.NotNil(t, in.TestMode)
+	require.False(t, *in.TestMode)
+	require.True(t, in.maxQuantityPerOrderPresent)
+	require.Nil(t, in.MaxQuantityPerOrder)
+	require.True(t, in.maxQuantityPerBuyerPresent)
+	require.EqualValues(t, 2, *in.MaxQuantityPerBuyer)
+	for _, body := range []string{
+		`{"test_mode":null,"max_quantity_per_order":null}`,
+		`{"TEST_MODE":null,"max_quantity_per_buyer":2}`,
+	} {
+		require.ErrorIs(t, json.Unmarshal([]byte(body), &in), ErrMerchantStoreInput)
+	}
+}
+
 func TestMerchantStorePurchaseLimitsOldEditorPreservesAndExplicitNullClears(t *testing.T) {
 	f := newStoreFixture(t, "balance")
 	storePurchaseGateFour(t)
