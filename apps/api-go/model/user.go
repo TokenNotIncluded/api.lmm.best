@@ -188,7 +188,9 @@ func userTopupTotals(tx *gorm.DB) *gorm.DB {
 	availability, normalized := adminUserTopupQuotaTotalsSQL()
 	comparable := "COUNT(DISTINCT settlement_currency) = 1 AND MIN(settlement_currency) <> 'UNKNOWN' AND SUM(settled_orders) > 0"
 	return tx.Table("(?) AS admin_topup_rows", rows).
-		Select("user_id, " + normalized + " AS normalized_quota, " + availability + " AS quota_projection_available, " +
+		// Wallet-risk and paid/unpaid filters consume the original paid-credit
+		// fact even when the presentation projection is unavailable.
+		Select("user_id, COALESCE(SUM(raw_quota), 0) AS credited_quota, " + normalized + " AS normalized_quota, " + availability + " AS quota_projection_available, " +
 			"CASE WHEN " + comparable + " THEN SUM(settled_money_micros) ELSE 0 END AS settled_money_micros, " +
 			"CASE WHEN " + comparable + " THEN 1 ELSE 0 END AS settled_sort_available, " +
 			"CASE WHEN " + comparable + " THEN MIN(settlement_currency) ELSE '' END AS settled_sort_currency").
