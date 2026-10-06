@@ -97,7 +97,11 @@ Gateway callbacks have a dedicated shop namespace and require a valid
 signature, frozen merchant binding, order reference, amount, currency and
 provider transaction identity. They never enter the existing top-up
 settlement path. Provider receipts have a unique owner so one provider payment
-cannot settle two orders. Request-key replay returns the original checkout;
+cannot settle two orders. Receipt identity freezes the provider's public account
+and environment as well as its transaction reference. Platform receipts remain
+global across merchants using that account; external receipts are isolated by
+merchant and provider account. Rotating a private key does not create a new
+receipt namespace. Request-key replay returns the original checkout;
 different parameters with the same request key conflict.
 
 ## Reservations and reconciliation
@@ -117,6 +121,16 @@ session is closed. Unknown, incomplete or still-pending provider state keeps the
 reservation intact. Generic Epay providers have no common trustworthy close
 protocol; their unresolved issued orders remain pending provider verification.
 The platform must not describe a local expiration as a verified refund.
+
+When the payment adapter verifies a real payment but the original recipient,
+merchant wallet or reserved stock cannot complete settlement, it records the
+verified receipt and a fixed safe issue code on the order. The buyer sees that
+payment is confirmed and delivery needs review. That evidence prevents a stale
+negative lookup from releasing the reserved stock or fee. Retrying the same
+receipt can fulfill the original obligation once its cause is resolved; a
+different order cannot reuse it. A contradictory late payment after a verified
+closed order remains an explicit exception without re-debiting a wallet or
+silently reassigning inventory.
 
 ## Promotion, consent and mail
 
@@ -151,6 +165,11 @@ historical records. Stock and credential encryption use
 `MERCHANT_STORE_ENCRYPTION_KEY`, with the existing `CRYPTO_SECRET` as a strong-key
 fallback. Preserve the encryption key with the database backup. Missing or weak
 key material fails closed instead of saving plaintext inventory or credentials.
+The fallback reads the explicit environment value, never the process's randomly
+initialized `common.CryptoSecret`. Both API nodes must use the same stable key
+material. A configured primary key takes precedence; an invalid primary fails
+instead of silently falling back. Compare only a purpose-derived hash in
+deployment evidence and never print or commit the encryption material.
 
 The normal migration registration includes the new shop models. Before a
 production release, require an isolated database clone with full preservation
@@ -159,3 +178,10 @@ verify, and prove the previous Go version can still verify the existing schema.
 Do not reuse an older pre-shop schema proof or execute a historical financial
 rebase as part of the shop migration. Go/Web release, signed artifacts,
 deployment acceptance and real provider/payment acceptance are separate gates.
+
+The dedicated loopback PostgreSQL tests use a fresh synthetic database and
+independent random schemas. They exercise real row-lock contention, receipt
+ownership, pending limits and wallet rollback, and compare two synthetic legacy
+tables around the 13-table migration. This is not a substitute for a complete
+production-data clone, all-existing-table preservation or previous-version
+verification. Run it only with an explicitly supplied disposable loopback URL.
