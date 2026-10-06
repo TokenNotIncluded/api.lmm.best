@@ -200,6 +200,15 @@ func (runtime *productionRuntime) existingSchemaSealedStartup(ctx context.Contex
 	if err != nil {
 		return nil, "", "", err
 	}
+	return runtime.existingSchemaSealedStartupCommands(ctx, loaded, values, commands)
+}
+
+// The portable startup owner supplies only its separately validated typed
+// command. Environment-file ordering and file fences remain identical.
+func (runtime *productionRuntime) existingSchemaSealedStartupCommands(ctx context.Context, loaded, values, commands map[string]string) (map[string]string, string, string, error) {
+	if loaded["PassEnvironment"] != "" || loaded["UnsetEnvironment"] != "" {
+		return nil, "", "", errors.New("loaded production unit has unchecked environment overrides")
+	}
 	if loaded["FragmentPath"] == "" {
 		return nil, "", "", errors.New("loaded startup unit has no signed fragment")
 	}

@@ -78,6 +78,7 @@ func TestProductionMerchantStoreFenceActualPostgres(t *testing.T) {
 CREATE TABLE merchant_fence.options(key text PRIMARY KEY,value text NOT NULL);
 INSERT INTO merchant_fence.options VALUES('MerchantStoreMinimumWriterCapability','4');
 CREATE ROLE lmm_fence_business LOGIN;
+ALTER ROLE lmm_fence_business SET default_transaction_isolation='repeatable read';
 GRANT USAGE ON SCHEMA merchant_fence TO lmm_fence_business;
 GRANT SELECT,INSERT,DELETE ON merchant_fence.options TO lmm_fence_business;
 REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC;
@@ -159,6 +160,131 @@ GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO lmm_fence_business;`
 	if err := admin.QueryRow(ctx, "SELECT count(*) FROM merchant_fence.options").Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("normal owner release changed unrelated options: rows=%d error=%v", rows, err)
 	}
+
+	t.Run("two actual sessions serialize portable owner claims", func(t *testing.T) {
+		left, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer left.Close()
+		right, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer right.Close()
+		if left.requireNoDurableOwner(ctx) != nil || right.requireNoDurableOwner(ctx) != nil {
+			t.Fatal("initial owner state")
+		}
+		if _, err := admin.Exec(ctx, "SELECT pg_advisory_lock($1)", merchantStoreDeploymentOwnerClaimKey); err != nil {
+			t.Fatal(err)
+		}
+		defer admin.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", merchantStoreDeploymentOwnerClaimKey)
+		type result struct {
+			lease *productionMerchantStoreFence
+			err   error
+		}
+		results := make(chan result, 2)
+		for i, l := range []*productionMerchantStoreFence{left, right} {
+			o := owner
+			o.Purpose = "start"
+			o.Service = "lmm-api.service"
+			o.StartInvocationID = strings.Repeat(strconv.Itoa(i+3), 32)
+			o.HolderUnit = merchantStoreStartUnit(o.DeploymentID, o.StartInvocationID)
+			o.BackendPID = l.backendPID
+			go func(lease *productionMerchantStoreFence, o productionMerchantStoreFenceOwner) {
+				results <- result{lease, lease.ClaimOwner(ctx, o)}
+			}(l, o)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		blocked := 0
+		for time.Now().Before(deadline) {
+			if err := admin.QueryRow(ctx, "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted AND classid::bigint=$1 AND objid::bigint=$2", int64(uint64(merchantStoreDeploymentOwnerClaimKey)>>32), int64(uint64(merchantStoreDeploymentOwnerClaimKey)&0xffffffff)).Scan(&blocked); err != nil {
+				t.Fatal(err)
+			}
+			if blocked == 2 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if blocked != 2 {
+			t.Fatal("did not prove two actual claim sessions waiting on serialization key")
+		}
+		if _, err := admin.Exec(ctx, "SELECT pg_advisory_unlock($1)", merchantStoreDeploymentOwnerClaimKey); err != nil {
+			t.Fatal(err)
+		}
+		success := 0
+		var winner *productionMerchantStoreFence
+		for i := 0; i < 2; i++ {
+			select {
+			case r := <-results:
+				if r.err == nil {
+					success++
+					winner = r.lease
+				}
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+		}
+		if winner != nil {
+			if err := winner.ReleaseOwner(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// Releasing before the losing transaction checks could let it become a
+		// second successful legitimate start; both results must be collected first.
+		if success != 1 {
+			t.Fatalf("simultaneous claims accepted %d owners", success)
+		}
+	})
+	t.Run("portable start retry and crash tombstone", func(t *testing.T) {
+		start, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer start.Close()
+		if err := start.requireNoDurableOwner(ctx); err != nil {
+			t.Fatal(err)
+		}
+		o := owner
+		o.Purpose = "start"
+		o.Service = "lmm-api.service"
+		o.StartInvocationID = strings.Repeat("1", 32)
+		o.HolderUnit = merchantStoreStartUnit(o.DeploymentID, o.StartInvocationID)
+		o.BackendPID = start.backendPID
+		if err := start.ClaimOwner(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+		competing, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer competing.Close()
+		if competing.requireNoDurableOwner(ctx) == nil {
+			t.Fatal("automatic start ignored active owner")
+		}
+		if err := start.ReleaseOwner(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := competing.requireNoDurableOwner(ctx); err != nil {
+			t.Fatal("successful exact CAS prevented normal retry", err)
+		}
+		o.StartInvocationID = strings.Repeat("2", 32)
+		o.HolderUnit = merchantStoreStartUnit(o.DeploymentID, o.StartInvocationID)
+		if err := start.ClaimOwner(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+		originalKey, originalValue := start.ownerKey, start.ownerValue
+		if err := start.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if competing.requireNoDurableOwner(ctx) == nil {
+			t.Fatal("new retry/reboot invocation swept crashed ACTIVE owner")
+		}
+		// Cleanup only this test's exact row in its newly initialized cluster.
+		if _, err := admin.Exec(ctx, "DELETE FROM merchant_fence.options WHERE key=$1 AND value=$2", originalKey, originalValue); err != nil {
+			t.Fatal(err)
+		}
+	})
 	if err := lease.ClaimOwner(ctx, owner); err != nil {
 		t.Fatal(err)
 	}

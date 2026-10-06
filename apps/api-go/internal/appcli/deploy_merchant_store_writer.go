@@ -281,6 +281,10 @@ func (runtime *productionRuntime) merchantStoreWriterEnvironment(ctx context.Con
 	if err != nil || digest != contract.StartupSHA256 || unit != contract.SignedUnitSHA256 {
 		return nil, errors.New("merchant writer effective environment or signed unit changed")
 	}
+	return runtime.merchantStoreWriterEnvironmentFromValues(ctx, contract, values)
+}
+
+func (runtime *productionRuntime) merchantStoreWriterEnvironmentFromValues(ctx context.Context, contract *productionMerchantStoreWriterContract, values map[string]string) ([]string, error) {
 	child, err := runtime.existingSchemaMigrationValues(values, contract.Schema)
 	if err != nil {
 		return nil, err

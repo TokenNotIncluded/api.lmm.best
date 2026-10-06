@@ -22,6 +22,10 @@ import (
 // deadlock the candidate/N-1's actual migrate --verify command.
 const merchantStoreDeploymentFenceKey = deploymentfence.AdvisoryKey
 
+// Owner INSERTs serialize independently of activation and migrate --verify.
+// Always acquire the already-held shared fence before this transaction key.
+const merchantStoreDeploymentOwnerClaimKey int64 = 0x4c4d4d4150490003
+
 type productionMerchantStoreFenceOwner struct {
 	Format             int    `json:"format"`
 	State              string `json:"state"`
@@ -41,6 +45,9 @@ type productionMerchantStoreFenceOwner struct {
 	Schema             string `json:"schema"`
 	SchemaOID          int64  `json:"schema_oid"`
 	Role               string `json:"role"`
+	Purpose            string `json:"purpose,omitempty"`
+	Service            string `json:"service,omitempty"`
+	StartInvocationID  string `json:"start_invocation_id,omitempty"`
 }
 
 var merchantStoreFenceHostPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
@@ -48,10 +55,26 @@ var merchantStoreFenceHostPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,6
 func validateMerchantStoreFenceOwner(owner productionMerchantStoreFenceOwner) error {
 	if owner.Format != 1 || owner.State != "ACTIVE" || !productionIDPattern.MatchString(owner.DeploymentID) || !merchantStoreFenceHostPattern.MatchString(owner.Host) ||
 		!productionSHA256Pattern.MatchString(owner.PlanSHA256) || !productionSHA256Pattern.MatchString(owner.ContractSHA256) || !productionSHA256Pattern.MatchString(owner.ProviderSHA256) ||
-		!existingSchemaInvocationPattern.MatchString(owner.Nonce) || !existingSchemaInvocationPattern.MatchString(owner.HolderInvocationID) || owner.HolderPID <= 1 || owner.BackendPID <= 1 || owner.HolderUnit != merchantStoreFenceUnit(owner.DeploymentID) ||
+		!existingSchemaInvocationPattern.MatchString(owner.Nonce) || !existingSchemaInvocationPattern.MatchString(owner.HolderInvocationID) || owner.HolderPID <= 1 || owner.BackendPID <= 1 ||
 		owner.Database == "" || len(owner.Database) > 63 || owner.DatabaseOID <= 0 || !isDatabaseSchema(owner.Schema) || owner.SchemaOID <= 0 || owner.Role == "" || len(owner.Role) > 63 ||
 		strings.ContainsAny(owner.Database+owner.Role, "\x00\r\n") {
 		return errors.New("merchant deployment fence owner binding is incomplete")
+	}
+	switch owner.Purpose {
+	case "":
+		if owner.HolderUnit != merchantStoreFenceUnit(owner.DeploymentID) || owner.Service != "" || owner.StartInvocationID != "" {
+			return errors.New("merchant deployment owner legacy unit binding differs")
+		}
+	case "portable-deploy":
+		if owner.HolderUnit != merchantStorePortableUnit(owner.DeploymentID) || owner.Service != "lmm-api.service" || owner.StartInvocationID != "" {
+			return errors.New("portable deployment owner unit binding differs")
+		}
+	case "start":
+		if !existingSchemaInvocationPattern.MatchString(owner.StartInvocationID) || owner.HolderUnit != merchantStoreStartUnit(owner.DeploymentID, owner.StartInvocationID) || owner.Service != "lmm-api.service" {
+			return errors.New("merchant per-start owner generation binding differs")
+		}
+	default:
+		return errors.New("merchant deployment owner purpose is unknown")
 	}
 	identifier, err := strconv.ParseUint(owner.SystemIdentifier, 10, 64)
 	if err != nil || identifier == 0 || strconv.FormatUint(identifier, 10) != owner.SystemIdentifier {
@@ -65,6 +88,9 @@ func merchantStoreFenceUnit(deploymentID string) string {
 }
 
 func merchantStoreFenceOwnerKey(owner productionMerchantStoreFenceOwner) string {
+	if owner.Purpose == "start" {
+		return deploymentfence.OptionPrefix + "start:" + owner.DeploymentID + ":" + owner.Host + ":" + owner.StartInvocationID
+	}
 	return deploymentfence.OptionPrefix + owner.DeploymentID + ":" + owner.Host
 }
 
@@ -225,11 +251,22 @@ func (lease *productionMerchantStoreFence) ClaimOwner(ctx context.Context, owner
 	if lease.closed || lease.ownerKey != "" {
 		return errors.New("merchant deployment fence already claimed or closed")
 	}
-	transaction, err := lease.connection.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadWrite})
+	// A waiter must take a fresh snapshot after the claim lock, even when the
+	// business role's default isolation is repeatable-read/serializable.
+	transaction, err := lease.connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted, AccessMode: pgx.ReadWrite})
 	if err != nil {
 		return errors.New("merchant deployment owner claim transaction failed")
 	}
 	defer func() { _ = transaction.Rollback(context.Background()) }()
+	if _, err := transaction.Exec(ctx, "SELECT pg_catalog.pg_advisory_xact_lock($1)", merchantStoreDeploymentOwnerClaimKey); err != nil {
+		return errors.New("merchant deployment owner claim serialization failed")
+	}
+	if owner.Purpose == "start" || owner.Purpose == "portable-deploy" {
+		var exists bool
+		if transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM "`+lease.identity.Schema+`".options WHERE `+deploymentfence.PostgreSQLPresencePredicate+`)`).Scan(&exists) != nil || exists {
+			return errors.New("portable owner claim found an ACTIVE/unknown owner under its serialized fence")
+		}
+	}
 	key := merchantStoreFenceOwnerKey(owner)
 	if _, err := transaction.Exec(ctx, `INSERT INTO "`+lease.identity.Schema+`".options(key,value) VALUES($1,$2)`, key, string(canonical)); err != nil {
 		return errors.New("merchant deployment owner already exists or could not be claimed")
