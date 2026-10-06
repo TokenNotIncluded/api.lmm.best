@@ -98,7 +98,8 @@ func PopulateMerchantStoreCatalogue(tx *gorm.DB, p *MerchantStoreProduct) error 
 			return err
 		}
 	}
-	if MerchantStoreCatalogueSupported() && metadata.DefaultVariantID != MerchantStoreDefaultVariantID(p.ID) {
+	supported := storeCatalogueSupported(tx)
+	if supported && metadata.DefaultVariantID != MerchantStoreDefaultVariantID(p.ID) {
 		return ErrMerchantStoreUnavailable
 	}
 	if metadata.CustomTags == nil {
@@ -122,7 +123,7 @@ func PopulateMerchantStoreCatalogue(tx *gorm.DB, p *MerchantStoreProduct) error 
 	}
 	// Older floors cannot prove the guest identity/refund schema: unknown net
 	// sales remain null rather than executing newer-column SQL or faking gross.
-	if MerchantStoreCatalogueSupported() && tx.Migrator().HasTable(&MerchantStoreRefund{}) {
+	if supported && tx.Migrator().HasTable(&MerchantStoreRefund{}) {
 		var net int64
 		if err := tx.Model(&MerchantStoreProduct{}).Where("merchant_store_products.id = ?", p.ID).Select(storeCatalogueNetSalesSQL()).Scan(&net).Error; err != nil {
 			return err
@@ -172,15 +173,19 @@ func BackfillMerchantStoreCatalogueMappings(tx *gorm.DB) error {
 	}
 }
 
-func MerchantStoreCatalogueSupported() bool {
-	required, err := storeWriterGateRow(DB, "")
-	if err != nil || required < 5 || required > MerchantStoreWriterCapability || !MerchantStoreAccessSupported() {
+func storeCatalogueSupported(tx *gorm.DB) bool {
+	required, err := storeWriterGateRow(tx, "")
+	if err != nil || required < 5 || required > MerchantStoreWriterCapability || !storeAccessSupported(tx) {
 		return false
 	}
 	for _, item := range MerchantStoreCatalogueModels() {
-		if !DB.Migrator().HasTable(item) {
+		if !tx.Migrator().HasTable(item) {
 			return false
 		}
 	}
 	return true
+}
+
+func MerchantStoreCatalogueSupported() bool {
+	return storeCatalogueSupported(DB)
 }

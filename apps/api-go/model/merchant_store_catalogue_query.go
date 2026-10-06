@@ -127,9 +127,6 @@ func ListMerchantStoreCatalogue(viewer int, search string, sellerID, offset, lim
 		if err := populateMerchantStoreProduct(DB, &products[i], true); err != nil {
 			return nil, err
 		}
-		if err := PopulateMerchantStoreCatalogue(DB, &products[i]); err != nil {
-			return nil, err
-		}
 		products[i].ReviewNote, products[i].ReviewedBy = "", 0
 	}
 	return products, nil

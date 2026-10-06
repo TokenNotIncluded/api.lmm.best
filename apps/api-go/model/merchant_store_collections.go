@@ -53,9 +53,6 @@ func storeCollectionProduct(tx *gorm.DB, actor int, id string) (*MerchantStorePr
 	if err := populateMerchantStoreProduct(tx, &p, true); err != nil {
 		return nil, err
 	}
-	if err := PopulateMerchantStoreCatalogue(tx, &p); err != nil {
-		return nil, err
-	}
 	p.ReviewNote, p.ReviewedBy = "", 0
 	return &p, nil
 }
