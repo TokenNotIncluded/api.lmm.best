@@ -33,8 +33,9 @@ export function storeVariantCapacity(
   const capacity = legacyVariantProduct(product)
     ? (product.sale_available ?? product.available_stock)
     : variant?.sale_available
-  if (!legacyVariantProduct(product) && (!variant || variant.trading_paused))
+  if (!legacyVariantProduct(product) && (!variant || variant.trading_paused)) {
     return 0
+  }
   return typeof capacity === 'number' &&
     Number.isSafeInteger(capacity) &&
     capacity >= 0
