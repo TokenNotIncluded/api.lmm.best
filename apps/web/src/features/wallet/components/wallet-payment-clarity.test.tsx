@@ -99,7 +99,8 @@ const { PaymentCurrencyProvider } =
 const { usePaymentCurrency } = await import('../hooks/use-payment-currency')
 const { PaymentConfirmDialog } =
   await import('./dialogs/payment-confirm-dialog')
-const { formatCreditBalance, formatPaymentAmount } = await import('../lib')
+const { formatCreditBalance, formatPaymentAmount, mergePresetAmounts } =
+  await import('../lib')
 
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -1505,6 +1506,101 @@ describe('wallet payment clarity', () => {
       true
     )
 
+    await unmount(rendered)
+  })
+
+  test('orders configured presets by raw amount without changing their discounts or source array', async () => {
+    await i18n.changeLanguage('en')
+    setCnyBillingAndPaymentDisplay()
+    useSystemConfigStore.setState((state) => ({
+      config: {
+        ...state.config,
+        currency: {
+          ...state.config.currency,
+          cnyPerUsd: 6.71436,
+          cnyPerUsdExact: '6.71436',
+        },
+      },
+    }))
+    const amounts = [1, 2, 50, 5, 10, 20, 100, 500].map(
+      (amount) => amount * 500000
+    )
+    const discounts = { 25000000: 0.95, 50000000: 0.8, 250000000: 0.7 }
+    const presets = mergePresetAmounts(amounts, discounts)
+    const originalPresets = presets.map((preset) => ({ ...preset }))
+    presets.forEach((preset) => Object.freeze(preset))
+    Object.freeze(presets)
+    const selected: typeof presets = []
+    const rendered = await render(
+      <RechargeFormCard
+        topupInfo={topupInfo}
+        presetAmounts={presets}
+        selectedPreset={null}
+        onSelectPreset={(preset) => selected.push(preset)}
+        topupAmount={500000}
+        onTopupAmountChange={() => undefined}
+        paymentAmount={6.71436}
+        calculating={false}
+        onPaymentMethodSelect={() => undefined}
+        paymentLoading={null}
+        redemptionCode=''
+        onRedemptionCodeChange={() => undefined}
+        onRedeem={() => undefined}
+        redeeming={false}
+      />
+    )
+    const cards = [
+      ...rendered.container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-pressed]'
+      ),
+    ]
+    assert.deepEqual(
+      cards.map(
+        (card) =>
+          card.querySelector('[data-slot="wallet-credit-value"]')?.textContent
+      ),
+      [
+        '6.71 CNY',
+        '13.43 CNY',
+        '33.57 CNY',
+        '67.14 CNY',
+        '134.29 CNY',
+        '335.72 CNY',
+        '671.44 CNY',
+        '3,357.18 CNY',
+      ]
+    )
+    assert.deepEqual(
+      cards.map(
+        (card) => card.querySelector('[data-slot="badge"]')?.textContent
+      ),
+      [
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        '5% off',
+        '20% off',
+        '30% off',
+      ]
+    )
+    for (const card of cards) await act(async () => card.click())
+    assert.deepEqual(
+      selected.map(({ value, discount }) => [value, discount]),
+      [
+        [500000, 1],
+        [1000000, 1],
+        [2500000, 1],
+        [5000000, 1],
+        [10000000, 1],
+        [25000000, 0.95],
+        [50000000, 0.8],
+        [250000000, 0.7],
+      ]
+    )
+    assert.ok(selected.every((preset) => presets.includes(preset)))
+    assert.deepEqual(presets, originalPresets)
     await unmount(rendered)
   })
 

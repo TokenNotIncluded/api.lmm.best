@@ -440,10 +440,12 @@ export function RechargeFormCard({
   const pancakeCurrencySupported = isWaffoPancakeCurrencySupported()
   const interfaceLanguage = i18n.resolvedLanguage || i18n.language
   const paymentFormattingLocale = getCurrencyFormattingLocale(interfaceLanguage)
-  const displayedPresetAmounts = presetAmounts.filter(
-    (preset, index, all) =>
-      all.findIndex((candidate) => candidate.value === preset.value) === index
-  )
+  const displayedPresetAmounts = presetAmounts
+    .filter(
+      (preset, index, all) =>
+        all.findIndex((candidate) => candidate.value === preset.value) === index
+    )
+    .sort((a, b) => a.value - b.value)
   const effectiveWaffoPancakeCheckoutRegion =
     waffoPancakeCheckoutRegion ??
     localWaffoPancakeRegionOverride ??
