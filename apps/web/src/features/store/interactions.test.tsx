@@ -625,6 +625,28 @@ test('remaining quota follows settlements only while pristine and preserves unsa
     'after save, subsequent server settlements update the pristine form'
   )
 })
+test('missing historical paid quantity does not turn a cumulative ceiling into guessed remaining quota', async () => {
+  const saved: unknown[] = []
+  api.put = (async (_url: string, body: unknown) => {
+    saved.push(body)
+    return result(null)
+  }) as typeof api.put
+  await mount(
+    <StoreSalesLimit
+      product={{ ...product, sale_limit: 30, paid_quantity: undefined }}
+      onSaved={async () => {}}
+    />
+  )
+  const limit = document.querySelector<HTMLInputElement>(
+    `#store-sale-limit-${product.id}`
+  )!
+  assert.equal(limit.value, '')
+  await click(button('Save sales quota'))
+  assert.deepEqual(saved, [])
+  await input(limit, '10')
+  await click(button('Save sales quota'))
+  assert.deepEqual(saved, [{ available_count: 10 }])
+})
 test('a missing minimum from an older API does not silently allow saving product prices', async () => {
   await mount(
     <StoreProductEditor

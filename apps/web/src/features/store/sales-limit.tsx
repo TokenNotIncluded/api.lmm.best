@@ -20,23 +20,24 @@ export function StoreSalesLimit({
   onSaved: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const paidQuantity = product.paid_quantity
+  const serverRemaining =
+    typeof paidQuantity === 'number' &&
+    Number.isSafeInteger(paidQuantity) &&
+    paidQuantity >= 0
+      ? Math.max(0, (product.sale_limit ?? 0) - paidQuantity)
+      : undefined
   const [unlimited, setUnlimited] = useState(product.sale_limit === null)
-  const [limit, setLimit] = useState(
-    String(Math.max(0, (product.sale_limit ?? 0) - product.paid_quantity))
-  )
+  const [limit, setLimit] = useState(String(serverRemaining ?? ''))
   const [busy, setBusy] = useState(false)
   const [edited, setEdited] = useState(false)
   const savedFromSnapshot = useRef<string | undefined>(undefined)
-  const snapshot = `${product.sale_limit ?? 'unlimited'}:${product.paid_quantity}`
-  const serverRemaining = Math.max(
-    0,
-    (product.sale_limit ?? 0) - product.paid_quantity
-  )
+  const snapshot = `${product.sale_limit ?? 'unlimited'}:${paidQuantity ?? 'unknown'}`
   useEffect(() => {
     if (edited || savedFromSnapshot.current === snapshot) return
     savedFromSnapshot.current = undefined
     setUnlimited(product.sale_limit === null)
-    setLimit(String(serverRemaining))
+    setLimit(String(serverRemaining ?? ''))
   }, [edited, snapshot, product.sale_limit, serverRemaining])
   const [error, setError] = useState<unknown>(null)
   async function save(event: React.FormEvent) {
@@ -75,7 +76,7 @@ export function StoreSalesLimit({
             count: product.inventory_total ?? product.available_stock,
           })}
         </span>
-        <span>{t(copy.paid, { count: product.paid_quantity })}</span>
+        <span>{t(copy.paid, { count: paidQuantity ?? '—' })}</span>
         <span>{t(copy.reserved, { count: product.reserved_quantity })}</span>
         <span>{t(copy.available, { count: product.sale_available })}</span>
       </div>
