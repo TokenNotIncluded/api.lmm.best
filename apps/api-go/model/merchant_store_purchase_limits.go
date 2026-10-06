@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"errors"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -9,24 +8,6 @@ import (
 )
 
 var ErrMerchantStorePurchaseLimit = errors.New("store purchase quantity limit reached")
-
-// Omitted fields preserve existing limits for older editors. Explicit JSON null
-// clears a limit; direct Go callers can supply a non-nil pointer to set one.
-func (in *MerchantStoreProductInput) UnmarshalJSON(data []byte) error {
-	type plain MerchantStoreProductInput
-	var value plain
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return err
-	}
-	*in = MerchantStoreProductInput(value)
-	_, in.maxQuantityPerOrderPresent = fields["max_quantity_per_order"]
-	_, in.maxQuantityPerBuyerPresent = fields["max_quantity_per_buyer"]
-	return nil
-}
 
 func storePurchaseLimitValid(value *int64) bool {
 	return value == nil || (*value >= 1 && *value <= int64(common.MaxWalletQuota))

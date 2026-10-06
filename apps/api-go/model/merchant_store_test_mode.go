@@ -28,6 +28,8 @@ func (in *MerchantStoreProductInput) UnmarshalJSON(data []byte) error {
 		}
 	}
 	*in = MerchantStoreProductInput(decoded)
+	_, in.maxQuantityPerOrderPresent = fields["max_quantity_per_order"]
+	_, in.maxQuantityPerBuyerPresent = fields["max_quantity_per_buyer"]
 	return nil
 }
 
