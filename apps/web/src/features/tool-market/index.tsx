@@ -19,6 +19,7 @@ import {
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -156,6 +157,27 @@ function ToolMarketWorkspace() {
   } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [record, setRecord] = useState<CallResponse | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MarketService | null>(null)
+  const deletion = useMutation({
+    retry: false,
+    mutationFn: marketAPI.deleteService,
+    onSuccess: async (_, id) => {
+      const retiredDetail = { queryKey: [...key, 'detail', id] }
+      await cache.cancelQueries(retiredDetail)
+      cache.removeQueries(retiredDetail)
+      setSelected((value) => (value?.id === id ? null : value))
+      setDeleteTarget(null)
+      void cache.invalidateQueries({
+        queryKey: ['tool-market'],
+        predicate: (query) =>
+          !(query.queryKey[2] === 'detail' && query.queryKey[3] === id),
+      })
+    },
+  })
+  const requestDelete = (service: MarketService) => {
+    deletion.reset()
+    setDeleteTarget(service)
+  }
   const review = useMutation({
     retry: false,
     mutationFn: async (input: {
@@ -255,7 +277,7 @@ function ToolMarketWorkspace() {
       if (!selected) throw new Error('Missing service')
       return marketAPI.detail(selected.id, selected.mode, signal)
     },
-    enabled: !!selected && !editor && !review.isPending,
+    enabled: !!selected && !editor && !review.isPending && !deletion.isPending,
   })
   const calls = useQuery({
     queryKey: [...key, 'calls', callsOffset],
@@ -424,6 +446,28 @@ function ToolMarketWorkspace() {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open && !deletion.isPending) setDeleteTarget(null)
+          }}
+          title={t('Delete this tool service?')}
+          desc={t(
+            'The service will disappear from the market and your services, and new calls will stop. Running calls can finish. Call, payment, and review history is kept.'
+          )}
+          confirmText={t('Delete')}
+          destructive
+          isLoading={deletion.isPending}
+          handleConfirm={() => {
+            if (deleteTarget) deletion.mutate(deleteTarget.id)
+          }}
+        >
+          {deletion.isError && (
+            <p role='alert' className='text-destructive text-sm'>
+              {t('Could not delete this service. Retry.')}
+            </p>
+          )}
+        </ConfirmDialog>
         <div className='mx-auto w-full max-w-6xl space-y-6'>
           <div className='relative isolate flex min-h-24 items-center overflow-hidden border-b py-5'>
             <div className='pointer-events-none absolute inset-y-0 end-0 w-2/5'>
@@ -672,6 +716,17 @@ function ToolMarketWorkspace() {
                                 onClick={() => action.mutate(editDraft)}
                               >
                                 {t('Edit draft')}
+                              </Button>
+                            )}
+                          {(current.service.owner_id === user?.id ||
+                            (user?.role ?? 0) >= 10) &&
+                            current.version.execution_type !== 'builtin' && (
+                              <Button
+                                variant='outline'
+                                disabled={deletion.isPending}
+                                onClick={() => requestDelete(current.service)}
+                              >
+                                {t('Delete')}
                               </Button>
                             )}
                         </>
@@ -1301,6 +1356,13 @@ function ToolMarketWorkspace() {
                           </p>
                         </div>
                         <div className='flex flex-wrap gap-2'>
+                          <Button
+                            variant='outline'
+                            disabled={deletion.isPending}
+                            onClick={() => requestDelete(item)}
+                          >
+                            {t('Delete')}
+                          </Button>
                           {item.draft_version_id && (
                             <Button
                               variant='outline'
@@ -1526,14 +1588,23 @@ function ToolMarketWorkspace() {
                               id: item.owner_id,
                             })}
                           </span>
-                          <Button
-                            variant='outline'
-                            onClick={() =>
-                              setSelected({ id: item.id, mode: 'review' })
-                            }
-                          >
-                            {t('Review')}
-                          </Button>
+                          <div className='flex flex-wrap gap-2'>
+                            <Button
+                              variant='outline'
+                              onClick={() =>
+                                setSelected({ id: item.id, mode: 'review' })
+                              }
+                            >
+                              {t('Review')}
+                            </Button>
+                            <Button
+                              variant='outline'
+                              disabled={deletion.isPending}
+                              onClick={() => requestDelete(item)}
+                            >
+                              {t('Delete')}
+                            </Button>
+                          </div>
                         </div>
                       ))}
                       <MarketReports />

@@ -284,6 +284,83 @@ after(() => {
   }
 })
 
+test('deleting an authored service requires confirmation and retires its selected detail without another read', async () => {
+  const item = structuredClone(remote)
+  const services = [item.service]
+  stubNavigation([item], services)
+  const mine = marketAPI.mine
+  marketAPI.mine = (async (kind: string, signal?: AbortSignal) => [
+    ...(await mine(kind, signal)),
+  ]) as typeof marketAPI.mine
+  const deleted: string[] = []
+  marketAPI.deleteService = async (id) => {
+    deleted.push(id)
+    services.length = 0
+    return null
+  }
+  const { container } = await mount()
+  await click(button('My publications', container))
+  await waitFor(() => Boolean(findButton('Delete', container)))
+  await click(button('Delete', container))
+  await waitFor(() => Boolean(document.querySelector('[role="alertdialog"]')))
+  let dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')
+  assert.ok(dialog)
+  assert.ok(
+    dialog.textContent?.includes('Call, payment, and review history is kept.')
+  )
+  assert.deepEqual(deleted, [])
+  await click(button('Cancel', dialog))
+  assert.deepEqual(deleted, [])
+  await click(button('Delete', container))
+  await waitFor(() => Boolean(document.querySelector('[role="alertdialog"]')))
+  dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')
+  assert.ok(dialog)
+  await click(button('Delete', dialog))
+  assert.deepEqual(deleted, [item.service.id])
+  await waitFor(() => !findButton('Delete', container))
+  assert.deepEqual(deleted, [item.service.id])
+})
+
+test('ordinary catalog viewers cannot delete another service, while administrators can manage it', async () => {
+  const item = structuredClone(remote)
+  stubNavigation([item])
+  marketAPI.deleteService = async () =>
+    assert.fail('Viewing must never delete a service')
+  const ordinary = await mount(1, 9)
+  await waitFor(
+    () => ordinary.container.textContent?.includes(item.version.name) === true
+  )
+  const card = [...ordinary.container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === item.version.name
+  )
+  assert.ok(card)
+  await click(card)
+  await waitFor(
+    () =>
+      ordinary.container.textContent?.includes('Choose this browser') === true
+  )
+  assert.equal(findButton('Delete', ordinary.container), undefined)
+
+  const view = views.find((value) => value.container === ordinary.container)
+  assert.ok(view)
+  await act(async () => view.root.unmount())
+  view.client.clear()
+  view.container.remove()
+  views.splice(views.indexOf(view), 1)
+
+  const admin = await mount(10, 10)
+  await waitFor(
+    () => admin.container.textContent?.includes(item.version.name) === true
+  )
+  const adminCard = [...admin.container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === item.version.name
+  )
+  assert.ok(adminCard)
+  await click(adminCard)
+  await waitFor(() => Boolean(findButton('Delete', admin.container)))
+  assert.equal(findButton('Edit draft', admin.container), undefined)
+})
+
 test('catalog search and type filters reset pagination and clear together without invoking tools', async () => {
   stubNavigation([remote])
   const requests: [string, number, string][] = []

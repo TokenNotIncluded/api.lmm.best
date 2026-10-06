@@ -313,6 +313,8 @@ export const marketAPI = {
   activate: (id: string, version_id: string) =>
     unwrap<null>(api.post(`${base}/services/${id}/activate`, { version_id })),
   reviews: () => unwrap<MarketService[]>(api.get(`${base}/reviews`)),
+  deleteService: (id: string) =>
+    unwrap<null>(api.delete(`${base}/services/${id}`)),
   review: (id: string, version_id: string, approve: boolean, note: string) =>
     unwrap<null>(
       api.post(`${base}/services/${id}/review`, { version_id, approve, note })

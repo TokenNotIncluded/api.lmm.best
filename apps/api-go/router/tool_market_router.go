@@ -14,6 +14,7 @@ func setToolMarketRouter(parent *assistantRouterGroup) {
 	self := parent.Group("/tool-market")
 	self.Use(middleware.UserAuth(), middleware.DisableCache(), middleware.RequestBodyLimit(256<<10))
 	self.POST("/services", middleware.CriticalRateLimit(), controller.SaveToolMarketDraft)
+	self.DELETE("/services/:id", middleware.CriticalRateLimit(), controller.DeleteToolMarketService)
 	self.GET("/services/:id/draft", controller.GetToolMarketDraft)
 	self.GET("/services/:id/ai-reviews", controller.ListToolMarketAIReviews)
 	self.PUT("/services/:id/draft", middleware.CriticalRateLimit(), controller.SaveToolMarketDraft)

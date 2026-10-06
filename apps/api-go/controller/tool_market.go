@@ -97,6 +97,10 @@ func SaveToolMarketDraft(c *gin.Context) {
 	toolMarketRespond(c, service, err)
 }
 
+func DeleteToolMarketService(c *gin.Context) {
+	toolMarketRespond(c, nil, model.DeleteToolMarketService(c.GetInt("id"), c.Param("id")))
+}
+
 func SubmitToolMarketDraft(c *gin.Context) {
 	var input struct {
 		VersionID string `json:"version_id"`

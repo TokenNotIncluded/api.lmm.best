@@ -261,7 +261,7 @@ func marketAIReviewTarget(tx *gorm.DB, j *ModerationJob, locked bool) (*ToolMark
 		if err := q.Where("id = ? AND service_id = ?", j.TargetVersion, j.TargetID).First(&v).Error; err != nil {
 			return nil, nil, nil, false, err
 		}
-		ok := s.OwnerID == j.UserID && s.DraftVersionID == v.ID && v.Status == "pending" && v.AIReviewToken == j.RequestID && v.Visibility == "public"
+		ok := s.Status != ToolMarketServiceDeleted && s.OwnerID == j.UserID && s.DraftVersionID == v.ID && v.Status == "pending" && v.AIReviewToken == j.RequestID && v.Visibility == "public"
 		return &s, &v, nil, ok, nil
 	}
 	if j.Source == ModerationSourceMarketProduct {

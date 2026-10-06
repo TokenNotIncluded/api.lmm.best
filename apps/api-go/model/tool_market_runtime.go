@@ -146,7 +146,7 @@ func RecordToolMarketValidationWithCredential(actor int, serviceID, versionID, d
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
+		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ?", serviceID, ToolMarketServiceDeleted).Error; err != nil {
 			return err
 		}
 		if service.OwnerID == 0 {
@@ -207,7 +207,7 @@ func GetToolMarketReview(actor int, serviceID string) (*ToolMarketDetail, error)
 		return nil, err
 	}
 	var service ToolMarketService
-	if err := DB.First(&service, "id = ?", serviceID).Error; err != nil {
+	if err := DB.First(&service, "id = ? AND status <> ?", serviceID, ToolMarketServiceDeleted).Error; err != nil {
 		return nil, err
 	}
 	if service.DraftVersionID == "" && service.LiveVersionID != "" {
@@ -232,7 +232,7 @@ func ListToolMarketReviewQueue(actor int) ([]ToolMarketService, error) {
 	applied := DB.Model(&ToolMarketVersion{}).Select("id").Where("status IN ? AND ai_review_token <> '' AND EXISTS (SELECT 1 FROM moderation_jobs WHERE source = ? AND target_id = tool_market_versions.service_id AND target_version = tool_market_versions.id AND request_id = tool_market_versions.ai_review_token AND status = ? AND market_outcome IN ?)", []string{"published", "rejected"}, ModerationSourceMarketTool, ModerationJobCompleted, []string{"approved", "rejected"})
 	// A new draft supersedes an older live review. Keep current AI decisions
 	// reachable for human override without displacing submissions awaiting review.
-	err := DB.Where("draft_version_id IN (?) OR draft_version_id IN (?) OR (draft_version_id = '' AND live_version_id IN (?))", pending, applied, applied).
+	err := DB.Where("status <> ?", ToolMarketServiceDeleted).Where("draft_version_id IN (?) OR draft_version_id IN (?) OR (draft_version_id = '' AND live_version_id IN (?))", pending, applied, applied).
 		Order("CASE WHEN draft_version_id IN (SELECT id FROM tool_market_versions WHERE status = 'pending') THEN 0 ELSE 1 END").Order("updated_at, id").Limit(100).Find(&rows).Error
 	return rows, err
 }

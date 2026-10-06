@@ -23,6 +23,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import { aboutTranslations } from './about-luna-copy.mjs'
+import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
+import { toolMarketDeleteLunaCopy } from './tool-market-delete-luna-copy.mjs'
 import { acquisitionCopy as acquisitionLinkCopy } from './acquisition-copy.mjs'
 import { aiDirectoryCopy } from './ai-directory-copy.mjs'
 import { apiKeySourceCopy } from './api-key-source-copy.mjs'
@@ -13294,6 +13296,10 @@ for (const [locale, values] of Object.entries(toolMarketAuthLunaCopy)) {
 }
 
 for (const [locale, values] of Object.entries(aboutTranslations)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(toolMarketDeleteLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

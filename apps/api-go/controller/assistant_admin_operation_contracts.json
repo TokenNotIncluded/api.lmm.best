@@ -147,6 +147,7 @@
   "DeleteStaleSystemInstances": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "DeleteToken": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "DeleteTokenBatch": {"body_schema":{"properties":{"ids":{"items":{"type":"integer"},"type":"array"}},"type":"object"},"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{},"type":"object"}},
+  "DeleteToolMarketService": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "DeleteUser": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "DeleteVendorMeta": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "DetectAllChannelUpstreamModelUpdates": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{},"type":"object"}},
