@@ -58,3 +58,30 @@ test('failed and unknown states do not imply a clean content check', () => {
   })
   assert.doesNotMatch(unknownCategories, /No content categories flagged/)
 })
+
+test('recorded check dates use the selected UI language including zhTW alias', async () => {
+  const original = Date.prototype.toLocaleString
+  const locales: unknown[] = []
+  Date.prototype.toLocaleString = function (locale?: Intl.LocalesArgument) {
+    locales.push(locale)
+    return 'Recorded fixture date'
+  }
+  try {
+    for (const language of ['zhTW', 'fr']) {
+      await i18n.changeLanguage(language)
+      assert.match(
+        render({
+          status: 'succeeded',
+          applied: false,
+          categories: [],
+          checkedAt: 1791288000,
+        }),
+        /Recorded fixture date/
+      )
+    }
+    assert.deepEqual(locales, ['zh-TW', 'fr'])
+  } finally {
+    Date.prototype.toLocaleString = original
+    await i18n.changeLanguage('zh')
+  }
+})

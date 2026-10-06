@@ -2,6 +2,7 @@
 import { useTranslation } from 'react-i18next'
 
 import { MODERATION_CATEGORY_LABELS } from '@/features/system-settings/security/moderation-config'
+import { toIntlLocale } from '@/i18n/languages'
 
 import { MARKET_AI_REVIEW_COPY as copy } from './copy'
 
@@ -23,7 +24,7 @@ export function MarketAIReviewResultView({
 }: {
   result?: MarketAIReviewResult | null
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   if (!result) return null
   const statuses: Record<string, string> = {
     queued: copy.queued,
@@ -85,7 +86,9 @@ export function MarketAIReviewResultView({
       {result.checkedAt && result.checkedAt > 0 ? (
         <p className='text-muted-foreground text-xs'>
           {t(copy.checkedAt)}:{' '}
-          {new Date(result.checkedAt * 1000).toLocaleString()}
+          {new Date(result.checkedAt * 1000).toLocaleString(
+            toIntlLocale(i18n.language)
+          )}
         </p>
       ) : null}
       <p className='text-muted-foreground text-xs'>{t(copy.limits)}</p>

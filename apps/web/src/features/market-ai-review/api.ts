@@ -13,10 +13,10 @@ export interface MarketAIReviewSettings {
   categories: string[]
 }
 export interface MarketAIReviewRecord {
-  id: string
+  id: number
   source: string
   target_id: string
-  content_version: number
+  content_version: string
   content_hash: string
   mode: MarketAIReviewMode
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -39,6 +39,7 @@ export interface MarketAIReviewRecord {
   created_at: number
   updated_at: number
   completed_at: number
+  checked_at: number
   coverage: 'public_listing_text'
 }
 type Envelope<T> = { success: boolean; message?: string; data: T }
