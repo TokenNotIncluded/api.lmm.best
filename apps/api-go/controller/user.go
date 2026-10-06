@@ -671,7 +671,12 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"sidebar_modules": userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":     permissions,
 	}
-	creditFields, creditErr := publicUserCreditFields(user.Quota, user.UsedQuota)
+	usage := projectUserUsage(loadUsageProjector(), user)
+	data["usage_projection_available"] = usage.UsageProjectionAvailable
+	if usage.NormalizedUsedQuota != nil {
+		data["normalized_used_quota"] = *usage.NormalizedUsedQuota
+	}
+	creditFields, creditErr := publicUserCreditFields(user.Quota, usage.NormalizedUsedQuota)
 	if creditErr == nil {
 		for key, value := range creditFields {
 			data[key] = value

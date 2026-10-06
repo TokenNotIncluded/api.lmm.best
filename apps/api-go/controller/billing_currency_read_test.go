@@ -51,6 +51,14 @@ func TestSDKBillingExactUSDZeroSignedAndSingleRounding(t *testing.T) {
 	} {
 		require.NoError(t, common.SetCreditCurrencyBasis(decimal.RequireFromString(tc.anchor), decimal.NewFromInt(500000)))
 		require.NoError(t, db.Model(&token).UpdateColumns(map[string]any{"remain_quota": tc.remain, "used_quota": tc.used}).Error)
+		if tc.used < 0 {
+			for _, handler := range []gin.HandlerFunc{GetSubscription, GetUsage} {
+				var body map[string]any
+				require.NoError(t, json.Unmarshal(billingReadRequest(t, &token, handler).Body.Bytes(), &body))
+				require.Equal(t, "billing_unavailable", body["error"].(map[string]any)["type"])
+			}
+			continue
+		}
 		for _, display := range []string{"USD", "CNY", "TOKENS", "CUSTOM"} {
 			operation_setting.GetGeneralSetting().QuotaDisplayType = display
 			for _, fx := range []float64{7, 9.9, 99, 0} {
