@@ -54,7 +54,7 @@ type ModerationJob struct {
 	PolicyGroup       string `json:"-" gorm:"type:varchar(64);not null;default:''"`
 	RelayGroup        string `json:"-" gorm:"type:varchar(64);not null;default:''"`
 	SubjectIdentifier string `json:"-" gorm:"type:char(64);not null;default:''"`
-	ProviderCallsJSON string `json:"-" gorm:"type:text;not null;default:'[]'"`
+	ProviderCallsJSON string `json:"-" gorm:"type:text;not null;default:('[]')"`
 	ReviewGroup       string `json:"review_group" gorm:"type:varchar(64);not null"`
 	ReviewModel       string `json:"review_model" gorm:"type:varchar(128);not null"`
 	InputDigest       string `json:"input_digest" gorm:"type:char(64);not null"`
