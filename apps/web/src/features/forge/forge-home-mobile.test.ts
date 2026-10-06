@@ -90,10 +90,8 @@ test('scroll motion retains passive listeners, cancellation and observer cleanup
 test('section progress drives the current scene and story styles', () => {
   assert.match(motion, /setProperty\('--scene-progress',/)
   assert.match(motion, /setProperty\('--story-progress',/)
-  assert.match(
-    motion,
-    /const time = reduced\.matches \? RESPONSE_END : clock\s+draw\(time, cameraPointer, sceneProgress\)/
-  )
+  // Scene continuity is exercised by home-worlds and the motion lifecycle tests;
+  // the first network film and the four new worlds now use separate renderers.
   assert.match(css, /var\(--story-progress\)/)
 })
 

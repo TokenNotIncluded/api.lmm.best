@@ -177,6 +177,11 @@ export function HomeLanding({
               aria-label={t('Tokens to try')}
             />
             <canvas className='lmm-film' data-film aria-hidden='true' />
+            <canvas
+              className='lmm-world-film'
+              data-world-film
+              aria-hidden='true'
+            />
             <div
               className='lmm-token-input'
               data-token-input
@@ -239,93 +244,76 @@ export function HomeLanding({
           </section>
 
           <section className='lmm-scene-panel' data-cinema-panel='1'>
-            <h2
-              data-gravity-title
-              tabIndex={0}
-              aria-describedby='lmm-gravity-instruction'
-            >
-              {t('One API. Your choice of models.')}
-            </h2>
-            <GravityDescription
-              language={language}
-              text={t(
-                'Chat, reasoning, vision, and audio behind one base URL.'
-              )}
+            <canvas
+              className='lmm-chapter-film'
+              data-chapter-film='1'
+              aria-hidden='true'
             />
-            <div className='lmm-core-protocols'>
-              <code>/v1/chat/completions</code>
-              <code>/v1/messages</code>
-              <span>Gemini</span>
-            </div>
-            <a className='lmm-core-link' href='/guide'>
-              {t('Open guide')} <Arrow />
+            <h2>{t('A store for our community.')}</h2>
+            <p>
+              {t(
+                'Discover digital goods from community sellers. Browse, order, and collect in one place.'
+              )}
+            </p>
+            <a className='lmm-core-link lmm-world-primary' href='/store'>
+              {t('Browse products')} <Arrow />
             </a>
           </section>
           <section className='lmm-scene-panel' data-cinema-panel='2'>
-            <h2
-              data-gravity-title
-              tabIndex={0}
-              aria-describedby='lmm-gravity-instruction'
-            >
-              {t('Connect with Pi')}
-            </h2>
-            <GravityDescription
-              language={language}
-              text={t(
-                'Install the plugin, sign in, pick a model. No API key to paste.'
-              )}
+            <canvas
+              className='lmm-chapter-film'
+              data-chapter-film='2'
+              aria-hidden='true'
             />
-            <div className='lmm-core-protocols'>
-              <span>Pi</span>
-              <span>OAuth 2.0 / PKCE</span>
-            </div>
-            <a className='lmm-core-link' href='/guide'>
-              {t('Open guide')} <Arrow />
+            <h2>{t('Put more tools in your AI’s hands.')}</h2>
+            <p>
+              {t(
+                'Explore MCP tool services in the tool market. Connect the capabilities your next idea needs.'
+              )}
+            </p>
+            <a className='lmm-core-link lmm-world-primary' href='/tool-market'>
+              {t('Browse MCP tools')} <Arrow />
             </a>
           </section>
           <section className='lmm-scene-panel' data-cinema-panel='3'>
-            <h2
-              data-gravity-title
-              tabIndex={0}
-              aria-describedby='lmm-gravity-instruction'
-            >
-              {t('Give your browser a hand')}
-            </h2>
-            <GravityDescription
-              language={language}
-              text={t('Let your browser agent read prices and open pages.')}
+            <canvas
+              className='lmm-chapter-film'
+              data-chapter-film='3'
+              aria-hidden='true'
             />
-            <div className='lmm-core-protocols'>
-              <code>lmm_model_prices</code>
-              <code>lmm_account_status</code>
+            <h2>{t('One ecosystem. Many ways in.')}</h2>
+            <p>
+              {t(
+                'Pi and dsh plugins, useful websites, and new connections. Find your place in the LMM ecosystem.'
+              )}
+            </p>
+            <div className='lmm-world-links'>
+              <a className='lmm-core-link' href='/guide#client-setup'>
+                {t('Explore plugins')} <Arrow />
+              </a>
+              <a className='lmm-core-link' href='/ai-directory'>
+                {t('AI directory')} <Arrow />
+              </a>
             </div>
-            <a className='lmm-core-link' href='/webmcp'>
-              {t('Explore WebMCP')} <Arrow />
-            </a>
           </section>
           <section className='lmm-scene-panel' data-cinema-panel='4'>
-            <h2
-              data-gravity-title
-              tabIndex={0}
-              aria-describedby='lmm-gravity-instruction'
-            >
-              {t('See the price before you start')}
-            </h2>
-            <GravityDescription
-              language={language}
-              text={t(
-                'Pay per use. Prices are public before you spend anything.'
-              )}
+            <canvas
+              className='lmm-chapter-film'
+              data-chapter-film='4'
+              aria-hidden='true'
             />
-            <div className='lmm-core-protocols'>
-              <code>GET /api/pricing</code>
-            </div>
-            <a className='lmm-core-link' href='/pricing'>
-              {t('View pricing')} <Arrow />
+            <h2>{t('The next world is ours to build.')}</h2>
+            <p>
+              {t(
+                'An idea becomes a tool. A tool opens a new path. Bring your imagination, and help shape what comes next.'
+              )}
+            </p>
+            <a className='lmm-core-link lmm-world-primary' href='/about'>
+              {t('Explore the project')} <Arrow />
             </a>
           </section>
           <ol className='lmm-core-steps' aria-label={t('Explore LMM')}>
-            {['Home', 'API', 'OAuth', 'WebMCP', 'Pricing'].map(
+            {['Home', 'Store', 'Tool market', 'Ecosystem', 'Future'].map(
               (label, index) => (
                 <li
                   key={label}
