@@ -34,6 +34,23 @@ only qualified table name, row count and SHA256 are selected. The metadata guard
 independent stage assertions, and fingerprints share one repeatable-read,
 read-only transaction. Foreign tables and RLS-filtered reads fail closed.
 
+The fingerprint queries execute one table at a time on that same connection.
+The outer query sorts labels and SQL text by the original qualified table label
+with `COLLATE "C"`. `psql`'s
+[`\gexec`](https://www.postgresql.org/docs/current/app-psql.html#APP-PSQL-META-COMMAND-GEXEC)
+then executes each independent `SELECT` in that order. PostgreSQL never plans all tables as one
+large `UNION ALL`. `ON_ERROR_STOP` preserves failure handling. Result bytes
+remain `table|count|fingerprint`, in the same order, including empty tables and
+duplicate rows. Keep using `psql -X -qAt`; a database driver that does not process
+psql commands cannot execute these artifacts.
+
+Every generated transaction uses `SET LOCAL jit=off`,
+`max_parallel_workers_per_gather=0`, `work_mem='4MB'`, and
+`hash_mem_multiplier=1`. These settings apply before the stage assertions and
+all per-table queries, then revert when the transaction ends. The inventory,
+normalization, historical-content checks and deterministic receipt schema are
+unchanged; newly generated SQL and generator hashes must be sealed together.
+
 Each original column is encoded from its SQL text output inside canonical row
 JSON, preserving SQL NULL versus JSON null, raw JSON text and array bounds.
 Every row is hashed separately with PostgreSQL's built-in SHA256 over UTF-8;
