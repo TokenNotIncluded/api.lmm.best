@@ -188,6 +188,13 @@ export type ModerationQueueStats = {
   charged_quota: number
 }
 
+/** Only association metadata is rendered; appeal reasons and administrator notes stay private. */
+export type ModerationAppeal = {
+  id: number
+  record_id: number
+  status: 'pending' | 'approved' | 'rejected'
+}
+
 export type ModerationReview = {
   id: number
   created_at: number

@@ -8,7 +8,7 @@ the Free Software Foundation, either version 3 of the License, or
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ChevronLeft, ChevronRight, Filter, ShieldCheck } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Filter } from 'lucide-react'
 import {
   lazy,
   Suspense,
@@ -35,6 +35,7 @@ import { formatTimestampToDate } from '@/lib/format'
 import { getAssistantReviewRun, listAssistantReviewRuns } from '../api'
 import type { SystemTask } from '../types'
 import { ModerationAuditPanel } from './moderation-audit-panel'
+import { recordedCount } from './moderation-recorded-values'
 import {
   getAdminSecurityPolicy,
   getAdminSecurityStats,
@@ -75,11 +76,10 @@ function shortIdentifier(value: string | undefined): string {
 }
 
 function getProtectedGroups(policy: AdminSecurityPolicy | undefined): string[] {
-  if (!policy || !policy.settings.enabled) return []
+  if (!policy) return []
   return [
     ...new Set(
       policy.rules
-        .filter((rule) => rule.enabled)
         .flatMap((rule) => rule.groups)
         .map((group) => group.trim())
         .filter(Boolean)
@@ -98,7 +98,7 @@ function sourceLabel(
     case 'deterministic':
     case 'deterministic_rule':
     case 'advanced_security':
-      return t('Deterministic rule')
+      return t('Historical literal rule')
     default:
       return source?.trim() || t('Not published')
   }
@@ -172,7 +172,7 @@ function MetricStrip({
             <Skeleton className='mt-2 h-7 w-16' />
           ) : (
             <p className='mt-1 text-xl font-medium tabular-nums'>
-              {(value ?? 0).toLocaleString()}
+              {recordedCount(value) ?? t('No data provided')}
             </p>
           )}
         </div>
@@ -180,17 +180,24 @@ function MetricStrip({
       {stats?.ai_review ? (
         <p className='text-muted-foreground border-t pt-3 text-xs sm:col-span-5'>
           {t('assistant.security_review')} ·{' '}
-          {stats.ai_review.total.toLocaleString()} {t('Reviews')} ·{' '}
-          {stats.ai_review.violations.toLocaleString()} {t('Violation')} ·{' '}
-          {stats.ai_review.abuses.toLocaleString()} {t('Abuse')}
+          {recordedCount(stats.ai_review.total) ?? t('No data provided')}{' '}
+          {t('Reviews')} ·{' '}
+          {recordedCount(stats.ai_review.violations) ?? t('No data provided')}{' '}
+          {t('Violation')} ·{' '}
+          {recordedCount(stats.ai_review.abuses) ?? t('No data provided')}{' '}
+          {t('Abuse')}
         </p>
       ) : null}
     </div>
   )
 }
 
-function reviewCount(rows: Array<{ count: number }> | undefined): number {
-  return (rows ?? []).reduce((total, row) => total + (row.count || 0), 0)
+function reviewCount(rows: Array<{ count: number }> | undefined) {
+  if (!rows || rows.some((row) => recordedCount(row.count) === undefined)) {
+    return undefined
+  }
+  const sum = rows.reduce((total, row) => total + row.count, 0)
+  return Number.isSafeInteger(sum) ? sum : undefined
 }
 
 function reviewLabel(value: string): string {
@@ -210,7 +217,8 @@ function ReviewBreakdown({
   valueLabel?: string
   limit?: number
 }) {
-  const total = reviewCount(rows)
+  const { t } = useTranslation()
+  const total = reviewCount(rows) ?? 0
   return (
     <div className='min-w-0 space-y-2'>
       <div className='flex items-center justify-between gap-2'>
@@ -230,7 +238,7 @@ function ReviewBreakdown({
               <div className='flex items-center justify-between gap-2 text-xs'>
                 <span className='min-w-0 truncate'>{row.label}</span>
                 <span className='text-muted-foreground shrink-0 tabular-nums'>
-                  {row.count.toLocaleString()}
+                  {recordedCount(row.count) ?? t('No data provided')}
                 </span>
               </div>
               <div className='bg-muted mt-1 h-1 overflow-hidden rounded-full'>
@@ -275,7 +283,9 @@ function AssistantReviewSummary({
   if (!task || !review) {
     return (
       <section className='border-border/70 space-y-1 border-y py-5'>
-        <h3 className='text-sm font-medium'>{t('Automatic review')}</h3>
+        <h3 className='text-sm font-medium'>
+          {t('Historical business report')}
+        </h3>
         <p className='text-muted-foreground text-xs leading-5'>
           {task?.error || t('No completed assistant review is available yet.')}
         </p>
@@ -293,8 +303,8 @@ function AssistantReviewSummary({
   const metrics = [
     [intentTitle, reviewCount(reviewedIntents)],
     [t('Profiles'), reviewCount(review.profiles)],
-    [t('Pending support'), review.current_pending_support ?? 0],
-    [t('Security incidents'), review.current_open_security_incidents ?? 0],
+    [t('Pending support'), review.current_pending_support],
+    [t('Security incidents'), review.current_open_security_incidents],
   ] as const
   const intentRows = (reviewedIntents ?? []).map((row) => ({
     label: reviewLabel(row.intent),
@@ -315,7 +325,9 @@ function AssistantReviewSummary({
     <section className='border-border/70 space-y-5 border-y py-5'>
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div>
-          <h3 className='text-sm font-medium'>{t('Automatic review')}</h3>
+          <h3 className='text-sm font-medium'>
+            {t('Historical business report')}
+          </h3>
           <p className='text-muted-foreground mt-1 text-xs leading-5'>
             {formatTimestampToDate(review.window_start)} —{' '}
             {formatTimestampToDate(review.window_end)} · {t(task.status)}
@@ -331,7 +343,7 @@ function AssistantReviewSummary({
           <div key={label} className='min-w-0'>
             <p className='text-muted-foreground text-xs'>{label}</p>
             <p className='mt-1 text-lg font-medium tabular-nums'>
-              {value.toLocaleString()}
+              {recordedCount(value) ?? t('No data provided')}
             </p>
           </div>
         ))}
@@ -363,9 +375,9 @@ function AssistantReviewSummary({
                     {row.preset_id}
                   </span>
                   <span className='text-muted-foreground shrink-0 tabular-nums'>
-                    {row.clicks.toLocaleString()} /{' '}
-                    {row.conversations.toLocaleString()} /{' '}
-                    {row.approvals.toLocaleString()}
+                    {recordedCount(row.clicks) ?? t('No data provided')} /{' '}
+                    {recordedCount(row.conversations) ?? t('No data provided')}{' '}
+                    / {recordedCount(row.approvals) ?? t('No data provided')}
                   </span>
                 </div>
               ))}
@@ -390,12 +402,20 @@ function AssistantReviewSummary({
             <div className='space-y-1 text-xs'>
               <h5 className='font-medium'>{t('Commerce')}</h5>
               <p className='text-muted-foreground leading-5'>
-                {t('Chat users')}: {review.commerce.chat_users.toLocaleString()}{' '}
+                {t('Chat users')}:{' '}
+                {recordedCount(review.commerce.chat_users) ??
+                  t('No data provided')}{' '}
                 · {t('Paid users')}:{' '}
-                {review.commerce.paid_users.toLocaleString()} ·{' '}
-                {t('Conversion rate')}:{' '}
-                {review.commerce.conversion_rate_percent}% · {t('Refunds')}:{' '}
-                {review.commerce.refund_count.toLocaleString()}
+                {recordedCount(review.commerce.paid_users) ??
+                  t('No data provided')}{' '}
+                · {t('Conversion rate')}:{' '}
+                {typeof review.commerce.conversion_rate_percent === 'number' &&
+                Number.isFinite(review.commerce.conversion_rate_percent)
+                  ? `${review.commerce.conversion_rate_percent}%`
+                  : t('No data provided')}{' '}
+                · {t('Refunds')}:{' '}
+                {recordedCount(review.commerce.refund_count) ??
+                  t('No data provided')}
               </p>
             </div>
           ) : null}
@@ -403,11 +423,15 @@ function AssistantReviewSummary({
             <div className='space-y-1 text-xs'>
               <h5 className='font-medium'>{t('Security audit')}</h5>
               <p className='text-muted-foreground leading-5'>
-                {t('Matches')}: {review.security.total_matches.toLocaleString()}{' '}
+                {t('Matches')}:{' '}
+                {recordedCount(review.security.total_matches) ??
+                  t('No data provided')}{' '}
                 · {t('Blocked')}:{' '}
-                {review.security.blocked_matches.toLocaleString()} ·{' '}
-                {t('Affected users')}:{' '}
-                {review.security.affected_users.toLocaleString()}
+                {recordedCount(review.security.blocked_matches) ??
+                  t('No data provided')}{' '}
+                · {t('Affected users')}:{' '}
+                {recordedCount(review.security.affected_users) ??
+                  t('No data provided')}
               </p>
             </div>
           ) : null}
@@ -426,7 +450,8 @@ function AssistantReviewSummary({
           <div className='flex flex-wrap gap-2'>
             {actions.map((action) => (
               <Badge key={action.code} variant='outline'>
-                {reviewLabel(action.code)} · {action.count.toLocaleString()}
+                {reviewLabel(action.code)} ·{' '}
+                {recordedCount(action.count) ?? t('No data provided')}
               </Badge>
             ))}
           </div>
@@ -456,7 +481,7 @@ function AssistantReviewHistory({
     <section className='border-border/70 space-y-3 border-y py-4'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <h3 className='text-sm font-medium'>
-          {t('Automatic review')} · {t('System task records')}
+          {t('Historical business report')} · {t('System task records')}
         </h3>
         <div className='flex items-center gap-2'>
           <Suspense fallback={<Skeleton className='h-8 w-36' />}>
@@ -466,7 +491,7 @@ function AssistantReviewHistory({
             />
           </Suspense>
           <span className='text-muted-foreground text-xs tabular-nums'>
-            {reviewTasks.length.toLocaleString()}
+            {recordedCount(reviewTasks.length) ?? t('No data provided')}
           </span>
         </div>
       </div>
@@ -516,44 +541,6 @@ function AssistantReviewHistory({
             )
           })}
         </div>
-      )}
-    </section>
-  )
-}
-
-function ProtectedGroups({ policy }: { policy?: AdminSecurityPolicy }) {
-  const { t } = useTranslation()
-  const groups = getProtectedGroups(policy)
-
-  return (
-    <section className='space-y-3' aria-labelledby='protected-groups-title'>
-      <div className='flex items-start gap-2'>
-        <ShieldCheck className='text-muted-foreground mt-0.5 size-4 shrink-0' />
-        <div>
-          <h4 id='protected-groups-title' className='text-sm font-medium'>
-            {t('Protected groups')}
-          </h4>
-          <p className='text-muted-foreground mt-1 text-xs leading-5'>
-            {t(
-              'Only groups listed by an enabled rule are included. Rules do not apply globally.'
-            )}
-          </p>
-        </div>
-      </div>
-      {groups.length > 0 ? (
-        <div className='flex flex-wrap gap-2'>
-          {groups.map((group) => (
-            <Badge key={group} variant='outline' className='font-mono text-xs'>
-              {group}
-            </Badge>
-          ))}
-        </div>
-      ) : (
-        <p className='text-muted-foreground text-sm'>
-          {t(
-            'No groups are currently covered by enabled advanced security rules.'
-          )}
-        </p>
       )}
     </section>
   )
@@ -618,6 +605,11 @@ export function AuditRow({ event }: { event: SecurityAuditEvent }) {
       <div className='min-w-0'>
         <div className='flex flex-wrap items-center gap-2'>
           <span className='font-medium'>{title}</span>
+          {!isAiReview && event.rule_id ? (
+            <Badge variant='outline' className='text-[10px]'>
+              {t('Historical literal rule')}
+            </Badge>
+          ) : null}
           {event.severity ? (
             <Badge variant='outline' className='text-[10px]'>
               {event.severity}
@@ -904,7 +896,7 @@ function LegacySecurityAuditPanel() {
   ) {
     return (
       <section className='border-border/70 space-y-2 border-t pt-6'>
-        <h3 className='text-sm font-medium'>{t('Security audit details')}</h3>
+        <h3 className='text-sm font-medium'>{t('Historical audit records')}</h3>
         <p className='text-muted-foreground text-sm'>
           {t('Audit data is available to administrators only.')}
         </p>
@@ -920,17 +912,14 @@ function LegacySecurityAuditPanel() {
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div>
           <h3 id='security-audit-title' className='text-sm font-medium'>
-            {t('Security audit details')}
+            {t('Historical audit records')}
           </h3>
           <p className='text-muted-foreground mt-1 max-w-3xl text-xs leading-5'>
             {t(
-              'Review results from deterministic rules and asynchronous AI audits. Prompt text, previews, matcher patterns, and credentials are never shown here.'
+              'Historical literal-rule events and earlier assistant reports remain available for reference.'
             )}
           </p>
         </div>
-        <Badge variant={policy?.settings.enabled ? 'default' : 'outline'}>
-          {policy?.settings.enabled ? t('Enabled') : t('Disabled')}
-        </Badge>
       </div>
 
       <MetricStrip stats={stats} isLoading={statsQuery.isLoading} />
@@ -947,7 +936,6 @@ function LegacySecurityAuditPanel() {
         onCleaned={handleReviewHistoryCleaned}
         isLoading={reviewHistoryQuery.isLoading}
       />
-      <ProtectedGroups policy={policy} />
 
       <div className='space-y-3'>
         <div className='flex items-center gap-2'>
@@ -969,13 +957,27 @@ function LegacySecurityAuditPanel() {
             label={t('All categories')}
             value={filters.category ?? ''}
             onChange={(value) => setFilter('category', value)}
-            options={categories}
+            options={[
+              ...new Set([
+                ...categories,
+                ...events.flatMap((event) =>
+                  event.category ? [event.category] : []
+                ),
+              ]),
+            ].sort()}
           />
           <FilterSelect
             label={t('All groups')}
             value={filters.group ?? ''}
             onChange={(value) => setFilter('group', value)}
-            options={protectedGroups}
+            options={[
+              ...new Set([
+                ...protectedGroups,
+                ...events.flatMap((event) =>
+                  event.group ? [event.group] : []
+                ),
+              ]),
+            ].sort()}
           />
           <FilterSelect
             label={t('All decisions')}
@@ -1070,14 +1072,15 @@ function LegacySecurityAuditPanel() {
 
 export function SecurityAuditPanel() {
   const { t } = useTranslation()
+  const [historyOpen, setHistoryOpen] = useState(false)
   return (
     <div className='space-y-6'>
       <ModerationAuditPanel />
-      <details>
+      <details onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
         <summary className='text-muted-foreground cursor-pointer text-sm'>
-          {t('Historical safety audits and business summaries')}
+          {t('Historical audit records')}
         </summary>
-        <LegacySecurityAuditPanel />
+        {historyOpen ? <LegacySecurityAuditPanel /> : null}
       </details>
     </div>
   )

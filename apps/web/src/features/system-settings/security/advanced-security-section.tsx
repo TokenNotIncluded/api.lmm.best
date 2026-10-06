@@ -8,32 +8,16 @@ License, or (at your option) any later version.
 */
 import { useTranslation } from 'react-i18next'
 
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-
 import { SettingsSection } from '../components/settings-section'
-import type { SecuritySettings } from '../types'
 import { SecurityAuditPanel } from './security-audit'
 
-type AdvancedSecuritySectionProps = {
-  defaultValues: Pick<
-    SecuritySettings,
-    | 'AdvancedSecurityEnabled'
-    | 'AdvancedSecurityOnPromptEnabled'
-    | 'AdvancedSecurityAction'
-    | 'AdvancedSecurityRules'
-  >
-}
-
-export function AdvancedSecuritySection({
-  defaultValues,
-}: AdvancedSecuritySectionProps) {
+export function AdvancedSecuritySection() {
   const { t } = useTranslation()
   return (
-    <SettingsSection title={t('Historical safety rules')}>
+    <SettingsSection title={t('Safety audit and business overview')}>
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Literal blocking rules are retired. Configure asynchronous OpenAI Moderation to review content.'
+          'Current reviews, recorded deductions and appeals are shown here. Configure policies separately.'
         )}
       </p>
       <a
@@ -42,51 +26,6 @@ export function AdvancedSecuritySection({
       >
         {t('Configure group modes and category fines')}
       </a>
-      <dl className='grid gap-3 text-sm sm:grid-cols-2'>
-        <div>
-          <dt className='text-muted-foreground'>
-            {t('Saved legacy rule setting')}
-          </dt>
-          <dd>
-            {defaultValues.AdvancedSecurityEnabled
-              ? t('Enabled')
-              : t('Disabled')}
-          </dd>
-        </div>
-        <div>
-          <dt className='text-muted-foreground'>
-            {t('Saved legacy prompt inspection')}
-          </dt>
-          <dd>
-            {defaultValues.AdvancedSecurityOnPromptEnabled
-              ? t('Enabled')
-              : t('Disabled')}
-          </dd>
-        </div>
-        <div>
-          <dt className='text-muted-foreground'>
-            {t('Saved legacy response action')}
-          </dt>
-          <dd>
-            {t(
-              defaultValues.AdvancedSecurityAction === 'block'
-                ? 'Block (legacy saved setting)'
-                : 'Audit (legacy saved setting)'
-            )}
-          </dd>
-        </div>
-      </dl>
-      <div className='space-y-2'>
-        <Label htmlFor='legacy-security-rules'>
-          {t('Historical rule configuration')}
-        </Label>
-        <Textarea
-          id='legacy-security-rules'
-          value={defaultValues.AdvancedSecurityRules}
-          readOnly
-          className='min-h-48 font-mono text-xs'
-        />
-      </div>
       <SecurityAuditPanel />
     </SettingsSection>
   )

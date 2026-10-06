@@ -104,18 +104,8 @@ const SECURITY_SECTIONS = [
   },
   {
     id: 'advanced-security',
-    titleKey: 'Historical safety rules',
-    build: (settings: SecuritySettings) => (
-      <AdvancedSecuritySection
-        defaultValues={{
-          AdvancedSecurityEnabled: settings.AdvancedSecurityEnabled,
-          AdvancedSecurityOnPromptEnabled:
-            settings.AdvancedSecurityOnPromptEnabled,
-          AdvancedSecurityAction: settings.AdvancedSecurityAction,
-          AdvancedSecurityRules: settings.AdvancedSecurityRules,
-        }}
-      />
-    ),
+    titleKey: 'Safety audit and business overview',
+    build: () => <AdvancedSecuritySection />,
   },
   {
     id: 'ip-access-routing',

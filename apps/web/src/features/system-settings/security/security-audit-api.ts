@@ -28,6 +28,7 @@ import type {
   SecurityAuditFilters,
   SecurityAuditPage,
   SecurityAuditStats,
+  ModerationAppeal,
 } from './security-audit-types'
 
 export const ADMIN_SECURITY_POLICY_ENDPOINT = '/api/security/admin/policy'
@@ -177,5 +178,13 @@ export async function getModerationStats() {
     skipBusinessError: true,
     skipErrorHandler: true,
   })
+  return response.data
+}
+
+export async function listModerationAppeals() {
+  const response = await api.get<SecurityAuditEnvelope<ModerationAppeal[]>>(
+    '/api/security/admin/violation-fee-appeals',
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
   return response.data
 }

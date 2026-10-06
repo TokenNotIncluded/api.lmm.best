@@ -37,6 +37,7 @@ import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { homeTokenCopy } from './home-token-copy.mjs'
+import { moderationAuditCopy } from './moderation-audit-copy.mjs'
 import { moderationCopy } from './moderation-copy.mjs'
 import { nativeBillingCopy } from './native-billing-copy.mjs'
 import { passkeyCopy } from './passkey-copy.mjs'
@@ -13184,6 +13185,10 @@ for (const [locale, values] of Object.entries(queryRateLimitCopy)) {
     'Too many requests. Please try again in {{seconds}} seconds.': values[0],
     'Too many requests. Please wait before trying again.': values[1],
   })
+}
+
+for (const [locale, values] of Object.entries(moderationAuditCopy)) {
+  Object.assign(newKeys[locale], values)
 }
 
 main().catch((error) => {

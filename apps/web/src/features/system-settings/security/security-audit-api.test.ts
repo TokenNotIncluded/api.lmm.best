@@ -31,6 +31,7 @@ import {
   ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT,
   getModerationModels,
   listModerationReviews,
+  listModerationAppeals,
   deleteAssistantReviewRuns,
   previewAssistantReviewRunCleanup,
 } from './security-audit-api'
@@ -52,6 +53,22 @@ function response(
 
 afterEach(() => {
   api.defaults.adapter = originalAdapter
+})
+
+test('loads the bounded appeal records with GET without pretending to request all-time totals', async () => {
+  let captured: Parameters<AxiosAdapter>[0] | undefined
+  api.defaults.adapter = async (config) => {
+    captured = config
+    return response(config, {
+      success: true,
+      data: [{ id: 1, record_id: 2, status: 'pending' }],
+    })
+  }
+  const result = await listModerationAppeals()
+  assert.equal(captured?.method, 'get')
+  assert.equal(captured?.url, '/api/security/admin/violation-fee-appeals')
+  assert.equal(captured?.params, undefined)
+  assert.equal(result.data?.[0].record_id, 2)
 })
 
 describe('assistant review cleanup API', () => {
