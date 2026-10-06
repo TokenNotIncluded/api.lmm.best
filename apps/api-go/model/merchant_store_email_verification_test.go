@@ -13,11 +13,20 @@ func storeUnverifyFixture(t *testing.T, f storeFixture) {
 	t.Helper()
 	require.NoError(t, DB.Where("user_id = ?", f.buyer.Id).Delete(&MerchantStoreVerifiedEmail{}).Error)
 }
+func storeLegacyEmailOrder(t *testing.T, o *MerchantStoreOrder) {
+	t.Helper()
+	// Keep explicit coverage for pre-snapshot orders using the account mailbox.
+	require.NoError(t, DB.Model(o).Updates(map[string]any{"pickup_email_hash": "", "pickup_email_ciphertext": ""}).Error)
+	o.PickupEmailHash, o.PickupEmailCiphertext = "", ""
+	require.NoError(t, DB.Where("order_id = ?", o.ID).Delete(&MerchantStoreEmailDelivery{}).Error)
+	require.NoError(t, enqueueMerchantStoreEmail(DB, o))
+}
 func TestMerchantStoreEmailVerificationDurableChallengeAndQueue(t *testing.T) {
 	f := newStoreFixture(t, "balance")
 	storeUnverifyFixture(t, f)
 	o, _, e := CreateMerchantStoreOrder(f.checkout("await-email", "balance"))
 	require.NoError(t, e)
+	storeLegacyEmailOrder(t, o)
 	require.Equal(t, "awaiting_verification", o.EmailDeliveryStatus)
 	_, e = ClaimMerchantStoreEmailDelivery(common.GetTimestamp())
 	require.Error(t, e)
@@ -94,6 +103,7 @@ func TestMerchantStoreEmailAddressChangeInvalidatesFactChallengeAndLease(t *test
 	f := newStoreFixture(t, "balance")
 	o, _, e := CreateMerchantStoreOrder(f.checkout("email-change", "balance"))
 	require.NoError(t, e)
+	storeLegacyEmailOrder(t, o)
 	leased, e := ClaimMerchantStoreEmailDelivery(common.GetTimestamp())
 	require.NoError(t, e)
 	_, oldCode, e := BeginMerchantStoreEmailVerification(f.buyer.Id)

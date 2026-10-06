@@ -27,6 +27,7 @@ type merchantStorePickupEmail struct {
 	tradeNo          string
 	pickupURL        string
 	verificationCode string
+	orderSearch      bool
 }
 
 func merchantStoreMailAddress(raw string) (*mail.Address, error) {
@@ -61,6 +62,10 @@ func merchantStorePickupEmailMessage(email merchantStorePickupEmail) ([]byte, st
 		}
 		subject = "商店取货邮箱验证"
 		content = "商店取货邮箱验证码：" + email.verificationCode + "\r\n\r\n请在发起验证的页面填写此验证码。若不是你本人操作，请忽略此邮件。验证码不包含取货信息。\r\n"
+		if email.orderSearch {
+			subject = "商店订单查询验证码"
+			content = "商店订单查询验证码：" + email.verificationCode + "\r\n\r\n验证码仅用于验证此邮箱的订单查询权限，10 分钟内有效。若不是你本人操作，请忽略此邮件。请勿将验证码提供给他人。\r\n"
+		}
 	} else {
 		if !merchantStoreTradeNoPattern.MatchString(email.tradeNo) {
 			return nil, "", "", errMerchantStoreEmail
@@ -111,6 +116,15 @@ func SendMerchantStoreVerificationEmail(ctx context.Context, userID int, expecte
 		return errMerchantStoreEmail
 	}
 	return sendMerchantStorePickupEmail(ctx, merchantStorePickupEmail{destination: email, verificationCode: code})
+}
+
+// This independent purpose proves mailbox ownership for order search only.
+// It never marks an account email verified or sends a private pickup link.
+func SendMerchantStoreOrderSearchEmail(ctx context.Context, email, code string) error {
+	if len(code) != 6 || strings.Trim(code, "0123456789") != "" {
+		return errMerchantStoreEmail
+	}
+	return sendMerchantStorePickupEmail(ctx, merchantStorePickupEmail{destination: email, verificationCode: code, orderSearch: true})
 }
 
 // The common mail sender has no connection deadline. This bounded sender
@@ -204,7 +218,7 @@ func processMerchantStorePickupEmailBatch(ctx context.Context, limit int, sender
 			return processed, err
 		}
 		errorCode := ""
-		email, err := model.GetMerchantStoreVerifiedEmailAddress(row.BuyerID)
+		email, err := model.GetMerchantStoreOrderDeliveryEmail(row.BuyerID, row.OrderID)
 		if errors.Is(err, model.ErrMerchantStoreEmailUnverified) || (err == nil && email == "") {
 			if err := model.DeferMerchantStoreEmailVerification(row.ID, row.LeaseToken); err != nil {
 				return processed, err
@@ -256,6 +270,9 @@ func RunMerchantStoreWorker(ctx context.Context) {
 	for {
 		if ctx.Err() != nil {
 			return
+		}
+		if err := model.CleanupMerchantStoreOrderSearch(time.Now().Unix()); err != nil {
+			common.SysError("merchant store order search cleanup failed")
 		}
 		if _, err := model.ExpireMerchantStoreOrders(50); err != nil {
 			common.SysError("merchant store order cleanup failed")

@@ -19,6 +19,7 @@ import type {
   StorePaymentSession,
   StoreStock,
   StorePromotion,
+  StoreOrderSummary,
 } from './types'
 
 type Envelope<T> = { success: boolean; message?: string; data: T }
@@ -192,5 +193,29 @@ export const storeApi = {
   confirmDeliveryEmailVerification: (code: string) =>
     unwrap<null>(
       api.post(`${root}/email/verification/confirm`, { code }, options)
+    ),
+  searchOrder: (tradeNo: string) =>
+    unwrap<StoreOrderSummary>(
+      api.get(`${root}/order-search/${encodeURIComponent(tradeNo)}`, options)
+    ),
+  sendOrderSearchEmailCode: (email: string) =>
+    unwrap<{ challenge_id: string; expires_in: number; resend_after: number }>(
+      api.post(`${root}/order-search/email/send`, { email }, options)
+    ),
+  confirmOrderSearchEmailCode: (challenge_id: string, code: string) =>
+    unwrap<{ search_token: string; expires_in: number }>(
+      api.post(
+        `${root}/order-search/email/confirm`,
+        { challenge_id, code },
+        options
+      )
+    ),
+  searchOrdersByVerifiedEmail: (search_token: string, offset = 0) =>
+    unwrap<StorePage<StoreOrderSummary>>(
+      api.post(
+        `${root}/order-search`,
+        { search_token, offset, limit: 20 },
+        options
+      )
     ),
 }

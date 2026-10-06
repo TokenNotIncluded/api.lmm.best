@@ -44,7 +44,7 @@ func newStoreFixture(t *testing.T, methods ...string) storeFixture {
 	return f
 }
 func (f storeFixture) checkout(key, method string) MerchantStoreCheckoutInput {
-	return MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: key, PaymentMethod: method, PickupCode: "safe-pickup-code"}
+	return MerchantStoreCheckoutInput{BuyerID: f.buyer.Id, ProductID: f.product.ID, Quantity: 1, RequestKey: key, PaymentMethod: method, PickupCode: "safe-pickup-code", PickupEmail: "store-buyer@example.test"}
 }
 func storeBalance(t *testing.T, userID, expected int) {
 	t.Helper()

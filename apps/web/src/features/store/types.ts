@@ -75,6 +75,7 @@ export interface StoreOrder {
   pickup_code_required: boolean
   email_pickup_link: boolean
   payment_issued?: boolean
+  email_delivery_status?: string
   payment_issue_code?: string
   verified_payment_issue_at?: number
 }
@@ -153,6 +154,7 @@ export interface StoreCheckoutInput {
   request_key: string
   disclaimer_version?: string
   pickup_code?: string
+  pickup_email?: string
 }
 export interface StorePaymentSession {
   order_id: string
@@ -202,4 +204,16 @@ export interface StorePage<T> {
   offset: number
   limit: number
   has_more: boolean
+}
+export interface StoreOrderSummary {
+  id: string
+  trade_no: string
+  product_title: string
+  quantity: number
+  status: StoreOrder['status']
+  created_at: number
+  paid_at: number
+  pickup_login_required: boolean
+  pickup_code_required: boolean
+  pickup_url?: string
 }

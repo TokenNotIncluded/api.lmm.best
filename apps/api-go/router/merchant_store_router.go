@@ -23,6 +23,10 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	public.GET("/disclaimer", controller.GetMerchantStoreDisclaimer)
 	public.GET("/claim/:token", controller.InspectMerchantStoreClaim)
 	public.POST("/claim/:token", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.ClaimMerchantStoreOrder)
+	public.POST("/order-search/email/send", middleware.RequestBodyLimit(1<<10), middleware.EmailVerificationRateLimit(), middleware.CriticalRateLimit(), controller.SendMerchantStoreOrderSearchVerification)
+	public.POST("/order-search/email/confirm", middleware.RequestBodyLimit(1<<10), middleware.CriticalRateLimit(), controller.ConfirmMerchantStoreOrderSearchVerification)
+	public.POST("/order-search", middleware.RequestBodyLimit(1<<10), middleware.CriticalRateLimit(), controller.ListMerchantStoreOrdersByEmail)
+	public.GET("/order-search/:trade_no", middleware.CriticalRateLimit(), controller.GetMerchantStoreOrderByNumber)
 
 	self := parent.Group("/store")
 	self.Use(middleware.UserAuth(), middleware.DisableCache())

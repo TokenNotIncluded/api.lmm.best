@@ -26,8 +26,11 @@ Fulfillment releases the purchased text only after trusted payment settlement.
 Pickup links use 32 cryptographically random bytes encoded as 43 URL-safe
 characters. The database stores a hash for lookup and an encrypted token for
 the buyer's order history. A product may additionally require its purchasing
-account to sign in, an independently chosen pickup code, or emailed delivery
-links. Seller order views and public APIs contain neither pickup credentials,
+account to sign in. Buyers can always enter a pickup code and pickup email;
+the seller's switches make these fields required rather than hiding or disabling
+them. A nonempty pickup code always protects that order, including when the
+product does not require a code. A nonempty valid pickup email always requests an
+emailed delivery link. Seller order views and public catalog APIs contain neither pickup credentials,
 inventory text, gateway keys nor buyer email addresses. Pickup codes are
 password-hashed. Delivery text is never sent in the fulfillment email.
 
@@ -158,21 +161,73 @@ acceptance. The notice remains available in the shop. Updating its version
 requires a fresh acceptance. Official-product purchases do not require the
 third-party notice.
 
-Optional fulfillment emails are queued transactionally after payment and sent
+Requested fulfillment emails are queued transactionally after payment and sent
 through a durable leased outbox. Workers use bounded SMTP connections, retry
 without exposing raw SMTP errors, and stop with the application's lifecycle.
-Emails use the existing buyer account email, never a seller-provided recipient.
+Checkout accepts `pickup_email` and encrypts an order-bound address snapshot;
+changing the buyer's account email does not redirect that order's mail. The
+product field `email_pickup_link` now means the buyer must fill this field.
+The order field of the same name records whether the buyer actually supplied an
+address. Email domain names are normalized to lowercase; local parts retain
+their case. Outbox rows contain neither plaintext addresses nor pickup links.
+Unconfigured SMTP leaves mail queued until configuration is available.
+
+Older orders without an address snapshot retain the verified-account email flow.
 A shop-specific durable verification fact must match that buyer and the current
-address. Legacy email fields or registration settings do not establish ownership.
-Until verified, optional email delivery waits while normal web pickup remains
-available. Six-digit verification challenges are encrypted, expire in ten
-minutes, allow at most five attempts and have a one-minute send cooldown. A
-successful code is single-use; an address change invalidates both the fact and
-challenge. Multiple API nodes cannot concurrently own the same email lease.
+address; legacy account flags do not establish ownership. Their delivery waits
+until verified, while normal web pickup remains available. An account address
+change invalidates its verification fact and challenge. Multiple API nodes
+cannot concurrently own the same email lease.
+
+## Order search
+
+New public order numbers are `MS` followed by 30 uniformly random base62
+characters (32 total, approximately 178.6 random bits). They use `crypto/rand`,
+remain within payment-provider length limits, and are independent of the
+buyer's request key. The database unique index arbitrates collisions with at
+most five retries. The internal order ID retains buyer-scoped idempotency;
+replaying a request keeps the originally assigned public number. Queries use
+exact case matching even under MySQL's default case-insensitive collation.
+
+`GET /api/store/order-search/{trade_no}` returns only a safe status summary.
+It contains no buyer email, buyer/seller ID, internal order ID, amount, gateway
+data or delivery text. Only the authenticated original buyer may also receive a
+paid order's pickup link. Older deterministic numbers remain usable by the
+authenticated original buyer or seller; anonymous and unrelated requests get
+the same not-found response as an absent order.
+
+Email search requires a separate mailbox ownership challenge:
+
+1. `POST /api/store/order-search/email/send` with `{email}` returns
+   `{challenge_id, expires_in, resend_after}`. Sending does not inspect whether
+   the address has orders, so valid mailboxes have the same flow and response.
+2. `POST /api/store/order-search/email/confirm` with `{challenge_id, code}`
+   returns `{search_token, expires_in}` after successful verification.
+3. `POST /api/store/order-search` with `{search_token, offset?, limit?}` returns
+   `{items, offset, limit, has_more}` for that verified address only. Defaults
+   are offset 0 and limit 30; limits must be between 1 and 100.
+
+Six-digit random codes expire after ten minutes, allow five guesses, and are
+single-use. Resending invalidates the old challenge and code without resetting
+the attempt budget or expiry. The response reports the actual remaining
+seconds. Each address has a one-minute cooldown and a rolling limit of ten
+sends per hour; the send route also has an IP limit independent of optional
+critical rate-limit settings. Search authorizations expire after fifteen
+minutes and cannot verify an account, change payment state, or cancel an order.
+Challenge and authorization tokens are stored as hashes; emails and codes are
+encrypted and use a purpose separate from account email verification.
+
+Only orders with a frozen checkout address are included in email search. Older
+orders can still be found through the original account or existing private
+pickup link. A verified mailbox may receive paid orders' pickup links, but
+collection still requires every existing pickup-code and login check. Responses
+use `no-store` and `no-referrer`; the browser keeps search proof in memory only.
+Expired authorizations and inactive challenges are cleaned without resetting
+live address rate limits.
 
 ## Release and database boundary
 
-This feature adds 13 tables prefixed `merchant_store_`; it does not rebase
+This feature adds 15 tables prefixed `merchant_store_`; it does not rebase
 credits, rewrite existing wallet balances, reset payment settings, or delete
 historical records. Stock and credential encryption use
 `MERCHANT_STORE_ENCRYPTION_KEY`, with the existing `CRYPTO_SECRET` as a strong-key
@@ -195,6 +250,6 @@ deployment acceptance and real provider/payment acceptance are separate gates.
 The dedicated loopback PostgreSQL tests use a fresh synthetic database and
 independent random schemas. They exercise real row-lock contention, receipt
 ownership, pending limits and wallet rollback, and compare two synthetic legacy
-tables around the 13-table migration. This is not a substitute for a complete
+tables around the shop migration. This is not a substitute for a complete
 production-data clone, all-existing-table preservation or previous-version
 verification. Run it only with an explicitly supplied disposable loopback URL.

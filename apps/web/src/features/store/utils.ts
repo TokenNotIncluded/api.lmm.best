@@ -8,6 +8,10 @@ export const EXTERNAL_MINIMUM_QUOTA = 10 * CREDITS_PER_USD
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024
 export const MAX_IMPORT_ITEMS = 10000
 
+export function isStoreEmail(value: string) {
+  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
 export function safeStoreUrl(value: string): string | undefined {
   try {
     const url = new URL(value)

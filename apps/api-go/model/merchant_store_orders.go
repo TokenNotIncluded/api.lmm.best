@@ -52,6 +52,8 @@ type MerchantStoreOrder struct {
 	PickupLoginRequired        bool   `json:"pickup_login_required"`
 	PickupCodeRequired         bool   `json:"pickup_code_required"`
 	EmailPickupLink            bool   `json:"email_pickup_link"`
+	PickupEmailHash            string `json:"-" gorm:"size:64;index"`
+	PickupEmailCiphertext      string `json:"-" gorm:"type:text"`
 	OfficialAtPurchase         bool   `json:"official_at_purchase"`
 	CreatedAt                  int64  `json:"created_at"`
 	PaidAt                     int64  `json:"paid_at"`
@@ -73,6 +75,7 @@ type MerchantStoreCheckoutInput struct {
 	RequestKey        string `json:"request_key"`
 	PaymentMethod     string `json:"payment_method"`
 	PickupCode        string `json:"pickup_code"`
+	PickupEmail       string `json:"pickup_email"`
 	DisclaimerVersion string `json:"disclaimer_version"`
 }
 type MerchantStoreClaimMetadata struct {
@@ -92,7 +95,12 @@ type MerchantStoreClaim struct {
 
 func fmtStoreActor(id int) string { return strconv.Itoa(id) }
 func storeCheckoutDigest(in MerchantStoreCheckoutInput) string {
-	return marketDigest([]any{in.ProductID, in.Quantity, in.PaymentMethod, storeHash(in.PickupCode)})
+	values := []any{in.ProductID, in.Quantity, in.PaymentMethod, storeHash(in.PickupCode)}
+	// Preserve replay digests for orders placed before optional pickup email.
+	if in.PickupEmail != "" {
+		values = append(values, storeHash(in.PickupEmail))
+	}
+	return marketDigest(values)
 }
 func storeAcceptDisclaimer(tx *gorm.DB, in MerchantStoreCheckoutInput, official bool) error {
 	if official {
@@ -125,13 +133,18 @@ func HasMerchantStoreDisclaimerAcceptance(buyerID int) (bool, error) {
 	return count > 0, e
 }
 func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrder, bool, error) {
+	var e error
+	in.PickupEmail, e = NormalizeMerchantStorePickupEmail(in.PickupEmail)
+	if e != nil {
+		return nil, false, e
+	}
 	if in.BuyerID <= 0 || in.Quantity < 1 || in.Quantity > 1000 || in.RequestKey == "" || len(in.RequestKey) > 128 || !storePaymentMethod(in.PaymentMethod) || len(in.PickupCode) > 72 {
 		return nil, false, ErrMerchantStoreInput
 	}
 	var o MerchantStoreOrder
 	created := false
 	var invalidations []int
-	e := storeWithProduct(in.ProductID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	e = storeWithProduct(in.ProductID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		c, e := storeConfig(tx)
 		if e != nil {
 			return e
@@ -194,10 +207,10 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if !allowed {
 			return ErrMerchantStoreDenied
 		}
-		if p.PickupCodeRequired && len(in.PickupCode) < 8 {
+		if (p.PickupCodeRequired || in.PickupCode != "") && len(in.PickupCode) < 8 {
 			return ErrMerchantStoreInput
 		}
-		if !p.PickupCodeRequired && in.PickupCode != "" {
+		if p.EmailPickupLink && in.PickupEmail == "" {
 			return ErrMerchantStoreInput
 		}
 		if p.PriceQuota <= 0 || p.PriceQuota > common.MaxWalletQuota/in.Quantity {
@@ -237,8 +250,15 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			return e
 		}
 		now := common.GetTimestamp()
-		o = MerchantStoreOrder{ID: id, TradeNo: "MS" + id[:30], BuyerID: buyer.Id, SellerID: seller.Id, ProductID: p.ID, ProductTitle: p.Title, Quantity: in.Quantity, UnitPriceQuota: p.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: p.PickupCodeRequired, EmailPickupLink: p.EmailPickupLink, OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
-		if p.PickupCodeRequired {
+		o = MerchantStoreOrder{ID: id, BuyerID: buyer.Id, SellerID: seller.Id, ProductID: p.ID, ProductTitle: p.Title, Quantity: in.Quantity, UnitPriceQuota: p.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: in.PickupCode != "", EmailPickupLink: in.PickupEmail != "", OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
+		if in.PickupEmail != "" {
+			o.PickupEmailHash = storeHash(in.PickupEmail)
+			o.PickupEmailCiphertext, e = storeEncrypt("order-pickup-email", id, in.PickupEmail)
+			if e != nil {
+				return e
+			}
+		}
+		if in.PickupCode != "" {
 			hash, e := bcrypt.GenerateFromPassword([]byte(in.PickupCode), bcrypt.DefaultCost)
 			if e != nil {
 				return e
@@ -304,7 +324,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 				return e
 			}
 		}
-		if e = tx.Create(&o).Error; e != nil {
+		if e = storeCreateOrderWithRandomTradeNo(tx, &o); e != nil {
 			return e
 		}
 		if o.Status == "paid" {
@@ -344,13 +364,8 @@ func GetMerchantStorePaymentOrder(id string) (*MerchantStoreOrder, error) {
 	return &o, e
 }
 func GetMerchantStorePaymentOrderByTradeNo(trade string) (*MerchantStoreOrder, error) {
-	if len(trade) != 32 || !strings.HasPrefix(trade, "MS") {
+	if !storeValidTradeNo(trade) {
 		return nil, ErrMerchantStoreInput
-	}
-	for _, r := range trade[2:] {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
-			return nil, ErrMerchantStoreInput
-		}
 	}
 	var o MerchantStoreOrder
 	e := DB.Scopes(marketExactTextScope("trade_no", trade)).First(&o).Error
@@ -711,7 +726,7 @@ func InspectMerchantStoreClaim(token string) (*MerchantStoreClaimMetadata, error
 	if e := DB.Where("pickup_token_hash = ? AND status = ?", storeHash(token), "paid").First(&o).Error; e != nil {
 		return nil, ErrMerchantStoreDenied
 	}
-	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired}, nil
+	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
 }
 func ClaimMerchantStoreOrder(token, code string, buyerID int) (*MerchantStoreClaim, error) {
 	return ClaimMerchantStoreOrderWithAuthorization(token, code, buyerID, nil)
@@ -746,7 +761,7 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 				return e
 			}
 		}
-		if o.PickupCodeRequired && bcrypt.CompareHashAndPassword([]byte(o.PickupCodeHash), []byte(code)) != nil {
+		if (o.PickupCodeRequired || o.PickupCodeHash != "") && bcrypt.CompareHashAndPassword([]byte(o.PickupCodeHash), []byte(code)) != nil {
 			return ErrMerchantStoreDenied
 		}
 		var rows []MerchantStoreStock

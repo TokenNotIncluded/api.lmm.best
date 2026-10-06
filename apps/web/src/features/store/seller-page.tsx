@@ -684,35 +684,72 @@ export function StoreProductEditor({
           </fieldset>
           <fieldset className='space-y-3 border-t pt-4'>
             <legend className='font-semibold'>{t('Pickup protection')}</legend>
+            <label className='flex items-center justify-between gap-4 text-sm'>
+              <span className='space-y-1'>
+                <span className='block'>
+                  {t('Require purchasing account to collect')}
+                </span>
+                <span className='text-muted-foreground block text-xs leading-5'>
+                  {t(
+                    'If your IP cannot sign in and you have no valid session, sign in from an allowed network first. For collection from any IP, sellers can turn off account-only collection and require a pickup code instead.'
+                  )}
+                </span>
+              </span>
+              <Switch
+                checked={draft.pickup_login_required}
+                onCheckedChange={(value) =>
+                  change('pickup_login_required', value)
+                }
+              />
+            </label>
+            <p className='text-muted-foreground text-xs leading-5'>
+              {t(
+                'Buyers can always fill in these fields. The switches only make them required.'
+              )}
+            </p>
             {(
               [
                 [
-                  'pickup_login_required',
-                  'Require purchasing account to collect',
+                  'pickup_code_required',
+                  'Pickup code',
+                  'store-pickup-code-preview',
+                  'Require a pickup code',
                 ],
-                ['pickup_code_required', 'Require buyer to set a pickup code'],
-                ['email_pickup_link', 'Email the pickup link to the buyer'],
+                [
+                  'email_pickup_link',
+                  'Pickup email',
+                  'store-pickup-email-preview',
+                  'Require a pickup email',
+                ],
               ] as const
-            ).map(([key, label]) => (
-              <label
-                key={key}
-                className='flex items-center justify-between gap-4 text-sm'
-              >
-                <span className='space-y-1'>
-                  <span className='block'>{t(label)}</span>
-                  {key === 'pickup_login_required' && (
-                    <span className='text-muted-foreground block text-xs leading-5'>
-                      {t(
-                        'If your IP cannot sign in and you have no valid session, sign in from an allowed network first. For collection from any IP, sellers can turn off account-only collection and require a pickup code instead.'
-                      )}
-                    </span>
+            ).map(([key, label, id, requiredLabel]) => (
+              <div key={key} className='space-y-2'>
+                <Label htmlFor={id}>{t(label)}</Label>
+                <div className='flex items-center gap-3'>
+                  <Input
+                    id={id}
+                    readOnly
+                    tabIndex={-1}
+                    placeholder={t('Buyer enters this at checkout')}
+                    className='h-11 min-w-0 flex-1'
+                  />
+                  <label className='flex shrink-0 items-center gap-2 text-xs'>
+                    {t('Required field', { defaultValue: t('Required') })}
+                    <Switch
+                      aria-label={t(requiredLabel)}
+                      checked={draft[key]}
+                      onCheckedChange={(value) => change(key, value)}
+                    />
+                  </label>
+                </div>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    key === 'pickup_code_required'
+                      ? 'If filled in, this code protects collection. Use at least 8 characters and keep it safe.'
+                      : 'If filled in, the pickup link will be sent to this email after payment.'
                   )}
-                </span>
-                <Switch
-                  checked={draft[key]}
-                  onCheckedChange={(value) => change(key, value)}
-                />
-              </label>
+                </p>
+              </div>
             ))}
           </fieldset>
           <div className='flex justify-end gap-2 border-t pt-4'>
