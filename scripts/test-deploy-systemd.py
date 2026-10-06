@@ -192,11 +192,11 @@ class CleanupTests(unittest.TestCase):
         self.archive = self.write(self.base / 'financial.dump', b'PGDMP' + b'x' * (2 * 1024 * 1024))
         self.financial_receipt = {'format': 'lmm-credit-financial-backup-v1',
                                  **{key: self.binding[key] for key in ('transition_id', 'transition_intent_sha256', 'provider_sha256')},
-                                 'source_sha': 'd' * 64, 'frozen_guardian_bindings_sha256': 'e' * 64,
+                                 'source_sha': 'd' * 40, 'frozen_guardian_bindings_sha256': 'e' * 64,
                                  'target': {key: self.database[key] for key in ('database', 'schema', 'system_identifier', 'database_oid')},
                                  'full_database': True, 'preserve_ownership': True, 'archive_format': 'custom',
                                  'backup_sha256': deploy.digest(self.archive), 'size_bytes': self.archive.stat().st_size}
-        self.financial_receipt['target']['schema_oid'] = 2200
+        self.financial_receipt['target'].update(database_oid=str(self.database['database_oid']), schema_oid='2200')
         receipt = self.write(self.base / 'financial-receipt.json', json.dumps(self.financial_receipt).encode())
         self.args = SimpleNamespace(release='current', superseded_by='current', retain_rollback='bridge',
                                     financial_backup=self.archive, financial_backup_sha256=deploy.digest(self.archive),
@@ -295,6 +295,10 @@ class CleanupTests(unittest.TestCase):
     def snapshot(self, root):
         return {str(path.relative_to(root)): ('link', os.readlink(path)) if path.is_symlink() else ('file', path.read_bytes()) if path.is_file() else ('directory',)
                 for path in root.rglob('*')}
+
+    def seal_financial_receipt(self, receipt):
+        self.write(self.args.financial_backup_receipt, json.dumps(receipt).encode())
+        self.args.financial_backup_receipt_sha256 = deploy.digest(self.args.financial_backup_receipt)
 
     def test_dry_run_retains_every_byte_and_complete_protected_workspaces(self):
         before = self.snapshot(self.base)
@@ -428,6 +432,95 @@ class CleanupTests(unittest.TestCase):
                 self.args.financial_backup_receipt_sha256 = deploy.digest(self.args.financial_backup_receipt)
                 with self.assertRaises(RuntimeError):
                     deploy.verify_financial_backup_receipt(self.args, self.maintenance(), archive)
+
+    def test_financial_receipt_from_real_runner_finish_backup_accepts_text_oids(self):
+        spec = importlib.util.spec_from_file_location('financial_runner', Path(__file__).with_name('run-credit-financial-maintenance.py'))
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        plan = {'transition_id': self.binding['transition_id'],
+                'transition_intent_sha256': self.binding['transition_intent_sha256'],
+                'provider': {'sha256': self.binding['provider_sha256']},
+                'source_sha': '7af4bf9e56055a9a283b6545433e271a84b60026',
+                'database': dict(self.database, owner_node='fixture'),
+                'nodes': [{'name': 'fixture'}], 'backup_commands': {'offhost_copy': {}, 'offhost_verify': {}}}
+        controller = runner.Controller(plan, 'f' * 64, self.base)
+        controller.state.update(backup={'path': str(self.archive), 'sha256': deploy.digest(self.archive)},
+                                guardian_lock_bindings={'fixture': {'pid': 123, 'invocation_id': 'a' * 32}})
+        target = dict(self.financial_receipt['target'])
+        proof = {'backup_sha256': deploy.digest(self.archive), 'size_bytes': self.archive.stat().st_size}
+
+        def publish(name, receipt):
+            self.assertEqual('full-financial-backup.receipt.json', name)
+            self.seal_financial_receipt(receipt)
+            return {'path': str(self.args.financial_backup_receipt), 'sha256': self.args.financial_backup_receipt_sha256}
+
+        # Execute the real receipt producer, with all commands and publication
+        # replaced by local fixtures. No SSH, database, or service is accessed.
+        with patch.object(controller, 'frozen_gates'), patch.object(controller, 'execute', side_effect=[b'', runner.encode(proof)]), patch.object(controller, 'sql_bytes', return_value=runner.encode(target)) as sql, patch.object(controller, 'publish_receipt', side_effect=publish), patch.object(controller, 'persist'):
+            controller.finish_backup()
+        self.assertIn(b'oid::text', sql.call_args.args[1])
+        archive = deploy.verify_financial_archive(self.archive, self.args.financial_backup_sha256)
+        result = deploy.verify_financial_backup_receipt(self.args, self.maintenance(), archive)
+        self.assertEqual(plan['source_sha'], result['source_sha'])
+        self.assertEqual(target, result['target'])
+        self.assertEqual('42', result['target']['database_oid'])
+        self.assertEqual('2200', result['target']['schema_oid'])
+        self.assertEqual(runner.digest(runner.encode(controller.state['guardian_lock_bindings'])), result['frozen_guardian_bindings_sha256'])
+
+    def test_financial_receipt_source_requires_exact_lowercase_git_commit(self):
+        archive = deploy.verify_financial_archive(self.archive, self.args.financial_backup_sha256)
+        for source in ('d' * 39, 'd' * 41, 'd' * 64, 'D' * 40, 'd' * 40 + '\n', '', None, 123, True):
+            with self.subTest(source=source):
+                self.seal_financial_receipt(dict(self.financial_receipt, source_sha=source))
+                with self.assertRaisesRegex(RuntimeError, 'sealed source or guardian binding'):
+                    deploy.verify_financial_backup_receipt(self.args, self.maintenance(), archive)
+        for guardian in ('e' * 40, 'E' * 64, None, 123, True):
+            with self.subTest(guardian=guardian):
+                self.seal_financial_receipt(dict(self.financial_receipt, frozen_guardian_bindings_sha256=guardian))
+                with self.assertRaisesRegex(RuntimeError, 'sealed source or guardian binding'):
+                    deploy.verify_financial_backup_receipt(self.args, self.maintenance(), archive)
+
+    def test_financial_receipt_oids_require_canonical_positive_uint32_text(self):
+        archive = deploy.verify_financial_archive(self.archive, self.args.financial_backup_sha256)
+        invalid = (None, True, 42, 42.0, '', '0', '-1', '+42', '042', ' 42', '42 ', '42\n', '4.2e1', '４２', '4294967296', '99999999999')
+        for key in ('database_oid', 'schema_oid'):
+            for value in invalid:
+                with self.subTest(oid=key, value=value):
+                    target = dict(self.financial_receipt['target'], **{key: value})
+                    self.seal_financial_receipt(dict(self.financial_receipt, target=target))
+                    with self.assertRaises(RuntimeError):
+                        deploy.verify_financial_backup_receipt(self.args, self.maintenance(), archive)
+        self.seal_financial_receipt(dict(self.financial_receipt, target=dict(self.financial_receipt['target'], database_oid='43')))
+        with self.assertRaisesRegex(RuntimeError, 'different PostgreSQL database or schema'):
+            deploy.verify_financial_backup_receipt(self.args, self.maintenance(), archive)
+
+    def test_financial_receipt_oid_comparison_rejects_noninteger_prepare_oid(self):
+        archive = deploy.verify_financial_archive(self.archive, self.args.financial_backup_sha256)
+        maintenance = self.maintenance()
+        prepared_path = Path(maintenance['prepare_config_path'])
+        prepared = json.loads(prepared_path.read_text())
+        for value in ('42', 42.0, 42.5, True, None, 0, -1, 4294967296):
+            with self.subTest(prepare_oid=value):
+                prepared['database']['database_oid'] = value
+                self.write(prepared_path, json.dumps(prepared).encode())
+                maintenance['prepare_config_sha256'] = deploy.digest(prepared_path)
+                with self.assertRaisesRegex(RuntimeError, 'different PostgreSQL database or schema'):
+                    deploy.verify_financial_backup_receipt(self.args, maintenance, archive)
+
+    def test_financial_receipt_oid_uint32_boundaries_match_numeric_prepare(self):
+        archive = deploy.verify_financial_archive(self.archive, self.args.financial_backup_sha256)
+        maintenance = self.maintenance()
+        prepared_path = Path(maintenance['prepare_config_path'])
+        prepared = json.loads(prepared_path.read_text())
+        for oid in (1, 4294967295):
+            with self.subTest(oid=oid):
+                prepared['database']['database_oid'] = oid
+                self.write(prepared_path, json.dumps(prepared).encode())
+                maintenance['prepare_config_sha256'] = deploy.digest(prepared_path)
+                target = dict(self.financial_receipt['target'], database_oid=str(oid), schema_oid=str(oid))
+                self.seal_financial_receipt(dict(self.financial_receipt, target=target))
+                result = deploy.verify_financial_backup_receipt(self.args, maintenance, archive)
+                self.assertEqual(target, result['target'])
 
     def test_cleanup_lock_adopts_all_three_descriptors_and_closes_without_unlocking(self):
         descriptors, paths = [], []

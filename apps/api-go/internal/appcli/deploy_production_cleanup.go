@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -363,7 +364,7 @@ func (runtime *productionRuntime) validateMaintenanceFinancialReceipt(options pr
 		return err
 	}
 	h := runtime.maintenanceHandoff
-	if h == nil || receipt.Format != "lmm-credit-financial-backup-v1" || receipt.TransitionID != h.TransitionID || receipt.TransitionIntentSHA256 != h.TransitionIntentSHA256 || receipt.ProviderSHA256 != h.ProviderSHA256 || !receipt.FullDatabase || receipt.ArchiveFormat != "custom" || !receipt.PreserveOwnership || receipt.BackupSHA256 != options.FinancialBackupSHA256 || !productionSHA256Pattern.MatchString(receipt.SourceSHA) || !productionSHA256Pattern.MatchString(receipt.FrozenGuardianBindingsSHA256) {
+	if h == nil || receipt.Format != "lmm-credit-financial-backup-v1" || receipt.TransitionID != h.TransitionID || receipt.TransitionIntentSHA256 != h.TransitionIntentSHA256 || receipt.ProviderSHA256 != h.ProviderSHA256 || !receipt.FullDatabase || receipt.ArchiveFormat != "custom" || !receipt.PreserveOwnership || receipt.BackupSHA256 != options.FinancialBackupSHA256 || len(receipt.SourceSHA) != 40 || !productionRevisionPattern.MatchString(receipt.SourceSHA) || !productionSHA256Pattern.MatchString(receipt.FrozenGuardianBindingsSHA256) {
 		return errors.New("financial backup receipt differs from the frozen full-database transition")
 	}
 	archive, err := os.Stat(options.FinancialBackup)
@@ -381,16 +382,32 @@ func (runtime *productionRuntime) validateMaintenanceFinancialReceipt(options pr
 	if len(receipt.Target) != 5 {
 		return errors.New("financial backup target identity has unknown or missing fields")
 	}
-	for _, key := range []string{"system_identifier", "database", "database_oid", "schema"} {
+	for _, key := range []string{"system_identifier", "database", "schema"} {
 		if !reflect.DeepEqual(receipt.Target[key], prepared.Database[key]) {
 			return errors.New("financial full backup target differs from sealed prepare database identity")
 		}
 	}
-	schemaOID, ok := receipt.Target["schema_oid"].(float64)
-	if !ok || schemaOID <= 0 || schemaOID > 4294967295 || schemaOID != math.Trunc(schemaOID) {
+	databaseOID, ok := maintenanceFinancialReceiptOID(receipt.Target["database_oid"])
+	preparedDatabaseOID, preparedOK := prepared.Database["database_oid"].(float64)
+	if !ok || !preparedOK || preparedDatabaseOID <= 0 || preparedDatabaseOID > 4294967295 || preparedDatabaseOID != math.Trunc(preparedDatabaseOID) || uint32(preparedDatabaseOID) != databaseOID {
+		return errors.New("financial full backup target differs from sealed prepare database identity")
+	}
+	if _, ok := maintenanceFinancialReceiptOID(receipt.Target["schema_oid"]); !ok {
 		return errors.New("financial full backup schema oid is invalid")
 	}
 	return nil
+}
+
+func maintenanceFinancialReceiptOID(value any) (uint32, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return 0, false
+	}
+	parsed, err := strconv.ParseUint(text, 10, 32)
+	if err != nil || parsed == 0 || strconv.FormatUint(parsed, 10) != text {
+		return 0, false
+	}
+	return uint32(parsed), true
 }
 
 func validateMaintenanceFinancialBackup(path, digest string, owner uint32) error {

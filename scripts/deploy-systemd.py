@@ -622,15 +622,18 @@ def verify_financial_backup_receipt(args, maintenance, archive):
         raise RuntimeError('financial backup receipt differs from the frozen transition identity')
     if any(receipt.get(key) is not True for key in ('full_database', 'preserve_ownership')) or receipt.get('archive_format') != 'custom':
         raise RuntimeError('financial backup receipt does not prove a full custom archive preserving ownership')
-    for key in ('source_sha', 'frozen_guardian_bindings_sha256'):
-        if not re.fullmatch(r'[0-9a-f]{64}', receipt.get(key, '')):
+    for key, length in (('source_sha', 40), ('frozen_guardian_bindings_sha256', 64)):
+        if not isinstance(receipt.get(key), str) or not re.fullmatch(rf'[0-9a-f]{{{length}}}', receipt[key]):
             raise RuntimeError('financial backup receipt lacks the sealed source or guardian binding')
     prepared = json.loads(guardian.bound_file(maintenance['prepare_config_path'], maintenance['prepare_config_sha256']))
     target = receipt.get('target')
     required = {'database', 'schema', 'system_identifier', 'database_oid', 'schema_oid'}
-    if not isinstance(target, dict) or set(target) != required or any(target.get(key) != prepared['database'].get(key) for key in required - {'schema_oid'}):
+    if not isinstance(target, dict) or set(target) != required or any(target.get(key) != prepared['database'].get(key) for key in required - {'database_oid', 'schema_oid'}):
         raise RuntimeError('financial backup receipt identifies a different PostgreSQL database or schema')
-    if not isinstance(target['schema_oid'], int) or isinstance(target['schema_oid'], bool) or target['schema_oid'] <= 0:
+    database_oid = prepared['database'].get('database_oid')
+    if type(database_oid) is not int or not 1 <= database_oid <= 4294967295 or not isinstance(target['database_oid'], str) or not re.fullmatch(r'[1-9][0-9]{0,9}', target['database_oid']) or int(target['database_oid']) != database_oid:
+        raise RuntimeError('financial backup receipt identifies a different PostgreSQL database or schema')
+    if not isinstance(target['schema_oid'], str) or not re.fullmatch(r'[1-9][0-9]{0,9}', target['schema_oid']) or int(target['schema_oid']) > 4294967295:
         raise RuntimeError('financial backup receipt lacks a valid frozen schema OID')
     if receipt.get('backup_sha256') != archive['sha256'] or not isinstance(receipt.get('size_bytes'), int) or isinstance(receipt['size_bytes'], bool) or receipt['size_bytes'] != archive['bytes']:
         raise RuntimeError('financial backup receipt differs from the actual archive bytes or size')

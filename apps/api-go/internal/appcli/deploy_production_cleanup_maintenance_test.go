@@ -14,7 +14,7 @@ import (
 )
 
 func TestFinancialCleanupReceiptRequiresFullArchiveAndExactDatabaseProvenance(t *testing.T) {
-	for _, change := range []string{"", "full", "ownership", "intent", "provider", "database", "oid", "schema-oid", "unknown-target", "archive-hash", "size", "receipt-hash"} {
+	for _, change := range []string{"", "schema-min", "schema-max", "full", "ownership", "intent", "provider", "source-64", "source-short", "source-uppercase", "source-nonhex", "guardian-short", "database", "oid", "oid-number", "oid-leading-zero", "oid-zero", "oid-overflow", "schema-oid", "schema-oid-number", "schema-oid-leading-zero", "schema-oid-zero", "schema-oid-overflow", "unknown-target", "archive-hash", "size", "receipt-hash"} {
 		t.Run(change, func(t *testing.T) {
 			runtime, workspace, h := maintenanceBindingFixture(t, "post")
 			archivePath := filepath.Join(workspace.root, "full.dump")
@@ -23,9 +23,13 @@ func TestFinancialCleanupReceiptRequiresFullArchiveAndExactDatabaseProvenance(t 
 				t.Fatal(err)
 			}
 			archiveSHA, _ := sha256File(archivePath)
-			target := map[string]any{"system_identifier": "123", "database": "fixture", "database_oid": 123, "schema": "public", "schema_oid": 2200}
-			receipt := map[string]any{"format": "lmm-credit-financial-backup-v1", "transition_id": h.TransitionID, "transition_intent_sha256": h.TransitionIntentSHA256, "provider_sha256": h.ProviderSHA256, "source_sha": strings.Repeat("a", 64), "target": target, "full_database": true, "archive_format": "custom", "preserve_ownership": true, "backup_sha256": archiveSHA, "size_bytes": len(body), "frozen_guardian_bindings_sha256": strings.Repeat("b", 64)}
+			target := map[string]any{"system_identifier": "123", "database": "fixture", "database_oid": "123", "schema": "public", "schema_oid": "2200"}
+			receipt := map[string]any{"format": "lmm-credit-financial-backup-v1", "transition_id": h.TransitionID, "transition_intent_sha256": h.TransitionIntentSHA256, "provider_sha256": h.ProviderSHA256, "source_sha": "7af4bf9e56055a9a283b6545433e271a84b60026", "target": target, "full_database": true, "archive_format": "custom", "preserve_ownership": true, "backup_sha256": archiveSHA, "size_bytes": len(body), "frozen_guardian_bindings_sha256": strings.Repeat("b", 64)}
 			switch change {
+			case "schema-min":
+				target["schema_oid"] = "1"
+			case "schema-max":
+				target["schema_oid"] = "4294967295"
 			case "full":
 				receipt["full_database"] = false
 			case "ownership":
@@ -34,12 +38,38 @@ func TestFinancialCleanupReceiptRequiresFullArchiveAndExactDatabaseProvenance(t 
 				receipt["transition_intent_sha256"] = strings.Repeat("c", 64)
 			case "provider":
 				receipt["provider_sha256"] = strings.Repeat("c", 64)
+			case "source-64":
+				receipt["source_sha"] = strings.Repeat("a", 64)
+			case "source-short":
+				receipt["source_sha"] = strings.Repeat("a", 39)
+			case "source-uppercase":
+				receipt["source_sha"] = strings.Repeat("A", 40)
+			case "source-nonhex":
+				receipt["source_sha"] = strings.Repeat("g", 40)
+			case "guardian-short":
+				receipt["frozen_guardian_bindings_sha256"] = strings.Repeat("b", 40)
 			case "database":
 				target["database"] = "other"
 			case "oid":
-				target["database_oid"] = 124
+				target["database_oid"] = "124"
+			case "oid-number":
+				target["database_oid"] = 123
+			case "oid-leading-zero":
+				target["database_oid"] = "0123"
+			case "oid-zero":
+				target["database_oid"] = "0"
+			case "oid-overflow":
+				target["database_oid"] = "4294967296"
 			case "schema-oid":
 				target["schema_oid"] = 1.5
+			case "schema-oid-number":
+				target["schema_oid"] = 2200
+			case "schema-oid-leading-zero":
+				target["schema_oid"] = "02200"
+			case "schema-oid-zero":
+				target["schema_oid"] = "0"
+			case "schema-oid-overflow":
+				target["schema_oid"] = "4294967296"
 			case "unknown-target":
 				target["extra"] = "unbound"
 			case "archive-hash":
@@ -55,10 +85,11 @@ func TestFinancialCleanupReceiptRequiresFullArchiveAndExactDatabaseProvenance(t 
 				digest = strings.Repeat("c", 64)
 			}
 			err := runtime.validateMaintenanceFinancialReceipt(productionWorkspaceCleanupOptions{FinancialBackup: archivePath, FinancialBackupSHA256: archiveSHA, FinancialBackupReceipt: path, FinancialBackupReceiptSHA256: digest})
-			if change == "" && err != nil {
+			valid := change == "" || change == "schema-min" || change == "schema-max"
+			if valid && err != nil {
 				t.Fatal(err)
 			}
-			if change != "" && err == nil {
+			if !valid && err == nil {
 				t.Fatalf("accepted %s", change)
 			}
 		})
