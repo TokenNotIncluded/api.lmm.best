@@ -24,13 +24,21 @@ func storePreparationFacts(t *testing.T, db *gorm.DB, before *storePreparationSn
 	if before == nil {
 		before = &storePreparationSnapshot{columns: map[string][]string{}, rows: map[string]string{}}
 		var tables []string
-		require.NoError(t, db.Raw("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").Scan(&tables).Error)
+		if db.Dialector.Name() == "postgres" {
+			require.NoError(t, db.Raw("SELECT tablename FROM pg_tables WHERE schemaname=current_schema() ORDER BY tablename").Scan(&tables).Error)
+		} else {
+			require.NoError(t, db.Raw("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").Scan(&tables).Error)
+		}
 		for _, table := range tables {
 			if storeAccessTable(table) {
 				continue
 			}
 			var cols []struct{ Name string }
-			require.NoError(t, db.Raw("SELECT name FROM pragma_table_info(?) ORDER BY cid", table).Scan(&cols).Error)
+			if db.Dialector.Name() == "postgres" {
+				require.NoError(t, db.Raw("SELECT column_name AS name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=? ORDER BY ordinal_position", table).Scan(&cols).Error)
+			} else {
+				require.NoError(t, db.Raw("SELECT name FROM pragma_table_info(?) ORDER BY cid", table).Scan(&cols).Error)
+			}
 			for _, col := range cols {
 				before.columns[table] = append(before.columns[table], col.Name)
 			}
