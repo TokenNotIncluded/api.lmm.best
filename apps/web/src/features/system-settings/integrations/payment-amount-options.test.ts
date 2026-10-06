@@ -219,3 +219,20 @@ test('invalid discount JSON, monetary keys, and rates stay invalid', () => {
   }
   assert.deepEqual(parsePaymentAmountDiscounts(' { } ', 'USD'), {})
 })
+
+test('discount entry limit counts every original pair before canonical aliases merge', () => {
+  const uniqueEntries = (count: number) =>
+    `{${Array.from({ length: count }, (_, index) => `"${index + 1}":0.9`).join(',')}}`
+  const aliasEntries = (count: number) =>
+    `{${Array.from({ length: count }, (_, index) => `"${index % 2 === 0 ? '3.5' : '3.50'}":0.98`).join(',')}}`
+  assert.equal(
+    Object.keys(parsePaymentAmountDiscounts(uniqueEntries(100), 'USD') ?? {})
+      .length,
+    100
+  )
+  assert.equal(parsePaymentAmountDiscounts(uniqueEntries(101), 'USD'), null)
+  assert.deepEqual(parsePaymentAmountDiscounts(aliasEntries(100), 'USD'), {
+    '3.5': 0.98,
+  })
+  assert.equal(parsePaymentAmountDiscounts(aliasEntries(101), 'USD'), null)
+})

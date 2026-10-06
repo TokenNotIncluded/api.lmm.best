@@ -151,7 +151,9 @@ export function parsePaymentAmountDiscounts(
   // JSON object parsing could discard a conflicting rate for the same amount.
   const pair =
     /^[ \r\n\t]*("(?:[^"\\]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*")[ \r\n\t]*:[ \r\n\t]*(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)[ \r\n\t]*(,|$)/
+  let entryCount = 0
   while (remaining) {
+    if (++entryCount > 100) return null
     const match = pair.exec(remaining)
     if (!match) return null
     let key: string
