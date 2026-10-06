@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
+import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -424,11 +425,16 @@ function ToolMarketWorkspace() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-6xl space-y-6'>
-          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
-            {t(
-              'Discover MCP tools, choose what each client can use, and pay only for successful calls.'
-            )}
-          </p>
+          <div className='relative isolate flex min-h-24 items-center overflow-hidden border-b py-5'>
+            <div className='pointer-events-none absolute inset-y-0 end-0 w-2/5'>
+              <ForgeShaderSurface variant='tools' className='opacity-40' />
+            </div>
+            <p className='text-muted-foreground relative z-10 max-w-[70ch] text-sm leading-6'>
+              {t(
+                'Discover MCP tools, choose what each client can use, and pay only for successful calls.'
+              )}
+            </p>
+          </div>
           {config.isError && (
             <Alert variant='destructive'>
               <AlertTitle>{t('Could not load market settings')}</AlertTitle>

@@ -1,0 +1,23 @@
+import { Shader, Grid, MeshGradient } from 'shaders/react'
+
+export default function ForgeAmbient() {
+  return (
+    <Shader>
+      <MeshGradient
+        count={4}
+        drift={0.16}
+        seed={17}
+        smoothness={3}
+        speed={0.1}
+        stops={[{ color: "#101816", position: 0 }, { color: "#122c27", position: 0.26 }, { color: "#176451", position: 0.52 }, { color: "#194339", position: 0.76 }, { color: "#15201d", position: 1 }]}
+        swirl={0.12}
+        variation={0.2} />
+      <Grid
+        cells={14}
+        color="#beddd4"
+        opacity={0.12}
+        softness={0.4}
+        thickness={0.014} />
+    </Shader>
+  )
+}

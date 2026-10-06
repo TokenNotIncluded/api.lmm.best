@@ -20,6 +20,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
 import { useStatus } from '@/hooks/use-status'
 import { isConsoleActivated } from '@/lib/console-activation'
@@ -186,7 +187,7 @@ export function AssistantLauncher(props: {
           <Button
             type='button'
             variant='secondary'
-            className='pointer-events-auto h-11 w-auto max-w-[calc(100vw-1.5rem)] justify-start gap-2 rounded-full px-4 shadow-sm md:min-w-44'
+            className='pointer-events-auto relative isolate h-11 w-auto max-w-[calc(100vw-1.5rem)] justify-start gap-2 overflow-hidden rounded-full px-4 shadow-sm md:min-w-44'
             aria-label={accessibleLabel}
             title={accessibleLabel}
             aria-haspopup='dialog'
@@ -195,13 +196,21 @@ export function AssistantLauncher(props: {
             data-testid='assistant-launcher'
             onClick={() => showAssistant({ id: 'manual', autoSend: false })}
           >
+            <ForgeShaderSurface
+              variant='assistant'
+              interaction='intent'
+              className='absolute inset-0 opacity-70'
+            />
             <HugeiconsIcon
               icon={AiChat02Icon}
               strokeWidth={2}
+              className='relative z-10'
               data-icon='inline-start'
               aria-hidden='true'
             />
-            <span className='truncate text-sm font-medium'>{visibleLabel}</span>
+            <span className='relative z-10 truncate text-sm font-medium'>
+              {visibleLabel}
+            </span>
           </Button>
         </div>
       ) : null}

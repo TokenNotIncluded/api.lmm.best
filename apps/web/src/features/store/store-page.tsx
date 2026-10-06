@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth-store'
@@ -32,8 +33,11 @@ export function StorePage() {
   })
   return (
     <div className='flex flex-1 flex-col gap-5'>
-      <div className='flex flex-wrap items-end justify-between gap-4'>
-        <div className='space-y-1'>
+      <div className='relative isolate flex min-h-28 flex-wrap items-end justify-between gap-4 overflow-hidden border-b py-5'>
+        <div className='pointer-events-none absolute inset-y-0 end-0 w-2/5'>
+          <ForgeShaderSurface variant='store' className='opacity-40' />
+        </div>
+        <div className='relative z-10 space-y-1'>
           <h1 className='console-page-title text-xl font-bold'>
             {t('Browse products')}
           </h1>
@@ -43,7 +47,11 @@ export function StorePage() {
             )}
           </p>
         </div>
-        <Button variant='outline' render={<a href='/store/manage' />}>
+        <Button
+          variant='outline'
+          className='relative z-10'
+          render={<a href='/store/manage' />}
+        >
           {t('Sell a product')}
         </Button>
       </div>

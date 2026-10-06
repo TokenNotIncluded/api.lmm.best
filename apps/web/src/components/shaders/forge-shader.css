@@ -1,0 +1,53 @@
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+.forge-shader-surface {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: paint;
+  isolation: isolate;
+}
+
+.forge-shader-fallback {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse at 75% 30%,
+      color-mix(in srgb, var(--primary) 20%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--muted) 60%, transparent),
+      transparent 70%
+    );
+}
+
+.forge-shader-plane {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  opacity: 0;
+  transition: opacity 500ms ease;
+}
+
+.forge-shader-plane canvas {
+  display: block;
+}
+
+.forge-shader-surface[data-shader-state='ready'] .forge-shader-plane {
+  opacity: 0.24;
+}
+.forge-shader-surface[data-forge-shader='assistant'][data-shader-state='ready']
+  .forge-shader-plane {
+  opacity: 0.65;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forge-shader-plane {
+    display: none;
+    transition: none;
+  }
+}

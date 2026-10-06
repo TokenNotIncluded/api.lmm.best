@@ -26,6 +26,7 @@ import { ConfigDrawer } from '@/components/config-drawer'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
+import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -144,7 +145,7 @@ export function AppHeader({
                     variant='ghost'
                     size='icon'
                     className={cn(
-                      'relative size-11 rounded-lg sm:size-8',
+                      'relative isolate size-11 overflow-hidden rounded-lg sm:size-8',
                       !showMobileAssistant && 'hidden sm:inline-flex',
                       !assistantEnabled && 'sm:hidden',
                       railOpen && 'bg-accent text-accent-foreground'
@@ -157,9 +158,15 @@ export function AppHeader({
                   />
                 }
               >
+                <ForgeShaderSurface
+                  variant='assistant'
+                  interaction='intent'
+                  className='absolute inset-0 opacity-70'
+                />
                 <HugeiconsIcon
                   icon={BubbleChatSparkIcon}
                   strokeWidth={1.8}
+                  className='relative z-10'
                   aria-hidden='true'
                 />
               </TooltipTrigger>
