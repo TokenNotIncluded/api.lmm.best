@@ -65,6 +65,7 @@ func TestMerchantStoreGuestEmailOutboxUsesOriginalIdentityAndLayout(t *testing.T
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "Original@example.test")
 	require.NotContains(t, string(raw), session.Token)
+	t.Run("real_guest_paid_order", assertMerchantStoreRealGuestEmailFlow)
 }
 
 func TestMerchantStoreGuestEmailClosedOrdersAndSMTPRetry(t *testing.T) {

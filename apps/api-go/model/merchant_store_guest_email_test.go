@@ -176,6 +176,7 @@ func TestMerchantStoreGuestEmailCheckoutBindingAndConcurrentSingleUse(t *testing
 	require.NoError(t, DB.Model(&Option{}).Where("key = ?", MerchantStoreWriterCapabilityOption).Update("value", "4").Error)
 	_, err = BeginMerchantStoreGuestEmailVerification(token, "new@example.test")
 	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+	t.Run("postgres_guest_row_single_use_and_send_budget", assertMerchantStoreGuestEmailPostgresSingleUse)
 }
 
 func TestMerchantStoreGuestEmailPayloadLeaseAndFrozenAddress(t *testing.T) {
