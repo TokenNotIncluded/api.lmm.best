@@ -254,6 +254,9 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 	if e = tx.Model(&MerchantStoreStock{}).Where("product_id = ? AND state = ?", p.ID, "available").Count(&p.AvailableStock).Error; e != nil {
 		return e
 	}
+	if e = populateMerchantStoreSales(tx, p); e != nil {
+		return e
+	}
 	c, e := storeConfig(tx)
 	if e != nil {
 		return e
@@ -283,7 +286,11 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 	if public {
 		p.PaymentMethods = enabled
 	}
-	p.TradingPaused = u.Quota < fee || p.AvailableStock == 0 || len(enabled) == 0 || p.PriceQuota < c.MinimumUnitPriceQuota
+	p.TradingPaused = p.Status != "published" || u.Quota < fee || p.SaleAvailable == 0 || len(enabled) == 0 || p.PriceQuota < c.MinimumUnitPriceQuota
+	if public {
+		// Existing public clients interpret available_stock as purchasable stock.
+		p.AvailableStock = p.SaleAvailable
+	}
 	return nil
 }
 func GetPublicMerchantStoreProduct(id string) (*MerchantStoreProduct, error) {

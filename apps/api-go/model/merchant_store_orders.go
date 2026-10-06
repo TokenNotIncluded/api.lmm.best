@@ -200,6 +200,9 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if p.Status != "published" {
 			return ErrMerchantStoreUnavailable
 		}
+		if e = storeCheckSaleLimit(tx, p, in.Quantity); e != nil {
+			return e
+		}
 		allowed := false
 		for _, method := range p.PaymentMethods {
 			if method == in.PaymentMethod {
@@ -887,7 +890,17 @@ func RecordMerchantStoreVerifiedPaymentIssue(id, receipt, code string) error {
 	if receipt == "" || len(receipt) > 128 || !storePaymentIssueCodeValid(code) {
 		return ErrMerchantStoreInput
 	}
+	var lookup MerchantStoreOrder
+	if e := DB.First(&lookup, "id = ?", id).Error; e != nil {
+		return e
+	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
+		// This evidence changes paid sales usage. Match checkout's product->order
+		// lock order, while preserving real payment evidence if a product vanished.
+		var product MerchantStoreProduct
+		if e := lockForUpdate(tx).First(&product, "id = ?", lookup.ProductID).Error; e != nil && !errors.Is(e, gorm.ErrRecordNotFound) {
+			return e
+		}
 		var o MerchantStoreOrder
 		if e := lockForUpdate(tx).First(&o, "id = ?", id).Error; e != nil {
 			return e

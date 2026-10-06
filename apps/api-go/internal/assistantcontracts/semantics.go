@@ -93,5 +93,20 @@ func (g *generator) refine(name string, c *contract) {
 	case "CreateUser":
 		c.body["required"] = []string{"username", "password"}
 		c.notes = append(c.notes, "Create only a user with a lower role than the caller. Server-generated and read-only fields should be omitted. Administrator permissions are separately checked by the server.")
+	case "SetMerchantStoreProductSaleLimit":
+		c.body["required"] = []string{"sale_limit"}
+		if properties, ok := c.body["properties"].(map[string]any); ok {
+			properties["sale_limit"] = map[string]any{"anyOf": []any{
+				map[string]any{"type": "integer", "minimum": 0, "maximum": int64(9007199254740991)},
+				map[string]any{"type": "null"},
+			}}
+		}
+		c.notes = append(c.notes, "sale_limit is an explicit cumulative product sales ceiling, including paid obligations and outstanding reservations. null removes the ceiling; zero stops new orders. Lowering it preserves existing orders. Omitting the field is rejected, and saving product content never changes this separate limit.")
+	case "SetMerchantStoreProductListed":
+		c.body["required"] = []string{"listed"}
+		if properties, ok := c.body["properties"].(map[string]any); ok {
+			properties["listed"] = map[string]any{"type": "boolean"}
+		}
+		c.notes = append(c.notes, "listed=false takes an approved listing off the shelf without deleting its inventory or orders. listed=true republishes only an unchanged approved off-shelf listing. Edited drafts still require review. The field must be an explicit boolean; null and omission are rejected.")
 	}
 }

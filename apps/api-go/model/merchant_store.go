@@ -46,6 +46,7 @@ type MerchantStoreProduct struct {
 	Contact             string              `json:"contact" gorm:"type:text"`
 	Links               []MerchantStoreLink `json:"links" gorm:"serializer:json;type:text"`
 	PriceQuota          int                 `json:"price_quota" gorm:"type:bigint;not null"`
+	SaleLimit           *int64              `json:"sale_limit" gorm:"type:bigint"`
 	Template            string              `json:"template" gorm:"size:32"`
 	DeliveryStrategy    string              `json:"delivery_strategy" gorm:"size:16"`
 	PaymentMethods      []string            `json:"payment_methods" gorm:"serializer:json;type:text"`
@@ -62,6 +63,9 @@ type MerchantStoreProduct struct {
 	UpdatedAt           int64               `json:"updated_at"`
 	Official            bool                `json:"official" gorm:"-"`
 	AvailableStock      int64               `json:"available_stock" gorm:"-"`
+	PaidQuantity        int64               `json:"paid_quantity" gorm:"-"`
+	ReservedQuantity    int64               `json:"reserved_quantity" gorm:"-"`
+	SaleAvailable       int64               `json:"sale_available" gorm:"-"`
 	TradingPaused       bool                `json:"trading_paused" gorm:"-"`
 }
 type MerchantStoreProductInput struct {
