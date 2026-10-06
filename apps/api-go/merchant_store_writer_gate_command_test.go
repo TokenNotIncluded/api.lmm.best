@@ -21,6 +21,11 @@ func TestMerchantStoreWriterGateCommandRejectsFlagsBeforeDatabaseAccess(t *testi
 		{"activate-lifecycle", "--expected-current=2"},
 		{"activate-lifecycle", "--expected-current=2", "--reviewed-lifecycle-ready", "--require-writable"},
 		{"activate-lifecycle", "--expected-current=2", "--reviewed-lifecycle-ready", "--reviewed-variants-ready"},
+		{"status", "--reviewed-refunds-ready"}, {"activate-refunds"},
+		{"activate-refunds", "--expected-current=2", "--reviewed-refunds-ready"},
+		{"activate-refunds", "--expected-current=3"},
+		{"activate-refunds", "--expected-current=3", "--reviewed-refunds-ready", "--require-writable"},
+		{"activate-refunds", "--expected-current=3", "--reviewed-refunds-ready", "--reviewed-lifecycle-ready"},
 	} {
 		var out, errs bytes.Buffer
 		require.Equal(t, appcli.ExitUsage, runMerchantStoreWriterGateCommand(args, &out, &errs), args)

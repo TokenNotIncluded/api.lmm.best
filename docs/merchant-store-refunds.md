@@ -7,9 +7,17 @@ also support capability 4 before exposing the feature. Unsupported historical
 writers must not serve payment callbacks after activation: their payment-issue
 rescue can turn an unknown terminal status into `reconciliation_pending`.
 
-Activation must verify all columns and indexes of `merchant_store_refunds`,
-`merchant_store_refund_items` and `merchant_store_refund_payment_bases`, as well
-as the separately implemented purchase-limit columns. Existing order, payment,
+Activation qualifies all 21 store tables registered in this capability-4 source,
+including the four refund/provider tables, discount codes and frozen order
+snapshots, and both nullable purchase-limit columns. It checks actual column
+types, required nullability, historical snapshot defaults, ordered indexes and
+uniqueness; a repeated activation also refuses damaged schema. The operator
+command is `lmm-api merchant-store-writer-gate activate-refunds
+--expected-current=3 --reviewed-refunds-ready`. It requires the existing floor 3
+and never skips readiness stages or downgrades a later floor. Deployment must
+first establish that all payment-callback writers preserve refund terminal
+states. A durable deployment-fence owner blocks activation even if its live
+database session is lost. Existing order, payment,
 wallet and delivery history must be retained. This patch adds no columns to
 historical orders and performs no destructive migration.
 

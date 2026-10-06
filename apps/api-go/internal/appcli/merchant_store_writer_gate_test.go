@@ -15,7 +15,7 @@ func TestMerchantStoreWriterGateDispatchNeverFallsBackToServing(t *testing.T) {
 		require.Equal(t, ExitUsage, result.ExitCode)
 		require.Empty(t, out.String())
 	}
-	for _, action := range []string{"status", "bootstrap", "activate", "activate-lifecycle"} {
+	for _, action := range []string{"status", "bootstrap", "activate", "activate-lifecycle", "activate-refunds"} {
 		var out, errs bytes.Buffer
 		result := Dispatch([]string{"merchant-store-writer-gate", action}, "test", &out, &errs)
 		require.Equal(t, ModeMerchantStoreWriterGate, result.Mode)

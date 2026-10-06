@@ -89,7 +89,7 @@ func TestMerchantStoreLinkPresetsRejectMalformedConfigurationAtomically(t *testi
 	encoded, err := json.Marshal(valid)
 	require.NoError(t, err)
 	require.NoError(t, UpdateOption(MerchantStoreProductLinkPresetsOption, string(encoded)))
-	require.NoError(t, DB.Model(&Option{}).Where("key = ?", MerchantStoreWriterCapabilityOption).Update("value", "4").Error)
+	storeUnsupportedWriterGateForTest(t)
 	require.ErrorIs(t, SaveMerchantStoreLinkPresets(f.root.Id, []MerchantStoreLinkPreset{}), ErrMerchantStoreWriterFrozen)
 	current, err := GetMerchantStoreLinkPresets()
 	require.NoError(t, err)

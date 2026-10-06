@@ -1,6 +1,7 @@
 package router
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -15,7 +16,7 @@ func TestMerchantStoreWriterGateRouterReturnsUpgradeStatusAndKeepsPaidPickup(t *
 	require.NoError(t, err)
 	token, err := model.GetMerchantStoreOrderPickupToken(root.Id, o.ID)
 	require.NoError(t, err)
-	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", model.MerchantStoreWriterCapabilityOption).Update("value", "4").Error)
+	require.NoError(t, db.Model(&model.Option{}).Where("key = ?", model.MerchantStoreWriterCapabilityOption).Update("value", strconv.Itoa(model.MerchantStoreWriterCapability+1)).Error)
 	response := shopRequest(engine, "POST", "/api/store/orders", rootToken, `{"product_id":"`+p.ID+`","quantity":1,"request_key":"new-after-upgrade","payment_method":"balance","pickup_code":"private-test-code"}`)
 	require.Equal(t, 503, response.Code, response.Body.String())
 	require.Contains(t, response.Body.String(), "STORE_UPGRADE_IN_PROGRESS")

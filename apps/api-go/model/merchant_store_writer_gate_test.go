@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,14 +23,7 @@ func storeWriterGateForTest(t *testing.T, value string) {
 
 func storeUnsupportedWriterGateForTest(t *testing.T) {
 	t.Helper()
-	value := "2"
-	if MerchantStoreWriterCapability >= 2 {
-		value = "3"
-	}
-	if MerchantStoreWriterCapability >= 3 {
-		value = "4"
-	}
-	storeWriterGateForTest(t, value)
+	storeWriterGateForTest(t, strconv.Itoa(MerchantStoreWriterCapability+1))
 }
 
 func storeWriterSnapshot(t *testing.T) []byte {
@@ -58,7 +52,7 @@ func storeWriterSnapshot(t *testing.T) []byte {
 
 func TestMerchantStoreWriterGateMissingInvalidAndMigrationNeverRepair(t *testing.T) {
 	db := marketTestDB(t)
-	values := []string{"", "0", "4", "01", " 1"}
+	values := []string{"", "0", strconv.Itoa(MerchantStoreWriterCapability + 1), "01", " 1"}
 	if MerchantStoreWriterCapability < 2 {
 		values = append(values, "2")
 	}

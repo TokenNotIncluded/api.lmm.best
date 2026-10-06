@@ -11,18 +11,13 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
-// Activation is deliberately independent of the older writer parser. The
-// central operator command owns raising the runtime capability and floor.
+// New refund mutations require the reviewed refund floor. Existing payment
+// acknowledgments and paid-order delivery do not depend on this write gate.
 func MerchantStoreRefundRequiresWriter(tx *gorm.DB) error {
-	var option Option
-	q := tx
-	if tx.Dialector.Name() != "sqlite" {
-		q = q.Clauses(clause.Locking{Strength: "SHARE"})
-	}
-	if e := q.Where("key = ?", MerchantStoreWriterCapabilityOption).First(&option).Error; e != nil || option.Key != MerchantStoreWriterCapabilityOption || option.Value != "4" {
+	required, err := storeWriterGateRow(tx, "SHARE")
+	if err != nil || required < 4 || required > MerchantStoreWriterCapability {
 		return ErrMerchantStoreWriterFrozen
 	}
 	return nil

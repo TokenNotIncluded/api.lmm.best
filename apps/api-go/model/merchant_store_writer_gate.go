@@ -17,7 +17,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const MerchantStoreWriterCapability = 3
+const MerchantStoreWriterCapability = 4
 const MerchantStoreWriterCapabilityOption = "MerchantStoreMinimumWriterCapability"
 
 var ErrMerchantStoreWriterFrozen = errors.New("merchant store writer is unavailable during an upgrade")
@@ -53,6 +53,8 @@ func storeWriterGateRow(db *gorm.DB, lock string) (int, error) {
 		return 2, nil
 	case "3":
 		return 3, nil
+	case "4":
+		return 4, nil
 	default:
 		return 0, ErrMerchantStoreWriterFrozen
 	}
@@ -72,7 +74,7 @@ func storeRequireWriter(tx *gorm.DB) error {
 // deleted listing. Operators enable it only after every serving writer is ready.
 func storeRequireLifecycleWriter(tx *gorm.DB) error {
 	required, err := storeWriterGateRow(tx, "SHARE")
-	if err != nil || required != 3 || MerchantStoreWriterCapability < 3 {
+	if err != nil || required < 3 || required > MerchantStoreWriterCapability {
 		return ErrMerchantStoreWriterFrozen
 	}
 	return nil
