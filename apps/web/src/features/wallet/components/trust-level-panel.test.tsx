@@ -38,8 +38,20 @@ function info(level: number): TrustLevelInfo {
     overridden: false,
   }
 }
+const walletFixture: UserWalletData = {
+  id: 1,
+  username: 'trust-display-fixture',
+  quota: 1000000,
+  used_quota: 50000,
+  request_count: 42,
+  aff_quota: 0,
+  aff_history_quota: 0,
+  aff_count: 0,
+  group: 'default',
+}
 function render(level: number, role?: number) {
-  const user = {
+  const user: UserWalletData = {
+    ...walletFixture,
     role,
     trust_level_info: info(level),
     trust_level_tiers: [
@@ -69,7 +81,7 @@ function render(level: number, role?: number) {
         benefits: ['superadministrator_access'],
       },
     ],
-  } as UserWalletData
+  }
   return renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
       <TrustLevelPanel user={user} />
@@ -153,7 +165,8 @@ test('the highest automatic level has no fabricated next-step percentage', () =>
 })
 
 test('unavailable canonical recharge history never becomes a zero balance or legacy progress', () => {
-  const user = {
+  const user: UserWalletData = {
+    ...walletFixture,
     trust_level_info: {
       ...info(1),
       paid_credits: null,
@@ -163,7 +176,7 @@ test('unavailable canonical recharge history never becomes a zero balance or leg
       amount_to_next_level: 0,
     },
     trust_level_tiers: tiers,
-  } as UserWalletData
+  }
   const markup = renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
       <TrustLevelPanel user={user} />
@@ -181,7 +194,8 @@ test('unavailable canonical recharge history never becomes a zero balance or leg
 })
 
 test('configured fractional usage discounts remain visible for automatic and role levels', () => {
-  const user = {
+  const user: UserWalletData = {
+    ...walletFixture,
     trust_level_info: { ...info(2), discount_percent: 12.5 },
     trust_level_tiers: tiers.map((tier) => ({
       ...tier,
@@ -197,7 +211,7 @@ test('configured fractional usage discounts remain visible for automatic and rol
         benefits: [],
       },
     ],
-  } as UserWalletData
+  }
   const markup = renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
       <TrustLevelPanel user={user} />

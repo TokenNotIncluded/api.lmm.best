@@ -134,6 +134,9 @@ func TestMerchantStoreBuyerPurchaseUsageUsesOnlyCompletedFrozenStockAcrossVarian
 		{ID: "empty-pending", TradeNo: "limit-empty", ProductID: f.product.ID, BuyerID: f.buyer.Id, Quantity: 7, Status: "pending"},
 		{ID: "other-buyer", TradeNo: "limit-other", ProductID: f.product.ID, BuyerID: otherBuyer.Id, Quantity: 9, Status: "paid"},
 	}
+	for i := range orders {
+		orders[i].PickupTokenHash = storeHash(orders[i].ID)
+	}
 	require.NoError(t, DB.Create(&orders).Error)
 	require.NoError(t, DB.Model(&MerchantStoreOrder{}).Where("id = ?", "real-held").UpdateColumn("paid_at", nil).Error)
 	add := func(order, product, state string, variant *string) {
