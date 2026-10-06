@@ -12163,9 +12163,9 @@ async function main() {
       ? toolMarketClientRecordsLunaCopy
       : merchantStoreVariantsOnly
         ? merchantStoreVariantsCopy
-      : merchantStoreOnly
-        ? merchantStoreCopy
-        : selectedEntries
+        : merchantStoreOnly
+          ? merchantStoreCopy
+          : selectedEntries
   )) {
     const translations = scoped
       ? baseTranslations
