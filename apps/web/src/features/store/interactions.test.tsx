@@ -1241,7 +1241,7 @@ test('multi-variant checkout sends an exact ID, uses its shared-cap limit and se
   const quantity = document.querySelector<HTMLInputElement>('#store-quantity')!
   await input(quantity, '3')
   assert.equal(button('Place order').disabled, true)
-  assert.equal(quantity.max, '2')
+  assert.equal(quantity.getAttribute('aria-valuemax'), '2')
   await input(quantity, '2')
   await click(button('Place order'))
   assert.match(
@@ -1449,9 +1449,15 @@ test('account inventory combines its fields into one item without showing an int
 })
 test('structured collection respects the order template and reveals passwords only on request', async () => {
   owner(null)
+  const variantName = '商家自定义：标准版 / 93天 · 特别包'
+  const copied: string[] = []
+  dom.navigator.clipboard.writeText = async (value) => {
+    copied.push(value)
+  }
   api.get = (async () =>
     result({
       product_title: 'Fixture account',
+      variant_name: variantName,
       status: 'paid',
       delivery_template: 'account-details',
       pickup_login_required: false,
@@ -1471,6 +1477,7 @@ test('structured collection respects the order template and reveals passwords on
     result({
       product_title: 'Fixture account',
       order_id: 'fixture-order',
+      variant_name: variantName,
       delivery_template: 'account-details',
       items: [raw],
     })) as typeof api.post
@@ -1482,6 +1489,18 @@ test('structured collection respects the order template and reveals passwords on
   assert.ok(password)
   assert.equal(password.type, 'password')
   assert.doesNotMatch(document.body.textContent || '', /lmm_store_delivery/)
+  assert.equal(
+    document.body.textContent?.split(`Specification: ${variantName}`).length,
+    3,
+    'the exact frozen merchant specification appears in the heading and structured row'
+  )
+  await click(document.querySelector<HTMLElement>('[role="checkbox"]')!)
+  await click(button('Copy selected items'))
+  assert.equal(
+    copied.at(-1),
+    'Username: fixture-user\nPassword: fixture-password\nLogin URL: https://example.test/login',
+    'selection copies the delivered fields rather than the internal JSON envelope'
+  )
   await click(button('Show delivered password'))
   assert.equal(password.type, 'text')
   assert.equal(password.value, 'fixture-password')

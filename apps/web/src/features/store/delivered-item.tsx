@@ -20,10 +20,12 @@ export function StoreDeliveredItem({
   raw,
   template,
   index,
+  variantName,
 }: {
   raw: string
   template: string | undefined
   index: number
+  variantName?: string
 }) {
   const { t } = useTranslation()
   const [passwordShown, setPasswordShown] = useState(false)
@@ -32,9 +34,16 @@ export function StoreDeliveredItem({
   if (!parsed) {
     return (
       <div className='space-y-2 border-t pt-4'>
-        <Label htmlFor={itemId}>
-          {t('Item {{number}}', { number: index + 1 })}
-        </Label>
+        <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
+          <Label htmlFor={itemId}>
+            {t('Item {{number}}', { number: index + 1 })}
+          </Label>
+          {variantName && (
+            <span className='text-muted-foreground text-sm break-words'>
+              {t('Specification')}: {variantName}
+            </span>
+          )}
+        </div>
         <Textarea
           id={itemId}
           value={raw}
@@ -49,9 +58,16 @@ export function StoreDeliveredItem({
   }
   return (
     <section className='space-y-3 border-t pt-4'>
-      <h3 className='text-sm font-medium'>
-        {t('Item {{number}}', { number: index + 1 })}
-      </h3>
+      <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
+        <h3 className='text-sm font-medium'>
+          {t('Item {{number}}', { number: index + 1 })}
+        </h3>
+        {variantName && (
+          <span className='text-muted-foreground text-sm break-words'>
+            {t('Specification')}: {variantName}
+          </span>
+        )}
+      </div>
       {DELIVERY_FIELDS[parsed.template].map((field) => {
         const value = parsed.fields[field.name]
         if (!value) return null

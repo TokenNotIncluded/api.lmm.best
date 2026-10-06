@@ -282,6 +282,7 @@ test('seller pickup controls are field previews with required switches and save 
         email_pickup_link: true,
       }}
       allowedMethods={['balance']}
+      minimumPriceQuota={500000}
       onClose={() => {}}
       onSaved={async () => {}}
     />
