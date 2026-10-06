@@ -88,6 +88,7 @@ func TestMerchantStoreVerifiedPaymentMissingSellerKeepsEvidenceAndInventory(t *t
 }
 func storeScopeSecondProduct(t *testing.T, f storeFixture, owner int, method string) *MerchantStoreProduct {
 	t.Helper()
+	require.NoError(t, SetMerchantStorePaymentCategories(owner, MerchantStorePaymentCategories{PlatformEnabled: true, ExternalEnabled: true}))
 	config := ""
 	if method == "external:epay" {
 		config = `{"key":"test-private-material"}`

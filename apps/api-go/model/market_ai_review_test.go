@@ -29,6 +29,7 @@ func marketAIProduct(t *testing.T, mode string) (*gorm.DB, User, User, *Merchant
 	seller := marketTestUser(t, db, "ai-seller", 1000000, common.RoleCommonUser)
 	root := marketTestUser(t, db, "ai-root", 500, common.RoleRootUser)
 	marketAIOptions(t, db, setting.MarketAIReviewOff, mode)
+	require.NoError(t, SetMerchantStorePaymentCategories(seller.Id, MerchantStorePaymentCategories{PlatformEnabled: true}))
 	_, gatewayErr := SaveMerchantStoreGateway(seller.Id, "balance", true, "")
 	require.NoError(t, gatewayErr)
 	p, err := SaveMerchantStoreProduct(seller.Id, "", MerchantStoreProductInput{Title: "Useful public listing", Description: "A public description", PriceQuota: 500000, PaymentMethods: []string{"balance"}, Links: []MerchantStoreLink{{Title: "Public link title", Description: "Public link description", URL: "https://example.test/private?pickup=NEVER-SEND-URL"}}, Contact: "NEVER-SEND-CONTACT", ImageURLs: []string{"https://example.test/NEVER-SEND-IMAGE"}})

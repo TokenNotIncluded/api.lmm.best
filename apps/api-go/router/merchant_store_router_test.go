@@ -44,6 +44,7 @@ func shopRequest(engine *gin.Engine, method, path, token, body string) *httptest
 
 func shopPublishedProduct(t *testing.T, db *gorm.DB, seller, root model.User) *model.MerchantStoreProduct {
 	t.Helper()
+	require.NoError(t, model.SetMerchantStorePaymentCategories(seller.Id, model.MerchantStorePaymentCategories{PlatformEnabled: true}))
 	_, gatewayErr := model.SaveMerchantStoreGateway(seller.Id, "balance", true, "")
 	require.NoError(t, gatewayErr)
 	product, err := model.SaveMerchantStoreProduct(seller.Id, "", model.MerchantStoreProductInput{Title: "Card fixture", Description: "A digital card", PriceQuota: 500000, Template: "card-key", DeliveryStrategy: "sequential", PaymentMethods: []string{"balance"}, PickupLoginRequired: true, PickupCodeRequired: true})

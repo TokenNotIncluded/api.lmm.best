@@ -37,6 +37,9 @@ func SaveMerchantStoreGateway(sellerID int, provider string, enabled bool, confi
 		if enabled && strings.HasPrefix(provider, "external:") && u.Quota <= MerchantStoreExternalMinimumQuota {
 			return ErrMerchantStoreBalance
 		}
+		if e := storePersistMissingPaymentCategories(tx, sellerID); e != nil {
+			return e
+		}
 		id := storeHash("gateway:" + fmtStoreActor(sellerID) + ":" + provider)
 		if e = lockForUpdate(tx).First(&row, "id = ?", id).Error; e != nil && !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e

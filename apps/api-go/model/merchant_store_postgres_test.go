@@ -168,7 +168,7 @@ func merchantStorePGFixture(t *testing.T, db *gorm.DB, methods ...string) storeF
 	t.Helper()
 	f := storeFixture{buyer: marketTestUser(t, db, "pg-buyer", 10000000, common.RoleCommonUser), seller: marketTestUser(t, db, "pg-seller", 10000000, common.RoleCommonUser), root: marketTestUser(t, db, "pg-root", 0, common.RoleRootUser)}
 	require.NoError(t, SetMerchantStoreConfig(f.root.Id, MerchantStoreConfig{FeeBPS: 100, RecipientID: f.root.Id, PromotionQuota: 500000}))
-	f.product = merchantStorePGProduct(t, f, "Concurrent cards", methods...)
+	require.NoError(t, SetMerchantStorePaymentCategories(f.seller.Id, MerchantStorePaymentCategories{PlatformEnabled: true, ExternalEnabled: true}))
 	for _, method := range methods {
 		config := ""
 		if strings.HasPrefix(method, "external:") {
@@ -177,6 +177,7 @@ func merchantStorePGFixture(t *testing.T, db *gorm.DB, methods ...string) storeF
 		_, e := SaveMerchantStoreGateway(f.seller.Id, method, true, config)
 		require.NoError(t, e)
 	}
+	f.product = merchantStorePGProduct(t, f, "Concurrent cards", methods...)
 	require.NoError(t, AcceptMerchantStoreDisclaimer(f.buyer.Id, MerchantStoreDisclaimerVersion))
 	return f
 }

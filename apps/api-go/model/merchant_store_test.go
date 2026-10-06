@@ -22,6 +22,7 @@ func newStoreFixture(t *testing.T, methods ...string) storeFixture {
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "C5wmMzDh1QsVZb0saEW9ulAPzVN87Boqv3DK6eIrKXc2YLfg")
 	f := storeFixture{buyer: marketTestUser(t, db, "store-buyer", 10000000, common.RoleCommonUser), seller: marketTestUser(t, db, "store-seller", 10000000, common.RoleCommonUser), root: marketTestUser(t, db, "store-root", 0, common.RoleRootUser)}
 	require.NoError(t, SetMerchantStoreConfig(f.root.Id, MerchantStoreConfig{FeeBPS: 100, RecipientID: f.root.Id, PromotionQuota: 500000}))
+	require.NoError(t, SetMerchantStorePaymentCategories(f.seller.Id, MerchantStorePaymentCategories{PlatformEnabled: true, ExternalEnabled: true}))
 	for _, method := range methods {
 		config := ""
 		if strings.HasPrefix(method, "external:") {
@@ -262,6 +263,7 @@ func TestMerchantStoreConcurrentCheckoutDoesNotOversellAndReplayOnce(t *testing.
 func TestMerchantStoreRootSellerFeeExemptAndSafeIntegerBoundary(t *testing.T) {
 	f := newStoreFixture(t, "balance")
 	require.NoError(t, DB.Model(&MerchantStoreProduct{}).Where("id = ?", f.product.ID).Update("seller_id", f.root.Id).Error)
+	require.NoError(t, SetMerchantStorePaymentCategories(f.root.Id, MerchantStorePaymentCategories{PlatformEnabled: true}))
 	_, e := SaveMerchantStoreGateway(f.root.Id, "balance", true, "")
 	require.NoError(t, e)
 	in := f.checkout("root-seller", "balance")
@@ -349,7 +351,7 @@ func TestMerchantStoreGatewayDisabledAndProductMethodsPreserved(t *testing.T) {
 	_, e := SaveMerchantStoreGateway(f.seller.Id, "balance", false, "")
 	require.NoError(t, e)
 	_, _, e = CreateMerchantStoreOrder(f.checkout("disabled", "balance"))
-	require.ErrorIs(t, e, ErrMerchantStorePaymentCategoryDisabled)
+	require.ErrorIs(t, e, ErrMerchantStoreUnavailable)
 	public, e := GetPublicMerchantStoreProduct(f.product.ID)
 	require.NoError(t, e)
 	require.Empty(t, public.PaymentMethods)

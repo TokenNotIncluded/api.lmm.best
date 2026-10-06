@@ -297,6 +297,7 @@ func merchantStoreServiceDB(t *testing.T, method string) merchantStoreServiceFix
 		require.NoError(t, db.Create(user).Error)
 	}
 	require.NoError(t, model.SetMerchantStoreConfig(f.root.Id, model.MerchantStoreConfig{FeeBPS: 100, RecipientID: f.root.Id, PromotionQuota: 500000}))
+	require.NoError(t, model.SetMerchantStorePaymentCategories(f.seller.Id, model.MerchantStorePaymentCategories{PlatformEnabled: true, ExternalEnabled: true}))
 	initialConfig := ""
 	if strings.HasPrefix(method, "external:") {
 		initialConfig = `{ "key":"fixture" }`

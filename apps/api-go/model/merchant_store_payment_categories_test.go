@@ -9,6 +9,8 @@ import (
 
 func TestMerchantStorePaymentCategoriesDefaultCompatibilityAndReservedIsolation(t *testing.T) {
 	f := newStoreFixture(t, "balance", "external:epay")
+	// Simulate an installed Go85 merchant with only real gateway rows.
+	require.NoError(t, DB.Where("seller_id = ? AND provider IN ?", f.seller.Id, []string{storeCategoryPlatformProvider, storeCategoryExternalProvider}).Delete(&MerchantStoreGateway{}).Error)
 	categories, err := GetMerchantStorePaymentCategories(f.seller.Id)
 	require.NoError(t, err)
 	require.Equal(t, MerchantStorePaymentCategories{true, true}, categories)
@@ -17,6 +19,11 @@ func TestMerchantStorePaymentCategoriesDefaultCompatibilityAndReservedIsolation(
 	categories, err = GetMerchantStorePaymentCategories(fresh.Id)
 	require.NoError(t, err)
 	require.Equal(t, MerchantStorePaymentCategories{}, categories)
+	_, err = SaveMerchantStoreGateway(fresh.Id, "balance", true, "")
+	require.NoError(t, err)
+	categories, err = GetMerchantStorePaymentCategories(fresh.Id)
+	require.NoError(t, err)
+	require.False(t, categories.PlatformEnabled, "first channel enable cannot implicitly opt a new merchant into a category")
 	require.NoError(t, SetMerchantStorePaymentCategories(f.seller.Id, MerchantStorePaymentCategories{ExternalEnabled: true}))
 	// Explicit off survives subsequent channel changes; credentials stay intact.
 	_, err = SaveMerchantStoreGateway(f.seller.Id, "balance", true, "")

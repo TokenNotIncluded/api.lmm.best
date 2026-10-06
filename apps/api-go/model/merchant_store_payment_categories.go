@@ -106,6 +106,23 @@ func SetMerchantStorePaymentCategories(sellerID int, value MerchantStorePaymentC
 	})
 }
 
+// Capture compatibility before changing a channel. A first channel enable
+// must not turn a new merchant's default-off category into implicit opt-in.
+// Existing enabled legacy channels retain their pre-edit category policy.
+func storePersistMissingPaymentCategories(tx *gorm.DB, sellerID int) error {
+	value, err := storePaymentCategories(tx, sellerID)
+	if err != nil {
+		return err
+	}
+	for provider, enabled := range map[string]bool{storeCategoryPlatformProvider: value.PlatformEnabled, storeCategoryExternalProvider: value.ExternalEnabled} {
+		row := MerchantStoreGateway{ID: storeHash("gateway:" + fmtStoreActor(sellerID) + ":" + provider), SellerID: sellerID, Provider: provider, Enabled: enabled, UpdatedAt: common.GetTimestamp()}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func storeRequirePaymentCategory(tx *gorm.DB, sellerID int, provider string) error {
 	categories, err := storePaymentCategories(tx, sellerID)
 	if err != nil {
