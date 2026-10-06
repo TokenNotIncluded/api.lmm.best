@@ -1455,7 +1455,9 @@ async fn postgres_corrections_enforce_consent_target_validation_and_retention() 
     assert_eq!(visible["items"].as_array().unwrap().len(), 1);
     assert_eq!(visible["items"][0]["id"], restarted["id"]);
     assert!(
-        !visible.to_string().contains("Historical account source was confirmed"),
+        !visible
+            .to_string()
+            .contains("Historical account source was confirmed"),
         "expired correction details must remain outside the read contract"
     );
     assert!(matches!(
