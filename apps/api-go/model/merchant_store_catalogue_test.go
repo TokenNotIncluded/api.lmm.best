@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,4 +100,59 @@ func TestMerchantStoreCatalogueIntegerFeeMatchesCheckoutAtLargeBoundary(t *testi
 			require.EqualValues(t, storeFee(price, bps), value)
 		}
 	}
+}
+
+func TestMerchantStoreCatalogueRankingIsStableAndVisibilityPrecedesPage(t *testing.T) {
+	f := storeCatalogueFixture(t)
+	require.NoError(t, DB.Model(&MerchantStoreProduct{}).Where("id = ?", f.product.ID).Update("status", "deleted").Error)
+	makeProduct := func(title, visibility string, created, promotion int64, stock bool) MerchantStoreProduct {
+		p := *f.product
+		p.ID, p.Title, p.Visibility, p.TestMode = uuid.NewString(), title, visibility, visibility == "private"
+		p.CreatedAt, p.PromotionExpiresAt, p.Status = created, promotion, "published"
+		require.NoError(t, DB.Create(&p).Error)
+		if stock {
+			// A real persisted SKU with its own stock; no synthetic availability.
+			v := MerchantStoreVariant{ID: MerchantStoreDefaultVariantID(p.ID), ProductID: p.ID, Name: "Default", PriceQuota: p.PriceQuota, Enabled: true}
+			require.NoError(t, DB.Create(&v).Error)
+			_, err := AddMerchantStoreStock(f.seller.Id, p.ID, []string{"RANK-SECRET"})
+			require.NoError(t, err)
+		}
+		return p
+	}
+	now := common.GetTimestamp()
+	promoted := makeProduct("promoted", "public", 100, now+1000, true)
+	seller := makeProduct("net seller", "public", 200, 0, true)
+	tieA := makeProduct("same time A", "public", 300, 0, true)
+	tieB := makeProduct("same time B", "public", 300, 0, true)
+	soldOut := makeProduct("promoted but sold out", "public", 900, now+1000, false)
+	hidden := makeProduct("private newest", "private", 10000, now+10000, true)
+	registered := makeProduct("registered newest", "registered", 9000, now+10000, true)
+	require.NoError(t, BackfillMerchantStoreCatalogueMappings(DB))
+	require.NoError(t, DB.Create(&MerchantStoreOrder{ID: "rank-paid", TradeNo: "rank-paid", BuyerID: f.buyer.Id, SellerID: f.seller.Id, ProductID: seller.ID, Quantity: 3, PriceQuota: 1500000, Status: "paid", PaidAt: 10}).Error)
+	ids := func(rows []MerchantStoreProduct) []string {
+		out := []string{}
+		for _, p := range rows {
+			out = append(out, p.ID)
+		}
+		return out
+	}
+	firstTie, secondTie := tieA.ID, tieB.ID
+	if firstTie > secondTie {
+		firstTie, secondTie = secondTie, firstTie
+	}
+	rows, err := ListMerchantStoreCatalogue(0, "", 0, 0, 10, MerchantStoreCatalogueQuery{Sort: "comprehensive"})
+	require.NoError(t, err)
+	require.Equal(t, []string{promoted.ID, seller.ID, firstTie, secondTie, soldOut.ID}, ids(rows))
+	rows, err = ListMerchantStoreCatalogue(0, "", 0, 1, 1, MerchantStoreCatalogueQuery{Sort: "sales"})
+	require.NoError(t, err)
+	require.Equal(t, []string{soldOut.ID}, ids(rows)) // SQL offset follows net-sale ranking.
+	rows, err = ListMerchantStoreCatalogue(0, "", 0, 0, 1, MerchantStoreCatalogueQuery{Sort: "newest"})
+	require.NoError(t, err)
+	require.Equal(t, []string{soldOut.ID}, ids(rows)) // Hidden rows never consume a page slot.
+	rows, err = ListMerchantStoreCatalogue(f.buyer.Id, "", 0, 0, 1, MerchantStoreCatalogueQuery{Sort: "newest"})
+	require.NoError(t, err)
+	require.Equal(t, []string{registered.ID}, ids(rows))
+	rows, err = ListMerchantStoreCatalogue(f.root.Id, "", 0, 0, 10, MerchantStoreCatalogueQuery{Sort: "newest"})
+	require.NoError(t, err)
+	require.NotContains(t, ids(rows), hidden.ID) // Administrator status never exposes another seller's private item.
 }
