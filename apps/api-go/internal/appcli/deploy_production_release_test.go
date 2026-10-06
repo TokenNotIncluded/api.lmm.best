@@ -137,6 +137,9 @@ func (runner *productionCanonicalPackageMetadataRunner) Run(_ context.Context, c
 	case commandPacman:
 		return []byte(productionAURPackageName + " 0.2.0-1\n"), nil
 	case commandBsdtar:
+		if len(command.Args) == 2 && command.Args[0] == "-tf" {
+			return []byte("usr/bin/lmm-api-go\nusr/share/doc/" + productionAURPackageName + "/REVISION\n"), nil
+		}
 		if len(command.Args) != 3 || command.Args[0] != "-xOf" {
 			return nil, errors.New("unexpected bsdtar arguments")
 		}

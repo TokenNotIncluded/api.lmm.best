@@ -31,6 +31,19 @@ func (runtime *productionRuntime) existingSchemaMigrationEnvironment(environment
 	if err != nil {
 		return nil, err
 	}
+	return runtime.existingSchemaMigrationValues(values, schema)
+}
+
+// Accept the already inspected effective ordered systemd environment without
+// serializing parsed secrets back through a shell/env-file quoting grammar.
+func (runtime *productionRuntime) existingSchemaMigrationValues(effective map[string]string, schema string) ([]string, error) {
+	if !isDatabaseSchema(schema) {
+		return nil, errors.New("verify-existing schema is unsafe")
+	}
+	values := make(map[string]string, len(effective))
+	for key, value := range effective {
+		values[key] = value
+	}
 	databaseURL, err := productionDatabaseURL(values)
 	if err != nil {
 		return nil, err

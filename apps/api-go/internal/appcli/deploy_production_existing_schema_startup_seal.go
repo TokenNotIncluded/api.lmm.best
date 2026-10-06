@@ -61,7 +61,12 @@ func verifyExistingSchemaSealedCommands(loaded map[string]string, binary string)
 		return nil, errors.New("loaded production unit does not start only the verified serve command")
 	}
 	commands["ExecStart"] = start
-	for _, key := range []string{"ExecStartPre", "ExecCondition", "ExecStop", "ExecStopPost"} {
+	pre, err := merchantStoreSealedStartCommand(loaded["ExecStartPre"], binary)
+	if err != nil {
+		return nil, err
+	}
+	commands["ExecStartPre"] = pre
+	for _, key := range []string{"ExecCondition", "ExecStop", "ExecStopPost"} {
 		if loaded[key] != "" {
 			return nil, errors.New("loaded production unit has an unchecked lifecycle command")
 		}
@@ -87,6 +92,34 @@ func verifyExistingSchemaSealedCommands(loaded map[string]string, binary string)
 	}
 	commands["ExecStartPost"] = strings.Join(normalized, "\n")
 	return commands, nil
+}
+
+// Only the native read-only startup checker is accepted as a pre-start hook.
+// Its entire command (including the one manifest-owned workspace) enters the
+// immutable startup digest. The checker cannot start without a live durable
+// holder, and no shell, alternate binary, arbitrary option, or ignore-error
+// pre-hook is admitted by this parser.
+func merchantStoreSealedStartCommand(value, binary string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	semantics, err := existingSchemaCommandSemantics(value)
+	if err != nil {
+		return "", errors.New("merchant startup hook has an unsafe representation")
+	}
+	parts := strings.Split(semantics, "\x00")
+	if len(parts) != 3 || parts[0] != binary || parts[2] != "no" {
+		return "", errors.New("merchant startup hook is not the canonical native checker")
+	}
+	words := strings.Fields(parts[1])
+	if len(words) != 6 || words[0] != binary || words[1] != "operator" || words[2] != "production" || words[3] != "writer-start-check" || words[4] != "--workspace" {
+		return "", errors.New("merchant startup hook has unsupported commands or arguments")
+	}
+	workspace := words[5]
+	if filepath.Clean(workspace) != workspace || filepath.Dir(workspace) != defaultProductionPaths().WorkRoot || !productionIDPattern.MatchString(filepath.Base(workspace)) {
+		return "", errors.New("merchant startup hook workspace is not a canonical native deployment workspace")
+	}
+	return semantics, nil
 }
 
 // Read a stable, singly linked, root-owned file without following any symlink

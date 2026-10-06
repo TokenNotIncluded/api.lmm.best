@@ -260,6 +260,9 @@ func (runtime *productionReleaseRuntime) stage(ctx context.Context, options prod
 	if err := runtime.verifyRemoteExistingSchema(ctx, plan, state); err != nil {
 		return productionReleaseControllerResult{}, fmt.Errorf("staged existing-schema preflight: %w", err)
 	}
+	if err := runtime.previewRemoteMerchantStoreWriters(ctx, plan, state); err != nil {
+		return productionReleaseControllerResult{}, err
+	}
 	if state.Phase == productionReleasePhaseWorkspaceCreated || state.Phase == "" {
 		state.Phase = productionReleasePhaseStaged
 		state.UpdatedUTC = utcSecond(runtime.now())
@@ -286,6 +289,9 @@ func (runtime *productionReleaseRuntime) promote(ctx context.Context, options pr
 		return productionReleaseControllerResult{}, err
 	}
 	if err := runtime.verifyRemoteStagedRelease(ctx, plan, state); err != nil {
+		return productionReleaseControllerResult{}, err
+	}
+	if err := runtime.previewRemoteMerchantStoreWriters(ctx, plan, state); err != nil {
 		return productionReleaseControllerResult{}, err
 	}
 	if !plan.WithBackups && options.AgeIdentityFile != "" {

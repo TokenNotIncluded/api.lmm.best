@@ -291,6 +291,8 @@ type productionRuntime struct {
 	billingConnections            func() (int, error)
 	billingExecutableSHA256       func(int) (string, error)
 	maintenanceProcessEnvironment func(int) ([]byte, error)
+	merchantStoreLastWriterCheck  productionMerchantStoreWriterTarget
+	merchantStoreAuthority        productionMerchantStoreAuthority
 	cleanupProcessReferences      func(string) (bool, error)
 	paths                         productionPaths
 	runner                        productionCommandRunner
@@ -316,6 +318,7 @@ func defaultProductionRuntime() *productionRuntime {
 }
 
 type productionTransactionOptions struct {
+	MerchantStoreWriter      *productionMerchantStoreWriterContract
 	SchemaMode               string
 	ExistingSchemaContract   *productionExistingSchemaContract
 	StagedPlanPath           string
@@ -379,10 +382,11 @@ type productionFrontendTransition struct {
 }
 
 type productionManifest struct {
-	SchemaMode             string                            `json:"schema_mode,omitempty"`
-	ExistingSchemaContract *productionExistingSchemaContract `json:"existing_schema_contract,omitempty"`
-	SchemaPlanSHA256       string                            `json:"schema_plan_sha256,omitempty"`
-	MaintenanceCapture     *productionMaintenanceCapture     `json:"maintenance_capture,omitempty"`
+	MerchantStoreWriter    *productionMerchantStoreWriterContract `json:"merchant_store_writer,omitempty"`
+	SchemaMode             string                                 `json:"schema_mode,omitempty"`
+	ExistingSchemaContract *productionExistingSchemaContract      `json:"existing_schema_contract,omitempty"`
+	SchemaPlanSHA256       string                                 `json:"schema_plan_sha256,omitempty"`
+	MaintenanceCapture     *productionMaintenanceCapture          `json:"maintenance_capture,omitempty"`
 
 	MaintenanceHandoff *productionMaintenanceHandoff `json:"maintenance_handoff,omitempty"`
 
@@ -507,6 +511,7 @@ func packageIntegrityClean(output []byte, name string) bool {
 }
 
 type productionPackageMetadata struct {
+	MerchantStoreWriterCapability     int
 	Name                              string
 	Version                           string
 	Identity                          string
@@ -579,6 +584,12 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		metadata.OAuthManagedTokenIsolation = capabilityErr == nil && capability == "v1"
 		billingCapability, billingCapabilityErr := readMember("MANAGED_BILLING_SETTLEMENT_CAPABILITY")
 		metadata.ManagedBillingSettlementIsolation = billingCapabilityErr == nil && billingCapability == "v1"
+	}
+	if packageName == productionAURPackageName || packageName == productionSourcePackageName {
+		metadata.MerchantStoreWriterCapability, err = runtime.merchantStorePackageCapability(ctx, packagePath, packageName)
+		if err != nil {
+			return productionPackageMetadata{}, err
+		}
 	}
 	if packageName == productionWebPackageName {
 		index, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
@@ -1334,6 +1345,11 @@ func (runtime *productionRuntime) readManifestSchema(workspace productionWorkspa
 	if err := runtime.validateManifestSchema(workspace, manifest); err != nil {
 		return productionManifest{}, err
 	}
+	if manifest.MerchantStoreWriter != nil {
+		if err := validateMerchantStoreWriterContract(manifest.MerchantStoreWriter); err != nil {
+			return productionManifest{}, err
+		}
+	}
 	if err := validateProductionExistingSchemaManifestPlan(workspace, manifest); err != nil {
 		return productionManifest{}, err
 	}
@@ -1558,6 +1574,10 @@ func validateProductionExistingSchemaManifestPlan(workspace productionWorkspace,
 	plan, err := loadStagedProductionExistingSchemaPlan(workspace, path, manifest.SchemaPlanSHA256)
 	if err != nil {
 		return err
+	}
+	if (manifest.MerchantStoreWriter == nil) != (plan.MerchantStoreWriter == nil) ||
+		(manifest.MerchantStoreWriter != nil && *manifest.MerchantStoreWriter != *plan.MerchantStoreWriter) {
+		return errors.New("merchant writer manifest qualification differs from the immutable release plan")
 	}
 	if manifest.ExistingSchemaContract == nil || *manifest.ExistingSchemaContract != *plan.ExistingSchemaContract ||
 		manifest.OperatorUser != plan.OperatorUser || manifest.ExpectedVersion != plan.ExpectedVersion ||

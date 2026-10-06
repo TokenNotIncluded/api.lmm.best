@@ -84,6 +84,17 @@ func billingBarrierBody(original []byte, body string) ([]byte, error) {
 }
 
 func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, workspace productionWorkspace, manifest *productionManifest) error {
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, *manifest, false); err != nil {
+		return err
+	}
+	if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, *manifest, false, runtime.billingRollback); err != nil {
+		return err
+	}
+	if !runtime.billingRollback {
+		if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, *manifest, false, true); err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	if runtime.paths.LocalBaseURL != "http://127.0.0.1:3000" {
@@ -311,6 +322,12 @@ func (runtime *productionRuntime) preflightBillingWriter(ctx context.Context, ma
 }
 
 func (runtime *productionRuntime) stopBillingWriter(ctx context.Context, workspace productionWorkspace, manifest *productionManifest) error {
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, *manifest, false); err != nil {
+		return err
+	}
+	if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, *manifest, false, runtime.billingRollback); err != nil {
+		return err
+	}
 	gate := manifest.BillingGate
 	if gate == nil || !gate.AdmissionClosed || !runtime.billingAdmissionClosed {
 		return errors.New("billing admission is not closed")
@@ -510,6 +527,12 @@ func (runtime *productionRuntime) verifyNoUntrackedRefunds(ctx context.Context, 
 }
 
 func (runtime *productionRuntime) reopenBillingAdmission(ctx context.Context, workspace productionWorkspace, manifest *productionManifest) error {
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, *manifest, false); err != nil {
+		return err
+	}
+	if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, *manifest, true, runtime.billingRollback); err != nil {
+		return err
+	}
 	if runtime.maintenanceHandoff != nil && !runtime.maintenanceReleasing {
 		return nil
 	}

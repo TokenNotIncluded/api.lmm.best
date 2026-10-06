@@ -298,6 +298,15 @@ func (runner *fakeProductionRunner) packageData(path string) (name, version, rev
 }
 
 func (runner *fakeProductionRunner) bsdtar(args []string) ([]byte, error) {
+	if len(args) == 2 && args[0] == "-tf" {
+		name, _, _, _, _, ok := runner.packageData(args[1])
+		if !ok {
+			return nil, errors.New("unknown inventory archive")
+		}
+		// These historical fixtures really have no merchant marker. The new
+		// ordinary writer checker must reject that absence, not invent cap1.
+		return []byte("usr/bin/lmm-api-go\nusr/share/doc/" + name + "/REVISION\nusr/share/doc/" + name + "/API_ROUTE_CONTRACT_REVISION\n"), nil
+	}
 	if len(args) != 3 || args[0] != "-xOf" {
 		return nil, fmt.Errorf("unexpected bsdtar arguments: %v", args)
 	}
@@ -730,6 +739,7 @@ func newProductionFixture(t *testing.T) productionFixture {
 	clockValue := time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)
 	runner := &fakeProductionRunner{t: t, goCandidate: goCandidate, goRollback: goRollback, webCandidate: webCandidate, webRollback: webRollback, probeBinary: probeEntrypoint, installedBinary: paths.InstalledBinary, frontendRoot: paths.FrontendRoot, oldWebIndex: filepath.Join(oldFrontend, "index.html"), newWebIndex: filepath.Join(newFrontend, "index.html"), oldVersion: oldVersion, newVersion: newVersion, oldRevision: oldRevision, newRevision: newRevision, contractRevision: contract, installedGoVersion: oldVersion, installedWebVersion: oldVersion, installedGoRevision: oldRevision, installedWebRevision: oldRevision, goRevisionFile: paths.GoRevisionFile, webRevisionFile: paths.WebRevisionFile, goContractFile: paths.GoContractFile, webContractFile: paths.WebContractFile, serviceActive: true, timerDeadline: clockValue.Add(10 * time.Minute)}
 	runtime := &productionRuntime{paths: paths, runner: runner, now: func() time.Time { return clockValue }, sleep: func(d time.Duration) { clockValue = clockValue.Add(d) }, effectiveUID: func() int { return 0 }, hostname: func() (string, error) { return productionExpectedHost, nil }, probeAttempts: 1, requiredOwnerUID: uint32(os.Getuid())}
+	runtime.merchantStoreAuthority = historicalMerchantAuthorityComponentFixture{}
 	runtime.billingConnections = func() (int, error) { return 0, nil }
 	workspace, err := runtime.openWorkspace(workspaceRoot)
 	if err != nil {

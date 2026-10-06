@@ -59,11 +59,13 @@ func productionReleaseIdentity(assetSHA256, component, workflow, tag string) str
 }
 
 type productionReleasePlanOptions struct {
-	SchemaMode               string
-	SchemaContract           string
-	SchemaContractSHA256     string
-	MaintenanceHandoffPath   string
-	MaintenanceHandoffSHA256 string
+	MerchantWriterContract       string
+	MerchantWriterContractSHA256 string
+	SchemaMode                   string
+	SchemaContract               string
+	SchemaContractSHA256         string
+	MaintenanceHandoffPath       string
+	MaintenanceHandoffSHA256     string
 
 	Repo                     string
 	Workspace                string
@@ -90,20 +92,21 @@ type productionReleasePlanOptions struct {
 }
 
 type productionReleasePackagePlan struct {
-	PackagePath           string `json:"package_path"`
-	PackageSHA256         string `json:"package_sha256"`
-	Name                  string `json:"name"`
-	Version               string `json:"version"`
-	Identity              string `json:"identity"`
-	GitRevision           string `json:"git_revision"`
-	ContractRevision      string `json:"contract_revision"`
-	PayloadSHA256         string `json:"payload_sha256"`
-	ReleaseAsset          string `json:"release_asset"`
-	ReleaseAssetSHA256    string `json:"release_asset_sha256"`
-	SignatureBundle       string `json:"signature_bundle"`
-	SignatureBundleSHA256 string `json:"signature_bundle_sha256"`
-	ReleaseTag            string `json:"release_tag"`
-	Workflow              string `json:"workflow"`
+	MerchantStoreWriterCapability int    `json:"merchant_store_writer_capability,omitempty"`
+	PackagePath                   string `json:"package_path"`
+	PackageSHA256                 string `json:"package_sha256"`
+	Name                          string `json:"name"`
+	Version                       string `json:"version"`
+	Identity                      string `json:"identity"`
+	GitRevision                   string `json:"git_revision"`
+	ContractRevision              string `json:"contract_revision"`
+	PayloadSHA256                 string `json:"payload_sha256"`
+	ReleaseAsset                  string `json:"release_asset"`
+	ReleaseAssetSHA256            string `json:"release_asset_sha256"`
+	SignatureBundle               string `json:"signature_bundle"`
+	SignatureBundleSHA256         string `json:"signature_bundle_sha256"`
+	ReleaseTag                    string `json:"release_tag"`
+	Workflow                      string `json:"workflow"`
 }
 
 type productionReleaseFilePlan struct {
@@ -112,9 +115,10 @@ type productionReleaseFilePlan struct {
 }
 
 type productionReleasePlan struct {
-	SchemaMode             string                            `json:"schema_mode,omitempty"`
-	ExistingSchemaContract *productionExistingSchemaContract `json:"existing_schema_contract,omitempty"`
-	MaintenanceHandoff     *productionMaintenanceHandoff     `json:"maintenance_handoff,omitempty"`
+	MerchantStoreWriter    *productionMerchantStoreWriterContract `json:"merchant_store_writer,omitempty"`
+	SchemaMode             string                                 `json:"schema_mode,omitempty"`
+	ExistingSchemaContract *productionExistingSchemaContract      `json:"existing_schema_contract,omitempty"`
+	MaintenanceHandoff     *productionMaintenanceHandoff          `json:"maintenance_handoff,omitempty"`
 
 	Format                    int                          `json:"format"`
 	DeploymentID              string                       `json:"deployment_id"`
@@ -179,6 +183,8 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	flags := flag.NewFlagSet(DeployProgramName+" production plan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.Repo, "repo", "", "clean api.lmm.best source checkout with fetched release tags")
+	flags.StringVar(&options.MerchantWriterContract, "merchant-writer-contract", "", "root-sealed actual candidate/rollback writer qualification")
+	flags.StringVar(&options.MerchantWriterContractSHA256, "merchant-writer-contract-sha256", "", "exact merchant writer qualification SHA-256")
 	flags.StringVar(&options.SchemaMode, "schema-mode", "", "verify-existing preserves the exact existing PostgreSQL schema without applying migrations")
 	flags.StringVar(&options.SchemaContract, "schema-contract", "", "sealed existing PostgreSQL schema contract for verify-existing")
 	flags.StringVar(&options.SchemaContractSHA256, "schema-contract-sha256", "", "exact sealed existing schema contract SHA-256")
@@ -214,6 +220,10 @@ func parseProductionReleasePlanOptions(args []string, stderr io.Writer) (product
 	}
 	if options.OperatorBinary == "" {
 		options.OperatorBinary = options.ProbeBinary
+	}
+	if (options.MerchantWriterContract == "") != (options.MerchantWriterContractSHA256 == "") ||
+		(options.MerchantWriterContractSHA256 != "" && !productionSHA256Pattern.MatchString(options.MerchantWriterContractSHA256)) {
+		return productionReleasePlanOptions{}, errors.New("merchant writer contract and its exact SHA-256 must be supplied together")
 	}
 	if options.SchemaMode != "" && options.SchemaMode != productionSchemaModeVerifyExisting {
 		return productionReleasePlanOptions{}, errors.New("--schema-mode must be verify-existing or omitted")
@@ -421,6 +431,10 @@ func (runtime *productionReleaseRuntime) createPlan(ctx context.Context, options
 		WithBackups:            options.WithBackups,
 		BackupMode:             "disabled",
 	}
+	plan.MerchantStoreWriter, err = loadMerchantStoreWriterContract(options.MerchantWriterContract, options.MerchantWriterContractSHA256)
+	if err != nil {
+		return productionReleasePlanResult{}, err
+	}
 	if options.WithBackups {
 		publicKey, err := initializeControllerBackupKey(options.Workspace)
 		if err != nil {
@@ -517,20 +531,21 @@ func (runtime *productionReleaseRuntime) verifyPackageEvidence(ctx context.Conte
 		return productionReleasePackagePlan{}, err
 	}
 	return productionReleasePackagePlan{
-		PackagePath:           packagePath,
-		PackageSHA256:         packageSHA256,
-		Name:                  metadata.Name,
-		Version:               metadata.Version,
-		Identity:              metadata.Identity,
-		GitRevision:           metadata.GitRevision,
-		ContractRevision:      metadata.ContractRevision,
-		PayloadSHA256:         payloadSHA256,
-		ReleaseAsset:          releaseAsset,
-		ReleaseAssetSHA256:    assetSHA256,
-		SignatureBundle:       signatureBundle,
-		SignatureBundleSHA256: bundleSHA256,
-		ReleaseTag:            releaseTag,
-		Workflow:              workflow,
+		MerchantStoreWriterCapability: metadata.MerchantStoreWriterCapability,
+		PackagePath:                   packagePath,
+		PackageSHA256:                 packageSHA256,
+		Name:                          metadata.Name,
+		Version:                       metadata.Version,
+		Identity:                      metadata.Identity,
+		GitRevision:                   metadata.GitRevision,
+		ContractRevision:              metadata.ContractRevision,
+		PayloadSHA256:                 payloadSHA256,
+		ReleaseAsset:                  releaseAsset,
+		ReleaseAssetSHA256:            assetSHA256,
+		SignatureBundle:               signatureBundle,
+		SignatureBundleSHA256:         bundleSHA256,
+		ReleaseTag:                    releaseTag,
+		Workflow:                      workflow,
 	}, nil
 }
 
@@ -1227,6 +1242,8 @@ func signedPackageMember(packageName, packageVersion, relative string) (packageR
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	case relative == "MANAGED_BILLING_SETTLEMENT_CAPABILITY":
 		return "usr/share/doc/" + packageName + "/" + relative, false, nil
+	case relative == merchantStoreCapabilityMember:
+		return "usr/share/doc/" + packageName + "/" + relative, false, nil
 	case packageVersion == "0.1.69-1" && relative == "CLI_TRANSITION_PHASE":
 		return "usr/share/doc/" + packageName + "/CLI_TRANSITION_PHASE", false, nil
 	default:
@@ -1244,11 +1261,12 @@ func packageReleaseVersion(packageVersion string) (string, error) {
 
 func releasePlanMetadata(plan productionReleasePackagePlan) productionPackageMetadata {
 	metadata := productionPackageMetadata{
-		Name:             plan.Name,
-		Version:          plan.Version,
-		Identity:         plan.Identity,
-		GitRevision:      plan.GitRevision,
-		ContractRevision: plan.ContractRevision,
+		MerchantStoreWriterCapability: plan.MerchantStoreWriterCapability,
+		Name:                          plan.Name,
+		Version:                       plan.Version,
+		Identity:                      plan.Identity,
+		GitRevision:                   plan.GitRevision,
+		ContractRevision:              plan.ContractRevision,
 	}
 	if plan.Name == productionWebPackageName {
 		metadata.IndexSHA256 = plan.PayloadSHA256
@@ -1307,6 +1325,9 @@ func loadProductionReleasePlan(path, expectedSHA256 string) (productionReleasePl
 
 // pi-lens-ignore: go-bare-error
 func validateProductionReleasePlan(plan productionReleasePlan) error {
+	if err := validateMerchantStoreWriterPlan(plan); err != nil {
+		return err
+	}
 	if plan.Format != productionReleasePlanFormat && plan.Format != 5 && plan.Format != productionExistingSchemaPlanFormat {
 		return errors.New("unsupported release plan format")
 	}
