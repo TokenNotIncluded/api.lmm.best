@@ -195,8 +195,8 @@ func TestPublicTopUpCreditCannotFallThroughLegacyAmountResolver(t *testing.T) {
 func TestPublicTopUpMetadataPairsDecimalProjectionWithLedgerSelection(t *testing.T) {
 	publicTopUpCreditTestConfig(t, "500000")
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
-	operation_setting.GetPaymentSetting().AmountOptions = []int{5000000, 10000000}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{5000000: 0.9}
+	operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{"5000000", "10000000"}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"5000000": 0.9}
 	operation_setting.PayMethods = []map[string]string{{"name": "Custom", "type": "custom", "min_topup": "1", "max_topup": "2.5"}}
 	methods := sanitizedPaymentMethods(operation_setting.PayMethods)
 	require.Len(t, methods, 1)
@@ -220,8 +220,8 @@ func TestPublicTopUpMetadataPairsDecimalProjectionWithLedgerSelection(t *testing
 	require.Equal(t, "500000", methods[0]["min_topup_public_credit"])
 	require.Equal(t, "1250000", methods[0]["max_topup_credit"])
 	require.Equal(t, "1250000", methods[0]["max_topup_public_credit"])
-	require.Equal(t, []int{5000000, 10000000}, operation_setting.GetPaymentSetting().AmountOptions)
-	require.Equal(t, map[int]float64{5000000: 0.9}, operation_setting.GetPaymentSetting().AmountDiscount)
+	require.Equal(t, operation_setting.PaymentAmountOptions{"5000000", "10000000"}, operation_setting.GetPaymentSetting().AmountOptions)
+	require.Equal(t, operation_setting.PaymentAmountDiscount{"5000000": 0.9}, operation_setting.GetPaymentSetting().AmountDiscount)
 	fields := topUpCreditFields("LEDGER_QUOTA", decimal.NewFromInt(10), 5000000, "CNY")
 	require.EqualValues(t, 5000000, fields["credited_quota"])
 	require.EqualValues(t, 5000000, fields["credit_amount"])
@@ -254,7 +254,7 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 	operation_setting.USDExchangeRate = 7
 	operation_setting.PayMethods = []map[string]string{{"type": "alipay"}}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{5000000: 0.9}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"5000000": 0.9}
 	code := model.DiscountCode{Code: "PUBLIC_CREDIT_SNAPSHOT", DiscountPercent: 10, MinAmount: 5000000, Status: model.DiscountCodeStatusEnabled}
 	require.NoError(t, model.DB.Create(&code).Error)
 	previousAddress, previousID, previousKey := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey
@@ -294,7 +294,7 @@ func runPublicTopUpQuoteCheckoutAndHistoricalRefund(t *testing.T, postgres bool)
 	require.Error(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(250000)))
 	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.USDExchangeRate = 9
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	settlement := model.ExternalTopUpSettlement{TradeNo: order.TradeNo, PaymentProvider: model.PaymentProviderEpay,
 		PaymentMethod: "alipay", ProviderEventId: "public-credit-event", ProviderTransactionId: "public-credit-transaction",
 		SettlementCurrency: "CNY", SettledAmountMicros: 56700000}

@@ -89,7 +89,7 @@ func TestRustEpayCurrentGoOracle(t *testing.T) {
 			system_setting.ServerAddress = "https://console.example"
 			operation_setting.PayMethods = fixture.Methods
 			operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 			operation_setting.GetPaymentSetting().ComplianceConfirmed = true
 			operation_setting.GetPaymentSetting().ComplianceTermsVersion = "v1"
 			require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))

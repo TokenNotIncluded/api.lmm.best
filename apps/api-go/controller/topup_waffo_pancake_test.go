@@ -54,10 +54,10 @@ func TestGetWaffoPancakePayMoney(t *testing.T) {
 	setting.WaffoPancakeUnitPrice = 999
 	operation_setting.USDExchangeRate = 6.8
 	operation_setting.TopUpPlatformUnitsPerCNY = 1
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{
-		10:                           0.8,
-		int(common.QuotaPerUnit * 3): 0.5,
-		20:                           0,
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{
+		"10": 0.8,
+		decimal.NewFromFloat(common.QuotaPerUnit * 3).String(): 0.5,
+		"20": 0,
 	}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1,"vip":1.2}`))
 

@@ -49,7 +49,7 @@ func TestTopUpSettlementQuoteCapturesActualSameCurrencyDiscounts(t *testing.T) {
 			operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 			operation_setting.USDExchangeRate = 7
 			operation_setting.PayMethods = []map[string]string{{"type": tc.method}}
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{int(tc.quota): 0.9}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{fmt.Sprint(tc.quota): 0.9}
 			require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", 706).Update("setting", `{"settlement_currency":"CNY"}`).Error)
 			body := fmt.Sprintf(`{"amount":%d,"amount_unit":"LEDGER_QUOTA","credit_metadata_version":2,"payment_method":%q}`, tc.quota, tc.method)
 			response := publicCreditRequest(t, tc.handler, 706, body)
@@ -95,7 +95,7 @@ func TestTopUpSettlementQuoteIncludesFeesAndOmitsNoActualSavings(t *testing.T) {
 			operation_setting.USDExchangeRate = 7
 			operation_setting.PayMethods = []map[string]string{{"type": "alipay", "topup_ratio": tc.paymentRatio}}
 			require.NoError(t, common.UpdateTopupGroupRatioByJSONString(fmt.Sprintf(`{"default":%s}`, tc.groupRatio)))
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{50000000: tc.preset}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"50000000": tc.preset}
 			response := publicCreditRequest(t, RequestAmount, 707, `{"amount":50000000,"amount_unit":"LEDGER_QUOTA","credit_metadata_version":2,"payment_method":"alipay"}`)
 			var decoded map[string]any
 			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &decoded))
@@ -121,7 +121,7 @@ func TestTopUpSettlementQuoteKeepsCouponEligibilityAndPancakeLegacyBasis(t *test
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 	operation_setting.USDExchangeRate = 7
 	operation_setting.PayMethods = []map[string]string{{"type": model.PaymentMethodWaffoPancake}}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{50000000: 0.9}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"50000000": 0.9}
 	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", 708).Update("setting", `{"settlement_currency":"CNY"}`).Error)
 	for _, code := range []model.DiscountCode{
 		{Code: "ELIGIBLE_SAME_QUOTE", DiscountPercent: 10, MinAmount: 50000000, Status: model.DiscountCodeStatusEnabled},
@@ -176,7 +176,7 @@ func TestTopUpSettlementQuoteRejectsMixedCurrenciesVATOrUncapturedBasis(t *testi
 func TestTopUpSettlementQuotePreservesFinalRoundingAndSmallSavings(t *testing.T) {
 	publicTopUpCreditTestConfig(t, "500000")
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1: 0.9}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"1": 0.9}
 	original, paid := applyTopUpSettlementRatiosWithOriginal(decimal.RequireFromString("100.005"), decimal.NewFromInt(1), "default", decimal.NewFromInt(1))
 	// Applying 0.9 after rounding the display original would charge 90.01.
 	// The actual preexisting quote rounds only the final payable amount.

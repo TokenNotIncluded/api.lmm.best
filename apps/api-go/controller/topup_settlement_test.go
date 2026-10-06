@@ -110,7 +110,7 @@ func TestStripeQuoteAndCheckoutLineItemUseSameCanonicalAmount(t *testing.T) {
 	previousDiscounts := operation_setting.GetPaymentSetting().AmountDiscount
 	common.QuotaPerUnit = 500_000
 	setting.StripeUnitPrice = 8
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1_000_000: 0.8}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"1000000": 0.8}
 	t.Cleanup(func() {
 		operation_setting.GetGeneralSetting().QuotaDisplayType = previousDisplayType
 		common.QuotaPerUnit = previousQuotaPerUnit
@@ -185,8 +185,8 @@ func configureNeutralTopUpInfoTest(t *testing.T) {
 
 	paymentSetting.ComplianceConfirmed = true
 	paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
-	paymentSetting.AmountOptions = []int{7, 14}
-	paymentSetting.AmountDiscount = map[int]float64{14: 0.9}
+	paymentSetting.AmountOptions = operation_setting.PaymentAmountOptions{"7", "14"}
+	paymentSetting.AmountDiscount = operation_setting.PaymentAmountDiscount{"14": 0.9}
 	operation_setting.MinTopUp = 7
 	operation_setting.PayAddress = "https://provider-secret.invalid"
 	operation_setting.EpayId = "merchant-secret"

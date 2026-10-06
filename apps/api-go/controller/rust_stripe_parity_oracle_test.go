@@ -33,9 +33,13 @@ func preserveRustStripeOraclePricing(t *testing.T) {
 	previousCredits, previousErr := common.CreditsPerUSD()
 	previousLegacy, previousLegacyErr := common.LegacyPricingQuotaPerUnit()
 	previousPublic, previousPublicErr := common.PublicCreditsPerUSD()
+	previousAPISecret, previousWebhookSecret := setting.StripeApiSecret, setting.StripeWebhookSecret
+	previousPriceID, previousMinimum := setting.StripePriceId, setting.StripeMinTopUp
 	// Restore the complete immutable basis after preserveChannelPricing's
 	// cleanup, including a legacy calibration different from the live setting.
 	t.Cleanup(func() {
+		setting.StripeApiSecret, setting.StripeWebhookSecret = previousAPISecret, previousWebhookSecret
+		setting.StripePriceId, setting.StripeMinTopUp = previousPriceID, previousMinimum
 		common.QuotaPerUnit = previousQuota
 		if previousPublicErr != nil || (previousErr == nil && previousPublic.Equal(previousCredits)) {
 			common.ClearPublicCreditsPerUSD()
@@ -56,6 +60,26 @@ func preserveRustStripeOraclePricing(t *testing.T) {
 	// FX and recharge bonuses never redefine the fixed credit/USD contract.
 	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
 	require.NoError(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(500000)))
+}
+
+func TestRustStripeOraclePricingRestoresGatewayAvailability(t *testing.T) {
+	originalSecret, originalWebhook := setting.StripeApiSecret, setting.StripeWebhookSecret
+	originalPrice, originalMinimum := setting.StripePriceId, setting.StripeMinTopUp
+	t.Cleanup(func() {
+		setting.StripeApiSecret, setting.StripeWebhookSecret = originalSecret, originalWebhook
+		setting.StripePriceId, setting.StripeMinTopUp = originalPrice, originalMinimum
+	})
+	setting.StripeApiSecret, setting.StripeWebhookSecret, setting.StripePriceId = "", "", ""
+	setting.StripeMinTopUp = 7
+	t.Run("oracle fixture", func(t *testing.T) {
+		preserveRustStripeOraclePricing(t)
+		setting.StripeApiSecret, setting.StripeWebhookSecret = "sk_fixture", "whsec_fixture"
+		setting.StripePriceId, setting.StripeMinTopUp = "price_fixture", 1
+	})
+	require.Empty(t, setting.StripeApiSecret)
+	require.Empty(t, setting.StripeWebhookSecret)
+	require.Empty(t, setting.StripePriceId)
+	require.Equal(t, 7, setting.StripeMinTopUp)
 }
 
 func TestRustStripeOraclePricingRestoresCurrencyBasis(t *testing.T) {
@@ -134,7 +158,7 @@ func TestRustStripeCurrentGoOracle(t *testing.T) {
 	common.QuotaForInviter = 75
 	operation_setting.PayMethods = []map[string]string{{"type": "alipay"}}
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 	setting.StripeApiSecret = "sk_fixture"
 	setting.StripeWebhookSecret = "whsec_fixture"

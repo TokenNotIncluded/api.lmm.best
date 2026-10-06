@@ -34,22 +34,24 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 	}
 	quotaPerBatch := decimal.NewFromFloat(common.QuotaPerUnit)
 	tokens := operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens
-	catalogCredit := func(amount int) (int64, error) {
-		value := decimal.NewFromInt(int64(amount))
-		if !tokens {
-			value = value.Mul(quotaPerBatch)
+	catalogCredit := func(raw string, discount bool) (int64, error) {
+		var value decimal.Decimal
+		var err error
+		if discount {
+			value, err = operation_setting.ParsePaymentDiscountAmount(raw)
+		} else {
+			value, err = operation_setting.ParsePaymentAmount(raw)
 		}
-		credits, err := topUpMetadataCreditInteger(value.Floor())
-		if err != nil || credits <= 0 {
-			return 0, fmt.Errorf("invalid top-up credit catalog amount %d", amount)
+		if err != nil {
+			return 0, err
 		}
-		return credits, nil
+		return operation_setting.PaymentConfigAmountCredit(value, tokens)
 	}
 
 	paymentSetting := operation_setting.GetPaymentSetting()
 	options := make([]int64, 0, len(paymentSetting.AmountOptions))
 	for _, amount := range paymentSetting.AmountOptions {
-		credits, err := catalogCredit(amount)
+		credits, err := catalogCredit(amount.String(), false)
 		if err != nil {
 			return nil, err
 		}
@@ -57,12 +59,12 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 	}
 	discounts := make(map[string]float64, len(paymentSetting.AmountDiscount))
 	for amount, discount := range paymentSetting.AmountDiscount {
-		credits, err := catalogCredit(amount)
+		credits, err := catalogCredit(amount, true)
 		if err != nil {
 			return nil, err
 		}
 		if math.IsNaN(discount) || math.IsInf(discount, 0) || discount <= 0 {
-			return nil, fmt.Errorf("invalid top-up discount for catalog amount %d", amount)
+			return nil, fmt.Errorf("invalid top-up discount for catalog amount %s", amount)
 		}
 		key := strconv.FormatInt(credits, 10)
 		if previous, exists := discounts[key]; exists && previous != discount {

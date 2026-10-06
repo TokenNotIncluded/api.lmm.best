@@ -3046,7 +3046,7 @@ func executeAssistantPlanOffersTool(userID int) map[string]any {
 		"checkout_available":           checkoutAvailable,
 		"payment_hidden":               paymentHidden,
 		"plans":                        []SubscriptionPlanDTO{},
-		"topup_discounts":              map[int]float64{},
+		"topup_discounts":              map[string]float64{},
 		"payment_compliance_confirmed": complianceConfirmed,
 	}
 	if paymentHidden {
@@ -3069,7 +3069,7 @@ func executeAssistantPlanOffersTool(userID int) map[string]any {
 		plan.NormalizeDefaults()
 		planValues = append(planValues, SubscriptionPlanDTO{Plan: plan})
 	}
-	discountValues := make(map[int]float64, len(operation_setting.GetPaymentSetting().AmountDiscount))
+	discountValues := make(map[string]float64, len(operation_setting.GetPaymentSetting().AmountDiscount))
 	if !paymentHidden {
 		for amount, multiplier := range operation_setting.GetPaymentSetting().AmountDiscount {
 			discountValues[amount] = multiplier

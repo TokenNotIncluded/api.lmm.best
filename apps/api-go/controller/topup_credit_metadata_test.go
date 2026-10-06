@@ -66,8 +66,8 @@ func preserveTopUpCreditMetadataConfig(t *testing.T) {
 	general.QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
 	operation_setting.USDExchangeRate = 7
 	operation_setting.TopUpPlatformUnitsPerCNY = 1
-	payment.AmountOptions = []int{1, 10}
-	payment.AmountDiscount = map[int]float64{10: 0.9}
+	payment.AmountOptions = operation_setting.PaymentAmountOptions{"1", "10"}
+	payment.AmountDiscount = operation_setting.PaymentAmountDiscount{"10": 0.9}
 	operation_setting.PayMethods = []map[string]string{}
 	operation_setting.MinTopUp = 1
 	setting.StripeMinTopUp = 2
@@ -116,8 +116,8 @@ func TestTopUpCreditMetadataConvertsLegacyCatalogOnce(t *testing.T) {
 			require.Equal(t, map[string]float64{"5000000": 0.9}, metadata["credit_discount"])
 			requireTopUpCreditMetadataMinima(t, metadata, 500000, 1000000, 1500000, 2000000)
 			require.NotContains(t, metadata, "pay_methods")
-			require.Equal(t, []int{1, 10}, operation_setting.GetPaymentSetting().AmountOptions)
-			require.Equal(t, map[int]float64{10: 0.9}, operation_setting.GetPaymentSetting().AmountDiscount)
+			require.Equal(t, operation_setting.PaymentAmountOptions{"1", "10"}, operation_setting.GetPaymentSetting().AmountOptions)
+			require.Equal(t, operation_setting.PaymentAmountDiscount{"10": 0.9}, operation_setting.GetPaymentSetting().AmountDiscount)
 		})
 	}
 }
@@ -125,8 +125,8 @@ func TestTopUpCreditMetadataConvertsLegacyCatalogOnce(t *testing.T) {
 func TestTopUpCreditMetadataTokensCatalogAlreadyContainsRawCredits(t *testing.T) {
 	preserveTopUpCreditMetadataConfig(t)
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
-	operation_setting.GetPaymentSetting().AmountOptions = []int{500000, 5000000, 500000}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{5000000: 0.9}
+	operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{"500000", "5000000", "500000"}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"5000000": 0.9}
 	metadata, err := topUpCreditMetadata(nil)
 	require.NoError(t, err)
 	require.Equal(t, []int64{500000, 5000000, 500000}, metadata["credit_amount_options"])
@@ -361,8 +361,8 @@ func TestTopUpCreditMetadataUsesCompleteMinimumForEachProvider(t *testing.T) {
 func TestTopUpCreditMetadataAllowsZeroMinimumAndClosedMethod(t *testing.T) {
 	preserveTopUpCreditMetadataConfig(t)
 	operation_setting.MinTopUp, setting.StripeMinTopUp, setting.WaffoMinTopUp, setting.WaffoPancakeMinTopUp = 0, 0, 0, 0
-	operation_setting.GetPaymentSetting().AmountOptions = []int{}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	operation_setting.PayMethods = []map[string]string{{
 		"name": "Closed", "type": "closed", "min_topup": "0", "max_topup": "0.0000001",
 	}}
@@ -388,44 +388,44 @@ func TestTopUpCreditMetadataRejectsInvalidConfigurationWithoutPartialMutation(t 
 		{"infinite runtime calibration", func(_ *testing.T, _ []map[string]string) { common.QuotaPerUnit = math.Inf(1) }},
 		{"runtime calibration differs from immutable basis", func(_ *testing.T, _ []map[string]string) { common.QuotaPerUnit = 300000 }},
 		{"zero catalog amount", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountOptions = []int{0}
+			operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{"0"}
 		}},
 		{"negative catalog amount", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountOptions = []int{-1}
+			operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{"-1"}
 		}},
 		{"unsafe legacy catalog amount", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountOptions = []int{100000000000}
+			operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{"100000000000"}
 		}},
 		{"unsafe raw catalog amount", func(_ *testing.T, _ []map[string]string) {
 			operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
-			operation_setting.GetPaymentSetting().AmountOptions = []int{9007199254740992}
+			operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{"9007199254740992"}
 		}},
 		{"negative gateway minimum", func(_ *testing.T, _ []map[string]string) { setting.WaffoPancakeMinTopUp = -1 }},
 		{"unsafe gateway minimum", func(_ *testing.T, _ []map[string]string) { setting.StripeMinTopUp = 100000000000 }},
 		{"zero discount threshold", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{0: 0.9}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"0": 0.9}
 		}},
 		{"negative discount threshold", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{-1: 0.9}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"-1": 0.9}
 		}},
 		{"unsafe discount threshold", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{100000000000: 0.9}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"100000000000": 0.9}
 		}},
 		{"zero discount factor", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1: 0}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"1": 0}
 		}},
 		{"negative discount factor", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1: -1}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"1": -1}
 		}},
 		{"nonfinite discount factor", func(_ *testing.T, _ []map[string]string) {
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1: math.NaN()}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"1": math.NaN()}
 		}},
 		{"nonfixed fractional legacy scale with conflicting discount thresholds", func(t *testing.T, _ []map[string]string) {
 			common.QuotaPerUnit = 0.25
 			require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.RequireFromString("0.25")))
 			persistCreditDenominationFixture(t, model.DB)
-			operation_setting.GetPaymentSetting().AmountOptions = []int{4}
-			operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{4: 0.9, 5: 0.8}
+			operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{"4"}
+			operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"4": 0.9, "5": 0.8}
 		}},
 		{"unknown minimum unit", func(_ *testing.T, methods []map[string]string) { methods[1]["min_topup_unit"] = "DOGE" }},
 		{"negative automatic minimum", func(_ *testing.T, methods []map[string]string) { methods[1]["legacy_min_topup"] = "-1" }},

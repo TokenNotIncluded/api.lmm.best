@@ -141,7 +141,7 @@ func TestWaffoPancakeTopUpCurrencyPreservesPlatformCredits(t *testing.T) {
 	operation_setting.USDExchangeRate = 6.6
 	operation_setting.TopUpPlatformUnitsPerCNY = 2
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 
 	amount := decimal.RequireFromString("19.8")

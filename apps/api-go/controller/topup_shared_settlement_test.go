@@ -19,7 +19,7 @@ func TestSharedSettlementPricingPreservesCanonicalRechargeRatios(t *testing.T) {
 		"name": "LINUX DO Credit", "type": "epay", "settlement_unit": "LDC",
 		"unit_price": "10", "topup_ratio": "0.5",
 	}}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1: 0.8}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"1": 0.8}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1,"ldc":0.14}`))
 	pricing, err := getPayMethodSettlementPricing("epay")
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func TestSharedSettlementPricingPairedLDCIgnoresInvalidCNYFX(t *testing.T) {
 		"name": "LINUX DO Credit", "type": "epay", "settlement_unit": "LDC",
 		"settlement_units_per_usd": "1",
 	}}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 	pricing, err := getPayMethodSettlementPricing("epay")
 	require.NoError(t, err)

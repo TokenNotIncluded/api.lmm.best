@@ -194,8 +194,8 @@ func GetTopUpInfo(c *gin.Context) {
 			ActivationRequired:             !access.Granted,
 			PaymentAvailable:               false,
 			PayMethods:                     []map[string]string{},
-			AmountOptions:                  []int{},
-			Discount:                       map[int]float64{},
+			AmountOptions:                  operation_setting.PaymentAmountOptions{},
+			Discount:                       operation_setting.PaymentAmountDiscount{},
 			EnableRedemption:               complianceConfirmed,
 			PaymentComplianceConfirmed:     complianceConfirmed,
 			PaymentComplianceTermsVersion:  operation_setting.CurrentComplianceTermsVersion,
@@ -295,39 +295,39 @@ func GetTopUpInfo(c *gin.Context) {
 }
 
 type neutralTopUpInfo struct {
-	LegacyAmountUnit               string              `json:"legacy_amount_unit"`
-	LegacyAmountOptions            []float64           `json:"legacy_amount_options"`
-	LegacyDiscount                 map[string]float64  `json:"legacy_discount"`
-	AmountUnit                     string              `json:"amount_unit"`
-	CurrencyUnit                   string              `json:"currency_unit"`
-	DeveloperAccessGranted         bool                `json:"developer_access_granted"`
-	ActivationRequired             bool                `json:"activation_required"`
-	PaymentAvailable               bool                `json:"payment_available"`
-	MinPayment                     float64             `json:"min_payment"`
-	EnableOnlineTopUp              bool                `json:"enable_online_topup"`
-	EnableStripeTopUp              bool                `json:"enable_stripe_topup"`
-	EnableCreemTopUp               bool                `json:"enable_creem_topup"`
-	EnableWaffoTopUp               bool                `json:"enable_waffo_topup"`
-	WaffoCurrency                  string              `json:"waffo_currency,omitempty"`
-	WaffoUnitPrice                 float64             `json:"waffo_unit_price,omitempty"`
-	EnableWaffoPancakeTopUp        bool                `json:"enable_waffo_pancake_topup"`
-	WaffoPancakeCurrency           string              `json:"waffo_pancake_currency"`
-	EnableStripeSubscription       bool                `json:"enable_stripe_subscription"`
-	EnableCreemSubscription        bool                `json:"enable_creem_subscription"`
-	EnableWaffoPancakeSubscription bool                `json:"enable_waffo_pancake_subscription"`
-	EnableRedemption               bool                `json:"enable_redemption"`
-	PayMethods                     []map[string]string `json:"pay_methods"`
-	CreemProducts                  string              `json:"creem_products"`
-	WaffoPayMethods                interface{}         `json:"waffo_pay_methods"`
-	MinTopUp                       int                 `json:"min_topup"`
-	StripeMinTopUp                 int                 `json:"stripe_min_topup"`
-	WaffoMinTopUp                  int                 `json:"waffo_min_topup"`
-	WaffoPancakeMinTopUp           int                 `json:"waffo_pancake_min_topup"`
-	TopUpLink                      string              `json:"topup_link"`
-	AmountOptions                  []int               `json:"amount_options"`
-	Discount                       map[int]float64     `json:"discount"`
-	PaymentComplianceConfirmed     bool                `json:"payment_compliance_confirmed"`
-	PaymentComplianceTermsVersion  string              `json:"payment_compliance_terms_version"`
+	LegacyAmountUnit               string                                  `json:"legacy_amount_unit"`
+	LegacyAmountOptions            []float64                               `json:"legacy_amount_options"`
+	LegacyDiscount                 map[string]float64                      `json:"legacy_discount"`
+	AmountUnit                     string                                  `json:"amount_unit"`
+	CurrencyUnit                   string                                  `json:"currency_unit"`
+	DeveloperAccessGranted         bool                                    `json:"developer_access_granted"`
+	ActivationRequired             bool                                    `json:"activation_required"`
+	PaymentAvailable               bool                                    `json:"payment_available"`
+	MinPayment                     float64                                 `json:"min_payment"`
+	EnableOnlineTopUp              bool                                    `json:"enable_online_topup"`
+	EnableStripeTopUp              bool                                    `json:"enable_stripe_topup"`
+	EnableCreemTopUp               bool                                    `json:"enable_creem_topup"`
+	EnableWaffoTopUp               bool                                    `json:"enable_waffo_topup"`
+	WaffoCurrency                  string                                  `json:"waffo_currency,omitempty"`
+	WaffoUnitPrice                 float64                                 `json:"waffo_unit_price,omitempty"`
+	EnableWaffoPancakeTopUp        bool                                    `json:"enable_waffo_pancake_topup"`
+	WaffoPancakeCurrency           string                                  `json:"waffo_pancake_currency"`
+	EnableStripeSubscription       bool                                    `json:"enable_stripe_subscription"`
+	EnableCreemSubscription        bool                                    `json:"enable_creem_subscription"`
+	EnableWaffoPancakeSubscription bool                                    `json:"enable_waffo_pancake_subscription"`
+	EnableRedemption               bool                                    `json:"enable_redemption"`
+	PayMethods                     []map[string]string                     `json:"pay_methods"`
+	CreemProducts                  string                                  `json:"creem_products"`
+	WaffoPayMethods                interface{}                             `json:"waffo_pay_methods"`
+	MinTopUp                       int                                     `json:"min_topup"`
+	StripeMinTopUp                 int                                     `json:"stripe_min_topup"`
+	WaffoMinTopUp                  int                                     `json:"waffo_min_topup"`
+	WaffoPancakeMinTopUp           int                                     `json:"waffo_pancake_min_topup"`
+	TopUpLink                      string                                  `json:"topup_link"`
+	AmountOptions                  operation_setting.PaymentAmountOptions  `json:"amount_options"`
+	Discount                       operation_setting.PaymentAmountDiscount `json:"discount"`
+	PaymentComplianceConfirmed     bool                                    `json:"payment_compliance_confirmed"`
+	PaymentComplianceTermsVersion  string                                  `json:"payment_compliance_terms_version"`
 }
 
 type subscriptionPaymentAvailability struct {
@@ -1018,12 +1018,8 @@ func applyTopUpSettlementRatiosWithOriginal(settlementAmount, discountAmount dec
 	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
 	// apply optional preset discount by the original request amount (if configured), default 1.0
 	discount := 1.0
-	if discountAmount.Equal(discountAmount.Truncate(0)) && discountAmount.IsInteger() {
-		if key, ok := decimalInt64Truncated(discountAmount); ok {
-			if ds, exists := operation_setting.GetPaymentSetting().AmountDiscount[int(key)]; exists && ds > 0 {
-				discount = ds
-			}
-		}
+	if ds, exists := operation_setting.GetPaymentSetting().AmountDiscount[discountAmount.String()]; exists && ds > 0 {
+		discount = ds
 	}
 	dDiscount := decimal.NewFromFloat(discount)
 
