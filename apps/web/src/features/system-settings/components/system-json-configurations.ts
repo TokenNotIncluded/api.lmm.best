@@ -927,12 +927,12 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
       },
     ]
   ),
-  'payment_setting.amount_options': configuration([10, 20, 50], 'number[]', [
+  'payment_setting.amount_options': configuration([10, 20, 50], 'integer[]', [
     {
       path: '[]',
-      type: 'number',
+      type: 'integer',
       required: true,
-      rules: 'minimum: 0; finite: true',
+      rules: 'minimum: 1; maximum: 9007199254740991',
       example: '20',
     },
   ]),

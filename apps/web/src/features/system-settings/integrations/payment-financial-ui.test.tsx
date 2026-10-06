@@ -54,6 +54,10 @@ const { useAuthStore } = await import('@/stores/auth-store')
 const { LegacyUsdMinimumInput } = await import('./legacy-usd-minimum-input')
 const { PaymentMethodDialog } = await import('./payment-method-dialog')
 const { WaffoSettingsSection } = await import('./waffo-settings-section')
+const { AmountOptionsVisualEditor } =
+  await import('./amount-options-visual-editor')
+const { AmountDiscountVisualEditor } =
+  await import('./amount-discount-visual-editor')
 const originalConfig = useSystemConfigStore.getState().config
 const originalAuth = useAuthStore.getState().auth
 const i18n = createInstance()
@@ -430,5 +434,75 @@ test('Waffo shows its integer minimum as actual USD and emits legacy integers fo
     assert.deepEqual(changes, [{ key: 'WaffoMinTopUp', value: 10 }])
   } finally {
     await ui.close()
+  }
+})
+
+test('visual recharge presets reject fractions and unsafe numbers without changing existing options', async () => {
+  const changes: string[] = []
+  const ui = await render(
+    <AmountOptionsVisualEditor
+      value='[10,20,35,50,100,200,500,1000]'
+      onChange={(value) => changes.push(value)}
+    />
+  )
+  try {
+    const input = ui.container.querySelector<HTMLInputElement>('#new-amount')
+    assert.ok(input)
+    assert.equal(input.step, '1')
+    assert.equal(input.min, '1')
+    const add = [
+      ...ui.container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((button) => button.textContent?.includes('Add'))
+    assert.ok(add)
+    for (const invalid of [
+      '3.5',
+      '0',
+      '-1',
+      '9007199254740992',
+      '9007199254740991.1',
+    ]) {
+      await edit(input, invalid)
+      assert.equal(add.disabled, true)
+      await act(async () => {
+        add.click()
+        await flush()
+      })
+      assert.deepEqual(changes, [])
+    }
+    await edit(input, '75')
+    assert.equal(add.disabled, false)
+    await act(async () => {
+      add.click()
+      await flush()
+    })
+    assert.deepEqual(
+      JSON.parse(changes[0]),
+      [10, 20, 35, 50, 75, 100, 200, 500, 1000]
+    )
+  } finally {
+    await ui.close()
+  }
+})
+
+test('administrator discount badges use the percent-off translation in both layouts', async () => {
+  await i18n.changeLanguage('zh')
+  i18n.addResource('zh', 'translation', '{{percent}}% off', '立减 {{percent}}%')
+  i18n.addResource('zh', 'translation', 'off', '关闭')
+  const ui = await render(
+    <AmountDiscountVisualEditor
+      value='{"1000":0.9}'
+      onChange={() => assert.fail('rendering cannot change a discount')}
+    />
+  )
+  try {
+    assert.equal(ui.container.textContent?.includes('关闭'), false)
+    assert.equal(
+      ui.container.textContent?.split('立减 10%').length,
+      3,
+      'desktop and mobile discount labels are correct'
+    )
+  } finally {
+    await ui.close()
+    await i18n.changeLanguage('en')
   }
 })

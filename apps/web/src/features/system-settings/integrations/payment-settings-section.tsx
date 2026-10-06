@@ -61,6 +61,7 @@ import { AmountDiscountVisualEditor } from './amount-discount-visual-editor'
 import { AmountOptionsVisualEditor } from './amount-options-visual-editor'
 import { CreemProductsVisualEditor } from './creem-products-visual-editor'
 import { LegacyUsdMinimumInput } from './legacy-usd-minimum-input'
+import { paymentAmountOptionsSchema } from './payment-amount-options'
 import { PaymentMethodsVisualEditor } from './payment-methods-visual-editor'
 import {
   formatJsonForEditor,
@@ -118,15 +119,7 @@ const paymentSchema = z.object({
       })
     }
   }),
-  AmountOptions: z.string().superRefine((value, ctx) => {
-    const error = getJsonError(value, (parsed) => Array.isArray(parsed))
-    if (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: error,
-      })
-    }
-  }),
+  AmountOptions: paymentAmountOptionsSchema,
   AmountDiscount: z.string().superRefine((value, ctx) => {
     const error = getJsonError(
       value,

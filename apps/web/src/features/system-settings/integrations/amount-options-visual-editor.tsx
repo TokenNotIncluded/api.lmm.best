@@ -26,8 +26,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatPlatformAmount } from '@/lib/currency'
 
-import { safeJsonParseWithValidation } from '../utils/json-parser'
-import { isArray } from '../utils/json-validators'
+import {
+  paymentAmountOptionsSchema,
+  isPaymentAmountInput,
+} from './payment-amount-options'
 
 type AmountOptionsVisualEditorProps = {
   value: string
@@ -42,22 +44,14 @@ export function AmountOptionsVisualEditor({
   const [newAmount, setNewAmount] = useState('')
 
   const amounts = useMemo(() => {
-    const parsed = safeJsonParseWithValidation<unknown[]>(value, {
-      fallback: [],
-      validator: isArray,
-      validatorMessage: t('Amount options must be a JSON array'),
-      context: 'amount options',
-    })
-
-    return parsed
-      .filter((item) => typeof item === 'number' || !Number.isNaN(Number(item)))
-      .map(Number)
-      .sort((a, b) => a - b)
-  }, [value, t])
+    const parsed = paymentAmountOptionsSchema.safeParse(value)
+    if (!parsed.success) return []
+    return (JSON.parse(parsed.data) as number[]).sort((a, b) => a - b)
+  }, [value])
 
   const handleAdd = () => {
-    const amount = Number.parseFloat(newAmount)
-    if (Number.isNaN(amount) || amount <= 0) {
+    const amount = Number(newAmount)
+    if (!isPaymentAmountInput(newAmount)) {
       return
     }
 
@@ -144,13 +138,19 @@ export function AmountOptionsVisualEditor({
           <Input
             id='new-amount'
             type='number'
-            step='0.01'
-            min='0'
+            step='1'
+            min='1'
+            max={Number.MAX_SAFE_INTEGER}
             placeholder={t('e.g., 100')}
             value={newAmount}
             onChange={(e) => setNewAmount(e.target.value)}
             onKeyDown={handleKeyDown}
           />
+          {newAmount && !isPaymentAmountInput(newAmount) && (
+            <p role='alert' className='text-destructive mt-2 text-sm'>
+              {t('Enter a positive integer')}
+            </p>
+          )}
         </div>
         <Button
           type='button'
@@ -159,7 +159,7 @@ export function AmountOptionsVisualEditor({
             e.stopPropagation()
             handleAdd()
           }}
-          disabled={!newAmount || Number.parseFloat(newAmount) <= 0}
+          disabled={!isPaymentAmountInput(newAmount)}
           className='w-full sm:w-auto'
         >
           <Plus className='h-4 w-4 sm:mr-2' />
