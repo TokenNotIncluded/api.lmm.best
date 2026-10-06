@@ -80,6 +80,7 @@ func LoadUsageProjector(tx *gorm.DB) (*UsageProjector, error) {
 	if err := tx.Table("wallet_credit_rebases").Select("plan").Find(&audits).Error; err != nil {
 		return nil, err
 	}
+	seenScopes := map[int]bool{}
 	for _, audit := range audits {
 		var plan usagePlan
 		if json.Unmarshal([]byte(audit.Plan), &plan) != nil {
@@ -94,24 +95,32 @@ func LoadUsageProjector(tx *gorm.DB) (*UsageProjector, error) {
 			if id <= 0 || selected[id] {
 				return nil, usageError("invalid migration scope")
 			}
+			if seenScopes[id] {
+				return nil, usageError("duplicate user migration scope")
+			}
+			seenScopes[id] = true
 			selected[id] = true
 		}
 		if len(selected) == 0 {
 			return nil, usageError("empty migration scope")
 		}
+		planUsers := map[int]usageBaseline{}
 		for _, source := range plan.Users {
 			if source.ID <= 0 || !selected[source.ID] || source.Used == nil || *source.Used < 0 || *source.Used > common.MaxWalletQuota {
 				return nil, usageError("invalid user historical baseline")
 			}
-			if _, duplicate := result.users[source.ID]; duplicate {
+			if _, duplicate := planUsers[source.ID]; duplicate {
 				return nil, usageError("duplicate user migration baseline")
 			}
-			result.users[source.ID] = usageBaseline{raw: *source.Used, owner: source.ID, divisor: divisor, rounding: plan.Rounding, migration: plan.MigrationID}
+			planUsers[source.ID] = usageBaseline{raw: *source.Used, owner: source.ID, divisor: divisor, rounding: plan.Rounding, migration: plan.MigrationID}
 		}
 		for id := range selected {
-			if _, ok := result.users[id]; !ok {
+			if _, ok := planUsers[id]; !ok {
 				return nil, usageError("selected user historical baseline missing")
 			}
+		}
+		for id, base := range planUsers {
+			result.users[id] = base
 		}
 		for _, source := range plan.Tokens {
 			if source.ID <= 0 || !selected[source.UserID] || source.Used == nil || *source.Used < 0 || *source.Used > common.MaxWalletQuota {
@@ -221,6 +230,9 @@ func projectUsage(current int, base usageBaseline, migrated bool) (UsageProjecti
 	}
 	historical := scaleReferralCredit(base.raw, base.divisor, base.rounding) - base.reversedNormalized
 	delta := int64(current) - base.raw + base.reversedRaw
+	if delta < 0 {
+		return UsageProjection{}, usageError("unproven historical usage counter reduction")
+	}
 	total := historical + delta
 	if historical < 0 || total < 0 || total > common.MaxWalletQuota {
 		return UsageProjection{}, usageError("normalized usage outside safe integer domain")

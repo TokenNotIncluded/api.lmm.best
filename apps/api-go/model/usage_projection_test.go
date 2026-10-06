@@ -173,3 +173,49 @@ func TestUsageProjectionHistoricalReversalUsesProvenSourceUnits(t *testing.T) {
 		})
 	}
 }
+
+func TestUsageProjectionRejectsOverlappingAuditScopeInEitherOrder(t *testing.T) {
+	for _, badFirst := range []bool{false, true} {
+		name := "complete-first"
+		if badFirst {
+			name = "incomplete-first"
+		}
+		t.Run(name, func(t *testing.T) {
+			good := usageTestPlan()
+			bad := usageTestPlan()
+			bad["migration_id"] = "second"
+			bad["user_sources"] = []any{}
+			db := usageTestDB(t, nil)
+			require.NoError(t, db.Exec("CREATE TABLE wallet_credit_rebases(migration_id TEXT PRIMARY KEY,plan TEXT NOT NULL)").Error)
+			plans := []map[string]any{good, bad}
+			if badFirst {
+				plans = []map[string]any{bad, good}
+			}
+			for _, plan := range plans {
+				encoded, err := json.Marshal(plan)
+				require.NoError(t, err)
+				require.NoError(t, db.Exec("INSERT INTO wallet_credit_rebases VALUES(?,?)", plan["migration_id"], string(encoded)).Error)
+			}
+			_, err := LoadUsageProjector(db)
+			require.ErrorIs(t, err, ErrUsageProjectionUnavailable)
+		})
+	}
+}
+func TestUsageProjectionRejectsUnexplainedCounterDecrease(t *testing.T) {
+	db := usageTestDB(t, usageTestPlan())
+	projector, err := LoadUsageProjector(db)
+	require.NoError(t, err)
+	_, err = projector.User(1, 2491672786)
+	require.ErrorIs(t, err, ErrUsageProjectionUnavailable)
+	_, err = projector.Token(11, 1, 6710362)
+	require.ErrorIs(t, err, ErrUsageProjectionUnavailable)
+	// A current-unit charge followed by its refund returns to baseline normally.
+	before, err := projector.User(1, 2491672787)
+	require.NoError(t, err)
+	charged, err := projector.User(1, 2491672887)
+	require.NoError(t, err)
+	refunded, err := projector.User(1, 2491672787)
+	require.NoError(t, err)
+	require.Equal(t, before.NormalizedUsedQuota+100, charged.NormalizedUsedQuota)
+	require.Equal(t, before.NormalizedUsedQuota, refunded.NormalizedUsedQuota)
+}
