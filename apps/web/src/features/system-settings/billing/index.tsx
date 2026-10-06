@@ -38,6 +38,7 @@ const defaultBillingSettings: BillingSettings = {
   TopUpLink: '',
   'general_setting.docs_link': '',
   'quota_setting.enable_free_model_pre_consume': true,
+  'developer_access_setting.invite_registration_enabled': false,
   'developer_access_setting.paid_activation_enabled': true,
   'developer_access_setting.paid_activation_min_amount': 1,
   QuotaPerUnit: 500000,

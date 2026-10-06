@@ -94,6 +94,10 @@ const BILLING_SECTIONS = [
               settings['quota_setting.enable_free_model_pre_consume'],
           },
           developer_access_setting: {
+            invite_registration_enabled:
+              settings[
+                'developer_access_setting.invite_registration_enabled'
+              ] ?? false,
             paid_activation_enabled:
               settings['developer_access_setting.paid_activation_enabled'] ??
               true,

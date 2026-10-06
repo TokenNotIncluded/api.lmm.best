@@ -79,6 +79,7 @@ const quotaSchema = z.object({
     enable_free_model_pre_consume: z.boolean(),
   }),
   developer_access_setting: z.object({
+    invite_registration_enabled: z.boolean(),
     paid_activation_enabled: z.boolean(),
     paid_activation_min_amount: z.coerce.number().min(0),
   }),
@@ -332,7 +333,7 @@ export function QuotaSettingsSection({
                       </FormLabel>
                       <FormDescription>
                         {t(
-                          'When enabled, an account that has paid at least the amount below reaches L1 without waiting for a manual review. Turning this off sends every account through review.'
+                          'When enabled, an account that has paid at least the amount below reaches L1 without a manual review. Turning this off prevents recharges from granting L1 automatically; invitation access is controlled separately.'
                         )}
                       </FormDescription>
                     </SettingsSwitchContent>
@@ -378,6 +379,34 @@ export function QuotaSettingsSection({
                 </FormItem>
               )}
             />
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='developer_access_setting.invite_registration_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>
+                        {t('Grant L1 when registering through an invitation')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When enabled, new accounts registered through a valid invitation link receive L1 automatically, without a recharge or manual review. Existing accounts are not upgraded.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={updateOption.isPending}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
 
             <SettingsFormGridItem span='full'>
               <FormField
