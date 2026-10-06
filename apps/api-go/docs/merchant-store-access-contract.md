@@ -1,14 +1,17 @@
 # Store access and merchant terms
 
 This source adds a capability-5 contract. It does not activate that capability,
-apply production DDL, or prove a capability-5 deployment. The current base still
-has binary capability 3. The central migration owner registers and qualifies
+apply production DDL, or prove a capability-5 deployment. This scope started
+from a capability-3 base and does not change its binary capability. The central migration owner registers and qualifies
 the final combined schema before exposing the feature.
 
 Before floor 5, SQL visibility uses the existing `test_mode` column and ordinary
 product/order saves omit all access columns. Public products remain browsable,
 purchasing requires an account, and access/guest/terms writes fail closed. Terms
 reads return an unconfigured, nonrequired view without reading new tables.
+Product/order saves also omit purchase-limit and promotion snapshot columns
+before their capability-4 schema is active, so adding guest support does not
+require those columns for an older account-only store.
 
 At floor 5, visibility is `public`, `registered`, or `private`. Registered means
 an enabled real account; a guest token is not a registered account. Private
@@ -35,7 +38,14 @@ account-only pickup; the model rejects that configuration and checkout.
 - Checkout supplies `seller_terms_version` and explicit `accept_seller_terms`
   when no agreement for that subject/seller/version exists. The current seller
   row is locked with checkout, and the order freezes version, text and time.
-  Missing, outdated or unaccepted terms return `STORE_SELLER_TERMS_REQUIRED`.
+  Missing merchant terms or an unaccepted current version returns
+  `STORE_SELLER_TERMS_REQUIRED`. A checkout version mismatch returns HTTP 409
+  with top-level `{code:"STORE_TERMS_UPDATED", request_key, order_created:false}`
+  only after the authenticated subject lock and exact request-key replay search.
+  This attempt created no order. An existing matching order replays unchanged
+  before current terms are checked; a conflicting replay, wrong guest proof,
+  ordinary 409 or transport failure never carries this no-creation fact. A
+  client may release only its matching actor/key/revision intent on that fact.
 - All merchants, including official accounts, need their own current terms.
   Nonofficial purchases also retain the original first-use platform explanation.
   Its guest acceptance is `{version, accepted:true}` posted to
@@ -64,6 +74,19 @@ Order-number summaries also require that proof for guest orders, except for
 the original seller/current root or existing separately verified mailbox proof.
 Private pickup-secret refund access remains order scoped and does not claim
 cards as a side effect. Balance purchasing is always forbidden for guests.
+An authenticated guest can use a server-validated 100% promotion with method
+`free`. The same checkout transaction checks current merchant/platform consent,
+email proof, stock, sale quota, promotion uses and guest-scoped limits. It delivers
+the frozen specification without creating payment sessions or wallet movements.
+The quote endpoint resolves `X-Store-Guest` and reports this authority; an
+unauthenticated public quote never grants checkout permission. Private and
+registered promotion resolution uses the same product visibility scope.
+
+An external payment below the channel's native minimum is cancelled only through
+that request's original account or guest authority. Cancellation rechecks the
+pending order under its product lock; an issued or verified provider obligation
+keeps its stock and fee reservation. Guest cleanup never treats buyer ID zero as
+an account.
 
 Request-key recovery is read only: authenticated accounts use
 `GET /store/orders/by-request-key/:request_key`; guests use

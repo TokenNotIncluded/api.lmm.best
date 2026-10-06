@@ -195,19 +195,20 @@ func TestMerchantStoreMemberRequestLookupDoesNotRepeatBalancePayment(t *testing.
 
 func TestMerchantStoreAccessLegacySchemaDoesNotNeedPhase5DDL(t *testing.T) {
 	f := newStoreFixture(t, "balance", "external:epay")
-	// Remove the exact access additions. These are real absent SQL columns and
-	// tables, rather than a latest-schema fixture with only an old option value.
+	// Remove access, email, promotion and purchase-limit additions. These are real absent
+	// columns/tables, rather than a latest-schema fixture with an old option.
 	require.NoError(t, DB.Migrator().DropIndex(&MerchantStoreProduct{}, "idx_merchant_store_products_visibility"))
 	require.NoError(t, DB.Migrator().DropIndex(&MerchantStoreOrder{}, "idx_merchant_store_orders_guest_id"))
-	for _, column := range []string{"visibility", "purchase_login_required"} {
+	require.NoError(t, DB.Migrator().DropIndex(&MerchantStoreOrder{}, "idx_merchant_store_orders_promotion_id"))
+	for _, column := range []string{"visibility", "purchase_login_required", "max_quantity_per_order", "max_quantity_per_buyer"} {
 		require.NoError(t, DB.Exec("ALTER TABLE merchant_store_products DROP COLUMN "+column).Error)
 		require.False(t, DB.Migrator().HasColumn(&MerchantStoreProduct{}, column))
 	}
-	for _, column := range []string{"guest_id", "seller_terms_version", "seller_terms_content", "seller_terms_accepted_at"} {
+	for _, column := range []string{"guest_id", "seller_terms_version", "seller_terms_content", "seller_terms_accepted_at", "original_price_quota", "discount_quota", "discount_bps", "promotion_id", "promotion_code"} {
 		require.NoError(t, DB.Exec("ALTER TABLE merchant_store_orders DROP COLUMN "+column).Error)
 		require.False(t, DB.Migrator().HasColumn(&MerchantStoreOrder{}, column))
 	}
-	for _, row := range []any{&MerchantStoreGuest{}, &MerchantStoreSellerTerms{}, &MerchantStoreTermsAcceptance{}} {
+	for _, row := range []any{&MerchantStoreGuest{}, &MerchantStoreSellerTerms{}, &MerchantStoreTermsAcceptance{}, &MerchantStoreGuestEmailVerification{}, &MerchantStoreDiscountCode{}} {
 		require.NoError(t, DB.Migrator().DropTable(row))
 		require.False(t, DB.Migrator().HasTable(row))
 	}

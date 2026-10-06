@@ -13,6 +13,21 @@ import (
 
 var ErrMerchantStoreSellerTerms = errors.New("current seller terms must be configured and accepted")
 
+type merchantStoreTermsVersionChanged struct{}
+
+func (*merchantStoreTermsVersionChanged) Error() string { return "seller terms version changed" }
+func (*merchantStoreTermsVersionChanged) Unwrap() error { return ErrMerchantStoreSellerTerms }
+
+// Constructed only by checkout after authenticated subject locks and its exact
+// request-key replay lookup. No order or wallet mutation has occurred.
+type MerchantStoreTermsUpdatedError struct{ requestKey string }
+
+func (*MerchantStoreTermsUpdatedError) Error() string {
+	return "seller terms updated before order creation"
+}
+func (*MerchantStoreTermsUpdatedError) Unwrap() error        { return ErrMerchantStoreSellerTerms }
+func (e *MerchantStoreTermsUpdatedError) RequestKey() string { return e.requestKey }
+
 type MerchantStoreSellerTerms struct {
 	SellerID  int    `json:"-" gorm:"primaryKey"`
 	Version   string `json:"version" gorm:"size:36;not null"`
@@ -166,8 +181,11 @@ func storeCheckoutSellerTerms(tx *gorm.DB, sellerID int, subject string, in Merc
 	if e != nil {
 		return nil, 0, e
 	}
-	if row == nil || in.SellerTermsVersion != row.Version || subject == "" {
+	if row == nil || subject == "" {
 		return nil, 0, ErrMerchantStoreSellerTerms
+	}
+	if in.SellerTermsVersion != row.Version {
+		return nil, 0, &merchantStoreTermsVersionChanged{}
 	}
 	id := storeAgreementAcceptanceID("seller", subject, sellerID, row.Version)
 	var accepted MerchantStoreTermsAcceptance

@@ -411,17 +411,17 @@ func merchantStoreDiscountPaymentMinimum(order *model.MerchantStoreOrder, rate s
 	return nil
 }
 
-func merchantStorePaymentPreparationFailure(order *model.MerchantStoreOrder, err error) error {
+func merchantStorePaymentPreparationFailure(order *model.MerchantStoreOrder, err error, cancel func() error) error {
 	if !errors.Is(err, ErrMerchantStorePaymentMinimum) {
 		return err
 	}
-	if order == nil {
+	if order == nil || cancel == nil {
 		return ErrMerchantStorePaymentAccess
 	}
 	// The minimum check runs before binding an invoice or sending provider HTTP.
 	// Cancellation rechecks stock/payment obligations under the order's product
 	// lock. A concurrent issued/verified/unknown obligation refuses this cleanup.
-	cancelErr := model.CancelMerchantStoreOrder(order.BuyerID, order.ID)
+	cancelErr := cancel()
 	if cancelErr != nil && !errors.Is(cancelErr, model.ErrMerchantStoreConflict) {
 		return cancelErr
 	}
@@ -535,10 +535,12 @@ func CreateMerchantStorePaymentSession(ctx context.Context, buyerID int, orderID
 	if err != nil || order == nil || order.BuyerID != buyerID || buyerID <= 0 || order.GuestID != "" || !merchantStoreTradeNoPattern.MatchString(order.TradeNo) {
 		return nil, ErrMerchantStorePaymentAccess
 	}
-	return createMerchantStorePaymentSessionForOrder(ctx, order, requestedCurrency)
+	return createMerchantStorePaymentSessionForOrder(ctx, order, requestedCurrency, func() error {
+		return model.CancelMerchantStoreOrder(buyerID, orderID)
+	})
 }
 
-func createMerchantStorePaymentSessionForOrder(ctx context.Context, order *model.MerchantStoreOrder, requestedCurrency string) (*MerchantStorePaymentSession, error) {
+func createMerchantStorePaymentSessionForOrder(ctx context.Context, order *model.MerchantStoreOrder, requestedCurrency string, cancel func() error) (*MerchantStorePaymentSession, error) {
 	if order.PaymentMethod == MerchantStoreBalance {
 		return &MerchantStorePaymentSession{OrderID: order.ID, Method: "balance", Currency: "CREDIT", Status: order.Status}, nil
 	}
@@ -556,7 +558,7 @@ func createMerchantStorePaymentSessionForOrder(ctx context.Context, order *model
 	}
 	requestedCurrency = strings.ToUpper(strings.TrimSpace(requestedCurrency))
 	if err := prepareMerchantStorePaymentContext(order, requestedCurrency); err != nil {
-		return nil, merchantStorePaymentPreparationFailure(order, err)
+		return nil, merchantStorePaymentPreparationFailure(order, err, cancel)
 	}
 	order, err := model.GetMerchantStorePaymentOrder(order.ID)
 	if err != nil {

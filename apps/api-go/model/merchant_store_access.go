@@ -59,14 +59,22 @@ func storeAccessActive(tx *gorm.DB) bool {
 // All product/order saves, including callbacks and AI updates, preserve the
 // old schema until the formal capability floor activates these columns.
 func (p *MerchantStoreProduct) BeforeSave(tx *gorm.DB) error {
-	if !storeAccessActive(tx) {
+	required, err := storeWriterGateRow(tx.Session(&gorm.Session{NewDB: true}), "")
+	if err != nil || required < 4 || required > MerchantStoreWriterCapability {
+		tx.Statement.Omits = append(tx.Statement.Omits, "max_quantity_per_order", "max_quantity_per_buyer")
+	}
+	if err != nil || required < 5 || required > MerchantStoreWriterCapability {
 		tx.Statement.Omits = append(tx.Statement.Omits, "visibility", "purchase_login_required")
 	}
 	return nil
 }
 
 func (o *MerchantStoreOrder) BeforeSave(tx *gorm.DB) error {
-	if !storeAccessActive(tx) {
+	required, err := storeWriterGateRow(tx.Session(&gorm.Session{NewDB: true}), "")
+	if err != nil || required < 4 || required > MerchantStoreWriterCapability {
+		tx.Statement.Omits = append(tx.Statement.Omits, "original_price_quota", "discount_quota", "discount_bps", "promotion_id", "promotion_code")
+	}
+	if err != nil || required < 5 || required > MerchantStoreWriterCapability {
 		tx.Statement.Omits = append(tx.Statement.Omits, "guest_id", "seller_terms_version", "seller_terms_content", "seller_terms_accepted_at")
 	}
 	return nil
@@ -156,6 +164,9 @@ func CheckMerchantStoreProductPurchaseAccess(tx *gorm.DB, p *MerchantStoreProduc
 		return "", ErrMerchantStoreDenied
 	}
 	if actor > 0 {
+		if guestToken != "" {
+			return "", ErrMerchantStoreDenied
+		}
 		if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
 			return "", e
 		}

@@ -66,7 +66,7 @@ func CleanupMerchantStoreDiscountCodes(c *gin.Context) {
 }
 
 func ResolveMerchantStoreDiscountCode(c *gin.Context) {
-	promotion, err := model.ResolveMerchantStoreDiscountCode(c.GetInt("id"), c.Param("id"), c.Query("code"))
+	promotion, err := model.ResolveMerchantStoreDiscountCode(merchantStoreViewer(c), c.Param("id"), c.Query("code"))
 	if err != nil {
 		merchantStoreRespond(c, nil, err)
 		return
@@ -85,7 +85,7 @@ func QuoteMerchantStoreDiscountCode(c *gin.Context) {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
 		return
 	}
-	quote, err := model.QuoteMerchantStoreDiscountCode(c.GetInt("id"), c.Param("id"), input.PromotionCode, input.VariantID, input.Quantity)
+	quote, err := model.QuoteMerchantStoreDiscountCodeForViewer(merchantStoreViewer(c), merchantStoreGuestHeader(c), c.Param("id"), input.PromotionCode, input.VariantID, input.Quantity)
 	if err == nil && !quote.Free {
 		product := model.MerchantStoreProduct{SellerID: quote.SellerID, PaymentMethods: quote.PaymentMethods}
 		service.FilterMerchantStorePublicPaymentMethods(&product)

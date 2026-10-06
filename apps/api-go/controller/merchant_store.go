@@ -35,6 +35,7 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		return
 	}
 	status, code, message := http.StatusInternalServerError, "STORE_UNAVAILABLE", "The shop could not complete this request."
+	var termsUpdated *model.MerchantStoreTermsUpdatedError
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		status, code, message = http.StatusNotFound, "STORE_NOT_FOUND", "The shop item or order was not found."
@@ -66,6 +67,8 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusConflict, "STORE_PURCHASE_LIMIT", "This quantity exceeds the product purchase limit."
 	case errors.Is(err, model.ErrMerchantStoreDisclaimer):
 		status, code, message = http.StatusConflict, "STORE_DISCLAIMER_REQUIRED", "Read and accept the current merchant disclaimer before ordering."
+	case errors.As(err, &termsUpdated):
+		status, code, message = http.StatusConflict, "STORE_TERMS_UPDATED", "The seller terms changed before this order was created. Read and accept the current terms."
 	case errors.Is(err, model.ErrMerchantStoreSellerTerms):
 		status, code, message = http.StatusConflict, "STORE_SELLER_TERMS_REQUIRED", "Read and accept the current seller terms before ordering."
 	case errors.Is(err, model.ErrMerchantStoreLoginRequired):
@@ -83,7 +86,7 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 	case errors.Is(err, model.ErrMerchantStoreDiscountLimit):
 		status, code, message = http.StatusConflict, "STORE_PROMOTION_LIMIT", "Store promotion limit reached"
 	case errors.Is(err, service.ErrMerchantStorePaymentMinimum):
-		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_MINIMUM", "Payment amount is below the gateway minimum; choose balance"
+		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_MINIMUM", "The payment amount is below the gateway minimum. Choose another available payment method."
 	case errors.Is(err, service.ErrMerchantStorePaymentConfiguration):
 		status, code, message = http.StatusConflict, "STORE_PAYMENT_CONFIGURATION", "This payment method needs a valid configuration."
 	case errors.Is(err, service.ErrMerchantStorePaymentVerification):
@@ -96,6 +99,9 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 	// Database, gateway, crypto and provider errors can contain credentials or
 	// private delivery data. Never serialize their raw error strings.
 	response := gin.H{"success": false, "code": code, "message": message}
+	if termsUpdated != nil {
+		response["request_key"], response["order_created"] = termsUpdated.RequestKey(), false
+	}
 	var minimum *service.MerchantStorePaymentMinimumError
 	if errors.As(err, &minimum) {
 		response["order_id"], response["order_status"], response["order_cancelled"] = minimum.OrderID, minimum.OrderStatus, minimum.OrderCancelled

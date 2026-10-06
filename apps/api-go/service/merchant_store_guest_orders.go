@@ -12,7 +12,9 @@ func CreateMerchantStoreGuestPaymentSession(ctx context.Context, token, orderID,
 	if e != nil || o == nil || o.PaymentMethod == MerchantStoreBalance {
 		return nil, ErrMerchantStorePaymentAccess
 	}
-	return createMerchantStorePaymentSessionForOrder(ctx, o, currency)
+	return createMerchantStorePaymentSessionForOrder(ctx, o, currency, func() error {
+		return model.CancelMerchantStoreGuestOrder(token, orderID)
+	})
 }
 
 func ReconcileMerchantStoreGuestPayment(ctx context.Context, token, orderID string) (*model.MerchantStoreOrder, error) {

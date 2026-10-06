@@ -117,7 +117,8 @@ func TestMerchantStoreDiscountMinimumRetainsConcurrentIssuedAndNetworkObligation
 	order, _, err := model.CreateMerchantStoreOrder(input)
 	require.NoError(t, err)
 	// A network refusal never takes the cancellation path.
-	require.ErrorIs(t, merchantStorePaymentPreparationFailure(order, ErrMerchantStorePaymentNetwork), ErrMerchantStorePaymentNetwork)
+	cancel := func() error { return model.CancelMerchantStoreOrder(f.buyer.Id, order.ID) }
+	require.ErrorIs(t, merchantStorePaymentPreparationFailure(order, ErrMerchantStorePaymentNetwork, cancel), ErrMerchantStorePaymentNetwork)
 	current, err := model.GetMerchantStorePaymentOrder(order.ID)
 	require.NoError(t, err)
 	require.Equal(t, "pending", current.Status)
@@ -125,7 +126,7 @@ func TestMerchantStoreDiscountMinimumRetainsConcurrentIssuedAndNetworkObligation
 	// Simulate another request issuing after the first request read the order.
 	require.NoError(t, model.BindMerchantStorePaymentQuote(order.ID, 100, "CNY", "7"))
 	require.NoError(t, model.BindMerchantStorePaymentContext(order.ID, "opaque-issued-fixture", strings.Repeat("a", 64)))
-	err = merchantStorePaymentPreparationFailure(order, ErrMerchantStorePaymentMinimum)
+	err = merchantStorePaymentPreparationFailure(order, ErrMerchantStorePaymentMinimum, cancel)
 	require.ErrorIs(t, err, ErrMerchantStorePaymentMinimum)
 	var minimum *MerchantStorePaymentMinimumError
 	require.True(t, errors.As(err, &minimum))

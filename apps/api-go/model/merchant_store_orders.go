@@ -277,6 +277,10 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		}
 		terms, termsAt, e := storeCheckoutSellerTerms(tx, seller.Id, subject, in)
 		if e != nil {
+			var changed *merchantStoreTermsVersionChanged
+			if errors.As(e, &changed) {
+				return &MerchantStoreTermsUpdatedError{requestKey: in.RequestKey}
+			}
 			return e
 		}
 		// Existing orders above returned before current listing policy. Check

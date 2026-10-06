@@ -364,14 +364,14 @@ func CleanupMerchantStoreDiscountCodes(actor int, productID string, limit int) (
 }
 
 func storeDiscountVisible(tx *gorm.DB, p *MerchantStoreProduct, actor int) error {
-	if p.Status == "published" && !p.TestMode {
-		return nil
+	var count int64
+	if err := MerchantStoreVisibleProductsForViewer(tx, actor).Where("merchant_store_products.id = ?", p.ID).Count(&count).Error; err != nil {
+		return err
 	}
-	if p.SellerID != actor {
+	if count != 1 {
 		return ErrMerchantStoreDiscountUnavailable
 	}
-	_, err := storeUser(tx, actor, common.RoleCommonUser)
-	return err
+	return nil
 }
 
 func storeResolveDiscountCode(tx *gorm.DB, p *MerchantStoreProduct, code string) (*MerchantStoreDiscountCode, error) {
@@ -461,6 +461,10 @@ func storeDiscountCodeTx(tx *gorm.DB, p *MerchantStoreProduct, code, variantID s
 }
 
 func QuoteMerchantStoreDiscountCode(actor int, productID, code, variantID string, quantity int) (*MerchantStoreDiscountQuote, error) {
+	return QuoteMerchantStoreDiscountCodeForViewer(actor, "", productID, code, variantID, quantity)
+}
+
+func QuoteMerchantStoreDiscountCodeForViewer(actor int, guestToken, productID, code, variantID string, quantity int) (*MerchantStoreDiscountQuote, error) {
 	if quantity < 1 || quantity > 1000 {
 		return nil, ErrMerchantStoreInput
 	}
@@ -472,6 +476,17 @@ func QuoteMerchantStoreDiscountCode(actor int, productID, code, variantID string
 		if !storeProductPurchaseStatus(p) {
 			return ErrMerchantStoreUnavailable
 		}
+		guestID := ""
+		if actor > 0 || guestToken != "" {
+			var err error
+			guestID, err = CheckMerchantStoreProductPurchaseAccess(tx, p, actor, guestToken)
+			if err != nil {
+				return err
+			}
+			if err := storeRequireConfiguredSellerTerms(tx, p.SellerID); err != nil {
+				return err
+			}
+		}
 		// Match config mutation's gate -> config lock order. Holding config
 		// first and then queuing behind activation's exclusive gate could
 		// deadlock with a config writer that already holds the shared gate.
@@ -479,7 +494,7 @@ func QuoteMerchantStoreDiscountCode(actor int, productID, code, variantID string
 			if err := storeRequireDiscountCodeWriter(tx); err != nil {
 				return err
 			}
-		} else if actor > 0 && (p.MaxQuantityPerOrder != nil || p.MaxQuantityPerBuyer != nil) {
+		} else if (actor > 0 || guestID != "") && (p.MaxQuantityPerOrder != nil || p.MaxQuantityPerBuyer != nil) {
 			if err := storeRequirePurchaseLimitWriter(tx); err != nil {
 				return err
 			}
@@ -553,6 +568,15 @@ func QuoteMerchantStoreDiscountCode(actor int, productID, code, variantID string
 			}
 			result.PaymentMethods = p.PaymentMethods
 		}
+		if guestID != "" && !result.Free {
+			methods := make([]string, 0, len(result.PaymentMethods))
+			for _, method := range result.PaymentMethods {
+				if method != "balance" {
+					methods = append(methods, method)
+				}
+			}
+			result.PaymentMethods = methods
+		}
 		usage, err := storeSalesUsage(tx, p.ID)
 		if err != nil {
 			return err
@@ -568,15 +592,16 @@ func QuoteMerchantStoreDiscountCode(actor int, productID, code, variantID string
 		if p.MaxQuantityPerOrder != nil {
 			maximum = min(maximum, *p.MaxQuantityPerOrder)
 		}
-		if actor > 0 {
-			if err := storeCheckPurchaseLimits(tx, p, actor, quantity); err != nil {
+		if actor > 0 || guestID != "" {
+			if err := storeCheckPurchaseLimitsForSubject(tx, p, actor, guestID, quantity); err != nil {
 				return err
 			}
 			if p.MaxQuantityPerBuyer != nil {
-				buyerRemaining, err := storeBuyerPurchaseRemaining(tx, p, actor)
+				used, err := storeBuyerPurchaseUsageForSubject(tx, p.ID, actor, guestID)
 				if err != nil {
 					return err
 				}
+				buyerRemaining := max(0, *p.MaxQuantityPerBuyer-used)
 				maximum = min(maximum, buyerRemaining)
 			}
 		}
@@ -628,7 +653,7 @@ func QuoteMerchantStoreDiscountCode(actor int, productID, code, variantID string
 		// Use physical stock, quantity obligations and this offer's net fee;
 		// original-price aggregates may report zero for discounted offers.
 		result.MaxQuantity = int(maximum)
-		result.CheckoutAllowed = actor > 0
+		result.CheckoutAllowed = actor > 0 || guestID != ""
 		return nil
 	})
 	if err != nil {
