@@ -1279,6 +1279,134 @@ test('an updated paid order clears a previously prepared payment session', async
   assert.ok(button('Get pickup link'))
 })
 
+test('ordinary owners can place a real order for their own published product', async () => {
+  owner(product.seller_id)
+  api.get = (async () => result({ accepted: true })) as typeof api.get
+  const calls: unknown[] = []
+  api.post = (async (url: string, body: unknown) => {
+    assert.equal(url, '/api/store/orders')
+    calls.push(body)
+    return result({
+      order: { id: 'self-purchase', status: 'pending', trade_no: 'MS-self' },
+      created: true,
+    })
+  }) as typeof api.post
+  await mount(<StoreCheckout product={{ ...product, official: true }} />)
+  assert.equal(button('Place order').disabled, false)
+  await click(button('Place order'))
+  assert.equal(calls.length, 1)
+  assert.equal((calls[0] as Record<string, unknown>).product_id, product.id)
+  assert.match(document.body.textContent || '', /MS-self/)
+})
+for (const preview of [false, true]) {
+  test(`test-mode draft checkout is available only through the owner's private preview (${preview})`, async () => {
+    owner(product.seller_id)
+    api.get = (async () => result({ accepted: true })) as typeof api.get
+    await mount(
+      <StoreCheckout
+        product={{
+          ...product,
+          test_mode: true,
+          status: 'draft',
+          official: true,
+        }}
+        ownerPreview={preview}
+      />
+    )
+    assert.equal(button('Place order').disabled, !preview)
+  })
+}
+test('non-owners cannot use a test-mode checkout even with a preview flag', async () => {
+  owner(2)
+  api.get = (async () => result({ accepted: true })) as typeof api.get
+  await mount(
+    <StoreCheckout
+      product={{ ...product, test_mode: true, official: true }}
+      ownerPreview
+    />
+  )
+  assert.equal(button('Place order').disabled, true)
+})
+test('owner preview fetches only the private endpoint and never falls back to public data', async () => {
+  owner(product.seller_id)
+  const reads: string[] = []
+  api.get = (async (url: string) => {
+    reads.push(url)
+    if (url.endsWith('/preview')) {
+      return result({
+        ...product,
+        test_mode: true,
+        status: 'draft',
+        official: true,
+      })
+    }
+    assert.equal(url, '/api/store/disclaimer')
+    return result({ accepted: true })
+  }) as typeof api.get
+  await mount(<StoreProductPage id={product.id} ownerPreview />)
+  assert.ok(reads.includes(`/api/store/my/products/${product.id}/preview`))
+  assert.ok(!reads.includes(`/api/store/products/${product.id}`))
+  assert.match(
+    document.body.textContent || '',
+    /only visible to the product owner/
+  )
+  assert.equal(button('Place order').disabled, false)
+})
+for (const supported of [false, true]) {
+  test(`test-mode control requires an actual backend capability and explicitly saves its flag (${supported})`, async () => {
+    owner(product.seller_id)
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+    useSystemConfigStore.setState({
+      config: {
+        ...originalConfig,
+        currency: {
+          ...originalConfig.currency,
+          creditsPerUsd: 500000,
+          creditsPerUsdExact: '500000',
+          cnyPerUsd: 7,
+          cnyPerUsdExact: '7',
+          quotaDisplayType: 'USD',
+          currencyUnit: 'credit',
+        },
+      },
+    })
+    let saved: Record<string, unknown> | undefined
+    api.put = (async (_url: string, body: Record<string, unknown>) => {
+      saved = body
+      return result(product)
+    }) as typeof api.put
+    await mount(
+      <StoreProductEditor
+        product={product}
+        allowedMethods={['balance']}
+        minimumPriceQuota={0}
+        testModeSupported={supported}
+        onClose={() => {}}
+        onSaved={async () => {}}
+      />
+    )
+    assert.equal(
+      document.body.textContent?.includes('Product test mode'),
+      supported
+    )
+    if (supported) {
+      const switches = [
+        ...document.querySelectorAll<HTMLElement>('[role="switch"]'),
+      ]
+      const toggle = switches
+        .at(-1)
+        ?.closest('label')
+        ?.querySelector<HTMLInputElement>('input[type=checkbox]')
+      assert.ok(toggle)
+      await click(toggle)
+    }
+    await click(button('Save draft'))
+    assert.ok(saved)
+    assert.equal('test_mode' in saved, supported)
+    if (supported) assert.equal(saved.test_mode, true)
+  })
+}
+
 for (const state of ['pending', 'sent', 'awaiting_verification']) {
   test(`account email verification is shown only for legacy awaiting verification orders (${state})`, async () => {
     owner(2)

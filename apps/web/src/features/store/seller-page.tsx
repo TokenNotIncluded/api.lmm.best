@@ -41,6 +41,7 @@ import {
   StoreError,
   StoreLoading,
 } from './shared'
+import { STORE_TEST_MODE_COPY as testCopy } from './test-mode-copy'
 import type {
   StorePaymentMethod,
   StoreProduct,
@@ -194,19 +195,20 @@ function StoreSellerCenter() {
                     >
                       {t('Add inventory')}
                     </Button>
-                    {['draft', 'rejected'].includes(product.status) && (
-                      <Button
-                        size='sm'
-                        disabled={busy !== null}
-                        onClick={() =>
-                          void action(product, () =>
-                            storeApi.submitProduct(product.id)
-                          )
-                        }
-                      >
-                        {t('Submit for review')}
-                      </Button>
-                    )}
+                    {!product.test_mode &&
+                      ['draft', 'rejected'].includes(product.status) && (
+                        <Button
+                          size='sm'
+                          disabled={busy !== null}
+                          onClick={() =>
+                            void action(product, () =>
+                              storeApi.submitProduct(product.id)
+                            )
+                          }
+                        >
+                          {t('Submit for review')}
+                        </Button>
+                      )}
                     {['published', 'paused'].includes(product.status) && (
                       <Button
                         size='sm'
@@ -228,7 +230,7 @@ function StoreSellerCenter() {
                         )}
                       </Button>
                     )}
-                    {product.status === 'published' && (
+                    {!product.test_mode && product.status === 'published' && (
                       <Button
                         size='sm'
                         variant='outline'
@@ -237,13 +239,26 @@ function StoreSellerCenter() {
                         {t('Promote product')}
                       </Button>
                     )}
+                    {product.test_mode && (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        render={<a href={`/store/preview/${product.id}`} />}
+                      >
+                        {t(testCopy.preview)}
+                      </Button>
+                    )}
                     {['published', 'paused', 'off_shelf'].includes(
                       product.status
                     ) && (
                       <Button
                         size='sm'
                         variant='outline'
-                        disabled={busy !== null}
+                        disabled={
+                          busy !== null ||
+                          (product.test_mode === true &&
+                            product.status === 'off_shelf')
+                        }
                         onClick={() =>
                           void action(product, () =>
                             storeApi.listing(
@@ -323,6 +338,7 @@ function StoreSellerCenter() {
           product={editing === 'new' ? undefined : editing}
           allowedMethods={allowedMethods}
           minimumPriceQuota={config.data?.minimum_unit_price_quota}
+          testModeSupported={config.data?.product_test_mode_supported === true}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null)
@@ -403,12 +419,14 @@ export function StoreProductEditor({
   product,
   allowedMethods,
   minimumPriceQuota,
+  testModeSupported = false,
   onClose,
   onSaved,
 }: {
   product?: StoreProduct
   allowedMethods: StorePaymentMethod[]
   minimumPriceQuota?: number
+  testModeSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -489,6 +507,7 @@ export function StoreProductEditor({
         pickup_code_required: draft.pickup_code_required,
         email_pickup_link: draft.email_pickup_link,
       }
+      if (testModeSupported) body.test_mode = draft.test_mode === true
       if (product) await storeApi.updateProduct(product.id, body)
       else await storeApi.createProduct(body)
       await onSaved()
@@ -848,6 +867,23 @@ export function StoreProductEditor({
               </div>
             ))}
           </fieldset>
+          {testModeSupported && (
+            <div className='space-y-2 rounded-lg border p-4'>
+              <label className='flex items-center justify-between gap-4 text-sm'>
+                <span>{t(testCopy.label)}</span>
+                <Switch
+                  checked={draft.test_mode === true}
+                  onCheckedChange={(value) => change('test_mode', value)}
+                />
+              </label>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(testCopy.help)}
+              </p>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(testCopy.changed)}
+              </p>
+            </div>
+          )}
           <div className='flex justify-end gap-2 border-t pt-4'>
             <Button
               type='button'

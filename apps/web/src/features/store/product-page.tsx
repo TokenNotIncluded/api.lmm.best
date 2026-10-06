@@ -18,7 +18,14 @@ import { useAuthStore } from '@/stores/auth-store'
 import { storeApi } from './api'
 import { storeCheckoutCapacity, storeQuantity } from './quantity'
 import { StoreQuantityControl } from './quantity-control'
-import { StoreAmount, StoreBadges, StoreError, StoreLoading } from './shared'
+import {
+  StoreAmount,
+  StoreAuthGate,
+  StoreBadges,
+  StoreError,
+  StoreLoading,
+} from './shared'
+import { STORE_TEST_MODE_COPY as testCopy } from './test-mode-copy'
 import type {
   StoreCheckoutResult,
   StorePaymentSession,
@@ -34,16 +41,26 @@ import {
   isStoreEmail,
 } from './utils'
 
-export function StoreProductPage({ id }: { id: string }) {
+export function StoreProductPage({
+  id,
+  ownerPreview = false,
+}: {
+  id: string
+  ownerPreview?: boolean
+}) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const validId = /^[a-zA-Z0-9-]{1,64}$/.test(id)
   const query = useQuery({
-    queryKey: ['store', 'product', id],
-    queryFn: () => storeApi.product(id),
-    enabled: validId,
+    queryKey: ownerPreview
+      ? ['store', 'product-preview', id, user?.id]
+      : ['store', 'product', id],
+    queryFn: () =>
+      ownerPreview ? storeApi.previewProduct(id) : storeApi.product(id),
+    enabled: validId && (!ownerPreview || !!user),
     retry: false,
   })
+  if (ownerPreview && !user) return <StoreAuthGate>{null}</StoreAuthGate>
   if (!validId) return <StoreError error={new Error('Product not found')} />
   if (query.isPending) return <StoreLoading />
   if (!query.data) {
@@ -55,8 +72,16 @@ export function StoreProductPage({ id }: { id: string }) {
     )
   }
   const product = query.data
+  if (ownerPreview && product.seller_id !== user?.id) {
+    return <StoreError error={new Error('Product not found')} />
+  }
   return (
     <div className='space-y-5'>
+      {ownerPreview && (
+        <p className='rounded-lg border p-4 text-sm'>
+          {t(testCopy.previewHelp)}
+        </p>
+      )}
       <a
         href='/store'
         className='text-muted-foreground text-sm hover:underline'
@@ -129,13 +154,20 @@ export function StoreProductPage({ id }: { id: string }) {
         <StoreCheckout
           key={`${product.id}-${user?.id || 'guest'}`}
           product={product}
+          ownerPreview={ownerPreview}
         />
       </div>
     </div>
   )
 }
 
-export function StoreCheckout({ product }: { product: StoreProduct }) {
+export function StoreCheckout({
+  product,
+  ownerPreview = false,
+}: {
+  product: StoreProduct
+  ownerPreview?: boolean
+}) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const client = useQueryClient()
@@ -180,7 +212,11 @@ export function StoreCheckout({ product }: { product: StoreProduct }) {
     count !== undefined &&
     count <= capacity &&
     !product.trading_paused &&
-    product.status === 'published' &&
+    (product.test_mode === true
+      ? ownerPreview &&
+        product.seller_id === user?.id &&
+        ['draft', 'pending', 'published'].includes(product.status)
+      : product.status === 'published') &&
     !!actualMethod &&
     product.payment_methods?.includes(actualMethod) &&
     (code ? codeValid : !product.pickup_code_required) &&

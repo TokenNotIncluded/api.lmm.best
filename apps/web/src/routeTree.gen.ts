@@ -95,6 +95,7 @@ import { Route as AuthenticatedWorkspaceIndexRouteImport } from './routes/_authe
 import { Route as GamesSignalIndexRouteImport } from './routes/games/signal/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as StoreClaimTokenRouteImport } from './routes/store/claim/$token'
+import { Route as StorePreviewProductIdRouteImport } from './routes/store/preview/$productId'
 import { Route as StoreProductsProductIdRouteImport } from './routes/store/products/$productId'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
@@ -573,6 +574,11 @@ const StoreClaimTokenRoute = StoreClaimTokenRouteImport.update({
   path: '/claim/$token',
   getParentRoute: () => StoreRoute,
 } as any)
+const StorePreviewProductIdRoute = StorePreviewProductIdRouteImport.update({
+  id: '/preview/$productId',
+  path: '/preview/$productId',
+  getParentRoute: () => StoreRoute,
+} as any)
 const StoreProductsProductIdRoute = StoreProductsProductIdRouteImport.update({
   id: '/products/$productId',
   path: '/products/$productId',
@@ -716,6 +722,7 @@ export interface FileRoutesByFullPath {
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -815,6 +822,7 @@ export interface FileRoutesByTo {
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/ai-directory': typeof AuthenticatedAiDirectoryIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
@@ -919,6 +927,7 @@ export interface FileRoutesById {
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/_authenticated/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -1022,6 +1031,7 @@ export interface FileRouteTypes {
     | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/store/claim/$token'
+    | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/ai-directory/'
     | '/channels/'
@@ -1121,6 +1131,7 @@ export interface FileRouteTypes {
     | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/store/claim/$token'
+    | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/ai-directory'
     | '/channels'
@@ -1224,6 +1235,7 @@ export interface FileRouteTypes {
     | '/_authenticated/subscriptions/reset'
     | '/_authenticated/usage-logs/$section'
     | '/store/claim/$token'
+    | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/_authenticated/ai-directory/'
     | '/_authenticated/channels/'
@@ -1911,6 +1923,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StoreClaimTokenRouteImport
       parentRoute: typeof StoreRoute
     }
+    '/store/preview/$productId': {
+      id: '/store/preview/$productId'
+      path: '/preview/$productId'
+      fullPath: '/store/preview/$productId'
+      preLoaderRoute: typeof StorePreviewProductIdRouteImport
+      parentRoute: typeof StoreRoute
+    }
     '/store/products/$productId': {
       id: '/store/products/$productId'
       path: '/products/$productId'
@@ -2203,6 +2222,7 @@ interface StoreRouteChildren {
   StoreSettingsRoute: typeof StoreSettingsRoute
   StoreIndexRoute: typeof StoreIndexRoute
   StoreClaimTokenRoute: typeof StoreClaimTokenRoute
+  StorePreviewProductIdRoute: typeof StorePreviewProductIdRoute
   StoreProductsProductIdRoute: typeof StoreProductsProductIdRoute
 }
 
@@ -2213,6 +2233,7 @@ const StoreRouteChildren: StoreRouteChildren = {
   StoreSettingsRoute: StoreSettingsRoute,
   StoreIndexRoute: StoreIndexRoute,
   StoreClaimTokenRoute: StoreClaimTokenRoute,
+  StorePreviewProductIdRoute: StorePreviewProductIdRoute,
   StoreProductsProductIdRoute: StoreProductsProductIdRoute,
 }
 

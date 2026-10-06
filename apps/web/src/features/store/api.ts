@@ -62,6 +62,8 @@ export const storeApi = {
     ),
   product: (id: string) =>
     unwrap<StoreProduct>(api.get(`${root}/products/${id}`, options)),
+  previewProduct: (id: string) =>
+    unwrap<StoreProduct>(api.get(`${root}/my/products/${id}/preview`, options)),
   myProducts: (page = 1) =>
     unwrap<StorePage<StoreProduct>>(
       api.get(`${root}/my/products`, {

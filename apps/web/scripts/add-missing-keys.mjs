@@ -66,6 +66,7 @@ import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
 import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
 import { toolMarketClientRecordsLunaCopy } from './tool-market-client-records-luna-copy.mjs'
 import { storeSalesLimitLunaCopy } from './store-sales-limit-luna-copy.mjs'
+import { storeTestModeLunaCopy } from './store-test-mode-luna-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
 import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
@@ -13289,6 +13290,10 @@ for (const [locale, values] of Object.entries(marketAIReviewLunaCopy)) {
 }
 
 for (const [locale, values] of Object.entries(storeEmptyStateCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeTestModeLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

@@ -14,6 +14,7 @@ export interface StoreLink {
 export interface StoreProduct {
   id: string
   seller_id: number
+  test_mode?: boolean
   title: string
   description: string
   image_urls: string[]
@@ -98,6 +99,7 @@ export interface StoreOrder {
 export interface StoreConfig {
   fee_bps: number
   promotion_quota: number
+  product_test_mode_supported?: boolean
   minimum_unit_price_quota?: number
   recipient_id?: number
   linuxdo_units_per_usd?: string
