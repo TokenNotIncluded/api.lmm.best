@@ -1,7 +1,8 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { api } from '@/lib/api'
 
-import { MarketAPIError } from './api'
+import { MarketAPIError, type MarketOAuthClient } from './api'
+import { collectMarketPages } from './connection-utils'
 
 export type MetaDelegation = {
   enabled: boolean
@@ -66,6 +67,15 @@ export function metaDelegationQuota(raw: string): number | undefined {
 }
 
 export const metaDelegationAPI = {
+  oauthClients: (signal?: AbortSignal) =>
+    collectMarketPages<MarketOAuthClient>((offset, limit) =>
+      unwrap<MarketOAuthClient[]>(
+        api.get('/api/tool-market/meta-delegations/oauth-clients', {
+          params: { offset, limit },
+          signal,
+        })
+      )
+    ),
   get: (target: MetaDelegationTarget) =>
     unwrap<MetaDelegation>(api.get(path(target))),
   set: (target: MetaDelegationTarget, input: MetaDelegationInput) => {

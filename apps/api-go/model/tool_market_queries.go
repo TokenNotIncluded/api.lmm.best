@@ -75,7 +75,7 @@ func GetToolMarketDetail(userID int, serviceID string, draft bool) (*ToolMarketD
 		if userID <= 0 {
 			return nil, ErrToolMarketDenied
 		}
-		if err := DB.First(&detail.Service, "id = ? AND owner_id = ? AND status <> ?", serviceID, userID, ToolMarketServiceDeleted).Error; err != nil {
+		if err := DB.First(&detail.Service, "id = ? AND owner_id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, userID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 			return nil, err
 		}
 		// Publishing consumes the draft pointer. An author can start the next
@@ -175,7 +175,7 @@ func ListToolMarketAccountResources(userID int, kind string, offset, limit int) 
 			ToolMarketService `gorm:"embedded"`
 			Name              string `json:"name"`
 		}{}
-		err := q.Table("tool_market_services AS s").Joins("LEFT JOIN tool_market_versions d ON d.id = s.draft_version_id").Joins("LEFT JOIN tool_market_versions v ON v.id = s.live_version_id").Select("s.*, COALESCE(d.name, v.name, '') AS name").Where("s.owner_id = ? AND s.status <> ?", userID, ToolMarketServiceDeleted).Order("s.created_at DESC, s.id").Scan(&rows).Error
+		err := q.Table("tool_market_services AS s").Joins("LEFT JOIN tool_market_versions d ON d.id = s.draft_version_id").Joins("LEFT JOIN tool_market_versions v ON v.id = s.live_version_id").Select("s.*, COALESCE(d.name, v.name, '') AS name").Where("s.owner_id = ? AND s.status <> ? AND COALESCE(s.draft_version_id, '') <> ?", userID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Order("s.created_at DESC, s.id").Scan(&rows).Error
 		return rows, err
 	case "grants":
 		rows := []ToolMarketGrant{}

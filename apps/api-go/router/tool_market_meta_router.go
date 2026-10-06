@@ -10,6 +10,7 @@ import (
 func setToolMarketMetaRouter(parent *assistantRouterGroup) {
 	self := parent.Group("/tool-market/meta-delegations")
 	self.Use(middleware.UserAuth(), middleware.DisableCache(), middleware.RequestBodyLimit(1024))
+	self.GET("/oauth-clients", controller.ListToolMarketMetaOAuthClients)
 	self.GET("/:kind/:id", controller.GetToolMarketMetaDelegation)
 	self.PUT("/:kind/:id", middleware.CriticalRateLimit(), controller.SetToolMarketMetaDelegation)
 }

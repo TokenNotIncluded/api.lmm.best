@@ -75,6 +75,8 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { api } = await import('@/lib/api')
 const { resetMarketCurrencyTest } = await import('./currency-test-support')
+const { metaDelegationAPI } = await import('./meta-delegation-api')
+const metaOriginals = { ...metaDelegationAPI }
 const { marketAPI } = await import('./api')
 const { toast } = await import('sonner')
 const originalToastError = toast.error
@@ -267,6 +269,7 @@ function stubNavigation(items: MarketDetail[], services: MarketService[] = []) {
   }
   marketAPI.config = async () => pausedConfig
   marketAPI.list = async () => items.map(summary)
+  metaDelegationAPI.oauthClients = async () => []
   marketAPI.mine = (async (kind: string) => {
     if (kind === 'services') return services
     if (kind === 'installations') {
@@ -304,6 +307,7 @@ afterEach(async () => {
     view.container.remove()
   }
   Object.assign(marketAPI, originalAPI)
+  Object.assign(metaDelegationAPI, metaOriginals)
   api.defaults.adapter = originalAdapter
   toast.error = originalToastError
   useAuthStore.setState({ auth: originalAuth })

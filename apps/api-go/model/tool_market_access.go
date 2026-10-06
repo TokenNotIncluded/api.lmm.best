@@ -269,7 +269,7 @@ func SetToolMarketPaused(actor int, serviceID string, paused bool) error {
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ?", serviceID, ToolMarketServiceDeleted).Error; err != nil {
+		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 			return err
 		}
 		// System services are controlled by the compiled-in registry, including

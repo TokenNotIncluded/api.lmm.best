@@ -3,11 +3,42 @@ package model
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestToolMarketMetaOAuthPickerRequiresManageOnFamilyAndLiveToken(t *testing.T) {
+	f := newMarketFixture(t, 0)
+	require.NoError(t, MigrateOAuthServer(f.db))
+	const issuer = "https://oauth-meta.example.test"
+	const resource = issuer + "/api/oauth2"
+	const full = "market:discover market:invoke market:manage"
+	now := time.Now().UnixMilli()
+	family := OAuthServerGrant{ID: "meta-picker-family", UserID: int64(f.buyer.Id), Issuer: issuer, Resource: resource, ClientID: "lmm-pi", Scope: full, AbsoluteExpiresAtMs: now + 3600000}
+	token := OAuthServerToken{Digest: "meta-picker-digest", FamilyID: family.ID, Issuer: issuer, Kind: "refresh", Scope: full, ExpiresAtMs: now + 600000}
+	require.NoError(t, f.db.Create(&family).Error)
+	require.NoError(t, f.db.Create(&token).Error)
+	list := func(user int, scopes []string) []ToolMarketOAuthClient {
+		rows, err := ListToolMarketOAuthClients(f.db, user, issuer, resource, []string{"lmm-pi", "lmm-dsh"}, scopes, 0, 100)
+		require.NoError(t, err)
+		return rows
+	}
+	strict := []string{"market:discover", "market:invoke", "market:manage"}
+	require.Len(t, list(f.buyer.Id, strict), 1, "a valid refresh token is eligible")
+	require.Empty(t, list(f.author.Id, strict), "same client belongs to a different account")
+	require.NoError(t, f.db.Model(&token).Update("scope", "market:discover market:invoke").Error)
+	require.Empty(t, list(f.buyer.Id, strict), "family scopes cannot widen a narrowed live token")
+	require.Len(t, list(f.buyer.Id, strict[:2]), 1, "the existing invocation picker still allows invoke-only OAuth")
+	require.NoError(t, f.db.Model(&token).Update("scope", full).Error)
+	require.NoError(t, f.db.Model(&family).Update("scope", "market:discover market:invoke").Error)
+	require.Empty(t, list(f.buyer.Id, strict), "a token cannot widen the family's consent")
+	require.NoError(t, f.db.Model(&family).Update("scope", full).Error)
+	require.NoError(t, f.db.Model(&token).Update("used_at_ms", now).Error)
+	require.Empty(t, list(f.buyer.Id, strict), "consumed refresh credentials are not eligible")
+}
 
 func marketMetaTestSubject(t *testing.T, f marketFixture, client string, invoke, manage bool) ToolMarketMetaSubject {
 	t.Helper()
@@ -25,6 +56,111 @@ func TestToolMarketMetaLegacyManageDoesNotDelegateSpending(t *testing.T) {
 	_, err = AuthorizeToolMarketMeta(subject, ToolMarketGrant{ToolID: f.tool.ToolID, VersionID: f.tool.VersionID, MaxPriceQuota: 101, MaxTotalQuota: 150, MaxCalls: 1, ExpiresAt: common.GetTimestamp() + 60})
 	require.ErrorIs(t, err, ErrToolMarketDenied)
 	require.Equal(t, 1000, marketTestBalance(t, f.db, f.buyer.Id))
+}
+
+func TestToolMarketMetaSavedZeroBlocksPaidButPermitsFreeExecution(t *testing.T) {
+	for _, price := range []int{0, 1} {
+		t.Run(string(rune('0'+price)), func(t *testing.T) {
+			f := newMarketFixture(t, price)
+			require.NoError(t, SetToolMarketBudget(f.buyer.Id, "account", "", 0))
+			subject := marketMetaTestSubject(t, f, "client-a", true, true)
+			_, err := SetToolMarketMetaDelegation(subject, ToolMarketMetaDelegation{Enabled: true})
+			require.NoError(t, err)
+			call, created, err := ReserveToolMarketCall(f.input("zero-budget-real-call"))
+			if price > 0 {
+				require.ErrorIs(t, err, ErrToolMarketBudget)
+				require.False(t, created)
+			} else {
+				require.NoError(t, err)
+				require.True(t, created)
+				_, err = StartToolMarketCall(call.ID)
+				require.NoError(t, err)
+				require.NoError(t, FinishToolMarketCall(call.ID, true))
+			}
+			require.Equal(t, 1000, marketTestBalance(t, f.db, f.buyer.Id))
+			require.Zero(t, marketTestBalance(t, f.db, f.author.Id))
+		})
+	}
+}
+
+func TestToolMarketMetaRejectedWideningAndForeignGrantsLeaveFactsUnchanged(t *testing.T) {
+	f := newMarketFixture(t, 100)
+	subject := marketMetaTestSubject(t, f, "client-a", true, true)
+	_, err := SetToolMarketMetaDelegation(subject, ToolMarketMetaDelegation{Enabled: true, MaxTotalQuota: 500})
+	require.NoError(t, err)
+	input := ToolMarketGrant{ToolID: f.tool.ToolID, VersionID: f.tool.VersionID, MaxPriceQuota: 100, MaxTotalQuota: 400, MaxCalls: 3, ExpiresAt: common.GetTimestamp() + 120}
+	grant, err := AuthorizeToolMarketMeta(subject, input)
+	require.NoError(t, err)
+	require.NoError(t, SetToolMarketMetaToolBudget(subject, grant.ID, grant.ToolID, grant.VersionID, 300))
+	_, _, err = ReserveToolMarketCall(f.input("tightening-held"))
+	require.NoError(t, err)
+	paid, _, err := ReserveToolMarketCall(f.input("tightening-paid"))
+	require.NoError(t, err)
+	_, err = StartToolMarketCall(paid.ID)
+	require.NoError(t, err)
+	require.NoError(t, FinishToolMarketCall(paid.ID, true))
+	require.NoError(t, SetToolMarketMetaClientBudget(subject, 350))
+	otherClient := marketMetaTestSubject(t, f, "other-client", true, true)
+	_, err = SetToolMarketMetaDelegation(otherClient, ToolMarketMetaDelegation{Enabled: true, MaxTotalQuota: 500})
+	require.NoError(t, err)
+	_, otherToken, err := CreateToolMarketToken(f.author.Id, "client-a", true, true, common.GetTimestamp()+3600)
+	require.NoError(t, err)
+	otherUser := ToolMarketMetaSubject{UserID: f.author.Id, ClientID: "client-a", CredentialKind: "personal", CredentialID: otherToken.ID, CanInvoke: true, CanManage: true}
+	_, err = SetToolMarketMetaDelegation(otherUser, ToolMarketMetaDelegation{Enabled: true, MaxTotalQuota: 500})
+	require.NoError(t, err)
+	snapshot := func() []byte {
+		var budgets []ToolMarketBudget
+		var grants []ToolMarketGrant
+		var events []ToolMarketEvent
+		var users []User
+		var calls []ToolMarketCall
+		var transfers []ToolMarketTransfer
+		require.NoError(t, f.db.Order("scope, scope_id").Find(&budgets).Error)
+		require.NoError(t, f.db.Order("id").Find(&grants).Error)
+		require.NoError(t, f.db.Order("id").Find(&events).Error)
+		require.NoError(t, f.db.Order("id").Find(&users).Error)
+		require.NoError(t, f.db.Order("id").Find(&calls).Error)
+		require.NoError(t, f.db.Order("id").Find(&transfers).Error)
+		data, err := json.Marshal([]any{budgets, grants, events, users, calls, transfers})
+		require.NoError(t, err)
+		return data
+	}
+	before := snapshot()
+	require.ErrorIs(t, SetToolMarketMetaClientBudget(subject, 500), ErrToolMarketBudget)
+	require.ErrorIs(t, SetToolMarketMetaToolBudget(subject, grant.ID, grant.ToolID, grant.VersionID, 400), ErrToolMarketBudget)
+	for _, foreign := range []struct {
+		subject       ToolMarketMetaSubject
+		tool, version string
+	}{
+		{otherUser, grant.ToolID, grant.VersionID},
+		{otherClient, grant.ToolID, grant.VersionID},
+		{subject, "wrong-tool", grant.VersionID}, {subject, grant.ToolID, "wrong-version"},
+	} {
+		require.Error(t, SetToolMarketMetaToolBudget(foreign.subject, grant.ID, foreign.tool, foreign.version, 100))
+	}
+	for _, field := range []string{"price", "calls", "expiry"} {
+		widened := input
+		widened.MaxTotalQuota = 300
+		switch field {
+		case "price":
+			widened.MaxPriceQuota++
+		case "calls":
+			widened.MaxCalls++
+		case "expiry":
+			widened.ExpiresAt++
+		}
+		_, err := AuthorizeToolMarketMeta(subject, widened)
+		require.ErrorIs(t, err, ErrToolMarketBudget, field)
+	}
+	require.Equal(t, before, snapshot(), "rejected changes must not write wallets, counters, budgets or audit events")
+	_, err = SetToolMarketMetaDelegation(subject, ToolMarketMetaDelegation{})
+	require.NoError(t, err)
+	before = snapshot()
+	require.ErrorIs(t, SetToolMarketMetaClientBudget(subject, 0), ErrToolMarketDenied)
+	require.ErrorIs(t, SetToolMarketMetaToolBudget(subject, grant.ID, grant.ToolID, grant.VersionID, 0), ErrToolMarketDenied)
+	_, err = AuthorizeToolMarketMeta(subject, input)
+	require.ErrorIs(t, err, ErrToolMarketDenied)
+	require.Equal(t, before, snapshot())
 }
 
 func TestToolMarketMetaDelegationIsCredentialBoundAndFailClosed(t *testing.T) {

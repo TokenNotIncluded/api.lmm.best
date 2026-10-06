@@ -19,7 +19,7 @@ import (
 
 func TestToolMarketMCPUsesVerifiedClientAndRefreshesToolSet(t *testing.T) {
 	db, user, _ := setupOpenSourceBountyMCPControllerTest(t)
-	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModerationJob{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketEvent{}, &model.ToolMarketToken{}, &model.ToolMarketCall{}, &model.ToolMarketResult{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModerationJob{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketEvent{}, &model.ToolMarketToken{}, &model.ToolMarketCall{}, &model.ToolMarketResult{}, &model.ToolMarketBudget{}, &model.ToolMarketTransfer{}))
 	service, err := model.SaveToolMarketDraft(user.Id, "", model.ToolMarketDraftInput{Name: "MCP fixture", ExecutionType: "remote", Visibility: "public", Endpoint: "https://example.com/mcp", Tools: []model.ToolMarketToolInput{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"$ref":"#/$defs/q"}},"$defs":{"q":{"type":"string"}}}`), Permissions: []string{"read"}}}})
 	require.NoError(t, err)
 	require.NoError(t, model.SubmitToolMarketDraft(user.Id, service.ID, service.DraftVersionID))
@@ -51,8 +51,26 @@ func TestToolMarketMCPUsesVerifiedClientAndRefreshesToolSet(t *testing.T) {
 	list, err = session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
 	require.Len(t, list.Tools, 5, "loading must not auto-authorize execution")
-	_, err = model.CreateToolMarketGrant(user.Id, model.ToolMarketGrant{ClientID: "agent-a", ToolID: tool.ToolID, VersionID: tool.VersionID, MaxPriceQuota: 0, MaxTotalQuota: 0, MaxCalls: 1, ExpiresAt: common.GetTimestamp() + 3600})
+	// The default Meta tool is already available before any loaded tools. Owner
+	// consent with a real zero client cap lets AI authorize this free tool only.
+	subject, err := model.ToolMarketMetaPersonalSubject(user.Id, record.ID)
 	require.NoError(t, err)
+	_, err = model.SetToolMarketMetaDelegation(subject, model.ToolMarketMetaDelegation{Enabled: true})
+	require.NoError(t, err)
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{Name: "metamcp", Arguments: map[string]any{"action": "unload", "tool_id": tool.ToolID, "version_id": tool.VersionID}})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{Name: "metamcp", Arguments: map[string]any{"action": "load", "tool_id": tool.ToolID, "version_id": tool.VersionID}})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{Name: "metamcp", Arguments: map[string]any{"action": "authorize", "tool_id": tool.ToolID, "version_id": tool.VersionID, "max_price_quota": 0, "max_total_quota": 0, "max_calls": 1, "expires_at": common.GetTimestamp() + 60}})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	for _, table := range []string{"tool_market_calls", "tool_market_transfers"} {
+		var count int64
+		require.NoError(t, db.Table(table).Count(&count).Error)
+		require.Zero(t, count, "default Meta load/authorize never charges")
+	}
 	list, err = session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
 	require.Len(t, list.Tools, 6, "tools/list must refresh without reconnecting")

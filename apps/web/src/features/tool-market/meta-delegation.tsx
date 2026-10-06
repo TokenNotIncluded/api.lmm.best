@@ -218,6 +218,10 @@ function MetaDelegationSettingsInner({
                 const saved = await metaDelegationAPI.set(target, input)
                 if (useAuthStore.getState().auth.user?.id !== userID) return
                 cache.setQueryData(queryKey, saved)
+                await cache.invalidateQueries({
+                  queryKey: ['tool-market', userID, 'budgets'],
+                })
+                if (useAuthStore.getState().auth.user?.id !== userID) return
                 setDraft({
                   enabled: saved.enabled,
                   quota: String(saved.max_total_quota),

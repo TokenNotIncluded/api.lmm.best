@@ -117,3 +117,25 @@ func SetToolMarketMetaDelegation(c *gin.Context) {
 	views, err := model.SetToolMarketMetaDelegations(subjects, input)
 	toolMarketRespond(c, toolMarketMetaDelegationSummary(views), err)
 }
+
+// The regular OAuth connection picker permits invoke-only clients. AI tool
+// management has a distinct, stricter picker and never widens existing scopes.
+func ListToolMarketMetaOAuthClients(c *gin.Context) {
+	offset, limit, ok := toolMarketPage(c)
+	if !ok {
+		return
+	}
+	integration := service.CurrentOAuthIntegration()
+	if integration == nil {
+		toolMarketRespond(c, []model.ToolMarketOAuthClient{}, nil)
+		return
+	}
+	if integration.DB != model.DB {
+		toolMarketRespond(c, nil, model.ErrToolMarketDenied)
+		return
+	}
+	rows, err := model.ListToolMarketOAuthClients(integration.DB.WithContext(c.Request.Context()), c.GetInt("id"), integration.Issuer, integration.Resource,
+		[]string{service.OAuthPiClientID, service.OAuthDshClientID},
+		[]string{service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope}, offset, limit)
+	toolMarketRespond(c, rows, err)
+}

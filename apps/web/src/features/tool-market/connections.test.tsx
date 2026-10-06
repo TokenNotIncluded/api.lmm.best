@@ -42,6 +42,9 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { marketAPI } = await import('./api')
+const { metaDelegationAPI } = await import('./meta-delegation-api')
+const { metaDelegationCopy } = await import('./meta-delegation-copy')
+const metaOriginals = { ...metaDelegationAPI }
 const { MarketConnections } = await import('./connections')
 const { resetMarketCurrencyTest } = await import('./currency-test-support')
 
@@ -112,6 +115,7 @@ function previewText(container: HTMLElement) {
 }
 async function mount(onChooseClient: (clientID: string) => void) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'test', role: 1 })
+  metaDelegationAPI.oauthClients = async () => []
   marketAPI.mine = (async () => []) as typeof marketAPI.mine
   marketAPI.token = async (client) => ({
     token: secret,
@@ -155,6 +159,7 @@ afterEach(async () => {
     cache.clear()
   }
   Object.assign(marketAPI, originals)
+  Object.assign(metaDelegationAPI, metaOriginals)
   useAuthStore.getState().auth.setUser(null)
   document.body.replaceChildren()
 })
@@ -572,4 +577,276 @@ test('profile switching updates placeholder preview and copies secrets only afte
   )
   assert.equal(container.querySelector('#mcp-secret'), null)
   assert.equal(container.innerHTML.includes(secret), false)
+})
+
+async function enableManage(container: HTMLElement) {
+  const checkbox = [
+    ...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  ].find((item) =>
+    item.parentElement?.textContent?.includes('Allow loading and unloading')
+  )
+  assert.ok(checkbox, 'missing explicit manage permission')
+  await act(async () => {
+    checkbox.click()
+    await flush()
+  })
+}
+
+test('real connection creation delegates free AI management only after explicit manage consent', async () => {
+  const { container, cache } = await mount(() => {})
+  let delegation: Parameters<typeof metaDelegationAPI.set> | undefined
+  metaDelegationAPI.set = async (target, input) => {
+    delegation = [target, input]
+    return { ...input, updated_at: 1 }
+  }
+  let tokenCalls = 0
+  marketAPI.token = async (client, permissions) => {
+    tokenCalls++
+    assert.equal(permissions?.can_manage, true)
+    return {
+      token: secret,
+      record: { ...record, client_id: client, can_manage: true },
+    }
+  }
+  await enableManage(container)
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(() => delegation !== undefined)
+  assert.deepEqual(delegation, [
+    { kind: 'personal', id: record.id },
+    { enabled: true, max_total_quota: 0, expires_at: record.expires_at },
+  ])
+  assert.equal(tokenCalls, 1)
+  assert.equal(
+    element<HTMLInputElement>(container, '#mcp-secret').value,
+    secret
+  )
+  assert.equal(
+    JSON.stringify(cache.getQueryCache().getAll()).includes(secret),
+    false
+  )
+  assert.equal(
+    JSON.stringify(
+      cache
+        .getMutationCache()
+        .getAll()
+        .map((row) => row.state)
+    ).includes(secret),
+    false
+  )
+})
+
+test('no-manage creation does not silently enable delegation', async () => {
+  const { container } = await mount(() => {})
+  metaDelegationAPI.set = async () =>
+    assert.fail('invoke-only token cannot delegate')
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(() => container.querySelector('#mcp-secret') !== null)
+  assert.equal(container.textContent?.includes(metaDelegationCopy.saved), false)
+})
+
+test('failed delegation retains the once-only token and refreshes created records without issuing twice', async () => {
+  const { container, cache } = await mount(() => {})
+  let tokenCalls = 0
+  let recordReads = 0
+  marketAPI.mine = (async () => {
+    recordReads++
+    return []
+  }) as typeof marketAPI.mine
+  marketAPI.token = async (client) => {
+    tokenCalls++
+    return {
+      token: secret,
+      record: { ...record, client_id: client, can_manage: true },
+    }
+  }
+  metaDelegationAPI.set = async () => {
+    throw new Error('fixture unavailable')
+  }
+  await enableManage(container)
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(
+    () => container.textContent?.includes(metaDelegationCopy.failed) === true
+  )
+  await waitFor(() => recordReads >= 4)
+  assert.equal(tokenCalls, 1)
+  assert.equal(
+    element<HTMLInputElement>(container, '#mcp-secret').value,
+    secret
+  )
+  assert.equal(container.textContent?.includes(metaDelegationCopy.saved), false)
+  assert.equal(
+    JSON.stringify(
+      cache
+        .getMutationCache()
+        .getAll()
+        .map((row) => row.state)
+    ).includes(secret),
+    false
+  )
+})
+
+test('late token response after account change cannot expose a token or configure old delegation', async () => {
+  const { container } = await mount(() => {})
+  let resolveToken:
+    | ((value: { token: string; record: typeof record }) => void)
+    | undefined
+  marketAPI.token = async () =>
+    new Promise((resolve) => {
+      resolveToken = resolve
+    })
+  metaDelegationAPI.set = async () =>
+    assert.fail('old account response cannot delegate')
+  await enableManage(container)
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(() => resolveToken !== undefined)
+  await act(async () => {
+    useAuthStore.getState().auth.setUser({ id: 2, username: 'next', role: 1 })
+    await flush()
+    resolveToken?.({ token: secret, record: { ...record, can_manage: true } })
+    await flush()
+  })
+  assert.equal(container.querySelector('#mcp-secret'), null)
+  assert.equal(container.innerHTML.includes(secret), false)
+})
+
+test('existing token settings remain credential-bound and strictly eligible OAuth clients appear without installed tools', async () => {
+  const { container, cache } = await mount(() => {})
+  const targets: string[] = []
+  metaDelegationAPI.get = async (target) => {
+    targets.push(`${target.kind}:${target.id}`)
+    return { enabled: false, max_total_quota: 0, expires_at: 0, updated_at: 1 }
+  }
+  await act(async () => {
+    cache.setQueryData(
+      ['tool-market', 1, 'tokens'],
+      [
+        { ...record, id: 'first', can_manage: true },
+        { ...record, id: 'second', can_manage: true },
+        { ...record, id: 'restricted' },
+        { ...record, id: 'revoked', can_manage: true, revoked_at: 1 },
+        { ...record, id: 'expired', can_manage: true, expires_at: 1 },
+      ]
+    )
+    cache.setQueryData(
+      ['tool-market', 1, 'meta-oauth-clients'],
+      [{ client_id: 'oauth:lmm-pi' }]
+    )
+    await flush()
+  })
+  const controls = [...container.querySelectorAll('article button')].filter(
+    (item) => item.textContent === metaDelegationCopy.title
+  )
+  assert.equal(controls.length, 3)
+  for (const control of controls) {
+    await act(async () => {
+      ;(control as HTMLElement).click()
+      await flush()
+    })
+    await waitFor(() => document.querySelector('[role="dialog"]') !== null)
+    const close = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ].find(
+      (item) =>
+        item.getAttribute('aria-label') === 'Close' ||
+        item.textContent?.includes('Close')
+    )
+    assert.ok(close, 'missing close control')
+    await act(async () => {
+      close.click()
+      await flush()
+    })
+  }
+  assert.deepEqual(
+    targets.sort(),
+    ['personal:first', 'personal:second', 'oauth:oauth:lmm-pi'].sort()
+  )
+})
+
+test('saving existing AI settings refreshes the real connection spending-budget panel', async () => {
+  const { container, cache } = await mount(() => {})
+  const budget = {
+    scope: 'client',
+    scope_id: 'my-agent',
+    limit_quota: 3000,
+    spent_quota: 0,
+    reserved_quota: 0,
+  }
+  let budgetReads = 0
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'budgets') {
+      budgetReads++
+      return [{ ...budget }]
+    }
+    return []
+  }) as typeof marketAPI.mine
+  metaDelegationAPI.get = async () => ({
+    enabled: true,
+    max_total_quota: budget.limit_quota,
+    expires_at: record.expires_at,
+    updated_at: 1,
+  })
+  metaDelegationAPI.set = async (target, input) => {
+    assert.deepEqual(target, { kind: 'personal', id: record.id })
+    budget.limit_quota = input.max_total_quota
+    return { ...input, updated_at: 2 }
+  }
+  await act(async () => {
+    cache.setQueryData(
+      ['tool-market', 1, 'tokens'],
+      [{ ...record, can_manage: true }]
+    )
+    cache.setQueryData(['tool-market', 1, 'budgets'], [{ ...budget }])
+    await flush()
+  })
+  const budgetSection = [...container.querySelectorAll('section')].at(-1)
+  assert.ok(budgetSection)
+  const before = budgetSection.textContent
+  const controls = [...container.querySelectorAll('article button')]
+  const settings = controls.find(
+    (item) => item.textContent === metaDelegationCopy.title
+  )
+  assert.ok(settings)
+  await act(async () => {
+    ;(settings as HTMLElement).click()
+    await flush()
+  })
+  await waitFor(() => document.querySelector('[role="dialog"]') !== null)
+  const dialog = element<HTMLElement>(document.body, '[role="dialog"]')
+  const quota = element<HTMLInputElement>(
+    dialog,
+    'input:not([type="checkbox"])'
+  )
+  await waitFor(() => quota.value === '3000')
+  const setter = Object.getOwnPropertyDescriptor(
+    dom.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(quota, '1000')
+    quota.dispatchEvent(new Event('input', { bubbles: true }))
+    quota.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+    button(dialog, 'Save').click()
+    await flush()
+  })
+  await waitFor(() => budgetReads > 0 && budgetSection.textContent !== before)
+  assert.equal(
+    cache.getQueryData<(typeof budget)[]>(['tool-market', 1, 'budgets'])?.[0]
+      .limit_quota,
+    1000
+  )
+  assert.equal(budgetSection.textContent?.includes('my-agent'), true)
 })

@@ -29,6 +29,45 @@ func TestToolMarketDeletePermissionsAndIdempotency(t *testing.T) {
 	require.ErrorIs(t, DeleteToolMarketService(admin.Id, service.ID), ErrToolMarketDenied)
 }
 
+func TestToolMarketRetirementGuardSurvivesLegacyStatusDrift(t *testing.T) {
+	f := newMarketFixture(t, 100)
+	require.NoError(t, DeleteToolMarketService(f.author.Id, f.service.ID))
+	// A legacy report reviewer only knows suspended, not the newer deleted
+	// status. The existing draft retirement guard must remain authoritative.
+	require.NoError(t, f.db.Model(&ToolMarketService{}).Where("id = ?", f.service.ID).Update("status", "suspended").Error)
+	_, err := SaveToolMarketDraft(f.author.Id, f.service.ID, marketTestDraft(100))
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	require.ErrorIs(t, SetToolMarketPaused(f.author.Id, f.service.ID, false), gorm.ErrRecordNotFound)
+	require.ErrorIs(t, SubmitToolMarketDraft(f.author.Id, f.service.ID, f.service.LiveVersionID), gorm.ErrRecordNotFound)
+	require.ErrorIs(t, ReviewToolMarketVersion(f.root.Id, f.service.ID, f.service.LiveVersionID, true, "must stay retired"), gorm.ErrRecordNotFound)
+	_, err = GetToolMarketDetail(f.author.Id, f.service.ID, true)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	rows, err := ListToolMarketAccountResources(f.author.Id, "services", 0, 20)
+	require.NoError(t, err)
+	raw, err := json.Marshal(rows)
+	require.NoError(t, err)
+	require.JSONEq(t, "[]", string(raw))
+	require.NoError(t, DeleteToolMarketService(f.author.Id, f.service.ID))
+	var count int64
+	require.NoError(t, f.db.Model(&ToolMarketEvent{}).Where("object_id = ? AND action = 'service.delete'", f.service.ID).Count(&count).Error)
+	require.EqualValues(t, 1, count, "legacy status drift must not create a second deletion")
+}
+
+func TestToolMarketRetirementFilterPreservesNullableLegacyDraftPointers(t *testing.T) {
+	f := newMarketFixture(t, 100)
+	require.NoError(t, f.db.Model(&ToolMarketService{}).Where("id = ?", f.service.ID).UpdateColumn("draft_version_id", nil).Error)
+	detail, err := GetToolMarketDetail(f.author.Id, f.service.ID, true)
+	require.NoError(t, err)
+	require.Equal(t, f.service.LiveVersionID, detail.Version.ID)
+	rows, err := ListToolMarketAccountResources(f.author.Id, "services", 0, 20)
+	require.NoError(t, err)
+	raw, err := json.Marshal(rows)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), f.service.ID)
+	_, err = SaveToolMarketDraft(f.author.Id, f.service.ID, marketTestDraft(100))
+	require.NoError(t, err, "SQL NULL is an empty old draft, never the retirement marker")
+}
+
 func TestToolMarketDeletePreservesRunningSettlementAndHistory(t *testing.T) {
 	f := newMarketFixture(t, 101)
 	call, _, err := ReserveToolMarketCall(f.input("running-before-delete"))
@@ -82,7 +121,8 @@ func TestToolMarketDeletePreservesRunningSettlementAndHistory(t *testing.T) {
 	var service ToolMarketService
 	require.NoError(t, f.db.First(&service, "id = ?", f.service.ID).Error)
 	require.Equal(t, ToolMarketServiceDeleted, service.Status)
-	require.Equal(t, f.service.LiveVersionID, service.LiveVersionID)
+	require.Empty(t, service.LiveVersionID)
+	require.Equal(t, toolMarketRetirementVersionID, service.DraftVersionID)
 	calls, err := ListToolMarketCalls(f.buyer.Id, 0, 20)
 	require.NoError(t, err)
 	require.Len(t, calls, 1)

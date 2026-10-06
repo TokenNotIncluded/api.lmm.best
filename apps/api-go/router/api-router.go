@@ -86,6 +86,7 @@ func SetApiRouter(router *gin.Engine) {
 	openSourceBountyApiRouter.Use(middleware.BodyStorageCleanup())
 	openSourceBountyApiRouter.Use(middleware.GlobalAPIRateLimit())
 	setToolMarketRouter(openSourceBountyApiRouter)
+	setToolMarketMetaRouter(openSourceBountyApiRouter)
 	setMerchantStoreRouter(openSourceBountyApiRouter)
 	setAcquisitionRouter(openSourceBountyApiRouter)
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()

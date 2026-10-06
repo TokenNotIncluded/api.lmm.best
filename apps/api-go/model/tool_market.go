@@ -297,7 +297,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				return err
 			}
 		} else {
-			if err := lockForUpdate(tx).Where("id = ? AND owner_id = ? AND status <> ?", serviceID, actor, ToolMarketServiceDeleted).First(&service).Error; err != nil {
+			if err := lockForUpdate(tx).Where("id = ? AND owner_id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, actor, ToolMarketServiceDeleted, toolMarketRetirementVersionID).First(&service).Error; err != nil {
 				return err
 			}
 			if service.DraftVersionID != "" {
@@ -366,7 +366,7 @@ func SubmitToolMarketDraft(actor int, serviceID, versionID string) error {
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).Where("id = ? AND owner_id = ? AND status <> ?", serviceID, actor, ToolMarketServiceDeleted).First(&service).Error; err != nil {
+		if err := lockForUpdate(tx).Where("id = ? AND owner_id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, actor, ToolMarketServiceDeleted, toolMarketRetirementVersionID).First(&service).Error; err != nil {
 			return err
 		}
 		if versionID == "" || service.DraftVersionID != versionID {
@@ -406,7 +406,7 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ?", serviceID, ToolMarketServiceDeleted).Error; err != nil {
+		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 			return err
 		}
 		if service.OwnerID == 0 {

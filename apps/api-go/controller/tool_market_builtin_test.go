@@ -131,12 +131,12 @@ func TestToolMarketBuiltinMCPListsOnlyGrantedVersionsAndPreservesNativeResults(t
 	defer session.Close()
 	list, err := session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 3)
+	require.Len(t, list.Tools, 4, "default free metamcp is available before any execution grant")
 	tool := builtinControllerTool(t, user.Id, "open_source_bounties", "open_source_bounties.list")
 	builtinControllerGrant(t, user.Id, "market-agent", tool)
 	list, err = session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 4)
+	require.Len(t, list.Tools, 5)
 	name := "market_tool_" + strings.ReplaceAll(tool.ToolID, "-", "")
 	var descriptor *mcp.Tool
 	for _, item := range list.Tools {

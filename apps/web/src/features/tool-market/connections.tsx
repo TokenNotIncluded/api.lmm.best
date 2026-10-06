@@ -47,6 +47,16 @@ import {
   isPersonalMarketClient,
   marketEndpoint,
 } from './connection-utils'
+import {
+  MetaDelegationSettings,
+  MetaDelegationSetupFields,
+} from './meta-delegation'
+import { metaDelegationAPI, metaDelegationQuota } from './meta-delegation-api'
+import { metaDelegationCopy } from './meta-delegation-copy'
+import {
+  configureIssuedMetaDelegation,
+  defaultMetaDelegationSetup,
+} from './meta-delegation-setup'
 import { useMarketMoneyDraft } from './money'
 
 type IssuedToken = { token: string; record: MarketToken }
@@ -112,9 +122,16 @@ function ConnectionWorkspace({
     queryKey: ['tool-market', userID, 'budgets'],
     queryFn: ({ signal }) => marketAPI.mine<Budget>('budgets', signal),
   })
+  const metaOAuthClients = useQuery({
+    queryKey: ['tool-market', userID, 'meta-oauth-clients'],
+    queryFn: ({ signal }) => metaDelegationAPI.oauthClients(signal),
+  })
+  const [metaSetup, setMetaSetup] = useState(defaultMetaDelegationSetup)
+  const [metaMessage, setMetaMessage] = useState<string>()
   const [client, setClient] = useState('my-agent')
   const [profile, setProfile] = useState<MarketClientProfile>('codex')
   const [permissions, setPermissions] = useState(defaultConnectionPermissions)
+  const metaPermitted = permissions.can_invoke && permissions.can_manage
   const [issued, setIssued] = useState<IssuedToken | null>(null)
   const [copyStatus, setCopyStatus] = useState<'copied' | 'copyFailed' | null>(
     null
@@ -183,7 +200,11 @@ function ConnectionWorkspace({
   }
   const budgetQuota = limit.quota
   const readError =
-    tokens.isError || grants.isError || installations.isError || budgets.isError
+    tokens.isError ||
+    grants.isError ||
+    installations.isError ||
+    budgets.isError ||
+    metaOAuthClients.isError
   const accessReady =
     tokens.isSuccess && grants.isSuccess && installations.isSuccess
   const savedGroups = useMemo(() => {
@@ -201,8 +222,9 @@ function ConnectionWorkspace({
     for (const row of installations.data ?? []) {
       ensure(row.client_id).installations.push(row)
     }
+    for (const row of metaOAuthClients.data ?? []) ensure(row.client_id)
     return [...rows].sort(([a], [b]) => a.localeCompare(b))
-  }, [tokens.data, grants.data, installations.data])
+  }, [tokens.data, grants.data, installations.data, metaOAuthClients.data])
   const groups = savedGroups
     .map(([id, group]): [string, ClientAccess] => [
       id,
@@ -213,9 +235,9 @@ function ConnectionWorkspace({
       },
     ])
     .filter(
-      ([, group]) =>
+      ([id, group]) =>
         group.tokens.length + group.grants.length + group.installations.length >
-        0
+          0 || metaOAuthClients.data?.some((row) => row.client_id === id)
     )
   const revokedGroups = savedGroups
     .map(([id, group]): [string, ClientAccess] => [
@@ -300,6 +322,13 @@ function ConnectionWorkspace({
               </Button>
             )}
           </div>
+          {!history &&
+            metaOAuthClients.data?.some((row) => row.client_id === id) && (
+              <MetaDelegationSettings
+                target={{ kind: 'oauth', id }}
+                permitted
+              />
+            )}
           {group.tokens.map((token) => (
             <div
               key={token.id}
@@ -333,6 +362,14 @@ function ConnectionWorkspace({
                   {new Date(token.expires_at * 1000).toLocaleString()}
                 </time>
               </div>
+              {connectionStatus(token, now) === 'active' &&
+                token.can_invoke &&
+                token.can_manage && (
+                  <MetaDelegationSettings
+                    target={{ kind: 'personal', id: token.id }}
+                    permitted
+                  />
+                )}
               <Button
                 variant='ghost'
                 disabled={action.isPending || !accessReady}
@@ -448,6 +485,7 @@ function ConnectionWorkspace({
                   grants.refetch(),
                   installations.refetch(),
                   budgets.refetch(),
+                  metaOAuthClients.refetch(),
                 ])
               }
             >
@@ -474,13 +512,58 @@ function ConnectionWorkspace({
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              if (!validClient || !endpoint || action.isPending) return
+              const setup = {
+                ...metaSetup,
+                enabled: metaSetup.enabled && metaPermitted,
+              }
+              if (
+                !validClient ||
+                !endpoint ||
+                action.isPending ||
+                (setup.enabled &&
+                  metaDelegationQuota(setup.quota) === undefined)
+              ) {
+                return
+              }
+              const requestedClient = client.trim()
+              const requestedPermissions = { ...permissions }
               setIssued(null)
               setCopyStatus(null)
+              setMetaMessage(undefined)
               action.mutate(async () => {
-                const data = await marketAPI.token(client.trim(), permissions)
+                const data = await marketAPI.token(
+                  requestedClient,
+                  requestedPermissions
+                )
+                if (useAuthStore.getState().auth.user?.id !== userID) return
                 setIssued(data)
-                // Do not return data: React Query's mutation cache must not retain the secret.
+                try {
+                  const saved = await configureIssuedMetaDelegation(
+                    { kind: 'personal', id: data.record.id },
+                    setup,
+                    requestedPermissions.can_invoke &&
+                      requestedPermissions.can_manage &&
+                      data.record.can_invoke &&
+                      data.record.can_manage,
+                    data.record.expires_at
+                  )
+                  if (useAuthStore.getState().auth.user?.id !== userID) return
+                  if (saved) {
+                    setMetaMessage(
+                      saved.max_total_quota === Number(setup.quota)
+                        ? t(metaDelegationCopy.saved)
+                        : t(metaDelegationCopy.tighter, {
+                            limit: saved.max_total_quota,
+                          })
+                    )
+                  }
+                } catch {
+                  if (useAuthStore.getState().auth.user?.id === userID) {
+                    setMetaMessage(t(metaDelegationCopy.failed))
+                  }
+                }
+                // Delegation failure retains the once-only token and still refreshes
+                // records. Never return the bearer secret into the mutation cache.
               })
             }}
           >
@@ -561,6 +644,12 @@ function ConnectionWorkspace({
                   <Badge variant='outline'>{m('readOnly')}</Badge>
                 )}
               </fieldset>
+              <MetaDelegationSetupFields
+                value={metaSetup}
+                onChange={setMetaSetup}
+                permitted={metaPermitted}
+                disabled={action.isPending}
+              />
               <Field>
                 <FieldLabel htmlFor='mcp-expiry'>{m('expiry')}</FieldLabel>
                 <select
@@ -590,7 +679,14 @@ function ConnectionWorkspace({
               <Button
                 type='submit'
                 className='min-h-11'
-                disabled={action.isPending || !validClient || !endpoint}
+                disabled={
+                  action.isPending ||
+                  !validClient ||
+                  !endpoint ||
+                  (metaSetup.enabled &&
+                    metaPermitted &&
+                    metaDelegationQuota(metaSetup.quota) === undefined)
+                }
               >
                 {action.isPending
                   ? t('Loading…')
@@ -607,6 +703,11 @@ function ConnectionWorkspace({
               className='min-h-11 font-mono text-sm'
             />
           </Field>
+          {metaMessage && (
+            <p role='status' className='text-sm'>
+              {metaMessage}
+            </p>
+          )}
           {issued && (
             <div className='bg-muted/40 space-y-3 rounded-lg border p-4'>
               <Field>

@@ -70,3 +70,14 @@ bun run format:check
 Model regressions cover account/client isolation, repeated disconnects, transaction rollback, in-flight settlement, reserved client IDs and disabled accounts. Search regressions cover Chinese length limits, malformed UTF-8, literal wildcard matching and private visibility. Frontend helper regressions cover permissions, client validation, configuration safety, expiry, multi-page reads and complete seven-language copy.
 
 Before deployment, verify the page at desktop and mobile widths, both themes, token creation/copy/revocation, client disconnect confirmation, editing budgets, a failed later resource page, and logout/login while a token is displayed. Unit tests alone are not visual or end-to-end acceptance.
+
+
+## AI tool management
+
+The built-in `metamcp` tool is discoverable on every marketplace connection and its search, details, status, usage and call-history operations are free. Loading requires the connection's existing manage permission; paid authorization additionally requires explicit owner delegation. The connection form preserves the existing permissions and never silently enables manage.
+
+A newly issued personal token can opt into AI tool management with an integer Credit budget, initially 0. Saved 0 permits no paid spending; a missing budget is not the same as a saved zero budget. Account and tool budgets still apply. AI can only tighten existing client/tool limits, cannot restore a tightened limit, change another connection, reset spent/reserved counters or change the account budget. Owner settings display any stricter effective cap.
+
+The owner API is `GET/PUT /api/tool-market/meta-delegations/personal/:tokenID` or `/oauth/:clientID`. `GET /api/tool-market/meta-delegations/oauth-clients` lists only OAuth clients whose current family and valid token both retain discover, invoke and manage permissions. It does not widen prior consent or replace the invoke-only authorization picker.
+
+If connection creation succeeds but delegation setup fails, the once-only token remains available and the page reports the delegation failure. Retry settings on that token rather than issuing a replacement. Existing active personal tokens are configured separately; another token for the same client does not inherit delegation. The page clears private drafts and late responses on account changes and refreshes displayed budgets after delegation writes.
