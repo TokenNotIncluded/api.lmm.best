@@ -10,6 +10,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func TestModerationProviderJournalFencesAttemptsAndRetainsPriorCallsAcrossRetry(t *testing.T) {
@@ -150,7 +151,9 @@ func TestModerationProviderTraceMigrationDoesNotFabricateHistoricalIdentifiers(t
 	require.NoError(t, db.Migrator().DropColumn(&ModerationJob{}, "ProviderCallsJSON"))
 	old := moderationTestJob(user.Id, "historical", ModerationSourceRelayInput, "tolerant")
 	old.EventKey, old.Status, old.Payload = "historical-migration", ModerationJobCompleted, ""
-	require.NoError(t, db.Omit("subject_identifier", "provider_calls_json").Create(old).Error)
+	// The historical writer knows only its original columns. Suppress the
+	// current model's automatic RETURNING of the not-yet-existing journal.
+	require.NoError(t, db.Omit("subject_identifier", "provider_calls_json").Clauses(clause.Returning{Columns: []clause.Column{{Name: "id"}}}).Create(old).Error)
 	require.NoError(t, db.AutoMigrate(&ModerationJob{}))
 	var stored ModerationJob
 	require.NoError(t, db.First(&stored, old.ID).Error)

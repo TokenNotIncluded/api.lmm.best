@@ -55,7 +55,8 @@ jobs:
               npm test
               npm run pack:check
               npm install --prefix "$RUNNER_TEMP/codewhale-host" codewhale@0.10.0
-              export LMM_CODEWHALE_BIN=$(HOST_ROOT="$RUNNER_TEMP/codewhale-host/node_modules/codewhale" node --input-type=commonjs -e 'require(process.env.HOST_ROOT + "/scripts/install.js").getBinaryPath("codewhale").then(p=>console.log(p)).catch(e=>{console.error(e);process.exitCode=1})')
+              LMM_CODEWHALE_BIN=$(HOST_ROOT="$RUNNER_TEMP/codewhale-host/node_modules/codewhale" node --input-type=commonjs -e 'require(process.env.HOST_ROOT + "/scripts/install.js").getBinaryPath("codewhale").then(p=>console.log(p)).catch(e=>{console.error(e);process.exitCode=1})')
+              export LMM_CODEWHALE_BIN
               test -x "$LMM_CODEWHALE_BIN"
               npm run test:host
               ;;
