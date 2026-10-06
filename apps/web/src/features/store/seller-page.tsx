@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import {
-  formatQuotaInCurrency,
+  formatMinimumQuotaInCurrency,
   getCurrencyFormattingLocale,
 } from '@/lib/currency'
 import { useAuthStore } from '@/stores/auth-store'
@@ -422,7 +422,7 @@ export function StoreProductEditor({
   const minimumAmount =
     minimum === undefined
       ? ''
-      : formatQuotaInCurrency(
+      : formatMinimumQuotaInCurrency(
           minimum,
           price.currency,
           {

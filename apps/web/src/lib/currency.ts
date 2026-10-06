@@ -532,6 +532,28 @@ export function formatQuotaInCurrency(
       )
 }
 
+/** A minimum must round up so the displayed amount can satisfy the ledger threshold. */
+export function formatMinimumQuotaInCurrency(
+  quota: number,
+  currency: WalletDisplayCurrency,
+  options?: CurrencyFormatOptions,
+  config = getConfig()
+): string {
+  const rational = displayRational(quota, currency, config)
+  if (!rational || quota < 0) return '-'
+  const scaled = rational.numerator * 100n
+  const cents =
+    scaled / rational.denominator +
+    (scaled % rational.denominator === 0n ? 0n : 1n)
+  return formatAmountInCurrency(Number(cents) / 100, currency, {
+    ...options,
+    digitsLarge: 2,
+    digitsSmall: 2,
+    compact: false,
+    abbreviate: false,
+  })
+}
+
 /** Legacy batch values are explicitly bridged through raw ledger quota. */
 export function formatPlatformAmount(
   amount: number | null | undefined,

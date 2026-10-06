@@ -30,6 +30,7 @@ import { useWalletCurrencyPreferenceStore } from '@/stores/wallet-currency-prefe
 import {
   displayAmountToQuota,
   formatCreditAmount,
+  formatMinimumQuotaInCurrency,
   formatCurrencyFromUSD,
   formatFiatCurrencyAmount,
   formatPlatformAmount,
@@ -191,4 +192,29 @@ test('old exchange-rate denominations are rejected instead of revaluing Credits'
     assert.equal(formatCreditAmount(500000, exact), '-')
     assert.ok(Number.isNaN(displayAmountToQuota('1', 'USD')))
   }
+})
+
+test('minimum prices round up to purchasable cents without changing ledger conversion', () => {
+  const config = {
+    ...useSystemConfigStore.getState().config.currency,
+    cnyPerUsd: 6.714466,
+    cnyPerUsdExact: '6.714466',
+  }
+  assert.equal(
+    formatMinimumQuotaInCurrency(750001, 'USD', exact, config),
+    '1.51 USD'
+  )
+  assert.ok(displayAmountToQuota('1.51', 'USD', config) >= 750001)
+  assert.ok(displayAmountToQuota('1.50', 'USD', config) < 750001)
+  assert.equal(
+    formatMinimumQuotaInCurrency(500000, 'CNY', exact, config),
+    '6.72 CNY'
+  )
+  assert.ok(displayAmountToQuota('6.72', 'CNY', config) >= 500000)
+  assert.ok(displayAmountToQuota('6.71', 'CNY', config) < 500000)
+  assert.equal(
+    formatMinimumQuotaInCurrency(750000, 'USD', exact, config),
+    '1.5 USD'
+  )
+  assert.equal(formatMinimumQuotaInCurrency(0, 'USD', exact, config), '0 USD')
 })
