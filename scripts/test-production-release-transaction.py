@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -212,6 +213,54 @@ class TransactionTests(unittest.TestCase):
                     module.write_report(path, {"outcome": "confirmed"})
             self.assertEqual(json.loads(path.read_text()), {"outcome": "previous"})
             self.assertEqual(list(Path(tmp).iterdir()), [path])
+
+
+class MerchantPostgresWorkflowTests(unittest.TestCase):
+    cases = (
+        "same-request-settles-once",
+        "distinct-checkouts-never-oversell",
+        "cross-product-buyer-pending-limit",
+        "verified-callback-cancel-and-expiry",
+        "receipt-belongs-to-one-order",
+        "wallet-boundary-full-rollback",
+    )
+
+    def run_result_guard(self, events):
+        workflow = (SCRIPT.parent.parent / '.github/workflows/server-release-qualification.yml').read_text()
+        step = workflow.split('- name: Protect merchant settlement and inventory under PostgreSQL concurrency\n', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('MERCHANT_STORE_POSTGRES_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable', step)
+        self.assertIn("-run '^TestMerchantStorePostgres(DSNGuard|Concurrency)$'", step)
+        self.assertIn('set -euo pipefail', step)
+        guard = textwrap.dedent(step.split("python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        with tempfile.TemporaryDirectory(prefix='lmm-merchant-pg-result-') as directory:
+            root = Path(directory)
+            working = root / 'apps/api-go'
+            working.mkdir(parents=True)
+            log = root / 'qualification-artifacts/go/merchant-store/postgres.jsonl'
+            log.parent.mkdir(parents=True)
+            log.write_text(''.join(json.dumps(event) + '\n' for event in events))
+            return subprocess.run([sys.executable, '-c', guard], cwd=working,
+                                  capture_output=True, text=True, timeout=5)
+
+    def passing_events(self):
+        return [{"Action": "pass", "Test": "TestMerchantStorePostgresConcurrency/" + case}
+                for case in self.cases]
+
+    def test_all_six_real_cases_are_required(self):
+        result = self.run_result_guard(self.passing_events())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('6/6 passed, 0 skipped', result.stdout)
+
+    def test_a_skip_cannot_hide_behind_a_passing_parent(self):
+        events = self.passing_events() + [{"Action": "skip", "Test": "TestMerchantStorePostgresConcurrency/fixture"}]
+        result = self.run_result_guard(events)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('without skips', result.stderr)
+
+    def test_a_missing_concurrency_case_refuses_qualification(self):
+        result = self.run_result_guard(self.passing_events()[:-1])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('all six cases', result.stderr)
 
 
 class WorkflowWiringTests(unittest.TestCase):

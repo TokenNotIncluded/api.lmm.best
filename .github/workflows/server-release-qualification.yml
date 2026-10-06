@@ -183,6 +183,37 @@ jobs:
           TEST_POSTGRES_ISOLATED_SCHEMA: '1'
         run: go test -race -count=1 -v ./model -run '^(TestRedPacketDeleteCannotEraseConcurrentClaimPostgres|TestReferralPostgres.*)$' -timeout 180s
 
+      - name: Protect merchant settlement and inventory under PostgreSQL concurrency
+        working-directory: apps/api-go
+        env:
+          GOMAXPROCS: '2'
+          MERCHANT_STORE_POSTGRES_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+        run: |
+          set -euo pipefail
+          mkdir -p ../../qualification-artifacts/go/merchant-store
+          go test -race -p 1 -count=1 -json ./model -run '^TestMerchantStorePostgres(DSNGuard|Concurrency)$' -timeout 180s | tee ../../qualification-artifacts/go/merchant-store/postgres.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          events = [json.loads(line) for line in Path("../../qualification-artifacts/go/merchant-store/postgres.jsonl").read_text().splitlines()]
+          passed = {event.get("Test") for event in events if event["Action"] == "pass"}
+          expected = {
+              "TestMerchantStorePostgresConcurrency/" + name
+              for name in (
+                  "same-request-settles-once",
+                  "distinct-checkouts-never-oversell",
+                  "cross-product-buyer-pending-limit",
+                  "verified-callback-cancel-and-expiry",
+                  "receipt-belongs-to-one-order",
+                  "wallet-boundary-full-rollback",
+              )
+          }
+          if any(event["Action"] == "skip" for event in events) or not expected.issubset(passed):
+              raise SystemExit("merchant PostgreSQL concurrency requires all six cases to pass without skips")
+          print("merchant PostgreSQL concurrency: 6/6 passed, 0 skipped")
+          PY
+
       - name: Protect paid tool-market authorization and ledger under PostgreSQL concurrency
         working-directory: apps/api-go
         env:
