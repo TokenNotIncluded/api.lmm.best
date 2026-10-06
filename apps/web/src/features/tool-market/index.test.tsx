@@ -868,6 +868,16 @@ for (const inflight of [false, true]) {
     marketAPI.detail = originalAPI.detail
     marketAPI.review = originalAPI.review
     api.defaults.adapter = async (config) => {
+      if (config.url?.endsWith('/ai-reviews')) {
+        assert.equal(config.params?.version_id, pending.version.id)
+        return {
+          config,
+          headers: {},
+          status: 200,
+          statusText: 'OK',
+          data: { success: true, data: { rows: [] } },
+        }
+      }
       const isPost = config.method === 'post'
       if (isPost) {
         const input = JSON.parse(config.data)
@@ -975,6 +985,16 @@ test('a real failed review keeps its dialog and error available for retry', asyn
   }) as typeof toast.error
   marketAPI.review = originalAPI.review
   api.defaults.adapter = async (config) => {
+    if (config.url?.endsWith('/ai-reviews')) {
+      assert.equal(config.params?.version_id, pending.version.id)
+      return {
+        config,
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+        data: { success: true, data: { rows: [] } },
+      }
+    }
     attempts++
     return {
       config,
