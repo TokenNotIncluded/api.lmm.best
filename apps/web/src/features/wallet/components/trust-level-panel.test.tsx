@@ -4,6 +4,7 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { Window } from 'happy-dom'
 import { createInstance } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
@@ -101,7 +102,9 @@ test('L5 and L6 render role access without a recharge progress bar or eligible-b
       markup,
       /recharge-level-progress|role="progressbar"|Cumulative eligible recharge|Eligible credited balance|100%/
     )
-    assert.doesNotMatch(markup.replaceAll(/<[^>]*>/g, ''), /999/)
+    const document = new Window().document
+    document.body.innerHTML = markup
+    assert.doesNotMatch(document.body.textContent, /999/)
   }
   assert.match(render(0, 100), /L6/)
 })

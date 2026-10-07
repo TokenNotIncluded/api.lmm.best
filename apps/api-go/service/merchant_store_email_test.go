@@ -140,13 +140,16 @@ func TestMerchantStoreOrderSearchEmailHasIndependentPurposeAndNoOrderContent(t *
 	message, _, destination, err := merchantStorePickupEmailMessage(merchantStorePickupEmail{destination: "search@example.test", verificationCode: "123456", orderSearch: true})
 	require.NoError(t, err)
 	require.Equal(t, "search@example.test", destination)
-	parts := strings.SplitN(string(message), "\r\n\r\n", 2)
-	content, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(parts[1], "\r\n", ""))
-	require.NoError(t, err)
-	require.Contains(t, string(content), "订单查询验证码：123456")
-	require.Contains(t, string(content), "10 分钟")
-	require.NotContains(t, string(content), "/store/claim/")
-	require.NotContains(t, string(content), "订单号：")
+	bodies := merchantStoreEmailTestBodies(t, message)
+	require.Len(t, bodies, 2)
+	require.Contains(t, bodies["text/plain"], "订单查询验证码：123456")
+	require.Contains(t, bodies["text/plain"], "10 分钟")
+	for _, kind := range []string{"text/plain", "text/html"} {
+		require.Contains(t, bodies[kind], "商店订单查询验证码")
+		require.Contains(t, bodies[kind], "123456")
+		require.NotContains(t, bodies[kind], "/store/claim/")
+		require.NotContains(t, bodies[kind], "订单号：")
+	}
 	_, _, _, err = merchantStorePickupEmailMessage(merchantStorePickupEmail{destination: "search@example.test", verificationCode: "123456", orderSearch: true, pickupURL: "https://api.example.test/store/claim/private"})
 	require.Error(t, err)
 }

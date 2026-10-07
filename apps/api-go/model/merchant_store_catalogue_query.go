@@ -33,11 +33,12 @@ func storeCatalogueFeeSQL(price string, bps int) string {
 	return "(((" + price + ")-" + remainder + ")/10000)*" + rate + "+(" + small + "-(" + small + " % 10000))/10000"
 }
 
-func storeCatalogueTradableSQL(config MerchantStoreConfig) string {
+func storeCatalogueTradableSQL(config MerchantStoreConfig) (string, []interface{}) {
 	p := "merchant_store_products"
 	seller := "(SELECT quota FROM users WHERE users.id=" + p + ".seller_id)"
 	role := "(SELECT role FROM users WHERE users.id=" + p + ".seller_id)"
 	gateway := []string{}
+	var args []interface{}
 	for _, provider := range MerchantStorePaymentProviders() {
 		encoded, _ := json.Marshal(provider)
 		category, _ := MerchantStorePaymentCategory(provider)
@@ -45,7 +46,8 @@ func storeCatalogueTradableSQL(config MerchantStoreConfig) string {
 		if category == MerchantStoreCategoryExternal {
 			master = storeCategoryExternalProvider
 		}
-		part := "(" + p + ".payment_methods LIKE '%" + string(encoded) + "%' AND (SELECT COUNT(*) FROM merchant_store_gateways g WHERE g.seller_id=" + p + ".seller_id AND g.provider='" + provider + "' AND g.enabled=TRUE)=1 AND NOT EXISTS (SELECT 1 FROM merchant_store_gateways m WHERE m.seller_id=" + p + ".seller_id AND m.provider='" + master + "' AND m.enabled=FALSE)"
+		part := "(" + p + ".payment_methods LIKE ? AND (SELECT COUNT(*) FROM merchant_store_gateways g WHERE g.seller_id=" + p + ".seller_id AND g.provider=? AND g.enabled=TRUE)=1 AND NOT EXISTS (SELECT 1 FROM merchant_store_gateways m WHERE m.seller_id=" + p + ".seller_id AND m.provider=? AND m.enabled=FALSE)"
+		args = append(args, "%"+string(encoded)+"%", provider, master)
 		if category == MerchantStoreCategoryExternal {
 			part += " AND " + seller + ">" + strconv.Itoa(MerchantStoreExternalMinimumQuota)
 		}
@@ -57,7 +59,7 @@ func storeCatalogueTradableSQL(config MerchantStoreConfig) string {
 	stock := "EXISTS (SELECT 1 FROM merchant_store_stocks s LEFT JOIN merchant_store_variants v ON v.product_id=s.product_id AND v.id=" + variantMatch + " WHERE s.product_id=" + p + ".id AND s.state='available' AND " + enabled + " AND " + price + ">=" + strconv.Itoa(config.MinimumUnitPriceQuota) + " AND (" + role + ">=" + strconv.Itoa(common.RoleRootUser) + " OR " + seller + ">=" + storeCatalogueFeeSQL(price, config.FeeBPS) + "))"
 	paid := "COALESCE((SELECT SUM(o.quantity) FROM merchant_store_orders o WHERE o.product_id=" + p + ".id AND (o.paid_at>0 OR o.status='paid' OR o.verified_payment_issue_at>0)),0)"
 	reserved := "COALESCE((SELECT SUM(o.quantity) FROM merchant_store_orders o WHERE o.product_id=" + p + ".id AND o.status<>'paid' AND COALESCE(o.paid_at,0)=0 AND COALESCE(o.verified_payment_issue_at,0)=0 AND EXISTS (SELECT 1 FROM merchant_store_stocks r WHERE r.order_id=o.id AND r.state='reserved')),0)"
-	return "(" + stock + " AND (" + p + ".sale_limit IS NULL OR " + p + ".sale_limit>" + paid + "+" + reserved + ") AND (" + strings.Join(gateway, " OR ") + "))"
+	return "(" + stock + " AND (" + p + ".sale_limit IS NULL OR " + p + ".sale_limit>" + paid + "+" + reserved + ") AND (" + strings.Join(gateway, " OR ") + "))", args
 }
 
 func ListMerchantStoreCatalogue(viewer int, search string, sellerID, offset, limit int, in MerchantStoreCatalogueQuery) ([]MerchantStoreProduct, error) {
@@ -104,9 +106,10 @@ func ListMerchantStoreCatalogue(viewer int, search string, sellerID, offset, lim
 		guestAllowed := "(" + storeVisibilitySQL + " = 'public' AND merchant_store_products.purchase_login_required=FALSE)"
 		query = query.Where(guestAllowed+" = ?", *in.GuestPurchase)
 	}
-	tradable := storeCatalogueTradableSQL(config)
+	tradable, tradableArgs := storeCatalogueTradableSQL(config)
 	if in.Stock != "" {
-		query = query.Where(tradable+" = ?", in.Stock == "in_stock")
+		stockArgs := append([]interface{}{}, tradableArgs...)
+		query = query.Where(tradable+" = ?", append(stockArgs, in.Stock == "in_stock")...)
 	}
 	sales := storeCatalogueNetSalesSQL()
 	order := "merchant_store_products.created_at DESC,merchant_store_products.id ASC"
@@ -119,6 +122,8 @@ func ListMerchantStoreCatalogue(viewer int, search string, sellerID, offset, lim
 		// One net item contributes one day to the ranking score; id stabilizes ties.
 		order = "CASE WHEN merchant_store_products.promotion_expires_at > ? AND " + tradable + " THEN 0 ELSE 1 END,CASE WHEN " + tradable + " THEN 0 ELSE 1 END,(" + sales + " * 86400.0 + merchant_store_products.created_at) DESC,merchant_store_products.id ASC"
 		orderArgs = []interface{}{common.GetTimestamp()}
+		orderArgs = append(orderArgs, tradableArgs...)
+		orderArgs = append(orderArgs, tradableArgs...)
 	}
 	var products []MerchantStoreProduct
 	if err := query.Select("merchant_store_products.*").Clauses(clause.OrderBy{Expression: gorm.Expr(order, orderArgs...)}).Offset(offset).Limit(limit).Find(&products).Error; err != nil {
