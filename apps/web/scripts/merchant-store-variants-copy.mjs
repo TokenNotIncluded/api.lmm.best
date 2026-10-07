@@ -36,6 +36,19 @@ export const merchantStoreVariantsCopy = {
       'Variant name is too long. Please shorten it.',
     'Variant prices, templates and stock are separate. The sale limit and delivery protections are shared by the whole product.':
       'Variant prices, templates and stock are separate. The sale limit and delivery protections are shared by the whole product.',
+    'Fixed content': 'Fixed content',
+    'Delivery content': 'Delivery content',
+    'Unlimited supply': 'Unlimited supply',
+    'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.':
+      'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.',
+    'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.':
+      'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.',
+    'Enter delivery content within 128 KiB.':
+      'Enter delivery content within 128 KiB.',
+    'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.':
+      'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.',
+    'Save a draft first. Submit it after adding delivery content and configuring payment methods.':
+      'Save a draft first. Submit it after adding delivery content and configuring payment methods.',
     'Shop upgrade is in progress. Existing orders are still accessible.':
       'Shop upgrade is in progress. Existing orders are still accessible.',
   },
@@ -73,6 +86,19 @@ export const merchantStoreVariantsCopy = {
       '规格名称过长，请缩短名称。',
     'Variant prices, templates and stock are separate. The sale limit and delivery protections are shared by the whole product.':
       '各规格的价格、模板和库存彼此独立。商品总销量上限和文本提取保护由整个商品共用。',
+    'Fixed content': '固定内容',
+    'Delivery content': '交付内容',
+    'Unlimited supply': '不限量供应',
+    'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.':
+      '每次购买都会收到相同的私密内容，无需导入库存。销售和购买限额仍然适用。',
+    'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.':
+      '只有卖家和符合条件的已付款买家可以查看此内容。现有订单会保留购买时保存的内容。',
+    'Enter delivery content within 128 KiB.':
+      '请输入不超过 128 KiB 的交付内容。',
+    'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.':
+      '此规格使用固定内容，不接受库存导入。请在商品或规格编辑器中修改交付内容。',
+    'Save a draft first. Submit it after adding delivery content and configuring payment methods.':
+      '请先保存草稿。添加交付内容并配置支付方式后，再提交审核。',
     'Shop upgrade is in progress. Existing orders are still accessible.':
       '店铺正在升级，您仍可查看现有订单。',
   },
@@ -110,6 +136,19 @@ export const merchantStoreVariantsCopy = {
       '規格名稱過長，請縮短名稱。',
     'Variant prices, templates and stock are separate. The sale limit and delivery protections are shared by the whole product.':
       '各規格的價格、範本和庫存彼此獨立。商品總銷量上限和文字領取保護由整個商品共用。',
+    'Fixed content': '固定內容',
+    'Delivery content': '交付內容',
+    'Unlimited supply': '不限量供應',
+    'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.':
+      '每次購買都會收到相同的私密內容，無須匯入庫存。銷售與購買上限仍然適用。',
+    'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.':
+      '只有賣家和符合條件的已付款買家可以查看此內容。既有訂單會保留購買時儲存的內容。',
+    'Enter delivery content within 128 KiB.':
+      '請輸入不超過 128 KiB 的交付內容。',
+    'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.':
+      '此規格使用固定內容，不接受庫存匯入。請在商品或規格編輯器中編輯交付內容。',
+    'Save a draft first. Submit it after adding delivery content and configuring payment methods.':
+      '請先儲存草稿。新增交付內容並設定付款方式後，再提交審核。',
     'Shop upgrade is in progress. Existing orders are still accessible.':
       '商店正在升級，您仍可查看現有訂單。',
   },
@@ -149,6 +188,19 @@ export const merchantStoreVariantsCopy = {
       'Le nom de la variante est trop long. Veuillez le raccourcir.',
     'Variant prices, templates and stock are separate. The sale limit and delivery protections are shared by the whole product.':
       'Les prix, modèles et stocks sont définis séparément pour chaque variante. La limite de ventes totales et les protections d’accès au texte à récupérer sont communes à tout le produit.',
+    'Fixed content': 'Contenu fixe',
+    'Delivery content': 'Contenu à livrer',
+    'Unlimited supply': 'Stock illimité',
+    'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.':
+      'Chaque achat donne accès au même contenu privé. Aucun import de stock n’est nécessaire. Les limites de vente et d’achat restent applicables.',
+    'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.':
+      'Seuls le vendeur et les acheteurs éligibles ayant payé peuvent lire ce contenu. Les commandes existantes conservent le contenu enregistré lors de l’achat.',
+    'Enter delivery content within 128 KiB.':
+      'Saisissez un contenu à livrer de 128 Kio maximum.',
+    'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.':
+      'Cette variante utilise un contenu fixe et n’accepte pas d’import de stock. Modifiez son contenu à livrer dans l’éditeur du produit ou de la variante.',
+    'Save a draft first. Submit it after adding delivery content and configuring payment methods.':
+      'Enregistrez d’abord un brouillon. Soumettez-le après avoir ajouté le contenu à livrer et configuré les moyens de paiement.',
     'Shop upgrade is in progress. Existing orders are still accessible.':
       'La mise à niveau de la boutique est en cours. Les commandes existantes restent accessibles.',
   },
@@ -188,6 +240,19 @@ export const merchantStoreVariantsCopy = {
       'バリエーション名が長すぎます。短くしてください。',
     'Variant prices, templates and stock are separate. The sale limit and delivery protections are shared by the whole product.':
       'バリエーションごとに価格、テンプレート、在庫を個別に設定できます。累計販売数の上限とテキスト受け取り時の保護設定は、商品全体で共通です。',
+    'Fixed content': '固定コンテンツ',
+    'Delivery content': '配信コンテンツ',
+    'Unlimited supply': '無制限に提供',
+    'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.':
+      '購入のたびに同じ非公開コンテンツが提供されます。在庫のインポートは不要です。販売数と購入数の上限は引き続き適用されます。',
+    'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.':
+      'このコンテンツを読めるのは販売者と対象となる支払い済みの購入者のみです。既存の注文には購入時のコンテンツが保存されています。',
+    'Enter delivery content within 128 KiB.':
+      '配信コンテンツは128 KiB以内で入力してください。',
+    'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.':
+      'このバリエーションは固定コンテンツを使用するため、在庫をインポートできません。商品またはバリエーションの編集画面で配信コンテンツを編集してください。',
+    'Save a draft first. Submit it after adding delivery content and configuring payment methods.':
+      'まず下書きを保存してください。配信コンテンツを追加し、支払い方法を設定してから審査に提出してください。',
     'Shop upgrade is in progress. Existing orders are still accessible.':
       'ショップのアップグレード中です。既存の注文は引き続き確認できます。',
   },
@@ -226,6 +291,19 @@ export const merchantStoreVariantsCopy = {
       'Название варианта слишком длинное. Сократите его.',
     'Variant prices, templates and stock are separate. The sale limit and delivery protections are shared by the whole product.':
       'Цены, шаблоны и остатки для каждого варианта задаются отдельно. Общий лимит продаж товара и настройки защиты при получении текста действуют для всего товара.',
+    'Fixed content': 'Фиксированное содержимое',
+    'Delivery content': 'Содержимое для выдачи',
+    'Unlimited supply': 'Неограниченное количество',
+    'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.':
+      'При каждой покупке выдаётся одно и то же закрытое содержимое. Импортировать запасы не нужно. Ограничения на продажи и покупки сохраняются.',
+    'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.':
+      'Это содержимое могут читать только продавец и подходящие покупатели с оплаченной покупкой. В существующих заказах сохранится содержимое на момент покупки.',
+    'Enter delivery content within 128 KiB.':
+      'Введите содержимое для выдачи размером не более 128 КиБ.',
+    'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.':
+      'В этом варианте используется фиксированное содержимое, импорт запасов недоступен. Измените содержимое для выдачи в редакторе товара или варианта.',
+    'Save a draft first. Submit it after adding delivery content and configuring payment methods.':
+      'Сначала сохраните черновик. Добавьте содержимое для выдачи, настройте способы оплаты и отправьте товар на проверку.',
     'Shop upgrade is in progress. Existing orders are still accessible.':
       'Магазин обновляется. Доступ к существующим заказам сохраняется.',
   },
@@ -264,6 +342,19 @@ export const merchantStoreVariantsCopy = {
       'Tên phiên bản quá dài. Vui lòng rút ngắn.',
     'Variant prices, templates and stock are separate. The sale limit and delivery protections are shared by the whole product.':
       'Giá, mẫu và tồn kho được thiết lập riêng cho từng phiên bản. Giới hạn tổng số lượt bán và các biện pháp bảo vệ khi nhận văn bản được dùng chung cho toàn bộ sản phẩm.',
+    'Fixed content': 'Nội dung cố định',
+    'Delivery content': 'Nội dung giao hàng',
+    'Unlimited supply': 'Nguồn cung không giới hạn',
+    'Every purchase receives the same private content. No inventory import is needed. Sales and purchase limits still apply.':
+      'Mỗi lần mua đều nhận cùng một nội dung riêng tư. Không cần nhập kho. Giới hạn bán và mua vẫn được áp dụng.',
+    'Only the seller and eligible paid buyers can read this content. Existing orders keep the content saved at purchase.':
+      'Chỉ người bán và người mua đủ điều kiện đã thanh toán mới có thể đọc nội dung này. Đơn hàng hiện có vẫn giữ nội dung tại thời điểm mua.',
+    'Enter delivery content within 128 KiB.':
+      'Nhập nội dung giao hàng không quá 128 KiB.',
+    'This variant uses fixed content and does not accept inventory imports. Edit its delivery content in the product or variant editor.':
+      'Biến thể này dùng nội dung cố định và không nhận dữ liệu nhập kho. Hãy sửa nội dung giao hàng trong trình chỉnh sửa sản phẩm hoặc biến thể.',
+    'Save a draft first. Submit it after adding delivery content and configuring payment methods.':
+      'Hãy lưu bản nháp trước. Sau khi thêm nội dung giao hàng và cấu hình phương thức thanh toán, hãy gửi để duyệt.',
     'Shop upgrade is in progress. Existing orders are still accessible.':
       'Cửa hàng đang được nâng cấp. Bạn vẫn có thể xem các đơn hàng hiện có.',
   },
