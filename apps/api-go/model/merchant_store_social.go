@@ -36,6 +36,8 @@ func storeSocialProduct(tx *gorm.DB, actor int, productID string, lock bool) err
 	query := MerchantStoreVisibleProductsForViewer(tx, actor).Select("merchant_store_products.id")
 	if lock {
 		query = lockForUpdate(query)
+	} else if tx.Dialector.Name() != "sqlite" {
+		query = query.Clauses(clause.Locking{Strength: "SHARE"})
 	}
 	var product MerchantStoreProduct
 	return query.Where("merchant_store_products.id = ?", productID).First(&product).Error
@@ -48,18 +50,17 @@ func storeProductLikes(tx *gorm.DB, actor int, productID string) (MerchantStoreP
 	if !storeLikesSupported(tx) {
 		return view, nil
 	}
-	var count int64
-	if err := tx.Model(&MerchantStoreProductLike{}).Where("product_id = ?", productID).Count(&count).Error; err != nil {
+	var summary struct {
+		Count int64
+		Liked int64
+	}
+	// One aggregate statement keeps the total and this account's state in the
+	// same database snapshot, even when another tab is changing the same like.
+	if err := tx.Model(&MerchantStoreProductLike{}).Where("product_id = ?", productID).
+		Select("COUNT(*) AS count, COALESCE(MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END), 0) AS liked", actor).Scan(&summary).Error; err != nil {
 		return view, err
 	}
-	view.Supported, view.Count = true, &count
-	if actor > 0 {
-		var own int64
-		if err := tx.Model(&MerchantStoreProductLike{}).Where("user_id = ? AND product_id = ?", actor, productID).Count(&own).Error; err != nil {
-			return MerchantStoreProductLikes{}, err
-		}
-		view.Liked = own > 0
-	}
+	view.Supported, view.Count, view.Liked = true, &summary.Count, actor > 0 && summary.Liked > 0
 	return view, nil
 }
 
@@ -96,13 +97,16 @@ func SetMerchantStoreProductLike(actor int, productID string, liked bool) (Merch
 		if err := storeRequireSocialWriter(tx); err != nil {
 			return err
 		}
+		if !storeLikesSupported(tx) {
+			return ErrMerchantStoreWriterFrozen
+		}
+		if err := storeSocialProduct(tx, actor, productID, true); err != nil {
+			return err
+		}
 		if err := marketLockUsers(tx, actor); err != nil {
 			return err
 		}
 		if _, err := storeUser(tx, actor, common.RoleCommonUser); err != nil {
-			return err
-		}
-		if err := storeSocialProduct(tx, actor, productID, true); err != nil {
 			return err
 		}
 		if liked {
