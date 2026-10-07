@@ -19,9 +19,11 @@ Orders come directly from permanent order records. Windows use UTC calendar
 days and select orders by their creation date. Paid and completed-refund counts
 describe those orders as of the query, including later refunds. Self-purchases
 are excluded from the public sales funnel. A verified positive payment counts
-as paid; a free claim does not manufacture a monetary payment. Quantity refunds
-reduce net paid quantities by the completed returned quantity, capped at the
-original quantity. Amount-only refunds do not reduce item quantities. An order
+as paid; a free claim does not manufacture a monetary payment. Net paid quantities
+subtract the actual returned quantity recorded by completed refunds, capped at
+the original quantity. This includes full refunds and final amount refunds that
+retire the remaining delivery. Partial amount refunds with no returned items do
+not reduce item quantities. An order
 can belong to both refund-type subsets while the total refunded-order count
 still counts it once. Neither traffic nor analytics changes a price, stock
 reservation, wallet or financial record.

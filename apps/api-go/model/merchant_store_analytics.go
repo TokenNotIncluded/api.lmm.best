@@ -256,13 +256,14 @@ func storeAnalyticsProductScope(tx *gorm.DB, actor int, all bool) *gorm.DB {
 
 // Orders are a creation-date cohort. Actual attested payment and completed
 // refunds for those orders are observed as of the current query, independently
-// of UI clicks. Seller self-purchases are excluded; money-only refunds do not
-// reduce the delivered quantity. No financial totals are inferred from traffic.
+// of UI clicks. Seller self-purchases are excluded. Returned quantities come
+// from completed refund records, including full or final amount refunds that
+// retire the remaining delivery. No quantities are inferred from refund money.
 func storeAnalyticsOrderAggregate(tx *gorm.DB, startsAt int64) *gorm.DB {
 	paid := "(o.price_quota>0 AND (o.paid_at>0 OR o.status='paid' OR o.verified_payment_issue_at>0))"
-	quantityRefund := "COALESCE((SELECT SUM(r.quantity) FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND r.completed_at>0 AND r.mode='quantity'),0)"
+	quantityRefund := "COALESCE((SELECT SUM(r.quantity) FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND r.completed_at>0),0)"
 	refund := "EXISTS (SELECT 1 FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND r.completed_at>0)"
-	quantityOrder := "EXISTS (SELECT 1 FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND r.completed_at>0 AND r.mode='quantity')"
+	quantityOrder := "EXISTS (SELECT 1 FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND r.completed_at>0 AND r.quantity>0)"
 	amountOrder := "EXISTS (SELECT 1 FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND r.completed_at>0 AND r.mode='amount')"
 	clamped := "CASE WHEN o.quantity<" + quantityRefund + " THEN o.quantity ELSE " + quantityRefund + " END"
 	query := tx.Table("merchant_store_orders o").Where("o.buyer_id<>o.seller_id AND (o.buyer_id>0 OR (o.buyer_id=0 AND LENGTH(COALESCE(o.guest_id,''))=36))")

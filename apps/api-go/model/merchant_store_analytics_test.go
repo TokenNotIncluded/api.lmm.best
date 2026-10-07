@@ -103,6 +103,47 @@ func TestMerchantStoreAnalyticsRealOrdersRefundsAndOwnerScope(t *testing.T) {
 	}
 }
 
+func TestMerchantStoreAnalyticsActualCompletedRefundQuantities(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		mode        string
+		amountQuota int
+		returned    int64
+		amountOrder int64
+	}{
+		{name: "full refund retires every item", mode: "full", returned: 3},
+		{name: "partial amount keeps every item", mode: "amount", amountQuota: 12345, amountOrder: 1},
+		{name: "final amount retires every item", mode: "amount", amountQuota: 1500000, returned: 3, amountOrder: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newStoreFixedTestFixture(t, "balance")
+			input := storeFixedCheckout(t, f, "refund-quantity-source", "balance")
+			input.Quantity = 3
+			order, _, err := CreateMerchantStoreOrder(input)
+			require.NoError(t, err)
+			refund, err := ProactivelyRefundMerchantStoreOrder(f.seller.Id, order.ID, MerchantStoreRefundInput{RequestKey: "actual-completed-refund", Reason: "Product issue", Mode: tc.mode, AmountQuota: tc.amountQuota})
+			require.NoError(t, err)
+			require.Equal(t, "completed", refund.Status)
+			require.EqualValues(t, tc.returned, refund.Quantity, "analytics must use the actual delivery retirement recorded by the refund flow")
+			before := storeWriterSnapshot(t)
+			stats, err := GetMerchantStoreAnalytics(f.seller.Id, false, 7, 0, 10)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, stats.Totals.PaidOrders)
+			require.EqualValues(t, 1, stats.Totals.RefundedOrders)
+			expectedQuantityOrder := int64(0)
+			if tc.returned > 0 {
+				expectedQuantityOrder = 1
+			}
+			require.Equal(t, expectedQuantityOrder, stats.Totals.QuantityRefundedOrders)
+			require.Equal(t, tc.amountOrder, stats.Totals.AmountRefundedOrders)
+			require.EqualValues(t, 3, stats.Totals.PaidQuantity)
+			require.Equal(t, tc.returned, stats.Totals.RefundedQuantity)
+			require.EqualValues(t, 3-tc.returned, stats.Totals.NetPaidQuantity)
+			require.Equal(t, before, storeWriterSnapshot(t), "analytics cannot alter the completed refund or wallet facts")
+		})
+	}
+}
+
 func TestMerchantStoreAnalyticsRetentionConfigAndReplayExpiry(t *testing.T) {
 	f := newStoreFixedTestFixture(t, "balance")
 	before := storeWriterSnapshot(t)
