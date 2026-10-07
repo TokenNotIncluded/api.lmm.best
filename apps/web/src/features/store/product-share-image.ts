@@ -22,13 +22,17 @@ export function storeProductShareImageUrl(product: PublicStoreShareProduct) {
   ) {
     return undefined
   }
-  const source = safeStoreMediaUrl(product.image_urls?.[0])
-  if (source?.startsWith(STORE_SVG_DATA_PREFIX)) return source
-  if (!source) return undefined
-  const url = new URL(source)
-  return url.protocol === 'https:' && !url.username && !url.password
-    ? url.href
-    : undefined
+  // Logo first, then header/gallery: header-only products still have a share image.
+  for (const value of product.image_urls ?? []) {
+    const source = safeStoreMediaUrl(value)
+    if (source?.startsWith(STORE_SVG_DATA_PREFIX)) return source
+    if (!source) continue
+    const url = new URL(source)
+    if (url.protocol === 'https:' && !url.username && !url.password) {
+      return url.href
+    }
+  }
+  return undefined
 }
 
 async function svgImageToPNG(source: string, signal?: AbortSignal) {

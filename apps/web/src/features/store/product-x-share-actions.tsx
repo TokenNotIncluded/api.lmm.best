@@ -26,20 +26,19 @@ export function StoreProductXShareActions({
     'idle' | 'loading' | 'downloaded' | 'failed'
   >('idle')
   const request = useRef<AbortController | null>(null)
-  const imageSource = product.image_urls?.[0]
+  const image = storeProductShareImageUrl(product)
   useEffect(
     () => () => {
       request.current?.abort()
       request.current = null
     },
-    [product.id, imageSource]
+    [product.id, image]
   )
   const share =
     typeof window === 'undefined'
       ? undefined
       : storeProductXShare(product, window.location.origin)
   if (!share) return null
-  const image = storeProductShareImageUrl(product)
   async function downloadImage() {
     request.current?.abort()
     const controller = new AbortController()

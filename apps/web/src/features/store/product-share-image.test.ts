@@ -15,6 +15,25 @@ const product = {
   image_urls: ['https://images.example.test/cover.png'],
 }
 
+test('share images prefer the logo and fall back to a valid header without changing product media', () => {
+  const logo = 'https://images.example.test/logo.png'
+  const header = 'https://images.example.test/header.png'
+  const image_urls = [logo, header]
+  assert.equal(storeProductShareImageUrl({ ...product, image_urls }), logo)
+  assert.equal(
+    storeProductShareImageUrl({ ...product, image_urls: ['', header] }),
+    header
+  )
+  assert.equal(
+    storeProductShareImageUrl({
+      ...product,
+      image_urls: ['javascript:alert(1)', header],
+    }),
+    header
+  )
+  assert.deepEqual(image_urls, [logo, header])
+})
+
 test('private, test, draft and non-HTTPS images cannot trigger an image download', async () => {
   let calls = 0
   const fetchImage: typeof fetch = async () => {
