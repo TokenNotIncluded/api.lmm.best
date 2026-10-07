@@ -195,7 +195,7 @@ func TestAssistantAgentFirstAnswerDeltaPrecedesUpstreamCompletion(t *testing.T) 
 func TestAssistantPlannedReadRequiresAllowedExposedUncalledTool(t *testing.T) {
 	userContext := assistantUserContext{AccessLevel: "L1", DeveloperAccessGranted: true}
 	tools := assistantToolDefinitionsForContext(userContext)
-	for _, name := range []string{"get_service_facts", "get_account_access", "get_available_models", "get_l1_recommendation"} {
+	for _, name := range []string{"get_service_facts", "get_account_access", "get_available_models"} {
 		t.Run(name, func(t *testing.T) {
 			request := assistantOpenAIRequest{Tools: tools, ToolChoice: assistantNamedToolChoice(name)}
 			call, ok := assistantPlannedReadCall(request, userContext, nil, 0)

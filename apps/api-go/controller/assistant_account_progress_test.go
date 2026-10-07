@@ -68,7 +68,7 @@ func TestAssistantAccountAccessL0HistoricalPendingDoesNotRequireRetiredReview(t 
 	assert.Equal(t, withoutRecord["next_step"], withRecord["next_step"])
 	assert.NotContains(t, withRecord["next_step"], "pending administrator review")
 	assert.NotContains(t, withRecord["next_step"], "prepare an L1 recommendation")
-	assert.Equal(t, true, withRecord["l1_request"].(map[string]any)["historical_read_only"])
+	assert.NotContains(t, withRecord, "l1_request", "retired letter text must not steer current access guidance")
 	workflow := withRecord["registration_workflow"].(map[string]any)
 	assert.Equal(t, false, workflow["recommendation_required"])
 	assert.Equal(t, model.AssistantDirectGrantMinCompletedTurns, workflow["minimum_completed_turns"])
@@ -181,7 +181,7 @@ func TestAssistantAccountAccessUsesFreshActivationFacts(t *testing.T) {
 }
 
 func TestAssistantAccountAccessReadFailuresAreUnavailable(t *testing.T) {
-	for _, table := range []string{"users", "top_ups", "developer_access_requests", "tokens", "l1_onboarding_todos", "assistant_conversations", "assistant_new_user_gifts"} {
+	for _, table := range []string{"users", "top_ups", "tokens", "l1_onboarding_todos", "assistant_conversations", "assistant_new_user_gifts"} {
 		t.Run(table, func(t *testing.T) {
 			db := setupAssistantAccountProgressDB(t)
 			user := assistantAccountProgressUser(t, db, table != "top_ups")
@@ -278,4 +278,15 @@ func TestAssistantAccountProgressAndBalancePrefetchEvenWithAgentLoopDisabled(t *
 			assert.Equal(t, http.StatusOK, recorder.Code)
 		})
 	}
+}
+
+func TestAssistantAccountAccessDoesNotDependOnRetiredLetterTable(t *testing.T) {
+	db := setupAssistantAccountProgressDB(t)
+	user := assistantAccountProgressUser(t, db, false)
+	require.NoError(t, db.Migrator().DropTable("developer_access_requests"))
+	result := executeAssistantAccountTool(user.Id)
+	require.Equal(t, true, result["ok"])
+	require.Equal(t, "L0", result["access_level"])
+	require.NotContains(t, result, "l1_request")
+	require.Contains(t, result["next_step"], "get_registration_risk")
 }

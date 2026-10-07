@@ -220,7 +220,7 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 				reasonCode = "invalid_decision"
 			}
 			if reasonCode == "insufficient_conversation" {
-				return map[string]any{"ok": false, "status": "more_conversation_needed", "reason_code": reasonCode, "error": "continue the conversation with at least two substantive user turns before evaluating the one-time gift"}
+				return map[string]any{"ok": false, "status": "more_conversation_needed", "reason_code": reasonCode, "error": "ask for the missing concrete purpose or planned work before evaluating the one-time gift; one sufficiently detailed user message is enough"}
 			}
 			return map[string]any{"ok": false, "status": "invalid_decision", "reason_code": reasonCode, "error": "the one-time gift decision was invalid"}
 		default:

@@ -31,27 +31,24 @@ import (
 )
 
 const (
-	assistantToolArgumentsMaxBytes        = 16 * 1024
-	assistantToolCallsPerTurn             = 4
-	assistantToolCallsPerResponse         = 32
-	assistantAgentMaxSteps                = 32
-	assistantAgentDefaultTimeout          = 45 * time.Second
-	assistantUpstreamMaxAttempts          = 3
-	assistantUpstreamRetryBaseDelay       = 200 * time.Millisecond
-	assistantRecommendationTTL            = 30 * time.Minute
-	minDeveloperAccessReasonRunes         = 5
-	minDeveloperAccessRecommendationRunes = 20
-	maxDeveloperAccessDraftRunes          = 2000
-	assistantInterlocutorAssessmentTool   = "assess_l0_interlocutor"
-	assistantMathExpressionMaxBytes       = 512
-	assistantMathVariablesMax             = 32
-	assistantConversationTitleMaxRunes    = 60
-	assistantUpstreamRequestMaxBytes      = 768 << 10
-	assistantUpstreamResponseMaxBytes     = 256 << 10
-	assistantToolResultMaxBytes           = 64 << 10
-	assistantAgentContextMaxBytes         = 512 << 10
-	assistantAgentContextTargetBytes      = 384 << 10
-	assistantAgentMaxConcurrent           = 16
+	assistantToolArgumentsMaxBytes      = 16 * 1024
+	assistantToolCallsPerTurn           = 4
+	assistantToolCallsPerResponse       = 32
+	assistantAgentMaxSteps              = 32
+	assistantAgentDefaultTimeout        = 45 * time.Second
+	assistantUpstreamMaxAttempts        = 3
+	assistantUpstreamRetryBaseDelay     = 200 * time.Millisecond
+	assistantActionDraftTTL             = 30 * time.Minute
+	assistantInterlocutorAssessmentTool = "assess_l0_interlocutor"
+	assistantMathExpressionMaxBytes     = 512
+	assistantMathVariablesMax           = 32
+	assistantConversationTitleMaxRunes  = 60
+	assistantUpstreamRequestMaxBytes    = 768 << 10
+	assistantUpstreamResponseMaxBytes   = 256 << 10
+	assistantToolResultMaxBytes         = 64 << 10
+	assistantAgentContextMaxBytes       = 512 << 10
+	assistantAgentContextTargetBytes    = 384 << 10
+	assistantAgentMaxConcurrent         = 16
 	// Structural, content-free diagnostics for a stopped assistant run.
 	assistantRunStepKey      = "assistant_run_step"
 	assistantRunMaxStepsKey  = "assistant_run_max_steps"
@@ -81,14 +78,6 @@ var (
 	assistantAgentLimiter                 = syncx.NewLimiter(assistantAgentMaxConcurrent)
 	assistantTools                        = sync.OnceValue(buildAssistantTools)
 )
-
-type assistantL1RecommendationDraft struct {
-	UserStatement    string `json:"user_statement"`
-	Recommendation   string `json:"recommendation"`
-	PresetId         string `json:"preset_id,omitempty"`
-	PresetGeneration int64  `json:"preset_generation,omitempty"`
-	PresetVersion    string `json:"preset_version,omitempty"`
-}
 
 type assistantOpenAIToolDefinition = agent.Tool
 type assistantOpenAIToolFunction = agent.Function
@@ -230,14 +219,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 				Parameters:  emptyObjectSchema(),
 			},
 		},
-		{
-			Type: "function",
-			Function: assistantOpenAIToolFunction{
-				Name:        "get_l1_recommendation",
-				Description: "Read the signed-in user's historical L1 recommendation record. Call this before discussing a historical letter or a removal request. Letter editing, submission, and administrator approval are retired; a historical pending status does not block tool-based registration verification.",
-				Parameters:  emptyObjectSchema(),
-			},
-		},
+
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -311,7 +293,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_new_user_gift",
-				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 LEGACY_CENTS, hundredths of one legacy pricing unit, preserving the existing Credit gift range. These are not US cents; explain the result using public_credit_amount or amount_usd. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
+				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. One detailed user message can be sufficient. Reuse concrete purpose and planned work already supplied; ask at most one focused clarification only when essential details are missing. Do not require another turn, an extra example, a technical stack, or proof of expertise. Judge the legitimate purpose and specificity from the complete conversation. Choose an integer 0-1000 LEGACY_CENTS, hundredths of one legacy pricing unit, preserving the existing Credit gift range. These are not US cents; explain the result using public_credit_amount or amount_usd. Zero is a valid final decision and consumes the opportunity. A gift application with a concrete legitimate purpose is not itself abuse. Do not reward money demands or self-reported expertise alone, promotion or referral farming, multiple-account claims, automated reward farming, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
 				Parameters: objectSchema(map[string]any{
 					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000, "description": "LEGACY_CENTS: hundredths of one legacy pricing unit, preserving the existing Credit gift range. Not US cents. The result reports public_credit_amount and amount_usd."},
 					"amount_unit":  map[string]any{"type": "string", "enum": []string{"LEGACY_CENTS"}, "description": "The retained amount_cents input uses LEGACY_CENTS only."},
@@ -449,17 +431,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 				}, []string{"user_statement", "recommendation"}),
 			},
 		},
-		{
-			Type: "function",
-			Function: assistantOpenAIToolFunction{
-				Name:        "prepare_l1_recommendation",
-				Description: "Before the direct L1 grant tool becomes available, prepare a new or revised draft of the signed-in L0 user's one shared administrator recommendation after a substantive conversation. For an edit, use the current letter returned by get_l1_recommendation and the full conversation. Never use this tool to remove a letter. This does not submit, update, delete, or approve anything; the user must explicitly confirm the draft in the UI.",
-				Parameters: objectSchema(map[string]any{
-					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
-					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
-				}, []string{"user_statement", "recommendation"}),
-			},
-		},
+
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -596,7 +568,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 		},
 	}
 	definitions = slices.DeleteFunc(definitions, func(tool assistantOpenAIToolDefinition) bool {
-		return tool.Function.Name == "prepare_l1_recommendation" || tool.Function.Name == assistantInterlocutorAssessmentTool
+		return tool.Function.Name == assistantInterlocutorAssessmentTool
 	})
 	definitions = append(definitions, assistantRegistrationTools()...)
 	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
@@ -698,7 +670,7 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 	if name == "get_new_user_gift_status" || name == "get_weekly_discount_status" {
 		return true
 	}
-	if name == "prepare_l1_recommendation" {
+	if name == "prepare_l1_recommendation" || name == "get_l1_recommendation" {
 		return false
 	}
 	if isAssistantRegistrationTool(name) {
@@ -761,7 +733,6 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		"calculate_math",
 		"calculate_cost",
 		"get_account_access",
-		"get_l1_recommendation",
 		"get_available_models",
 		"get_model_pricing",
 		"navigate_to_page",
@@ -778,7 +749,6 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		"get_tool_market_service",
 		"search_web",
 		"get_setup_guide",
-		"prepare_l1_recommendation",
 		"request_human_support":
 		return true
 	case "get_plan_offers":
@@ -847,7 +817,7 @@ func assistantToolChoiceForContext(userContext assistantUserContext) any {
 		case model.AssistantIntentOnboarding:
 			name = "get_account_access"
 		case model.AssistantIntentRecommendation:
-			name = "get_l1_recommendation"
+			name = "get_account_access"
 		case model.AssistantIntentUsage:
 			name = "get_usage_summary"
 		case model.AssistantIntentInvitation:
@@ -1050,9 +1020,8 @@ func assistantReadChain(userContext assistantUserContext) []string {
 		tools = append(tools, "get_account_access")
 	}
 	if userContext.Intent == model.AssistantIntentRecommendation {
-		// Read the historical letter before discussing its record. A disabled
-		// agent loop must not make the model invent a letter or an approval task.
-		tools = append(tools, "get_l1_recommendation")
+		// Access requests use current registration facts, never historical letters.
+		tools = append(tools, "get_account_access")
 	}
 	if assistantPublicActivityQuestion(text) {
 		tools = append(tools, "get_service_facts")
@@ -1225,7 +1194,7 @@ func assistantRecommendationWorkflowMinSteps(userContext assistantUserContext) i
 	if !assistantRecommendationWorkflowRequired(userContext) {
 		return 0
 	}
-	steps := 2 // read the current letter, then produce a final answer
+	steps := 2 // read current access, then produce a final answer
 	if userContext.RecommendationAction == assistantRecommendationActionRevise && assistantDirectL1GrantAllowed(userContext) {
 		steps += 2 // read registration evidence, grant access, then answer
 	}
@@ -1332,10 +1301,10 @@ func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledToo
 		return choice
 	}
 
-	if !calledTools["get_l1_recommendation"] {
-		return assistantNamedToolChoice("get_l1_recommendation")
+	if !calledTools["get_account_access"] {
+		return assistantNamedToolChoice("get_account_access")
 	}
-	if !successfulTools["get_l1_recommendation"] {
+	if !successfulTools["get_account_access"] {
 		return "none"
 	}
 	if userContext.RecommendationAction == assistantRecommendationActionRemove {
@@ -1457,7 +1426,7 @@ func assistantNamedToolChoiceUnsupported(body []byte) bool {
 
 func assistantServerReadFallbackAllowed(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "get_l1_recommendation", "get_account_access", "get_service_facts", "get_available_models", "list_my_api_keys", "get_new_user_gift_status", "get_weekly_discount_status":
+	case "get_account_access", "get_service_facts", "get_available_models", "list_my_api_keys", "get_new_user_gift_status", "get_weekly_discount_status":
 		return true
 	default:
 		return false
@@ -2148,8 +2117,6 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantCostTool(input)
 	case "get_account_access":
 		return executeAssistantAccountTool(actorUserID)
-	case "get_l1_recommendation":
-		return executeAssistantL1RecommendationStateTool(c, actorUserID)
 	case "navigate_to_page":
 		return executeAssistantNavigateTool(c, actorUserID, input)
 	case "get_store_products", "get_store_product":
@@ -2228,16 +2195,7 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantSearchTool(c, input)
 	case "get_setup_guide":
 		return executeAssistantSetupTool(actorUserID, input)
-	case "prepare_l1_recommendation":
-		if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-			return map[string]any{
-				"ok":      false,
-				"status":  "removal_requires_user_ui",
-				"error":   "AI cannot remove or replace a recommendation for a removal request",
-				"message": "Tell the user to clear the visible Recommendation letter field and choose Save changes in the existing UI.",
-			}
-		}
-		return executeAssistantL1RecommendationTool(c, actorUserID, input)
+
 	case "grant_l1_access":
 		return executeAssistantDirectL1GrantTool(c, actorUserID, input)
 	case "request_create_key":
@@ -2346,44 +2304,6 @@ func executeAssistantConversationTitleTool(c *gin.Context, input map[string]any)
 	userContext.ConversationTitleNeeded = false
 	c.Set(assistantUserContextKey, userContext)
 	return map[string]any{"ok": true, "title": title}
-}
-
-func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[string]any {
-	if userID <= 0 {
-		return assistantAccountUnavailable("signed-in account is unavailable")
-	}
-	request, err := model.GetDeveloperAccessRequest(userID)
-	if err != nil {
-		return assistantAccountUnavailable("the historical recommendation could not be loaded")
-	}
-	if request == nil {
-		result := map[string]any{
-			"ok":             true,
-			"status":         "none",
-			"recommendation": "",
-			"next_step":      "Recommendation submission has been retired. Continue tool-based registration verification; never direct the user to a recommendation form.",
-		}
-		if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-			result["next_step"] = "Tell the user there is no recommendation letter to remove. Do not call prepare_l1_recommendation."
-		}
-		return result
-	}
-	result := map[string]any{
-		"ok":                      true,
-		"status":                  request.Status,
-		"source":                  request.Source,
-		"user_statement":          request.Reason,
-		"recommendation":          request.AIRecommendation,
-		"administrator_note":      request.AdminNote,
-		"is_single_shared_letter": true,
-		"historical_read_only":    true,
-		"next_step":               "This is read-only historical data. Recommendation editing and submission are retired. Continue tool-based registration verification without preparing a letter.",
-	}
-	if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-		result["next_step"] = "Do not call prepare_l1_recommendation. The recommendation form is retired; do not promise deletion or direct the user to that form. Explain that this historical record remains unchanged and offer human support for a record-removal request."
-		result["historical_read_only"] = true
-	}
-	return result
 }
 
 func executeAssistantInterlocutorAssessmentTool(c *gin.Context, input map[string]any) map[string]any {
@@ -2509,7 +2429,7 @@ func executeAssistantAccountDisableRequestTool(c *gin.Context, userID int, input
 		UserId:    actor.Id,
 		SessionId: sessionID,
 		Payload:   string(payload),
-		ExpiresAt: time.Now().Add(assistantRecommendationTTL),
+		ExpiresAt: time.Now().Add(assistantActionDraftTTL),
 	})
 	if err != nil {
 		return map[string]any{"ok": false, "error": "账号安全申请确认无法创建"}
@@ -2530,71 +2450,6 @@ func executeAssistantAccountDisableRequestTool(c *gin.Context, userID int, input
 		"target_username":    target.Username,
 		"admin_confirmation": true,
 		"message":            "这只是提交给管理员的禁用建议。请向用户展示目标、原因和管理员审核说明，并在用户明确确认后调用账号操作申请接口；在管理员批准前账号不会被禁用。",
-	}
-}
-
-func executeAssistantL1RecommendationTool(c *gin.Context, userID int, input map[string]any) map[string]any {
-	if c == nil || userID <= 0 {
-		return map[string]any{"ok": false, "error": "signed-in account is unavailable"}
-	}
-	user, err := model.GetUserCache(userID)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "account access could not be loaded"}
-	}
-	access, err := model.GetDeveloperAccessStateForUserBase(user)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "developer access could not be loaded"}
-	}
-	if access.Granted {
-		return map[string]any{"ok": false, "status": "already_active", "error": "L1 access is already active"}
-	}
-	sessionID := strings.TrimSpace(c.GetString("session_id"))
-	if sessionID == "" {
-		return map[string]any{"ok": false, "error": "a browser login session is required to prepare an L1 recommendation"}
-	}
-	statement := strings.TrimSpace(inputString(input, "user_statement"))
-	recommendation := strings.TrimSpace(inputString(input, "recommendation"))
-	if len([]rune(statement)) < minDeveloperAccessReasonRunes || len([]rune(statement)) > maxDeveloperAccessDraftRunes {
-		return map[string]any{"ok": false, "status": "statement_invalid", "error": "user statement must contain 5 to 2000 characters"}
-	}
-	if len([]rune(recommendation)) < minDeveloperAccessRecommendationRunes || len([]rune(recommendation)) > maxDeveloperAccessDraftRunes {
-		return map[string]any{"ok": false, "status": "recommendation_invalid", "error": "AI recommendation must contain 20 to 2000 characters"}
-	}
-	draft := assistantL1RecommendationDraft{
-		UserStatement:  statement,
-		Recommendation: recommendation,
-	}
-	if attribution, ok := promptPresetRef(c); ok {
-		draft.PresetId = attribution.PresetId
-		draft.PresetGeneration = attribution.Generation
-		draft.PresetVersion = attribution.Version
-	}
-	payload, err := json.Marshal(draft)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "AI recommendation could not be prepared"}
-	}
-	confirmationToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose:   model.AuthFlowPurposeAssistantL1,
-		UserId:    userID,
-		SessionId: sessionID,
-		Payload:   string(payload),
-		ExpiresAt: time.Now().Add(assistantRecommendationTTL),
-	})
-	if err != nil {
-		return map[string]any{"ok": false, "error": "AI recommendation confirmation could not be created"}
-	}
-	action := map[string]any{
-		"type":               "l1_recommendation",
-		"user_statement":     statement,
-		"recommendation":     recommendation,
-		"confirmation_token": confirmationToken,
-	}
-	c.Set(assistantClientActionKey, action)
-	return map[string]any{
-		"ok":      true,
-		"status":  "confirmation_required",
-		"action":  "l1_recommendation",
-		"message": "Explain that this recommendation is only a draft. Ask the user to review and explicitly confirm it in the UI; administrator approval is still required.",
 	}
 }
 
@@ -3412,22 +3267,6 @@ func executeAssistantAccountTool(userID int) map[string]any {
 	for key, value := range assistantWalletBalanceFields(user.Quota) {
 		result[key] = value
 	}
-	request, requestErr := model.GetDeveloperAccessRequest(userID)
-	if requestErr != nil {
-		return assistantAccountUnavailable("historical L1 recommendation record could not be loaded")
-	}
-	if request != nil {
-		result["l1_request"] = map[string]any{
-			"status":               request.Status,
-			"source":               request.Source,
-			"user_statement":       request.Reason,
-			"ai_recommendation":    request.AIRecommendation,
-			"admin_note":           request.AdminNote,
-			"created_at":           request.CreatedAt,
-			"reviewed_at":          request.ReviewedAt,
-			"historical_read_only": true,
-		}
-	}
 	if access.Granted {
 		onboarding, err := model.GetOnboardingStateForUserSnapshot(user, snapshot)
 		if err != nil {
@@ -3444,7 +3283,7 @@ func executeAssistantAccountTool(userID int) map[string]any {
 		main := make([]map[string]any, 0, len(journey.Main))
 		for _, step := range journey.Main {
 			// get_recommendation is the compatibility ID for the actual L1
-			// access milestone; historical letters live only in l1_request.
+			// access milestone, independent of retired historical letter records.
 			main = append(main, map[string]any{"id": step.Id, "status": step.Status})
 		}
 		result["onboarding"] = onboarding

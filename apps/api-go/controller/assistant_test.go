@@ -1337,7 +1337,7 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 55)
+	require.Len(t, definitions, 54)
 	names := make(map[string]bool, len(definitions))
 	byName := make(map[string]assistantOpenAIToolDefinition, len(definitions))
 	for _, definition := range definitions {
@@ -1385,7 +1385,6 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["calculate_math"])
 	assert.True(t, names["calculate_cost"])
 	assert.True(t, names["get_account_access"])
-	assert.True(t, names["get_l1_recommendation"])
 	assert.True(t, names["get_available_models"])
 	assert.True(t, names["get_model_pricing"])
 	assert.True(t, names["get_plan_offers"])
@@ -1408,6 +1407,7 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["get_setup_guide"])
 	assert.True(t, names["grant_l1_access"])
 	assert.False(t, names["prepare_l1_recommendation"])
+	assert.False(t, names["get_l1_recommendation"])
 	for _, name := range []string{"get_registration_risk", "notify_registration_risk", "end_registration_conversation", "ban_l0_user"} {
 		assert.True(t, names[name])
 	}
@@ -2022,90 +2022,7 @@ func TestAssistantPaymentOffersUseProgressiveGateAndKeepRestrictions(t *testing.
 	assert.Empty(t, blockedDiscounts)
 }
 
-func TestAssistantL1RecommendationActionUsesActorAndIsAttachedToResponse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.AuthFlow{}))
-	user := model.User{
-		Username: "assistant-l0-user",
-		Password: "password",
-		Role:     common.RoleCommonUser,
-		Status:   common.UserStatusEnabled,
-		Group:    "default",
-	}
-	require.NoError(t, db.Create(&user).Error)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Set("id", 987)
-	c.Set(assistantActorUserIDKey, user.Id)
-	c.Set("session_id", "assistant-l0-session")
-
-	result := executeAssistantTool(c, assistantOpenAIToolCall{
-		Function: assistantOpenAIToolCallFunction{
-			Name: "prepare_l1_recommendation",
-			Arguments: `{
-				"user_statement":"I want to connect Claude Code for an open-source Go project.",
-				"recommendation":"The user described a concrete development workflow and the intended compatible client."
-			}`,
-		},
-	})
-	assert.Equal(t, true, result["ok"])
-	assert.Equal(t, "confirmation_required", result["status"])
-	assert.Equal(t, "l1_recommendation", result["action"])
-	stored, err := model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	assert.Nil(t, stored)
-
-	writeAssistantRawResponse(c, http.StatusOK, []byte(`{"choices":[{"message":{"content":"Please confirm."}}]}`), "ASSISTANT_UPSTREAM_FAILED")
-	assert.Equal(t, http.StatusOK, recorder.Code)
-	var response map[string]any
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	action, ok := response["lmm_assistant_action"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "l1_recommendation", action["type"])
-	assert.Contains(t, action["recommendation"], "concrete development workflow")
-	assert.NotEmpty(t, action["confirmation_token"])
-}
-
-func TestAssistantL1RecommendationPreparationDoesNotEditExistingLetter(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.AuthFlow{}))
-	user := model.User{
-		Username: "assistant-existing-l1-letter",
-		Password: "password",
-		Role:     common.RoleCommonUser,
-		Status:   common.UserStatusEnabled,
-		Group:    "default",
-	}
-	require.NoError(t, db.Create(&user).Error)
-	existing, err := model.SubmitAssistantDeveloperAccessRecommendation(
-		user.Id,
-		"My current concrete integration request.",
-		"Keep this existing recommendation unchanged until I confirm an edit.",
-	)
-	require.NoError(t, err)
-
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Set("id", user.Id)
-	c.Set(assistantActorUserIDKey, user.Id)
-	c.Set("session_id", "assistant-existing-l1-letter-session")
-	result := executeAssistantL1RecommendationTool(c, user.Id, map[string]any{
-		"user_statement": "My replacement concrete integration request.",
-		"recommendation": "Replace the existing recommendation only after explicit confirmation.",
-	})
-
-	assert.Equal(t, true, result["ok"])
-	assert.Equal(t, "confirmation_required", result["status"])
-	stored, err := model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	assert.Equal(t, existing.Id, stored.Id)
-	assert.Equal(t, existing.Reason, stored.Reason)
-	assert.Equal(t, existing.AIRecommendation, stored.AIRecommendation)
-}
-
-func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testing.T) {
+func TestAssistantAgentUsesCurrentAccessWithoutReadingRetiredLetter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.AuthFlow{}))
@@ -2143,12 +2060,13 @@ func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testin
 		turn++
 		switch turn {
 		case 1:
-			requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", true)
+			requireAssistantPairedReadReceipt(t, request, "get_account_access", true)
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			encoded := string(mustAssistantJSON(t, request.Messages))
-			assert.Contains(t, encoded, existing.AIRecommendation)
-			assert.Contains(t, encoded, "read-only historical data")
+			assert.NotContains(t, encoded, existing.AIRecommendation)
+			assert.NotContains(t, encoded, `"l1_request"`)
+			assert.Contains(t, encoded, `"registration_workflow"`)
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"Recommendation submission is retired. Continue registration verification in this conversation."}}]}`), nil
 		default:
 			return http.StatusInternalServerError, nil, nil
@@ -2219,13 +2137,13 @@ func TestAssistantAgentKeepsRetiredRecommendationRemovalReadOnly(t *testing.T) {
 		turn++
 		switch turn {
 		case 1:
-			requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", true)
+			requireAssistantPairedReadReceipt(t, request, "get_account_access", true)
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			require.NotEmpty(t, request.Messages)
 			toolResult := request.Messages[len(request.Messages)-1].Content
-			assert.Contains(t, toolResult, `"historical_read_only":true`)
-			assert.Contains(t, toolResult, "Do not call prepare_l1_recommendation")
+			assert.NotContains(t, toolResult, `"l1_request"`)
+			assert.Contains(t, toolResult, `"registration_workflow"`)
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"The recommendation form is retired. Human support can handle a historical-record removal request."}}]}`), nil
 		default:
 			return http.StatusInternalServerError, nil, nil
@@ -2282,7 +2200,7 @@ func TestAssistantAgentFailedRecommendationReadCannotAuthorizeMutation(t *testin
 	originalRelay := relayAssistantAgentTurn
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turns++
-		receipt := requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", false)
+		receipt := requireAssistantPairedReadReceipt(t, request, "get_account_access", false)
 		assert.Contains(t, receipt["error"], "signed-in account is unavailable")
 		assert.Equal(t, "none", request.ToolChoice)
 		return http.StatusOK, assistantLoopCallBody(t, []assistantOpenAIToolCall{{ID: "unauthorized-write", Type: "function", Function: assistantOpenAIToolCallFunction{Name: "prepare_l1_recommendation", Arguments: "{}"}}}, ""), nil

@@ -139,10 +139,10 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 	if userID <= 0 || conversationID < 0 || amountCents < 0 || amountCents > assistantGiftMaxCents {
 		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
 	}
-	// Two short labels such as "code assistant" and a client name are not
-	// enough evidence for a cash-equivalent reward. Require a concrete amount
-	// of user-authored context in addition to multiple substantive turns.
-	if substantiveTurns < 2 || substantiveRunes < 24 {
+	// A detailed first message can establish a legitimate purpose. Keep the
+	// trusted user-authored evidence floor without requiring an artificial
+	// follow-up turn; category labels or a client name alone remain insufficient.
+	if substantiveTurns < 1 || substantiveRunes < 24 {
 		return nil, false, assistantGiftError("insufficient_conversation", ErrAssistantGiftInvalid)
 	}
 	reason = strings.TrimSpace(redactAssistantHandoffMessage(reason))

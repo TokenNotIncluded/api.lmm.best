@@ -247,7 +247,7 @@ func TestAssistantNamedToolChoiceUnsupportedRecognizesProviderCapabilityErrors(t
 	assert.True(t, assistantNamedToolChoiceUnsupported([]byte(`{"error":{"message":"当前模型或上游不支持指定工具的强制选择方式，请改用 tool_choice=auto"}}`)))
 	assert.True(t, assistantNamedToolChoiceUnsupported([]byte(`{"error":{"message":"provider does not support forced tool_choice"}}`)))
 	assert.False(t, assistantNamedToolChoiceUnsupported([]byte(`{"error":{"message":"upstream overloaded"}}`)))
-	assert.True(t, assistantServerReadFallbackAllowed("get_l1_recommendation"))
+	assert.False(t, assistantServerReadFallbackAllowed("get_l1_recommendation"))
 	assert.True(t, assistantServerReadFallbackAllowed("get_available_models"))
 	assert.False(t, assistantServerReadFallbackAllowed("prepare_l1_recommendation"))
 	assert.False(t, assistantServerReadFallbackAllowed("request_create_key"))
@@ -464,50 +464,6 @@ func TestAssistantL1ConversationDoesNotTouchQueueBeforeConfirmation(t *testing.T
 
 	assert.Equal(t, http.StatusNoContent, response.Code)
 	assert.Equal(t, 1, downstreamCalls)
-}
-
-func TestAssistantL1RecommendationPreparationDoesNotTouchQueue(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(
-		&model.User{},
-		&model.TopUp{},
-		&model.DeveloperAccessRequest{},
-		&model.AuthFlow{},
-	))
-	withAssistantSettings(t, true, "assistant-l1-recommendation-queue-failure-model")
-
-	levelZero := model.TrustLevelMinUser
-	user := model.User{
-		Username:           "assistant-l1-recommendation-queue-failure-user",
-		Password:           "password",
-		Role:               common.RoleCommonUser,
-		Status:             common.UserStatusEnabled,
-		Group:              "default",
-		TrustLevelOverride: &levelZero,
-	}
-	require.NoError(t, db.Create(&user).Error)
-	require.NoError(t, db.Migrator().DropTable(&model.DeveloperAccessRequest{}))
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Set("id", user.Id)
-	c.Set(assistantActorUserIDKey, user.Id)
-	c.Set("session_id", "assistant-l1-queue-failure-session")
-
-	result := executeAssistantL1RecommendationTool(c, user.Id, map[string]any{
-		"user_statement": "I need L1 access for my integration.",
-		"recommendation": "The user described a concrete integration workflow and can be reviewed for L1 access.",
-	})
-
-	assert.Equal(t, true, result["ok"])
-	assert.Equal(t, "confirmation_required", result["status"])
-	assert.Equal(t, "l1_recommendation", result["action"])
-	assert.Empty(t, recorder.Body.String())
-
-	var flowCount int64
-	require.NoError(t, db.Model(&model.AuthFlow{}).Count(&flowCount).Error)
-	assert.EqualValues(t, 1, flowCount)
 }
 
 func TestAssistantRetryDoesNotDuplicateFirstTurnConversationOnReplay(t *testing.T) {
