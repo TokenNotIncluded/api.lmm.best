@@ -55,6 +55,8 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
 const { StoreProductEditor } = await import('./seller-page')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
@@ -90,6 +92,24 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 35))
 }
 async function mount(node: React.ReactNode) {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditUnitSchemaVersion: 2,
+      quotaUnit: 'LEDGER_QUOTA',
+      legacyCreditUnit: 'LEDGER_QUOTA',
+      publicCreditUnit: 'CREDIT',
+      ledgerQuotaPerUsd: 500000,
+      ledgerQuotaPerUsdExact: '500000',
+      publicCreditsPerUsd: 500000,
+      publicCreditsPerUsdExact: '500000',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
+      cnyPerUsd: 7.3,
+      cnyPerUsdExact: '7.3',
+    },
+  })
   const host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -159,12 +179,14 @@ test('seller sets arbitrary limits, keeps blank unlimited and rejects zero befor
       onSaved={async () => {}}
     />
   )
+  assert.equal(field('store-price').value, '1')
   assert.equal(field('store-order-limit').value, '7')
   assert.equal(field('store-buyer-limit').value, '23')
   await input('store-order-limit', '12')
   await input('store-buyer-limit', '')
   await save()
   assert.equal(writes.length, 1)
+  assert.equal(writes[0].price_quota, 500000)
   assert.equal(writes[0].max_quantity_per_order, 12)
   assert.equal(writes[0].max_quantity_per_buyer, null)
   assert.equal('sale_limit' in writes[0], false)
@@ -189,9 +211,11 @@ test('older server support omits both limit fields rather than clearing retained
       onSaved={async () => {}}
     />
   )
+  assert.equal(field('store-price').value, '1')
   assert.equal(document.getElementById('store-order-limit'), null)
   await save()
   assert.ok(body)
+  assert.equal(body.price_quota, 500000)
   assert.equal('max_quantity_per_order' in body, false)
   assert.equal('max_quantity_per_buyer' in body, false)
 })
