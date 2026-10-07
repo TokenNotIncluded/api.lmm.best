@@ -11,6 +11,7 @@ import (
 )
 
 type MerchantStoreCatalogueQuery struct {
+	CategoryID    string
 	Sort          string
 	Tag           string
 	Stock         string
@@ -63,7 +64,7 @@ func storeCatalogueTradableSQL(config MerchantStoreConfig) (string, []interface{
 }
 
 func ListMerchantStoreCatalogue(viewer int, search string, sellerID, offset, limit int, in MerchantStoreCatalogueQuery) ([]MerchantStoreProduct, error) {
-	if viewer < 0 || sellerID < 0 || int64(sellerID) > 2147483647 || len(search) > 200 || len(in.Tag) > 512 {
+	if viewer < 0 || sellerID < 0 || int64(sellerID) > 2147483647 || len(search) > 200 || len(in.Tag) > 512 || !storeCategoryIDValid(in.CategoryID) {
 		return nil, ErrMerchantStoreInput
 	}
 	if in.Sort == "" {
@@ -84,6 +85,12 @@ func ListMerchantStoreCatalogue(viewer int, search string, sellerID, offset, lim
 	}
 	offset, limit = storePage(offset, limit)
 	query := MerchantStoreVisibleProductsForViewer(DB, viewer).Joins("LEFT JOIN merchant_store_catalogue_metadata cm ON cm.product_id=merchant_store_products.id")
+	if in.CategoryID != "" {
+		if !MerchantStoreCategoriesSupported() {
+			return nil, ErrMerchantStoreWriterFrozen
+		}
+		query = query.Where("merchant_store_products.category_id = ? AND EXISTS (SELECT 1 FROM merchant_store_categories c WHERE c.id = merchant_store_products.category_id AND c.active = ?)", in.CategoryID, true)
+	}
 	if sellerID != 0 {
 		query = query.Where("merchant_store_products.seller_id = ?", sellerID)
 	}

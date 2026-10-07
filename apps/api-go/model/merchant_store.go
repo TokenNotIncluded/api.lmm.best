@@ -44,6 +44,8 @@ type MerchantStoreProduct struct {
 	ID                    string                          `json:"id" gorm:"primaryKey;size:36"`
 	SellerID              int                             `json:"seller_id" gorm:"not null;index"`
 	Seller                *MerchantStorePublicSeller      `json:"seller,omitempty" gorm:"-:all"`
+	CategoryID            string                          `json:"category_id" gorm:"size:36;not null;default:'';index"`
+	Category              *MerchantStoreCategoryBadge     `json:"category,omitempty" gorm:"-:all"`
 	Title                 string                          `json:"title" gorm:"size:200;not null"`
 	Description           string                          `json:"description" gorm:"type:text"`
 	ImageURLs             []string                        `json:"image_urls" gorm:"serializer:json;type:text"`
@@ -86,6 +88,7 @@ type MerchantStoreProduct struct {
 	BuyerPurchaseRemaining *int64 `json:"buyer_purchase_remaining,omitempty" gorm:"-"`
 }
 type MerchantStoreProductInput struct {
+	CategoryID            *string             `json:"category_id,omitempty"`
 	Title                 string              `json:"title"`
 	Description           string              `json:"description"`
 	ImageURLs             []string            `json:"image_urls"`
@@ -158,7 +161,9 @@ type MerchantStoreEvent struct {
 
 func MerchantStoreModels() []interface{} {
 	models := []interface{}{&MerchantStoreProduct{}, &MerchantStoreStock{}, &MerchantStoreConfig{}, &MerchantStoreOrder{}, &MerchantStoreTransfer{}, &MerchantStoreDisclaimerAcceptance{}, &MerchantStoreGateway{}, &MerchantStorePromotion{}, &MerchantStoreEvent{}, &MerchantStoreEmailDelivery{}, &MerchantStorePaymentReceipt{}, &MerchantStoreVerifiedEmail{}, &MerchantStoreEmailVerificationChallenge{}, &MerchantStoreOrderSearchChallenge{}, &MerchantStoreOrderSearchAuthorization{}, &MerchantStoreVariant{}, &MerchantStoreRefund{}, &MerchantStoreRefundItem{}, &MerchantStoreRefundPaymentBasis{}, &MerchantStoreDiscountCode{}, &MerchantStoreRefundProviderAttempt{}, &MerchantStoreGuest{}, &MerchantStoreSellerTerms{}, &MerchantStoreTermsAcceptance{}, &MerchantStoreGuestEmailVerification{}}
-	return append(models, MerchantStoreCatalogueModels()...)
+	models = append(models, MerchantStoreCatalogueModels()...)
+	models = append(models, &MerchantStoreCategory{})
+	return append(models, MerchantStoreSocialModels()...)
 }
 func storeHash(s string) string { sum := sha256.Sum256([]byte(s)); return hex.EncodeToString(sum[:]) }
 func storeToken() (string, error) {

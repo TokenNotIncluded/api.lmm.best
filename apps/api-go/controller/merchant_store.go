@@ -153,6 +153,10 @@ func ListMerchantStore(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if catalogueQuery.CategoryID != "" && !model.MerchantStoreCategoriesSupported() {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreWriterFrozen)
+		return
+	}
 	var items []model.MerchantStoreProduct
 	var err error
 	if model.MerchantStoreCatalogueSupported() {
@@ -160,7 +164,7 @@ func ListMerchantStore(c *gin.Context) {
 	} else {
 		// Older floors retain their original read contract; supplied new filters
 		// cannot silently turn into client-side filtering over one page.
-		if catalogueQuery.Sort != "" || catalogueQuery.Tag != "" || catalogueQuery.Stock != "" || catalogueQuery.AutoDelivery != nil || catalogueQuery.AIProcessing != nil || catalogueQuery.GuestPurchase != nil {
+		if catalogueQuery.Sort != "" || catalogueQuery.Tag != "" || catalogueQuery.Stock != "" || catalogueQuery.CategoryID != "" || catalogueQuery.AutoDelivery != nil || catalogueQuery.AIProcessing != nil || catalogueQuery.GuestPurchase != nil {
 			merchantStoreRespond(c, nil, model.ErrMerchantStoreUnavailable)
 			return
 		}
@@ -211,6 +215,7 @@ func GetMerchantStoreConfig(c *gin.Context) {
 		"product_test_mode_supported":       true,
 		"store_catalogue_supported":         model.MerchantStoreCatalogueSupported(),
 		"store_collections_supported":       model.MerchantStoreCollectionsSupported(),
+		"store_categories_supported":        model.MerchantStoreCategoriesSupported(),
 		"store_likes_supported":             model.MerchantStoreLikesSupported(),
 		"store_access_supported":            model.MerchantStoreAccessSupported(),
 		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),

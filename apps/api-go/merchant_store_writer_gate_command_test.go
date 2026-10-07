@@ -11,6 +11,9 @@ import (
 func TestMerchantStoreWriterGateCommandRejectsFlagsBeforeDatabaseAccess(t *testing.T) {
 	t.Setenv("SQL_DSN", "postgres://private-password@127.0.0.1:1/must-never-connect?sslmode=disable")
 	for _, args := range [][]string{
+		{"activate-phase-six"}, {"activate-phase-six", "--expected-current=4", "--reviewed-phase-six-ready"},
+		{"activate-phase-six", "--expected-current=5"}, {"activate-phase-six", "--expected-current=5", "--reviewed-phase-six-ready", "--require-writable"},
+		{"status", "--reviewed-phase-six-ready"}, {"prepare-schema", "--expected-current=5", "--reviewed-store-schema-ready", "--reviewed-phase-six-ready"},
 		nil, {"unknown"}, {"status", "--reviewed-variants-ready"}, {"bootstrap", "--require-writable"},
 		{"activate"}, {"activate", "--expected-current=1"}, {"activate", "--reviewed-variants-ready"},
 		{"activate", "--expected-current=0", "--reviewed-variants-ready"},

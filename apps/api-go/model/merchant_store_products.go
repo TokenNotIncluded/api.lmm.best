@@ -16,6 +16,11 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 	}
 	var p MerchantStoreProduct
 	e := marketTransaction(DB, func(tx *gorm.DB) error {
+		if in.CategoryID != nil {
+			if e := storeRequireCategoriesWriter(tx); e != nil {
+				return e
+			}
+		}
 		seller, e := storeUser(tx, actor, common.RoleCommonUser)
 		if e != nil {
 			return e
@@ -40,6 +45,17 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 			return e
 		}
 		if e := storeApplyPurchaseLimits(tx, &p, in); e != nil {
+			return e
+		}
+		if in.CategoryID != nil {
+			if e := marketLockUsers(tx, actor); e != nil {
+				return e
+			}
+			if seller, e = storeUser(tx, actor, common.RoleCommonUser); e != nil {
+				return e
+			}
+		}
+		if e := storeApplyProductCategory(tx, &p, in.CategoryID); e != nil {
 			return e
 		}
 		if e := storeRequireMinimumUnitPrice(tx, in.PriceQuota); e != nil {
@@ -111,6 +127,9 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 			if e = tx.Model(defaultVariant).Updates(map[string]any{"price_quota": p.PriceQuota, "template": p.Template, "updated_at": now}).Error; e != nil {
 				return e
 			}
+		}
+		if e := populateMerchantStoreCategory(tx, &p, false); e != nil {
+			return e
 		}
 		return storeEvent(tx, actor, p.ID, "save_draft")
 	})
@@ -496,6 +515,9 @@ func populateMerchantStoreProduct(tx *gorm.DB, p *MerchantStoreProduct, public b
 		p.PaymentMethods = enabled
 	}
 	if err := populateMerchantStoreVariants(tx, p, u, c, enabled, public); err != nil {
+		return err
+	}
+	if err := populateMerchantStoreCategory(tx, p, public); err != nil {
 		return err
 	}
 	return PopulateMerchantStoreCatalogue(tx, p)

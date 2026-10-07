@@ -19,12 +19,16 @@ func merchantStoreCatalogueBoolean(c *gin.Context, key string) (*bool, bool) {
 }
 
 func merchantStoreCatalogueQuery(c *gin.Context) (model.MerchantStoreCatalogueQuery, bool) {
-	query := model.MerchantStoreCatalogueQuery{Sort: c.Query("sort"), Tag: c.Query("tag"), Stock: c.Query("stock")}
-	for _, key := range []string{"sort", "tag", "stock"} {
+	query := model.MerchantStoreCatalogueQuery{Sort: c.Query("sort"), Tag: c.Query("tag"), Stock: c.Query("stock"), CategoryID: c.Query("category_id")}
+	for _, key := range []string{"sort", "tag", "stock", "category_id"} {
 		if len(c.Request.URL.Query()[key]) > 1 {
 			merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
 			return query, false
 		}
+	}
+	if values, present := c.Request.URL.Query()["category_id"]; present && (len(values) != 1 || values[0] == "") {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+		return query, false
 	}
 	var ok bool
 	if query.AutoDelivery, ok = merchantStoreCatalogueBoolean(c, "auto_delivery"); !ok {

@@ -76,6 +76,9 @@ func storeAccessActive(tx *gorm.DB) bool {
 // old schema until the formal capability floor activates these columns.
 func (p *MerchantStoreProduct) BeforeSave(tx *gorm.DB) error {
 	required, err := storeWriterGateRow(tx.Session(&gorm.Session{NewDB: true}), "")
+	if err != nil || required < 6 || required > MerchantStoreWriterCapability {
+		tx.Statement.Omits = append(tx.Statement.Omits, "category_id")
+	}
 	if err != nil || required < 4 || required > MerchantStoreWriterCapability {
 		tx.Statement.Omits = append(tx.Statement.Omits, "max_quantity_per_order", "max_quantity_per_buyer")
 	}

@@ -34,10 +34,16 @@ func storeAccessColumn(table, column string) bool {
 // never calls the whole-application migration, modifies a wallet or raises the
 // writer floor. A lost deployment session's durable owner still blocks it.
 func PrepareMerchantStoreSchema(db *gorm.DB, expected int) error {
+	if expected >= 5 {
+		return PrepareMerchantStorePhaseSix(db, expected)
+	}
 	if db == nil || expected < 1 || expected > MerchantStoreWriterCapability || (db.Dialector.Name() != "postgres" && db.Dialector.Name() != "sqlite") {
 		return ErrMerchantStoreWriterFrozen
 	}
-	models := MerchantStoreModels()
+	models, err := storePhaseFivePreparationModels(db)
+	if err != nil {
+		return err
+	}
 	cache, seen := &sync.Map{}, map[string]bool{}
 	for _, item := range models {
 		parsed, err := schema.Parse(item, cache, db.NamingStrategy)
@@ -61,7 +67,7 @@ func PrepareMerchantStoreSchema(db *gorm.DB, expected int) error {
 			if err := BackfillMerchantStoreCatalogueMappings(tx); err != nil {
 				return fmt.Errorf("%w: catalogue identity preparation failed", ErrMerchantStoreWriterFrozen)
 			}
-			if err := storeCheckMerchantStoreSchema(tx, MerchantStoreWriterCapability); err != nil {
+			if err := storeCheckMerchantStoreSchema(tx, 5); err != nil {
 				return err
 			}
 			if err := storeCheckAccessDefaults(tx); err != nil {

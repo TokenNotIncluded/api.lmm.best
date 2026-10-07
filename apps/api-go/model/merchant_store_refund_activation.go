@@ -142,7 +142,7 @@ func storeCheckMerchantStoreSchema(tx *gorm.DB, capability int) error {
 		if err != nil {
 			return fmt.Errorf("%w: invalid model", ErrMerchantStoreWriterFrozen)
 		}
-		if capability < 5 && storeAccessTable(parsed.Table) {
+		if (capability < 5 && storeAccessTable(parsed.Table)) || (capability < 6 && storePhaseSixTable(parsed.Table)) {
 			continue
 		}
 		if !tx.Migrator().HasTable(model) {
@@ -157,7 +157,7 @@ func storeCheckMerchantStoreSchema(tx *gorm.DB, capability int) error {
 			columns[column.Name()] = column
 		}
 		for _, field := range parsed.Fields {
-			if field.DBName == "" || (capability < 5 && storeAccessColumn(parsed.Table, field.DBName)) {
+			if field.DBName == "" || (capability < 5 && storeAccessColumn(parsed.Table, field.DBName)) || (capability < 6 && storePhaseSixColumn(parsed.Table, field.DBName)) {
 				continue
 			}
 			column, found := columns[field.DBName]
@@ -211,10 +211,12 @@ func storeCheckMerchantStoreSchema(tx *gorm.DB, capability int) error {
 		}
 		for name, expected := range parsed.ParseIndexes() {
 			phase5Index := false
+			phase6Index := false
 			for _, field := range expected.Fields {
 				phase5Index = phase5Index || storeAccessColumn(parsed.Table, field.DBName)
+				phase6Index = phase6Index || storePhaseSixColumn(parsed.Table, field.DBName)
 			}
-			if capability < 5 && phase5Index {
+			if (capability < 5 && phase5Index) || (capability < 6 && phase6Index) {
 				continue
 			}
 			index, found := actual[name]
