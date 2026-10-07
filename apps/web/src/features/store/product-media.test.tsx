@@ -161,6 +161,7 @@ after(async () => {
 
 test('static SVG is purified into a standalone UTF-8 image with local gradients', () => {
   const image = normalizeStoreImageSource(svg)
+  assert.ok(image)
   assert.ok(image?.startsWith(STORE_SVG_DATA_PREFIX))
   const decoded = storeImageEditorText(image)
   assert.match(decoded, /<svg[^>]+xmlns="http:\/\/www.w3.org\/2000\/svg"/)

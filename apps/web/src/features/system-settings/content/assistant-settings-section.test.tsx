@@ -982,9 +982,8 @@ describe('administrator welcome-gift cap', () => {
     }
   })
   test('edits in USD and keeps exactly the same integer credits when switching display units', async () => {
-    const { useSystemConfigStore } =
+    const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
       await import('@/stores/system-config-store')
-    const { DEFAULT_CURRENCY_CONFIG } = await import('@/lib/currency')
     const { useWalletCurrencyPreferenceStore } =
       await import('@/stores/wallet-currency-preference-store')
     const oldConfig = useSystemConfigStore.getState().config
@@ -992,6 +991,7 @@ describe('administrator welcome-gift cap', () => {
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...DEFAULT_CURRENCY_CONFIG,
+        currencyUnit: 'credit',
         creditsPerUsd: 500000,
         cnyPerUsd: 7,
         legacyPricingUnitsPerUsd: 1,
