@@ -113,7 +113,7 @@ func newPaidMarketHarness(t *testing.T, usePostgres ...bool) *paidMarketHarness 
 		pool.SetMaxOpenConns(1)
 	}
 	model.DB, model.LOG_DB = db, db
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Log{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketResult{}, &model.ToolMarketToken{}, &model.ToolMarketCredential{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Log{}, &model.Option{}, &model.ModerationJob{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketFavorite{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketBudget{}, &model.ToolMarketCall{}, &model.ToolMarketTransfer{}, &model.ToolMarketEvent{}, &model.ToolMarketConfig{}, &model.ToolMarketResult{}, &model.ToolMarketToken{}, &model.ToolMarketCredential{}))
 	harness := &paidMarketHarness{t: t, db: db, users: map[string]model.User{}, tokens: map[string]string{}}
 	for _, name := range []string{"buyer", "author", "outsider", "root"} {
 		role, quota := common.RoleCommonUser, 0
@@ -290,7 +290,35 @@ func runPaidMarketHTTPMCPUploadAndSettlement(t *testing.T, postgres bool) {
 	session := harness.connect(token.Token)
 	list, err := session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 4)
+	managementNames := []string{"metamcp", "lmm_market_search", "lmm_market_details", "lmm_market_call_status", "lmm_market_load"}
+	assertListedTools := func(list *mcp.ListToolsResult, grantedNames ...string) {
+		t.Helper()
+		expected := append([]string(nil), managementNames...)
+		for _, name := range grantedNames {
+			expected = append(expected, paidMarketToolName(tools[name]))
+		}
+		var names []string
+		for _, descriptor := range list.Tools {
+			names = append(names, descriptor.Name)
+			if descriptor.Name == "metamcp" {
+				require.Contains(t, descriptor.Description, "Free built-in tool management")
+			}
+		}
+		require.ElementsMatch(t, expected, names, "only default free management and this client's exact granted tools may be exposed")
+	}
+	assertListedTools(list)
+	metaStatus, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "metamcp", Arguments: map[string]any{"action": "status"}})
+	require.NoError(t, err)
+	require.False(t, metaStatus.IsError)
+	encodedStatus, err := json.Marshal(metaStatus.StructuredContent)
+	require.NoError(t, err)
+	var freeStatus struct {
+		Free bool `json:"free"`
+	}
+	require.NoError(t, json.Unmarshal(encodedStatus, &freeStatus))
+	require.True(t, freeStatus.Free, "default MetaMCP reports a free management operation")
+	require.Equal(t, 2000, harness.balance("buyer"), "default management never charges the buyer")
+	require.Zero(t, executions.Load(), "default management does not execute a paid remote tool")
 	grants := map[string]model.ToolMarketGrant{}
 	for _, name := range []string{"fixture_echo", "fixture_image", "fixture_fail", "fixture_invalid_output", "fixture_empty", "fixture_pending", "fixture_unknown", "fixture_slow_echo"} {
 		tool := tools[name]
@@ -298,7 +326,7 @@ func runPaidMarketHTTPMCPUploadAndSettlement(t *testing.T, postgres bool) {
 		if name == "fixture_echo" {
 			list, err = session.ListTools(context.Background(), nil)
 			require.NoError(t, err)
-			require.Len(t, list.Tools, 4, "loading never grants payment consent")
+			assertListedTools(list) // Loading alone must leave every paid tool hidden.
 			ungrantedSession := harness.connect(token.Token)
 			_, err = ungrantedSession.CallTool(context.Background(), &mcp.CallToolParams{Name: paidMarketToolName(tool), Arguments: map[string]any{"request_id": "no-grant", "arguments": map[string]any{"text": "must not execute"}}})
 			require.Error(t, err, "an ungranted tool is absent from the MCP tool set")
@@ -309,7 +337,7 @@ func runPaidMarketHTTPMCPUploadAndSettlement(t *testing.T, postgres bool) {
 	}
 	list, err = session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 12)
+	assertListedTools(list, "fixture_echo", "fixture_image", "fixture_fail", "fixture_invalid_output", "fixture_empty", "fixture_pending", "fixture_unknown", "fixture_slow_echo")
 	invalidSession := harness.connect(token.Token)
 	invalid, err := invalidSession.CallTool(context.Background(), &mcp.CallToolParams{Name: paidMarketToolName(tools["fixture_echo"]), Arguments: map[string]any{"request_id": "bad-schema", "arguments": map[string]any{"text": 42}}})
 	require.True(t, err != nil || invalid.IsError, "invalid arguments must fail before execution")
@@ -498,7 +526,7 @@ func runPaidMarketHTTPMCPUploadAndSettlement(t *testing.T, postgres bool) {
 	otherSession := harness.connect(otherToken.Token)
 	list, err = otherSession.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 4)
+	assertListedTools(list) // Another client must not inherit the buyer's paid grants.
 	foreign, err := otherSession.CallTool(context.Background(), &mcp.CallToolParams{Name: "lmm_market_call_status", Arguments: map[string]any{"call_id": call.ID}})
 	require.NoError(t, err)
 	require.True(t, foreign.IsError)

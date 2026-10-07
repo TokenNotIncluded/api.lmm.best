@@ -197,7 +197,10 @@ func legacyTopUpPresetOptions() []float64 {
 		return result
 	}
 	for _, amount := range options {
-		value := decimal.NewFromInt(int64(amount))
+		value, err := operation_setting.ParsePaymentAmount(amount.String())
+		if err != nil {
+			return nil
+		}
 		if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
 			value = value.Div(decimal.NewFromFloat(common.QuotaPerUnit))
 		}
@@ -212,7 +215,10 @@ func legacyTopUpDiscountOptions() map[string]float64 {
 		return result
 	}
 	for amount, discount := range operation_setting.GetPaymentSetting().AmountDiscount {
-		value := decimal.NewFromInt(int64(amount))
+		value, err := operation_setting.ParsePaymentDiscountAmount(amount)
+		if err != nil {
+			return nil
+		}
 		if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
 			value = value.Div(decimal.NewFromFloat(common.QuotaPerUnit))
 		}

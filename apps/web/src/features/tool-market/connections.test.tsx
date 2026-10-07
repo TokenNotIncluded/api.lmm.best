@@ -42,6 +42,10 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { marketAPI } = await import('./api')
+const { marketSupports } = await import('./api')
+const { metaDelegationAPI } = await import('./meta-delegation-api')
+const { metaDelegationCopy } = await import('./meta-delegation-copy')
+const metaOriginals = { ...metaDelegationAPI }
 const { MarketConnections } = await import('./connections')
 const { resetMarketCurrencyTest } = await import('./currency-test-support')
 
@@ -59,6 +63,11 @@ const originals = {
   grant: marketAPI.grant,
   invoke: marketAPI.invoke,
   budget: marketAPI.budget,
+  revokeGrant: marketAPI.revokeGrant,
+  revokeToken: marketAPI.revokeToken,
+  removeGrantRecord: marketAPI.removeGrantRecord,
+  removeTokenRecord: marketAPI.removeTokenRecord,
+  removeClient: marketAPI.removeClient,
 }
 const config = {
   enabled: false,
@@ -67,6 +76,11 @@ const config = {
   quota_per_unit: 500000,
   web_client_id: 'web-market',
   mcp_path: '/mcp/market',
+  capabilities: {
+    service_deletion: true,
+    client_record_cleanup: true,
+    meta_delegation: true,
+  },
 }
 const record = {
   id: 'token-test',
@@ -105,8 +119,13 @@ function element<T extends Element>(container: HTMLElement, selector: string) {
 function previewText(container: HTMLElement) {
   return element<HTMLPreElement>(container, 'pre').textContent ?? ''
 }
-async function mount(onChooseClient: (clientID: string) => void) {
+async function mount(
+  onChooseClient: (clientID: string) => void,
+  marketConfig: typeof config | Omit<typeof config, 'capabilities'> = config,
+  configure?: () => void
+) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'test', role: 1 })
+  metaDelegationAPI.oauthClients = async () => []
   marketAPI.mine = (async () => []) as typeof marketAPI.mine
   marketAPI.token = async (client) => ({
     token: secret,
@@ -116,6 +135,7 @@ async function mount(onChooseClient: (clientID: string) => void) {
   marketAPI.grant = async () =>
     assert.fail('Navigation must not authorize payment')
   marketAPI.invoke = async () => assert.fail('Navigation must not call a tool')
+  configure?.()
   const cache = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   })
@@ -127,7 +147,10 @@ async function mount(onChooseClient: (clientID: string) => void) {
     root.render(
       <QueryClientProvider client={cache}>
         <I18nextProvider i18n={i18n}>
-          <MarketConnections config={config} onChooseClient={onChooseClient} />
+          <MarketConnections
+            config={marketConfig}
+            onChooseClient={onChooseClient}
+          />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -150,10 +173,290 @@ afterEach(async () => {
     cache.clear()
   }
   Object.assign(marketAPI, originals)
+  Object.assign(metaDelegationAPI, metaOriginals)
   useAuthStore.getState().auth.setUser(null)
   document.body.replaceChildren()
 })
 after(() => dom.close())
+
+test('only explicit boolean capabilities enable newer endpoints', () => {
+  assert.equal(marketSupports(undefined, 'meta_delegation'), false)
+  const { capabilities: _, ...legacy } = config
+  for (const capability of [
+    'service_deletion',
+    'client_record_cleanup',
+    'meta_delegation',
+  ] as const) {
+    assert.equal(marketSupports(legacy, capability), false)
+    assert.equal(
+      marketSupports(
+        {
+          ...config,
+          capabilities: { ...config.capabilities, [capability]: false },
+        },
+        capability
+      ),
+      false
+    )
+    assert.equal(
+      marketSupports(
+        {
+          ...config,
+          capabilities: { ...config.capabilities, [capability]: 'true' },
+        } as unknown as typeof config,
+        capability
+      ),
+      false
+    )
+    assert.equal(marketSupports(config, capability), true)
+  }
+})
+
+const accessGrant = {
+  id: 'grant-test',
+  user_id: 1,
+  client_id: 'my-agent',
+  tool_id: 'lookup',
+  version_id: 'version-test',
+  max_price_quota: 100,
+  max_total_quota: 1000,
+  max_calls: 10,
+  reserved_quota: 0,
+  spent_quota: 0,
+  reserved_calls: 0,
+  successful_calls: 0,
+  expires_at: record.expires_at,
+  revoked_at: 0,
+}
+async function clientRecords(
+  cache: InstanceType<typeof QueryClient>,
+  state: {
+    tokens: (typeof record)[]
+    grants: (typeof accessGrant)[]
+    installations: {
+      client_id: string
+      tool_id: string
+      version_id: string
+    }[]
+  }
+) {
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'tokens') return [...state.tokens]
+    if (kind === 'grants') return [...state.grants]
+    if (kind === 'installations') return [...state.installations]
+    return []
+  }) as typeof marketAPI.mine
+  await act(async () => {
+    for (const [kind, rows] of Object.entries(state)) {
+      cache.setQueryData(['tool-market', 1, kind], rows)
+    }
+    await flush()
+  })
+}
+
+test('revoking an authorization immediately removes it from the default list and keeps collapsed history', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = { tokens: [], grants: [accessGrant], installations: [] }
+  await clientRecords(cache, state)
+  const current = element<HTMLElement>(
+    container,
+    '[data-testid="market-client-list"]'
+  )
+  assert.equal(current.querySelectorAll('article').length, 1)
+  assert.equal(current.textContent?.includes('my-agent'), true)
+  marketAPI.revokeGrant = async (id) => {
+    assert.equal(id, accessGrant.id)
+    state.grants = [{ ...accessGrant, revoked_at: 1 }]
+    return null
+  }
+  await act(async () => {
+    button(current, 'Revoke authorization').click()
+    await flush()
+  })
+  await waitFor(() => current.querySelectorAll('article').length === 0)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  assert.equal(history.open, false)
+  assert.equal(history.textContent?.includes('Revoked records'), true)
+  assert.equal(history.querySelectorAll('article').length, 1)
+  assert.equal(history.textContent?.includes('my-agent'), true)
+  assert.equal(button(history, 'Delete authorization').disabled, false)
+  assert.equal(container.textContent?.includes('No connections yet'), true)
+})
+
+test('deleting a revoked authorization empties its history group after the server refresh', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = {
+    tokens: [],
+    grants: [{ ...accessGrant, revoked_at: 1 }],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  marketAPI.removeGrantRecord = async (id) => {
+    assert.equal(id, accessGrant.id)
+    state.grants = []
+    return null
+  }
+  await act(async () => {
+    history.open = true
+    button(history, 'Delete authorization').click()
+    await flush()
+  })
+  await waitFor(
+    () => !container.querySelector('[data-testid="market-revoked-records"]')
+  )
+  assert.equal(
+    element<HTMLElement>(
+      container,
+      '[data-testid="market-client-list"]'
+    ).querySelectorAll('article').length,
+    0
+  )
+})
+
+test('a revoked token can leave history and an unrevoked expired token still requires revocation', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = {
+    tokens: [
+      { ...record, revoked_at: 1 },
+      {
+        ...record,
+        id: 'expired-token',
+        client_id: 'expired-client',
+        expires_at: 1,
+      },
+    ],
+    grants: [],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  const current = element<HTMLElement>(
+    container,
+    '[data-testid="market-client-list"]'
+  )
+  assert.equal(current.textContent?.includes('expired-client'), true)
+  assert.equal(current.textContent?.includes('my-agent'), false)
+  assert.equal(button(current, 'Revoke').disabled, false)
+  assert.equal(current.textContent?.includes('Delete connection token'), false)
+  marketAPI.removeTokenRecord = async (id) => {
+    assert.equal(id, record.id)
+    state.tokens = state.tokens.filter((row) => row.id !== id)
+    return null
+  }
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  await act(async () => {
+    history.open = true
+    button(history, 'Delete connection token').click()
+    await flush()
+  })
+  await waitFor(
+    () => !container.querySelector('[data-testid="market-revoked-records"]')
+  )
+  assert.equal(current.textContent?.includes('expired-client'), true)
+})
+
+test('setup from revoked history chooses the same client without restoring or creating access', async () => {
+  const chosen: string[] = []
+  const { container, cache } = await mount((id) => chosen.push(id))
+  const state = {
+    tokens: [record],
+    grants: [{ ...accessGrant, revoked_at: 1 }],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  assert.equal(
+    history.textContent?.includes('Delete client'),
+    false,
+    'an active token blocks whole-client deletion'
+  )
+  await act(async () => {
+    history.open = true
+    button(history, 'Set up again').click()
+  })
+  assert.deepEqual(chosen, ['my-agent'])
+  assert.equal(state.grants[0].revoked_at, 1)
+})
+
+test('deleting a revoked client removes its history and loaded-tool group together', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = {
+    tokens: [{ ...record, revoked_at: 1 }],
+    grants: [{ ...accessGrant, revoked_at: 1 }],
+    installations: [
+      { client_id: 'my-agent', tool_id: 'lookup', version_id: 'version-test' },
+    ],
+  }
+  await clientRecords(cache, state)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  marketAPI.removeClient = async (id) => {
+    assert.equal(id, 'my-agent')
+    state.tokens = []
+    state.grants = []
+    state.installations = []
+    return {
+      client_id: id,
+      tokens_hidden: 1,
+      grants_hidden: 1,
+      tools_unloaded: 1,
+    }
+  }
+  await act(async () => {
+    history.open = true
+    button(history, 'Delete client').click()
+    await flush()
+  })
+  await waitFor(
+    () => !container.querySelector('[data-testid="market-revoked-records"]')
+  )
+  assert.equal(
+    element<HTMLElement>(
+      container,
+      '[data-testid="market-client-list"]'
+    ).querySelectorAll('article').length,
+    0
+  )
+})
+
+test('failed record removal keeps revoked history visible for retry', async () => {
+  const { container, cache } = await mount(() => {})
+  const state = {
+    tokens: [],
+    grants: [{ ...accessGrant, revoked_at: 1 }],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  marketAPI.removeGrantRecord = async () => {
+    throw new Error('fixture removal failure')
+  }
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  await act(async () => {
+    history.open = true
+    button(history, 'Delete authorization').click()
+    await flush()
+  })
+  await waitFor(() => container.querySelector('[role="alert"]') !== null)
+  assert.equal(history.querySelectorAll('article').length, 1)
+  assert.equal(button(history, 'Delete authorization').disabled, false)
+})
 
 test('editing a one-credit budget preserves raw quota across account currency changes', async () => {
   const { container, cache } = await mount(() => {})
@@ -321,4 +624,355 @@ test('profile switching updates placeholder preview and copies secrets only afte
   )
   assert.equal(container.querySelector('#mcp-secret'), null)
   assert.equal(container.innerHTML.includes(secret), false)
+})
+
+async function enableManage(container: HTMLElement) {
+  const checkbox = [
+    ...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  ].find((item) =>
+    item.parentElement?.textContent?.includes('Allow loading and unloading')
+  )
+  assert.ok(checkbox, 'missing explicit manage permission')
+  await act(async () => {
+    checkbox.click()
+    await flush()
+  })
+}
+
+test('legacy config keeps token creation and revocation usable without any new meta or cleanup request', async () => {
+  const { capabilities: _, ...legacy } = config
+  let tokenCalls = 0
+  const { container, cache } = await mount(
+    () => {},
+    legacy,
+    () => {
+      metaDelegationAPI.oauthClients = async () =>
+        assert.fail('Legacy config must not query meta OAuth targets')
+      metaDelegationAPI.get = async () =>
+        assert.fail('Legacy config must not read a meta delegation')
+      metaDelegationAPI.set = async () =>
+        assert.fail('Legacy token creation must not append meta delegation')
+      marketAPI.removeClient = async () =>
+        assert.fail('Legacy config must not delete client history')
+      marketAPI.removeTokenRecord = async () =>
+        assert.fail('Legacy config must not delete token history')
+      marketAPI.removeGrantRecord = async () =>
+        assert.fail('Legacy config must not delete authorization history')
+      marketAPI.token = async (client, permissions) => {
+        tokenCalls++
+        assert.equal(permissions?.can_manage, true)
+        return {
+          token: secret,
+          record: { ...record, client_id: client, can_manage: true },
+        }
+      }
+    }
+  )
+  assert.equal(container.textContent?.includes(metaDelegationCopy.title), false)
+  await enableManage(container)
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(
+    () =>
+      container.querySelector<HTMLInputElement>('#mcp-secret')?.value === secret
+  )
+  assert.equal(tokenCalls, 1)
+  const state = {
+    tokens: [{ ...record, can_manage: true }],
+    grants: [accessGrant],
+    installations: [],
+  }
+  await clientRecords(cache, state)
+  let revoked = 0
+  marketAPI.revokeToken = async (id) => {
+    assert.equal(id, record.id)
+    revoked++
+    state.tokens = [{ ...record, can_manage: true, revoked_at: 1 }]
+    return null
+  }
+  const current = element<HTMLElement>(
+    container,
+    '[data-testid="market-client-list"]'
+  )
+  await act(async () => {
+    button(current, 'Revoke').click()
+    await flush()
+  })
+  await waitFor(() => revoked === 1)
+  state.grants = [{ ...accessGrant, revoked_at: 1 }]
+  await clientRecords(cache, state)
+  const history = element<HTMLDetailsElement>(
+    container,
+    '[data-testid="market-revoked-records"]'
+  )
+  for (const title of [
+    'Delete client',
+    'Delete connection token',
+    'Delete authorization',
+  ]) {
+    assert.equal(history.textContent?.includes(title), false)
+  }
+  assert.equal(history.textContent?.includes('my-agent'), true)
+  assert.equal(container.textContent?.includes(metaDelegationCopy.title), false)
+})
+
+test('real connection creation delegates free AI management only after explicit manage consent', async () => {
+  const { container, cache } = await mount(() => {})
+  let delegation: Parameters<typeof metaDelegationAPI.set> | undefined
+  metaDelegationAPI.set = async (target, input) => {
+    delegation = [target, input]
+    return { ...input, updated_at: 1 }
+  }
+  let tokenCalls = 0
+  marketAPI.token = async (client, permissions) => {
+    tokenCalls++
+    assert.equal(permissions?.can_manage, true)
+    return {
+      token: secret,
+      record: { ...record, client_id: client, can_manage: true },
+    }
+  }
+  await enableManage(container)
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(() => delegation !== undefined)
+  assert.deepEqual(delegation, [
+    { kind: 'personal', id: record.id },
+    { enabled: true, max_total_quota: 0, expires_at: record.expires_at },
+  ])
+  assert.equal(tokenCalls, 1)
+  assert.equal(
+    element<HTMLInputElement>(container, '#mcp-secret').value,
+    secret
+  )
+  assert.equal(
+    JSON.stringify(cache.getQueryCache().getAll()).includes(secret),
+    false
+  )
+  assert.equal(
+    JSON.stringify(
+      cache
+        .getMutationCache()
+        .getAll()
+        .map((row) => row.state)
+    ).includes(secret),
+    false
+  )
+})
+
+test('no-manage creation does not silently enable delegation', async () => {
+  const { container } = await mount(() => {})
+  metaDelegationAPI.set = async () =>
+    assert.fail('invoke-only token cannot delegate')
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(() => container.querySelector('#mcp-secret') !== null)
+  assert.equal(container.textContent?.includes(metaDelegationCopy.saved), false)
+})
+
+test('failed delegation retains the once-only token and refreshes created records without issuing twice', async () => {
+  const { container, cache } = await mount(() => {})
+  let tokenCalls = 0
+  let recordReads = 0
+  marketAPI.mine = (async () => {
+    recordReads++
+    return []
+  }) as typeof marketAPI.mine
+  marketAPI.token = async (client) => {
+    tokenCalls++
+    return {
+      token: secret,
+      record: { ...record, client_id: client, can_manage: true },
+    }
+  }
+  metaDelegationAPI.set = async () => {
+    throw new Error('fixture unavailable')
+  }
+  await enableManage(container)
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(
+    () => container.textContent?.includes(metaDelegationCopy.failed) === true
+  )
+  await waitFor(() => recordReads >= 4)
+  assert.equal(tokenCalls, 1)
+  assert.equal(
+    element<HTMLInputElement>(container, '#mcp-secret').value,
+    secret
+  )
+  assert.equal(container.textContent?.includes(metaDelegationCopy.saved), false)
+  assert.equal(
+    JSON.stringify(
+      cache
+        .getMutationCache()
+        .getAll()
+        .map((row) => row.state)
+    ).includes(secret),
+    false
+  )
+})
+
+test('late token response after account change cannot expose a token or configure old delegation', async () => {
+  const { container } = await mount(() => {})
+  let resolveToken:
+    | ((value: { token: string; record: typeof record }) => void)
+    | undefined
+  marketAPI.token = async () =>
+    new Promise((resolve) => {
+      resolveToken = resolve
+    })
+  metaDelegationAPI.set = async () =>
+    assert.fail('old account response cannot delegate')
+  await enableManage(container)
+  await act(async () => {
+    button(container, 'Create connection token').click()
+    await flush()
+  })
+  await waitFor(() => resolveToken !== undefined)
+  await act(async () => {
+    useAuthStore.getState().auth.setUser({ id: 2, username: 'next', role: 1 })
+    await flush()
+    resolveToken?.({ token: secret, record: { ...record, can_manage: true } })
+    await flush()
+  })
+  assert.equal(container.querySelector('#mcp-secret'), null)
+  assert.equal(container.innerHTML.includes(secret), false)
+})
+
+test('existing token settings remain credential-bound and strictly eligible OAuth clients appear without installed tools', async () => {
+  const { container, cache } = await mount(() => {})
+  const targets: string[] = []
+  metaDelegationAPI.get = async (target) => {
+    targets.push(`${target.kind}:${target.id}`)
+    return { enabled: false, max_total_quota: 0, expires_at: 0, updated_at: 1 }
+  }
+  await act(async () => {
+    cache.setQueryData(
+      ['tool-market', 1, 'tokens'],
+      [
+        { ...record, id: 'first', can_manage: true },
+        { ...record, id: 'second', can_manage: true },
+        { ...record, id: 'restricted' },
+        { ...record, id: 'revoked', can_manage: true, revoked_at: 1 },
+        { ...record, id: 'expired', can_manage: true, expires_at: 1 },
+      ]
+    )
+    cache.setQueryData(
+      ['tool-market', 1, 'meta-oauth-clients'],
+      [{ client_id: 'oauth:lmm-pi' }]
+    )
+    await flush()
+  })
+  const controls = [...container.querySelectorAll('article button')].filter(
+    (item) => item.textContent === metaDelegationCopy.title
+  )
+  assert.equal(controls.length, 3)
+  for (const control of controls) {
+    await act(async () => {
+      ;(control as HTMLElement).click()
+      await flush()
+    })
+    await waitFor(() => document.querySelector('[role="dialog"]') !== null)
+    const close = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ].find(
+      (item) =>
+        item.getAttribute('aria-label') === 'Close' ||
+        item.textContent?.includes('Close')
+    )
+    assert.ok(close, 'missing close control')
+    await act(async () => {
+      close.click()
+      await flush()
+    })
+  }
+  assert.deepEqual(
+    targets.sort(),
+    ['personal:first', 'personal:second', 'oauth:oauth:lmm-pi'].sort()
+  )
+})
+
+test('saving existing AI settings refreshes the real connection spending-budget panel', async () => {
+  const { container, cache } = await mount(() => {})
+  const budget = {
+    scope: 'client',
+    scope_id: 'my-agent',
+    limit_quota: 3000,
+    spent_quota: 0,
+    reserved_quota: 0,
+  }
+  let budgetReads = 0
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'budgets') {
+      budgetReads++
+      return [{ ...budget }]
+    }
+    return []
+  }) as typeof marketAPI.mine
+  metaDelegationAPI.get = async () => ({
+    enabled: true,
+    max_total_quota: budget.limit_quota,
+    expires_at: record.expires_at,
+    updated_at: 1,
+  })
+  metaDelegationAPI.set = async (target, input) => {
+    assert.deepEqual(target, { kind: 'personal', id: record.id })
+    budget.limit_quota = input.max_total_quota
+    return { ...input, updated_at: 2 }
+  }
+  await act(async () => {
+    cache.setQueryData(
+      ['tool-market', 1, 'tokens'],
+      [{ ...record, can_manage: true }]
+    )
+    cache.setQueryData(['tool-market', 1, 'budgets'], [{ ...budget }])
+    await flush()
+  })
+  const budgetSection = [...container.querySelectorAll('section')].at(-1)
+  assert.ok(budgetSection)
+  const before = budgetSection.textContent
+  const controls = [...container.querySelectorAll('article button')]
+  const settings = controls.find(
+    (item) => item.textContent === metaDelegationCopy.title
+  )
+  assert.ok(settings)
+  await act(async () => {
+    ;(settings as HTMLElement).click()
+    await flush()
+  })
+  await waitFor(() => document.querySelector('[role="dialog"]') !== null)
+  const dialog = element<HTMLElement>(document.body, '[role="dialog"]')
+  const quota = element<HTMLInputElement>(
+    dialog,
+    'input:not([type="checkbox"])'
+  )
+  await waitFor(() => quota.value === '3000')
+  const setter = Object.getOwnPropertyDescriptor(
+    dom.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(quota, '1000')
+    quota.dispatchEvent(new Event('input', { bubbles: true }))
+    quota.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+    button(dialog, 'Save').click()
+    await flush()
+  })
+  await waitFor(() => budgetReads > 0 && budgetSection.textContent !== before)
+  assert.equal(
+    cache.getQueryData<(typeof budget)[]>(['tool-market', 1, 'budgets'])?.[0]
+      .limit_quota,
+    1000
+  )
+  assert.equal(budgetSection.textContent?.includes('my-agent'), true)
 })

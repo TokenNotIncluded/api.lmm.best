@@ -360,6 +360,7 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
   ]
   ecosystem.title = t('Ecosystem')
   ecosystem.modules.push(
+    module('/store', 'Shop'),
     module('/ai-directory', 'AI directory'),
     module('/rss', 'RSS'),
     module('/tool-market', 'Tool market'),

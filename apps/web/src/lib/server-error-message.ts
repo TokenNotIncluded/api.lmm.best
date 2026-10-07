@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isRateLimitedError } from './request-rate-limit'
+
 const serverErrorMessageKeys = {
   service_temporarily_unavailable:
     'The service is temporarily unavailable. Please try again later.',
@@ -78,6 +80,14 @@ export function getServerErrorMessageKey(value: unknown): string | null {
 
 /** Concurrent requests during the same outage share one notification. */
 export function getServerErrorToastId(value: unknown): string | undefined {
+  if (
+    isRateLimitedError(value) ||
+    (isRecord(value) &&
+      isRecord(value.response) &&
+      value.response.status === 429)
+  ) {
+    return 'request-rate-limited'
+  }
   return getServerErrorMessageKey(value) ===
     serverErrorMessageKeys.service_temporarily_unavailable
     ? 'service-temporarily-unavailable'

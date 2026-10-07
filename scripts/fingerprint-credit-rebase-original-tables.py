@@ -11,6 +11,10 @@ FORMAT = 'lmm-credit-original-table-inventory-v1'
 SETTINGS = """SET LOCAL standard_conforming_strings=on;
 SET LOCAL search_path=pg_catalog;
 SET LOCAL row_security=off;
+SET LOCAL jit=off;
+SET LOCAL max_parallel_workers_per_gather=0;
+SET LOCAL work_mem='4MB';
+SET LOCAL hash_mem_multiplier=1;
 SET LOCAL TimeZone='UTC';
 SET LOCAL DateStyle='ISO, YMD';
 SET LOCAL IntervalStyle='postgres';
@@ -111,7 +115,7 @@ def fingerprint_sql(inventory, restorations, stage, audit_rows=(), *, include_gu
     if stage not in ('before', 'after'):
         raise ValueError('invalid fingerprint stage')
     sql = [SETTINGS, inventory_guard(inventory, stage)] if include_guard else []
-    selects = []
+    statements = []
     for table in inventory['tables']:
         relation = ident(table['schema']) + '.' + ident(table['name'])
         columns = {column['name'] for column in table['columns']}
@@ -162,8 +166,14 @@ def fingerprint_sql(inventory, restorations, stage, audit_rows=(), *, include_gu
         # Parent queries include inherited/partitioned rows; metadata binds topology.
         rows = f"SELECT {','.join(projection)} FROM {relation} r{where}"
         row_hash = "encode(sha256(convert_to(to_jsonb(original_row)::text,'UTF8')),'hex')"
-        selects.append(f"SELECT format('%I.%I',{literal(table['schema'])},{literal(table['name'])}) AS table_name,count(*) AS row_count,encode(sha256(convert_to(COALESCE(string_agg(row_hash,'' ORDER BY row_hash COLLATE \"C\"),''),'UTF8')),'hex') AS sha256 FROM (SELECT {row_hash} AS row_hash FROM ({rows}) original_row) hashed_rows")
-    sql.append('SELECT table_name,row_count,sha256 FROM (\n' + '\nUNION ALL\n'.join(selects) + '\n) fingerprints ORDER BY table_name COLLATE "C";\n')
+        label = f"format('%I.%I',{literal(table['schema'])},{literal(table['name'])})"
+        statement = f"SELECT {label} AS table_name,count(*) AS row_count,encode(sha256(convert_to(COALESCE(string_agg(row_hash,'' ORDER BY row_hash COLLATE \"C\"),''),'UTF8')),'hex') AS sha256 FROM (SELECT {row_hash} AS row_hash FROM ({rows}) original_row) hashed_rows"
+        statements.append(f'({label},{literal(statement)})')
+    # Sort only labels and SQL text, never one planner tree containing every
+    # original relation. psql executes one SELECT per row on this connection,
+    # preserving the existing transaction snapshot and exact output ordering.
+    sql.append('SELECT statement FROM (VALUES\n' + ',\n'.join(statements)
+               + '\n) per_table(table_name,statement) ORDER BY table_name COLLATE "C"\n\\gexec\n')
     return ''.join(sql)
 
 

@@ -1067,7 +1067,7 @@ func TestAssistantPlanOffersExposePublicOffersToL0WithoutInventingCheckout(t *te
 	originalDiscounts := paymentSetting.AmountDiscount
 	originalCompliance := paymentSetting.ComplianceConfirmed
 	originalTermsVersion := paymentSetting.ComplianceTermsVersion
-	paymentSetting.AmountDiscount = map[int]float64{50: 0.9}
+	paymentSetting.AmountDiscount = operation_setting.PaymentAmountDiscount{"50": 0.9}
 	paymentSetting.ComplianceConfirmed = false
 	paymentSetting.ComplianceTermsVersion = ""
 	t.Cleanup(func() {
@@ -1087,9 +1087,9 @@ func TestAssistantPlanOffersExposePublicOffersToL0WithoutInventingCheckout(t *te
 	require.True(t, ok)
 	require.Len(t, plans, 1)
 	assert.Equal(t, "L0 visible", plans[0].Plan.Title)
-	discounts, ok := result["topup_discounts"].(map[int]float64)
+	discounts, ok := result["topup_discounts"].(map[string]float64)
 	require.True(t, ok)
-	assert.Equal(t, map[int]float64{50: 0.9}, discounts)
+	assert.Equal(t, map[string]float64{"50": 0.9}, discounts)
 	assert.Contains(t, result["message"], "view-only")
 
 	response := httptest.NewRecorder()
@@ -1146,7 +1146,7 @@ func TestAssistantPlanOffersKeepLinuxDOPaymentHiddenForL1(t *testing.T) {
 	originalDiscounts := paymentSetting.AmountDiscount
 	originalCompliance := paymentSetting.ComplianceConfirmed
 	originalTermsVersion := paymentSetting.ComplianceTermsVersion
-	paymentSetting.AmountDiscount = map[int]float64{100: 0.8}
+	paymentSetting.AmountDiscount = operation_setting.PaymentAmountDiscount{"100": 0.8}
 	paymentSetting.ComplianceConfirmed = true
 	paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
 	t.Cleanup(func() {
@@ -1164,7 +1164,7 @@ func TestAssistantPlanOffersKeepLinuxDOPaymentHiddenForL1(t *testing.T) {
 	plans, ok := result["plans"].([]SubscriptionPlanDTO)
 	require.True(t, ok)
 	require.Len(t, plans, 1)
-	discounts, ok := result["topup_discounts"].(map[int]float64)
+	discounts, ok := result["topup_discounts"].(map[string]float64)
 	require.True(t, ok)
 	assert.Empty(t, discounts)
 }
@@ -1979,7 +1979,7 @@ func TestAssistantPaymentOffersUseProgressiveGateAndKeepRestrictions(t *testing.
 	blockedPlans, ok := blocked["plans"].([]SubscriptionPlanDTO)
 	require.True(t, ok)
 	assert.Len(t, blockedPlans, 1)
-	blockedDiscounts, ok := blocked["topup_discounts"].(map[int]float64)
+	blockedDiscounts, ok := blocked["topup_discounts"].(map[string]float64)
 	require.True(t, ok)
 	assert.Empty(t, blockedDiscounts)
 }

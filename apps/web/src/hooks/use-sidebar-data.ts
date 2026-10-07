@@ -54,6 +54,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { StoreIcon } from '@/components/layout/components/store-icon'
 import type { SidebarData } from '@/components/layout/types'
 import { getTodos } from '@/features/todos/api'
 /*
@@ -114,6 +115,7 @@ export function useSidebarData(): SidebarData {
               icon: Compass,
             },
             { title: t('Tool market'), url: '/tool-market', icon: Box },
+            { title: t('Shop'), url: '/store', icon: StoreIcon },
             {
               title: t('Challenges'),
               url: '/challenges',
@@ -194,6 +196,7 @@ export function useSidebarData(): SidebarData {
         id: 'forge',
         title: t('Ecosystem'),
         items: [
+          { title: t('Shop'), url: '/store', icon: StoreIcon },
           { title: t('AI directory'), url: '/ai-directory', icon: Globe2 },
           { title: 'RSS', url: '/rss', icon: Rss },
           {

@@ -46,6 +46,7 @@ type ToolMarketVersion struct {
 	AllowedUsers     string `json:"-" gorm:"type:text"`
 	Digest           string `json:"digest" gorm:"size:64;not null"`
 	ValidationDigest string `json:"-" gorm:"size:64"`
+	AIReviewToken    string `json:"-" gorm:"type:varchar(36);not null;default:''"`
 	ReviewedBy       int    `json:"reviewed_by"`
 	ReviewNote       string `json:"review_note" gorm:"size:1000"`
 	CreatedAt        int64  `json:"created_at"`
@@ -296,7 +297,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				return err
 			}
 		} else {
-			if err := lockForUpdate(tx).Where("id = ? AND owner_id = ?", serviceID, actor).First(&service).Error; err != nil {
+			if err := lockForUpdate(tx).Where("id = ? AND owner_id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, actor, ToolMarketServiceDeleted, toolMarketRetirementVersionID).First(&service).Error; err != nil {
 				return err
 			}
 			if service.DraftVersionID != "" {
@@ -306,6 +307,11 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				}
 				if prior.Status == "pending" {
 					return ErrToolMarketConflict
+				}
+				if prior.AIReviewToken != "" {
+					if err := invalidateMarketAIReview(tx, ModerationSourceMarketTool, service.ID, prior.AIReviewToken, "market_review_stale"); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -360,18 +366,29 @@ func SubmitToolMarketDraft(actor int, serviceID, versionID string) error {
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).Where("id = ? AND owner_id = ?", serviceID, actor).First(&service).Error; err != nil {
+		if err := lockForUpdate(tx).Where("id = ? AND owner_id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, actor, ToolMarketServiceDeleted, toolMarketRetirementVersionID).First(&service).Error; err != nil {
 			return err
 		}
 		if versionID == "" || service.DraftVersionID != versionID {
 			return ErrToolMarketConflict
 		}
-		q := tx.Model(&ToolMarketVersion{}).Where("id = ? AND status IN ?", versionID, []string{"draft", "rejected"}).Update("status", "pending")
+		var submitted ToolMarketVersion
+		if err := tx.Where("id = ? AND service_id = ?", versionID, serviceID).First(&submitted).Error; err != nil {
+			return err
+		}
+		if err := invalidateMarketAIReview(tx, ModerationSourceMarketTool, serviceID, submitted.AIReviewToken, "market_review_resubmitted"); err != nil {
+			return err
+		}
+		token := uuid.NewString()
+		q := tx.Model(&ToolMarketVersion{}).Where("id = ? AND status IN ?", versionID, []string{"draft", "rejected"}).Updates(map[string]any{"status": "pending", "ai_review_token": token})
 		if q.Error != nil {
 			return q.Error
 		}
 		if q.RowsAffected != 1 {
 			return ErrToolMarketConflict
+		}
+		if err := queueMarketAIReview(tx, ModerationSourceMarketTool, serviceID, versionID, token, actor, submitted.Visibility != "public"); err != nil {
+			return err
 		}
 		return marketEvent(tx, actor, serviceID, "draft.submit", map[string]string{"version_id": versionID})
 	})
@@ -389,7 +406,7 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
+		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 			return err
 		}
 		if service.OwnerID == 0 {
@@ -397,13 +414,18 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 		}
 		// Enabled administrators, including root users, may review their own
 		// services. The role check and exact-version validation still apply.
-		if service.DraftVersionID != versionID {
-			return ErrToolMarketConflict
-		}
 		var version ToolMarketVersion
-		if err := tx.First(&version, "id = ? AND service_id = ? AND status = ?", versionID, serviceID, "pending").Error; err != nil {
+		if err := lockForUpdate(tx).First(&version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
 			return err
 		}
+		aiOverride := version.ReviewedBy == 0 && marketAIReviewApplied(tx, ModerationSourceMarketTool, serviceID, version.AIReviewToken)
+		if (service.DraftVersionID != versionID || version.Status != "pending") && !(aiOverride && ((service.DraftVersionID == versionID && version.Status == "rejected") || (service.LiveVersionID == versionID && version.Status == "published"))) {
+			return ErrToolMarketConflict
+		}
+		if err := invalidateMarketAIReview(tx, ModerationSourceMarketTool, serviceID, version.AIReviewToken, "market_review_manual_override"); err != nil {
+			return err
+		}
+		version.AIReviewToken = ""
 		version.Status, version.ReviewedBy, version.ReviewNote = "rejected", actor, note
 		if approve {
 			if version.ValidationDigest == "" || version.ValidationDigest != version.Digest {
@@ -424,6 +446,15 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 				service.Status = "published"
 			}
 			service.UpdatedAt = version.PublishedAt
+			if err := tx.Save(&service).Error; err != nil {
+				return err
+			}
+		} else if aiOverride && service.LiveVersionID == versionID {
+			service.LiveVersionID, service.DraftVersionID = "", versionID
+			if service.Status != "paused" && service.Status != "suspended" {
+				service.Status = "draft"
+			}
+			service.UpdatedAt = common.GetTimestamp()
 			if err := tx.Save(&service).Error; err != nil {
 				return err
 			}

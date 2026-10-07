@@ -193,8 +193,8 @@ run_token_queries() (
 
 run_acquisition() {
   require_loopback_url LMM_TEST_DATABASE_URL
-  require_api_ignored_test_count acquisition 12
-  run_counted_api_integration_tests acquisition 12
+  require_api_ignored_test_count acquisition 13
+  run_counted_api_integration_tests acquisition 13
 }
 
 run_shared_trust() {

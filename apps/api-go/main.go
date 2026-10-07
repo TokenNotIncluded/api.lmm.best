@@ -243,6 +243,9 @@ func runServer() {
 	// Moderation uses durable, per-request leases across all API nodes. Its
 	// provider calls run only in these cancellation-aware background workers.
 	loops.Go(service.RunModerationWorker)
+	// Store fulfillment mail and unissued-order cleanup use durable per-order
+	// leases and stop with the application lifecycle on every API node.
+	loops.Go(service.RunMerchantStoreWorker)
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true

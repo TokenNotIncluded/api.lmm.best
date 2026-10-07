@@ -119,6 +119,9 @@ async function invalidateOptionQueries(
   if (changedKeys.includes('AIDirectoryLinks')) {
     refreshes.push(invalidate(['ai-directory']))
   }
+  if (changedKeys.includes('About')) {
+    refreshes.push(invalidate(['about-content']))
+  }
   if (changedKeys.includes('RSSFeeds')) {
     refreshes.push(invalidate(['rss']))
   }

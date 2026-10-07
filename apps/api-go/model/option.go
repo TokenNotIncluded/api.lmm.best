@@ -319,6 +319,15 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == "payment_setting.amount_options" || key == "payment_setting.amount_discount" {
+		return operation_setting.ValidatePaymentCatalogJSON(key, value, operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens)
+	}
+	if setting.IsMarketAIReviewOption(key) {
+		return setting.ValidateMarketAIReviewMode(value)
+	}
+	if key == operation_setting.InviteRegistrationEnabledOptionKey && value != "true" && value != "false" {
+		return errors.New("invite registration activation must be true or false")
+	}
 	if key == "QuotaPerUnit" {
 		_, err := parseFixedCreditRate(key, value)
 		return err

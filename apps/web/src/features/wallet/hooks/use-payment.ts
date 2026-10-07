@@ -348,6 +348,10 @@ export function usePayment() {
           ? await requestCreditStripePayment({
               amount,
               payment_method: 'stripe',
+              success_url: new URL('/wallet?pay=return', window.location.origin)
+                .href,
+              cancel_url: new URL('/wallet?pay=cancel', window.location.origin)
+                .href,
               ...(discountCode ? { discount_code: discountCode } : {}),
             })
           : await requestCreditPayment({

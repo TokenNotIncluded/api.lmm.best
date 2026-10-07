@@ -13,7 +13,7 @@ import (
 // Only this metadata crosses the controller/target boundary. The imported
 // archives and private age/signing keys are never part of the stage list.
 func (runtime *productionReleaseRuntime) prepareControllerOnlyBackup(ctx context.Context, plan productionReleasePlan, state *productionReleaseControllerState, identity string) error {
-	if plan.Format != productionReleasePlanFormat || plan.BackupMode != "controller-only" || !plan.WithBackups || state.DispatchAttempts != 0 {
+	if !productionReleasePlanSupportsControllerBackups(plan) || plan.BackupMode != "controller-only" || !plan.WithBackups || state.DispatchAttempts != 0 {
 		return errors.New("controller-only backup preparation requires an undispatched selected plan")
 	}
 	local := filepath.Join(plan.ControllerWorkspace, "state", controllerBackupReceiptName)
@@ -96,7 +96,7 @@ func retainInitialControllerReceipt(name string, encoded []byte, plan production
 }
 
 func (runtime *productionReleaseRuntime) reverifyControllerOnlyBackup(ctx context.Context, plan productionReleasePlan, state productionReleaseControllerState, identity string) error {
-	if plan.Format != productionReleasePlanFormat || plan.BackupMode != "controller-only" || !plan.WithBackups || state.ControllerBackup != plan.ControllerBackupDir || !productionSHA256Pattern.MatchString(state.ControllerReceiptSHA256) {
+	if !productionReleasePlanSupportsControllerBackups(plan) || plan.BackupMode != "controller-only" || !plan.WithBackups || state.ControllerBackup != plan.ControllerBackupDir || !productionSHA256Pattern.MatchString(state.ControllerReceiptSHA256) {
 		return errors.New("controller-only confirmation lacks selected immutable evidence")
 	}
 	localInitial := filepath.Join(plan.ControllerWorkspace, "state", controllerBackupReceiptName)
@@ -150,7 +150,7 @@ func (runtime *productionReleaseRuntime) readControllerBackupRemoteManifest(ctx 
 		return manifest, "", err
 	}
 	binding := manifest.ControllerOnlyBackup
-	if manifest.Format != productionTransactionFormat || initial.Purpose != "prepare" || initial.PlanSHA256 != state.PlanSHA256 || binding.PublicKey != plan.ControllerBackupPublicKey || binding.ReceiptSHA256 != state.ControllerReceiptSHA256 {
+	if !productionManifestSupportsControllerBackups(manifest) || initial.Purpose != "prepare" || initial.PlanSHA256 != state.PlanSHA256 || binding.PublicKey != plan.ControllerBackupPublicKey || binding.ReceiptSHA256 != state.ControllerReceiptSHA256 {
 		return manifest, "", errors.New("remote manifest changed the frozen controller backup binding")
 	}
 	if err := matchControllerBackupReceipt(initial, manifest); err != nil {

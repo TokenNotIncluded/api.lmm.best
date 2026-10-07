@@ -38,6 +38,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { createQueryRetry } from '@/lib/query-retry'
 
 import {
   disableProfileShare,
@@ -89,7 +90,7 @@ export function ProfileSharePage() {
   const shareQuery = useQuery({
     queryKey: ['profile-share'],
     queryFn: ({ signal }) => getProfileShareState(signal),
-    retry: 1,
+    retry: createQueryRetry(true, 1),
   })
   const confirmShareState = async (data: ProfileShareState) => {
     // A GET may have read the old settings before waiting for a provider.

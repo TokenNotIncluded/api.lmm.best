@@ -233,13 +233,10 @@ export const forgeRefreshCopy = {
     'Create the first one': 'Create the first one',
     'Down for a short repair.': 'Down for a short repair.',
     'Down {{count}} places': 'Down {{count}} places',
-    'Empty frequency': 'Empty frequency',
     'Every draw is random. Nobody can pick their reward.':
       'Every draw is random. Nobody can pick their reward.',
     'Everything else keeps working: prices and docs stay public.':
       'Everything else keeps working: prices and docs stay public.',
-    'Five correct picks lock the signal.':
-      'Five correct picks lock the signal.',
     'Top up in Wallet and check your access progress.':
       'Top up in Wallet and check your access progress.',
     'How requests are screened, and what happens when risk is found.':
@@ -293,9 +290,6 @@ export const forgeRefreshCopy = {
     'Share link': 'Share link',
     'Sign in and the right pages will open themselves.':
       'Sign in and the right pages will open themselves.',
-    'Signal found': 'Signal found',
-    'Signal locked. Nice.': 'Signal locked. Nice.',
-    'Signal tuner': 'Signal tuner',
     'Signing in takes a moment and skips this screen entirely.':
       'Signing in takes a moment and skips this screen entirely.',
     'Slow down for a second, then send it again.':
@@ -305,7 +299,6 @@ export const forgeRefreshCopy = {
       'Still broken? Report it on GitHub Issues.',
     'Still offline. Reload again in a minute.':
       'Still offline. Reload again in a minute.',
-    'Tap the lit cell. Five in a row.': 'Tap the lit cell. Five in a row.',
     'Tap the seal to unwrap': 'Tap the seal to unwrap',
     'The administrator has not published an about page yet.':
       'The administrator has not published an about page yet.',
@@ -320,8 +313,6 @@ export const forgeRefreshCopy = {
     'Too many requests. Give it a beat.': 'Too many requests. Give it a beat.',
     'Totals appear when the public statistics endpoint responds.':
       'Totals appear when the public statistics endpoint responds.',
-    'Tune the receiver by selecting the lit cell':
-      'Tune the receiver by selecting the lit cell',
     'Up {{count}} places': 'Up {{count}} places',
     'What is included in this estimate?': 'What is included in this estimate?',
     'You are not signed in for this one.':
@@ -942,12 +933,10 @@ export const forgeRefreshCopy = {
     'Create the first one': '创建红包',
     'Down for a short repair.': '正在维护，稍后再来。',
     'Down {{count}} places': '下降 {{count}} 位',
-    'Empty frequency': '空白频点',
     'Every draw is random. Nobody can pick their reward.':
       '奖励随机分配，无法指定。',
     'Everything else keeps working: prices and docs stay public.':
       '可先查看价格和文档。',
-    'Five correct picks lock the signal.': '连续点中 5 次，即可接通信号。',
     'Top up in Wallet and check your access progress.':
       '到钱包充值，查看开通进度。',
     'How requests are screened, and what happens when risk is found.':
@@ -998,9 +987,6 @@ export const forgeRefreshCopy = {
     'Share link': '分享链接',
     'Sign in and the right pages will open themselves.':
       '登录后即可查看可用页面。',
-    'Signal found': '发现信号',
-    'Signal locked. Nice.': '信号已接通。',
-    'Signal tuner': '接通信号',
     'Signing in takes a moment and skips this screen entirely.':
       '登录后继续操作。',
     'Slow down for a second, then send it again.': '稍等片刻，再试一次。',
@@ -1008,7 +994,6 @@ export const forgeRefreshCopy = {
     'Still broken? Report it on GitHub Issues.':
       '仍有问题？到 GitHub 提交反馈。',
     'Still offline. Reload again in a minute.': '仍未恢复，请稍后刷新。',
-    'Tap the lit cell. Five in a row.': '点亮起的格子，连续点中 5 次。',
     'Tap the seal to unwrap': '点击封口，领取奖励',
     'The administrator has not published an about page yet.':
       '管理员尚未发布站点介绍。',
@@ -1021,7 +1006,6 @@ export const forgeRefreshCopy = {
     'Too many requests. Give it a beat.': '请求太频繁，请稍后重试。',
     'Totals appear when the public statistics endpoint responds.':
       '公开统计接口响应后显示总数。',
-    'Tune the receiver by selecting the lit cell': '选择亮起的格子来接通信号',
     'Up {{count}} places': '上升 {{count}} 位',
     'What is included in this estimate?': '估算包含哪些费用？',
     'You are not signed in for this one.': '尚未登录。',
@@ -1621,12 +1605,10 @@ export const forgeRefreshCopy = {
     'Create the first one': '建立紅包',
     'Down for a short repair.': '正在維護，稍後再來。',
     'Down {{count}} places': '下降 {{count}} 位',
-    'Empty frequency': '空白頻點',
     'Every draw is random. Nobody can pick their reward.':
       '獎勵隨機分配，無法指定。',
     'Everything else keeps working: prices and docs stay public.':
       '可先查看價格和文件。',
-    'Five correct picks lock the signal.': '連續點中 5 次，即可接通信號。',
     'Top up in Wallet and check your access progress.':
       '到錢包儲值，查看開通進度。',
     'How requests are screened, and what happens when risk is found.':
@@ -1677,9 +1659,6 @@ export const forgeRefreshCopy = {
     'Share link': '分享連結',
     'Sign in and the right pages will open themselves.':
       '登入後即可查看可用頁面。',
-    'Signal found': '發現信號',
-    'Signal locked. Nice.': '信號已接通。',
-    'Signal tuner': '接通信號',
     'Signing in takes a moment and skips this screen entirely.':
       '登入後繼續操作。',
     'Slow down for a second, then send it again.': '稍等片刻，再試一次。',
@@ -1687,7 +1666,6 @@ export const forgeRefreshCopy = {
     'Still broken? Report it on GitHub Issues.':
       '仍有問題？到 GitHub 提交回報。',
     'Still offline. Reload again in a minute.': '仍未恢復，請稍後重新整理。',
-    'Tap the lit cell. Five in a row.': '點亮起的格子，連續點中 5 次。',
     'Tap the seal to unwrap': '點擊封口，領取獎勵',
     'The administrator has not published an about page yet.':
       '管理員尚未發布網站介紹。',
@@ -1700,7 +1678,6 @@ export const forgeRefreshCopy = {
     'Too many requests. Give it a beat.': '請求太頻繁，請稍後再試。',
     'Totals appear when the public statistics endpoint responds.':
       '公開統計介面回應後顯示總數。',
-    'Tune the receiver by selecting the lit cell': '選擇亮起的格子來接通信號',
     'Up {{count}} places': '上升 {{count}} 位',
     'What is included in this estimate?': '估算包含哪些費用？',
     'You are not signed in for this one.': '尚未登入。',
@@ -2310,13 +2287,10 @@ export const forgeRefreshCopy = {
     'Create the first one': 'Créer le premier',
     'Down for a short repair.': 'Maintenance en cours.',
     'Down {{count}} places': 'Baisse de {{count}} places',
-    'Empty frequency': 'Fréquence vide',
     'Every draw is random. Nobody can pick their reward.':
       'Les récompenses sont aléatoires et ne peuvent pas être choisies.',
     'Everything else keeps working: prices and docs stay public.':
       'Vous pouvez consulter les tarifs et la documentation.',
-    'Five correct picks lock the signal.':
-      'Cinq bonnes sélections verrouillent le signal.',
     'Top up in Wallet and check your access progress.':
       'Rechargez dans le portefeuille et suivez l’activation de l’accès.',
     'How requests are screened, and what happens when risk is found.':
@@ -2371,9 +2345,6 @@ export const forgeRefreshCopy = {
     'Share link': 'Partager le lien',
     'Sign in and the right pages will open themselves.':
       'Connectez-vous pour accéder aux pages disponibles.',
-    'Signal found': 'Signal détecté',
-    'Signal locked. Nice.': 'Signal verrouillé.',
-    'Signal tuner': 'Récepteur de signal',
     'Signing in takes a moment and skips this screen entirely.':
       'Connectez-vous pour continuer.',
     'Slow down for a second, then send it again.':
@@ -2383,8 +2354,6 @@ export const forgeRefreshCopy = {
       'Toujours bloqué ? Signalez-le sur GitHub Issues.',
     'Still offline. Reload again in a minute.':
       'Toujours indisponible. Réessayez dans un instant.',
-    'Tap the lit cell. Five in a row.':
-      'Touchez la case allumée, cinq fois de suite.',
     'Tap the seal to unwrap': 'Touchez le sceau pour ouvrir',
     'The administrator has not published an about page yet.':
       'L’administrateur n’a pas encore publié de présentation.',
@@ -2399,8 +2368,6 @@ export const forgeRefreshCopy = {
       'Trop de requêtes. Patientez un instant.',
     'Totals appear when the public statistics endpoint responds.':
       'Les totaux s’affichent après la réponse du service de statistiques.',
-    'Tune the receiver by selecting the lit cell':
-      'Réglez le récepteur en choisissant la case allumée',
     'Up {{count}} places': 'Hausse de {{count}} places',
     'What is included in this estimate?': 'Que comprend cette estimation ?',
     'You are not signed in for this one.': 'Vous n’êtes pas connecté.',
@@ -3028,13 +2995,10 @@ export const forgeRefreshCopy = {
     'Create the first one': '最初の1つを作成',
     'Down for a short repair.': 'ただいまメンテナンス中です。',
     'Down {{count}} places': '{{count}} 位ダウン',
-    'Empty frequency': '信号なし',
     'Every draw is random. Nobody can pick their reward.':
       '報酬はランダムで、選べません。',
     'Everything else keeps working: prices and docs stay public.':
       '料金やドキュメントを確認できます。',
-    'Five correct picks lock the signal.':
-      '5回連続で当てると信号を受信できます。',
     'Top up in Wallet and check your access progress.':
       'ウォレットでチャージし、利用開始までの進捗を確認できます。',
     'How requests are screened, and what happens when risk is found.':
@@ -3088,9 +3052,6 @@ export const forgeRefreshCopy = {
     'Share link': 'リンクを共有',
     'Sign in and the right pages will open themselves.':
       'ログインすると利用可能なページを開けます。',
-    'Signal found': '信号を検出',
-    'Signal locked. Nice.': '信号を受信しました。',
-    'Signal tuner': '信号チューナー',
     'Signing in takes a moment and skips this screen entirely.':
       'ログインして続行してください。',
     'Slow down for a second, then send it again.':
@@ -3100,7 +3061,6 @@ export const forgeRefreshCopy = {
       '直らない場合は GitHub Issues で報告してください。',
     'Still offline. Reload again in a minute.':
       'まだ復旧していません。しばらくして再読み込みしてください。',
-    'Tap the lit cell. Five in a row.': '光ったマスを5回連続で押してください。',
     'Tap the seal to unwrap': '封を押して開封',
     'The administrator has not published an about page yet.':
       '管理者はまだ紹介ページを公開していません。',
@@ -3115,8 +3075,6 @@ export const forgeRefreshCopy = {
       'リクエストが多すぎます。少しお待ちください。',
     'Totals appear when the public statistics endpoint responds.':
       '公開統計の応答後に合計を表示します。',
-    'Tune the receiver by selecting the lit cell':
-      '光ったマスを選んで信号を受信',
     'Up {{count}} places': '{{count}} 位アップ',
     'What is included in this estimate?': '見積もりに含まれるもの',
     'You are not signed in for this one.': 'ログインしていません。',
@@ -3737,13 +3695,10 @@ export const forgeRefreshCopy = {
     'Create the first one': 'Создать первый',
     'Down for a short repair.': 'Идут технические работы.',
     'Down {{count}} places': 'Снижение на {{count}} мест',
-    'Empty frequency': 'Пустая частота',
     'Every draw is random. Nobody can pick their reward.':
       'Награда выбирается случайно; выбрать её нельзя.',
     'Everything else keeps working: prices and docs stay public.':
       'Можно открыть цены и документацию.',
-    'Five correct picks lock the signal.':
-      'Пять верных нажатий закрепят сигнал.',
     'Top up in Wallet and check your access progress.':
       'Пополните кошелёк и проверьте прогресс открытия доступа.',
     'How requests are screened, and what happens when risk is found.':
@@ -3796,9 +3751,6 @@ export const forgeRefreshCopy = {
     'Share link': 'Поделиться ссылкой',
     'Sign in and the right pages will open themselves.':
       'Войдите, чтобы открыть доступные страницы.',
-    'Signal found': 'Сигнал найден',
-    'Signal locked. Nice.': 'Сигнал закреплён.',
-    'Signal tuner': 'Настройка сигнала',
     'Signing in takes a moment and skips this screen entirely.':
       'Войдите, чтобы продолжить.',
     'Slow down for a second, then send it again.':
@@ -3808,8 +3760,6 @@ export const forgeRefreshCopy = {
       'Не помогло? Сообщите в GitHub Issues.',
     'Still offline. Reload again in a minute.':
       'Сервис ещё недоступен. Обновите страницу позже.',
-    'Tap the lit cell. Five in a row.':
-      'Нажмите светящуюся клетку пять раз подряд.',
     'Tap the seal to unwrap': 'Нажмите на печать, чтобы открыть',
     'The administrator has not published an about page yet.':
       'Администратор ещё не опубликовал описание сайта.',
@@ -3824,8 +3774,6 @@ export const forgeRefreshCopy = {
       'Слишком много запросов. Подождите немного.',
     'Totals appear when the public statistics endpoint responds.':
       'Итоги появятся после ответа сервиса статистики.',
-    'Tune the receiver by selecting the lit cell':
-      'Выберите светящуюся клетку для настройки сигнала',
     'Up {{count}} places': 'Рост на {{count}} мест',
     'What is included in this estimate?': 'Что включено в оценку?',
     'You are not signed in for this one.': 'Вы ещё не вошли.',
@@ -4449,13 +4397,10 @@ export const forgeRefreshCopy = {
     'Create the first one': 'Tạo đầu tiên',
     'Down for a short repair.': 'Đang bảo trì.',
     'Down {{count}} places': 'Giảm {{count}} bậc',
-    'Empty frequency': 'Tần số trống',
     'Every draw is random. Nobody can pick their reward.':
       'Phần thưởng là ngẫu nhiên, không thể tự chọn.',
     'Everything else keeps working: prices and docs stay public.':
       'Có thể xem bảng giá và tài liệu.',
-    'Five correct picks lock the signal.':
-      'Chọn đúng 5 lần liên tiếp để bắt tín hiệu.',
     'Top up in Wallet and check your access progress.':
       'Nạp tiền trong ví và xem tiến độ mở quyền truy cập.',
     'How requests are screened, and what happens when risk is found.':
@@ -4508,9 +4453,6 @@ export const forgeRefreshCopy = {
     'Share link': 'Chia sẻ liên kết',
     'Sign in and the right pages will open themselves.':
       'Đăng nhập để xem các trang khả dụng.',
-    'Signal found': 'Đã tìm thấy tín hiệu',
-    'Signal locked. Nice.': 'Đã bắt được tín hiệu.',
-    'Signal tuner': 'Bắt tín hiệu',
     'Signing in takes a moment and skips this screen entirely.':
       'Đăng nhập để tiếp tục.',
     'Slow down for a second, then send it again.': 'Đợi một chút rồi gửi lại.',
@@ -4519,7 +4461,6 @@ export const forgeRefreshCopy = {
       'Vẫn lỗi? Báo trên GitHub Issues.',
     'Still offline. Reload again in a minute.':
       'Vẫn chưa hoạt động. Hãy tải lại sau.',
-    'Tap the lit cell. Five in a row.': 'Chạm ô sáng 5 lần liên tiếp.',
     'Tap the seal to unwrap': 'Chạm dấu niêm phong để mở',
     'The administrator has not published an about page yet.':
       'Quản trị viên chưa đăng trang giới thiệu.',
@@ -4534,8 +4475,6 @@ export const forgeRefreshCopy = {
       'Quá nhiều yêu cầu. Hãy đợi một chút.',
     'Totals appear when the public statistics endpoint responds.':
       'Tổng số hiện khi dịch vụ thống kê công khai phản hồi.',
-    'Tune the receiver by selecting the lit cell':
-      'Chọn ô sáng để bắt tín hiệu',
     'Up {{count}} places': 'Tăng {{count}} bậc',
     'What is included in this estimate?': 'Ước tính này gồm những gì?',
     'You are not signed in for this one.': 'Bạn chưa đăng nhập.',

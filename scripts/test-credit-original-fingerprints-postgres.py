@@ -5,6 +5,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -18,7 +20,9 @@ def main():
     spec = importlib.util.spec_from_file_location('fingerprints', Path(__file__).with_name('fingerprint-credit-rebase-original-tables.py'))
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
-    root = Path(tempfile.mkdtemp(prefix='credit-original-fingerprint-', dir=Path.home() / '.cache'))
+    cache = Path.home() / '.cache'
+    cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix='credit-original-fingerprint-', dir=cache))
     root.chmod(0o700)
     data, socket = root / 'data', root / 'socket'
     socket.mkdir(mode=0o700)
@@ -29,14 +33,14 @@ def main():
     log.touch(mode=0o600)
     count, started = 0, False
 
-    def run(command, sql=None):
+    def run(command, sql=None, *, log_output=True):
         result = subprocess.run(command, input=sql, text=True, capture_output=True, env=env)
         with log.open('a') as stream:
-            stream.write(result.stdout + result.stderr + '\nexit=' + str(result.returncode) + '\n')
+            stream.write((result.stdout if log_output else '') + result.stderr + '\nexit=' + str(result.returncode) + '\n')
         return result
 
-    def query(sql):
-        result = run(base, sql)
+    def query(sql, *, log_output=True):
+        result = run(base, sql, log_output=log_output)
         if result.returncode:
             raise RuntimeError('fixture command failed; private log: ' + str(log))
         return result.stdout.strip()
@@ -75,6 +79,20 @@ GRANT SELECT ON ALL TABLES IN SCHEMA fixture,elsewhere TO fixture_reader;
         guard = "DO $readonly$ BEGIN IF current_setting('transaction_read_only')<>'on' OR current_setting('transaction_isolation')<>'repeatable read' THEN RAISE EXCEPTION 'fixture requires read-only RR'; END IF; END $readonly$;\n"
         return transaction + role + guard + helper.fingerprint_sql(inventory, changes, stage, declared) + 'COMMIT;\n'
 
+    def reference_fingerprint(stage, changes=restorations, declared=()):
+        # Reassemble the original UNION wrapper from the individual SELECTs;
+        # no ancestor Git object or separately installed source is required.
+        generated = helper.fingerprint_sql(inventory, changes, stage, declared)
+        marker = 'SELECT statement FROM (VALUES\n'
+        prefix, emitter = generated.rsplit(marker, 1)
+        if not emitter.endswith('\\gexec\n'):
+            raise AssertionError('per-table fingerprint emitter contract changed')
+        statements = query(transaction + prefix + marker + emitter.removesuffix('\\gexec\n') + ';\nCOMMIT;\n', log_output=False).splitlines()
+        if len(statements) != len(inventory['tables']) or not all(statement.startswith('SELECT ') for statement in statements):
+            raise AssertionError('fingerprint emitter must expose only one SELECT per table')
+        return (transaction + prefix + 'SELECT table_name,row_count,sha256 FROM (\n'
+                + '\nUNION ALL\n'.join(statements) + '\n) fingerprints ORDER BY table_name COLLATE "C";\nCOMMIT;\n')
+
     def rejected(stage, changes=restorations, declared=(), role=''):
         try:
             sql = fingerprint(stage, changes, declared, role)
@@ -88,7 +106,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA fixture,elsewhere TO fixture_reader;
             raise RuntimeError('initdb failed; private log: ' + str(log))
         pglog = root / 'postgres.log'
         pglog.touch(mode=0o600)
-        boot = run(['pg_ctl', '-D', str(data), '-l', str(pglog), '-o', f"-h '' -p {port} -k {socket}", '-w', 'start'])
+        boot = run(['pg_ctl', '-D', str(data), '-l', str(pglog), '-o', f"-h '' -p {port} -k {socket} -c shared_buffers=32MB -c max_connections=10", '-w', 'start'])
         started = boot.returncode == 0
         if not started:
             raise RuntimeError('pg_ctl start failed; private log: ' + str(log))
@@ -96,6 +114,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA fixture,elsewhere TO fixture_reader;
         query(setup)
         inventory = json.loads(query(helper.inventory_sql('fixture')))
         original = query(fingerprint('before'))
+        check('bounded per-table before output equals fixed original UNION algorithm', original == query(reference_fingerprint('before')))
         rows = {line.split('|')[0]: line.split('|')[1] for line in original.splitlines()}
         check('no-PK duplicate rows and empty original table', rows['fixture.duplicates'] == '3' and rows['fixture.empty'] == '0')
         mutations = [
@@ -116,6 +135,8 @@ GRANT SELECT ON ALL TABLES IN SCHEMA fixture,elsewhere TO fixture_reader;
         for name, mutation, equal in mutations:
             query(setup + mutation)
             check(name, (query(fingerprint('after')) == original) == equal)
+            if name == 'precise quota and nullable restoration':
+                check('bounded typed after output equals fixed original UNION algorithm', query(fingerprint('after')) == query(reference_fingerprint('after')))
         for name, mutation in [('original table missing', 'DROP TABLE elsewhere.data;'), ('original column missing', 'ALTER TABLE fixture.wallet DROP COLUMN note;'), ('original type changed', 'ALTER TABLE fixture.wallet ALTER COLUMN note TYPE varchar;'), ('partition detach refused', 'ALTER TABLE fixture.partitioned DETACH PARTITION fixture.partition_leaf;')]:
             query(setup + mutation)
             check(name, rejected('after'))
@@ -162,10 +183,53 @@ GRANT SELECT ON ALL TABLES IN SCHEMA fixture,elsewhere TO fixture_reader;
             query(setup + ('' if stage == 'before' else 'UPDATE fixture.wallet SET quota=2,nullable=9 WHERE id=1;'))
             sql, restored, declared = helper.stage_sql(inventory, {'target': {'schema': 'fixture'}}, stage, Verifier)
             check('independent DO and fingerprint share read-only RR stage ' + stage, query(sql) == original and restored == restorations and declared == ())
-        print('PASS: ' + str(count) + ' isolated PostgreSQL fingerprint checks', flush=True)
+
+        settings_query = "SELECT json_build_object('jit',current_setting('jit'),'parallel',current_setting('max_parallel_workers_per_gather'),'work_mem',current_setting('work_mem'),'hash',current_setting('hash_mem_multiplier'));\n"
+        settings_guard = "DO $resources$ BEGIN IF current_setting('jit')<>'off' OR current_setting('max_parallel_workers_per_gather')<>'0' OR current_setting('work_mem')<>'4MB' OR current_setting('hash_mem_multiplier')<>'1' OR current_setting('transaction_read_only')<>'on' OR current_setting('transaction_isolation')<>'repeatable read' THEN RAISE EXCEPTION 'fingerprint session resource contract'; END IF; END $resources$;\n"
+        settings = query(settings_query + transaction + helper.SETTINGS + settings_guard + 'COMMIT;\n' + settings_query).splitlines()
+        check('four actual LOCAL resource settings apply only inside read-only RR transaction', len(settings) == 2 and json.loads(settings[0]) == json.loads(settings[1]))
+
+        query(setup + '''
+CREATE SCHEMA "Quoted schema";
+CREATE TABLE "Quoted schema"."Z odd"("id'quoted" bigint,"value\"\"quoted" text);
+CREATE TABLE "Quoted schema"."a'b"(id bigint,note text);
+CREATE TABLE "Quoted schema"."éclair"(id bigint,note text);
+INSERT INTO "Quoted schema"."Z odd" VALUES(1,'single''quote and double"quote');
+INSERT INTO "Quoted schema"."a'b" VALUES(1,NULL);
+INSERT INTO "Quoted schema"."éclair" VALUES(1,'UTF8');
+''')
+        inventory = json.loads(query(helper.inventory_sql('fixture')))
+        quoted = query(fingerprint('before')); lines = quoted.splitlines(); labels = [line.split('|')[0] for line in lines]
+        check('quoted and UTF8 identifiers produce only C-sorted table/count/hash rows',
+              len(lines) == len(inventory['tables']) and labels == sorted(labels, key=lambda name: name.encode('utf-8'))
+              and all(re.fullmatch(r'.+\|(0|[1-9][0-9]*)\|[0-9a-f]{64}', line) for line in lines)
+              and quoted == query(reference_fingerprint('before')))
+
+        query(setup + '''
+DROP SCHEMA "Quoted schema" CASCADE;
+CREATE TABLE fixture.snapshot_a(id bigint PRIMARY KEY,note text);
+CREATE TABLE fixture.snapshot_b(id bigint PRIMARY KEY,note text);
+INSERT INTO fixture.snapshot_a VALUES(1,'old'); INSERT INTO fixture.snapshot_b VALUES(1,'old');
+''')
+        inventory = json.loads(query(helper.inventory_sql('fixture')))
+        snapshot_before = query(fingerprint('before'))
+        first = copy.deepcopy(inventory); remaining = copy.deepcopy(inventory)
+        first['tables'] = [t for t in inventory['tables'] if t['schema']=='fixture' and t['name']=='snapshot_a']
+        remaining['tables'] = [t for t in inventory['tables'] if t not in first['tables']]
+        writer = shlex.join(base + ['-c', "UPDATE fixture.snapshot_b SET note='new' WHERE id=1;"])
+        interleaved = (transaction + helper.SETTINGS + helper.inventory_guard(inventory, 'before')
+                       + helper.fingerprint_sql(first, (), 'before', include_guard=False)
+                       + '\\! ' + writer + '\n'
+                       + helper.fingerprint_sql(remaining, (), 'before', include_guard=False) + 'COMMIT;\n')
+        observed = query(interleaved).splitlines()
+        expected = snapshot_before.splitlines()
+        check('independent table SELECTs share one RR snapshot across a committed writer',
+              sorted(observed) == sorted(expected) and query('SELECT note FROM fixture.snapshot_b;') == 'new'
+              and query(fingerprint('after')) != snapshot_before)
+        print('PASS: ' + str(count) + ' isolated PostgreSQL fingerprint checks; private log: ' + str(log), flush=True)
     finally:
         if started or (data / 'postmaster.pid').exists():
-            stopped = run(['pg_ctl', '-D', str(data), '-m', 'immediate', '-w', 'stop'])
+            stopped = run(['pg_ctl', '-D', str(data), '-m', 'fast', '-w', 'stop'])
             if stopped.returncode:
                 raise RuntimeError('pg_ctl stop failed; private log: ' + str(log))
         shutil.rmtree(data, ignore_errors=True)

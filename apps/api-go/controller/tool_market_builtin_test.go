@@ -24,7 +24,7 @@ func setupToolMarketBuiltinControllerTest(t *testing.T) (*gorm.DB, model.User) {
 		installIdentityCurrencyFixture(t)
 	}
 	persistCreditDenominationFixture(t, db)
-	require.NoError(t, db.AutoMigrate(&model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketEvent{}, &model.ToolMarketToken{}, &model.ToolMarketCall{}, &model.ToolMarketResult{}, &model.ToolMarketConfig{}, &model.ToolMarketBudget{}, &model.ToolMarketTransfer{}, &model.ToolMarketBuiltinContinuation{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModerationJob{}, &model.ToolMarketService{}, &model.ToolMarketVersion{}, &model.ToolMarketTool{}, &model.ToolMarketToolVersion{}, &model.ToolMarketAccess{}, &model.ToolMarketInstallation{}, &model.ToolMarketGrant{}, &model.ToolMarketEvent{}, &model.ToolMarketToken{}, &model.ToolMarketCall{}, &model.ToolMarketResult{}, &model.ToolMarketConfig{}, &model.ToolMarketBudget{}, &model.ToolMarketTransfer{}, &model.ToolMarketBuiltinContinuation{}))
 	require.NoError(t, EnsureToolMarketBuiltinCatalog(context.Background()))
 	return db, user
 }
@@ -131,12 +131,12 @@ func TestToolMarketBuiltinMCPListsOnlyGrantedVersionsAndPreservesNativeResults(t
 	defer session.Close()
 	list, err := session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 3)
+	require.Len(t, list.Tools, 4, "default free metamcp is available before any execution grant")
 	tool := builtinControllerTool(t, user.Id, "open_source_bounties", "open_source_bounties.list")
 	builtinControllerGrant(t, user.Id, "market-agent", tool)
 	list, err = session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 4)
+	require.Len(t, list.Tools, 5)
 	name := "market_tool_" + strings.ReplaceAll(tool.ToolID, "-", "")
 	var descriptor *mcp.Tool
 	for _, item := range list.Tools {

@@ -146,7 +146,7 @@ func RecordToolMarketValidationWithCredential(actor int, serviceID, versionID, d
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
+		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 			return err
 		}
 		if service.OwnerID == 0 {
@@ -157,14 +157,15 @@ func RecordToolMarketValidationWithCredential(actor int, serviceID, versionID, d
 				return err
 			}
 		}
-		if service.DraftVersionID != versionID {
-			return ErrToolMarketConflict
-		}
 		var version ToolMarketVersion
 		if err := lockForUpdate(tx).First(&version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
 			return err
 		}
-		if version.Digest != digest || version.ExecutionType != "remote" || (version.Status != "draft" && version.Status != "pending") {
+		aiOverride := marketAIReviewApplied(tx, ModerationSourceMarketTool, serviceID, version.AIReviewToken)
+		if service.DraftVersionID != versionID && !(service.LiveVersionID == versionID && version.Status == "published" && aiOverride) {
+			return ErrToolMarketConflict
+		}
+		if version.Digest != digest || version.ExecutionType != "remote" || (version.Status != "draft" && version.Status != "pending" && !aiOverride) {
 			return ErrToolMarketConflict
 		}
 		var credential ToolMarketCredential
@@ -206,8 +207,18 @@ func GetToolMarketReview(actor int, serviceID string) (*ToolMarketDetail, error)
 		return nil, err
 	}
 	var service ToolMarketService
-	if err := DB.First(&service, "id = ?", serviceID).Error; err != nil {
+	if err := DB.First(&service, "id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 		return nil, err
+	}
+	if service.DraftVersionID == "" && service.LiveVersionID != "" {
+		var version ToolMarketVersion
+		if err := DB.Where("id = ? AND service_id = ?", service.LiveVersionID, serviceID).First(&version).Error; err != nil {
+			return nil, err
+		}
+		if !marketAIReviewApplied(DB, ModerationSourceMarketTool, serviceID, version.AIReviewToken) {
+			return nil, ErrToolMarketConflict
+		}
+		return completeToolMarketDetail(service.OwnerID, &ToolMarketDetail{Service: service, Version: version})
 	}
 	return GetToolMarketDetail(service.OwnerID, serviceID, true)
 }
@@ -217,7 +228,12 @@ func ListToolMarketReviewQueue(actor int) ([]ToolMarketService, error) {
 		return nil, err
 	}
 	rows := []ToolMarketService{}
-	err := DB.Where("draft_version_id IN (?)", DB.Model(&ToolMarketVersion{}).Select("id").Where("status = ?", "pending")).Order("updated_at, id").Limit(100).Find(&rows).Error
+	pending := DB.Model(&ToolMarketVersion{}).Select("id").Where("status = ?", "pending")
+	applied := DB.Model(&ToolMarketVersion{}).Select("id").Where("status IN ? AND ai_review_token <> '' AND EXISTS (SELECT 1 FROM moderation_jobs WHERE source = ? AND target_id = tool_market_versions.service_id AND target_version = tool_market_versions.id AND request_id = tool_market_versions.ai_review_token AND status = ? AND market_outcome IN ?)", []string{"published", "rejected"}, ModerationSourceMarketTool, ModerationJobCompleted, []string{"approved", "rejected"})
+	// A new draft supersedes an older live review. Keep current AI decisions
+	// reachable for human override without displacing submissions awaiting review.
+	err := DB.Where("status <> ? AND COALESCE(draft_version_id, '') <> ?", ToolMarketServiceDeleted, toolMarketRetirementVersionID).Where("draft_version_id IN (?) OR draft_version_id IN (?) OR (draft_version_id = '' AND live_version_id IN (?))", pending, applied, applied).
+		Order("CASE WHEN draft_version_id IN (SELECT id FROM tool_market_versions WHERE status = 'pending') THEN 0 ELSE 1 END").Order("updated_at, id").Limit(100).Find(&rows).Error
 	return rows, err
 }
 

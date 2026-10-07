@@ -273,6 +273,63 @@ function pricingRequests(definitions = discovered) {
   }
 }
 
+test('credential inputs show mode-specific and saved hints without exposing a stored secret', async () => {
+  const requests = pricingRequests()
+  const fresh = await renderEditor()
+  try {
+    await fresh.select('#market-authentication', 'bearer')
+    let input =
+      fresh.container.querySelector<HTMLInputElement>('#market-secret')
+    assert.ok(input)
+    assert.equal(input.placeholder, 'Paste a Bearer token')
+    assert.equal(input.type, 'password')
+    assert.equal(input.autocomplete, 'new-password')
+    await fresh.select('#market-authentication', 'api_key')
+    input = fresh.container.querySelector<HTMLInputElement>('#market-secret')
+    assert.ok(input)
+    assert.equal(input.placeholder, 'Paste an API key')
+  } finally {
+    await fresh.dispose()
+    requests.restore()
+  }
+
+  const originalAdapter = api.defaults.adapter
+  api.defaults.adapter = async (config) => ({
+    config,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    data: {
+      success: true,
+      data: { mode: 'bearer', configured: true, updated_at: 1 },
+    },
+  })
+  const saved = await renderEditor(initial)
+  try {
+    const input =
+      saved.container.querySelector<HTMLInputElement>('#market-secret')
+    assert.ok(input)
+    assert.equal(
+      input.placeholder,
+      'Saved. Leave empty to keep it, or enter a replacement.'
+    )
+    assert.equal(input.value, '')
+    assert.equal(input.type, 'password')
+    assert.equal(input.autocomplete, 'new-password')
+    await saved.input(
+      '#market-endpoint',
+      'https://new-provider.example.test/mcp'
+    )
+    assert.equal(input.placeholder, 'Paste a Bearer token')
+    await saved.select('#market-authentication', 'api_key')
+    assert.equal(input.placeholder, 'Paste an API key')
+    assert.equal(input.value, '')
+  } finally {
+    await saved.dispose()
+    api.defaults.adapter = originalAdapter
+  }
+})
+
 async function readNewService(view: Awaited<ReturnType<typeof renderEditor>>) {
   await view.input('#market-name', 'Priced tool service')
   await view.input('#market-endpoint', 'https://tools.example.test/mcp')

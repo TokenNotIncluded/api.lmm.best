@@ -346,6 +346,9 @@ func updateOptionsWithPriceLocksUSD(values map[string]string, lockModel string, 
 		if err := lockModerationOptions(tx, values); err != nil {
 			return err
 		}
+		if err := lockMarketAIReviewOptions(tx, values); err != nil {
+			return err
+		}
 		if err := lockAssistantL1AutoReviewOptions(tx, values); err != nil {
 			return err
 		}

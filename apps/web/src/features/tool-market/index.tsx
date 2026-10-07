@@ -19,7 +19,9 @@ import {
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
+import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,11 +39,13 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
   marketAPI,
+  marketSupports,
   MarketAPIError,
   type CallResponse,
   type Grant,
@@ -154,10 +158,83 @@ function ToolMarketWorkspace() {
   } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [record, setRecord] = useState<CallResponse | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MarketService | null>(null)
+  const deletion = useMutation({
+    retry: false,
+    mutationFn: marketAPI.deleteService,
+    onSuccess: async (_, id) => {
+      const retiredDetail = { queryKey: [...key, 'detail', id] }
+      await cache.cancelQueries(retiredDetail)
+      cache.removeQueries(retiredDetail)
+      setSelected((value) => (value?.id === id ? null : value))
+      setDeleteTarget(null)
+      void cache.invalidateQueries({
+        queryKey: ['tool-market'],
+        predicate: (query) =>
+          !(query.queryKey[2] === 'detail' && query.queryKey[3] === id),
+      })
+    },
+  })
+  const requestDelete = (service: MarketService) => {
+    if (!marketSupports(config.data, 'service_deletion')) return
+    deletion.reset()
+    setDeleteTarget(service)
+  }
+  const review = useMutation({
+    retry: false,
+    mutationFn: async (input: {
+      serviceID: string
+      versionID: string
+      approve: boolean
+      note: string
+    }) => {
+      // Stop an older detail request before publishing removes the draft.
+      await cache.cancelQueries({
+        queryKey: [...key, 'detail', input.serviceID],
+        predicate: (query) => query.queryKey[4] !== 'published',
+      })
+      return marketAPI.review(
+        input.serviceID,
+        input.versionID,
+        input.approve,
+        input.note
+      )
+    },
+    onSuccess: async (_, input) => {
+      const retiredDetail = {
+        queryKey: [...key, 'detail', input.serviceID],
+        predicate: (query: { queryKey: readonly unknown[] }) =>
+          query.queryKey[4] !== 'published',
+      }
+      await cache.cancelQueries(retiredDetail)
+      cache.removeQueries(retiredDetail)
+      setSelected((current) =>
+        current?.id === input.serviceID && current.mode !== 'published'
+          ? null
+          : current
+      )
+      // React may not have committed the selection change yet. Never refetch
+      // the consumed draft through the still-mounted detail observer.
+      void cache.invalidateQueries({
+        queryKey: ['tool-market'],
+        predicate: (query) =>
+          !(
+            query.queryKey[1] === user?.id &&
+            query.queryKey[2] === 'detail' &&
+            query.queryKey[3] === input.serviceID &&
+            query.queryKey[4] !== 'published'
+          ),
+      })
+    },
+  })
   const config = useQuery({
     queryKey: [...key, 'config'],
     queryFn: marketAPI.config,
   })
+  const serviceDeletionSupported = marketSupports(
+    config.data,
+    'service_deletion'
+  )
   const catalog = useQuery({
     queryKey: [...key, 'catalog', search, offset, executionType],
     queryFn: () => marketAPI.list(search, offset, executionType),
@@ -202,11 +279,11 @@ function ToolMarketWorkspace() {
   }, [client, oauthClients.isSuccess, oauthClients.data])
   const detail = useQuery({
     queryKey: [...key, 'detail', selected?.id, selected?.mode],
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (!selected) throw new Error('Missing service')
-      return marketAPI.detail(selected.id, selected.mode)
+      return marketAPI.detail(selected.id, selected.mode, signal)
     },
-    enabled: !!selected && !editor,
+    enabled: !!selected && !editor && !review.isPending && !deletion.isPending,
   })
   const calls = useQuery({
     queryKey: [...key, 'calls', callsOffset],
@@ -238,6 +315,7 @@ function ToolMarketWorkspace() {
     setSelected(null)
     setEditor(false)
     action.reset()
+    review.reset()
   }
   const current = detail.data
   const clients = [
@@ -374,12 +452,41 @@ function ToolMarketWorkspace() {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open && !deletion.isPending) setDeleteTarget(null)
+          }}
+          title={t('Delete this tool service?')}
+          desc={t(
+            'The service will disappear from the market and your services, and new calls will stop. Running calls can finish. Call, payment, and review history is kept.'
+          )}
+          confirmText={t('Delete')}
+          destructive
+          isLoading={deletion.isPending}
+          handleConfirm={() => {
+            if (serviceDeletionSupported && deleteTarget) {
+              deletion.mutate(deleteTarget.id)
+            }
+          }}
+        >
+          {deletion.isError && (
+            <p role='alert' className='text-destructive text-sm'>
+              {t('Could not delete this service. Retry.')}
+            </p>
+          )}
+        </ConfirmDialog>
         <div className='mx-auto w-full max-w-6xl space-y-6'>
-          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
-            {t(
-              'Discover MCP tools, choose what each client can use, and pay only for successful calls.'
-            )}
-          </p>
+          <div className='relative isolate flex min-h-24 items-center overflow-hidden border-b py-5'>
+            <div className='pointer-events-none absolute inset-y-0 end-0 w-2/5'>
+              <ForgeShaderSurface variant='tools' className='opacity-40' />
+            </div>
+            <p className='text-muted-foreground relative z-10 max-w-[70ch] text-sm leading-6'>
+              {t(
+                'Discover MCP tools, choose what each client can use, and pay only for successful calls.'
+              )}
+            </p>
+          </div>
           {config.isError && (
             <Alert variant='destructive'>
               <AlertTitle>{t('Could not load market settings')}</AlertTitle>
@@ -482,6 +589,54 @@ function ToolMarketWorkspace() {
                           {marketStatus(current.version.status, t)}
                         </Badge>
                       </div>
+                      {((tab === 'mine' &&
+                        current.service.owner_id === user?.id) ||
+                        (tab === 'review' && (user?.role ?? 0) >= 10)) && (
+                        <MarketAIReviewHistory
+                          source='tool'
+                          id={current.service.id}
+                          versionId={current.version.id}
+                          onApplied={(approved) => {
+                            void cache.invalidateQueries({
+                              queryKey: [...key, 'services'],
+                            })
+                            void cache.invalidateQueries({
+                              queryKey: [...key, 'reviews'],
+                            })
+                            if (approved && selected.mode === 'draft') {
+                              const retired = {
+                                queryKey: [
+                                  ...key,
+                                  'detail',
+                                  current.service.id,
+                                ],
+                                predicate: (query: {
+                                  queryKey: readonly unknown[]
+                                }) => query.queryKey[4] !== 'published',
+                              }
+                              void cache.cancelQueries(retired).then(() => {
+                                cache.removeQueries(retired)
+                                setSelected((value) =>
+                                  value?.id === current.service.id
+                                    ? { id: value.id, mode: 'published' }
+                                    : value
+                                )
+                              })
+                            } else if (
+                              !approved ||
+                              selected.mode === 'review'
+                            ) {
+                              void cache.invalidateQueries({
+                                queryKey: [
+                                  ...key,
+                                  'detail',
+                                  current.service.id,
+                                ],
+                              })
+                            }
+                          }}
+                        />
+                      )}
                       <dl className='bg-muted/40 grid gap-4 rounded-lg p-4 text-sm sm:grid-cols-2'>
                         <div>
                           <dt className='text-muted-foreground'>
@@ -569,6 +724,18 @@ function ToolMarketWorkspace() {
                                 onClick={() => action.mutate(editDraft)}
                               >
                                 {t('Edit draft')}
+                              </Button>
+                            )}
+                          {serviceDeletionSupported &&
+                            (current.service.owner_id === user?.id ||
+                              (user?.role ?? 0) >= 10) &&
+                            current.version.execution_type !== 'builtin' && (
+                              <Button
+                                variant='outline'
+                                disabled={deletion.isPending}
+                                onClick={() => requestDelete(current.service)}
+                              >
+                                {t('Delete')}
                               </Button>
                             )}
                         </>
@@ -672,17 +839,14 @@ function ToolMarketWorkspace() {
                               <div className='flex gap-2'>
                                 <Button
                                   disabled={
-                                    action.isPending || !reviewNote.trim()
+                                    review.isPending || !reviewNote.trim()
                                   }
                                   onClick={() =>
-                                    action.mutate(async () => {
-                                      await marketAPI.review(
-                                        current.service.id,
-                                        current.version.id,
-                                        true,
-                                        reviewNote
-                                      )
-                                      setSelected(null)
+                                    review.mutate({
+                                      serviceID: current.service.id,
+                                      versionID: current.version.id,
+                                      approve: true,
+                                      note: reviewNote,
                                     })
                                   }
                                 >
@@ -691,17 +855,14 @@ function ToolMarketWorkspace() {
                                 <Button
                                   variant='outline'
                                   disabled={
-                                    action.isPending || !reviewNote.trim()
+                                    review.isPending || !reviewNote.trim()
                                   }
                                   onClick={() =>
-                                    action.mutate(async () => {
-                                      await marketAPI.review(
-                                        current.service.id,
-                                        current.version.id,
-                                        false,
-                                        reviewNote
-                                      )
-                                      setSelected(null)
+                                    review.mutate({
+                                      serviceID: current.service.id,
+                                      versionID: current.version.id,
+                                      approve: false,
+                                      note: reviewNote,
                                     })
                                   }
                                 >
@@ -1204,6 +1365,15 @@ function ToolMarketWorkspace() {
                           </p>
                         </div>
                         <div className='flex flex-wrap gap-2'>
+                          {serviceDeletionSupported && (
+                            <Button
+                              variant='outline'
+                              disabled={deletion.isPending}
+                              onClick={() => requestDelete(item)}
+                            >
+                              {t('Delete')}
+                            </Button>
+                          )}
                           {item.draft_version_id && (
                             <Button
                               variant='outline'
@@ -1429,14 +1599,25 @@ function ToolMarketWorkspace() {
                               id: item.owner_id,
                             })}
                           </span>
-                          <Button
-                            variant='outline'
-                            onClick={() =>
-                              setSelected({ id: item.id, mode: 'review' })
-                            }
-                          >
-                            {t('Review')}
-                          </Button>
+                          <div className='flex flex-wrap gap-2'>
+                            <Button
+                              variant='outline'
+                              onClick={() =>
+                                setSelected({ id: item.id, mode: 'review' })
+                              }
+                            >
+                              {t('Review')}
+                            </Button>
+                            {serviceDeletionSupported && (
+                              <Button
+                                variant='outline'
+                                disabled={deletion.isPending}
+                                onClick={() => requestDelete(item)}
+                              >
+                                {t('Delete')}
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       ))}
                       <MarketReports />
@@ -1452,20 +1633,23 @@ function ToolMarketWorkspace() {
               )}
             </Tabs>
           )}
-          {action.isPending && (
+          {(action.isPending || review.isPending) && (
             <p role='status' className='text-muted-foreground text-sm'>
               {t('Processing…')}
             </p>
           )}
-          {action.isError && (
+          {(action.isError || review.isError) && (
             <div role='alert' className='space-y-2 text-sm'>
               <p className='text-destructive'>
-                {t(marketErrorKey(action.error))}
+                {t(
+                  marketErrorKey(review.isError ? review.error : action.error)
+                )}
               </p>
               <Button
                 variant='outline'
                 onClick={() => {
                   action.reset()
+                  review.reset()
                   void cache.invalidateQueries({ queryKey: key })
                 }}
               >
@@ -1525,6 +1709,7 @@ function MarketSettings({ config }: { config: MarketConfig }) {
     },
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: ['tool-market'] })
+      void cache.invalidateQueries({ queryKey: ['market-ai-reviews'] })
     },
   })
   return (

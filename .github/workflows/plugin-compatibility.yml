@@ -1,0 +1,91 @@
+name: Plugin compatibility
+on:
+  push:
+    branches: [main]
+    paths: ['packages/**', '.gitmodules', '.github/workflows/plugin-compatibility.yml']
+  pull_request:
+    paths: ['packages/**', '.gitmodules', '.github/workflows/plugin-compatibility.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: plugin-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [pi-lmm-provider, dsh-lmm-provider, codewhale-lmm-provider, opencode-lmm-auth]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate the exact pinned plugin source
+        working-directory: packages/${{ matrix.plugin }}
+        env:
+          PLUGIN: ${{ matrix.plugin }}
+        run: |
+          set -euo pipefail
+          if test -f package-lock.json; then npm ci --ignore-scripts; fi
+          case "$PLUGIN" in
+            pi-lmm-provider)
+              npm run typecheck
+              npm test
+              npm run pack:check
+              npm run test:pi
+              ;;
+            dsh-lmm-provider)
+              npm install --global pnpm@latest
+              npm run typecheck
+              npm test
+              npm run pack:check
+              npm run test:host
+              archive=$(npm pack --ignore-scripts --json | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>console.log(JSON.parse(s)[0].filename))')
+              LMM_DSH_PLUGIN="$PWD/$archive" npm run test:host
+              ;;
+            codewhale-lmm-provider)
+              npm run check
+              npm test
+              npm run pack:check
+              npm install --prefix "$RUNNER_TEMP/codewhale-host" codewhale@0.10.0
+              LMM_CODEWHALE_BIN=$(HOST_ROOT="$RUNNER_TEMP/codewhale-host/node_modules/codewhale" node --input-type=commonjs -e 'require(process.env.HOST_ROOT + "/scripts/install.js").getBinaryPath("codewhale").then(p=>console.log(p)).catch(e=>{console.error(e);process.exitCode=1})')
+              export LMM_CODEWHALE_BIN
+              test -x "$LMM_CODEWHALE_BIN"
+              npm run test:host
+              ;;
+            opencode-lmm-auth)
+              npm run build
+              git diff --exit-code -- dist
+              npm run typecheck
+              npm test
+              npm run pack:check
+              npm install --prefix "$RUNNER_TEMP/opencode-host" opencode-ai@1.18.34
+              export OPENCODE_BIN="$RUNNER_TEMP/opencode-host/node_modules/opencode-ai/bin/opencode.exe"
+              npm run test:host
+              npm run test:integration
+              ;;
+          esac
+  installer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check installer contracts
+        working-directory: packages/lmm-scripts
+        run: |
+          set -euo pipefail
+          for script in *.sh; do bash -n "$script"; done
+          node --test test-codewhale.mjs test-opencode.mjs test-opencode-entry.mjs

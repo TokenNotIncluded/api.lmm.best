@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
@@ -30,7 +33,26 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatFiatCurrencyAmount } from '@/lib/currency'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { formatRawCreditCount } from '@/lib/cumulative-user-usage'
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { formatQuota, formatTimestamp } from '@/lib/format'
 
 import {
@@ -39,40 +61,21 @@ import {
   USER_ROLES,
   isUserDeleted,
 } from '../constants'
+import { currentTopupCredits, topupPaymentAmounts } from '../lib/topup-display'
 import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
+import { TopupCreditsValue, TopupPaymentValue } from './topup-values'
 import { UserAssistantHistoryDialog } from './user-assistant-history-dialog'
 import { UserAssistantReviewDialog } from './user-assistant-review-dialog'
 import { UserQuotaCell } from './user-quota-cell'
 import { UserRiskCell } from './user-risk-cell'
 import { UserTrustLevelCell } from './user-trust-level-cell'
 
-function resolveTopupCurrency(
-  summary: NonNullable<User['topup_summary']>
-): string | null {
-  const preferred = summary.currency?.trim().toUpperCase()
-  if (preferred && preferred !== 'MULTIPLE' && preferred !== 'UNKNOWN') {
-    return preferred
-  }
-  const currencies = new Set(
-    summary.methods
-      .map((method) => method.settlement_currency?.trim().toUpperCase())
-      .filter((currency): currency is string =>
-        Boolean(currency && currency !== 'UNKNOWN')
-      )
-  )
-  if (!preferred && currencies.size === 1) return [...currencies][0]
-  return null
-}
-
-function formatUnknownCurrencyAmount(micros: number): string {
-  return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: 6,
-  }).format(micros / 1_000_000)
-}
-
 export function useUsersColumns(): ColumnDef<User>[] {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const rawCreditLocale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
   return [
     {
       id: 'select',
@@ -207,7 +210,11 @@ export function useUsersColumns(): ColumnDef<User>[] {
       accessorFn: (row) => row.wallet_risk?.transferred_quota ?? 0,
       header: t('Transferred out'),
       cell: ({ row }) =>
-        formatQuota(row.original.wallet_risk?.transferred_quota ?? 0),
+        formatRawCreditCount(
+          row.original.wallet_risk?.transferred_quota ?? 0,
+          t('Credits'),
+          rawCreditLocale
+        ),
       size: 170,
     },
     {
@@ -215,7 +222,11 @@ export function useUsersColumns(): ColumnDef<User>[] {
       accessorFn: (row) => row.wallet_risk?.received_quota ?? 0,
       header: t('Received transfers'),
       cell: ({ row }) =>
-        formatQuota(row.original.wallet_risk?.received_quota ?? 0),
+        formatRawCreditCount(
+          row.original.wallet_risk?.received_quota ?? 0,
+          t('Credits'),
+          rawCreditLocale
+        ),
       size: 170,
     },
     {
@@ -282,6 +293,8 @@ export function useUsersColumns(): ColumnDef<User>[] {
         return (
           <UserQuotaCell
             used={user.used_quota}
+            normalizedUsed={user.normalized_used_quota}
+            projectionAvailable={user.usage_projection_available}
             remaining={user.quota}
             transferred={user.wallet_risk?.transferred_quota}
           />
@@ -293,8 +306,8 @@ export function useUsersColumns(): ColumnDef<User>[] {
     },
     {
       id: 'topup_quota',
-      accessorFn: (row) => row.topup_summary?.quota ?? 0,
-      header: t('Top-up'),
+      accessorFn: (row) => currentTopupCredits(row.topup_summary),
+      header: t('Top-up credits'),
       cell: ({ row }) => {
         const summary = row.original.topup_summary
         const methods = summary?.methods ?? []
@@ -305,14 +318,16 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 <div className='flex min-w-[150px] cursor-help flex-col gap-0.5 text-sm' />
               }
             >
-              <span>{formatQuota(summary?.quota ?? 0)}</span>
+              <TopupCreditsValue record={summary} />
               <span className='text-muted-foreground text-xs'>
                 {summary?.orders ?? 0} {t('Top-up')}
               </span>
             </TooltipTrigger>
             <TooltipContent className='max-w-[320px]'>
               {methods.length === 0 ? (
-                <p className='text-xs'>{formatQuota(0)}</p>
+                <p className='text-xs'>
+                  <TopupCreditsValue record={summary} />
+                </p>
               ) : (
                 <div className='space-y-1'>
                   {methods.map((method) => {
@@ -323,8 +338,11 @@ export function useUsersColumns(): ColumnDef<User>[] {
                       .filter(Boolean)
                       .join(' · ')
                     return (
-                      <p key={`${label}-${method.orders}`} className='text-xs'>
-                        {label || '—'}: {formatQuota(method.quota)}
+                      <p
+                        key={`${label}-${method.settlement_currency}-${method.orders}`}
+                        className='text-xs'
+                      >
+                        {label || '—'}: <TopupCreditsValue record={method} />
                       </p>
                     )
                   })}
@@ -334,28 +352,16 @@ export function useUsersColumns(): ColumnDef<User>[] {
           </Tooltip>
         )
       },
-      size: 170,
+      size: 220,
       meta: { mobileOrder: 45 },
     },
     {
       id: 'topup_money',
-      accessorFn: (row) => row.topup_summary?.money_micros ?? 0,
-      header: t('Top-up amount'),
+      accessorFn: (row) => topupPaymentAmounts(row.topup_summary).settled,
+      header: t('Actual payment'),
       cell: ({ row }) => {
         const summary = row.original.topup_summary
         const methods = summary?.methods ?? []
-        const currency = summary ? resolveTopupCurrency(summary) : null
-        let totalDisplay = '—'
-        if (summary?.currency === 'MULTIPLE') {
-          totalDisplay = t('Multiple fiat currencies')
-        } else if (summary && currency) {
-          totalDisplay = formatFiatCurrencyAmount(
-            summary.money_micros / 1_000_000,
-            currency
-          )
-        } else if (summary && methods.length > 0) {
-          totalDisplay = t('Currency unavailable')
-        }
         return (
           <Tooltip>
             <TooltipTrigger
@@ -363,11 +369,13 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 <div className='flex min-w-[130px] cursor-help flex-col gap-0.5 text-sm tabular-nums' />
               }
             >
-              {totalDisplay}
+              <TopupPaymentValue record={summary} />
             </TooltipTrigger>
             <TooltipContent className='max-w-[320px]'>
               {methods.length === 0 ? (
-                <p className='text-xs'>—</p>
+                <p className='text-xs'>
+                  <TopupPaymentValue record={summary} />
+                </p>
               ) : (
                 <div className='space-y-1'>
                   {methods.map((method) => {
@@ -377,22 +385,12 @@ export function useUsersColumns(): ColumnDef<User>[] {
                     ]
                       .filter(Boolean)
                       .join(' · ')
-                    const methodCurrency = method.settlement_currency
-                      ?.trim()
-                      .toUpperCase()
-                    const methodAmount =
-                      methodCurrency && methodCurrency !== 'UNKNOWN'
-                        ? formatFiatCurrencyAmount(
-                            method.money_micros / 1_000_000,
-                            methodCurrency
-                          )
-                        : `${formatUnknownCurrencyAmount(method.money_micros)} (${t('Currency unavailable')})`
                     return (
                       <p
-                        key={`${label}-${methodCurrency}-${method.orders}`}
+                        key={`${label}-${method.settlement_currency}-${method.orders}`}
                         className='text-xs'
                       >
-                        {label || '—'}: {methodAmount}
+                        {label || '—'}: <TopupPaymentValue record={method} />
                       </p>
                     )
                   })}

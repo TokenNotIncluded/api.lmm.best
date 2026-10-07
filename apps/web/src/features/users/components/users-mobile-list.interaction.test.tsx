@@ -54,7 +54,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { getCoreRowModel, useReactTable } = await import('@tanstack/react-table')
+const { flexRender, getCoreRowModel, useReactTable } =
+  await import('@tanstack/react-table')
 type RowSelectionState = import('@tanstack/react-table').RowSelectionState
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
@@ -91,6 +92,7 @@ mock.module('./user-assistant-review-dialog', () => ({
   ),
 }))
 const { UsersMobileList } = await import('./users-mobile-list')
+const { useUsersColumns } = await import('./users-columns')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -123,6 +125,13 @@ function makeUser(patch: Partial<User> = {}): User {
     assistant_conversation_count: 3,
     topup_summary: {
       quota: 49_380_000,
+      normalized_quota: 49_380_000,
+      quota_projection_available: true,
+      settled_money_micros: 98_760_000,
+      historical_money_micros: 0,
+      settled_orders: 2,
+      historical_orders: 0,
+      payment_basis: 'settled',
       money_micros: 98_760_000,
       currency: 'CNY',
       orders: 2,
@@ -132,6 +141,13 @@ function makeUser(patch: Partial<User> = {}): User {
           provider: 'Fixture provider',
           settlement_currency: 'CNY',
           quota: 49_380_000,
+          normalized_quota: 49_380_000,
+          quota_projection_available: true,
+          settled_money_micros: 98_760_000,
+          historical_money_micros: 0,
+          settled_orders: 2,
+          historical_orders: 0,
+          payment_basis: 'settled',
           money_micros: 98_760_000,
           orders: 2,
         },
@@ -143,7 +159,8 @@ function makeUser(patch: Partial<User> = {}): User {
 
 async function renderList(
   users: User[],
-  preference: 'USD' | 'CNY' | 'CREDIT' = 'USD'
+  preference: 'USD' | 'CNY' | 'CREDIT' = 'USD',
+  presentation: 'mobile' | 'desktop' = 'mobile'
 ) {
   const requests: { method: string | undefined; url: string | undefined }[] = []
   api.defaults.adapter = async (config) => {
@@ -170,9 +187,12 @@ async function renderList(
   const root = createRoot(host)
   function Harness() {
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+    const financialColumns = useUsersColumns().filter(
+      (column) => column.id === 'topup_quota' || column.id === 'topup_money'
+    )
     const table = useReactTable<User>({
       data: users,
-      columns: [],
+      columns: presentation === 'desktop' ? financialColumns : [],
       getRowId: (user) => String(user.id),
       getCoreRowModel: getCoreRowModel(),
       enableRowSelection: true,
@@ -181,11 +201,44 @@ async function renderList(
     })
     return (
       <I18nextProvider i18n={i18n}>
-        <UsersMobileList
-          table={table}
-          emptyTitle='No users'
-          emptyDescription='No users found'
-        />
+        {presentation === 'mobile' ? (
+          <UsersMobileList
+            table={table}
+            emptyTitle='No users'
+            emptyDescription='No users found'
+          />
+        ) : (
+          <table>
+            <thead>
+              {table.getHeaderGroups().map((group) => (
+                <tr key={group.id}>
+                  {group.headers.map((header) => (
+                    <th key={header.id}>
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
         <output aria-label='Selected user IDs'>
           {table
             .getSelectedRowModel()
@@ -195,7 +248,13 @@ async function renderList(
       </I18nextProvider>
     )
   }
-  await act(async () => root.render(<Harness />))
+  await act(async () =>
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <Harness />
+      </I18nextProvider>
+    )
+  )
   return {
     host,
     requests,
@@ -355,6 +414,13 @@ test('multiple settlement currencies retain method amounts without presenting th
     makeUser({
       topup_summary: {
         quota: 9_000_000,
+        normalized_quota: 0,
+        quota_projection_available: false,
+        settled_money_micros: 0,
+        historical_money_micros: 0,
+        settled_orders: 5,
+        historical_orders: 1,
+        payment_basis: 'mixed',
         money_micros: 777_000_000,
         currency: 'MULTIPLE',
         orders: 6,
@@ -364,6 +430,13 @@ test('multiple settlement currencies retain method amounts without presenting th
             provider: 'USD provider',
             settlement_currency: ' usd ',
             quota: 1_000_000,
+            normalized_quota: 1_000_000,
+            quota_projection_available: true,
+            settled_money_micros: 12_340_000,
+            historical_money_micros: 0,
+            settled_orders: 2,
+            historical_orders: 0,
+            payment_basis: 'settled',
             money_micros: 12_340_000,
             orders: 2,
           },
@@ -372,6 +445,13 @@ test('multiple settlement currencies retain method amounts without presenting th
             provider: 'CNY provider',
             settlement_currency: 'cny',
             quota: 2_000_000,
+            normalized_quota: 2_000_000,
+            quota_projection_available: true,
+            settled_money_micros: 56_780_000,
+            historical_money_micros: 0,
+            settled_orders: 3,
+            historical_orders: 0,
+            payment_basis: 'settled',
             money_micros: 56_780_000,
             orders: 3,
           },
@@ -403,12 +483,12 @@ test('multiple settlement currencies retain method amounts without presenting th
     await view.click(paymentButton)
     assert.equal(payment.open, true)
     for (const [label, fiat, quota, orders] of [
-      ['Card · USD provider', '12.34 USD', '2 USD', '2'],
-      ['Bank · CNY provider', '56.78 CNY', '4 USD', '3'],
+      ['Card · USD provider', '12.34 USD', '1,000,000 Credits', '2'],
+      ['Bank · CNY provider', '56.78 CNY', '2,000,000 Credits', '3'],
       [
         'Legacy · Unknown provider',
         '9.876543 (Currency unavailable)',
-        '12 USD',
+        'Historical original points: 6,000,000',
         '1',
       ],
     ]) {
@@ -443,6 +523,73 @@ test('multiple settlement currencies retain method amounts without presenting th
     assert.deepEqual(view.requests, [])
   } finally {
     await view.dispose()
+  }
+})
+
+test('audited historical top-ups preserve 154 CNY actual payment and project current credits independently of display currency', async () => {
+  for (const preference of ['USD', 'CNY', 'CREDIT'] as const) {
+    const view = await renderList(
+      [
+        makeUser({
+          topup_summary: {
+            quota: 105_000_000,
+            normalized_quota: 15_647_439,
+            quota_projection_available: true,
+            settled_money_micros: 154_000_000,
+            historical_money_micros: 0,
+            settled_orders: 2,
+            historical_orders: 0,
+            payment_basis: 'settled',
+            money_micros: 154_000_000,
+            currency: 'CNY',
+            orders: 2,
+            methods: [
+              {
+                method: 'Card',
+                provider: 'Fixture provider',
+                settlement_currency: 'CNY',
+                quota: 105_000_000,
+                normalized_quota: 15_647_439,
+                quota_projection_available: true,
+                settled_money_micros: 154_000_000,
+                historical_money_micros: 0,
+                settled_orders: 2,
+                historical_orders: 0,
+                payment_basis: 'settled',
+                money_micros: 154_000_000,
+                orders: 2,
+              },
+            ],
+          },
+        }),
+      ],
+      preference
+    )
+    try {
+      const article = firstArticle(view.host)
+      const { button, region } = disclosure(article)
+      const summary = summaryText(article, region)
+      assert.ok(summary.includes('Actual payment'))
+      assert.ok(summary.includes('154 CNY'))
+      await view.click(button)
+      const payment = region.querySelector('details')
+      assert.ok(payment)
+      assert.ok(
+        region.textContent?.includes('Top-up credits: 15,647,439 Credits')
+      )
+      assert.ok(payment.textContent?.includes('154 CNY'))
+      assert.ok(payment.textContent?.includes('15,647,439 Credits'))
+      assert.equal(payment.textContent?.includes('154 USD'), false)
+      assert.equal(payment.textContent?.includes('1,410.04 CNY'), false)
+      assert.equal(payment.textContent?.includes('105,000,000 Credits'), false)
+      assert.equal(
+        payment.textContent?.includes('Historical order amount'),
+        false
+      )
+      assert.deepEqual(view.requests, [])
+    } finally {
+      await view.dispose()
+    }
   }
 })
 
@@ -485,7 +632,15 @@ test('unknown currency stays explicit and a missing email keeps a usable identit
     assert.ok(paymentButton)
     await view.click(paymentButton)
     assert.equal(payment.open, true)
-    assert.ok(payment.textContent?.includes('9.876543 (Currency unavailable)'))
+    assert.ok(
+      payment.textContent?.includes(
+        'Historical order amount: 9.876543 (Currency unavailable)'
+      )
+    )
+    assert.ok(
+      payment.textContent?.includes('Historical original points: 500,000')
+    )
+    assert.equal(payment.textContent?.includes('500,000 Credits'), false)
     assert.deepEqual(view.requests, [])
   } finally {
     await view.dispose()
@@ -512,5 +667,136 @@ test('native Credit display retains raw balances while settlement amounts keep t
     assert.deepEqual(view.requests, [])
   } finally {
     await view.dispose()
+  }
+})
+
+test('desktop cells use the same verified credit projection and original settled currency as mobile', async () => {
+  for (const preference of ['USD', 'CNY', 'CREDIT'] as const) {
+    const view = await renderList(
+      [
+        makeUser({
+          topup_summary: {
+            quota: 105_000_000,
+            normalized_quota: 15_647_439,
+            quota_projection_available: true,
+            money_micros: 154_000_000,
+            settled_money_micros: 154_000_000,
+            historical_money_micros: 0,
+            settled_orders: 2,
+            historical_orders: 0,
+            payment_basis: 'settled',
+            currency: 'CNY',
+            orders: 2,
+            methods: [],
+          },
+        }),
+      ],
+      preference,
+      'desktop'
+    )
+    try {
+      assert.ok(view.host.textContent?.includes('Top-up credits'))
+      assert.ok(view.host.textContent?.includes('Actual payment'))
+      const cells = view.host.querySelectorAll('td')
+      assert.ok(cells[0]?.textContent?.includes('15,647,439 Credits'))
+      assert.equal(cells[1]?.textContent, '154 CNY')
+      assert.equal(view.host.textContent?.includes('1,410.04 CNY'), false)
+      assert.equal(
+        view.host.textContent?.includes('105,000,000 Credits'),
+        false
+      )
+      assert.deepEqual(view.requests, [])
+    } finally {
+      await view.dispose()
+    }
+  }
+})
+
+test('legacy desktop DTO clearly exposes historical raw units and recorded money', async () => {
+  const view = await renderList(
+    [
+      makeUser({
+        topup_summary: {
+          quota: 105_000_000,
+          normalized_quota: 15_647_439,
+          money_micros: 154_000_000,
+          currency: 'CNY',
+          orders: 2,
+          methods: [],
+        },
+      }),
+    ],
+    'CNY',
+    'desktop'
+  )
+  try {
+    const cells = view.host.querySelectorAll('td')
+    assert.ok(
+      cells[0]?.textContent?.includes('Historical original points: 105,000,000')
+    )
+    assert.equal(cells[0]?.textContent?.includes('105,000,000 Credits'), false)
+    assert.ok(
+      cells[1]?.textContent?.includes('Historical order amount: 154 CNY')
+    )
+    assert.ok(cells[1]?.textContent?.startsWith('—'))
+    assert.deepEqual(view.requests, [])
+  } finally {
+    await view.dispose()
+  }
+})
+
+test('a legacy summary without a currency never presents a cross-currency recorded sum as one amount', async () => {
+  const methods = [
+    {
+      method: 'Card',
+      settlement_currency: 'USD',
+      quota: 500_000,
+      money_micros: 12_340_000,
+      orders: 1,
+    },
+    {
+      method: 'Bank',
+      settlement_currency: 'CNY',
+      quota: 1_000_000,
+      money_micros: 56_780_000,
+      orders: 1,
+    },
+  ]
+  for (const presentation of ['mobile', 'desktop'] as const) {
+    const view = await renderList(
+      [
+        makeUser({
+          topup_summary: {
+            quota: 1_500_000,
+            money_micros: 777_000_000,
+            orders: 2,
+            methods,
+          },
+        }),
+      ],
+      'CNY',
+      presentation
+    )
+    try {
+      assert.ok(
+        view.host.textContent?.includes(
+          'Historical order amount: Multiple fiat currencies'
+        )
+      )
+      assert.equal(view.host.textContent?.includes('777'), false)
+      if (presentation === 'mobile') {
+        const { button, region } = disclosure(firstArticle(view.host))
+        await view.click(button)
+        assert.ok(
+          region.textContent?.includes('Historical order amount: 12.34 USD')
+        )
+        assert.ok(
+          region.textContent?.includes('Historical order amount: 56.78 CNY')
+        )
+      }
+      assert.deepEqual(view.requests, [])
+    } finally {
+      await view.dispose()
+    }
   }
 })

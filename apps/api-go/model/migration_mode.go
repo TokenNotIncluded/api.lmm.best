@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -61,10 +62,12 @@ type postgresMigrationLock struct {
 }
 
 type postgresDatabaseIdentity struct {
-	ServerAddress string
-	ServerPort    int64
-	DatabaseName  string
-	DatabaseOID   int64
+	ServerAddress    string
+	ServerPort       int64
+	DatabaseName     string
+	DatabaseOID      int64
+	UnixSocket       bool
+	SystemIdentifier string
 }
 
 func openPostgresMigrationLock(db *gorm.DB) (migrationAdvisoryLock, error) {
@@ -77,27 +80,81 @@ func openPostgresMigrationLock(db *gorm.DB) (migrationAdvisoryLock, error) {
 		return nil, fmt.Errorf("open PostgreSQL migration lock session: %w", err)
 	}
 	lock := &postgresMigrationLock{conn: conn}
-	if err := conn.QueryRowContext(context.Background(), `
+	lock.identity, err = readPostgresMigrationIdentity(conn)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("identify PostgreSQL migration lock database: %w", err)
+	}
+	if lock.identity.UnixSocket {
+		// A socket has no inet address/port. Pin its real cluster and verify
+		// that migrations through the pool reach that same physical database.
+		poolConn, err := sqlDB.Conn(context.Background())
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("open PostgreSQL migration pool identity session: %w", err)
+		}
+		poolIdentity, identityErr := readPostgresMigrationIdentity(poolConn)
+		err = errors.Join(identityErr, poolConn.Close())
+		if err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("identify PostgreSQL migration pool database: %w", err)
+		}
+		same, err := comparePostgresDatabaseIdentity(lock.identity, poolIdentity)
+		if err != nil || !same {
+			_ = conn.Close()
+			return nil, errors.Join(errors.New("PostgreSQL Unix migration lock and pool identify different physical databases"), err)
+		}
+	}
+	return lock, nil
+}
+
+type postgresMigrationIdentityReader interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func readPostgresMigrationIdentity(reader postgresMigrationIdentityReader) (postgresDatabaseIdentity, error) {
+	var address sql.NullString
+	var port sql.NullInt64
+	var identity postgresDatabaseIdentity
+	if err := reader.QueryRowContext(context.Background(), `
 		SELECT pg_catalog.inet_server_addr()::pg_catalog.text,
 		       pg_catalog.inet_server_port()::pg_catalog.int8,
 		       pg_catalog.current_database(), database_meta.oid::pg_catalog.int8
 		FROM pg_catalog.pg_database AS database_meta
 		WHERE database_meta.datname OPERATOR(pg_catalog.=) pg_catalog.current_database()`).
-		Scan(&lock.identity.ServerAddress, &lock.identity.ServerPort,
-			&lock.identity.DatabaseName, &lock.identity.DatabaseOID); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("identify PostgreSQL migration lock database: %w", err)
+		Scan(&address, &port, &identity.DatabaseName, &identity.DatabaseOID); err != nil {
+		return identity, err
 	}
-	if err := validatePostgresDatabaseIdentity(lock.identity); err != nil {
-		_ = conn.Close()
-		return nil, err
+	if address.Valid != port.Valid {
+		return identity, errors.New("PostgreSQL migration server address and port have inconsistent NULL state")
 	}
-	return lock, nil
+	if address.Valid {
+		identity.ServerAddress, identity.ServerPort = address.String, port.Int64
+	} else {
+		identity.UnixSocket = true
+		// This query runs only for a real Unix connection, on the same reader.
+		// TCP callers retain their original privilege and identity contract.
+		if err := reader.QueryRowContext(context.Background(),
+			"SELECT system_identifier::pg_catalog.text FROM pg_catalog.pg_control_system()").Scan(&identity.SystemIdentifier); err != nil {
+			return identity, fmt.Errorf("read PostgreSQL Unix migration cluster identity: %w", err)
+		}
+	}
+	return identity, validatePostgresDatabaseIdentity(identity)
 }
 
 func validatePostgresDatabaseIdentity(identity postgresDatabaseIdentity) error {
-	if identity.ServerAddress == "" || identity.ServerPort <= 0 || identity.ServerPort > 65535 ||
-		identity.DatabaseName == "" || identity.DatabaseOID <= 0 {
+	if identity.DatabaseName == "" || identity.DatabaseOID <= 0 {
+		return errors.New("PostgreSQL migration lock database identity is incomplete or ambiguous")
+	}
+	if identity.UnixSocket {
+		identifier, err := strconv.ParseUint(identity.SystemIdentifier, 10, 64)
+		if identity.ServerAddress != "" || identity.ServerPort != 0 || err != nil || identifier == 0 ||
+			strconv.FormatUint(identifier, 10) != identity.SystemIdentifier {
+			return errors.New("PostgreSQL Unix migration lock cluster identity is incomplete or ambiguous")
+		}
+		return nil
+	}
+	if identity.SystemIdentifier != "" || identity.ServerAddress == "" || identity.ServerPort <= 0 || identity.ServerPort > 65535 {
 		return errors.New("PostgreSQL migration lock database identity is incomplete or ambiguous")
 	}
 	return nil
@@ -224,7 +281,12 @@ func comparePostgresDatabaseIdentity(left, right postgresDatabaseIdentity) (bool
 	if err := validatePostgresDatabaseIdentity(right); err != nil {
 		return false, err
 	}
-	sameServer := left.ServerAddress == right.ServerAddress && left.ServerPort == right.ServerPort
+	sameServer := left.UnixSocket == right.UnixSocket
+	if left.UnixSocket {
+		sameServer = sameServer && left.SystemIdentifier == right.SystemIdentifier
+	} else {
+		sameServer = sameServer && left.ServerAddress == right.ServerAddress && left.ServerPort == right.ServerPort
+	}
 	if !sameServer {
 		return false, nil
 	}

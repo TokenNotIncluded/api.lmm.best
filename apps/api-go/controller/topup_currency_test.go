@@ -102,9 +102,9 @@ func TestEpayQuoteExplicitLegacyIsIndependentOfDisplayAndReturnsCreditSnapshot(t
 	operation_setting.GetGeneralSetting().QuotaDisplayType = "TOKENS"
 	operation_setting.USDExchangeRate = 7
 	priorOptions := operation_setting.GetPaymentSetting().AmountOptions
-	operation_setting.GetPaymentSetting().AmountOptions = []int{3500000}
+	operation_setting.GetPaymentSetting().AmountOptions = operation_setting.PaymentAmountOptions{"3500000"}
 	t.Cleanup(func() { operation_setting.GetPaymentSetting().AmountOptions = priorOptions })
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{3500000: 0.9}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"3500000": 0.9}
 	operation_setting.PayMethods = []map[string]string{{"name": "fixture", "type": "alipay"}}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 	w := httptest.NewRecorder()

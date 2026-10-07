@@ -44,21 +44,25 @@ var (
 // redacted current turn is retained while work is pending. Every terminal
 // transition erases Payload; API projections must never expose it.
 type ModerationJob struct {
-	ID                        int64  `json:"id" gorm:"primaryKey"`
-	EventKey                  string `json:"-" gorm:"type:char(64);not null;uniqueIndex"`
-	UserID                    int    `json:"user_id" gorm:"not null;index:idx_moderation_user_created,priority:1"`
-	Source                    string `json:"source" gorm:"type:varchar(24);not null;index"`
-	RequestID                 string `json:"request_id" gorm:"type:varchar(128);not null;index"`
-	Group                     string `json:"group" gorm:"type:varchar(64);not null;index"`
-	PolicyScope               string `json:"-" gorm:"type:varchar(24);not null;default:account_group"`
-	PolicyGroup               string `json:"-" gorm:"type:varchar(64);not null;default:''"`
-	RelayGroup                string `json:"-" gorm:"type:varchar(64);not null;default:''"`
-	SubjectIdentifier         string `json:"-" gorm:"type:char(64);not null;default:''"`
-	ProviderCallsJSON         string `json:"-" gorm:"type:text;not null;default:'[]'"`
-	ReviewGroup               string `json:"review_group" gorm:"type:varchar(64);not null"`
-	ReviewModel               string `json:"review_model" gorm:"type:varchar(128);not null"`
-	InputDigest               string `json:"input_digest" gorm:"type:char(64);not null"`
-	InputTruncated            bool   `json:"input_truncated" gorm:"not null;default:false"`
+	ID                int64  `json:"id" gorm:"primaryKey"`
+	EventKey          string `json:"-" gorm:"type:char(64);not null;uniqueIndex"`
+	UserID            int    `json:"user_id" gorm:"not null;index:idx_moderation_user_created,priority:1"`
+	Source            string `json:"source" gorm:"type:varchar(24);not null;index"`
+	RequestID         string `json:"request_id" gorm:"type:varchar(128);not null;index"`
+	Group             string `json:"group" gorm:"type:varchar(64);not null;index"`
+	PolicyScope       string `json:"-" gorm:"type:varchar(24);not null;default:account_group"`
+	PolicyGroup       string `json:"-" gorm:"type:varchar(64);not null;default:''"`
+	RelayGroup        string `json:"-" gorm:"type:varchar(64);not null;default:''"`
+	SubjectIdentifier string `json:"-" gorm:"type:char(64);not null;default:''"`
+	ProviderCallsJSON string `json:"-" gorm:"type:text;not null;default:('[]')"`
+	ReviewGroup       string `json:"review_group" gorm:"type:varchar(64);not null"`
+	ReviewModel       string `json:"review_model" gorm:"type:varchar(128);not null"`
+	InputDigest       string `json:"input_digest" gorm:"type:char(64);not null"`
+	InputTruncated    bool   `json:"input_truncated" gorm:"not null;default:false"`
+	// Listing tasks share leases and provider transport, never chat penalties.
+	TargetID                  string `json:"-" gorm:"type:varchar(36);not null;default:'';index"`
+	TargetVersion             string `json:"-" gorm:"type:varchar(36);not null;default:''"`
+	MarketOutcome             string `json:"-" gorm:"type:varchar(24);not null;default:''"`
 	Payload                   string `json:"-" gorm:"size:262144;not null"`
 	CapturedMode              string `json:"mode" gorm:"type:varchar(16);not null"`
 	CapturedCategoryFinesJSON string `json:"-" gorm:"type:text;not null"`
@@ -251,6 +255,9 @@ func ClaimModerationJob(ctx context.Context, owner string, now, leaseSecs int64)
 	err := moderationDB(ctx).Transaction(func(tx *gorm.DB) error {
 		// The final crashed attempt must not leave its payload or a running row
 		// forever. A new owner can retry only while the bounded budget remains.
+		if err := tx.Model(&ModerationJob{}).Where("source IN ? AND status = ? AND lease_until <= ? AND attempts >= ?", []string{ModerationSourceMarketTool, ModerationSourceMarketProduct}, ModerationJobRunning, now, ModerationJobMaxAttempts).Update("market_outcome", "manual_required").Error; err != nil {
+			return err
+		}
 		if err := tx.Model(&ModerationJob{}).Where("status = ? AND lease_until <= ? AND attempts >= ?", ModerationJobRunning, now, ModerationJobMaxAttempts).Updates(map[string]any{"status": ModerationJobFailed, "payload": "", "lease_owner": "", "lease_until": 0, "error_message": "review worker lease expired", "updated_at": now, "completed_at": now}).Error; err != nil {
 			return err
 		}
@@ -302,6 +309,9 @@ func RetryModerationJob(ctx context.Context, id int64, owner string, now, next i
 		values := map[string]any{"status": ModerationJobPending, "next_attempt_at": next, "lease_owner": "", "lease_until": 0, "updated_at": now, "error_message": boundedAssistantReviewText(RedactAssistantHistoryContent(statusError), 256)}
 		if job.Attempts >= ModerationJobMaxAttempts {
 			values["status"], values["payload"], values["completed_at"] = ModerationJobFailed, "", now
+			if IsMarketAIReviewSource(job.Source) {
+				values["market_outcome"] = "manual_required"
+			}
 		}
 		return tx.Model(&job).Updates(values).Error
 	})
@@ -315,7 +325,7 @@ func CancelModerationJob(ctx context.Context, id int64, owner, reason string) er
 		ctx = context.Background()
 	}
 	now := common.GetTimestamp()
-	result := moderationDB(ctx).Model(&ModerationJob{}).Where("id = ? AND status = ? AND lease_owner = ? AND lease_until > ?", id, ModerationJobRunning, owner, now).Updates(map[string]any{"status": ModerationJobCancelled, "payload": "", "lease_owner": "", "lease_until": 0, "updated_at": now, "completed_at": now, "error_message": boundedAssistantReviewText(RedactAssistantHistoryContent(reason), 256)})
+	result := moderationDB(ctx).Model(&ModerationJob{}).Where("id = ? AND status = ? AND lease_owner = ? AND lease_until > ?", id, ModerationJobRunning, owner, now).Updates(map[string]any{"status": ModerationJobCancelled, "payload": "", "lease_owner": "", "lease_until": 0, "updated_at": now, "completed_at": now, "error_message": boundedAssistantReviewText(RedactAssistantHistoryContent(reason), 256), "market_outcome": gorm.Expr("CASE WHEN source = ? OR source = ? THEN ? ELSE market_outcome END", ModerationSourceMarketTool, ModerationSourceMarketProduct, "stale")})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -460,8 +470,13 @@ func CompleteModerationJob(ctx context.Context, id int64, owner string, completi
 			return err
 		}
 		var identity ModerationJob
-		if err := tx.Select("id, user_id, status").Where("id = ?", id).First(&identity).Error; err != nil {
+		if err := tx.Select("id, user_id, status, source").Where("id = ?", id).First(&identity).Error; err != nil {
 			return err
+		}
+		// Even an accidentally misrouted market task must never reach the fee,
+		// referral, notice or account-sanction code below.
+		if IsMarketAIReviewSource(identity.Source) {
+			return ErrModerationJobInvalid
 		}
 		if identity.Status == ModerationJobCompleted {
 			return nil
@@ -672,7 +687,7 @@ func ModerationStats(ctx context.Context) (ModerationQueueStats, error) {
 	if !DB.Migrator().HasTable(&ModerationJob{}) {
 		return stats, nil
 	}
-	err := moderationDB(ctx).Model(&ModerationJob{}).Select(`COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END),0) AS running, COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END),0) AS completed, COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),0) AS failed, COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END),0) AS cancelled, COALESCE(SUM(CASE WHEN status = 'completed' AND flagged THEN 1 ELSE 0 END),0) AS flagged, COALESCE(SUM(CASE WHEN charged_quota > 0 THEN 1 ELSE 0 END),0) AS fined, COALESCE(SUM(charged_quota),0) AS charged_quota`).Scan(&stats).Error
+	err := moderationDB(ctx).Model(&ModerationJob{}).Where("source NOT IN ?", []string{ModerationSourceMarketTool, ModerationSourceMarketProduct}).Select(`COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END),0) AS running, COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END),0) AS completed, COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),0) AS failed, COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END),0) AS cancelled, COALESCE(SUM(CASE WHEN status = 'completed' AND flagged THEN 1 ELSE 0 END),0) AS flagged, COALESCE(SUM(CASE WHEN charged_quota > 0 THEN 1 ELSE 0 END),0) AS fined, COALESCE(SUM(charged_quota),0) AS charged_quota`).Scan(&stats).Error
 	return stats, err
 }
 
@@ -700,7 +715,7 @@ func ListModerationJobs(ctx context.Context, filter ModerationJobFilter) ([]Mode
 	if !DB.Migrator().HasTable(&ModerationJob{}) {
 		return []ModerationJob{}, 0, nil
 	}
-	query := moderationDB(ctx).Model(&ModerationJob{})
+	query := moderationDB(ctx).Model(&ModerationJob{}).Where("source NOT IN ?", []string{ModerationSourceMarketTool, ModerationSourceMarketProduct})
 	if filter.UserID > 0 {
 		query = query.Where("user_id = ?", filter.UserID)
 	}

@@ -25,6 +25,7 @@ import {
   clearAuthentication,
   refreshAuthentication,
 } from '@/lib/auth-session'
+import { rateLimitMessage } from '@/lib/request-rate-limit'
 import {
   getServerErrorMessageKey,
   getServerErrorToastId,
@@ -178,11 +179,13 @@ api.interceptors.response.use(
       }
     } else if (!skipErrorHandler) {
       const messageKey = getServerErrorMessageKey(error)
-      const message = messageKey
-        ? t(messageKey)
-        : error?.response?.data?.message ||
-          error?.message ||
-          t('Request failed')
+      const message =
+        rateLimitMessage(error) ??
+        (messageKey
+          ? t(messageKey)
+          : error?.response?.data?.message ||
+            error?.message ||
+            t('Request failed'))
       toast.error(message, { id: getServerErrorToastId(error) })
     }
     throw error

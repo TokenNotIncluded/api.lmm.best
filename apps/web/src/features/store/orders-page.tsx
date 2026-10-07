@@ -1,0 +1,360 @@
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { Button } from '@/components/ui/button'
+import { useAuthStore } from '@/stores/auth-store'
+
+import { storeApi } from './api'
+import { StoreDeliveryEmail } from './delivery-email'
+import {
+  CopyStoreValue,
+  StoreAmount,
+  StoreAuthGate,
+  StoreError,
+  StoreLoading,
+} from './shared'
+import type { StoreOrder, StorePaymentSession } from './types'
+import {
+  paymentLabel,
+  continueStorePayment,
+  safeStoreUrl,
+  storeDate,
+} from './utils'
+
+export function StoreOrdersPage() {
+  return (
+    <StoreAuthGate>
+      <StoreOrders />
+    </StoreAuthGate>
+  )
+}
+function StoreOrders() {
+  const { t, i18n } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)!
+  const [role, setRole] = useState<'buyer' | 'seller'>('buyer')
+  const [page, setPage] = useState(1)
+  const selectedId =
+    new URLSearchParams(window.location.search).get('order') || ''
+  const selectedValid = /^[a-zA-Z0-9-]{1,64}$/.test(selectedId)
+  const selected = useQuery({
+    queryKey: ['store', 'order', user.id, selectedId],
+    queryFn: () => storeApi.order(selectedId),
+    enabled: selectedValid,
+    retry: false,
+  })
+  const query = useQuery({
+    queryKey: ['store', 'orders', user.id, role, page],
+    queryFn: () => storeApi.orders(role, page),
+    retry: false,
+  })
+  return (
+    <div className='space-y-5'>
+      <div className='flex flex-wrap items-end justify-between gap-3'>
+        <h1 className='console-page-title text-xl font-bold'>
+          {t('Order history')}
+        </h1>
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => {
+            void query.refetch()
+            if (selectedValid) void selected.refetch()
+          }}
+        >
+          {t('Refresh')}
+        </Button>
+      </div>
+      <div className='flex gap-2'>
+        <Button
+          size='sm'
+          variant={role === 'buyer' ? 'secondary' : 'ghost'}
+          onClick={() => {
+            setRole('buyer')
+            setPage(1)
+          }}
+        >
+          {t('My purchases')}
+        </Button>
+        <Button
+          size='sm'
+          variant={role === 'seller' ? 'secondary' : 'ghost'}
+          onClick={() => {
+            setRole('seller')
+            setPage(1)
+          }}
+        >
+          {t('My sales')}
+        </Button>
+      </div>
+      {selectedId && (
+        <section className='rounded-lg border'>
+          <StoreError
+            error={
+              selectedValid ? selected.error : new Error('Store request failed')
+            }
+          />
+          {selected.isFetching && !selected.data && <StoreLoading />}
+          {selected.data && (
+            <StoreOrderRow
+              key={`${user.id}-${selected.data.id}-selected`}
+              order={selected.data}
+              buyer={selected.data.buyer_id === user.id}
+              locale={i18n.language}
+            />
+          )}
+        </section>
+      )}
+      <StoreError error={query.error} retry={() => void query.refetch()} />
+      {role === 'buyer' &&
+        ((selected.data?.buyer_id === user.id &&
+          selected.data.email_delivery_status === 'awaiting_verification') ||
+          query.data?.items.some(
+            (order) => order.email_delivery_status === 'awaiting_verification'
+          )) && <StoreDeliveryEmail key={user.id} ownerId={user.id} />}
+      {query.isPending ? (
+        <StoreLoading />
+      ) : (
+        query.data && (
+          <>
+            <div className='divide-y rounded-lg border'>
+              {!query.data.items.length && (
+                <p className='text-muted-foreground p-8 text-center text-sm'>
+                  {t('No orders yet')}
+                </p>
+              )}
+              {query.data.items
+                .filter((order) => order.id !== selected.data?.id)
+                .map((order) => (
+                  <StoreOrderRow
+                    key={`${user.id}-${order.id}-${role}`}
+                    order={order}
+                    buyer={role === 'buyer'}
+                    locale={i18n.language}
+                  />
+                ))}
+            </div>
+            <div className='flex justify-end gap-2'>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={page === 1}
+                onClick={() => setPage((value) => value - 1)}
+              >
+                {t('Previous page')}
+              </Button>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={!query.data.has_more}
+                onClick={() => setPage((value) => value + 1)}
+              >
+                {t('Next page')}
+              </Button>
+            </div>
+          </>
+        )
+      )}
+    </div>
+  )
+}
+export function StoreOrderRow({
+  order,
+  buyer,
+  locale,
+}: {
+  order: StoreOrder
+  buyer: boolean
+  locale: string
+}) {
+  const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)!
+  const client = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const [payment, setPayment] = useState<StorePaymentSession | null>(null)
+  const [link, setLink] = useState('')
+  const [error, setError] = useState<unknown>(null)
+  useEffect(() => {
+    if (!buyer || order.status !== 'pending') setPayment(null)
+  }, [buyer, order.status])
+  async function refreshOrders() {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ['store', 'orders', user.id] }),
+      client.invalidateQueries({
+        queryKey: ['store', 'order', user.id, order.id],
+      }),
+    ])
+  }
+  async function action(fn: () => Promise<void>) {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await fn()
+    } catch (issue) {
+      setError(issue)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <article className='space-y-3 p-4'>
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        <div className='min-w-0 space-y-1'>
+          <h2 className='font-semibold break-words'>{order.product_title}</h2>
+          <p className='text-muted-foreground text-xs break-all'>
+            {order.trade_no}
+          </p>
+          <p className='text-muted-foreground text-xs'>
+            {storeDate(order.created_at, locale)} ·{' '}
+            {t(paymentLabel(order.payment_method))}
+          </p>
+        </div>
+        <div className='space-y-1 text-right text-sm'>
+          <strong>
+            <StoreAmount quota={order.price_quota} />
+          </strong>
+          <p className='text-muted-foreground'>
+            {order.status === 'reconciliation_pending' &&
+            order.payment_issue_code
+              ? t('Payment confirmed; delivery needs review.')
+              : t(order.status)}{' '}
+            · {t('Quantity')}: {order.quantity}
+          </p>
+          {!buyer && (
+            <p className='text-muted-foreground text-xs'>
+              {t('Seller fee')}: <StoreAmount quota={order.fee_quota} />
+            </p>
+          )}
+        </div>
+      </div>
+      <StoreError error={error} />
+      {buyer && (
+        <div className='flex flex-wrap items-center gap-2'>
+          {order.status === 'paid' && (
+            <Button
+              size='sm'
+              disabled={busy}
+              onClick={() =>
+                void action(async () => {
+                  const result = await storeApi.pickupLink(order.id)
+                  const url = safeStoreUrl(result.pickup_url)
+                  if (!url) throw new Error('Pickup link is unavailable')
+                  setLink(url)
+                })
+              }
+            >
+              {t('Get pickup link')}
+            </Button>
+          )}
+          {order.status === 'pending' && (
+            <>
+              <Button
+                size='sm'
+                disabled={busy}
+                onClick={() =>
+                  void action(async () => {
+                    const session = await storeApi.pay(
+                      order.id,
+                      order.currency || undefined
+                    )
+                    setPayment(session)
+                    if (session.status === 'paid') {
+                      await refreshOrders()
+                    }
+                  })
+                }
+              >
+                {t(
+                  order.payment_method === 'balance'
+                    ? 'Pay with balance'
+                    : 'Prepare payment'
+                )}
+              </Button>
+              {order.payment_issued === false && (
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={busy}
+                  onClick={() =>
+                    void action(async () => {
+                      await storeApi.cancel(order.id)
+                      await refreshOrders()
+                    })
+                  }
+                >
+                  {t('Cancel order')}
+                </Button>
+              )}
+            </>
+          )}
+          {['pending', 'reconciliation_pending'].includes(order.status) && (
+            <Button
+              size='sm'
+              variant='outline'
+              disabled={busy}
+              onClick={() =>
+                void action(async () => {
+                  await storeApi.reconcile(order.id)
+                  await refreshOrders()
+                })
+              }
+            >
+              {t('Check payment status')}
+            </Button>
+          )}
+        </div>
+      )}
+      {buyer && order.status === 'pending' && payment?.status === 'pending' && (
+        <div className='flex flex-wrap items-center gap-3 text-sm'>
+          <span>
+            {t('Actual payment')}:{' '}
+            <strong>
+              {payment.amount} {payment.currency}
+            </strong>
+          </span>
+          <Button
+            size='sm'
+            disabled={busy}
+            onClick={() =>
+              void action(async () => {
+                const current = await storeApi.pay(order.id, payment.currency)
+                setPayment(current.status === 'pending' ? current : null)
+                if (current.status !== 'pending') {
+                  await refreshOrders()
+                  return
+                }
+                // A changed quote must be displayed for a fresh explicit confirmation.
+                if (
+                  current.amount_minor !== payment.amount_minor ||
+                  current.currency !== payment.currency
+                ) {
+                  return
+                }
+                continueStorePayment(current)
+              })
+            }
+          >
+            {t('Continue to payment')}
+          </Button>
+        </div>
+      )}
+      {buyer && link && (
+        <div className='bg-muted flex flex-wrap items-center justify-between gap-3 rounded-md p-3'>
+          <a href={link} className='min-w-0 text-sm break-all underline'>
+            {t('Open pickup page')}
+          </a>
+          <CopyStoreValue value={link} label='Copy pickup link' />
+        </div>
+      )}
+      {buyer && order.email_pickup_link && (
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'The pickup link will be sent to the email provided at checkout. You can always retrieve the link here.'
+          )}
+        </p>
+      )}
+    </article>
+  )
+}

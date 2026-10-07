@@ -195,7 +195,7 @@ func TestPublicCreditSelfAndUserListKeepLedgerValuesAndDollarValue(t *testing.T)
 
 	require.Error(t, common.SetPublicCreditsPerUSD(decimal.NewFromInt(777777)))
 	require.NoError(t, model.DB.Model(&model.Option{}).Where("key = ?", model.PublicCreditsPerUSDOptionKey).Update("value", "200000").Error)
-	_, err = publicUserCreditFields(stored.Quota, stored.UsedQuota)
+	_, err = publicUserCreditFields(stored.Quota, &stored.UsedQuota)
 	require.Error(t, err, "invalid durable denomination cannot rescale raw wallet balances")
 	require.Equal(t, 3500000, stored.Quota)
 }

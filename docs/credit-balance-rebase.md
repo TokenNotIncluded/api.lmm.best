@@ -219,3 +219,13 @@ SQL 明确锁定全部套餐、订单、catalog、付款和退款表，核对全
 `obligations` 的九个只读计数必须精确齐全且均为零。SQL 无条件再次核验匹配的在途/待退款任务并加锁，不能通过关闭 `--include-other-rights` 绕过；包括 FAILED 空退款 marker 的近期旧任务，以及 progress 仍未达到 100% 的 Midjourney。缺表或缺列是失败，不是零。
 
 `business_source_sha256` 是去掉 target 的快照摘要；`business_plan_sha256` 是去掉 target/source_sha256/plan_sha256/business_plan_sha256 的计划摘要。均使用排序 key、紧凑 JSON 与 SHA-256。克隆演练只允许替换 target，并保持两个业务摘要一致；目标数据库/集群/schema/OID 的检查仍必须指向真实克隆。异时补导只能用于现状预演，不能签封成正式生产计划。
+
+## 累计用量的只读展示
+
+`users.used_quota` 和 `tokens.used_quota` 的原历史整数保持不变；迁移后新增消费仍使用当前点数。不能把混合了旧、新单位的累计值整体按当前汇率显示，或整体除以迁移除数。
+
+`model.LoadUsageProjector` 一次加载迁移审计，使用精确有理数和审计舍入规则，将 `user_sources/token_sources` 的旧消费基线归一，再加迁移后的当前点数增量。结果供展示字段 `normalized_used_quota` 使用，不用于扣费、限额或钱包结算。`usage_projection_available=false` 时，原 `used_quota` 只能标为原始点数，不能标为当前 USD/CNY 金额。无审计的新安装、新用户和确认为迁移后创建的 token 使用自身当前点数。
+
+旧违规费申诉退款会按旧原始点数减少历史累计值，而钱包按独立纠正基准退款。展示投影只有在父审计 `violation_fee_refund` 的来源、原点数、纠正点数、所属用户，与当前已反转记录和时间吻合时，才分别撤销旧历史与当前增量中的对应部分。后台 moderation 罚款不计入普通消费，故不调整此累计展示。缺失、重复、损坏或不支持的审计，以及没有旧基线的旧 token，均明确报告展示不可用，不回填历史。
+
+历史日志明细和 `SUM(logs.quota)` 仍是原始历史点数；本投影不会把它们变成当前货币事实。需要日志级基准或充分的分段来源证据后才能另行展示归一金额。1 USD 始终等于 500000 当前点数。

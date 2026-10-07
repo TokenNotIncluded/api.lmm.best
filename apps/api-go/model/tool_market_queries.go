@@ -75,10 +75,17 @@ func GetToolMarketDetail(userID int, serviceID string, draft bool) (*ToolMarketD
 		if userID <= 0 {
 			return nil, ErrToolMarketDenied
 		}
-		if err := DB.First(&detail.Service, "id = ? AND owner_id = ?", serviceID, userID).Error; err != nil {
+		if err := DB.First(&detail.Service, "id = ? AND owner_id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, userID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 			return nil, err
 		}
-		if err := DB.First(&detail.Version, "id = ? AND service_id = ?", detail.Service.DraftVersionID, serviceID).Error; err != nil {
+		// Publishing consumes the draft pointer. An author can start the next
+		// draft from the live snapshot without creating or changing a version
+		// during this read. A nonempty draft pointer must still resolve exactly.
+		versionID := detail.Service.DraftVersionID
+		if versionID == "" {
+			versionID = detail.Service.LiveVersionID
+		}
+		if err := DB.First(&detail.Version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(detail.Version.AllowedUsers), &detail.AllowedUsers)
@@ -96,6 +103,10 @@ func GetToolMarketDetail(userID int, serviceID string, draft bool) (*ToolMarketD
 		// Draft identifiers are private author metadata, including on public services.
 		detail.Service.DraftVersionID = ""
 	}
+	return completeToolMarketDetail(userID, &detail)
+}
+
+func completeToolMarketDetail(userID int, detail *ToolMarketDetail) (*ToolMarketDetail, error) {
 	detail.Validated = marketBuiltinVersion(detail.Service, detail.Version) || (detail.Version.ValidationDigest != "" && detail.Version.ValidationDigest == detail.Version.Digest)
 	if detail.Service.OwnerID == userID {
 		_ = json.Unmarshal([]byte(detail.Version.AllowedUsers), &detail.AllowedUsers)
@@ -117,7 +128,7 @@ func GetToolMarketDetail(userID int, serviceID string, draft bool) (*ToolMarketD
 	} else if free > 0 {
 		detail.Pricing = "partially_free"
 	}
-	return &detail, nil
+	return detail, nil
 }
 
 // Author analytics never reuse the caller's private call view. The transfer
@@ -157,18 +168,18 @@ func ListToolMarketAccountResources(userID int, kind string, offset, limit int) 
 	switch kind {
 	case "tokens":
 		rows := []ToolMarketToken{}
-		err := q.Where("user_id = ?", userID).Order("created_at DESC, id").Find(&rows).Error
+		err := q.Where("user_id = ?", userID).Scopes(marketVisibleAccountRecords(userID, toolMarketTokenHiddenAction)).Order("created_at DESC, id").Find(&rows).Error
 		return rows, err
 	case "services":
 		rows := []struct {
 			ToolMarketService `gorm:"embedded"`
 			Name              string `json:"name"`
 		}{}
-		err := q.Table("tool_market_services AS s").Joins("LEFT JOIN tool_market_versions d ON d.id = s.draft_version_id").Joins("LEFT JOIN tool_market_versions v ON v.id = s.live_version_id").Select("s.*, COALESCE(d.name, v.name, '') AS name").Where("s.owner_id = ?", userID).Order("s.created_at DESC, s.id").Scan(&rows).Error
+		err := q.Table("tool_market_services AS s").Joins("LEFT JOIN tool_market_versions d ON d.id = s.draft_version_id").Joins("LEFT JOIN tool_market_versions v ON v.id = s.live_version_id").Select("s.*, COALESCE(d.name, v.name, '') AS name").Where("s.owner_id = ? AND s.status <> ? AND COALESCE(s.draft_version_id, '') <> ?", userID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Order("s.created_at DESC, s.id").Scan(&rows).Error
 		return rows, err
 	case "grants":
 		rows := []ToolMarketGrant{}
-		err := q.Where("user_id = ?", userID).Order("created_at DESC, id").Find(&rows).Error
+		err := q.Where("user_id = ?", userID).Scopes(marketVisibleAccountRecords(userID, toolMarketGrantHiddenAction)).Order("created_at DESC, id").Find(&rows).Error
 		return rows, err
 	case "installations":
 		rows := []ToolMarketInstallation{}

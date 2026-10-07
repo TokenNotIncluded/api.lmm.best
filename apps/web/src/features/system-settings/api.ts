@@ -170,23 +170,6 @@ export async function listSystemTasks(limit = 20) {
   return res.data
 }
 
-export async function listAssistantReviewRuns(limit = 20) {
-  const res = await api.get<SystemTaskListResponse>(
-    '/api/security/admin/review-runs',
-    { params: { limit } }
-  )
-  return res.data
-}
-
-export async function getAssistantReviewRun<TTask = LogCleanupTask>(
-  taskId: string
-) {
-  const res = await api.get<SystemTaskResponse<TTask>>(
-    `/api/security/admin/review-runs/${taskId}`
-  )
-  return res.data
-}
-
 export async function resetModelRatios() {
   const res = await api.post<UpdateOptionResponse>(
     '/api/option/rest_model_ratio'

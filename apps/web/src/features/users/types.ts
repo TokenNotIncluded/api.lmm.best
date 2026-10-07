@@ -45,6 +45,8 @@ export const userSchema = z.object({
   email: z.string().optional(),
   quota: z.number(),
   used_quota: z.number(),
+  normalized_used_quota: z.number().nullable().optional(),
+  usage_projection_available: z.boolean().optional(),
   request_count: z.number(),
   group: z.string(),
   aff_code: z.string().optional(),
@@ -98,7 +100,16 @@ export const userSchema = z.object({
   topup_summary: z
     .object({
       quota: z.number(),
+      normalized_quota: z.number().int().nonnegative().optional(),
+      quota_projection_available: z.boolean().optional(),
       money_micros: z.number(),
+      settled_money_micros: z.number().int().nonnegative().optional(),
+      historical_money_micros: z.number().int().nonnegative().optional(),
+      settled_orders: z.number().int().nonnegative().optional(),
+      historical_orders: z.number().int().nonnegative().optional(),
+      payment_basis: z
+        .enum(['settled', 'historical', 'mixed', 'none'])
+        .optional(),
       currency: z.string().optional(),
       orders: z.number(),
       methods: z.array(
@@ -107,7 +118,16 @@ export const userSchema = z.object({
           provider: z.string().optional(),
           settlement_currency: z.string().optional(),
           quota: z.number(),
+          normalized_quota: z.number().int().nonnegative().optional(),
+          quota_projection_available: z.boolean().optional(),
           money_micros: z.number(),
+          settled_money_micros: z.number().int().nonnegative().optional(),
+          historical_money_micros: z.number().int().nonnegative().optional(),
+          settled_orders: z.number().int().nonnegative().optional(),
+          historical_orders: z.number().int().nonnegative().optional(),
+          payment_basis: z
+            .enum(['settled', 'historical', 'mixed', 'none'])
+            .optional(),
           orders: z.number(),
         })
       ),

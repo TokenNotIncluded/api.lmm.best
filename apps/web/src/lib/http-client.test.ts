@@ -33,11 +33,15 @@ import i18n from '@/i18n/config'
 import {
   applyAuthBundle,
   bindAuthCache,
+  clearAuthentication,
+  refreshAuthentication,
   setDevelopmentAuthRefreshAdapter,
 } from '@/lib/auth-session'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 import { api } from './http-client'
+import { createQueryRetry } from './query-retry'
+import { isRateLimitedError } from './request-rate-limit'
 
 const originalAPIAdapter = api.defaults.adapter
 
@@ -81,7 +85,7 @@ function bundle(token: string, expiresAt: number): AuthBundle {
 
 afterEach(() => {
   api.defaults.adapter = originalAPIAdapter
-  useAuthStore.getState().auth.reset('idle')
+  clearAuthentication(false, 'idle')
 })
 
 describe('canonical browser credit-unit acknowledgement', () => {
@@ -695,4 +699,115 @@ describe('requests bound to the initiating authentication', () => {
       ])
     }
   })
+})
+
+describe('refresh rate-limit backpressure', () => {
+  test('multiple protected query waves share cooldown without dispatching expired tokens', async () => {
+    const originalNow = Date.now
+    let clock = originalNow()
+    Date.now = () => clock
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: createQueryRetry(true), retryDelay: 0 },
+      },
+    })
+    try {
+      applyAuthBundle(
+        bundle('expired-token', Math.floor(clock / 1000) - 1),
+        false
+      )
+      let refreshCalls = 0
+      let protectedCalls = 0
+      let queryCalls = 0
+      setDevelopmentAuthRefreshAdapter(async (config) => {
+        refreshCalls++
+        const limitedResponse = response(config, 429, {})
+        limitedResponse.headers = { 'Retry-After': '120' }
+        throw new AxiosError(
+          'Too many requests',
+          'ERR_BAD_REQUEST',
+          config,
+          undefined,
+          limitedResponse
+        )
+      })
+      api.defaults.adapter = async (config) => {
+        protectedCalls++
+        return response(config, 200, {})
+      }
+      const wave = async (label: string) => {
+        const results = await Promise.allSettled(
+          [1, 2, 3].map((id) =>
+            queryClient.fetchQuery({
+              queryKey: [label, id],
+              queryFn: () => {
+                queryCalls++
+                return api.get(`/api/user/test-${label}-${id}`, {
+                  skipErrorHandler: true,
+                })
+              },
+            })
+          )
+        )
+        for (const result of results) {
+          assert.equal(result.status, 'rejected')
+          if (result.status === 'rejected') {
+            assert.equal(isRateLimitedError(result.reason), true)
+          }
+        }
+      }
+      await wave('first')
+      await wave('second')
+      assert.equal(refreshCalls, 1)
+      assert.equal(queryCalls, 6)
+      assert.equal(protectedCalls, 0)
+      assert.equal(useAuthStore.getState().auth.session?.sid, 'refresh-session')
+      assert.equal(useAuthStore.getState().auth.user?.id, 42)
+      clock += 120_001
+      await wave('after-cooldown')
+      assert.equal(refreshCalls, 2)
+      const changed = bundle('new-expired-token', Math.floor(clock / 1000) - 1)
+      changed.session.sid = 'different-session'
+      applyAuthBundle(changed, false)
+      await wave('new-session')
+      assert.equal(refreshCalls, 3)
+      assert.equal(protectedCalls, 0)
+    } finally {
+      Date.now = originalNow
+      queryClient.clear()
+    }
+  })
+})
+
+test('refresh 429 without Retry-After waits 30 seconds without clearing identity', async () => {
+  const originalNow = Date.now
+  let clock = originalNow()
+  Date.now = () => clock
+  try {
+    applyAuthBundle(
+      bundle('expired-token', Math.floor(clock / 1000) - 1),
+      false
+    )
+    let calls = 0
+    setDevelopmentAuthRefreshAdapter(async (config) => {
+      calls++
+      throw new AxiosError(
+        'Too many requests',
+        'ERR_BAD_REQUEST',
+        config,
+        undefined,
+        response(config, 429, {})
+      )
+    })
+    assert.equal((await refreshAuthentication()).kind, 'transient_error')
+    clock += 29_999
+    assert.equal((await refreshAuthentication()).kind, 'transient_error')
+    assert.equal(calls, 1)
+    assert.equal(useAuthStore.getState().auth.user?.id, 42)
+    clock += 2
+    await refreshAuthentication()
+    assert.equal(calls, 2)
+  } finally {
+    Date.now = originalNow
+  }
 })

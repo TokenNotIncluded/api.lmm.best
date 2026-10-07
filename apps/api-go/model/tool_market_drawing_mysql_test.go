@@ -75,7 +75,7 @@ func marketDrawingMySQLDB(t *testing.T) *gorm.DB {
 		DB, common.RedisEnabled = oldDB, oldRedis
 		common.SetDatabaseTypes(oldMain, oldLog)
 	})
-	require.NoError(t, db.AutoMigrate(append([]interface{}{&User{}}, toolMarketModels()...)...))
+	require.NoError(t, db.AutoMigrate(append([]interface{}{&User{}, &Option{}, &ModerationJob{}}, toolMarketModels()...)...))
 	return db
 }
 

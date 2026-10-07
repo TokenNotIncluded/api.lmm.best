@@ -23,7 +23,6 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 import { ErrorPageFrame } from './error-page-frame'
-import { SignalTuner } from './signal-tuner'
 
 const FEEDBACK_URL = 'https://github.com/TokenNotIncluded/api.lmm.best/issues'
 
@@ -102,7 +101,6 @@ export function GeneralError({
             </>
           ) : undefined
         }
-        play={!minimal ? <SignalTuner /> : undefined}
       />
     </div>
   )

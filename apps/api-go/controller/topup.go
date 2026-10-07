@@ -194,8 +194,8 @@ func GetTopUpInfo(c *gin.Context) {
 			ActivationRequired:             !access.Granted,
 			PaymentAvailable:               false,
 			PayMethods:                     []map[string]string{},
-			AmountOptions:                  []int{},
-			Discount:                       map[int]float64{},
+			AmountOptions:                  operation_setting.PaymentAmountOptions{},
+			Discount:                       operation_setting.PaymentAmountDiscount{},
 			EnableRedemption:               complianceConfirmed,
 			PaymentComplianceConfirmed:     complianceConfirmed,
 			PaymentComplianceTermsVersion:  operation_setting.CurrentComplianceTermsVersion,
@@ -295,39 +295,39 @@ func GetTopUpInfo(c *gin.Context) {
 }
 
 type neutralTopUpInfo struct {
-	LegacyAmountUnit               string              `json:"legacy_amount_unit"`
-	LegacyAmountOptions            []float64           `json:"legacy_amount_options"`
-	LegacyDiscount                 map[string]float64  `json:"legacy_discount"`
-	AmountUnit                     string              `json:"amount_unit"`
-	CurrencyUnit                   string              `json:"currency_unit"`
-	DeveloperAccessGranted         bool                `json:"developer_access_granted"`
-	ActivationRequired             bool                `json:"activation_required"`
-	PaymentAvailable               bool                `json:"payment_available"`
-	MinPayment                     float64             `json:"min_payment"`
-	EnableOnlineTopUp              bool                `json:"enable_online_topup"`
-	EnableStripeTopUp              bool                `json:"enable_stripe_topup"`
-	EnableCreemTopUp               bool                `json:"enable_creem_topup"`
-	EnableWaffoTopUp               bool                `json:"enable_waffo_topup"`
-	WaffoCurrency                  string              `json:"waffo_currency,omitempty"`
-	WaffoUnitPrice                 float64             `json:"waffo_unit_price,omitempty"`
-	EnableWaffoPancakeTopUp        bool                `json:"enable_waffo_pancake_topup"`
-	WaffoPancakeCurrency           string              `json:"waffo_pancake_currency"`
-	EnableStripeSubscription       bool                `json:"enable_stripe_subscription"`
-	EnableCreemSubscription        bool                `json:"enable_creem_subscription"`
-	EnableWaffoPancakeSubscription bool                `json:"enable_waffo_pancake_subscription"`
-	EnableRedemption               bool                `json:"enable_redemption"`
-	PayMethods                     []map[string]string `json:"pay_methods"`
-	CreemProducts                  string              `json:"creem_products"`
-	WaffoPayMethods                interface{}         `json:"waffo_pay_methods"`
-	MinTopUp                       int                 `json:"min_topup"`
-	StripeMinTopUp                 int                 `json:"stripe_min_topup"`
-	WaffoMinTopUp                  int                 `json:"waffo_min_topup"`
-	WaffoPancakeMinTopUp           int                 `json:"waffo_pancake_min_topup"`
-	TopUpLink                      string              `json:"topup_link"`
-	AmountOptions                  []int               `json:"amount_options"`
-	Discount                       map[int]float64     `json:"discount"`
-	PaymentComplianceConfirmed     bool                `json:"payment_compliance_confirmed"`
-	PaymentComplianceTermsVersion  string              `json:"payment_compliance_terms_version"`
+	LegacyAmountUnit               string                                  `json:"legacy_amount_unit"`
+	LegacyAmountOptions            []float64                               `json:"legacy_amount_options"`
+	LegacyDiscount                 map[string]float64                      `json:"legacy_discount"`
+	AmountUnit                     string                                  `json:"amount_unit"`
+	CurrencyUnit                   string                                  `json:"currency_unit"`
+	DeveloperAccessGranted         bool                                    `json:"developer_access_granted"`
+	ActivationRequired             bool                                    `json:"activation_required"`
+	PaymentAvailable               bool                                    `json:"payment_available"`
+	MinPayment                     float64                                 `json:"min_payment"`
+	EnableOnlineTopUp              bool                                    `json:"enable_online_topup"`
+	EnableStripeTopUp              bool                                    `json:"enable_stripe_topup"`
+	EnableCreemTopUp               bool                                    `json:"enable_creem_topup"`
+	EnableWaffoTopUp               bool                                    `json:"enable_waffo_topup"`
+	WaffoCurrency                  string                                  `json:"waffo_currency,omitempty"`
+	WaffoUnitPrice                 float64                                 `json:"waffo_unit_price,omitempty"`
+	EnableWaffoPancakeTopUp        bool                                    `json:"enable_waffo_pancake_topup"`
+	WaffoPancakeCurrency           string                                  `json:"waffo_pancake_currency"`
+	EnableStripeSubscription       bool                                    `json:"enable_stripe_subscription"`
+	EnableCreemSubscription        bool                                    `json:"enable_creem_subscription"`
+	EnableWaffoPancakeSubscription bool                                    `json:"enable_waffo_pancake_subscription"`
+	EnableRedemption               bool                                    `json:"enable_redemption"`
+	PayMethods                     []map[string]string                     `json:"pay_methods"`
+	CreemProducts                  string                                  `json:"creem_products"`
+	WaffoPayMethods                interface{}                             `json:"waffo_pay_methods"`
+	MinTopUp                       int                                     `json:"min_topup"`
+	StripeMinTopUp                 int                                     `json:"stripe_min_topup"`
+	WaffoMinTopUp                  int                                     `json:"waffo_min_topup"`
+	WaffoPancakeMinTopUp           int                                     `json:"waffo_pancake_min_topup"`
+	TopUpLink                      string                                  `json:"topup_link"`
+	AmountOptions                  operation_setting.PaymentAmountOptions  `json:"amount_options"`
+	Discount                       operation_setting.PaymentAmountDiscount `json:"discount"`
+	PaymentComplianceConfirmed     bool                                    `json:"payment_compliance_confirmed"`
+	PaymentComplianceTermsVersion  string                                  `json:"payment_compliance_terms_version"`
 }
 
 type subscriptionPaymentAvailability struct {
@@ -805,6 +805,28 @@ type payMethodSettlementPricing struct {
 	usesFixedCreditDenomination        bool
 }
 
+func privateSettlementPricing(pricing paymentpricing.SettlementPricing) payMethodSettlementPricing {
+	return payMethodSettlementPricing{
+		settlementCurrency:                 pricing.SettlementCurrency,
+		platformUnitsPerUSD:                pricing.PlatformUnitsPerUSD,
+		settlementUnitsPerUSD:              pricing.SettlementUnitsPerUSD,
+		settlementUnitsPerPlatformUnit:     pricing.SettlementUnitsPerPlatformUnit,
+		usesSettlementUnitsPerPlatformUnit: pricing.UsesSettlementUnitsPerPlatformUnit,
+		usesFixedCreditDenomination:        pricing.UsesFixedCreditDenomination,
+	}
+}
+
+func (pricing payMethodSettlementPricing) sharedSettlementPricing() paymentpricing.SettlementPricing {
+	return paymentpricing.SettlementPricing{
+		SettlementCurrency:                 pricing.settlementCurrency,
+		PlatformUnitsPerUSD:                pricing.platformUnitsPerUSD,
+		SettlementUnitsPerUSD:              pricing.settlementUnitsPerUSD,
+		SettlementUnitsPerPlatformUnit:     pricing.settlementUnitsPerPlatformUnit,
+		UsesSettlementUnitsPerPlatformUnit: pricing.usesSettlementUnitsPerPlatformUnit,
+		UsesFixedCreditDenomination:        pricing.usesFixedCreditDenomination,
+	}
+}
+
 func parsePositivePaymentRate(paymentMethod, field, raw string) (decimal.Decimal, error) {
 	if !positiveDecimalPattern.MatchString(raw) {
 		return decimal.Zero, fmt.Errorf("payment method %q has invalid %s", paymentMethod, field)
@@ -835,21 +857,10 @@ func standardSettlementPricing(settlementCurrency string) (payMethodSettlementPr
 	if err != nil {
 		return payMethodSettlementPricing{}, err
 	}
-	var settlementUnitsPerUSD decimal.Decimal
-	switch strings.ToUpper(strings.TrimSpace(settlementCurrency)) {
-	case paymentpricing.CurrencyUSD:
-		settlementUnitsPerUSD = decimal.NewFromInt(1)
-	case paymentpricing.CurrencyCNY:
-		settlementUnitsPerUSD = rates.CNYPerUSD
-	default:
-		return payMethodSettlementPricing{}, fmt.Errorf("unsupported standard settlement currency %q", settlementCurrency)
-	}
-	return payMethodSettlementPricing{
-		settlementCurrency:          strings.ToUpper(strings.TrimSpace(settlementCurrency)),
-		platformUnitsPerUSD:         platformUnitsPerUSD,
-		settlementUnitsPerUSD:       settlementUnitsPerUSD,
-		usesFixedCreditDenomination: true,
-	}, nil
+	pricing, err := paymentpricing.ParseSettlementPricing("", map[string]string{
+		"settlement_currency": settlementCurrency,
+	}, platformUnitsPerUSD, rates.CNYPerUSD)
+	return privateSettlementPricing(pricing), err
 }
 
 // getPayMethodSettlementPricing accepts explicit pricing for genuinely custom
@@ -869,65 +880,31 @@ func getPayMethodSettlementPricing(paymentMethod string) (payMethodSettlementPri
 		return standardSettlementPricing("CNY")
 	}
 
-	platformRaw, hasPlatformRate := payMethod["platform_units_per_usd"]
-	settlementRaw, hasSettlementRate := payMethod["settlement_units_per_usd"]
-	directRaw, hasDirectRate := payMethod["settlement_units_per_platform_unit"]
-	legacyRaw, hasLegacyRate := payMethod["unit_price"]
+	_, hasPlatformRate := payMethod["platform_units_per_usd"]
+	_, hasSettlementRate := payMethod["settlement_units_per_usd"]
+	_, hasDirectRate := payMethod["settlement_units_per_platform_unit"]
+	_, hasLegacyRate := payMethod["unit_price"]
 	if !hasPlatformRate && !hasSettlementRate && !hasDirectRate && !hasLegacyRate {
 		return standardSettlementPricing(settlementUnit)
 	}
-	if hasPlatformRate && !hasSettlementRate {
-		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q configures platform_units_per_usd without settlement_units_per_usd", paymentMethod)
-	}
-	if hasSettlementRate && (hasDirectRate || hasLegacyRate) {
-		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q mixes FX and per-platform-unit pricing", paymentMethod)
-	}
-
-	if hasSettlementRate {
-		var platformRate decimal.Decimal
-		if hasPlatformRate {
-			platformRate, err = parsePositivePaymentRate(paymentMethod, "platform_units_per_usd", platformRaw)
-		} else {
-			platformRate, err = configuredPlatformUnitsPerUSD()
-			if err != nil {
-				return payMethodSettlementPricing{}, fmt.Errorf("payment method %q requires a configured platform USD rate: %w", paymentMethod, err)
-			}
-		}
-		settlementRate, err := parsePositivePaymentRate(paymentMethod, "settlement_units_per_usd", settlementRaw)
+	defaultPlatformUnitsPerUSD := decimal.Zero
+	if hasSettlementRate && !hasPlatformRate && !hasDirectRate && !hasLegacyRate {
+		// An explicit non-fiat settlement rate uses only the immutable K/QPU
+		// basis. It does not require unrelated live CNY FX to be configured.
+		defaultPlatformUnitsPerUSD, err = common.LegacyPricingUnitsPerUSD()
 		if err != nil {
-			return payMethodSettlementPricing{}, err
-		}
-		return payMethodSettlementPricing{
-			settlementCurrency:    settlementUnit,
-			platformUnitsPerUSD:   platformRate,
-			settlementUnitsPerUSD: settlementRate,
-		}, nil
-	}
-
-	if !hasDirectRate && !hasLegacyRate {
-		return payMethodSettlementPricing{}, fmt.Errorf("payment method %q has no explicit settlement pricing", paymentMethod)
-	}
-	if !hasDirectRate {
-		directRaw = legacyRaw
-	}
-	directRate, err := parsePositivePaymentRate(paymentMethod, "settlement_units_per_platform_unit", directRaw)
-	if err != nil {
-		return payMethodSettlementPricing{}, err
-	}
-	if hasDirectRate && hasLegacyRate {
-		legacyRate, err := parsePositivePaymentRate(paymentMethod, "unit_price", legacyRaw)
-		if err != nil {
-			return payMethodSettlementPricing{}, err
-		}
-		if !directRate.Equal(legacyRate) {
-			return payMethodSettlementPricing{}, fmt.Errorf("payment method %q has conflicting per-platform-unit rates", paymentMethod)
+			return payMethodSettlementPricing{}, fmt.Errorf("payment method %q requires a configured platform USD rate: %w", paymentMethod, err)
 		}
 	}
-	return payMethodSettlementPricing{
-		settlementCurrency:                 settlementUnit,
-		settlementUnitsPerPlatformUnit:     directRate,
-		usesSettlementUnitsPerPlatformUnit: true,
-	}, nil
+	method := make(map[string]string, len(payMethod)+1)
+	for key, value := range payMethod {
+		method[key] = value
+	}
+	// Preserve the legacy recharge route's generic Epay CNY default. The
+	// shared parser itself requires an explicit unit, including for LDC.
+	method["settlement_currency"] = settlementUnit
+	pricing, err := paymentpricing.ParseSettlementPricing(paymentMethod, method, defaultPlatformUnitsPerUSD, decimal.Zero)
+	return privateSettlementPricing(pricing), err
 }
 
 func settlementAmountForPlatformAmount(platformAmount decimal.Decimal, pricing payMethodSettlementPricing) (decimal.Decimal, error) {
@@ -1041,12 +1018,8 @@ func applyTopUpSettlementRatiosWithOriginal(settlementAmount, discountAmount dec
 	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
 	// apply optional preset discount by the original request amount (if configured), default 1.0
 	discount := 1.0
-	if discountAmount.Equal(discountAmount.Truncate(0)) && discountAmount.IsInteger() {
-		if key, ok := decimalInt64Truncated(discountAmount); ok {
-			if ds, exists := operation_setting.GetPaymentSetting().AmountDiscount[int(key)]; exists && ds > 0 {
-				discount = ds
-			}
-		}
+	if ds, exists := operation_setting.GetPaymentSetting().AmountDiscount[discountAmount.String()]; exists && ds > 0 {
+		discount = ds
 	}
 	dDiscount := decimal.NewFromFloat(discount)
 

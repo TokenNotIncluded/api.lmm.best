@@ -113,33 +113,39 @@ for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
 
     workflow_status=$(jq -r '.status' <<<"$workflow_run")
     workflow_conclusion=$(jq -r '.conclusion // ""' <<<"$workflow_run")
-    if [[ $workflow_status != completed ]]; then
-      pending+=("$name ($workflow $workflow_status)")
-      continue
+    allow_component_parent=false
+    if [[ $COMPONENT == go || $COMPONENT == web ]]; then
+      case "$workflow" in
+        .github/workflows/ci.yml|dynamic/github-code-scanning/codeql)
+          allow_component_parent=true ;;
+      esac
     fi
-    if [[ $workflow_conclusion != success ]]; then
-      allow_component_failure=false
-      if [[ ($COMPONENT == go || $COMPONENT == web) && $workflow_conclusion == failure ]]; then
-        case "$workflow" in
-          .github/workflows/ci.yml|dynamic/github-code-scanning/codeql)
-            allow_component_failure=true ;;
-        esac
+    if [[ $workflow_status != completed ]]; then
+      if [[ $allow_component_parent != true || $workflow_status != in_progress || -n $workflow_conclusion ]]; then
+        pending+=("$name ($workflow $workflow_status)")
+        continue
       fi
-      if [[ $allow_component_failure != true ]]; then
+    elif [[ $workflow_conclusion != success ]]; then
+      if [[ $allow_component_parent != true || $workflow_conclusion != failure ]]; then
         invalid+=("$name ($workflow $workflow_conclusion)")
         continue
       fi
     fi
 
     workflow_run_id=$(jq -r '.id' <<<"$workflow_run")
-    record=$(jq -c --arg name "$name" --argjson run_id "$workflow_run_id" '
+    record=$(jq -c --arg name "$name" --arg revision "$REVISION" \
+      --arg parent_status "$workflow_status" --argjson run_id "$workflow_run_id" '
       [.check_runs[] |
         select(
           .name == $name and
+          .head_sha == $revision and
           .app.slug == "github-actions" and
           ((.details_url // "") | contains("/actions/runs/" + ($run_id | tostring) + "/"))
         )] |
       if length == 0 then null
+      # A running parent can be rerunning a formerly successful job. Its newest
+      # check-run ID must win even when a queued job has no started_at yet.
+      elif $parent_status == "in_progress" then max_by(.id)
       elif any(.status == "completed") then
         [.[] | select(.status == "completed")] |
         max_by([(.completed_at // .started_at // ""), .id])

@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
+	"github.com/LIghtJUNction/api.lmm.best/setting/config"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -26,7 +27,7 @@ func canonicalCreditTestConfig(t *testing.T, quotaPerBatch int64) {
 	persistCreditDenominationFixture(t, model.DB)
 	operation_setting.MinTopUp = 0
 	setting.StripeMinTopUp, setting.WaffoMinTopUp, setting.WaffoPancakeMinTopUp = 0, 0, 0
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	previousRatios := common.TopupGroupRatio2JSONString()
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 	t.Cleanup(func() { require.NoError(t, common.UpdateTopupGroupRatioByJSONString(previousRatios)) })
@@ -107,7 +108,7 @@ func TestCanonicalTopUpCreditCouponUsesOriginalRawQualification(t *testing.T) {
 	setupTopupInfoUser(t, 701, "default")
 	require.NoError(t, model.DB.AutoMigrate(&model.DiscountCode{}, &model.DiscountCodeReservation{}))
 	operation_setting.GetGeneralSetting().QuotaDisplayType = "TOKENS"
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1: 0.9}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"1": 0.9}
 	operation_setting.PayMethods = []map[string]string{{"type": "custom-credit", "settlement_unit": "CNY", "unit_price": "300000"}}
 	code := model.DiscountCode{Code: "RAW1", DiscountPercent: 10, MinAmount: 1, MaxUses: 1, Status: model.DiscountCodeStatusEnabled}
 	require.NoError(t, model.DB.Create(&code).Error)
@@ -173,7 +174,7 @@ func TestCanonicalTopUpCreditProviderQuotesShareRawDiscountQualification(t *test
 	require.NoError(t, model.DB.AutoMigrate(&model.DiscountCode{}))
 	operation_setting.USDExchangeRate = 8
 	operation_setting.GetGeneralSetting().QuotaDisplayType = "TOKENS"
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{1000000: 0.9}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{"1000000": 0.9}
 	operation_setting.PayMethods = []map[string]string{{"type": "alipay"}}
 	code := model.DiscountCode{Code: "PROVIDER_RAW", DiscountPercent: 10, MinAmount: 1000000, Status: model.DiscountCodeStatusEnabled}
 	require.NoError(t, model.DB.Create(&code).Error)
@@ -248,6 +249,11 @@ func TestCanonicalTopUpCreditStandardCNYQuoteCheckoutAndFrozenGrant(t *testing.T
 			require.Equal(t, tc.credits, order.CreditedQuota)
 			require.EqualValues(t, 100000000, order.ExpectedAmountMicros)
 			operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 9, 99
+			// Editing fractional presets and discounts also applies only to new
+			// quotes, never to this already-frozen payment or its credit grant.
+			require.NoError(t, config.UpdateConfigFromMap(operation_setting.GetPaymentSetting(), map[string]string{
+				"amount_options": `[3.5,100]`, "amount_discount": `{"3.5":0.98,"100":0.9}`,
+			}))
 			// Synthetic transaction evidence exercises local grant/replay only.
 			// It does not establish acceptance of a real provider payment.
 			settlement := model.ExternalTopUpSettlement{TradeNo: order.TradeNo, PaymentProvider: model.PaymentProviderEpay,

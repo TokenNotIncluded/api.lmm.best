@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -24,6 +27,26 @@ import { toast } from 'sonner'
 import { Dialog } from '@/components/dialog'
 import { Label } from '@/components/ui/label'
 import { useBillingUSD } from '@/hooks/use-billing-usd'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { formatCumulativeUserUsage } from '@/lib/cumulative-user-usage'
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { formatCompactNumber } from '@/lib/format'
 
 import { getUserInfo } from '../../api'
@@ -49,7 +72,10 @@ export function UserInfoDialog({
   open,
   onOpenChange,
 }: UserInfoDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const rawCreditLocale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
   const { formatQuota } = useBillingUSD()
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -118,7 +144,12 @@ export function UserInfoDialog({
             />
             <InfoItem
               label={t('Used Quota')}
-              value={formatQuota(userInfo.used_quota)}
+              value={formatCumulativeUserUsage(
+                userInfo,
+                formatQuota,
+                t('Credits'),
+                rawCreditLocale
+              )}
             />
           </div>
 

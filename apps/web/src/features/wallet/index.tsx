@@ -46,6 +46,7 @@ import { BillingHistoryDialog } from './components/dialogs/billing-history-dialo
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
+import { PaymentSuccessReceipt } from './components/payment-success-receipt'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { TrustLevelPanel } from './components/trust-level-panel'
@@ -93,6 +94,7 @@ import type {
 interface WalletProps {
   initialShowHistory?: boolean
   initialTopupAmount?: number
+  paymentReturn?: 'return' | 'cancel'
 }
 
 type DiscountValidationContext = {
@@ -210,7 +212,21 @@ function WalletCheckout(
     number | null
   >(null)
   const [paymentFeedback, setPaymentFeedback] =
-    useState<PaymentFeedback | null>(null)
+    useState<PaymentFeedback | null>(() =>
+      props.paymentReturn
+        ? {
+            tone: 'default',
+            message: t(
+              props.paymentReturn === 'cancel'
+                ? 'Check your order history before trying another payment.'
+                : 'Payment confirmation may take a moment. Check your order history for the result.'
+            ),
+          }
+        : null
+    )
+  const [confirmedReceiptOrderId, setConfirmedReceiptOrderId] = useState<
+    number | null
+  >(null)
   const {
     success: cloudSuccess,
     prepare: prepareTopupCloud,
@@ -232,6 +248,7 @@ function WalletCheckout(
   const { status } = useStatus()
   useEffect(() => {
     if (!cloudSuccess) return
+    setConfirmedReceiptOrderId(cloudSuccess.orderId)
     setPaymentFeedback({
       tone: 'success',
       message: t('Order completed successfully'),
@@ -1069,7 +1086,38 @@ function WalletCheckout(
         <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <div className='wallet-editorial mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5'>
-            {paymentFeedback ? (
+            {confirmedReceiptOrderId !== null ? (
+              <PaymentSuccessReceipt
+                balance={currency.formatQuota(user?.quota ?? 0)}
+                onViewBalance={
+                  developerAccessGranted
+                    ? () => {
+                        const balance =
+                          document.getElementById('wallet-balance')
+                        balance?.scrollIntoView({
+                          behavior: window.matchMedia(
+                            '(prefers-reduced-motion: reduce)'
+                          ).matches
+                            ? 'auto'
+                            : 'smooth',
+                          block: 'center',
+                        })
+                        balance?.focus({ preventScroll: true })
+                      }
+                    : undefined
+                }
+                onViewHistory={
+                  developerAccessGranted
+                    ? () => setBillingDialogOpen(true)
+                    : undefined
+                }
+                onDismiss={() => {
+                  acknowledgeTopupCloud(confirmedReceiptOrderId)
+                  setConfirmedReceiptOrderId(null)
+                  setPaymentFeedback(null)
+                }}
+              />
+            ) : paymentFeedback ? (
               <Alert
                 variant={
                   paymentFeedback.tone === 'destructive'

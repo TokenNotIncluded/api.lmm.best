@@ -129,7 +129,7 @@ func TestTopUpOrderSnapshotsExactFractionalPlatformAmount(t *testing.T) {
 func TestDedicatedUSDGatewaysKeepFrozenQuoteWhenLiveFXChanges(t *testing.T) {
 	preserveChannelPricing(t)
 	operation_setting.TopUpPlatformUnitsPerCNY = 1
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 
 	platformAmount := decimal.RequireFromString("6.8")
@@ -149,7 +149,7 @@ func TestDedicatedUSDGatewaysPreserveEachSiteInitializationPrice(t *testing.T) {
 	previousQPU := common.QuotaPerUnit
 	common.QuotaPerUnit = 500000
 	t.Cleanup(func() { common.QuotaPerUnit = previousQPU })
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 	for _, tc := range []struct {
 		name, initialFX, initialBonus, initialCreditsPerUSD, legacyAmount string
@@ -181,7 +181,7 @@ func TestDedicatedUSDGatewaysShareOneStandardQuote(t *testing.T) {
 	preserveChannelPricing(t)
 	operation_setting.USDExchangeRate = 6.8
 	operation_setting.TopUpPlatformUnitsPerCNY = 1
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 	setting.StripeUnitPrice = 99
 	setting.WaffoUnitPrice = 88
@@ -243,7 +243,7 @@ func TestQuoteTopUpSupportsExplicitFXAndLegacyDirectPricing(t *testing.T) {
 		{"name": "CNY global platform rate", "type": "cny-global", "settlement_currency": "CNY", "settlement_units_per_usd": "6.8"},
 		{"name": "LINUX DO Credit", "type": "epay", "settlement_unit": "LDC", "unit_price": "10", "topup_ratio": "0.5"},
 	}
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1,"ldc":0.14}`))
 
 	usd, err := quoteTopUp(68, "default", "usd")
@@ -290,7 +290,7 @@ func TestEpayAlwaysUsesCNYSettlementContract(t *testing.T) {
 	preserveChannelPricing(t)
 	operation_setting.USDExchangeRate = 6.8
 	operation_setting.TopUpPlatformUnitsPerCNY = 1
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 	operation_setting.PayMethods = []map[string]string{
 		{"name": "支付宝", "type": "alipay", "settlement_currency": "CNY", "unit_price": "0.1470588235"},
@@ -428,7 +428,7 @@ func TestRequestAmountWithoutPaymentMethodDoesNotUseGlobalPrice(t *testing.T) {
 	preserveChannelPricing(t)
 	setupTopupInfoUser(t, 302, "default")
 	operation_setting.Price = 7.3
-	operation_setting.GetPaymentSetting().AmountDiscount = map[int]float64{}
+	operation_setting.GetPaymentSetting().AmountDiscount = operation_setting.PaymentAmountDiscount{}
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":1}`))
 
 	w := httptest.NewRecorder()

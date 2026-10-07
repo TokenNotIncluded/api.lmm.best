@@ -22,6 +22,8 @@
     ".tanstack",
     ".eslintrc.cjs",
     "**/routeTree.gen.ts",
-    "src/routeTree.gen.ts"
+    "src/routeTree.gen.ts",
+    "src/components/shaders/generated/ForgeAmbient.tsx",
+    "src/components/shaders/forge-ambient.generated.json"
   ]
 }

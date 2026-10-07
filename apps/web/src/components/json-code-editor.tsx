@@ -69,6 +69,8 @@ export type JsonCodeEditorProps = Omit<
   disabled?: boolean
   heightClassName?: string
   placeholder?: string
+  /** Preserve domain-specific numeric tokens; null leaves an invalid draft untouched. */
+  formatValue?: (value: string) => string | null
   /** A complete, safe-to-share JSON example shown below the editor. */
   example?: string
   /** The authoritative field contract shown next to the example. */
@@ -334,6 +336,7 @@ export function JsonCodeEditor({
   disabled,
   heightClassName = 'h-56 min-h-56 max-h-56',
   placeholder,
+  formatValue,
   example,
   specification,
   specificationDefaultOpen,
@@ -516,6 +519,11 @@ export function JsonCodeEditor({
   ])
 
   const formatJson = () => {
+    if (formatValue) {
+      const formatted = formatValue(value)
+      if (formatted !== null) onChange(formatted)
+      return
+    }
     const result = formatJsonDraft(value)
     if (result.didFormat) {
       onChange(result.value)

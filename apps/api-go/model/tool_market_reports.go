@@ -110,7 +110,7 @@ func ReviewToolMarketReport(actor int, callID string, confirmed bool, note strin
 			}
 			return ErrToolMarketConflict
 		}
-		if confirmed {
+		if confirmed && !marketServiceRetired(service) {
 			if service.OwnerID == 0 {
 				return ErrToolMarketDenied
 			}

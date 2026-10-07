@@ -21,21 +21,22 @@ import (
 )
 
 const (
-	productionServiceName         = "lmm-api.service"
-	productionExpectedHost        = "arch-dmit"
-	productionDefaultObservation  = 3 * time.Minute
-	productionObservationInterval = 10 * time.Second
-	productionCommandTimeout      = 2 * time.Minute
-	productionProbeTimeout        = 8 * time.Second
-	productionProbeAttempts       = 45
-	productionTransactionFormat   = 8
-	productionStatusFormat        = 2
-	productionFrontendReleaseKeep = 3
-	productionTransactionMarker   = "deployment.env"
-	productionWorkspaceMarker     = ".lmm-deploy-workspace"
-	productionCandidateLinkName   = "lmm-api"
-	productionManifestFilename    = "deployment.json"
-	productionStatusFilename      = "status.json"
+	productionServiceName                     = "lmm-api.service"
+	productionExpectedHost                    = "arch-dmit"
+	productionDefaultObservation              = 3 * time.Minute
+	productionObservationInterval             = 10 * time.Second
+	productionCommandTimeout                  = 2 * time.Minute
+	productionProbeTimeout                    = 8 * time.Second
+	productionProbeAttempts                   = 45
+	productionTransactionFormat               = 8
+	productionExistingSchemaTransactionFormat = 9
+	productionStatusFormat                    = 2
+	productionFrontendReleaseKeep             = 3
+	productionTransactionMarker               = "deployment.env"
+	productionWorkspaceMarker                 = ".lmm-deploy-workspace"
+	productionCandidateLinkName               = "lmm-api"
+	productionManifestFilename                = "deployment.json"
+	productionStatusFilename                  = "status.json"
 	// pi-lens-ignore: go-hardcoded-secrets
 	productionProbeTokenFilename   = "probe-token"
 	productionConfigRestoreDirname = "config-restore"
@@ -315,6 +316,8 @@ func defaultProductionRuntime() *productionRuntime {
 }
 
 type productionTransactionOptions struct {
+	SchemaMode               string
+	ExistingSchemaContract   *productionExistingSchemaContract
 	StagedPlanPath           string
 	StagedPlanSHA256         string
 	MaintenanceHandoffPath   string
@@ -376,7 +379,10 @@ type productionFrontendTransition struct {
 }
 
 type productionManifest struct {
-	MaintenanceCapture *productionMaintenanceCapture `json:"maintenance_capture,omitempty"`
+	SchemaMode             string                            `json:"schema_mode,omitempty"`
+	ExistingSchemaContract *productionExistingSchemaContract `json:"existing_schema_contract,omitempty"`
+	SchemaPlanSHA256       string                            `json:"schema_plan_sha256,omitempty"`
+	MaintenanceCapture     *productionMaintenanceCapture     `json:"maintenance_capture,omitempty"`
 
 	MaintenanceHandoff *productionMaintenanceHandoff `json:"maintenance_handoff,omitempty"`
 
@@ -828,7 +834,7 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 	flags.StringVar(&options.Workspace, "workspace", "", "marker-owned target deployment workspace")
 	flags.StringVar(&options.MaintenanceHandoffPath, "maintenance-handoff", "", "root-owned immutable maintenance handoff")
 	flags.StringVar(&options.MaintenanceHandoffSHA256, "maintenance-handoff-sha256", "", "exact maintenance handoff SHA-256")
-	if action == "status" {
+	if action == "status" || action == "schema-verify" || action == "apply" {
 		flags.StringVar(&options.StagedPlanPath, "staged-plan", "", "immutable plan staged inside the target workspace for absent-dispatch proof")
 		flags.StringVar(&options.StagedPlanSHA256, "staged-plan-sha256", "", "immutable staged plan SHA-256")
 	}
@@ -841,6 +847,7 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		flags.StringVar(&options.AllAdmissionClosedSHA256, "all-admission-closed-sha256", "", "exact all-origin closure receipt digest")
 	}
 	if action == "apply" || action == "maintenance-capture" || action == "maintenance-retry" {
+		flags.StringVar(&options.SchemaMode, "schema-mode", "", "immutable verify-existing schema policy from the staged release plan")
 		flags.StringVar(&options.OperatorUser, "operator-user", "", "validated unprivileged paru operator")
 		flags.StringVar(&options.GoPackage, "go-package", "", "candidate lmm-api-go-bin package")
 		flags.StringVar(&options.GoPackageSHA256, "go-package-sha256", "", "candidate Go package SHA-256")
@@ -875,7 +882,7 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		if err := flags.Parse(args); err != nil {
 			return productionTransactionOptions{}, err
 		}
-	} else if action == "status" || action == "confirm" || action == "maintenance-release" || action == "maintenance-close" || action == "maintenance-stop" {
+	} else if action == "status" || action == "schema-verify" || action == "confirm" || action == "maintenance-release" || action == "maintenance-close" || action == "maintenance-stop" {
 		if err := flags.Parse(args); err != nil {
 			return productionTransactionOptions{}, err
 		}
@@ -894,6 +901,17 @@ func parseProductionTransactionOptions(action string, args []string, stderr io.W
 		return productionTransactionOptions{}, fmt.Errorf("invalid --workspace: %w", err)
 	}
 	options.Workspace = workspace
+	if options.SchemaMode != "" && options.SchemaMode != productionSchemaModeVerifyExisting {
+		return productionTransactionOptions{}, errors.New("--schema-mode must be verify-existing or omitted")
+	}
+	if options.SchemaMode == productionSchemaModeVerifyExisting || action == "schema-verify" {
+		if (action != "apply" && action != "schema-verify") || options.MaintenanceHandoffPath != "" || options.MaintenanceHandoffSHA256 != "" ||
+			options.StagedPlanPath != filepath.Join(options.Workspace, "staging", productionReleasePlanFilename) || !productionSHA256Pattern.MatchString(options.StagedPlanSHA256) {
+			return productionTransactionOptions{}, errors.New("verify-existing requires the exact staged ordinary release plan")
+		}
+	} else if action == "apply" && (options.StagedPlanPath != "" || options.StagedPlanSHA256 != "") {
+		return productionTransactionOptions{}, errors.New("staged schema policy requires --schema-mode verify-existing")
+	}
 	if (options.MaintenanceHandoffPath == "") != (options.MaintenanceHandoffSHA256 == "") {
 		return productionTransactionOptions{}, errors.New("maintenance handoff path and SHA-256 must be supplied together")
 	}
@@ -1009,9 +1027,11 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 		if err := runtime.refuseUnstoppedPostMutation(); err != nil {
 			return productionStatus{}, err
 		}
-		workspace, err = runtime.openWorkspace(options.Workspace)
-		if err != nil {
-			return productionStatus{}, err
+		if options.Action != "schema-verify" {
+			workspace, err = runtime.openWorkspace(options.Workspace)
+			if err != nil {
+				return productionStatus{}, err
+			}
 		}
 	}
 	if options.Action == "status" && runtime.maintenanceHandoff != nil {
@@ -1026,6 +1046,18 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 	defer runtime.releaseGlobalLock(lock)
 
 	switch options.Action {
+	case "schema-verify":
+		if runtime.maintenanceHandoff != nil {
+			return productionStatus{}, errors.New("verify-existing cannot use a financial maintenance handoff")
+		}
+		plan, err := loadStagedProductionExistingSchemaPlan(workspace, options.StagedPlanPath, options.StagedPlanSHA256)
+		if err != nil {
+			return productionStatus{}, err
+		}
+		if err := runtime.verifyExistingSchemaLifecycle(ctx, productionManifest{SchemaMode: plan.SchemaMode, ExistingSchemaContract: plan.ExistingSchemaContract, DatabaseSchema: plan.ExistingSchemaContract.Schema}); err != nil {
+			return productionStatus{}, err
+		}
+		return productionStatus{Format: productionStatusFormat, DeploymentID: workspace.id, PlanSHA256: options.StagedPlanSHA256, Version: plan.ExpectedVersion, Phase: "SCHEMA_VERIFIED"}, nil
 	case "apply", "maintenance-capture", "maintenance-retry":
 		return runtime.apply(ctx, workspace, options)
 	case "maintenance-close":
@@ -1230,7 +1262,17 @@ func (runtime *productionRuntime) readStatus(workspace productionWorkspace) (pro
 }
 
 func (runtime *productionRuntime) writeManifest(workspace productionWorkspace, manifest productionManifest) error {
-	manifest.Format = productionTransactionFormat
+	if manifest.SchemaMode == productionSchemaModeVerifyExisting {
+		manifest.Format = productionExistingSchemaTransactionFormat
+	} else {
+		if manifest.SchemaMode != "" || manifest.Format == productionExistingSchemaTransactionFormat || manifest.ExistingSchemaContract != nil || manifest.SchemaPlanSHA256 != "" {
+			return errors.New("cannot write a downgraded or unsupported existing-schema policy")
+		}
+		manifest.Format = productionTransactionFormat
+	}
+	if err := validateProductionExistingSchemaManifest(manifest); err != nil {
+		return err
+	}
 	manifest.DeploymentID = workspace.id
 	encoded, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -1281,10 +1323,18 @@ func (runtime *productionRuntime) readManifestSchema(workspace productionWorkspa
 	if err := json.Unmarshal(content, &manifest); err != nil {
 		return productionManifest{}, fmt.Errorf("decode deployment manifest: %w", err)
 	}
-	if manifest.Format != productionTransactionFormat || manifest.DeploymentID != workspace.id {
+	if manifest.Format == productionExistingSchemaTransactionFormat {
+		if err := decodeControllerBackupJSON(content, &manifest); err != nil {
+			return productionManifest{}, fmt.Errorf("decode existing-schema deployment manifest: %w", err)
+		}
+	}
+	if (manifest.Format != productionTransactionFormat && manifest.Format != productionExistingSchemaTransactionFormat) || manifest.DeploymentID != workspace.id {
 		return productionManifest{}, errors.New("deployment manifest identity is invalid")
 	}
 	if err := runtime.validateManifestSchema(workspace, manifest); err != nil {
+		return productionManifest{}, err
+	}
+	if err := validateProductionExistingSchemaManifestPlan(workspace, manifest); err != nil {
 		return productionManifest{}, err
 	}
 	return manifest, nil
@@ -1309,6 +1359,9 @@ func (runtime *productionRuntime) validateManifest(workspace productionWorkspace
 }
 
 func (runtime *productionRuntime) validateManifestSchema(workspace productionWorkspace, manifest productionManifest) error {
+	if err := validateProductionExistingSchemaManifest(manifest); err != nil {
+		return err
+	}
 	if !productionVersionPattern.MatchString(manifest.ExpectedVersion) || !productionVersionPattern.MatchString(manifest.OldVersion) ||
 		manifest.OperatorUser != productionOperatorUser {
 		return errors.New("deployment manifest contains invalid release or operator identity")
@@ -1418,6 +1471,119 @@ func (runtime *productionRuntime) validateManifestSchema(workspace productionWor
 	}
 	if !isDatabaseSchema(manifest.DatabaseSchema) {
 		return errors.New("deployment manifest contains unsafe schema data")
+	}
+	return nil
+}
+
+func productionManifestSupportsControllerBackups(manifest productionManifest) bool {
+	return manifest.Format == productionTransactionFormat || manifest.Format == productionExistingSchemaTransactionFormat
+}
+
+func validateProductionExistingSchemaManifest(manifest productionManifest) error {
+	if manifest.Format != productionExistingSchemaTransactionFormat {
+		if manifest.SchemaMode != "" || manifest.ExistingSchemaContract != nil || manifest.SchemaPlanSHA256 != "" {
+			return errors.New("historical deployment manifests cannot contain an existing-schema policy")
+		}
+		return nil
+	}
+	if manifest.SchemaMode != productionSchemaModeVerifyExisting || !manifest.Go.Changed || manifest.MaintenanceHandoff != nil ||
+		manifest.Go.CandidateContractRevision != manifest.Go.RollbackContractRevision || !productionSHA256Pattern.MatchString(manifest.SchemaPlanSHA256) {
+		return errors.New("verify-existing deployment manifest policy is invalid")
+	}
+	if err := validateProductionExistingSchemaContract(manifest.ExistingSchemaContract); err != nil {
+		return err
+	}
+	if manifest.DatabaseSchema != manifest.ExistingSchemaContract.Schema {
+		return errors.New("verified existing schema does not match migration search path")
+	}
+	return nil
+}
+
+func loadStagedProductionExistingSchemaPlan(workspace productionWorkspace, path, expectedSHA256 string) (productionReleasePlan, error) {
+	var plan productionReleasePlan
+	if path != filepath.Join(workspace.stagingDir, productionReleasePlanFilename) || !productionSHA256Pattern.MatchString(expectedSHA256) {
+		return productionReleasePlan{}, errors.New("existing-schema staged plan identity is invalid")
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
+		return plan, errors.New("staged existing-schema plan is not a frozen regular file")
+	}
+	owner, links, ok := deploymentFileOwnership(info)
+	if !ok || owner != uint32(os.Geteuid()) || links != 1 {
+		return plan, errors.New("staged existing-schema plan ownership or hard links are unsafe")
+	}
+	raw, err := readPrivateRegularFile(path, 2<<20)
+	if err != nil || fmt.Sprintf("%x", sha256Bytes(raw)) != expectedSHA256 {
+		return productionReleasePlan{}, errors.New("existing-schema staged plan digest mismatch")
+	}
+	if err := decodeControllerBackupJSON(raw, &plan); err != nil {
+		return productionReleasePlan{}, errors.New("existing-schema staged plan JSON is invalid")
+	}
+	if plan.DeploymentID != workspace.id || plan.Format != productionExistingSchemaPlanFormat {
+		return productionReleasePlan{}, errors.New("existing-schema staged plan deployment differs")
+	}
+	if err := validateProductionReleasePlan(plan); err != nil {
+		return productionReleasePlan{}, err
+	}
+	canonical, err := canonicalProductionReleasePlan(plan)
+	if err != nil || !bytes.Equal(canonical, raw) {
+		return productionReleasePlan{}, errors.New("existing-schema staged plan is not canonical")
+	}
+	return plan, nil
+}
+
+func validateProductionExistingSchemaManifestPlan(workspace productionWorkspace, manifest productionManifest) error {
+	path := filepath.Join(workspace.stagingDir, productionReleasePlanFilename)
+	if manifest.SchemaMode != productionSchemaModeVerifyExisting {
+		// Historical transactions retain their original recovery behavior. A
+		// staged new policy cannot silently become an historical transaction.
+		raw, err := readPrivateRegularFile(path, 2<<20)
+		if err != nil {
+			// Legacy recovery never required a readable controller plan. The
+			// new manifest carries its own mandatory plan seal below.
+			return nil
+		}
+		var policy struct {
+			Format     int    `json:"format"`
+			SchemaMode string `json:"schema_mode"`
+		}
+		if err := json.Unmarshal(raw, &policy); err != nil {
+			return nil
+		}
+		if policy.Format == productionExistingSchemaPlanFormat || policy.SchemaMode != "" {
+			return errors.New("deployment manifest lost its immutable existing-schema policy")
+		}
+		return nil
+	}
+	plan, err := loadStagedProductionExistingSchemaPlan(workspace, path, manifest.SchemaPlanSHA256)
+	if err != nil {
+		return err
+	}
+	if manifest.ExistingSchemaContract == nil || *manifest.ExistingSchemaContract != *plan.ExistingSchemaContract ||
+		manifest.OperatorUser != plan.OperatorUser || manifest.ExpectedVersion != plan.ExpectedVersion ||
+		manifest.Go.Changed != plan.GoChanged || manifest.Web.Changed != plan.WebChanged ||
+		manifest.BackupsEnabled != plan.WithBackups || manifest.PreserveEdgePolicy != plan.PreserveEdgePolicy ||
+		manifest.ObservationSeconds != int64(plan.ObservationSeconds) ||
+		manifest.ProbeBinarySHA256 != plan.ProbeBinary.SHA256 || manifest.OperatorBinarySHA256 != plan.OperatorBinary.SHA256 {
+		return errors.New("existing-schema manifest differs from the immutable release plan")
+	}
+	for _, pair := range []struct {
+		transition          productionPackageTransition
+		candidate, rollback productionReleasePackagePlan
+	}{{manifest.Go, plan.GoCandidate, plan.GoRollback}, {manifest.Web, plan.WebCandidate, plan.WebRollback}} {
+		if pair.transition.CandidatePath != filepath.Join(workspace.stagingDir, filepath.Base(pair.candidate.PackagePath)) ||
+			pair.transition.RollbackPath != filepath.Join(workspace.stagingDir, filepath.Base(pair.rollback.PackagePath)) ||
+			pair.transition.CandidatePackageName != pair.candidate.Name || pair.transition.RollbackPackageName != pair.rollback.Name ||
+			pair.transition.CandidateIdentity != pair.candidate.Identity || pair.transition.RollbackIdentity != pair.rollback.Identity ||
+			pair.transition.CandidateSHA256 != pair.candidate.PackageSHA256 || pair.transition.RollbackSHA256 != pair.rollback.PackageSHA256 ||
+			pair.transition.CandidateGitRevision != pair.candidate.GitRevision || pair.transition.RollbackGitRevision != pair.rollback.GitRevision ||
+			pair.transition.CandidateContractRevision != pair.candidate.ContractRevision || pair.transition.RollbackContractRevision != pair.rollback.ContractRevision {
+			return errors.New("existing-schema manifest package differs from the immutable release plan")
+		}
+	}
+	if plan.WithBackups && (manifest.ControllerOnlyBackup == nil || manifest.ControllerOnlyBackup.PublicKey != plan.ControllerBackupPublicKey ||
+		manifest.ControllerOnlyBackup.PlanSHA256 != manifest.SchemaPlanSHA256) {
+		return errors.New("existing-schema manifest backup differs from the immutable release plan")
 	}
 	return nil
 }

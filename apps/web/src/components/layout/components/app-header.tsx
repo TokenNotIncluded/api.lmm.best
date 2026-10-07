@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { AiChat02Icon } from '@hugeicons/core-free-icons'
+import { BubbleChatSparkIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { Link, type LinkProps } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -25,7 +26,13 @@ import { ConfigDrawer } from '@/components/config-drawer'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
+import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
 import {
   isAssistantRailOpen,
@@ -42,6 +49,7 @@ import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
 import { AccountBalanceBadge } from './account-balance-badge'
 import { Header } from './header'
+import { StoreIcon } from './store-icon'
 import { SystemBrand } from './system-brand'
 import { TopNav } from './top-nav'
 
@@ -62,6 +70,8 @@ type AppHeaderProps = {
   showAssistant?: boolean
   /** The console exposes its assistant here instead of a mobile floating pill. */
   showMobileAssistant?: boolean
+  /** Public community shop entry; available before console activation. */
+  showStore?: boolean
 }
 
 export function AppHeader({
@@ -78,6 +88,7 @@ export function AppHeader({
   showBalanceBadge = true,
   showAssistant = true,
   showMobileAssistant = false,
+  showStore = true,
 }: AppHeaderProps) {
   const dynamicLinks = useTopNavLinks()
   const links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
@@ -127,28 +138,62 @@ export function AppHeader({
             </div>
           )}
           {showAssistant && (assistantEnabled || mobileAssistantAvailable) && (
-            <Button
-              variant='ghost'
-              size='icon'
-              className={cn(
-                'relative size-11 sm:size-8',
-                !showMobileAssistant && 'hidden sm:inline-flex',
-                !assistantEnabled && 'sm:hidden',
-                railOpen && 'bg-accent text-accent-foreground'
-              )}
-              aria-label={t('Open AI assistant')}
-              title={t('Open AI assistant')}
-              aria-pressed={railOpen}
-              data-testid='header-assistant-launcher'
-              onClick={handleAssistantClick}
-            >
-              <HugeiconsIcon
-                icon={AiChat02Icon}
-                strokeWidth={2}
-                className='size-4'
-                aria-hidden='true'
-              />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    className={cn(
+                      'relative isolate size-11 overflow-hidden rounded-lg sm:size-8',
+                      !showMobileAssistant && 'hidden sm:inline-flex',
+                      !assistantEnabled && 'sm:hidden',
+                      railOpen && 'bg-accent text-accent-foreground'
+                    )}
+                    aria-label={t('Open AI assistant')}
+                    title={t('Open AI assistant')}
+                    aria-pressed={railOpen}
+                    data-testid='header-assistant-launcher'
+                    onClick={handleAssistantClick}
+                  />
+                }
+              >
+                <ForgeShaderSurface
+                  variant='assistant'
+                  interaction='intent'
+                  className='absolute inset-0 opacity-70'
+                />
+                <HugeiconsIcon
+                  icon={BubbleChatSparkIcon}
+                  strokeWidth={1.8}
+                  className='relative z-10'
+                  aria-hidden='true'
+                />
+              </TooltipTrigger>
+              <TooltipContent side='bottom'>
+                {t('Open AI assistant')}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {showStore && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    className='size-11 rounded-lg sm:size-8'
+                    render={<Link to={'/store' as LinkProps['to']} />}
+                    aria-label={t('Open shop')}
+                    title={t('Open shop')}
+                    data-testid='header-store-link'
+                  />
+                }
+              >
+                <StoreIcon aria-hidden='true' />
+              </TooltipTrigger>
+              <TooltipContent side='bottom'>{t('Shop')}</TooltipContent>
+            </Tooltip>
           )}
           {showNotifications && (
             <NotificationPopover

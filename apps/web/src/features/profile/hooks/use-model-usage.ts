@@ -9,6 +9,7 @@ License, or (at your option) any later version.
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
+import { createQueryRetry } from '@/lib/query-retry'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getProfileUsageWindow } from '../api'
@@ -58,7 +59,7 @@ export function useModelUsage(
     },
     enabled: enabled && userId !== undefined,
     staleTime: 5 * 60 * 1000,
-    retry: 1,
+    retry: createQueryRetry(true, 1),
   })
 
   const report: ModelUsageReport = useMemo(

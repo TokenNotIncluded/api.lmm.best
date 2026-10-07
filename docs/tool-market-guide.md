@@ -130,6 +130,7 @@ Jev 的 `usage.input_tokens` 可直接读取。平台仅接受价格快照所需
 | `PUT /installations` | 为 `client_id` 加载或卸载指定 `tool_id/version_id`。 |
 | `POST /grants` | 为精确客户端、Tool 和版本创建有次数、金额及有效期上限的授权。 |
 | `DELETE /grants/:id` | 撤销本人的授权。 |
+| `DELETE /grants/:id/record` | 仅从列表移除本人已撤销授权；保留授权与使用、审计记录。 |
 | `PUT /budgets` | 设置 `account/client/tool` 累计预算。 |
 | `GET /mine/:kind` | 分页查询本人的 `services/grants/installations/budgets/favorites/tokens/oauth-clients`。 |
 | `POST /invoke` | 网页客户端执行已加载且获授权的 Tool，不接受用户自报结果。 |
@@ -138,6 +139,8 @@ Jev 的 `usage.input_tokens` 可直接读取。平台仅接受价格快照所需
 | `GET /income` | 查询本人的入账流水。 |
 | `POST /tokens`、`DELETE /tokens/:id` | 创建和撤销客户端专用市场令牌。 |
 | `POST /clients/disconnect` | 原子撤销本人的指定客户端令牌和授权，并卸载工具；不取消已受理调用。详见连接指南。 |
+| `DELETE /tokens/:id/record` | 仅从列表移除本人已撤销连接令牌；保留令牌摘要及撤销记录。 |
+| `POST /clients/remove` | 本人指定客户端的令牌和授权全部撤销后，移除列表记录并卸载工具；调用、使用和预算不变。 |
 | `PUT /config` | 超级管理员设置开关、费率及唯一收款账户。 |
 
 ## 内部执行约定
@@ -166,3 +169,14 @@ Jev 的 `usage.input_tokens` 可直接读取。平台仅接受价格快照所需
 市场不支持 Serverless 文件上传或 WASM 运行时、第三方 OAuth 登录托管、长任务及取消协议、免费试用规则、周期预算、价格定时生效、作者/工具/活动专属费率、成交退款及争议处理。市场使用逐 Tool 固定价格或输入 token 用量价格，以及单一全局费率；Rust 预览后端不具备该业务的完整同步实现。
 
 固定 HTTPS MCP 服务、端到端调用及 PostgreSQL/MySQL 隔离并发验证的运行方式见[付费测试服务说明](tool-market-paid-test-mcp.md)。该服务用于重复验证协议、授权和结算规则；测试结果不代替真实编辑器 OAuth、生产凭据配置、第三方调用或生产部署验收。
+
+
+## 工具退休与旧后端兼容
+
+删除服务仅阻止发现、编辑、审核、重新激活和新调用。不可变版本、工具、授权、调用、结果、举报与资金划转都保留；已开始的调用按冻结价格继续结算，尚未开始的预留可释放。
+
+退休事务写入现有字段 `status=deleted`、空 `live_version_id`，并把 `draft_version_id` 置为保留 UUIDv5 `5ccac1a6-3c42-5e56-9ab3-47c234d77a2e`。该值是永久退休标记，没有对应草稿版本；普通版本仍使用 UUIDv4。原指针记录在删除审计事件中。无需新增表、列或删除历史数据。
+
+旧 Go86/Go87 的编辑读取会拒绝这个非解析草稿指针，激活因空 live 指针失败，审核和 AI 结果因版本指针不匹配失败。旧举报审核可能将状态改为 suspended，但不会移除退休指针；新版同时识别指针并继续隐藏、拒绝写入。旧版“我的服务”仍可能显示退休元数据，这是只读 UI 残留，不表示工具恢复可用。
+
+验证使用 ea0705 旧生产源码加独立 test-only 退休状态 fixture，检查实际旧业务函数和 19 张业务/钱包表。此源码兼容验证不替代正式双节点或二进制回滚演练。不得把退休标记改回普通草稿或清掉它冒充清理。

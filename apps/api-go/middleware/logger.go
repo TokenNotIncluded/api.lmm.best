@@ -9,6 +9,23 @@ import (
 )
 
 func loggedRequestPath(param gin.LogFormatterParams) string {
+	if param.Request != nil && param.Request.URL != nil {
+		path := param.Request.URL.Path
+		// The opaque token is an authorization credential, including malformed
+		// tokens and failed collection attempts. Never log its actual spelling.
+		if strings.HasPrefix(path, "/api/store/claim/") {
+			return "/api/store/claim/[REDACTED]"
+		}
+		if strings.HasPrefix(path, "/api/user/auth/store-claim/") {
+			return "/api/user/auth/store-claim/[REDACTED]"
+		}
+		if strings.HasPrefix(path, "/store/claim/") {
+			return "/store/claim/[REDACTED]"
+		}
+		if path == "/api/store" || strings.HasPrefix(path, "/api/store/") {
+			return path
+		}
+	}
 	if param.Request != nil && param.Request.URL != nil &&
 		(strings.HasPrefix(param.Request.URL.Path, "/api/oauth2/") ||
 			strings.HasPrefix(param.Request.URL.Path, "/api/user/auth/oauth2/") ||

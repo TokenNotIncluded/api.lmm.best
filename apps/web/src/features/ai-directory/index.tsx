@@ -173,24 +173,6 @@ export function AIDirectory() {
       )}
       <SectionPageLayout.Content>
         <div className='ai-directory-shell'>
-          <div className='ai-directory-intro'>
-            <div>
-              <h2>{t('Explore AI websites')}</h2>
-              <p>
-                {t('{{count}} curated websites, grouped by what they do.', {
-                  count: Object.values(categoryCounts).reduce(
-                    (sum, value) => sum + value,
-                    0
-                  ),
-                })}
-              </p>
-            </div>
-            <div className='ai-directory-intro-symbol' aria-hidden='true'>
-              <Globe2 strokeWidth={1.2} />
-            </div>
-          </div>
-
-          <BookmarkletInstall compact />
           <SponsoredDirectorySection />
 
           <div className='ai-directory-tools'>
@@ -278,6 +260,26 @@ export function AIDirectory() {
               })}
             </div>
           )}
+
+          <div className='ai-directory-help'>
+            <div className='ai-directory-intro'>
+              <div>
+                <h2>{t('Explore AI websites')}</h2>
+                <p>
+                  {t('{{count}} curated websites, grouped by what they do.', {
+                    count: Object.values(categoryCounts).reduce(
+                      (sum, value) => sum + value,
+                      0
+                    ),
+                  })}
+                </p>
+              </div>
+              <div className='ai-directory-intro-symbol' aria-hidden='true'>
+                <Globe2 strokeWidth={1.2} />
+              </div>
+            </div>
+            <BookmarkletInstall compact />
+          </div>
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

@@ -320,6 +320,9 @@ export interface RedemptionRequest {
  * Payment request parameters
  */
 export interface PaymentRequest {
+  /** Same-origin wallet return destinations for Stripe checkout. */
+  success_url?: string
+  cancel_url?: string
   /** Explicit legacy batch unit; display currency never changes this request. */
   amount_unit?: 'LEGACY'
   /** Topup amount */
@@ -447,6 +450,8 @@ export interface UserWalletData {
   quota: number
   /** Total used quota */
   used_quota: number
+  normalized_used_quota?: number | null
+  usage_projection_available?: boolean
   /** Total request count */
   request_count: number
   /** Affiliate quota (pending rewards) */

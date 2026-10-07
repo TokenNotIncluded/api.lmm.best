@@ -260,7 +260,20 @@ func TestWalletLegacyCatalogOldGrantAndPublicPresentationRemainSeparate(t *testi
 	t.Cleanup(func() { _ = session.Close() })
 	list, err := session.ListTools(context.Background(), nil)
 	require.NoError(t, err)
-	require.Len(t, list.Tools, 6)
+	var listedNames []string
+	for _, descriptor := range list.Tools {
+		listedNames = append(listedNames, descriptor.Name)
+		if descriptor.Name == "metamcp" {
+			require.Contains(t, descriptor.Description, "Free built-in tool management")
+		}
+	}
+	require.ElementsMatch(t, []string{
+		"metamcp", "lmm_market_search", "lmm_market_details", "lmm_market_call_status",
+		"market_tool_" + strings.ReplaceAll(tool.ToolID, "-", ""),
+		"market_tool_" + strings.ReplaceAll(topup.ToolID, "-", ""),
+		"market_tool_" + strings.ReplaceAll(transfer.ToolID, "-", ""),
+	}, listedNames, "default free management plus only the exact old-version grants are exposed")
+	require.NotContains(t, listedNames, "lmm_market_load", "invoke-only credentials cannot use the management alias")
 	for _, descriptor := range list.Tools {
 		raw, err := json.Marshal(descriptor.InputSchema)
 		require.NoError(t, err)

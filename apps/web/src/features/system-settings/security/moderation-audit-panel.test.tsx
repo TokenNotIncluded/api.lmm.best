@@ -63,7 +63,7 @@ after(() => {
   useWalletCurrencyPreferenceStore.getState().setPreference(originalPreference)
 })
 
-test('review deductions always use ledger USD across wallet display preferences', async () => {
+test('review deductions retain original integer credits across wallet preferences', async () => {
   useSystemConfigStore.getState().setConfig({
     currency: {
       ...DEFAULT_CURRENCY_CONFIG,
@@ -119,9 +119,9 @@ test('review deductions always use ledger USD across wallet display preferences'
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference(preference)
       )
-      assert.match(container.innerHTML, />6\.719488 USD</)
-      assert.match(container.innerHTML, />3\.359744 USD</)
-      assert.doesNotMatch(container.innerHTML, /CNY|Credits/)
+      assert.match(container.innerHTML, />3,359,744 CREDIT</)
+      assert.match(container.innerHTML, />1,679,872 CREDIT</)
+      assert.doesNotMatch(container.innerHTML, /CNY|USD</)
     }
   } finally {
     await act(async () => root.unmount())
@@ -197,4 +197,15 @@ test('output warnings state that users are excluded from penalties and risk scor
   assert.match(html, /Assistant output/)
   assert.match(html, /excluded from user penalties and risk scoring/)
   assert.doesNotMatch(html, /Fee record ID/)
+})
+
+test('missing or fractional recorded amounts do not become a fabricated zero or currency value', () => {
+  const html = render({
+    ...base,
+    requested_quota: null,
+    charged_quota: 1.5,
+  } as unknown as ModerationReview)
+  assert.match(html, /No data provided/)
+  assert.match(html, /Original recorded credits/)
+  assert.doesNotMatch(html, /0 CREDIT|1\.5 CREDIT|USD|CNY/)
 })

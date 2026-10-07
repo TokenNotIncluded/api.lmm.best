@@ -75,7 +75,11 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { api } = await import('@/lib/api')
 const { resetMarketCurrencyTest } = await import('./currency-test-support')
+const { metaDelegationAPI } = await import('./meta-delegation-api')
+const metaOriginals = { ...metaDelegationAPI }
 const { marketAPI } = await import('./api')
+const { toast } = await import('sonner')
+const originalToastError = toast.error
 const { ToolMarket } = await import('./index')
 const originalAPI = { ...marketAPI }
 const originalAdapter = api.defaults.adapter
@@ -99,6 +103,11 @@ const pausedConfig: MarketConfig = {
   quota_per_unit: 500000,
   web_client_id: 'web-market',
   mcp_path: '/mcp/market',
+  capabilities: {
+    service_deletion: true,
+    client_record_cleanup: true,
+    meta_delegation: true,
+  },
 }
 function detail(
   id: string,
@@ -231,8 +240,41 @@ async function mount(role = 1, id = 2) {
   return { container, client }
 }
 function stubNavigation(items: MarketDetail[], services: MarketService[] = []) {
+  // Navigation tests own every request. AI read panels must not leave real
+  // network promises that emit a delayed toast in a later review test.
+  api.defaults.adapter = async (config) => {
+    let data: unknown
+    if (config.method === 'get' && config.url?.endsWith('/ai-reviews')) {
+      data = { rows: [] }
+    } else if (
+      config.method === 'get' &&
+      config.url === '/api/security/market-ai-review/settings'
+    ) {
+      data = {
+        tool_mode: 'off',
+        store_mode: 'off',
+        review_group: 'default',
+        review_model: 'omni-moderation-latest',
+        engine: 'openai_moderation',
+        supported_inputs: ['text'],
+        categories: [],
+      }
+    } else {
+      assert.fail(
+        `Unexpected navigation HTTP request: ${config.method} ${config.url}`
+      )
+    }
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: { success: true, data },
+    }
+  }
   marketAPI.config = async () => pausedConfig
   marketAPI.list = async () => items.map(summary)
+  metaDelegationAPI.oauthClients = async () => []
   marketAPI.mine = (async (kind: string) => {
     if (kind === 'services') return services
     if (kind === 'installations') {
@@ -270,7 +312,9 @@ afterEach(async () => {
     view.container.remove()
   }
   Object.assign(marketAPI, originalAPI)
+  Object.assign(metaDelegationAPI, metaOriginals)
   api.defaults.adapter = originalAdapter
+  toast.error = originalToastError
   useAuthStore.setState({ auth: originalAuth })
 })
 after(() => {
@@ -279,6 +323,127 @@ after(() => {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor)
     else Reflect.deleteProperty(globalThis, key)
   }
+})
+
+test('deleting an authored service requires confirmation and removes it from the management list', async () => {
+  const item = structuredClone(remote)
+  const services = [item.service]
+  stubNavigation([item], services)
+  const mine = marketAPI.mine
+  marketAPI.mine = (async (kind: string, signal?: AbortSignal) => [
+    ...(await mine(kind, signal)),
+  ]) as typeof marketAPI.mine
+  const deleted: string[] = []
+  marketAPI.deleteService = async (id) => {
+    deleted.push(id)
+    services.length = 0
+    return null
+  }
+  const { container } = await mount()
+  await click(button('My publications', container))
+  await waitFor(() => Boolean(findButton('Delete', container)))
+  await click(button('Delete', container))
+  await waitFor(() => Boolean(document.querySelector('[role="alertdialog"]')))
+  let dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')
+  assert.ok(dialog)
+  assert.ok(
+    dialog.textContent?.includes('Call, payment, and review history is kept.')
+  )
+  assert.deepEqual(deleted, [])
+  await click(button('Cancel', dialog))
+  assert.deepEqual(deleted, [])
+  await click(button('Delete', container))
+  await waitFor(() => Boolean(document.querySelector('[role="alertdialog"]')))
+  dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')
+  assert.ok(dialog)
+  await click(button('Delete', dialog))
+  assert.deepEqual(deleted, [item.service.id])
+  await waitFor(() => !findButton('Delete', container))
+  assert.deepEqual(deleted, [item.service.id])
+})
+
+test('ordinary catalog viewers cannot delete another service, while administrators can manage it', async () => {
+  const item = structuredClone(remote)
+  stubNavigation([item])
+  marketAPI.deleteService = async () =>
+    assert.fail('Viewing must never delete a service')
+  const ordinary = await mount(1, 9)
+  await waitFor(
+    () => ordinary.container.textContent?.includes(item.version.name) === true
+  )
+  const card = [...ordinary.container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === item.version.name
+  )
+  assert.ok(card)
+  await click(card)
+  await waitFor(
+    () =>
+      ordinary.container.textContent?.includes('Choose this browser') === true
+  )
+  assert.equal(findButton('Delete', ordinary.container), undefined)
+
+  const view = views.find((value) => value.container === ordinary.container)
+  assert.ok(view)
+  await act(async () => view.root.unmount())
+  view.client.clear()
+  view.container.remove()
+  views.splice(views.indexOf(view), 1)
+
+  const admin = await mount(10, 10)
+  await waitFor(
+    () => admin.container.textContent?.includes(item.version.name) === true
+  )
+  const adminCard = [...admin.container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === item.version.name
+  )
+  assert.ok(adminCard)
+  await click(adminCard)
+  await waitFor(() => Boolean(findButton('Delete', admin.container)))
+  assert.equal(findButton('Edit draft', admin.container), undefined)
+})
+
+test('legacy server capabilities hide service deletion in authored detail, publications and review queue', async () => {
+  const item = structuredClone(remote)
+  stubNavigation([item], [item.service])
+  const { capabilities: _, ...legacy } = pausedConfig
+  marketAPI.config = async () => legacy
+  marketAPI.reviews = async () => [item.service]
+  marketAPI.deleteService = async () =>
+    assert.fail('Legacy server must never receive a service delete request')
+  metaDelegationAPI.oauthClients = async () =>
+    assert.fail('Legacy server must never receive a meta target request')
+  metaDelegationAPI.get = async () =>
+    assert.fail('Legacy server must never receive a meta read request')
+  metaDelegationAPI.set = async () =>
+    assert.fail('Legacy server must never receive a meta write request')
+  const { container } = await mount(100)
+  await waitFor(
+    () => container.textContent?.includes(item.version.name) === true
+  )
+  const card = [...container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === item.version.name
+  )
+  assert.ok(card)
+  await click(card)
+  await waitFor(() => Boolean(findButton('Back to list', container)))
+  assert.equal(findButton('Delete', container), undefined)
+  await click(button('Back to list', container))
+  await click(button('My publications', container))
+  await waitFor(
+    () =>
+      container.textContent?.includes(item.service.name || item.service.id) ===
+      true
+  )
+  assert.equal(findButton('Delete', container), undefined)
+  assert.ok(findButton('View', container))
+  await click(button('Review queue', container))
+  await waitFor(() => Boolean(findButton('Review', container)))
+  assert.equal(findButton('Delete', container), undefined)
+  await click(button('Connections and limits', container))
+  await waitFor(
+    () => container.textContent?.includes('Connect your MCP client') === true
+  )
+  assert.equal(container.textContent?.includes('AI delegation'), false)
 })
 
 test('catalog search and type filters reset pagination and clear together without invoking tools', async () => {
@@ -840,4 +1005,256 @@ test('catalog prices react to wallet units and rates while keeping native credit
     (container.textContent ?? '').includes('98 CNY per successful call')
   )
   assert.equal(priced.tools[0].price_quota, 3500000)
+})
+
+for (const approved of [true, false]) {
+  test(`an AI ${approved ? 'published' : 'rejected'} service retains its administrator manual review entry`, async () => {
+    const applied = detail('AI decided service', 'remote', 100, 'public')
+    applied.service.owner_id = 7
+    applied.version.status = approved ? 'published' : 'rejected'
+    applied.service.draft_version_id = approved ? '' : applied.version.id
+    stubNavigation([applied])
+    marketAPI.reports = async () => []
+    marketAPI.reviews = async () => [applied.service]
+    const modes: string[] = []
+    marketAPI.detail = async (_, mode) => {
+      assert.ok(mode)
+      modes.push(mode)
+      return applied
+    }
+    api.defaults.adapter = async (config) => {
+      assert.ok(config.url?.endsWith('/ai-reviews'))
+      assert.equal(config.params?.version_id, applied.version.id)
+      return {
+        config,
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+        data: {
+          success: true,
+          data: {
+            rows: [
+              {
+                id: 1,
+                mode: 'auto',
+                status: 'completed',
+                applied: true,
+                outcome: approved ? 'approved' : 'rejected',
+                recommendation: approved ? 'approve' : 'reject',
+                categories: [],
+                error_code: null,
+                completed_at: 1,
+              },
+            ],
+          },
+        },
+      }
+    }
+    const { container } = await mount(10)
+    await waitFor(() => !!findButton('Review queue', container))
+    await click(button('Review queue', container))
+    await waitFor(() => !!findButton('Review', container))
+    await click(button('Review', container))
+    await waitFor(() => modes.length >= 2)
+    assert.ok(findButton('Approve and publish', container))
+    assert.ok(findButton('Reject', container))
+    assert.ok(container.querySelector('#market-review-note'))
+    assert.ok(modes.every((mode) => mode === 'review'))
+  })
+}
+
+for (const inflight of [false, true]) {
+  test(`successful review retires draft queries without a false global error${inflight ? ' during an in-flight refresh' : ''}`, async () => {
+    const pending = detail('Pending own service', 'remote', 100, 'public')
+    pending.version.status = 'pending'
+    pending.service.live_version_id = ''
+    pending.service.status = 'draft'
+    stubNavigation([pending])
+    let published = false
+    let getCount = 0
+    let getAfterPublish = 0
+    let resolveRefresh: (() => void) | undefined
+    let refreshSignal: AbortSignal | undefined
+    const errors: unknown[] = []
+    toast.error = ((message: unknown) => {
+      errors.push(message)
+      return 'review-test'
+    }) as typeof toast.error
+    marketAPI.reports = async () => []
+    marketAPI.reviews = async () => (published ? [] : [pending.service])
+    // Exercise Axios and its real global error interceptor, not API stubs.
+    marketAPI.detail = originalAPI.detail
+    marketAPI.review = originalAPI.review
+    api.defaults.adapter = async (config) => {
+      if (config.url?.endsWith('/ai-reviews')) {
+        assert.equal(config.params?.version_id, pending.version.id)
+        return {
+          config,
+          headers: {},
+          status: 200,
+          statusText: 'OK',
+          data: { success: true, data: { rows: [] } },
+        }
+      }
+      const isPost = config.method === 'post'
+      if (isPost) {
+        const input = JSON.parse(config.data)
+        assert.equal(input.version_id, pending.version.id)
+        assert.equal(input.approve, true)
+        if (inflight) assert.equal(refreshSignal?.aborted, true)
+        published = true
+        resolveRefresh?.()
+      } else {
+        assert.ok(config.url?.endsWith('/review'))
+        getCount++
+        if (published) getAfterPublish++
+        if (inflight && getCount === 2) {
+          refreshSignal = config.signal as AbortSignal
+          await new Promise<void>((resolve) => {
+            resolveRefresh = resolve
+          })
+        }
+      }
+      const unavailable = !isPost && published
+      return {
+        config,
+        headers: {},
+        status: unavailable ? 404 : 200,
+        statusText: unavailable ? 'Not Found' : 'OK',
+        data: unavailable
+          ? {
+              success: false,
+              code: 'TOOL_MARKET_NOT_FOUND',
+              message: 'tool market resource not found',
+            }
+          : { success: true, data: isPost ? null : pending },
+      }
+    }
+    const { container, client } = await mount(100)
+    await waitFor(() => !!findButton('Configure market', container))
+    await click(button('Configure market', container))
+    await waitFor(() => !!findButton('Review', container))
+    await click(button('Review', container))
+    await waitFor(() => !!findButton('Approve and publish', container))
+    const note = container.querySelector<HTMLTextAreaElement>(
+      '#market-review-note'
+    )
+    assert.ok(note)
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setter)
+    await act(async () => {
+      setter.call(note, 'Verified own exact draft')
+      note.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+    })
+    if (inflight) {
+      void client.invalidateQueries({
+        queryKey: ['tool-market', 2, 'detail', pending.service.id, 'review'],
+        exact: true,
+      })
+      await waitFor(() => !!refreshSignal)
+    }
+    await click(button('Approve and publish', container))
+    await waitFor(
+      () => published && !findButton('Approve and publish', container)
+    )
+    await act(flush)
+    assert.equal(
+      getAfterPublish,
+      0,
+      'publication must not refetch the consumed draft'
+    )
+    assert.equal(getCount, inflight ? 2 : 1)
+    assert.deepEqual(
+      errors,
+      [],
+      'canceled stale detail must never emit a global error toast'
+    )
+    assert.equal(
+      client.getQueryData([
+        'tool-market',
+        2,
+        'detail',
+        pending.service.id,
+        'review',
+      ]),
+      undefined
+    )
+    await waitFor(
+      () => container.textContent?.includes('No pending reviews') === true
+    )
+  })
+}
+
+test('a real failed review keeps its dialog and error available for retry', async () => {
+  const pending = detail('Retry own service', 'remote', 100, 'public')
+  pending.version.status = 'pending'
+  stubNavigation([pending])
+  marketAPI.reports = async () => []
+  marketAPI.reviews = async () => [pending.service]
+  let attempts = 0
+  const errors: unknown[] = []
+  toast.error = ((message: unknown) => {
+    errors.push(message)
+    return 'review-test'
+  }) as typeof toast.error
+  marketAPI.review = originalAPI.review
+  api.defaults.adapter = async (config) => {
+    if (config.url?.endsWith('/ai-reviews')) {
+      assert.equal(config.params?.version_id, pending.version.id)
+      return {
+        config,
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+        data: { success: true, data: { rows: [] } },
+      }
+    }
+    attempts++
+    return {
+      config,
+      headers: {},
+      status: 409,
+      statusText: 'Conflict',
+      data: {
+        success: false,
+        code: 'TOOL_MARKET_CONFLICT',
+        message: 'Draft changed; reload and retry',
+      },
+    }
+  }
+  const { container } = await mount(100)
+  await waitFor(() => !!findButton('Configure market', container))
+  await click(button('Configure market', container))
+  await waitFor(() => !!findButton('Review', container))
+  await click(button('Review', container))
+  await waitFor(() => !!findButton('Approve and publish', container))
+  const note = container.querySelector<HTMLTextAreaElement>(
+    '#market-review-note'
+  )
+  assert.ok(note)
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(note, 'Verified draft')
+    note.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+  })
+  await click(button('Approve and publish', container))
+  await waitFor(
+    () => attempts === 1 && !button('Approve and publish', container).disabled
+  )
+  assert.equal(container.querySelector('#market-review-note'), note)
+  assert.equal(note.value, 'Verified draft')
+  assert.deepEqual(errors, ['Draft changed; reload and retry'])
+  await click(button('Approve and publish', container))
+  await waitFor(
+    () => attempts === 2 && !button('Approve and publish', container).disabled
+  )
 })

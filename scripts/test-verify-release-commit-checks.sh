@@ -60,9 +60,11 @@ write_success_fixtures() {
       --argjson id "$id" \
       --argjson run_id "$selected_run_id" \
       --arg name "$name" \
+      --arg revision "$REVISION" \
       '. + [{
         id: $id,
         name: $name,
+        head_sha: $revision,
         status: "completed",
         conclusion: "success",
         started_at: "2026-08-24T00:00:00Z",
@@ -112,9 +114,11 @@ for conclusion in failure cancelled timed_out; do
   jq \
     --argjson run_id "$ci_run_id" \
     --arg conclusion "$conclusion" \
+    --arg revision "$REVISION" \
     '.check_runs += [{
       id: 9999,
       name: "Release artifact contract",
+      head_sha: $revision,
       status: "completed",
       conclusion: $conclusion,
       started_at: "2026-08-24T00:02:00Z",
@@ -242,9 +246,9 @@ for component in go web; do
       "$tmp/component-failed.json" "$tmp/rust-parent-failed.json" "$component"
   done <"$COMPONENT_REQUIRED"
 
-  for state in cancelled timed_out skipped unknown in_progress; do
+  for state in cancelled timed_out skipped unknown queued; do
     jq --arg state "$state" '(.workflow_runs[] | select(.path == ".github/workflows/ci.yml")) |=
-      (if $state == "in_progress" then .status=$state | .conclusion=null else .conclusion=$state end)' \
+      (if $state == "queued" then .status=$state | .conclusion=null else .conclusion=$state end)' \
       "$tmp/rust-parent-failed.json" >"$tmp/disallowed-parent.json"
     expect_rejected "$component rejects parent $state" ".github/workflows/ci.yml $state" \
       "$tmp/rust-failed.json" "$tmp/disallowed-parent.json" "$component"
@@ -273,6 +277,88 @@ for component in go web; do
     "$tmp/rust-parent-failed.json" >"$tmp/latest-run.json"
   expect_rejected "$component old success cannot replay into latest completed run" 'selected workflow run 99999 missing' \
     "$tmp/rust-failed.json" "$tmp/latest-run.json" "$component"
+
+  jq '(.workflow_runs[] | select(.path == ".github/workflows/ci.yml" or .path == "dynamic/github-code-scanning/codeql")) |=
+      (.status="in_progress" | .conclusion=null | .completed_at=null)' \
+    "$tmp/runs.json" >"$tmp/component-running.json"
+  jq '(.check_runs[] | select(.name == "Rust backend formatting, lint, and tests" or .name == "Rust root-route acceptance lockfile" or .name == "Analyze (rust)")) |=
+      (.status="in_progress" | .conclusion=null | .completed_at=null)' \
+    "$tmp/checks.json" >"$tmp/rust-running.json"
+  verify_fixture "$tmp/rust-running.json" "$tmp/component-running.json" "$component" >/dev/null
+
+  for state in queued in_progress; do
+    jq --arg state "$state" '(.check_runs[] | select(.name == "Go/Web release qualification gate")) as $old |
+        .check_runs += [$old | .id=99999 | .status=$state | .conclusion=null |
+          .started_at=(if $state == "queued" then null else "2026-08-24T00:02:00Z" end) |
+          .completed_at=null]' \
+      "$tmp/rust-running.json" >"$tmp/selected-rerun-pending.json"
+    expect_rejected "$component same-run aggregate rerun $state cannot reuse old success" "Go/Web release qualification gate ($state)" \
+      "$tmp/selected-rerun-pending.json" "$tmp/component-running.json" "$component"
+  done
+
+  # Every selected job must succeed even while only Rust keeps its parent running.
+  while IFS='|' read -r name _; do
+    for state in missing in_progress failure cancelled; do
+      jq --arg name "$name" --arg state "$state" '
+        if $state == "missing" then del(.check_runs[] | select(.name == $name))
+        else (.check_runs[] | select(.name == $name)) |=
+          (if $state == "in_progress" then .status=$state | .conclusion=null
+           else .conclusion=$state end)
+        end' "$tmp/rust-running.json" >"$tmp/running-selected-invalid.json"
+      if [[ $state == missing ]]; then
+        expected="$name (selected workflow run"
+      else
+        expected="$name ($state)"
+      fi
+      expect_rejected "$component running parent with $name $state" "$expected" \
+        "$tmp/running-selected-invalid.json" "$tmp/component-running.json" "$component"
+    done
+  done <"$COMPONENT_REQUIRED"
+
+  for workflow in .github/workflows/ci.yml dynamic/github-code-scanning/codeql; do
+    for state in cancelled timed_out; do
+      jq --arg workflow "$workflow" --arg state "$state" '
+        (.workflow_runs[] | select(.path == $workflow)) |=
+          (.status="completed" | .conclusion=$state)' \
+        "$tmp/component-running.json" >"$tmp/running-parent-invalid.json"
+      expect_rejected "$component rejects $workflow $state" "$workflow $state" \
+        "$tmp/rust-running.json" "$tmp/running-parent-invalid.json" "$component"
+    done
+  done
+  jq '(.workflow_runs[] | select(.path == ".github/workflows/server-release-qualification.yml")) |=
+      (.status="in_progress" | .conclusion=null)' \
+    "$tmp/component-running.json" >"$tmp/server-running.json"
+  expect_rejected "$component requires completed server qualification" 'server-release-qualification.yml in_progress' \
+    "$tmp/rust-running.json" "$tmp/server-running.json" "$component"
+
+  for field in head_sha event head_branch id; do
+    jq --arg field "$field" '(.workflow_runs[] | select(.path == ".github/workflows/ci.yml")) |=
+      (if $field == "id" then .id=99999 else .[$field]="wrong-binding" end)' \
+      "$tmp/component-running.json" >"$tmp/running-wrong-run-binding.json"
+    expect_rejected "$component running workflow wrong $field" 'Workflow and resource-safety contracts (' \
+      "$tmp/rust-running.json" "$tmp/running-wrong-run-binding.json" "$component"
+  done
+  for field in head_sha app details_url name; do
+    jq --arg field "$field" '(.check_runs[] | select(.name == "Go/Web release qualification gate")) |=
+      (if $field == "app" then .app.slug="other-app"
+       elif $field == "details_url" then .details_url="https://github.example/actions/runs/99999/job/1"
+       else .[$field]="wrong-binding" end)' \
+      "$tmp/rust-running.json" >"$tmp/running-wrong-check-binding.json"
+    expect_rejected "$component running parent wrong aggregate $field" 'Go/Web release qualification gate (selected workflow run' \
+      "$tmp/running-wrong-check-binding.json" "$tmp/component-running.json" "$component"
+  done
+done
+
+# The default and Rust inventories still require successful, completed parents.
+write_success_fixtures
+for component in full rust; do
+  for workflow in .github/workflows/ci.yml dynamic/github-code-scanning/codeql; do
+    jq --arg workflow "$workflow" '(.workflow_runs[] | select(.path == $workflow)) |=
+        (.status="in_progress" | .conclusion=null | .completed_at=null)' \
+      "$tmp/runs.json" >"$tmp/full-parent-running.json"
+    expect_rejected "$component requires completed $workflow" "$workflow in_progress" \
+      "$tmp/checks.json" "$tmp/full-parent-running.json" "$component"
+  done
 done
 expect_rejected 'unknown component' 'unsupported release component' "$tmp/checks.json" "$tmp/runs.json" unknown
 

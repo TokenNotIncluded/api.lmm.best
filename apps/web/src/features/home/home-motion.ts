@@ -26,7 +26,9 @@ import {
 import { createCanvasCore } from './home-core-canvas'
 import { createWebGLCore, filmLayout, type CoreFilm } from './home-core-webgl'
 import { mountHomeGravity } from './home-gravity'
+import { homePalette } from './home-palette'
 import { createTokenCloud } from './home-token-cloud'
+import { homeWorldFrame, smoothWorldProgress } from './home-worlds'
 
 export function unit(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
@@ -59,7 +61,168 @@ export function cinemaPosition(
 
 /** A small network reading the chosen token through fixed visual layers. */
 function createFilm(canvas: HTMLCanvasElement): CoreFilm | null {
-  return createWebGLCore(canvas) ?? createCanvasCore(canvas)
+  const palette = homePalette(canvas.parentElement ?? canvas)
+  return createWebGLCore(canvas, palette) ?? createCanvasCore(canvas, palette)
+}
+
+/** One lazily loaded GPU renderer also makes static chapter copies on phones. */
+function mountChapterFilms(root: HTMLElement, onReady: () => void) {
+  const canvas = root.querySelector<HTMLCanvasElement>('[data-world-film]')
+  const canvases = [
+    ...root.querySelectorAll<HTMLCanvasElement>('[data-chapter-film]'),
+  ]
+  let film: import('./home-world-three').HomeWorldFilm | null = null
+  let loading: Promise<void> | null = null
+  let disposed = false
+  let unavailable = false
+  const failed = () => {
+    if (disposed) return
+    unavailable = true
+    film?.dispose()
+    film = null
+    if (canvas) canvas.dataset.unavailable = 'true'
+    root.dataset.worldUnavailable = 'true'
+    onReady()
+  }
+  const load = () => {
+    if (!canvas || loading || disposed) return
+    loading = import('./home-world-three')
+      .then(({ createHomeWorldFilm }) => {
+        if (disposed) return
+        film = createHomeWorldFilm(canvas, homePalette(root), failed)
+        if (!film) {
+          failed()
+          return
+        }
+        canvas.dataset.ready = 'true'
+        if (
+          window.innerWidth > 680 &&
+          window.innerHeight > 600 &&
+          !document.hidden
+        ) {
+          film.draw(
+            1,
+            { x: 0, y: 0 },
+            0.1,
+            canvas.clientWidth,
+            canvas.clientHeight
+          )
+        }
+        resize()
+        onReady()
+      })
+      .catch((error: unknown) => {
+        if (canvas) {
+          canvas.dataset.unavailableReason =
+            error instanceof Error ? error.message : String(error)
+        }
+        failed()
+      })
+  }
+  const drawStatic = (target: HTMLCanvasElement) => {
+    if (!target.clientWidth || !target.clientHeight || document.hidden) return
+    if (!film) {
+      load()
+      return
+    }
+    film.draw(
+      Number(target.dataset.chapterFilm),
+      { x: 0, y: 0 },
+      0.5,
+      target.clientWidth,
+      target.clientHeight,
+      target
+    )
+  }
+  const resize = () =>
+    canvases.forEach((target) => {
+      const rect = target.getBoundingClientRect()
+      if (
+        !observer ||
+        (rect.bottom >= -160 && rect.top <= window.innerHeight + 160)
+      ) {
+        drawStatic(target)
+      }
+    })
+  const observer =
+    canvases.length && typeof window.IntersectionObserver === 'function'
+      ? new window.IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                drawStatic(entry.target as HTMLCanvasElement)
+              }
+            }
+          },
+          { rootMargin: '160px' }
+        )
+      : null
+  for (const target of canvases) observer?.observe(target)
+  if (canvases.length) {
+    window.addEventListener('resize', resize, { passive: true })
+    document.addEventListener('visibilitychange', resize)
+  }
+  const preload = () => load()
+  const preloadObserver =
+    canvas && typeof window.IntersectionObserver === 'function'
+      ? new window.IntersectionObserver(
+          (entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+              load()
+              preloadObserver?.disconnect()
+            }
+          },
+          { rootMargin: '240px' }
+        )
+      : null
+  if (canvas) preloadObserver?.observe(root)
+  root.addEventListener('pointerenter', preload, { passive: true, once: true })
+  root.addEventListener('focusin', preload, { once: true })
+  resize()
+  return {
+    get unavailable() {
+      return unavailable
+    },
+    get ready() {
+      return !canvas || (!!film && !unavailable)
+    },
+    draw(
+      chapter: number,
+      pointer: { x: number; y: number },
+      progress: number,
+      next = chapter,
+      mix = 0
+    ) {
+      if (!chapter || !canvas || !canvas.clientWidth || !canvas.clientHeight) {
+        return
+      }
+      if (!film) {
+        load()
+        return
+      }
+      film.draw(
+        chapter,
+        pointer,
+        progress,
+        canvas.clientWidth,
+        canvas.clientHeight,
+        undefined,
+        next,
+        mix
+      )
+    },
+    dispose() {
+      disposed = true
+      observer?.disconnect()
+      preloadObserver?.disconnect()
+      root.removeEventListener('pointerenter', preload)
+      root.removeEventListener('focusin', preload)
+      window.removeEventListener('resize', resize)
+      document.removeEventListener('visibilitychange', resize)
+      film?.dispose()
+      delete root.dataset.worldUnavailable
+    },
+  }
 }
 
 /** A single owned animation lifecycle, shared by the page and its browser tests. */
@@ -68,6 +231,8 @@ export function mountHomeMotion(root: HTMLElement) {
   const inner = root.querySelector<HTMLElement>('[data-cinema-inner]')
   const canvas = root.querySelector<HTMLCanvasElement>('[data-film]')
   if (!cinema || !inner || !canvas) return () => {}
+  let chapterReady = () => {}
+  const chapterFilms = mountChapterFilms(root, () => chapterReady())
   const visual = root.querySelector<HTMLElement>('[data-home-visual]') ?? inner
   const tokenField = root.querySelector<HTMLInputElement>(
     '[data-home-token-field]'
@@ -219,6 +384,7 @@ export function mountHomeMotion(root: HTMLElement) {
       tokens?.dispose()
       releaseInput()
       releaseGravity()
+      chapterFilms.dispose()
       resetSelection()
       delete root.dataset.motion
     }
@@ -241,16 +407,20 @@ export function mountHomeMotion(root: HTMLElement) {
   let tokenPointer: { x: number; y: number } | null = null
   let measured = true
   let sceneProgress = 0
+  let displayProgress = 0
+  let lastMotionTime = 0
+  let animatedLayout = false
   let manualChapter: number | null = null
 
   const updateControls = () => {
-    root.dataset.motion = !draw
-      ? 'static'
-      : reduced.matches
-        ? 'reduced'
-        : paused
-          ? 'paused'
-          : 'playing'
+    root.dataset.motion =
+      !draw || chapterFilms.unavailable
+        ? 'static'
+        : reduced.matches
+          ? 'reduced'
+          : paused
+            ? 'paused'
+            : 'playing'
     if (!toggle) return
     toggle.hidden = reduced.matches || !draw
     toggle.setAttribute('aria-pressed', String(paused))
@@ -270,6 +440,12 @@ export function mountHomeMotion(root: HTMLElement) {
       frame = requestAnimationFrame(render)
     }
   }
+  chapterReady = () => {
+    dirty = true
+    measured = true
+    updateControls()
+    schedule()
+  }
   refreshSelection = () => {
     clock = reduced.matches || paused ? RESPONSE_END : CYCLE_START
     responding = !reduced.matches && !paused
@@ -283,9 +459,11 @@ export function mountHomeMotion(root: HTMLElement) {
     const stickyTop = Number.parseFloat(window.getComputedStyle(inner).top) || 0
     const animated =
       !!draw &&
+      !chapterFilms.unavailable &&
       !reduced.matches &&
       window.innerHeight > 600 &&
       window.innerWidth > 680
+    animatedLayout = animated
     sceneProgress =
       manualChapter !== null && animated
         ? manualChapter / Math.max(1, scenePanels.length - 1)
@@ -299,31 +477,20 @@ export function mountHomeMotion(root: HTMLElement) {
           : 0
     layout = filmLayout(canvas)
     placeInput(animated ? clock : 0, pointer, sceneProgress)
-    inner.style.setProperty('--scene-progress', String(sceneProgress))
     const focused = scenePanels.findIndex((panel) =>
       panel.contains(document.activeElement)
     )
-    const chapter =
-      focused >= 0
+    const chapter = !animated
+      ? 0
+      : focused >= 0 && manualChapter === null && animated
         ? focused
         : (manualChapter ??
-          Math.min(
-            scenePanels.length - 1,
-            Math.floor(sceneProgress * scenePanels.length)
-          ))
-    inner.dataset.chapter = String(chapter)
-    scenePanels.forEach((panel, index) => {
-      const active = !animated || index === chapter
-      panel.toggleAttribute('data-active', active)
-      panel.setAttribute('aria-hidden', String(!active))
-      panel.inert = !active
-    })
-    sceneSteps.forEach((step, index) => {
-      step.toggleAttribute('data-active', index === chapter)
-      step
-        .querySelector('button')
-        ?.setAttribute('aria-pressed', String(index === chapter))
-    })
+          homeWorldFrame(sceneProgress, scenePanels.length).chapter)
+    // A focused link can retain its panel while scrolling; keep its model aligned.
+    if (animated && (manualChapter !== null || focused >= 0)) {
+      sceneProgress = Math.min(1, (chapter + 0.5) / scenePanels.length)
+    }
+    if (!animated) displayProgress = 0
     tokens?.measure(frameRect, [
       ...scenePanels,
       ...sceneSteps,
@@ -374,7 +541,70 @@ export function mountHomeMotion(root: HTMLElement) {
     frame = null
     if (disposed || document.hidden) return
     if (measured) readLayout()
-    const animate = !reduced.matches && !paused
+    const animate = !reduced.matches && !paused && !chapterFilms.unavailable
+    const elapsed = lastMotionTime ? now - lastMotionTime : 1000 / 24
+    lastMotionTime = now
+    // Keep the first film intact on a slow chunk load, then join the same damping.
+    const renderTarget =
+      chapterFilms.ready || !animatedLayout
+        ? sceneProgress
+        : Math.min(sceneProgress, 0.54 / scenePanels.length)
+    displayProgress =
+      animatedLayout && animate && visible
+        ? smoothWorldProgress(displayProgress, renderTarget, elapsed)
+        : renderTarget
+    const state = homeWorldFrame(displayProgress, scenePanels.length)
+    inner.dataset.chapter = String(state.chapter)
+    inner.style.setProperty('--scene-progress', String(displayProgress))
+    const heroWeight = !animatedLayout
+      ? 1
+      : state.from === 0
+        ? 1 - state.mix
+        : 0
+    inner.style.setProperty('--hero-opacity', String(heroWeight))
+    inner.style.setProperty('--world-opacity', String(1 - heroWeight))
+    inner.style.setProperty('--hero-offset', `${(1 - heroWeight) * -1.5}rem`)
+    const networkVisible = !animatedLayout || heroWeight > 0.01
+    for (const element of [
+      inputZone,
+      root.querySelector<HTMLElement>('[data-token-cloud]'),
+      root.querySelector<HTMLElement>('.lmm-simulation-info'),
+    ]) {
+      if (!element) continue
+      element.hidden = !networkVisible
+      element.inert = animatedLayout && state.chapter !== 0
+    }
+    scenePanels.forEach((panel, index) => {
+      const active = !animatedLayout || index === state.chapter
+      const weight = !animatedLayout
+        ? 1
+        : state.from === state.to
+          ? Number(index === state.from)
+          : index === state.from
+            ? 1 - state.mix
+            : index === state.to
+              ? state.mix
+              : 0
+      panel.style.setProperty(
+        '--panel-offset',
+        `${(index === state.to ? 1 : -1) * (1 - weight) * 1.8}rem`
+      )
+      // A settled overlap shows one readable heading; the chapter change itself fades.
+      panel.style.setProperty(
+        '--panel-opacity',
+        String(active ? 0.78 + weight * 0.22 : 0)
+      )
+      panel.toggleAttribute('data-visible', active)
+      panel.toggleAttribute('data-active', active)
+      panel.setAttribute('aria-hidden', String(!active))
+      panel.inert = !active
+    })
+    sceneSteps.forEach((step, index) => {
+      step.toggleAttribute('data-active', index === state.chapter)
+      step
+        .querySelector('button')
+        ?.setAttribute('aria-pressed', String(index === state.chapter))
+    })
     if (animate) {
       pointer.x += (target.x - pointer.x) * 0.11
       pointer.y += (target.y - pointer.y) * 0.11
@@ -408,9 +638,20 @@ export function mountHomeMotion(root: HTMLElement) {
         if (clock >= RESPONSE_END) responding = false
       }
       const time = reduced.matches ? RESPONSE_END : clock
-      draw(time, cameraPointer, sceneProgress)
-      placeInput(time, cameraPointer, sceneProgress)
-      tokens?.draw(now / 1000, tokenPointer, animate)
+      if (heroWeight > 0 || !animatedLayout) {
+        draw(time, cameraPointer, 0)
+      }
+      if (animatedLayout && (state.to > 0 || state.from > 0)) {
+        chapterFilms.draw(
+          Math.max(1, state.from),
+          cameraPointer,
+          displayProgress,
+          Math.max(1, state.to),
+          state.from === 0 ? state.mix - 1 : state.mix
+        )
+      }
+      placeInput(time, cameraPointer, displayProgress)
+      if (!inputZone?.hidden) tokens?.draw(now / 1000, tokenPointer, animate)
       lastTime = now
       dirty = false
     } else if (!draw && dirty) {
@@ -423,7 +664,10 @@ export function mountHomeMotion(root: HTMLElement) {
       draw &&
       animate &&
       visible &&
-      (responding || pointerMoving || ambientActive)
+      (responding ||
+        pointerMoving ||
+        ambientActive ||
+        Math.abs(displayProgress - renderTarget) > 0.0001)
     ) {
       schedule()
     }
@@ -487,6 +731,7 @@ export function mountHomeMotion(root: HTMLElement) {
     measured = true
 
     lastTime = 0
+    lastMotionTime = 0
 
     updateControls()
 
@@ -502,6 +747,7 @@ export function mountHomeMotion(root: HTMLElement) {
       frame = null
     }
     lastTime = 0
+    lastMotionTime = 0
     if (!document.hidden) {
       dirty = true
       measured = true
@@ -564,7 +810,17 @@ export function mountHomeMotion(root: HTMLElement) {
     tokens?.dispose()
     releaseInput()
     releaseGravity()
+    chapterFilms.dispose()
     resetSelection()
+    for (const element of [
+      inputZone,
+      root.querySelector<HTMLElement>('[data-token-cloud]'),
+      root.querySelector<HTMLElement>('.lmm-simulation-info'),
+    ]) {
+      if (!element) continue
+      element.hidden = false
+      element.inert = false
+    }
     if (frame !== null) cancelAnimationFrame(frame)
     observer.disconnect()
     resizeObserver.disconnect()
@@ -584,10 +840,16 @@ export function mountHomeMotion(root: HTMLElement) {
     fine.removeEventListener('change', preferences)
     delete root.dataset.motion
     delete inner.dataset.chapter
+    for (const key of ['--hero-opacity', '--world-opacity', '--hero-offset']) {
+      inner.style.removeProperty(key)
+    }
     scenePanels.forEach((panel) => {
       panel.inert = false
       panel.removeAttribute('aria-hidden')
       panel.removeAttribute('data-active')
+      panel.removeAttribute('data-visible')
+      panel.style.removeProperty('--panel-opacity')
+      panel.style.removeProperty('--panel-offset')
     })
     sceneSteps.forEach((step) => step.removeAttribute('data-active'))
     for (const key of [

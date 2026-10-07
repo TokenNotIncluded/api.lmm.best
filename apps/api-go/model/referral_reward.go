@@ -60,6 +60,15 @@ type ReferralModerationEvent struct {
 
 var ErrReferralConflict = errors.New("referral operation conflicts with an earlier request")
 
+func inviteRegistrationActivationEnabled() bool {
+	// Permission decisions use the published option snapshot, under the same
+	// lock as option updates. Missing/removed or malformed values fail closed;
+	// a stale registered-config pointer must not keep granting new access.
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap[operation_setting.InviteRegistrationEnabledOptionKey] == "true"
+}
+
 // createUserWithInviterTx binds only a valid, pre-existing inviter at creation.
 // Public profile updates must never be able to change inviter_id later.
 func createUserWithInviterTx(tx *gorm.DB, user *User, inviterId int) error {
@@ -67,13 +76,20 @@ func createUserWithInviterTx(tx *gorm.DB, user *User, inviterId int) error {
 	user.ReferralFirstTopUpId = 0
 	if inviterId > 0 && inviterId != user.Id {
 		var inviter User
-		err := tx.Where("id = ? AND status = ?", inviterId, common.UserStatusEnabled).First(&inviter).Error
+		err := lockForUpdate(tx).Where("id = ? AND status = ?", inviterId, common.UserStatusEnabled).First(&inviter).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		if err == nil {
 			user.InviterId = inviter.Id
 		}
+	}
+	if user.InviterId > 0 && inviteRegistrationActivationEnabled() {
+		// Use the same durable activation fact as a non-payment console unlock,
+		// so the account starts at L1 and can still progress normally afterwards.
+		// Both password and OAuth registration reach this authoritative boundary;
+		// an unvalidated affiliate code must never grant access on its own.
+		user.ConsoleActivatedAt = common.GetTimestamp()
 	}
 	if err := tx.Create(user).Error; err != nil {
 		return err

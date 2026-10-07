@@ -116,6 +116,11 @@ function Harness({
   couponApplied = false,
   validatedCouponCode = '',
   rawQuota = 50000000,
+  usage = {
+    used_quota: 250000,
+    normalized_used_quota: 250000,
+    usage_projection_available: true,
+  },
 }: {
   amount?: number
   paymentDiscount?: ReturnType<typeof parsePaymentDiscount>
@@ -125,6 +130,11 @@ function Harness({
   couponApplied?: boolean
   validatedCouponCode?: string
   rawQuota?: number
+  usage?: {
+    used_quota: number
+    normalized_used_quota?: number | null
+    usage_projection_available?: boolean
+  }
 } = {}) {
   const [quota, setQuota] = useState(rawQuota)
   const [confirm, setConfirm] = useState(false)
@@ -135,7 +145,7 @@ function Harness({
           id: 7,
           username: 'unit-fixture',
           quota: 500000,
-          used_quota: 250000,
+          ...usage,
           request_count: 1,
           aff_quota: 0,
           aff_history_quota: 0,
@@ -307,6 +317,39 @@ after(() => {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor)
     else Reflect.deleteProperty(globalThis, key)
   }
+})
+
+test('wallet uses canonical historical baseline plus new usage while preserving old counters', async () => {
+  await i18n.changeLanguage('zh')
+  setRates(500000, 6.710363)
+  const container = await render({
+    usage: {
+      used_quota: 2491782362,
+      normalized_used_quota: 371426713,
+      usage_projection_available: true,
+    },
+  })
+  assert.ok(container.textContent?.includes('4,984.82 CNY'))
+  assert.equal(container.textContent?.includes('33,442'), false)
+  await choose(container, 'Balance display currency', 'Credits')
+  assert.ok(container.textContent?.includes('371,426,713 Credits'))
+  assert.ok(
+    container.textContent?.includes('500,000 Credits'),
+    'balance remains unchanged'
+  )
+})
+
+test('wallet keeps unavailable and old-server historical usage in raw credits when balance is CNY', async () => {
+  await i18n.changeLanguage('zh')
+  setRates(500000, 6.710363)
+  const container = await render({
+    usage: { used_quota: 2491782362, usage_projection_available: false },
+  })
+  assert.ok(container.textContent?.includes('2,491,782,362 Credits'))
+  assert.ok(
+    container.textContent?.includes('6.71 CNY'),
+    'balance still uses the current fixed-credit conversion'
+  )
 })
 
 test('balance CNY/USD/Credit selector updates balance and total usage without changing 100 CNY recharge or quote', async () => {
@@ -563,16 +606,22 @@ for (const quote of [
     assert.ok(
       container.textContent?.includes(`You save: ${Number(quote.savings)} CNY`)
     )
+    const preset = container.querySelector('button[aria-pressed="true"]')
+    assert.ok(preset)
+    assert.equal(
+      preset.querySelector('.line-through'),
+      null,
+      'the compact preset leaves the original price in the checkout summary'
+    )
+    assert.ok(preset.textContent?.includes(`${quote.displayedPercent}% off`))
+    assert.ok(preset.textContent?.includes(`Pay ${Number(quote.paid)} CNY`))
     const original = [...container.querySelectorAll('.line-through')]
-    assert.ok(
-      original.length >= 2,
-      'preset and checkout both show the real original'
+    assert.equal(
+      original.length,
+      1,
+      'checkout shows the authoritative original'
     )
-    assert.ok(
-      original.every(
-        (element) => element.textContent === `${Number(quote.original)} CNY`
-      )
-    )
+    assert.equal(original[0].textContent, `${Number(quote.original)} CNY`)
     await choose(container, 'Balance display currency', 'Credits')
     assert.equal(input(container).value, '100')
     assert.ok(container.textContent?.includes(`${Number(quote.paid)} CNY`))

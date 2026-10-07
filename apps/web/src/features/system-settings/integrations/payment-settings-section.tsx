@@ -47,6 +47,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 import { cn } from '@/lib/utils'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { confirmPaymentCompliance } from '../api'
 import {
@@ -61,6 +62,16 @@ import { AmountDiscountVisualEditor } from './amount-discount-visual-editor'
 import { AmountOptionsVisualEditor } from './amount-options-visual-editor'
 import { CreemProductsVisualEditor } from './creem-products-visual-editor'
 import { LegacyUsdMinimumInput } from './legacy-usd-minimum-input'
+import { MerchantStoreSettingsSection } from './merchant-store-settings-section'
+import {
+  createPaymentAmountOptionsSchema,
+  createPaymentAmountDiscountSchema,
+  normalizePaymentAmountOptionsJson,
+  normalizePaymentAmountDiscountJson,
+  formatPaymentAmountOptionsJson,
+  formatPaymentAmountDiscountJson,
+  type PaymentAmountUnit,
+} from './payment-amount-options'
 import { PaymentMethodsVisualEditor } from './payment-methods-visual-editor'
 import {
   formatJsonForEditor,
@@ -94,90 +105,71 @@ function isHttpOriginUrl(value: string) {
   }
 }
 
-const paymentSchema = z.object({
-  PayAddress: z.string().refine((value) => {
-    const trimmed = value.trim()
-    if (!trimmed) return true
-    return /^https?:\/\//.test(trimmed)
-  }, 'Provide a valid callback URL starting with http:// or https://'),
-  EpayId: z.string(),
-  EpayKey: z.string(),
-  MinTopUp: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  CustomCallbackAddress: z
-    .string()
-    .refine(
-      isHttpOriginUrl,
-      'Enter only a top-level callback domain, for example https://api.example.com, without any path.'
-    ),
-  PayMethods: z.string().superRefine((value, ctx) => {
-    const error = getJsonError(value)
-    if (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: error,
-      })
-    }
-  }),
-  AmountOptions: z.string().superRefine((value, ctx) => {
-    const error = getJsonError(value, (parsed) => Array.isArray(parsed))
-    if (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: error,
-      })
-    }
-  }),
-  AmountDiscount: z.string().superRefine((value, ctx) => {
-    const error = getJsonError(
-      value,
-      (parsed) =>
-        !!parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-    )
-    if (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: error,
-      })
-    }
-  }),
-  StripeApiSecret: z.string(),
-  StripeWebhookSecret: z.string(),
-  StripePriceId: z.string(),
-  StripeUnitPrice: z.coerce.number().min(0),
-  StripeMinTopUp: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  StripePromotionCodesEnabled: z.boolean(),
-  CreemApiKey: z.string(),
-  CreemWebhookSecret: z.string(),
-  CreemTestMode: z.boolean(),
-  CreemProducts: z.string().superRefine((value, ctx) => {
-    const error = getJsonError(value, (parsed) => Array.isArray(parsed))
-    if (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: error,
-      })
-    }
-  }),
-  WaffoEnabled: z.boolean(),
-  WaffoApiKey: z.string(),
-  WaffoPrivateKey: z.string(),
-  WaffoPublicCert: z.string(),
-  WaffoSandboxPublicCert: z.string(),
-  WaffoSandboxApiKey: z.string(),
-  WaffoSandboxPrivateKey: z.string(),
-  WaffoSandbox: z.boolean(),
-  WaffoMerchantId: z.string(),
-  WaffoCurrency: z.string(),
-  WaffoUnitPrice: z.coerce.number().min(0),
-  WaffoMinTopUp: z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
-  WaffoNotifyUrl: z.string(),
-  WaffoReturnUrl: z.string(),
-  WaffoPancakeMerchantID: z.string(),
-  WaffoPancakePrivateKey: z.string(),
-  WaffoPancakeReturnURL: z.string(),
-})
+const createPaymentSchema = (unit: PaymentAmountUnit) =>
+  z.object({
+    PayAddress: z.string().refine((value) => {
+      const trimmed = value.trim()
+      if (!trimmed) return true
+      return /^https?:\/\//.test(trimmed)
+    }, 'Provide a valid callback URL starting with http:// or https://'),
+    EpayId: z.string(),
+    EpayKey: z.string(),
+    MinTopUp: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    CustomCallbackAddress: z
+      .string()
+      .refine(
+        isHttpOriginUrl,
+        'Enter only a top-level callback domain, for example https://api.example.com, without any path.'
+      ),
+    PayMethods: z.string().superRefine((value, ctx) => {
+      const error = getJsonError(value)
+      if (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: error,
+        })
+      }
+    }),
+    AmountOptions: createPaymentAmountOptionsSchema(unit),
+    AmountDiscount: createPaymentAmountDiscountSchema(unit),
+    StripeApiSecret: z.string(),
+    StripeWebhookSecret: z.string(),
+    StripePriceId: z.string(),
+    StripeUnitPrice: z.coerce.number().min(0),
+    StripeMinTopUp: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    StripePromotionCodesEnabled: z.boolean(),
+    CreemApiKey: z.string(),
+    CreemWebhookSecret: z.string(),
+    CreemTestMode: z.boolean(),
+    CreemProducts: z.string().superRefine((value, ctx) => {
+      const error = getJsonError(value, (parsed) => Array.isArray(parsed))
+      if (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: error,
+        })
+      }
+    }),
+    WaffoEnabled: z.boolean(),
+    WaffoApiKey: z.string(),
+    WaffoPrivateKey: z.string(),
+    WaffoPublicCert: z.string(),
+    WaffoSandboxPublicCert: z.string(),
+    WaffoSandboxApiKey: z.string(),
+    WaffoSandboxPrivateKey: z.string(),
+    WaffoSandbox: z.boolean(),
+    WaffoMerchantId: z.string(),
+    WaffoCurrency: z.string(),
+    WaffoUnitPrice: z.coerce.number().min(0),
+    WaffoMinTopUp: z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+    WaffoNotifyUrl: z.string(),
+    WaffoReturnUrl: z.string(),
+    WaffoPancakeMerchantID: z.string(),
+    WaffoPancakePrivateKey: z.string(),
+    WaffoPancakeReturnURL: z.string(),
+  })
 
-type PaymentFormValues = z.infer<typeof paymentSchema>
+type PaymentFormValues = z.infer<ReturnType<typeof createPaymentSchema>>
 type WaffoFormFieldValues = Omit<WaffoSettingsValues, 'WaffoPayMethods'>
 type PaymentBaseFormValues = Omit<
   PaymentFormValues,
@@ -221,6 +213,15 @@ export function PaymentSettingsSection({
   complianceDefaults,
 }: PaymentSettingsSectionProps) {
   const { t } = useTranslation()
+  const quotaDisplayType = useSystemConfigStore(
+    (state) => state.config.currency.quotaDisplayType
+  )
+  const amountUnit: PaymentAmountUnit =
+    quotaDisplayType === 'TOKENS' ? 'CREDIT' : 'USD'
+  const paymentSchema = React.useMemo(
+    () => createPaymentSchema(amountUnit),
+    [amountUnit]
+  )
   const queryClient = useQueryClient()
   const updateOption = useUpdateOption()
   const initialFormValues = React.useMemo<PaymentFormValues>(
@@ -352,8 +353,8 @@ export function PaymentSettingsSection({
     defaultValues: {
       ...initialFormValues,
       PayMethods: formatJsonForEditor(initialFormValues.PayMethods),
-      AmountOptions: formatJsonForEditor(initialFormValues.AmountOptions),
-      AmountDiscount: formatJsonForEditor(initialFormValues.AmountDiscount),
+      AmountOptions: initialFormValues.AmountOptions,
+      AmountDiscount: initialFormValues.AmountDiscount,
       CreemProducts: formatJsonForEditor(initialFormValues.CreemProducts),
     },
   })
@@ -418,8 +419,8 @@ export function PaymentSettingsSection({
     form.reset({
       ...parsedDefaults,
       PayMethods: formatJsonForEditor(parsedDefaults.PayMethods),
-      AmountOptions: formatJsonForEditor(parsedDefaults.AmountOptions),
-      AmountDiscount: formatJsonForEditor(parsedDefaults.AmountDiscount),
+      AmountOptions: parsedDefaults.AmountOptions,
+      AmountDiscount: parsedDefaults.AmountDiscount,
       CreemProducts: formatJsonForEditor(parsedDefaults.CreemProducts),
     })
   }, [defaultsSignature, form])
@@ -545,8 +546,8 @@ export function PaymentSettingsSection({
     }
 
     if (
-      normalizeJsonForComparison(sanitized.AmountOptions) !==
-      normalizeJsonForComparison(initial.AmountOptions)
+      normalizePaymentAmountOptionsJson(sanitized.AmountOptions, amountUnit) !==
+      normalizePaymentAmountOptionsJson(initial.AmountOptions, amountUnit)
     ) {
       updates.push({
         key: 'payment_setting.amount_options',
@@ -555,8 +556,11 @@ export function PaymentSettingsSection({
     }
 
     if (
-      normalizeJsonForComparison(sanitized.AmountDiscount) !==
-      normalizeJsonForComparison(initial.AmountDiscount)
+      normalizePaymentAmountDiscountJson(
+        sanitized.AmountDiscount,
+        amountUnit
+      ) !==
+      normalizePaymentAmountDiscountJson(initial.AmountDiscount, amountUnit)
     ) {
       updates.push({
         key: 'payment_setting.amount_discount',
@@ -1007,7 +1011,9 @@ export function PaymentSettingsSection({
                     render={({ field }) => (
                       <FormItem>
                         <div className='mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-                          <FormLabel>{t('Top-up amount options')}</FormLabel>
+                          <FormLabel>
+                            {t('Top-up amount options')} ({amountUnit})
+                          </FormLabel>
                           <Button
                             type='button'
                             variant='outline'
@@ -1037,10 +1043,18 @@ export function PaymentSettingsSection({
                             <AmountOptionsVisualEditor
                               value={field.value}
                               onChange={field.onChange}
+                              unit={amountUnit}
                             />
                           ) : (
                             <SystemJsonCodeEditor
                               configurationKey='payment_setting.amount_options'
+                              paymentAmountUnit={amountUnit}
+                              formatValue={(value) =>
+                                formatPaymentAmountOptionsJson(
+                                  value,
+                                  amountUnit
+                                )
+                              }
                               value={field.value}
                               onChange={field.onChange}
                               name={field.name}
@@ -1055,7 +1069,8 @@ export function PaymentSettingsSection({
                           )}
                         </FormControl>
                         <FormDescription>
-                          {t('Preset recharge amounts (JSON array)')}
+                          {t('Preset recharge amounts (JSON array)')} (
+                          {amountUnit})
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -1098,10 +1113,18 @@ export function PaymentSettingsSection({
                             <AmountDiscountVisualEditor
                               value={field.value}
                               onChange={field.onChange}
+                              unit={amountUnit}
                             />
                           ) : (
                             <SystemJsonCodeEditor
                               configurationKey='payment_setting.amount_discount'
+                              paymentAmountUnit={amountUnit}
+                              formatValue={(value) =>
+                                formatPaymentAmountDiscountJson(
+                                  value,
+                                  amountUnit
+                                )
+                              }
                               value={field.value}
                               onChange={field.onChange}
                               name={field.name}
@@ -1595,6 +1618,7 @@ export function PaymentSettingsSection({
           </Tabs>
         </SettingsForm>
       </Form>
+      <MerchantStoreSettingsSection />
     </SettingsSection>
   )
 }

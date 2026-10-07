@@ -22,7 +22,6 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 import { ErrorPageFrame } from './error-page-frame'
-import { SignalTuner } from './signal-tuner'
 
 export function MaintenanceError() {
   const { t } = useTranslation()
@@ -69,7 +68,6 @@ export function MaintenanceError() {
           </Button>
         </>
       }
-      play={<SignalTuner />}
     />
   )
 }

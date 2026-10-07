@@ -27,12 +27,9 @@ import type { AxiosAdapter, AxiosResponse } from 'axios'
 import { api } from '@/lib/api'
 
 import {
-  ADMIN_ASSISTANT_REVIEW_CLEANUP_PREVIEW_ENDPOINT,
-  ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT,
   getModerationModels,
   listModerationReviews,
-  deleteAssistantReviewRuns,
-  previewAssistantReviewRunCleanup,
+  listModerationAppeals,
 } from './security-audit-api'
 
 const originalAdapter = api.defaults.adapter
@@ -54,53 +51,20 @@ afterEach(() => {
   api.defaults.adapter = originalAdapter
 })
 
-describe('assistant review cleanup API', () => {
-  test('requests a cleanup preview without a security proof', async () => {
-    let captured: Parameters<AxiosAdapter>[0] | undefined
-    api.defaults.adapter = async (config) => {
-      captured = config
-      return response(config, {
-        success: true,
-        data: {
-          task_type: 'assistant_review',
-          keep: 30,
-          eligible_count: 5,
-          deleted_count: 0,
-        },
-      })
-    }
-
-    const result = await previewAssistantReviewRunCleanup(30)
-
-    assert.equal(captured?.method, 'get')
-    assert.equal(captured?.url, ADMIN_ASSISTANT_REVIEW_CLEANUP_PREVIEW_ENDPOINT)
-    assert.deepEqual(captured?.params, { keep: 30 })
-    assert.equal(result.data?.eligible_count, 5)
-  })
-
-  test('sends the scoped proof when deleting cleanup candidates', async () => {
-    let captured: Parameters<AxiosAdapter>[0] | undefined
-    api.defaults.adapter = async (config) => {
-      captured = config
-      return response(config, {
-        success: true,
-        data: {
-          task_type: 'assistant_review',
-          keep: 30,
-          eligible_count: 5,
-          deleted_count: 5,
-        },
-      })
-    }
-
-    const result = await deleteAssistantReviewRuns(30, 5, 'proof-token')
-
-    assert.equal(captured?.method, 'delete')
-    assert.equal(captured?.url, ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT)
-    assert.deepEqual(captured?.params, { keep: 30, expected_count: 5 })
-    assert.equal(captured?.headers?.['X-Security-Proof'], 'proof-token')
-    assert.equal(result.data?.deleted_count, 5)
-  })
+test('loads the bounded appeal records with GET without pretending to request all-time totals', async () => {
+  let captured: Parameters<AxiosAdapter>[0] | undefined
+  api.defaults.adapter = async (config) => {
+    captured = config
+    return response(config, {
+      success: true,
+      data: [{ id: 1, record_id: 2, status: 'pending' }],
+    })
+  }
+  const result = await listModerationAppeals()
+  assert.equal(captured?.method, 'get')
+  assert.equal(captured?.url, '/api/security/admin/violation-fee-appeals')
+  assert.equal(captured?.params, undefined)
+  assert.equal(result.data?.[0].record_id, 2)
 })
 
 describe('Moderation metadata API', () => {

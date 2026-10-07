@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"math"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -48,9 +49,21 @@ func GetSubscription(c *gin.Context) {
 		return
 	}
 	// OpenAI's USD fields always represent real USD, regardless of UI display.
-	quota := decimal.NewFromInt(int64(remainQuota)).Add(decimal.NewFromInt(int64(usedQuota)))
+	usage, currentRemain := captureBillingUsage(token, c.GetInt("id"), remainQuota, usedQuota)
+	remainQuota = currentRemain
+	if token != nil {
+		expiredTime = max(0, token.ExpiredTime)
+	}
+	quota := decimal.NewFromInt(int64(remainQuota))
+	if usage.NormalizedUsedQuota != nil {
+		quota = quota.Add(decimal.NewFromInt(int64(*usage.NormalizedUsedQuota)))
+	}
 	amount := float64(100000000)
 	if token == nil || !token.UnlimitedQuota {
+		if !usage.UsageProjectionAvailable {
+			writeBillingOpenAIError(c, errors.New("usage projection unavailable"), "billing_unavailable")
+			return
+		}
 		amount, err = billingUSDFromCredits(quota, anchor)
 		if err != nil {
 			writeBillingOpenAIError(c, err, "billing_unavailable")
@@ -94,8 +107,13 @@ func GetUsage(c *gin.Context) {
 		writeBillingOpenAIError(c, err, "billing_unavailable")
 		return
 	}
-	// Convert raw credits to SDK cents before the single float conversion.
-	amount, err := billingUSDFromCredits(decimal.NewFromInt(int64(quota)).Mul(decimal.NewFromInt(100)), anchor)
+	usageProjection, _ := captureBillingUsage(token, c.GetInt("id"), 0, quota)
+	if !usageProjection.UsageProjectionAvailable {
+		writeBillingOpenAIError(c, errors.New("usage projection unavailable"), "billing_unavailable")
+		return
+	}
+	// Convert current integer credits to SDK cents before the single float conversion.
+	amount, err := billingUSDFromCredits(decimal.NewFromInt(int64(*usageProjection.NormalizedUsedQuota)).Mul(decimal.NewFromInt(100)), anchor)
 	if err != nil {
 		writeBillingOpenAIError(c, err, "billing_unavailable")
 		return

@@ -44,9 +44,16 @@ type tokenResponse struct {
 	*model.Token
 	AutoGroups         []string `json:"auto_groups"`
 	AccountBalanceRead bool     `json:"account_balance_read"`
+	usageProjectionFields
 }
 
 func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
+	snapshot := loadUsageSnapshot(nil, []*model.Token{token})
+	current, projector := snapshot.token(token)
+	return buildMaskedTokenResponseWithProjector(current, projector)
+}
+
+func buildMaskedTokenResponseWithProjector(token *model.Token, projector usageProjector) *tokenResponse {
 	if token == nil {
 		return nil
 	}
@@ -60,13 +67,15 @@ func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
 	if len(autoGroups) == 0 {
 		autoGroups = nil
 	}
-	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups, AccountBalanceRead: token.AccountBalanceRead}
+	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups, AccountBalanceRead: token.AccountBalanceRead, usageProjectionFields: projectTokenUsage(projector, token)}
 }
 
 func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {
 	maskedTokens := make([]*tokenResponse, 0, len(tokens))
+	snapshot := loadUsageSnapshot(nil, tokens)
 	for _, token := range tokens {
-		maskedTokens = append(maskedTokens, buildMaskedTokenResponse(token))
+		current, projector := snapshot.token(token)
+		maskedTokens = append(maskedTokens, buildMaskedTokenResponseWithProjector(current, projector))
 	}
 	return maskedTokens
 }

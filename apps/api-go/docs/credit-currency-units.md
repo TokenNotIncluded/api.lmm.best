@@ -62,3 +62,9 @@ go test -race ./dto -run '^TestWalletDisplayCurrency'
 The optional PostgreSQL initialization test uses `TEST_POSTGRES_DSN` and
 `TEST_POSTGRES_ISOLATED_SCHEMA=1`, creating and removing its own test schema.
 Only point these at an explicitly isolated test database.
+
+### Decimal recharge presets
+
+`payment_setting.amount_options` accepts exact positive JSON decimal numbers. The retained non-TOKENS configuration is in legacy USD batches; user CNY/USD display preferences do not convert these configured values. Existing TOKENS configurations still name integer ledger CREDIT. With the fixed production scale, `3.5` USD grants exactly `1750000` CREDIT; `0.000002` USD grants one CREDIT. Values that would produce fractional CREDIT, overflow the safe wallet integer domain, or contain invalid JSON types are rejected without rounding. AmountOptions and AmountDiscount decode atomically, including existing persisted decimal configurations.
+
+Discount keys accept the same precise decimal amounts, with integer keys preserved for old JSON. `3.5` and `3.50` denote the same preset; conflicting factors are rejected. Discounts still match the exact preset, preserving the existing group/payment/coupon calculation and rounding order. This does not rewrite old orders, credit balances, payment records, or discount levels. The JSON/visual editors display the configuration unit explicitly and retain invalid JSON rather than treating it as an empty catalog.

@@ -11,6 +11,7 @@ import { after, afterEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { mergePresetAmounts } from '../lib/payment'
 import {
   calculateSettlementAmount,
   getPaymentMaxTopup,
@@ -288,6 +289,28 @@ test('keeps raw catalogs exact even when legacy aliases cannot round-trip', asyn
   assert.deepEqual(info.amount_options, quotas)
   assert.deepEqual(info.discount, { 1: 0.9, 9007199254740987: 0.8 })
   assert.equal(info.amount_unit, 'CREDIT')
+})
+
+test('decimal USD recharge presets use authoritative integer credits and exact matching discounts', async () => {
+  const info = await loadTopupInfo([], {
+    credit_amount_options: [1750000],
+    credit_discount: { '1750000': 0.98 },
+    amount_options: [3.5],
+    legacy_amount_options: [3.5],
+    discount: { '3.5': 0.98 },
+    legacy_discount: { '3.5': 0.98 },
+  })
+  assert.equal(info.amount_unit, 'CREDIT')
+  assert.deepEqual(info.amount_options, [1750000])
+  assert.deepEqual(info.discount, { '1750000': 0.98 })
+  assert.deepEqual(mergePresetAmounts(info.amount_options, info.discount), [
+    { value: 1750000, discount: 0.98 },
+  ])
+  assert.deepEqual(
+    mergePresetAmounts([1750001], info.discount),
+    [{ value: 1750001, discount: 1 }],
+    'a nearby amount does not inherit the configured preset discount'
+  )
 })
 
 test('missing or invalid raw metadata disables editable money without disabling fixed products', async () => {

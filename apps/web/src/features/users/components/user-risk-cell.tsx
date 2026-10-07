@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -26,7 +29,26 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { formatQuota } from '@/lib/format'
+import { formatRawCreditCount } from '@/lib/cumulative-user-usage'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 
 import type { User } from '../types'
 
@@ -41,7 +63,10 @@ const reasonLabels: Record<string, string> = {
   moderation_violations: 'Moderation violations in user input',
 }
 export function UserRiskCell({ user }: { user: User }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const rawCreditLocale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
   const risk = user.wallet_risk
   if (!risk) return <span className='text-muted-foreground'>—</span>
   const label = risk.high_risk
@@ -96,19 +121,35 @@ export function UserRiskCell({ user }: { user: User }) {
         <dl className='grid grid-cols-2 gap-2 text-xs'>
           <dt>{t('Check-in rewards')}</dt>
           <dd className='text-right tabular-nums'>
-            {formatQuota(risk.checkin_quota)}
+            {formatRawCreditCount(
+              risk.checkin_quota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </dd>
           <dt>{t('Transferred out')}</dt>
           <dd className='text-right tabular-nums'>
-            {formatQuota(risk.transferred_quota)}
+            {formatRawCreditCount(
+              risk.transferred_quota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </dd>
           <dt>{t('Pending transfers')}</dt>
           <dd className='text-right tabular-nums'>
-            {formatQuota(risk.pending_quota)}
+            {formatRawCreditCount(
+              risk.pending_quota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </dd>
           <dt>{t('Received transfers')}</dt>
           <dd className='text-right tabular-nums'>
-            {formatQuota(risk.received_quota)}
+            {formatRawCreditCount(
+              risk.received_quota,
+              t('Credits'),
+              rawCreditLocale
+            )}
           </dd>
           <dt>{t('High-risk senders')}</dt>
           <dd className='text-right tabular-nums'>{risk.high_risk_senders}</dd>

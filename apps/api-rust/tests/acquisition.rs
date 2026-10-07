@@ -1,17 +1,135 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header},
+    http::{Method, Request, StatusCode, header},
 };
 use lmm_api_rs::{
-    auth::{AuthConfig, PgValkeyDashboardAuth},
+    auth::{
+        AuthBundle, AuthConfig, AuthError, AuthErrorKind, CriticalRateLimitOutcome, DashboardAuth,
+        DashboardUser, LoginOutcome, LoginRequest, LogoutRequest, LogoutResult,
+        PgValkeyDashboardAuth, RequestMetadata, TwoFactorLoginRequest,
+    },
     routes::acquisition::{AcquisitionState, Error, Input, PgAcquisitionStore, router},
 };
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tower::ServiceExt;
+
+#[derive(Clone)]
+struct StaticAuth {
+    role: i64,
+}
+
+#[async_trait]
+impl DashboardAuth for StaticAuth {
+    async fn check_critical_rate_limit(
+        &self,
+        _: &str,
+    ) -> Result<CriticalRateLimitOutcome, AuthError> {
+        Ok(CriticalRateLimitOutcome::Allowed)
+    }
+
+    async fn login(&self, _: LoginRequest, _: RequestMetadata) -> Result<LoginOutcome, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Unauthorized))
+    }
+
+    async fn login_2fa(
+        &self,
+        _: TwoFactorLoginRequest,
+        _: RequestMetadata,
+    ) -> Result<AuthBundle, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Unauthorized))
+    }
+
+    async fn refresh(
+        &self,
+        _: SecretString,
+        _: Option<String>,
+        _: RequestMetadata,
+    ) -> Result<AuthBundle, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Unauthorized))
+    }
+
+    async fn self_user(&self, _: SecretString) -> Result<DashboardUser, AuthError> {
+        Ok(DashboardUser {
+            id: 1,
+            username: "operator".into(),
+            display_name: "Operator".into(),
+            role: self.role,
+            status: 1,
+            email: String::new(),
+            github_id: String::new(),
+            discord_id: String::new(),
+            oidc_id: String::new(),
+            wechat_id: String::new(),
+            telegram_id: String::new(),
+            group: "default".into(),
+            quota: 0,
+            used_quota: 0,
+            request_count: 0,
+            aff_code: String::new(),
+            aff_count: 0,
+            aff_quota: 0,
+            aff_history_quota: 0,
+            inviter_id: 0,
+            linux_do_id: String::new(),
+            setting: "{}".into(),
+            stripe_customer: String::new(),
+            sidebar_modules: json!({}),
+            permissions: json!({}),
+        })
+    }
+
+    async fn logout(&self, _: LogoutRequest) -> Result<LogoutResult, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Unauthorized))
+    }
+
+    async fn generate_personal_access_token(&self, _: SecretString) -> Result<String, AuthError> {
+        Err(AuthError::new(AuthErrorKind::Unauthorized))
+    }
+}
+
+fn app_with_static_auth(pg: PgPool, role: i64) -> axum::Router {
+    router(AcquisitionState::new(
+        PgAcquisitionStore::new(pg),
+        Arc::new(StaticAuth { role }),
+        false,
+    ))
+}
+
+async fn admin_request(
+    app: &axum::Router,
+    method: Method,
+    path: &str,
+    body: Body,
+) -> (StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::AUTHORIZATION, "Bearer dashboard-token")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .expect("admin request"),
+        )
+        .await
+        .expect("admin response");
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("admin response body");
+    let value = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).expect("JSON admin response")
+    };
+    (status, value)
+}
 
 fn app() -> axum::Router {
     let pg = PgPoolOptions::new()
@@ -88,6 +206,51 @@ async fn public_visit_fails_closed_without_storage_for_a_malformed_body() {
             .and_then(|value| value.to_str().ok()),
         Some("no-store, no-cache, must-revalidate, private, max-age=0")
     );
+}
+
+#[tokio::test]
+async fn correction_admin_http_rejects_unprivileged_and_invalid_requests_before_storage() {
+    let lazy_pool = || {
+        PgPoolOptions::new()
+            .connect_lazy("postgres://route-test:route-test@127.0.0.1:1/route_test")
+            .expect("lazy PostgreSQL pool")
+    };
+    let ordinary = app_with_static_auth(lazy_pool(), 1);
+    for method in [Method::GET, Method::POST] {
+        let (status, body) = admin_request(
+            &ordinary,
+            method,
+            "/api/admin/acquisition/users/7/corrections",
+            Body::from("{}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body["success"], false);
+        assert_eq!(body["code"], "AUTH_INSUFFICIENT_PRIVILEGE");
+    }
+
+    let root = app_with_static_auth(lazy_pool(), 100);
+    let (status, body) = admin_request(
+        &root,
+        Method::GET,
+        "/api/admin/acquisition/users/0/corrections",
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.is_null());
+
+    let response = root
+        .oneshot(
+            Request::post("/api/admin/acquisition/users/7/corrections")
+                .header(header::AUTHORIZATION, "Bearer dashboard-token")
+                .header(header::CONTENT_LENGTH, "4097")
+                .body(Body::empty())
+                .expect("oversized correction request"),
+        )
+        .await
+        .expect("oversized correction response");
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 struct PgFixture {
@@ -1335,6 +1498,120 @@ async fn postgres_corrections_are_append_only_and_reject_stale_concurrent_writes
     assert_eq!(history["items"][0]["id"], second["id"]);
     assert_eq!(history["items"][1]["id"], saved["id"]);
     assert_eq!(history["has_more"], false);
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_correction_admin_http_preserves_permission_and_error_contracts() {
+    let fixture = PgFixture::new().await;
+    sqlx::raw_sql(
+        "INSERT INTO users VALUES(9,1700000000,10,NULL);\
+         INSERT INTO casbin_rule VALUES('p','role:admin','acquisition','details','allow');",
+    )
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    let app = app_with_static_auth(fixture.pg.clone(), 10);
+
+    let (status, body) = admin_request(
+        &app,
+        Method::GET,
+        "/api/admin/acquisition/users/999/corrections",
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.is_null());
+
+    let (status, body) = admin_request(
+        &app,
+        Method::GET,
+        "/api/admin/acquisition/users/9/corrections",
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(body.is_null());
+
+    let (status, body) = admin_request(
+        &app,
+        Method::GET,
+        "/api/admin/acquisition/users/7/corrections",
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["success"], true);
+    assert!(body["data"]["head"].is_null());
+    assert!(body["data"]["items"].as_array().unwrap().is_empty());
+
+    let correction = json!({
+        "source":"documentation",
+        "reason":"Verified through the administrator route",
+        "expected_revision":0
+    });
+    let (status, denied) = admin_request(
+        &app,
+        Method::POST,
+        "/api/admin/acquisition/users/7/corrections",
+        Body::from(correction.to_string()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(denied["success"], false);
+    assert_eq!(denied["message"], "Insufficient permissions");
+
+    sqlx::query("INSERT INTO casbin_rule VALUES('p','role:admin','acquisition','write','allow')")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+
+    let (status, body) = admin_request(
+        &app,
+        Method::POST,
+        "/api/admin/acquisition/users/7/corrections",
+        Body::from("{"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.is_null());
+
+    let (status, saved) = admin_request(
+        &app,
+        Method::POST,
+        "/api/admin/acquisition/users/7/corrections",
+        Body::from(correction.to_string()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["success"], true);
+    assert_eq!(saved["data"]["source"], "documentation");
+
+    let (status, stale) = admin_request(
+        &app,
+        Method::POST,
+        "/api/admin/acquisition/users/7/corrections",
+        Body::from(correction.to_string()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(stale["success"], false);
+    assert_eq!(
+        stale["message"],
+        "Source correction changed; reload before saving"
+    );
+
+    let (status, history) = admin_request(
+        &app,
+        Method::GET,
+        "/api/admin/acquisition/users/7/corrections",
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(history["data"]["head"]["revision"], saved["data"]["id"]);
+    assert_eq!(history["data"]["items"].as_array().unwrap().len(), 1);
     fixture.cleanup().await;
 }
 

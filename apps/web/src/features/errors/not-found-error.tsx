@@ -22,7 +22,6 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 import { ErrorPageFrame } from './error-page-frame'
-import { SignalTuner } from './signal-tuner'
 
 /** Public pages a lost visitor most likely meant to open. */
 const RESCUE_LINKS = [
@@ -73,7 +72,6 @@ export function NotFoundError() {
           ))}
         </span>
       }
-      play={<SignalTuner />}
     />
   )
 }

@@ -95,7 +95,12 @@ const SETTINGS_SYNONYMS: Record<string, readonly string[]> = {
     'risk',
     'async',
   ],
-  'security/advanced-security': ['hardening', 'csrf', 'security headers'],
+  'security/advanced-security': [
+    'audit',
+    'moderation',
+    'appeals',
+    'deductions',
+  ],
   'security/ip-access-routing': ['geo', 'country', 'allowlist', 'denylist'],
   'security/anti-relay': ['proxy', 'relay', 'referer', 'origin check'],
   'security/ssrf': [

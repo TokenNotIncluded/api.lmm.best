@@ -23,15 +23,20 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { formatTimestampToDate } from '@/lib/format'
 
 import { getSystemGroups } from '../api'
+import { ModerationBusinessSummary } from './moderation-business-summary'
 import {
   MODERATION_CATEGORY_LABELS,
   type MODERATION_CATEGORIES,
 } from './moderation-config'
-import { getModerationStats, listModerationReviews } from './security-audit-api'
+import { recordedCredits } from './moderation-recorded-values'
+import {
+  getModerationStats,
+  listModerationAppeals,
+  listModerationReviews,
+} from './security-audit-api'
 import type {
   ModerationReview,
   ModerationReviewFilters,
@@ -57,13 +62,10 @@ const FEE_STATUS_LABELS: Record<string, string> = {
 }
 const ALL = '__all__'
 function useFeeAmount() {
-  const { formatQuota } = useBillingUSD()
-  return (quota: number) =>
-    formatQuota(quota, {
-      digitsLarge: 6,
-      digitsSmall: 8,
-      abbreviate: false,
-    })
+  const { t, i18n } = useTranslation()
+  return (quota: unknown) =>
+    recordedCredits(quota, i18n.resolvedLanguage || i18n.language) ??
+    t('No data provided')
 }
 
 export function ModerationReviewRow({ review }: { review: ModerationReview }) {
@@ -160,6 +162,8 @@ export function ModerationReviewRow({ review }: { review: ModerationReview }) {
           <dd className='tabular-nums'>{feeAmount(review.requested_quota)}</dd>
           <dt>{t('Wallet deduction')}</dt>
           <dd className='tabular-nums'>{feeAmount(review.charged_quota)}</dd>
+          <dt>{t('Amount basis')}</dt>
+          <dd>{t('Original recorded credits')}</dd>
           {review.fee_record_id > 0 ? (
             <>
               <dt>{t('Fee record ID')}</dt>
@@ -199,7 +203,6 @@ export function ModerationReviewRow({ review }: { review: ModerationReview }) {
 
 export function ModerationAuditPanel() {
   const { t } = useTranslation()
-  const feeAmount = useFeeAmount()
   const [filters, setFilters] = useState<ModerationReviewFilters>({
     page: 1,
     page_size: 20,
@@ -220,6 +223,13 @@ export function ModerationAuditPanel() {
     queryFn: () => listModerationReviews(filters),
     retry: false,
     refetchInterval: 15_000,
+  })
+  const appealsQuery = useQuery({
+    queryKey: ['admin-moderation-appeals'],
+    queryFn: listModerationAppeals,
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 15_000,
   })
   const stats = statsQuery.data?.success ? statsQuery.data.data : undefined
   const reviews = reviewsQuery.data?.success
@@ -277,6 +287,7 @@ export function ModerationAuditPanel() {
           onClick={() => {
             void statsQuery.refetch()
             void reviewsQuery.refetch()
+            void appealsQuery.refetch()
           }}
           disabled={reviewsQuery.isFetching || statsQuery.isFetching}
         >
@@ -289,40 +300,24 @@ export function ModerationAuditPanel() {
           'Asynchronous review results and wallet deductions. Request text and credentials are never shown here.'
         )}
       </p>
-      {stats ? (
-        <dl className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-          {(['pending', 'running', 'completed', 'failed'] as const).map(
-            (key) => (
-              <div key={key}>
-                <dt className='text-muted-foreground text-xs'>
-                  {t(STATUS_LABELS[key])}
-                </dt>
-                <dd className='mt-1 text-xl tabular-nums'>
-                  {stats[key].toLocaleString()}
-                </dd>
-              </div>
-            )
-          )}
-          <div>
-            <dt className='text-muted-foreground text-xs'>{t('Flagged')}</dt>
-            <dd className='tabular-nums'>{stats.flagged.toLocaleString()}</dd>
-          </div>
-          <div>
-            <dt className='text-muted-foreground text-xs'>
-              {t('Fined reviews')}
-            </dt>
-            <dd className='tabular-nums'>{stats.fined.toLocaleString()}</dd>
-          </div>
-          <div>
-            <dt className='text-muted-foreground text-xs'>
-              {t('Wallet deduction')}
-            </dt>
-            <dd className='tabular-nums'>{feeAmount(stats.charged_quota)}</dd>
-          </div>
-        </dl>
-      ) : statsQuery.isLoading ? (
+      {statsQuery.isLoading ? (
         <Skeleton className='h-16 w-full' />
-      ) : null}
+      ) : (
+        <>
+          {statsQuery.isError || !statsQuery.data?.success ? (
+            <p className='text-destructive text-sm' role='alert'>
+              {t('Unable to load review totals. Try again.')}
+            </p>
+          ) : null}
+          <ModerationBusinessSummary
+            stats={stats}
+            reviews={reviews?.rows}
+            appeals={
+              appealsQuery.data?.success ? appealsQuery.data.data : undefined
+            }
+          />
+        </>
+      )}
       <div className='grid gap-3 sm:grid-cols-3'>
         {selectors.map((selector) => (
           <div key={selector.key} className='space-y-1.5'>

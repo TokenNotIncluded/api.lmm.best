@@ -186,6 +186,10 @@ func runModerationWorker(ctx context.Context, owner string) {
 }
 
 func processModerationJob(parent context.Context, owner string, job *model.ModerationJob) {
+	if model.IsMarketAIReviewSource(job.Source) {
+		processMarketAIReview(parent, owner, job)
+		return
+	}
 	ctx, cancel := context.WithTimeout(parent, moderationRequestTimeout)
 	defer cancel()
 	if job.InputTruncated || len(job.Payload) > model.ModerationMaxPayloadBytes {

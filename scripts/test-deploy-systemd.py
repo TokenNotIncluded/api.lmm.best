@@ -886,5 +886,268 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(sealed['sha256'], record['next_handoff_sha256'])
 
 
+class OrdinaryHistoryTests(unittest.TestCase):
+    setUp = CleanupTests.setUp
+    write = CleanupTests.write
+    state = CleanupTests.state
+    workspace = CleanupTests.workspace
+    install_chain = CleanupTests.install_chain
+    maintenance = CleanupTests.maintenance
+    snapshot = CleanupTests.snapshot
+    cli = CleanupTests.cli
+
+    def proof(self):
+        self.install_chain(include_capture=True)
+        state = deploy.read_state(self.current)
+        state['maintenance_stage'] = 'post'
+        self.state(self.current, state)
+        confirmation = {'format': 'lmm-credit-maintenance-release-v1', 'all_nodes_confirmed': True,
+                        'transition_id': state['transition_id'], 'transition_intent_sha256': state['transition_intent_sha256'],
+                        'business_plan_sha256': 'd' * 64, 'confirmations_sha256': 'e' * 64, 'nodes': ['arch', 'ubuntu']}
+        confirmed = self.write(self.base / 'confirmation.json', json.dumps(confirmation).encode())
+        controller = {'format': 'lmm-credit-financial-maintenance-v1', 'phase': 'RELEASED',
+                      'guardian_release': 'ordinary-owner-only-no-lock-path-deletion',
+                      'transition_id': state['transition_id'], 'transition_intent_sha256': state['transition_intent_sha256'],
+                      'business_plan_sha256': 'd' * 64, 'confirmations_sha256': 'e' * 64,
+                      'global_release': {'path': '/original/controller/path', 'sha256': deploy.digest(confirmed)},
+                      'stopped_handoffs': {'ubuntu': state['maintenance_handoff']}, 'guardian_generations': {'ubuntu': 2147483647}}
+        released = self.write(self.base / 'controller.json', json.dumps(controller).encode())
+        self.history_args = SimpleNamespace(release='current', released_controller=released,
+                             released_controller_sha256=deploy.digest(released), global_confirmation=confirmed,
+                             global_confirmation_sha256=deploy.digest(confirmed), execute=False)
+        self.stack.enter_context(patch.object(deploy, 'NATIVE_TRANSACTION_LEASE', self.base / 'native.lease'))
+        self.locks = {key: str(self.write(self.base / (key + '.lock'), b'')) for key in ['native', 'systemd', 'frontend']}
+        self.stack.enter_context(patch.object(deploy.guardian, 'LOCKS', self.locks))
+        real_lock_path = deploy.history_lock_path
+        self.stack.enter_context(patch.object(deploy, 'history_lock_path', side_effect=lambda path: real_lock_path(path, uid=self.uid)))
+        return controller
+
+    def register(self):
+        self.proof()
+        self.history_args.execute = True
+        deploy.register_released_history(self.history_args)
+
+    def incomplete(self):
+        work = deploy.ROOT / 'incomplete'
+        work.mkdir(mode=0o700)
+        self.write(work / 'lmm-api-go', b'failed candidate', 0o755)
+        (work / 'lmm-api').symlink_to('lmm-api-go')
+        (work / 'frontend').mkdir(mode=0o700)
+        self.write(work / 'frontend/index.html', b'failed candidate frontend', 0o644)
+        (work / 'logs').mkdir(mode=0o700)
+        self.write(work / 'logs/oneapi.log', b'all historical logs preserved')
+        self.write(work / 'verify-stage.log', b'failed before state publication')
+        return work, SimpleNamespace(release=work.name, execute=False)
+
+    def test_only_exact_native_lock_accepts_real_sticky_parent(self):
+        sticky = self.base / 'run-lock';sticky.mkdir(mode=0o700);sticky.chmod(0o1777)
+        native = self.write(sticky / 'lmm-api-go-deploy.lock', b'')
+        # Actual filesystem ownership/mode inspection, with fixture UID only.
+        deploy.history_lock_path(native, uid=self.uid, native_lock=native)
+        other = self.write(sticky / 'another.lock', b'')
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(other, uid=self.uid, native_lock=native)
+        sticky.chmod(0o777)
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(native, uid=self.uid, native_lock=native)
+        sticky.chmod(0o1777)
+        outside = self.base / 'another-sticky';outside.mkdir();outside.chmod(0o1777)
+        wrong = self.write(outside / native.name, b'')
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(wrong, uid=self.uid, native_lock=native)
+        link = sticky / 'link';link.symlink_to(native)
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(link, uid=self.uid, native_lock=link)
+        hardlink = self.base / 'hardlink';os.link(native, hardlink)
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(native, uid=self.uid, native_lock=native)
+        hardlink.unlink()
+        native.chmod(0o666)
+        with self.assertRaises(RuntimeError):
+            deploy.history_lock_path(native, uid=self.uid, native_lock=native)
+        native.chmod(0o600)
+
+    def test_history_lock_name_replacement_is_rejected_after_nofollow_open(self):
+        self.proof()
+        actual_open = os.open
+        selected = sorted(self.locks.values())[0]
+        def replace_after_open(path, flags, *args):
+            fd = actual_open(path, flags, *args)
+            if str(path) == selected:
+                Path(path).unlink()
+                self.write(Path(path), b'replacement inode')
+            return fd
+        with patch.object(deploy.os, 'open', side_effect=replace_after_open):
+            with self.assertRaisesRegex(RuntimeError, 'single-linked'):
+                with deploy.history_locks():
+                    self.fail('changed named lock must never enter the protected section')
+
+    def test_registration_dry_run_and_exact_chain_preserve_original_bytes(self):
+        self.proof()
+        before = self.snapshot(deploy.ROOT)
+        result = deploy.register_released_history(self.history_args)
+        self.assertEqual(['bridge', 'capture'], result['ancestors'])
+        self.assertFalse(deploy.history_root().exists())
+        self.assertEqual(set(), deploy.released_ancestors())
+        self.history_args.execute = True
+        deploy.register_released_history(self.history_args)
+        self.assertEqual({'bridge', 'capture'}, deploy.released_ancestors())
+        self.assertEqual(before, self.snapshot(deploy.ROOT))
+        with self.assertRaises(FileExistsError):
+            deploy.register_released_history(self.history_args)
+
+    def test_doctor_only_passes_after_complete_registration_and_archival(self):
+        self.proof()
+        with patch.object(deploy, 'check_tools'), patch.object(deploy, 'check_layout'), patch.object(deploy, 'service_environment_files', return_value=[str(deploy.ENVIRONMENT)]), patch.object(deploy, 'property_value', return_value=str(os.getpid())):
+            self.assertFalse(deploy.doctor()['ok'])
+            self.history_args.execute = True
+            deploy.register_released_history(self.history_args)
+            self.assertTrue(deploy.doctor()['ok'])
+            work, args = self.incomplete()
+            self.assertFalse(deploy.doctor()['ok'])
+            args.execute = True
+            deploy.archive_incomplete(args)
+            self.assertTrue(deploy.doctor()['ok'])
+            self.workspace('unknown', 'FROZEN')
+            self.assertFalse(deploy.doctor()['ok'])
+
+    def test_registration_rejects_unreleased_wrong_confirmation_and_post_identity(self):
+        original = self.proof()
+        for key, value in [('phase', 'RELEASE_INTENT'), ('transition_id', 'another'),
+                           ('global_release', {'sha256': 'f' * 64}), ('stopped_handoffs', {'ubuntu': {'path': '/wrong', 'sha256': 'f' * 64}})]:
+            with self.subTest(key=key):
+                changed = dict(original, **{key: value})
+                self.write(self.history_args.released_controller, json.dumps(changed).encode())
+                self.history_args.released_controller_sha256 = deploy.digest(self.history_args.released_controller)
+                with self.assertRaises(RuntimeError):
+                    deploy.register_released_history(self.history_args)
+        self.assertFalse(deploy.history_root().exists())
+
+    def test_registered_history_revalidates_original_states_and_transfer_records(self):
+        self.register()
+        frozen = deploy.ROOT / 'capture/state.json'
+        original = frozen.read_bytes()
+        self.write(frozen, original + b' ')
+        with self.assertRaises(RuntimeError):
+            deploy.released_ancestors()
+        self.write(frozen, original)
+        (deploy.ROOT / 'capture/maintenance-transfer.bridge.json').unlink()
+        with self.assertRaises(OSError):
+            deploy.released_ancestors()
+
+    def test_normal_apply_accepts_only_registered_ancestors_before_stopping(self):
+        self.register()
+        next_work = self.workspace('next', 'STAGED')
+        state = deploy.read_state(next_work)
+        state.update(migrate=False, backup_exclude_tables=[])
+        self.state(next_work, state)
+        unknown = self.workspace('unknown', 'FROZEN')
+        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'verify'), patch.object(deploy, 'run', return_value='bridge-v1'), patch.object(deploy, 'stop') as stop:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = deploy.main(['apply', '--release', 'next', '--confirm', 'api.lmm.best', '--json'])
+            self.assertEqual(1, code)
+            self.assertIn('another deployment needs recovery', out.getvalue())
+            stop.assert_not_called()
+            # Unknown is explicitly terminalized by the fixture, never ignored.
+            value = deploy.read_state(unknown);value['phase'] = 'ROLLED_BACK';self.state(unknown, value)
+            result = self.cli('apply', '--release', 'next', '--confirm', 'api.lmm.best', '--json')
+            self.assertEqual('AWAITING_CONFIRMATION', result['phase'])
+            stop.assert_called_once()
+        self.assertEqual('FROZEN', deploy.read_state(self.bridge)['phase'])
+        self.assertEqual('FROZEN', deploy.read_state(deploy.ROOT / 'capture')['phase'])
+
+    def test_unarchived_incomplete_preparation_blocks_ordinary_apply(self):
+        self.register()
+        incomplete, args = self.incomplete()
+        work = self.workspace('next', 'STAGED')
+        state = deploy.read_state(work);state.update(migrate=False, backup_exclude_tables=[]);self.state(work, state)
+        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'stop') as stop:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = deploy.main(['apply', '--release', 'next', '--confirm', 'api.lmm.best', '--json'])
+            self.assertEqual(1, code)
+            self.assertIn('incomplete preparation', out.getvalue())
+            stop.assert_not_called()
+        self.assertTrue(incomplete.exists())
+
+    def test_incomplete_full_archive_preserves_logs_links_and_original_without_phase(self):
+        self.register()
+        work, args = self.incomplete()
+        original = self.snapshot(work)
+        deploy.archive_incomplete(args)
+        self.assertEqual(original, self.snapshot(work))
+        self.assertFalse((deploy.history_root() / 'incomplete').exists())
+        # A historical descriptive inventory is not an active reference.
+        self.write(self.old / 'inventory.json', json.dumps({'observed_path': str(work)}).encode())
+        args.execute = True
+        deploy.archive_incomplete(args)
+        self.assertFalse(work.exists())
+        archive = deploy.history_root() / 'incomplete' / args.release
+        self.assertEqual(original, self.snapshot(archive / 'copy'))
+        self.assertEqual(original, self.snapshot(archive / 'original'))
+        self.assertFalse((archive / 'original/state.json').exists())
+        deploy.verify_incomplete_archives()
+        self.write(archive / 'copy/verify-stage.log', b'changed')
+        with self.assertRaises(RuntimeError):
+            deploy.verify_incomplete_archives()
+
+    def test_incomplete_refuses_mutation_unknown_symlink_and_active_reference(self):
+        self.register()
+        work, args = self.incomplete()
+        args.execute = True
+        for name in ['state.next', 'previous-binary', 'unexpected']:
+            marker = self.write(work / name, b'mutation or unknown')
+            with self.assertRaises(RuntimeError):
+                deploy.archive_incomplete(args)
+            marker.unlink()
+        link = work / 'logs/secret-link';link.symlink_to(self.base / 'service.env')
+        with self.assertRaises(RuntimeError):
+            deploy.archive_incomplete(args)
+        link.unlink()
+        staged = self.workspace('active', 'STAGED')
+        value = deploy.read_state(staged);value['artifact_reference'] = str(work / 'frontend');self.state(staged, value)
+        with self.assertRaisesRegex(RuntimeError, 'authoritative'):
+            deploy.archive_incomplete(args)
+        self.assertTrue(work.exists())
+        self.assertFalse((deploy.history_root() / 'incomplete').exists())
+
+    def test_archive_refuses_real_guardian_lock_native_lease_and_inflight_process(self):
+        self.register()
+        work, args = self.incomplete()
+        args.execute = True
+        with open(self.locks['frontend'], 'rb') as fd:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaisesRegex(RuntimeError, 'guardian'):
+                deploy.archive_incomplete(args)
+        self.write(deploy.NATIVE_TRANSACTION_LEASE, b'pending owner')
+        with self.assertRaisesRegex(RuntimeError, 'lease'):
+            deploy.archive_incomplete(args)
+        deploy.NATIVE_TRANSACTION_LEASE.unlink()
+        with patch.object(deploy, 'cleanup_process_references', return_value=[{'pid': 1, 'path': str(work / 'logs')}]) as inspect:
+            with self.assertRaisesRegex(RuntimeError, 'authoritative'):
+                deploy.archive_incomplete(args)
+            inspect.assert_called_with(work, entire_workspace=True)
+        self.assertTrue(work.exists())
+
+    def test_interrupted_archive_still_blocks_normal_doctor(self):
+        self.register()
+        work, args = self.incomplete();args.execute = True
+        real_write = deploy.immutable_write
+        def interrupted(path, *rest):
+            if path.name == 'receipt.json':
+                raise KeyboardInterrupt()
+            return real_write(path, *rest)
+        with patch.object(deploy, 'immutable_write', side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                deploy.archive_incomplete(args)
+        self.assertFalse(work.exists())
+        archive = deploy.history_root() / 'incomplete' / args.release
+        self.assertTrue((archive / 'copy/verify-stage.log').exists())
+        self.assertTrue((archive / 'original/verify-stage.log').exists())
+        with self.assertRaises(OSError):
+            deploy.verify_incomplete_archives()
+
+
 if __name__ == '__main__':
     unittest.main()

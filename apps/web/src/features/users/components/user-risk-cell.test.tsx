@@ -46,6 +46,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { userSchema } = await import('../types')
 const { UserRiskCell } = await import('./user-risk-cell')
+const { UserQuotaCell } = await import('./user-quota-cell')
 
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -161,4 +162,81 @@ describe('Moderation risk details', () => {
       await act(async () => rendered.root.unmount())
     }
   })
+})
+
+test('historical transfer units cannot inflate canonical quota total or remaining percentage', async () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <UserQuotaCell
+            used={1000000}
+            normalizedUsed={1000000}
+            projectionAvailable
+            remaining={500000}
+            transferred={6710363}
+          />
+        </I18nextProvider>
+      )
+    )
+    assert.match(container.textContent ?? '', /Unavailable/)
+    assert.equal(container.querySelector('[role="progressbar"]'), null)
+    assert.doesNotMatch(container.textContent ?? '', /8,210,363|16\.42/)
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+test('wallet risk source counters remain raw credits without inferred current fiat values', async () => {
+  const value = user()
+  assert.ok(value.wallet_risk)
+  Object.assign(value.wallet_risk, {
+    checkin_quota: 500000,
+    transferred_quota: 6710363,
+    pending_quota: 123456,
+    received_quota: 2000001,
+  })
+  const rendered = await renderRisk(value)
+  try {
+    const labels = [...rendered.popup.querySelectorAll('dt')]
+    for (const [label, expected] of [
+      ['Check-in rewards', '500,000 Credits'],
+      ['Transferred out', '6,710,363 Credits'],
+      ['Pending transfers', '123,456 Credits'],
+      ['Received transfers', '2,000,001 Credits'],
+    ]) {
+      const entry = labels.find((item) => item.textContent === label)
+      assert.equal(entry?.nextElementSibling?.textContent, expected, label)
+    }
+  } finally {
+    await act(async () => rendered.root.unmount())
+  }
+})
+
+test('raw transfer counters follow French app language even when browser language is English', async () => {
+  assert.equal(navigator.language, 'en-US')
+  await i18n.changeLanguage('fr')
+  const value = user()
+  assert.ok(value.wallet_risk)
+  value.wallet_risk.transferred_quota = 6710363
+  const rendered = await renderRisk(value)
+  try {
+    const entry = [...rendered.popup.querySelectorAll('dt')].find(
+      (item) => item.textContent === 'Transferred out'
+    )
+    assert.equal(
+      entry?.nextElementSibling?.textContent,
+      '6\u202f710\u202f363 Credits'
+    )
+    assert.doesNotMatch(
+      entry?.nextElementSibling?.textContent ?? '',
+      /6,710,363/
+    )
+  } finally {
+    await act(async () => rendered.root.unmount())
+    await i18n.changeLanguage('en')
+  }
 })

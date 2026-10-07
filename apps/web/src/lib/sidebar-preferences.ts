@@ -170,6 +170,7 @@ export const SIDEBAR_ROUTE_SECTION: Readonly<Record<string, string>> = {
   '/public-relay': 'forge',
   '/rss': 'forge',
   '/tool-market': 'forge',
+  '/store': 'forge',
   '/challenges': 'forge',
   '/rankings': 'forge',
   '/chat-management': 'general',

@@ -12,6 +12,11 @@ import {
 import { marketDraftBody } from './draft-body'
 import { marketInvokeBody } from './invoke-body'
 
+export type MarketCapabilities = {
+  service_deletion: boolean
+  client_record_cleanup: boolean
+  meta_delegation: boolean
+}
 export type MarketConfig = {
   enabled: boolean
   fee_bps: number
@@ -20,6 +25,14 @@ export type MarketConfig = {
   web_client_id: string
   mcp_path: string
   builtin_enabled?: boolean
+  capabilities?: Partial<MarketCapabilities>
+}
+// Missing flags and truthy non-booleans never authorize a newer endpoint.
+export function marketSupports(
+  config: MarketConfig | undefined,
+  capability: keyof MarketCapabilities
+): boolean {
+  return config?.capabilities?.[capability] === true
 }
 export type MarketService = {
   id: string
@@ -200,6 +213,12 @@ export type ClientDisconnect = {
   grants_revoked: number
   tools_unloaded: number
 }
+export type ClientRemoval = {
+  client_id: string
+  tokens_hidden: number
+  grants_hidden: number
+  tools_unloaded: number
+}
 export class MarketAPIError extends Error {
   readonly code: string
 
@@ -250,9 +269,18 @@ export const marketAPI = {
         params: { q, offset, execution_type: executionType, limit: 30 },
       })
     ),
-  detail: (id: string, mode: 'published' | 'draft' | 'review' = 'published') =>
+  detail: (
+    id: string,
+    mode: 'published' | 'draft' | 'review' = 'published',
+    signal?: AbortSignal
+  ) =>
     unwrap<MarketDetail>(
-      api.get(`${base}/services/${id}${mode === 'published' ? '' : `/${mode}`}`)
+      api.get(
+        `${base}/services/${id}${mode === 'published' ? '' : `/${mode}`}`,
+        {
+          signal,
+        }
+      )
     ),
   mine: <T>(kind: string, signal?: AbortSignal) =>
     collectMarketPages<T>((offset, limit) =>
@@ -304,6 +332,8 @@ export const marketAPI = {
   activate: (id: string, version_id: string) =>
     unwrap<null>(api.post(`${base}/services/${id}/activate`, { version_id })),
   reviews: () => unwrap<MarketService[]>(api.get(`${base}/reviews`)),
+  deleteService: (id: string) =>
+    unwrap<null>(api.delete(`${base}/services/${id}`)),
   review: (id: string, version_id: string, approve: boolean, note: string) =>
     unwrap<null>(
       api.post(`${base}/services/${id}/review`, { version_id, approve, note })
@@ -321,6 +351,8 @@ export const marketAPI = {
     }
   ) => unwrap<Grant>(api.post(`${base}/grants`, input)),
   revokeGrant: (id: string) => unwrap<null>(api.delete(`${base}/grants/${id}`)),
+  removeGrantRecord: (id: string) =>
+    unwrap<null>(api.delete(`${base}/grants/${id}/record`)),
   invoke: (input: {
     tool_id: string
     version_id: string
@@ -360,9 +392,15 @@ export const marketAPI = {
       api.post(`${base}/tokens`, connectionTokenInput(clientID, permissions))
     ),
   revokeToken: (id: string) => unwrap<null>(api.delete(`${base}/tokens/${id}`)),
+  removeTokenRecord: (id: string) =>
+    unwrap<null>(api.delete(`${base}/tokens/${id}/record`)),
   disconnectClient: (clientID: string) =>
     unwrap<ClientDisconnect>(
       api.post(`${base}/clients/disconnect`, { client_id: clientID })
+    ),
+  removeClient: (clientID: string) =>
+    unwrap<ClientRemoval>(
+      api.post(`${base}/clients/remove`, { client_id: clientID })
     ),
   budget: (input: { scope: string; scope_id: string; limit_quota: number }) =>
     unwrap<null>(api.put(`${base}/budgets`, input)),

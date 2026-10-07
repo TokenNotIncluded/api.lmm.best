@@ -174,7 +174,7 @@ func ConfigureToolMarketCredential(actor int, serviceID, versionID, mode, secret
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
+		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 			return err
 		}
 		if service.OwnerID != actor {

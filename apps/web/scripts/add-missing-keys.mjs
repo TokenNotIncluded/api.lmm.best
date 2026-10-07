@@ -22,6 +22,7 @@ Copyright (C) 2026 LIghtJUNction
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
+import { aboutTranslations } from './about-luna-copy.mjs'
 import { acquisitionCopy as acquisitionLinkCopy } from './acquisition-copy.mjs'
 import { aiDirectoryCopy } from './ai-directory-copy.mjs'
 import { apiKeySourceCopy } from './api-key-source-copy.mjs'
@@ -37,9 +38,16 @@ import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
 import { homeEditorialCopy } from './home-editorial-copy.mjs'
 import { homeTokenCopy } from './home-token-copy.mjs'
+import { marketAIReviewLunaCopy } from './market-ai-review-luna-copy.mjs'
+import {
+  merchantStoreCopy,
+  merchantStoreRetiredKeys,
+} from './merchant-store-copy.mjs'
+import { moderationAuditCopy } from './moderation-audit-copy.mjs'
 import { moderationCopy } from './moderation-copy.mjs'
 import { nativeBillingCopy } from './native-billing-copy.mjs'
 import { passkeyCopy } from './passkey-copy.mjs'
+import { paymentDecimalLunaCopy } from './payment-decimal-luna-copy.mjs'
 import { paymentPricingCopy } from './payment-pricing-copy.mjs'
 import { piGuideCopy } from './pi-guide-copy.mjs'
 import { piOAuthCopy } from './pi-oauth-copy.mjs'
@@ -49,7 +57,13 @@ import { publicCreditDisplayCopy } from './public-credit-display-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
+import { storeEmptyStateCopy } from './store-empty-state-copy.mjs'
+import { storePaymentCategoryLunaCopy } from './store-payment-category-luna-copy.mjs'
+import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
+import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
+import { toolMarketClientRecordsLunaCopy } from './tool-market-client-records-luna-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
+import { toolMarketDeleteLunaCopy } from './tool-market-delete-luna-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
 import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
@@ -11805,7 +11819,146 @@ const operationsFinishCopy = {
   },
 }
 
+const paymentReturnCopy = {
+  en: {
+    'Check your order history before trying another payment.':
+      'Check your order history before trying another payment.',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'Payment confirmation may take a moment. Check your order history for the result.',
+  },
+  zh: {
+    'Check your order history before trying another payment.':
+      '再次付款前，请先查看订单记录。',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      '到账确认可能需要一点时间，请在订单记录中查看结果。',
+  },
+  'zh-TW': {
+    'Check your order history before trying another payment.':
+      '再次付款前，請先查看訂單記錄。',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      '入帳確認可能需要一點時間，請在訂單記錄中查看結果。',
+  },
+  fr: {
+    'Check your order history before trying another payment.':
+      'Consultez votre historique des commandes avant de réessayer de payer.',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'La confirmation du paiement peut prendre un moment. Consultez votre historique des commandes pour connaître le résultat.',
+  },
+  ja: {
+    'Check your order history before trying another payment.':
+      '再度お支払いする前に、注文履歴をご確認ください。',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'お支払いの確認には少し時間がかかる場合があります。結果は注文履歴をご確認ください。',
+  },
+  ru: {
+    'Check your order history before trying another payment.':
+      'Перед повторной оплатой проверьте историю заказов.',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'Подтверждение оплаты может занять некоторое время. Проверьте результат в истории заказов.',
+  },
+  vi: {
+    'Check your order history before trying another payment.':
+      'Kiểm tra lịch sử đơn hàng trước khi thanh toán lại.',
+    'Payment confirmation may take a moment. Check your order history for the result.':
+      'Việc xác nhận thanh toán có thể mất chút thời gian. Kiểm tra kết quả trong lịch sử đơn hàng.',
+  },
+}
+
+for (const [locale, values] of Object.entries(paymentReturnCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+// Removed toys must not return through a later full locale synchronization.
+const retiredGameKeys = new Set([
+  'A little constellation',
+  'Constellation complete.',
+  'Light star {{number}}',
+  'Show constellation',
+  'Tap the stars to light them up.',
+  '{{count}} of {{total}} stars lit',
+  'Signal tuner',
+  'Tune the receiver by selecting the lit cell',
+  'Signal found',
+  'Empty frequency',
+  'Signal locked. Nice.',
+  'Tap the lit cell. Five in a row.',
+  'Five correct picks lock the signal.',
+])
+
 async function main() {
+  if (process.argv.includes('--retire-games-only')) {
+    for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      for (const key of retiredGameKeys) delete json.translation[key]
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: retired game keys removed`)
+    }
+    return
+  }
+
+  if (process.argv.includes('--about-only')) {
+    for (const [locale, translations] of Object.entries(aboutTranslations)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      Object.assign(json.translation, translations)
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: About translation applied`)
+    }
+    return
+  }
+
+  if (process.argv.includes('--store-quantity-only')) {
+    for (const [locale, translations] of Object.entries(
+      storeQuantityLunaCopy
+    )) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      Object.assign(json.translation, translations)
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: quantity translation applied`)
+    }
+    return
+  }
+
+  if (process.argv.includes('--payment-return-only')) {
+    // Repair only these checkout hints; preserve every unrelated root field.
+    for (const [locale, translations] of Object.entries(paymentReturnCopy)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      let changed = false
+      for (const [key, value] of Object.entries(translations)) {
+        if (json.translation[key] !== value) {
+          json.translation[key] = value
+          changed = true
+        }
+        if (Object.hasOwn(json, key)) {
+          delete json[key]
+          changed = true
+        }
+      }
+      if (changed) {
+        json.translation = Object.fromEntries(
+          Object.entries(json.translation).sort(([a], [b]) =>
+            a.localeCompare(b)
+          )
+        )
+        await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      }
+      console.log(`${locale}: payment return hints migrated`)
+    }
+    return
+  }
+
   if (process.argv.includes('--merge-locale-conflicts')) {
     const { execFileSync } = await import('node:child_process')
     for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
@@ -11853,6 +12006,9 @@ async function main() {
   }
 
   // Allow scoped additions without overwriting unrelated in-progress translations.
+  const clientRecordsOnly = process.argv.includes('--only-client-records')
+  const paymentDecimalOnly = process.argv.includes('--only-payment-decimal')
+  const merchantStoreOnly = process.argv.includes('--only-merchant-store')
   const paymentOnly = process.argv.includes('--only-payment-pricing')
   const homeOnly = process.argv.includes('--only-home-editorial')
   const homeTokenOnly = process.argv.includes('--only-home-token')
@@ -11885,6 +12041,9 @@ async function main() {
     '--only-responses-websocket'
   )
   const scoped =
+    clientRecordsOnly ||
+    paymentDecimalOnly ||
+    merchantStoreOnly ||
     moderationOnly ||
     nativeBillingOnly ||
     typeSafeOnly ||
@@ -11968,27 +12127,35 @@ async function main() {
                                           : assistantToolOnly
                                             ? assistantToolCopy
                                             : newKeys
-  const selectedEntries = moderationOnly
-    ? moderationCopy
-    : nativeBillingOnly
-      ? nativeBillingCopy
-      : typeSafeOnly
-        ? typeSafeCopy
-        : balanceOnly
-          ? balanceQueryCopy
-          : responsesWebSocketOnly
-            ? responsesWebSocketCopy
-            : responseModelOnly
-              ? responseModelCopy
-              : rssOnly
-                ? rssCopy
-                : forgeRefreshOnly
-                  ? forgeRefreshCopy
-                  : passkeyOnly
-                    ? passkeyCopy
-                    : entries
+  const selectedEntries = paymentDecimalOnly
+    ? paymentDecimalLunaCopy
+    : moderationOnly
+      ? moderationCopy
+      : nativeBillingOnly
+        ? nativeBillingCopy
+        : typeSafeOnly
+          ? typeSafeCopy
+          : balanceOnly
+            ? balanceQueryCopy
+            : responsesWebSocketOnly
+              ? responsesWebSocketCopy
+              : responseModelOnly
+                ? responseModelCopy
+                : rssOnly
+                  ? rssCopy
+                  : forgeRefreshOnly
+                    ? forgeRefreshCopy
+                    : passkeyOnly
+                      ? passkeyCopy
+                      : entries
   let totalAdded = 0
-  for (const [locale, baseTranslations] of Object.entries(selectedEntries)) {
+  for (const [locale, baseTranslations] of Object.entries(
+    clientRecordsOnly
+      ? toolMarketClientRecordsLunaCopy
+      : merchantStoreOnly
+        ? merchantStoreCopy
+        : selectedEntries
+  )) {
     const translations = scoped
       ? baseTranslations
       : {
@@ -12014,6 +12181,8 @@ async function main() {
     let count = 0
     for (const key of [
       ...retiredPricingKeys,
+      ...retiredGameKeys,
+      ...(merchantStoreOnly ? merchantStoreRetiredKeys : []),
       ...(scoped ? [] : deprecatedCurrencyKeys),
     ]) {
       if (Object.hasOwn(json.translation, key)) {
@@ -12029,7 +12198,7 @@ async function main() {
       count++
     }
     for (const [key, value] of Object.entries(translations)) {
-      if (retiredPricingKeys.has(key)) continue
+      if (retiredPricingKeys.has(key) || retiredGameKeys.has(key)) continue
       if (json.translation[key] !== value) {
         json.translation[key] = value
         count++
@@ -13068,6 +13237,75 @@ for (const [locale, values] of Object.entries(pricingBaseCopy)) {
 }
 
 for (const [locale, values] of Object.entries(publicCreditDisplayCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+const queryRateLimitCopy = {
+  en: [
+    'Too many requests. Please try again in {{seconds}} seconds.',
+    'Too many requests. Please wait before trying again.',
+  ],
+  zh: [
+    '请求过于频繁，请在 {{seconds}} 秒后再试。',
+    '请求过于频繁，请稍后再试。',
+  ],
+  'zh-TW': [
+    '請求過於頻繁，請在 {{seconds}} 秒後再試。',
+    '請求過於頻繁，請稍後再試。',
+  ],
+  fr: [
+    'Trop de requêtes. Réessayez dans {{seconds}} secondes.',
+    'Trop de requêtes. Veuillez patienter avant de réessayer.',
+  ],
+  ja: [
+    'リクエストが多すぎます。{{seconds}} 秒後に再試行してください。',
+    'リクエストが多すぎます。しばらく待ってから再試行してください。',
+  ],
+  ru: [
+    'Слишком много запросов. Повторите попытку через {{seconds}} сек.',
+    'Слишком много запросов. Подождите перед повторной попыткой.',
+  ],
+  vi: [
+    'Quá nhiều yêu cầu. Vui lòng thử lại sau {{seconds}} giây.',
+    'Quá nhiều yêu cầu. Vui lòng chờ rồi thử lại.',
+  ],
+}
+for (const [locale, values] of Object.entries(queryRateLimitCopy)) {
+  Object.assign(newKeys[locale], {
+    'Too many requests. Please try again in {{seconds}} seconds.': values[0],
+    'Too many requests. Please wait before trying again.': values[1],
+  })
+}
+
+for (const [locale, values] of Object.entries(moderationAuditCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(marketAIReviewLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeEmptyStateCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storePaymentCategoryLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeQuantityLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(toolMarketAuthLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(aboutTranslations)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(toolMarketDeleteLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

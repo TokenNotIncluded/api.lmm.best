@@ -207,19 +207,21 @@ function ApiKeysMobileList({
                   {t('Billed to super administrator wallet')}
                 </span>
               ) : apiKey.unlimited_quota ? (
-                <UnlimitedQuotaBadge used={apiKey.used_quota} />
+                <UnlimitedQuotaBadge apiKey={apiKey} />
               ) : (
                 <span className='font-medium tabular-nums'>
                   {formatQuota(apiKey.remain_quota)}
                   <span className='text-muted-foreground font-normal'>
                     {' / '}
-                    {formatQuota(total)}
+                    {total === null ? t('Unavailable') : formatQuota(total)}
                   </span>
                 </span>
               )}
             </div>
             {isAssistantRuntimeKey(apiKey) ||
             apiKey.unlimited_quota ||
+            total === null ||
+            remainingPercent === null ||
             total <= 0 ? null : (
               <Progress
                 value={remainingPercent}
@@ -234,7 +236,7 @@ function ApiKeysMobileList({
                   {t('Tracked in assistant funding')}
                 </span>
               ) : (
-                <ApiKeyUsedQuota used={apiKey.used_quota} />
+                <ApiKeyUsedQuota apiKey={apiKey} />
               )}
             </div>
             {creationMode === 'automatic' ? (

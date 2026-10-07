@@ -244,6 +244,50 @@ after(() => {
   domWindow.close()
 })
 
+test('Stripe checkout returns to the same-origin wallet without changing raw credits', async () => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 7, username: 'checkout-user', role: 1, quota: 0 })
+  const originalOpen = window.open
+  const popup = { closed: false, focus() {}, location: { href: '' } }
+  window.open = (() => popup) as unknown as typeof window.open
+  let requestBody: unknown
+  api.post = v2PaymentPost((async (_url, body) => {
+    requestBody = body
+    return {
+      data: {
+        success: true,
+        data: { pay_link: 'https://checkout.example.test/stripe' },
+      },
+    }
+  }) as typeof api.post)
+  let payment!: ReturnType<typeof usePayment>
+  function Probe() {
+    const state = usePayment()
+    useEffect(() => {
+      payment = state
+    }, [state])
+    return null
+  }
+  try {
+    await render(<Probe />)
+    await act(async () => {
+      assert.equal(await payment.processPayment(500000, 'stripe'), true)
+    })
+    assert.deepEqual(requestBody, {
+      amount: 500000,
+      payment_method: 'stripe',
+      amount_unit: 'LEDGER_QUOTA',
+      credit_metadata_version: 2,
+      success_url: new URL('/wallet?pay=return', window.location.origin).href,
+      cancel_url: new URL('/wallet?pay=cancel', window.location.origin).href,
+    })
+    assert.equal(popup.location.href, 'https://checkout.example.test/stripe')
+  } finally {
+    window.open = originalOpen
+  }
+})
+
 test('a superseded quote cannot approve checkout while the latest quote is pending', async () => {
   let payment!: ReturnType<typeof usePayment>
   function Probe() {
@@ -443,6 +487,7 @@ async function renderWallet(
     quota?: number
     selfQuota?: number
     topupRecords?: TopupRecord[]
+    paymentReturn?: 'return' | 'cancel'
   } = {}
 ) {
   const user = {
@@ -493,7 +538,7 @@ async function renderWallet(
   })
   const container = await render(
     <QueryClientProvider client={queryClient}>
-      <Wallet />
+      <Wallet paymentReturn={options.paymentReturn} />
     </QueryClientProvider>
   )
   return { container, queryClient }
@@ -542,6 +587,14 @@ test('confirmed top-up grows the balance cloud only after the server reports suc
   assert.equal(cloud?.getAttribute('data-success'), 'true')
   assert.ok(cloud?.querySelectorAll('.wallet-token-cloud-added').length)
   assert.ok(container.textContent?.includes('Order completed successfully'))
+  const receipt = container.querySelector(
+    '[data-testid="payment-success-receipt"]'
+  )
+  assert.ok(receipt?.textContent?.includes('Thank you for your support'))
+  assert.ok(
+    receipt?.textContent?.includes('20 USD'),
+    'receipt uses refreshed server balance'
+  )
   assert.ok(
     window.localStorage.getItem('wallet-topup-cloud:7'),
     'receipt remains until the visible animation completes'
@@ -556,6 +609,97 @@ test('confirmed top-up grows the balance cloud only after the server reports suc
   )
   queryClient.clear()
 })
+
+test('reduced motion preserves the confirmed receipt after the cloud animation is acknowledged', async () => {
+  const originalMatchMedia = window.matchMedia
+  window.matchMedia = ((query: string) => ({
+    ...originalMatchMedia.call(window, query),
+    matches: query === '(prefers-reduced-motion: reduce)',
+    addEventListener() {},
+    removeEventListener() {},
+  })) as typeof window.matchMedia
+  try {
+    const launchedAt = Date.now() - 1000
+    window.localStorage.setItem(
+      'wallet-topup-cloud:7',
+      JSON.stringify([
+        {
+          userId: 7,
+          launchedAt,
+          expiresAt: launchedAt + 900_000,
+          attemptId: 'reduced-motion-attempt',
+          tradeNo: 'reduced-motion-order',
+          beforeQuota: 5_000_000,
+          expectedCredit: 10,
+        },
+      ])
+    )
+    const { container, queryClient } = await renderWallet(true, {
+      paymentReturn: 'return',
+      quota: 5_000_000,
+      selfQuota: 10_000_000,
+      topupRecords: [
+        {
+          id: 12,
+          user_id: 7,
+          amount: 10,
+          money: 10,
+          trade_no: 'reduced-motion-order',
+          payment_method: 'waffo_pancake',
+          create_time: Math.floor(launchedAt / 1000),
+          complete_time: Math.floor(launchedAt / 1000) + 1,
+          status: 'success',
+        },
+      ],
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    })
+    assert.ok(
+      container.querySelector('[data-testid="payment-success-receipt"]')
+    )
+    assert.equal(
+      container.querySelectorAll('.wallet-token-cloud-added').length,
+      0
+    )
+    assert.equal(window.localStorage.getItem('wallet-topup-cloud:7'), null)
+    queryClient.clear()
+  } finally {
+    window.matchMedia = originalMatchMedia
+  }
+})
+
+for (const paymentReturn of ['return', 'cancel'] as const) {
+  test(`checkout ${paymentReturn} is only a neutral hint without a confirmed order`, async () => {
+    window.localStorage.removeItem('wallet-topup-cloud:7')
+    const { container, queryClient } = await renderWallet(true, {
+      paymentReturn,
+      quota: 5_000_000,
+      selfQuota: 10_000_000,
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    })
+    assert.equal(
+      container.querySelector('[data-testid="payment-success-receipt"]'),
+      null
+    )
+    assert.ok(
+      container.textContent?.includes(
+        paymentReturn === 'cancel'
+          ? 'Check your order history before trying another payment.'
+          : 'Payment confirmation may take a moment. Check your order history for the result.'
+      )
+    )
+    assert.notEqual(
+      container
+        .querySelector('[data-testid="wallet-token-cloud-balance"]')
+        ?.getAttribute('data-success'),
+      'true'
+    )
+    queryClient.clear()
+  })
+}
 
 type ValidationResult = {
   data: {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/paymentpricing"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -160,22 +161,17 @@ func quoteTopUpResolvedSettlementAmounts(amount resolvedTopUpAmount, group strin
 	if amount.CreditedQuota <= 0 || !validQuotaPerUnit() {
 		return decimal.Zero, decimal.Zero, errors.New("invalid credit amount")
 	}
-	credits := decimal.NewFromInt(amount.CreditedQuota)
-	var settlement decimal.Decimal
+	anchor := decimal.Zero
 	if pricing.usesFixedCreditDenomination {
-		anchor, err := common.CreditsPerUSD()
-		if err != nil || !pricing.settlementUnitsPerUSD.IsPositive() {
+		var err error
+		anchor, err = common.CreditsPerUSD()
+		if err != nil {
 			return decimal.Zero, decimal.Zero, errors.New("invalid credit settlement pricing")
 		}
-		settlement = credits.Mul(pricing.settlementUnitsPerUSD).Div(anchor)
-	} else if pricing.usesSettlementUnitsPerPlatformUnit {
-		settlement = credits.Mul(pricing.settlementUnitsPerPlatformUnit).Div(decimal.NewFromFloat(common.QuotaPerUnit))
-	} else {
-		if !pricing.platformUnitsPerUSD.IsPositive() || !pricing.settlementUnitsPerUSD.IsPositive() {
-			return decimal.Zero, decimal.Zero, errors.New("invalid credit settlement pricing")
-		}
-		settlement = credits.Mul(pricing.settlementUnitsPerUSD).
-			Div(decimal.NewFromFloat(common.QuotaPerUnit).Mul(pricing.platformUnitsPerUSD))
+	}
+	settlement, err := paymentpricing.QuoteSettlementForCredits(amount.CreditedQuota, pricing.sharedSettlementPricing(), anchor, decimal.NewFromFloat(common.QuotaPerUnit))
+	if err != nil {
+		return decimal.Zero, decimal.Zero, err
 	}
 	original, paid := applyTopUpSettlementRatiosWithOriginal(settlement, topUpConfigAmountFromResolved(amount), group, ratio)
 	return original, paid, nil

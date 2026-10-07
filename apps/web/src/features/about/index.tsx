@@ -18,27 +18,34 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowRight, Construction } from 'lucide-react'
+import { ArrowRight, CodeXml } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { RichContent } from '@/components/rich-content'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { getBuildVersion } from '@/lib/build-metadata'
 import { isHttpUrl, isLikelyHtml } from '@/lib/content-format'
 
 import { ForgePublicShell } from '../forge/forge-public-shell'
 import { getAboutContent } from './api'
 
 const ABOUT_FACTS = [
-  ['AGPL-3.0', 'Open source, no lock-in'],
-  ['1', 'Endpoint, every model'],
-  ['L1', 'Unlocked by your first top-up'],
+  ['AGPL-3.0', 'Open-source code'],
+  ['1', 'One gateway for supported models'],
+  ['Community', 'Tools, store, and open-source challenges'],
 ] as const
 
 function EmptyAboutState() {
   const { t } = useTranslation()
   const { systemName } = useSystemConfig()
+  const { status, capabilitiesReady } = useStatus()
+  const apiVersion = capabilitiesReady
+    ? status?.version?.trim() || status?.data?.version?.trim()
+    : undefined
 
   return (
     <main className='mx-auto max-w-5xl px-5 pt-32 pb-24 md:px-10 md:pt-40'>
@@ -49,11 +56,18 @@ function EmptyAboutState() {
       <h1 className='max-w-3xl font-serif text-5xl leading-[1.02] font-normal md:text-7xl'>
         {t('Open-source work, made accountable.')}
       </h1>
+      <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-7 md:text-lg'>
+        {t(
+          'Access supported AI models through one API, manage keys and usage, and explore tools, the store, and open-source challenges.'
+        )}
+      </p>
 
       <dl className='mt-12 grid gap-8 border-y py-8 sm:grid-cols-3'>
         {ABOUT_FACTS.map(([value, label]) => (
           <div key={label}>
-            <dt className='text-3xl font-semibold tracking-tight'>{value}</dt>
+            <dt className='text-3xl font-semibold tracking-tight'>
+              {t(value)}
+            </dt>
             <dd className='text-muted-foreground mt-2 text-sm leading-6'>
               {t(label)}
             </dd>
@@ -86,9 +100,8 @@ function EmptyAboutState() {
       </div>
 
       <div className='border-foreground mt-14 flex items-start gap-3 border-t-2 pt-5 text-sm leading-6'>
-        <Construction className='mt-0.5 size-5 shrink-0' aria-hidden='true' />
-        <p className='text-muted-foreground'>
-          {t('The administrator has not published an about page yet.')}{' '}
+        <CodeXml className='mt-0.5 size-5 shrink-0' aria-hidden='true' />
+        <div className='text-muted-foreground flex flex-wrap items-center gap-x-6 gap-y-2'>
           <a
             href='https://github.com/TokenNotIncluded/api.lmm.best/blob/main/LICENSE'
             target='_blank'
@@ -97,7 +110,11 @@ function EmptyAboutState() {
           >
             {t('AGPL v3.0 License')}
           </a>
-        </p>
+          <p>
+            {t('API')} {apiVersion ?? t('Unknown version')} · {t('Web')}{' '}
+            {getBuildVersion()}
+          </p>
+        </div>
       </div>
     </main>
   )
@@ -105,7 +122,7 @@ function EmptyAboutState() {
 
 export function About() {
   const { t } = useTranslation()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['about-content'],
     queryFn: getAboutContent,
   })
@@ -123,6 +140,19 @@ export function About() {
           <Skeleton className='h-4 w-full' />
           <Skeleton className='h-4 w-[90%]' />
           <Skeleton className='h-4 w-[80%]' />
+        </main>
+      </ForgePublicShell>
+    )
+  }
+
+  if (isError || data?.success === false) {
+    return (
+      <ForgePublicShell>
+        <main className='mx-auto max-w-4xl px-5 pt-32 pb-24 md:px-10'>
+          <ErrorState
+            title={t('Failed to load')}
+            onRetry={() => void refetch()}
+          />
         </main>
       </ForgePublicShell>
     )

@@ -28,6 +28,7 @@ import { useSummaryCardsConfig } from '@/features/dashboard/hooks/use-dashboard-
 import type { QuotaDataItem } from '@/features/dashboard/types'
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { normalizedUserUsage } from '@/lib/cumulative-user-usage'
 import { formatNumber } from '@/lib/format'
 import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -137,13 +138,16 @@ const HEALTH_CONFIG: Record<
 
 export function SummaryCards() {
   const { t } = useTranslation()
-  const { formatQuota, label: currencyLabel } = useWalletCurrency()
+  const {
+    formatQuota,
+    formatUserUsage,
+    label: currencyLabel,
+  } = useWalletCurrency()
   const user = useAuthStore((state) => state.auth.user)
   const { loading } = useStatus()
 
   const summaryTimeRange = useMemo(() => computeTimeRange(1), [])
   const remainQuota = Number(user?.quota ?? 0)
-  const usedQuota = Number(user?.used_quota ?? 0)
   const requestCount = Number(user?.request_count ?? 0)
 
   const usageTrendQuery = useQuery({
@@ -167,7 +171,7 @@ export function SummaryCards() {
 
   // Formatting follows the current language and currency configuration on every render.
   const summaryValues = {
-    usedDisplay: formatQuota(usedQuota),
+    usedDisplay: formatUserUsage(user),
     requestCountDisplay: formatNumber(requestCount),
   }
 
@@ -226,6 +230,8 @@ export function SummaryCards() {
     ...summaryValues,
     todayUsageDisplay,
     currencyLabel,
+    usedCurrencyLabel:
+      normalizedUserUsage(user) === null ? t('Credits') : currencyLabel,
     currencyEnabled: true,
   }).map((config, index) => {
     const tones = ['accent-1', 'accent-2', 'accent-3'] as const

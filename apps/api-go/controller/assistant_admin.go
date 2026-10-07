@@ -1086,31 +1086,8 @@ func validateAssistantAdminConfigValue(key, value string) error {
 				return fmt.Errorf("top-up ratio %s must be non-negative and finite", group)
 			}
 		}
-	case "payment_setting.amount_options":
-		var amounts []int
-		if err := json.Unmarshal([]byte(value), &amounts); err != nil || len(amounts) > 100 {
-			return errors.New("amount_options must be a JSON array with at most 100 entries")
-		}
-		seen := make(map[int]struct{}, len(amounts))
-		for _, amount := range amounts {
-			if amount <= 0 || amount > 1_000_000_000 {
-				return errors.New("top-up amounts must be positive integers no greater than 1000000000")
-			}
-			if _, exists := seen[amount]; exists {
-				return errors.New("top-up amounts cannot contain duplicates")
-			}
-			seen[amount] = struct{}{}
-		}
-	case "payment_setting.amount_discount":
-		var discounts map[int]float64
-		if err := json.Unmarshal([]byte(value), &discounts); err != nil || len(discounts) > 100 {
-			return errors.New("amount_discount must be a JSON object with at most 100 entries")
-		}
-		for amount, discount := range discounts {
-			if amount <= 0 || discount <= 0 || discount > 1 || math.IsNaN(discount) || math.IsInf(discount, 0) {
-				return errors.New("top-up discounts must map positive amounts to finite values between 0 and 1")
-			}
-		}
+	case "payment_setting.amount_options", "payment_setting.amount_discount":
+		return operation_setting.ValidatePaymentCatalogJSON(key, value, operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens)
 	case "PayMethods":
 		var methods []map[string]string
 		if err := json.Unmarshal([]byte(value), &methods); err != nil || len(methods) > 32 {

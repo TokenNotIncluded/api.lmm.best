@@ -12,10 +12,11 @@ type publicUserCreditResponse struct {
 	*model.User
 	common.CreditDenomination
 	PublicCreditBalance string `json:"public_credit_balance"`
-	PublicCreditUsed    string `json:"public_credit_used"`
+	PublicCreditUsed    string `json:"public_credit_used,omitempty"`
+	usageProjectionFields
 }
 
-func publicUserCreditFields(quota, used int) (gin.H, error) {
+func publicUserCreditFields(quota int, used *int) (gin.H, error) {
 	basis, err := captureCreditBoundaryBasis()
 	if err != nil {
 		return nil, err
@@ -26,12 +27,14 @@ func publicUserCreditFields(quota, used int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	consumed, err := basis.publicAmount(int64(used))
-	if err != nil {
-		return nil, err
-	}
 	fields["public_credit_balance"] = balance.String()
-	fields["public_credit_used"] = consumed.String()
+	if used != nil {
+		consumed, err := basis.publicAmount(int64(*used))
+		if err != nil {
+			return nil, err
+		}
+		fields["public_credit_used"] = consumed.String()
+	}
 	return fields, nil
 }
 
@@ -40,19 +43,26 @@ func buildPublicUserCreditResponse(user *model.User) (*publicUserCreditResponse,
 	if err != nil {
 		return nil, err
 	}
-	return buildPublicUserCreditResponseWithBasis(user, basis)
+	snapshot := loadUsageSnapshot([]*model.User{user}, nil)
+	current, projector := snapshot.user(user)
+	return buildPublicUserCreditResponseWithBasis(current, basis, projector)
 }
 
-func buildPublicUserCreditResponseWithBasis(user *model.User, basis creditBoundaryBasis) (*publicUserCreditResponse, error) {
+func buildPublicUserCreditResponseWithBasis(user *model.User, basis creditBoundaryBasis, projector usageProjector) (*publicUserCreditResponse, error) {
 	balance, err := basis.publicAmount(int64(user.Quota))
 	if err != nil {
 		return nil, err
 	}
-	used, err := basis.publicAmount(int64(user.UsedQuota))
-	if err != nil {
-		return nil, err
+	usage := projectUserUsage(projector, user)
+	response := &publicUserCreditResponse{User: user, CreditDenomination: basis.Metadata, PublicCreditBalance: balance.String(), usageProjectionFields: usage}
+	if usage.NormalizedUsedQuota != nil {
+		used, err := basis.publicAmount(int64(*usage.NormalizedUsedQuota))
+		if err != nil {
+			return nil, err
+		}
+		response.PublicCreditUsed = used.String()
 	}
-	return &publicUserCreditResponse{User: user, CreditDenomination: basis.Metadata, PublicCreditBalance: balance.String(), PublicCreditUsed: used.String()}, nil
+	return response, nil
 }
 
 func buildPublicUserCreditResponses(users []*model.User) ([]*publicUserCreditResponse, error) {
@@ -61,8 +71,10 @@ func buildPublicUserCreditResponses(users []*model.User) ([]*publicUserCreditRes
 	if err != nil {
 		return nil, err
 	}
+	snapshot := loadUsageSnapshot(users, nil)
 	for _, user := range users {
-		response, err := buildPublicUserCreditResponseWithBasis(user, basis)
+		current, projector := snapshot.user(user)
+		response, err := buildPublicUserCreditResponseWithBasis(current, basis, projector)
 		if err != nil {
 			return nil, err
 		}
