@@ -96,11 +96,7 @@ export function AutomaticApiKeyActions() {
         return
       }
       triggerRefresh()
-      toast.success(
-        result.data.created
-          ? t('Drawing MCP API key created')
-          : t('Existing drawing API key selected')
-      )
+      toast.success(t('image-2 API Key ready'))
     } catch {
       toast.error(t('Unable to prepare drawing API key'))
     } finally {
@@ -114,12 +110,7 @@ export function AutomaticApiKeyActions() {
         <div className='min-w-0'>
           <p className='flex items-center gap-2 text-sm font-medium'>
             <Paintbrush className='size-4' aria-hidden='true' />
-            {t('Drawing MCP')}
-          </p>
-          <p className='text-muted-foreground mt-1 text-xs leading-5'>
-            {t(
-              'Prepare an image-2 API key here, then choose it in Drawing MCP settings.'
-            )}
+            {t('Prepare image-2 API Key')}
           </p>
         </div>
         <div className='flex shrink-0 flex-wrap gap-2'>
@@ -133,10 +124,10 @@ export function AutomaticApiKeyActions() {
             {pending ? t('Preparing...') : t('Prepare API key')}
           </Button>
           <Link
-            to='/drawing'
+            to='/tool-market'
             className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
           >
-            {t('Open Drawing MCP settings')}
+            {t('Tool market')}
             <ExternalLink data-icon='inline-end' aria-hidden='true' />
           </Link>
         </div>

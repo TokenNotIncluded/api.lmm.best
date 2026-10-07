@@ -14,13 +14,8 @@ const baseApiKeySourceCopy = {
     'Keys created by Drawing MCP, Assistant, and other connected tools appear here.':
       'Keys created by Drawing MCP, Assistant, and other connected tools appear here.',
     'Unable to prepare drawing API key': 'Unable to prepare drawing API key',
-    'Drawing MCP API key created': 'Drawing MCP API key created',
-    'Existing drawing API key selected': 'Existing drawing API key selected',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'Prepare an image-2 API key here, then choose it in Drawing MCP settings.',
     'Preparing...': 'Preparing...',
     'Prepare API key': 'Prepare API key',
-    'Open Drawing MCP settings': 'Open Drawing MCP settings',
   },
   zh: {
     'API key creation mode': 'API 密钥创建方式',
@@ -34,13 +29,8 @@ const baseApiKeySourceCopy = {
     'Keys created by Drawing MCP, Assistant, and other connected tools appear here.':
       '由绘图 MCP、助手及其他已连接工具创建的密钥会显示在这里。',
     'Unable to prepare drawing API key': '无法准备绘图 API 密钥',
-    'Drawing MCP API key created': '已创建绘图 MCP API 密钥',
-    'Existing drawing API key selected': '已选择现有绘图 API 密钥',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      '在这里准备一个 image-2 API 密钥，然后在绘图 MCP 设置中选择它。',
     'Preparing...': '正在准备...',
     'Prepare API key': '准备 API 密钥',
-    'Open Drawing MCP settings': '打开绘图 MCP 设置',
   },
   'zh-TW': {
     'API key creation mode': 'API 金鑰建立方式',
@@ -54,13 +44,8 @@ const baseApiKeySourceCopy = {
     'Keys created by Drawing MCP, Assistant, and other connected tools appear here.':
       '由繪圖 MCP、助理及其他已連線工具建立的金鑰會顯示在這裡。',
     'Unable to prepare drawing API key': '無法準備繪圖 API 金鑰',
-    'Drawing MCP API key created': '已建立繪圖 MCP API 金鑰',
-    'Existing drawing API key selected': '已選擇現有繪圖 API 金鑰',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      '在這裡準備一個 image-2 API 金鑰，然後在繪圖 MCP 設定中選擇它。',
     'Preparing...': '正在準備...',
     'Prepare API key': '準備 API 金鑰',
-    'Open Drawing MCP settings': '開啟繪圖 MCP 設定',
   },
   fr: {
     'API key creation mode': 'Mode de création des clés API',
@@ -75,14 +60,8 @@ const baseApiKeySourceCopy = {
       'Les clés créées par Drawing MCP, l’assistant et d’autres outils connectés apparaissent ici.',
     'Unable to prepare drawing API key':
       'Impossible de préparer la clé API de dessin',
-    'Drawing MCP API key created': 'Clé API Drawing MCP créée',
-    'Existing drawing API key selected':
-      'Clé API de dessin existante sélectionnée',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'Préparez ici une clé API image-2, puis sélectionnez-la dans les paramètres Drawing MCP.',
     'Preparing...': 'Préparation...',
     'Prepare API key': 'Préparer la clé API',
-    'Open Drawing MCP settings': 'Ouvrir les paramètres Drawing MCP',
   },
   ja: {
     'API key creation mode': 'API キーの作成方法',
@@ -96,13 +75,8 @@ const baseApiKeySourceCopy = {
     'Keys created by Drawing MCP, Assistant, and other connected tools appear here.':
       'Drawing MCP、アシスタント、その他の接続済みツールが作成したキーがここに表示されます。',
     'Unable to prepare drawing API key': '描画 API キーを準備できません',
-    'Drawing MCP API key created': 'Drawing MCP API キーを作成しました',
-    'Existing drawing API key selected': '既存の描画 API キーを選択しました',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'ここで image-2 API キーを準備し、Drawing MCP 設定で選択します。',
     'Preparing...': '準備中...',
     'Prepare API key': 'API キーを準備',
-    'Open Drawing MCP settings': 'Drawing MCP 設定を開く',
   },
   ru: {
     'API key creation mode': 'Способ создания API-ключа',
@@ -118,14 +92,8 @@ const baseApiKeySourceCopy = {
       'Здесь отображаются ключи, созданные Drawing MCP, помощником и другими подключёнными инструментами.',
     'Unable to prepare drawing API key':
       'Не удалось подготовить API-ключ для рисования',
-    'Drawing MCP API key created': 'API-ключ Drawing MCP создан',
-    'Existing drawing API key selected':
-      'Выбран существующий API-ключ для рисования',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'Подготовьте здесь API-ключ image-2, затем выберите его в настройках Drawing MCP.',
     'Preparing...': 'Подготовка...',
     'Prepare API key': 'Подготовить API-ключ',
-    'Open Drawing MCP settings': 'Открыть настройки Drawing MCP',
   },
   vi: {
     'API key creation mode': 'Cách tạo khóa API',
@@ -140,90 +108,48 @@ const baseApiKeySourceCopy = {
     'Keys created by Drawing MCP, Assistant, and other connected tools appear here.':
       'Khóa do Drawing MCP, Trợ lý và các công cụ đã kết nối khác tạo sẽ xuất hiện tại đây.',
     'Unable to prepare drawing API key': 'Không thể chuẩn bị khóa API vẽ',
-    'Drawing MCP API key created': 'Đã tạo khóa API Drawing MCP',
-    'Existing drawing API key selected': 'Đã chọn khóa API vẽ hiện có',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'Chuẩn bị khóa API image-2 tại đây, sau đó chọn khóa trong phần cài đặt Drawing MCP.',
     'Preparing...': 'Đang chuẩn bị...',
     'Prepare API key': 'Chuẩn bị khóa API',
-    'Open Drawing MCP settings': 'Mở cài đặt Drawing MCP',
   },
 }
 
 const quickCreateCopy = {
   en: {
     'Unable to prepare drawing API key': 'Unable to prepare drawing API key',
-    'Drawing MCP API key created': 'Drawing MCP API key created',
-    'Existing drawing API key selected': 'Existing drawing API key selected',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'Prepare an image-2 API key here, then choose it in Drawing MCP settings.',
     'Preparing...': 'Preparing...',
     'Prepare API key': 'Prepare API key',
-    'Open Drawing MCP settings': 'Open Drawing MCP settings',
   },
   zh: {
     'Unable to prepare drawing API key': '无法准备绘图 API 密钥',
-    'Drawing MCP API key created': '已创建绘图 MCP API 密钥',
-    'Existing drawing API key selected': '已选择现有绘图 API 密钥',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      '在这里准备一个 image-2 API 密钥，然后在绘图 MCP 设置中选择它。',
     'Preparing...': '正在准备...',
     'Prepare API key': '准备 API 密钥',
-    'Open Drawing MCP settings': '打开绘图 MCP 设置',
   },
   'zh-TW': {
     'Unable to prepare drawing API key': '無法準備繪圖 API 金鑰',
-    'Drawing MCP API key created': '已建立繪圖 MCP API 金鑰',
-    'Existing drawing API key selected': '已選擇現有繪圖 API 金鑰',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      '在這裡準備一個 image-2 API 金鑰，然後在繪圖 MCP 設定中選擇它。',
     'Preparing...': '正在準備...',
     'Prepare API key': '準備 API 金鑰',
-    'Open Drawing MCP settings': '開啟繪圖 MCP 設定',
   },
   fr: {
     'Unable to prepare drawing API key':
       'Impossible de préparer la clé API de dessin',
-    'Drawing MCP API key created': 'Clé API Drawing MCP créée',
-    'Existing drawing API key selected':
-      'Clé API de dessin existante sélectionnée',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'Préparez ici une clé API image-2, puis sélectionnez-la dans les paramètres Drawing MCP.',
     'Preparing...': 'Préparation...',
     'Prepare API key': 'Préparer la clé API',
-    'Open Drawing MCP settings': 'Ouvrir les paramètres Drawing MCP',
   },
   ja: {
     'Unable to prepare drawing API key': '描画 API キーを準備できません',
-    'Drawing MCP API key created': 'Drawing MCP API キーを作成しました',
-    'Existing drawing API key selected': '既存の描画 API キーを選択しました',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'ここで image-2 API キーを準備し、Drawing MCP 設定で選択します。',
     'Preparing...': '準備中...',
     'Prepare API key': 'API キーを準備',
-    'Open Drawing MCP settings': 'Drawing MCP 設定を開く',
   },
   ru: {
     'Unable to prepare drawing API key':
       'Не удалось подготовить API-ключ для рисования',
-    'Drawing MCP API key created': 'API-ключ Drawing MCP создан',
-    'Existing drawing API key selected':
-      'Выбран существующий API-ключ для рисования',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'Подготовьте здесь API-ключ image-2, затем выберите его в настройках Drawing MCP.',
     'Preparing...': 'Подготовка...',
     'Prepare API key': 'Подготовить API-ключ',
-    'Open Drawing MCP settings': 'Открыть настройки Drawing MCP',
   },
   vi: {
     'Unable to prepare drawing API key': 'Không thể chuẩn bị khóa API vẽ',
-    'Drawing MCP API key created': 'Đã tạo khóa API Drawing MCP',
-    'Existing drawing API key selected': 'Đã chọn khóa API vẽ hiện có',
-    'Prepare an image-2 API key here, then choose it in Drawing MCP settings.':
-      'Chuẩn bị khóa API image-2 tại đây, sau đó chọn khóa trong phần cài đặt Drawing MCP.',
     'Preparing...': 'Đang chuẩn bị...',
     'Prepare API key': 'Chuẩn bị khóa API',
-    'Open Drawing MCP settings': 'Mở cài đặt Drawing MCP',
   },
 }
 
