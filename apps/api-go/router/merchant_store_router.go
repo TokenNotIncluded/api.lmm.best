@@ -20,6 +20,8 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 
 	public := parent.Group("/store")
 	public.Use(middleware.DisableCache(), middleware.TryUserAuth())
+	public.GET("/merchants/:seller_id", controller.GetMerchantStoreHome)
+	public.GET("/announcement", controller.GetMerchantStoreAnnouncement)
 	public.GET("/products", controller.ListMerchantStore)
 	public.GET("/products/:id", controller.GetPublicMerchantStoreProduct)
 	setMerchantStoreAccessPublicRoutes(public)
@@ -46,6 +48,8 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	self.GET("/email/status", controller.GetMerchantStoreEmailStatus)
 	self.POST("/email/verification/send", middleware.RequestBodyLimit(1<<10), middleware.CriticalRateLimit(), controller.SendMerchantStoreEmailVerification)
 	self.POST("/email/verification/confirm", middleware.RequestBodyLimit(1<<10), middleware.CriticalRateLimit(), controller.ConfirmMerchantStoreEmailVerification)
+	self.GET("/my/home", controller.GetMyMerchantStoreHome)
+	self.PUT("/my/home", middleware.RequestBodyLimit(256<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreHome)
 	self.GET("/my/products", controller.ListMyMerchantStoreProducts)
 	self.GET("/my/products/:id", controller.GetMerchantStoreProductDraft)
 	self.GET("/my/products/:id/preview", controller.GetMerchantStoreProductPreview)
@@ -94,6 +98,7 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 
 	admin := parent.Group("/store")
 	admin.Use(middleware.AdminAuth(), middleware.DisableCache())
+	admin.PUT("/announcement", middleware.RequestBodyLimit(128<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreAnnouncement)
 	admin.GET("/reviews", controller.ListMerchantStoreReviews)
 	admin.POST("/products/:id/review", middleware.RequestBodyLimit(8<<10), middleware.CriticalRateLimit(), controller.ReviewMerchantStoreProduct)
 	admin.PUT("/promotion-config", middleware.RootAuth(), middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStorePromotionPrice)

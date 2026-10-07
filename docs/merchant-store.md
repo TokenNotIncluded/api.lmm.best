@@ -253,3 +253,11 @@ ownership, pending limits and wallet rollback, and compare two synthetic legacy
 tables around the shop migration. This is not a substitute for a complete
 production-data clone, all-existing-table preservation or previous-version
 verification. Run it only with an explicitly supplied disposable loopback URL.
+
+## 店铺主页与公告
+
+每个商户的公开主页位于 `/store?seller_id=<用户 ID>`，商品目录继续由服务器按访问者身份筛选，测试商品和仅自己可见的商品不会进入公开目录。即使暂时没有公开商品，也可以展示商户简介、公告和头图。商户在「设置 → 店铺资料」编辑自己的内容；头图支持 HTTPS 图片或经过商品媒体校验器检查的 SVG，安全的视觉动画会保留。简介和公告使用现有 Markdown 渲染器。
+
+头像复用平台账户的 Gravatar：服务端对规范化账户邮箱计算 SHA-256，只公开头像图片 URL。账户邮箱、余额、凭证和其他账户设置均不属于公开主页数据；销售邮箱只来自当前访问者可见商品的公开联系方式。
+
+商户资料单独保存在 `users.setting.merchant_store_home`，使用版本号和用户行锁避免同时编辑互相覆盖。通用账户资料/邮箱/角色更新不写入 `setting`，设置表单保留当前店铺资料。全站商店公告保存在独立选项 `MerchantStoreAnnouncement`，当前管理员和超级管理员可编辑；其他商户只能编辑自己的公告。以上功能复用现有数据表，不需要新增数据库结构。

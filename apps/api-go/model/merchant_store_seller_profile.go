@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"net/mail"
 	"strings"
 	"unicode"
@@ -16,6 +18,7 @@ type MerchantStorePublicSeller struct {
 	Username     string `json:"username"`
 	DisplayName  string `json:"display_name"`
 	ContactEmail string `json:"contact_email,omitempty"`
+	AvatarURL    string `json:"avatar_url,omitempty"`
 }
 
 func storePublicContactEmail(contact string) string {
@@ -37,11 +40,11 @@ func storePublicContactEmail(contact string) string {
 
 func storePublicSeller(tx *gorm.DB, id int, publicContact string) (*MerchantStorePublicSeller, error) {
 	var seller User
-	if err := tx.Select("id", "username", "display_name").Where("id = ? AND status = ? AND role >= ?", id, common.UserStatusEnabled, common.RoleCommonUser).First(&seller).Error; err != nil {
+	if err := tx.Select("id", "username", "display_name", "email").Where("id = ? AND status = ? AND role >= ?", id, common.UserStatusEnabled, common.RoleCommonUser).First(&seller).Error; err != nil {
 		return nil, err
 	}
 	return &MerchantStorePublicSeller{ID: seller.Id, Username: seller.Username,
-		DisplayName: seller.DisplayName, ContactEmail: storePublicContactEmail(publicContact)}, nil
+		DisplayName: seller.DisplayName, ContactEmail: storePublicContactEmail(publicContact), AvatarURL: storeSellerAvatar(seller.Email)}, nil
 }
 
 // The shop contact comes from the seller's newest public product, where Contact
@@ -61,4 +64,15 @@ func GetMerchantStoreSellerProfileForViewer(actor, id int) (*MerchantStorePublic
 		return nil, err
 	}
 	return storePublicSeller(DB, id, product.Contact)
+}
+
+// The platform avatar already uses Gravatar SHA-256. Expose the image URL rather
+// than the private account email; the public sales email is independent.
+func storeSellerAvatar(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(email))
+	return fmt.Sprintf("https://gravatar.com/avatar/%x?d=404&r=g&s=192", hash)
 }

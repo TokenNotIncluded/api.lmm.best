@@ -66,7 +66,7 @@ export function StoreShell() {
               ['/store/favorites', 'Favorite products'],
               ['/store/orders', 'My orders'],
               ['/store/manage', 'Seller center'],
-              ['/store/settings', 'Payment settings'],
+              ['/store/settings', 'Settings'],
               ...(user && user.role >= 10
                 ? [['/store/review', 'Review products']]
                 : []),

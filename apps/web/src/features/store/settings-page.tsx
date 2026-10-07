@@ -11,6 +11,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import {
+  StoreMerchantHomeSettings,
+  StoreAnnouncementSettings,
+} from './merchant-home'
 import { StoreMerchantTermsEditor } from './merchant-terms'
 import { StorePaymentCategoriesForm } from './payment-categories'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
@@ -58,6 +62,12 @@ function StorePaymentSettings() {
   })
   return (
     <div className='space-y-7'>
+      <StoreMerchantHomeSettings
+        supported={catalog.data?.store_merchant_home_supported === true}
+      />
+      <StoreAnnouncementSettings
+        supported={catalog.data?.store_merchant_home_supported === true}
+      />
       <div>
         <h1 className='console-page-title text-xl font-bold'>
           {t('Seller payment settings')}

@@ -32,6 +32,7 @@ const viewerNamespaces = new Set([
   'product',
   'product-preview',
   'catalogue-products',
+  'merchant-home',
   'catalogue-product',
   'cart',
   'catalogue-cart',

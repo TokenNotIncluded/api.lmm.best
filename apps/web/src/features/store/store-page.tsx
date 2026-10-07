@@ -20,6 +20,7 @@ import {
   readStoreCatalogueView,
   writeStoreCatalogueView,
 } from './collection-storage'
+import { StoreAnnouncement, StoreMerchantHomeHeader } from './merchant-home'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreOrderSearch } from './order-search'
 import { StoreProductCardMedia } from './product-card-media'
@@ -77,10 +78,20 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
   })
   return (
     <div className='flex flex-1 flex-col gap-5'>
+      <StoreAnnouncement
+        supported={support.data?.store_merchant_home_supported === true}
+      />
+      {sellerId && (
+        <StoreMerchantHomeHeader
+          sellerId={sellerId}
+          supported={support.data?.store_merchant_home_supported === true}
+        />
+      )}
       <div className='flex min-h-28 flex-wrap items-end justify-between gap-4 border-b py-5'>
         <div className='relative z-10 space-y-1'>
           <h1 className='console-page-title text-xl font-bold'>
-            {query.data?.seller
+            {query.data?.seller &&
+            support.data?.store_merchant_home_supported !== true
               ? t('Shop by {{name}}', {
                   name:
                     query.data.seller.display_name ||
@@ -93,9 +104,10 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
               'Explore digital products from the community and official sellers.'
             )}
           </p>
-          {query.data?.seller && (
-            <StoreMerchantIdentity seller={query.data.seller} />
-          )}
+          {query.data?.seller &&
+            support.data?.store_merchant_home_supported !== true && (
+              <StoreMerchantIdentity seller={query.data.seller} />
+            )}
           {sellerId && (
             <a
               href='/store'

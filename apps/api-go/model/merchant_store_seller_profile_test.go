@@ -29,7 +29,8 @@ func TestMerchantStoreSellerProfileProjectsOnlyActualSellerAndPublicContact(t *t
 	require.NotContains(t, string(serialized), "quota")
 	var keys map[string]any
 	require.NoError(t, json.Unmarshal(serialized, &keys))
-	require.Len(t, keys, 4)
+	require.Len(t, keys, 5)
+	require.Contains(t, keys, "avatar_url")
 
 	for _, contact := range []string{"", "Contact via my website", "sales@example.test\r\nBcc: private@example.test", "first@example.test,second@example.test"} {
 		require.NoError(t, DB.Model(f.product).Update("contact", contact).Error)

@@ -20,8 +20,20 @@ export interface StoreSeller {
   id: number
   username: string
   display_name: string
+  avatar_url?: string
   contact_email?: string
 }
+export interface StoreMerchantHome {
+  seller: StoreSeller
+  biography: string
+  announcement: string
+  header_image: string
+  version: number
+}
+export type StoreMerchantHomeInput = Omit<
+  StoreMerchantHome,
+  'seller' | 'version'
+> & { expected_version: number }
 export interface StoreCategory {
   id: string
   name: string
@@ -184,6 +196,7 @@ export interface StoreConfig {
   store_catalogue_supported?: boolean
   store_categories_supported?: boolean
   store_svg_media_supported?: boolean
+  store_merchant_home_supported?: boolean
   product_purchase_limits_supported?: boolean
   product_link_presets?: StoreLinkPreset[]
   minimum_unit_price_quota?: number

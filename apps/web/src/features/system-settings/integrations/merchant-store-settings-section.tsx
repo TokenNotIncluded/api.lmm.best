@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { storeApi } from '@/features/store/api'
 import { StoreLinkPresetsSettings } from '@/features/store/link-presets'
+import { StoreAnnouncementSettings } from '@/features/store/merchant-home'
 import { STORE_MINIMUM_PRICE_COPY as copy } from '@/features/store/minimum-price-copy'
 import { StoreError, StoreLoading } from '@/features/store/shared'
 import type { StoreConfig } from '@/features/store/types'
@@ -107,6 +108,9 @@ function StoreRootConfig({
       className='scroll-mt-6 space-y-4 border-t pt-5'
     >
       <h2 className='font-semibold'>{t('Store administration')}</h2>
+      <StoreAnnouncementSettings
+        supported={config.store_merchant_home_supported === true}
+      />
       <form onSubmit={(event) => void save(event)} className='space-y-4'>
         <StoreError error={error} />
         <div className='grid gap-4 sm:grid-cols-2'>

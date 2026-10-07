@@ -19,6 +19,8 @@ import type {
   StoreOrder,
   StorePage,
   StoreSeller,
+  StoreMerchantHome,
+  StoreMerchantHomeInput,
   StorePaymentSettings,
   StorePaymentCategories,
   StoreGatewayInput,
@@ -149,6 +151,21 @@ async function allStoreCategories(admin = false): Promise<StoreCategoryList> {
   }
 }
 export const storeApi = {
+  merchantHome: (id: number, signal?: AbortSignal) =>
+    unwrap<StoreMerchantHome>(
+      api.get(`${root}/merchants/${id}`, { ...options, signal })
+    ),
+  myHome: () => unwrap<StoreMerchantHome>(api.get(`${root}/my/home`, options)),
+  saveHome: (body: StoreMerchantHomeInput) =>
+    unwrap<StoreMerchantHome>(api.put(`${root}/my/home`, body, options)),
+  announcement: (signal?: AbortSignal) =>
+    unwrap<{ content: string }>(
+      api.get(`${root}/announcement`, { ...options, signal })
+    ),
+  saveAnnouncement: (content: string) =>
+    unwrap<{ content: string }>(
+      api.put(`${root}/announcement`, { content }, options)
+    ),
   categories: () => allStoreCategories(),
   adminCategories: () => allStoreCategories(true),
   createCategory: (body: StoreCategoryInput) =>
