@@ -103,7 +103,6 @@ export const RAW_JSON_DESCRIPTORS = [
   { key: 'billing_setting.billing_expr', label: 'Billing expressions' },
   { key: 'tool_price_setting.prices', label: 'Tool prices' },
   { key: 'channel_affinity_setting.rules', label: 'Channel affinity rules' },
-  { key: 'AdvancedSecurityRules', label: 'Advanced security rules' },
   { key: 'console_setting.api_info', label: 'API information' },
   { key: 'console_setting.announcements', label: 'Announcements' },
   { key: 'console_setting.faq', label: 'FAQ' },

@@ -73,13 +73,6 @@ export type UsdExchangeRateResponse =
       data?: never
     }
 
-export type UpdateAdvancedSecuritySettingsRequest = {
-  enabled: boolean
-  on_prompt: boolean
-  action: 'block' | 'audit'
-  rules: unknown
-}
-
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
   message: string
@@ -531,10 +524,6 @@ export type SecuritySettings = {
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean
   SensitiveWords: string
-  AdvancedSecurityEnabled: boolean
-  AdvancedSecurityOnPromptEnabled: boolean
-  AdvancedSecurityAction: 'block' | 'audit'
-  AdvancedSecurityRules: string
   AntiRelayEnabled: boolean
   AntiRelayRejectProxyHeadersEnabled: boolean
   AntiRelayHTTPSOnlyEnabled: boolean
