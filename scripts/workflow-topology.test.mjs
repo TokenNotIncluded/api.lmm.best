@@ -46,6 +46,9 @@ test('every Ubuntu native test consumer prepares fixed verified tools before tes
   assert.match(helper, /cosign_stage_sha.*sha256sum/);
   assert.match(helper, /cosign_installed_sha.*sha256sum/);
   assert.match(helper, /--owner=root --group=root --mode=0755/);
+  assert.match(helper, /cosign_parent in \/ \/usr \/usr\/bin/);
+  assert.match(helper, /--mode=0755[^\n]+\/usr\/bin\/cosign/);
+  assert.doesNotMatch(helper, /sudo.*(?:chmod|chown)/);
   assert.match(helper, /== 0:0:755/);
   assert.doesNotMatch(helper, /curl|wget|insecure|ignore/);
   const syntax = spawnSync('bash', ['-n', new URL('scripts/install-ci-native-cosign.sh', root).pathname], { encoding: 'utf8' });
