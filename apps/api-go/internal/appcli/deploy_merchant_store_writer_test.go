@@ -15,8 +15,8 @@ func merchantWriterStatusJSON(floor, capability int) []byte {
 }
 
 func TestProductionMerchantStoreWriterStatusStrictProtocol(t *testing.T) {
-	for floor := 1; floor <= 6; floor++ {
-		for capability := 1; capability <= 6; capability++ {
+	for floor := 1; floor <= 7; floor++ {
+		for capability := 1; capability <= 7; capability++ {
 			status, err := parseMerchantStoreWriterStatus(merchantWriterStatusJSON(floor, capability))
 			if err != nil || status.RequiredCapability != floor || status.WriterCapability != capability {
 				t.Fatalf("floor=%d capability=%d: status=%+v error=%v", floor, capability, status, err)
@@ -34,8 +34,8 @@ func TestProductionMerchantStoreWriterStatusStrictProtocol(t *testing.T) {
 		"wrong type":            strings.Replace(good, `"writer_capability":4`, `"writer_capability":"4"`, 1),
 		"fraction":              strings.Replace(good, `"writer_capability":4`, `"writer_capability":4.0`, 1),
 		"cap zero":              strings.Replace(good, `"writer_capability":4`, `"writer_capability":0`, 1),
-		"future cap":            strings.Replace(good, `"writer_capability":4`, `"writer_capability":7`, 1),
-		"future floor":          strings.Replace(good, `"required_capability":4`, `"required_capability":7`, 1),
+		"future cap":            strings.Replace(good, `"writer_capability":4`, `"writer_capability":8`, 1),
+		"future floor":          strings.Replace(good, `"required_capability":4`, `"required_capability":8`, 1),
 		"missing gate":          strings.Replace(good, `"supports_writer_gate":true`, `"supports_writer_gate":false`, 1),
 		"variant contradiction": strings.Replace(good, `"supports_variants":true`, `"supports_variants":false`, 1),
 		"write contradiction":   strings.Replace(good, `"new_writes_allowed":true`, `"new_writes_allowed":false`, 1),
@@ -51,8 +51,8 @@ func TestProductionMerchantStoreWriterStatusStrictProtocol(t *testing.T) {
 }
 
 func TestProductionMerchantStoreWriterTargetsNeverAllowLegacyOrBelowFloor(t *testing.T) {
-	for floor := 0; floor <= 6; floor++ {
-		for capability := 0; capability <= 6; capability++ {
+	for floor := 0; floor <= 7; floor++ {
+		for capability := 0; capability <= 7; capability++ {
 			err := merchantStoreWriterTargetAllowed(floor, capability)
 			wantAllowed := validMerchantStoreCapability(floor) && validMerchantStoreCapability(capability) && capability >= floor
 			if (err == nil) != wantAllowed {
@@ -62,7 +62,7 @@ func TestProductionMerchantStoreWriterTargetsNeverAllowLegacyOrBelowFloor(t *tes
 	}
 	// A valid frozen status is diagnostic evidence, not a callback/readiness
 	// authorization. In particular a cap3 refund callback cannot run at floor4.
-	for _, pair := range [][2]int{{2, 1}, {3, 1}, {3, 2}, {4, 1}, {4, 2}, {4, 3}} {
+	for _, pair := range [][2]int{{2, 1}, {3, 1}, {3, 2}, {4, 1}, {4, 2}, {4, 3}, {7, 6}} {
 		if _, err := parseMerchantStoreWriterStatus(merchantWriterStatusJSON(pair[0], pair[1])); err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +93,7 @@ func (runner *merchantCapabilityInventoryRunner) Run(_ context.Context, command 
 
 func TestProductionMerchantStoreSignedMarkerInventory(t *testing.T) {
 	member := "usr/share/doc/" + productionAURPackageName + "/" + merchantStoreCapabilityMember
-	for _, capability := range []string{"1\n", "2\n", "3\n", "4\n", "5\n", "6\n"} {
+	for _, capability := range []string{"1\n", "2\n", "3\n", "4\n", "5\n", "6\n", "7\n"} {
 		runner := &merchantCapabilityInventoryRunner{listing: []byte("./" + member + "\n"), marker: []byte(capability)}
 		runtime := productionRuntime{runner: runner}
 		got, err := runtime.merchantStorePackageCapability(context.Background(), "/safe/package", productionAURPackageName)
