@@ -19,6 +19,7 @@ def load(name, relative):
 
 
 runner = load('merchant_pg_ci', 'ci/qualify-merchant-store-postgres.py')
+phase_six = load('merchant_phase_six_pg_ci', 'ci/qualify-merchant-store-phase-six-postgres.py')
 builder = load('merchant_cap1_builder', 'build-merchant-store-cap1-probe.py')
 
 
@@ -112,6 +113,51 @@ class MerchantPostgresEvidenceContract(unittest.TestCase):
         self.assertIn('path: qualification-artifacts/go/', go_section)
         self.assertIn('python3 -B scripts/test_qualify_merchant_store_postgres.py', source)
         self.assertNotIn("-run '^TestMerchantStorePostgres(DSNGuard|Concurrency)$'", go_section)
+
+
+class PhaseSixSourceWriterEvidenceContract(unittest.TestCase):
+    def setUp(self):
+        self.events = passes(phase_six.REQUIRED)
+        self.plan = {
+            'writer_capability': 7,
+            'tables': [
+                {'name': 'merchant_store_products', 'columns': [
+                    {'name': 'category_id', 'size': 36, 'not_null': True}]},
+                {'name': 'merchant_store_categories'},
+                {'name': 'merchant_store_product_likes'},
+            ],
+        }
+        self.revision = 'a' * 40
+
+    def test_reviewed_writer_seven_preserves_phase_six_evidence_identity(self):
+        result = phase_six.validate(self.events, self.plan, self.revision)
+        self.assertEqual(7, result['writer_capability'])
+        self.assertEqual('merchant-store-phase-six-postgres-v1', result['format'])
+        self.assertEqual(list(phase_six.LEAVES), result['required_pg_leaves'])
+        self.assertEqual(['merchant_store_categories', 'merchant_store_product_likes',
+                          'merchant_store_products.category_id'], result['phase_six_additions'])
+        self.assertEqual((0, 0, 'passed'), (result['failed'], result['skipped'], result['status']))
+
+    def test_stale_future_non_integer_and_missing_writer_markers_are_refused(self):
+        for marker in (1, 4, 5, 6, 8, 9, True, 7.0, '7', None):
+            with self.subTest(marker=marker), self.assertRaises(ValueError):
+                phase_six.validate(self.events, {**self.plan, 'writer_capability': marker}, self.revision)
+        with self.assertRaises(ValueError):
+            phase_six.validate(self.events, {'tables': self.plan['tables']}, self.revision)
+
+    def test_writer_update_never_substitutes_for_actual_pg_parent_and_leaf_passes(self):
+        for event in self.events:
+            with self.subTest(missing=event.get('Test')), self.assertRaises(ValueError):
+                phase_six.validate([row for row in self.events if row != event], self.plan, self.revision)
+        for action in ('skip', 'fail'):
+            with self.subTest(action=action), self.assertRaises(ValueError):
+                phase_six.validate(self.events + [{'Package': phase_six.PACKAGE, 'Action': action}],
+                                   self.plan, self.revision)
+        with self.assertRaises(ValueError):
+            phase_six.validate(self.events + [self.events[0]], self.plan, self.revision)
+        with self.assertRaises(ValueError):
+            phase_six.validate([*self.events[:-1], {'Action': 'pass', 'Package': 'other/model'}],
+                               self.plan, self.revision)
 
 
 class CapabilityOneBuildSchedulingContract(unittest.TestCase):

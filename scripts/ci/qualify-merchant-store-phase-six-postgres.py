@@ -36,8 +36,10 @@ def validate(events, plan, source_revision):
     passed = Counter(row.get('Test') for row in events if row.get('Action') == 'pass')
     if passed != Counter((None, *REQUIRED)):
         raise ValueError('phase-six schema parent and every PostgreSQL leaf must pass exactly once')
-    if type(plan.get('writer_capability')) is not int or plan['writer_capability'] != 6:
-        raise ValueError('compiled source plan must report writer capability six')
+    # The PostgreSQL proof still targets floor six; the reviewed source writer
+    # now supports seven. Require that exact marker, not an open-ended minimum.
+    if type(plan.get('writer_capability')) is not int or plan['writer_capability'] != 7:
+        raise ValueError('compiled source plan must report reviewed writer capability seven')
     tables = plan['tables']
     names = [table['name'] for table in tables]
     if len(set(names)) != len(names) or any(not name.startswith('merchant_store_') for name in names):
