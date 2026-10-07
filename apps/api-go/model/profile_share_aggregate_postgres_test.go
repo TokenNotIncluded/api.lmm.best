@@ -65,6 +65,8 @@ func TestProfileShareAggregatePostgresGo69MigrationAndRollback(t *testing.T) {
 
 	// These are the actual native startup migration and option normalization,
 	// followed by its full verifier (whose inventory is mainMigrationModels).
+	require.NoError(t, db.AutoMigrate(&Option{}))
+	require.NoError(t, BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, migrateDB())
 	require.NoError(t, MigrateRetiredFrontendOptions())
 	require.NoError(t, verifyPostgresRuntimeAndSchema(db))
