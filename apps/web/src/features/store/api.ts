@@ -6,6 +6,9 @@ import type { StoreCatalogueProduct } from './catalogue-types'
 import { storeSocialProductResponse } from './product-social-state'
 import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
 import type {
+  StoreCategory,
+  StoreCategoryInput,
+  StoreCategoryList,
   StoreCheckoutInput,
   StoreCheckoutResult,
   StoreClaim,
@@ -126,7 +129,46 @@ const claimOptions = {
   disableDuplicate: true,
   withCredentials: true,
 }
+async function allStoreCategories(admin = false): Promise<StoreCategoryList> {
+  const items: StoreCategory[] = []
+  let offset = 0
+  for (;;) {
+    const page = await unwrap<StoreCategoryList>(
+      api.get(`${root}/${admin ? 'admin/' : ''}categories`, {
+        ...options,
+        params: { offset, limit: 100 },
+      })
+    )
+    items.push(...page.items)
+    if (!page.supported || !page.has_more) return { ...page, items }
+    const next = page.offset + page.limit
+    if (!Number.isSafeInteger(next) || next <= offset || !page.items.length) {
+      throw new Error('Store request failed')
+    }
+    offset = next
+  }
+}
 export const storeApi = {
+  categories: () => allStoreCategories(),
+  adminCategories: () => allStoreCategories(true),
+  createCategory: (body: StoreCategoryInput) =>
+    unwrap<StoreCategory>(api.post(`${root}/admin/categories`, body, options)),
+  updateCategory: (id: string, body: StoreCategoryInput) =>
+    unwrap<StoreCategory>(
+      api.put(
+        `${root}/admin/categories/${encodeURIComponent(id)}`,
+        body,
+        options
+      )
+    ),
+  productCategory: (id: string, category_id: string) =>
+    unwrap<StoreProduct>(
+      api.put(
+        `${root}/products/${encodeURIComponent(id)}/category`,
+        { category_id },
+        options
+      )
+    ),
   config: () => unwrap<StoreConfig>(api.get(`${root}/config`, options)),
   products: (search = '', page = 1, sellerId?: number) =>
     unwrap<StorePage<StoreProduct> & { seller?: StoreSeller | null }>(

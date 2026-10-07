@@ -22,6 +22,25 @@ export interface StoreSeller {
   display_name: string
   contact_email?: string
 }
+export interface StoreCategory {
+  id: string
+  name: string
+  sort_order: number
+  active: boolean
+  created_at: number
+  updated_at: number
+}
+export interface StoreCategoryList {
+  supported: boolean
+  items: StoreCategory[]
+  offset: number
+  limit: number
+  has_more: boolean
+}
+export type StoreCategoryInput = Pick<
+  StoreCategory,
+  'name' | 'sort_order' | 'active'
+>
 export interface StoreVariant {
   id: string
   product_id: string
@@ -43,6 +62,8 @@ export type StoreVariantInput = Pick<
   'name' | 'price_quota' | 'template' | 'enabled'
 >
 export interface StoreProduct {
+  category_id?: string
+  category?: Pick<StoreCategory, 'id' | 'name'> & { active?: boolean }
   id: string
   seller_id: number
   seller?: StoreSeller
@@ -113,6 +134,7 @@ export type StoreProductInput = Omit<
   | 'review_note'
   | 'status'
   | 'trading_paused'
+  | 'category'
 >
 export interface StoreOrder {
   variant_id?: string
@@ -158,6 +180,7 @@ export interface StoreConfig {
   product_test_mode_supported?: boolean
   store_access_supported?: boolean
   store_catalogue_supported?: boolean
+  store_categories_supported?: boolean
   product_purchase_limits_supported?: boolean
   product_link_presets?: StoreLinkPreset[]
   minimum_unit_price_quota?: number

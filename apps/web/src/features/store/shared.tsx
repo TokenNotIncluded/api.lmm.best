@@ -166,6 +166,11 @@ export function StoreBadges({ product }: { product: StoreProduct }) {
   const { t } = useTranslation()
   return (
     <div className='flex flex-wrap items-center gap-2 text-xs'>
+      {product.category?.name && (
+        <span className='bg-muted text-muted-foreground rounded px-2 py-1'>
+          {product.category.name}
+        </span>
+      )}
       {product.official && (
         <span className='bg-primary/10 text-primary inline-flex items-center gap-1 rounded px-2 py-1'>
           <HugeiconsIcon icon={Tick02Icon} className='size-3.5' />

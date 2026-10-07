@@ -43,6 +43,7 @@ export interface StoreCatalogueFilters {
 }
 
 export interface StoreCatalogueSearch extends StoreCatalogueFilters {
+  categoryId?: string
   search?: string
   page?: number
   sellerId?: number

@@ -13,6 +13,7 @@ import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StoreCategoriesManager } from './categories'
 import { StoreRootRefunds } from './refund-panel'
 import { StoreAmount, StoreAuthGate, StoreError, StoreLoading } from './shared'
 import type { StoreProduct } from './types'
@@ -51,6 +52,9 @@ function StoreReviews() {
         {t('Review products')}
       </h1>
       <StoreRootRefunds />
+      {config.data?.store_categories_supported === true && (
+        <StoreCategoriesManager />
+      )}
       <p className='text-muted-foreground text-sm'>
         {t(
           'Administrators may review their own products. Approval publishes the product to the public store.'

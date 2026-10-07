@@ -13,6 +13,8 @@ import { StoreCatalogueFiltersPanel } from './catalogue-filters'
 import { useStoreCatalogueSupport } from './catalogue-support'
 import { StoreCatalogueTags } from './catalogue-tags'
 import type { StoreCatalogueFilters } from './catalogue-types'
+import { StoreCategorySelect } from './categories'
+import { useStoreCategories } from './category-support'
 import { StoreCollectionActions } from './collection-actions'
 import {
   readStoreCatalogueView,
@@ -32,6 +34,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
   const [input, setInput] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [categoryId, setCategoryId] = useState('')
   const [searchType, setSearchType] = useState<SearchType>('auto')
   const [filters, setFilters] = useState<StoreCatalogueFilters>({
     sort: 'comprehensive',
@@ -44,6 +47,9 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
   const user = useAuthStore((state) => state.auth.user)
   const viewer = useStoreViewer()
   const support = useStoreCatalogueSupport()
+  const categories = useStoreCategories(
+    support.data?.store_categories_supported === true
+  )
   const query = useQuery({
     queryKey: [
       'store',
@@ -53,6 +59,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
       page,
       sellerId,
       filters,
+      categoryId,
       support.catalogueSupported,
     ],
     queryFn: ({ signal }) =>
@@ -61,6 +68,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           search,
           page,
           sellerId,
+          ...(categories.data?.supported ? { categoryId } : {}),
           ...(support.catalogueSupported ? filters : {}),
         },
         signal
@@ -153,6 +161,24 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           {t('Search')}
         </Button>
       </form>
+      {!lookup && categories.data?.supported && (
+        <StoreCategorySelect
+          id='store-category-filter'
+          all
+          value={categoryId}
+          items={categories.data.items}
+          onChange={(value) => {
+            setCategoryId(value)
+            setPage(1)
+          }}
+        />
+      )}
+      {!lookup && (
+        <StoreError
+          error={categories.error}
+          retry={() => void categories.refetch()}
+        />
+      )}
       {!lookup && support.catalogueSupported && (
         <StoreCatalogueFiltersPanel
           value={filters}

@@ -160,6 +160,7 @@ export const catalogueApi = {
               limit: 24,
               sort: search.sort ?? 'comprehensive',
               ...(search.sellerId ? { seller_id: search.sellerId } : {}),
+              ...(search.categoryId ? { category_id: search.categoryId } : {}),
               ...(search.tag ? { tag: search.tag } : {}),
               ...(search.stock ? { stock: search.stock } : {}),
               ...(search.autoDelivery === undefined

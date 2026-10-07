@@ -38,6 +38,8 @@ import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
 import { StoreProductAccessSettings } from './access-settings'
 import { storeVisibility, storePurchaseLoginRequired } from './access-types'
 import { storeApi } from './api'
+import { StoreCategorySelect, StoreProductCategoryEditor } from './categories'
+import { useStoreCategories } from './category-support'
 import {
   DELIVERY_TEMPLATES,
   structuredTemplate,
@@ -283,6 +285,12 @@ function StoreSellerCenter() {
                       <StoreProductPrice product={product} />
                       <StoreBadges product={product} />
                     </div>
+                    {config.data?.store_categories_supported === true && (
+                      <StoreProductCategoryEditor
+                        key={`${product.id}-${product.category_id ?? ''}`}
+                        product={product}
+                      />
+                    )}
                   </div>
                   <div className='flex flex-wrap gap-2'>
                     <Button
@@ -594,6 +602,7 @@ function StoreSellerCenter() {
           linkPresets={config.data?.product_link_presets}
           testModeSupported={config.data?.product_test_mode_supported === true}
           accessSupported={config.data?.store_access_supported === true}
+          categoriesSupported={config.data?.store_categories_supported === true}
           purchaseLimitsSupported={
             config.data?.product_purchase_limits_supported === true
           }
@@ -719,6 +728,7 @@ export function StoreProductEditor({
   linkPresets = [],
   testModeSupported = false,
   accessSupported = false,
+  categoriesSupported = false,
   purchaseLimitsSupported = false,
   onClose,
   onSaved,
@@ -729,11 +739,13 @@ export function StoreProductEditor({
   linkPresets?: StoreLinkPreset[]
   testModeSupported?: boolean
   accessSupported?: boolean
+  categoriesSupported?: boolean
   purchaseLimitsSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
   const { t, i18n } = useTranslation()
+  const categories = useStoreCategories(categoriesSupported)
   const money = useWalletCurrency()
   const price = useStoreMoneyDraft(product?.price_quota ?? Number.NaN)
   const minimum =
@@ -820,6 +832,7 @@ export function StoreProductEditor({
         pickup_code_required: draft.pickup_code_required,
         email_pickup_link: draft.email_pickup_link,
       }
+      if (categoriesSupported) body.category_id = draft.category_id ?? ''
       if (accessSupported) {
         const visibility = storeVisibility(draft)
         const loginRequired = storePurchaseLoginRequired(draft)
@@ -909,6 +922,24 @@ export function StoreProductEditor({
                 onChange={(event) => change('title', event.target.value)}
               />
             </div>
+            {categoriesSupported && (
+              <div className='sm:col-span-2'>
+                <StoreError
+                  error={categories.error}
+                  retry={() => void categories.refetch()}
+                />
+                <StoreCategorySelect
+                  id='store-product-category'
+                  value={draft.category_id ?? ''}
+                  items={categories.data?.items ?? []}
+                  current={product?.category}
+                  disabled={
+                    busy || categories.isPending || !categories.data?.supported
+                  }
+                  onChange={(value) => change('category_id', value)}
+                />
+              </div>
+            )}
             <div className='space-y-2 sm:col-span-2'>
               <Label htmlFor='store-description'>{t('Description')}</Label>
               <Textarea

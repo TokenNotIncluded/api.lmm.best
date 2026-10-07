@@ -58,6 +58,7 @@ import { publicCreditDisplayCopy } from './public-credit-display-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
+import { storeCategoryLunaCopy } from './store-category-luna-copy.mjs'
 import { storeDeliveryTemplateLunaCopy } from './store-delivery-template-luna-copy.mjs'
 import { storeEmptyStateCopy } from './store-empty-state-copy.mjs'
 import { storeMinimumPriceLunaCopy } from './store-minimum-price-luna-copy.mjs'
@@ -11892,6 +11893,23 @@ const retiredGameKeys = new Set([
 ])
 
 async function main() {
+  if (process.argv.includes('--store-categories-only')) {
+    for (const [locale, translations] of Object.entries(
+      storeCategoryLunaCopy
+    )) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      for (const [key, value] of Object.entries(translations)) {
+        if (!Object.hasOwn(json.translation, key)) json.translation[key] = value
+      }
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: category translations applied`)
+    }
+    return
+  }
   if (process.argv.includes('--retire-games-only')) {
     for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
       const filePath = path.join(LOCALES_DIR, `${locale}.json`)
@@ -13337,6 +13355,9 @@ for (const [locale, values] of Object.entries(storePaymentCategoryLunaCopy)) {
 }
 
 for (const [locale, values] of Object.entries(storeQuantityLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+for (const [locale, values] of Object.entries(storeCategoryLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
