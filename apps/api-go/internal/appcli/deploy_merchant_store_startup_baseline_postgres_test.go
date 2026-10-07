@@ -27,7 +27,7 @@ func TestProductionMerchantStartupBaselineActualPostgres(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("initdb requires unprivileged test process")
 	}
-	for _, tool := range []string{"initdb", "pg_ctl"} {
+	for _, tool := range []string{"initdb", "pg_ctl", "psql"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skip("owned PostgreSQL tools unavailable")
 		}
@@ -110,6 +110,73 @@ REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC;GRANT EXEC
 	if err != nil || !stringsEqual(db.FloorValues, []string{"1"}) || db.OtherClients != 0 {
 		t.Fatalf("explicit missing->1 capture=%+v err=%v", db, err)
 	}
+	// A legitimate URI override must select the same schema for pgx capture
+	// and libpq, even when the inspected PGOPTIONS is nonempty and different.
+	runtime := productionRuntime{runner: osProductionCommandRunner{}}
+	for _, uriOptions := range []string{"-csearch_path%3Dbaseline_store%20-cdefault_transaction_read_only%3Doff", ""} {
+		override := map[string]string{"SQL_DSN": values["SQL_DSN"] + "&options=" + uriOptions, "PGOPTIONS": "-csearch_path=public -cdefault_transaction_read_only=on"}
+		captured, err := captureMerchantStartupDatabase(ctx, override)
+		if err != nil || captured.Schema != db.Schema || captured.Role != db.Role || !stringsEqual(captured.FloorValues, db.FloorValues) {
+			t.Fatalf("actual URI options override capture=%+v err=%v", captured, err)
+		}
+		dsn, environment, err := productionSealedDatabaseCommand(override)
+		if err != nil {
+			t.Fatal(err)
+		}
+		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-qAt", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "--command", "SELECT current_schema(),current_setting('default_transaction_read_only')"}, Env: environment, Sensitive: true})
+		if err != nil || strings.TrimSpace(string(output)) != "baseline_store|off" {
+			t.Fatalf("actual libpq URI options override=%q err=%v", output, err)
+		}
+	}
+	// Capture the actual catalog independently, then verify it through the
+	// production writer->capsule psql path using the very same fenced child.
+	runtime.paths.ConfigDir = root
+	if err := os.WriteFile(filepath.Join(root, "lmm-api-go.env"), []byte("SQL_DSN="+values["SQL_DSN"]+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	actualContract, err := runtime.captureExistingSchemaContract(ctx, db.Schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := &productionMerchantStoreWriterContract{RequiredCapability: 1, SystemIdentifier: db.SystemIdentifier, Database: db.Database, DatabaseOID: db.DatabaseOID, Schema: db.Schema, SchemaOID: db.SchemaOID, Role: db.Role}
+	fencedChild, err := runtime.merchantStoreWriterEnvironmentFromValues(ctx, writer, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capsule := productionMerchantStoreCapsule{Writer: writer, ExistingSchemaContract: &actualContract}
+	if err := runtime.verifyMerchantStoreCapsuleSchema(ctx, capsule, fencedChild); err != nil {
+		t.Fatalf("actual capsule libpq schema verification: %v", err)
+	}
+	fencedValues := map[string]string{}
+	for _, assignment := range fencedChild {
+		key, value, _ := strings.Cut(assignment, "=")
+		fencedValues[key] = value
+	}
+	fencedDSN, fencedEnvironment, err := productionSealedDatabaseCommand(fencedValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-qAt", "-v", "ON_ERROR_STOP=1", "--dbname", fencedDSN, "--command", "SELECT current_schema(),current_setting('default_transaction_read_only')"}, Env: fencedEnvironment, Sensitive: true})
+	if err != nil || strings.TrimSpace(string(output)) != "baseline_store|on" {
+		t.Fatalf("actual capsule child schema/read-only=%q err=%v", output, err)
+	}
+	write := exec.CommandContext(ctx, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "--dbname", fencedDSN, "--command", "INSERT INTO baseline_store.options VALUES('capsule_write_must_fail','1')")
+	write.Env = fencedEnvironment
+	if output, err := write.CombinedOutput(); err == nil || !strings.Contains(string(output), "read-only transaction") {
+		t.Fatalf("actual capsule child write was not denied by read-only fence: %v %s", err, output)
+	}
+	admin, err = pgx.Connect(ctx, adminDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, "ALTER TABLE baseline_store.merchant_store_legacy_00 ADD COLUMN capsule_drift bigint"); err != nil {
+		t.Fatal(err)
+	}
+	admin.Close(ctx)
+	if err := runtime.verifyMerchantStoreCapsuleSchema(ctx, capsule, fencedChild); err == nil || err.Error() != "portable physical identity/schema metadata drifted" {
+		t.Fatalf("actual capsule accepted catalog drift: %v", err)
+	}
+	t.Log("actual_capsule_psql=true sealed_child_schema=baseline_store sealed_child_read_only=on write_rejected=true catalog_drift_rejected=true uri_options_override_pgoptions=true empty_uri_options_override_pgoptions=true")
 	c := testMerchantStartupBaseline(t, defaultProductionPaths())
 	b := c.Baseline
 	b.Role = db.Role

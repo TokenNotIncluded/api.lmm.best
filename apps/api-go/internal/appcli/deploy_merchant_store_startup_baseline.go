@@ -341,16 +341,23 @@ func captureMerchantStartupDatabase(ctx context.Context, values map[string]strin
 	if err := rejectMerchantStoreAmbientPGEnvironment(values); err != nil {
 		return d, err
 	}
+	parsed, err := url.Parse(dsn)
+	if err != nil || parsed.Fragment != "" {
+		return d, errors.New("startup capture business PostgreSQL configuration is invalid")
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return d, errors.New("startup capture business PostgreSQL configuration is invalid")
+	}
+	options, err := productionPostgresRuntimeOptions(query, values)
+	if err != nil {
+		return d, err
+	}
 	config, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		return d, errors.New("startup capture business PostgreSQL configuration is invalid")
 	}
-	if option := values["PGOPTIONS"]; option != "" {
-		if current := config.RuntimeParams["options"]; current != "" && current != option {
-			return d, errors.New("startup capture has conflicting PostgreSQL options")
-		}
-		config.RuntimeParams["options"] = option
-	}
+	config.RuntimeParams["options"] = options
 	config.ConnectTimeout = 10 * time.Second
 	config.RuntimeParams["default_transaction_read_only"] = "on"
 	config.RuntimeParams["statement_timeout"] = "15000"

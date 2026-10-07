@@ -3,6 +3,7 @@ package appcli
 import (
 	"context"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 )
@@ -121,6 +122,90 @@ func TestExistingSchemaEffectiveSearchPathDoesNotPromoteAmbientOptions(t *testin
 	if _, present := values["PGOPTIONS"]; present {
 		t.Fatal("process identity proof changed inspected environment values")
 	}
+}
+
+func TestProductionSealedDatabaseCommandKeepsOnlyInspectedEnvironment(t *testing.T) {
+	t.Setenv("PGHOST", "uninspected-host")
+	t.Setenv("PGPASSWORD", "uninspected-password")
+	t.Setenv("PGOPTIONS", "-c search_path=uninspected")
+	values := map[string]string{
+		"SQL_DSN": "postgres://business@database.example/lmm?password=private-query-password&search_path=fenced&default_transaction_read_only=on",
+		"PATH":    "/usr/bin:/bin",
+	}
+	adapted, environment, err := productionSealedDatabaseCommand(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if urlValues := mustDatabaseURL(t, adapted).Query(); urlValues.Get("options") != "-c search_path=fenced -c default_transaction_read_only=on" || urlValues.Has("password") {
+		t.Fatal("sealed libpq configuration lost the guards or retained its password")
+	}
+	if !containsString(environment, "PGPASSWORD=private-query-password") || !containsString(environment, "PGOPTIONS=") || !containsString(environment, "PATH=/usr/bin:/bin") {
+		t.Fatal("sealed command lost the private URI password or inspected environment")
+	}
+	for _, assignment := range environment {
+		key, _, _ := strings.Cut(assignment, "=")
+		if key != "SQL_DSN" && key != "PATH" && key != "PGOPTIONS" && key != "PGPASSWORD" {
+			t.Fatal("uninspected operator environment reached sealed database command")
+		}
+	}
+	if _, present := values["PGOPTIONS"]; present {
+		t.Fatal("sealed command modified inspected environment")
+	}
+}
+
+func TestProductionMerchantStoreCapsuleSchemaUsesSealedLibpqCommand(t *testing.T) {
+	t.Setenv("PGHOST", "uninspected-host")
+	t.Setenv("PGPASSWORD", "uninspected-password")
+	contract := testExistingSchemaContract(t)
+	capsule := productionMerchantStoreCapsule{Writer: &productionMerchantStoreWriterContract{Schema: "public"}, ExistingSchemaContract: contract}
+	calls := 0
+	runtime := productionRuntime{runner: existingSchemaTestRunner{run: func(command productionCommand) ([]byte, error) {
+		calls++
+		if command.Name != commandPSQL || !command.Sensitive {
+			t.Fatal("capsule verification did not use its sensitive psql boundary")
+		}
+		dsn := command.Args[len(command.Args)-1]
+		query := mustDatabaseURL(t, dsn).Query()
+		if query.Has("search_path") || query.Has("default_transaction_read_only") || query.Has("password") || strings.Contains(dsn, "private-query-password") ||
+			query.Get("options") != "-csearch_path=ignored -cdefault_transaction_read_only=off -c search_path=public -c default_transaction_read_only=on" {
+			t.Fatal("capsule passed a pgx-only parameter, password, or an unfenced configuration to libpq")
+		}
+		if !containsString(command.Env, "PGPASSWORD=private-query-password") || containsString(command.Env, "PGHOST=uninspected-host") || containsString(command.Env, "PGPASSWORD=uninspected-password") {
+			t.Fatal("capsule did not retain its private connection authority")
+		}
+		return testExistingSchemaSnapshot(), nil
+	}}}
+	child := []string{"SQL_DSN=postgres://business@localhost/lmm?options=-csearch_path%3Dignored%20-cdefault_transaction_read_only%3Doff&search_path=public&default_transaction_read_only=on&password=private-query-password", "PGOPTIONS=-c search_path=other", "PATH=/usr/bin:/bin"}
+	if err := runtime.verifyMerchantStoreCapsuleSchema(context.Background(), capsule, child); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatal("capsule did not execute its schema verification")
+	}
+}
+
+func TestProductionMerchantStartupDatabaseRejectsAmbiguousRuntimeParameters(t *testing.T) {
+	for _, assignment := range os.Environ() {
+		key, _, _ := strings.Cut(assignment, "=")
+		if strings.HasPrefix(key, "PG") {
+			t.Setenv(key, "")
+		}
+	}
+	for _, query := range []string{"options=private-value&options=other", "search_path=private-value&search_path=other", "default_transaction_read_only=on&default_transaction_read_only=off", "options=private-value%00"} {
+		_, err := captureMerchantStartupDatabase(context.Background(), map[string]string{"SQL_DSN": "postgres://business@localhost/lmm?" + query})
+		if err == nil || err.Error() != "production database runtime parameters are invalid" {
+			t.Fatalf("ambiguous configuration was not rejected before connecting: %v", err)
+		}
+	}
+}
+
+func mustDatabaseURL(t *testing.T, dsn string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
 }
 
 func stringPointer(value string) *string { return &value }

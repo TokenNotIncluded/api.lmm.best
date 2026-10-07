@@ -586,11 +586,11 @@ func (runtime *productionRuntime) verifyMerchantStoreCapsuleSchema(ctx context.C
 		}
 		values[key] = value
 	}
-	dsn, err := productionDatabaseURL(values)
+	dsn, environment, err := productionSealedDatabaseCommand(values)
 	if err != nil {
 		return err
 	}
-	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-q", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", existingSchemaMetadataQuery(c.Writer.Schema), "--dbname", dsn}, Env: child, Sensitive: true, Timeout: 30 * time.Second, OutputLimit: 8 << 20})
+	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-q", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", existingSchemaMetadataQuery(c.Writer.Schema), "--dbname", dsn}, Env: environment, Sensitive: true, Timeout: 30 * time.Second, OutputLimit: 8 << 20})
 	if err != nil {
 		return errors.New("portable actual business-role read-only schema verification failed")
 	}

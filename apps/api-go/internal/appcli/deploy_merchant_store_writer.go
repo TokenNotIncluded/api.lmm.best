@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -328,25 +327,10 @@ func (runtime *productionRuntime) merchantStoreWriterEnvironmentFromValues(ctx c
 			childValues[key] = value
 		}
 	}
-	databaseURL, environment, err := productionDatabaseCommand(childValues)
+	databaseURL, environment, err := productionSealedDatabaseCommand(childValues)
 	if err != nil {
 		return nil, err
 	}
-	rawDSN, _ := productionDatabaseURL(childValues)
-	parsed, _ := url.Parse(rawDSN)
-	passwordPresent := false
-	if parsed != nil && parsed.User != nil {
-		_, passwordPresent = parsed.User.Password()
-	}
-	sealedPSQL := make([]string, 0, len(environment))
-	for _, entry := range environment {
-		key, _, _ := strings.Cut(entry, "=")
-		_, sealed := childValues[key]
-		if sealed || key == "PGPASSWORD" && passwordPresent {
-			sealedPSQL = append(sealedPSQL, entry)
-		}
-	}
-	environment = sealedPSQL
 	query := merchantStoreWriterIdentityQuery(contract.Schema)
 	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL,
 		Args: []string{"-X", "-q", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--dbname", databaseURL, "--command", query},
