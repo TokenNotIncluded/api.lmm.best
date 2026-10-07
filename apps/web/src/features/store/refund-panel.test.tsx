@@ -732,7 +732,13 @@ for (const currency of ['USD', 'CNY'] as const) {
     const records = requests((request) =>
       envelope(
         request.method === 'GET'
-          ? { ...view, remaining_quota: 15000000 }
+          ? {
+              ...view,
+              remaining_quota: 15000000,
+              refunds: [
+                { ...refund, amount_quota: 125001, status: 'completed' },
+              ],
+            }
           : refund
       )
     )
@@ -741,12 +747,31 @@ for (const currency of ['USD', 'CNY'] as const) {
       1,
       currency
     )
+    assert.match(
+      required(document.querySelector('dl')).textContent || '',
+      currency === 'USD' ? /3 USD/ : /21 CNY/
+    )
+    const historyAmount = required(
+      document.querySelector('article .tabular-nums')
+    )
+    assert.equal(
+      historyAmount.textContent,
+      currency === 'USD' ? '0.250002 USD' : '1.75 CNY'
+    )
+    assert.doesNotMatch(historyAmount.textContent || '', /1\.750014/)
     await click(button('Refund by amount'))
-    await input(field(`Refund amount (${currency})`), '20.00')
+    assert.match(
+      document.body.textContent || '',
+      currency === 'USD' ? /Maximum refund: 30 USD/ : /Maximum refund: 210 CNY/
+    )
+    await input(
+      field(`Refund amount (${currency})`),
+      currency === 'USD' ? '1.25' : '20.00'
+    )
     await submit()
     const body = required(records.find((record) => record.method === 'POST'))
       .body as StoreRefundInput
-    assert.equal(body.amount_quota, currency === 'USD' ? 10000000 : 1428571)
+    assert.equal(body.amount_quota, currency === 'USD' ? 625000 : 1428571)
     assert.equal(body.amount_minor, undefined)
   })
 }

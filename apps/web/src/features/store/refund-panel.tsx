@@ -63,11 +63,11 @@ const statusLabels = {
 function WalletAmount({ value }: { value: number }) {
   const { t } = useTranslation()
   const wallet = useWalletCurrency()
-  const amount = wallet.quotaToInput(value)
+  const amount = wallet.formatQuota(value)
   return (
     <span className='tabular-nums'>
-      {Number.isSafeInteger(value) && value >= 0 && amount !== ''
-        ? `${amount} ${wallet.label}`
+      {Number.isSafeInteger(value) && value >= 0 && amount !== '-'
+        ? amount
         : t('No data provided')}
     </span>
   )
