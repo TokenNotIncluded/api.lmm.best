@@ -1,16 +1,23 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import DOMPurify from 'dompurify'
 
+import {
+  isStoreAnimationTag,
+  safeStoreAnimation,
+  storeAnimationAttrs,
+  storeAnimationTags,
+} from './product-media-animation'
 import { safeStoreUrl } from './utils'
 
 export const STORE_SVG_MAX_BYTES = 131072
 export const STORE_SVG_DATA_PREFIX = 'data:image/svg+xml;base64,'
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
-const tags = new Set(
-  'svg g defs path rect circle ellipse line polyline polygon text tspan title desc linearGradient radialGradient stop clipPath'.split(
+const tags = new Set([
+  ...'svg g defs path rect circle ellipse line polyline polygon text tspan title desc linearGradient radialGradient stop clipPath'.split(
     ' '
-  )
-)
+  ),
+  ...storeAnimationTags,
+])
 const attrs = new Set(
   'id viewBox width height x y x1 y1 x2 y2 cx cy r rx ry d points transform fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-linecap stroke-linejoin stroke-miterlimit stroke-dasharray stroke-dashoffset opacity clip-path clip-rule clipPathUnits gradientUnits gradientTransform spreadMethod offset stop-color stop-opacity color font-size font-family font-weight font-style text-anchor dominant-baseline letter-spacing preserveAspectRatio aria-label aria-labelledby role'.split(
     ' '
@@ -88,7 +95,7 @@ function decode(value: string) {
   }
 }
 
-function staticSVG(source: string): string | undefined {
+function visualSVG(source: string): string | undefined {
   if (
     new TextEncoder().encode(source).length > STORE_SVG_MAX_BYTES ||
     /<!DOCTYPE|<!ENTITY|<\?/i.test(source) ||
@@ -103,7 +110,7 @@ function staticSVG(source: string): string | undefined {
     return undefined
   }
   let nodes = 0
-  function valid(element: Element, depth: number): boolean {
+  function valid(element: Element, depth: number, parent = ''): boolean {
     if (
       depth > 32 ||
       ++nodes > 4096 ||
@@ -115,6 +122,8 @@ function staticSVG(source: string): string | undefined {
     ) {
       return false
     }
+    const animation = isStoreAnimationTag(element.localName)
+    if (isStoreAnimationTag(parent)) return false
     for (const attribute of element.attributes) {
       if (
         depth === 1 &&
@@ -125,7 +134,7 @@ function staticSVG(source: string): string | undefined {
       }
       if (
         attribute.namespaceURI !== null ||
-        !attrs.has(attribute.name) ||
+        (!animation && !attrs.has(attribute.name)) ||
         !safeValue(attribute.value) ||
         (depth === 1 &&
           (((attribute.name === 'width' || attribute.name === 'height') &&
@@ -135,8 +144,14 @@ function staticSVG(source: string): string | undefined {
         return false
       }
     }
+    if (
+      animation &&
+      (!safeStoreAnimation(element, parent) || element.textContent?.trim())
+    ) {
+      return false
+    }
     return Array.from(element.children).every((child) =>
-      valid(child, depth + 1)
+      valid(child, depth + 1, element.localName)
     )
   }
   if (!valid(root, 1)) return undefined
@@ -145,7 +160,7 @@ function staticSVG(source: string): string | undefined {
     new XMLSerializer().serializeToString(root),
     {
       ALLOWED_TAGS: [...tags],
-      ALLOWED_ATTR: ['xmlns', ...attrs],
+      ALLOWED_ATTR: ['xmlns', ...attrs, ...storeAnimationAttrs],
       ALLOW_DATA_ATTR: false,
       ALLOW_ARIA_ATTR: false,
       RETURN_TRUSTED_TYPE: false,
@@ -174,7 +189,7 @@ export function safeStoreMediaUrl(value: unknown): string | undefined {
   if (!value.startsWith(STORE_SVG_DATA_PREFIX)) return undefined
   if (validated.has(value)) return validated.get(value)
   const source = decode(value)
-  const result = source === undefined ? undefined : staticSVG(source)
+  const result = source === undefined ? undefined : visualSVG(source)
   if (validated.size >= 16) {
     const oldest = validated.keys().next()
     if (!oldest.done) validated.delete(oldest.value)
@@ -183,10 +198,10 @@ export function safeStoreMediaUrl(value: unknown): string | undefined {
   return result
 }
 
-/** Product input accepts pasted static SVG and stores a canonical image URI. */
+/** Product input accepts validated SVG and stores a standalone image URI. */
 export function normalizeStoreImageSource(raw: string): string | undefined {
   const source = raw.trim()
-  if (source.startsWith('<')) return staticSVG(source)
+  if (source.startsWith('<')) return visualSVG(source)
   return safeStoreMediaUrl(source)
 }
 

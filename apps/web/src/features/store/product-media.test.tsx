@@ -174,6 +174,92 @@ test('static SVG is purified into a standalone UTF-8 image with local gradients'
   assert.equal(safeStoreMediaUrl(image), image)
 })
 
+test('visual SMIL survives purification and round trips as a standalone image', () => {
+  for (const source of [
+    '<svg viewBox="0 0 48 48"><rect width="48" height="48"><animate attributeName="opacity" values="0.2;1;0.2" dur="2s" keyTimes="0;0.5;1" repeatCount="indefinite"/></rect></svg>',
+    '<svg><g><animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="4s" repeatCount="indefinite"/></g></svg>',
+    '<svg><g><animateTransform attributeName="transform" type="translate" values="0 0;10 5;0 0" dur="1500ms" begin="0.2s" keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/></g></svg>',
+    '<svg><rect><animate attributeName="fill" from="#123" to="rebeccapurple" dur="1min" fill="freeze"/></rect></svg>',
+    '<svg><defs><linearGradient id="g"><stop><animate attributeName="stop-color" values="#123;#456" dur="1s"/></stop></linearGradient></defs></svg>',
+    '<svg><path><animate attributeName="stroke-dashoffset" from="-10" to="10" dur="1s" additive="sum" accumulate="none"/></path></svg>',
+    '<svg><g><animateTransform attributeName="transform" type="scale" values="1;2;1" dur="2"/></g></svg>',
+    '<svg><rect><animate attributeName="opacity" by="0.5" dur="2s" attributeType="XML"/></rect></svg>',
+  ]) {
+    const image = normalizeStoreImageSource(source)
+    assert.ok(image, source)
+    assert.match(storeImageEditorText(image), /<animate/)
+    const parser = new DOMParser()
+    const expected = Array.from(
+      parser.parseFromString(source, 'image/svg+xml').getElementsByTagName('*')
+    ).find((element) => element.localName.startsWith('animate'))
+    const actual = Array.from(
+      parser
+        .parseFromString(storeImageEditorText(image), 'image/svg+xml')
+        .getElementsByTagName('*')
+    ).find((element) => element.localName.startsWith('animate'))
+    assert.ok(expected && actual)
+    assert.equal(actual.localName, expected.localName)
+    for (const attribute of expected.attributes) {
+      assert.equal(actual.getAttribute(attribute.name), attribute.value)
+    }
+    assert.equal(safeStoreMediaUrl(image), image)
+  }
+})
+
+test('SMIL cannot write active attributes, use event timing or bypass value bounds', () => {
+  for (const animation of [
+    '<animate attributeName="href" to="javascript:evil()" dur="1s"/>',
+    '<animate attributeName="style" to="fill:red" dur="1s"/>',
+    '<animate attributeName="onload" to="evil()" dur="1s"/>',
+    '<animate attributeName="xmlns" to="http://evil.example/" dur="1s"/>',
+    '<animate attributeName="fill" values="red;url(#g)" dur="1s"/>',
+    '<animate attributeName="fill" to="url(https://evil.example/x)" dur="1s"/>',
+    '<animate attributeName="opacity" to="1" dur="1s" begin="click"/>',
+    '<animate attributeName="opacity" to="1" dur="1s" begin="x.end"/>',
+    '<animate attributeName="opacity" to="1" dur="1s" begin="x.repeat(1)"/>',
+    '<animate attributeName="opacity" to="1" dur="1s" begin="0;click"/>',
+    '<animate href="https://evil.example/x" attributeName="opacity" to="1" dur="1s"/>',
+    '<animate href="#x" attributeName="opacity" to="1" dur="1s"/>',
+    '<animate onbegin="evil()" attributeName="opacity" to="1" dur="1s"/>',
+    '<animate style="color:red" attributeName="opacity" to="1" dur="1s"/>',
+    '<animate attributeType="CSS" attributeName="opacity" to="1" dur="1s"/>',
+    '<set attributeName="opacity" to="1" dur="1s"/>',
+    '<animateMotion path="M0 0 L10 10" dur="1s"/>',
+    '<animate attributeName="opacity" to="1" dur="1s"><rect/></animate>',
+    '<animate attributeName="opacity" to="1" dur="1s">not empty</animate>',
+    '<animate attributeName="opacity" to="1"/>',
+    '<animate attributeName="opacity" to="1" dur="0s"/>',
+    '<animate attributeName="opacity" to="1" dur="NaN"/>',
+    '<animate attributeName="opacity" to="2" dur="1s"/>',
+    '<animate attributeName="opacity" to="1e999" dur="1s"/>',
+    '<animate attributeName="opacity" values="0;;1" dur="1s"/>',
+    '<animate attributeName="opacity" values="0;1" to="1" dur="1s"/>',
+    '<animate attributeName="opacity" to="1" by="0.1" dur="1s"/>',
+    '<animate attributeName="opacity" from="0" dur="1s"/>',
+    '<animate attributeName="opacity" values="0;1;0" dur="1s" keyTimes="0;1;0.5"/>',
+    '<animate attributeName="opacity" values="0;1;0" dur="1s" keyTimes="0;1"/>',
+    '<animate attributeName="opacity" values="0;1;0" dur="1s" calcMode="spline" keySplines="0 0 1 1"/>',
+    '<animate attributeName="opacity" from="0" to="1" dur="1s" calcMode="spline" keySplines="0 -1 1 1"/>',
+    '<animate attributeName="opacity" to="1" dur="1s" calcMode="spline"/>',
+    '<animateTransform attributeName="transform" type="rotate" to="10 20" dur="1s"/>',
+    '<animateTransform attributeName="transform" type="translate" to="url(#g)" dur="1s"/>',
+    '<animateTransform attributeName="href" type="rotate" to="10" dur="1s"/>',
+    '<animateTransform attributeName="transform" type="scale" to="1e999" dur="1s"/>',
+    '<animate attributeName="stop-color" to="red" dur="1s"/>',
+    `<animate attributeName="opacity" values="${'0;'.repeat(256)}1" dur="1s"/>`,
+  ]) {
+    const source = `<svg><rect>${animation}</rect></svg>`
+    assert.equal(normalizeStoreImageSource(source), undefined, animation)
+    assert.equal(
+      safeStoreMediaUrl(
+        STORE_SVG_DATA_PREFIX + Buffer.from(source).toString('base64')
+      ),
+      undefined,
+      animation
+    )
+  }
+})
+
 test('active, external and oversized media fail closed, including existing unsafe data URIs', () => {
   for (const source of [
     '<svg onload="evil()"/>',

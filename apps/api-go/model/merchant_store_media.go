@@ -15,8 +15,13 @@ const MerchantStoreSVGMaxBytes = 128 << 10
 const MerchantStoreSVGDataPrefix = "data:image/svg+xml;base64,"
 const storeSVGNamespace = "http://www.w3.org/2000/svg"
 
-// Keep product media in the existing ordered image_urls array. Only static
-// graphics are accepted; links and payment URLs retain their HTTP(S) contract.
+// NormalizeMerchantStoreImage validates a standalone visual image. It is also
+// used by merchant profiles; ordinary links keep their HTTP(S) contract.
+func NormalizeMerchantStoreImage(value string) (string, error) {
+	return normalizeMerchantStoreImage(value)
+}
+
+// Keep product media in the existing ordered image_urls array.
 func normalizeMerchantStoreImage(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if storeURL(value) {
@@ -44,7 +49,7 @@ func normalizeMerchantStoreImage(value string) (string, error) {
 	return MerchantStoreSVGDataPrefix + base64.StdEncoding.EncodeToString([]byte(source)), nil
 }
 
-var storeSVGTags = storeSVGSet("svg g defs path rect circle ellipse line polyline polygon text tspan title desc linearGradient radialGradient stop clipPath")
+var storeSVGTags = storeSVGSet("svg g defs path rect circle ellipse line polyline polygon text tspan title desc linearGradient radialGradient stop clipPath animate animateTransform")
 var storeSVGAttrs = storeSVGSet("id viewBox width height x y x1 y1 x2 y2 cx cy r rx ry d points transform fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-linecap stroke-linejoin stroke-miterlimit stroke-dasharray stroke-dashoffset opacity clip-path clip-rule clipPathUnits gradientUnits gradientTransform spreadMethod offset stop-color stop-opacity color font-size font-family font-weight font-style text-anchor dominant-baseline letter-spacing preserveAspectRatio aria-label aria-labelledby role")
 var storeSVGLocalPaint = regexp.MustCompile(`^url\(#[A-Za-z_][A-Za-z0-9_.:-]*\)$`)
 var storeSVGURLFunction = regexp.MustCompile(`(?i)url\s*\(`)
@@ -102,6 +107,7 @@ func validateMerchantStoreSVG(source string) (string, error) {
 	depth, nodes := 0, 0
 	root, closed, namespace := false, false, false
 	rootOffset := 0
+	var parents []string
 	for {
 		offset := decoder.InputOffset()
 		token, err := decoder.Token()
@@ -126,6 +132,14 @@ func validateMerchantStoreSVG(source string) (string, error) {
 			} else if token.Name.Local == "svg" {
 				return "", ErrMerchantStoreInput
 			}
+			parent := ""
+			if len(parents) > 0 {
+				parent = parents[len(parents)-1]
+			}
+			if storeSVGAnimationTag(parent) {
+				return "", ErrMerchantStoreInput
+			}
+			animation := storeSVGAnimationTag(token.Name.Local)
 			seen := map[xml.Name]bool{}
 			for _, attr := range token.Attr {
 				if seen[attr.Name] {
@@ -136,20 +150,25 @@ func validateMerchantStoreSVG(source string) (string, error) {
 					namespace = true
 					continue
 				}
-				if attr.Name.Space != "" || !storeSVGAttrs[attr.Name.Local] || !storeSVGValueSafe(attr.Value) {
+				if attr.Name.Space != "" || !storeSVGValueSafe(attr.Value) || (!animation && !storeSVGAttrs[attr.Name.Local]) {
 					return "", ErrMerchantStoreInput
 				}
 				if depth == 1 && ((attr.Name.Local == "width" || attr.Name.Local == "height") && !storeSVGDimension(attr.Value) || attr.Name.Local == "viewBox" && !storeSVGViewBox(attr.Value)) {
 					return "", ErrMerchantStoreInput
 				}
 			}
+			if animation && !storeSVGAnimationSafe(token, parent) {
+				return "", ErrMerchantStoreInput
+			}
+			parents = append(parents, token.Name.Local)
 		case xml.EndElement:
 			depth--
+			parents = parents[:len(parents)-1]
 			if depth == 0 {
 				closed = true
 			}
 		case xml.CharData:
-			if depth == 0 && strings.TrimSpace(string(token)) != "" {
+			if (depth == 0 || len(parents) > 0 && storeSVGAnimationTag(parents[len(parents)-1])) && strings.TrimSpace(string(token)) != "" {
 				return "", ErrMerchantStoreInput
 			}
 		case xml.Directive, xml.ProcInst:

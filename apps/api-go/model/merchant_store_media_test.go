@@ -136,3 +136,79 @@ func TestMerchantStoreMediaOptionalLogoHeaderPreserveGalleryPositions(t *testing
 	input := MerchantStoreProductInput{Title: "Not an optional role", PriceQuota: 500000, ImageURLs: []string{"", "", ""}}
 	require.ErrorIs(t, validateStoreProduct(&input), ErrMerchantStoreInput)
 }
+
+func TestMerchantStoreMediaVisualAnimationRoundTrip(t *testing.T) {
+	for name, source := range map[string]string{
+		"opacity pulse": `<svg viewBox="0 0 48 48"><rect width="48" height="48"><animate attributeName="opacity" values="0.2;1;0.2" dur="2s" keyTimes="0;0.5;1" repeatCount="indefinite"/></rect></svg>`,
+		"rotation":      `<svg><g><animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="4s" repeatCount="indefinite"/></g></svg>`,
+		"spline motion": `<svg><g><animateTransform attributeName="transform" type="translate" values="0 0;10 5;0 0" dur="1500ms" begin="0.2s" keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/></g></svg>`,
+		"color":         `<svg><rect><animate attributeName="fill" from="#123" to="rebeccapurple" dur="1min" fill="freeze"/></rect></svg>`,
+		"gradient stop": `<svg><defs><linearGradient id="g"><stop><animate attributeName="stop-color" values="#123;#456" dur="1s"/></stop></linearGradient></defs></svg>`,
+		"offset":        `<svg><path><animate attributeName="stroke-dashoffset" from="-10" to="10" dur="1s" additive="sum" accumulate="none"/></path></svg>`,
+		"scale":         `<svg><g><animateTransform attributeName="transform" type="scale" values="1;2;1" dur="2"/></g></svg>`,
+		"by":            `<svg><rect><animate attributeName="opacity" by="0.5" dur="2s" attributeType="XML"/></rect></svg>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			image, err := NormalizeMerchantStoreImage(source)
+			require.NoError(t, err)
+			decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(image, MerchantStoreSVGDataPrefix))
+			require.NoError(t, err)
+			require.Contains(t, string(decoded), "<animate")
+			again, err := NormalizeMerchantStoreImage(image)
+			require.NoError(t, err)
+			require.Equal(t, image, again)
+		})
+	}
+}
+
+func TestMerchantStoreMediaAnimationRejectsMutationEventsAndInvalidValues(t *testing.T) {
+	for name, animation := range map[string]string{
+		"href mutation":            `<animate attributeName="href" to="javascript:evil()" dur="1s"/>`,
+		"style mutation":           `<animate attributeName="style" to="fill:red" dur="1s"/>`,
+		"event mutation":           `<animate attributeName="onload" to="evil()" dur="1s"/>`,
+		"namespace mutation":       `<animate attributeName="xmlns" to="http://evil.example/" dur="1s"/>`,
+		"local URL paint mutation": `<animate attributeName="fill" values="red;url(#g)" dur="1s"/>`,
+		"external paint mutation":  `<animate attributeName="fill" to="url(https://evil.example/x)" dur="1s"/>`,
+		"event begin":              `<animate attributeName="opacity" to="1" dur="1s" begin="click"/>`,
+		"syncbase begin":           `<animate attributeName="opacity" to="1" dur="1s" begin="x.end"/>`,
+		"repeat begin":             `<animate attributeName="opacity" to="1" dur="1s" begin="x.repeat(1)"/>`,
+		"multi begin":              `<animate attributeName="opacity" to="1" dur="1s" begin="0;click"/>`,
+		"external target":          `<animate href="https://evil.example/x" attributeName="opacity" to="1" dur="1s"/>`,
+		"local target":             `<animate href="#x" attributeName="opacity" to="1" dur="1s"/>`,
+		"event attr":               `<animate onbegin="evil()" attributeName="opacity" to="1" dur="1s"/>`,
+		"style attr":               `<animate style="color:red" attributeName="opacity" to="1" dur="1s"/>`,
+		"CSS type":                 `<animate attributeType="CSS" attributeName="opacity" to="1" dur="1s"/>`,
+		"set":                      `<set attributeName="opacity" to="1" dur="1s"/>`,
+		"motion":                   `<animateMotion path="M0 0 L10 10" dur="1s"/>`,
+		"nested node":              `<animate attributeName="opacity" to="1" dur="1s"><rect/></animate>`,
+		"animation text":           `<animate attributeName="opacity" to="1" dur="1s">not empty</animate>`,
+		"no duration":              `<animate attributeName="opacity" to="1"/>`,
+		"zero duration":            `<animate attributeName="opacity" to="1" dur="0s"/>`,
+		"invalid duration":         `<animate attributeName="opacity" to="1" dur="NaN"/>`,
+		"oversized opacity":        `<animate attributeName="opacity" to="2" dur="1s"/>`,
+		"infinite value":           `<animate attributeName="opacity" to="1e999" dur="1s"/>`,
+		"empty frame":              `<animate attributeName="opacity" values="0;;1" dur="1s"/>`,
+		"ambiguous frames":         `<animate attributeName="opacity" values="0;1" to="1" dur="1s"/>`,
+		"ambiguous endpoint":       `<animate attributeName="opacity" to="1" by="0.1" dur="1s"/>`,
+		"no endpoint":              `<animate attributeName="opacity" from="0" dur="1s"/>`,
+		"bad keyTimes":             `<animate attributeName="opacity" values="0;1;0" dur="1s" keyTimes="0;1;0.5"/>`,
+		"bad keyTimes count":       `<animate attributeName="opacity" values="0;1;0" dur="1s" keyTimes="0;1"/>`,
+		"bad spline count":         `<animate attributeName="opacity" values="0;1;0" dur="1s" calcMode="spline" keySplines="0 0 1 1"/>`,
+		"bad spline value":         `<animate attributeName="opacity" from="0" to="1" dur="1s" calcMode="spline" keySplines="0 -1 1 1"/>`,
+		"missing spline":           `<animate attributeName="opacity" to="1" dur="1s" calcMode="spline"/>`,
+		"invalid transform":        `<animateTransform attributeName="transform" type="rotate" to="10 20" dur="1s"/>`,
+		"transform injection":      `<animateTransform attributeName="transform" type="translate" to="url(#g)" dur="1s"/>`,
+		"wrong transform target":   `<animateTransform attributeName="href" type="rotate" to="10" dur="1s"/>`,
+		"unbounded transform":      `<animateTransform attributeName="transform" type="scale" to="1e999" dur="1s"/>`,
+		"stop on shape":            `<animate attributeName="stop-color" to="red" dur="1s"/>`,
+		"too many frames":          `<animate attributeName="opacity" values="` + strings.Repeat("0;", 256) + `1" dur="1s"/>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := `<svg><rect>` + animation + `</rect></svg>`
+			_, err := NormalizeMerchantStoreImage(source)
+			require.ErrorIs(t, err, ErrMerchantStoreInput)
+			_, err = NormalizeMerchantStoreImage(MerchantStoreSVGDataPrefix + base64.StdEncoding.EncodeToString([]byte(source)))
+			require.ErrorIs(t, err, ErrMerchantStoreInput)
+		})
+	}
+}
