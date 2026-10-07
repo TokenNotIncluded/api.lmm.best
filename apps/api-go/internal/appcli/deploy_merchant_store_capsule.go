@@ -34,6 +34,7 @@ type productionMerchantStoreCapsule struct {
 	Rollback               productionReleasePackagePlan           `json:"rollback"`
 	StartupPolicy          string                                 `json:"startup_policy"`
 	SourceFiles            []productionReleaseFilePlan            `json:"source_files"`
+	Baseline               *productionMerchantStartupBaseline     `json:"startup_baseline,omitempty"`
 }
 
 var merchantStoreCapsuleSourcePaths = []string{"scripts/native-shared-pg-deploy.py", "scripts/deploy-systemd.py", "scripts/maintenance-deploy-guardian.py"}
@@ -48,6 +49,12 @@ func merchantStoreStartUnit(id, invocation string) string {
 func merchantStoreCapsuleAsset(role, kind string) string { return "assets/" + role + "." + kind }
 
 func validateMerchantStoreCapsule(c productionMerchantStoreCapsule, paths productionPaths) error {
+	if c.Format == 2 {
+		return validateMerchantStartupBaselineCapsule(c, paths)
+	}
+	if c.Baseline != nil {
+		return errors.New("ordinary capsule cannot contain startup baseline authority")
+	}
 	if c.Format != 1 || !productionIDPattern.MatchString(c.DeploymentID) || !productionSHA256Pattern.MatchString(c.ControllerPlanSHA256) ||
 		c.Root != merchantStoreCapsuleRoot(paths, c.DeploymentID) || !merchantStoreFenceHostPattern.MatchString(c.Host) || c.Service != paths.Service || c.Service != "lmm-api.service" ||
 		c.Binary != paths.InstalledBinary || c.ConfigDir != paths.ConfigDir || c.SchemaMode != productionSchemaModeVerifyExisting || (c.StartupPolicy != "held" && c.StartupPolicy != "per-start") {
@@ -91,6 +98,9 @@ func validateMerchantStoreCapsule(c productionMerchantStoreCapsule, paths produc
 	return nil
 }
 func canonicalMerchantStoreCapsule(c productionMerchantStoreCapsule) ([]byte, error) {
+	if c.Format == 2 {
+		return canonicalMerchantStartupBaselineCapsule(c)
+	}
 	body, err := json.MarshalIndent(c, "", "  ")
 	return append(body, '\n'), err
 }
@@ -118,6 +128,12 @@ func (runtime *productionRuntime) loadMerchantStoreCapsule(path, digest string) 
 	host, err := runtime.hostname()
 	if err != nil || host != c.Host {
 		return c, errors.New("portable capsule belongs to another actual host")
+	}
+	if c.Format == 2 {
+		// The runtime projection has one provider and an empty rollback target.
+		// It is never serialized as, or accepted by, an ordinary writer plan.
+		c.Writer = c.Baseline.writerIdentity(c.Host)
+		c.Candidate = c.Baseline.Provider
 	}
 	return c, nil
 }
@@ -260,6 +276,9 @@ func (release *productionReleaseRuntime) deriveMerchantStoreCapsule(ctx context.
 // Portable target does not use pacman or infer installed identity. It repeats
 // the exact official certificate identity and all archive/package contents.
 func (runtime *productionRuntime) verifyMerchantStoreCapsuleArtifact(ctx context.Context, c productionMerchantStoreCapsule, rollback bool) (string, error) {
+	if c.Format == 2 && rollback {
+		return "", errors.New("startup baseline has no rollback provider")
+	}
 	p, target, role := c.Candidate, c.Writer.Candidate, "candidate"
 	if rollback {
 		p, target, role = c.Rollback, c.Writer.Rollback, "rollback"
@@ -498,7 +517,11 @@ func (runtime *productionRuntime) qualifyMerchantStoreCapsule(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	for i, target := range []productionMerchantStoreWriterTarget{c.Writer.Candidate, c.Writer.Rollback} {
+	targets := []productionMerchantStoreWriterTarget{c.Writer.Candidate, c.Writer.Rollback}
+	if c.Format == 2 {
+		targets = targets[:1]
+	}
+	for i, target := range targets {
 		provider, err := runtime.verifyMerchantStoreCapsuleArtifact(ctx, c, i == 1)
 		if err != nil {
 			return err
@@ -553,6 +576,9 @@ func (runtime *productionRuntime) verifyMerchantStoreCapsuleSchema(ctx context.C
 }
 
 func runProductionMerchantStoreCapsule(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && strings.HasPrefix(args[0], "baseline-") {
+		return runProductionMerchantStartupBaseline(args, stdout, stderr)
+	}
 	if len(args) == 0 {
 		return ExitUsage
 	}

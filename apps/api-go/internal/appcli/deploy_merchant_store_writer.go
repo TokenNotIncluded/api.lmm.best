@@ -182,8 +182,26 @@ func validateMerchantStoreWriterTarget(target productionMerchantStoreWriterTarge
 }
 
 func validateMerchantStoreWriterContract(contract *productionMerchantStoreWriterContract) error {
+	if contract == nil || contract.RecoveryPolicy != "same-floor-writable" {
+		return errors.New("ordinary merchant writer requires same-floor writable candidate and retained providers")
+	}
+	if err := validateMerchantStoreWriterHostIdentity(contract); err != nil {
+		return err
+	}
+	if err := validateMerchantStoreWriterTarget(contract.Candidate, contract.RequiredCapability); err != nil {
+		return fmt.Errorf("merchant-store candidate: %w", err)
+	}
+	if err := validateMerchantStoreWriterTarget(contract.Rollback, contract.RequiredCapability); err != nil {
+		return fmt.Errorf("merchant-store rollback: %w", err)
+	}
+	return nil
+}
+
+// Physical/startup identity is common to two-provider upgrades and the separate
+// single-provider startup authority. It grants no artifact or recovery role.
+func validateMerchantStoreWriterHostIdentity(contract *productionMerchantStoreWriterContract) error {
 	if contract == nil || contract.Format != 1 || !validMerchantStoreCapability(contract.RequiredCapability) ||
-		contract.RecoveryPolicy != "same-floor-writable" || !isDatabaseSchema(contract.Schema) ||
+		!isDatabaseSchema(contract.Schema) ||
 		contract.Database == "" || len(contract.Database) > 63 || contract.DatabaseOID <= 0 || contract.SchemaOID <= 0 ||
 		contract.Role == "" || len(contract.Role) > 63 || strings.ContainsAny(contract.Database+contract.Role, "\x00\r\n") ||
 		!productionSHA256Pattern.MatchString(contract.StartupSHA256) || !productionSHA256Pattern.MatchString(contract.SignedUnitSHA256) {
@@ -192,12 +210,6 @@ func validateMerchantStoreWriterContract(contract *productionMerchantStoreWriter
 	identifier, err := strconv.ParseUint(contract.SystemIdentifier, 10, 64)
 	if err != nil || identifier == 0 || strconv.FormatUint(identifier, 10) != contract.SystemIdentifier {
 		return errors.New("merchant-store physical PostgreSQL identity is invalid")
-	}
-	if err := validateMerchantStoreWriterTarget(contract.Candidate, contract.RequiredCapability); err != nil {
-		return fmt.Errorf("merchant-store candidate: %w", err)
-	}
-	if err := validateMerchantStoreWriterTarget(contract.Rollback, contract.RequiredCapability); err != nil {
-		return fmt.Errorf("merchant-store rollback: %w", err)
 	}
 	return nil
 }

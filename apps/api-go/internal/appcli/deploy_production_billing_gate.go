@@ -155,13 +155,7 @@ func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, wor
 	if string(current) != string(original) && string(current) != string(barrier) && (previousBarrier == "" || string(current) != previousBarrier) {
 		return errors.New("LMM locations changed outside the transaction")
 	}
-	if err := writeAtomicRegularFile(path, barrier, 0644); err != nil {
-		return err
-	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandNginx, Args: []string{"-t"}}); err != nil {
-		return err
-	}
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"reload", "nginx"}}); err != nil {
+	if err := runtime.installAdmissionBarrier(ctx, barrier); err != nil {
 		return err
 	}
 	binary, err := runtime.validateCandidateEntrypoint(workspace, manifest.ProbeBinary, manifest.ProbeBinarySHA256)
@@ -189,14 +183,47 @@ func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, wor
 	if runtime.maintenanceHandoff != nil {
 		expectedBody = "lmm-credit-transition:" + runtime.maintenanceHandoff.TransitionID
 	}
-	closed := false
+	if err := runtime.awaitAdmissionDrain(ctx, func(ctx context.Context) bool {
+		out, probeErr := runVerifiedBinary(ctx, runtime.runner, binary, []string{"request", "--base-url", runtime.paths.PublicBaseURL, "--path", "/v1/models?lmm_billing_gate=" + workspace.id, "--no-follow", "--timeout", "5s", "--status-file", statusFile}, nil, "", 7*time.Second, false)
+		status, readErr := os.ReadFile(statusFile)
+		return probeErr == nil && readErr == nil && strings.TrimSpace(string(status)) == "503" && string(out) == expectedBody
+	}); err != nil {
+		return err
+	}
+	g.AdmissionClosed = true
+	runtime.billingAdmissionClosed = true
+	return runtime.writeManifest(workspace, *manifest)
+}
+
+// Shared by ordinary billing admission and the separately typed first-start
+// owner. The only destination is the host's protected configured API drop-in;
+// neither caller paths nor financial maintenance receipts select it.
+func (runtime *productionRuntime) installAdmissionBarrier(ctx context.Context, barrier []byte) error {
+	path := filepath.Join(runtime.paths.NginxRoot, "lmm-api-locations.conf")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("admission drop-in is not a real regular file")
+	}
+	owner, links, ok := deploymentFileOwnership(info)
+	if !ok || owner != runtime.requiredOwnerUID || links != 1 || info.Mode().Perm() != 0644 {
+		return errors.New("admission drop-in ownership/mode differs")
+	}
+	if err := writeAtomicRegularFile(path, barrier, 0644); err != nil {
+		return err
+	}
+	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandNginx, Args: []string{"-t"}}); err != nil {
+		return err
+	}
+	_, err = runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"reload", "nginx"}})
+	return err
+}
+
+func (runtime *productionRuntime) awaitAdmissionDrain(ctx context.Context, probe func(context.Context) bool) error {
 	for attempt := 0; attempt < 300; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		out, probeErr := runVerifiedBinary(ctx, runtime.runner, binary, []string{"request", "--base-url", runtime.paths.PublicBaseURL, "--path", "/v1/models?lmm_billing_gate=" + workspace.id, "--no-follow", "--timeout", "5s", "--status-file", statusFile}, nil, "", 7*time.Second, false)
-		status, readErr := os.ReadFile(statusFile)
-		if probeErr == nil && readErr == nil && strings.TrimSpace(string(status)) == "503" && string(out) == expectedBody {
+		if probe(ctx) {
 			counter := countBillingConnections
 			if runtime.billingConnections != nil {
 				counter = runtime.billingConnections
@@ -206,18 +233,12 @@ func (runtime *productionRuntime) closeBillingAdmission(ctx context.Context, wor
 				return err
 			}
 			if count == 0 {
-				closed = true
-				break
+				return nil
 			}
 		}
 		runtime.sleep(time.Second)
 	}
-	if !closed {
-		return errors.New("LMM admission or upstream drain timed out; backend left running")
-	}
-	g.AdmissionClosed = true
-	runtime.billingAdmissionClosed = true
-	return runtime.writeManifest(workspace, *manifest)
+	return errors.New("LMM admission or upstream drain timed out; backend left running")
 }
 
 // Includes accepted/SYN/closing upstream sockets, but not listeners or TIME_WAIT.

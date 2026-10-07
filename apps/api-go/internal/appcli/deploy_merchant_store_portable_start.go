@@ -112,6 +112,9 @@ func (runtime *productionRuntime) portableStartControlPID(ctx context.Context, c
 	return nil
 }
 func (runtime *productionRuntime) verifyPortableRunningWriter(ctx context.Context, c productionMerchantStoreCapsule, digest, invocation string, rollback bool) error {
+	if c.Format == 2 && rollback {
+		return errors.New("startup baseline cannot authorize a rollback provider")
+	}
 	target := c.Writer.Candidate
 	if rollback {
 		target = c.Writer.Rollback
@@ -181,6 +184,9 @@ func (runtime *productionRuntime) verifyMerchantStorePortableInstalled(c product
 	return nil
 }
 func (runtime *productionRuntime) portableTerminal(ctx context.Context, c productionMerchantStoreCapsule, digest string) error {
+	if c.Format == 2 {
+		return errors.New("startup baseline is not ordinary transaction authority")
+	}
 	// The ordinary standalone wrapper's existing root-owned transaction state
 	// is authority for its phase, not a new self-issued controller approval.
 	path := filepath.Join("/var/lib/lmm-api-deploy-systemd", c.DeploymentID, "state.json")
@@ -260,6 +266,9 @@ func merchantStoreUniqueJSON(raw []byte) bool {
 }
 
 func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Context, c productionMerchantStoreCapsule, digest, startInvocation string) error {
+	if c.Format == 2 && startInvocation == "" {
+		return errors.New("startup baseline requires an actual per-start invocation")
+	}
 	if err := runtime.qualifyMerchantStoreCapsule(ctx, c, digest, startInvocation, false); err != nil {
 		return err
 	}
@@ -276,7 +285,12 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 		key, value, _ := strings.Cut(row, "=")
 		values[key] = value
 	}
-	lease, err := acquireMerchantStoreDeploymentFence(ctx, values, c.Writer)
+	var lease *productionMerchantStoreFence
+	if c.Format == 2 {
+		lease, err = acquireMerchantStartupBaselineFence(ctx, values, c.Baseline, c.Host)
+	} else {
+		lease, err = acquireMerchantStoreDeploymentFence(ctx, values, c.Writer)
+	}
 	if err != nil {
 		return err
 	}
@@ -347,6 +361,9 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 					return err
 				}
 				if installed != c.Writer.Candidate.PayloadSHA256 {
+					if c.Format == 2 {
+						return errors.New("startup baseline installed provider changed")
+					}
 					if installed != c.Writer.Rollback.PayloadSHA256 {
 						return errors.New("per-start installed provider is outside explicit capsule set")
 					}
@@ -356,6 +373,9 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 					return err
 				}
 				if err := lease.ReleaseOwner(ctx); err != nil {
+					return err
+				}
+				if err := runtime.recordMerchantStartupSucceeded(ctx, c, digest, owner); err != nil {
 					return err
 				}
 				// Only a completed same-session exact CAS makes these owned transient
@@ -420,6 +440,9 @@ func (runtime *productionRuntime) handleMerchantStorePortableConnection(ctx cont
 	return true
 }
 func (runtime *productionRuntime) ensureMerchantStorePortableFence(ctx context.Context, c productionMerchantStoreCapsule, digest, invocation string) error {
+	if c.Format == 2 && invocation == "" {
+		return errors.New("startup baseline cannot create an ordinary deployment holder")
+	}
 	ownerPath, _ := merchantStorePortableFencePaths(c, invocation)
 	if _, err := os.Lstat(ownerPath); err == nil {
 		return runtime.requestMerchantStorePortableFence(ctx, c, digest, invocation, false)
@@ -461,7 +484,8 @@ func (runtime *productionRuntime) merchantStorePortableStart(ctx context.Context
 		return err
 	}
 	installed, err := sha256File(c.Binary)
-	if err != nil || installed != c.Writer.Candidate.PayloadSHA256 && installed != c.Writer.Rollback.PayloadSHA256 || runtime.verifyMerchantStorePortableInstalled(c, installed) != nil || sha256MustEqual("/proc/self/exe", installed) != nil {
+	allowed := installed == c.Writer.Candidate.PayloadSHA256 || c.Format == 1 && installed == c.Writer.Rollback.PayloadSHA256
+	if err != nil || !allowed || runtime.verifyMerchantStorePortableInstalled(c, installed) != nil || sha256MustEqual("/proc/self/exe", installed) != nil {
 		return errors.New("portable startup checker is not the explicit installed signed provider")
 	}
 	if err := runtime.qualifyMerchantStoreCapsule(ctx, c, digest, invocation, false); err != nil {
@@ -469,6 +493,9 @@ func (runtime *productionRuntime) merchantStorePortableStart(ctx context.Context
 	}
 	parent, _ := merchantStorePortableFencePaths(c, "")
 	if _, err := os.Lstat(parent); err == nil {
+		if c.Format == 2 {
+			return errors.New("startup baseline cannot reuse an ordinary parent holder")
+		}
 		// Explicitly prove this same capsule's live parent. A terminal/stale
 		// receipt or default installed-candidate inference is never permission.
 		return runtime.requestMerchantStorePortableFence(ctx, c, digest, "", false)

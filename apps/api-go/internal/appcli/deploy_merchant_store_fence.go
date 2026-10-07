@@ -133,12 +133,30 @@ type productionMerchantStoreFence struct {
 	closed       bool
 	ownerKey     string
 	ownerValue   string
+	startupOnly  bool
 }
 
 func acquireMerchantStoreDeploymentFence(ctx context.Context, sealedValues map[string]string, expected *productionMerchantStoreWriterContract) (*productionMerchantStoreFence, error) {
 	if err := validateMerchantStoreWriterContract(expected); err != nil {
 		return nil, err
 	}
+	return openMerchantStoreDeploymentFence(ctx, sealedValues, expected, false)
+}
+
+func acquireMerchantStartupBaselineFence(ctx context.Context, sealedValues map[string]string, baseline *productionMerchantStartupBaseline, host string) (*productionMerchantStoreFence, error) {
+	if err := validateMerchantStartupBaseline(baseline); err != nil {
+		return nil, err
+	}
+	identity := baseline.writerIdentity(host)
+	if err := validateMerchantStoreWriterHostIdentity(identity); err != nil {
+		return nil, err
+	}
+	return openMerchantStoreDeploymentFence(ctx, sealedValues, identity, true)
+}
+
+// Both authorities use this one physical-session implementation. The ordinary
+// entry above still requires its complete, distinct two-provider contract.
+func openMerchantStoreDeploymentFence(ctx context.Context, sealedValues map[string]string, expected *productionMerchantStoreWriterContract, startupOnly bool) (*productionMerchantStoreFence, error) {
 	dsn, err := productionDatabaseURL(sealedValues)
 	if err != nil {
 		return nil, err
@@ -162,7 +180,7 @@ func acquireMerchantStoreDeploymentFence(ctx context.Context, sealedValues map[s
 	if err != nil {
 		return nil, errors.New("merchant deployment fence dedicated connection is unavailable")
 	}
-	lease := &productionMerchantStoreFence{connection: connection, ownerContext: ctx, identity: *expected, backendPID: int32(connection.PgConn().PID())}
+	lease := &productionMerchantStoreFence{connection: connection, ownerContext: ctx, identity: *expected, backendPID: int32(connection.PgConn().PID()), startupOnly: startupOnly}
 	var locked bool
 	if err := connection.QueryRow(ctx, "SELECT pg_catalog.pg_try_advisory_lock_shared($1)", merchantStoreDeploymentFenceKey).Scan(&locked); err != nil || !locked {
 		_ = lease.Close()
@@ -231,6 +249,9 @@ func (lease *productionMerchantStoreFence) Check(ctx context.Context, expected *
 // Claim only after acquiring the live shared lock. An existing key is never
 // overwritten, and a crash after this INSERT deliberately leaves a blocker.
 func (lease *productionMerchantStoreFence) ClaimOwner(ctx context.Context, owner productionMerchantStoreFenceOwner) error {
+	if lease.startupOnly && owner.Purpose != "start" {
+		return errors.New("startup baseline cannot claim an ordinary deployment owner")
+	}
 	if err := lease.Check(ctx, &lease.identity); err != nil {
 		return err
 	}
