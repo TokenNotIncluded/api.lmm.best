@@ -19,18 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import type { DeveloperAccessRequest } from '@/features/onboarding/api'
-
-import type { AssistantL1RecommendationAction } from './api'
 import { AssistantRegistrationStatus } from './assistant-registration-status'
 
-// Old draft props remain source-compatible while historical conversations are
-// opened. They cannot submit, confirm or silently replay an application letter.
 export function AssistantActivationTool(props: {
-  recommendationDraft?: AssistantL1RecommendationAction | null
   onContinueSetup?: () => void
-  onSubmitted?: (request: DeveloperAccessRequest) => void
-  onDraftConsumed?: () => void
   onApproved?: () => void
 }) {
   return (

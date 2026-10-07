@@ -283,26 +283,13 @@ describe('assistant response parsing', () => {
     assert.equal(parseAssistantIntent(undefined), undefined)
   })
 
-  test('accepts only complete L1 recommendation actions', () => {
-    assert.deepEqual(
-      parseAssistantAction({
-        type: 'l1_recommendation',
-        user_statement: '  I am building an internal coding tool. ',
-        recommendation: ' Recommend L1 because the use case is concrete. ',
-        confirmation_token: ' confirmation-token ',
-      }),
-      {
-        type: 'l1_recommendation',
-        user_statement: 'I am building an internal coding tool.',
-        recommendation: 'Recommend L1 because the use case is concrete.',
-        confirmation_token: 'confirmation-token',
-      }
-    )
+  test('ignores retired recommendation actions even with a confirmation token', () => {
     assert.equal(
       parseAssistantAction({
         type: 'l1_recommendation',
-        user_statement: '',
-        recommendation: 'missing statement',
+        user_statement: 'I am building an internal coding tool.',
+        recommendation: 'A cached recommendation.',
+        confirmation_token: 'confirmation-token',
       }),
       undefined
     )

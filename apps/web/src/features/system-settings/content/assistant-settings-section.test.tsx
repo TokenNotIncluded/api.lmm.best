@@ -823,11 +823,7 @@ describe('assistant settings workspace', () => {
       return { data: { success: true } }
     }) as typeof api.post
     const page = await renderSettings('none')
-    const presetsKey = [
-      'assistant-pre-conversation-presets',
-      'natural-v2',
-      'en',
-    ]
+    const presetsKey = ['assistant-pre-conversation-presets', 'access-v3', 'en']
     const statusKey = ['assistant-status', 7, 'session']
     page.queryClient.setQueryData(presetsKey, { presets: [] })
     page.queryClient.setQueryData(statusKey, { enabled: true })

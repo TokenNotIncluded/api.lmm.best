@@ -294,13 +294,6 @@ export type AssistantWeeklyDiscountAction = {
   reason: string
 }
 
-export type AssistantL1RecommendationAction = {
-  type: 'l1_recommendation'
-  user_statement: string
-  recommendation: string
-  confirmation_token: string
-}
-
 export type AssistantAccountDisableAction = {
   type: 'account_disable_request'
   target_user_id: number
@@ -476,7 +469,6 @@ export type AssistantToolTrace = {
 }
 
 export type AssistantAction =
-  | AssistantL1RecommendationAction
   | AssistantAccountDisableAction
   | AssistantHumanSupportAction
   | AssistantCreateKeyAction
@@ -1451,22 +1443,6 @@ export function parseAssistantAction(
         ...(size ? { size } : {}),
         ...(quality ? { quality } : {}),
       }
-    }
-  }
-
-  if (
-    action.type === 'l1_recommendation' &&
-    typeof action.user_statement === 'string' &&
-    typeof action.recommendation === 'string'
-  ) {
-    const userStatement = action.user_statement.trim()
-    const recommendation = action.recommendation.trim()
-    if (!userStatement || !recommendation) return undefined
-    return {
-      type: 'l1_recommendation',
-      user_statement: userStatement,
-      recommendation,
-      confirmation_token: confirmationToken,
     }
   }
 

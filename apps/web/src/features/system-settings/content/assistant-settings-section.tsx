@@ -121,8 +121,8 @@ const DEFAULT_CONVERSATION_STARTERS: ConversationStarter[] = [
   },
   {
     id: 'ai_recommendation',
-    label: { default: 'Help me write an L1 recommendation.' },
-    prompt: { default: 'Help me write an L1 recommendation.' },
+    label: { default: 'How do I apply for L1 access?' },
+    prompt: { default: 'How do I apply for L1 access?' },
   },
 ]
 
