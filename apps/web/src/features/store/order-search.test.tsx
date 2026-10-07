@@ -98,8 +98,32 @@ function mockRequests(
   const requests: Request[] = []
   function response(request: Request) {
     requests.push(request)
+    if (request.method === 'GET' && request.url === '/api/store/config') {
+      return result({
+        store_catalogue_supported: false,
+        store_collections_supported: false,
+      })
+    }
+    const productListing =
+      request.method === 'GET' && request.url === '/api/store/products'
+    const orderSummary =
+      request.method === 'GET' &&
+      /^\/api\/store\/order-search\/[^/?#]+$/.test(request.url)
+    const verifiedSearch =
+      request.method === 'POST' &&
+      [
+        '/api/store/order-search/email/send',
+        '/api/store/order-search/email/confirm',
+        '/api/store/order-search',
+      ].includes(request.url)
+    assert.ok(
+      productListing || orderSummary || verifiedSearch,
+      `Unexpected ${request.method} fixture request: ${request.url}`
+    )
     if (reply) return reply(request)
-    if (request.url === '/api/store/products') return ordersResult([])
+    if (productListing) {
+      return result({ items: [], offset: 0, limit: 24, has_more: false })
+    }
     if (request.url.endsWith('/email/send')) return sendResult()
     if (request.url.endsWith('/email/confirm')) return confirmResult()
     if (request.url === '/api/store/order-search') return ordersResult()
