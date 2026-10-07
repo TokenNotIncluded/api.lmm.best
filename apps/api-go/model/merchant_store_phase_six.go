@@ -86,7 +86,7 @@ func storePhaseFivePreparationModels(db *gorm.DB) ([]interface{}, error) {
 		if err := stmt.Parse(item); err != nil {
 			return nil, ErrMerchantStoreWriterFrozen
 		}
-		if storePhaseSixTable(stmt.Schema.Table) || storeFixedContentTable(stmt.Schema.Table) {
+		if storePhaseSixTable(stmt.Schema.Table) || storePhaseSevenTable(stmt.Schema.Table) {
 			continue
 		}
 		if stmt.Schema.Table == "merchant_store_products" {

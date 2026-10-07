@@ -315,6 +315,10 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == MerchantStoreAnalyticsRetentionOption {
+		_, err := ParseMerchantStoreAnalyticsConfig(value)
+		return err
+	}
 	if storeReservedWriterOptionKey(key) {
 		return ErrMerchantStoreWriterGateReserved
 	}

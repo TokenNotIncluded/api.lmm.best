@@ -37,7 +37,7 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 	schemaReady := set.Bool("reviewed-store-schema-ready", false, "prepare-schema: operator confirms reviewed shop-only DDL and clone preservation proof")
 	accessReady := set.Bool("reviewed-access-ready", false, "activate-access: operator confirms full access/catalogue/guest-email schema and all serving and retained writers support capability five")
 	phaseSixReady := set.Bool("reviewed-phase-six-ready", false, "activate-phase-six: operator confirms reviewed categories/likes schema and all serving and retained writers support capability six")
-	fixedContentReady := set.Bool("reviewed-fixed-content-ready", false, "prepare-fixed-content/activate-fixed-content: operator confirms reviewed private-content schema and all serving and retained writers support capability seven")
+	fixedContentReady := set.Bool("reviewed-fixed-content-ready", false, "prepare-fixed-content/activate-fixed-content: operator confirms reviewed phase-seven content and anonymous analytics schema and all serving and retained writers support capability seven")
 	if err := set.Parse(args[1:]); err != nil || set.NArg() != 0 {
 		return appcli.ExitUsage
 	}

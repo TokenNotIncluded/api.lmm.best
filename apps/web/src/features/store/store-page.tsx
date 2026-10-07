@@ -24,6 +24,7 @@ import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreOrderSearch } from './order-search'
 import { StoreError, StoreLoading } from './shared'
 import { useStoreViewer } from './store-viewer'
+import { useStoreTrafficPage } from './traffic-page'
 
 type SearchType = 'auto' | 'products' | 'order' | 'email'
 
@@ -38,6 +39,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
     sort: 'comprehensive',
   })
   const [view, setView] = useState(readStoreCatalogueView)
+  const trafficPage = useStoreTrafficPage()
   const [lookup, setLookup] = useState<{
     mode: 'order' | 'email'
     value: string
@@ -258,6 +260,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                       <StoreCatalogueProductCard
                         key={product.id}
                         product={product}
+                        trafficPage={trafficPage}
                         featured={index < 3}
                         list={view === 'list'}
                       />

@@ -37,6 +37,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
 import { StoreProductAccessSettings } from './access-settings'
 import { storeVisibility, storePurchaseLoginRequired } from './access-types'
+import { StoreProductAnalytics } from './analytics'
 import { storeApi } from './api'
 import { StoreCategorySelect, StoreProductCategoryEditor } from './categories'
 import { useStoreCategories } from './category-support'
@@ -248,6 +249,7 @@ function StoreSellerCenter() {
           </p>
         </div>
         <div className='flex flex-wrap gap-2'>
+          <StoreProductAnalytics />
           {config.data?.store_access_supported === true && (
             <Button
               variant='outline'

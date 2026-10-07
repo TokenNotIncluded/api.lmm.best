@@ -167,7 +167,8 @@ func MerchantStoreModels() []interface{} {
 	models = append(models, MerchantStoreCatalogueModels()...)
 	models = append(models, &MerchantStoreCategory{})
 	models = append(models, MerchantStoreSocialModels()...)
-	return append(models, storeFixedContentModels()...)
+	models = append(models, storeFixedContentModels()...)
+	return append(models, storeAnalyticsModels()...)
 }
 func storeHash(s string) string { sum := sha256.Sum256([]byte(s)); return hex.EncodeToString(sum[:]) }
 func storeToken() (string, error) {

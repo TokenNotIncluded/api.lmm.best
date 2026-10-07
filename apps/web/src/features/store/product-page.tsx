@@ -25,6 +25,7 @@ import {
   storeVisibility,
   storePurchaseLoginRequired,
 } from './access-types'
+import { StoreProductDetailTraffic } from './analytics-traffic'
 import { StoreAPIError, storeApi } from './api'
 import { catalogueApi } from './catalogue-api'
 import { StoreCatalogueTags } from './catalogue-tags'
@@ -60,6 +61,7 @@ import {
 } from './shared'
 import { currentStoreViewer, useStoreViewer } from './store-viewer'
 import { STORE_TEST_MODE_COPY as testCopy } from './test-mode-copy'
+import { useStoreTrafficPage } from './traffic-page'
 import type {
   StoreCheckoutResult,
   StorePaymentSession,
@@ -103,6 +105,7 @@ export function StoreProductPage({
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const viewer = useStoreViewer()
+  const trafficPage = useStoreTrafficPage()
   const validId = /^[a-zA-Z0-9-]{1,64}$/.test(id)
   const query = useQuery({
     queryKey: ownerPreview
@@ -136,6 +139,9 @@ export function StoreProductPage({
   const galleryImages = storeProductGalleryImages(product.image_urls || [])
   return (
     <div className='space-y-5'>
+      {!ownerPreview && query.isSuccess && (
+        <StoreProductDetailTraffic page={trafficPage} product={product} />
+      )}
       {ownerPreview && (
         <p className='rounded-lg border p-4 text-sm'>
           {t(testCopy.previewHelp)}

@@ -40,7 +40,7 @@ func runtimeVerificationModels(db *gorm.DB) ([]interface{}, error) {
 			if err := stmt.Parse(item); err != nil {
 				return nil, fmt.Errorf("verify migration model: %w", err)
 			}
-			if (floor < 6 && storePhaseSixTable(stmt.Schema.Table)) || storeFixedContentTable(stmt.Schema.Table) {
+			if (floor < 6 && storePhaseSixTable(stmt.Schema.Table)) || storePhaseSevenTable(stmt.Schema.Table) {
 				continue
 			}
 			if floor < 6 && stmt.Schema.Table == "merchant_store_products" {

@@ -36,10 +36,14 @@ remains the frozen order amount; no exchange-rate rebasing is introduced.
 
 ## Separate phase-seven installation
 
-Writer capability seven adds exactly two private tables:
+Writer capability seven adds exactly four tables. Two contain private content:
 
 - `merchant_store_fixed_contents`: variant-owned encrypted configuration.
 - `merchant_store_order_fixed_deliveries`: order-bound encrypted delivery copy.
+
+The other two, `merchant_store_product_traffic_days` and
+`merchant_store_product_traffic_receipts`, contain anonymous, bounded-retention
+product traffic. See [product analytics](merchant-store-analytics.md).
 
 No columns are added to phase-five or phase-six product/order models. Historical
 preparation and runtime verification filter these tables by the durable floor.

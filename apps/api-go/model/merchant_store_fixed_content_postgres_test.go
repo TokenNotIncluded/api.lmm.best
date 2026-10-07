@@ -17,13 +17,31 @@ func storeFixedPhaseSixTest(t *testing.T, db *gorm.DB) {
 	storeActivatePhaseFiveForSixTest(t, db)
 	require.NoError(t, PrepareMerchantStorePhaseSix(db, 5))
 	require.NoError(t, ActivateMerchantStorePhaseSix(db, 5))
-	for _, item := range storeFixedContentModels() {
+	for _, item := range storePhaseSevenModels() {
 		require.NoError(t, db.Migrator().DropTable(item))
 	}
 }
 
+func TestMerchantStoreFixedContentHistoricalPreparationExcludesPhaseSeven(t *testing.T) {
+	for _, floor := range []int{4, 5, 6} {
+		t.Run(fmt.Sprint(floor), func(t *testing.T) {
+			newStoreFixture(t, "balance")
+			for _, item := range storePhaseSevenModels() {
+				require.NoError(t, DB.Migrator().DropTable(item))
+			}
+			storeWriterGateForTest(t, fmt.Sprint(floor))
+			require.NoError(t, storeCheckMerchantStoreSchema(DB, floor))
+			require.NoError(t, PrepareMerchantStoreSchema(DB, floor))
+			require.NoError(t, storeCheckMerchantStoreSchema(DB, floor))
+			for _, item := range storePhaseSevenModels() {
+				require.False(t, DB.Migrator().HasTable(item), "historical preparation excludes all four phase-seven tables")
+			}
+		})
+	}
+}
+
 func TestMerchantStoreFixedContentPostgresPreparation(t *testing.T) {
-	t.Run("two_private_tables_preserve_frozen_phase_six_and_paid_facts", func(t *testing.T) {
+	t.Run("four_tables_preserve_frozen_phase_six_and_paid_facts", func(t *testing.T) {
 		db, name, _, _ := merchantStorePGDB(t)
 		f := merchantStorePGFixture(t, db, "balance")
 		_, err := AddMerchantStoreStock(f.seller.Id, f.product.ID, []string{"old-paid-card", "old-available-card"})
@@ -39,7 +57,7 @@ func TestMerchantStoreFixedContentPostgresPreparation(t *testing.T) {
 		require.ErrorIs(t, ActivateMerchantStoreFixedContent(db, 6), ErrMerchantStoreWriterFrozen)
 		require.ErrorIs(t, PrepareMerchantStoreFixedContent(db, 5), ErrMerchantStoreWriterFrozen)
 		require.NoError(t, PrepareMerchantStoreSchema(db, 6))
-		for _, item := range storeFixedContentModels() {
+		for _, item := range storePhaseSevenModels() {
 			require.False(t, db.Migrator().HasTable(item), "historical preparation never installs phase seven")
 		}
 		require.Equal(t, before.rows, storePreparationFacts(t, db, before).rows)
@@ -57,7 +75,7 @@ func TestMerchantStoreFixedContentPostgresPreparation(t *testing.T) {
 				added = append(added, table)
 			}
 		}
-		require.Equal(t, []string{"merchant_store_fixed_contents", "merchant_store_order_fixed_deliveries"}, added)
+		require.Equal(t, []string{"merchant_store_fixed_contents", "merchant_store_order_fixed_deliveries", "merchant_store_product_traffic_days", "merchant_store_product_traffic_receipts"}, added)
 		require.False(t, MerchantStoreFixedContentSupported(), "installation does not raise the floor")
 		require.ErrorIs(t, db.Transaction(storeRequireFixedContentWriter), ErrMerchantStoreWriterFrozen)
 		require.NoError(t, ActivateMerchantStoreFixedContent(db, 6))
@@ -69,29 +87,34 @@ func TestMerchantStoreFixedContentPostgresPreparation(t *testing.T) {
 		require.ErrorIs(t, VerifyMerchantStoreFixedContent(db), ErrMerchantStoreWriterFrozen)
 		require.ErrorIs(t, ActivateMerchantStoreFixedContent(db, 7), ErrMerchantStoreWriterFrozen, "retry verifies the actual catalogue and never repairs it")
 	})
-	t.Run("failed_second_table_DDL_rolls_back_all_additions", func(t *testing.T) {
-		db, name, _, _ := merchantStorePGDB(t)
-		merchantStorePGFixture(t, db, "balance")
-		storeFixedPhaseSixTest(t, db)
-		before := storePhaseSixOldFacts(t, db)
-		trigger := "fixed_seven_" + strings.TrimPrefix(name, "lmm_merchant_store_test_")
-		function := trigger + "_reject"
-		sql := fmt.Sprintf(`CREATE FUNCTION %s() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN IF EXISTS (SELECT 1 FROM pg_event_trigger_ddl_commands() WHERE schema_name = '%s' AND object_identity LIKE '%%merchant_store_order_fixed_deliveries') THEN RAISE EXCEPTION 'private-fixed-content-DDL-failure'; END IF; END $$`, function, name)
-		require.NoError(t, db.Exec(sql).Error)
-		require.NoError(t, db.Exec("CREATE EVENT TRIGGER "+trigger+" ON ddl_command_end WHEN TAG IN ('CREATE TABLE') EXECUTE FUNCTION "+name+"."+function+"()").Error)
-		t.Cleanup(func() {
-			require.NoError(t, db.Exec("DROP EVENT TRIGGER IF EXISTS "+trigger).Error)
-			require.NoError(t, db.Exec("DROP FUNCTION IF EXISTS "+function+"()").Error)
+	for _, failure := range []struct{ name, table string }{
+		{"failed_second_table_DDL_rolls_back_all_additions", "merchant_store_order_fixed_deliveries"},
+		{"failed_fourth_analytics_table_DDL_rolls_back_all_additions", "merchant_store_product_traffic_receipts"},
+	} {
+		t.Run(failure.name, func(t *testing.T) {
+			db, name, _, _ := merchantStorePGDB(t)
+			merchantStorePGFixture(t, db, "balance")
+			storeFixedPhaseSixTest(t, db)
+			before := storePhaseSixOldFacts(t, db)
+			trigger := "fixed_seven_" + strings.TrimPrefix(name, "lmm_merchant_store_test_")
+			function := trigger + "_reject"
+			sql := fmt.Sprintf(`CREATE FUNCTION %s() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN IF EXISTS (SELECT 1 FROM pg_event_trigger_ddl_commands() WHERE schema_name = '%s' AND object_identity LIKE '%%%s') THEN RAISE EXCEPTION 'private-phase-seven-DDL-failure'; END IF; END $$`, function, name, failure.table)
+			require.NoError(t, db.Exec(sql).Error)
+			require.NoError(t, db.Exec("CREATE EVENT TRIGGER "+trigger+" ON ddl_command_end WHEN TAG IN ('CREATE TABLE') EXECUTE FUNCTION "+name+"."+function+"()").Error)
+			t.Cleanup(func() {
+				require.NoError(t, db.Exec("DROP EVENT TRIGGER IF EXISTS "+trigger).Error)
+				require.NoError(t, db.Exec("DROP FUNCTION IF EXISTS "+function+"()").Error)
+			})
+			require.ErrorContains(t, PrepareMerchantStoreFixedContent(db, 6), "private-phase-seven-DDL-failure", "injected failure must occur at the declared table")
+			for _, item := range storePhaseSevenModels() {
+				require.False(t, db.Migrator().HasTable(item))
+			}
+			require.Equal(t, before.rows, storePreparationFacts(t, db, before).rows)
+			floor, err := storeWriterGateRow(db, "")
+			require.NoError(t, err)
+			require.Equal(t, 6, floor)
 		})
-		require.Error(t, PrepareMerchantStoreFixedContent(db, 6))
-		for _, item := range storeFixedContentModels() {
-			require.False(t, db.Migrator().HasTable(item))
-		}
-		require.Equal(t, before.rows, storePreparationFacts(t, db, before).rows)
-		floor, err := storeWriterGateRow(db, "")
-		require.NoError(t, err)
-		require.Equal(t, 6, floor)
-	})
+	}
 	t.Run("durable_deployment_owner_blocks_every_phase_seven_operation", func(t *testing.T) {
 		db, _, _, _ := merchantStorePGDB(t)
 		merchantStorePGFixture(t, db, "balance")
@@ -100,7 +123,7 @@ func TestMerchantStoreFixedContentPostgresPreparation(t *testing.T) {
 		require.ErrorIs(t, PrepareMerchantStoreFixedContent(db, 6), ErrMerchantStoreWriterFrozen)
 		require.ErrorIs(t, VerifyMerchantStoreFixedContent(db), ErrMerchantStoreWriterFrozen)
 		require.ErrorIs(t, ActivateMerchantStoreFixedContent(db, 6), ErrMerchantStoreWriterFrozen)
-		for _, item := range storeFixedContentModels() {
+		for _, item := range storePhaseSevenModels() {
 			require.False(t, db.Migrator().HasTable(item))
 		}
 	})
@@ -136,6 +159,58 @@ func TestMerchantStoreFixedContentPostgresPreparation(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 7, floor)
 	})
+}
+
+func TestMerchantStoreFixedContentPostgresAnalyticsSchemaQualification(t *testing.T) {
+	db, _, _, _ := merchantStorePGDB(t)
+	merchantStorePGFixture(t, db, "balance")
+	storeFixedPhaseSixTest(t, db)
+	require.NoError(t, PrepareMerchantStoreFixedContent(db, 6))
+	installed := runtimeVerificationPostgresFacts(t, db)
+	require.NoError(t, VerifyMerchantStoreFixedContent(db))
+	require.Equal(t, installed, runtimeVerificationPostgresFacts(t, db), "verification before activation is read-only")
+	require.NoError(t, ActivateMerchantStoreFixedContent(db, 6))
+	activated := runtimeVerificationPostgresFacts(t, db)
+	require.NoError(t, ActivateMerchantStoreFixedContent(db, 7))
+	require.Equal(t, activated, runtimeVerificationPostgresFacts(t, db), "activation retry is read-only")
+	for _, damage := range []struct {
+		name               string
+		ddl, restore       []string
+		recreateTableModel any
+	}{
+		{name: "missing-days", ddl: []string{"DROP TABLE merchant_store_product_traffic_days"}, recreateTableModel: &MerchantStoreProductTrafficDay{}},
+		{name: "missing-receipts", ddl: []string{"DROP TABLE merchant_store_product_traffic_receipts"}, recreateTableModel: &MerchantStoreProductTrafficReceipt{}},
+		{name: "counter-not-bigint", ddl: []string{"ALTER TABLE merchant_store_product_traffic_days ALTER COLUMN impressions TYPE integer"}, restore: []string{"ALTER TABLE merchant_store_product_traffic_days ALTER COLUMN impressions TYPE bigint"}},
+		{name: "nullable-counter", ddl: []string{"ALTER TABLE merchant_store_product_traffic_days ALTER COLUMN clicks DROP NOT NULL"}, restore: []string{"ALTER TABLE merchant_store_product_traffic_days ALTER COLUMN clicks SET NOT NULL"}},
+		{name: "reordered-composite-primary-key", ddl: []string{"ALTER TABLE merchant_store_product_traffic_days DROP CONSTRAINT merchant_store_product_traffic_days_pkey", "ALTER TABLE merchant_store_product_traffic_days ADD PRIMARY KEY (day, product_id)"}, restore: []string{"ALTER TABLE merchant_store_product_traffic_days DROP CONSTRAINT merchant_store_product_traffic_days_pkey", "ALTER TABLE merchant_store_product_traffic_days ADD PRIMARY KEY (product_id, day)"}},
+		{name: "narrow-receipt-kind", ddl: []string{"ALTER TABLE merchant_store_product_traffic_receipts ALTER COLUMN kind TYPE varchar(8)"}, restore: []string{"ALTER TABLE merchant_store_product_traffic_receipts ALTER COLUMN kind TYPE varchar(16)"}},
+		{name: "non-string-receipt-kind", ddl: []string{"ALTER TABLE merchant_store_product_traffic_receipts ALTER COLUMN kind TYPE bigint USING 0"}, restore: []string{"ALTER TABLE merchant_store_product_traffic_receipts ALTER COLUMN kind TYPE varchar(16) USING kind::varchar(16)"}},
+		{name: "nullable-receipt-kind", ddl: []string{"ALTER TABLE merchant_store_product_traffic_receipts ALTER COLUMN kind DROP NOT NULL"}, restore: []string{"ALTER TABLE merchant_store_product_traffic_receipts ALTER COLUMN kind SET NOT NULL"}},
+		{name: "wrong-product-index", ddl: []string{"DROP INDEX idx_merchant_store_product_traffic_receipts_product_id", "CREATE INDEX idx_merchant_store_product_traffic_receipts_product_id ON merchant_store_product_traffic_receipts (kind)"}, restore: []string{"DROP INDEX idx_merchant_store_product_traffic_receipts_product_id", "CREATE INDEX idx_merchant_store_product_traffic_receipts_product_id ON merchant_store_product_traffic_receipts (product_id)"}},
+		{name: "missing-receipt-time-index", ddl: []string{"DROP INDEX idx_merchant_store_product_traffic_receipts_created_at"}, restore: []string{"CREATE INDEX idx_merchant_store_product_traffic_receipts_created_at ON merchant_store_product_traffic_receipts (created_at)"}},
+	} {
+		t.Run(damage.name, func(t *testing.T) {
+			// Activation owns a physical session, so expose the intentional DDL
+			// to that session before invoking its read-only qualification.
+			for _, ddl := range damage.ddl {
+				require.NoError(t, db.Exec(ddl).Error)
+			}
+			missing := runtimeVerificationPostgresFacts(t, db)
+			require.ErrorIs(t, VerifyMerchantStoreFixedContent(db), ErrMerchantStoreWriterFrozen)
+			require.ErrorIs(t, ActivateMerchantStoreFixedContent(db, 7), ErrMerchantStoreWriterFrozen)
+			require.NoError(t, storeCheckMerchantStoreSchema(db, 6), "old-floor qualification excludes every phase-seven table")
+			require.Equal(t, missing, runtimeVerificationPostgresFacts(t, db), "qualification never repairs schema or rows, or changes the floor")
+			if damage.recreateTableModel != nil {
+				require.NoError(t, db.AutoMigrate(damage.recreateTableModel))
+			}
+			for _, ddl := range damage.restore {
+				require.NoError(t, db.Exec(ddl).Error)
+			}
+			require.NoError(t, VerifyMerchantStoreFixedContent(db))
+			require.NoError(t, ActivateMerchantStoreFixedContent(db, 7))
+			require.Equal(t, activated, runtimeVerificationPostgresFacts(t, db), "test-only restoration returns the exact qualified catalogue")
+		})
+	}
 }
 
 func TestMerchantStoreFixedContentPostgresMixedVariantsLimitsAndRefunds(t *testing.T) {

@@ -20,7 +20,7 @@ func TestMerchantStoreRuntimeVerificationCatalogFollowsDurableFloor(t *testing.T
 	require.NoError(t, BootstrapMerchantStoreWriterGate(db))
 	full, err := buildPostgresSchemaInventory(db, "app_test", append(mainMigrationModels(), &SubscriptionPlan{}))
 	require.NoError(t, err)
-	for _, floor := range []int{1, 5, 6, 7} {
+	for _, floor := range []int{1, 2, 3, 4, 5, 6, 7} {
 		t.Run(fmt.Sprint(floor), func(t *testing.T) {
 			// This tests model selection, not activation: real activation is
 			// exercised separately on the complete PostgreSQL catalogue.
@@ -30,17 +30,25 @@ func TestMerchantStoreRuntimeVerificationCatalogFollowsDurableFloor(t *testing.T
 			inventory, err := buildPostgresSchemaInventory(db, "app_test", models)
 			require.NoError(t, err)
 			require.NoError(t, verifyPostgresCatalogSnapshot(inventory, catalogSnapshotForInventory(inventory)))
+			for _, table := range []string{"merchant_store_fixed_contents", "merchant_store_order_fixed_deliveries", "merchant_store_product_traffic_days", "merchant_store_product_traffic_receipts"} {
+				present := false
+				for _, object := range inventory.Objects {
+					present = present || object.table == table
+				}
+				require.Equal(t, floor == 7, present, "phase-seven table %s follows the durable floor", table)
+			}
 			if floor == 7 {
 				require.Equal(t, full, inventory)
 				return
 			}
-			// Only the two phase-six tables, their constraints/indexes and
-			// category_id's column/index can disappear. Every older global
+			// Phase-seven's four tables are absent below seven. Below six,
+			// only the two phase-six tables, their constraints/indexes and
+			// category_id's column/index also disappear. Every older global
 			// and shop column, index and constraint remains authoritative.
 			expectedObjects := []string{}
 			actualObjects := []string{}
 			for _, object := range full.Objects {
-				if !storeFixedContentTable(object.table) && (floor >= 6 || (!storePhaseSixTable(object.table) && !storePhaseSixColumn(object.table, object.column))) {
+				if !storePhaseSevenTable(object.table) && (floor >= 6 || (!storePhaseSixTable(object.table) && !storePhaseSixColumn(object.table, object.column))) {
 					expectedObjects = append(expectedObjects, object.table+"."+object.column)
 				}
 			}
@@ -50,14 +58,14 @@ func TestMerchantStoreRuntimeVerificationCatalogFollowsDurableFloor(t *testing.T
 			require.Equal(t, expectedObjects, actualObjects)
 			expectedIndexes := []postgresIndexSpec{}
 			for _, index := range full.Indexes {
-				if !storeFixedContentTable(index.Table) && (floor >= 6 || (!storePhaseSixTable(index.Table) && index.Name != "idx_merchant_store_products_category_id")) {
+				if !storePhaseSevenTable(index.Table) && (floor >= 6 || (!storePhaseSixTable(index.Table) && index.Name != "idx_merchant_store_products_category_id")) {
 					expectedIndexes = append(expectedIndexes, index)
 				}
 			}
 			require.Equal(t, expectedIndexes, inventory.Indexes)
 			expectedConstraints := []postgresConstraintSpec{}
 			for _, constraint := range full.Constraints {
-				if !storeFixedContentTable(constraint.Table) && (floor >= 6 || !storePhaseSixTable(constraint.Table)) {
+				if !storePhaseSevenTable(constraint.Table) && (floor >= 6 || !storePhaseSixTable(constraint.Table)) {
 					expectedConstraints = append(expectedConstraints, constraint)
 				}
 			}

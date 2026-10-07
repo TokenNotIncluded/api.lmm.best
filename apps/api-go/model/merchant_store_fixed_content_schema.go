@@ -2,8 +2,17 @@ package model
 
 import "gorm.io/gorm"
 
+func storePhaseSevenModels() []interface{} {
+	return append(storeFixedContentModels(), storeAnalyticsModels()...)
+}
+
+func storePhaseSevenTable(table string) bool {
+	return storeFixedContentTable(table) || table == "merchant_store_product_traffic_days" || table == "merchant_store_product_traffic_receipts"
+}
+
 // The signed phase-six catalogue remains unchanged. This explicit shop-only
-// preparation adds two private payload tables without raising the writer floor.
+// preparation adds two private payload and two traffic tables without raising
+// the writer floor. All four additions belong to the same phase-seven catalogue.
 func PrepareMerchantStoreFixedContent(db *gorm.DB, expected int) error {
 	if db == nil || MerchantStoreWriterCapability < 7 || (expected != 6 && expected != 7) || (db.Dialector.Name() != "postgres" && db.Dialector.Name() != "sqlite") {
 		return ErrMerchantStoreWriterFrozen
@@ -17,7 +26,7 @@ func PrepareMerchantStoreFixedContent(db *gorm.DB, expected int) error {
 			if err := storeCheckPhaseSixSchema(tx); err != nil {
 				return err
 			}
-			if err := tx.AutoMigrate(storeFixedContentModels()...); err != nil {
+			if err := tx.AutoMigrate(storePhaseSevenModels()...); err != nil {
 				return err
 			}
 			return storeCheckMerchantStoreSchema(tx, 7)

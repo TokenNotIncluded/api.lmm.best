@@ -142,7 +142,7 @@ func storeCheckMerchantStoreSchema(tx *gorm.DB, capability int) error {
 		if err != nil {
 			return fmt.Errorf("%w: invalid model", ErrMerchantStoreWriterFrozen)
 		}
-		if (capability < 5 && storeAccessTable(parsed.Table)) || (capability < 6 && storePhaseSixTable(parsed.Table)) || (capability < 7 && storeFixedContentTable(parsed.Table)) {
+		if (capability < 5 && storeAccessTable(parsed.Table)) || (capability < 6 && storePhaseSixTable(parsed.Table)) || (capability < 7 && storePhaseSevenTable(parsed.Table)) {
 			continue
 		}
 		if !tx.Migrator().HasTable(model) {
@@ -178,6 +178,12 @@ func storeCheckMerchantStoreSchema(tx *gorm.DB, capability int) error {
 			}
 			if tx.Dialector.Name() == "postgres" || tx.Dialector.Name() == "mysql" {
 				if field.DataType == schema.String && field.Size > 0 {
+					if storePhaseSevenTable(parsed.Table) {
+						kind := strings.ToLower(column.DatabaseTypeName())
+						if kind != "varchar" && kind != "character varying" {
+							return fmt.Errorf("%w: non-varchar %s.%s", ErrMerchantStoreWriterFrozen, parsed.Table, field.DBName)
+						}
+					}
 					length, known := column.Length()
 					if !known || length < int64(field.Size) {
 						return fmt.Errorf("%w: insufficient width %s.%s", ErrMerchantStoreWriterFrozen, parsed.Table, field.DBName)

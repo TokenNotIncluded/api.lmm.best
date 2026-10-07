@@ -19,18 +19,25 @@ import { StoreCollectionActions } from './collection-actions'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreProductCardMedia } from './product-card-media'
 import { StoreBadges } from './shared'
+import {
+  useStoreProductImpression,
+  type StoreTrafficPage,
+} from './traffic-page'
 import { StoreProductPrice } from './variant-summary'
 
 export function StoreCatalogueProductCard({
   product,
   featured,
   list,
+  trafficPage,
 }: {
   product: StoreCatalogueProduct
   featured: boolean
   list: boolean
+  trafficPage?: StoreTrafficPage
 }) {
   const { t } = useTranslation()
+  const impressionRef = useStoreProductImpression(trafficPage, product)
   const href = `/store/products/${product.id}`
   const sold =
     typeof product.net_paid_quantity === 'number' &&
@@ -43,7 +50,11 @@ export function StoreCatalogueProductCard({
   // to the first three products in the current server-ordered result.
   if (list) {
     return (
-      <article className='bg-card min-w-0 overflow-hidden rounded-lg border sm:grid sm:grid-cols-[minmax(0,1fr)_16rem]'>
+      <article
+        ref={impressionRef}
+        data-store-product-id={product.id}
+        className='bg-card min-w-0 overflow-hidden rounded-lg border sm:grid sm:grid-cols-[minmax(0,1fr)_16rem]'
+      >
         <a
           href={href}
           className='focus-visible:outline-ring block min-w-0 focus-visible:outline-2 sm:flex'
@@ -83,6 +94,7 @@ export function StoreCatalogueProductCard({
 
   return (
     <Card
+      ref={impressionRef}
       role='article'
       data-store-product-id={product.id}
       data-store-card-priority={featured ? 'lead' : 'standard'}
