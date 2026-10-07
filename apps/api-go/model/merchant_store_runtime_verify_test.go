@@ -78,13 +78,24 @@ func TestMerchantStoreRuntimeVerificationCatalogFollowsDurableFloor(t *testing.T
 	}
 }
 
-func TestMerchantStoreRuntimeVerificationRejectsMissingOrMalformedFloor(t *testing.T) {
+func TestMerchantStoreRuntimeVerificationMissingFloorRequiresFullCatalog(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+	_, err = runtimeVerificationModels(db)
+	require.Error(t, err, "a missing options table is not a fresh installed catalogue")
 	require.NoError(t, db.AutoMigrate(&Option{}))
 	require.NoError(t, checkMerchantStoreWriterMigration(db), "an explicit first apply still supports a fresh database")
-	_, err = runtimeVerificationModels(db)
-	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+	models, err := runtimeVerificationModels(db)
+	require.NoError(t, err)
+	full, err := buildPostgresSchemaInventory(db, "app_test", append(mainMigrationModels(), &SubscriptionPlan{}))
+	require.NoError(t, err)
+	actual, err := buildPostgresSchemaInventory(db, "app_test", models)
+	require.NoError(t, err)
+	require.Equal(t, full, actual)
+	require.ErrorIs(t, storeRequireWriter(db), ErrMerchantStoreWriterFrozen, "verification does not activate missing-gate business writers")
+	var count int64
+	require.NoError(t, db.Model(&Option{}).Count(&count).Error)
+	require.Zero(t, count, "verification never creates an activation marker")
 	for _, value := range []string{"", "0", "7", "06", " 6", "6 ", "unknown"} {
 		t.Run(fmt.Sprintf("invalid-%q", value), func(t *testing.T) {
 			require.NoError(t, db.Where("key = ?", MerchantStoreWriterCapabilityOption).Delete(&Option{}).Error)
@@ -105,7 +116,20 @@ func TestMerchantStoreRuntimeVerificationPostgresPreparedFloorAndStrictActivatio
 	require.NoError(t, db.AutoMigrate(append(mainMigrationModels(), &SubscriptionPlan{})...))
 	require.NoError(t, ensureCompanyBillingProfilePostgresContract(db))
 	require.NoError(t, db.Create(&Option{Key: "theme.frontend", Value: "default"}).Error)
+	// The shop fixture bootstraps floor one; a standalone application apply
+	// does not. Remove only that fixture marker to reproduce first installation.
+	var originalFloor Option
+	require.NoError(t, db.First(&originalFloor, "key = ?", MerchantStoreWriterCapabilityOption).Error)
+	require.NoError(t, db.Where("key = ?", MerchantStoreWriterCapabilityOption).Delete(&Option{}).Error)
+	installed := runtimeVerificationPostgresFacts(t, db)
+	require.NoError(t, verifyPostgresRuntimeAndSchema(db), "fresh standalone apply without a writer gate verifies the full catalogue")
+	require.ErrorIs(t, storeRequireWriter(db), ErrMerchantStoreWriterFrozen)
+	require.Equal(t, installed, runtimeVerificationPostgresFacts(t, db), "fresh verification performs no writes")
 	storeRemovePhaseSixSchema(t, db)
+	require.ErrorContains(t, verifyPostgresRuntimeAndSchema(db), "merchant_store_products.category_id", "a missing gate cannot hide missing phase-six schema")
+	// Restore the exact synthetic fixture marker, not a bootstrap of a latest
+	// fresh installation (which deliberately cannot activate old writers).
+	require.NoError(t, db.Create(&originalFloor).Error)
 	require.NoError(t, PrepareMerchantStoreSchema(db, 1))
 	require.False(t, db.Migrator().HasColumn(&MerchantStoreProduct{}, "category_id"))
 	require.False(t, db.Migrator().HasTable(&MerchantStoreCategory{}))
