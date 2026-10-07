@@ -57,6 +57,7 @@ import { publicCreditDisplayCopy } from './public-credit-display-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
+import { storeAnalyticsLunaCopy } from './store-analytics-luna-copy.mjs'
 import { storeCategoryLunaCopy } from './store-category-luna-copy.mjs'
 import { storeDeliveryTemplateLunaCopy } from './store-delivery-template-luna-copy.mjs'
 import { storeEmptyStateCopy } from './store-empty-state-copy.mjs'
@@ -11782,6 +11783,25 @@ const retiredGameKeys = new Set([
 ])
 
 async function main() {
+  if (process.argv.includes('--store-analytics-only')) {
+    for (const [locale, values] of Object.entries(storeAnalyticsLunaCopy)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      let count = 0
+      for (const [key, value] of Object.entries(values)) {
+        if (!Object.hasOwn(json.translation, key)) {
+          json.translation[key] = value
+          count++
+        }
+      }
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: ${count} missing analytics translations added`)
+    }
+    return
+  }
   if (process.argv.includes('--store-media-only')) {
     for (const [locale, translations] of Object.entries(storeMediaLunaCopy)) {
       const filePath = path.join(LOCALES_DIR, `${locale}.json`)
@@ -13286,6 +13306,10 @@ for (const [locale, values] of Object.entries(storeSocialLunaCopy)) {
 }
 
 for (const [locale, values] of Object.entries(storeMerchantHomeLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeAnalyticsLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
