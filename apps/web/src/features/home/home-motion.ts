@@ -14,9 +14,10 @@ export const easePosterProgress = (
 /** One owned animation loop. Scroll stays native; geometry eases towards it. */
 export function mountHomeMotion(root: HTMLElement) {
   const cinema = root.querySelector<HTMLElement>('[data-cinema]')
-  const inner = root.querySelector<HTMLElement>('[data-cinema-inner]')
+  const innerNode = root.querySelector<HTMLElement>('[data-cinema-inner]')
   const canvas = root.querySelector<HTMLCanvasElement>('[data-film]')
-  if (!cinema || !inner || !canvas) return () => {}
+  if (!cinema || !innerNode || !canvas) return () => {}
+  const inner = innerNode
   const film = createHomePoster(canvas, () => refresh())
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
   const fine = window.matchMedia('(hover: hover) and (pointer: fine)')

@@ -112,7 +112,10 @@ function fixture({ graphics = true, observers = true } = {}) {
       <div data-story-panel><button>Two</button></div>
       <div data-story-panel><button>Three</button></div>
     </section></main>`
-  const root = view.document.querySelector<HTMLElement>('main')!
+  const fixtureRoot = view.document.querySelector('main')
+  assert.ok(fixtureRoot)
+  // Cross happy-dom's structural DOM types once at the browser fixture boundary.
+  const root = fixtureRoot as unknown as HTMLElement
   const cinema = root.querySelector<HTMLElement>('[data-cinema]')!
   const inner = root.querySelector<HTMLElement>('[data-cinema-inner]')!
   const canvases = [...root.querySelectorAll<HTMLCanvasElement>('canvas')]
