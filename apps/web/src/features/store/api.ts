@@ -1,7 +1,7 @@
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { api } from '@/lib/api'
 
 import { STORE_ACCESS_COPY } from './access-copy'
-/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import type { StoreCatalogueProduct } from './catalogue-types'
 import { storeSocialProductResponse } from './product-social-state'
 import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'

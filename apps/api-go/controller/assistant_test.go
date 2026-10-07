@@ -1337,7 +1337,7 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 56)
+	require.Len(t, definitions, 55)
 	names := make(map[string]bool, len(definitions))
 	byName := make(map[string]assistantOpenAIToolDefinition, len(definitions))
 	for _, definition := range definitions {

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -93,7 +94,7 @@ func TestMerchantStoreAccessScopeFiltersBeforePagination(t *testing.T) {
 	require.Equal(t, []string{"hidden-private", "hidden-registered", "legacy-private", "visible-first", "visible-second"}, ids)
 	require.NoError(t, MerchantStoreVisibleProductsForViewer(DB, f.root.Id).Where("id <> ?", f.product.ID).Order("id").Pluck("id", &ids).Error)
 	require.NotContains(t, ids, "hidden-private")
-	for _, gate := range []string{"missing", "broken", "6"} {
+	for _, gate := range []string{"missing", "broken", strconv.Itoa(MerchantStoreWriterCapability + 1)} {
 		t.Run("invalid gate cannot downgrade visibility/"+gate, func(t *testing.T) {
 			if gate == "missing" {
 				require.NoError(t, DB.Where("key = ?", MerchantStoreWriterCapabilityOption).Delete(&Option{}).Error)

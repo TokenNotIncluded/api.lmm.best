@@ -48,9 +48,16 @@ func TestMerchantStoreWriterGateCommandRejectsFlagsBeforeDatabaseAccess(t *testi
 
 func TestMerchantStoreWriterGateCommandRequiresExplicitDatabaseWithoutServerStartup(t *testing.T) {
 	t.Setenv("SQL_DSN", "")
-	for _, action := range []string{"status", "bootstrap"} {
+	for _, args := range [][]string{
+		{"status"}, {"bootstrap"},
+		{"prepare-schema", "--expected-current=5", "--reviewed-store-schema-ready"},
+		{"activate-phase-six", "--expected-current=5", "--reviewed-phase-six-ready"},
+	} {
 		var out, errs bytes.Buffer
-		require.Equal(t, appcli.ExitError, runMerchantStoreWriterGateCommand([]string{action}, &out, &errs))
+		result := appcli.Dispatch(append([]string{"merchant-store-writer-gate"}, args...), "test", &out, &errs)
+		require.Equal(t, appcli.ModeMerchantStoreWriterGate, result.Mode)
+		require.Equal(t, args, result.GateArgs)
+		require.Equal(t, appcli.ExitError, runMerchantStoreWriterGateCommand(result.GateArgs, &out, &errs))
 		require.Empty(t, out.String())
 		require.Empty(t, errs.String())
 	}

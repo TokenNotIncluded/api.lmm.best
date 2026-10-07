@@ -38,6 +38,12 @@ func TestProductionMerchantStoreCapsuleClosedProjection(t *testing.T) {
 	if err := validateMerchantStoreCapsule(good, paths); err != nil {
 		t.Fatal(err)
 	}
+	phaseSix := cloneMerchantCapsule(good)
+	phaseSix.Writer.Candidate.Capability = 6
+	phaseSix.Candidate.MerchantStoreWriterCapability = 6
+	if err := validateMerchantStoreCapsule(phaseSix, paths); err != nil {
+		t.Fatalf("supported phase-six candidate: %v", err)
+	}
 	cases := map[string]func(*productionMerchantStoreCapsule){
 		"host injection":    func(c *productionMerchantStoreCapsule) { c.Host = "dmit-ubuntu;anything" },
 		"service redirect":  func(c *productionMerchantStoreCapsule) { c.Service = "arbitrary.service" },
@@ -48,8 +54,8 @@ func TestProductionMerchantStoreCapsuleClosedProjection(t *testing.T) {
 		"physical identity": func(c *productionMerchantStoreCapsule) { c.ExistingSchemaContract.SystemIdentifier = "3" },
 		"ordered startup":   func(c *productionMerchantStoreCapsule) { c.Writer.StartupSHA256 = strings.Repeat("4", 64) },
 		"future capability": func(c *productionMerchantStoreCapsule) {
-			c.Writer.Candidate.Capability = 6
-			c.Candidate.MerchantStoreWriterCapability = 6
+			c.Writer.Candidate.Capability = 7
+			c.Candidate.MerchantStoreWriterCapability = 7
 		},
 		"legacy retained": func(c *productionMerchantStoreCapsule) {
 			c.Writer.Rollback.Capability = 0
