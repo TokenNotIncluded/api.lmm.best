@@ -299,7 +299,7 @@ test('real products retain their product links and shelf', async () => {
   api.get = (async () =>
     result({ items: [product], has_more: false })) as typeof api.get
   await mount(<StorePage />)
-  assert.equal(document.querySelectorAll('article').length, 1)
+  assert.equal(document.querySelectorAll('article, [role="article"]').length, 1)
   assert.equal(document.querySelectorAll('button[aria-pressed]').length, 0)
   assert.ok(document.querySelector('a[href="/store/products/product-fixture"]'))
   assert.equal(

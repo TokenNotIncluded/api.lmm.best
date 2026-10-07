@@ -2060,13 +2060,13 @@ func TestAssistantAgentUsesCurrentAccessWithoutReadingRetiredLetter(t *testing.T
 		turn++
 		switch turn {
 		case 1:
-			requireAssistantPairedReadReceipt(t, request, "get_account_access", true)
+			toolResult := requireAssistantPairedReadReceipt(t, request, "get_account_access", true)
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			encoded := string(mustAssistantJSON(t, request.Messages))
 			assert.NotContains(t, encoded, existing.AIRecommendation)
-			assert.NotContains(t, encoded, `"l1_request"`)
-			assert.Contains(t, encoded, `"registration_workflow"`)
+			assert.NotContains(t, toolResult, "l1_request")
+			assert.Contains(t, toolResult, "registration_workflow")
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"Recommendation submission is retired. Continue registration verification in this conversation."}}]}`), nil
 		default:
 			return http.StatusInternalServerError, nil, nil
