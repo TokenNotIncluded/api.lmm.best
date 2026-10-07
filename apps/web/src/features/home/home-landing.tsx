@@ -35,6 +35,7 @@ type HomeLandingProps = {
   t: (key: string) => string
   language: string
   primaryAction: ReactNode
+  storeAction: ReactNode
   pricingAction: ReactNode
   topUpAction?: ReactNode
   assistant: ReactNode
@@ -146,6 +147,7 @@ export function HomeLanding({
   t,
   language,
   primaryAction,
+  storeAction,
   pricingAction,
   topUpAction,
   assistant,
@@ -234,6 +236,7 @@ export function HomeLanding({
             />
             <div className='lmm-intro-actions'>
               {primaryAction}
+              {storeAction}
               {topUpAction}
               {pricingAction}
             </div>
