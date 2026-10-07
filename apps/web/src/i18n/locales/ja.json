@@ -10682,6 +10682,7 @@
     "Use secure connection when sending emails": "メール送信時に安全な接続を使用する",
     "Use sidebar shortcut": "サイドバーのショートカットを使用",
     "Use system default": "システム既定を使用",
+    "Use the API to restore your automatic level L{{level}}.": "APIを再度利用すると、自動レベル L{{level}} に戻ります。",
     "Use the complete model ID printed by codewhale-lmm models, including its group. Do not replace it with only the upstream model name.": "codewhale-lmm models が表示する、グループを含む完全なモデル ID を使用してください。上流モデル名だけに置き換えないでください。",
     "Use the full-width table to scan prices, then select a row to edit it here.": "表で価格を確認し、行を選択してここで編集します。",
     "Use the gateway for your own work, or browse public open-source challenges.": "自分の作業に使うことも、公開されたオープンソースの課題を閲覧することもできます。",

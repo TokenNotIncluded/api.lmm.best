@@ -9,7 +9,12 @@ import { createInstance } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 
-import type { TrustLevelInfo, TrustLevelTier } from '@/stores/auth-store'
+import {
+  useAuthStore,
+  type TrustLevelInfo,
+  type TrustLevelTier,
+} from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import type { UserWalletData } from '../types'
 import { getTrustLevelProgress } from './trust-level-display'
@@ -134,6 +139,12 @@ test('the automatic ladder uses exact cumulative credits before legacy dollar pr
     null
   )
   assert.equal(
+    getTrustLevelProgress({ ...state, paid_credits: undefined }, tiers)
+      .progress,
+    null,
+    'legacy dollar projections never supply canonical credit progress'
+  )
+  assert.equal(
     getTrustLevelProgress({ ...state, next_level: 5 }, tiers).nextLevel,
     null
   )
@@ -161,10 +172,133 @@ test('the automatic ladder uses exact cumulative credits before legacy dollar pr
   )
 })
 
+test('configured upgrade amounts round up in the selected currency to satisfy the exact credit threshold', async () => {
+  const dom = new Window()
+  const keys = [
+    'window',
+    'document',
+    'navigator',
+    'HTMLElement',
+    'SVGElement',
+    'Node',
+    'Element',
+    'MutationObserver',
+    'requestAnimationFrame',
+    'cancelAnimationFrame',
+  ] as const
+  const descriptors = keys.map(
+    (key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const
+  )
+  for (const key of keys) {
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      value: dom[key],
+    })
+  }
+  const actDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    'IS_REACT_ACT_ENVIRONMENT'
+  )
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+    configurable: true,
+    value: true,
+  })
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const container = dom.document.createElement('div')
+  dom.document.body.append(container)
+  const root = createRoot(container)
+  const previousConfig = useSystemConfigStore.getState().config
+  const previousAuth = useAuthStore.getState().auth
+  useSystemConfigStore.setState({
+    config: {
+      ...previousConfig,
+      currency: {
+        ...previousConfig.currency,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+      },
+    },
+  })
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'minimum-upgrade-test',
+    role: 1,
+    setting: { wallet_display_currency: 'USD' },
+  })
+  try {
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <TrustLevelPanel
+            user={{
+              ...walletFixture,
+              trust_level_info: {
+                ...info(1),
+                paid_credits: '500000',
+                next_level: 2,
+                credits_to_next_level: '500001',
+              },
+              trust_level_tiers: tiers.map((tier) =>
+                tier.level === 2
+                  ? { ...tier, min_paid_credits: '1000001' }
+                  : tier
+              ),
+            }}
+          />
+        </I18nextProvider>
+      )
+    )
+    assert.match(container.textContent ?? '', /1\.01 USD needed for L2/)
+    assert.match(container.textContent ?? '', /2\.01 USD/)
+  } finally {
+    await act(async () => root.unmount())
+    useSystemConfigStore.setState({ config: previousConfig })
+    useAuthStore.setState({ auth: previousAuth })
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else Reflect.deleteProperty(globalThis, key)
+    }
+    if (actDescriptor) {
+      Object.defineProperty(
+        globalThis,
+        'IS_REACT_ACT_ENVIRONMENT',
+        actDescriptor
+      )
+    } else {
+      Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT')
+    }
+    dom.close()
+  }
+})
+
 test('the highest automatic level has no fabricated next-step percentage', () => {
   const markup = render(4)
   assert.match(markup, /Highest automatic level reached/)
   assert.doesNotMatch(markup, /recharge-level-progress|role="progressbar"|100%/)
+})
+
+test('activity-decayed L4 gives a recovery action instead of claiming the current highest level', () => {
+  const user: UserWalletData = {
+    ...walletFixture,
+    trust_level_info: {
+      ...info(1),
+      automatic_level: 4,
+      inactivity_decay_steps: 3,
+      paid_credits: '9000000',
+    },
+    trust_level_tiers: tiers,
+  }
+  const markup = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <TrustLevelPanel user={user} />
+    </I18nextProvider>
+  )
+  assert.match(markup, /trust-level-recovery/)
+  assert.match(markup, /Use the API to restore your automatic level L4/)
+  assert.match(markup, /href="\/getting-started"/)
+  assert.doesNotMatch(markup, /Highest automatic level reached/)
 })
 
 test('unavailable canonical recharge history never becomes a zero balance or legacy progress', () => {

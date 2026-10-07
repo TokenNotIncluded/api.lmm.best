@@ -10682,6 +10682,7 @@
     "Use secure connection when sending emails": "Utiliser une connexion sécurisée lors de l'envoi d'e-mails",
     "Use sidebar shortcut": "Utiliser le raccourci de la barre latérale",
     "Use system default": "Utiliser la valeur système",
+    "Use the API to restore your automatic level L{{level}}.": "Utilisez à nouveau l’API pour rétablir votre niveau automatique L{{level}}.",
     "Use the complete model ID printed by codewhale-lmm models, including its group. Do not replace it with only the upstream model name.": "Utilisez l’identifiant complet affiché par codewhale-lmm models, groupe compris. Ne le remplacez pas par le seul nom du modèle amont.",
     "Use the full-width table to scan prices, then select a row to edit it here.": "Parcourez les prix dans le tableau, puis sélectionnez une ligne pour la modifier ici.",
     "Use the gateway for your own work, or browse public open-source challenges.": "Utilisez la passerelle pour vos projets ou parcourez les défis open source publics.",

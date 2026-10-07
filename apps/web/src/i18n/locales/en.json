@@ -10682,6 +10682,7 @@
     "Use secure connection when sending emails": "Use secure connection when sending emails",
     "Use sidebar shortcut": "Use sidebar shortcut",
     "Use system default": "Use system default",
+    "Use the API to restore your automatic level L{{level}}.": "Use the API to restore your automatic level L{{level}}.",
     "Use the complete model ID printed by codewhale-lmm models, including its group. Do not replace it with only the upstream model name.": "Use the complete model ID printed by codewhale-lmm models, including its group. Do not replace it with only the upstream model name.",
     "Use the full-width table to scan prices, then select a row to edit it here.": "Use the full-width table to scan prices, then select a row to edit it here.",
     "Use the gateway for your own work, or browse public open-source challenges.": "Use the gateway for your own work, or browse public open-source challenges.",

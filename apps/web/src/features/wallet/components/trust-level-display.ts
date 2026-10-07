@@ -49,28 +49,6 @@ export function getTrustLevelProgress(
     if (paid != null && previous != null && next != null && next > previous) {
       const units = ((paid - previous) * 10000n) / (next - previous)
       progress = Number(units < 0n ? 0n : units > 10000n ? 10000n : units) / 100
-    } else if (
-      info?.paid_credits === undefined &&
-      typeof info?.paid_amount === 'number' &&
-      Number.isFinite(info?.paid_amount)
-    ) {
-      const previousAmount = currentTier?.min_paid_amount ?? 0
-      const nextAmount = nextTier.min_paid_amount
-      if (
-        Number.isFinite(previousAmount) &&
-        Number.isFinite(nextAmount) &&
-        nextAmount > previousAmount
-      ) {
-        progress = Math.min(
-          100,
-          Math.max(
-            0,
-            ((info.paid_amount - previousAmount) /
-              (nextAmount - previousAmount)) *
-              100
-          )
-        )
-      }
     }
   }
   return {

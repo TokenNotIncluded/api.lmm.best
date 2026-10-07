@@ -23,7 +23,9 @@ import { toast } from 'sonner'
 import { SectionPageLayout } from '@/components/layout'
 import { ConsoleDisclosure } from '@/components/layout/components/console-disclosure'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { useAuthUserRefresh } from '@/features/onboarding'
+import { getL0PaidAccess } from '@/features/onboarding/l0-paid-access'
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { isConsoleActivated } from '@/lib/console-activation'
@@ -158,6 +160,11 @@ function WalletCheckout(
       ? configuredQuotaPerUnit
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const developerAccessGranted = !localPreview && isConsoleActivated(authUser)
+  const paidAccess = getL0PaidAccess(authUser)
+  const activationShortfall =
+    !developerAccessGranted && paidAccess.mode === 'topup'
+      ? paidAccess.remainingCredits
+      : 0
   const [legacyPrefill] = useState<number | null>(() =>
     getWalletTopupPrefill(
       typeof window === 'undefined' ? '' : window.location.search,
@@ -179,7 +186,10 @@ function WalletCheckout(
   >(null)
   const billingDialogOpen =
     billingDialogOverride ??
-    (props.initialShowHistory === true && developerAccessGranted)
+    (props.initialShowHistory === true && user !== null)
+  const [accountRefreshState, setAccountRefreshState] = useState<
+    'idle' | 'refreshing' | 'error'
+  >('idle')
   const [redemptionCode, setRedemptionCode] = useState('')
   const [initialDiscountCode] = useState(() =>
     typeof window === 'undefined'
@@ -321,8 +331,10 @@ function WalletCheckout(
   )
 
   const refreshWalletUser = useCallback(async () => {
-    await refreshUser()
-  }, [refreshUser])
+    setAccountRefreshState('refreshing')
+    const refreshed = await refreshUser()
+    if (isCurrent()) setAccountRefreshState(refreshed ? 'idle' : 'error')
+  }, [refreshUser, isCurrent])
 
   const refreshAfterPaymentLaunch = useCallback(async () => {
     const refreshedUser = await refreshUser()
@@ -399,7 +411,9 @@ function WalletCheckout(
       topupAmountInitializedRef.current = true
       const prefill =
         legacyPrefill === null
-          ? currency.legacyAmountToQuota(10)
+          ? activationShortfall > 0
+            ? activationShortfall
+            : currency.legacyAmountToQuota(10)
           : currency.legacyAmountToQuota(legacyPrefill)
       const initialAmount =
         rawTopupDraft !== null
@@ -422,6 +436,7 @@ function WalletCheckout(
     topupAvailability,
     currency,
     legacyPrefill,
+    activationShortfall,
     enteredTopupAmount,
     calculatePaymentAmount,
     appliedDiscountCode,
@@ -1084,6 +1099,16 @@ function WalletCheckout(
     <>
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
+        {user && !developerAccessGranted ? (
+          <SectionPageLayout.Actions>
+            <Button
+              variant='outline'
+              onClick={() => setBillingDialogOpen(true)}
+            >
+              {t('Order History')}
+            </Button>
+          </SectionPageLayout.Actions>
+        ) : null}
         <SectionPageLayout.Content>
           <div className='wallet-editorial mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5'>
             {confirmedReceiptOrderId !== null ? (
@@ -1107,9 +1132,7 @@ function WalletCheckout(
                     : undefined
                 }
                 onViewHistory={
-                  developerAccessGranted
-                    ? () => setBillingDialogOpen(true)
-                    : undefined
+                  user ? () => setBillingDialogOpen(true) : undefined
                 }
                 onDismiss={() => {
                   acknowledgeTopupCloud(confirmedReceiptOrderId)
@@ -1128,7 +1151,19 @@ function WalletCheckout(
                   paymentFeedback.tone === 'destructive' ? 'alert' : 'status'
                 }
               >
-                <AlertDescription>{paymentFeedback.message}</AlertDescription>
+                <AlertDescription>
+                  {paymentFeedback.message}
+                  {user ? (
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      className='mt-2'
+                      onClick={() => setBillingDialogOpen(true)}
+                    >
+                      {t('Check payment status')}
+                    </Button>
+                  ) : null}
+                </AlertDescription>
               </Alert>
             ) : null}
             <div
@@ -1255,9 +1290,15 @@ function WalletCheckout(
                 />
               </div>
 
-              {developerAccessGranted ? (
+              {user ? (
                 <ConsoleDisclosure id='trust-level' title={t('Trust level')}>
-                  <TrustLevelPanel user={user} loading={userLoading} />
+                  <TrustLevelPanel
+                    user={user}
+                    loading={userLoading}
+                    onRefresh={refreshWalletUser}
+                    refreshing={accountRefreshState === 'refreshing'}
+                    refreshError={accountRefreshState === 'error'}
+                  />
                 </ConsoleDisclosure>
               ) : null}
 
@@ -1326,7 +1367,7 @@ function WalletCheckout(
         />
       ) : null}
 
-      {developerAccessGranted ? (
+      {user ? (
         <BillingHistoryDialog
           open={billingDialogOpen}
           onOpenChange={setBillingDialogOpen}

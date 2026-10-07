@@ -10682,6 +10682,7 @@
     "Use secure connection when sending emails": "Sử dụng kết nối an toàn khi gửi email",
     "Use sidebar shortcut": "Sử dụng phím tắt thanh bên",
     "Use system default": "Dùng mặc định của hệ thống",
+    "Use the API to restore your automatic level L{{level}}.": "Hãy sử dụng API lại để khôi phục cấp tự động L{{level}}.",
     "Use the complete model ID printed by codewhale-lmm models, including its group. Do not replace it with only the upstream model name.": "Hãy dùng đầy đủ ID model do codewhale-lmm models in ra, bao gồm cả nhóm. Không thay bằng riêng tên model upstream.",
     "Use the full-width table to scan prices, then select a row to edit it here.": "Duyệt giá trong bảng, rồi chọn một hàng để chỉnh sửa tại đây.",
     "Use the gateway for your own work, or browse public open-source challenges.": "Bạn có thể dùng cổng cho công việc của mình hoặc xem các thử thách mã nguồn mở công khai.",

@@ -27,10 +27,15 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import {
+  formatMinimumQuotaInCurrency,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 import type { TrustLevelTier } from '@/stores/auth-store'
 
@@ -40,6 +45,9 @@ import { getTrustLevelProgress, parseTrustCredits } from './trust-level-display'
 interface TrustLevelPanelProps {
   user: UserWalletData | null
   loading?: boolean
+  onRefresh?: () => Promise<void> | void
+  refreshing?: boolean
+  refreshError?: boolean
 }
 
 function formatDiscount(percent: number) {
@@ -76,10 +84,12 @@ function formatTierBenefits(tier: TrustLevelTier, t: (key: string) => string) {
 export function TrustLevelPanel({
   user,
   loading = false,
+  onRefresh,
+  refreshing = false,
+  refreshError = false,
 }: TrustLevelPanelProps) {
   const { t, i18n } = useTranslation()
-  const { formatLegacyAmount: formatPlatformCreditBalance, formatQuota } =
-    useWalletCurrency()
+  const currency = useWalletCurrency()
   const info = user?.trust_level_info
   const tiers = user?.trust_level_tiers ?? []
 
@@ -111,21 +121,36 @@ export function TrustLevelPanel({
     progress,
     roleAssigned,
   } = getTrustLevelProgress(info, tiers, user?.role)
+  const recoveryLevel =
+    !roleAssigned &&
+    !info?.overridden &&
+    automaticLevel != null &&
+    automaticLevel > currentLevel &&
+    (info?.inactivity_decay_steps ?? 0) > 0
+      ? automaticLevel
+      : null
   const formatPaidCredits = (
     credits: string | null | undefined,
-    legacyAmount?: number | null
+    minimum = false
   ) => {
-    if (credits !== undefined) {
-      const exact = parseTrustCredits(credits)
-      if (exact == null) return '-'
-      if (exact <= BigInt(Number.MAX_SAFE_INTEGER)) {
-        return formatQuota(Number(exact))
-      }
-      return `${exact.toLocaleString(i18n.resolvedLanguage || i18n.language)} ${t('Credits')}`
+    const exact = parseTrustCredits(credits)
+    if (exact == null) return '-'
+    if (exact <= BigInt(Number.MAX_SAFE_INTEGER)) {
+      return minimum
+        ? formatMinimumQuotaInCurrency(
+            Number(exact),
+            currency.currency,
+            {
+              locale: getCurrencyFormattingLocale(
+                i18n.resolvedLanguage || i18n.language
+              ),
+              creditLabel: currency.label,
+            },
+            currency.config
+          )
+        : currency.formatQuota(Number(exact))
     }
-    return typeof legacyAmount === 'number' && Number.isFinite(legacyAmount)
-      ? formatPlatformCreditBalance(legacyAmount)
-      : '-'
+    return `${exact.toLocaleString(i18n.resolvedLanguage || i18n.language)} ${t('Credits')}`
   }
   let decayLabel = t('No further decay at the current level')
   if (roleAssigned) {
@@ -166,10 +191,27 @@ export function TrustLevelPanel({
                 </p>
               </div>
             </div>
-            <Badge variant={info?.overridden ? 'warning' : 'outline'}>
-              {statusLabel}
-            </Badge>
+            <div className='flex flex-wrap items-center gap-2'>
+              <Badge variant={info?.overridden ? 'warning' : 'outline'}>
+                {statusLabel}
+              </Badge>
+              {onRefresh ? (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  disabled={refreshing}
+                  onClick={() => void onRefresh()}
+                >
+                  {t(refreshing ? 'Refreshing...' : 'Refresh account status')}
+                </Button>
+              ) : null}
+            </div>
           </div>
+          {refreshError ? (
+            <p role='status' className='text-muted-foreground mt-2 text-xs'>
+              {t('Refresh failed')}
+            </p>
+          ) : null}
 
           <div className='mt-6 flex items-end gap-3'>
             <span className='font-mono text-5xl leading-none font-semibold tracking-tight tabular-nums'>
@@ -213,15 +255,14 @@ export function TrustLevelPanel({
               <div className='text-muted-foreground flex flex-wrap justify-between gap-x-4 gap-y-1 text-[11px] leading-4'>
                 <span>
                   {t('Cumulative eligible recharge')}:{' '}
-                  {formatPaidCredits(info?.paid_credits, info?.paid_amount)}
+                  {formatPaidCredits(info?.paid_credits)}
                 </span>
-                {(info?.credits_to_next_level != null ||
-                  info?.amount_to_next_level != null) && (
+                {info?.credits_to_next_level != null && (
                   <span>
                     {t('{{amount}} needed for L{{level}}', {
                       amount: formatPaidCredits(
                         info?.credits_to_next_level,
-                        info?.amount_to_next_level
+                        true
                       ),
                       level: nextLevel,
                     })}
@@ -229,10 +270,27 @@ export function TrustLevelPanel({
                 )}
               </div>
             </div>
-          ) : automaticLevel === 4 ? (
+          ) : automaticLevel === 4 && recoveryLevel === null ? (
             <p className='text-muted-foreground mt-6 text-sm'>
               {t('Highest automatic level reached')}
             </p>
+          ) : null}
+
+          {recoveryLevel !== null ? (
+            <div className='mt-4 space-y-2' data-testid='trust-level-recovery'>
+              <p className='text-muted-foreground text-sm'>
+                {t('Use the API to restore your automatic level L{{level}}.', {
+                  level: recoveryLevel,
+                })}
+              </p>
+              <Button
+                variant='outline'
+                size='sm'
+                render={<a href='/getting-started' />}
+              >
+                {t('Continue setup')}
+              </Button>
+            </div>
           ) : null}
 
           <div className='mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3'>
@@ -332,14 +390,9 @@ export function TrustLevelPanel({
                       : formatDiscount(tier.discount_percent)}
                   </p>
                   <p className='text-muted-foreground mt-1 truncate text-[10px]'>
-                    {tier.min_paid_credits === '0' ||
-                    (tier.min_paid_credits === undefined &&
-                      tier.min_paid_amount === 0)
+                    {tier.min_paid_credits === '0'
                       ? t('No minimum')
-                      : formatPaidCredits(
-                          tier.min_paid_credits,
-                          tier.min_paid_amount
-                        )}
+                      : formatPaidCredits(tier.min_paid_credits, true)}
                   </p>
                   <p
                     className='text-muted-foreground mt-2 line-clamp-2 text-[10px] leading-4'

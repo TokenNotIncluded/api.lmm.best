@@ -17,27 +17,48 @@ import {
   type L0AccessCheckState,
 } from './l0-paid-access'
 
-const account = (threshold = 1, paid = 0): L0AccessAccount => ({
+type TestAccount = L0AccessAccount & {
+  onboarding: NonNullable<L0AccessAccount['onboarding']>
+  trust_level_info: NonNullable<L0AccessAccount['trust_level_info']>
+}
+
+const account = (threshold = 500000, paid = 0): TestAccount => ({
   id: 7,
   developer_access_granted: false,
   onboarding: {
     paid_activation_enabled: true,
-    paid_activation_min_amount: threshold,
+    paid_activation_min_credits: String(threshold),
   },
-  trust_level_info: { paid_amount: paid },
+  trust_level_info: { paid_credits: String(paid) },
 })
 const delay = (ms = 15) => new Promise((resolve) => setTimeout(resolve, ms))
 const page = () => Object.assign(new EventTarget(), { hidden: false })
 
 test('a zero threshold offers any successful top-up, not a free upgrade', () => {
   assert.equal(getL0PaidAccess(account(0)).mode, 'topup')
-  assert.equal(getL0PaidAccess(account(0, 0.01)).mode, 'sync')
+  assert.equal(getL0PaidAccess(account(0, 1)).mode, 'sync')
 })
 
-test('amounts use credited USD micros and the remaining configured threshold', () => {
-  assert.equal(getL0PaidAccess(account(1, 0.6)).remaining, 0.4)
-  assert.equal(getL0PaidAccess(account(0.3, 0.1 + 0.2)).mode, 'sync')
-  assert.equal(getL0PaidAccess(account(0.000001, 0)).remaining, 0.000001)
+test('the remaining requirement uses exact credits and ignores old dollar projections', () => {
+  const user = account(1500000, 1000000)
+  user.onboarding.paid_activation_min_amount = 9999
+  user.trust_level_info.paid_amount = 99999
+  assert.equal(getL0PaidAccess(user).remainingCredits, 500000)
+  assert.equal(getL0PaidAccess(account(3, 3)).mode, 'sync')
+  assert.equal(getL0PaidAccess(account(1, 0)).remainingCredits, 1)
+})
+
+test('current tier credits support servers without the new onboarding alias', () => {
+  const user = account(1500000, 1000000)
+  delete user.onboarding.paid_activation_min_credits
+  user.trust_level_tiers = [{ level: 1, min_paid_credits: '1500000' }]
+  assert.equal(getL0PaidAccess(user).remainingCredits, 500000)
+  user.trust_level_info.paid_credit_projection_available = false
+  assert.equal(getL0PaidAccess(user).mode, 'unknown')
+  delete user.trust_level_info.paid_credit_projection_available
+  user.trust_level_info.paid_credits = null
+  user.trust_level_info.paid_amount = 9999
+  assert.equal(getL0PaidAccess(user).mode, 'unknown')
 })
 
 test('missing and invalid policy data never advertise paid activation', () => {
@@ -50,16 +71,16 @@ test('missing and invalid policy data never advertise paid activation', () => {
     assert.equal(getL0PaidAccess(account(1, paid)).mode, 'unknown')
   }
   const user = account()
-  user.onboarding!.details_available = false
+  user.onboarding.details_available = false
   assert.equal(getL0PaidAccess(user).mode, 'unknown')
 })
 
 test('disabled paid activation and explicit restrictions remain server controlled', () => {
   const user = account()
-  user.onboarding!.paid_activation_enabled = false
+  user.onboarding.paid_activation_enabled = false
   assert.equal(getL0PaidAccess(user).mode, 'review')
-  user.onboarding!.paid_activation_enabled = true
-  user.trust_level_info!.overridden = true
+  user.onboarding.paid_activation_enabled = true
+  user.trust_level_info.overridden = true
   assert.equal(getL0PaidAccess(user).mode, 'review')
 })
 
@@ -73,7 +94,7 @@ test('meeting the credit threshold does not invent developer permission', () => 
 
 test('a confirmed paid flag asks for synchronization, never another top-up', () => {
   const user = account(1)
-  user.onboarding!.paid_activation_complete = true
+  user.onboarding.paid_activation_complete = true
   assert.equal(getL0PaidAccess(user).mode, 'sync')
 })
 

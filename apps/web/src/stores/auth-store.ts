@@ -77,6 +77,7 @@ export type OnboardingStage =
 
 export interface OnboardingState {
   paid_activation_enabled?: boolean
+  paid_activation_min_credits?: string
   paid_activation_min_amount?: number
   paid_activation_complete?: boolean
   details_available?: boolean

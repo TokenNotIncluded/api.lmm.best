@@ -19,7 +19,11 @@ import { useTranslation } from 'react-i18next'
 
 import { SourceQuestionnaire } from '@/features/acquisition/source-questionnaire'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
-import { toIntlLocale } from '@/i18n/languages'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import {
+  formatMinimumQuotaInCurrency,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import {
@@ -96,6 +100,7 @@ function L0WelcomeStage({
   children: ReactNode
 }) {
   const { t, i18n } = useTranslation()
+  const currency = useWalletCurrency()
   const navigate = useNavigate()
   const [scene, setScene] = useState<Scene>('chat')
   const [discovery, setDiscovery] = useState(0)
@@ -112,7 +117,7 @@ function L0WelcomeStage({
   const copy = getL0AccessCopy(language)
   const access = getL0PaidAccess(user)
   const canTopUp = access.mode === 'topup'
-  const progressReady = access.threshold > 0 && access.mode !== 'active'
+  const progressReady = access.thresholdCredits > 0 && access.mode !== 'active'
   const busy = checkState === 'checking'
   const statusLabel = request.isError
     ? t('Unable to load access status')
@@ -124,12 +129,6 @@ function L0WelcomeStage({
           ? t('Access request approved')
           : t('Account and access')
   const status = request.isError ? 'error' : request.data?.status || 'default'
-  const money = (value: number) =>
-    new Intl.NumberFormat(toIntlLocale(language), {
-      style: 'currency',
-      currency: 'USD',
-      maximumFractionDigits: 6,
-    }).format(value)
   const destinations = [
     {
       to: '/pricing',
@@ -290,7 +289,15 @@ function L0WelcomeStage({
             >
               {canTopUp && progressReady
                 ? t('Top up {{amount}} for instant approval.', {
-                    amount: money(access.remaining),
+                    amount: formatMinimumQuotaInCurrency(
+                      access.remainingCredits,
+                      currency.currency,
+                      {
+                        locale: getCurrencyFormattingLocale(language),
+                        creditLabel: currency.label,
+                      },
+                      currency.config
+                    ),
                   })
                 : access.mode === 'sync'
                   ? copy.syncNote
@@ -346,7 +353,7 @@ function L0WelcomeStage({
                 <Arrow />
               </button>
             )}
-            {canTopUp && access.paid > 0 && (
+            {canTopUp && access.paidCredits > 0 && (
               <button
                 type='button'
                 className='l0-rail-action l0-rail-action--ghost'

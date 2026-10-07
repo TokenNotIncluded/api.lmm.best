@@ -10682,6 +10682,7 @@
     "Use secure connection when sending emails": "发送电子邮件时使用安全连接",
     "Use sidebar shortcut": "使用侧边栏快捷方式",
     "Use system default": "使用系统默认",
+    "Use the API to restore your automatic level L{{level}}.": "再次使用 API，即可恢复您的自动等级 L{{level}}。",
     "Use the complete model ID printed by codewhale-lmm models, including its group. Do not replace it with only the upstream model name.": "请使用 codewhale-lmm models 输出的完整模型 ID，包括分组；不要只填上游模型名。",
     "Use the full-width table to scan prices, then select a row to edit it here.": "先在表格中快速浏览价格，然后选择一行在这里编辑。",
     "Use the gateway for your own work, or browse public open-source challenges.": "你可以用它完成自己的工作，也可以浏览公开的开源悬赏挑战。",
