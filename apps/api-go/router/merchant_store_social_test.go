@@ -132,3 +132,33 @@ func TestMerchantStoreProductLikesRouterHidesPrivateAndRetiredProducts(t *testin
 		}
 	}
 }
+
+func TestMerchantStoreProductLikesRouterProjectsViewerStateInCatalogueAndDetail(t *testing.T) {
+	engine, db, sellerToken, seller, rootToken, root := merchantStoreTestRouter(t)
+	product := shopPublishedProduct(t, db, seller, root)
+	activateStoreSocialRouter(t, true)
+	storeSocialResponse(t, shopRequest(engine, "PUT", "/api/store/products/"+product.ID+"/likes", rootToken, `{}`))
+	for _, token := range []string{"", rootToken, sellerToken} {
+		response := shopRequest(engine, "GET", "/api/store/products", token, "")
+		require.Equal(t, 200, response.Code, response.Body.String())
+		var list struct {
+			Data struct {
+				Items []model.MerchantStoreProduct `json:"items"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &list))
+		require.Len(t, list.Data.Items, 1)
+		likes := list.Data.Items[0].Likes
+		require.NotNil(t, likes)
+		require.True(t, likes.Supported)
+		require.EqualValues(t, 1, *likes.Count)
+		require.Equal(t, token == rootToken, likes.Liked)
+		response = shopRequest(engine, "GET", "/api/store/products/"+product.ID, token, "")
+		require.Equal(t, 200, response.Code, response.Body.String())
+		var detail struct {
+			Data model.MerchantStoreProduct `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &detail))
+		require.Equal(t, likes, detail.Data.Likes)
+	}
+}

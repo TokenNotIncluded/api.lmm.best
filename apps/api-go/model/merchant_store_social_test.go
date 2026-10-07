@@ -1,13 +1,17 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func storeSocialFixture(t *testing.T, activate bool) storeFixture {
@@ -167,4 +171,79 @@ func TestMerchantStoreProductLikesDamagedSchemaIsUnknownAndFrozen(t *testing.T) 
 	require.Nil(t, view.Count)
 	_, err = SetMerchantStoreProductLike(f.buyer.Id, f.product.ID, true)
 	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+}
+
+type storeLikesAggregateRecorder struct {
+	logger.Interface
+	queries []string
+}
+
+func (r *storeLikesAggregateRecorder) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	sql, _ := fc()
+	if strings.Contains(sql, "merchant_store_product_likes") && strings.Contains(strings.ToUpper(sql), "GROUP BY") {
+		r.queries = append(r.queries, sql)
+	}
+	r.Interface.Trace(ctx, begin, fc, err)
+}
+
+func TestMerchantStoreProductLikesCatalogueBatchesOnlyAuthorizedProducts(t *testing.T) {
+	f := storeSocialFixture(t, true)
+	_, err := SaveMerchantStoreSellerTerms(f.seller.Id, MerchantStoreTermsInput{Content: "The selected digital item is delivered after payment."})
+	require.NoError(t, err)
+	create := func(title string) *MerchantStoreProduct {
+		p, saveErr := SaveMerchantStoreProduct(f.seller.Id, "", MerchantStoreProductInput{Title: title, Description: "Batch projection fixture", PriceQuota: 500000, Template: "card-key", PaymentMethods: []string{"balance"}})
+		require.NoError(t, saveErr)
+		_, saveErr = AddMerchantStoreStock(f.seller.Id, p.ID, []string{"BATCH-FIXTURE-CARD"})
+		require.NoError(t, saveErr)
+		require.NoError(t, SubmitMerchantStoreProduct(f.seller.Id, p.ID))
+		require.NoError(t, ReviewMerchantStoreProduct(f.root.Id, p.ID, true, ""))
+		return p
+	}
+	second, private := create("Second public batch product"), create("Private batch product")
+	_, err = SetMerchantStoreProductLike(f.buyer.Id, f.product.ID, true)
+	require.NoError(t, err)
+	_, err = SetMerchantStoreProductLike(f.seller.Id, f.product.ID, true)
+	require.NoError(t, err)
+	require.NoError(t, DB.Model(&MerchantStoreProduct{}).Where("id = ?", private.ID).Updates(map[string]any{"visibility": "private", "test_mode": true}).Error)
+	_, err = SetMerchantStoreProductLike(f.seller.Id, private.ID, true)
+	require.NoError(t, err)
+	original := DB
+	recorder := &storeLikesAggregateRecorder{Interface: DB.Logger}
+	DB = DB.Session(&gorm.Session{Logger: recorder})
+	t.Cleanup(func() { DB = original })
+	for _, actor := range []int{f.buyer.Id, 0, f.root.Id} {
+		recorder.queries = nil
+		products, listErr := ListMerchantStoreCatalogue(actor, "", 0, 0, 30, MerchantStoreCatalogueQuery{})
+		require.NoError(t, listErr)
+		require.Len(t, products, 2)
+		require.Len(t, recorder.queries, 1, "a multi-product page needs one likes aggregate")
+		require.NotContains(t, recorder.queries[0], private.ID)
+		for _, p := range products {
+			require.NotNil(t, p.Likes)
+			require.True(t, p.Likes.Supported)
+			require.NotNil(t, p.Likes.Count)
+			if p.ID == second.ID {
+				require.Zero(t, *p.Likes.Count)
+				require.False(t, p.Likes.Liked)
+			} else {
+				require.Equal(t, f.product.ID, p.ID)
+				require.EqualValues(t, 2, *p.Likes.Count)
+				require.Equal(t, actor == f.buyer.Id, p.Likes.Liked)
+			}
+		}
+	}
+	for _, actor := range []int{0, f.buyer.Id, f.seller.Id} {
+		p, detailErr := GetMerchantStoreProductForViewer(actor, f.product.ID)
+		require.NoError(t, detailErr)
+		require.NotNil(t, p.Likes)
+		require.EqualValues(t, 2, *p.Likes.Count)
+		require.Equal(t, actor > 0, p.Likes.Liked)
+	}
+	_, err = GetMerchantStoreProductForViewer(f.root.Id, private.ID)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	p, err := GetMerchantStoreProductPreview(f.seller.Id, private.ID)
+	require.NoError(t, err)
+	require.NotNil(t, p.Likes)
+	require.True(t, p.Likes.Liked)
+	require.EqualValues(t, 1, *p.Likes.Count)
 }
