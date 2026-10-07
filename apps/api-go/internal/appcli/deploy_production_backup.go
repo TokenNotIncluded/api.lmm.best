@@ -380,8 +380,16 @@ func productionDatabaseCommand(values map[string]string) (string, []string, erro
 		return "", nil, err
 	}
 	parsed, err := url.Parse(databaseURL)
-	if err != nil {
+	if err != nil || parsed.Fragment != "" {
 		return "", nil, errors.New("production database URL is invalid")
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return "", nil, errors.New("production database parameters are invalid")
+	}
+	converted, err := productionLibpqRuntimeParameters(query, values)
+	if err != nil {
+		return "", nil, err
 	}
 	overrides := make(map[string]string)
 	if parsed.User != nil {
@@ -390,7 +398,77 @@ func productionDatabaseCommand(values map[string]string) (string, []string, erro
 			parsed.User = url.User(parsed.User.Username())
 		}
 	}
+	if passwords, present := query["password"]; present {
+		if len(passwords) != 1 || strings.ContainsRune(passwords[0], '\x00') {
+			return "", nil, errors.New("production database password parameter is invalid")
+		}
+		overrides["PGPASSWORD"] = passwords[0]
+		query.Del("password")
+		converted = true
+	}
+	if converted {
+		// libpq percent-decodes URI values; unlike Go's query parser it does
+		// not decode form-encoded '+' as a space.
+		parsed.RawQuery = strings.ReplaceAll(query.Encode(), "+", "%20")
+	}
 	return parsed.String(), productionChildEnvironment(values, overrides), nil
+}
+
+func productionLibpqRuntimeParameters(query url.Values, values map[string]string) (bool, error) {
+	// These are the two pgx startup parameters used by the native schema
+	// fence. Leave other connection parameters for libpq to validate instead
+	// of guessing which unknown names might be server settings.
+	runtimeKeys := []string{"search_path", "default_transaction_read_only"}
+	converted := false
+	for _, key := range append([]string{"options"}, runtimeKeys...) {
+		entries, present := query[key]
+		if !present {
+			continue
+		}
+		// pgx selects the first URI value, whereas libpq can select the last.
+		// Reject that ambiguity without including private values in errors.
+		if len(entries) != 1 || strings.ContainsRune(entries[0], '\x00') {
+			return false, errors.New("production database runtime parameters are invalid")
+		}
+		converted = converted || key != "options"
+	}
+	if !converted {
+		return false, nil
+	}
+	options, present := values["PGOPTIONS"]
+	if !present {
+		options = os.Getenv("PGOPTIONS")
+	}
+	if uriOptions, present := query["options"]; present {
+		options = uriOptions[0]
+	}
+	// A trailing unpaired backslash would escape the separator we append.
+	trailingBackslashes := len(options) - len(strings.TrimRight(options, `\`))
+	if strings.ContainsRune(options, '\x00') || trailingBackslashes%2 != 0 {
+		return false, errors.New("production database runtime options are invalid")
+	}
+	for _, key := range runtimeKeys {
+		entries, present := query[key]
+		if !present {
+			continue
+		}
+		// PostgreSQL applies direct startup GUCs after options. Appending them
+		// preserves that precedence, including intentionally empty values.
+		var escaped strings.Builder
+		for _, character := range entries[0] {
+			if character == '\\' || strings.ContainsRune(" \t\n\r\v\f", character) {
+				escaped.WriteByte('\\')
+			}
+			escaped.WriteRune(character)
+		}
+		if options != "" {
+			options += " "
+		}
+		options += "-c " + key + "=" + escaped.String()
+		query.Del(key)
+	}
+	query.Set("options", options)
+	return true, nil
 }
 
 func productionChildEnvironment(values map[string]string, overrides map[string]string) []string {

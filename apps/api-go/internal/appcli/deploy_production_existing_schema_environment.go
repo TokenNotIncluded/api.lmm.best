@@ -236,7 +236,14 @@ func (runtime *productionRuntime) verifyExistingSchemaEffectiveSearchPath(ctx co
 	if err := validateProductionExistingSchemaContract(expected); err != nil {
 		return err
 	}
-	databaseURL, environment, err := productionDatabaseCommand(values)
+	// The adapter must not promote the operator's ambient PGOPTIONS into URI
+	// options before the process-environment filtering below can remove them.
+	commandValues := make(map[string]string, len(values)+1)
+	for key, value := range values {
+		commandValues[key] = value
+	}
+	commandValues["PGOPTIONS"] = values["PGOPTIONS"]
+	databaseURL, environment, err := productionDatabaseCommand(commandValues)
 	if err != nil {
 		return err
 	}

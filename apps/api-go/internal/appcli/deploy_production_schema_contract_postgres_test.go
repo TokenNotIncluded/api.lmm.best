@@ -4,6 +4,7 @@ package appcli
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,16 +111,47 @@ CREATE VIEW test_schema.stock_view AS SELECT id,quota FROM test_schema.stock;`)
 	}
 	// A hostile original DSN cannot undo the child's read-only options.
 	runtime := productionRuntime{}
-	url := "postgres:///postgres?host=" + socket + "&options=-c%20default_transaction_read_only%3Doff"
-	environment, err := runtime.existingSchemaMigrationEnvironment([]byte("SQL_DSN="+url+"\n"), "test_schema")
+	databaseDSN := "postgres:///postgres?host=" + socket + "&options=-c%20default_transaction_read_only%3Doff&search_path=public&default_transaction_read_only=off"
+	environment, err := runtime.existingSchemaMigrationEnvironment([]byte("SQL_DSN="+databaseDSN+"\n"), "test_schema")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var fencedDSN string
+	childValues := make(map[string]string)
 	for _, assignment := range environment {
+		key, value, _ := strings.Cut(assignment, "=")
+		childValues[key] = value
 		if strings.HasPrefix(assignment, "SQL_DSN=") {
 			fencedDSN = strings.TrimPrefix(assignment, "SQL_DSN=")
 		}
+	}
+	// Exercise the exact sealed child values at the native pgx/libpq boundary;
+	// only the command URI is adapted, while pgx keeps both direct guards.
+	commandDSN, commandEnvironment, err := productionDatabaseCommand(childValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedCommandDSN, err := url.Parse(commandDSN)
+	if err != nil || parsedCommandDSN.Query().Has("search_path") || parsedCommandDSN.Query().Has("default_transaction_read_only") {
+		t.Fatal("libpq received pgx-only runtime parameter keys")
+	}
+	if childValues["SQL_DSN"] != fencedDSN {
+		t.Fatal("native command adaptation changed the sealed pgx child")
+	}
+	runFencedPSQL := func(sql string) ([]byte, error) {
+		psqlContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		process := exec.CommandContext(psqlContext, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-At", "-c", sql, commandDSN)
+		process.Env = commandEnvironment
+		return process.CombinedOutput()
+	}
+	identity, err := runFencedPSQL("SELECT current_schema(), current_setting('default_transaction_read_only')")
+	if err != nil || strings.TrimSpace(string(identity)) != "test_schema|on" {
+		t.Fatalf("native libpq child did not retain schema/read-only fence: %v output=%q", err, identity)
+	}
+	writeOutput, err := runFencedPSQL("INSERT INTO stock(quota) VALUES (999)")
+	if err == nil || !strings.Contains(string(writeOutput), "read-only transaction") {
+		t.Fatalf("native libpq child accepted a fenced write: %v output=%q", err, writeOutput)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -128,6 +160,10 @@ CREATE VIEW test_schema.stock_view AS SELECT id,quota FROM test_schema.stock;`)
 		t.Fatal(err)
 	}
 	defer connection.Close(context.Background())
+	var actualSchema, readOnly string
+	if err := connection.QueryRow(ctx, "SELECT current_schema(), current_setting('default_transaction_read_only')").Scan(&actualSchema, &readOnly); err != nil || actualSchema != "test_schema" || readOnly != "on" {
+		t.Fatalf("pgx child did not retain schema/read-only fence: %v schema=%q read-only=%q", err, actualSchema, readOnly)
+	}
 	_, err = connection.Exec(ctx, "INSERT INTO test_schema.stock(quota) VALUES (999);")
 	if err == nil || !strings.Contains(err.Error(), "read-only transaction") {
 		t.Fatalf("actual PostgreSQL accepted a write through fenced verification connection: %v", err)
