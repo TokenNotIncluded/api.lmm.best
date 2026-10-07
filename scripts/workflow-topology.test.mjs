@@ -23,6 +23,37 @@ function jobNeeds(source) {
   return [...block[1].matchAll(/      - ([\w-]+)/g)].map((match) => match[1]);
 }
 
+test('every Ubuntu native test consumer prepares fixed verified tools before tests', () => {
+  for (const [name, id] of [
+    ['ci', 'release-artifact-contract'], ['ci', 'go'],
+    ['release-go', 'test'], ['server-release-qualification', 'go-server'],
+  ]) {
+    const source = workflow(name);
+    const block = job(source, id);
+    const action = block.indexOf('uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6');
+    const prepare = block.indexOf('run: bash scripts/install-ci-native-cosign.sh');
+    const tests = block.indexOf('go test ');
+    assert.ok(action >= 0 && prepare > action && tests > prepare, `${name}/${id}: verified canonical cosign before tests`);
+    const install = block.match(/sudo apt-get install[^\n]+/);
+    assert.ok(install, `${name}/${id}: system dependency installation`);
+    for (const tool of ['libarchive-tools', 'nginx', 'curl', 'util-linux', 'systemd']) {
+      assert.ok(install[0].split(/\s+/).includes(tool), `${name}/${id}: explicit ${tool} dependency`);
+    }
+    assert.ok(block.indexOf(install[0]) < tests, `${name}/${id}: system tools before tests`);
+  }
+  const helper = read('scripts/install-ci-native-cosign.sh');
+  assert.match(helper, /GITHUB_ACTIONS:-.*== true/);
+  assert.match(helper, /cosign_stage_sha.*sha256sum/);
+  assert.match(helper, /cosign_installed_sha.*sha256sum/);
+  assert.match(helper, /--owner=root --group=root --mode=0755/);
+  assert.match(helper, /== 0:0:755/);
+  assert.doesNotMatch(helper, /curl|wget|insecure|ignore/);
+  const syntax = spawnSync('bash', ['-n', new URL('scripts/install-ci-native-cosign.sh', root).pathname], { encoding: 'utf8' });
+  assert.equal(syntax.status, 0, syntax.stderr);
+  const refused = spawnSync('bash', [new URL('scripts/install-ci-native-cosign.sh', root).pathname], { encoding: 'utf8', env: { PATH: process.env.PATH, GITHUB_ACTIONS: 'false' } });
+  assert.equal(refused.status, 2, 'helper refuses ordinary host execution before any install');
+});
+
 test('backend and release workflows do not have server access', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name));
