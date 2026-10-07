@@ -1509,9 +1509,9 @@ async fn postgres_correction_admin_http_preserves_permission_and_error_contracts
         "INSERT INTO users VALUES(9,1700000000,10,NULL);\
          INSERT INTO casbin_rule VALUES('p','role:admin','acquisition','details','allow');",
     )
-        .execute(&fixture.pg)
-        .await
-        .unwrap();
+    .execute(&fixture.pg)
+    .await
+    .unwrap();
     let app = app_with_static_auth(fixture.pg.clone(), 10);
 
     let (status, body) = admin_request(
