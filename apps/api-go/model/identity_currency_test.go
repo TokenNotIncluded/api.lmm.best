@@ -88,9 +88,12 @@ func testPaidPolicyHistoricalSite(t *testing.T, db *gorm.DB) {
 	t.Cleanup(func() {
 		common.QuotaPerUnit, operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = oldQ, oldFX, oldB
 	})
+	// Historical records must not sit on the current activity-second boundary.
+	historicalAt := time.Now().Add(-time.Hour).Unix()
 	users := []User{{Username: "snapshot", AffCode: "snapshot"}, {Username: "legacy-stripe", AffCode: "legacy-stripe"}, {Username: "legacy-creem", AffCode: "legacy-creem"}, {Username: "below", AffCode: "below"}}
 	for i := range users {
 		users[i].Role, users[i].Status = common.RoleCommonUser, common.UserStatusEnabled
+		users[i].CreatedAt = historicalAt
 		require.NoError(t, db.Create(&users[i]).Error)
 	}
 	orders := []TopUp{
@@ -101,7 +104,7 @@ func testPaidPolicyHistoricalSite(t *testing.T, db *gorm.DB) {
 	}
 	for i := range orders {
 		orders[i].TradeNo = users[i].Username
-		orders[i].Money, orders[i].CompleteTime, orders[i].Status = 0.01, time.Now().Unix(), common.TopUpStatusSuccess
+		orders[i].Money, orders[i].CompleteTime, orders[i].Status = 0.01, historicalAt, common.TopUpStatusSuccess
 		if orders[i].PaymentProvider == "" {
 			orders[i].PaymentProvider = PaymentProviderStripe
 		}
