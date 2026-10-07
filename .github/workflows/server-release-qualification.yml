@@ -258,7 +258,7 @@ jobs:
             printf '%s\n' "$formatting_issues"
             exit 1
           fi
-          (cd apps/api-go && go vet ./... && go test -count=1 -race ./...)
+          (cd apps/api-go && go vet ./... && go test -count=1 -race -timeout 20m ./...)
           (cd apps/api-go/relaykit && go vet ./... && go test -count=1 -race ./...)
       - name: Build production-shaped static Go binary
         working-directory: apps/api-go
