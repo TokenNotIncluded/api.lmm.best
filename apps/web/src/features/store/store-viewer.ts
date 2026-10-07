@@ -1,5 +1,5 @@
-import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useLayoutEffect } from 'react'
 
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
