@@ -52,9 +52,7 @@ export function StoreProductMediaEditor({
                 value={field.value}
                 onChange={(event) => field.change(event.target.value)}
                 placeholder={
-                  svgSupported
-                    ? t('HTTPS image URL or static SVG text')
-                    : 'https://'
+                  svgSupported ? t('HTTPS image URL or SVG text') : 'https://'
                 }
               />
               {preview && (

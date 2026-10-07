@@ -11785,6 +11785,8 @@ async function main() {
     for (const [locale, translations] of Object.entries(storeMediaLunaCopy)) {
       const filePath = path.join(LOCALES_DIR, `${locale}.json`)
       const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      delete json.translation['HTTPS image URL or static SVG text']
+      delete json.translation['Use a valid image URL or safe static SVG.']
       for (const [key, value] of Object.entries(translations)) {
         if (!Object.hasOwn(json.translation, key)) json.translation[key] = value
       }

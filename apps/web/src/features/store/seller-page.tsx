@@ -828,7 +828,7 @@ export function StoreProductEditor({
         (!svgMediaSupported &&
           imageUrls.some((url) => url.startsWith(STORE_SVG_DATA_PREFIX)))
       ) {
-        throw new Error(t('Use a valid image URL or safe static SVG.'))
+        throw new Error(t('Use a valid image URL or safe SVG.'))
       }
       if (draft.links.some((link) => !safeStoreUrl(link.url))) {
         throw new Error('Use valid HTTP or HTTPS links')
