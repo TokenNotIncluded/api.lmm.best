@@ -78,7 +78,16 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		p.ReviewedAt = 0
 		p.UpdatedAt = now
 		guestCheckout := !p.PurchaseLoginRequired
-		if e := tx.Save(&p).Error; e != nil {
+		// Save with a preassigned UUID falls back to a hook-free INSERT when
+		// UPDATE finds no row. New listings must run the compatibility save
+		// hook so columns from a later capability never enter the old writer.
+		write := tx.Create
+		if id != "" {
+			// MySQL may report zero changed rows for an identical update. An
+			// explicit selection also prevents Save's hook-free upsert fallback.
+			write = tx.Select("*").Save
+		}
+		if e := write(&p).Error; e != nil {
 			return e
 		}
 		if e := storeEnsureCatalogueMetadata(tx, &p); e != nil {

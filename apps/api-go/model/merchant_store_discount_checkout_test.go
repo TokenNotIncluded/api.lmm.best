@@ -25,7 +25,9 @@ func TestMerchantStoreDiscountCheckoutCapThreeIsFrozen(t *testing.T) {
 	_, created, err := CreateMerchantStoreOrder(f.checkout("plain", "balance"))
 	require.NoError(t, err)
 	require.True(t, created)
+	storePurchaseGateFour(t)
 	require.NoError(t, DB.Model(&MerchantStoreProduct{}).Where("id = ?", f.product.ID).Update("max_quantity_per_order", 1).Error)
+	storeWriterGateForTest(t, "3")
 	_, err = QuoteMerchantStoreDiscountCode(f.buyer.Id, f.product.ID, "", "", 1)
 	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen, "configured limits acquire their gate before the minimum-price config lock")
 }

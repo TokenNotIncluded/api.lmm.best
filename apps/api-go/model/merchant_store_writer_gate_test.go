@@ -268,11 +268,23 @@ func TestMerchantStoreWriterGateStopsAsynchronousAIProductPublication(t *testing
 	db, seller, root, p := marketAIProduct(t, setting.MarketAIReviewAuto)
 	job := marketAIClaim(t)
 	storeUnsupportedWriterGateForTest(t)
+	var before, after ModerationJob
+	require.NoError(t, db.First(&before, job.ID).Error)
+	wrongLease := *job
+	wrongLease.LeaseOwner = "another-worker"
+	require.ErrorIs(t, marketAIComplete(t, &wrongLease, false, true), ErrModerationLeaseLost)
+	require.NoError(t, db.First(&after, job.ID).Error)
+	require.Equal(t, before, after, "a frozen writer must not let another worker consume a valid lease")
 	require.NoError(t, marketAIComplete(t, job, false, true))
 	require.NoError(t, db.First(p, "id = ?", p.ID).Error)
 	require.Equal(t, "pending", p.Status)
 	require.NoError(t, db.First(job, "id = ?", job.ID).Error)
+	require.Equal(t, ModerationJobCompleted, job.Status)
 	require.Equal(t, "manual_required", job.MarketOutcome)
+	require.Equal(t, "market_review_writer_upgrade", job.ErrorMessage)
+	require.Empty(t, job.Payload)
+	require.Empty(t, job.LeaseOwner)
+	require.Zero(t, job.LeaseUntil)
 	marketAINoFees(t, seller, root)
 }
 

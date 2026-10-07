@@ -159,14 +159,17 @@ func TestMarketAIReviewCapturedAssistNeverBecomesAutomatic(t *testing.T) {
 }
 
 func TestMarketAIReviewCompletionFencesDisabledOrEditedContent(t *testing.T) {
-	for _, kind := range []string{"disabled", "hash"} {
+	for _, kind := range []string{"disabled", "hash", "frozen-disabled", "frozen-hash"} {
 		t.Run(kind, func(t *testing.T) {
 			db, seller, root, p := marketAIProduct(t, setting.MarketAIReviewAuto)
 			j := marketAIClaim(t)
-			if kind == "disabled" {
+			if strings.Contains(kind, "disabled") {
 				marketAIOptions(t, db, setting.MarketAIReviewOff, setting.MarketAIReviewOff)
 			} else {
 				require.NoError(t, db.Model(p).Update("description", "Changed after capture").Error)
+			}
+			if strings.HasPrefix(kind, "frozen-") {
+				storeUnsupportedWriterGateForTest(t)
 			}
 			require.NoError(t, marketAIComplete(t, j, false, false))
 			require.NoError(t, db.First(p, "id = ?", p.ID).Error)

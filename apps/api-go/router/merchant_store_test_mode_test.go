@@ -89,6 +89,14 @@ func TestMerchantStoreTestModeRouterKeepsPreviewAndPublicationPrivate(t *testing
 		for _, auth := range []string{"", sellerToken, buyerToken, adminToken, rootToken} {
 			for _, path := range []string{"/api/store/products/" + p.ID, "/api/store/products?q=Hidden&limit=1&test_mode=true", "/api/store/products?limit=1&test_mode=true"} {
 				response := shopRequest(engine, "GET", path, auth, "")
+				if auth == sellerToken && state != "rejected" {
+					// Viewer-aware storefronts show the owner's private listing;
+					// authentication never grants this view to another account.
+					require.Equal(t, 200, response.Code, response.Body.String())
+					require.Contains(t, response.Body.String(), p.Title)
+					require.NotContains(t, response.Body.String(), "PRIVATE-CARD")
+					continue
+				}
 				if path == "/api/store/products/"+p.ID {
 					require.Equal(t, 404, response.Code)
 				} else {

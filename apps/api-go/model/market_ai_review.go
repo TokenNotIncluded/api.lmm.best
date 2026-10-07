@@ -286,7 +286,7 @@ func marketAIReviewTarget(tx *gorm.DB, j *ModerationJob, locked bool) (*ToolMark
 			if e := storeRequireConfiguredSellerTerms(tx, p.SellerID); errors.Is(e, ErrMerchantStoreSellerTerms) {
 				valid = false
 			} else if e != nil {
-				return nil, nil, &p, false, e
+				return nil, nil, &p, valid, e
 			}
 		}
 		return nil, nil, &p, valid, nil
@@ -401,7 +401,8 @@ func CompleteMarketAIReview(ctx context.Context, id int64, owner string, c Marke
 			return err
 		}
 		service, version, product, current, err := marketAIReviewTarget(tx, &identity, true)
-		if err != nil {
+		writerFrozen := product != nil && errors.Is(err, ErrMerchantStoreWriterFrozen)
+		if err != nil && !writerFrozen {
 			return err
 		}
 		var j ModerationJob
@@ -420,13 +421,18 @@ func CompleteMarketAIReview(ctx context.Context, id int64, owner string, c Marke
 		}
 		values := map[string]any{"status": ModerationJobCompleted, "market_outcome": "reference", "flagged": c.Flagged, "categories_json": string(encodedCats), "category_scores_json": string(encodedScores), "response_model": c.ResponseModel, "payload": "", "lease_owner": "", "lease_until": 0, "updated_at": now, "completed_at": now, "error_message": "", "fee_status": "none", "requested_quota": 0, "charged_quota": 0, "fee_record_id": 0, "review_id": 0}
 		_, digest, err := marketReviewContent(tx, j.Source, j.TargetID, j.TargetVersion)
-		if err != nil {
+		contentFrozen := product != nil && errors.Is(err, ErrMerchantStoreWriterFrozen)
+		if err != nil && !contentFrozen {
 			return err
 		}
-		if !current || user.Status != common.UserStatusEnabled || digest != j.InputDigest || j.InputTruncated {
+		if !current || user.Status != common.UserStatusEnabled || (!contentFrozen && digest != j.InputDigest) || j.InputTruncated {
 			values["status"], values["market_outcome"], values["error_message"] = ModerationJobCancelled, "stale", "market_review_stale"
 		} else if s.Mode(j.Source) == setting.MarketAIReviewOff || s.ReviewGroup != j.ReviewGroup || s.ReviewModel != j.ReviewModel {
 			values["status"], values["market_outcome"], values["error_message"] = ModerationJobCancelled, "stale", "market_review_disabled"
+		} else if writerFrozen || contentFrozen {
+			// Finish only an authenticated, current leased task. Frozen listing
+			// writers cannot publish, but the private result must not retry forever.
+			values["market_outcome"], values["error_message"] = "manual_required", "market_review_writer_upgrade"
 		} else if j.CapturedMode == setting.MarketAIReviewAuto && s.Mode(j.Source) == setting.MarketAIReviewAuto {
 			if version != nil && !c.Flagged {
 				valid := c.TechnicalValidationPassed && version.ValidationDigest != "" && version.ValidationDigest == version.Digest

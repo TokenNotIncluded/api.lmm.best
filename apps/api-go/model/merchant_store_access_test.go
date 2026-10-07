@@ -306,5 +306,10 @@ func TestMerchantStoreAccessLegacySchemaDoesNotNeedPhase5DDL(t *testing.T) {
 	require.NoError(t, ReviewMerchantStoreProduct(f.root.Id, f.product.ID, true, ""))
 	_, err = GetPublicMerchantStoreProduct(f.product.ID)
 	require.NoError(t, err)
+	created, err := SaveMerchantStoreProduct(f.seller.Id, "", in)
+	require.NoError(t, err, "a new listing must run compatibility hooks even with its preassigned ID")
+	require.Equal(t, "draft", created.Status)
+	require.NoError(t, SubmitMerchantStoreProduct(f.seller.Id, created.ID))
+	require.NoError(t, ReviewMerchantStoreProduct(f.root.Id, created.ID, true, ""))
 	storeBalance(t, f.buyer.Id, 9500000)
 }

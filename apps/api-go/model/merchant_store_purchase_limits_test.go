@@ -86,7 +86,11 @@ func TestMerchantStorePurchaseLimitsRequireFloorFourWithoutBreakingReplay(t *tes
 	in := f.checkout("before-limit", "balance")
 	o, _, err := CreateMerchantStoreOrder(in)
 	require.NoError(t, err)
+	// Persist the limit with the supporting writer, then exercise a rollback
+	// reader. An older writer deliberately omits these columns on updates.
+	storePurchaseGateFour(t)
 	require.NoError(t, DB.Model(f.product).Update("max_quantity_per_order", 1).Error)
+	storeWriterGateForTest(t, "1")
 	before := storeWriterSnapshot(t)
 	_, _, err = CreateMerchantStoreOrder(f.checkout("blocked-old-floor", "balance"))
 	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
