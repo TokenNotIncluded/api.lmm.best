@@ -205,8 +205,8 @@ test('configured upgrade amounts round up in the selected currency to satisfy th
   })
   const { act } = await import('react')
   const { createRoot } = await import('react-dom/client')
-  const container = dom.document.createElement('div')
-  dom.document.body.append(container)
+  const container = document.createElement('div')
+  document.body.append(container)
   const root = createRoot(container)
   const previousConfig = useSystemConfigStore.getState().config
   const previousAuth = useAuthStore.getState().auth

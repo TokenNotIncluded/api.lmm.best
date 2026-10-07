@@ -107,6 +107,8 @@ function onboardingSnapshot() {
   const user = useAuthStore.getState().auth.user
   const state = getOnboardingState(user)
   const access = getL0PaidAccess(user)
+  const paidProgressAvailable =
+    access.mode === 'topup' || access.mode === 'sync'
   const next = getAccountNextStep(user)
   return {
     authenticated: Boolean(user),
@@ -119,9 +121,14 @@ function onboardingSnapshot() {
     // Presentation only; the server is the sole authority on access.
     paid_access: {
       mode: access.mode,
-      paid_amount_usd: access.paid,
-      threshold_usd: access.threshold,
-      remaining_usd: access.remaining,
+      quota_unit: 'LEDGER_QUOTA',
+      paid_credits: paidProgressAvailable ? String(access.paidCredits) : null,
+      threshold_credits: paidProgressAvailable
+        ? String(access.thresholdCredits)
+        : null,
+      remaining_credits: paidProgressAvailable
+        ? String(access.remainingCredits)
+        : null,
       note: 'Displayed progress only. Topping up does not itself grant developer access; the server decides.',
     },
     next_step: { path: next.to, label: next.label },
@@ -185,7 +192,7 @@ export const authOnboardingTools: WebMcpToolFactory = ({ router }) => {
       name: 'lmm_onboarding_status',
       title: 'Read onboarding stage and next step',
       description:
-        'Read the current account onboarding state: the stage, which of activation, credential, and first-request steps are complete, the trust level, the L0 to L1 progress (credited amount, threshold, amount still missing), a recommended next step, and which assistant preset fits. Works while signed out. Never returns credentials or private profile data.',
+        'Read the current account onboarding state: the stage, which of activation, credential, and first-request steps are complete, the trust level, the L0 to L1 progress as exact integer credit strings (paid_credits, threshold_credits, remaining_credits in LEDGER_QUOTA; null when unavailable), a recommended next step, and which assistant preset fits. Works while signed out. Never returns credentials or private profile data.',
       inputSchema: EMPTY_INPUT_SCHEMA,
       annotations: { readOnlyHint: true },
       execute: async (_input, options) => {
