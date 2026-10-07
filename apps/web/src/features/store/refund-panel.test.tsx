@@ -145,14 +145,18 @@ function requests(
 async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 30))
 }
-async function mount(node: React.ReactNode, role = 1) {
-  useAuthStore.getState().auth.setUser({
-    id: 2,
-    role,
-    username: 'refund-owner',
-    quota: 5000000,
-    setting: JSON.stringify({ wallet_display_currency: 'CNY' }),
-  })
+async function mount(node: React.ReactNode, role: number | null = 1) {
+  useAuthStore.getState().auth.setUser(
+    role === null
+      ? null
+      : {
+          id: 2,
+          role,
+          username: 'refund-owner',
+          quota: 5000000,
+          setting: JSON.stringify({ wallet_display_currency: 'CNY' }),
+        }
+  )
   const host = document.createElement('div')
   document.body.append(host)
   const mountedRoot = createRoot(host)
@@ -470,6 +474,68 @@ test('provider reconciliation stays pending with no approve/reject/cancel action
   }
 })
 
+test('cold-cookie collection authority requires actual member sign-in before protected refund actions', async () => {
+  const records = requests()
+  const previousPath = window.location.pathname
+  window.history.replaceState({}, '', '/store/claim/original-pickup-proof')
+  const metadata: StoreClaimMetadata = {
+    order_id: orderId,
+    product_title: 'Original product',
+    quantity: 3,
+    status: 'paid',
+    pickup_login_required: true,
+    pickup_login_satisfied: true,
+    pickup_code_required: false,
+  }
+  await mount(
+    <StorePickupRefunds
+      metadata={metadata}
+      token='original-pickup-proof'
+      onChanged={() => {}}
+    />,
+    null
+  )
+  assert.match(
+    document.body.textContent || '',
+    /Sign in with the purchasing account to view or request refunds\./
+  )
+  assert.equal(hasButton('View refunds or request a refund'), false)
+  assert.equal(document.querySelector('form'), null)
+  assert.equal(
+    records.length,
+    0,
+    'the collection cookie does not authorize refund reads'
+  )
+  const signIn = document.querySelector<HTMLAnchorElement>(
+    'a[href^="/sign-in?"]'
+  )
+  assert.ok(signIn)
+  assert.equal(
+    new URL(signIn.href).searchParams.get('redirect'),
+    '/store/claim/original-pickup-proof'
+  )
+  await act(async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 2, role: 1, username: 'actual-purchaser' })
+    await flush()
+  })
+  await click(button('View refunds or request a refund'))
+  await act(flush)
+  assert.equal(records[0].url, '/api/store/pickup/refunds/read')
+  assert.deepEqual(records[0].body, {
+    order_id: orderId,
+    token: 'original-pickup-proof',
+  })
+  assert.ok(
+    records.every(({ url }) => url.startsWith('/api/store/pickup/refunds/'))
+  )
+  assert.doesNotMatch(
+    JSON.stringify({ ...localStorage, ...sessionStorage }),
+    /original-pickup-proof/
+  )
+  window.history.replaceState({}, '', previousPath)
+})
 test('pickup refund reads and requests only with proof, without claim side effects or persisted proof secrets', async () => {
   const records = requests()
   const metadata: StoreClaimMetadata = {
@@ -486,16 +552,19 @@ test('pickup refund reads and requests only with proof, without claim side effec
       metadata={metadata}
       token='private-pickup-token'
       onChanged={() => {}}
-    />
+    />,
+    null
   )
   await input(field('Pickup code'), 'private-pickup-code')
   await click(button('View refunds or request a refund'))
+  await act(flush)
   assert.deepEqual(records[0].body, {
     order_id: orderId,
     token: 'private-pickup-token',
     code: 'private-pickup-code',
   })
   assert.equal(records[0].url, '/api/store/pickup/refunds/read')
+  assert.match(document.body.textContent || '', /Refund reason/)
   await submit()
   const write = records.find((record) => record.url.endsWith('/request'))
   assert.ok(write)

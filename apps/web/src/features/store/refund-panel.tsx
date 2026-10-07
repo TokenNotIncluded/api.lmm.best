@@ -642,10 +642,31 @@ export function StorePickupRefunds({
 }) {
   const { t } = useTranslation()
   const id = useId()
+  const user = useAuthStore((state) => state.auth.user)
   const [code, setCode] = useState('')
   const [proof, setProof] = useState<StorePickupRefundProof | undefined>()
   if (metadata.pickup_login_required && !metadata.pickup_login_satisfied) {
     return null
+  }
+  if (metadata.pickup_login_required && !user) {
+    return (
+      <div className='space-y-3 rounded-lg border p-4'>
+        <p className='text-sm'>
+          {t('Sign in with the purchasing account to view or request refunds.')}
+        </p>
+        <Button
+          size='sm'
+          variant='outline'
+          render={
+            <a
+              href={`/sign-in?redirect=${encodeURIComponent(window.location.pathname)}`}
+            />
+          }
+        >
+          {t('Sign in')}
+        </Button>
+      </div>
+    )
   }
   return (
     <div className='space-y-3'>

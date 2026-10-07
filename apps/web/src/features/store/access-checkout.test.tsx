@@ -1191,6 +1191,129 @@ test('guest history reads saved IDs with private credentials and reveals pickup 
   assert.equal(cache.includes(guestSession.token), false)
   assert.equal(cache.includes('private-order-proof'), false)
 })
+test('guest payment recovery reconciles the original pending orders and refreshes only authoritative server status', async () => {
+  const { writes } = mockAccess()
+  sessionStorage.setItem(
+    'lmm.store.guest-session.v1',
+    JSON.stringify(guestSession)
+  )
+  const currentOrders = [
+    { ...order, id: 'pending-epay', payment_issued: true },
+    {
+      ...order,
+      id: 'reconciliation-ldc',
+      status: 'reconciliation_pending',
+      payment_method: 'platform:linuxdo',
+      payment_issued: true,
+    },
+  ]
+  sessionStorage.setItem(
+    'lmm.store.guest-order-ids.v1',
+    JSON.stringify({
+      [guestSession.guest_id]: currentOrders.map(({ id }) => id),
+    })
+  )
+  const reads: string[] = []
+  let deferNextRead = false
+  let releaseRefresh: () => void = () => {
+    assert.fail('Refresh must be deferred first')
+  }
+  const blockedRefresh = new Promise<void>((resolve) => {
+    releaseRefresh = resolve
+  })
+  api.get = (async (url: string, options?: Record<string, unknown>) => {
+    assert.equal(
+      (options?.headers as Record<string, unknown>)?.['X-Store-Guest'],
+      guestSession.token
+    )
+    reads.push(url)
+    const found = currentOrders.find(
+      ({ id }) => url === `/api/store/guest/orders/${id}`
+    )
+    assert.ok(found, `read only the original guest order: ${url}`)
+    const snapshot = { ...found }
+    if (deferNextRead) {
+      deferNextRead = false
+      await blockedRefresh
+    }
+    return result(snapshot)
+  }) as typeof api.get
+  let checks = 0
+  api.post = (async (
+    url: string,
+    body: Record<string, unknown>,
+    options?: Record<string, unknown>
+  ) => {
+    writes.push({ url, body, options })
+    assert.deepEqual(body, {})
+    const config = options as {
+      headers: Record<string, unknown>
+      authScope: { userId: number | undefined; sessionId: string | undefined }
+      skipAuthRefresh: boolean
+    }
+    assert.equal(config.headers['X-Store-Guest'], guestSession.token)
+    assert.equal(config.authScope.userId, undefined)
+    assert.equal(config.skipAuthRefresh, true)
+    const found = currentOrders.find(
+      ({ id }) => url === `/api/store/guest/orders/${id}/reconcile`
+    )
+    assert.ok(found, `reconcile only the original guest order: ${url}`)
+    // A successful query can still be pending. The UI must not assume paid.
+    checks++
+    if (checks > 1) found.status = 'paid'
+    return result(found)
+  }) as typeof api.post
+  await mount(<StoreGuestOrders />, true)
+  const rows = () => [...document.querySelectorAll('article')]
+  const check = (index: number) => {
+    const node = [...rows()[index].querySelectorAll('button')].find(
+      (item) => item.textContent?.trim() === 'Check payment status'
+    )
+    assert.ok(node)
+    return node
+  }
+  await click(check(0))
+  assert.equal(rows()[0].textContent?.includes('Get pickup link'), false)
+  assert.ok(rows()[0].textContent?.includes('pending'))
+  // An older refresh must finish before the fresh read requested by reconcile.
+  deferNextRead = true
+  await click(button('Refresh'))
+  await click(check(0))
+  assert.equal(rows()[0].textContent?.includes('Get pickup link'), false)
+  await act(async () => {
+    releaseRefresh()
+    await flush()
+  })
+  await act(flush)
+  assert.ok(rows()[0].textContent?.includes('Get pickup link'))
+  assert.equal(rows()[0].textContent?.includes('Check payment status'), false)
+  await click(check(1))
+  assert.ok(rows()[1].textContent?.includes('Get pickup link'))
+  assert.deepEqual(
+    writes.map(({ url }) => url),
+    [
+      '/api/store/guest/orders/pending-epay/reconcile',
+      '/api/store/guest/orders/pending-epay/reconcile',
+      '/api/store/guest/orders/reconciliation-ldc/reconcile',
+    ]
+  )
+  assert.equal(
+    reads.length,
+    10,
+    'reconcile queues a fresh read after the older refresh'
+  )
+  assert.equal(
+    localStorage.getItem('lmm:store:checkout-intents'),
+    null,
+    'recovery never creates a purchase intent'
+  )
+  assert.equal(
+    JSON.stringify(client?.getQueryCache().getAll()).includes(
+      guestSession.token
+    ),
+    false
+  )
+})
 test('private owner purchases are legitimate without relying on the old preview-only condition', async () => {
   mockAccess()
   await mount(

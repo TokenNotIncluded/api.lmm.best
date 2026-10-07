@@ -225,6 +225,14 @@ export const storeGuestApi = {
         storeGuestRequestOptions(token)
       )
     ),
+  reconcile: (token: string, id: string, scope?: StoreCapturedAuthScope) =>
+    unwrap<StoreOrder>(
+      api.post(
+        `${guestOrderPath(id)}/reconcile`,
+        {},
+        storeGuestRequestOptions(token, scope)
+      )
+    ),
   pickupLink: (token: string, id: string) =>
     unwrap<{ pickup_url: string }>(
       api.get(

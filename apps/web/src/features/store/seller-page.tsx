@@ -329,7 +329,9 @@ function StoreSellerCenter() {
                           {t('Submit for review')}
                         </Button>
                       )}
-                    {['published', 'paused'].includes(product.status) && (
+                    {(['published', 'paused'].includes(product.status) ||
+                      (storeVisibility(product) === 'private' &&
+                        ['draft', 'pending'].includes(product.status))) && (
                       <Button
                         size='sm'
                         variant='outline'

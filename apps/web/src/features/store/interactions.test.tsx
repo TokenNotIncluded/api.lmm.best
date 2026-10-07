@@ -457,6 +457,83 @@ for (const role of [1, 10]) {
     assert.equal(document.querySelector('form'), null)
   })
 }
+test('private draft pause survives resume while public drafts remain unpausable', async () => {
+  owner(9)
+  let privateProduct: StoreProduct = {
+    ...product,
+    title: 'Private draft fixture',
+    visibility: 'private',
+    test_mode: true,
+    status: 'draft',
+  }
+  const privatePending: StoreProduct = {
+    ...privateProduct,
+    id: 'private-pending-fixture',
+    title: 'Private pending fixture',
+    status: 'pending',
+  }
+  const publicDraft: StoreProduct = {
+    ...product,
+    id: 'public-draft-fixture',
+    title: 'Public draft fixture',
+    visibility: 'public',
+    test_mode: false,
+    status: 'draft',
+  }
+  const writes: boolean[] = []
+  api.get = (async (url: string) => {
+    if (url === '/api/store/config') {
+      return result({ minimum_unit_price_quota: 0 })
+    }
+    if (url === '/api/store/payments/settings') return result({ items: [] })
+    assert.equal(url, '/api/store/my/products')
+    return result({
+      items: [privateProduct, privatePending, publicDraft],
+      has_more: false,
+    })
+  }) as typeof api.get
+  api.put = (async (url: string, body: { paused: boolean }) => {
+    assert.equal(url, `/api/store/products/${product.id}/paused`)
+    assert.deepEqual(Object.keys(body), ['paused'])
+    writes.push(body.paused)
+    // Private resume deliberately returns to the backend's buyable draft state.
+    privateProduct = {
+      ...privateProduct,
+      status: body.paused ? 'paused' : 'draft',
+    }
+    return result(null)
+  }) as typeof api.put
+  await mount(<StoreSellerPage />)
+  function row(title: string) {
+    const node = [...document.querySelectorAll('article')].find(
+      (item) => item.querySelector('h2')?.textContent === title
+    )
+    assert.ok(node, `product row ${title}`)
+    return node
+  }
+  function rowButton(title: string, label: string) {
+    const node = [...row(title).querySelectorAll('button')].find(
+      (item) => item.textContent?.trim() === label
+    )
+    assert.ok(node, `${title}: ${label}`)
+    return node
+  }
+  function assertPublicDraftUnpausable() {
+    assert.doesNotMatch(
+      row(publicDraft.title).textContent || '',
+      /Pause trading|Resume trading/
+    )
+  }
+  assertPublicDraftUnpausable()
+  assert.ok(rowButton(privatePending.title, 'Pause trading'))
+  await click(rowButton(privateProduct.title, 'Pause trading'))
+  assertPublicDraftUnpausable()
+  await click(rowButton(privateProduct.title, 'Resume trading'))
+  assertPublicDraftUnpausable()
+  await click(rowButton(privateProduct.title, 'Pause trading'))
+  assertPublicDraftUnpausable()
+  assert.deepEqual(writes, [true, false, true])
+})
 test('taking a product off shelf and relisting use distinct listing requests without deleting stock', async () => {
   owner(2)
   let listed = true

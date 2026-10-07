@@ -7,7 +7,10 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeGuestApi } from './access-api'
 import { STORE_ACCESS_COPY as copy } from './access-copy'
-import { createStoreCheckoutIntentJournal } from './checkout-intent'
+import {
+  createStoreCheckoutIntentJournal,
+  StoreCheckoutIntentError,
+} from './checkout-intent'
 import { isStoreCheckoutActorCurrent } from './checkout-recovery'
 import {
   rememberStoreGuestOrder,
@@ -32,56 +35,69 @@ export function StoreGuestOrders({
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const refreshing = useRef(false)
-  const refresh = useCallback(async () => {
-    if (!session || refreshing.current) return
-    refreshing.current = true
-    setBusy(true)
-    setError(null)
-    try {
-      const auth = useAuthStore.getState().auth
-      const scope = { userId: auth.user?.id, sessionId: auth.session?.sid }
-      const actor = { kind: 'guest' as const, guestId: session.guest_id }
-      const recovered: StoreOrder[] = []
-      if (lookupSupported) {
-        const records = await journal.list(actor)
-        for (const record of records.filter((item) => !item.superseded)) {
-          const found = await journal.recover(
-            actor,
-            record.requestKey,
-            async (key) => {
-              const order = await storeGuestApi.lookup(
-                session.token,
-                key,
-                scope
-              )
-              if (order) recovered.push(order)
-              return order ?? undefined
+  const refreshAgain = useRef(false)
+  const refresh = useCallback(
+    async function refreshOrders() {
+      if (!session) return
+      if (refreshing.current) {
+        refreshAgain.current = true
+        return
+      }
+      refreshing.current = true
+      setBusy(true)
+      setError(null)
+      try {
+        const auth = useAuthStore.getState().auth
+        const scope = { userId: auth.user?.id, sessionId: auth.session?.sid }
+        const actor = { kind: 'guest' as const, guestId: session.guest_id }
+        const recovered: StoreOrder[] = []
+        if (lookupSupported) {
+          const records = await journal.list(actor)
+          for (const record of records.filter((item) => !item.superseded)) {
+            const found = await journal.recover(
+              actor,
+              record.requestKey,
+              async (key) => {
+                const order = await storeGuestApi.lookup(
+                  session.token,
+                  key,
+                  scope
+                )
+                if (order) recovered.push(order)
+                return order ?? undefined
+              }
+            )
+            if (found.kind === 'found') {
+              rememberStoreGuestOrder(session.guest_id, found.order.id)
             }
-          )
-          if (found.kind === 'found') {
-            rememberStoreGuestOrder(session.guest_id, found.order.id)
           }
         }
-      }
-      const result = await Promise.all(
-        storeGuestOrderIds(session.guest_id).map((id) =>
-          storeGuestApi.order(session.token, id, scope)
+        const result = await Promise.all(
+          storeGuestOrderIds(session.guest_id).map((id) =>
+            storeGuestApi.order(session.token, id, scope)
+          )
         )
-      )
-      if (isStoreCheckoutActorCurrent(actor)) {
-        setOrders([
-          ...new Map(
-            [...result, ...recovered].map((order) => [order.id, order])
-          ).values(),
-        ])
+        if (isStoreCheckoutActorCurrent(actor)) {
+          setOrders([
+            ...new Map(
+              [...result, ...recovered].map((order) => [order.id, order])
+            ).values(),
+          ])
+        }
+      } catch (issue) {
+        setError(issue)
+      } finally {
+        refreshing.current = false
+        if (refreshAgain.current) {
+          refreshAgain.current = false
+          await refreshOrders()
+        } else {
+          setBusy(false)
+        }
       }
-    } catch (issue) {
-      setError(issue)
-    } finally {
-      setBusy(false)
-      refreshing.current = false
-    }
-  }, [session, journal, lookupSupported])
+    },
+    [session, journal, lookupSupported]
+  )
   useEffect(() => {
     void refresh()
   }, [refresh])
@@ -113,6 +129,7 @@ export function StoreGuestOrders({
             key={order.id}
             order={order}
             token={session.token}
+            guestId={session.guest_id}
             onChanged={refresh}
           />
         ))}
@@ -123,10 +140,12 @@ export function StoreGuestOrders({
 export function StoreGuestOrderRow({
   order,
   token,
+  guestId,
   onChanged,
 }: {
   order: StoreOrder
   token: string
+  guestId: string
   onChanged: () => Promise<void>
 }) {
   const { t } = useTranslation()
@@ -167,6 +186,32 @@ export function StoreGuestOrderRow({
       </div>
       <StoreError error={error} />
       <div className='flex flex-wrap gap-2'>
+        {['pending', 'reconciliation_pending'].includes(order.status) && (
+          <Button
+            size='sm'
+            variant='outline'
+            disabled={busy}
+            onClick={() =>
+              void action(async () => {
+                const actor = { kind: 'guest' as const, guestId }
+                if (!isStoreCheckoutActorCurrent(actor)) {
+                  throw new StoreCheckoutIntentError('actor-changed')
+                }
+                const auth = useAuthStore.getState().auth
+                const scope = {
+                  userId: auth.user?.id,
+                  sessionId: auth.session?.sid,
+                }
+                await storeGuestApi.reconcile(token, order.id, scope)
+                if (!isStoreCheckoutActorCurrent(actor)) return
+                setPayment(null)
+                await onChanged()
+              })
+            }
+          >
+            {t('Check payment status')}
+          </Button>
+        )}
         {order.status === 'pending' && (
           <>
             <Button
