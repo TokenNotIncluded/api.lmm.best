@@ -17,6 +17,8 @@ import { useStoreCatalogueSupport } from './catalogue-support'
 import type { StoreCatalogueProduct } from './catalogue-types'
 import { shareStoreProduct } from './product-share'
 import { storeProductSocialProjection } from './product-social-state'
+import { isPublicStoreShareProduct } from './product-x-share'
+import { StoreProductXShareActions } from './product-x-share-actions'
 import { StoreError } from './shared'
 import {
   consumeStoreSocialIntent,
@@ -175,19 +177,21 @@ function ProductSocialActions({
   return (
     <div className='space-y-2'>
       <div className='flex flex-wrap items-center gap-2'>
-        <Button
-          type='button'
-          size='sm'
-          variant='ghost'
-          disabled={shareMutation.isPending}
-          onClick={() => {
-            setCopied(false)
-            shareMutation.mutate()
-          }}
-        >
-          <HugeiconsIcon icon={Share01Icon} data-icon='inline-start' />
-          {t('Share link')}
-        </Button>
+        {isPublicStoreShareProduct(product) && (
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            disabled={shareMutation.isPending}
+            onClick={() => {
+              setCopied(false)
+              shareMutation.mutate()
+            }}
+          >
+            <HugeiconsIcon icon={Share01Icon} data-icon='inline-start' />
+            {t('Share link')}
+          </Button>
+        )}
         {support.collectionsSupported &&
           (guest ? (
             <Button
@@ -265,6 +269,10 @@ function ProductSocialActions({
             </Button>
           ))}
       </div>
+      <StoreProductXShareActions
+        key={`${product.id}:${product.updated_at}`}
+        product={product}
+      />
       {copied && (
         <p role='status' className='text-muted-foreground text-xs'>
           {t('Link copied')}
