@@ -1655,22 +1655,31 @@ func UpdateUserUsedQuota(id int, quota int) {
 }
 
 func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {
-	err := DB.Model(&User{}).Where("id = ?", id).Updates(
-		map[string]interface{}{
-			"used_quota":           boundedQuotaCounterExpr("used_quota", quota),
-			"request_count":        boundedInt32CounterExpr("request_count", count),
-			"last_api_activity_at": common.GetTimestamp(),
-		},
-	).Error
+	updates := map[string]interface{}{
+		"used_quota":    boundedQuotaCounterExpr("used_quota", quota),
+		"request_count": boundedInt32CounterExpr("request_count", count),
+	}
+	if count > 0 {
+		updates["last_api_activity_at"] = common.GetTimestamp()
+	}
+	err := DB.Model(&User{}).Where("id = ?", id).Updates(updates).Error
 	if err != nil {
 		common.SysLog("failed to update user used quota and request count: " + err.Error())
 		return
 	}
 
-	//// 更新缓存
-	//if err := invalidateUserCache(id); err != nil {
-	//	common.SysError("failed to invalidate user cache: " + err.Error())
-	//}
+	if count > 0 {
+		invalidateUserActivityCache(id)
+	}
+}
+
+// Activity is part of the cached trust-decay anchor. Publish a committed
+// request even when billing has no wallet delta, so the next request observes
+// the restored level. Accounting corrections alone are not new API activity.
+func invalidateUserActivityCache(id int) {
+	if err := invalidateUserCache(id); err != nil {
+		common.SysLog("failed to invalidate user cache after API activity: " + err.Error())
+	}
 }
 
 func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, requestCount int) error {
@@ -1690,9 +1699,11 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 		}
 	}
 	updates := map[string]interface{}{
-		"used_quota":           boundedQuotaCounterExpr("used_quota", usedQuota),
-		"request_count":        boundedInt32CounterExpr("request_count", requestCount),
-		"last_api_activity_at": common.GetTimestamp(),
+		"used_quota":    boundedQuotaCounterExpr("used_quota", usedQuota),
+		"request_count": boundedInt32CounterExpr("request_count", requestCount),
+	}
+	if requestCount > 0 {
+		updates["last_api_activity_at"] = common.GetTimestamp()
 	}
 	if quota != 0 {
 		updates["quota"] = gorm.Expr("quota + ?", quota)
@@ -1705,6 +1716,9 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 	if quota != 0 && result.RowsAffected != 1 {
 		common.SysLog("failed to batch update user quota, used quota and request count: wallet quota boundary exceeded")
 		return ErrWalletQuotaOutOfRange
+	}
+	if requestCount > 0 && result.RowsAffected > 0 {
+		invalidateUserActivityCache(id)
 	}
 	return nil
 }

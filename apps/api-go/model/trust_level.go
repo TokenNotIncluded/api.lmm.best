@@ -175,11 +175,13 @@ func (aggregate paidTopUpAggregate) paidActivationComplete(policy DeveloperAcces
 // response. Callers can reuse it for trust, access, and onboarding without
 // issuing duplicate recharge-history queries.
 type UserAccessSnapshot struct {
-	TrustLevel             TrustLevelInfo
-	DeveloperAccess        DeveloperAccessState
-	PaidAmountMicros       int64
-	LastPaidCompleteAt     int64
-	PaidActivationComplete bool
+	TrustLevel               TrustLevelInfo
+	DeveloperAccess          DeveloperAccessState
+	PaidAmountMicros         int64
+	LastPaidCompleteAt       int64
+	PaidActivationComplete   bool
+	PaidActivationEnabled    bool
+	PaidActivationMinCredits int64
 }
 
 type cachedPaidTopUpAggregate struct {
@@ -684,10 +686,13 @@ func GetFreshUserAccessSnapshot(user *User) (UserAccessSnapshot, error) {
 	if user == nil {
 		return UserAccessSnapshot{}, gorm.ErrInvalidData
 	}
+	policy := CurrentDeveloperAccessPolicy()
 	if access, explicit := explicitDeveloperAccessDecision(user.Role, user.TrustLevelOverride); explicit {
 		return UserAccessSnapshot{
-			TrustLevel:      EvaluateTrustLevel(user.Role, user.TrustLevelOverride, 0, user.CreatedAt, time.Now().Unix()),
-			DeveloperAccess: access,
+			TrustLevel:               evaluateTrustLevelCredits(user.Role, user.TrustLevelOverride, 0, 0, false, user.CreatedAt, time.Now().Unix(), policy.trustConfiguration),
+			DeveloperAccess:          access,
+			PaidActivationEnabled:    policy.paidActivationEnabled,
+			PaidActivationMinCredits: policy.trustConfiguration.Tiers[1].MinPaidCredits,
 		}, nil
 	}
 	aggregate, err := getFreshPaidTopUpAggregate(user.Id)
@@ -697,7 +702,6 @@ func GetFreshUserAccessSnapshot(user *User) (UserAccessSnapshot, error) {
 	// One policy snapshot for the whole response keeps the trust level, the
 	// access decision, and the onboarding stage from disagreeing if an
 	// administrator edits the threshold mid-request.
-	policy := CurrentDeveloperAccessPolicy()
 	paidActivationComplete := aggregate.paidActivationComplete(policy)
 	activationComplete := paidActivationComplete || user.ConsoleActivatedAt > 0
 	anchor := trustActivityAnchor(user.CreatedAt, user.LastAPIActivityAt, aggregate.LastPaidCompleteAt)
@@ -705,10 +709,12 @@ func GetFreshUserAccessSnapshot(user *User) (UserAccessSnapshot, error) {
 		TrustLevel: aggregate.withUSDDisplay(evaluateTrustLevelCredits(
 			user.Role, nil, aggregate.PaidCredits, aggregate.PaidAmount, activationComplete, anchor, time.Now().Unix(), policy.trustConfiguration,
 		)),
-		DeveloperAccess:        ordinaryDeveloperAccessStateWithPolicy(paidActivationComplete, user.ConsoleActivatedAt > 0, policy),
-		PaidAmountMicros:       aggregate.PaidAmountMicros,
-		LastPaidCompleteAt:     aggregate.LastPaidCompleteAt,
-		PaidActivationComplete: paidActivationComplete,
+		DeveloperAccess:          ordinaryDeveloperAccessStateWithPolicy(paidActivationComplete, user.ConsoleActivatedAt > 0, policy),
+		PaidAmountMicros:         aggregate.PaidAmountMicros,
+		LastPaidCompleteAt:       aggregate.LastPaidCompleteAt,
+		PaidActivationComplete:   paidActivationComplete,
+		PaidActivationEnabled:    policy.paidActivationEnabled,
+		PaidActivationMinCredits: policy.trustConfiguration.Tiers[1].MinPaidCredits,
 	}, nil
 }
 

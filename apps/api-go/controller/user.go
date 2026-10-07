@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -614,7 +615,12 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		fallbackTrustLevel.PaidCredits = nil
 		fallbackTrustLevel.NextLevelPaidCredits = nil
 		fallbackTrustLevel.CreditsToNextLevel = nil
-		accessSnapshot = model.UserAccessSnapshot{TrustLevel: fallbackTrustLevel}
+		config := model.GetTrustLevelConfiguration()
+		accessSnapshot = model.UserAccessSnapshot{
+			TrustLevel:               fallbackTrustLevel,
+			PaidActivationEnabled:    config.PaidActivationEnabled,
+			PaidActivationMinCredits: config.Tiers[1].MinPaidCredits,
+		}
 	}
 	onboarding, err := model.GetOnboardingStateForUserSnapshot(user, accessSnapshot)
 	if err != nil {
@@ -627,7 +633,14 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	permissions["console_activated_at"] = consoleActivatedAt
 	docsAccess := onboarding.ActivationComplete
 	permissions["docs_access"] = docsAccess
-	developerAccess := operation_setting.GetDeveloperAccessSetting()
+	paidActivationMinAmount := float64(accessSnapshot.PaidActivationMinCredits) / float64(common.FixedCreditsPerUSD)
+	var paidActivationMinAmountUSD *float64
+	if usd, projectionErr := common.CreditsToUSD(accessSnapshot.PaidActivationMinCredits); projectionErr == nil {
+		value := usd.InexactFloat64()
+		if !math.IsNaN(value) && !math.IsInf(value, 0) {
+			paidActivationMinAmountUSD = &value
+		}
+	}
 	data := map[string]interface{}{
 		"id":                       user.Id,
 		"developer_access_granted": onboarding.ActivationComplete,
@@ -664,10 +677,11 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 			// The client shows how far a recharge still has to go before it
 			// unlocks the console on its own, so it needs the same threshold
 			// the server judges against rather than a hardcoded copy.
-			"paid_activation_enabled":             developerAccess.PaidActivationEnabled,
-			"paid_activation_min_amount":          developerAccess.PaidActivationMinAmount,
+			"paid_activation_enabled":             accessSnapshot.PaidActivationEnabled,
+			"paid_activation_min_credits":         strconv.FormatInt(accessSnapshot.PaidActivationMinCredits, 10),
+			"paid_activation_min_amount":          paidActivationMinAmount,
 			"paid_activation_min_amount_currency": model.LegacyPaidPolicyCurrency,
-			"paid_activation_min_amount_usd":      model.LegacyPolicyAmountUSD(developerAccess.PaidActivationMinAmount),
+			"paid_activation_min_amount_usd":      paidActivationMinAmountUSD,
 			"credential_complete":                 onboarding.CredentialComplete,
 			"api_key_created":                     onboarding.APIKeyCreated,
 			"first_request_complete":              onboarding.FirstRequestComplete,
