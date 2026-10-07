@@ -174,8 +174,12 @@ func TestMerchantStoreGuestEmailCheckoutBindingAndConcurrentSingleUse(t *testing
 		return storeRequireGuestCheckoutEmail(tx, guest.ID, false, "other@example.test")
 	}), ErrMerchantStoreEmailUnverified)
 	require.NoError(t, DB.Model(&Option{}).Where("key = ?", MerchantStoreWriterCapabilityOption).Update("value", "4").Error)
+	var before, after []MerchantStoreGuestEmailVerification
+	require.NoError(t, DB.Where("guest_id = ?", guest.ID).Order("email_hash").Find(&before).Error)
 	_, err = BeginMerchantStoreGuestEmailVerification(token, "new@example.test")
-	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
+	require.ErrorIs(t, err, ErrMerchantStoreDenied, "an inactive guest capability cannot resolve a guest subject")
+	require.NoError(t, DB.Where("guest_id = ?", guest.ID).Order("email_hash").Find(&after).Error)
+	require.Equal(t, before, after, "an unavailable guest subject cannot alter email verification facts")
 	t.Run("postgres_guest_row_single_use_and_send_budget", assertMerchantStoreGuestEmailPostgresSingleUse)
 }
 

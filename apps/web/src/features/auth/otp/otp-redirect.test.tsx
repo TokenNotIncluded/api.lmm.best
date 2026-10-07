@@ -217,8 +217,8 @@ async function fill(input: HTMLInputElement | null, value: string) {
   assert.ok(setter)
   await act(async () => {
     setter.call(input, value)
-    input.dispatchEvent(new dom.InputEvent('input', { bubbles: true }))
-    input.dispatchEvent(new dom.Event('change', { bubbles: true }))
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
   })
 }
 
@@ -226,9 +226,7 @@ async function submit(host: HTMLDivElement) {
   const form = host.querySelector('form')
   assert.ok(form)
   await act(async () => {
-    form.dispatchEvent(
-      new dom.Event('submit', { bubbles: true, cancelable: true })
-    )
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   })
 }
 
@@ -255,7 +253,7 @@ async function clickLink(host: HTMLDivElement, label: string) {
   assert.ok(link)
   await act(async () =>
     link.dispatchEvent(
-      new dom.MouseEvent('click', {
+      new MouseEvent('click', {
         bubbles: true,
         cancelable: true,
         button: 0,
@@ -359,7 +357,7 @@ for (const action of ['Back to login', 'Re-login']) {
     assert.ok(control)
     await act(async () =>
       control.dispatchEvent(
-        new dom.MouseEvent('click', {
+        new MouseEvent('click', {
           bubbles: true,
           cancelable: true,
           button: 0,
