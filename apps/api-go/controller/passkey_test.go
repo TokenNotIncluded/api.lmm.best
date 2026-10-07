@@ -325,7 +325,7 @@ func TestChannelKeyReadAcceptsPasskeyWithBoundEmail(t *testing.T) {
 		c.Set("session_version", identity.SessionVersion)
 		assert.True(t, middleware.RequireSecurityProof(c, securityProofScopeChannelKeyRead, []string{"email", "passkey"}), response.Body.String())
 	}
-	for _, scope := range []string{securityProofScopePasskeyRegister, securityProofScopePasskeyDelete, securityProofScopeReviewRunsDelete} {
+	for _, scope := range []string{securityProofScopePasskeyRegister, securityProofScopePasskeyDelete} {
 		proof, _, err := service.IssueSecurityProof(identity, "passkey", []string{scope})
 		require.NoError(t, err)
 		response := httptest.NewRecorder()

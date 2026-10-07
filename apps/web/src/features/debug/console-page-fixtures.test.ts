@@ -192,7 +192,6 @@ test('the three new reads keep exact paths, GET methods and admin permissions', 
 test('admin list fixtures keep the API array contract rather than a paginated envelope', () => {
   for (const url of [
     '/api/red-packet/admin',
-    '/api/security/admin/review-runs',
     '/api/assistant/admin/registration-events',
   ]) {
     const response = consolePageFixture(config(url)) as { data: unknown }

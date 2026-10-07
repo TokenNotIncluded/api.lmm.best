@@ -63,14 +63,6 @@ export const assistantSettingsSchema = z.object({
     .trim()
     .max(4000)
     .regex(/^(?:[1-9]\d*(?:[\s,，]+[1-9]\d*)*)?$/),
-  AssistantReviewEnabled: z.boolean(),
-  AssistantReviewWindowDays: z.number().int().min(1).max(90),
-  AssistantReviewIntervalHours: z.number().int().min(1).max(168),
-  AssistantReviewProbability: z.number().min(0).max(100),
-  AssistantReviewGroup: z.string().trim().min(1).max(64),
-  AssistantReviewModel: z.string().trim().min(1).max(128),
-  AssistantReviewReasoningEffort: z.enum(ASSISTANT_REASONING_EFFORTS),
-  AssistantReviewGroupPolicies: z.string().max(20000),
   AssistantRetentionEnabled: z.boolean(),
   AssistantActiveRetentionDays: z.number().int().min(7).max(3650),
   AssistantArchivedRetentionDays: z.number().int().min(1).max(3650),

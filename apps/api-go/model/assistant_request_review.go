@@ -60,22 +60,6 @@ type AssistantRequestReviewView struct {
 	Rules []string `json:"rules"`
 }
 
-// AssistantRequestReviewFilter is the narrow, administrator-facing filter
-// used by the Advanced Security page. It intentionally has no text-search
-// fields so the endpoint cannot become a bulk transcript export.
-type AssistantRequestReviewFilter struct {
-	StartTimestamp int64
-	EndTimestamp   int64
-	UserID         int
-	Category       string
-	Group          string
-	Decision       string
-	ViolationsOnly bool
-	ClearOnly      bool
-	Limit          int
-	Offset         int
-}
-
 func boundedAssistantReviewText(value string, limit int) string {
 	value = strings.TrimSpace(value)
 	if limit <= 0 {
@@ -177,72 +161,6 @@ func ListAssistantRequestReviews(userID int, violationsOnly bool, offset, limit 
 	}
 	var rows []AssistantRequestReview
 	if err := query.Order("created_at DESC, id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
-		return nil, 0, err
-	}
-	views := make([]AssistantRequestReviewView, 0, len(rows))
-	for _, row := range rows {
-		views = append(views, AssistantRequestReviewView{AssistantRequestReview: row, Rules: row.Rules()})
-	}
-	return views, total, nil
-}
-
-// ListAssistantRequestReviewsForSecurity returns bounded rows for the unified
-// Advanced Security view. The controller projects these rows to metadata and
-// never serializes request/response previews.
-func ListAssistantRequestReviewsForSecurity(filter AssistantRequestReviewFilter) ([]AssistantRequestReviewView, int64, error) {
-	if DB == nil {
-		return nil, 0, errors.New("database is not initialized")
-	}
-	if !assistantReviewTablesAvailable(DB) {
-		return []AssistantRequestReviewView{}, 0, nil
-	}
-	limit := filter.Limit
-	if limit <= 0 || limit > AssistantRequestReviewPageMax {
-		limit = AssistantRequestReviewPageMax
-	}
-	offset := filter.Offset
-	if offset < 0 {
-		offset = 0
-	}
-	query := DB.Model(&AssistantRequestReview{})
-	if filter.StartTimestamp > 0 {
-		query = query.Where("created_at >= ?", filter.StartTimestamp)
-	}
-	if filter.EndTimestamp > 0 {
-		query = query.Where("created_at <= ?", filter.EndTimestamp)
-	}
-	if filter.UserID > 0 {
-		query = query.Where("user_id = ?", filter.UserID)
-	}
-	if filter.Category != "" && filter.Category != "assistant_review" {
-		query = query.Where("1 = 0")
-	}
-	if filter.Group != "" {
-		// clause.Column lets GORM quote GROUP for the active dialect while the
-		// value remains a bound query argument.
-		query = query.Where(clause.Eq{Column: clause.Column{Name: "group"}, Value: filter.Group})
-	}
-	if filter.Decision != "" && filter.Decision != "violation" && filter.Decision != "clear" {
-		query = query.Where("1 = 0")
-	}
-	if filter.ViolationsOnly || filter.Decision == "violation" {
-		query = query.Where("violation = ?", true)
-	}
-	if filter.ClearOnly || filter.Decision == "clear" {
-		query = query.Where("status = ? AND violation = ?", AssistantRequestReviewStatusCompleted, false)
-	}
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-	var rows []AssistantRequestReview
-	// The security projection never needs the retained request/response
-	// previews or failure text. Do not load those columns into Go memory for a
-	// paginated admin list; the user-scoped history endpoint above remains the
-	// only path that can request them.
-	groupColumn := query.Statement.Quote("group")
-	rowQuery := query.Select("id, user_id, conversation_id, request_id, " + groupColumn + ", review_model, intensity, status, violation, abuse, rules_json, explanation, created_at, updated_at")
-	if err := rowQuery.Order("created_at DESC, id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	views := make([]AssistantRequestReviewView, 0, len(rows))

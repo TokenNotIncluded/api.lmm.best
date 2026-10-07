@@ -23,15 +23,12 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { todoItemTitleKey } from './todo-labels'
-import {
-  todoItemHasDestination,
-  todoSecurityReviewDestination,
-} from './todo-navigation'
+import { todoItemHasDestination } from './todo-navigation'
 
 function item(
   category:
     | 'open_source_bounty'
-    | 'security_review'
+    | 'security_incident'
     | 'developer_access'
     | 'account_action'
     | 'human_support',
@@ -52,24 +49,25 @@ function item(
 }
 
 describe('unified todo destinations', () => {
-  test('uses the locale key for assistant security reviews', () => {
+  test('uses a safety incident label and falls back for unknown notifications', () => {
     assert.equal(
-      todoItemTitleKey('assistant.security_review'),
-      'assistant.security_review'
+      todoItemTitleKey('assistant.security_incident'),
+      'Assistant safety incident'
     )
     assert.equal(todoItemTitleKey('unknown.todo'), 'Notification')
-  })
-
-  test('advertises security review navigation even without a user or project id', () => {
-    const review = item('security_review')
-    assert.equal(todoItemHasDestination(review), true)
-    assert.equal(todoSecurityReviewDestination(review), '/security')
   })
 
   test('keeps destination affordances tied to actionable notification data', () => {
     assert.equal(todoItemHasDestination(item('open_source_bounty')), false)
     assert.equal(
       todoItemHasDestination(item('open_source_bounty', { project_id: 12 })),
+      true
+    )
+    assert.equal(todoItemHasDestination(item('security_incident')), false)
+    assert.equal(
+      todoItemHasDestination(
+        item('security_incident', { username: 'customer' })
+      ),
       true
     )
     // The request ID is enough for an administrator to open the review panel;

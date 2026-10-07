@@ -115,25 +115,8 @@ type AdminSecurityPolicy struct {
 	ViolationFee SecurityViolationFeeSettings `json:"violation_fee"`
 }
 
-type SecurityStatBucket struct {
-	Key   string `json:"key"`
-	Count int64  `json:"count"`
-}
-
 type SecurityStats struct {
-	StartTimestamp   int64                  `json:"start_timestamp"`
-	EndTimestamp     int64                  `json:"end_timestamp"`
-	TotalMatches     int64                  `json:"total_matches"`
-	BlockedMatches   int64                  `json:"blocked_matches"`
-	AuditedMatches   int64                  `json:"audited_matches"`
-	AffectedRequests int64                  `json:"affected_requests"`
-	AffectedUsers    int64                  `json:"affected_users"`
-	ByCategory       []SecurityStatBucket   `json:"by_category"`
-	ByRule           []SecurityStatBucket   `json:"by_rule,omitempty"`
-	AIReview         *AISecurityReviewStats `json:"ai_review,omitempty"`
-	// Moderation is an all-time queue aggregate, independent of the legacy
-	// event window above. No user, group or request metadata is public here.
-	Moderation *ModerationSecurityStats `json:"moderation,omitempty"`
+	Moderation *ModerationSecurityStats `json:"moderation"`
 }
 
 type ModerationSecurityStats struct {
@@ -182,59 +165,4 @@ type SecurityModerationProviderCall struct {
 	BatchIndex int    `json:"batch_index"`
 	ResponseID string `json:"response_id"`
 	RequestID  string `json:"request_id"`
-}
-
-// AISecurityReviewStats summarizes the asynchronous assistant review lane.
-// It is deliberately separate from literal-rule match counts so the two
-// detection mechanisms are not presented as if they were the same signal.
-type AISecurityReviewStats struct {
-	Total      int64                `json:"total"`
-	Completed  int64                `json:"completed"`
-	Violations int64                `json:"violations"`
-	Abuses     int64                `json:"abuses"`
-	Failed     int64                `json:"failed"`
-	ByGroup    []SecurityStatBucket `json:"by_group,omitempty"`
-}
-
-type AdvancedSecurityEvent struct {
-	ID            uint   `json:"id"`
-	CreatedAt     int64  `json:"created_at"`
-	RequestID     string `json:"request_id"`
-	UserID        int    `json:"user_id"`
-	Username      string `json:"username"`
-	TokenID       int    `json:"token_id"`
-	ChannelID     int    `json:"channel_id"`
-	ModelName     string `json:"model_name"`
-	Group         string `json:"group"`
-	Endpoint      string `json:"endpoint"`
-	Decision      string `json:"decision"`
-	RuleID        string `json:"rule_id"`
-	RuleName      string `json:"rule_name"`
-	Category      string `json:"category"`
-	Layer         string `json:"layer"`
-	Severity      string `json:"severity"`
-	Source        string `json:"source"`
-	RuleVersion   string `json:"rule_version"`
-	PatternDigest string `json:"pattern_digest"`
-	InputDigest   string `json:"input_digest"`
-	MatchCount    int    `json:"match_count"`
-}
-
-// AdvancedSecurityAIReview is a safe, administrator-facing projection of an
-// asynchronous AI review.  It intentionally omits request/response previews;
-// the explanation and rule labels are already bounded and redacted at write
-// time, while raw conversation content belongs in the separate history ACL.
-type AdvancedSecurityAIReview struct {
-	ID          int64    `json:"id"`
-	CreatedAt   int64    `json:"created_at"`
-	RequestID   string   `json:"request_id,omitempty"`
-	UserID      int      `json:"user_id,omitempty"`
-	Group       string   `json:"group"`
-	ReviewModel string   `json:"review_model"`
-	Intensity   string   `json:"intensity"`
-	Status      string   `json:"status"`
-	Violation   bool     `json:"violation"`
-	Abuse       bool     `json:"abuse"`
-	Rules       []string `json:"rules,omitempty"`
-	Explanation string   `json:"explanation,omitempty"`
 }

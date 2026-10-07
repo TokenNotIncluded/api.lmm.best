@@ -19,7 +19,6 @@ import {
   todoDetailNumber,
   todoItemCanOpen,
   todoItemHasDestination,
-  todoSecurityReviewDestination,
 } from './todo-navigation'
 
 function item(
@@ -156,7 +155,6 @@ describe('todo dates and destinations', () => {
       'account_action',
       'developer_access',
       'security_incident',
-      'security_review',
       'human_support',
     ] as const) {
       const notification = item(category, { username: 'customer' })
@@ -168,9 +166,7 @@ describe('todo dates and destinations', () => {
       true
     )
   })
-  test('keeps security reviews on the audit timeline regardless of project metadata', () => {
-    const review = item('security_review', { project_id: 12 })
-    assert.equal(todoSecurityReviewDestination(review), '/security')
+  test('does not advertise security incident navigation without a username', () => {
     assert.equal(
       todoItemHasDestination(item('security_incident', { username: '   ' })),
       false
@@ -185,6 +181,5 @@ describe('todo dates and destinations', () => {
     assert.equal(todoItemHasDestination(warning), false)
     assert.equal(todoItemCanOpen(warning, false), false)
     assert.equal(todoItemCanOpen(warning, true), false)
-    assert.equal(todoSecurityReviewDestination(warning), undefined)
   })
 })

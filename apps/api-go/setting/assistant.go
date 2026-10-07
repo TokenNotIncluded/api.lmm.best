@@ -3,7 +3,6 @@ package setting
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 	"net"
 	"net/url"
@@ -45,14 +44,6 @@ const (
 	AssistantSearchMCPToolOptionKey          = "AssistantSearchMCPTool"
 	AssistantSkillsOptionKey                 = "AssistantSkills"
 	AssistantSkillFilesOptionKey             = "AssistantSkillFiles"
-	AssistantReviewEnabledOptionKey          = "AssistantReviewEnabled"
-	AssistantReviewWindowDaysOptionKey       = "AssistantReviewWindowDays"
-	AssistantReviewIntervalHoursOptionKey    = "AssistantReviewIntervalHours"
-	AssistantReviewProbabilityOptionKey      = "AssistantReviewProbability"
-	AssistantReviewGroupOptionKey            = "AssistantReviewGroup"
-	AssistantReviewModelOptionKey            = "AssistantReviewModel"
-	AssistantReviewReasoningEffortOptionKey  = "AssistantReviewReasoningEffort"
-	AssistantReviewGroupPoliciesOptionKey    = "AssistantReviewGroupPolicies"
 	AssistantRetentionEnabledOptionKey       = "AssistantRetentionEnabled"
 	AssistantActiveRetentionDaysOptionKey    = "AssistantActiveRetentionDays"
 	AssistantArchivedRetentionDaysOptionKey  = "AssistantArchivedRetentionDays"
@@ -64,11 +55,6 @@ const (
 	DefaultAssistantReasoningEffort          = "auto"
 	DefaultAssistantTemperature              = 0.2
 	DefaultAssistantMaxTokens                = 900
-	DefaultAssistantReviewGroup              = DefaultAssistantGroup
-	DefaultAssistantReviewModel              = "deepseek-v4-flash"
-	DefaultAssistantReviewReasoningEffort    = DefaultAssistantReasoningEffort
-	AssistantReviewDefaultIntensity          = "standard"
-	AssistantReviewMaxGroupPolicies          = 64
 	AssistantSkillFileMaxCount               = 32
 	AssistantSkillFileMaxPathRunes           = 96
 	AssistantSkillFileMaxContentRunes        = 12_000
@@ -128,28 +114,11 @@ type AssistantSettings struct {
 	SearchMCPTool          string
 	Skills                 string
 	SkillFiles             []AssistantSkillFile
-	ReviewEnabled          bool
-	ReviewWindowDays       int
-	ReviewIntervalHours    int
-	ReviewProbability      float64
-	ReviewGroup            string
-	ReviewModel            string
-	ReviewReasoningEffort  string
-	ReviewGroupPolicies    map[string]AssistantReviewGroupPolicy
 	RetentionEnabled       bool
 	ActiveRetentionDays    int
 	ArchivedRetentionDays  int
 	SecurityRetentionDays  int
 	RetentionIntervalHours int
-}
-
-// AssistantReviewGroupPolicy controls the optional per-request background
-// review for one routing group. Probability is expressed as a percentage
-// (1.0 means one percent) so it remains readable in the option table/UI.
-// Intensity changes the review prompt without changing the request path.
-type AssistantReviewGroupPolicy struct {
-	Probability float64 `json:"probability"`
-	Intensity   string  `json:"intensity"`
 }
 
 var (
@@ -177,14 +146,6 @@ var (
 		SearchMCPTool:          "",
 		Skills:                 "",
 		SkillFiles:             nil,
-		ReviewEnabled:          true,
-		ReviewWindowDays:       30,
-		ReviewIntervalHours:    24,
-		ReviewProbability:      0,
-		ReviewGroup:            DefaultAssistantReviewGroup,
-		ReviewModel:            DefaultAssistantReviewModel,
-		ReviewReasoningEffort:  DefaultAssistantReviewReasoningEffort,
-		ReviewGroupPolicies:    map[string]AssistantReviewGroupPolicy{},
 		RetentionEnabled:       true,
 		ActiveRetentionDays:    90,
 		ArchivedRetentionDays:  30,
@@ -656,166 +617,6 @@ func AssistantSkillPromptForFiles(files []AssistantSkillFile) string {
 	return strings.TrimSpace(prompt.String())
 }
 
-func SetAssistantReviewEnabled(enabled bool) {
-	assistantSettingsMutex.Lock()
-	defer assistantSettingsMutex.Unlock()
-	assistantSettings.ReviewEnabled = enabled
-}
-
-func UpdateAssistantReviewWindowDays(value string) error {
-	return updateAssistantNumber(&assistantSettings.ReviewWindowDays, value, 1, 90, "assistant review window must be between 1 and 90 days")
-}
-
-func UpdateAssistantReviewIntervalHours(value string) error {
-	return updateAssistantNumber(&assistantSettings.ReviewIntervalHours, value, 1, 168, "assistant review interval must be between 1 and 168 hours")
-}
-
-func UpdateAssistantReviewProbability(value string) error {
-	probability, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	if err != nil || math.IsNaN(probability) || math.IsInf(probability, 0) || probability < 0 || probability > 100 {
-		return errors.New("assistant review probability must be between 0 and 100 percent")
-	}
-	assistantSettingsMutex.Lock()
-	defer assistantSettingsMutex.Unlock()
-	assistantSettings.ReviewProbability = probability
-	return nil
-}
-
-func UpdateAssistantReviewGroup(value string) error {
-	group := strings.TrimSpace(value)
-	if group == "" {
-		return errors.New("assistant review routing group is required")
-	}
-	if len([]rune(group)) > 64 {
-		return errors.New("assistant review routing group must be at most 64 characters")
-	}
-
-	assistantSettingsMutex.Lock()
-	defer assistantSettingsMutex.Unlock()
-	assistantSettings.ReviewGroup = group
-	return nil
-}
-
-func UpdateAssistantReviewModel(value string) error {
-	model := strings.TrimSpace(value)
-	if model == "" {
-		return errors.New("assistant review model is required")
-	}
-	if len(model) > 128 {
-		return errors.New("assistant review model must be at most 128 characters")
-	}
-	assistantSettingsMutex.Lock()
-	defer assistantSettingsMutex.Unlock()
-	assistantSettings.ReviewModel = model
-	return nil
-}
-
-// UpdateAssistantReviewReasoningEffort stores the provider-neutral effort hint
-// used by background review requests. "auto" omits the hint so the selected
-// model and channel retain their native default.
-func UpdateAssistantReviewReasoningEffort(value string) error {
-	effort := strings.ToLower(strings.TrimSpace(value))
-	if !IsAssistantReasoningEffort(effort) {
-		return errors.New("assistant review reasoning effort must be auto, none, minimal, low, medium, high, xhigh, or max")
-	}
-
-	assistantSettingsMutex.Lock()
-	defer assistantSettingsMutex.Unlock()
-	assistantSettings.ReviewReasoningEffort = effort
-	return nil
-}
-
-func AssistantReviewGroupPoliciesJSON(policies map[string]AssistantReviewGroupPolicy) string {
-	if policies == nil {
-		policies = map[string]AssistantReviewGroupPolicy{}
-	}
-	encoded, err := json.Marshal(policies)
-	if err != nil {
-		return "{}"
-	}
-	return string(encoded)
-}
-
-func AssistantReviewGroupPoliciesCopy() map[string]AssistantReviewGroupPolicy {
-	assistantSettingsMutex.RLock()
-	defer assistantSettingsMutex.RUnlock()
-	return cloneAssistantReviewGroupPolicies(assistantSettings.ReviewGroupPolicies)
-}
-
-func UpdateAssistantReviewGroupPolicies(value string) error {
-	policies, err := ParseAssistantReviewGroupPolicies(value)
-	if err != nil {
-		return err
-	}
-	assistantSettingsMutex.Lock()
-	defer assistantSettingsMutex.Unlock()
-	assistantSettings.ReviewGroupPolicies = policies
-	return nil
-}
-
-func ParseAssistantReviewGroupPolicies(value string) (map[string]AssistantReviewGroupPolicy, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return map[string]AssistantReviewGroupPolicy{}, nil
-	}
-	var policies map[string]AssistantReviewGroupPolicy
-	if err := json.Unmarshal([]byte(trimmed), &policies); err != nil {
-		return nil, errors.New("assistant review group policies must be valid JSON")
-	}
-	if policies == nil {
-		policies = map[string]AssistantReviewGroupPolicy{}
-	}
-	if len(policies) > AssistantReviewMaxGroupPolicies {
-		return nil, errors.New("assistant review group policies contain too many groups")
-	}
-	for group, policy := range policies {
-		group = strings.TrimSpace(group)
-		if group == "" || len([]rune(group)) > 64 {
-			return nil, errors.New("assistant review group names must be 1 to 64 characters")
-		}
-		if math.IsNaN(policy.Probability) || math.IsInf(policy.Probability, 0) || policy.Probability < 0 || policy.Probability > 100 {
-			return nil, fmt.Errorf("assistant review probability for %s must be between 0 and 100 percent", group)
-		}
-		policy.Intensity = strings.ToLower(strings.TrimSpace(policy.Intensity))
-		if policy.Intensity == "" {
-			policy.Intensity = AssistantReviewDefaultIntensity
-		}
-		if !IsAssistantReviewIntensity(policy.Intensity) {
-			return nil, fmt.Errorf("assistant review intensity for %s is invalid", group)
-		}
-		if group != strings.TrimSpace(group) {
-			return nil, errors.New("assistant review group names must not have surrounding whitespace")
-		}
-		policies[group] = policy
-	}
-	return cloneAssistantReviewGroupPolicies(policies), nil
-}
-
-func IsAssistantReviewIntensity(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "off", "low", "standard", "high":
-		return true
-	default:
-		return false
-	}
-}
-
-func AssistantReviewPolicyForGroup(group string) (AssistantReviewGroupPolicy, bool) {
-	group = strings.TrimSpace(group)
-	assistantSettingsMutex.RLock()
-	defer assistantSettingsMutex.RUnlock()
-	policy, ok := assistantSettings.ReviewGroupPolicies[group]
-	return policy, ok
-}
-
-func cloneAssistantReviewGroupPolicies(source map[string]AssistantReviewGroupPolicy) map[string]AssistantReviewGroupPolicy {
-	clone := make(map[string]AssistantReviewGroupPolicy, len(source))
-	for group, policy := range source {
-		clone[group] = policy
-	}
-	return clone
-}
-
 func SetAssistantRetentionEnabled(enabled bool) {
 	assistantSettingsMutex.Lock()
 	defer assistantSettingsMutex.Unlock()
@@ -855,10 +656,6 @@ func ValidateAssistantOption(key string, value string) error {
 		return err
 	}
 	switch key {
-	case AssistantReviewEnabledOptionKey:
-		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
-			return errors.New("assistant review enabled must be a boolean")
-		}
 	case AssistantModelOptionKey:
 		model := strings.TrimSpace(value)
 		if model == "" {
@@ -945,38 +742,6 @@ func ValidateAssistantOption(key string, value string) error {
 		}
 	case AssistantSkillFilesOptionKey:
 		_, err := NormalizeAssistantSkillFiles(value)
-		return err
-	case AssistantReviewWindowDaysOptionKey:
-		return validateAssistantNumber(value, 1, 90, "assistant review window must be between 1 and 90 days")
-	case AssistantReviewIntervalHoursOptionKey:
-		return validateAssistantNumber(value, 1, 168, "assistant review interval must be between 1 and 168 hours")
-	case AssistantReviewProbabilityOptionKey:
-		probability, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-		if err != nil || math.IsNaN(probability) || math.IsInf(probability, 0) || probability < 0 || probability > 100 {
-			return errors.New("assistant review probability must be between 0 and 100 percent")
-		}
-	case AssistantReviewGroupOptionKey:
-		group := strings.TrimSpace(value)
-		if group == "" {
-			return errors.New("assistant review routing group is required")
-		}
-		if len([]rune(group)) > 64 {
-			return errors.New("assistant review routing group must be at most 64 characters")
-		}
-	case AssistantReviewModelOptionKey:
-		model := strings.TrimSpace(value)
-		if model == "" {
-			return errors.New("assistant review model is required")
-		}
-		if len(model) > 128 {
-			return errors.New("assistant review model must be at most 128 characters")
-		}
-	case AssistantReviewReasoningEffortOptionKey:
-		if !IsAssistantReasoningEffort(strings.TrimSpace(value)) {
-			return errors.New("assistant review reasoning effort must be auto, none, minimal, low, medium, high, xhigh, or max")
-		}
-	case AssistantReviewGroupPoliciesOptionKey:
-		_, err := ParseAssistantReviewGroupPolicies(value)
 		return err
 	case AssistantActiveRetentionDaysOptionKey:
 		return validateAssistantNumber(value, 7, 3650, "assistant active retention must be between 7 and 3650 days")

@@ -9,7 +9,7 @@ License, or (at your option) any later version.
 import { useTranslation } from 'react-i18next'
 
 import { SettingsSection } from '../components/settings-section'
-import { SecurityAuditPanel } from './security-audit'
+import { ModerationAuditPanel } from './moderation-audit-panel'
 
 export function AdvancedSecuritySection() {
   const { t } = useTranslation()
@@ -26,7 +26,7 @@ export function AdvancedSecuritySection() {
       >
         {t('Configure group modes and category fines')}
       </a>
-      <SecurityAuditPanel />
+      <ModerationAuditPanel />
     </SettingsSection>
   )
 }

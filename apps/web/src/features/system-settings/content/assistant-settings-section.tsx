@@ -668,7 +668,6 @@ export function AssistantSettingsSection(props: {
     enabled,
     agentLoopEnabled,
     cacheEnabled,
-    reviewEnabled,
     retentionEnabled,
     searchProvider,
     selectedGroup,
@@ -679,7 +678,6 @@ export function AssistantSettingsSection(props: {
       'AssistantEnabled',
       'AssistantAgentLoopEnabled',
       'AssistantCacheEnabled',
-      'AssistantReviewEnabled',
       'AssistantRetentionEnabled',
       'AssistantSearchProvider',
       'AssistantGroup',
@@ -705,7 +703,6 @@ export function AssistantSettingsSection(props: {
   const assistantGroups = [
     ...new Set([
       props.defaultValues.AssistantGroup || 'default',
-      props.defaultValues.AssistantReviewGroup || 'default',
       props.defaultValues.AssistantModerationGroup || 'default',
       ...(groupsQuery.data ?? []),
     ]),
@@ -1627,97 +1624,6 @@ export function AssistantSettingsSection(props: {
                       groupsLoading={groupsQuery.isLoading}
                       getModels={getEnabledAssistantModelIDs}
                     />
-
-                    <div className='grid gap-5 border-t pt-6'>
-                      <div>
-                        <h3 className='text-sm font-medium'>
-                          {t('Automatic review')}
-                        </h3>
-                        <p className='text-muted-foreground mt-1 text-sm'>
-                          {t(
-                            'Periodically summarize anonymous assistant metrics and highlight conversion, support, and safety follow-ups.'
-                          )}
-                        </p>
-                      </div>
-
-                      <FormField
-                        control={form.control}
-                        name='AssistantReviewEnabled'
-                        render={({ field }) => (
-                          <SettingsSwitchItem>
-                            <SettingsSwitchContent>
-                              <FormLabel>
-                                {t('Enable scheduled review')}
-                              </FormLabel>
-                              <FormDescription>
-                                {t(
-                                  'Create a bounded background review without copying conversations or user identities.'
-                                )}
-                              </FormDescription>
-                            </SettingsSwitchContent>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </SettingsSwitchItem>
-                        )}
-                      />
-
-                      <div className='grid gap-5 sm:grid-cols-2'>
-                        <FormField
-                          control={form.control}
-                          name='AssistantReviewWindowDays'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('Review window (days)')}</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type='number'
-                                  min={1}
-                                  max={90}
-                                  step={1}
-                                  {...safeNumberFieldProps(field)}
-                                  disabled={!reviewEnabled}
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                {t('Summarize the last 1–90 days.')}
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name='AssistantReviewIntervalHours'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                {t('Review interval (hours)')}
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  type='number'
-                                  min={1}
-                                  max={168}
-                                  step={1}
-                                  {...safeNumberFieldProps(field)}
-                                  disabled={!reviewEnabled}
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                {t('Run every 1–168 hours.')}
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                    </div>
                   </div>
                 </SettingsDisclosure>
               </section>

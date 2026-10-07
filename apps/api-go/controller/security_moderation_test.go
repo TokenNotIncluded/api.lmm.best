@@ -343,6 +343,8 @@ func TestSecurityModerationPublicDefaultsAreDisabledAndStatisticsAreAggregateOnl
 	seedSecurityModerationJob(t, db, 1, 7, "private-group", model.ModerationSourceRelayInput, model.ModerationJobCompleted, 1)
 	seedSecurityModerationJob(t, db, 2, 8, "other-private-group", model.ModerationSourceAssistantOutput, model.ModerationJobFailed, 2)
 	require.NoError(t, db.Model(&model.ModerationJob{}).Where("id = ?", 1).Updates(map[string]any{"flagged": true, "charged_quota": 100}).Error)
+	// Current statistics must not query the retired literal-event table.
+	require.NoError(t, db.Migrator().DropTable(&model.AdvancedSecurityEvent{}))
 	result := securityModerationRequest(t, GetPublicSecurityStats, "", 0, 0)
 	var stats struct {
 		Success bool              `json:"success"`

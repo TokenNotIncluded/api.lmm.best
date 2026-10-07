@@ -78,10 +78,6 @@ export const RAW_JSON_DESCRIPTORS = [
     key: 'group_ratio_setting.group_special_usable_group',
     label: 'Special usable groups',
   },
-  {
-    key: 'AssistantReviewGroupPolicies',
-    label: 'AI review group policies',
-  },
   { key: 'AssistantSkillFiles', label: 'AI skill files' },
   {
     key: 'global.thinking_model_blacklist',

@@ -123,14 +123,6 @@ const baseValues = {
   AssistantL1AutoReviewPrompt: '',
   AssistantL1AutoReviewMinConfidence: 0.98,
   AssistantL1AutoApprovalUserIDs: '',
-  AssistantReviewEnabled: true,
-  AssistantReviewWindowDays: 30,
-  AssistantReviewIntervalHours: 24,
-  AssistantReviewProbability: 0,
-  AssistantReviewGroup: 'default',
-  AssistantReviewModel: 'deepseek-v4-flash',
-  AssistantReviewReasoningEffort: 'auto',
-  AssistantReviewGroupPolicies: '{}',
   AssistantRetentionEnabled: true,
   AssistantActiveRetentionDays: 90,
   AssistantArchivedRetentionDays: 30,
@@ -373,13 +365,7 @@ describe('assistant search provider settings', () => {
           ),
           null
         )
-        assert.equal(
-          rendered.container.querySelector(
-            '[data-testid="assistant-review-route-fields"]'
-          ),
-          null
-        )
-        // The connection tab loads its selector once, not a separate risk-review model.
+        // The connection tab loads its selector once, without unrelated model requests.
         assert.equal(
           requests.filter((url) => url === '/api/assistant/models').length,
           1
@@ -450,8 +436,6 @@ describe('assistant search provider settings', () => {
   test('validates bounded conversation retention settings', () => {
     assert.equal(assistantSettingsSchema.safeParse(baseValues).success, true)
     for (const invalid of [
-      { AssistantReviewWindowDays: 0 },
-      { AssistantReviewIntervalHours: 169 },
       { AssistantTemperature: -0.1 },
       { AssistantTemperature: 2.1 },
       { AssistantMaxTokens: 63 },
@@ -481,7 +465,7 @@ describe('assistant search provider settings', () => {
     }
   })
 
-  test('accepts every supported reasoning effort for primary and review routes', () => {
+  test('accepts every supported reasoning effort for assistant responses', () => {
     assert.deepEqual(ASSISTANT_REASONING_EFFORTS, [
       'auto',
       'none',
@@ -497,7 +481,6 @@ describe('assistant search provider settings', () => {
         assistantSettingsSchema.safeParse({
           ...baseValues,
           AssistantReasoningEffort: effort,
-          AssistantReviewReasoningEffort: effort,
         }).success,
         true,
         effort
@@ -506,7 +489,7 @@ describe('assistant search provider settings', () => {
     assert.equal(
       assistantSettingsSchema.safeParse({
         ...baseValues,
-        AssistantReviewReasoningEffort: 'ultra',
+        AssistantReasoningEffort: 'ultra',
       }).success,
       false
     )
@@ -573,31 +556,6 @@ describe('assistant search provider settings', () => {
     )
     assert.match(container.textContent ?? '', /official Exa Search API/)
     await cleanup()
-  })
-
-  test('retains aggregate reporting but not a separate sampled review model', async () => {
-    const rendered = await renderSettings('none')
-    try {
-      assert.equal(
-        rendered.container.querySelector(
-          '[data-testid="assistant-review-route-fields"]'
-        ),
-        null
-      )
-      assert.equal(
-        rendered.container.querySelector(
-          'input[name="AssistantReviewProbability"]'
-        ),
-        null
-      )
-      assert.ok(
-        rendered.container.querySelector(
-          'input[name="AssistantReviewWindowDays"]'
-        )
-      )
-    } finally {
-      await rendered.cleanup()
-    }
   })
 
   test('saves changed assistant options through one bulk mutation', async () => {

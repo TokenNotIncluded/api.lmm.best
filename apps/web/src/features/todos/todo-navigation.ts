@@ -40,8 +40,6 @@ export function todoItemHasDestination(item: TodoItem) {
     case 'open_source_bounty':
     case 'open_source_bounty_review':
       return positiveId(todoDetailNumber(item, 'project_id'))
-    case 'security_review':
-      return true
     case 'human_support':
     case 'developer_access':
     case 'account_action':
@@ -58,11 +56,4 @@ export function todoItemCanOpen(item: TodoItem, isAdmin: boolean) {
     item.category === 'open_source_bounty' ||
     item.category === 'open_source_bounty_review'
   return (isAdmin || publicDestination) && todoItemHasDestination(item)
-}
-
-/** Security reviews belong to the audit timeline, not the settings form. */
-export function todoSecurityReviewDestination(item: TodoItem) {
-  return item.category === 'security_review'
-    ? ('/security' as const)
-    : undefined
 }

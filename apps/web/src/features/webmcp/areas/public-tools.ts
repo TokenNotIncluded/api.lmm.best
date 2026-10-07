@@ -420,7 +420,7 @@ export const publicToolsTools: WebMcpToolFactory = ({ router }) => [
     name: 'lmm_security_read',
     title: 'Read the LMM security policy and statistics',
     description:
-      'Read the public security summary: policy version, enforcement mode, protected groups, risk categories, rules and aggregate match statistics. Read-only and public.',
+      'Read the public security summary: policy version, reference, current moderation settings and processing statistics. Read-only and public.',
     inputSchema: EMPTY_INPUT_SCHEMA,
     annotations: { readOnlyHint: true },
     execute: async (_rawInput, options) => {
@@ -439,32 +439,14 @@ export const publicToolsTools: WebMcpToolFactory = ({ router }) => [
           ? {
               version: policy.data.policy_version,
               alignment: policy.data.alignment,
-              enforcement_enabled: policy.data.enforcement?.enabled ?? false,
-              enforcement_action: policy.data.enforcement?.action ?? null,
-              protected_groups: (policy.data.protected_groups ?? [])
-                .slice(0, 30)
-                .map((group) => clip(group, 80)),
-              risk_categories: (policy.data.risk_categories ?? [])
-                .slice(0, 30)
-                .map((category) => ({
-                  id: category.id,
-                  name: clip(category.name, 120),
-                  severity: category.severity,
-                })),
-              rules: (policy.data.rules ?? []).slice(0, 30).map((rule) => ({
-                id: rule.id,
-                name: clip(rule.name, 120),
-                severity: rule.severity,
-              })),
+              reference_effective_date: policy.data.reference_effective_date,
+              reference_url: policy.data.reference_url,
+              moderation: policy.data.moderation ?? null,
             }
           : null,
         stats: stats?.data
           ? {
-              total_matches: stats.data.total_matches,
-              blocked_matches: stats.data.blocked_matches,
-              audited_matches: stats.data.audited_matches,
-              affected_requests: stats.data.affected_requests,
-              affected_users: stats.data.affected_users,
+              moderation: stats.data.moderation ?? null,
             }
           : null,
       }

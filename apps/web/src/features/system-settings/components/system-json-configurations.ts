@@ -210,27 +210,6 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
       },
     ]
   ),
-  AssistantReviewGroupPolicies: configuration(
-    { default: { probability: 1, intensity: 'standard' } },
-    'Record<string, AssistantReviewGroupPolicy>',
-    [
-      { path: '<group>', type: 'object', example: '"default"' },
-      {
-        path: '<group>.probability',
-        type: 'number',
-        required: true,
-        rules: 'minimum: 0; maximum: 100; finite: true',
-        example: '1',
-      },
-      {
-        path: '<group>.intensity',
-        type: 'string',
-        required: false,
-        rules: 'enum: [off, low, standard, high]',
-        example: '"standard"',
-      },
-    ]
-  ),
   AssistantSkillFiles: configuration(
     [
       {

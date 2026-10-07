@@ -1419,7 +1419,7 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["execute_admin_operation"])
 	assert.True(t, names["audit_admin_model_pricing"])
 	assert.True(t, names["get_admin_server_config"])
-	assert.True(t, names["get_admin_assistant_review"])
+	assert.False(t, names["get_admin_assistant_review"])
 	assert.True(t, names["prepare_admin_config_change"])
 	assert.True(t, names["get_admin_channels"])
 	assert.True(t, names["prepare_admin_channel_change"])
@@ -1894,7 +1894,7 @@ func TestAssistantAgentToolCatalogueMatchesAccessLevel(t *testing.T) {
 	// get_bounty_data is topic-gated and the weekly discount is a user reward;
 	// neither is included for an administrator catalogue.
 	assert.False(t, adminNames["prepare_weekly_discount"])
-	assert.True(t, adminNames["get_admin_assistant_review"])
+	assert.False(t, adminNames["get_admin_assistant_review"])
 	assert.False(t, adminNames["get_admin_server_config"])
 	assert.False(t, adminNames["prepare_admin_config_change"])
 	assert.False(t, adminNames["prepare_admin_pricing_change"])

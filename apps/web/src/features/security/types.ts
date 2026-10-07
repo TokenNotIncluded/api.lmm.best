@@ -15,40 +15,6 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-export type SecurityRiskCategory = {
-  id: string
-  name: string
-  layer: string
-  severity: string
-  description: string
-  source: string
-}
-
-export type SecurityRuleSummary = {
-  id: string
-  name: string
-  category: string
-  layer: string
-  severity: string
-  source: string
-  version: string
-  description: string
-}
-
-export type SecurityViolationFeeRule = {
-  code: string
-  provider: string
-  trigger: string
-  enabled: boolean
-  amount_usd: number
-  amount_currency?: 'USD' | 'legacy_pricing_unit'
-  charge_unit: string
-  retryable: boolean
-  description: string
-  charging_notes: string
-  local_guardrail_fee: boolean
-}
-
 export type SecurityModerationGroupPolicy = {
   mode: 'off' | 'tolerant' | 'strict'
   category_fines_usd: Record<string, number>
@@ -66,26 +32,11 @@ export type SecurityModerationPolicy = {
 }
 
 export type SecurityPolicy = {
-  historical?: boolean
   policy_version: string
   reference_effective_date: string
   reference_url: string
   alignment: string
-  enforcement: {
-    enabled: boolean
-    on_prompt: boolean
-    action: 'block' | 'audit' | 'retired'
-  }
-  protected_groups?: string[]
-  risk_categories: SecurityRiskCategory[]
-  rules: SecurityRuleSummary[]
-  violation_fees: SecurityViolationFeeRule[]
   moderation?: SecurityModerationPolicy
-}
-
-export type SecurityStatsBucket = {
-  key: string
-  count: number
 }
 
 export type SecurityModerationStats = {
@@ -100,15 +51,6 @@ export type SecurityModerationStats = {
 }
 
 export type SecurityStats = {
-  start_timestamp: number
-  end_timestamp: number
-  total_matches: number
-  blocked_matches: number
-  audited_matches: number
-  affected_requests: number
-  affected_users: number
-  by_category: SecurityStatsBucket[]
-  by_rule?: SecurityStatsBucket[]
   moderation?: SecurityModerationStats
 }
 

@@ -293,14 +293,6 @@ export type ContentSettings = {
   AssistantL1AutoReviewPrompt: string
   AssistantL1AutoReviewMinConfidence: number
   AssistantL1AutoApprovalUserIDs: string
-  AssistantReviewEnabled: boolean
-  AssistantReviewWindowDays: number
-  AssistantReviewIntervalHours: number
-  AssistantReviewProbability: number
-  AssistantReviewGroup: string
-  AssistantReviewModel: string
-  AssistantReviewReasoningEffort: AssistantReasoningEffort
-  AssistantReviewGroupPolicies: string
   AssistantRetentionEnabled: boolean
   AssistantActiveRetentionDays: number
   AssistantArchivedRetentionDays: number

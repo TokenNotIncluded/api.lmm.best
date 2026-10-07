@@ -168,6 +168,20 @@ describe('persona debug runtime', () => {
     assert.equal(todos.data.success, true)
     assert.equal(todos.data.data.total_unread_count, 0)
     assert.deepEqual(todos.data.data.items, [])
+    assert.deepEqual(
+      todos.data.data.categories
+        .map((category: { key: string }) => category.key)
+        .sort(),
+      [
+        'account_action',
+        'developer_access',
+        'human_support',
+        'moderation',
+        'open_source_bounty',
+        'open_source_bounty_review',
+        'security_incident',
+      ]
+    )
   })
 
   test('covers guided, normal, and operator fixtures across journey and gift routes', async () => {

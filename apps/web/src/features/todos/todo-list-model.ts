@@ -15,7 +15,6 @@ export const TODO_CATEGORY_LABELS: Record<TodoCategory, string> = {
   developer_access: 'Developer access',
   account_action: 'Account actions',
   security_incident: 'Security incidents',
-  security_review: 'Security reviews',
   moderation: 'Moderation notifications',
   human_support: 'Human technical support',
 }
@@ -24,7 +23,6 @@ const ADMIN_CATEGORIES = new Set<TodoCategory>([
   'developer_access',
   'account_action',
   'security_incident',
-  'security_review',
   'human_support',
 ])
 

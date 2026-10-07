@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,21 +55,4 @@ func TestSecurityPolicySeparatesPublicAndAdminRuleDetails(t *testing.T) {
 	assert.Equal(t, "retired", payload.Data.Public.Enforcement.Action)
 	assert.Empty(t, payload.Data.Public.Rules)
 	assert.Empty(t, payload.Data.Rules)
-}
-
-func TestCanRevealSecurityEventRespectsAdministratorHierarchy(t *testing.T) {
-	roles := map[int]int{
-		101: common.RoleAdminUser,
-		102: common.RoleRootUser,
-	}
-
-	if !canRevealSecurityEvent(7, common.RoleAdminUser, 7, roles) {
-		t.Fatal("an administrator should see their own security event")
-	}
-	if !canRevealSecurityEvent(101, common.RoleRootUser, 7, roles) {
-		t.Fatal("root should see a lower-level administrator event")
-	}
-	if canRevealSecurityEvent(102, common.RoleAdminUser, 7, roles) {
-		t.Fatal("an administrator must not see a root event")
-	}
 }

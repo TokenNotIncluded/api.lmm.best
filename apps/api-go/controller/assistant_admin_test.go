@@ -117,32 +117,6 @@ func TestAssistantAdminModelInventoryRejectsEmptyPricingCache(t *testing.T) {
 	assert.NotContains(t, models, "model_ids")
 }
 
-func TestAssistantReviewToolReturnsAggregateResult(t *testing.T) {
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.SystemTask{}, &model.SystemTaskLock{}))
-	admin := model.User{
-		Username: "assistant-review-admin", Password: "password",
-		Role: common.RoleAdminUser, Status: common.UserStatusEnabled,
-	}
-	require.NoError(t, db.Create(&admin).Error)
-
-	review := model.AssistantReview{
-		WindowStart: 1, WindowEnd: 2,
-		Actions: []model.AssistantReviewAction{{Code: "review_support_queue", Count: 3}},
-	}
-	task, err := model.CreateSystemTask(model.SystemTaskTypeAssistantReview, nil, nil)
-	require.NoError(t, err)
-	claimed, ok, err := model.ClaimSystemTask(task.ID, task.Type, "review-tool-test", time.Now().Add(time.Minute).Unix())
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.NoError(t, model.FinishSystemTask(claimed.TaskID, "review-tool-test", model.SystemTaskStatusSucceeded, review, ""))
-
-	result := executeAssistantReviewTool(admin.Id)
-	assert.Equal(t, true, result["ok"])
-	assert.Equal(t, "aggregate_only", result["privacy_scope"])
-	assert.Equal(t, review, result["review"])
-}
-
 func TestAssistantAdminPricingOptionsSwitchModeWithoutMutatingCache(t *testing.T) {
 	modelID := "assistant-admin-test-model"
 	options, err := assistantAdminPricingOptions(assistantAdminPricingChange{

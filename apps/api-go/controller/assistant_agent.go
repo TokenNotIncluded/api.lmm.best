@@ -484,14 +484,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 				}, []string{"message"}),
 			},
 		},
-		{
-			Type: "function",
-			Function: assistantOpenAIToolFunction{
-				Name:        "get_admin_assistant_review",
-				Description: "For an administrator only, read the latest privacy-minimized automatic assistant review. It contains bounded aggregate intent, profile, preset-conversion, chat-to-purchase conversion, order, and refund signals plus support-queue and security follow-ups; it never contains transcripts, user identities, or per-user memory. Use it before proposing changes to AssistantSkills.",
-				Parameters:  emptyObjectSchema(),
-			},
-		},
+
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -748,8 +741,7 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		return true
 	}
 	if userContext.DeveloperAccessGranted {
-		return name != "get_admin_assistant_review" &&
-			name != "get_admin_server_config" &&
+		return name != "get_admin_server_config" &&
 			name != "prepare_admin_config_change" &&
 			name != "get_admin_model_inventory" &&
 			name != "prepare_admin_model_sync" &&
@@ -2316,8 +2308,6 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantAdminModelInventoryTool(actorUserID)
 	case "prepare_admin_model_sync":
 		return executeAssistantAdminModelSyncTool(c, actorUserID, input)
-	case "get_admin_assistant_review":
-		return executeAssistantReviewTool(actorUserID)
 	case "get_admin_user_skills":
 		return executeAssistantAdminUserSkillsTool(actorUserID, input)
 	case "prepare_admin_config_change":

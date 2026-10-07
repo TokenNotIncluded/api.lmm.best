@@ -161,10 +161,6 @@ func assistantReasoningEffort(settings setting.AssistantSettings) string {
 	return assistantConfiguredReasoningEffort(settings.ReasoningEffort)
 }
 
-func assistantReviewReasoningEffort(settings setting.AssistantSettings) string {
-	return assistantConfiguredReasoningEffort(settings.ReviewReasoningEffort)
-}
-
 func assistantConfiguredReasoningEffort(value string) string {
 	effort := strings.ToLower(strings.TrimSpace(value))
 	if effort == "" || effort == setting.DefaultAssistantReasoningEffort {
@@ -1176,7 +1172,6 @@ func GetAssistantStatus(c *gin.Context) {
 			"admin_pricing":         isRoot,
 			"admin_model_inventory": isAdmin,
 			"admin_model_sync":      isRoot,
-			"assistant_review":      isAdmin,
 		},
 		"agent": gin.H{
 			"enabled":           settings.AgentLoopEnabled,
