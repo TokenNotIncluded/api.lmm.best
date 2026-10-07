@@ -1910,7 +1910,22 @@ test('cold-open collection uses only order-scoped cookie authentication without 
     })
   }) as typeof api.post
   await mount(<StoreClaimPage token={token} />)
-  assert.equal(document.querySelector('a[href^="/sign-in?redirect="]'), null)
+  const refundLogin = document.querySelector('a[href^="/sign-in?redirect="]')
+  assert.equal(
+    refundLogin?.getAttribute('href'),
+    `/sign-in?redirect=${encodeURIComponent(window.location.pathname)}`
+  )
+  assert.equal(
+    document.querySelectorAll('a[href^="/sign-in?redirect="]').length,
+    1
+  )
+  assert.equal(
+    document.body.textContent?.includes(
+      'Sign in with the purchasing account to view or request refunds.'
+    ),
+    true
+  )
+  assert.equal(button('Collect items').hasAttribute('disabled'), false)
   assert.equal(requests.length, 1, 'GET must not collect private inventory')
   await click(button('Collect items'))
   assert.equal(
