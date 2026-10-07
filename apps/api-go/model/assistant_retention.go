@@ -24,7 +24,6 @@ type AssistantRetentionDeleteResult struct {
 	ProfileAudits  int64 `json:"profile_audits"`
 	ProfileBuckets int64 `json:"profile_buckets"`
 	FirstQuestions int64 `json:"first_questions"`
-	SecurityEvents int64 `json:"security_events"`
 	GiftRiskMemory int64 `json:"gift_risk_memory"`
 	RequestReviews int64 `json:"request_reviews"`
 }
@@ -191,29 +190,6 @@ func ScrubExpiredAssistantSecureCards(ctx context.Context, now int64, batchSize 
 	// Count rows selected rather than SQL statements affected: a standalone
 	// card is both scrubbed and deleted in this pass.
 	return int64(len(ids)), nil
-}
-
-// PurgeAdvancedSecurityEventsBefore removes old rule-match rows in bounded
-// batches. Security events contain only digests and metadata, but they are
-// produced per matched rule; without a retention boundary this audit table can
-// grow with traffic forever.
-func PurgeAdvancedSecurityEventsBefore(ctx context.Context, cutoff int64, batchSize int) (int64, error) {
-	if cutoff <= 0 {
-		return 0, gorm.ErrInvalidData
-	}
-	batchSize = NormalizeAssistantRetentionBatchSize(batchSize)
-	var ids []uint
-	if err := DB.WithContext(ctx).Model(&AdvancedSecurityEvent{}).
-		Where("created_at < ?", cutoff).
-		Order("created_at ASC, id ASC").Limit(batchSize).Pluck("id", &ids).Error; err != nil {
-		return 0, err
-	}
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	deleted := DB.WithContext(ctx).Where("id IN ? AND created_at < ?", ids, cutoff).
-		Delete(&AdvancedSecurityEvent{})
-	return deleted.RowsAffected, deleted.Error
 }
 
 // PurgeAssistantGiftNetworkRiskBefore removes stale network risk counters in

@@ -76,7 +76,6 @@ func deleteUserAssistantData(tx *gorm.DB, userID int) error {
 		{&AssistantUserProfile{}, "user_id = ?", []any{userID}},
 		{&AssistantUserProfileAudit{}, "user_id = ?", []any{userID}},
 		{&AssistantNewUserGift{}, "user_id = ?", []any{userID}},
-		{&AdvancedSecurityEvent{}, "user_id = ?", []any{userID}},
 		{&DeveloperAccessRequest{}, "user_id = ?", []any{userID}},
 		{&AccountActionRequest{}, "target_user_id = ? OR requested_by_user_id = ?", []any{userID, userID}},
 		{&L1OnboardingTodo{}, "user_id = ?", []any{userID}},

@@ -8,19 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnifiedTodoIgnoresRetiredReportsAndKeepsCurrentModeration(t *testing.T) {
+func TestUnifiedTodoIncludesCurrentModeration(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{},
 		&AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{},
-		&AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}, &ModerationNotice{},
+		&AssistantSupportRequest{}, &ModerationNotice{},
 	))
-	admin := createOpenSourceBountyUser(t, db, "retired-report-admin", 0, common.RoleAdminUser)
+	admin := createOpenSourceBountyUser(t, db, "moderation-todo-admin", 0, common.RoleAdminUser)
 	now := common.GetTimestamp()
-	require.NoError(t, db.Create(&AssistantSecurityReviewNotice{
-		TaskID: "retired-aggregate", WindowStart: 1, WindowEnd: 2,
-		TotalMatches: 999, ByCategoryJSON: "[]", ByRuleJSON: "[]", CreatedAt: now, UpdatedAt: now,
-	}).Error)
 	require.NoError(t, db.Create(&ModerationNotice{
 		UserID: admin.Id, JobID: 1, RequestID: "current-moderation", Source: ModerationSourceRelayInput,
 		Mode: "tolerant", CategoriesJSON: `["violence"]`, CreatedAt: now, UpdatedAt: now,
@@ -40,7 +36,7 @@ func TestUnifiedTodoIgnoresRetiredReportsAndKeepsCurrentModeration(t *testing.T)
 
 func TestUnifiedTodoIncludesSubmittedBountyForOwner(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
-	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}))
+	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{}, &AssistantSupportRequest{}))
 
 	owner := createOpenSourceBountyUser(t, db, "todo-owner", 10_000, common.RoleCommonUser)
 	participant := createOpenSourceBountyUser(t, db, "todo-participant", 0, common.RoleCommonUser)
@@ -92,7 +88,7 @@ func TestUnifiedTodoIncludesSubmittedBountyForOwner(t *testing.T) {
 
 func TestUnifiedTodoDeveloperAccessQueueContainsOnlyPendingIdentifiedApplicants(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
-	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}))
+	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSecurityIncident{}, &AssistantSupportRequest{}))
 
 	admin := createOpenSourceBountyUser(t, db, "todo-admin", 0, common.RoleAdminUser)
 	pendingUser := createOpenSourceBountyUser(t, db, "pending-applicant", 0, common.RoleCommonUser)
@@ -139,7 +135,7 @@ func TestUnifiedTodoSecurityIncidentsFollowAdministratorRoleLattice(t *testing.T
 		&AssistantConversation{},
 		&AssistantHistoryMessage{},
 		&AssistantSecurityIncident{},
-		&AssistantSecurityReviewNotice{}, &AssistantSupportRequest{},
+		&AssistantSupportRequest{},
 	))
 	ordinary := createOpenSourceBountyUser(t, db, "incident-user", 0, common.RoleCommonUser)
 	admin := createOpenSourceBountyUser(t, db, "incident-admin", 0, common.RoleAdminUser)
@@ -189,7 +185,7 @@ func TestUnifiedTodoDeepPageLoadsOnlySelectedRows(t *testing.T) {
 		&AssistantConversation{},
 		&AssistantHistoryMessage{},
 		&AssistantSecurityIncident{},
-		&AssistantSecurityReviewNotice{}, &AssistantSupportRequest{},
+		&AssistantSupportRequest{},
 	))
 	admin := createOpenSourceBountyUser(t, db, "todo-page-admin", 0, common.RoleAdminUser)
 	applicant := createOpenSourceBountyUser(t, db, "todo-page-applicant", 0, common.RoleCommonUser)
@@ -230,7 +226,7 @@ func TestUnifiedTodoMarkAllUsesBoundedBatches(t *testing.T) {
 		&AssistantConversation{},
 		&AssistantHistoryMessage{},
 		&AssistantSecurityIncident{},
-		&AssistantSecurityReviewNotice{}, &AssistantSupportRequest{},
+		&AssistantSupportRequest{},
 	))
 	admin := createOpenSourceBountyUser(t, db, "todo-batch-admin", 0, common.RoleAdminUser)
 	applicant := createOpenSourceBountyUser(t, db, "todo-batch-applicant", 0, common.RoleCommonUser)
@@ -263,7 +259,7 @@ func TestUnifiedTodoMarkAllUsesBoundedBatches(t *testing.T) {
 
 func TestUnifiedTodoMarkAllRollsBackEarlierCategories(t *testing.T) {
 	db := setupConsoleActivationTestDB(t)
-	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}))
+	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &AssistantSecurityIncident{}, &AssistantSupportRequest{}))
 	admin := User{Username: "todo-rollback-admin", Password: "password", AffCode: "todo-rollback-admin", Role: common.RoleAdminUser}
 	owner := User{Username: "todo-rollback-owner", Password: "password", AffCode: "todo-rollback-owner", Role: common.RoleCommonUser}
 	require.NoError(t, db.Create(&admin).Error)

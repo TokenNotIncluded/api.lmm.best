@@ -25,19 +25,6 @@ var (
 	ErrViolationFeeAppealState    = errors.New("该违规扣费记录当前不可申诉")
 )
 
-// ViolationFeeState holds only the counter for the selected group policy.
-// It is reset lazily on the first violation after the configured period.
-type ViolationFeeState struct {
-	ID              uint   `json:"id" gorm:"primaryKey"`
-	UserID          int    `json:"user_id" gorm:"not null;uniqueIndex:idx_violation_fee_state_user_policy,priority:1;index"`
-	PolicyKey       string `json:"policy_key" gorm:"type:varchar(128);not null;uniqueIndex:idx_violation_fee_state_user_policy,priority:2"`
-	PeriodStartedAt int64  `json:"period_started_at" gorm:"not null"`
-	ViolationCount  int    `json:"violation_count" gorm:"not null;default:0"`
-	UpdatedAt       int64  `json:"updated_at" gorm:"not null;index"`
-}
-
-func (ViolationFeeState) TableName() string { return "violation_fee_states" }
-
 // ViolationFeeRecord is the immutable charging audit row. The policy is
 // matched by group, while model/provider details are deliberately absent.
 // Empty AmountCurrency marks historical legacy amounts; new moderation

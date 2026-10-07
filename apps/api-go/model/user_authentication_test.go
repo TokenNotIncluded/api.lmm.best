@@ -25,7 +25,6 @@ func migrateUserAssistantData(t *testing.T) {
 		&AssistantUserProfile{},
 		&AssistantUserProfileAudit{},
 		&AssistantMemory{},
-		&AdvancedSecurityEvent{},
 		&DeveloperAccessRequest{},
 		&AccountActionRequest{},
 		&L1OnboardingTodo{},
@@ -40,7 +39,7 @@ func migrateUserAssistantData(t *testing.T) {
 	t.Cleanup(func() {
 		for _, table := range []string{
 			"unified_todo_reads", "assistant_leads", "assistant_user_profiles", "assistant_user_profile_audits", "assistant_memories",
-			"advanced_security_events", "developer_access_requests", "account_action_requests", "l1_onboarding_todos",
+			"developer_access_requests", "account_action_requests", "l1_onboarding_todos",
 			"assistant_pre_conversation_conversion_attributions",
 			"assistant_pre_conversation_conversation_attributions", "assistant_history_messages",
 			"assistant_secure_cards", "assistant_security_incidents", "assistant_conversations", "assistant_new_user_gifts",
@@ -149,7 +148,6 @@ func TestHardDeleteUserPublishesTombstoneAndPurgesAuthenticationData(t *testing.
 	require.NoError(t, DB.Create(&resolvedLead).Error)
 	require.NoError(t, DB.Create(&AssistantMemory{UserId: user.Id, Title: "private", Content: "private", TagsJSON: "[]", Source: AssistantMemorySourceAssistant, Enabled: true, UpdatedBy: user.Id, CreatedAt: 1, UpdatedAt: 1}).Error)
 	require.NoError(t, DB.Create(&AssistantUserProfile{UserId: user.Id, ProfileKey: AssistantProfileNormal, TagsJSON: "[]", Strategy: "private", Source: AssistantProfileSourceAI, Enabled: true, UpdatedBy: user.Id, CreatedAt: 1, UpdatedAt: 1}).Error)
-	require.NoError(t, DB.Create(&AdvancedSecurityEvent{UserID: user.Id, Username: user.Username, CreatedAt: 1, RuleID: "private", Category: "private"}).Error)
 	require.NoError(t, DB.Create(&DeveloperAccessRequest{UserId: user.Id, Status: DeveloperAccessRequestPending, Source: DeveloperAccessRequestSourceAI, Reason: "private", CreatedAt: 1}).Error)
 	require.NoError(t, DB.Create(&AccountActionRequest{TargetUserId: user.Id, RequestedByUserId: user.Id, Kind: AccountActionKindDisable, Status: AccountActionStatusPending, Reason: "private", CreatedAt: 1}).Error)
 	require.NoError(t, DB.Create(&L1OnboardingTodo{UserId: user.Id, CreatedAt: 1, UpdatedAt: 1}).Error)
@@ -180,7 +178,6 @@ func TestHardDeleteUserPublishesTombstoneAndPurgesAuthenticationData(t *testing.
 		&AssistantHistoryMessage{},
 		&AssistantSecureCard{},
 		&AssistantSecurityIncident{},
-		&AdvancedSecurityEvent{},
 		&DeveloperAccessRequest{},
 		&L1OnboardingTodo{},
 	} {

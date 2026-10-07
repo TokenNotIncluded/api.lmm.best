@@ -27,7 +27,7 @@ func setupTaskModerationTestDB(t *testing.T) *gorm.DB {
 	dsn := "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.ModerationJob{}, &model.AdvancedSecurityEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.ModerationJob{}))
 	require.NoError(t, db.Create(&model.User{Id: 42, Username: "task-moderation", Password: "offline-test-password", Group: "default", Status: common.UserStatusEnabled}).Error)
 	model.DB = db
 	t.Cleanup(func() {
@@ -88,9 +88,6 @@ func TestCheckAdvancedSecurityTaskPromptQueuesCurrentInputWithoutBlocking(t *tes
 		assert.NotContains(t, job.Payload, "private system context")
 		assert.NotContains(t, job.Payload, "earlier user input")
 		assert.NotContains(t, job.Payload, "private tool result")
-		var eventCount int64
-		require.NoError(t, db.Model(&model.AdvancedSecurityEvent{}).Count(&eventCount).Error)
-		assert.Zero(t, eventCount)
 	})
 }
 
@@ -100,11 +97,9 @@ func TestCheckAdvancedSecurityTaskPromptDefaultDisabledDoesNotEnqueueOrBlock(t *
 	c, info := newTaskModerationTestContext()
 	require.Nil(t, checkAdvancedSecurityTaskPrompt(c, info))
 	require.False(t, c.IsAborted())
-	var jobCount, eventCount int64
+	var jobCount int64
 	require.NoError(t, db.Model(&model.ModerationJob{}).Count(&jobCount).Error)
-	require.NoError(t, db.Model(&model.AdvancedSecurityEvent{}).Count(&eventCount).Error)
 	assert.Zero(t, jobCount)
-	assert.Zero(t, eventCount)
 }
 
 func TestTaskPromptFromContextSupportsSunoAndStandardRequests(t *testing.T) {
