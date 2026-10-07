@@ -148,8 +148,9 @@ try {
               if (
                 Math.max(pixels[index], pixels[index + 1], pixels[index + 2]) >
                 24
-              )
+              ) {
                 colored++
+              }
             }
             return { width: canvas.width, height: canvas.height, colored }
           })(),
@@ -401,8 +402,9 @@ try {
                   pixels[offset + 1],
                   pixels[offset + 2]
                 ) > 24
-              )
+              ) {
                 return true
+              }
             }
             return false
           }, chapter)
