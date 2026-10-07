@@ -31,6 +31,7 @@ Object.defineProperty(globalThis, 'window', {
 })
 const { consolePageFixture, withConsolePageFixtures } =
   await import('./console-page-fixtures')
+const { useAuthStore } = await import('@/stores/auth-store')
 const config = (url: string, method = 'get') =>
   ({ url, method, headers: new AxiosHeaders() }) as InternalAxiosRequestConfig
 
@@ -68,6 +69,124 @@ test('empty read responses are cloned so one page cannot mutate another fixture'
     data: unknown[]
   }
   assert.deepEqual(second.data, [])
+})
+
+test('store and security consumers receive the real controller success shapes', async () => {
+  const { storeApi } = await import('@/features/store/api')
+  const { marketAIReviewAPI } = await import('@/features/market-ai-review/api')
+  const { listModerationAppeals } =
+    await import('@/features/system-settings/security/security-audit-api')
+  const { api } = await import('@/lib/api')
+  const previousUser = useAuthStore.getState().auth.user
+  const previousAdapter = api.defaults.adapter
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 9001, username: 'review', role: 10 })
+  api.defaults.adapter = withConsolePageFixtures(async () => {
+    throw new Error('unmocked')
+  })
+  try {
+    const store = await storeApi.config()
+    const basis = store as typeof store & {
+      credits_per_usd: number
+      external_minimum_quota: number
+    }
+    assert.equal(store.fee_bps, 100)
+    assert.equal(store.promotion_quota, 500000)
+    assert.equal(store.minimum_unit_price_quota, 500000)
+    assert.equal(basis.credits_per_usd, 500000)
+    assert.equal(basis.external_minimum_quota, 5000000)
+    assert.equal(store.linuxdo_units_per_usd, '')
+    assert.equal(store.disclaimer_version, 'merchant-store-v1')
+    assert.ok(store.disclaimer_text.length > 0)
+    assert.deepEqual(store.product_link_presets, [])
+    assert.deepEqual(store.platform_payment_methods, [
+      {
+        provider: 'balance',
+        payment_type: 'balance',
+        name: 'Platform balance',
+        supported: true,
+        configured: true,
+      },
+    ])
+    assert.deepEqual(
+      store.platform_payment_catalog,
+      store.platform_payment_methods
+    )
+    const settings = await marketAIReviewAPI.settings()
+    assert.equal(settings.tool_mode, 'off')
+    assert.equal(settings.store_mode, 'off')
+    assert.equal(settings.review_group, 'default')
+    assert.equal(settings.review_model, 'omni-moderation-latest')
+    assert.equal(settings.engine, 'openai_moderation')
+    assert.deepEqual(settings.supported_inputs, ['text'])
+    assert.equal(settings.categories.length, 13)
+    assert.ok(settings.categories.includes('violence/graphic'))
+    const appeals = await listModerationAppeals()
+    assert.deepEqual(appeals, { success: true, message: '', data: [] })
+    settings.categories.push('mutation')
+    assert.equal((await marketAIReviewAPI.settings()).categories.length, 13)
+  } finally {
+    api.defaults.adapter = previousAdapter
+    useAuthStore.getState().auth.setUser(previousUser)
+  }
+})
+
+test('the three new reads keep exact paths, GET methods and admin permissions', async () => {
+  const previousUser = useAuthStore.getState().auth.user
+  const wrapped = withConsolePageFixtures(async () => {
+    throw new Error('unmocked')
+  })
+  const paths = [
+    '/api/store/config',
+    '/api/security/market-ai-review/settings',
+    '/api/security/admin/violation-fee-appeals',
+  ]
+  try {
+    for (const role of [0, 1, 9]) {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 9002, username: 'review', role })
+      assert.equal((await wrapped(config(paths[0]))).data.success, true)
+      for (const path of paths.slice(1)) {
+        await assert.rejects(wrapped(config(path)), /unmocked/, path)
+      }
+    }
+    useAuthStore.getState().auth.setUser(null)
+    for (const path of paths.slice(1)) {
+      await assert.rejects(wrapped(config(path)), /unmocked/, path)
+    }
+    for (const role of [10, 100]) {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 9001, username: 'review', role })
+      for (const path of paths) {
+        assert.equal((await wrapped(config(path))).data.success, true)
+        for (const method of ['post', 'put', 'patch', 'delete']) {
+          await assert.rejects(wrapped(config(path, method)), /unmocked/, path)
+        }
+        for (const url of [
+          `${path}/unlisted`,
+          `https://example.invalid${path}`,
+          `http://credential@127.0.0.1:4174${path}`,
+        ]) {
+          await assert.rejects(wrapped(config(url)), /unmocked/, url)
+        }
+      }
+    }
+    for (const path of [
+      '/api/store/orders',
+      '/api/store/guest/orders',
+      '/api/store/orders/order-preview/pay',
+      '/api/store/orders/order-preview/email',
+      '/api/security/admin/violation-fee-appeals/1/approve',
+      '/api/security/not-in-the-explicit-catalog',
+    ]) {
+      await assert.rejects(wrapped(config(path, 'post')), /unmocked/, path)
+    }
+  } finally {
+    useAuthStore.getState().auth.setUser(previousUser)
+  }
 })
 
 test('admin list fixtures keep the API array contract rather than a paginated envelope', () => {

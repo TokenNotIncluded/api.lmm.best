@@ -19,7 +19,17 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')
-const origin = 'http://127.0.0.1:4174'
+const reviewUrl = new URL(
+  process.env.CONSOLE_REVIEW_ORIGIN ?? 'http://127.0.0.1:4174'
+)
+assert.equal(reviewUrl.protocol, 'http:')
+assert.equal(reviewUrl.hostname, '127.0.0.1')
+assert.equal(reviewUrl.username, '')
+assert.equal(reviewUrl.password, '')
+assert.equal(reviewUrl.pathname, '/')
+assert.equal(reviewUrl.search, '')
+assert.equal(reviewUrl.hash, '')
+const origin = reviewUrl.origin
 const output = process.env.CONSOLE_REVIEW_OUTPUT
 if (!output) throw new Error('CONSOLE_REVIEW_OUTPUT is required')
 await mkdir(output, { recursive: true })
@@ -227,9 +237,11 @@ try {
     })
     await page.goto(
       `${origin}${routes[0]}?debug_persona=${persona}&console_review=1`,
-      { waitUntil: 'domcontentloaded' }
+      { waitUntil: 'domcontentloaded', timeout: 30_000 }
     )
-    await page.getByTestId('persona-debug-trigger').waitFor()
+    // Cold development bundles can need more time to load the debug entry.
+    // Route/error/unknown-request assertions below remain unchanged.
+    await page.getByTestId('persona-debug-trigger').waitFor({ timeout: 30_000 })
     await settle(page)
     await dismissConsent(page)
     for (const destination of routes) {
