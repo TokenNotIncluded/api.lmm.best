@@ -23,10 +23,6 @@ const providerCommands = readFileSync(
   'utf8'
 )
 const css = readFileSync(new URL('./forge-home.css', import.meta.url), 'utf8')
-const motion = readFileSync(
-  new URL('../home/home-motion.ts', import.meta.url),
-  'utf8'
-)
 
 test('homepage exposes a keyboard-accessible interactive explore console', () => {
   assert.match(source, /lmm-explore-console/)
@@ -67,54 +63,9 @@ test('reduced motion disables animation, transitions and transformed surfaces', 
   assert.match(reducedMotion, /transition: none !important/)
   assert.match(reducedMotion, /scroll-behavior: auto !important/)
   assert.match(reducedMotion, /transform: none !important/)
-  assert.match(
-    css,
-    /\.lmm-story:not\(\[data-chapter\]\) \[data-story-panel='2'\]/
-  )
 })
 
-test('scroll motion retains passive listeners, cancellation and observer cleanup', () => {
-  assert.match(
-    motion,
-    /document\.addEventListener\('scroll', scrollScene, \{\s*passive: true,?\s*capture: true,?\s*\}\)/
-  )
-  assert.match(
-    motion,
-    /document\.removeEventListener\('scroll', scrollScene, true\)/
-  )
-  assert.match(motion, /cancelAnimationFrame\(frame\)/)
-  assert.match(motion, /observer\.disconnect\(\)/)
-  assert.match(motion, /resizeObserver\.disconnect\(\)/)
-})
-
-test('section progress drives the current scene and story styles', () => {
-  assert.match(motion, /setProperty\('--scene-progress',/)
-  assert.match(motion, /setProperty\('--story-progress',/)
-  // Scene continuity is exercised by home-worlds and the motion lifecycle tests;
-  // the first network film and the four new worlds now use separate renderers.
-  assert.match(css, /var\(--story-progress\)/)
-})
-
-test('missing observer constructors preserve static content', () => {
-  assert.match(motion, /typeof window\.IntersectionObserver !== 'function'/)
-  assert.match(motion, /typeof window\.ResizeObserver !== 'function'/)
-  // The lifecycle tests execute this fallback and its cleanup, including
-  // decorations; do not require an exact ordering of implementation statements.
-  assert.match(css, /\.lmm-story:not\(\[data-chapter\]\)/)
-})
-
-test('paused and reduced-motion states keep the code surface static', () => {
-  assert.match(
-    css,
-    /\.lmm-home\[data-motion='paused'\] \.lmm-code-surface,\s*\.lmm-home\[data-motion='reduced'\] \.lmm-code-surface \{\s*transform: none;/
-  )
-  assert.match(motion, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/)
-  assert.match(motion, /const animate = !reduced\.matches && !paused/)
-})
-
-test('homepage removes the manual word field and presents all OAuth client options', () => {
-  assert.doesNotMatch(landingSource, /Type a word\. See what connects\./)
-  assert.doesNotMatch(landingSource, /data-home-token-field/)
+test('homepage presents all OAuth client options', () => {
   assert.match(source, /<strong>Pi<\/strong>/)
   assert.match(source, /<strong>DSH<\/strong>/)
   assert.match(source, /<strong>Codewhale<\/strong>/)
@@ -123,29 +74,11 @@ test('homepage removes the manual word field and presents all OAuth client optio
   assert.match(providerCommands, /codewhale-lmm-provider\.git/)
 })
 
-test('desktop keeps its scene grid while phones avoid a screen-sized scroll runway', () => {
-  assert.match(css, /grid-template-rows: minmax\(0, 1fr\) auto;/)
-  assert.match(css, /\.lmm-core-steps \{\s*grid-area: 2 \/ 2;/)
-  assert.doesNotMatch(css, /(?:340svh|160rem|120rem|80rem)/)
-})
-
-test('portrait and landscape phones expose the complete content instead of clipped controls', () => {
-  assert.match(css, /\(max-width: 960px\) and \(max-height: 600px\)/)
-  assert.match(
-    motion,
-    /window\.innerHeight > 600 &&\s*window\.innerWidth > 680/
-  )
-})
-
-test('connection controls use one accessible segmented group without new ornament dependencies', () => {
+test('connection controls expose both OAuth and API key choices', () => {
   assert.match(landingSource, /className='lmm-connection-method'/)
   assert.match(landingSource, /aria-pressed=\{connectionMethod === 'oauth'\}/)
   assert.match(landingSource, /aria-pressed=\{connectionMethod === 'api-key'\}/)
   assert.match(css, /\.lmm-connection-method \[aria-pressed='true'\]/)
-  assert.doesNotMatch(
-    css,
-    /\.lmm-(?:request-sample|sample-head|pi-art|cinema-caption)/
-  )
 })
 
 test('the assistant keeps one visible underline instead of nested focus boxes', () => {

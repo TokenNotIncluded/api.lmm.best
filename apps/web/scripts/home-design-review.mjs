@@ -29,13 +29,19 @@ try {
     ['english', 390, 844, 'light', 'no-preference', 'en'],
     ['dark', 1440, 1000, 'dark', 'no-preference', 'zhCN'],
     ['reduced', 390, 844, 'light', 'reduce', 'zhCN'],
+    ['desktop-reduced', 1440, 1000, 'light', 'reduce', 'en'],
+    ['narrow-desktop', 900, 900, 'light', 'no-preference', 'en'],
     ['laptop', 1280, 720, 'light', 'no-preference', 'en'],
     ['landscape', 844, 390, 'light', 'no-preference', 'en'],
     ['short-phone', 390, 667, 'light', 'no-preference', 'zhCN'],
     ['french', 390, 844, 'light', 'no-preference', 'fr'],
     ['russian', 390, 844, 'light', 'no-preference', 'ru'],
     ['assistant-enabled', 390, 844, 'light', 'no-preference', 'zhCN', true],
-  ]) {
+  ].filter(
+    ([name]) =>
+      !process.env.HOME_REVIEW_CASES ||
+      process.env.HOME_REVIEW_CASES.split(',').includes(name)
+  )) {
     const context = await browser.newContext({
       viewport: { width, height },
       locale: { en: 'en-US', zhCN: 'zh-CN', fr: 'fr-FR', ru: 'ru-RU' }[
@@ -80,6 +86,10 @@ try {
       await page.waitForFunction(
         () => document.querySelector('.lmm-home')?.dataset.motion !== 'loading'
       )
+      await page.waitForFunction(
+        () => document.querySelector('[data-film]')?.dataset.ready === 'true'
+      )
+      await page.evaluate(() => document.fonts.ready)
       await page.waitForTimeout(1200)
       if (language === 'en') {
         assert.match(
@@ -116,7 +126,7 @@ try {
           scrollWidth: document.documentElement.scrollWidth,
           motion: document.querySelector('.lmm-home')?.dataset.motion,
           title: box('#lmm-home-title'),
-          visual: box('[data-home-visual]'),
+          visual: box('.lmm-poster-art'),
           controls: box('.lmm-core-steps'),
           stage: box('[data-cinema-inner]'),
           runway: box('[data-cinema]'),
@@ -124,9 +134,25 @@ try {
           stageBorder: getComputedStyle(
             document.querySelector('[data-cinema-inner]')
           ).borderTopWidth,
-          inputBorder: getComputedStyle(
-            document.querySelector('[data-token-input]')
-          ).borderTopWidth,
+          poster: (() => {
+            const canvas = document.querySelector('[data-film]')
+            const context = canvas.getContext('2d')
+            const pixels = context?.getImageData(
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            ).data
+            let colored = 0
+            for (let index = 0; pixels && index < pixels.length; index += 64) {
+              if (
+                Math.max(pixels[index], pixels[index + 1], pixels[index + 2]) >
+                24
+              )
+                colored++
+            }
+            return { width: canvas.width, height: canvas.height, colored }
+          })(),
           buttons: Array.from(
             document.querySelectorAll('[data-cinema-jump]')
           ).map((button) => ({
@@ -147,17 +173,23 @@ try {
       assert.equal(metrics.scrollWidth, width, `${name}: horizontal overflow`)
       assert.deepEqual(errors, [], `${name}: browser exceptions`)
       assert.equal(metrics.stageBorder, '0px', `${name}: framed stage returned`)
+      assert.ok(
+        metrics.poster.width > 0 && metrics.poster.height > 0,
+        `${name}: poster has no bitmap`
+      )
+      assert.ok(metrics.poster.colored > 100, `${name}: poster canvas is blank`)
       assert.equal(
-        metrics.inputBorder,
-        '0px',
-        `${name}: boxed token input returned`
+        await page.locator('[data-cinema-jump]').count(),
+        5,
+        `${name}: missing chapter navigation`
       )
       const cinematic =
-        motion === 'no-preference' && height > 600 && width > 680
+        motion === 'no-preference' && height > 600 && width > 900
       if (cinematic) {
         assert.ok(
-          metrics.runway.height <= Math.max(height * 2, 1536),
-          `${name}: excessive scroll runway`
+          metrics.runway.height >= height * 4 &&
+            metrics.runway.height <= height * 4.5,
+          `${name}: five chapters need their four native-scroll transitions`
         )
         assert.ok(
           metrics.controls.y + metrics.controls.height <= height,
@@ -173,51 +205,36 @@ try {
             `${name}: navigation covered by a widget`
           )
         }
-        assert.ok(
-          metrics.activePanel.y + metrics.activePanel.height <
-            metrics.controls.y,
-          `${name}: navigation overlaps content`
-        )
         const toggle = page.locator('[data-motion-toggle]')
         await toggle.click()
         assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
-        // Let the paused frame update positions and protected-text exclusions.
+        // Let the final paused poster frame finish.
         await page.evaluate(
           () =>
             new Promise((resolve) =>
               requestAnimationFrame(() => requestAnimationFrame(resolve))
             )
         )
-        const selected = await page
-          .locator('[data-token-option]')
-          .evaluateAll((tokens) => {
-            const token = tokens.find((candidate) => {
-              if (candidate.inert) return false
-              const rect = candidate.getBoundingClientRect()
-              const target = document.elementFromPoint(
-                rect.x + rect.width / 2,
-                rect.y + rect.height / 2
-              )
-              return target === candidate || candidate.contains(target)
-            })
-            return token?.getAttribute('data-token-option')
-          })
-        assert.ok(selected, `${name}: no selectable cloud token`)
-        await page.getByRole('button', { name: selected, exact: true }).click()
+        const pausedPoster = await page
+          .locator('[data-film]')
+          .evaluate((canvas) => canvas.toDataURL())
+        await page.waitForTimeout(180)
         assert.equal(
-          await page.locator('[data-selected-token]').textContent(),
-          selected
+          await page
+            .locator('[data-film]')
+            .evaluate((canvas) => canvas.toDataURL()),
+          pausedPoster,
+          `${name}: paused poster keeps drawing`
         )
-        assert.ok(await page.locator('[data-predicted-token]').textContent())
         await toggle.click()
         assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
-        await page.locator('[data-cinema-jump="1"]').click()
+        await page.locator('[data-cinema-jump="1"]').press('Enter')
         await page.waitForFunction(() =>
           document
             .querySelector('[data-cinema-panel="1"]')
             ?.hasAttribute('data-active')
         )
-        await page.screenshot({ path: `${output}/${name}-api.png` })
+        await page.screenshot({ path: `${output}/${name}-store.png` })
         for (const chapter of [2, 3, 4, 0]) {
           await page.locator(`[data-cinema-jump="${chapter}"]`).click()
           await page.waitForFunction(
@@ -227,11 +244,19 @@ try {
                 ?.hasAttribute('data-active'),
             chapter
           )
-          await page.waitForTimeout(500)
+          await page.waitForTimeout(850)
+          if (name === 'desktop') {
+            await page.screenshot({
+              path: `${output}/desktop-chapter-${chapter}.png`,
+            })
+          }
           const bounds = await page.evaluate(() => {
-            const panel = document
-              .querySelector('[data-cinema-panel][data-active]')
-              .getBoundingClientRect()
+            const panel = document.querySelector(
+              '[data-cinema-panel][data-active]'
+            )
+            const content = Array.from(panel.children)
+              .filter((element) => getComputedStyle(element).display !== 'none')
+              .map((element) => element.getBoundingClientRect())
             const controls = document
               .querySelector('.lmm-core-steps')
               .getBoundingClientRect()
@@ -239,8 +264,8 @@ try {
               .querySelector('[data-cinema-inner]')
               .getBoundingClientRect()
             return {
-              top: panel.top,
-              bottom: panel.bottom,
+              top: Math.min(...content.map((rect) => rect.top)),
+              bottom: Math.max(...content.map((rect) => rect.bottom)),
               controlTop: controls.top,
               stageTop: stage.top,
             }
@@ -252,6 +277,30 @@ try {
           assert.ok(
             bounds.top >= bounds.stageTop,
             `${name}: chapter ${chapter} clips above stage`
+          )
+        }
+        for (const chapter of [1, 2, 3, 4, 0]) {
+          await page.evaluate((index) => {
+            const cinema = document
+              .querySelector('[data-cinema]')
+              .getBoundingClientRect()
+            const inner = document.querySelector('[data-cinema-inner]')
+            const stage = inner.getBoundingClientRect()
+            const stickyTop =
+              Number.parseFloat(getComputedStyle(inner).top) || 0
+            window.scrollTo(
+              0,
+              window.scrollY +
+                cinema.top -
+                stickyTop +
+                ((cinema.height - stage.height) * index) / 4
+            )
+          }, chapter)
+          await page.waitForFunction(
+            (index) =>
+              document.querySelector('[data-cinema-inner]')?.dataset.chapter ===
+              String(index),
+            chapter
           )
         }
       } else {
@@ -273,6 +322,18 @@ try {
             })
           )
         assert.equal(panels.length, 5, `${name}: missing story chapters`)
+        if (motion === 'reduce') {
+          assert.equal(
+            metrics.motion,
+            'reduced',
+            `${name}: reduced motion preference ignored`
+          )
+          assert.equal(
+            await page.locator('[data-motion-toggle]').isVisible(),
+            false,
+            `${name}: reduced motion still offers an animation toggle`
+          )
+        }
         assert.ok(
           panels.every(
             (panel) =>
@@ -312,6 +373,45 @@ try {
           assert.ok(
             target.unobstructed,
             `${name}: story action covered by a widget`
+          )
+        }
+        for (const chapter of [1, 2, 3, 4]) {
+          const poster = page.locator(`[data-chapter-film="${chapter}"]`)
+          await poster.scrollIntoViewIfNeeded()
+          await page.waitForFunction((index) => {
+            const canvas = document.querySelector(
+              `[data-chapter-film="${index}"]`
+            )
+            if (!canvas || !canvas.width || !canvas.height) return false
+            const context = canvas.getContext('2d')
+            const pixels = context?.getImageData(
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            ).data
+            for (
+              let offset = 0;
+              pixels && offset < pixels.length;
+              offset += 128
+            ) {
+              if (
+                Math.max(
+                  pixels[offset],
+                  pixels[offset + 1],
+                  pixels[offset + 2]
+                ) > 24
+              )
+                return true
+            }
+            return false
+          }, chapter)
+          assert.equal(
+            await page
+              .locator(`[data-cinema-panel="${chapter}"]`)
+              .getAttribute('aria-hidden'),
+            'false',
+            `${name}: chapter ${chapter} is inaccessible`
           )
         }
       }

@@ -26,7 +26,7 @@ import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 
-import { segmentMovingText } from './home-text-segmentation'
+const homeLotusUrl = new URL('./assets/lotus.webp', import.meta.url).href
 
 type HomeLandingProps = {
   rootRef: Ref<HTMLElement>
@@ -96,56 +96,12 @@ const OAUTH_STEPS = [
   ],
 ] as const
 
-function movingText(text: string, language: string) {
-  let index = 0
-  return segmentMovingText(text, language).map((part, wordIndex) =>
-    part.whitespace ? (
-      part.word
-    ) : (
-      <span
-        className='lmm-moving-word'
-        key={`${wordIndex}-${part.word}`}
-        aria-hidden='true'
-      >
-        {part.letters.map((letter, letterIndex) => (
-          <span
-            className='lmm-moving-letter'
-            data-gravity-glyph
-            data-gravity-index={index++}
-            key={`${letterIndex}-${letter}`}
-          >
-            {letter}
-          </span>
-        ))}
-      </span>
-    )
-  )
-}
-
-function GravityDescription({
-  text,
-  language,
-  className,
-}: {
-  text: string
-  language: string
-  className?: string
-}) {
-  return (
-    <p className={className} data-gravity-description>
-      {movingText(text, language)}
-      <span className='sr-only'>{text}</span>
-    </p>
-  )
-}
-
 /** Presentation only. Account state and actions stay in ForgeHome. */
 export function HomeLanding({
   rootRef,
   brandName,
   brandLogo,
   t,
-  language,
   primaryAction,
   storeAction,
   pricingAction,
@@ -164,86 +120,53 @@ export function HomeLanding({
     brandLogo === DEFAULT_LOGO && brandName === DEFAULT_SYSTEM_NAME
   const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
   return (
-    <main className='lmm-home' ref={rootRef} data-motion='loading'>
+    <main
+      className='lmm-home'
+      ref={rootRef}
+      data-motion='loading'
+      data-poster-direction='oriku-pointillist-sculpture'
+    >
       <section
         className='lmm-cinema'
         data-cinema
         aria-label={t('One endpoint')}
       >
         <div className='lmm-cinema-inner' data-cinema-inner>
-          <div className='lmm-visual' data-home-visual>
-            <div
-              className='lmm-token-cloud'
-              data-token-cloud
-              role='group'
-              aria-label={t('Tokens to try')}
+          <div className='lmm-poster-art' aria-hidden='true'>
+            <img
+              className='lmm-poster-fallback'
+              src={homeLotusUrl}
+              alt=''
+              decoding='async'
             />
-            <canvas className='lmm-film' data-film aria-hidden='true' />
-            <canvas
-              className='lmm-world-film'
-              data-world-film
-              aria-hidden='true'
-            />
-            <div
-              className='lmm-token-input'
-              data-token-input
-              role='region'
-              aria-label={t('Token input')}
-            >
-              <output
-                className='lmm-token-result'
-                data-token-result
-                aria-label={t('Closest match')}
-                hidden
-              >
-                <span className='sr-only' data-selected-token />
-                <span aria-hidden='true'>→</span>
-                <strong data-predicted-token />
-              </output>
-            </div>
-            <details className='lmm-simulation-info'>
-              <summary aria-label={t('About this visualization')}>?</summary>
-              <p>{t('Local word matching. No model requests.')}</p>
-            </details>
+            <canvas data-film />
           </div>
-          <span className='sr-only' id='lmm-gravity-instruction'>
-            {t('Drag this title into the input, or press Enter.')}
-          </span>
+          <div className='lmm-poster-brand' aria-hidden='true'>
+            {brandName}
+          </div>
+          <div className='lmm-poster-caption' aria-hidden='true'>
+            {t('Chat')} · {t('Image')} · {t('Audio')}
+            <br />
+            MCP · OAuth · {t('Community')}
+          </div>
           <section
             className='lmm-intro lmm-scene-panel'
             data-cinema-panel='0'
             data-active
             aria-labelledby='lmm-home-title'
           >
-            <h1
-              id='lmm-home-title'
-              data-gravity-title
-              tabIndex={0}
-              aria-describedby='lmm-gravity-instruction'
-            >
-              {headline.split(/(?<=[，,])\s*/u).map((phrase) => (
-                <span className='lmm-title-phrase' key={phrase}>
-                  {phrase}
-                </span>
-              ))}
-            </h1>
-            <GravityDescription
-              className='lmm-intro-description'
-              language={language}
-              text={t(
+            <h1 id='lmm-home-title'>{headline}</h1>
+            <p className='lmm-intro-description'>
+              {t(
                 'Chat, images, and audio through one API. Compare prices, then connect your app.'
               )}
-            />
+            </p>
             <div className='lmm-intro-actions'>
               {primaryAction}
               {storeAction}
               {topUpAction}
               {pricingAction}
             </div>
-            <ul className='lmm-access-note'>
-              <li>{t('Pay for what you use.')}</li>
-              <li>{t('No manual API key required in Pi.')}</li>
-            </ul>
           </section>
 
           <section className='lmm-scene-panel' data-cinema-panel='1'>
