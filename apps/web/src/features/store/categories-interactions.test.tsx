@@ -126,7 +126,7 @@ test('dynamic category choices preserve an inactive current reference and allow 
   assert.equal(select.options[2].text, active.name)
   await act(async () => {
     select.value = ''
-    select.dispatchEvent(new dom.Event('change', { bubbles: true }))
+    select.dispatchEvent(new Event('change', { bubbles: true }))
   })
   assert.deepEqual(changes, [''])
 })
@@ -157,14 +157,12 @@ test('published category save sends only classification and exposes recoverable 
   assert.ok(select)
   await act(async () => {
     select.value = active.id
-    select.dispatchEvent(new dom.Event('change', { bubbles: true }))
+    select.dispatchEvent(new Event('change', { bubbles: true }))
   })
   await act(async () => {
     const form = document.querySelector('form')
     assert.ok(form)
-    form.dispatchEvent(
-      new dom.Event('submit', { bubbles: true, cancelable: true })
-    )
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   })
   await settle()
   assert.deepEqual(requests, [
