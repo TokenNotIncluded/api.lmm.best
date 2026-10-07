@@ -187,6 +187,8 @@ export function StoreOrderRow({
   const client = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [payment, setPayment] = useState<StorePaymentSession | null>(null)
+  const [paymentIssuanceUncertain, setPaymentIssuanceUncertain] =
+    useState(false)
   const [link, setLink] = useState('')
   const [error, setError] = useState<unknown>(null)
   useEffect(() => {
@@ -194,15 +196,43 @@ export function StoreOrderRow({
   }, [buyer, order.status])
   async function refreshOrders() {
     await Promise.all([
-      client.invalidateQueries({ queryKey: ['store', 'orders', user.id] }),
-      client.invalidateQueries({
-        queryKey: ['store', 'order', user.id, order.id],
-      }),
+      client.invalidateQueries(
+        { queryKey: ['store', 'orders', user.id] },
+        { throwOnError: true }
+      ),
+      client.invalidateQueries(
+        { queryKey: ['store', 'order', user.id, order.id] },
+        { throwOnError: true }
+      ),
       client.invalidateQueries({ queryKey: ['store', 'payments', user.id] }),
       ...(useAuthStore.getState().auth.user?.id === user.id
         ? [refreshCurrentAccount()]
         : []),
     ])
+  }
+  async function preparePayment() {
+    setPaymentIssuanceUncertain(true)
+    try {
+      const session = await storeApi.pay(order.id, order.currency || undefined)
+      setPayment(session)
+    } catch (issue) {
+      // A lost response may already have issued a payment obligation. Keep
+      // cancellation unavailable until an authoritative read succeeds.
+      if (
+        !(issue instanceof StoreAPIError) ||
+        issue.code !== 'STORE_PAYMENT_MINIMUM'
+      ) {
+        try {
+          await refreshOrders()
+          setPaymentIssuanceUncertain(false)
+        } catch {
+          /* Keep the original preparation error and the unresolved state. */
+        }
+      }
+      throw issue
+    }
+    await refreshOrders()
+    setPaymentIssuanceUncertain(false)
   }
   async function action(fn: () => Promise<void>) {
     if (busy) return
@@ -220,7 +250,23 @@ export function StoreOrderRow({
         issue.orderId === order.id
       ) {
         setPayment(null)
-        await refreshOrders()
+        try {
+          await refreshOrders()
+          setPaymentIssuanceUncertain(false)
+        } catch {
+          /* Keep the confirmed minimum error and require a fresh order read. */
+        }
+      } else if (
+        issue instanceof StoreAPIError &&
+        issue.code === 'STORE_CONFLICT'
+      ) {
+        setPaymentIssuanceUncertain(true)
+        try {
+          await refreshOrders()
+          setPaymentIssuanceUncertain(false)
+        } catch {
+          /* Preserve the conflict while cancellation remains unavailable. */
+        }
       }
     } finally {
       setBusy(false)
@@ -284,18 +330,7 @@ export function StoreOrderRow({
               <Button
                 size='sm'
                 disabled={busy}
-                onClick={() =>
-                  void action(async () => {
-                    const session = await storeApi.pay(
-                      order.id,
-                      order.currency || undefined
-                    )
-                    setPayment(session)
-                    if (session.status === 'paid') {
-                      await refreshOrders()
-                    }
-                  })
-                }
+                onClick={() => void action(preparePayment)}
               >
                 {t(
                   order.payment_method === 'balance'
@@ -303,7 +338,7 @@ export function StoreOrderRow({
                     : 'Prepare payment'
                 )}
               </Button>
-              {order.payment_issued === false && (
+              {order.payment_issued === false && !paymentIssuanceUncertain && (
                 <Button
                   size='sm'
                   variant='outline'
@@ -329,6 +364,7 @@ export function StoreOrderRow({
                 void action(async () => {
                   await storeApi.reconcile(order.id)
                   await refreshOrders()
+                  setPaymentIssuanceUncertain(false)
                 })
               }
             >

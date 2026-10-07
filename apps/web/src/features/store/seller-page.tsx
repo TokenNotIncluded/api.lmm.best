@@ -371,33 +371,34 @@ function StoreSellerCenter() {
                         {t(testCopy.preview)}
                       </Button>
                     )}
-                    {['published', 'paused', 'off_shelf'].includes(
-                      product.status
-                    ) && (
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        disabled={
-                          busy !== null ||
-                          (storeVisibility(product) === 'private' &&
-                            product.status === 'off_shelf')
-                        }
-                        onClick={() =>
-                          void action(product, () =>
-                            storeApi.listing(
-                              product.id,
-                              product.status === 'off_shelf'
+                    {storeVisibility(product) !== 'private' &&
+                      ['published', 'paused', 'off_shelf'].includes(
+                        product.status
+                      ) && (
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={
+                            busy !== null ||
+                            (storeVisibility(product) === 'private' &&
+                              product.status === 'off_shelf')
+                          }
+                          onClick={() =>
+                            void action(product, () =>
+                              storeApi.listing(
+                                product.id,
+                                product.status === 'off_shelf'
+                              )
                             )
-                          )
-                        }
-                      >
-                        {t(
-                          product.status === 'off_shelf'
-                            ? salesCopy.relist
-                            : salesCopy.offShelf
-                        )}
-                      </Button>
-                    )}
+                          }
+                        >
+                          {t(
+                            product.status === 'off_shelf'
+                              ? salesCopy.relist
+                              : salesCopy.offShelf
+                          )}
+                        </Button>
+                      )}
                     {product.status !== 'unlisted' && (
                       <Button
                         size='sm'

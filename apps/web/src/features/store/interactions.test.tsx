@@ -480,6 +480,12 @@ test('private draft pause survives resume while public drafts remain unpausable'
     test_mode: false,
     status: 'draft',
   }
+  const publicPublished: StoreProduct = {
+    ...publicDraft,
+    id: 'public-published-fixture',
+    title: 'Public published fixture',
+    status: 'published',
+  }
   const writes: boolean[] = []
   api.get = (async (url: string) => {
     if (url === '/api/store/config') {
@@ -488,7 +494,7 @@ test('private draft pause survives resume while public drafts remain unpausable'
     if (url === '/api/store/payments/settings') return result({ items: [] })
     assert.equal(url, '/api/store/my/products')
     return result({
-      items: [privateProduct, privatePending, publicDraft],
+      items: [privateProduct, privatePending, publicDraft, publicPublished],
       has_more: false,
     })
   }) as typeof api.get
@@ -525,9 +531,15 @@ test('private draft pause survives resume while public drafts remain unpausable'
     )
   }
   assertPublicDraftUnpausable()
+  assert.ok(rowButton(publicPublished.title, 'Take off shelf'))
   assert.ok(rowButton(privatePending.title, 'Pause trading'))
   await click(rowButton(privateProduct.title, 'Pause trading'))
   assertPublicDraftUnpausable()
+  assert.doesNotMatch(
+    row(privateProduct.title).textContent || '',
+    /Take off shelf|Relist product/
+  )
+  assert.ok(rowButton(privateProduct.title, 'Resume trading'))
   await click(rowButton(privateProduct.title, 'Resume trading'))
   assertPublicDraftUnpausable()
   await click(rowButton(privateProduct.title, 'Pause trading'))
@@ -2141,9 +2153,125 @@ function pendingPaymentOrder(): StoreOrder {
   }
 }
 
+for (const preparation of [
+  'pending',
+  'lost-response',
+  'refresh-fails',
+  'detail-refresh-fails',
+  'cancel-conflict',
+]) {
+  test(`order preparation refreshes cancellation authority without a new payment (${preparation})`, async () => {
+    owner(2)
+    const pending = { ...pendingPaymentOrder(), payment_issued: false }
+    let issued = false
+    let refreshFails = false
+    let paymentAttempts = 0
+    let cancellationAttempts = 0
+    dom.happyDOM.setURL(
+      preparation === 'detail-refresh-fails'
+        ? `https://shop.example.test/store/orders?order=${pending.id}`
+        : 'https://shop.example.test/store/orders'
+    )
+    api.get = (async (url: string) => {
+      if (url === '/api/store/my/orders') {
+        if (refreshFails && preparation !== 'detail-refresh-fails') {
+          throw new Error('Order refresh unavailable')
+        }
+        return result({
+          items: [{ ...pending, payment_issued: issued }],
+          has_more: false,
+        })
+      }
+      if (url === '/api/user/self') return result({ id: 2, quota: 5000000 })
+      if (url === `/api/store/orders/${pending.id}`) {
+        if (refreshFails) throw new Error('Order refresh unavailable')
+        return result({ ...pending, payment_issued: issued })
+      }
+      assert.fail(`Unexpected GET ${url}`)
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      if (url.endsWith('/pay')) {
+        paymentAttempts++
+        issued = true
+        if (preparation === 'lost-response') {
+          throw new Error('Payment preparation response lost')
+        }
+        refreshFails = preparation.endsWith('refresh-fails')
+        return result({
+          order_id: pending.id,
+          method: 'GET',
+          payment_url: 'https://gateway.example.test/pay',
+          currency: 'CNY',
+          amount: '7.00',
+          amount_minor: 700,
+          status: 'pending',
+        })
+      }
+      if (url.endsWith('/reconcile')) return result(null)
+      if (url.endsWith('/cancel')) {
+        cancellationAttempts++
+        issued = true
+        throw {
+          response: {
+            data: {
+              success: false,
+              code: 'STORE_CONFLICT',
+              message: 'The order state changed. Refresh and try again.',
+            },
+          },
+        }
+      }
+      assert.fail(`Unexpected POST ${url}`)
+    }) as typeof api.post
+    const journal = localStorage.getItem('lmm:store:checkout-intents')
+    await mount(<StoreOrdersPage />)
+    assert.ok(button('Cancel order'))
+    await click(
+      button(
+        preparation === 'cancel-conflict' ? 'Cancel order' : 'Prepare payment'
+      )
+    )
+    assert.equal(
+      [...document.querySelectorAll('button')].some(
+        (node) => node.textContent?.trim() === 'Cancel order'
+      ),
+      false
+    )
+    assert.equal(paymentAttempts, preparation === 'cancel-conflict' ? 0 : 1)
+    assert.equal(
+      cancellationAttempts,
+      preparation === 'cancel-conflict' ? 1 : 0
+    )
+    assert.equal(localStorage.getItem('lmm:store:checkout-intents'), journal)
+    if (preparation === 'cancel-conflict') {
+      assert.ok(document.body.textContent?.includes('order state changed'))
+    } else if (preparation === 'lost-response') {
+      assert.ok(document.body.textContent?.includes('response lost'))
+    } else {
+      assert.ok(button('Continue to payment'))
+    }
+    if (preparation.endsWith('refresh-fails')) {
+      assert.ok(
+        document.body.textContent?.includes('Order refresh unavailable')
+      )
+      refreshFails = false
+      await click(button('Check payment status'))
+      assert.equal(paymentAttempts, 1)
+      assert.equal(cancellationAttempts, 0)
+    }
+    dom.happyDOM.setURL(
+      'https://shop.example.test/store/products/product-fixture'
+    )
+  })
+}
+
 test('an updated paid order clears a previously prepared payment session', async () => {
   owner(2)
   const pending = pendingPaymentOrder()
+  api.get = (async (url: string) => {
+    assert.equal(url, '/api/user/self')
+    return result({ id: 2, quota: 5000000 })
+  }) as typeof api.get
   let update: React.Dispatch<React.SetStateAction<StoreOrder>> | undefined
   function Harness() {
     const [order, setOrder] = useState(pending)
