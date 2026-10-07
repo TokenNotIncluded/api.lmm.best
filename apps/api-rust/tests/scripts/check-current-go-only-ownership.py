@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check current money-route ownership without changing frozen Go evidence.
+"""Check current money ownership and retired routes without changing frozen Go evidence.
 
 Source/auth checks describe the registered groups, not runtime behavior or
 Rust parity. The live Gin manifest must independently match every handler.
@@ -38,6 +38,42 @@ EXPECTED = {
     (method, "/api/option" + suffix): ("root", handler)
     for (method, suffix), handler in PRICING_HANDLERS.items()
 }
+
+# Exact retired Go contracts, not Rust production ownership or current parity.
+# The old handlers were removed in 70b9c54a4 and 915d4cf73. Keep the immutable
+# frozen ledger and the still-implemented Rust route inventory unchanged.
+RETIRED_GO_HANDLERS = {
+    ("GET", "/api/assistant/admin/review"): "AdminGetAssistantReview",
+    ("POST", "/api/assistant/admin/review/run"): "AdminRunAssistantReview",
+    ("GET", "/api/security/admin/ai-reviews"): "ListAdminAssistantSecurityReviews",
+    ("GET", "/api/security/admin/events"): "ListAdminSecurityEvents",
+    ("DELETE", "/api/security/admin/review-runs"): "DeleteAdminAssistantReviewTasks",
+    ("GET", "/api/security/admin/review-runs"): "ListAdminAssistantReviewTasks",
+    ("GET", "/api/security/admin/review-runs/:task_id"): "GetAdminAssistantReviewTask",
+    ("GET", "/api/security/admin/review-runs/cleanup-preview"): "PreviewAdminAssistantReviewTaskCleanup",
+    ("PUT", "/api/security/admin/settings"): "UpdateAdvancedSecuritySettings",
+    ("GET", "/api/security/admin/stats"): "GetAdminSecurityStats",
+}
+
+
+def check_retired_go_routes(rows, current, frozen):
+    seen = set()
+    for row in rows:
+        if len(row) != 3:
+            raise ValueError("retired Go route must have exact method, path and old handler")
+        method, path, handler = row
+        identity = (method, path)
+        if identity in seen:
+            raise ValueError(f"duplicate retired Go route: {method} {path}")
+        seen.add(identity)
+        if identity not in RETIRED_GO_HANDLERS or handler != HANDLER_PREFIX + RETIRED_GO_HANDLERS[identity]:
+            raise ValueError(f"unexpected retired Go contract: {method} {path}")
+        if identity in current:
+            raise ValueError(f"retired Go route is registered again: {method} {path}")
+        if identity in frozen:
+            raise ValueError(f"retired current-only route is in frozen evidence: {method} {path}")
+    if seen != RETIRED_GO_HANDLERS.keys():
+        raise ValueError("retired Go ledger must contain exactly the ten removed security/report routes")
 
 
 def route_rows(path):
@@ -155,7 +191,9 @@ def main():
     }
     check_ledger(rows, current, frozen, rust_ledgers)
     check_source((ROOT / SOURCE_PATH).read_text())
+    check_retired_go_routes(route_rows(directory / "retired-go-routes.tsv"), current, frozen)
     print("current Go-only ownership: nine user raw-credit POST + three root pricing routes; exact Gin handlers/source; no Rust ownership or parity credit")
+    print("retired Go contracts: ten exact method/path/old-handler declarations; absent from current and frozen inventories; no current parity or production ownership credit")
 
 
 if __name__ == "__main__":
