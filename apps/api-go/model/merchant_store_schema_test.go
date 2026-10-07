@@ -146,9 +146,10 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 	require.Equal(t, []string{"product_id", "state", "position"}, stockIndexes["store_stock_available"], "retain the N-1 lookup index")
 	require.Equal(t, []string{"product_id", "variant_id", "state", "position"}, stockIndexes["store_stock_variant_available"])
 	encoded, e := json.MarshalIndent(struct {
-		Scope  string                   `json:"scope"`
-		Tables []merchantStoreTablePlan `json:"tables"`
-	}{Scope: "Merchant-store model set including one guest/address email verification table; includes the exact access, catalogue and guest-email groups plus phase-six global categories and independent likes (30 tables); no user, wallet or financial-history DDL", Tables: plan}, "", "  ")
+		WriterCapability int                      `json:"writer_capability"`
+		Scope            string                   `json:"scope"`
+		Tables           []merchantStoreTablePlan `json:"tables"`
+	}{WriterCapability: MerchantStoreWriterCapability, Scope: "Merchant-store model set including one guest/address email verification table; includes the exact access, catalogue and guest-email groups plus phase-six global categories and independent likes (30 tables); no user, wallet or financial-history DDL", Tables: plan}, "", "  ")
 	require.NoError(t, e)
 	if output := os.Getenv("MERCHANT_STORE_SCHEMA_PLAN_OUTPUT"); output != "" {
 		file, e := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)

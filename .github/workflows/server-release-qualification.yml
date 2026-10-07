@@ -218,6 +218,23 @@ jobs:
             --artifact-directory "$GITHUB_WORKSPACE/qualification-artifacts/go/merchant-store" \
             --runner-temp "$RUNNER_TEMP"
 
+      - name: Qualify additive merchant categories and likes at PostgreSQL phase six
+        working-directory: apps/api-go
+        env:
+          GOMAXPROCS: '2'
+          MERCHANT_STORE_POSTGRES_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
+        run: |
+          set -euo pipefail
+          evidence="$GITHUB_WORKSPACE/qualification-artifacts/go/merchant-store-phase-six"
+          mkdir -p "$evidence"
+          MERCHANT_STORE_SCHEMA_PLAN_OUTPUT="$evidence/source-plan.json" \
+            go test -race -p 1 -count=1 -json ./model \
+              -run '^(TestMerchantStorePhaseSixPreparationPostgresParents|TestMerchantStoreSchemaPlan)$' -timeout 180s \
+              | tee "$evidence/tests.jsonl"
+          python3 -B ../../scripts/ci/qualify-merchant-store-phase-six-postgres.py \
+            --events "$evidence/tests.jsonl" --source-plan "$evidence/source-plan.json" \
+            --source-revision "$(git rev-parse HEAD)" --output "$evidence/receipt.json"
+
       - name: Protect paid tool-market authorization and ledger under PostgreSQL concurrency
         working-directory: apps/api-go
         env:
