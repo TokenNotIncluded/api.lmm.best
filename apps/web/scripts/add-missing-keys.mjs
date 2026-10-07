@@ -64,6 +64,7 @@ import { storeMinimumPriceLunaCopy } from './store-minimum-price-luna-copy.mjs'
 import { storePaymentCategoryLunaCopy } from './store-payment-category-luna-copy.mjs'
 import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
 import { storeSalesLimitLunaCopy } from './store-sales-limit-luna-copy.mjs'
+import { storeSocialLunaCopy } from './store-social-luna-copy.mjs'
 import { storeTestModeLunaCopy } from './store-test-mode-luna-copy.mjs'
 import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
 import { toolMarketClientRecordsLunaCopy } from './tool-market-client-records-luna-copy.mjs'
@@ -12010,6 +12011,21 @@ async function main() {
     return
   }
 
+  if (process.argv.includes('--only-store-social')) {
+    // Keep every established translation intact; this scope owns only the
+    // three new storefront like actions supplied by the reviewed Luna module.
+    for (const [locale, values] of Object.entries(storeSocialLunaCopy)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      Object.assign(json.translation, values)
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+    }
+    return
+  }
+
   // Allow scoped additions without overwriting unrelated in-progress translations.
   const clientRecordsOnly = process.argv.includes('--only-client-records')
   const paymentDecimalOnly = process.argv.includes('--only-payment-decimal')
@@ -13333,6 +13349,10 @@ for (const [locale, values] of Object.entries(aboutTranslations)) {
 }
 
 for (const [locale, values] of Object.entries(toolMarketDeleteLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeSocialLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
