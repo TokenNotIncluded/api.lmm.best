@@ -19,7 +19,7 @@ import (
 var existingSchemaFinancialEnvironment = []string{"LMM_CREDIT_TRANSITION_PLAN", "LMM_CREDIT_TRANSITION_SHA256"}
 var existingSchemaInvocationPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
-const existingSchemaUnitProperties = "Environment,EnvironmentFiles,PassEnvironment,UnsetEnvironment,MainPID,InvocationID,ActiveState,ExecStart,ExecStartPre,ExecStartPost,ExecCondition,ExecStop,ExecStopPost,FragmentPath"
+const existingSchemaUnitProperties = "Environment,EnvironmentFiles,PassEnvironment,UnsetEnvironment,MainPID,InvocationID,ActiveState,ExecStart,ExecStartPre,ExecStartPreEx,ExecStartPost,ExecCondition,ExecStop,ExecStopPost,FragmentPath,DropInPaths"
 
 // Only the disposable verification child receives a read-only connection. The
 // running service must remain able to serve ordinary business transactions.
@@ -344,7 +344,7 @@ func (runtime *productionRuntime) loadedExistingSchemaUnit(ctx context.Context) 
 	for _, key := range strings.Split(existingSchemaUnitProperties, ",") {
 		if _, present := values[key]; !present {
 			switch key {
-			case "PassEnvironment", "UnsetEnvironment", "ExecStartPre", "ExecStartPost", "ExecCondition", "ExecStop", "ExecStopPost", "FragmentPath":
+			case "PassEnvironment", "UnsetEnvironment", "ExecStartPre", "ExecStartPreEx", "ExecStartPost", "ExecCondition", "ExecStop", "ExecStopPost", "FragmentPath", "DropInPaths":
 				// systemctl omits unset array properties, including with --all.
 				values[key] = ""
 			default:

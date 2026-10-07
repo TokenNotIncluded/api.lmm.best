@@ -1,6 +1,7 @@
 package appcli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -121,10 +122,14 @@ func TestProductionMerchantStoreCapsuleCanonicalTamperAndHost(t *testing.T) {
 		t.Fatal("capsule crossed actual host binding")
 	}
 }
+func testPortableStartEx(value string) string {
+	return strings.Replace(value, "ignore_errors=no", "flags=privileged", 1)
+}
+
 func TestProductionMerchantStorePortableHookSelfReferenceIsExact(t *testing.T) {
 	binary, path, digest := "/usr/bin/lmm-api", "/var/lib/lmm-api-go-deploy/merchant-capsules/release-test/capsule.json", strings.Repeat("a", 64)
 	value := "{ path=" + binary + " ; argv[]=" + binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + digest + " ; ignore_errors=no ; }"
-	normalized, err := merchantStorePortableStartCommand(value, binary, path, digest)
+	normalized, err := merchantStorePortableStartCommand(value, testPortableStartEx(value), binary, path, digest)
 	if err != nil || !strings.Contains(normalized, merchantStoreCapsuleHashPlaceholder) || strings.Contains(normalized, digest) {
 		t.Fatalf("normalization=%q err=%v", normalized, err)
 	}
@@ -137,7 +142,7 @@ func TestProductionMerchantStorePortableHookSelfReferenceIsExact(t *testing.T) {
 		"ignore errors": strings.Replace(value, "ignore_errors=no", "ignore_errors=yes", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := merchantStorePortableStartCommand(bad, binary, path, digest); err == nil {
+			if _, err := merchantStorePortableStartCommand(bad, testPortableStartEx(bad), binary, path, digest); err == nil {
 				t.Fatal("unsafe per-start hook accepted")
 			}
 		})
@@ -145,6 +150,11 @@ func TestProductionMerchantStorePortableHookSelfReferenceIsExact(t *testing.T) {
 	// The old 95 ordinary parser has not gained a portable/skip fallback.
 	if _, err := merchantStoreSealedStartCommand(value, binary); err == nil {
 		t.Fatal("old ordinary policy silently accepted new per-start owner")
+	}
+	for _, extended := range []string{"", value, strings.Replace(testPortableStartEx(value), "privileged", "", 1), strings.Replace(testPortableStartEx(value), "privileged", "privileged ignore-failure", 1), strings.Replace(testPortableStartEx(value), "privileged", "no-env-expand", 1), testPortableStartEx(value) + "\n" + testPortableStartEx(value), strings.Replace(testPortableStartEx(value), digest, strings.Repeat("b", 64), 1)} {
+		if _, err := merchantStorePortableStartCommand(value, extended, binary, path, digest); err == nil {
+			t.Fatal("unproved or different privilege command accepted", extended)
+		}
 	}
 }
 func TestProductionMerchantStoreCapsuleNoSelfIssuedApproval(t *testing.T) {
@@ -336,7 +346,16 @@ func TestProductionMerchantStorePortableOrderedStartupIsStillSealed(t *testing.T
 	f.runtime.hostname = func() (string, error) { return c.Host, nil }
 	digest := strings.Repeat("a", 64)
 	path := filepath.Join(c.Root, "capsule.json")
-	f.unitOutput += "ExecStartPre={ path=" + c.Binary + " ; argv[]=" + c.Binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + digest + " ; ignore_errors=no ; }\n"
+	pre := "{ path=" + c.Binary + " ; argv[]=" + c.Binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + digest + " ; ignore_errors=no ; }"
+	f.runtime.paths.DropInDir = filepath.Join(filepath.Dir(f.files[0]), "drop-ins")
+	if err := os.Mkdir(f.runtime.paths.DropInDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	drop := filepath.Join(f.runtime.paths.DropInDir, "90-merchant-startup-baseline.conf")
+	if err := os.WriteFile(drop, merchantStorePortableHookBytes(c.Binary, path, digest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f.unitOutput += "ExecStartPre=" + pre + "\nExecStartPreEx=" + testPortableStartEx(pre) + "\nDropInPaths=" + drop + "\n"
 	seal, err := f.runtime.captureMerchantStorePortableStartup(context.Background(), path, digest)
 	if err != nil {
 		t.Fatal(err)
@@ -350,12 +369,47 @@ func TestProductionMerchantStorePortableOrderedStartupIsStillSealed(t *testing.T
 	if _, err := f.runtime.merchantStoreCapsuleStartup(context.Background(), c, digest, loaded); err != nil {
 		t.Fatal(err)
 	}
+	for _, mutation := range []string{"no privileged flag", "runtime-only", "plain persistent hook", "changed persistent hook", "writable hook", "missing hook"} {
+		t.Run(mutation, func(t *testing.T) {
+			copy := map[string]string{}
+			for key, value := range loaded {
+				copy[key] = value
+			}
+			switch mutation {
+			case "no privileged flag":
+				copy["ExecStartPreEx"] = strings.Replace(copy["ExecStartPreEx"], "privileged", "", 1)
+			case "runtime-only":
+				copy["DropInPaths"] = "/run/systemd/system/lmm-api.service.d/runtime.conf"
+			case "plain persistent hook":
+				_ = os.WriteFile(drop, bytes.ReplaceAll(merchantStorePortableHookBytes(c.Binary, path, digest), []byte("ExecStartPre=+"), []byte("ExecStartPre=")), 0644)
+			case "changed persistent hook":
+				_ = os.WriteFile(drop, append(merchantStorePortableHookBytes(c.Binary, path, digest), []byte("Environment=UNSEALED=yes\n")...), 0644)
+			case "writable hook":
+				_ = os.Chmod(drop, 0664)
+			case "missing hook":
+				_ = os.Remove(drop)
+			}
+			if _, err := f.runtime.merchantStoreCapsuleStartup(context.Background(), c, digest, copy); err == nil {
+				t.Fatal("persistent/loaded privilege drift accepted")
+			}
+			if err := os.WriteFile(drop, merchantStorePortableHookBytes(c.Binary, path, digest), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(drop, 0644); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 	// Finalizing the self-reference does not alter the normalized startup seal,
 	// but every invocation must supply that exact literal and actual file hash.
 	changed := strings.Repeat("b", 64)
 	loaded["ExecStartPre"] = strings.Replace(loaded["ExecStartPre"], digest, changed, 1)
 	if _, err := f.runtime.merchantStoreCapsuleStartup(context.Background(), c, digest, loaded); err == nil {
 		t.Fatal("wrong literal capsule hash accepted")
+	}
+	loaded["ExecStartPreEx"] = strings.Replace(loaded["ExecStartPreEx"], digest, changed, 1)
+	if err := os.WriteFile(drop, merchantStorePortableHookBytes(c.Binary, path, changed), 0644); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := f.runtime.merchantStoreCapsuleStartup(context.Background(), c, changed, loaded); err != nil {
 		t.Fatal("self-reference finalization changed seal", err)
@@ -382,7 +436,7 @@ func TestProductionMerchantStorePortableHashNormalizationOnlyTouchesLiteral(t *t
 	binary, digest := "/usr/bin/lmm-api", strings.Repeat("a", 64)
 	path := "/var/lib/lmm-api-go-deploy/merchant-capsules/" + digest + "/capsule.json"
 	value := "{ path=" + binary + " ; argv[]=" + binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + digest + " ; ignore_errors=no ; }"
-	normalized, err := merchantStorePortableStartCommand(value, binary, path, digest)
+	normalized, err := merchantStorePortableStartCommand(value, testPortableStartEx(value), binary, path, digest)
 	if err != nil || !strings.Contains(normalized, path) || strings.Count(normalized, merchantStoreCapsuleHashPlaceholder) != 1 || strings.Count(normalized, digest) != 1 {
 		t.Fatalf("path normalized as self-reference: %q %v", normalized, err)
 	}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -351,40 +352,80 @@ func (runtime *productionRuntime) verifyMerchantStoreCapsuleArtifact(ctx context
 
 const merchantStoreCapsuleHashPlaceholder = "@CAPSULE_SHA256@"
 
-func merchantStorePortableStartCommand(value, binary, path, digest string) (string, error) {
+var merchantStorePortableStartExPattern = regexp.MustCompile(`^\{ path=([^ ;\r\n]+) ; argv\[\]=([^;\r\n]+) ; flags=privileged ;(?:[^\r\n]* )?\}$`)
+
+func merchantStorePortableStartCommand(value, extended, binary, path, digest string) (string, error) {
 	semantic, err := existingSchemaCommandSemantics(value)
 	expected := binary + "\x00" + binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + digest + "\x00no"
 	if err != nil || !productionSHA256Pattern.MatchString(digest) || semantic != expected {
 		return "", errors.New("portable startup hook differs from the exact capsule/path/digest")
 	}
+	// ExecStartPre omits the '+' privilege flag. Its Ex property must prove
+	// exactly that flag for the same sole native command, not a second hook,
+	// ignore-failure flag or another systemd privilege mode.
+	match := merchantStorePortableStartExPattern.FindStringSubmatch(extended)
+	if match == nil || strings.Count(extended, "{ path=") != 1 || strings.Count(extended, "argv[]=") != 1 || strings.Count(extended, "flags=") != 1 || match[1] != binary || match[2] != strings.Split(semantic, "\x00")[1] {
+		return "", errors.New("portable startup hook lacks its exact privileged systemd command")
+	}
 	// Only this validated self-reference is normalized, avoiding a hash cycle.
 	// The literal digest must separately equal the actual canonical file hash.
-	return binary + "\x00" + binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + merchantStoreCapsuleHashPlaceholder + "\x00no", nil
+	return binary + "\x00" + binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + merchantStoreCapsuleHashPlaceholder + "\x00no\x00privileged", nil
+}
+
+func merchantStorePortableHookBytes(binary, path, digest string) []byte {
+	return []byte("[Service]\nExecStartPre=\nExecStartPre=+" + binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + digest + "\n")
+}
+
+// The actual loaded '+' command and its root-owned persistent drop-in are
+// inseparable startup evidence. Normalize only the separately validated literal
+// digest so the immutable capsule can bind its own hook without a hash cycle.
+func (runtime *productionRuntime) merchantStorePortableStartupCommands(loaded map[string]string, binary, path, digest string) (map[string]string, error) {
+	pre, err := merchantStorePortableStartCommand(loaded["ExecStartPre"], loaded["ExecStartPreEx"], binary, path, digest)
+	if err != nil {
+		return nil, err
+	}
+	dropIn := filepath.Join(runtime.paths.DropInDir, "90-merchant-startup-baseline.conf")
+	hook, err := runtime.readExistingSchemaSealedFile(dropIn, false)
+	if err != nil || !bytes.Equal(hook, merchantStorePortableHookBytes(binary, path, digest)) {
+		return nil, errors.New("portable persistent startup hook bytes differ from the exact privileged capsule hook")
+	}
+	count := 0
+	for _, item := range strings.Fields(loaded["DropInPaths"]) {
+		if item == dropIn {
+			count++
+		}
+	}
+	if count != 1 {
+		return nil, errors.New("portable startup hook is not actually loaded from its persistent drop-in")
+	}
+	copy := map[string]string{}
+	for key, value := range loaded {
+		copy[key] = value
+	}
+	copy["ExecStartPre"], copy["ExecStartPreEx"] = "", ""
+	commands, err := verifyExistingSchemaSealedCommands(copy, binary)
+	if err != nil {
+		return nil, err
+	}
+	commands["ExecStartPre"] = pre
+	commands["ExecStartPreEx"] = "privileged"
+	commands["PersistentPortableHookSHA256"] = startupContentSHA256(merchantStorePortableHookBytes(binary, path, merchantStoreCapsuleHashPlaceholder))
+	return commands, nil
 }
 
 func merchantStoreSourceGitEnvironment() []string {
 	return []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_NO_REPLACE_OBJECTS=1"}
 }
 func (runtime *productionRuntime) merchantStoreCapsuleStartup(ctx context.Context, c productionMerchantStoreCapsule, digest string, loaded map[string]string) (map[string]string, error) {
-	copy := map[string]string{}
-	for k, v := range loaded {
-		copy[k] = v
-	}
-	pre := ""
+	var commands map[string]string
+	var err error
 	if c.StartupPolicy == "per-start" {
-		var err error
-		pre, err = merchantStorePortableStartCommand(copy["ExecStartPre"], c.Binary, filepath.Join(c.Root, "capsule.json"), digest)
-		if err != nil {
-			return nil, err
-		}
-		copy["ExecStartPre"] = ""
+		commands, err = runtime.merchantStorePortableStartupCommands(loaded, c.Binary, filepath.Join(c.Root, "capsule.json"), digest)
+	} else {
+		commands, err = verifyExistingSchemaSealedCommands(loaded, c.Binary)
 	}
-	commands, err := verifyExistingSchemaSealedCommands(copy, c.Binary)
 	if err != nil {
 		return nil, err
-	}
-	if c.StartupPolicy == "per-start" {
-		commands["ExecStartPre"] = pre
 	}
 	values, err := parseExistingSchemaLoadedEnvironment(loaded["Environment"])
 	if err != nil || verifyExistingSchemaStartupEnvironment(values, true) != nil {
@@ -406,20 +447,10 @@ func (runtime *productionRuntime) captureMerchantStorePortableStartup(ctx contex
 	if err != nil {
 		return nil, err
 	}
-	pre, err := merchantStorePortableStartCommand(loaded["ExecStartPre"], runtime.paths.InstalledBinary, path, digest)
+	commands, err := runtime.merchantStorePortableStartupCommands(loaded, runtime.paths.InstalledBinary, path, digest)
 	if err != nil {
 		return nil, err
 	}
-	copy := map[string]string{}
-	for key, value := range loaded {
-		copy[key] = value
-	}
-	copy["ExecStartPre"] = ""
-	commands, err := verifyExistingSchemaSealedCommands(copy, runtime.paths.InstalledBinary)
-	if err != nil {
-		return nil, err
-	}
-	commands["ExecStartPre"] = pre
 	values, err := parseExistingSchemaLoadedEnvironment(loaded["Environment"])
 	if err != nil || verifyExistingSchemaStartupEnvironment(values, true) != nil {
 		return nil, errors.New("portable startup capture is not verify-only")

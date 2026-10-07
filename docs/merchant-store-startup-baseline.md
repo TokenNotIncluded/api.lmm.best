@@ -41,6 +41,23 @@ component test. A pending hook is the exact persistent file
 `90-merchant-startup-baseline.conf`; it uses a 64-zero capsule hash while stopped.
 Absence of a matching capsule blocks startup across retries and reboot.
 
+The one typed hook uses `ExecStartPre=+` because the signed service keeps
+`DynamicUser=yes` while the native holder must read root-private authority and
+write its durable state. Capture and every runtime check require the matching
+sole `ExecStartPreEx` command with exactly `flags=privileged`, the exact
+root-owned 0644 persistent hook bytes and its loaded `DropInPaths` entry. Both
+the privilege semantics and the normalized hook bytes enter the startup seal;
+only the separately validated capsule digest self-reference is normalized.
+The main `serve` command retains the signed service's unprivileged hardening.
+
+Baseline package identity is read from the official archive's strict
+root-owned `.PKGINFO` metadata so Ubuntu does not need pacman. All subsequent
+official signature, source/tag, layout, compiled marker and payload checks are
+shared with the ordinary verifier. Ordinary package installation still requires
+its real `pacman -Qp` evidence. Both hosts require bsdtar; Ubuntu provides it with
+`libarchive-tools`. Fixed native tools use only explicit root-owned executable
+paths and their admitted distribution aliases, never an arbitrary PATH entry.
+
 Initial missing to floor 1 is an explicit Option write, not preservation of an
 existing floor zero. Shop-only prepare and activation use their own physical
 session with exclusive deployment fence before migration lock. Never hold an

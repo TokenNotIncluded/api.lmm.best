@@ -476,7 +476,7 @@ func (runtime *productionRuntime) startupBaselineProvider(ctx context.Context, r
 		}
 	}
 	r := productionReleaseRuntime{runner: merchantStartupVerificationRunner{runtime.runner}, now: runtime.now}
-	p, err := r.verifyPackageEvidence(ctx, repo, root, runtime, productionAURPackageName, filepath.Join(root, merchantStoreCapsuleAsset(role, "pkg.tar.zst")), filepath.Join(root, merchantStoreCapsuleAsset(role, "release.tar.gz")), filepath.Join(root, merchantStoreCapsuleAsset(role, "sigstore.json")), false)
+	p, err := r.verifyStartupBaselinePackageEvidence(ctx, repo, root, runtime, filepath.Join(root, merchantStoreCapsuleAsset(role, "pkg.tar.zst")), filepath.Join(root, merchantStoreCapsuleAsset(role, "release.tar.gz")), filepath.Join(root, merchantStoreCapsuleAsset(role, "sigstore.json")))
 	if err != nil {
 		return zero, err
 	}
@@ -808,41 +808,10 @@ func (runtime *productionRuntime) captureMerchantStartupHost(ctx context.Context
 	placeholder := strings.Repeat("0", 64)
 	// A literal placeholder is permitted only while stopped and before sealing.
 	// It cannot load a nonexistent capsule, and fails closed across reboot.
-	pre, err := merchantStorePortableStartCommand(loaded["ExecStartPre"], runtime.paths.InstalledBinary, path, placeholder)
+	commands, err := runtime.merchantStorePortableStartupCommands(loaded, runtime.paths.InstalledBinary, path, placeholder)
 	if err != nil {
 		return h, err
 	}
-	dropIn := filepath.Join(runtime.paths.DropInDir, "90-merchant-startup-baseline.conf")
-	hook, err := runtime.readExistingSchemaSealedFile(dropIn, false)
-	if err != nil {
-		return h, errors.New("persistent startup baseline hook is unavailable")
-	}
-	expectedHook := "[Service]\nExecStartPre=\nExecStartPre=" + runtime.paths.InstalledBinary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + placeholder + "\n"
-	if string(hook) != expectedHook {
-		return h, errors.New("persistent startup hook bytes are not the native pending barrier")
-	}
-	// A runtime-only drop-in with the same loaded command cannot satisfy this
-	// separate persistent file fence and actual systemd DropInPaths check.
-	dropIns, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"show", runtime.paths.Service, "--all", "--property=DropInPaths", "--value"}, Timeout: 15 * time.Second})
-	count := 0
-	for _, item := range strings.Fields(string(dropIns)) {
-		if item == dropIn {
-			count++
-		}
-	}
-	if err != nil || count != 1 {
-		return h, errors.New("pending startup barrier is not actually loaded from its persistent drop-in")
-	}
-	copy := map[string]string{}
-	for k, v := range loaded {
-		copy[k] = v
-	}
-	copy["ExecStartPre"] = ""
-	commands, err := verifyExistingSchemaSealedCommands(copy, runtime.paths.InstalledBinary)
-	if err != nil {
-		return h, err
-	}
-	commands["ExecStartPre"] = pre
 	values, err := parseExistingSchemaLoadedEnvironment(loaded["Environment"])
 	if err != nil || verifyExistingSchemaStartupEnvironment(values, true) != nil {
 		return h, errors.New("pending startup does not enforce verify-only")
@@ -927,19 +896,13 @@ func (runtime *productionRuntime) captureMerchantStartupHost(ctx context.Context
 		return h, errors.New("startup capture database changed while verifying provider")
 	}
 	after, err := runtime.loadedExistingSchemaUnit(ctx)
-	if err != nil || after["MainPID"] != "0" || after["ActiveState"] != "inactive" || after["ExecStartPre"] != loaded["ExecStartPre"] || after["Environment"] != loaded["Environment"] || after["EnvironmentFiles"] != loaded["EnvironmentFiles"] {
+	if err != nil || after["MainPID"] != "0" || after["ActiveState"] != "inactive" || after["ExecStartPre"] != loaded["ExecStartPre"] || after["ExecStartPreEx"] != loaded["ExecStartPreEx"] || after["DropInPaths"] != loaded["DropInPaths"] || after["Environment"] != loaded["Environment"] || after["EnvironmentFiles"] != loaded["EnvironmentFiles"] {
 		return h, errors.New("startup changed during stopped qualification")
 	}
-	finalLoaded := map[string]string{}
-	for k, v := range after {
-		finalLoaded[k] = v
-	}
-	finalLoaded["ExecStartPre"] = ""
-	finalCommands, err := verifyExistingSchemaSealedCommands(finalLoaded, runtime.paths.InstalledBinary)
+	finalCommands, err := runtime.merchantStorePortableStartupCommands(after, runtime.paths.InstalledBinary, path, placeholder)
 	if err != nil {
 		return h, err
 	}
-	finalCommands["ExecStartPre"] = pre
 	finalValues, err := parseExistingSchemaLoadedEnvironment(after["Environment"])
 	if err != nil {
 		return h, err
@@ -965,7 +928,7 @@ func (runtime *productionRuntime) captureMerchantStartupHost(ctx context.Context
 	if finalPID != npid || finalInvocation != ninv || finalGeneration != ngeneration {
 		return h, errors.New("startup admission loaded generation changed during provider qualification")
 	}
-	h = productionMerchantStartupHostCapture{Format: 1, DeploymentID: id, Host: host, ProviderSHA256: close.Provider.PayloadSHA256, AdmissionSHA256: close.AdmissionSHA256, AdmissionBodySHA256: startupContentSHA256([]byte(merchantStartupAdmissionBody(id))), NginxPID: npid, NginxInvocationID: ninv, NginxGenerationSHA256: ngeneration, StartupBarrierKind: "sealed-pending-hook", StartupBarrierSHA256: startupContentSHA256(hook), LegacyPID: close.PID, LegacyInvocationID: close.InvocationID, LegacyPayloadSHA256: close.Legacy.PayloadSHA256, LegacyStartupSHA256: close.StartupSHA256, CloseSHA256: startupContentSHA256(closeRaw), StatusSHA256: startupContentSHA256(status), GateBefore: close.GateBefore, Schema: schema, Role: db.Role, RequiredCapability: floor, OtherBusinessClients: 0}
+	h = productionMerchantStartupHostCapture{Format: 1, DeploymentID: id, Host: host, ProviderSHA256: close.Provider.PayloadSHA256, AdmissionSHA256: close.AdmissionSHA256, AdmissionBodySHA256: startupContentSHA256([]byte(merchantStartupAdmissionBody(id))), NginxPID: npid, NginxInvocationID: ninv, NginxGenerationSHA256: ngeneration, StartupBarrierKind: "sealed-pending-hook", StartupBarrierSHA256: startupContentSHA256(merchantStorePortableHookBytes(runtime.paths.InstalledBinary, path, placeholder)), LegacyPID: close.PID, LegacyInvocationID: close.InvocationID, LegacyPayloadSHA256: close.Legacy.PayloadSHA256, LegacyStartupSHA256: close.StartupSHA256, CloseSHA256: startupContentSHA256(closeRaw), StatusSHA256: startupContentSHA256(status), GateBefore: close.GateBefore, Schema: schema, Role: db.Role, RequiredCapability: floor, OtherBusinessClients: 0}
 	return h, validateMerchantStartupHostCapture(h, id, close.Provider.PayloadSHA256)
 }
 
@@ -1103,9 +1066,9 @@ func (runtime *productionRuntime) bindMerchantStartupBaseline(ctx context.Contex
 		return "", errors.New("baseline bind current closed capture differs from immutable authority")
 	}
 	path := filepath.Join(root, "capsule.json")
-	hook := "[Service]\nExecStartPre=\nExecStartPre=" + runtime.paths.InstalledBinary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + digest + "\n"
+	hook := merchantStorePortableHookBytes(runtime.paths.InstalledBinary, path, digest)
 	dropIn := filepath.Join(runtime.paths.DropInDir, "90-merchant-startup-baseline.conf")
-	if err := writeAtomicRegularFile(dropIn, []byte(hook), 0644); err != nil {
+	if err := writeAtomicRegularFile(dropIn, hook, 0644); err != nil {
 		return "", err
 	}
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"daemon-reload"}, Timeout: 15 * time.Second}); err != nil {

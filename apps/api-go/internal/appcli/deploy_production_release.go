@@ -469,6 +469,22 @@ func (runtime *productionReleaseRuntime) verifyPackageEvidence(ctx context.Conte
 	if err != nil {
 		return productionReleasePackagePlan{}, err
 	}
+	return runtime.verifyPackageEvidenceMetadata(ctx, repo, workspace, metadata, packagePath, releaseAsset, signatureBundle, validateCandidateEdgePolicy)
+}
+
+// First-conversion authority also runs on the Ubuntu origin. It reads the
+// package's actual archive identity, then uses the same official evidence
+// checks as the pacman-backed ordinary release path. This is not an OS fallback.
+func (runtime *productionReleaseRuntime) verifyStartupBaselinePackageEvidence(ctx context.Context, repo, workspace string, localRuntime *productionRuntime, packagePath, releaseAsset, signatureBundle string) (productionReleasePackagePlan, error) {
+	metadata, err := localRuntime.startupBaselinePackageMetadata(ctx, packagePath)
+	if err != nil {
+		return productionReleasePackagePlan{}, err
+	}
+	return runtime.verifyPackageEvidenceMetadata(ctx, repo, workspace, metadata, packagePath, releaseAsset, signatureBundle, false)
+}
+
+func (runtime *productionReleaseRuntime) verifyPackageEvidenceMetadata(ctx context.Context, repo, workspace string, metadata productionPackageMetadata, packagePath, releaseAsset, signatureBundle string, validateCandidateEdgePolicy bool) (productionReleasePackagePlan, error) {
+	expectedName := metadata.Name
 	packageSHA256, err := sha256File(packagePath)
 	if err != nil {
 		return productionReleasePackagePlan{}, err
@@ -879,6 +895,13 @@ func parsePackageInfo(path string) (map[string][]string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read package .PKGINFO: %w", err)
+	}
+	return parsePackageInfoContent(content)
+}
+
+func parsePackageInfoContent(content []byte) (map[string][]string, error) {
+	if len(content) == 0 || len(content) > 1<<20 || bytes.IndexByte(content, 0) >= 0 {
+		return nil, errors.New("package .PKGINFO content is empty, oversized or contains NUL")
 	}
 	fields := make(map[string][]string)
 	for _, line := range strings.Split(string(content), "\n") {
