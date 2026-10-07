@@ -66,8 +66,9 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	self.GET("/products/:id/inventory", controller.ListMerchantStoreInventory)
 	self.POST("/products/:id/inventory", middleware.RequestBodyLimit(2<<20), middleware.CriticalRateLimit(), controller.AddMerchantStoreInventory)
 	self.DELETE("/products/:id/inventory/:stock_id", middleware.CriticalRateLimit(), controller.DeleteMerchantStoreInventory)
-	self.POST("/products/:id/variants", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.CreateMerchantStoreVariant)
-	self.PUT("/products/:id/variants/:variant_id", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreVariant)
+	self.GET("/products/:id/variants/:variant_id/fixed-content", controller.GetMerchantStoreFixedContent)
+	self.POST("/products/:id/variants", middleware.RequestBodyLimit(512<<10), middleware.CriticalRateLimit(), controller.CreateMerchantStoreVariant)
+	self.PUT("/products/:id/variants/:variant_id", middleware.RequestBodyLimit(512<<10), middleware.CriticalRateLimit(), controller.SaveMerchantStoreVariant)
 	self.PUT("/products/:id/variants/:variant_id/enabled", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SetMerchantStoreVariantEnabled)
 	self.GET("/products/:id/variants/:variant_id/inventory", controller.ListMerchantStoreVariantInventory)
 	self.POST("/products/:id/variants/:variant_id/inventory", middleware.RequestBodyLimit(2<<20), middleware.CriticalRateLimit(), controller.AddMerchantStoreVariantInventory)
@@ -111,5 +112,5 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 	callback.Use(middleware.DisableCache())
 	callback.GET("/epay/:id/notify", controller.MerchantStoreEpayNotify)
 	callback.POST("/epay/:id/notify", middleware.RequestBodyLimit(64<<10), controller.MerchantStoreEpayNotify)
-	callback.POST("/pancake/:scope/:seller_id/:env/webhook", middleware.RequestBodyLimit(256<<10), controller.MerchantStorePancakeWebhook)
+	callback.POST("/pancake/:scope/:seller_id/:env/webhook", middleware.RequestBodyLimit(512<<10), controller.MerchantStorePancakeWebhook)
 }

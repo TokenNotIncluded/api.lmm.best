@@ -13,6 +13,8 @@ export function storeCheckoutCapacity(
       Pick<
         StoreProduct,
         | 'sale_available'
+        | 'sale_limit'
+        | 'unlimited_supply'
         | 'max_quantity_per_order'
         | 'max_quantity_per_buyer'
         | 'buyer_purchase_remaining'
@@ -21,16 +23,23 @@ export function storeCheckoutCapacity(
   method: StorePaymentMethod | ''
 ) {
   const { available_stock: stock, price_quota: price } = product
+  const unlimited = product.unlimited_supply === true
   if (
-    !Number.isSafeInteger(stock) ||
-    stock < 0 ||
+    unlimited &&
+    product.sale_limit != null &&
+    product.sale_available == null
+  ) {
+    return 0
+  }
+  if (
+    (!unlimited && (!Number.isSafeInteger(stock) || stock < 0)) ||
     !Number.isSafeInteger(price) ||
     price < 1
   ) {
     return 0
   }
   let capacity = Math.min(
-    stock,
+    unlimited ? Infinity : stock,
     method === 'balance' ? 1000 : 100,
     Math.floor(Number.MAX_SAFE_INTEGER / price)
   )
@@ -50,7 +59,9 @@ export function storeCheckoutCapacity(
     capacity = Math.min(capacity, product.max_quantity_per_buyer)
   }
   for (const available of [
-    product.sale_available,
+    unlimited && product.sale_limit == null
+      ? undefined
+      : product.sale_available,
     product.buyer_purchase_remaining,
   ]) {
     if (available !== undefined && available !== null) {

@@ -22,7 +22,9 @@ export function storeCartCapacity(
     Math.floor(Number.MAX_SAFE_INTEGER / price)
   )
   for (const limit of [
-    product.sale_available,
+    product.unlimited_supply && product.sale_limit == null
+      ? undefined
+      : product.sale_available,
     product.max_quantity_per_order,
     product.buyer_purchase_remaining,
   ]) {

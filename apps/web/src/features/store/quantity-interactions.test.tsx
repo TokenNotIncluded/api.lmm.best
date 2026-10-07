@@ -280,6 +280,40 @@ afterEach(async () => {
 })
 after(() => dom.happyDOM.abort())
 
+test('unlimited fixed content can be purchased with zero stock while remaining capped by purchase limits', async () => {
+  const writes = mockCheckout()
+  const fixed = {
+    ...product,
+    template: 'fixed-content' as const,
+    unlimited_supply: true,
+    available_stock: 0,
+    sale_available: 0,
+    sale_limit: null,
+    max_quantity_per_order: 3,
+  }
+  await mount(<StoreCheckout product={fixed} />)
+  assert.match(document.body.textContent || '', /Unlimited supply/)
+  assert.doesNotMatch(
+    document.body.textContent || '',
+    /Stock:|Infinity|9007199254740991/
+  )
+  const more = required(
+    document.querySelector<HTMLButtonElement>(
+      '[aria-label="Increase quantity"]'
+    )
+  )
+  await click(more)
+  await click(more)
+  assert.equal(more.disabled, true)
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '3'
+  )
+  await click(button('Place order'))
+  assert.equal(writes[0].quantity, 3)
+  assert.equal(fixed.available_stock, 0)
+})
+
 test('visible quantity controls obey stock and a merchant can order their own whole batch', async () => {
   const writes = mockCheckout()
   await mount(

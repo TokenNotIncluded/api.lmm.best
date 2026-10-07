@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 
 import { storeApi } from './api'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
 import { STORE_SALES_LIMIT_COPY as copy } from './sales-limit-copy'
 import { StoreError } from './shared'
 import type { StoreProduct } from './types'
@@ -72,13 +73,17 @@ export function StoreSalesLimit({
       <StoreError error={error} />
       <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
         <span>
-          {t(copy.inventory, {
-            count: product.inventory_total ?? product.available_stock,
-          })}
+          {product.unlimited_supply
+            ? t(fixedCopy.unlimited)
+            : t(copy.inventory, {
+                count: product.inventory_total ?? product.available_stock,
+              })}
         </span>
         <span>{t(copy.paid, { count: paidQuantity ?? '—' })}</span>
         <span>{t(copy.reserved, { count: product.reserved_quantity })}</span>
-        <span>{t(copy.available, { count: product.sale_available })}</span>
+        {(!product.unlimited_supply || product.sale_limit != null) && (
+          <span>{t(copy.available, { count: product.sale_available })}</span>
+        )}
       </div>
       <div className='flex items-center justify-between gap-3'>
         <Label htmlFor={`store-unlimited-${product.id}`}>

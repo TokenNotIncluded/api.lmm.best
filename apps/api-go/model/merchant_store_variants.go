@@ -23,6 +23,7 @@ type MerchantStoreVariant struct {
 	CreatedAt          int64  `json:"created_at"`
 	UpdatedAt          int64  `json:"updated_at"`
 	IsDefault          bool   `json:"is_default" gorm:"-"`
+	UnlimitedSupply    bool   `json:"unlimited_supply" gorm:"-"`
 	InventoryTotal     int64  `json:"inventory_total" gorm:"-"`
 	InventoryAvailable int64  `json:"inventory_available" gorm:"-"`
 	ReservedStock      int64  `json:"reserved_stock" gorm:"-"`
@@ -31,10 +32,11 @@ type MerchantStoreVariant struct {
 }
 
 type MerchantStoreVariantInput struct {
-	Name       string `json:"name"`
-	PriceQuota int    `json:"price_quota"`
-	Template   string `json:"template"`
-	Enabled    bool   `json:"enabled"`
+	Name         string  `json:"name"`
+	PriceQuota   int     `json:"price_quota"`
+	Template     string  `json:"template"`
+	Enabled      bool    `json:"enabled"`
+	FixedContent *string `json:"fixed_content,omitempty"`
 }
 
 func MerchantStoreDefaultVariantID(productID string) string {
@@ -231,6 +233,9 @@ func SaveMerchantStoreVariant(actor int, productID, id string, in MerchantStoreV
 			result = *v
 		}
 		result.Name, result.PriceQuota, result.Template, result.Enabled, result.UpdatedAt = in.Name, in.PriceQuota, in.Template, in.Enabled, now
+		if err := storeSaveFixedContent(tx, p, &result, in.FixedContent); err != nil {
+			return err
+		}
 		if err := tx.Save(&result).Error; err != nil {
 			return err
 		}
@@ -300,6 +305,11 @@ func storeValidateEnabledVariants(tx *gorm.DB, p *MerchantStoreProduct) error {
 			if err := storeRequireMinimumUnitPrice(tx, v.PriceQuota); err != nil {
 				return err
 			}
+			if v.Template == MerchantStoreFixedContentTemplate {
+				if _, err := storeReadFixedContent(tx, p.ID, v.ID); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if !enabled {
@@ -320,7 +330,17 @@ func populateMerchantStoreVariants(tx *gorm.DB, p *MerchantStoreProduct, seller 
 	p.DefaultVariantID = MerchantStoreDefaultVariantID(p.ID)
 	p.Variants = make([]MerchantStoreVariant, 0, len(variants))
 	p.InventoryTotal, p.InventoryAvailable, p.PriceMinQuota, p.PriceMaxQuota = 0, 0, 0, 0
-	p.TradingPaused = true
+	p.TradingPaused, p.UnlimitedSupply = true, false
+	fixedReady := map[string]bool{}
+	if storeFixedContentSupported(tx) {
+		var ids []string
+		if err := tx.Model(&MerchantStoreFixedContent{}).Where("product_id = ? AND ciphertext <> ?", p.ID, "").Pluck("variant_id", &ids).Error; err != nil {
+			return err
+		}
+		for _, id := range ids {
+			fixedReady[id] = true
+		}
+	}
 	// Aggregate in one query rather than two queries per spec on every public
 	// catalog entry. Legacy NULL/empty associations remain logical defaults.
 	var stockCounts []struct {
@@ -346,6 +366,7 @@ func populateMerchantStoreVariants(tx *gorm.DB, p *MerchantStoreProduct, seller 
 	var eligible int64
 	for i := range variants {
 		v := &variants[i]
+		v.UnlimitedSupply = v.Template == MerchantStoreFixedContentTemplate && fixedReady[v.ID]
 		v.InventoryAvailable, v.ReservedStock = available[v.ID], reserved[v.ID]
 		v.InventoryTotal = v.InventoryAvailable + v.ReservedStock
 		p.InventoryTotal += v.InventoryTotal
@@ -358,8 +379,14 @@ func populateMerchantStoreVariants(tx *gorm.DB, p *MerchantStoreProduct, seller 
 		if eligibleVariant {
 			eligible += v.InventoryAvailable
 			v.SaleAvailable = min(v.InventoryAvailable, remaining)
+			if v.UnlimitedSupply {
+				p.UnlimitedSupply = true
+				if p.SaleLimit != nil {
+					v.SaleAvailable = remaining
+				}
+			}
 		}
-		v.TradingPaused = !eligibleVariant || !storeProductPurchaseStatus(p) || v.SaleAvailable == 0
+		v.TradingPaused = !eligibleVariant || !storeProductPurchaseStatus(p) || (v.SaleAvailable == 0 && !(v.UnlimitedSupply && p.SaleLimit == nil))
 		if !v.TradingPaused {
 			p.TradingPaused = false
 		}
@@ -374,6 +401,9 @@ func populateMerchantStoreVariants(tx *gorm.DB, p *MerchantStoreProduct, seller 
 		}
 	}
 	p.SaleAvailable = min(eligible, remaining)
+	if p.UnlimitedSupply && p.SaleLimit != nil {
+		p.SaleAvailable = remaining
+	}
 	if public {
 		p.AvailableStock = p.SaleAvailable
 	}

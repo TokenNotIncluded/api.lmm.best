@@ -501,44 +501,48 @@ function StoreRefundForm({
                 })}
               </FieldDescription>
             </Field>
-            <FieldSet>
-              <FieldLegend variant='label'>
-                {t('Choose specific items')}
-              </FieldLegend>
-              <FieldDescription>
-                {t(
-                  'Leave items unselected to use the original delivery order.'
-                )}
-              </FieldDescription>
-              <FieldGroup className='max-h-56 gap-2 overflow-y-auto'>
-                {view.eligible_items.map((item) => (
-                  <Field
-                    key={item.stock_id}
-                    orientation='horizontal'
-                    data-disabled={disabled}
-                  >
-                    <Checkbox
-                      id={`${id}-${item.stock_id}`}
-                      checked={stockIds.includes(item.stock_id)}
-                      disabled={disabled}
-                      onCheckedChange={(checked) => {
-                        const next = checked
-                          ? [...stockIds, item.stock_id]
-                          : stockIds.filter((value) => value !== item.stock_id)
-                        setStockIds(next)
-                        if (next.length) setQuantity(String(next.length))
-                      }}
-                    />
-                    <FieldLabel
-                      htmlFor={`${id}-${item.stock_id}`}
-                      className='font-normal'
+            {view.delivery_template !== 'fixed-content' && (
+              <FieldSet>
+                <FieldLegend variant='label'>
+                  {t('Choose specific items')}
+                </FieldLegend>
+                <FieldDescription>
+                  {t(
+                    'Leave items unselected to use the original delivery order.'
+                  )}
+                </FieldDescription>
+                <FieldGroup className='max-h-56 gap-2 overflow-y-auto'>
+                  {view.eligible_items.map((item) => (
+                    <Field
+                      key={item.stock_id}
+                      orientation='horizontal'
+                      data-disabled={disabled}
                     >
-                      {t('Item {{position}}', { position: item.position })}
-                    </FieldLabel>
-                  </Field>
-                ))}
-              </FieldGroup>
-            </FieldSet>
+                      <Checkbox
+                        id={`${id}-${item.stock_id}`}
+                        checked={stockIds.includes(item.stock_id)}
+                        disabled={disabled}
+                        onCheckedChange={(checked) => {
+                          const next = checked
+                            ? [...stockIds, item.stock_id]
+                            : stockIds.filter(
+                                (value) => value !== item.stock_id
+                              )
+                          setStockIds(next)
+                          if (next.length) setQuantity(String(next.length))
+                        }}
+                      />
+                      <FieldLabel
+                        htmlFor={`${id}-${item.stock_id}`}
+                        className='font-normal'
+                      >
+                        {t('Item {{position}}', { position: item.position })}
+                      </FieldLabel>
+                    </Field>
+                  ))}
+                </FieldGroup>
+              </FieldSet>
+            )}
           </>
         )}
         {actualMode === 'amount' && (

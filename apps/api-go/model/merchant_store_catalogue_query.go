@@ -58,8 +58,13 @@ func storeCatalogueTradableSQL(config MerchantStoreConfig) (string, []interface{
 	enabled := "(v.enabled=TRUE OR (v.id IS NULL AND (s.variant_id IS NULL OR s.variant_id='' OR s.variant_id=cm.default_variant_id)))"
 	variantMatch := "CASE WHEN s.variant_id IS NULL OR s.variant_id='' THEN cm.default_variant_id ELSE s.variant_id END"
 	stock := "EXISTS (SELECT 1 FROM merchant_store_stocks s LEFT JOIN merchant_store_variants v ON v.product_id=s.product_id AND v.id=" + variantMatch + " WHERE s.product_id=" + p + ".id AND s.state='available' AND " + enabled + " AND " + price + ">=" + strconv.Itoa(config.MinimumUnitPriceQuota) + " AND (" + role + ">=" + strconv.Itoa(common.RoleRootUser) + " OR " + seller + ">=" + storeCatalogueFeeSQL(price, config.FeeBPS) + "))"
+	if MerchantStoreFixedContentSupported() {
+		fixedPrice := "v.price_quota"
+		fixed := "EXISTS (SELECT 1 FROM merchant_store_variants v JOIN merchant_store_fixed_contents f ON f.variant_id=v.id AND f.product_id=v.product_id WHERE v.product_id=" + p + ".id AND v.enabled=TRUE AND v.template='fixed-content' AND f.ciphertext<>'' AND " + fixedPrice + ">=" + strconv.Itoa(config.MinimumUnitPriceQuota) + " AND (" + role + ">=" + strconv.Itoa(common.RoleRootUser) + " OR " + seller + ">=" + storeCatalogueFeeSQL(fixedPrice, config.FeeBPS) + "))"
+		stock = "(" + stock + " OR " + fixed + ")"
+	}
 	paid := "COALESCE((SELECT SUM(o.quantity) FROM merchant_store_orders o WHERE o.product_id=" + p + ".id AND (o.paid_at>0 OR o.status='paid' OR o.verified_payment_issue_at>0)),0)"
-	reserved := "COALESCE((SELECT SUM(o.quantity) FROM merchant_store_orders o WHERE o.product_id=" + p + ".id AND o.status<>'paid' AND COALESCE(o.paid_at,0)=0 AND COALESCE(o.verified_payment_issue_at,0)=0 AND EXISTS (SELECT 1 FROM merchant_store_stocks r WHERE r.order_id=o.id AND r.state='reserved')),0)"
+	reserved := "COALESCE((SELECT SUM(o.quantity) FROM merchant_store_orders o WHERE o.product_id=" + p + ".id AND o.status<>'paid' AND COALESCE(o.paid_at,0)=0 AND COALESCE(o.verified_payment_issue_at,0)=0 AND (EXISTS (SELECT 1 FROM merchant_store_stocks r WHERE r.order_id=o.id AND r.state='reserved') OR (o.delivery_template='fixed-content' AND o.status IN ('pending','reconciliation_pending')))),0)"
 	return "(" + stock + " AND (" + p + ".sale_limit IS NULL OR " + p + ".sale_limit>" + paid + "+" + reserved + ") AND (" + strings.Join(gateway, " OR ") + "))", args
 }
 

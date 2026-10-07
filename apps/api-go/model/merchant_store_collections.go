@@ -90,7 +90,7 @@ func storeCheckCartItem(tx *gorm.DB, actor int, in MerchantStoreCartInput) (*Mer
 		if v.ID != id {
 			continue
 		}
-		if v.TradingPaused || p.TradingPaused || v.SaleAvailable < in.Quantity {
+		if v.TradingPaused || p.TradingPaused || (v.SaleAvailable < in.Quantity && !(v.UnlimitedSupply && p.SaleLimit == nil)) {
 			return p, id, ErrMerchantStoreStock
 		}
 		if err := storeCheckPurchaseLimits(tx, p, actor, int(in.Quantity)); err != nil {

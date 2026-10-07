@@ -72,6 +72,7 @@ type MerchantStoreRefundEligibleItem struct {
 	Position int64  `json:"position"`
 }
 type MerchantStoreRefundView struct {
+	DeliveryTemplate     string                            `json:"delivery_template"`
 	OrderID              string                            `json:"order_id"`
 	ProductTitle         string                            `json:"product_title"`
 	VariantName          string                            `json:"variant_name"`

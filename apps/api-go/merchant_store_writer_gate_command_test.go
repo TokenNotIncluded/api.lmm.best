@@ -11,6 +11,13 @@ import (
 func TestMerchantStoreWriterGateCommandRejectsFlagsBeforeDatabaseAccess(t *testing.T) {
 	t.Setenv("SQL_DSN", "postgres://private-password@127.0.0.1:1/must-never-connect?sslmode=disable")
 	for _, args := range [][]string{
+		{"prepare-fixed-content"}, {"activate-fixed-content"},
+		{"prepare-fixed-content", "--expected-current=5", "--reviewed-fixed-content-ready"},
+		{"activate-fixed-content", "--expected-current=6"},
+		{"activate-fixed-content", "--expected-current=6", "--reviewed-fixed-content-ready", "--require-writable"},
+		{"activate-fixed-content", "--expected-current=6", "--reviewed-fixed-content-ready", "--reviewed-phase-six-ready"},
+		{"verify-fixed-content", "--expected-current=6"}, {"verify-fixed-content", "--reviewed-fixed-content-ready"},
+		{"status", "--reviewed-fixed-content-ready"},
 		{"activate-phase-six"}, {"activate-phase-six", "--expected-current=4", "--reviewed-phase-six-ready"},
 		{"activate-phase-six", "--expected-current=5"}, {"activate-phase-six", "--expected-current=5", "--reviewed-phase-six-ready", "--require-writable"},
 		{"status", "--reviewed-phase-six-ready"}, {"prepare-schema", "--expected-current=5", "--reviewed-store-schema-ready", "--reviewed-phase-six-ready"},
@@ -49,7 +56,9 @@ func TestMerchantStoreWriterGateCommandRejectsFlagsBeforeDatabaseAccess(t *testi
 func TestMerchantStoreWriterGateCommandRequiresExplicitDatabaseWithoutServerStartup(t *testing.T) {
 	t.Setenv("SQL_DSN", "")
 	for _, args := range [][]string{
-		{"status"}, {"bootstrap"},
+		{"status"}, {"bootstrap"}, {"verify-fixed-content"},
+		{"prepare-fixed-content", "--expected-current=6", "--reviewed-fixed-content-ready"},
+		{"activate-fixed-content", "--expected-current=6", "--reviewed-fixed-content-ready"},
 		{"prepare-schema", "--expected-current=5", "--reviewed-store-schema-ready"},
 		{"activate-phase-six", "--expected-current=5", "--reviewed-phase-six-ready"},
 	} {

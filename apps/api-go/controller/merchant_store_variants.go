@@ -71,3 +71,8 @@ func ListMerchantStoreVariantInventory(c *gin.Context) {
 func DeleteMerchantStoreVariantInventory(c *gin.Context) {
 	merchantStoreRespond(c, nil, model.RemoveMerchantStoreVariantStock(c.GetInt("id"), c.Param("id"), c.Param("variant_id"), c.Param("stock_id")))
 }
+
+func GetMerchantStoreFixedContent(c *gin.Context) {
+	content, err := model.GetMerchantStoreFixedContent(c.GetInt("id"), c.Param("id"), c.Param("variant_id"))
+	merchantStoreRespond(c, gin.H{"content": content}, err)
+}

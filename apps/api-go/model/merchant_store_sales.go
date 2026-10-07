@@ -28,7 +28,7 @@ func storeSalesUsage(tx *gorm.DB, productID string) (merchantStoreSalesUsage, er
 	// cannot prove a reservation. A verified payment is counted above, not twice.
 	if err := tx.Model(&MerchantStoreOrder{}).Where("product_id = ?", productID).
 		Where("status <> ? AND COALESCE(paid_at,0) = 0 AND COALESCE(verified_payment_issue_at,0) = 0", "paid").
-		Where("id IN (?)", reservedOrders).
+		Where("id IN (?) OR (delivery_template = ? AND status IN ?)", reservedOrders, MerchantStoreFixedContentTemplate, []string{"pending", "reconciliation_pending"}).
 		Select("COALESCE(SUM(quantity),0)").Scan(&usage.Reserved).Error; err != nil {
 		return usage, err
 	}

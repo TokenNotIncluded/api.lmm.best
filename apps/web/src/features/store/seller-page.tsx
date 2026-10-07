@@ -45,6 +45,8 @@ import {
   structuredTemplate,
   validateComposedItems,
 } from './delivery-template'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
+import { StoreFixedContentEditor } from './fixed-content-editor'
 import { StoreInventoryComposer } from './inventory-composer'
 import { StoreInventoryImportPreview } from './inventory-import-preview'
 import { StoreLinkPresetChooser } from './link-presets'
@@ -76,6 +78,7 @@ import type {
   StoreVariant,
   StorePage,
 } from './types'
+import { useStoreFixedContentDraft } from './use-store-fixed-content'
 import {
   paymentLabel,
   MAX_IMPORT_BYTES,
@@ -435,6 +438,9 @@ function StoreSellerCenter() {
                 <StoreInventoryTotals product={product} />
                 <StoreVariantsManager
                   product={product}
+                  fixedContentSupported={
+                    config.data?.fixed_content_supported === true
+                  }
                   minimumPriceQuota={config.data?.minimum_unit_price_quota}
                   onChanged={async () => {
                     await Promise.all([
@@ -607,6 +613,7 @@ function StoreSellerCenter() {
           accessSupported={config.data?.store_access_supported === true}
           categoriesSupported={config.data?.store_categories_supported === true}
           svgMediaSupported={config.data?.store_svg_media_supported === true}
+          fixedContentSupported={config.data?.fixed_content_supported === true}
           purchaseLimitsSupported={
             config.data?.product_purchase_limits_supported === true
           }
@@ -735,6 +742,7 @@ export function StoreProductEditor({
   categoriesSupported = false,
   svgMediaSupported = false,
   purchaseLimitsSupported = false,
+  fixedContentSupported = false,
   onClose,
   onSaved,
 }: {
@@ -747,6 +755,7 @@ export function StoreProductEditor({
   categoriesSupported?: boolean
   svgMediaSupported?: boolean
   purchaseLimitsSupported?: boolean
+  fixedContentSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -790,6 +799,13 @@ export function StoreProductEditor({
   const [images, setImages] = useState(
     (product?.image_urls || []).slice(2).join('\n')
   )
+  const fixedContent = useStoreFixedContentDraft(
+    product?.id,
+    product?.default_variant_id ||
+      product?.variants?.find((variant) => variant.is_default)?.id,
+    product?.template === 'fixed-content'
+  )
+
   const [orderLimit, setOrderLimit] = useState(
     String(product?.max_quantity_per_order ?? '')
   )
@@ -846,6 +862,12 @@ export function StoreProductEditor({
         pickup_login_required: draft.pickup_login_required,
         pickup_code_required: draft.pickup_code_required,
         email_pickup_link: draft.email_pickup_link,
+      }
+      if (draft.template === 'fixed-content') {
+        if (!fixedContent.valid) throw new Error(t(fixedCopy.invalid))
+        if (fixedContent.write !== undefined) {
+          body.fixed_content = fixedContent.write
+        }
       }
       if (categoriesSupported) body.category_id = draft.category_id ?? ''
       if (accessSupported) {
@@ -921,7 +943,9 @@ export function StoreProductEditor({
         </AlertDialog>
         <DialogDescription>
           {t(
-            'Save a draft first. Submit it after adding stock and configuring payment methods.'
+            draft.template === 'fixed-content'
+              ? fixedCopy.draftHelp
+              : 'Save a draft first. Submit it after adding stock and configuring payment methods.'
           )}
         </DialogDescription>
         <form onSubmit={(event) => void save(event)} className='space-y-5'>
@@ -1138,11 +1162,18 @@ export function StoreProductEditor({
                   )
                 }
               >
-                {Object.entries(DELIVERY_TEMPLATES).map(([key, template]) => (
-                  <option key={key} value={key}>
-                    {t(template.label)}
-                  </option>
-                ))}
+                {Object.entries(DELIVERY_TEMPLATES)
+                  .filter(
+                    ([key]) =>
+                      key !== 'fixed-content' ||
+                      fixedContentSupported ||
+                      draft.template === key
+                  )
+                  .map(([key, template]) => (
+                    <option key={key} value={key}>
+                      {t(template.label)}
+                    </option>
+                  ))}
               </select>
               <p className='text-muted-foreground text-xs'>
                 {t(DELIVERY_TEMPLATES[draft.template].help)}
@@ -1154,6 +1185,7 @@ export function StoreProductEditor({
                 id='store-delivery'
                 className='bg-background h-11 w-full rounded-md border px-3 text-sm'
                 value={draft.delivery_strategy}
+                disabled={draft.template === 'fixed-content'}
                 onChange={(event) =>
                   change(
                     'delivery_strategy',
@@ -1166,6 +1198,13 @@ export function StoreProductEditor({
               </select>
             </div>
           </div>
+          {draft.template === 'fixed-content' && (
+            <StoreFixedContentEditor
+              id='store-fixed-content'
+              draft={fixedContent}
+              disabled={busy}
+            />
+          )}
           <fieldset className='space-y-2 border-t pt-4'>
             <legend className='font-semibold'>{t('Payment methods')}</legend>
             <p className='text-muted-foreground text-sm'>{t(copy.subset)}</p>
@@ -1382,7 +1421,10 @@ export function StoreProductEditor({
             <Button
               type='submit'
               disabled={
-                busy || price.quota === undefined || minimum === undefined
+                busy ||
+                price.quota === undefined ||
+                minimum === undefined ||
+                (draft.template === 'fixed-content' && !fixedContent.valid)
               }
             >
               {t(busy ? 'Saving...' : 'Save draft')}
@@ -1486,15 +1528,21 @@ export function StoreInventoryImport({
           )}
           {legacy || variant ? (
             <TabsContent value={variantId}>
-              <StoreInventoryContent
-                key={variant?.id || 'legacy-default'}
-                product={product}
-                variant={variant}
-                onSaved={onSaved}
-                onChanged={onChanged}
-                onBusyChange={setBusy}
-                onDirtyChange={setDirty}
-              />
+              {(variant?.template ?? product.template) === 'fixed-content' ? (
+                <p className='text-muted-foreground text-sm'>
+                  {t(fixedCopy.noImport)}
+                </p>
+              ) : (
+                <StoreInventoryContent
+                  key={variant?.id || 'legacy-default'}
+                  product={product}
+                  variant={variant}
+                  onSaved={onSaved}
+                  onChanged={onChanged}
+                  onBusyChange={setBusy}
+                  onDirtyChange={setDirty}
+                />
+              )}
             </TabsContent>
           ) : (
             <p className='text-muted-foreground text-sm'>

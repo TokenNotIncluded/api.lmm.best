@@ -334,6 +334,43 @@ test('quantity selection submits only exact remaining card item IDs without show
   )
 })
 
+test('fixed content refunds accept numeric quantities without rendering card selectors', async () => {
+  const fixed = {
+    ...view,
+    delivery_template: 'fixed-content',
+    quantity: 5,
+    refunded_quantity: 1,
+    max_quantity: 3,
+    eligible_items: [],
+  }
+  const records = requests((request) =>
+    envelope(
+      request.method === 'GET'
+        ? fixed
+        : { ...refund, quantity: 2, stock_ids: [] }
+    )
+  )
+  await mount(
+    <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />
+  )
+  await click(button('Refund by quantity'))
+  assert.doesNotMatch(
+    document.body.textContent || '',
+    /Choose specific items|original delivery order/
+  )
+  assert.equal(document.querySelector('[role="checkbox"]'), null)
+  await input(field('Quantity to refund'), '4')
+  await input(field('Refund reason'), 'Wrong quantity')
+  assert.equal(button('Request refund').disabled, true)
+  await input(field('Quantity to refund'), '2')
+  await click(button('Request refund'))
+  const body = records.find((record) => record.method === 'POST')
+    ?.body as StoreRefundInput
+  assert.equal(body.quantity, 2)
+  assert.equal(body.mode, 'quantity')
+  assert.equal(body.stock_ids, undefined)
+})
+
 test('amount refund is integer Credits and disables totals above the remaining original order value', async () => {
   const records = requests()
   await mount(

@@ -14,19 +14,23 @@ import {
 
 import { storeApi } from './api'
 import { DELIVERY_TEMPLATES } from './delivery-template'
+import { StoreFixedContentEditor } from './fixed-content-editor'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { StoreAmount, StoreError } from './shared'
 import type { StoreProduct, StoreVariant, StoreVariantInput } from './types'
+import { useStoreFixedContentDraft } from './use-store-fixed-content'
 import { StoreInventoryTotals } from './variant-summary'
 
 export function StoreVariantsManager({
   product,
   minimumPriceQuota,
+  fixedContentSupported = false,
   onChanged,
 }: {
   product: StoreProduct
   minimumPriceQuota?: number
+  fixedContentSupported?: boolean
   onChanged: () => Promise<void>
 }) {
   const { t } = useTranslation()
@@ -108,6 +112,7 @@ export function StoreVariantsManager({
           product={product}
           variant={editing === 'new' ? undefined : editing}
           minimumPriceQuota={minimumPriceQuota}
+          fixedContentSupported={fixedContentSupported}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             await onChanged()
@@ -133,12 +138,14 @@ function StoreVariantEditor({
   product,
   variant,
   minimumPriceQuota,
+  fixedContentSupported,
   onClose,
   onSaved,
 }: {
   product: StoreProduct
   variant?: StoreVariant
   minimumPriceQuota?: number
+  fixedContentSupported: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -147,9 +154,17 @@ function StoreVariantEditor({
   const money = useStoreMoneyDraft(variant?.price_quota ?? product.price_quota)
   const [name, setName] = useState(variant?.name ?? '')
   const [template, setTemplate] = useState(
-    variant?.template ?? product.template
+    variant?.template ??
+      (product.template === 'fixed-content' && !fixedContentSupported
+        ? 'card-key'
+        : product.template)
   )
   const [enabled, setEnabled] = useState(variant?.enabled ?? true)
+  const fixedContent = useStoreFixedContentDraft(
+    product.id,
+    variant?.id,
+    variant?.template === 'fixed-content'
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const minimum =
@@ -178,7 +193,15 @@ function StoreVariantEditor({
         )
   async function save(event: React.FormEvent) {
     event.preventDefault()
-    if (busy || !validName || !validPrice || money.quota === undefined) return
+    if (
+      busy ||
+      !validName ||
+      !validPrice ||
+      money.quota === undefined ||
+      (template === 'fixed-content' && !fixedContent.valid)
+    ) {
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -187,6 +210,9 @@ function StoreVariantEditor({
         price_quota: money.quota,
         template,
         enabled,
+      }
+      if (template === 'fixed-content' && fixedContent.write !== undefined) {
+        body.fixed_content = fixedContent.write
       }
       if (variant) await storeApi.updateVariant(product.id, variant.id, body)
       else await storeApi.createVariant(product.id, body)
@@ -288,14 +314,31 @@ function StoreVariantEditor({
               setTemplate(event.target.value as StoreVariant['template'])
             }
           >
-            {Object.entries(DELIVERY_TEMPLATES).map(([key, definition]) => (
-              <option key={key} value={key}>
-                {t(definition.label)}
-              </option>
-            ))}
+            {Object.entries(DELIVERY_TEMPLATES)
+              .filter(
+                ([key]) =>
+                  key !== 'fixed-content' ||
+                  fixedContentSupported ||
+                  template === key
+              )
+              .map(([key, definition]) => (
+                <option key={key} value={key}>
+                  {t(definition.label)}
+                </option>
+              ))}
           </select>
+          <p className='text-muted-foreground text-xs'>
+            {t(DELIVERY_TEMPLATES[template].help)}
+          </p>
         </div>
       </div>
+      {template === 'fixed-content' && (
+        <StoreFixedContentEditor
+          id={`variant-fixed-content-${product.id}`}
+          draft={fixedContent}
+          disabled={busy}
+        />
+      )}
       {!variant && (
         <label className='flex items-center justify-between gap-3 text-sm'>
           {t('Variant enabled')}
@@ -319,7 +362,12 @@ function StoreVariantEditor({
         <Button
           type='submit'
           size='sm'
-          disabled={busy || !validName || !validPrice}
+          disabled={
+            busy ||
+            !validName ||
+            !validPrice ||
+            (template === 'fixed-content' && !fixedContent.valid)
+          }
         >
           {t(busy ? 'Saving...' : 'Save variant')}
         </Button>

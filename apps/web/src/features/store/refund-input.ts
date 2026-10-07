@@ -43,7 +43,9 @@ export function storeRefundQuantityMax(view: StoreRefundView): number {
     Math.min(
       view.max_quantity,
       view.quantity - view.refunded_quantity,
-      view.eligible_items.length
+      view.delivery_template === 'fixed-content'
+        ? view.max_quantity
+        : view.eligible_items.length
     )
   )
 }
@@ -113,6 +115,9 @@ export function storeRefundInput(
       return undefined
     }
     input.quantity = quantity
+    if (view.delivery_template === 'fixed-content' && draft.stockIds.length) {
+      return undefined
+    }
     if (draft.stockIds.length) {
       const eligible = new Set(view.eligible_items.map((item) => item.stock_id))
       if (

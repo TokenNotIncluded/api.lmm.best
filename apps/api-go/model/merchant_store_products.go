@@ -128,6 +128,10 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 				return e
 			}
 		}
+		defaultVariant.Template = p.Template
+		if e := storeSaveFixedContent(tx, &p, defaultVariant, in.FixedContent); e != nil {
+			return e
+		}
 		if e := populateMerchantStoreCategory(tx, &p, false); e != nil {
 			return e
 		}
@@ -357,6 +361,9 @@ func AddMerchantStoreVariantStock(actor int, id, variantID string, items []strin
 		variant, e := storeVariant(tx, p, variantID)
 		if e != nil {
 			return e
+		}
+		if variant.Template == MerchantStoreFixedContentTemplate {
+			return ErrMerchantStoreInput
 		}
 		for _, item := range items {
 			if e := validateMerchantStoreDeliveryItem(variant.Template, item); e != nil {

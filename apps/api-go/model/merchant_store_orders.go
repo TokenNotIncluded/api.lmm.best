@@ -108,6 +108,7 @@ type MerchantStoreClaimMetadata struct {
 	PickupCodeRequired   bool   `json:"pickup_code_required"`
 }
 type MerchantStoreClaim struct {
+	FixedContent       string              `json:"fixed_content,omitempty"`
 	OrderID            string              `json:"order_id"`
 	TradeNo            string              `json:"trade_no"`
 	ProductID          string              `json:"product_id"`
@@ -403,40 +404,48 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			}
 			o.PickupCodeHash = string(hash)
 		}
-		var stock []MerchantStoreStock
-		q := storeVariantStock(tx.Select("id"), p.ID, variant.ID).Where("state = ?", "available")
-		if p.DeliveryStrategy == "random" {
-			if tx.Dialector.Name() == "mysql" {
-				q = q.Order("RAND()")
-			} else {
-				q = q.Order("RANDOM()")
+		if storeFixedDelivery(&o) {
+			if e := storeSnapshotFixedContent(tx, p, variant, &o); e != nil {
+				return e
 			}
 		} else {
-			q = q.Order("position ASC,id ASC")
-		}
-		if e = q.Limit(in.Quantity).Find(&stock).Error; e != nil {
-			return e
-		}
+			var stock []MerchantStoreStock
+			q := storeVariantStock(tx.Select("id"), p.ID, variant.ID).Where("state = ?", "available")
+			if p.DeliveryStrategy == "random" {
+				if tx.Dialector.Name() == "mysql" {
+					q = q.Order("RAND()")
+				} else {
+					q = q.Order("RANDOM()")
+				}
+			} else {
+				q = q.Order("position ASC,id ASC")
+			}
+			if e = q.Limit(in.Quantity).Find(&stock).Error; e != nil {
+				return e
+			}
 
-		if len(stock) < in.Quantity {
-			return ErrMerchantStoreStock
-		}
-		ids := make([]string, in.Quantity)
-		for i := 0; i < in.Quantity; i++ {
-			ids[i] = stock[i].ID
-		}
-		r := tx.Model(&MerchantStoreStock{}).Where("id IN ? AND state = ?", ids, "available").Updates(map[string]any{"state": "reserved", "order_id": id})
-		if r.Error != nil {
-			return r.Error
-		}
-		if r.RowsAffected != int64(in.Quantity) {
-			return ErrMerchantStoreStock
+			if len(stock) < in.Quantity {
+				return ErrMerchantStoreStock
+			}
+			ids := make([]string, in.Quantity)
+			for i := 0; i < in.Quantity; i++ {
+				ids[i] = stock[i].ID
+			}
+			r := tx.Model(&MerchantStoreStock{}).Where("id IN ? AND state = ?", ids, "available").Updates(map[string]any{"state": "reserved", "order_id": id})
+			if r.Error != nil {
+				return r.Error
+			}
+			if r.RowsAffected != int64(in.Quantity) {
+				return ErrMerchantStoreStock
+			}
 		}
 		if free {
 			// No wallet movement, fee hold, or gateway request exists for a gift.
 			o.Status, o.PaidAt, o.Currency = "paid", now, "CREDIT"
-			if e = storeOrderStock(tx.Model(&MerchantStoreStock{}), &o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
-				return e
+			if !storeFixedDelivery(&o) {
+				if e = storeOrderStock(tx.Model(&MerchantStoreStock{}), &o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
+					return e
+				}
 			}
 		} else if in.PaymentMethod == "balance" {
 			if e = storeDebit(tx, in.BuyerID, price); e != nil {
@@ -456,8 +465,10 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			}
 			o.Status = "paid"
 			o.PaidAt = now
-			if e = storeOrderStock(tx.Model(&MerchantStoreStock{}), &o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
-				return e
+			if !storeFixedDelivery(&o) {
+				if e = storeOrderStock(tx.Model(&MerchantStoreStock{}), &o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
+					return e
+				}
 			}
 		} else if fee > 0 {
 			if e = storeDebit(tx, seller.Id, fee); e != nil {
@@ -647,12 +658,18 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		if o.FeeQuota > 0 && !o.FeeHeld {
 			return ErrMerchantStoreConflict
 		}
-		var reserved int64
-		if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Count(&reserved).Error; e != nil {
-			return e
-		}
-		if reserved != int64(o.Quantity) {
-			return ErrMerchantStoreStock
+		if storeFixedDelivery(o) {
+			if _, e := storeReadOrderFixedContent(tx, o); e != nil {
+				return e
+			}
+		} else {
+			var reserved int64
+			if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Count(&reserved).Error; e != nil {
+				return e
+			}
+			if reserved != int64(o.Quantity) {
+				return ErrMerchantStoreStock
+			}
 		}
 		if strings.HasPrefix(o.PaymentMethod, "platform:") {
 			if e := ApplyWalletQuotaDelta(tx, o.SellerID, o.PriceQuota); e != nil {
@@ -678,8 +695,10 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		if e := tx.Save(o).Error; e != nil {
 			return e
 		}
-		if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
-			return e
+		if !storeFixedDelivery(o) {
+			if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
+				return e
+			}
 		}
 		if e := enqueueMerchantStoreEmail(tx, o); e != nil {
 			return e
@@ -750,8 +769,10 @@ func closeMerchantStoreOrderAuthorized(id string, actor int, expired, providerCl
 		if e := tx.Save(o).Error; e != nil {
 			return e
 		}
-		if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Updates(map[string]any{"state": "available", "order_id": ""}).Error; e != nil {
-			return e
+		if !storeFixedDelivery(o) {
+			if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Updates(map[string]any{"state": "available", "order_id": ""}).Error; e != nil {
+				return e
+			}
 		}
 		sellerID = o.SellerID
 		return storeEvent(tx, actor, id, o.Status)
@@ -915,6 +936,28 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 		}
 		if (o.PickupCodeRequired || o.PickupCodeHash != "") && bcrypt.CompareHashAndPassword([]byte(o.PickupCodeHash), []byte(code)) != nil {
 			return ErrMerchantStoreDenied
+		}
+		if storeFixedDelivery(o) {
+			quantity, e := storeFixedAvailableQuantity(tx, o, false)
+			if e != nil {
+				return e
+			}
+			if quantity < 1 {
+				return ErrMerchantStoreConflict
+			}
+			content, e := storeReadOrderFixedContent(tx, o)
+			if e != nil {
+				return e
+			}
+			details, e := storeOrderPickupDetails(tx, o)
+			if e != nil {
+				return e
+			}
+			result = MerchantStoreClaim{OrderID: o.ID, TradeNo: o.TradeNo, ProductID: o.ProductID, ProductTitle: o.ProductTitle, ProductDescription: details.ProductDescription, ProductLinks: details.ProductLinks, Quantity: quantity, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, FixedContent: content, Items: []string{}, ItemStockIDs: []string{}, ItemPositions: []int{}}
+			if o.ClaimedAt == 0 {
+				return tx.Model(o).Update("claimed_at", common.GetTimestamp()).Error
+			}
+			return nil
 		}
 		var rows []MerchantStoreStock
 		if e := storeOrderStock(tx, o).Where("state = ?", "delivered").Order("position ASC,id ASC").Find(&rows).Error; e != nil {

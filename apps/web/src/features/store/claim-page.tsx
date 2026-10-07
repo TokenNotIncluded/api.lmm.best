@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { StoreClaimItems } from './claim-items'
+import { STORE_FIXED_CONTENT_COPY as copy } from './fixed-content-copy'
 import { StorePickupRefunds } from './refund-panel'
 import { CopyStoreValue, StoreError, StoreLoading } from './shared'
 import type { StoreClaim } from './types'
@@ -69,6 +70,7 @@ function StoreClaimContent({ token }: { token: string }) {
     )
   }
   const metadata = query.data
+  const quantity = claim?.quantity ?? metadata.quantity
   return (
     <div className='space-y-6'>
       <div className='space-y-2'>
@@ -79,6 +81,11 @@ function StoreClaimContent({ token }: { token: string }) {
         {(claim?.variant_name || metadata.variant_name) && (
           <p className='text-muted-foreground text-sm break-words'>
             {t('Specification')}: {claim?.variant_name || metadata.variant_name}
+          </p>
+        )}
+        {quantity != null && (
+          <p className='text-muted-foreground text-sm'>
+            {t('Quantity')}: {quantity}
           </p>
         )}
         <p className='text-muted-foreground text-sm'>
@@ -151,14 +158,24 @@ function StoreClaimContent({ token }: { token: string }) {
               })}
             </div>
           )}
-          <StoreClaimItems
-            key={claim.order_id}
-            items={claim.items}
-            itemStockIds={claim.item_stock_ids}
-            itemPositions={claim.item_positions}
-            deliveryTemplate={claim.delivery_template}
-            variantName={claim.variant_name || metadata.variant_name}
-          />
+          {claim.delivery_template === 'fixed-content' ? (
+            claim.fixed_content && (
+              <section className='min-w-0 space-y-3'>
+                <h3 className='text-sm font-semibold'>{t(copy.content)}</h3>
+                <Markdown className='min-w-0'>{claim.fixed_content}</Markdown>
+                <CopyStoreValue value={claim.fixed_content} label='Copy all' />
+              </section>
+            )
+          ) : (
+            <StoreClaimItems
+              key={claim.order_id}
+              items={claim.items}
+              itemStockIds={claim.item_stock_ids}
+              itemPositions={claim.item_positions}
+              deliveryTemplate={claim.delivery_template}
+              variantName={claim.variant_name || metadata.variant_name}
+            />
+          )}
         </div>
       ) : (
         <form

@@ -122,3 +122,48 @@ test('legacy default-only projections retain their existing integer price and cl
   assert.equal(storeVariantPrice(product, ''), 500000)
   assert.equal(storeVariantCapacity(product, ''), 2)
 })
+
+test('fixed content has unbounded supply only for its exact eligible variant and absent sales cap', () => {
+  const fixed = variant('fixed', {
+    template: 'fixed-content',
+    unlimited_supply: true,
+    inventory_total: 0,
+    inventory_available: 0,
+    reserved_stock: 0,
+    sale_available: 0,
+  })
+  const current = {
+    ...product,
+    unlimited_supply: true,
+    sale_limit: null,
+    sale_available: 0,
+    variants: [fixed, variant('card')],
+  }
+  assert.equal(storeVariantCapacity(current, 'fixed'), Infinity)
+  assert.equal(storeVariantCapacity(current, 'card'), 2)
+  assert.equal(
+    storeVariantCapacity(
+      {
+        ...current,
+        sale_limit: 4,
+        variants: [{ ...fixed, sale_available: 3 }],
+      },
+      'fixed'
+    ),
+    3
+  )
+  assert.equal(
+    storeVariantCapacity(
+      { ...current, variants: [{ ...fixed, trading_paused: true }] },
+      'fixed'
+    ),
+    0
+  )
+  assert.equal(
+    storeVariantCapacity(
+      { ...current, variants: [{ ...fixed, enabled: false }] },
+      'fixed'
+    ),
+    0
+  )
+})

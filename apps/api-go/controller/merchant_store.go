@@ -221,6 +221,7 @@ func GetMerchantStoreConfig(c *gin.Context) {
 		"store_merchant_home_supported":     true,
 		"store_access_supported":            model.MerchantStoreAccessSupported(),
 		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),
+		"fixed_content_supported":           model.MerchantStoreFixedContentSupported(),
 		"product_link_presets":              presets,
 		"linuxdo_units_per_usd":             config.LinuxDOUnitsPerUSD,
 		"credits_per_usd":                   common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,

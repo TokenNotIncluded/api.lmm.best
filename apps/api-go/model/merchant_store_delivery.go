@@ -15,7 +15,7 @@ type merchantStoreDeliveryField struct {
 
 func storeDeliveryTemplateSupported(template string) bool {
 	switch template {
-	case "card-key", "text", "custom-text", "redemption-code", "license-key", "download-link", "account-details":
+	case MerchantStoreFixedContentTemplate, "card-key", "text", "custom-text", "redemption-code", "license-key", "download-link", "account-details":
 		return true
 	default:
 		return false

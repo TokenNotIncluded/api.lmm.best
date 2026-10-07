@@ -43,6 +43,7 @@ export interface StoreRefund {
 }
 
 export interface StoreRefundView {
+  delivery_template?: string
   order_id: string
   product_title: string
   variant_name: string

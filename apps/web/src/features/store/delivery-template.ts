@@ -1,11 +1,13 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { STORE_DELIVERY_TEMPLATE_COPY as copy } from './delivery-template-copy'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
 import { MAX_IMPORT_BYTES, MAX_IMPORT_ITEMS, safeStoreUrl } from './utils'
 
 export type StoreDeliveryTemplate =
   | 'card-key'
   | 'text'
   | 'custom-text'
+  | 'fixed-content'
   | 'redemption-code'
   | 'license-key'
   | 'download-link'
@@ -29,6 +31,7 @@ export const DELIVERY_TEMPLATES: Record<
   'card-key': { label: 'Activation keys', help: copy.cardHelp },
   text: { label: 'Text items', help: copy.textHelp },
   'custom-text': { label: 'Custom text', help: copy.customHelp },
+  'fixed-content': { label: fixedCopy.template, help: fixedCopy.help },
   'redemption-code': { label: copy.redemption, help: copy.redemptionHelp },
   'license-key': { label: copy.license, help: copy.licenseHelp },
   'download-link': { label: copy.download, help: copy.downloadHelp },

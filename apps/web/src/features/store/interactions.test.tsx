@@ -89,6 +89,7 @@ const { StoreProductEditor } = await import('./seller-page')
 const { StoreInventoryImport } = await import('./seller-page')
 const { StoreSellerPage } = await import('./seller-page')
 const { StoreSalesLimit } = await import('./sales-limit')
+const { StoreVariantsManager } = await import('./variants-manager')
 const { StorePage } = await import('./store-page')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -249,6 +250,221 @@ afterEach(async () => {
   document.body.replaceChildren()
 })
 after(() => dom.happyDOM.abort())
+
+test('fixed-content product edits load private content from the seller endpoint and write only intentional changes', async () => {
+  owner(2)
+  const body = '# Private guide\n\nShared instructions.'
+  const fixed = {
+    ...product,
+    template: 'fixed-content' as const,
+    unlimited_supply: true,
+    default_variant_id: 'fixed-default',
+  }
+  const reads: string[] = []
+  const writes: Record<string, unknown>[] = []
+  api.get = (async (url: string) => {
+    reads.push(url)
+    return result({ content: body })
+  }) as typeof api.get
+  api.put = (async (_url: string, value: Record<string, unknown>) => {
+    writes.push(value)
+    return result(fixed)
+  }) as typeof api.put
+  await mount(
+    <StoreProductEditor
+      product={fixed}
+      minimumPriceQuota={0}
+      allowedMethods={fixed.payment_methods}
+      onClose={() => {}}
+      onSaved={async () => {}}
+    />
+  )
+  const currency = document.querySelector<HTMLSelectElement>(
+    'select[aria-label="Price currency"]'
+  )!
+  await act(async () => {
+    currency.value = 'CREDIT'
+    currency.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  const field = document.querySelector<HTMLTextAreaElement>(
+    '#store-fixed-content'
+  )!
+  assert.ok(field)
+  assert.equal(field.value, body)
+  assert.deepEqual(reads, [
+    `/api/store/products/${product.id}/variants/fixed-default/fixed-content`,
+  ])
+  await click(button('Save draft'))
+  assert.equal(writes[0].fixed_content, undefined)
+  await input(field, '\n  ')
+  assert.equal(button('Save draft').disabled, true)
+  await input(field, '界'.repeat(44000))
+  assert.equal(button('Save draft').disabled, true)
+  await input(field, body + '\n\nUpdated.')
+  await click(button('Save draft'))
+  assert.equal(writes[1].fixed_content, body + '\n\nUpdated.')
+  assert.equal(writes[1].unlimited_supply, undefined)
+})
+
+test('new fixed-content variants require one private body and send it with the exact selected template', async () => {
+  owner(2)
+  const writes: Record<string, unknown>[] = []
+  api.post = (async (url: string, value: Record<string, unknown>) => {
+    assert.equal(url, `/api/store/products/${product.id}/variants`)
+    writes.push(value)
+    return result(null)
+  }) as typeof api.post
+  await mount(
+    <StoreVariantsManager
+      product={{ ...product, variants: [] }}
+      fixedContentSupported
+      minimumPriceQuota={0}
+      onChanged={async () => {}}
+    />
+  )
+  await click(button('Add variant'))
+  const currency = document.querySelector<HTMLSelectElement>(
+    'select[aria-label="Price currency"]'
+  )!
+  await act(async () => {
+    currency.value = 'CREDIT'
+    currency.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  const template = document.querySelector<HTMLSelectElement>(
+    `#variant-template-${product.id}`
+  )!
+  await act(async () => {
+    template.value = 'fixed-content'
+    template.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  await input(
+    document.querySelector<HTMLInputElement>(`#variant-name-${product.id}`)!,
+    'Shared guide'
+  )
+  assert.equal(button('Save variant').disabled, true)
+  const textareas = document.querySelectorAll<HTMLTextAreaElement>('textarea')
+  assert.equal(textareas.length, 1)
+  await input(textareas[0], '# Shared content\n\nKeep line breaks.')
+  await click(button('Save variant'))
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].template, 'fixed-content')
+  assert.equal(writes[0].fixed_content, '# Shared content\n\nKeep line breaks.')
+})
+
+test('fixed-content inventory shows guidance without reading or importing stock', async () => {
+  owner(2)
+  let requests = 0
+  api.get = (async () => {
+    requests++
+    return result({ items: [] })
+  }) as typeof api.get
+  api.post = (async () => {
+    requests++
+    return result(null)
+  }) as typeof api.post
+  await mount(
+    <StoreInventoryImport
+      product={{ ...product, template: 'fixed-content' }}
+      onClose={() => {}}
+      onSaved={async () => {}}
+    />
+  )
+  assert.match(
+    document.body.textContent || '',
+    /does not accept inventory imports/
+  )
+  assert.equal(document.querySelector('textarea'), null)
+  assert.equal(document.querySelector('input[type="file"]'), null)
+  assert.equal(requests, 0)
+})
+
+test('unsupported servers omit fixed-content authoring from new product choices', async () => {
+  owner(2)
+  await mount(
+    <StoreProductEditor
+      product={product}
+      minimumPriceQuota={0}
+      allowedMethods={product.payment_methods}
+      onClose={() => {}}
+      onSaved={async () => {}}
+    />
+  )
+  assert.equal(
+    document.querySelector('#store-template option[value="fixed-content"]'),
+    null
+  )
+})
+
+test('unsupported fixed-content capability cannot be inherited into a new variant from the product template', async () => {
+  owner(2)
+  await mount(
+    <StoreVariantsManager
+      product={{ ...product, template: 'fixed-content', variants: [] }}
+      minimumPriceQuota={0}
+      onChanged={async () => {}}
+    />
+  )
+  await click(button('Add variant'))
+  const template = document.querySelector<HTMLSelectElement>(
+    `#variant-template-${product.id}`
+  )!
+  assert.equal(template.value, 'card-key')
+  assert.equal(template.querySelector('option[value="fixed-content"]'), null)
+  assert.equal(document.querySelector('textarea'), null)
+})
+
+test('editing a fixed-content non-default variant reads and updates only that variants protected content', async () => {
+  owner(2)
+  const variant = spec('private-guide', {
+    template: 'fixed-content',
+    unlimited_supply: true,
+    is_default: false,
+  })
+  const reads: string[] = []
+  const writes: Array<{ url: string; body: Record<string, unknown> }> = []
+  api.get = (async (url: string) => {
+    reads.push(url)
+    return result({ content: 'Original guide' })
+  }) as typeof api.get
+  api.put = (async (url: string, body: Record<string, unknown>) => {
+    writes.push({ url, body })
+    return result(variant)
+  }) as typeof api.put
+  await mount(
+    <StoreVariantsManager
+      product={{ ...product, variants: [variant] }}
+      minimumPriceQuota={0}
+      fixedContentSupported
+      onChanged={async () => {}}
+    />
+  )
+  await click(button('Edit'))
+  const currency = document.querySelector<HTMLSelectElement>(
+    'select[aria-label="Price currency"]'
+  )!
+  await act(async () => {
+    currency.value = 'CREDIT'
+    currency.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  const textarea = document.querySelector<HTMLTextAreaElement>(
+    `#variant-fixed-content-${product.id}`
+  )!
+  assert.equal(textarea.value, 'Original guide')
+  assert.deepEqual(reads, [
+    `/api/store/products/${product.id}/variants/private-guide/fixed-content`,
+  ])
+  await input(textarea, 'Updated guide')
+  await click(button('Save variant'))
+  assert.equal(
+    writes[0].url,
+    `/api/store/products/${product.id}/variants/private-guide`
+  )
+  assert.equal(writes[0].body.fixed_content, 'Updated guide')
+})
 
 test('guests may inspect a product and disclaimer but cannot place an order', async () => {
   owner(null)

@@ -54,7 +54,7 @@ func storeRequirePhaseSixReadable(tx *gorm.DB) error {
 		return err
 	}
 	floor, err := storeWriterGateRow(tx.Session(&gorm.Session{NewDB: true}), "")
-	if err != nil || floor != 6 || MerchantStoreWriterCapability < 6 {
+	if err != nil || (floor < 6 || floor > MerchantStoreWriterCapability) || MerchantStoreWriterCapability < 6 {
 		return ErrMerchantStoreWriterFrozen
 	}
 	return nil
@@ -67,7 +67,7 @@ func storeRequirePhaseSixWriter(tx *gorm.DB) error {
 		return err
 	}
 	floor, err := storeWriterGateRow(tx, "SHARE")
-	if err != nil || floor != 6 || MerchantStoreWriterCapability < 6 {
+	if err != nil || (floor < 6 || floor > MerchantStoreWriterCapability) || MerchantStoreWriterCapability < 6 {
 		return ErrMerchantStoreWriterFrozen
 	}
 	return nil
@@ -86,7 +86,7 @@ func storePhaseFivePreparationModels(db *gorm.DB) ([]interface{}, error) {
 		if err := stmt.Parse(item); err != nil {
 			return nil, ErrMerchantStoreWriterFrozen
 		}
-		if storePhaseSixTable(stmt.Schema.Table) {
+		if storePhaseSixTable(stmt.Schema.Table) || storeFixedContentTable(stmt.Schema.Table) {
 			continue
 		}
 		if stmt.Schema.Table == "merchant_store_products" {

@@ -267,6 +267,13 @@ export const storeApi = {
     unwrap<StoreVariant>(
       api.put(`${root}/products/${id}/variants/${variantId}`, body, options)
     ),
+  variantFixedContent: (id: string, variantId: string) =>
+    unwrap<{ content: string }>(
+      api.get(
+        `${root}/products/${id}/variants/${variantId}/fixed-content`,
+        options
+      )
+    ),
   enableVariant: (id: string, variantId: string, enabled: boolean) =>
     unwrap<StoreVariant>(
       api.put(

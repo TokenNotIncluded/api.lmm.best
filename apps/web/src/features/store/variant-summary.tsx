@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useTranslation } from 'react-i18next'
 
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
 import { StoreAmount } from './shared'
 import type { StoreProduct, StoreVariant } from './types'
 
@@ -39,6 +40,19 @@ export function StoreInventoryTotals({
   const available = variant?.inventory_available ?? product.inventory_available
   const sale =
     variant?.sale_available ?? product.sale_available ?? product.available_stock
+  const unlimited = variant
+    ? variant.unlimited_supply
+    : product.unlimited_supply
+  if (unlimited) {
+    return (
+      <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
+        <span>{t(fixedCopy.unlimited)}</span>
+        {product.sale_limit != null && (
+          <span>{t('Available to buy: {{count}}', { count: sale })}</span>
+        )}
+      </div>
+    )
+  }
   return (
     <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
       {total !== undefined && (

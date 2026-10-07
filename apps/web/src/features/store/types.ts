@@ -59,6 +59,7 @@ export interface StoreVariant {
   name: string
   price_quota: number
   template: StoreDeliveryTemplate
+  unlimited_supply?: boolean
   enabled: boolean
   created_at: number
   updated_at: number
@@ -72,7 +73,7 @@ export interface StoreVariant {
 export type StoreVariantInput = Pick<
   StoreVariant,
   'name' | 'price_quota' | 'template' | 'enabled'
->
+> & { fixed_content?: string }
 export interface StoreProduct {
   category_id?: string
   category?: Pick<StoreCategory, 'id' | 'name'> & { active?: boolean }
@@ -112,6 +113,7 @@ export interface StoreProduct {
     | 'unlisted'
   official: boolean
   available_stock: number
+  unlimited_supply?: boolean
   sale_limit?: number | null
   max_quantity_per_order?: number | null
   max_quantity_per_buyer?: number | null
@@ -131,6 +133,7 @@ export type StoreProductInput = Omit<
   | 'seller_id'
   | 'official'
   | 'available_stock'
+  | 'unlimited_supply'
   | 'default_variant_id'
   | 'variants'
   | 'inventory_total'
@@ -149,7 +152,7 @@ export type StoreProductInput = Omit<
   | 'status'
   | 'trading_paused'
   | 'category'
->
+> & { fixed_content?: string }
 export interface StoreOrder {
   variant_id?: string
   variant_name?: string
@@ -189,6 +192,7 @@ export interface StoreOrder {
   verified_payment_issue_at?: number
 }
 export interface StoreConfig {
+  fixed_content_supported?: boolean
   fee_bps: number
   promotion_quota: number
   product_test_mode_supported?: boolean
@@ -305,6 +309,7 @@ export interface StoreClaimMetadata {
   pickup_login_satisfied: boolean
 }
 export interface StoreClaim {
+  fixed_content?: string
   variant_id?: string
   variant_name?: string
   delivery_template?: string

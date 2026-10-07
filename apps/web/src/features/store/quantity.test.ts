@@ -12,6 +12,51 @@ import { storeTotal } from './utils'
 
 const product = { price_quota: 500000, available_stock: 2000 }
 
+test('unlimited fixed content keeps zero stock and honors payment, sales, order and buyer caps', () => {
+  const fixed = {
+    ...product,
+    available_stock: 0,
+    sale_available: 0,
+    unlimited_supply: true,
+    sale_limit: null,
+  }
+  assert.equal(storeCheckoutCapacity(fixed, 'balance'), 1000)
+  assert.equal(storeCheckoutCapacity(fixed, 'external:epay'), 100)
+  assert.equal(
+    storeCheckoutCapacity({ ...fixed, max_quantity_per_order: 4 }, 'balance'),
+    4
+  )
+  assert.equal(
+    storeCheckoutCapacity(
+      { ...fixed, max_quantity_per_buyer: 10, buyer_purchase_remaining: 2 },
+      'balance'
+    ),
+    2
+  )
+  assert.equal(
+    storeCheckoutCapacity({ ...fixed, max_quantity_per_buyer: 10 }, 'balance'),
+    0
+  )
+  assert.equal(
+    storeCheckoutCapacity(
+      { ...fixed, sale_limit: 12, sale_available: 3 },
+      'balance'
+    ),
+    3
+  )
+  assert.equal(
+    storeCheckoutCapacity({ ...fixed, sale_limit: 12 }, 'balance'),
+    0
+  )
+  assert.equal(
+    storeCheckoutCapacity(
+      { ...fixed, sale_limit: 12, sale_available: undefined },
+      'balance'
+    ),
+    0
+  )
+})
+
 test('quantity takes the minimum of stock, sales quota, order cap and buyer remainder', () => {
   const limited = {
     ...product,

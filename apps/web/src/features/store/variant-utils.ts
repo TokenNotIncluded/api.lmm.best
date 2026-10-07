@@ -30,15 +30,26 @@ export function storeVariantCapacity(
   id: string
 ): number {
   const variant = selectedStoreVariant(product, id)
-  const capacity = legacyVariantProduct(product)
-    ? (product.sale_available ?? product.available_stock)
-    : variant?.sale_available
   if (!legacyVariantProduct(product) && (!variant || variant.trading_paused)) {
     return 0
   }
+  // An unbounded capacity is not a stock count. Checkout applies payment,
+  // total-price and purchase limits before passing a finite maximum to controls.
+  if (storeVariantUnlimitedSupply(product, id) && product.sale_limit == null) {
+    return Infinity
+  }
+  const capacity = legacyVariantProduct(product)
+    ? (product.sale_available ?? product.available_stock)
+    : variant?.sale_available
   return typeof capacity === 'number' &&
     Number.isSafeInteger(capacity) &&
     capacity >= 0
     ? capacity
     : 0
+}
+
+export function storeVariantUnlimitedSupply(product: StoreProduct, id: string) {
+  return legacyVariantProduct(product)
+    ? product.unlimited_supply === true
+    : selectedStoreVariant(product, id)?.unlimited_supply === true
 }

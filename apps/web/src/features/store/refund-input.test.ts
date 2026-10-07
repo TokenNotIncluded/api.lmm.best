@@ -43,6 +43,46 @@ const draft = (mode: StoreRefundMode) => ({
   stockIds: [] as string[],
 })
 
+test('fixed content quantity refunds use the server quantity cap without synthetic stock identities', () => {
+  const fixed = {
+    ...view,
+    delivery_template: 'fixed-content',
+    eligible_items: [],
+    max_quantity: 2,
+  }
+  assert.equal(storeRefundQuantityMax(fixed), 2)
+  assert.ok(storeRefundModes(fixed).includes('quantity'))
+  assert.deepEqual(
+    storeRefundInput(
+      fixed,
+      { ...draft('quantity'), quantity: '2' },
+      'fixed-request'
+    ),
+    {
+      request_key: 'fixed-request',
+      mode: 'quantity',
+      reason: 'Wrong specification',
+      quantity: 2,
+    }
+  )
+  assert.equal(
+    storeRefundInput(
+      fixed,
+      { ...draft('quantity'), quantity: '3' },
+      'fixed-request'
+    ),
+    undefined
+  )
+  assert.equal(
+    storeRefundInput(
+      fixed,
+      { ...draft('quantity'), stockIds: ['fake-card'] },
+      'fixed-request'
+    ),
+    undefined
+  )
+})
+
 test('balance amount uses integer Credits and respects completed plus reserved refunds', () => {
   assert.equal(storeRefundAmountMax(view), 750000)
   assert.deepEqual(storeRefundInput(view, draft('amount'), 'same-key'), {

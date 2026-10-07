@@ -142,7 +142,7 @@ func storeCheckMerchantStoreSchema(tx *gorm.DB, capability int) error {
 		if err != nil {
 			return fmt.Errorf("%w: invalid model", ErrMerchantStoreWriterFrozen)
 		}
-		if (capability < 5 && storeAccessTable(parsed.Table)) || (capability < 6 && storePhaseSixTable(parsed.Table)) {
+		if (capability < 5 && storeAccessTable(parsed.Table)) || (capability < 6 && storePhaseSixTable(parsed.Table)) || (capability < 7 && storeFixedContentTable(parsed.Table)) {
 			continue
 		}
 		if !tx.Migrator().HasTable(model) {

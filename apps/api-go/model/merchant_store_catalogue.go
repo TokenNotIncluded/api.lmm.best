@@ -87,7 +87,7 @@ func SetMerchantStoreCatalogueMetadata(actor int, id string, in MerchantStoreCat
 // refunds. Pending/cancelled checkout sessions and monetary-only refunds do not
 // manufacture or subtract delivered item sales.
 func storeCatalogueNetSalesSQL() string {
-	refunded := "COALESCE((SELECT SUM(r.quantity) FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND r.mode='quantity' AND r.completed_at>0),0)"
+	refunded := "COALESCE((SELECT SUM(r.quantity) FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed' AND (r.mode='quantity' OR o.delivery_template='fixed-content') AND r.completed_at>0),0)"
 	return "COALESCE((SELECT SUM(CASE WHEN o.quantity>" + refunded + " THEN o.quantity-" + refunded + " ELSE 0 END) FROM merchant_store_orders o WHERE o.product_id=merchant_store_products.id AND o.price_quota>0 AND o.buyer_id<>o.seller_id AND (o.buyer_id>0 OR (o.buyer_id=0 AND LENGTH(COALESCE(o.guest_id,''))=36)) AND (o.paid_at>0 OR o.status='paid' OR o.verified_payment_issue_at>0)),0)"
 }
 

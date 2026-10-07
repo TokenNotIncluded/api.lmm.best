@@ -189,6 +189,9 @@ func storeRefundTotals(rows []MerchantStoreRefund, o *MerchantStoreOrder, b *Mer
 // The stock row is the fulfillment truth. Pending refund items are reservations,
 // and amount adjustments have no rows in this state.
 func MerchantStoreCompletedRefundQuantity(tx *gorm.DB, o *MerchantStoreOrder) (int64, error) {
+	if storeFixedDelivery(o) {
+		return storeFixedRefundQuantity(tx, o, []string{"completed"})
+	}
 	var n int64
 	e := storeOrderStock(tx, o).Model(&MerchantStoreStock{}).Where("state = ?", "refunded").Count(&n).Error
 	if e == nil && (n < 0 || n > int64(o.Quantity)) {
@@ -228,6 +231,9 @@ func storeRefundHeldStockIDs(tx *gorm.DB, o *MerchantStoreOrder) (map[string]boo
 }
 
 func storeRefundEligible(tx *gorm.DB, o *MerchantStoreOrder, u storeRefundUsage) ([]MerchantStoreStock, error) {
+	if storeFixedDelivery(o) {
+		return []MerchantStoreStock{}, nil
+	}
 	var stock []MerchantStoreStock
 	if e := storeOrderStock(tx, o).Where("state = ?", "delivered").Order("position ASC,id ASC").Find(&stock).Error; e != nil {
 		return nil, e
@@ -272,8 +278,16 @@ func storeRefundView(tx *gorm.DB, o *MerchantStoreOrder) (*MerchantStoreRefundVi
 		return nil, e
 	}
 	v := &MerchantStoreRefundView{OrderID: o.ID, ProductTitle: o.ProductTitle, VariantName: o.VariantName, PaymentMethod: o.PaymentMethod, Currency: o.Currency, PrincipalQuota: o.PriceQuota, RefundedQuota: u.completed, ReservedQuota: u.reserved, RemainingQuota: o.PriceQuota - u.completed - u.reserved, Quantity: o.Quantity, RefundedQuantity: n, EligibleItems: []MerchantStoreRefundEligibleItem{}, SupportsQuantity: storeRefundPartialSupported(o, b), SupportsAmount: storeRefundPartialSupported(o, b), NativeBasisVerified: b != nil, Refunds: rows}
+	eligibleQuantity := len(items)
+	if storeFixedDelivery(o) {
+		v.DeliveryTemplate = o.DeliveryTemplate
+		eligibleQuantity, e = storeFixedAvailableQuantity(tx, o, true)
+		if e != nil {
+			return nil, e
+		}
+	}
 	if v.SupportsQuantity {
-		for count := 1; count <= len(items); count++ {
+		for count := 1; count <= eligibleQuantity; count++ {
 			quota := storeRefundFloor(o.PriceQuota, int64(u.quantity+count), int64(o.Quantity)) - u.quantityQuota
 			valid := quota > 0 && quota <= v.RemainingQuota
 			if b != nil {
@@ -286,12 +300,14 @@ func storeRefundView(tx *gorm.DB, o *MerchantStoreOrder) (*MerchantStoreRefundVi
 			}
 		}
 	}
-	positions, e := storeOrderItemPositions(tx, o)
-	if e != nil {
-		return nil, e
-	}
-	for _, s := range items {
-		v.EligibleItems = append(v.EligibleItems, MerchantStoreRefundEligibleItem{s.ID, int64(positions[s.ID])})
+	if !storeFixedDelivery(o) {
+		positions, e := storeOrderItemPositions(tx, o)
+		if e != nil {
+			return nil, e
+		}
+		for _, s := range items {
+			v.EligibleItems = append(v.EligibleItems, MerchantStoreRefundEligibleItem{s.ID, int64(positions[s.ID])})
+		}
 	}
 	if b != nil {
 		total, done, left := b.AmountMinor, u.nativeCompleted, b.AmountMinor-u.nativeCompleted-u.nativeReserved
@@ -370,9 +386,22 @@ func storeRefundCreate(tx *gorm.DB, o *MerchantStoreOrder, actor int, role strin
 	}
 	r := &MerchantStoreRefund{ID: id, OrderID: o.ID, RequestKey: in.RequestKey, InputDigest: digest, Mode: in.Mode, Reason: in.Reason, Status: "requested", RequestedBy: actor, RequestedRole: role, RetainedFeeQuota: o.FeeQuota, CreatedAt: common.GetTimestamp(), Currency: o.Currency, StockIDs: []string{}}
 	var selected []MerchantStoreStock
+	eligibleQuantity := len(eligible)
+	if storeFixedDelivery(o) {
+		if len(in.StockIDs) != 0 {
+			return nil, ErrMerchantStoreInput
+		}
+		eligibleQuantity, e = storeFixedAvailableQuantity(tx, o, true)
+		if e != nil {
+			return nil, e
+		}
+	}
 	if in.Mode == "full" {
 		r.PrincipalQuota = left
 		selected = eligible
+		if storeFixedDelivery(o) {
+			r.Quantity = eligibleQuantity
+		}
 		if b != nil {
 			r.AmountMinor = b.AmountMinor - u.nativeCompleted - u.nativeReserved
 		}
@@ -381,10 +410,12 @@ func storeRefundCreate(tx *gorm.DB, o *MerchantStoreOrder, actor int, role strin
 			return nil, ErrMerchantStoreRefundUnsupported
 		}
 		if in.Mode == "quantity" {
-			if in.Quantity > len(eligible) {
+			if in.Quantity > eligibleQuantity {
 				return nil, ErrMerchantStoreConflict
 			}
-			if len(in.StockIDs) == 0 {
+			if storeFixedDelivery(o) {
+				r.Quantity = in.Quantity
+			} else if len(in.StockIDs) == 0 {
 				selected = eligible[:in.Quantity]
 			} else {
 				wanted := map[string]bool{}
@@ -432,8 +463,13 @@ func storeRefundCreate(tx *gorm.DB, o *MerchantStoreOrder, actor int, role strin
 	// terminal order would leave usable paid inventory outside the refund audit.
 	if r.PrincipalQuota == left && u.reserved == 0 {
 		selected = eligible
+		if storeFixedDelivery(o) {
+			r.Quantity = eligibleQuantity
+		}
 	}
-	r.Quantity = len(selected)
+	if !storeFixedDelivery(o) {
+		r.Quantity = len(selected)
+	}
 	if e := tx.Create(r).Error; e != nil {
 		return nil, e
 	}
@@ -509,7 +545,18 @@ func storeRefundComplete(tx *gorm.DB, o *MerchantStoreOrder, r *MerchantStoreRef
 	if completed > o.PriceQuota-quota {
 		return ErrMerchantStoreConflict
 	}
-	if completed+quota == o.PriceQuota {
+	if storeFixedDelivery(o) {
+		retired, e := MerchantStoreCompletedRefundQuantity(tx, o)
+		if e != nil {
+			return e
+		}
+		if len(r.StockIDs) != 0 || r.Quantity < 0 || int64(r.Quantity) > int64(o.Quantity)-retired {
+			return ErrMerchantStoreConflict
+		}
+		if completed+quota == o.PriceQuota {
+			r.Quantity = o.Quantity - int(retired)
+		}
+	} else if completed+quota == o.PriceQuota {
 		var all []MerchantStoreStock
 		if e := storeOrderStock(tx, o).Where("state = ?", "delivered").Find(&all).Error; e != nil {
 			return e
@@ -563,7 +610,7 @@ func storeRefundComplete(tx *gorm.DB, o *MerchantStoreOrder, r *MerchantStoreRef
 	if e := tx.Create(&MerchantStoreTransfer{ID: r.ID + ":refund", OrderID: o.ID, FromUserID: from, ToUserID: to, Kind: kind, Quota: quota, CreatedAt: common.GetTimestamp()}).Error; e != nil {
 		return e
 	}
-	if len(r.StockIDs) > 0 {
+	if !storeFixedDelivery(o) && len(r.StockIDs) > 0 {
 		update := storeOrderStock(tx, o).Model(&MerchantStoreStock{}).Where("id IN ? AND state = ?", r.StockIDs, "delivered").Update("state", "refunded")
 		if update.Error != nil {
 			return update.Error
@@ -643,12 +690,22 @@ func storeRefundOrderStatus(tx *gorm.DB, o *MerchantStoreOrder) error {
 	status := "paid"
 	if u.completed == o.PriceQuota {
 		status = "refunded"
-		var stock []MerchantStoreStock
-		if e := storeOrderStock(tx, o).Where("state = ?", "delivered").Find(&stock).Error; e != nil {
-			return e
-		}
-		if len(stock) > 0 {
-			return ErrMerchantStoreConflict
+		if storeFixedDelivery(o) {
+			retired, e := MerchantStoreCompletedRefundQuantity(tx, o)
+			if e != nil {
+				return e
+			}
+			if retired != int64(o.Quantity) {
+				return ErrMerchantStoreConflict
+			}
+		} else {
+			var stock []MerchantStoreStock
+			if e := storeOrderStock(tx, o).Where("state = ?", "delivered").Find(&stock).Error; e != nil {
+				return e
+			}
+			if len(stock) > 0 {
+				return ErrMerchantStoreConflict
+			}
 		}
 	} else {
 		for _, r := range rows {

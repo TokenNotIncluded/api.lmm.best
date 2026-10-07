@@ -32,6 +32,7 @@ import type { StoreCatalogueProduct } from './catalogue-types'
 import { storeCheckoutReturnUrl } from './checkout-intent'
 import { useStoreCheckoutRecovery } from './checkout-recovery'
 import { StoreCollectionActions } from './collection-actions'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
 import { StoreGuestEmailVerification } from './guest-email'
 import { rememberStoreGuestOrder } from './guest-order-storage'
 import { useStoreGuestSession, useStoreGuestDisclaimer } from './guest-session'
@@ -80,6 +81,7 @@ import {
   legacyVariantProduct,
   selectedStoreVariant,
   storeVariantCapacity,
+  storeVariantUnlimitedSupply,
   storeVariantPrice,
 } from './variant-utils'
 
@@ -324,6 +326,7 @@ export function StoreCheckout({
   )
   const selectedVariant = selectedStoreVariant(product, variantId)
   const variantCapacity = storeVariantCapacity(product, variantId)
+  const unlimitedSupply = storeVariantUnlimitedSupply(product, variantId)
   const unitPrice = storeVariantPrice(product, variantId)
   const [method, setMethod] = useState<StorePaymentMethod | ''>('')
   const [promotionCode, setPromotionCode] = useState(initialPromotionCode)
@@ -432,7 +435,10 @@ export function StoreCheckout({
     : storeCheckoutCapacity(
         {
           ...product,
-          available_stock: variantCapacity,
+          available_stock: unlimitedSupply
+            ? (selectedVariant?.inventory_available ?? product.available_stock)
+            : variantCapacity,
+          unlimited_supply: unlimitedSupply,
           price_quota: unitPrice ?? 0,
         },
         actualMethod === 'free' ? '' : actualMethod
@@ -632,9 +638,11 @@ export function StoreCheckout({
         </div>
         <p className='text-muted-foreground text-xs'>
           {t('Unit price')} ·{' '}
-          {t('Stock: {{count}}', {
-            count: promotion.quote ? capacity : variantCapacity,
-          })}
+          {unlimitedSupply
+            ? t(fixedCopy.unlimited)
+            : t('Stock: {{count}}', {
+                count: promotion.quote ? capacity : variantCapacity,
+              })}
         </p>
       </div>
       <StoreError error={error || recovery.error || guestDetailError} />
@@ -820,18 +828,23 @@ export function StoreCheckout({
                         (promotion.resolved.variant_ids.length === 0 ||
                           promotion.resolved.variant_ids.includes(variant.id))
                       ) &&
-                      (variant.trading_paused || variant.sale_available <= 0)
+                      (variant.trading_paused ||
+                        storeVariantCapacity(product, variant.id) <= 0)
                     }
                   />
                   <span className='min-w-0 flex-1 break-words'>
                     {variant.name || t('Default variant')}
                     <span className='text-muted-foreground block text-xs'>
-                      {t('Available to buy: {{count}}', {
-                        count:
-                          promotion.quote?.variant_id === variant.id
-                            ? promotion.quote.max_quantity
-                            : variant.sale_available,
-                      })}
+                      {variant.unlimited_supply &&
+                      product.sale_limit == null &&
+                      promotion.quote?.variant_id !== variant.id
+                        ? t(fixedCopy.unlimited)
+                        : t('Available to buy: {{count}}', {
+                            count:
+                              promotion.quote?.variant_id === variant.id
+                                ? promotion.quote.max_quantity
+                                : variant.sale_available,
+                          })}
                     </span>
                   </span>
                   <StoreAmount quota={variant.price_quota} />

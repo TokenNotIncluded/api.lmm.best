@@ -81,8 +81,8 @@ func storeBuyerPurchaseUsageForSubject(tx *gorm.DB, productID string, buyerID in
 	}
 	if err := paidQuery.
 		Where(storeBuyerPaidOrder).
-		Select("o.quantity AS quantity, COUNT(s.id) AS refunded").
-		Group("o.id, o.quantity").Scan(&paid).Error; err != nil {
+		Select("o.quantity AS quantity, CASE WHEN o.delivery_template = ? THEN COALESCE((SELECT SUM(r.quantity) FROM merchant_store_refunds r WHERE r.order_id=o.id AND r.status='completed'),0) ELSE COUNT(s.id) END AS refunded", MerchantStoreFixedContentTemplate).
+		Group("o.id, o.quantity, o.delivery_template").Scan(&paid).Error; err != nil {
 		return 0, err
 	}
 	var used int64
@@ -104,6 +104,18 @@ func storeBuyerPurchaseUsageForSubject(tx *gorm.DB, productID string, buyerID in
 		Count(&held).Error; err != nil {
 		return 0, err
 	}
+	var fixedHeld int64
+	fixedQuery := tx.Table("merchant_store_orders AS o").Where("o.product_id = ? AND o.buyer_id = ? AND o.delivery_template = ? AND o.status IN ?", productID, buyerID, MerchantStoreFixedContentTemplate, []string{"pending", "reconciliation_pending"})
+	if storeAccessActive(tx) {
+		fixedQuery = fixedQuery.Where("COALESCE(o.guest_id,'') = ?", guestID)
+	}
+	if err := fixedQuery.Where("NOT " + storeBuyerPaidOrder).Select("COALESCE(SUM(o.quantity),0)").Scan(&fixedHeld).Error; err != nil {
+		return 0, err
+	}
+	if fixedHeld < 0 || held > int64(common.MaxWalletQuota)-fixedHeld {
+		return 0, ErrMerchantStoreConflict
+	}
+	held += fixedHeld
 	if held < 0 || used > int64(common.MaxWalletQuota)-held {
 		return 0, ErrMerchantStoreConflict
 	}
