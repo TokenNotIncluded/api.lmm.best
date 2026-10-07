@@ -7,6 +7,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func storeCatalogueFixture(t *testing.T) storeFixture {
@@ -64,7 +65,15 @@ func TestMerchantStoreCatalogueTagFilterPrecedesPaginationAndLegacyStockUsesCano
 	require.Len(t, rows, 1)
 	require.Equal(t, []string{"custom %_ tag"}, rows[0].Catalogue.CustomTags)
 	require.Contains(t, rows[0].DisplayTags, "in_stock")
-	require.NoError(t, DB.Model(&MerchantStoreVariant{}).Where("id = ?", MerchantStoreDefaultVariantID(f.product.ID)).Update("enabled", false).Error)
+	require.NoError(t, storeWithActiveProduct(f.product.ID, func(tx *gorm.DB, product *MerchantStoreProduct) error {
+		variant, err := storeEnsureDefaultVariant(tx, product)
+		if err != nil {
+			return err
+		}
+		result := tx.Model(variant).Update("enabled", false)
+		require.EqualValues(t, 1, result.RowsAffected, "the exact persisted default specification is disabled")
+		return result.Error
+	}))
 	rows, err = ListMerchantStoreCatalogue(f.buyer.Id, "", 0, 0, 1, MerchantStoreCatalogueQuery{Stock: "in_stock"})
 	require.NoError(t, err)
 	require.Empty(t, rows)
