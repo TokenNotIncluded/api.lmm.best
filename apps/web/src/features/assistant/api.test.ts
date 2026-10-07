@@ -1494,8 +1494,9 @@ test('accepts canonical credit gifts beyond the old cap and one-credit gifts wit
     })
     assert.ok(action)
     assert.equal(action.type, 'new_user_gift')
-    if (action.type === 'new_user_gift')
+    if (action.type === 'new_user_gift') {
       assert.equal(action.credit_amount, credits)
+    }
   }
   assert.equal(
     parseAssistantAction({
