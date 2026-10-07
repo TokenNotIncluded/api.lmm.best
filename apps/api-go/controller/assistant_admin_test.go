@@ -271,7 +271,7 @@ func TestAssistantAdminConfigDirectoryOmitsSensitiveRegisteredFields(t *testing.
 	require.Contains(t, labels, "group_ratio_setting.group_special_usable_group")
 	require.Contains(t, labels, "token_setting.max_user_tokens")
 	require.Contains(t, labels, "claude.default_max_tokens")
-	require.Contains(t, labels, "AdvancedSecurityRules")
+	require.NotContains(t, labels, "AdvancedSecurityRules")
 	require.Contains(t, labels, "WaffoNotifyUrl")
 	require.NotContains(t, labels, "claude.model_headers_settings")
 	require.NotContains(t, labels, "performance_setting.disk_cache_path")

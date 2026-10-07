@@ -40,7 +40,11 @@ func isRetiredIPAccessOptionKey(key string) bool {
 	return retired
 }
 
-func isRetiredDynamicPricingOption(key string) bool {
+func isRetiredConfigurationOption(key string) bool {
+	switch key {
+	case "AdvancedSecurityEnabled", "AdvancedSecurityOnPromptEnabled", "AdvancedSecurityAction", "AdvancedSecurityRules", "violation_fee.enabled", "violation_fee.policies":
+		return true
+	}
 	return key == "dynamic_pricing_setting" || strings.HasPrefix(key, "dynamic_pricing_setting.")
 }
 
@@ -50,7 +54,7 @@ func AllOption() ([]*Option, error) {
 	err = DB.Find(&options).Error
 	active := options[:0]
 	for _, option := range options {
-		if !isRetiredDynamicPricingOption(option.Key) {
+		if !isRetiredConfigurationOption(option.Key) {
 			active = append(active, option)
 		}
 	}
@@ -255,11 +259,6 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
-	advancedSecuritySettings := setting.GetAdvancedSecuritySettings()
-	common.OptionMap[setting.AdvancedSecurityEnabledOptionKey] = strconv.FormatBool(advancedSecuritySettings.Enabled)
-	common.OptionMap[setting.AdvancedSecurityOnPromptOptionKey] = strconv.FormatBool(advancedSecuritySettings.OnPrompt)
-	common.OptionMap[setting.AdvancedSecurityActionOptionKey] = advancedSecuritySettings.Action
-	common.OptionMap[setting.AdvancedSecurityRulesOptionKey] = setting.AdvancedSecurityRulesToJSONString()
 	antiRelaySettings := setting.GetAntiRelaySettings()
 	common.OptionMap[setting.AntiRelayEnabledOptionKey] = strconv.FormatBool(antiRelaySettings.Enabled)
 	common.OptionMap[setting.AntiRelayRejectProxyHeadersOptionKey] = strconv.FormatBool(antiRelaySettings.RejectProxyHeaders)
@@ -383,8 +382,8 @@ func validateOptionValue(key string, value string) error {
 	if key == "general_setting.custom_currency_code" {
 		return operation_setting.ValidateCustomCurrencyCode(value)
 	}
-	if isRetiredDynamicPricingOption(key) {
-		return errors.New("dynamic pricing has been removed; use fixed group ratios")
+	if isRetiredConfigurationOption(key) {
+		return errors.New("this configuration option has been removed")
 	}
 	if err := setting.ValidateAssistantOption(key, value); err != nil {
 		return err
@@ -412,9 +411,6 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == setting.AssistantReviewGroupOptionKey && !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
 		return errors.New("assistant review routing group must be an existing group")
-	}
-	if err := setting.ValidateAdvancedSecurityOption(key, value); err != nil {
-		return err
 	}
 	if err := setting.ValidateAntiRelayOption(key, value); err != nil {
 		return err
@@ -447,9 +443,6 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "GroupGroupRatio" {
 		return ratio_setting.CheckGroupGroupRatio(value)
-	}
-	if key == operation_setting.ViolationFeeOptionKey+".policies" {
-		return operation_setting.ValidateViolationFeeSettingsJSON(`{"enabled":true,"policies":` + value + `}`)
 	}
 	if err := validateAbsoluteHTTPURLOption(key, value); err != nil {
 		return err
@@ -893,62 +886,6 @@ func UpdateOptionsBulk(values map[string]string) error {
 	return err
 }
 
-// UpdateAdvancedSecurityOptions persists and applies the four guardrail
-// settings as a unit. Database readers see one transaction, while request
-// handlers see one runtime settings swap instead of four intermediate states.
-func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string) error {
-	optionUpdateMutex.Lock()
-	defer optionUpdateMutex.Unlock()
-	values := map[string]string{
-		setting.AdvancedSecurityEnabledOptionKey:  strconv.FormatBool(enabled),
-		setting.AdvancedSecurityOnPromptOptionKey: strconv.FormatBool(onPrompt),
-		setting.AdvancedSecurityActionOptionKey:   action,
-		setting.AdvancedSecurityRulesOptionKey:    rules,
-	}
-	keys := []string{
-		setting.AdvancedSecurityRulesOptionKey,
-		setting.AdvancedSecurityActionOptionKey,
-		setting.AdvancedSecurityOnPromptOptionKey,
-		setting.AdvancedSecurityEnabledOptionKey,
-	}
-	for _, key := range keys {
-		if err := validateOptionValue(key, values[key]); err != nil {
-			return err
-		}
-	}
-
-	if err := DB.Transaction(func(tx *gorm.DB) error {
-		for _, key := range keys {
-			option := Option{Key: key}
-			if err := tx.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
-				return err
-			}
-			option.Value = values[key]
-			if err := tx.Save(&option).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Validation above makes this deterministic after the transaction. Keeping
-	// the setter defensive prevents future validation/runtime drift.
-	if err := setting.ApplyAdvancedSecuritySettings(enabled, onPrompt, action, rules); err != nil {
-		return err
-	}
-	common.OptionMapRWMutex.Lock()
-	if common.OptionMap == nil {
-		common.OptionMap = make(map[string]string)
-	}
-	for _, key := range keys {
-		common.OptionMap[key] = values[key]
-	}
-	common.OptionMapRWMutex.Unlock()
-	return nil
-}
-
 func updateOptionMap(key string, value string) (err error) {
 	if key == PublicCreditsPerUSDOptionKey {
 		denomination, parseErr := parsePublicCreditRate(value)
@@ -971,7 +908,7 @@ func updateOptionMap(key string, value string) (err error) {
 	if setting.IsModerationOption(key) {
 		return applyModerationOptionMap(map[string]string{key: value})
 	}
-	if isRetiredDynamicPricingOption(key) {
+	if isRetiredConfigurationOption(key) {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()
@@ -1125,10 +1062,6 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.ModelRequestRateLimitEnabled = boolValue
 		case "StopOnSensitiveEnabled":
 			setting.StopOnSensitiveEnabled = boolValue
-		case setting.AdvancedSecurityEnabledOptionKey:
-			setting.SetAdvancedSecurityEnabled(boolValue)
-		case setting.AdvancedSecurityOnPromptOptionKey:
-			setting.SetAdvancedSecurityOnPrompt(boolValue)
 		case setting.AntiRelayEnabledOptionKey:
 			setting.SetAntiRelayEnabled(boolValue)
 		case setting.AntiRelayRejectProxyHeadersOptionKey:
@@ -1423,10 +1356,6 @@ func updateOptionMap(key string, value string) (err error) {
 		}
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
-	case setting.AdvancedSecurityActionOptionKey:
-		err = setting.UpdateAdvancedSecurityAction(value)
-	case setting.AdvancedSecurityRulesOptionKey:
-		err = setting.UpdateAdvancedSecurityRules(value)
 	case setting.AntiRelayBlockedCIDRsOptionKey:
 		err = setting.UpdateAntiRelayBlockedCIDRs(value)
 	case setting.AntiRelayTrustedProxyCIDRsOptionKey:

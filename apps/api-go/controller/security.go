@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bytes"
 	"errors"
 	"net/http"
 	"sort"
@@ -13,9 +12,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/dto"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
-	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
-	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -37,68 +34,12 @@ func GetAdminSecurityPolicy(c *gin.Context) {
 		common.ApiErrorMsg(c, "security policy is unavailable")
 		return
 	}
-	settings := setting.GetAdvancedSecuritySettings()
-	adminRules := make([]dto.SecurityAdminRule, 0, len(settings.RuleSet.Rules))
-	for _, rule := range settings.RuleSet.Rules {
-		adminRules = append(adminRules, dto.SecurityAdminRule{
-			SecurityRuleSummary: dto.SecurityRuleSummary{
-				ID:          rule.ID,
-				Name:        rule.Name,
-				Category:    rule.Category,
-				Layer:       rule.Layer,
-				Severity:    rule.Severity,
-				Source:      rule.Source,
-				Version:     rule.Version,
-				Description: rule.Description,
-				Historical:  true,
-			},
-			Enabled:  false,
-			Groups:   append([]string(nil), rule.Groups...),
-			Patterns: append([]string(nil), rule.Patterns...),
-		})
-	}
 	common.ApiSuccess(c, dto.AdminSecurityPolicy{
 		Public:       buildPublicSecurityPolicy(moderationSettings),
 		Settings:     dto.SecuritySettings{Action: "retired", Retired: true},
-		Rules:        adminRules,
-		ViolationFee: violationFeeSettingsDTO(),
+		Rules:        []dto.SecurityAdminRule{},
+		ViolationFee: dto.SecurityViolationFeeSettings{},
 	})
-}
-
-type advancedSecuritySettingsUpdateRequest struct {
-	Enabled  *bool             `json:"enabled"`
-	OnPrompt *bool             `json:"on_prompt"`
-	Action   string            `json:"action"`
-	Rules    common.RawMessage `json:"rules"`
-}
-
-// UpdateAdvancedSecuritySettings commits the complete guardrail policy in one
-// operation so a failed field cannot leave the other fields partially saved.
-func UpdateAdvancedSecuritySettings(c *gin.Context) {
-	var request advancedSecuritySettingsUpdateRequest
-	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		common.ApiErrorMsg(c, "invalid advanced security settings payload")
-		return
-	}
-	rules := bytes.TrimSpace(request.Rules)
-	if request.Enabled == nil || request.OnPrompt == nil || strings.TrimSpace(request.Action) == "" || len(rules) == 0 || (rules[0] != '{' && rules[0] != '[') {
-		common.ApiErrorMsg(c, "enabled, on_prompt, action, and rules are required")
-		return
-	}
-	action := strings.ToLower(strings.TrimSpace(request.Action))
-	if err := model.UpdateAdvancedSecurityOptions(*request.Enabled, *request.OnPrompt, action, string(rules)); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	recordManageAudit(c, "advanced_security.settings_update", map[string]interface{}{
-		"keys": []string{
-			setting.AdvancedSecurityEnabledOptionKey,
-			setting.AdvancedSecurityOnPromptOptionKey,
-			setting.AdvancedSecurityActionOptionKey,
-			setting.AdvancedSecurityRulesOptionKey,
-		},
-	})
-	common.ApiSuccess(c, nil)
 }
 
 func GetPublicSecurityStats(c *gin.Context) {
@@ -446,77 +387,16 @@ func GetAdminAssistantReviewTask(c *gin.Context) {
 }
 
 func buildPublicSecurityPolicy(moderationSettings setting.ModerationSettings) dto.PublicSecurityPolicy {
-	settings := setting.GetAdvancedSecuritySettings()
-	categories := setting.GetAdvancedSecurityRiskCategories()
-	categoryDTOs := make([]dto.SecurityRiskCategory, 0, len(categories))
-	for _, category := range categories {
-		categoryDTOs = append(categoryDTOs, dto.SecurityRiskCategory{
-			ID:          category.ID,
-			Name:        category.Name,
-			Layer:       category.Layer,
-			Severity:    category.Severity,
-			Description: category.Description,
-			Source:      category.Source,
-		})
-	}
-
-	publicRules := make([]dto.SecurityRuleSummary, 0, len(settings.RuleSet.Rules))
-	for _, rule := range settings.RuleSet.Rules {
-		if !rule.Enabled {
-			continue
-		}
-		publicRules = append(publicRules, dto.SecurityRuleSummary{
-			ID:          rule.ID,
-			Name:        rule.Name,
-			Category:    rule.Category,
-			Layer:       rule.Layer,
-			Severity:    rule.Severity,
-			Source:      rule.Source,
-			Version:     rule.Version,
-			Description: rule.Description,
-			Historical:  true,
-		})
-	}
-
-	violationFees := make([]dto.SecurityViolationFeeRule, 0)
-	violationSettings := operation_setting.GetViolationFeeSettings()
-	if violationSettings != nil {
-		for _, policy := range violationSettings.Policies {
-			amount := policy.InitialAmountUSD
-			if len(policy.AmountsUSD) > 0 {
-				amount = policy.AmountsUSD[0]
-			}
-			violationFees = append(violationFees, dto.SecurityViolationFeeRule{
-				Code:              string(types.ErrorCodeViolationFeeUsagePolicy),
-				Provider:          "",
-				Groups:            append([]string(nil), policy.Groups...),
-				Trigger:           "Historical upstream usage-policy violation marker; this policy is retired.",
-				Enabled:           false,
-				AmountUSD:         amount,
-				AmountsUSD:        append([]float64(nil), policy.AmountsUSD...),
-				Multiplier:        policy.Multiplier,
-				MaxAmountUSD:      policy.MaxAmountUSD,
-				PeriodSeconds:     policy.PeriodSeconds,
-				ChargeUnit:        "per violating request",
-				Retryable:         false,
-				Description:       "Historical escalating penalty configuration retained for reference; it no longer charges requests.",
-				ChargingNotes:     "Existing penalty records remain available for appeal. Current asynchronous Moderation category rules are published separately.",
-				LocalGuardrailFee: false,
-				Historical:        true,
-			})
-		}
-	}
-
 	return dto.PublicSecurityPolicy{
 		PolicyVersion:          "openai-moderation-v1",
 		ReferenceEffectiveDate: "",
 		ReferenceURL:           "https://developers.openai.com/api/docs/guides/moderation",
-		Alignment:              "OpenAI Moderation content classification; historical literal rules are retained for reference only",
+		Alignment:              "OpenAI Moderation content classification",
 		Enforcement:            dto.SecuritySettings{Action: "retired", Retired: true},
 		ProtectedGroups:        moderationProtectedGroups(moderationSettings),
-		RiskCategories:         categoryDTOs,
-		Rules:                  publicRules,
-		ViolationFees:          violationFees,
+		RiskCategories:         []dto.SecurityRiskCategory{},
+		Rules:                  []dto.SecurityRuleSummary{},
+		ViolationFees:          []dto.SecurityViolationFeeRule{},
 		Moderation:             publicModerationPolicy(moderationSettings),
 	}
 }
@@ -533,24 +413,6 @@ func moderationProtectedGroups(settings setting.ModerationSettings) []string {
 	}
 	sort.Strings(groups)
 	return groups
-}
-
-func violationFeeSettingsDTO() dto.SecurityViolationFeeSettings {
-	settings := operation_setting.GetViolationFeeSettings()
-	result := dto.SecurityViolationFeeSettings{}
-	if settings == nil {
-		return result
-	}
-	result.Policies = make([]dto.SecurityViolationFeePolicy, 0, len(settings.Policies))
-	for _, policy := range settings.Policies {
-		result.Policies = append(result.Policies, dto.SecurityViolationFeePolicy{
-			Name: policy.Name, Groups: append([]string(nil), policy.Groups...), Enabled: false,
-			AmountsUSD: append([]float64(nil), policy.AmountsUSD...), InitialAmountUSD: policy.InitialAmountUSD,
-			Multiplier: policy.Multiplier, MaxAmountUSD: policy.MaxAmountUSD, PeriodSeconds: policy.PeriodSeconds,
-			DrainBalanceWhenShort: policy.DrainBalanceWhenShort,
-		})
-	}
-	return result
 }
 
 func buildSecurityStatsDTO(stats model.AdvancedSecurityStats, start, end int64, includeRules bool) dto.SecurityStats {

@@ -43,13 +43,12 @@ func refreshOptionsSnapshotLocked(ctx context.Context) (map[string]string, error
 	// failed query must leave both the old snapshot and active policy intact.
 	stored := make(map[string]string, len(options))
 	for _, option := range options {
-		if !isRetiredDynamicPricingOption(option.Key) {
+		if !isRetiredConfigurationOption(option.Key) {
 			stored[option.Key] = option.Value
 		}
 	}
 	l1Values := setting.DefaultAssistantL1AutoReviewSettings().OptionValues()
 	moderationValues := setting.DefaultModerationSettings().OptionValues()
-	advancedValues := currentAdvancedSecurityOptionValues()
 	// Stable ordering also lets registered settings supersede legacy aliases.
 	for _, key := range slices.Sorted(maps.Keys(stored)) {
 		value := stored[key]
@@ -58,16 +57,11 @@ func refreshOptionsSnapshotLocked(ctx context.Context) (map[string]string, error
 			moderationValues[key] = value
 		case setting.IsAssistantL1AutoReviewOption(key):
 			l1Values[key] = value
-		case isAdvancedSecurityOptionKey(key):
-			advancedValues[key] = value
 		default:
 			if err := updateOptionMap(key, value); err != nil {
 				common.SysLog("failed to refresh option " + key + ": " + err.Error())
 			}
 		}
-	}
-	if err := applyAdvancedSecurityOptionValues(advancedValues); err != nil {
-		common.SysLog("failed to refresh advanced security settings: " + err.Error())
 	}
 	if err := applyAssistantL1AutoReviewOptionMap(l1Values); err != nil {
 		common.SysLog("failed to refresh L1 automatic review settings: " + err.Error())
@@ -91,7 +85,7 @@ func refreshOptionsSnapshotLocked(ctx context.Context) (map[string]string, error
 		}
 	}
 	for key, value := range common.OptionMap {
-		if setting.IsModerationOption(key) || setting.IsAssistantL1AutoReviewOption(key) || isAdvancedSecurityOptionKey(key) {
+		if setting.IsModerationOption(key) || setting.IsAssistantL1AutoReviewOption(key) {
 			published[key] = value
 		}
 	}

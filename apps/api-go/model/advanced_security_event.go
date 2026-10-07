@@ -1,10 +1,8 @@
 package model
 
 import (
-	"context"
 	"errors"
 
-	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -40,82 +38,6 @@ type AdvancedSecurityEvent struct {
 	PatternDigest string `json:"pattern_digest"`
 	InputDigest   string `json:"input_digest"`
 	MatchCount    int    `json:"match_count"`
-}
-
-type AdvancedSecurityEventMatch struct {
-	RuleID        string
-	RuleName      string
-	Category      string
-	Layer         string
-	Severity      string
-	Source        string
-	RuleVersion   string
-	PatternDigest string
-}
-
-type AdvancedSecurityEventParams struct {
-	CreatedAt   int64
-	RequestID   string
-	UserID      int
-	Username    string
-	TokenID     int
-	ChannelID   int
-	ModelName   string
-	Group       string
-	Endpoint    string
-	Decision    string
-	InputDigest string
-	Matches     []AdvancedSecurityEventMatch
-}
-
-func RecordAdvancedSecurityEvents(ctx context.Context, params AdvancedSecurityEventParams) error {
-	if DB == nil {
-		return errors.New("database is not initialized")
-	}
-	if len(params.Matches) == 0 {
-		return nil
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if params.CreatedAt <= 0 {
-		params.CreatedAt = common.GetTimestamp()
-	}
-	if params.Decision != AdvancedSecurityDecisionBlocked && params.Decision != AdvancedSecurityDecisionAudited {
-		return errors.New("invalid advanced security decision")
-	}
-	rows := make([]AdvancedSecurityEvent, 0, len(params.Matches))
-	for _, match := range params.Matches {
-		if match.RuleID == "" || match.Category == "" {
-			continue
-		}
-		rows = append(rows, AdvancedSecurityEvent{
-			CreatedAt:     params.CreatedAt,
-			RequestID:     params.RequestID,
-			UserID:        params.UserID,
-			Username:      params.Username,
-			TokenID:       params.TokenID,
-			ChannelID:     params.ChannelID,
-			ModelName:     params.ModelName,
-			Group:         params.Group,
-			Endpoint:      params.Endpoint,
-			Decision:      params.Decision,
-			RuleID:        match.RuleID,
-			RuleName:      match.RuleName,
-			Category:      match.Category,
-			Layer:         match.Layer,
-			Severity:      match.Severity,
-			Source:        match.Source,
-			RuleVersion:   match.RuleVersion,
-			PatternDigest: match.PatternDigest,
-			InputDigest:   params.InputDigest,
-			MatchCount:    len(params.Matches),
-		})
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	return DB.WithContext(ctx).Create(&rows).Error
 }
 
 type AdvancedSecurityEventFilter struct {

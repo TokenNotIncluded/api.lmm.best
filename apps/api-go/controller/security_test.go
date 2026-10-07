@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,28 +14,13 @@ import (
 
 func TestSecurityPolicySeparatesPublicAndAdminRuleDetails(t *testing.T) {
 	setupSecurityModerationDB(t)
-	original := setting.GetAdvancedSecuritySettings()
-	originalRules := setting.AdvancedSecurityRulesToJSONString()
-	t.Cleanup(func() {
-		setting.SetAdvancedSecurityEnabled(original.Enabled)
-		setting.SetAdvancedSecurityOnPrompt(original.OnPrompt)
-		_ = setting.UpdateAdvancedSecurityAction(original.Action)
-		_ = setting.UpdateAdvancedSecurityRules(originalRules)
-	})
-
-	setting.SetAdvancedSecurityEnabled(true)
-	setting.SetAdvancedSecurityOnPrompt(true)
-	require.NoError(t, setting.UpdateAdvancedSecurityAction(setting.AdvancedSecurityActionBlock))
-	require.NoError(t, setting.UpdateAdvancedSecurityRules(`[{"id":"prompt-injection","name":"Prompt injection","category":"prompt_injection","enabled":true,"groups":["default","premium"],"patterns":["do not publish this matcher"]}]`))
-
 	publicRecorder := httptest.NewRecorder()
 	publicContext, _ := gin.CreateTestContext(publicRecorder)
 	publicContext.Request = httptest.NewRequest(http.MethodGet, "/api/security/policy", nil)
 	GetPublicSecurityPolicy(publicContext)
 	require.Equal(t, http.StatusOK, publicRecorder.Code)
 	assert.NotContains(t, publicRecorder.Body.String(), "do not publish this matcher")
-	assert.Contains(t, publicRecorder.Body.String(), "prompt_injection")
-	assert.Contains(t, publicRecorder.Body.String(), "violation_fee.usage_policy")
+	assert.NotContains(t, publicRecorder.Body.String(), "violation_fee.usage_policy")
 	assert.NotContains(t, publicRecorder.Body.String(), "Grok / xAI upstream")
 	assert.Contains(t, publicRecorder.Body.String(), "https://developers.openai.com/api/docs/guides/moderation")
 
@@ -45,7 +29,7 @@ func TestSecurityPolicySeparatesPublicAndAdminRuleDetails(t *testing.T) {
 	adminContext.Request = httptest.NewRequest(http.MethodGet, "/api/security/admin/policy", nil)
 	GetAdminSecurityPolicy(adminContext)
 	require.Equal(t, http.StatusOK, adminRecorder.Code)
-	assert.Contains(t, adminRecorder.Body.String(), "do not publish this matcher")
+	assert.NotContains(t, adminRecorder.Body.String(), "do not publish this matcher")
 
 	var payload struct {
 		Data struct {
@@ -70,11 +54,8 @@ func TestSecurityPolicySeparatesPublicAndAdminRuleDetails(t *testing.T) {
 	assert.False(t, payload.Data.Public.Enforcement.Enabled)
 	assert.False(t, payload.Data.Public.Enforcement.OnPrompt)
 	assert.Equal(t, "retired", payload.Data.Public.Enforcement.Action)
-	require.Len(t, payload.Data.Public.Rules, 1)
-	assert.Empty(t, payload.Data.Public.Rules[0].Patterns)
-	require.Len(t, payload.Data.Rules, 1)
-	assert.Equal(t, []string{"default", "premium"}, payload.Data.Rules[0].Groups)
-	assert.Equal(t, []string{"do not publish this matcher"}, payload.Data.Rules[0].Patterns)
+	assert.Empty(t, payload.Data.Public.Rules)
+	assert.Empty(t, payload.Data.Rules)
 }
 
 func TestCanRevealSecurityEventRespectsAdministratorHierarchy(t *testing.T) {

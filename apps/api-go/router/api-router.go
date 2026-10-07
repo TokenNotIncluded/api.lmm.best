@@ -145,9 +145,6 @@ func SetApiRouter(router *gin.Engine) {
 			securityRoute.GET("/policy", controller.GetPublicSecurityPolicy)
 			securityRoute.GET("/stats", controller.GetPublicSecurityStats)
 		}
-		// Advanced-security rules are a raw JSON policy document. Keep the root
-		// editor bounded before DecodeJson retains an arbitrary-sized RawMessage.
-		apiRouter.PUT("/security/admin/settings", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), middleware.RootAuth(), middleware.DisableCache(), controller.UpdateAdvancedSecuritySettings)
 		apiRouter.GET("/security/market-ai-review/settings", middleware.AdminAuth(), middleware.DisableCache(), controller.GetMarketAIReviewSettings)
 		apiRouter.PUT("/security/market-ai-review/settings", middleware.RootAuth(), middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateMarketAIReviewSettings)
 		securityAdminRoute := apiRouter.Group("/security/admin")

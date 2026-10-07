@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"strings"
 	"sync"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -114,20 +113,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (apiErro
 				return nil, finishRealtimeUsage(c, info, sumUsage, localUsage, localOutputDelivered)
 			}
 			if frame.fromClient {
-				evaluation := service.EvaluateAdvancedSecurityText(c, info, dto.ModerationTextFromRealtimeJSON(frame.message))
-				if len(evaluation.Matches) > 0 {
-					matchIDs := make([]string, 0, len(evaluation.Matches))
-					for _, match := range evaluation.Matches {
-						matchIDs = append(matchIDs, match.RuleID)
-					}
-					logger.LogWarn(c, "advanced security rules matched in realtime event: "+strings.Join(matchIDs, ", "))
-				}
-				if evaluation.Blocked() {
-					apiErr := service.NewAdvancedSecurityAPIError()
-					apiErr.SetMessage(common.MessageWithRequestId(apiErr.Error(), info.RequestId))
-					helper.WssError(c, clientConn, apiErr.ToOpenAIError())
-					continue
-				}
+				service.EvaluateAdvancedSecurityText(c, info, dto.ModerationTextFromRealtimeJSON(frame.message))
 				if event.Type == dto.RealtimeEventTypeSessionUpdate && event.Session != nil {
 					if event.Session.Tools != nil {
 						info.RealtimeTools = event.Session.Tools

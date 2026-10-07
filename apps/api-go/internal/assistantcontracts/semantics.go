@@ -98,9 +98,6 @@ func (g *generator) refine(name string, c *contract) {
 	case "UpdateOptionsBulk", "ValidateOptions":
 		c.body["required"] = []string{"values"}
 		c.notes = append(c.notes, "values is a non-empty map of option keys to STRING values, with at most 128 entries. JSON settings must be JSON-encoded strings. Read and merge existing pricing maps before replacement. ValidateOptions performs the same option validation without persisting; UpdateOptionsBulk writes the complete related set in one database transaction. Locked model pricing changes are ignored with warnings while unlocked entries still apply. Inspect warnings and locked_models and never unlock pricing unless explicitly requested by the administrator.")
-	case "UpdateAdvancedSecuritySettings":
-		c.body["required"] = []string{"enabled", "on_prompt", "action", "rules"}
-		c.notes = append(c.notes, "This replaces the full advanced-security policy. Read GetAdminSecurityPolicy first and preserve unrelated rules. rules must be a JSON object or array; enabled and on_prompt must be explicit booleans.")
 	case "AdminCreateSubscriptionPlan", "AdminUpdateSubscriptionPlan":
 		c.body["required"] = []string{"plan"}
 		c.notes = append(c.notes, "plan is a nested object. title is required; price_amount is real fiat in currency CNY or USD, between 0 and 9999. total_amount is internal quota units. Read the existing plan before updating and preserve unrelated billing, duration and reset settings. Payment compliance must already be enabled.")

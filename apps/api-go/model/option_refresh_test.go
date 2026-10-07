@@ -16,7 +16,6 @@ import (
 func setupOptionRefreshTest(t *testing.T) {
 	t.Helper()
 	setupPriceLockTest(t)
-	previousAdvanced := currentAdvancedSecurityOptionValues()
 	previousL1 := setting.GetAssistantL1AutoReviewSettings().OptionValues()
 	previousModeration := setting.GetModerationSettings().OptionValues()
 	optionUpdateMutex.Lock()
@@ -27,7 +26,6 @@ func setupOptionRefreshTest(t *testing.T) {
 		optionUpdateMutex.Lock()
 		defer optionUpdateMutex.Unlock()
 		optionDefaultValues = previousDefaults
-		require.NoError(t, applyAdvancedSecurityOptionValues(previousAdvanced))
 		require.NoError(t, applyAssistantL1AutoReviewOptionMap(previousL1))
 		require.NoError(t, applyModerationOptionMap(previousModeration))
 	})
@@ -144,55 +142,24 @@ func TestRefreshOptionsSnapshotSerializesReadAndPublicationWithLocalWrites(t *te
 	require.JSONEq(t, `{"source":4}`, final["ModelRatio"])
 }
 
-func TestRefreshOptionsSnapshotSerializesAdvancedSecurityWrites(t *testing.T) {
+func TestRetiredSecurityOptionsCannotReloadOrMutateHistoricalRows(t *testing.T) {
 	setupOptionRefreshTest(t)
-	oldRules := `{"version":1,"rules":[]}`
-	newRules := `{"version":1,"rules":[{"id":"latest","enabled":true,"groups":["default"],"patterns":["blocked pattern"]}]}`
-	require.NoError(t, UpdateAdvancedSecurityOptions(false, true, setting.AdvancedSecurityActionBlock, oldRules))
-	queryReady, releaseQuery := make(chan struct{}), make(chan struct{})
-	var holdOnce, releaseOnce sync.Once
-	release := func() { releaseOnce.Do(func() { close(releaseQuery) }) }
-	defer release()
-	const callback = "test:option-refresh-security-pause"
-	require.NoError(t, DB.Callback().Query().After("gorm:query").Register(callback, func(tx *gorm.DB) {
-		if _, ok := tx.Statement.Dest.(*[]*Option); ok {
-			holdOnce.Do(func() {
-				close(queryReady)
-				<-releaseQuery
-			})
+	keys := []string{"AdvancedSecurityEnabled", "AdvancedSecurityOnPromptEnabled", "AdvancedSecurityAction", "AdvancedSecurityRules", "violation_fee.enabled", "violation_fee.policies"}
+	for _, key := range keys {
+		require.NoError(t, DB.Create(&Option{Key: key, Value: "historical-value"}).Error)
+	}
+	snapshot, err := RefreshOptionsSnapshot(context.Background())
+	require.NoError(t, err)
+	all, err := AllOption()
+	require.NoError(t, err)
+	for _, key := range keys {
+		require.NotContains(t, snapshot, key)
+		for _, option := range all {
+			require.NotEqual(t, key, option.Key)
 		}
-	}))
-	defer func() { _ = DB.Callback().Query().Remove(callback) }()
-	refreshDone := make(chan map[string]string, 1)
-	refreshError := make(chan error, 1)
-	go func() {
-		snapshot, err := RefreshOptionsSnapshot(context.Background())
-		refreshDone <- snapshot
-		refreshError <- err
-	}()
-	select {
-	case <-queryReady:
-	case <-time.After(5 * time.Second):
-		t.Fatal("refresh did not reach its database query")
+		require.Error(t, UpdateOption(key, "new-value"))
+		var stored Option
+		require.NoError(t, DB.Where("key = ?", key).First(&stored).Error)
+		require.Equal(t, "historical-value", stored.Value)
 	}
-	writeDone := make(chan error, 1)
-	go func() {
-		writeDone <- UpdateAdvancedSecurityOptions(true, false, setting.AdvancedSecurityActionAudit, newRules)
-	}()
-	select {
-	case <-writeDone:
-		t.Fatal("security write bypassed the option publication lock")
-	case <-time.After(30 * time.Millisecond):
-	}
-	release()
-	require.NoError(t, <-refreshError)
-	require.Equal(t, "false", (<-refreshDone)[setting.AdvancedSecurityEnabledOptionKey])
-	require.NoError(t, <-writeDone)
-	current := setting.GetAdvancedSecuritySettings()
-	require.True(t, current.Enabled)
-	require.False(t, current.OnPrompt)
-	require.Equal(t, setting.AdvancedSecurityActionAudit, current.Action)
-	final := GetOptionsSnapshot()
-	require.Equal(t, "true", final[setting.AdvancedSecurityEnabledOptionKey])
-	require.JSONEq(t, newRules, final[setting.AdvancedSecurityRulesOptionKey])
 }

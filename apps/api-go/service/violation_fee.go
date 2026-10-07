@@ -3,11 +3,7 @@ package service
 import (
 	"strings"
 
-	"github.com/LIghtJUNction/api.lmm.best/common"
-	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
-
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -78,37 +74,4 @@ func NormalizeViolationFeeError(err *types.NewAPIError) *types.NewAPIError {
 	}
 
 	return err
-}
-
-func shouldChargeViolationFee(err *types.NewAPIError) bool {
-	if err == nil {
-		return false
-	}
-	if IsViolationFeeCode(err.GetErrorCode()) {
-		return true
-	}
-	// In case some callers didn't normalize, keep a safety net.
-	return HasUsagePolicyViolationMarker(err)
-}
-
-func calcViolationFeeQuota(amount, groupRatio float64) int {
-	if amount <= 0 {
-		return 0
-	}
-	if groupRatio <= 0 {
-		return 0
-	}
-	quota := common.QuotaRound(amount * common.QuotaPerUnit * groupRatio)
-	if quota <= 0 {
-		return 0
-	}
-	return quota
-}
-
-// ChargeViolationFeeIfNeeded remains a compatibility hook for protocol relays.
-// Provider error strings are not moderation decisions. Content penalties now
-// come exclusively from a completed asynchronous official moderation job and
-// its explicit account-group policy; this old path never changes a balance.
-func ChargeViolationFeeIfNeeded(_ *gin.Context, _ *relaycommon.RelayInfo, _ *types.NewAPIError) bool {
-	return false
 }

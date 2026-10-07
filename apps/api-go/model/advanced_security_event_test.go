@@ -12,29 +12,11 @@ func TestAdvancedSecurityEventsPersistWithoutPromptTextAndAggregate(t *testing.T
 	db := setupConsoleActivationTestDB(t)
 	require.NoError(t, db.AutoMigrate(&AdvancedSecurityEvent{}))
 
-	require.NoError(t, RecordAdvancedSecurityEvents(context.Background(), AdvancedSecurityEventParams{
-		CreatedAt:   100,
-		RequestID:   "request-1",
-		UserID:      7,
-		Username:    "alice",
-		ModelName:   "claude-test",
-		Decision:    AdvancedSecurityDecisionBlocked,
-		InputDigest: "input-digest",
-		Matches: []AdvancedSecurityEventMatch{
-			{RuleID: "violence", RuleName: "Violence", Category: "violence", Layer: "universal_standard", Severity: "high", PatternDigest: "pattern-digest"},
-			{RuleID: "self-harm", RuleName: "Self harm", Category: "self_harm", Severity: "high", PatternDigest: "another-digest"},
-		},
-	}))
-	require.NoError(t, RecordAdvancedSecurityEvents(context.Background(), AdvancedSecurityEventParams{
-		CreatedAt: 200,
-		RequestID: "request-2",
-		UserID:    8,
-		Username:  "bob",
-		Decision:  AdvancedSecurityDecisionAudited,
-		Matches: []AdvancedSecurityEventMatch{
-			{RuleID: "violence", RuleName: "Violence", Category: "violence", Severity: "high"},
-		},
-	}))
+	require.NoError(t, db.Create(&[]AdvancedSecurityEvent{
+		{CreatedAt: 100, RequestID: "request-1", UserID: 7, RuleID: "violence", Category: "violence", Decision: AdvancedSecurityDecisionBlocked, InputDigest: "input-digest", PatternDigest: "pattern-digest", Layer: "universal_standard"},
+		{CreatedAt: 100, RequestID: "request-1", UserID: 7, RuleID: "self-harm", Category: "self_harm", Decision: AdvancedSecurityDecisionBlocked},
+		{CreatedAt: 200, RequestID: "request-2", UserID: 8, RuleID: "violence", Category: "violence", Decision: AdvancedSecurityDecisionAudited},
+	}).Error)
 
 	var stored AdvancedSecurityEvent
 	require.NoError(t, db.Order("id asc").First(&stored).Error)
@@ -63,16 +45,6 @@ func TestAdvancedSecurityEventsPersistWithoutPromptTextAndAggregate(t *testing.T
 	assert.EqualValues(t, 2, total)
 	require.Len(t, events, 1)
 	assert.Equal(t, "self-harm", events[0].RuleID)
-}
-
-func TestRecordAdvancedSecurityEventsRejectsInvalidDecision(t *testing.T) {
-	db := setupConsoleActivationTestDB(t)
-	require.NoError(t, db.AutoMigrate(&AdvancedSecurityEvent{}))
-	err := RecordAdvancedSecurityEvents(context.Background(), AdvancedSecurityEventParams{
-		Decision: "unknown",
-		Matches:  []AdvancedSecurityEventMatch{{RuleID: "test", Category: "custom"}},
-	})
-	assert.Error(t, err)
 }
 
 func TestPurgeAdvancedSecurityEventsBeforeUsesBoundedBatches(t *testing.T) {
