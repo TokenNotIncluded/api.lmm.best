@@ -1697,6 +1697,219 @@ test('multi-line custom inventory remains one item and failed import preserves t
     { items: ['line one\nline two'] },
   ])
 })
+for (const source of ['textarea', 'file']) {
+  test(`inventory wire-size guard rejects JSON expansion and preserves valid Unicode stock (${source})`, async () => {
+    owner(2)
+    const writes: unknown[] = []
+    let saves = 0
+    api.get = (async () =>
+      result({ items: [], has_more: false })) as typeof api.get
+    api.post = (async (url: string, body: unknown) => {
+      assert.equal(url, `/api/store/products/${product.id}/inventory`)
+      writes.push(body)
+      return result({ added: 4 })
+    }) as typeof api.post
+    await mount(
+      <StoreInventoryImport
+        product={product}
+        onClose={() => {}}
+        onSaved={async () => {
+          saves++
+        }}
+      />
+    )
+    const oversized = Array(10000).fill('A'.repeat(180) + '"'.repeat(20))
+    const text = oversized.join('\n')
+    assert.ok(new TextEncoder().encode(text).length < 2 * 1024 * 1024)
+    assert.ok(
+      new TextEncoder().encode(JSON.stringify({ items: oversized })).length >
+        2 * 1024 * 1024
+    )
+    const textarea = document.querySelector<HTMLTextAreaElement>(
+      '[aria-label="Inventory text"]'
+    )
+    assert.ok(textarea)
+    if (source === 'file') {
+      const file = document.querySelector<HTMLInputElement>('input[type=file]')
+      assert.ok(file)
+      Object.defineProperty(file, 'files', {
+        configurable: true,
+        value: [new dom.File([text], 'keys.txt', { type: 'text/plain' })],
+      })
+      await act(async () => {
+        file.dispatchEvent(new Event('change', { bubbles: true }))
+        await flush()
+      })
+    } else {
+      await input(textarea, text)
+    }
+    assert.equal(textarea.value, text)
+    assert.equal(button('Import inventory').disabled, true)
+    assert.ok(
+      document.body.textContent?.includes(
+        "Check each item's size or split this inventory import into smaller batches."
+      )
+    )
+    await click(button('Import inventory'))
+    assert.equal(writes.length, 0)
+    const valid = [' 密钥 "one" ', ' 密钥 "one" ', '\\two\\', '日本語🔑']
+    await input(textarea, valid.join('\n'))
+    assert.equal(button('Import inventory').disabled, false)
+    await click(button('Import inventory'))
+    assert.deepEqual(writes, [{ items: valid }])
+    assert.equal(saves, 1)
+  })
+}
+for (const template of [
+  'card-key',
+  'custom-text',
+  'account-details',
+] as const) {
+  test(`inventory close guard preserves drafts until discard and skips confirmation after import (${template})`, async () => {
+    owner(2)
+    let closes = 0
+    let saves = 0
+    let confirmations = 0
+    let discard = false
+    const originalConfirm = window.confirm
+    window.confirm = (message) => {
+      assert.equal(
+        message,
+        'Closing will discard the unsaved inventory draft. Continue?'
+      )
+      confirmations++
+      return discard
+    }
+    let completeImport: (() => void) | undefined
+    const importCompletion = new Promise<void>((resolve) => {
+      completeImport = resolve
+    })
+    const writes: Array<{ items: string[] }> = []
+    api.get = (async () =>
+      result({ items: [], has_more: false })) as typeof api.get
+    api.post = (async (_url: string, body: { items: string[] }) => {
+      writes.push(body)
+      await importCompletion
+      return result({ added: body.items.length })
+    }) as typeof api.post
+    function Harness() {
+      const [opened, setOpened] = useState(true)
+      return opened ? (
+        <StoreInventoryImport
+          product={{ ...product, template }}
+          onClose={() => {
+            closes++
+            setOpened(false)
+          }}
+          onSaved={async () => {
+            saves++
+            setOpened(false)
+          }}
+        />
+      ) : (
+        <button type='button' onClick={() => setOpened(true)}>
+          Reopen inventory
+        </button>
+      )
+    }
+    const field = (id: string) => {
+      const node = document.querySelector<
+        HTMLInputElement | HTMLTextAreaElement
+      >(id)
+      assert.ok(node, `inventory field ${id}`)
+      return node
+    }
+    async function fillDraft(includeUnqueued = false) {
+      if (template === 'card-key') {
+        await input(field('[aria-label="Inventory text"]'), ' key-A \n key-A ')
+      } else if (template === 'custom-text') {
+        await input(field('#store-complete-item'), 'queued key\nsecond line')
+        await click(button('Add one item'))
+        if (includeUnqueued) {
+          await input(field('#store-complete-item'), 'unfinished next key')
+        }
+      } else {
+        await input(field('#store-delivery-username'), 'merchant-user')
+        await input(field('#store-delivery-password'), ' private password ')
+        if (!includeUnqueued) await click(button('Add one item'))
+      }
+    }
+    try {
+      await mount(<Harness />)
+      await fillDraft(true)
+      await click(button('Close'))
+      assert.equal(closes, 0)
+      assert.equal(confirmations, 1)
+      if (template === 'card-key') {
+        assert.equal(
+          field('[aria-label="Inventory text"]').value,
+          ' key-A \n key-A '
+        )
+      } else if (template === 'custom-text') {
+        assert.match(document.body.textContent || '', /1 items ready to import/)
+        assert.equal(field('#store-complete-item').value, 'unfinished next key')
+      } else {
+        assert.equal(field('#store-delivery-username').value, 'merchant-user')
+        assert.equal(
+          field('#store-delivery-password').value,
+          ' private password '
+        )
+      }
+      assert.equal(writes.length, 0)
+      discard = true
+      await click(button('Close'))
+      assert.equal(closes, 1)
+      assert.equal(confirmations, 2)
+      assert.equal(
+        document.querySelector('[aria-label="Inventory text"]'),
+        null
+      )
+      await click(button('Reopen inventory'))
+      assert.match(document.body.textContent || '', /0 items ready to import/)
+      assert.equal(
+        field(
+          template === 'card-key'
+            ? '[aria-label="Inventory text"]'
+            : template === 'custom-text'
+              ? '#store-complete-item'
+              : '#store-delivery-username'
+        ).value,
+        ''
+      )
+      await fillDraft()
+      await click(button('Import inventory'))
+      await click(button('Close'))
+      assert.equal(closes, 1, 'an in-flight import cannot be closed')
+      assert.equal(confirmations, 2)
+      await act(async () => {
+        completeImport?.()
+        await flush()
+      })
+      assert.equal(saves, 1)
+      assert.equal(
+        confirmations,
+        2,
+        'successful import closes without discard confirmation'
+      )
+      assert.ok(button('Reopen inventory'))
+      assert.equal(writes.length, 1)
+      if (template === 'card-key') {
+        assert.deepEqual(writes[0], { items: [' key-A ', ' key-A '] })
+      } else if (template === 'custom-text') {
+        assert.deepEqual(writes[0], { items: ['queued key\nsecond line'] })
+      } else {
+        assert.deepEqual(JSON.parse(writes[0].items[0]), {
+          lmm_store_delivery: 1,
+          template: 'account-details',
+          fields: { username: 'merchant-user', password: ' private password ' },
+        })
+      }
+    } finally {
+      completeImport?.()
+      window.confirm = originalConfirm
+    }
+  })
+}
 test('account inventory combines its fields into one item without showing an internal marker', async () => {
   owner(2)
   api.get = (async () =>

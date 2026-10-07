@@ -1389,7 +1389,16 @@ export function StoreInventoryImport({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !busy) onClose()
+        if (open || busy) return
+        if (
+          dirty &&
+          !window.confirm(
+            t('Closing will discard the unsaved inventory draft. Continue?')
+          )
+        ) {
+          return
+        }
+        onClose()
       }}
     >
       <DialogContent className='sm:max-w-xl'>
@@ -1503,11 +1512,17 @@ function StoreInventoryContent({
     [text, composedItems, composerDirty, onDirtyChange]
   )
   let previewItems = composed ? composedItems : []
+  let previewError: unknown = null
   try {
-    if (!composed) previewItems = parseInventoryText(text)
-  } catch {
-    /* submit validates size */
+    if (!composed) {
+      previewItems = parseInventoryText(text)
+      validateComposedItems(previewItems)
+    }
+  } catch (issue) {
+    previewItems = []
+    previewError = issue
   }
+  const importError = previewError || error
   const count = previewItems.length
   async function loadFile(file?: File) {
     if (!file) return
@@ -1534,7 +1549,7 @@ function StoreInventoryContent({
     setError(null)
     try {
       const items = composed ? composedItems : parseInventoryText(text)
-      if (composed) validateComposedItems(items)
+      validateComposedItems(items)
       if (!items.length) throw new Error('Add at least one inventory item')
       if (variant) {
         await storeApi.importVariantStock(product.id, variant.id, items)
@@ -1613,7 +1628,15 @@ function StoreInventoryContent({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <StoreError error={error} />
+      <StoreError error={importError} />
+      {importError instanceof Error &&
+        importError.message === 'Inventory import is too large' && (
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              "Check each item's size or split this inventory import into smaller batches."
+            )}
+          </p>
+        )}
       {!composed && (
         <div className='flex flex-wrap gap-2'>
           <Button
