@@ -211,7 +211,7 @@ test('active, external and oversized media fail closed, including existing unsaf
     'data:image/svg+xml,<svg/>',
     'javascript:evil()',
     'data:text/html;base64,PHN2Zy8+',
-    STORE_SVG_DATA_PREFIX + 'PHN2\nZy8+',
+    `${STORE_SVG_DATA_PREFIX}PHN2\nZy8+`,
   ]) {
     assert.equal(safeStoreMediaUrl(source), undefined)
   }
@@ -333,13 +333,16 @@ function publicRequests() {
   return visible
 }
 
-test('guest catalogue and seller storefront cards render the SVG main image', async () => {
+test('guest catalogue and seller storefront cards show the header and separate SVG logo', async () => {
   publicRequests()
   await mount(<StorePage sellerId={product.seller_id} />)
   const image = document.querySelector<HTMLImageElement>(
     'img[alt="Public image product"]'
   )
-  assert.ok(image?.src.startsWith(STORE_SVG_DATA_PREFIX))
+  assert.equal(image?.src, 'https://cdn.example.test/gallery.png')
+  const logo =
+    image?.parentElement?.querySelector<HTMLImageElement>('img[alt=""]')
+  assert.ok(logo?.src.startsWith(STORE_SVG_DATA_PREFIX))
   assert.ok(document.querySelector(`a[href="/store/products/${product.id}"]`))
 })
 

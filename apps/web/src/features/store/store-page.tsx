@@ -22,7 +22,7 @@ import {
 } from './collection-storage'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreOrderSearch } from './order-search'
-import { safeStoreMediaUrl } from './product-media'
+import { StoreProductCardMedia } from './product-card-media'
 import { StoreBadges, StoreError, StoreLoading } from './shared'
 import { useStoreViewer } from './store-viewer'
 import { StoreProductPrice } from './variant-summary'
@@ -261,18 +261,11 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                             view === 'list' && 'sm:flex'
                           )}
                         >
-                          {safeStoreMediaUrl(product.image_urls?.[0] || '') ? (
-                            <img
-                              src={safeStoreMediaUrl(product.image_urls[0])}
-                              alt={product.title}
-                              className={cn(
-                                'aspect-[16/9] w-full object-cover',
-                                view === 'list' && 'sm:w-44 sm:self-start'
-                              )}
-                              loading='lazy'
-                              referrerPolicy='no-referrer'
-                            />
-                          ) : null}
+                          <StoreProductCardMedia
+                            images={product.image_urls || []}
+                            title={product.title}
+                            list={view === 'list'}
+                          />
                           <div className='space-y-3 p-4'>
                             <StoreBadges product={product} />
                             <StoreCatalogueTags product={product} />
