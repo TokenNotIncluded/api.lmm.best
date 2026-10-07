@@ -13,15 +13,31 @@ The builder requires a local checkout root and its exact reviewed SHA, verifies
 capability 1 and every source file against Git, and disables dependency downloads.
 It performs no checkout/fetch, migration, server start, or production config read.
 
-After Go 87 compatibility is actually published, the central CI owner must
-provide that release's reviewed local checkout and exact revision. No future
-release tag or unissued source SHA is presumed here:
+Server release qualification now selects 13 named merchant test parents and
+requires all 20 PostgreSQL child cases, every parent, and the package to pass
+without any skips or failures. Its wrapper checks out the exact reachable
+ancestor `7ad0469eeaa83bddf45cdd45d225c92bf6078421`, verifies its Git signature
+against the pinned public signing key, and retains the builder's clean/archive
+and exact-capability-one guards. The merchant model source and Go module files
+at that pin match the originally reviewed capability-one source. The full
+module is not represented as an official Go 87/N-1 release.
+
+The current module dependency cache is warmed before the old-source builder;
+the builder still uses `GOPROXY=off`, `GOSUMDB=off`, `-mod=readonly`, `-p 1`, and
+`GOMAXPROCS=2`. Missing cached dependencies fail the job rather than enable
+network fallback. The actual old executable first runs a database-free getter
+that must report compiled capability 1, then runs the activation probe in the
+owned PostgreSQL schema. Evidence and failed compilation logs are uploaded by
+the existing qualification artifact step.
+
+To build the same synthetic probe manually from an explicitly reviewed local
+checkout (the builder itself performs no checkout/fetch):
 
 ```sh
 python3 scripts/build-merchant-store-cap1-probe.py \
   --cap1-source-tree "$REVIEWED_CAP1_CHECKOUT" \
   --cap1-source-revision "$REVIEWED_CAP1_REVISION" \
-  --output-directory "$NEW_PROBE_OUTPUT"
+  --output-directory "$NEW_PROBE_OUTPUT" --go-jobs 1 --go-procs 2
 ```
 
 The builder receipt contains source/fixture/binary hashes. Set
@@ -38,5 +54,8 @@ not verify compilation. The synthetic model test binary is not an official N-1
 release, two-host rollout, deployment-provider rollback, or full production-data
 preservation proof. The gate SHARE holder in this test is the feature binary at
 gate 1; the actual capability-one model binary executes after activation.
-Until central CI supplies its reviewed source and executable, this feature is
-not fully connected to Server CI.
+This documents the CI wiring, not a claim that a particular PR CI run has
+already passed. Access/catalogue business cases remain separate SQLite tests;
+the PostgreSQL preparation cases prove their real schema installation and
+activation checks. The explicit guest-email PostgreSQL child must pass even
+though its parent also contains SQLite checks.

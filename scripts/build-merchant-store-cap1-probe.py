@@ -64,6 +64,7 @@ def main(argv=None):
     parser.add_argument('--output-directory', type=Path)
     parser.add_argument('--validate-only', action='store_true')
     parser.add_argument('--go-jobs', type=int, choices=(1, 2), default=2)
+    parser.add_argument('--go-procs', type=int, choices=(1, 2), help='runtime CPU limit; defaults to --go-jobs')
     parser.add_argument('--cpu-affinity', help='optional existing Linux CPU list, e.g. 2,3')
     args = parser.parse_args(argv)
     if not args.validate_only and args.output_directory is None:
@@ -91,7 +92,9 @@ def main(argv=None):
             if not re.fullmatch(r'\d+(,\d+)*', args.cpu_affinity):
                 raise ValueError('CPU affinity must be an explicit comma-separated CPU list')
             command = ['taskset', '-c', args.cpu_affinity, *command]
-        build_env = dict(os.environ, GOMAXPROCS=str(args.go_jobs), GOPROXY='off', GOSUMDB='off')
+        go_procs = args.go_procs or args.go_jobs
+        receipt.update(go_parallelism=args.go_jobs, go_max_procs=go_procs)
+        build_env = dict(os.environ, GOMAXPROCS=str(go_procs), GOPROXY='off', GOSUMDB='off')
         log = output / 'compile.log'
         with log.open('wb') as stream:
             result = subprocess.run(command, cwd=output/'apps/api-go', env=build_env, stdout=stream, stderr=subprocess.STDOUT)
