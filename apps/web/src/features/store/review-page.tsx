@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { StoreCategoriesManager } from './categories'
+import { safeStoreMediaUrl } from './product-media'
 import { StoreRootRefunds } from './refund-panel'
 import { StoreAmount, StoreAuthGate, StoreError, StoreLoading } from './shared'
 import type { StoreProduct } from './types'
@@ -202,11 +203,11 @@ function StoreReviewRow({
       {product.image_urls?.length > 0 && (
         <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
           {product.image_urls
-            .filter((url) => safeStoreUrl(url))
+            .filter((url) => safeStoreMediaUrl(url))
             .map((url, index) => (
               <img
                 key={index}
-                src={safeStoreUrl(url)}
+                src={safeStoreMediaUrl(url)}
                 alt={product.title}
                 className='aspect-video w-full rounded-md object-cover'
                 loading='lazy'

@@ -277,10 +277,17 @@ func validateStoreProduct(in *MerchantStoreProductInput) error {
 	if in.DeliveryStrategy != "sequential" && in.DeliveryStrategy != "random" {
 		return ErrMerchantStoreInput
 	}
-	for _, v := range in.ImageURLs {
-		if !storeURL(v) {
-			return ErrMerchantStoreInput
+	images := make([]string, len(in.ImageURLs))
+	for index, value := range in.ImageURLs {
+		// Optional logo/header slots retain the rest of the ordered gallery.
+		if index < 2 && strings.TrimSpace(value) == "" {
+			continue
 		}
+		image, err := normalizeMerchantStoreImage(value)
+		if err != nil {
+			return err
+		}
+		images[index] = image
 	}
 	for _, v := range in.Links {
 		if len(v.Title) == 0 || len(v.Title) > 200 || len(v.Description) > 4096 || !storeURL(v.URL) {
@@ -294,6 +301,7 @@ func validateStoreProduct(in *MerchantStoreProductInput) error {
 		}
 		seen[m] = true
 	}
+	in.ImageURLs = images
 	return nil
 }
 func storePaymentMethod(m string) bool {

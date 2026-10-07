@@ -22,9 +22,9 @@ import {
 } from './collection-storage'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreOrderSearch } from './order-search'
+import { safeStoreMediaUrl } from './product-media'
 import { StoreBadges, StoreError, StoreLoading } from './shared'
 import { useStoreViewer } from './store-viewer'
-import { safeStoreUrl } from './utils'
 import { StoreProductPrice } from './variant-summary'
 
 type SearchType = 'auto' | 'products' | 'order' | 'email'
@@ -261,9 +261,9 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                             view === 'list' && 'sm:flex'
                           )}
                         >
-                          {safeStoreUrl(product.image_urls?.[0] || '') ? (
+                          {safeStoreMediaUrl(product.image_urls?.[0] || '') ? (
                             <img
-                              src={safeStoreUrl(product.image_urls[0])}
+                              src={safeStoreMediaUrl(product.image_urls[0])}
                               alt={product.title}
                               className={cn(
                                 'aspect-[16/9] w-full object-cover',

@@ -51,6 +51,9 @@ import { StoreLinkPresetChooser } from './link-presets'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
+import { storeImageEditorText, STORE_SVG_DATA_PREFIX } from './product-media'
+import { StoreProductMediaEditor } from './product-media-editor'
+import { storeProductMediaDraft } from './product-media-fields'
 import { StorePromotionCodes } from './promotion-codes'
 import { storePurchaseLimit } from './purchase-limits'
 import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
@@ -603,6 +606,7 @@ function StoreSellerCenter() {
           testModeSupported={config.data?.product_test_mode_supported === true}
           accessSupported={config.data?.store_access_supported === true}
           categoriesSupported={config.data?.store_categories_supported === true}
+          svgMediaSupported={config.data?.store_svg_media_supported === true}
           purchaseLimitsSupported={
             config.data?.product_purchase_limits_supported === true
           }
@@ -729,6 +733,7 @@ export function StoreProductEditor({
   testModeSupported = false,
   accessSupported = false,
   categoriesSupported = false,
+  svgMediaSupported = false,
   purchaseLimitsSupported = false,
   onClose,
   onSaved,
@@ -740,6 +745,7 @@ export function StoreProductEditor({
   testModeSupported?: boolean
   accessSupported?: boolean
   categoriesSupported?: boolean
+  svgMediaSupported?: boolean
   purchaseLimitsSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
@@ -775,7 +781,15 @@ export function StoreProductEditor({
   }))
   const [confirmAccountCollection, setConfirmAccountCollection] =
     useState(false)
-  const [images, setImages] = useState((product?.image_urls || []).join('\n'))
+  const [logoImage, setLogoImage] = useState(
+    storeImageEditorText(product?.image_urls?.[0] || '')
+  )
+  const [headerImage, setHeaderImage] = useState(
+    storeImageEditorText(product?.image_urls?.[1] || '')
+  )
+  const [images, setImages] = useState(
+    (product?.image_urls || []).slice(2).join('\n')
+  )
   const [orderLimit, setOrderLimit] = useState(
     String(product?.max_quantity_per_order ?? '')
   )
@@ -808,14 +822,15 @@ export function StoreProductEditor({
       ) {
         throw new Error(t(copy.unavailable))
       }
-      const imageUrls = images
-        .split(/\r?\n/)
-        .map((url) => url.trim())
-        .filter(Boolean)
+      const imageUrls = storeProductMediaDraft(logoImage, headerImage, images)
       if (
-        imageUrls.some((url) => !safeStoreUrl(url)) ||
-        draft.links.some((link) => !safeStoreUrl(link.url))
+        !imageUrls ||
+        (!svgMediaSupported &&
+          imageUrls.some((url) => url.startsWith(STORE_SVG_DATA_PREFIX)))
       ) {
+        throw new Error(t('Use a valid image URL or safe static SVG.'))
+      }
+      if (draft.links.some((link) => !safeStoreUrl(link.url))) {
         throw new Error('Use valid HTTP or HTTPS links')
       }
       const body: StoreProductInput = {
@@ -1011,17 +1026,15 @@ export function StoreProductEditor({
                 onChange={(event) => change('contact', event.target.value)}
               />
             </div>
-            <div className='space-y-2 sm:col-span-2'>
-              <Label htmlFor='store-images'>{t('Product image URLs')}</Label>
-              <Textarea
-                id='store-images'
-                rows={2}
-                maxLength={20000}
-                value={images}
-                onChange={(event) => setImages(event.target.value)}
-                placeholder={t('One URL per line')}
-              />
-            </div>
+            <StoreProductMediaEditor
+              logo={logoImage}
+              header={headerImage}
+              additional={images}
+              svgSupported={svgMediaSupported}
+              onLogoChange={setLogoImage}
+              onHeaderChange={setHeaderImage}
+              onAdditionalChange={setImages}
+            />
           </div>
           <fieldset className='space-y-3 border-t pt-4'>
             <legend className='font-semibold'>{t('Product links')}</legend>

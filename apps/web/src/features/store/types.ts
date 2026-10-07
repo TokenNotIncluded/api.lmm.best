@@ -78,6 +78,8 @@ export interface StoreProduct {
   purchase_login_required?: boolean
   title: string
   description: string
+  /** Logo at 0, header at 1, then gallery. Optional role slots may be empty.
+   * Values are HTTP(S) images or validated static SVG data URIs. */
   image_urls: string[]
   contact: string
   links: StoreLink[]
@@ -181,6 +183,7 @@ export interface StoreConfig {
   store_access_supported?: boolean
   store_catalogue_supported?: boolean
   store_categories_supported?: boolean
+  store_svg_media_supported?: boolean
   product_purchase_limits_supported?: boolean
   product_link_presets?: StoreLinkPreset[]
   minimum_unit_price_quota?: number

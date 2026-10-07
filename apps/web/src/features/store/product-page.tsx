@@ -37,6 +37,10 @@ import { rememberStoreGuestOrder } from './guest-order-storage'
 import { useStoreGuestSession, useStoreGuestDisclaimer } from './guest-session'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreMerchantTermsAcceptance } from './merchant-terms'
+import {
+  storeProductGalleryImages,
+  storeProductHeaderImage,
+} from './product-media-fields'
 import { StoreProductPromotion } from './product-promotion'
 import { StoreProductSocialActions } from './product-social-actions'
 import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
@@ -126,6 +130,8 @@ export function StoreProductPage({
   if (ownerPreview && product.seller_id !== user?.id) {
     return <StoreError error={new Error('Product not found')} />
   }
+  const headerImage = storeProductHeaderImage(product.image_urls || [])
+  const galleryImages = storeProductGalleryImages(product.image_urls || [])
   return (
     <div className='space-y-5'>
       {ownerPreview && (
@@ -153,21 +159,27 @@ export function StoreProductPage({
             />
             <StoreProductSocialActions product={product} />
           </div>
-          {product.image_urls?.filter((url) => safeStoreUrl(url)).length >
-            0 && (
+          {headerImage && (
+            <img
+              src={headerImage}
+              alt={product.title}
+              data-store-media-role='header'
+              referrerPolicy='no-referrer'
+              className='aspect-[16/9] w-full rounded-lg border object-cover'
+            />
+          )}
+          {galleryImages.length > 0 && (
             <div className='grid gap-3 sm:grid-cols-2'>
-              {product.image_urls
-                .filter((url) => safeStoreUrl(url))
-                .map((url, index) => (
-                  <img
-                    key={`${url}-${index}`}
-                    src={safeStoreUrl(url)}
-                    alt={product.title}
-                    loading='lazy'
-                    referrerPolicy='no-referrer'
-                    className='aspect-[16/9] w-full rounded-lg border object-cover'
-                  />
-                ))}
+              {galleryImages.map((image, index) => (
+                <img
+                  key={`${image}-${index}`}
+                  src={image}
+                  alt={product.title}
+                  loading='lazy'
+                  referrerPolicy='no-referrer'
+                  className='aspect-[16/9] w-full rounded-lg border object-contain'
+                />
+              ))}
             </div>
           )}
           <Markdown className='min-w-0'>{product.description}</Markdown>
