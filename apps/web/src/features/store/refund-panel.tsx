@@ -19,8 +19,13 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
+import {
+  storeRefundNativeAmountSupported,
+  storeRefundNativeAmountText,
+} from './refund-amount'
 import { storeRefundApi, StoreRefundRequestError } from './refund-api'
 import {
   storeRefundAmountMax,
@@ -55,13 +60,31 @@ const statusLabels = {
   cancelled: 'Refund request cancelled',
 } as const
 
-function CreditAmount({ value }: { value: number }) {
-  const { t, i18n } = useTranslation()
+function WalletAmount({ value }: { value: number }) {
+  const { t } = useTranslation()
+  const wallet = useWalletCurrency()
+  const amount = wallet.quotaToInput(value)
   return (
     <span className='tabular-nums'>
-      {Number.isSafeInteger(value) && value >= 0
-        ? `${new Intl.NumberFormat(i18n.language).format(value)} ${t('Credits')}`
+      {Number.isSafeInteger(value) && value >= 0 && amount !== ''
+        ? `${amount} ${wallet.label}`
         : t('No data provided')}
+    </span>
+  )
+}
+
+function NativeAmount({
+  minor,
+  currency,
+}: {
+  minor: number
+  currency: string
+}) {
+  const { t } = useTranslation()
+  return (
+    <span className='tabular-nums'>
+      {storeRefundNativeAmountText(minor, currency) ??
+        t('{{amount}} {{currency}} minor units', { amount: minor, currency })}
     </span>
   )
 }
@@ -239,19 +262,19 @@ export function StoreRefundPanel({
                 <dl className='grid grid-cols-2 gap-x-4 gap-y-2 text-sm'>
                   <dt className='text-muted-foreground'>{t('Order value')}</dt>
                   <dd className='text-right'>
-                    <CreditAmount value={refundView.principal_quota} />
+                    <WalletAmount value={refundView.principal_quota} />
                   </dd>
                   <dt className='text-muted-foreground'>
                     {t('Refunded order value')}
                   </dt>
                   <dd className='text-right'>
-                    <CreditAmount value={refundView.refunded_quota} />
+                    <WalletAmount value={refundView.refunded_quota} />
                   </dd>
                   <dt className='text-muted-foreground'>
                     {t('Available to refund')}
                   </dt>
                   <dd className='text-right'>
-                    <CreditAmount value={refundView.remaining_quota} />
+                    <WalletAmount value={refundView.remaining_quota} />
                   </dd>
                   {refundView.payment_method !== 'balance' &&
                     refundView.native_basis_verified &&
@@ -261,10 +284,10 @@ export function StoreRefundPanel({
                           {t('Original payment')}
                         </dt>
                         <dd className='text-right'>
-                          {t('{{amount}} {{currency}} minor units', {
-                            amount: refundView.amount_minor,
-                            currency: refundView.currency,
-                          })}
+                          <NativeAmount
+                            minor={refundView.amount_minor}
+                            currency={refundView.currency}
+                          />
                         </dd>
                       </>
                     )}
@@ -372,18 +395,44 @@ function StoreRefundForm({
   onSubmit: (input: StoreRefundInput) => void
 }) {
   const { t } = useTranslation()
+  const wallet = useWalletCurrency()
   const id = useId()
   const [mode, setMode] = useState<StoreRefundMode>('full')
   const [quantity, setQuantity] = useState('1')
-  const [amount, setAmount] = useState('')
+  const balance = view.payment_method === 'balance'
+  const amountKey = balance
+    ? `balance:${wallet.currency}:${wallet.quotaToInput(1)}`
+    : `native:${view.currency}`
+  const [amountDraft, setAmountDraft] = useState({ key: amountKey, value: '' })
+  // A display-currency or conversion change must not reinterpret a typed value.
+  const amount = amountDraft.key === amountKey ? amountDraft.value : ''
+  useEffect(() => {
+    setAmountDraft((previous) =>
+      previous.key === amountKey ? previous : { key: amountKey, value: '' }
+    )
+  }, [amountKey])
   const [reason, setReason] = useState('')
   const [stockIds, setStockIds] = useState<string[]>([])
   const modes = storeRefundModes(view)
   const actualMode = modes.includes(mode) ? mode : 'full'
+  const balanceDisplay = balance
+    ? { currency: wallet.currency, config: wallet.config }
+    : undefined
+  const max = storeRefundAmountMax(view)
+  const maximum = balance
+    ? wallet.quotaToInput(max)
+      ? `${wallet.quotaToInput(max)} ${wallet.label}`
+      : t('No data provided')
+    : (storeRefundNativeAmountText(max, view.currency) ??
+      t('{{amount}} {{currency}} minor units', {
+        amount: max,
+        currency: view.currency,
+      }))
   const input = storeRefundInput(
     view,
     { mode: actualMode, quantity, amount, reason, stockIds },
-    'validation'
+    'validation',
+    balanceDisplay
   )
   return (
     <form
@@ -393,7 +442,8 @@ function StoreRefundForm({
         const body = storeRefundInput(
           view,
           { mode: actualMode, quantity, amount, reason, stockIds },
-          crypto.randomUUID()
+          crypto.randomUUID(),
+          balanceDisplay
         )
         if (body) onSubmit(body)
       }}
@@ -422,6 +472,13 @@ function StoreRefundForm({
             ))}
           </ToggleGroup>
         </Field>
+        {!balance &&
+          view.native_basis_verified &&
+          !storeRefundNativeAmountSupported(view.currency) && (
+            <p className='text-muted-foreground text-sm'>
+              {t('Refund by amount is not supported for this currency.')}
+            </p>
+          )}
         {actualMode === 'quantity' && (
           <>
             <Field data-disabled={disabled} data-invalid={!input && !!reason}>
@@ -487,22 +544,24 @@ function StoreRefundForm({
         {actualMode === 'amount' && (
           <Field data-disabled={disabled} data-invalid={!input && !!reason}>
             <FieldLabel htmlFor={`${id}-amount`}>
-              {view.payment_method === 'balance'
-                ? t('Refund amount (Credits)')
-                : t('Refund amount ({{currency}} minor units)', {
-                    currency: view.currency,
-                  })}
+              {t('Refund amount ({{currency}})', {
+                currency: balance ? wallet.label : view.currency,
+              })}
             </FieldLabel>
             <Input
               id={`${id}-amount`}
-              inputMode='numeric'
+              inputMode={
+                balance && wallet.currency === 'CREDIT' ? 'numeric' : 'decimal'
+              }
               value={amount}
               disabled={disabled}
-              onChange={(event) => setAmount(event.target.value)}
+              onChange={(event) =>
+                setAmountDraft({ key: amountKey, value: event.target.value })
+              }
             />
             <FieldDescription>
               {t('Maximum refund: {{amount}}', {
-                amount: storeRefundAmountMax(view),
+                amount: maximum,
               })}
             </FieldDescription>
           </Field>
@@ -565,14 +624,9 @@ function StoreRefundHistoryRow({
         {storeDate(refund.created_at, i18n.language)}
       </p>
       {view.payment_method === 'balance' ? (
-        <CreditAmount value={refund.amount_quota} />
+        <WalletAmount value={refund.amount_quota} />
       ) : view.native_basis_verified && refund.amount_minor > 0 ? (
-        <p className='tabular-nums'>
-          {t('{{amount}} {{currency}} minor units', {
-            amount: refund.amount_minor,
-            currency: refund.currency,
-          })}
-        </p>
+        <NativeAmount minor={refund.amount_minor} currency={refund.currency} />
       ) : null}
       <p className='break-words whitespace-pre-wrap'>{refund.reason}</p>
       {refund.decision_reason && (

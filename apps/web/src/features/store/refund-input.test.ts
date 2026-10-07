@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
+
 import {
   storeRefundAmountMax,
   storeRefundInput,
@@ -140,11 +142,11 @@ test('external quote and provider flags alone cannot expose partial or guessed n
   })
 })
 
-test('verified native payment uses the original currency minor units without current FX', () => {
+test('verified native payment accepts ordinary original-currency money without current FX', () => {
   const native: StoreRefundView = {
     ...view,
     payment_method: 'platform:waffo_pancake',
-    currency: 'JPY',
+    currency: 'CNY',
     native_basis_verified: true,
     amount_minor: 3000,
     refunded_amount_minor: 1000,
@@ -154,7 +156,7 @@ test('verified native payment uses the original currency minor units without cur
   assert.deepEqual(
     storeRefundInput(
       native,
-      { ...draft('amount'), amount: '1500' },
+      { ...draft('amount'), amount: '15.00' },
       'same-key'
     ),
     {
@@ -167,7 +169,19 @@ test('verified native payment uses the original currency minor units without cur
   assert.equal(
     storeRefundInput(
       native,
-      { ...draft('amount'), amount: '1501' },
+      { ...draft('amount'), amount: '15.01' },
+      'same-key'
+    ),
+    undefined
+  )
+  assert.deepEqual(storeRefundModes({ ...native, currency: 'JPY' }), [
+    'full',
+    'quantity',
+  ])
+  assert.equal(
+    storeRefundInput(
+      { ...native, currency: 'JPY' },
+      draft('amount'),
       'same-key'
     ),
     undefined
@@ -179,6 +193,78 @@ test('verified native payment uses the original currency minor units without cur
       supports_amount: false,
     }),
     ['full']
+  )
+})
+
+test('balance ordinary amounts reuse the wallet denomination and still submit only integer quota', () => {
+  const config = {
+    ...DEFAULT_CURRENCY_CONFIG,
+    currencyUnit: 'credit' as const,
+    creditsPerUsd: 500000,
+    creditsPerUsdExact: '500000',
+    cnyPerUsd: 6.8,
+    cnyPerUsdExact: '6.8',
+  }
+  for (const [currency, amount] of [
+    ['USD', '1.25'],
+    ['CNY', '8.50'],
+  ] as const) {
+    const input = storeRefundInput(
+      view,
+      { ...draft('amount'), amount },
+      'same-key',
+      { currency, config }
+    )
+    assert.equal(input?.amount_quota, 625000)
+    assert.equal(input?.amount_minor, undefined)
+  }
+  assert.equal(
+    storeRefundInput(
+      view,
+      { ...draft('amount'), amount: '1.500002' },
+      'same-key',
+      { currency: 'USD', config }
+    ),
+    undefined
+  )
+  assert.equal(
+    storeRefundInput(view, { ...draft('amount'), amount: '1e0' }, 'same-key', {
+      currency: 'USD',
+      config,
+    }),
+    undefined
+  )
+  assert.equal(
+    storeRefundInput(view, { ...draft('amount'), amount: '1.5' }, 'same-key', {
+      currency: 'CREDIT',
+      config,
+    }),
+    undefined
+  )
+  assert.equal(
+    storeRefundInput(
+      view,
+      { ...draft('amount'), amount: '500000' },
+      'same-key',
+      { currency: 'CREDIT', config }
+    )?.amount_quota,
+    500000
+  )
+  assert.equal(
+    storeRefundInput(view, { ...draft('amount'), amount: '8.50' }, 'same-key', {
+      currency: 'CNY',
+      config: { ...config, cnyPerUsd: 0, cnyPerUsdExact: '' },
+    }),
+    undefined
+  )
+  assert.equal(
+    storeRefundInput(
+      view,
+      { ...draft('amount'), amount: '0.000002' },
+      'same-key',
+      { currency: 'USD', config }
+    )?.amount_quota,
+    1
   )
 })
 

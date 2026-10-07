@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type React from 'react'
@@ -58,6 +58,8 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
 const { api } = await import('@/lib/api')
 const { StoreRefundPanel, StorePickupRefunds, StoreRootRefunds } =
   await import('./refund-panel')
@@ -145,7 +147,11 @@ function requests(
 async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 30))
 }
-async function mount(node: React.ReactNode, role: number | null = 1) {
+async function mount(
+  node: React.ReactNode,
+  role: number | null = 1,
+  currency: 'USD' | 'CNY' | 'CREDIT' = 'CNY'
+) {
   useAuthStore.getState().auth.setUser(
     role === null
       ? null
@@ -154,7 +160,7 @@ async function mount(node: React.ReactNode, role: number | null = 1) {
           role,
           username: 'refund-owner',
           quota: 5000000,
-          setting: JSON.stringify({ wallet_display_currency: 'CNY' }),
+          setting: JSON.stringify({ wallet_display_currency: currency }),
         }
   )
   const host = document.createElement('div')
@@ -233,6 +239,29 @@ async function submit(
   await input(field(label), reason)
   await click(button(submitButton))
 }
+async function changeWalletCurrency(currency: 'USD' | 'CNY' | 'CREDIT') {
+  await act(async () => {
+    const user = required(useAuthStore.getState().auth.user)
+    useAuthStore.getState().auth.setUser({
+      ...user,
+      setting: JSON.stringify({ wallet_display_currency: currency }),
+    })
+    await flush()
+  })
+}
+beforeEach(() => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500000,
+      creditsPerUsdExact: '500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+    },
+  })
+  localStorage.clear()
+})
 afterEach(async () => {
   const mountedRoot = root
   if (mountedRoot) await act(async () => mountedRoot.unmount())
@@ -263,8 +292,8 @@ test('buyer full refund preserves original order identity and submits once despi
     />
   )
   assert.match(document.body.textContent || '', /Original blue variant/)
-  assert.match(document.body.textContent || '', /1,000,000 Credits/)
-  assert.doesNotMatch(document.body.textContent || '', /CNY/)
+  assert.match(document.body.textContent || '', /14 CNY/)
+  assert.doesNotMatch(document.body.textContent || '', /Credits/)
   await input(field('Refund reason'), 'Wrong item')
   await act(async () => {
     button('Request refund').click()
@@ -308,7 +337,9 @@ test('quantity selection submits only exact remaining card item IDs without show
 test('amount refund is integer Credits and disables totals above the remaining original order value', async () => {
   const records = requests()
   await mount(
-    <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />
+    <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />,
+    1,
+    'CREDIT'
   )
   await click(button('Refund by amount'))
   await input(field('Refund reason'), 'Partial adjustment')
@@ -614,7 +645,7 @@ test('ordinary admin has no Root refund lookup or read; Root can inspect frozen 
   assert.equal(hasButton('Refund this order'), true)
 })
 
-test('verified external partial refund sends original payment minor units and frozen currency', async () => {
+test('unknown native currency keeps raw historical units and disables amount without guessing ISO precision', async () => {
   const native: StoreRefundView = {
     ...view,
     payment_method: 'platform:waffo_pancake',
@@ -622,6 +653,7 @@ test('verified external partial refund sends original payment minor units and fr
     native_basis_verified: true,
     amount_minor: 3000,
     remaining_amount_minor: 2000,
+    refunds: [{ ...refund, amount_minor: 125, currency: 'JPY' }],
   }
   const records = requests((request) =>
     envelope(
@@ -639,14 +671,160 @@ test('verified external partial refund sends original payment minor units and fr
     <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />
   )
   assert.match(document.body.textContent || '', /3000 JPY minor units/)
+  assert.match(document.body.textContent || '', /125 JPY minor units/)
+  assert.match(
+    document.body.textContent || '',
+    /not supported for this currency/
+  )
+  assert.equal(hasButton('Refund by amount'), false)
+  assert.equal(hasButton('Full refund'), true)
+  assert.equal(hasButton('Refund by quantity'), true)
+  assert.equal(records.filter((record) => record.method === 'POST').length, 0)
+})
+
+for (const currency of ['USD', 'CNY'] as const) {
+  test(`${currency} native amount accepts 20.00 and preserves original payment/history currency`, async () => {
+    const native: StoreRefundView = {
+      ...view,
+      payment_method: 'platform:waffo_pancake',
+      currency,
+      native_basis_verified: true,
+      amount_minor: 5000,
+      remaining_amount_minor: 3000,
+      refunds: [
+        { ...refund, amount_minor: 250, currency, status: 'completed' },
+      ],
+    }
+    const records = requests((request) =>
+      envelope(request.method === 'GET' ? native : refund)
+    )
+    await mount(
+      <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />,
+      1,
+      currency === 'USD' ? 'CNY' : 'USD'
+    )
+    assert.match(
+      document.body.textContent || '',
+      new RegExp(`50.00 ${currency}`)
+    )
+    assert.match(
+      document.body.textContent || '',
+      new RegExp(`2.50 ${currency}`)
+    )
+    await click(button('Refund by amount'))
+    const amount = field(`Refund amount (${currency})`)
+    assert.equal(amount.inputMode, 'decimal')
+    assert.match(
+      document.body.textContent || '',
+      new RegExp(`Maximum refund: 30.00 ${currency}`)
+    )
+    await input(amount, '20.00')
+    await changeWalletCurrency(currency)
+    assert.equal(field(`Refund amount (${currency})`).value, '20.00')
+    await submit()
+    const body = required(records.find((record) => record.method === 'POST'))
+      .body as StoreRefundInput
+    assert.equal(body.amount_minor, 2000)
+    assert.equal(body.amount_quota, undefined)
+  })
+
+  test(`${currency} balance amount converts an ordinary decimal to integer ledger quota`, async () => {
+    const records = requests((request) =>
+      envelope(
+        request.method === 'GET'
+          ? { ...view, remaining_quota: 15000000 }
+          : refund
+      )
+    )
+    await mount(
+      <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />,
+      1,
+      currency
+    )
+    await click(button('Refund by amount'))
+    await input(field(`Refund amount (${currency})`), '20.00')
+    await submit()
+    const body = required(records.find((record) => record.method === 'POST'))
+      .body as StoreRefundInput
+    assert.equal(body.amount_quota, currency === 'USD' ? 10000000 : 1428571)
+    assert.equal(body.amount_minor, undefined)
+  })
+}
+
+test('balance amount draft clears on currency or FX change instead of reinterpreting its old value', async () => {
+  const records = requests((request) =>
+    envelope(
+      request.method === 'GET' ? { ...view, remaining_quota: 15000000 } : refund
+    )
+  )
+  await mount(
+    <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />
+  )
   await click(button('Refund by amount'))
-  await input(field('Refund amount (JPY minor units)'), '125')
+  await input(field('Refund amount (CNY)'), '20.00')
+  await input(field('Refund reason'), 'Partial adjustment')
+  assert.equal(button('Request refund').disabled, false)
+  await changeWalletCurrency('USD')
+  assert.equal(field('Refund amount (USD)').value, '')
+  assert.equal(button('Request refund').disabled, true)
+  await changeWalletCurrency('CNY')
+  assert.equal(field('Refund amount (CNY)').value, '')
+  await input(field('Refund amount (CNY)'), '20.00')
+  await act(async () => {
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...useSystemConfigStore.getState().config.currency,
+        cnyPerUsd: 8,
+        cnyPerUsdExact: '8',
+      },
+    })
+    await flush()
+  })
+  assert.equal(field('Refund amount (CNY)').value, '')
+  assert.equal(button('Request refund').disabled, true)
+  assert.equal(records.filter((record) => record.method === 'POST').length, 0)
+})
+
+test('unknown amount result retries its original integer body and key after wallet denomination changes', async () => {
+  let fail = true
+  const records = requests((request) => {
+    if (request.method === 'GET') return envelope(view)
+    if (fail) return Promise.reject(new Error('lost response'))
+    return envelope(refund)
+  })
+  await mount(
+    <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />
+  )
+  await click(button('Refund by amount'))
+  await input(field('Refund amount (CNY)'), '14.00')
   await submit()
-  const body = records.find((record) => record.method === 'POST')
-    ?.body as StoreRefundInput
-  assert.equal(body.amount_minor, 125)
-  assert.equal(body.amount_quota, undefined)
-  assert.doesNotMatch(document.body.textContent || '', /CNY|Refund completed/)
+  const first = required(records.find((record) => record.method === 'POST'))
+    .body as StoreRefundInput
+  assert.equal(first.amount_quota, 1000000)
+  assert.equal(hasButton('Request refund'), false)
+  await changeWalletCurrency('USD')
+  await click(button('Check refund status'))
+  assert.equal(records.filter((record) => record.method === 'POST').length, 1)
+  fail = false
+  await click(button('Retry the same refund request'))
+  const writes = records.filter((record) => record.method === 'POST')
+  assert.equal(writes.length, 2)
+  assert.deepEqual(writes[1].body, first)
+})
+
+test('balance history keeps the smallest ledger amount visible in the wallet currency', async () => {
+  requests(() =>
+    envelope({
+      ...view,
+      refunds: [{ ...refund, amount_quota: 1, status: 'completed' }],
+    })
+  )
+  await mount(
+    <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />,
+    1,
+    'USD'
+  )
+  assert.match(document.body.textContent || '', /0.000002 USD/)
 })
 
 test('acknowledged refund with failed refresh blocks another request until authoritative status is read', async () => {

@@ -1,4 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  displayAmountToQuota,
+  type WalletDisplayCurrency,
+} from '@/lib/currency'
+import type { CurrencyConfig } from '@/stores/system-config-store'
+
+import {
+  storeRefundNativeAmountFromInput,
+  storeRefundNativeAmountSupported,
+} from './refund-amount'
 import type {
   StoreRefundInput,
   StoreRefundMode,
@@ -56,7 +66,13 @@ export function storeRefundModes(view: StoreRefundView): StoreRefundMode[] {
   if (partial && view.supports_quantity && storeRefundQuantityMax(view) > 0) {
     modes.push('quantity')
   }
-  if (partial && view.supports_amount && storeRefundAmountMax(view) > 0) {
+  if (
+    partial &&
+    view.supports_amount &&
+    (view.payment_method === 'balance' ||
+      storeRefundNativeAmountSupported(view.currency)) &&
+    storeRefundAmountMax(view) > 0
+  ) {
     modes.push('amount')
   }
   return modes
@@ -71,7 +87,11 @@ export function storeRefundInput(
     amount: string
     stockIds: string[]
   },
-  requestKey: string
+  requestKey: string,
+  balanceDisplay?: {
+    currency: WalletDisplayCurrency
+    config: CurrencyConfig
+  }
 ): StoreRefundInput | undefined {
   const reason = draft.reason.trim()
   if (
@@ -106,8 +126,24 @@ export function storeRefundInput(
     }
   }
   if (draft.mode === 'amount') {
-    const amount = storeRefundInteger(draft.amount)
-    if (amount === undefined || amount > storeRefundAmountMax(view)) {
+    let amount: number | undefined
+    if (view.payment_method !== 'balance') {
+      amount = storeRefundNativeAmountFromInput(draft.amount, view.currency)
+    } else if (!balanceDisplay) {
+      amount = storeRefundInteger(draft.amount)
+    } else if (
+      draft.amount.length <= 512 &&
+      /^\d+(?:\.\d+)?$/.test(draft.amount) &&
+      (balanceDisplay.currency !== 'CREDIT' ||
+        storeRefundInteger(draft.amount) !== undefined)
+    ) {
+      amount = displayAmountToQuota(
+        draft.amount,
+        balanceDisplay.currency,
+        balanceDisplay.config
+      )
+    }
+    if (!positive(amount) || amount > storeRefundAmountMax(view)) {
       return undefined
     }
     if (view.payment_method === 'balance') input.amount_quota = amount
