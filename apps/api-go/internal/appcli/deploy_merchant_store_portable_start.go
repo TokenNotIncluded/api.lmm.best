@@ -19,15 +19,15 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/internal/deploymentfence"
 )
 
-func merchantStorePortableFencePaths(c productionMerchantStoreCapsule, invocation string) (string, string) {
+func merchantStorePortableOwnerPath(c productionMerchantStoreCapsule, invocation string) string {
 	directory := filepath.Join(c.Root, "state")
 	if invocation != "" {
 		directory = filepath.Join(directory, "start-"+invocation)
 	}
-	return filepath.Join(directory, "portable-owner.json"), filepath.Join(directory, "portable-fence.sock")
+	return filepath.Join(directory, "portable-owner.json")
 }
 func (runtime *productionRuntime) portableOwner(ctx context.Context, c productionMerchantStoreCapsule, digest, invocation string) (productionMerchantStoreFenceOwner, []byte, error) {
-	path, _ := merchantStorePortableFencePaths(c, invocation)
+	path := merchantStorePortableOwnerPath(c, invocation)
 	body, err := runtime.readExistingSchemaSealedFile(path, true)
 	if err != nil {
 		return productionMerchantStoreFenceOwner{}, nil, errors.New("portable live owner receipt is missing or unsafe")
@@ -53,7 +53,10 @@ func (runtime *productionRuntime) requestMerchantStorePortableFence(ctx context.
 	if err != nil {
 		return err
 	}
-	_, socket := merchantStorePortableFencePaths(c, invocation)
+	socket, err := runtime.merchantStoreSocketPath(c.Root, owner, false)
+	if err != nil {
+		return err
+	}
 	info, err := os.Lstat(socket)
 	if err != nil {
 		return errors.New("portable holder socket is missing")
@@ -318,7 +321,11 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 	if err != nil || actual["MainPID"] != strconv.Itoa(owner.HolderPID) || actual["ExecMainPID"] != strconv.Itoa(owner.HolderPID) || actual["InvocationID"] != ownInvocation || actual["Restart"] != "no" || actual["ActiveState"] != "active" {
 		return errors.New("portable holder does not own the actual non-restarting unit generation")
 	}
-	ownerPath, socketPath := merchantStorePortableFencePaths(c, startInvocation)
+	ownerPath := merchantStorePortableOwnerPath(c, startInvocation)
+	socketPath, err := runtime.merchantStoreSocketPath(c.Root, owner, true)
+	if err != nil {
+		return err
+	}
 	directory := filepath.Dir(ownerPath)
 	if runtime.merchantStorePrivateDirectory(directory, true) != nil {
 		return errors.New("portable holder state directory is unsafe")
@@ -337,7 +344,7 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 	}
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
 	if err != nil {
-		return errors.New("portable listener failed; ACTIVE owner remains")
+		return fmt.Errorf("portable listener failed; ACTIVE owner remains: %w", err)
 	}
 	listener.SetUnlinkOnClose(false)
 	defer listener.Close()
@@ -425,7 +432,11 @@ func (runtime *productionRuntime) handleMerchantStorePortableConnection(ctx cont
 	}
 	// A completed exact CAS is the only path which removes this holder's
 	// communication files. Keep the original owner value as terminal evidence.
-	ownerPath, socketPath := merchantStorePortableFencePaths(c, invocation)
+	ownerPath := merchantStorePortableOwnerPath(c, invocation)
+	socketPath, err := runtime.merchantStoreSocketPath(c.Root, owner, false)
+	if err != nil {
+		return true
+	}
 	if writeAtomicRegularFile(filepath.Join(filepath.Dir(ownerPath), "portable-released-owner.json"), ownerJSON, 0600) != nil {
 		return true
 	}
@@ -443,7 +454,7 @@ func (runtime *productionRuntime) ensureMerchantStorePortableFence(ctx context.C
 	if c.Format == 2 && invocation == "" {
 		return errors.New("startup baseline cannot create an ordinary deployment holder")
 	}
-	ownerPath, _ := merchantStorePortableFencePaths(c, invocation)
+	ownerPath := merchantStorePortableOwnerPath(c, invocation)
 	if _, err := os.Lstat(ownerPath); err == nil {
 		return runtime.requestMerchantStorePortableFence(ctx, c, digest, invocation, false)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -491,7 +502,7 @@ func (runtime *productionRuntime) merchantStorePortableStart(ctx context.Context
 	if err := runtime.qualifyMerchantStoreCapsule(ctx, c, digest, invocation, false); err != nil {
 		return err
 	}
-	parent, _ := merchantStorePortableFencePaths(c, "")
+	parent := merchantStorePortableOwnerPath(c, "")
 	if _, err := os.Lstat(parent); err == nil {
 		if c.Format == 2 {
 			return errors.New("startup baseline cannot reuse an ordinary parent holder")

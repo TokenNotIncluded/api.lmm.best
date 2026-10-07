@@ -44,8 +44,12 @@ func testMerchantStoreFenceLiveRPC(t *testing.T, ctx context.Context, lease *pro
 	workspace := productionWorkspace{root: directory, id: owner.DeploymentID, stateDir: state, manifestPath: filepath.Join(state, productionManifestFilename), statusPath: filepath.Join(state, productionStatusFilename)}
 	manifest := productionManifest{Go: productionPackageTransition{Changed: true}, SchemaPlanSHA256: owner.PlanSHA256, MerchantStoreWriter: contract}
 	unit := &merchantStoreHolderUnitFixture{owner: owner}
-	runtime := &productionRuntime{runner: unit, requiredOwnerUID: uint32(os.Getuid()), hostname: func() (string, error) { return owner.Host, nil }}
-	ownerPath, socketPath := merchantStoreFencePaths(workspace)
+	runtime := &productionRuntime{runner: unit, requiredOwnerUID: uint32(os.Getuid()), merchantStoreSocketDirectory: directory, hostname: func() (string, error) { return owner.Host, nil }}
+	ownerPath := merchantStoreFenceOwnerPath(workspace)
+	socketPath, err := runtime.merchantStoreSocketPath(workspace.root, owner, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	canonical, _ := canonicalMerchantStoreFenceOwner(owner)
 	if err := os.WriteFile(ownerPath, canonical, 0600); err != nil {
 		t.Fatal(err)

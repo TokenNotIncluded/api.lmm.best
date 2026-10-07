@@ -40,12 +40,12 @@ func merchantStoreFenceContractSHA(contract *productionMerchantStoreWriterContra
 	return startupContentSHA256(body)
 }
 
-func merchantStoreFencePaths(workspace productionWorkspace) (string, string) {
-	return filepath.Join(workspace.stateDir, "merchant-fence-owner.json"), filepath.Join(workspace.stateDir, "merchant-fence.sock")
+func merchantStoreFenceOwnerPath(workspace productionWorkspace) string {
+	return filepath.Join(workspace.stateDir, "merchant-fence-owner.json")
 }
 
 func (runtime *productionRuntime) readMerchantStoreFenceOwner(workspace productionWorkspace, manifest productionManifest) (productionMerchantStoreFenceOwner, string, error) {
-	path, _ := merchantStoreFencePaths(workspace)
+	path := merchantStoreFenceOwnerPath(workspace)
 	body, err := runtime.readExistingSchemaSealedFile(path, true)
 	if err != nil {
 		return productionMerchantStoreFenceOwner{}, "", errors.New("merchant deployment durable owner receipt is missing or unsafe")
@@ -93,7 +93,10 @@ func (runtime *productionRuntime) requestMerchantStoreFence(ctx context.Context,
 	if digest, err := hasher(owner.HolderPID); err != nil || digest != owner.ProviderSHA256 {
 		return errors.New("merchant deployment holder executable differs from the qualified signed provider")
 	}
-	_, socket := merchantStoreFencePaths(workspace)
+	socket, err := runtime.merchantStoreSocketPath(workspace.root, owner, false)
+	if err != nil {
+		return err
+	}
 	info, err := os.Lstat(socket)
 	if err != nil || info == nil {
 		return errors.New("merchant deployment holder socket is unavailable")
@@ -273,7 +276,11 @@ func (runtime *productionRuntime) holdMerchantStoreFence(ctx context.Context, wo
 	if err != nil || unit["MainPID"] != strconv.Itoa(owner.HolderPID) || unit["ExecMainPID"] != strconv.Itoa(owner.HolderPID) || unit["InvocationID"] != invocation || unit["Restart"] != "no" || unit["ActiveState"] != "active" {
 		return errors.New("merchant deployment holder does not own the actual non-restarting systemd invocation")
 	}
-	ownerPath, socketPath := merchantStoreFencePaths(workspace)
+	ownerPath := merchantStoreFenceOwnerPath(workspace)
+	socketPath, err := runtime.merchantStoreSocketPath(workspace.root, owner, true)
+	if err != nil {
+		return err
+	}
 	for _, path := range []string{ownerPath, socketPath} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("merchant deployment holder state already exists; explicit recovery review is required")
@@ -288,7 +295,7 @@ func (runtime *productionRuntime) holdMerchantStoreFence(ctx context.Context, wo
 	}
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
 	if err != nil {
-		return errors.New("merchant deployment holder listener failed; ACTIVE database owner remains blocked")
+		return fmt.Errorf("merchant deployment holder listener failed; ACTIVE database owner remains blocked: %w", err)
 	}
 	listener.SetUnlinkOnClose(false)
 	defer listener.Close()
@@ -309,7 +316,8 @@ func (runtime *productionRuntime) holdMerchantStoreFence(ctx context.Context, wo
 		}
 		released := runtime.handleMerchantStoreFenceConnection(ctx, workspace, manifest, owner, ownerJSON, lease, connection)
 		if released {
-			return nil
+			_ = listener.Close()
+			return os.Remove(socketPath)
 		}
 	}
 }
@@ -377,7 +385,7 @@ func (runtime *productionRuntime) ensureMerchantStoreFence(ctx context.Context, 
 	if err := validateMerchantStoreWriterContract(manifest.MerchantStoreWriter); err != nil || !productionSHA256Pattern.MatchString(manifest.SchemaPlanSHA256) {
 		return errors.New("merchant deployment cannot create a durable holder without its immutable same-schema plan")
 	}
-	ownerPath, _ := merchantStoreFencePaths(workspace)
+	ownerPath := merchantStoreFenceOwnerPath(workspace)
 	if _, err := os.Lstat(ownerPath); err == nil {
 		return runtime.requestMerchantStoreFence(ctx, workspace, manifest, false)
 	} else if !errors.Is(err, os.ErrNotExist) {

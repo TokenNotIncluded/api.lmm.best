@@ -353,6 +353,7 @@ type productionRuntime struct {
 	maintenanceProcessEnvironment func(int) ([]byte, error)
 	merchantStoreLastWriterCheck  productionMerchantStoreWriterTarget
 	merchantStoreAuthority        productionMerchantStoreAuthority
+	merchantStoreSocketDirectory  string // Test-only path injection; production always uses the fixed /run directory.
 	cleanupProcessReferences      func(string) (bool, error)
 	paths                         productionPaths
 	runner                        productionCommandRunner
