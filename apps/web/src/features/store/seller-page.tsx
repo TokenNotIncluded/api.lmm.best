@@ -378,11 +378,7 @@ function StoreSellerCenter() {
                         <Button
                           size='sm'
                           variant='outline'
-                          disabled={
-                            busy !== null ||
-                            (storeVisibility(product) === 'private' &&
-                              product.status === 'off_shelf')
-                          }
+                          disabled={busy !== null}
                           onClick={() =>
                             void action(product, () =>
                               storeApi.listing(

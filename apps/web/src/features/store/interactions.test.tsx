@@ -82,6 +82,7 @@ const { StorePaymentCategoriesForm } = await import('./payment-categories')
 const { MerchantStoreSettingsSection } =
   await import('@/features/system-settings/integrations/merchant-store-settings-section')
 const { StoreOrderRow, StoreOrdersPage } = await import('./orders-page')
+const { createStoreCheckoutIntentJournal } = await import('./checkout-intent')
 const { StoreAmount } = await import('./shared')
 const { StoreDeliveryEmail } = await import('./delivery-email')
 const { StoreProductEditor } = await import('./seller-page')
@@ -242,6 +243,9 @@ afterEach(async () => {
   owner(null)
   useSystemConfigStore.setState({ config: originalConfig })
   localStorage.clear()
+  dom.happyDOM.setURL(
+    'https://shop.example.test/store/products/product-fixture'
+  )
   document.body.replaceChildren()
 })
 after(() => dom.happyDOM.abort())
@@ -2223,7 +2227,20 @@ for (const preparation of [
       }
       assert.fail(`Unexpected POST ${url}`)
     }) as typeof api.post
+    await createStoreCheckoutIntentJournal({
+      isActorCurrent: (actor) =>
+        actor.kind === 'account' && actor.accountId === 2,
+    }).prepare(
+      { kind: 'account', accountId: 2 },
+      { productId: product.id, quantity: 1 },
+      {
+        product_id: product.id,
+        quantity: 1,
+        payment_method: pending.payment_method,
+      }
+    )
     const journal = localStorage.getItem('lmm:store:checkout-intents')
+    assert.ok(journal)
     await mount(<StoreOrdersPage />)
     assert.ok(button('Cancel order'))
     await click(
@@ -2246,18 +2263,17 @@ for (const preparation of [
     if (preparation === 'cancel-conflict') {
       assert.ok(document.body.textContent?.includes('order state changed'))
     } else if (preparation === 'lost-response') {
-      assert.ok(document.body.textContent?.includes('response lost'))
+      assert.ok(document.body.textContent?.includes('Store request failed'))
     } else {
       assert.ok(button('Continue to payment'))
     }
     if (preparation.endsWith('refresh-fails')) {
-      assert.ok(
-        document.body.textContent?.includes('Order refresh unavailable')
-      )
+      assert.ok(document.body.textContent?.includes('Store request failed'))
       refreshFails = false
       await click(button('Check payment status'))
       assert.equal(paymentAttempts, 1)
       assert.equal(cancellationAttempts, 0)
+      assert.equal(localStorage.getItem('lmm:store:checkout-intents'), journal)
     }
     dom.happyDOM.setURL(
       'https://shop.example.test/store/products/product-fixture'
