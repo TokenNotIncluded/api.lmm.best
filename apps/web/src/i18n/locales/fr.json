@@ -2707,6 +2707,7 @@
     "Credited API balance": "Solde de plateforme crédité ($ (Plateforme))",
     "Credited balance": "Solde crédité",
     "Credited platform balance": "Solde de plateforme crédité ($ (Plateforme))",
+    "credits": "Points",
     "Credits": "Crédits",
     "Credits {{amount}}": "Crédits {{amount}}",
     "Credits {{credits}}. Pay {{payment}}": "Crédits {{credits}}. Paiement {{payment}}",
@@ -11367,6 +11368,21 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
     "Zoom in": "Agrandir",
-    "Zoom out": "Réduire"
+    "Zoom out": "Réduire",
+    "仅管理员可见，包含所有保留账户的累计使用和当前余额。": "Visible par les administrateurs uniquement. Inclut l’utilisation cumulée et les soldes actuels de tous les comptes conservés.",
+    "充值优惠可能增加到账点数，实付金额按支付记录统计，不能用到账点数或当前余额反推付款。现金按订单原币种显示，LDC 等非现金点数单独列示，不兑换或合计为现金。净付款为原始付款减已记录退款，不包含赠额、站内转账、商店收入或订阅付款。": "Les offres de recharge peuvent ajouter des points au compte. Les paiements réels sont calculés à partir des transactions et ne peuvent pas être déduits des points crédités ou du solde actuel. Les paiements en espèces sont affichés dans la devise d’origine de chaque commande. Les LDC et autres points non monétaires sont affichés séparément, sans conversion ni ajout aux espèces. Le paiement net correspond aux paiements d’origine moins les remboursements enregistrés. Les bonus, transferts internes, revenus de la boutique et paiements d’abonnement sont exclus.",
+    "全站累计使用": "Utilisation cumulée sur toute la plateforme",
+    "全站统计": "Statistiques de la plateforme",
+    "全站统计暂时无法读取": "Statistiques de la plateforme temporairement indisponibles",
+    "原始付款": "Paiements d’origine",
+    "已记录退款": "Remboursements enregistrés",
+    "当前全站总余额": "Solde total actuel de la plateforme",
+    "暂无已确认的充值付款记录。": "Aucun paiement de recharge confirmé pour le moment.",
+    "用户充值实际现金付款": "Paiements en espèces réels pour les recharges des utilisateurs",
+    "用户充值实际非现金点数付款": "Paiements réels en points non monétaires pour les recharges des utilisateurs",
+    "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Preuve fiable de paiement manquante pour {{unconfirmed}} opérations ; anomalie de montant pour {{invalid}} opérations. Ces opérations ne sont pas incluses dans les totaux des paiements.",
+    "请刷新重试，当前金额未确认。": "Veuillez actualiser et réessayer. Le montant n’est pas encore confirmé.",
+    "退款后净付款": "Paiements nets après remboursements",
+    "部分充值记录无法确认实付": "Le paiement réel de certaines recharges ne peut pas être confirmé"
   }
 }

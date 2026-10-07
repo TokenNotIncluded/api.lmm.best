@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useDashboardContentVisibility } from '../../hooks/use-status-data'
+import { AdminSiteStatisticsPanel } from './admin-site-statistics'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
@@ -55,6 +56,7 @@ export function OverviewDashboard() {
         </>
       )}
       <SummaryCards />
+      {isAdmin && <AdminSiteStatisticsPanel />}
 
       {showContentPanels && (
         <div

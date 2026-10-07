@@ -693,6 +693,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			financeRoute.GET("/export", controller.ExportFinancialData)
 			financeRoute.GET("/overview", controller.GetFinanceOverview)
+			financeRoute.GET("/site-statistics", controller.GetAdminSiteStatistics)
 			financeRoute.GET("/users", controller.GetFinanceUsers)
 			financeRoute.GET("/users/:user_id", controller.GetFinanceUser)
 			financeRoute.GET("/entries", controller.ListFinanceEntries)

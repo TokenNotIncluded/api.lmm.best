@@ -2707,6 +2707,7 @@
     "Credited API balance": "Số dư nền tảng được cộng ($ (Nền tảng))",
     "Credited balance": "Số dư được cộng",
     "Credited platform balance": "Số dư nền tảng được cộng ($ (Nền tảng))",
+    "credits": "Điểm",
     "Credits": "Credit",
     "Credits {{amount}}": "Nạp {{amount}}",
     "Credits {{credits}}. Pay {{payment}}": "Nạp {{credits}}. Thanh toán {{payment}}",
@@ -11367,6 +11368,21 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Thu phóng",
     "Zoom in": "Phóng to",
-    "Zoom out": "Thu nhỏ"
+    "Zoom out": "Thu nhỏ",
+    "仅管理员可见，包含所有保留账户的累计使用和当前余额。": "Chỉ quản trị viên mới xem được. Bao gồm tổng mức sử dụng và số dư hiện tại của tất cả tài khoản được giữ lại.",
+    "充值优惠可能增加到账点数，实付金额按支付记录统计，不能用到账点数或当前余额反推付款。现金按订单原币种显示，LDC 等非现金点数单独列示，不兑换或合计为现金。净付款为原始付款减已记录退款，不包含赠额、站内转账、商店收入或订阅付款。": "Ưu đãi nạp tiền có thể làm tăng số điểm được cộng vào tài khoản. Khoản tiền thực trả được tính theo giao dịch thanh toán, không suy ra từ số điểm đã cộng hoặc số dư hiện tại. Tiền mặt được hiển thị theo đơn vị tiền tệ gốc của từng đơn hàng. LDC và các điểm không dùng tiền mặt khác được liệt kê riêng, không quy đổi hoặc cộng vào tiền mặt. Khoản thanh toán ròng bằng khoản thanh toán ban đầu trừ các khoản hoàn tiền đã ghi nhận. Không bao gồm điểm thưởng, chuyển khoản nội bộ, doanh thu cửa hàng hoặc khoản thanh toán thuê bao.",
+    "全站累计使用": "Tổng mức sử dụng toàn hệ thống",
+    "全站统计": "Thống kê toàn hệ thống",
+    "全站统计暂时无法读取": "Tạm thời không đọc được thống kê toàn hệ thống",
+    "原始付款": "Khoản thanh toán ban đầu",
+    "已记录退款": "Khoản hoàn tiền đã ghi nhận",
+    "当前全站总余额": "Tổng số dư hiện tại toàn hệ thống",
+    "暂无已确认的充值付款记录。": "Chưa có giao dịch thanh toán nạp tiền nào được xác nhận.",
+    "用户充值实际现金付款": "Tiền mặt thực trả cho các lần nạp tiền của người dùng",
+    "用户充值实际非现金点数付款": "Điểm phi tiền mặt thực trả cho các lần nạp tiền của người dùng",
+    "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Thiếu bằng chứng thanh toán đáng tin cậy cho {{unconfirmed}} giao dịch; {{invalid}} giao dịch có số tiền bất thường. Các giao dịch này không được tính vào tổng thanh toán.",
+    "请刷新重试，当前金额未确认。": "Vui lòng tải lại trang và thử lại. Số tiền hiện chưa được xác nhận.",
+    "退款后净付款": "Khoản thanh toán ròng sau hoàn tiền",
+    "部分充值记录无法确认实付": "Không thể xác nhận khoản thanh toán thực tế cho một số giao dịch nạp tiền"
   }
 }

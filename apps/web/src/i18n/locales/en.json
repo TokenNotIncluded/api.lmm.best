@@ -2707,6 +2707,7 @@
     "Credited API balance": "Credited platform balance ($ (Platform))",
     "Credited balance": "Credited balance",
     "Credited platform balance": "Credited platform balance ($ (Platform))",
+    "credits": "Credits",
     "Credits": "Credits",
     "Credits {{amount}}": "Credits {{amount}}",
     "Credits {{credits}}. Pay {{payment}}": "Credits {{credits}}. Pay {{payment}}",
@@ -11367,6 +11368,21 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
     "Zoom in": "Zoom in",
-    "Zoom out": "Zoom out"
+    "Zoom out": "Zoom out",
+    "仅管理员可见，包含所有保留账户的累计使用和当前余额。": "Visible to admins only. Includes cumulative usage and current balances across all retained accounts.",
+    "充值优惠可能增加到账点数，实付金额按支付记录统计，不能用到账点数或当前余额反推付款。现金按订单原币种显示，LDC 等非现金点数单独列示，不兑换或合计为现金。净付款为原始付款减已记录退款，不包含赠额、站内转账、商店收入或订阅付款。": "Promotions may add points to an account. Actual payments are calculated from payment records and cannot be inferred from points credited or current balances. Cash is shown in each order’s original currency. LDC and other non-cash points are listed separately and are never converted to or added to cash. Net paid equals original payments minus recorded refunds. Bonuses, internal transfers, store revenue, and subscription payments are excluded.",
+    "全站累计使用": "Total usage across the platform",
+    "全站统计": "Platform statistics",
+    "全站统计暂时无法读取": "Platform statistics are temporarily unavailable",
+    "原始付款": "Original payments",
+    "已记录退款": "Recorded refunds",
+    "当前全站总余额": "Current total balance across the platform",
+    "暂无已确认的充值付款记录。": "No confirmed top-up payment records yet.",
+    "用户充值实际现金付款": "Actual cash paid for user top-ups",
+    "用户充值实际非现金点数付款": "Actual non-cash points paid for user top-ups",
+    "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Reliable payment evidence is missing for {{unconfirmed}} records; {{invalid}} records have amount irregularities. These records are excluded from the payment totals.",
+    "请刷新重试，当前金额未确认。": "Please refresh and try again. The amount is not yet confirmed.",
+    "退款后净付款": "Net payments after refunds",
+    "部分充值记录无法确认实付": "Actual payments cannot be confirmed for some top-up records"
   }
 }
