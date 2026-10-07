@@ -90,10 +90,12 @@ const { api } = await import('@/lib/api')
 const { consumeQueuedAssistantRequest, subscribeToAssistantOpen } =
   await import('@/features/assistant/assistant-events')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const { GettingStarted } = await import('./getting-started')
 const originalGet = api.get
 const originalPost = api.post
 const originalFetch = globalThis.fetch
+const originalConfig = useSystemConfigStore.getState().config
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
@@ -223,6 +225,7 @@ afterEach(() => {
   api.post = originalPost
   globalThis.fetch = originalFetch
   useAuthStore.getState().auth.reset('complete')
+  useSystemConfigStore.setState({ config: originalConfig })
   window.localStorage.clear()
   window.sessionStorage.clear()
   document.body.replaceChildren()
@@ -554,29 +557,68 @@ describe('getting started access boundaries', () => {
     await unmountPage(page)
   })
   test('shows the configured payment threshold and hides it when paid activation is disabled', async () => {
+    useSystemConfigStore.setState({
+      config: {
+        ...originalConfig,
+        currency: {
+          ...originalConfig.currency,
+          currencyUnit: 'credit',
+          creditsPerUsd: 500000,
+          creditsPerUsdExact: '500000',
+          cnyPerUsd: 7,
+          cnyPerUsdExact: '7',
+        },
+      },
+    })
     const onboarding = {
       activation_complete: false,
       credential_complete: false,
       first_request_complete: false,
       stage: 'activate' as const,
       paid_activation_enabled: true,
-      paid_activation_min_amount: 5,
+      paid_activation_min_amount: 9999,
+      paid_activation_min_credits: '2500001',
+    }
+    const creditProgress: Partial<AuthUser> = {
+      setting: { wallet_display_currency: 'USD' },
+      trust_level_info: {
+        level: 0,
+        automatic_level: 0,
+        override_level: null,
+        paid_amount: 99999,
+        paid_credits: '1000000',
+        discount_ratio: 1,
+        discount_percent: 0,
+        inactivity_decay_steps: 0,
+        decay_period_days: 0,
+        overridden: false,
+      },
     }
     for (const language of ['en', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi']) {
       await i18n.changeLanguage(language)
-      const page = await renderPage(false, undefined, null, { onboarding })
+      const page = await renderPage(false, undefined, null, {
+        ...creditProgress,
+        onboarding,
+      })
       assert.ok(
         page.container.querySelector('[data-testid="l0-paid-progress"]')
       )
       assert.doesNotMatch(page.container.textContent ?? '', /NaN|undefined/)
+      if (language === 'en') {
+        assert.match(
+          page.container.querySelector('.l0-rail-meta')?.textContent ?? '',
+          /Top up 3\.01 USD for instant approval/
+        )
+      }
       await unmountPage(page)
     }
     await i18n.changeLanguage('en')
     for (const override of [
       { ...onboarding, paid_activation_enabled: false },
-      { ...onboarding, paid_activation_min_amount: undefined },
+      { ...onboarding, paid_activation_min_credits: undefined },
     ]) {
       const page = await renderPage(false, undefined, null, {
+        ...creditProgress,
         onboarding: override,
       })
       assert.equal(
