@@ -301,6 +301,103 @@ test('browse uses server sorting and independent filters, renders authoritative 
   assert.equal(dom.localStorage.getItem(GUEST_STORE_CART_KEY), null)
 })
 
+for (const count of [0, 1, 2, 3, 4]) {
+  test(`catalogue gives the current first three results priority with ${count} products and preserves usable detail links`, async () => {
+    const cards = Array.from({ length: count }, (_, index) => ({
+      ...product,
+      id: `layout-${index}`,
+      title: `Long product title ${index} ${'商家提供的完整商品名称'.repeat(8)}`,
+      description: 'A factual merchant description, with no product media.',
+      price_min_quota: 250000,
+      price_max_quota: 1000000,
+    }))
+    mockRequests((request) =>
+      request.url === '/api/store/products' ? page(cards) : page([])
+    )
+    await mount(<StorePage />)
+    const visible = [
+      ...document.querySelectorAll<HTMLElement>('[data-store-product-id]'),
+    ]
+    assert.deepEqual(
+      visible.map((card) => card.dataset.storeProductId),
+      cards.map((card) => card.id)
+    )
+    assert.equal(
+      visible.filter((card) => card.dataset.storeCardPriority === 'lead')
+        .length,
+      Math.min(count, 3)
+    )
+    for (const [index, card] of visible.entries()) {
+      assert.equal(card.querySelector('h2')?.textContent, cards[index]?.title)
+      assert.equal(card.querySelectorAll('img').length, 0)
+      assert.match(card.querySelector('strong')?.textContent ?? '', /–/)
+      const details = [...card.querySelectorAll<HTMLAnchorElement>('a')].find(
+        (link) => link.textContent?.trim() === 'View details'
+      )
+      assert.equal(
+        details?.getAttribute('href'),
+        `/store/products/layout-${index}`
+      )
+    }
+    if (!count) {
+      assert.match(
+        document.body.textContent ?? '',
+        /Nothing on the shelves yet/
+      )
+      assert.equal(document.querySelector('[data-store-card-priority]'), null)
+    }
+  })
+}
+
+test('large catalogue cards follow freshly sorted server results, while list mode keeps the same product order and actions', async () => {
+  const cards = Array.from({ length: 4 }, (_, index) => ({
+    ...product,
+    id: `rank-${index}`,
+    title: `Ranked product ${index}`,
+  }))
+  mockRequests((request) => {
+    if (request.url !== '/api/store/products') return page([])
+    const sort = (request.config as { params?: { sort?: string } })?.params
+      ?.sort
+    return page(sort === 'newest' ? [...cards].reverse() : cards)
+  })
+  await mount(<StorePage />)
+  const sort = required(
+    document.querySelector<HTMLSelectElement>('#store-catalogue-sort')
+  )
+  await act(async () => {
+    sort.value = 'newest'
+    sort.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+  })
+  await waitFor(
+    () =>
+      document
+        .querySelector('[data-store-product-id]')
+        ?.getAttribute('data-store-product-id') === 'rank-3'
+  )
+  assert.deepEqual(
+    [...document.querySelectorAll('[data-store-card-priority="lead"]')].map(
+      (card) => card.getAttribute('data-store-product-id')
+    ),
+    ['rank-3', 'rank-2', 'rank-1']
+  )
+  await click(button('List'))
+  assert.equal(document.querySelector('[data-store-card-priority]'), null)
+  assert.deepEqual(
+    [...document.querySelectorAll('article h2')].map((heading) =>
+      heading.textContent?.trim()
+    ),
+    [...cards].reverse().map((card) => card.title)
+  )
+  assert.equal(
+    [...document.querySelectorAll('button')].filter(
+      (node) => node.textContent?.trim() === 'Add to cart'
+    ).length,
+    4
+  )
+})
+
 test('anonymous selected SKU and quantity persist as references only and refreshed checkout retains them through sign in', async () => {
   let current = product
   const requests = mockRequests((request) =>

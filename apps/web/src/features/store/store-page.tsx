@@ -10,12 +10,11 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { catalogueApi } from './catalogue-api'
 import { StoreCatalogueFiltersPanel } from './catalogue-filters'
+import { StoreCatalogueProductCard } from './catalogue-product-card'
 import { useStoreCatalogueSupport } from './catalogue-support'
-import { StoreCatalogueTags } from './catalogue-tags'
 import type { StoreCatalogueFilters } from './catalogue-types'
 import { StoreCategorySelect } from './categories'
 import { useStoreCategories } from './category-support'
-import { StoreCollectionActions } from './collection-actions'
 import {
   readStoreCatalogueView,
   writeStoreCatalogueView,
@@ -23,10 +22,8 @@ import {
 import { StoreAnnouncement, StoreMerchantHomeHeader } from './merchant-home'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreOrderSearch } from './order-search'
-import { StoreProductCardMedia } from './product-card-media'
-import { StoreBadges, StoreError, StoreLoading } from './shared'
+import { StoreError, StoreLoading } from './shared'
 import { useStoreViewer } from './store-viewer'
-import { StoreProductPrice } from './variant-summary'
 
 type SearchType = 'auto' | 'products' | 'order' | 'email'
 
@@ -254,71 +251,16 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                   <div
                     className={cn(
                       'grid gap-4',
-                      view === 'cards' && 'sm:grid-cols-2 lg:grid-cols-3'
+                      view === 'cards' && 'grid-cols-12 sm:gap-5'
                     )}
                   >
-                    {query.data.items.map((product) => (
-                      <article
+                    {query.data.items.map((product, index) => (
+                      <StoreCatalogueProductCard
                         key={product.id}
-                        className={cn(
-                          'bg-card overflow-hidden rounded-lg border',
-                          view === 'list' &&
-                            'sm:grid sm:grid-cols-[minmax(0,1fr)_16rem]'
-                        )}
-                      >
-                        <a
-                          href={`/store/products/${product.id}`}
-                          className={cn(
-                            'focus-visible:outline-ring block focus-visible:outline-2',
-                            view === 'list' && 'sm:flex'
-                          )}
-                        >
-                          <StoreProductCardMedia
-                            images={product.image_urls || []}
-                            title={product.title}
-                            list={view === 'list'}
-                          />
-                          <div className='space-y-3 p-4'>
-                            <StoreBadges product={product} />
-                            <StoreCatalogueTags product={product} />
-                            <h2 className='truncate font-semibold'>
-                              {product.title}
-                            </h2>
-                            <p className='text-muted-foreground line-clamp-2 min-h-10 text-sm'>
-                              {product.description}
-                            </p>
-                            <div className='flex items-center justify-between gap-2 text-sm'>
-                              <strong>
-                                <StoreProductPrice product={product} />
-                              </strong>
-                              {typeof product.net_paid_quantity === 'number' &&
-                                Number.isSafeInteger(
-                                  product.net_paid_quantity
-                                ) &&
-                                product.net_paid_quantity !== null &&
-                                product.net_paid_quantity >= 0 && (
-                                  <span className='text-muted-foreground'>
-                                    {t('Sold: {{count}}', {
-                                      count: product.net_paid_quantity,
-                                    })}
-                                  </span>
-                                )}
-                            </div>
-                          </div>
-                        </a>
-                        <div
-                          className={cn(
-                            'space-y-3 border-t px-4 py-3',
-                            view === 'list' && 'sm:border-t-0 sm:border-s'
-                          )}
-                        >
-                          <StoreMerchantIdentity
-                            seller={product.seller}
-                            sellerId={product.seller_id}
-                          />
-                          <StoreCollectionActions product={product} />
-                        </div>
-                      </article>
+                        product={product}
+                        featured={index < 3}
+                        list={view === 'list'}
+                      />
                     ))}
                   </div>
                 )}
