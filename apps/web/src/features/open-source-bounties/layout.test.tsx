@@ -183,17 +183,6 @@ describe('open-source bounty layout', () => {
         data = { total: 0 }
       } else if (url === '/api/open-source-bounties/config') {
         data = { rate_percent: 10, rate_basis_points: 1_000 }
-      } else if (url === '/api/open-source-bounties/mcp-token') {
-        data = {
-          status: {
-            configured: false,
-            token_hint: '',
-            created_at: 0,
-            last_used_at: 0,
-          },
-          endpoint: '/mcp',
-          protocol_version: '2026-07-28',
-        }
       }
       return { data: { success: true, data } }
     }) as typeof api.get
@@ -226,7 +215,7 @@ describe('open-source bounty layout', () => {
     assert.match(tabsList.className, /(?:^|\s)lg:justify-center(?:\s|$)/)
 
     const tabs = [...container.querySelectorAll<HTMLElement>('[role="tab"]')]
-    assert.equal(tabs.length, 6)
+    assert.equal(tabs.length, 5)
     for (const tab of tabs) {
       assert.match(tab.className, /(?:^|\s)min-h-11(?:\s|$)/)
       assert.match(tab.className, /(?:^|\s)whitespace-normal(?:\s|$)/)
