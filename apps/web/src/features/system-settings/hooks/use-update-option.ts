@@ -63,6 +63,7 @@ const STATUS_RELATED_KEYS = new Set([
   'AssistantStreamEnabled',
   'AssistantTemperature',
   'AssistantMaxTokens',
+  'AssistantNewUserGiftMaxCredits',
   'AssistantAgentLoopEnabled',
   'AssistantMaxSteps',
   'AssistantTimeoutSeconds',
@@ -116,6 +117,9 @@ async function invalidateOptionQueries(
   }
   if (changedKeys.includes('RSSFeeds')) {
     refreshes.push(invalidate(['rss']))
+  }
+  if (changedKeys.includes('AssistantNewUserGiftMaxCredits')) {
+    refreshes.push(invalidate(['assistant-new-user-gift']))
   }
   if (changedKeys.includes('AssistantPreConversationPresets')) {
     refreshes.push(invalidate(['assistant-pre-conversation-presets']))

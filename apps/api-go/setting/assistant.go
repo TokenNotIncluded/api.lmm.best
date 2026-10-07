@@ -101,6 +101,7 @@ type AssistantSettings struct {
 	StreamEnabled          bool
 	Temperature            float64
 	MaxTokens              int
+	NewUserGiftMaxCredits  string
 	AgentLoopEnabled       bool
 	MaxSteps               int
 	TimeoutSeconds         int
@@ -656,6 +657,9 @@ func ValidateAssistantOption(key string, value string) error {
 		return err
 	}
 	switch key {
+	case AssistantNewUserGiftMaxCreditsOptionKey:
+		_, err := ParseAssistantNewUserGiftMaxCredits(value)
+		return err
 	case AssistantModelOptionKey:
 		model := strings.TrimSpace(value)
 		if model == "" {

@@ -271,6 +271,7 @@ export type ContentSettings = {
   AssistantStreamEnabled: boolean
   AssistantTemperature: number
   AssistantMaxTokens: number
+  AssistantNewUserGiftMaxCredits: number
   AssistantAgentLoopEnabled: boolean
   AssistantMaxSteps: number
   AssistantTimeoutSeconds: number

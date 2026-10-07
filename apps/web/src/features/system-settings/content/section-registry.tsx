@@ -133,6 +133,8 @@ const CONTENT_SECTIONS = [
           AssistantStreamEnabled: settings.AssistantStreamEnabled,
           AssistantTemperature: settings.AssistantTemperature,
           AssistantMaxTokens: settings.AssistantMaxTokens,
+          AssistantNewUserGiftMaxCredits:
+            settings.AssistantNewUserGiftMaxCredits,
           AssistantAgentLoopEnabled: settings.AssistantAgentLoopEnabled,
           AssistantMaxSteps: settings.AssistantMaxSteps,
           AssistantTimeoutSeconds: settings.AssistantTimeoutSeconds,

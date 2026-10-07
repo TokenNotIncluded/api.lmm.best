@@ -109,7 +109,18 @@ var assistantToolSets [1 << 11]struct {
 }
 
 func assistantToolDefinitions() []assistantOpenAIToolDefinition {
-	return assistantTools()
+	return assistantRefreshGiftToolDefinition(assistantTools())
+}
+
+func assistantRefreshGiftToolDefinition(catalogue []assistantOpenAIToolDefinition) []assistantOpenAIToolDefinition {
+	for index, definition := range catalogue {
+		if definition.Function.Name == "prepare_new_user_gift" {
+			tools := append([]assistantOpenAIToolDefinition(nil), catalogue...)
+			tools[index] = assistantNewUserGiftToolDefinition()
+			return tools
+		}
+	}
+	return catalogue
 }
 
 // buildAssistantTools creates one immutable catalogue. Request handling only
@@ -289,18 +300,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 				Parameters:  emptyObjectSchema(),
 			},
 		},
-		{
-			Type: "function",
-			Function: assistantOpenAIToolFunction{
-				Name:        "prepare_new_user_gift",
-				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. One detailed user message can be sufficient. Reuse concrete purpose and planned work already supplied; ask at most one focused clarification only when essential details are missing. Do not require another turn, an extra example, a technical stack, or proof of expertise. Judge the legitimate purpose and specificity from the complete conversation. Choose an integer 0-1000 LEGACY_CENTS, hundredths of one legacy pricing unit, preserving the existing Credit gift range. These are not US cents; explain the result using public_credit_amount or amount_usd. Zero is a valid final decision and consumes the opportunity. A gift application with a concrete legitimate purpose is not itself abuse. Do not reward money demands or self-reported expertise alone, promotion or referral farming, multiple-account claims, automated reward farming, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
-				Parameters: objectSchema(map[string]any{
-					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000, "description": "LEGACY_CENTS: hundredths of one legacy pricing unit, preserving the existing Credit gift range. Not US cents. The result reports public_credit_amount and amount_usd."},
-					"amount_unit":  map[string]any{"type": "string", "enum": []string{"LEGACY_CENTS"}, "description": "The retained amount_cents input uses LEGACY_CENTS only."},
-					"reason":       map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
-				}, []string{"amount_cents", "reason"}),
-			},
-		},
+		assistantNewUserGiftToolDefinition(),
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -593,7 +593,8 @@ func assistantToolDefinitionsForContext(userContext assistantUserContext) []assi
 			}
 		}
 	})
-	return set.tools
+	// Context tool membership can be cached; a financial cap cannot.
+	return assistantRefreshGiftToolDefinition(set.tools)
 }
 
 func keyForTools(context assistantUserContext) toolSetKey {

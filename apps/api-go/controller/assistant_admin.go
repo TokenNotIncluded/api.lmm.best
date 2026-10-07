@@ -89,6 +89,7 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"AssistantStreamEnabled":                        "Stream assistant responses to the console",
 	"AssistantTemperature":                          "Assistant response temperature",
 	"AssistantMaxTokens":                            "Maximum assistant response tokens",
+	"AssistantNewUserGiftMaxCredits":                "Maximum one-time new-user gift in integer wallet credits (0 disables issuance)",
 	"AssistantAgentLoopEnabled":                     "Enable safe assistant tool calls",
 	"AssistantMaxSteps":                             "Maximum assistant tool-loop steps",
 	"AssistantTimeoutSeconds":                       "Assistant tool-loop timeout",

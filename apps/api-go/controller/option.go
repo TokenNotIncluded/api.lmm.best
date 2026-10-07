@@ -49,6 +49,14 @@ func GetOptions(c *gin.Context) {
 			continue
 		}
 		value := common.Interface2String(v)
+		if k == setting.AssistantNewUserGiftMaxCreditsOptionKey && strings.TrimSpace(value) == "" {
+			cap, capErr := setting.AssistantNewUserGiftMaxCredits("")
+			if capErr != nil {
+				common.ApiError(c, capErr)
+				return
+			}
+			value = strconv.Itoa(cap)
+		}
 		if k == model.TrustLevelBenefitsOptionKey {
 			value = model.TrustLevelConfigurationJSON()
 		}

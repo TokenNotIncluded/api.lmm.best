@@ -1476,3 +1476,35 @@ describe('assistant conversation history API', () => {
     )
   })
 })
+
+test('accepts canonical credit gifts beyond the old cap and one-credit gifts without inventing legacy cents', () => {
+  for (const credits of [1, 9000000]) {
+    const action = parseAssistantAction({
+      type: 'new_user_gift',
+      status: 'offered',
+      amount_cents: 0,
+      amount_unit: 'LEGACY_CENTS',
+      credit_amount: credits,
+      amount_usd: credits / 500000,
+      currency: 'USD',
+      credits_per_usd: 500000,
+      max_credit_amount: 9000000,
+      claim_available: true,
+      reason: 'A concrete legitimate workflow.',
+    })
+    assert.ok(action)
+    assert.equal(action.type, 'new_user_gift')
+    if (action.type === 'new_user_gift')
+      assert.equal(action.credit_amount, credits)
+  }
+  assert.equal(
+    parseAssistantAction({
+      type: 'new_user_gift',
+      status: 'offered',
+      amount_cents: 0,
+      credit_amount: 1,
+      reason: 'A concrete legitimate workflow.',
+    }),
+    undefined
+  )
+})

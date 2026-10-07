@@ -249,6 +249,9 @@ export type AssistantJourney = {
 export type AssistantNewUserGift = {
   amount_cents: number
   amount_unit?: 'LEGACY_CENTS'
+  max_credit_amount?: number
+  claim_available?: boolean
+  claim_blocked_code?: string
   credit_amount?: number
   amount_usd?: number | null
   currency?: 'USD'
@@ -269,6 +272,9 @@ export type AssistantNewUserGiftAction = {
   type: 'new_user_gift'
   amount_cents: number
   amount_unit?: 'LEGACY_CENTS'
+  max_credit_amount?: number
+  claim_available?: boolean
+  claim_blocked_code?: string
   credit_amount?: number
   amount_usd?: number | null
   currency?: 'USD'
@@ -898,8 +904,15 @@ function parseAssistantNewUserGiftAction(
     action.status !== 'offered' ||
     typeof action.amount_cents !== 'number' ||
     !Number.isInteger(action.amount_cents) ||
-    action.amount_cents < 1 ||
-    action.amount_cents > 1000 ||
+    action.amount_cents < 0 ||
+    !Number.isSafeInteger(action.amount_cents) ||
+    (action.amount_cents === 0 &&
+      !(
+        typeof action.credit_amount === 'number' &&
+        Number.isSafeInteger(action.credit_amount) &&
+        action.credit_amount > 0
+      )) ||
+    action.claim_available === false ||
     typeof action.reason !== 'string'
   ) {
     return undefined
@@ -929,10 +942,26 @@ function parseAssistantNewUserGiftAction(
           credits_per_usd: action.credits_per_usd,
         }
       : {}
+  if (action.amount_cents === 0 && !('credit_amount' in money)) return undefined
+  if (
+    typeof action.max_credit_amount === 'number' &&
+    'credit_amount' in money &&
+    (money.credit_amount as number) > action.max_credit_amount
+  ) {
+    return undefined
+  }
   return {
     type: 'new_user_gift',
     ...money,
     amount_cents: action.amount_cents,
+    ...(typeof action.max_credit_amount === 'number' &&
+    Number.isSafeInteger(action.max_credit_amount) &&
+    action.max_credit_amount >= 0
+      ? { max_credit_amount: action.max_credit_amount }
+      : {}),
+    ...(typeof action.claim_available === 'boolean'
+      ? { claim_available: action.claim_available }
+      : {}),
     status: 'offered',
     reason,
   }
@@ -2104,16 +2133,26 @@ export async function claimAssistantNewUserGift(): Promise<{
   gift: AssistantNewUserGift
   already_claimed: boolean
 }> {
-  const response = await api.post<
-    AssistantAPIResponse<{
-      gift: AssistantNewUserGift
-      already_claimed: boolean
-    }>
-  >('/api/assistant/new-user-gift/claim', undefined, {
-    skipBusinessError: true,
-    skipErrorHandler: true,
-  })
-  return requireAssistantData(response.data, 'Unable to claim welcome gift')
+  try {
+    const response = await api.post<
+      AssistantAPIResponse<{
+        gift: AssistantNewUserGift
+        already_claimed: boolean
+      }>
+    >('/api/assistant/new-user-gift/claim', undefined, {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+    return requireAssistantData(response.data, 'Unable to claim welcome gift')
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw normalizeAssistantRequestError(
+        error,
+        'Unable to claim welcome gift'
+      )
+    }
+    throw error
+  }
 }
 
 export async function getAssistantWeeklyDiscount(): Promise<AssistantWeeklyDiscount | null> {

@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import * as z from 'zod'
 
+import { creditAmountSchema } from '@/lib/quota-input'
+
 import {
   ASSISTANT_REASONING_EFFORTS,
   ASSISTANT_SEARCH_PROVIDERS,
@@ -37,6 +39,7 @@ export const assistantSettingsSchema = z.object({
   AssistantStreamEnabled: z.boolean(),
   AssistantTemperature: z.number().min(0).max(2),
   AssistantMaxTokens: z.number().int().min(64).max(8192),
+  AssistantNewUserGiftMaxCredits: creditAmountSchema,
   AssistantAgentLoopEnabled: z.boolean(),
   AssistantMaxSteps: z.number().int().min(1).max(32),
   AssistantTimeoutSeconds: z.number().int().min(5).max(300),

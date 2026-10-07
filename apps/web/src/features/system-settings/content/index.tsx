@@ -51,6 +51,7 @@ const defaultContentSettings: ContentSettings = {
   AssistantStreamEnabled: true,
   AssistantTemperature: 0.2,
   AssistantMaxTokens: 900,
+  AssistantNewUserGiftMaxCredits: 0,
   AssistantAgentLoopEnabled: true,
   AssistantMaxSteps: 6,
   AssistantTimeoutSeconds: 45,

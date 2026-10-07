@@ -101,6 +101,7 @@ const baseValues = {
   AssistantStreamEnabled: true,
   AssistantTemperature: 0.2,
   AssistantMaxTokens: 900,
+  AssistantNewUserGiftMaxCredits: 5000000,
   AssistantAgentLoopEnabled: true,
   AssistantMaxSteps: 6,
   AssistantTimeoutSeconds: 45,
@@ -949,6 +950,108 @@ describe('assistant asynchronous Moderation settings', () => {
       api.get = originalGet
       api.post = originalPost
       await rendered.cleanup()
+    }
+  })
+})
+
+describe('administrator welcome-gift cap', () => {
+  test('rejects non-integer, negative and unsafe credit maxima', () => {
+    for (const value of [
+      -1,
+      0.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...baseValues,
+          AssistantNewUserGiftMaxCredits: value,
+        }).success,
+        false
+      )
+    }
+    for (const value of [0, 1, 9000000, Number.MAX_SAFE_INTEGER]) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...baseValues,
+          AssistantNewUserGiftMaxCredits: value,
+        }).success,
+        true
+      )
+    }
+  })
+  test('edits in USD and keeps exactly the same integer credits when switching display units', async () => {
+    const { useSystemConfigStore } =
+      await import('@/stores/system-config-store')
+    const { DEFAULT_CURRENCY_CONFIG } = await import('@/lib/currency')
+    const { useWalletCurrencyPreferenceStore } =
+      await import('@/stores/wallet-currency-preference-store')
+    const oldConfig = useSystemConfigStore.getState().config
+    const oldPreference = useWalletCurrencyPreferenceStore.getState().preference
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        creditsPerUsd: 500000,
+        cnyPerUsd: 7,
+        legacyPricingUnitsPerUsd: 1,
+      },
+    })
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+    const originalGet = api.get,
+      originalPost = api.post
+    let captured: Record<string, string> | undefined
+    api.get = (async () => ({ data: { data: ['default'] } })) as typeof api.get
+    api.post = (async (
+      _url: string,
+      body: { values?: Record<string, string> }
+    ) => {
+      captured = body.values
+      return { data: { success: true } }
+    }) as typeof api.post
+    const rendered = await renderSettings('none')
+    try {
+      const input = rendered.container.querySelector<HTMLInputElement>(
+        'input[name="AssistantNewUserGiftMaxCredits"]'
+      )
+      const form = rendered.container.querySelector('form')
+      assert.ok(input)
+      assert.ok(form)
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value'
+        )?.set
+        assert.ok(setter)
+        setter.call(input, '2.5')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+        await flushEffects()
+      })
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+        await flushEffects()
+      })
+      assert.equal(input.value, '17.5')
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+        await flushEffects()
+      })
+      assert.equal(input.value, '1250000')
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.deepEqual(captured, { AssistantNewUserGiftMaxCredits: '1250000' })
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await rendered.cleanup()
+      useSystemConfigStore.getState().setConfig(oldConfig)
+      useWalletCurrencyPreferenceStore.getState().setPreference(oldPreference)
     }
   })
 })

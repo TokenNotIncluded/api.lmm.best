@@ -20,7 +20,6 @@ const (
 	AssistantGiftOffered  = "offered"
 	AssistantGiftClaimed  = "claimed"
 	AssistantGiftDeclined = "declined"
-	assistantGiftMaxCents = 1000
 	assistantGiftRiskAge  = 30 * 24 * time.Hour
 	assistantGiftIPLimit  = 3
 )
@@ -30,6 +29,8 @@ var (
 	ErrAssistantGiftInvalid     = errors.New("new-user assistant gift decision is invalid")
 	ErrAssistantGiftUnavailable = errors.New("new-user assistant gift cannot be claimed")
 	ErrAssistantGiftAbuse       = errors.New("new-user assistant gift risk limit reached")
+	ErrAssistantGiftLimit       = errors.New("new-user gift exceeds the current maximum")
+	ErrAssistantGiftDisabled    = errors.New("new-user gifts are currently disabled")
 )
 
 // AssistantGiftError preserves the coarse sentinel used by callers while
@@ -136,7 +137,40 @@ func GetAssistantNewUserGift(userID int) (*AssistantNewUserGift, error) {
 // not accepted from a browser. The database uniqueness constraint is the
 // final race boundary across retries and instances.
 func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents int, reason string, substantiveTurns int, substantiveRunes int, clientIP string) (*AssistantNewUserGift, bool, error) {
-	if userID <= 0 || conversationID < 0 || amountCents < 0 || amountCents > assistantGiftMaxCents {
+	if amountCents < 0 || amountCents > common.MaxWalletQuota {
+		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	if _, err := common.LegacyPricingUnitsPerUSD(); err != nil {
+		return nil, false, err
+	}
+	legacy, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return nil, false, err
+	}
+	quota, err := common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(int64(amountCents)).Mul(legacy).Div(decimal.NewFromInt(100)).Round(0))
+	if err != nil {
+		return nil, false, err
+	}
+	if amountCents > 0 && quota <= 0 {
+		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	return decideAssistantNewUserGiftCredits(userID, conversationID, quota, amountCents, reason, substantiveTurns, substantiveRunes, clientIP)
+}
+
+// New assistant decisions use exact wallet credits. The retained legacy input
+// remains a compatibility bridge and cannot bypass this same Credit cap.
+func DecideAssistantNewUserGiftCredits(userID int, conversationID int64, credits int, reason string, substantiveTurns int, substantiveRunes int, clientIP string) (*AssistantNewUserGift, bool, error) {
+	if err := common.ValidateWalletQuota(credits); err != nil || credits < 0 {
+		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	if _, err := common.CreditsPerUSD(); err != nil {
+		return nil, false, err
+	}
+	return decideAssistantNewUserGiftCredits(userID, conversationID, credits, 0, reason, substantiveTurns, substantiveRunes, clientIP)
+}
+
+func decideAssistantNewUserGiftCredits(userID int, conversationID int64, quota, amountCents int, reason string, substantiveTurns int, substantiveRunes int, clientIP string) (*AssistantNewUserGift, bool, error) {
+	if userID <= 0 || conversationID < 0 || quota < 0 {
 		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
 	}
 	// A detailed first message can establish a legitimate purpose. Keep the
@@ -164,24 +198,8 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 	if user.Role != common.RoleCommonUser || user.Status != common.UserStatusEnabled || strings.TrimSpace(user.Email) == "" || IsDisposableEmail(user.Email) {
 		return nil, false, assistantGiftError("account_not_eligible", ErrAssistantGiftIneligible)
 	}
-	if _, err := common.LegacyPricingUnitsPerUSD(); err != nil {
-		return nil, false, err
-	}
-	legacyUnit, err := common.LegacyPricingQuotaPerUnit()
-	if err != nil {
-		return nil, false, err
-	}
-	// The legacy gift policy rounds half away from zero before validating the
-	// integer Credit ledger. Fractional legacy units must preserve that grant.
-	quota, err := common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(int64(amountCents)).Mul(legacyUnit).Div(decimal.NewFromInt(100)).Round(0))
-	if err != nil {
-		return nil, false, err
-	}
-	if quota < 0 || (amountCents > 0 && quota <= 0) {
-		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
-	}
 	status := AssistantGiftOffered
-	if amountCents == 0 {
+	if quota == 0 {
 		status = AssistantGiftDeclined
 	}
 	gift := AssistantNewUserGift{
@@ -194,7 +212,7 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 		CreatedAt:      common.GetTimestamp(),
 	}
 	createdDecision := false
-	err = DB.Transaction(func(tx *gorm.DB) error {
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
 		}
@@ -206,6 +224,9 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 		}
 		if !errors.Is(existingErr, gorm.ErrRecordNotFound) {
 			return existingErr
+		}
+		if err := checkAssistantGiftLimitTx(tx, quota); err != nil {
+			return err
 		}
 		summary, checkErr := registrationSummaryTx(tx, userID)
 		if checkErr != nil {
@@ -402,12 +423,15 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		if err := checkAssistantRegistrationTx(tx, userID); err != nil {
 			return assistantGiftError("registration_verification_required", ErrAssistantGiftIneligible)
 		}
-		if gift.Status != AssistantGiftOffered || gift.AmountCents <= 0 || gift.Quota <= 0 {
+		if gift.Status != AssistantGiftOffered || gift.Quota <= 0 {
 			return ErrAssistantGiftUnavailable
 		}
 		var err error
 		creditedQuota, err = WalletFutureCreditQuota(tx, gift.UserId, "assistant_gift", strconv.FormatInt(gift.Id, 10), gift.Quota, gift.CreatedAt)
 		if err != nil {
+			return err
+		}
+		if err := checkAssistantGiftLimitTx(tx, creditedQuota); err != nil {
 			return err
 		}
 		result := UpdateWalletQuotaByDelta(

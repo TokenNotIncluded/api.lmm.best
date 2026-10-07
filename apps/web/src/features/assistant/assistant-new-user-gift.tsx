@@ -16,7 +16,11 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
-import { claimAssistantNewUserGift, getAssistantNewUserGift } from './api'
+import {
+  AssistantRequestError,
+  claimAssistantNewUserGift,
+  getAssistantNewUserGift,
+} from './api'
 
 export function AssistantNewUserGift(props: { enabled: boolean }) {
   const { t } = useTranslation()
@@ -58,7 +62,13 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
     gift.status === 'declined' ? t('No gift this time') : t('New-user gift')
 
   const claim = async () => {
-    if (claiming || gift.status !== 'offered') return
+    if (
+      claiming ||
+      gift.status !== 'offered' ||
+      gift.claim_available === false
+    ) {
+      return
+    }
     setClaiming(true)
     try {
       const result = await claimAssistantNewUserGift()
@@ -67,10 +77,16 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
       toast.success(t('Welcome gift claimed'))
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t('Unable to claim welcome gift')
+        error instanceof AssistantRequestError && error.code === 'gift_disabled'
+          ? t('New-user gifts are currently disabled.')
+          : error instanceof AssistantRequestError &&
+              error.code === 'gift_limit_exceeded'
+            ? t('This gift exceeds the current maximum and cannot be claimed.')
+            : error instanceof Error
+              ? error.message
+              : t('Unable to claim welcome gift')
       )
+      await giftQuery.refetch()
     } finally {
       setClaiming(false)
     }
@@ -87,7 +103,7 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
         type='button'
         size='sm'
         onClick={() => void claim()}
-        disabled={claiming}
+        disabled={claiming || gift.claim_available === false}
       >
         {claiming ? t('Claiming...') : t('Claim gift')}
       </Button>
@@ -121,6 +137,15 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
               digitsSmall: 2,
             })}
           </p>
+          {gift.status === 'offered' && gift.claim_available === false && (
+            <p className='text-muted-foreground mt-1 text-xs leading-5'>
+              {t(
+                gift.claim_blocked_code === 'gift_disabled'
+                  ? 'New-user gifts are currently disabled.'
+                  : 'This gift exceeds the current maximum and cannot be claimed.'
+              )}
+            </p>
+          )}
           <p className='text-muted-foreground mt-1 text-xs leading-5'>
             {gift.reason}
           </p>

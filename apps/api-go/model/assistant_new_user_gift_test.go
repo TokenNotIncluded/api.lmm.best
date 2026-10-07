@@ -31,7 +31,7 @@ func setupAssistantGiftTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	DB = db
 	require.NoError(t, db.AutoMigrate(RegistrationGuardMigrationModels()...))
-	require.NoError(t, db.AutoMigrate(&User{}, &TopUp{}, &AssistantNewUserGift{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}))
+	require.NoError(t, db.AutoMigrate(&Option{}, &User{}, &TopUp{}, &AssistantNewUserGift{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}))
 	t.Cleanup(func() {
 		DB = previousDB
 		common.RedisEnabled = previousRedis

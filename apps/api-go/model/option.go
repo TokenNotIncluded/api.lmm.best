@@ -172,6 +172,7 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantStreamEnabledOptionKey] = strconv.FormatBool(assistantSettings.StreamEnabled)
 	common.OptionMap[setting.AssistantTemperatureOptionKey] = strconv.FormatFloat(assistantSettings.Temperature, 'f', -1, 64)
 	common.OptionMap[setting.AssistantMaxTokensOptionKey] = strconv.Itoa(assistantSettings.MaxTokens)
+	common.OptionMap[setting.AssistantNewUserGiftMaxCreditsOptionKey] = assistantSettings.NewUserGiftMaxCredits
 	common.OptionMap[setting.AssistantWeeklyCreditUSDOptionKey] = "0"
 	common.OptionMap[setting.AssistantAgentLoopEnabledOptionKey] = strconv.FormatBool(assistantSettings.AgentLoopEnabled)
 	common.OptionMap[setting.AssistantMaxStepsOptionKey] = strconv.Itoa(assistantSettings.MaxSteps)
@@ -1067,6 +1068,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantTemperature(value)
 	case setting.AssistantMaxTokensOptionKey:
 		err = setting.UpdateAssistantMaxTokens(value)
+	case setting.AssistantNewUserGiftMaxCreditsOptionKey:
+		err = setting.UpdateAssistantNewUserGiftMaxCredits(value)
 	case setting.AssistantMaxStepsOptionKey:
 		err = setting.UpdateAssistantMaxSteps(value)
 	case setting.AssistantTimeoutSecondsOptionKey:

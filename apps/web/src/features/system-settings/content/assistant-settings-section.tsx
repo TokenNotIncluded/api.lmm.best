@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -51,6 +52,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { INTERFACE_LANGUAGE_OPTIONS } from '@/i18n/languages'
 import { api } from '@/lib/api'
 
@@ -595,6 +597,7 @@ export function AssistantSettingsSection(props: {
   const { t } = useTranslation()
   const updateOptions = useUpdateOptions()
   const [panel, setPanel] = useState<AssistantSettingsGroup>('model')
+  const walletCurrency = useWalletCurrency()
   const baseline = useRef(props.defaultValues)
   const workspace = useRef<HTMLDivElement>(null)
   const form = useForm<AssistantSettingsFormValues>({
@@ -1617,6 +1620,60 @@ export function AssistantSettingsSection(props: {
                 hidden={panel !== 'review'}
                 className='assistant-settings-panel'
               >
+                <SettingsDisclosure title={t('New-user gift')} defaultOpen>
+                  <FormField
+                    control={form.control}
+                    name='AssistantNewUserGiftMaxCredits'
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className='flex items-center justify-between gap-3'>
+                          <FormLabel>
+                            {t('Welcome-gift maximum ({{currency}})', {
+                              currency: walletCurrency.label,
+                            })}
+                          </FormLabel>
+                          <Select
+                            value={walletCurrency.currency}
+                            onValueChange={(value) =>
+                              void walletCurrency.setPreference(
+                                value as 'USD' | 'CNY' | 'CREDIT'
+                              )
+                            }
+                          >
+                            <SelectTrigger
+                              className='w-28'
+                              aria-label={t('Currency')}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value='USD'>USD</SelectItem>
+                              <SelectItem value='CNY'>CNY</SelectItem>
+                              <SelectItem value='CREDIT'>
+                                {t('Credits')}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <FormControl>
+                          <CreditAmountInput
+                            name={field.name}
+                            ref={field.ref}
+                            onBlur={field.onBlur}
+                            value={field.value}
+                            onValueChange={field.onChange}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Maximum for one welcome gift. Set to 0 to disable issuing and claiming gifts; already claimed balances stay unchanged.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </SettingsDisclosure>
                 <SettingsDisclosure title={t('Access & safety')} defaultOpen>
                   <div className='space-y-6'>
                     <AssistantL1ReviewSettings
