@@ -211,6 +211,7 @@ func GetMerchantStoreConfig(c *gin.Context) {
 		"product_test_mode_supported":       true,
 		"store_catalogue_supported":         model.MerchantStoreCatalogueSupported(),
 		"store_collections_supported":       model.MerchantStoreCollectionsSupported(),
+		"store_likes_supported":             model.MerchantStoreLikesSupported(),
 		"store_access_supported":            model.MerchantStoreAccessSupported(),
 		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),
 		"product_link_presets":              presets,
