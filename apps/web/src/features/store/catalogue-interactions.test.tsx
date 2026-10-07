@@ -954,7 +954,7 @@ test('a guest catalogue projection is never borrowed as the signed-in accounts l
   owner(null)
   const requests = mockRequests(
     (request) => {
-      if (request.url === '/api/store/products')
+      if (request.url === '/api/store/products') {
         return page([
           {
             ...product,
@@ -965,6 +965,7 @@ test('a guest catalogue projection is never borrowed as the signed-in accounts l
             },
           },
         ])
+      }
       return page([])
     },
     true,
