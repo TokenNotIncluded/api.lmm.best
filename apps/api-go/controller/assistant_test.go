@@ -1337,10 +1337,48 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 52)
+	require.Len(t, definitions, 56)
 	names := make(map[string]bool, len(definitions))
+	byName := make(map[string]assistantOpenAIToolDefinition, len(definitions))
 	for _, definition := range definitions {
+		require.False(t, names[definition.Function.Name], "tool names must be unique")
 		names[definition.Function.Name] = true
+		byName[definition.Function.Name] = definition
+	}
+	for _, catalogue := range []struct{ name, idKey string }{
+		{"get_store_products", ""},
+		{"get_store_product", "product_id"},
+		{"get_tool_market_services", ""},
+		{"get_tool_market_service", "service_id"},
+	} {
+		t.Run(catalogue.name, func(t *testing.T) {
+			definition, exists := byName[catalogue.name]
+			require.True(t, exists)
+			assert.Equal(t, "function", definition.Type)
+			assert.True(t, assistantToolAllowedForContext(catalogue.name, assistantUserContext{AccessLevel: "L0"}))
+			assert.True(t, assistantToolCallReadOnly(c, assistantOpenAIToolCall{
+				Function: assistantOpenAIToolCallFunction{Name: catalogue.name},
+			}))
+			schema := definition.Function.Parameters
+			assert.Equal(t, "object", schema["type"])
+			assert.Equal(t, false, schema["additionalProperties"])
+			// Exact read parameters exclude checkout, payment and authorization inputs.
+			if catalogue.idKey == "" {
+				assert.Len(t, schema, 3)
+				assert.NotContains(t, schema, "required")
+				assert.Equal(t, map[string]any{
+					"query":  map[string]any{"type": "string", "maxLength": 120},
+					"offset": map[string]any{"type": "integer", "minimum": 0, "maximum": 10000},
+					"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+				}, schema["properties"])
+			} else {
+				assert.Len(t, schema, 4)
+				assert.Equal(t, []string{catalogue.idKey}, schema["required"])
+				assert.Equal(t, map[string]any{
+					catalogue.idKey: map[string]any{"type": "string", "minLength": 36, "maxLength": 36},
+				}, schema["properties"])
+			}
+		})
 	}
 	assert.True(t, names["get_service_facts"])
 	assert.True(t, names["set_conversation_title"])
