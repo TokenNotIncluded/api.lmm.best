@@ -28,6 +28,11 @@ func GetMerchantStoreProductForViewer(viewerID int, id string) (*MerchantStorePr
 		return nil, err
 	}
 	product.ReviewNote, product.ReviewedBy = "", 0
+	products := []MerchantStoreProduct{product}
+	if err := PopulateMerchantStoreProductLikes(DB, viewerID, products); err != nil {
+		return nil, err
+	}
+	product.Likes = products[0].Likes
 	return &product, nil
 }
 
@@ -53,6 +58,9 @@ func ListMerchantStoreProductsForViewer(viewerID int, search string, offset, lim
 			return nil, err
 		}
 		products[index].ReviewNote, products[index].ReviewedBy = "", 0
+	}
+	if err := PopulateMerchantStoreProductLikes(DB, viewerID, products); err != nil {
+		return nil, err
 	}
 	return products, nil
 }

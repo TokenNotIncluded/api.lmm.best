@@ -578,6 +578,9 @@ func ListMerchantStoreProductsForSellerViewer(actor int, search string, sellerID
 		p.ReviewedBy = 0
 		out = append(out, p)
 	}
+	if e = PopulateMerchantStoreProductLikes(DB, actor, out); e != nil {
+		return nil, e
+	}
 	return out, nil
 }
 func ListMerchantStoreProducts(actor int, review bool, offset, limit int) ([]MerchantStoreProduct, error) {

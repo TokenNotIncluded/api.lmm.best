@@ -32,6 +32,61 @@ func storeLikesSupported(tx *gorm.DB) bool {
 
 func MerchantStoreLikesSupported() bool { return storeLikesSupported(DB) }
 
+// Populate only products that the caller has already authorized for this
+// viewer. One grouped statement supplies all counts and personal states for a
+// catalogue page; it never discovers or returns additional product identities.
+func PopulateMerchantStoreProductLikes(tx *gorm.DB, actor int, products []MerchantStoreProduct) error {
+	if actor < 0 {
+		return ErrMerchantStoreDenied
+	}
+	if len(products) == 0 {
+		return nil
+	}
+	if actor > 0 {
+		if _, err := storeUser(tx, actor, common.RoleCommonUser); err != nil {
+			return err
+		}
+	}
+	ids := make([]string, 0, len(products))
+	seen := make(map[string]bool, len(products))
+	for i := range products {
+		products[i].Likes = &MerchantStoreProductLikes{}
+		if !seen[products[i].ID] {
+			seen[products[i].ID] = true
+			ids = append(ids, products[i].ID)
+		}
+	}
+	if !storeLikesSupported(tx) {
+		return nil
+	}
+	var rows []struct {
+		ProductID string
+		Count     int64
+		Liked     int64
+	}
+	if err := tx.Model(&MerchantStoreProductLike{}).Where("product_id IN ?", ids).
+		Select("product_id, COUNT(*) AS count, COALESCE(MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END), 0) AS liked", actor).
+		Group("product_id").Scan(&rows).Error; err != nil {
+		return err
+	}
+	type summary struct {
+		count int64
+		liked bool
+	}
+	counts := make(map[string]summary, len(rows))
+	for _, row := range rows {
+		counts[row.ProductID] = summary{row.Count, actor > 0 && row.Liked > 0}
+	}
+	for i := range products {
+		row := counts[products[i].ID]
+		// A completed database aggregate proves zero for an authorized product
+		// with no like rows. Missing or unsupported storage remains unknown.
+		count := row.count
+		products[i].Likes = &MerchantStoreProductLikes{Supported: true, Count: &count, Liked: row.liked}
+	}
+	return nil
+}
+
 func storeSocialProduct(tx *gorm.DB, actor int, productID string, lock bool) error {
 	query := MerchantStoreVisibleProductsForViewer(tx, actor).Select("merchant_store_products.id")
 	if lock {

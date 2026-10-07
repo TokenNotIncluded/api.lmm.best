@@ -78,5 +78,10 @@ func GetMerchantStoreProductPreview(actor int, id string) (*MerchantStoreProduct
 		return nil, err
 	}
 	p.ReviewNote, p.ReviewedBy = "", 0
+	products := []MerchantStoreProduct{p}
+	if err := PopulateMerchantStoreProductLikes(DB, actor, products); err != nil {
+		return nil, err
+	}
+	p.Likes = products[0].Likes
 	return &p, nil
 }

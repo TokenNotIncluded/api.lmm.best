@@ -142,5 +142,8 @@ func ListMerchantStoreCatalogue(viewer int, search string, sellerID, offset, lim
 		}
 		products[i].ReviewNote, products[i].ReviewedBy = "", 0
 	}
+	if err := PopulateMerchantStoreProductLikes(DB, viewer, products); err != nil {
+		return nil, err
+	}
 	return products, nil
 }

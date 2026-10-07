@@ -38,6 +38,7 @@ type MerchantStoreLink struct {
 	Description string `json:"description"`
 }
 type MerchantStoreProduct struct {
+	Likes                 *MerchantStoreProductLikes      `json:"likes,omitempty" gorm:"-:all"`
 	Catalogue             *MerchantStoreCatalogueMetadata `json:"catalogue,omitempty" gorm:"-"`
 	DisplayTags           []string                        `json:"display_tags" gorm:"-"`
 	NetPaidQuantity       *int64                          `json:"net_paid_quantity" gorm:"-"`
