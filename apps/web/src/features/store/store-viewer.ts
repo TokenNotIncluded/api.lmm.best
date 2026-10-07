@@ -36,6 +36,7 @@ const viewerNamespaces = new Set([
   'cart',
   'catalogue-cart',
   'favorites',
+  'likes',
   'catalogue-favorites',
   'guest-cart-products',
   'guest-cart-product',

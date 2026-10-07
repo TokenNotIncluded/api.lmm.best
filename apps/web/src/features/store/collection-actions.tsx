@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -10,6 +10,7 @@ import { useStoreCatalogueSupport } from './catalogue-support'
 import type { StoreCatalogueProduct } from './catalogue-types'
 import { guestCartUpsert, readGuestStoreCart } from './collection-storage'
 import { storeCartCapacity } from './collection-utils'
+import { StoreProductSocialActions } from './product-social-actions'
 import { StoreError } from './shared'
 import { currentStoreViewer, useStoreViewer } from './store-viewer'
 import {
@@ -23,6 +24,7 @@ export function StoreCollectionActions(props: {
   variantId?: string
   quantity?: number
   cartAction?: boolean
+  socialActions?: boolean
 }) {
   const viewer = useStoreViewer()
   return <CollectionActions key={viewer} {...props} viewer={viewer} />
@@ -34,12 +36,14 @@ function CollectionActions({
   quantity = 1,
   viewer,
   cartAction = true,
+  socialActions = true,
 }: {
   product: StoreCatalogueProduct
   variantId?: string
   quantity?: number
   viewer: string
   cartAction?: boolean
+  socialActions?: boolean
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -51,14 +55,6 @@ function CollectionActions({
   const variantId = selectedId ?? localVariantId
   const variants = enabledStoreVariants(product)
   const account = viewer !== 'anonymous'
-  const favoriteQuery = useQuery({
-    queryKey: ['store', 'favorites', viewer],
-    queryFn: ({ signal }) => catalogueApi.allFavorites(signal),
-    enabled: account && support.collectionsSupported,
-    retry: false,
-  })
-  const favorite =
-    favoriteQuery.data?.some((item) => item.product_id === product.id) ?? false
   const add = useMutation({
     mutationFn: async () => {
       const assertViewer = () => {
@@ -113,24 +109,11 @@ function CollectionActions({
       void client.invalidateQueries({ queryKey: ['store', 'cart', viewer] })
     },
   })
-  const toggleFavorite = useMutation({
-    mutationFn: () => {
-      if (currentStoreViewer() !== viewer) {
-        throw new Error(
-          'Your account changed. Refresh this page before continuing.'
-        )
-      }
-      return favorite
-        ? catalogueApi.removeFavorite(product.id)
-        : catalogueApi.addFavorite(product.id)
-    },
-    onSuccess: () => {
-      void client.invalidateQueries({
-        queryKey: ['store', 'favorites', viewer],
-      })
-    },
-  })
-  if (!support.collectionsSupported) return null
+  if (!support.collectionsSupported) {
+    return socialActions ? (
+      <StoreProductSocialActions product={product} />
+    ) : null
+  }
   return (
     <div className='space-y-2'>
       {cartAction && selectedId === undefined && variants.length > 1 && (
@@ -172,38 +155,11 @@ function CollectionActions({
             {t(add.isPending ? 'Adding...' : 'Add to cart')}
           </Button>
         )}
-        {account ? (
-          <Button
-            type='button'
-            size='sm'
-            variant='ghost'
-            aria-pressed={favorite}
-            disabled={
-              favoriteQuery.isPending ||
-              !!favoriteQuery.error ||
-              toggleFavorite.isPending
-            }
-            onClick={() => toggleFavorite.mutate()}
-          >
-            {t(favorite ? 'Remove from favorites' : 'Save to favorites')}
-          </Button>
-        ) : (
-          <Button
-            size='sm'
-            variant='ghost'
-            render={
-              <a
-                href={`/sign-in?redirect=${encodeURIComponent(typeof window === 'undefined' ? '/store' : window.location.pathname + window.location.search)}`}
-              />
-            }
-          >
-            {t('Sign in to save favorites')}
-          </Button>
-        )}
         <Button size='sm' variant='ghost' render={<a href='/store/cart' />}>
           {t('View cart')}
         </Button>
       </div>
+      {socialActions && <StoreProductSocialActions product={product} />}
       {added && (
         <p role='status' className='text-muted-foreground text-xs'>
           {t(
@@ -211,12 +167,7 @@ function CollectionActions({
           )}
         </p>
       )}
-      <StoreError
-        error={add.error || toggleFavorite.error || favoriteQuery.error}
-        retry={
-          favoriteQuery.error ? () => void favoriteQuery.refetch() : undefined
-        }
-      />
+      <StoreError error={add.error} />
     </div>
   )
 }

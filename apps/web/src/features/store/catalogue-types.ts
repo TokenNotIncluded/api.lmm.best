@@ -27,6 +27,7 @@ export interface StoreCatalogueProduct extends StoreProduct {
 export interface StoreCatalogueConfig extends StoreConfig {
   store_catalogue_supported?: boolean
   store_collections_supported?: boolean
+  store_likes_supported?: boolean
   store_access_supported?: boolean
 }
 
@@ -86,4 +87,10 @@ export interface StoreCollectionPagination {
 export interface StoreCollectionsCleanup {
   cart_deleted: number
   favorites_deleted: number
+}
+
+export interface StoreProductLikes {
+  supported: boolean
+  count: number | null
+  liked: boolean
 }

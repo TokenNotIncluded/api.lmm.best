@@ -36,6 +36,7 @@ for (const key of [
   'customElements',
   'CSSStyleSheet',
   'localStorage',
+  'sessionStorage',
 ] as const) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
@@ -58,6 +59,8 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { StoreCollectionActions } = await import('./collection-actions')
+const { StoreProductSocialActions } = await import('./product-social-actions')
+const { rememberStoreSocialIntent } = await import('./social-intent')
 const { StoreCartPage } = await import('./cart-page')
 const { StoreFavoritesPage } = await import('./favorites-page')
 const { StorePage } = await import('./store-page')
@@ -141,7 +144,8 @@ function mockRequests(
   reply?: (
     request: Request
   ) => ReturnType<typeof result> | Promise<ReturnType<typeof result>>,
-  supported = true
+  supported = true,
+  likesSupported = false
 ) {
   const requests: Request[] = []
   const respond = (request: Request) => {
@@ -150,6 +154,7 @@ function mockRequests(
       return result({
         store_catalogue_supported: supported,
         store_collections_supported: supported,
+        store_likes_supported: likesSupported,
       })
     }
     if (reply) return reply(request)
@@ -627,4 +632,230 @@ test('unsupported backend keeps anonymous references and offers no persistent wr
   assert.equal(button('Clear cart').disabled, true)
   assert.equal(readGuestStoreCart()[0].quantity, 2)
   assert.equal(requests.filter((request) => request.method !== 'GET').length, 0)
+})
+
+test('guest social intent restores only the matching real favorite after login, once', async () => {
+  owner(null)
+  let saved = false
+  const requests = mockRequests((request) => {
+    if (request.method === 'PUT' && request.url === '/api/store/favorites') {
+      saved = true
+    }
+    return request.method === 'GET'
+      ? page(saved ? [{ product_id: product.id, valid: true, product }] : [])
+      : result(null)
+  })
+  await mount(<StoreProductSocialActions product={product} />)
+  await waitFor(() => !!document.querySelector('a[href^="/sign-in"]'))
+  const link = required(
+    [...document.querySelectorAll<HTMLAnchorElement>('a')].find((node) =>
+      node.textContent?.includes('Sign in to save favorites')
+    )
+  )
+  assert.equal(
+    link.getAttribute('href'),
+    '/sign-in?redirect=%2Fstore%2Fproducts%2Fproduct-fixture'
+  )
+  link.addEventListener('click', (event) => event.preventDefault())
+  await click(link)
+  assert.equal(requests.filter((request) => request.method === 'PUT').length, 0)
+  await act(async () => {
+    owner(27)
+    await flush()
+  })
+  await waitFor(
+    () => document.body.textContent?.includes('Remove from favorites') === true
+  )
+  assert.equal(requests.filter((request) => request.method === 'PUT').length, 1)
+  assert.deepEqual(requests.find((request) => request.method === 'PUT')?.body, {
+    product_id: product.id,
+  })
+  await act(async () => {
+    required(client).invalidateQueries({
+      queryKey: ['store', 'favorites', 'account:27'],
+    })
+    await flush()
+  })
+  assert.equal(requests.filter((request) => request.method === 'PUT').length, 1)
+})
+
+test('post-login social intent cannot save another product', async () => {
+  owner(27)
+  rememberStoreSocialIntent('another-product', 'favorite')
+  const requests = mockRequests()
+  await mount(<StoreProductSocialActions product={product} />)
+  await waitFor(() => !button('Save to favorites').disabled)
+  assert.equal(requests.filter((request) => request.method === 'PUT').length, 0)
+  assert.ok(button('Share link'))
+})
+
+test('likes use absolute authenticated endpoints and render only confirmed server state, then clear on account switch', async () => {
+  owner(27)
+  let liked = false
+  const requests = mockRequests(
+    (request) => {
+      if (request.url.endsWith('/likes')) {
+        if (request.method === 'PUT') liked = true
+        if (request.method === 'DELETE') liked = false
+        return result({
+          supported: true,
+          count: liked ? 14 : 13,
+          liked: useAuthStore.getState().auth.user?.id === 27 && liked,
+        })
+      }
+      return page([])
+    },
+    true,
+    true
+  )
+  await mount(<StoreProductSocialActions product={product} />)
+  const likeButton = () =>
+    document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Like this product"]'
+    )
+  await waitFor(() => !!likeButton())
+  assert.match(required(likeButton()).textContent ?? '', /13/)
+  await click(required(likeButton()))
+  const unlike = required(
+    document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Unlike this product"]'
+    )
+  )
+  assert.equal(unlike.getAttribute('aria-pressed'), 'true')
+  assert.match(unlike.textContent ?? '', /14/)
+  const write = requests.find((request) => request.method === 'PUT')
+  assert.equal(write?.url, `/api/store/products/${product.id}/likes`)
+  assert.deepEqual(write?.body, {})
+  await click(unlike)
+  assert.equal(
+    requests.filter((request) => request.method === 'DELETE').length,
+    1
+  )
+  assert.equal(required(likeButton()).getAttribute('aria-pressed'), 'false')
+  await act(async () => {
+    owner(28)
+    await flush()
+  })
+  assert.equal(
+    required(client).getQueryData(['store', 'likes', 'account:27', product.id]),
+    undefined
+  )
+})
+
+test('unsupported likes do not display a false zero count or send a fake mutation', async () => {
+  owner(27)
+  const requests = mockRequests(undefined, false)
+  await mount(<StoreProductSocialActions product={product} />)
+  assert.ok(button('Share link'))
+  assert.doesNotMatch(
+    document.body.textContent ?? '',
+    /Like this product|Unlike this product/
+  )
+  assert.equal(
+    requests.filter(
+      (request) => request.url.endsWith('/likes') || request.method === 'PUT'
+    ).length,
+    0
+  )
+})
+
+test('guest login restores one explicit like using the real endpoint', async () => {
+  owner(null)
+  let liked = false
+  const requests = mockRequests(
+    (request) => {
+      if (request.url.endsWith('/likes')) {
+        if (request.method === 'PUT') liked = true
+        return result({ supported: true, count: liked ? 1 : 0, liked })
+      }
+      return page([])
+    },
+    true,
+    true
+  )
+  await mount(<StoreProductSocialActions product={product} />)
+  await waitFor(() =>
+    [...document.querySelectorAll('a')].some((node) =>
+      node.textContent?.includes('Sign in to like this product')
+    )
+  )
+  const link = required(
+    [...document.querySelectorAll<HTMLAnchorElement>('a')].find((node) =>
+      node.textContent?.includes('Sign in to like this product')
+    )
+  )
+  link.addEventListener('click', (event) => event.preventDefault())
+  await click(link)
+  assert.equal(requests.filter((request) => request.method === 'PUT').length, 0)
+  await act(async () => {
+    owner(27)
+    await flush()
+  })
+  await waitFor(
+    () => !!document.querySelector('button[aria-label="Unlike this product"]')
+  )
+  assert.equal(requests.filter((request) => request.method === 'PUT').length, 1)
+})
+
+test('a failed favorite restore stays unsaved and can be retried explicitly without an automatic loop', async () => {
+  owner(27)
+  rememberStoreSocialIntent(product.id, 'favorite')
+  let writes = 0
+  mockRequests((request) => {
+    if (request.method === 'PUT') {
+      writes++
+      throw new Error('network unavailable')
+    }
+    return page([])
+  })
+  await mount(<StoreProductSocialActions product={product} />)
+  await waitFor(() => writes === 1 && !button('Save to favorites').disabled)
+  assert.equal(
+    button('Save to favorites').getAttribute('aria-pressed'),
+    'false'
+  )
+  await act(flush)
+  assert.equal(writes, 1)
+  await click(button('Save to favorites'))
+  assert.equal(writes, 2)
+  assert.doesNotMatch(document.body.textContent ?? '', /Remove from favorites/)
+})
+
+test('an account switch during a pending like cannot repopulate old account cache or expose its result', async () => {
+  owner(27)
+  const pending = deferred<ReturnType<typeof result>>()
+  const requests = mockRequests(
+    (request) => {
+      if (request.url.endsWith('/likes')) {
+        if (request.method === 'PUT') return pending.promise
+        return result({ supported: true, count: 0, liked: false })
+      }
+      return page([])
+    },
+    true,
+    true
+  )
+  await mount(<StoreProductSocialActions product={product} />)
+  const likeButton = () =>
+    document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Like this product"]'
+    )
+  await waitFor(() => !!likeButton())
+  await act(async () => {
+    required(likeButton()).click()
+    await flush()
+  })
+  await waitFor(() => requests.some((request) => request.method === 'PUT'))
+  await act(async () => {
+    owner(28)
+    await flush()
+    pending.resolve(result({ supported: true, count: 99, liked: true }))
+    await flush()
+  })
+  assert.equal(
+    required(client).getQueryData(['store', 'likes', 'account:27', product.id]),
+    undefined
+  )
+  assert.equal(required(likeButton()).getAttribute('aria-pressed'), 'false')
+  assert.doesNotMatch(required(likeButton()).textContent ?? '', /99/)
 })

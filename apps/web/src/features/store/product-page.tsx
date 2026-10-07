@@ -38,6 +38,7 @@ import { useStoreGuestSession, useStoreGuestDisclaimer } from './guest-session'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreMerchantTermsAcceptance } from './merchant-terms'
 import { StoreProductPromotion } from './product-promotion'
+import { StoreProductSocialActions } from './product-social-actions'
 import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
 import {
   storeCheckoutCapacity,
@@ -150,6 +151,7 @@ export function StoreProductPage({
               seller={product.seller}
               sellerId={product.seller_id}
             />
+            <StoreProductSocialActions product={product} />
           </div>
           {product.image_urls?.filter((url) => safeStoreUrl(url)).length >
             0 && (
@@ -844,6 +846,7 @@ export function StoreCheckout({
             product={product}
             variantId={variantId}
             quantity={count || 1}
+            socialActions={false}
           />
           {product.max_quantity_per_order != null && (
             <p className='text-muted-foreground text-xs'>

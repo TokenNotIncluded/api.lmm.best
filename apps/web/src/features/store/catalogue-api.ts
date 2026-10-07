@@ -12,6 +12,7 @@ import type {
   StoreCollectionsCleanup,
   StoreFavoriteItem,
   StoreProductCatalogue,
+  StoreProductLikes,
 } from './catalogue-types'
 import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
 import type { StorePage, StoreSeller } from './types'
@@ -194,6 +195,28 @@ export const catalogueApi = {
   removeFavorite: (productId: string) =>
     unwrap<null>(
       api.delete(`${root}/favorites/${encodeURIComponent(productId)}`, options)
+    ),
+  likes: (productId: string, signal?: AbortSignal) =>
+    unwrap<StoreProductLikes>(
+      api.get(`${root}/products/${encodeURIComponent(productId)}/likes`, {
+        ...options,
+        signal,
+      })
+    ),
+  like: (productId: string) =>
+    unwrap<StoreProductLikes>(
+      api.put(
+        `${root}/products/${encodeURIComponent(productId)}/likes`,
+        {},
+        options
+      )
+    ),
+  unlike: (productId: string) =>
+    unwrap<StoreProductLikes>(
+      api.delete(
+        `${root}/products/${encodeURIComponent(productId)}/likes`,
+        options
+      )
     ),
   clearFavorites: () => unwrap<null>(api.delete(`${root}/favorites`, options)),
   cleanup: () =>
