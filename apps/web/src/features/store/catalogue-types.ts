@@ -17,6 +17,7 @@ export interface StoreProductCatalogue {
 
 export interface StoreCatalogueProduct extends StoreProduct {
   // Optional while a browser is connected to a server without floor 5.
+  likes?: StoreProductLikes | null
   catalogue?: StoreProductCatalogue
   display_tags?: StoreCatalogueTag[]
   net_paid_quantity?: number | null

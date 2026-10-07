@@ -14,6 +14,7 @@ import type {
   StoreProductCatalogue,
   StoreProductLikes,
 } from './catalogue-types'
+import { storeSocialProductResponse } from './product-social-state'
 import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
 import type { StorePage, StoreSeller } from './types'
 
@@ -109,12 +110,16 @@ function cart(
   pagination: StoreCollectionPagination = {},
   signal?: AbortSignal
 ) {
-  return unwrap<StorePage<StoreCartItem>>(
-    api.get(`${root}/cart`, {
-      ...options,
-      params: pageParams(pagination),
-      signal,
-    })
+  return storeSocialProductResponse(
+    () =>
+      unwrap<StorePage<StoreCartItem>>(
+        api.get(`${root}/cart`, {
+          ...options,
+          params: pageParams(pagination),
+          signal,
+        })
+      ),
+    (data) => data.items.map((item) => item.product)
   )
 }
 
@@ -122,12 +127,16 @@ function favorites(
   pagination: StoreCollectionPagination = {},
   signal?: AbortSignal
 ) {
-  return unwrap<StorePage<StoreFavoriteItem>>(
-    api.get(`${root}/favorites`, {
-      ...options,
-      params: pageParams(pagination),
-      signal,
-    })
+  return storeSocialProductResponse(
+    () =>
+      unwrap<StorePage<StoreFavoriteItem>>(
+        api.get(`${root}/favorites`, {
+          ...options,
+          params: pageParams(pagination),
+          signal,
+        })
+      ),
+    (data) => data.items.map((item) => item.product)
   )
 }
 
@@ -137,36 +146,46 @@ export const catalogueApi = {
       api.get(`${root}/config`, { ...options, signal })
     ),
   products: (search: StoreCatalogueSearch = {}, signal?: AbortSignal) =>
-    unwrap<StorePage<StoreCatalogueProduct> & { seller?: StoreSeller | null }>(
-      api.get(`${root}/products`, {
-        ...options,
-        signal,
-        params: {
-          q: search.search ?? '',
-          offset: (positiveInteger(search.page, 1) - 1) * 24,
-          limit: 24,
-          sort: search.sort ?? 'comprehensive',
-          ...(search.sellerId ? { seller_id: search.sellerId } : {}),
-          ...(search.tag ? { tag: search.tag } : {}),
-          ...(search.stock ? { stock: search.stock } : {}),
-          ...(search.autoDelivery === undefined
-            ? {}
-            : { auto_delivery: search.autoDelivery }),
-          ...(search.aiProcessing === undefined
-            ? {}
-            : { ai_processing: search.aiProcessing }),
-          ...(search.guestPurchase === undefined
-            ? {}
-            : { guest_purchase: search.guestPurchase }),
-        },
-      })
+    storeSocialProductResponse(
+      () =>
+        unwrap<
+          StorePage<StoreCatalogueProduct> & { seller?: StoreSeller | null }
+        >(
+          api.get(`${root}/products`, {
+            ...options,
+            signal,
+            params: {
+              q: search.search ?? '',
+              offset: (positiveInteger(search.page, 1) - 1) * 24,
+              limit: 24,
+              sort: search.sort ?? 'comprehensive',
+              ...(search.sellerId ? { seller_id: search.sellerId } : {}),
+              ...(search.tag ? { tag: search.tag } : {}),
+              ...(search.stock ? { stock: search.stock } : {}),
+              ...(search.autoDelivery === undefined
+                ? {}
+                : { auto_delivery: search.autoDelivery }),
+              ...(search.aiProcessing === undefined
+                ? {}
+                : { ai_processing: search.aiProcessing }),
+              ...(search.guestPurchase === undefined
+                ? {}
+                : { guest_purchase: search.guestPurchase }),
+            },
+          })
+        ),
+      (data) => data.items
     ),
   product: (id: string, signal?: AbortSignal) =>
-    unwrap<StoreCatalogueProduct>(
-      api.get(`${root}/products/${encodeURIComponent(id)}`, {
-        ...options,
-        signal,
-      })
+    storeSocialProductResponse(
+      () =>
+        unwrap<StoreCatalogueProduct>(
+          api.get(`${root}/products/${encodeURIComponent(id)}`, {
+            ...options,
+            signal,
+          })
+        ),
+      (data) => [data]
     ),
   saveCatalogue: (id: string, body: StoreProductCatalogue) =>
     unwrap<StoreProductCatalogue>(

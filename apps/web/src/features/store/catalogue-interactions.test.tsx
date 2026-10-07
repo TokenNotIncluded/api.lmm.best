@@ -52,7 +52,7 @@ mock.module('@/components/ui/markdown', () => ({
 }))
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { QueryClient, QueryClientProvider } =
+const { QueryClient, QueryClientProvider, useQuery } =
   await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
@@ -61,6 +61,8 @@ const { useAuthStore } = await import('@/stores/auth-store')
 const { StoreCollectionActions } = await import('./collection-actions')
 const { StoreProductSocialActions } = await import('./product-social-actions')
 const { rememberStoreSocialIntent } = await import('./social-intent')
+const { catalogueApi } = await import('./catalogue-api')
+const { useStoreViewer } = await import('./store-viewer')
 const { StoreCartPage } = await import('./cart-page')
 const { StoreFavoritesPage } = await import('./favorites-page')
 const { StorePage } = await import('./store-page')
@@ -173,6 +175,18 @@ function mockRequests(
     respond({ method: 'DELETE', url, config })) as typeof api.delete
   return requests
 }
+function SocialFixture() {
+  const viewer = useStoreViewer()
+  const productQuery = useQuery({
+    queryKey: ['store', 'product', viewer, product.id],
+    queryFn: () => catalogueApi.product(product.id),
+    retry: false,
+  })
+  return productQuery.data ? (
+    <StoreProductSocialActions product={productQuery.data} />
+  ) : null
+}
+
 function owner(id: number | null) {
   useAuthStore
     .getState()
@@ -694,6 +708,16 @@ test('likes use absolute authenticated endpoints and render only confirmed serve
   let liked = false
   const requests = mockRequests(
     (request) => {
+      if (request.url === `/api/store/products/${product.id}`) {
+        return result({
+          ...product,
+          likes: {
+            supported: true,
+            count: liked ? 14 : 13,
+            liked: useAuthStore.getState().auth.user?.id === 27 && liked,
+          },
+        })
+      }
       if (request.url.endsWith('/likes')) {
         if (request.method === 'PUT') liked = true
         if (request.method === 'DELETE') liked = false
@@ -708,7 +732,7 @@ test('likes use absolute authenticated endpoints and render only confirmed serve
     true,
     true
   )
-  await mount(<StoreProductSocialActions product={product} />)
+  await mount(<SocialFixture />)
   const likeButton = () =>
     document.querySelector<HTMLButtonElement>(
       'button[aria-label="Like this product"]'
@@ -764,6 +788,16 @@ test('guest login restores one explicit like using the real endpoint', async () 
   let liked = false
   const requests = mockRequests(
     (request) => {
+      if (request.url === `/api/store/products/${product.id}`) {
+        return result({
+          ...product,
+          likes: {
+            supported: true,
+            count: liked ? 1 : 0,
+            liked: !!useAuthStore.getState().auth.user && liked,
+          },
+        })
+      }
       if (request.url.endsWith('/likes')) {
         if (request.method === 'PUT') liked = true
         return result({ supported: true, count: liked ? 1 : 0, liked })
@@ -773,7 +807,7 @@ test('guest login restores one explicit like using the real endpoint', async () 
     true,
     true
   )
-  await mount(<StoreProductSocialActions product={product} />)
+  await mount(<SocialFixture />)
   await waitFor(() =>
     [...document.querySelectorAll('a')].some((node) =>
       node.textContent?.includes('Sign in to like this product')
@@ -826,6 +860,12 @@ test('an account switch during a pending like cannot repopulate old account cach
   const pending = deferred<ReturnType<typeof result>>()
   const requests = mockRequests(
     (request) => {
+      if (request.url === `/api/store/products/${product.id}`) {
+        return result({
+          ...product,
+          likes: { supported: true, count: 0, liked: false },
+        })
+      }
       if (request.url.endsWith('/likes')) {
         if (request.method === 'PUT') return pending.promise
         return result({ supported: true, count: 0, liked: false })
@@ -835,7 +875,7 @@ test('an account switch during a pending like cannot repopulate old account cach
     true,
     true
   )
-  await mount(<StoreProductSocialActions product={product} />)
+  await mount(<SocialFixture />)
   const likeButton = () =>
     document.querySelector<HTMLButtonElement>(
       'button[aria-label="Like this product"]'
@@ -858,4 +898,104 @@ test('an account switch during a pending like cannot repopulate old account cach
   )
   assert.equal(required(likeButton()).getAttribute('aria-pressed'), 'false')
   assert.doesNotMatch(required(likeButton()).textContent ?? '', /99/)
+})
+
+test('many catalogue cards share one authoritative projection request and never fan out like reads on mount or focus', async () => {
+  owner(27)
+  const cards = Array.from({ length: 24 }, (_, index) => ({
+    ...product,
+    id: `product-${index}`,
+    title: `Product ${index}`,
+    likes: { supported: true, count: index + 7, liked: index % 2 === 0 },
+  }))
+  const requests = mockRequests(
+    (request) => {
+      if (request.url === '/api/store/products') return page(cards)
+      return page([])
+    },
+    true,
+    true
+  )
+  await mount(<StorePage />)
+  await waitFor(
+    () =>
+      document.querySelectorAll(
+        'button[aria-label="Like this product"],button[aria-label="Unlike this product"]'
+      ).length === 24
+  )
+  assert.equal(
+    requests.filter((request) => request.url.endsWith('/likes')).length,
+    0
+  )
+  assert.equal(
+    document.querySelectorAll(
+      'button[aria-pressed="true"][aria-label="Unlike this product"]'
+    ).length,
+    12
+  )
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'))
+    await flush()
+  })
+  assert.equal(
+    requests.filter((request) => request.url.endsWith('/likes')).length,
+    0
+  )
+  const catalogueReads = requests.filter(
+    (request) => request.url === '/api/store/products'
+  )
+  assert.ok(
+    catalogueReads.length <= 2,
+    'one shared list fetch, at most one focus refresh, rather than 24 individual reads'
+  )
+})
+
+test('a guest catalogue projection is never borrowed as the signed-in accounts liked state', async () => {
+  owner(null)
+  const requests = mockRequests(
+    (request) => {
+      if (request.url === '/api/store/products')
+        return page([
+          {
+            ...product,
+            likes: {
+              supported: true,
+              count: 12,
+              liked: useAuthStore.getState().auth.user?.id === 27,
+            },
+          },
+        ])
+      return page([])
+    },
+    true,
+    true
+  )
+  await mount(<StorePage />)
+  await waitFor(
+    () =>
+      document.body.textContent?.includes('Sign in to like this product') ===
+      true
+  )
+  await act(async () => {
+    owner(27)
+    await flush()
+  })
+  await waitFor(
+    () => !!document.querySelector('button[aria-label="Unlike this product"]')
+  )
+  await act(async () => {
+    owner(28)
+    await flush()
+  })
+  await waitFor(
+    () => !!document.querySelector('button[aria-label="Like this product"]')
+  )
+  assert.equal(
+    document.querySelector('button[aria-label="Unlike this product"]'),
+    null
+  )
+  assert.equal(
+    requests.filter((request) => request.url.endsWith('/likes')).length,
+    0
+  )
 })

@@ -16,6 +16,7 @@ import { catalogueApi } from './catalogue-api'
 import { useStoreCatalogueSupport } from './catalogue-support'
 import type { StoreCatalogueProduct } from './catalogue-types'
 import { shareStoreProduct } from './product-share'
+import { storeProductSocialProjection } from './product-social-state'
 import { StoreError } from './shared'
 import {
   consumeStoreSocialIntent,
@@ -70,12 +71,28 @@ function ProductSocialActions({
     favoriteQuery.data?.some((item) => item.product_id === product.id) ?? false
   const likesSupported = support.data?.store_likes_supported === true
   const likeKey = ['store', 'likes', viewer, product.id]
+  const projection = storeProductSocialProjection(product, viewer)
   const likesQuery = useQuery({
     queryKey: likeKey,
     queryFn: ({ signal }) => catalogueApi.likes(product.id, signal),
-    enabled: likesSupported && (guest || account),
+    enabled: false,
+    initialData: projection?.data,
+    initialDataUpdatedAt: projection?.requestedAt,
+    refetchOnWindowFocus: false,
     retry: false,
   })
+  useEffect(() => {
+    if (!projection || currentStoreViewer() !== viewer) return
+    const key = ['store', 'likes', viewer, product.id]
+    const knownAt = client.getQueryState(key)?.dataUpdatedAt ?? 0
+    // A list request started before a confirmed mutation must not overwrite it
+    // merely because its older response arrived after the write completed.
+    if (projection.requestedAt >= knownAt) {
+      client.setQueryData(key, projection.data, {
+        updatedAt: projection.requestedAt,
+      })
+    }
+  }, [client, product.id, projection, viewer])
   const liked = likesQuery.data?.liked === true
   const favoriteMutation = useMutation({
     mutationFn: async (save: boolean) => {
