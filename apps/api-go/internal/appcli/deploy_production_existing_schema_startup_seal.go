@@ -66,6 +66,12 @@ func verifyExistingSchemaSealedCommands(loaded map[string]string, binary string)
 		return nil, err
 	}
 	commands["ExecStartPre"] = pre
+	if pre != "" && !strings.HasPrefix(pre, binary+"\x00") {
+		if err := merchantStorePrivilegedStartCommand(pre, loaded["ExecStartPreEx"]); err != nil {
+			return nil, err
+		}
+		commands["ExecStartPreEx"] = "privileged"
+	}
 	for _, key := range []string{"ExecCondition", "ExecStop", "ExecStopPost"} {
 		if loaded[key] != "" {
 			return nil, errors.New("loaded production unit has an unchecked lifecycle command")
@@ -97,8 +103,8 @@ func verifyExistingSchemaSealedCommands(loaded map[string]string, binary string)
 // Only the native read-only startup checker is accepted as a pre-start hook.
 // Its entire command (including the one manifest-owned workspace) enters the
 // immutable startup digest. The checker cannot start without a live durable
-// holder, and no shell, alternate binary, arbitrary option, or ignore-error
-// pre-hook is admitted by this parser.
+// holder. Only the installed checker or this workspace's candidate checker is
+// accepted; shells, arbitrary options and ignore-error hooks are refused.
 func merchantStoreSealedStartCommand(value, binary string) (string, error) {
 	if value == "" {
 		return "", nil
@@ -108,18 +114,34 @@ func merchantStoreSealedStartCommand(value, binary string) (string, error) {
 		return "", errors.New("merchant startup hook has an unsafe representation")
 	}
 	parts := strings.Split(semantics, "\x00")
-	if len(parts) != 3 || parts[0] != binary || parts[2] != "no" {
+	if len(parts) != 3 || parts[2] != "no" {
 		return "", errors.New("merchant startup hook is not the canonical native checker")
 	}
 	words := strings.Fields(parts[1])
-	if len(words) != 6 || words[0] != binary || words[1] != "operator" || words[2] != "production" || words[3] != "writer-start-check" || words[4] != "--workspace" {
+	if len(words) != 6 || words[0] != parts[0] || words[1] != "operator" || words[2] != "production" || words[3] != "writer-start-check" || words[4] != "--workspace" {
 		return "", errors.New("merchant startup hook has unsupported commands or arguments")
 	}
 	workspace := words[5]
 	if filepath.Clean(workspace) != workspace || filepath.Dir(workspace) != defaultProductionPaths().WorkRoot || !productionIDPattern.MatchString(filepath.Base(workspace)) {
 		return "", errors.New("merchant startup hook workspace is not a canonical native deployment workspace")
 	}
+	if parts[0] != binary && parts[0] != merchantStoreHeldStartEntrypoint(workspace) {
+		return "", errors.New("merchant startup hook is not its installed or workspace candidate checker")
+	}
 	return semantics, nil
+}
+
+func merchantStoreHeldStartEntrypoint(workspace string) string {
+	return filepath.Join(workspace, "tmp", "migrations", "merchant-store-candidate", productionCandidateLinkName)
+}
+
+func merchantStorePrivilegedStartCommand(semantic, extended string) error {
+	parts := strings.Split(semantic, "\x00")
+	match := merchantStorePortableStartExPattern.FindStringSubmatch(extended)
+	if len(parts) != 3 || match == nil || strings.Count(extended, "{ path=") != 1 || strings.Count(extended, "argv[]=") != 1 || strings.Count(extended, "flags=") != 1 || match[1] != parts[0] || match[2] != parts[1] {
+		return errors.New("merchant startup hook lacks its exact privileged systemd command")
+	}
+	return nil
 }
 
 // Read a stable, singly linked, root-owned file without following any symlink

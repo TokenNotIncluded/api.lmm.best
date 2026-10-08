@@ -172,6 +172,15 @@ func (runtime *productionRuntime) verifyExistingSchemaStartupMode(ctx context.Co
 	if err := runtime.verifyExistingSchemaEffectiveSearchPath(ctx, values, manifest.ExistingSchemaContract); err != nil {
 		return err
 	}
+	if held, ok := ctx.Value(merchantStoreHeldStartContextKey{}).(*merchantStoreHeldStartContext); ok {
+		// Only the authenticated held checker may inspect an actual start-pre
+		// generation without a MainPID. All seals and database checks above still
+		// apply; identity and the live holder are reproved on every invocation.
+		if !sealed {
+			return errors.New("merchant held startup requires immutable startup seals")
+		}
+		return runtime.verifyMerchantStoreHeldStart(ctx, held, manifest, loaded)
+	}
 	if loaded["ActiveState"] == "inactive" && loaded["MainPID"] == "0" {
 		return nil
 	}

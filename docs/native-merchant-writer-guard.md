@@ -74,10 +74,13 @@ same physical connection. Both owners release locks in reverse order.
 
 ## Startup and host boundaries
 
-The source supports this exact read-only, sealed held-owner startup command:
+The held window uses this exact read-only, privileged startup hook, with both
+paths bound to the same native workspace:
 
-```text
-/usr/bin/lmm-api operator production writer-start-check \
+```ini
+[Service]
+ExecStartPre=
+ExecStartPre=+/var/lib/lmm-api-go-deploy/work/<deployment_id>/tmp/migrations/merchant-store-candidate/lmm-api operator production writer-start-check \
   --workspace /var/lib/lmm-api-go-deploy/work/<deployment_id>
 ```
 
@@ -85,8 +88,17 @@ An operator-managed `ExecStartPre` can use it only after the complete loaded
 command is captured into a fresh immutable startup seal; arbitrary commands,
 shells, extra flags and ignore-error hooks remain rejected. The command executes
 actual installed status and database checks and requires a still-live durable
-owner both before and after qualification. ACTIVE continues blocking activation
-between its exit and ExecStart, including a holder crash in that interval.
+owner both before and after qualification. Only the actual root ExecStartPre
+ControlPID in the same service InvocationID may inspect `activating/MainPID=0`;
+ordinary lifecycle checks still reject that state. The verified workspace
+candidate checker handles both candidate and retained installed writers, so a
+rollback does not depend on the older installed checker's startup behavior.
+ACTIVE continues blocking activation between its exit and ExecStart, including
+a holder crash in that interval.
+
+Protect the complete workspace, staged evidence and extracted candidate checker
+throughout this held window. They remain required until rollback completes or
+the permanent portable capsule startup binding is confirmed.
 
 This is not a permanent standalone restart policy. After normal confirmation the
 ordinary holder releases its owner. A manual/automatic post-confirmation restart
