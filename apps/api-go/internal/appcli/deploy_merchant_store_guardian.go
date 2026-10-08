@@ -177,10 +177,33 @@ func (runtime *productionRuntime) verifyMerchantStoreFenceTerminal(ctx context.C
 	if err != nil || manifest.SchemaPlanSHA256 != expected.SchemaPlanSHA256 || manifest.MerchantStoreWriter == nil || *manifest.MerchantStoreWriter != *expected.MerchantStoreWriter {
 		return errors.New("merchant deployment holder terminal manifest changed")
 	}
-	if manifest.BillingGate == nil || manifest.BillingGate.AdmissionClosed {
+	// AdmissionClosed records the completed drain; reopening preserves it.
+	if manifest.BillingGate == nil || !manifest.BillingGate.AdmissionClosed || !manifest.BillingGate.AdmissionReopened {
 		return errors.New("merchant deployment fence release requires reopened admission evidence")
 	}
 	rollback := status.Phase == "ROLLED_BACK"
+	if !rollback && manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
+		// Promotion can install its qualified edge policy after reopening.
+		if err := runtime.verifyEdgePolicy(ctx, runtime.paths.EdgeAssetRoot); err != nil {
+			return err
+		}
+	} else {
+		expectedAdmissionSHA256 := manifest.BillingGate.OriginalSHA256
+		if rollback && manifest.NginxEdgeRestoreSHA256 != "" {
+			// Rollback restores the pre-upgrade snapshot after reopening its gate.
+			root := filepath.Join(workspace.configRestore, "nginx-edge")
+			if err := runtime.validateEdgePolicyBackup(root, manifest.NginxEdgeRestoreSHA256); err != nil {
+				return err
+			}
+			expectedAdmissionSHA256, err = sha256File(filepath.Join(root, "locations"))
+			if err != nil {
+				return errors.New("merchant deployment terminal admission restore evidence is unavailable")
+			}
+		}
+		if digest, err := sha256File(filepath.Join(runtime.paths.NginxRoot, "lmm-api-locations.conf")); err != nil || digest != expectedAdmissionSHA256 {
+			return errors.New("merchant deployment terminal admission entry changed after reopening")
+		}
+	}
 	if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, manifest, true, rollback); err != nil {
 		return err
 	}
