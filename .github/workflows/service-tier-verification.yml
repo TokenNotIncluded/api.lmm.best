@@ -9,15 +9,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Export tracked public source for review
-        run: git archive --format=tar.gz HEAD > /tmp/service-tier-source.tar.gz
+      - name: Fetch public pricing documentation
+        run: |
+          mkdir -p /tmp/tier-docs
+          curl --fail --silent --show-error --max-time 30 https://developers.openai.com/api/docs/pricing.md -o /tmp/tier-docs/pricing.md
+          curl --fail --silent --show-error --max-time 30 https://developers.openai.com/api/docs/models/gpt-6-astra.md -o /tmp/tier-docs/model.md
       - uses: actions/upload-artifact@v4
         with:
-          name: service-tier-source
-          path: /tmp/service-tier-source.tar.gz
+          name: tier-docs
+          path: /tmp/tier-docs
           retention-days: 1
   baseline:
     runs-on: ubuntu-latest
