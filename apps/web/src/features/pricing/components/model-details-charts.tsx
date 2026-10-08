@@ -84,8 +84,9 @@ function getSuccessRateAxisMin(values: number[]): number {
   if (finiteValues.length === 0) return SUCCESS_RATE_FOCUSED_AXIS_MIN
 
   const minValue = Math.max(0, Math.min(...finiteValues))
-  if (minValue >= SUCCESS_RATE_FOCUSED_AXIS_MIN)
+  if (minValue >= SUCCESS_RATE_FOCUSED_AXIS_MIN) {
     return SUCCESS_RATE_FOCUSED_AXIS_MIN
+  }
   if (minValue >= SUCCESS_RATE_WIDE_AXIS_MIN) {
     return SUCCESS_RATE_WIDE_AXIS_MIN
   }
