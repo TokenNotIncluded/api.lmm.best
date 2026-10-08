@@ -90,7 +90,10 @@ function MobileHeaderTools({
         data-testid='header-tools-menu'
         onClick={(event) => {
           // Keep nested notification/settings controls open; close only for links.
-          if (event.target instanceof Element && event.target.closest('a[href]')) {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('a[href]')
+          ) {
             close()
           }
         }}

@@ -276,7 +276,9 @@ for (const width of [320, 640, 767]) {
       assert.ok(trigger)
       assert.equal(trigger.getAttribute('aria-expanded'), 'false')
       assert.ok(
-        rendered.container.querySelector('[data-testid="mobile-account-balance"]')
+        rendered.container.querySelector(
+          '[data-testid="mobile-account-balance"]'
+        )
       )
       assert.equal(
         rendered.container.querySelector('[data-testid="header-store-link"]'),

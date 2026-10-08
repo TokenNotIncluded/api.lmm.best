@@ -63,20 +63,20 @@ export async function reviewMobileHeader(page, snapshot, errors) {
     .getByTestId('header-tool-notifications')
     .getByRole('button', { name: 'Notifications', exact: true })
     .click()
-  const notifications = page
-    .locator('[data-slot="popover-content"]')
-    .filter({
-      has: page.getByRole('heading', { name: 'Notifications', exact: true }),
-    })
+  const notifications = page.locator('[data-slot="popover-content"]').filter({
+    has: page.getByRole('heading', { name: 'Notifications', exact: true }),
+  })
   await notifications.waitFor({ state: 'visible' })
   await withinViewport(page, notifications, 'notifications')
   await snapshot(page, `mobile-notifications-${width}`, errors)
   await page.keyboard.press('Escape')
   await notifications.waitFor({ state: 'hidden' })
-  await menu.waitFor({ state: 'visible' })
-  await page.keyboard.press('Escape')
+  // Base UI dismisses the popover stack and restores the header trigger.
   await menu.waitFor({ state: 'hidden' })
-  assert.equal(await more.evaluate((element) => element === document.activeElement), true)
+  assert.equal(
+    await more.evaluate((element) => element === document.activeElement),
+    true
+  )
 
   if (width === 390) {
     // Rotation must not restore a stale notification panel or a stale more menu.
