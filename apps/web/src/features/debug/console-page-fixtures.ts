@@ -51,9 +51,9 @@ const storeAndSecurityReads: Record<string, unknown> = {
 
 The platform provides listing review, payment records and delivery links. A listing review is not a guarantee of product quality, suitability, legality or continued availability. Contact the merchant first about product issues, and keep your order number and payment record when requesting platform assistance. The platform may pause products or investigate reports.
 
-Digital text and activation codes may be revealed immediately after confirmed payment. Do not share your private delivery link or pickup code. Check the applicable product terms and support instructions before buying.
+Digital text and activation codes may be revealed immediately after confirmed payment. Do not share your private delivery link or pickup code. Check the merchant's stated terms before buying; any refund request must be handled according to the applicable order and payment terms.
 
-External merchant orders are processed by the selected merchant or its payment provider. Payments credited to a merchant's platform balance cannot be withdrawn and may only be used for consumption on the platform. External merchant gateways receive the payment directly, while the platform charges the merchant a service fee in credits.
+Payments credited to a merchant's platform balance cannot be withdrawn and may only be used for consumption on the platform. External merchant gateways receive the payment directly, while the platform charges the merchant a service fee in credits.
 
 By accepting, you confirm that you have read these terms and understand that you are purchasing from the named third-party merchant. You can reopen this notice at any time from the shop.`,
     platform_payment_methods: [
