@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-/* Reference-pinned direction: a black interactive pointillist poster. The
+/* Reference-pinned direction: an interactive pointillist poster. The
    original sculptures morph through Store / Tools / Ecosystem / Future.
    Real actions and all account decisions remain in ForgeHome. */
 @font-face {
@@ -66,8 +66,28 @@
 }
 .lmm-cinema {
   position: relative;
-  background: #070707;
-  color: #f5f3f1;
+  --poster-ground: #f6f4f0;
+  --poster-ink: #241f25;
+  --poster-muted: #655a62;
+  --poster-rule: #cfc3ca;
+  --poster-primary: #29212b;
+  --poster-primary-ink: #faf6f8;
+  --poster-secondary: #e7dfe5;
+  --poster-secondary-ink: #342935;
+  --poster-focus: #974466;
+  background: var(--poster-ground);
+  color: var(--poster-ink);
+}
+.dark .lmm-cinema {
+  --poster-ground: #070707;
+  --poster-ink: #f5f3f1;
+  --poster-muted: #d4ccc9;
+  --poster-rule: #c4b6bc;
+  --poster-primary: #f2ede9;
+  --poster-primary-ink: #181413;
+  --poster-secondary: #30292c;
+  --poster-secondary-ink: #f5e8ee;
+  --poster-focus: #f2b7cf;
 }
 .lmm-cinema-inner {
   position: relative;
@@ -118,7 +138,7 @@
   top: 2.6rem;
   right: var(--home-gutter);
   text-align: right;
-  color: #d4ccc9;
+  color: var(--poster-muted);
   font-size: 0.65rem;
   line-height: 1.6;
 }
@@ -140,7 +160,7 @@
 }
 .lmm-scene-panel p {
   max-width: 24rem;
-  color: #d4ccc9;
+  color: var(--poster-muted);
   font-size: 0.93rem;
   line-height: 1.8;
   margin-top: 1.4rem;
@@ -156,14 +176,14 @@
   min-height: 3rem;
   padding-inline: 1.1rem;
   border-radius: 0;
-  background: #f2ede9;
-  color: #181413;
+  background: var(--poster-primary);
+  color: var(--poster-primary-ink);
   border: 0;
   box-shadow: none;
 }
 .lmm-cinema .lmm-intro-actions [data-slot='button']:nth-child(2) {
-  background: #30292c;
-  color: #f5e8ee;
+  background: var(--poster-secondary);
+  color: var(--poster-secondary-ink);
 }
 .lmm-cinema .lmm-intro-actions [data-slot='button']:hover {
   background: #f2b7cf;
@@ -171,7 +191,7 @@
 }
 .lmm-world-primary {
   margin-top: 0.7rem;
-  border-bottom: 1px solid #c4b6bc;
+  border-bottom: 1px solid var(--poster-rule);
   font-weight: 600;
 }
 .lmm-world-links {
@@ -192,13 +212,13 @@
   min-height: 2.75rem;
   background: transparent;
   border: 0;
-  color: #c7bdc1;
+  color: var(--poster-muted);
   font-size: 0.78rem;
   padding: 0.5rem 0;
 }
 .lmm-core-steps [data-active] button {
-  color: #fff;
-  box-shadow: inset 0 -1px 0 #f3e5eb;
+  color: var(--poster-ink);
+  box-shadow: inset 0 -1px 0 var(--poster-ink);
 }
 .lmm-core-continue {
   position: absolute;
@@ -214,7 +234,7 @@
   display: flex;
   gap: 0.5rem;
   align-items: center;
-  color: #ded5d9;
+  color: var(--poster-muted);
   background: transparent;
   border: 0;
   font-size: 0.75rem;
@@ -227,7 +247,7 @@
   stroke-width: 1.5;
 }
 .lmm-cinema :is(a, button):focus-visible {
-  outline-color: #f2b7cf;
+  outline-color: var(--poster-focus);
 }
 .lmm-cinema ::selection {
   background: #f2b7cf;
@@ -779,7 +799,7 @@
   color: var(--muted-foreground);
   line-height: 1.6;
 }
-.lmm-destinations svg {
+.lmm-destinations a svg {
   width: 1.2rem;
   height: 1.2rem;
   transition: transform 180ms ease;
@@ -1012,7 +1032,7 @@
     margin-bottom: 1.5rem;
   }
   .lmm-scene-panel:not(.lmm-intro) {
-    border-top: 1px solid #292226;
+    border-top: 1px solid var(--poster-rule);
   }
   .lmm-core-steps {
     padding: 1rem var(--home-gutter);
