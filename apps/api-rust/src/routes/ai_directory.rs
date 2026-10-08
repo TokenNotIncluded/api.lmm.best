@@ -293,10 +293,10 @@ pub fn charge_quota_with_credits_per_usd(bid: i64, raw: &str) -> Result<i64, AdE
     if !(MIN_BID_CENTS..=MAX_BID_CENTS).contains(&bid) {
         return Err(AdError::InvalidBid);
     }
+    // Go AIDirectoryAdChargeQuota multiplies whatever basis CreditsPerUSD()
+    // installed. Option writes stay fixed at 500000; quote math still has to
+    // charge every basis the Go oracle accepts, including historical rates.
     let basis = credit_basis(raw)?;
-    if basis.digits != [5] || basis.exponent != 5 {
-        return Err(AdError::CurrencyUnavailable);
-    }
     let amount = multiply_digits(&basis.digits, bid as u64);
     ceiling_wallet_credits(&amount, basis.exponent - 2)
 }
@@ -328,10 +328,9 @@ fn subtract_digits(a: &mut Vec<u8>, b: &[u8]) {
 /// Matches Go CreditsToUSD's 16-place, half-away-from-zero decimal division.
 /// Annotation is best effort and must never prevent an immutable refund/replay.
 pub fn charged_amount_usd(quota: i64, raw: &str) -> Option<String> {
+    // Same installed basis as Go CreditsToUSD. A non-fixed historical rate
+    // still formats; only an unparsable basis omits the annotation.
     let basis = credit_basis(raw).ok()?;
-    if basis.digits != [5] || basis.exponent != 5 {
-        return None;
-    }
     if quota == 0 {
         return Some("0".into());
     }
