@@ -195,10 +195,25 @@ docker-rust:
 # Build the default Go production package.
 package: package-go
 
-package-go: build
-    scripts/lmm-api-deploy.sh build \
-      --repo "$(pwd)" \
-      --workspace "$LMM_API_BUILD_WORKSPACE"
+# Reuse an existing operator; bootstrap it only on a fresh checkout.
+# The native package command owns the actual frontend and backend builds.
+package-go:
+    bash scripts/lmm-api-deploy.sh package
+
+# Dispatch an existing signed frontend release, without building Go or Web.
+deploy-web tag:
+    bash scripts/lmm-api-deploy.sh web deploy {{quote(tag)}}
+
+# Inspect/wait for an exact deployment run; dispatch alone is not success.
+deploy-web-status run_id:
+    bash scripts/lmm-api-deploy.sh web status {{quote(run_id)}}
+
+deploy-web-watch run_id:
+    bash scripts/lmm-api-deploy.sh web watch {{quote(run_id)}}
+
+# Check workstation deployment paths without server/database access.
+test-deploy-entrypoint:
+    python3 -B scripts/test-deploy-entrypoint.py -v
 
 # Validate the public AUR package that consumes prebuilt release assets.
 test-package-bin:
