@@ -26,7 +26,10 @@ FAKE = f'#!{sys.executable}\n' + textwrap.dedent('''\
     if name == 'git':
         if args[:1] == ['rev-parse']: print(state['revision'])
         elif args[:1] == ['show']: print('pkgname=x\\npkgver=' + state['pkgver'])
-        elif args[:2] == ['tag', '--list']: print('\\n'.join(state['tags']))
+        elif args[:1] == ['ls-remote']:
+            for tag in state['tags']:
+                print('f' * 40 + '\\trefs/tags/' + tag)
+                print('c' * 40 + '\\trefs/tags/' + tag + '^{}')
         elif args[:1] == ['diff']: print(state.get('changed', 'apps/web/src/a.ts'))
         elif args[:1] == ['log']: print('feat(web): subject')
     elif name == 'gh':
@@ -89,6 +92,12 @@ class WebShipTests(unittest.TestCase):
         self.assertIn('release-web.yml', dispatches[0])
         self.assertIn('release_tag=web-v0.1.137', dispatches[1])
         self.assertEqual(['11', '22'], [row[3] for row in self.calls(('gh', 'run', 'watch'))])
+
+    def test_remote_tags_decide_version_and_diff_base(self):
+        self.assertEqual(0, self.call('release').returncode)
+        self.assertEqual([], self.calls(('git', 'tag', '--list')))
+        self.assertNotIn('--tags', self.calls(('git', 'fetch'))[0])
+        self.assertEqual('c' * 40, self.calls(('git', 'diff'))[0][2])
 
     def test_release_stops_before_deploy(self):
         result = self.call('release')

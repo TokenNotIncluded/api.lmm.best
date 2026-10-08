@@ -64,14 +64,28 @@ def watch(repo, run_id, label):
         raise ShipError(f'{label} run {run_id} failed; inspect it, do not redispatch blindly')
 
 
+def remote_tags():
+    """Map remote web tags to commits; local tags may be stale or diverged."""
+    commits = {}
+    for line in run('git', 'ls-remote', '--tags', 'origin', 'refs/tags/web-v*').splitlines():
+        sha, _, ref = line.partition('\t')
+        name = ref.removeprefix('refs/tags/')
+        if name.endswith('^{}'):
+            commits[name[:-3]] = sha
+        else:
+            commits.setdefault(name, sha)
+    return commits
+
+
 def release(repo, requested):
-    run('git', 'fetch', '--quiet', '--tags', 'origin', 'main')
+    run('git', 'fetch', '--quiet', 'origin', 'main')
     revision = run('git', 'rev-parse', 'origin/main^{commit}')
     pkgver = run('git', 'show', 'origin/main:packaging/aur/lmm-api-web-bin/PKGBUILD')
     pkgver = re.search(r'^pkgver=(\d+\.\d+\.\d+)$', pkgver, re.M)
     if not pkgver:
         raise ShipError('cannot read pkgver from packaging/aur/lmm-api-web-bin/PKGBUILD')
-    tag, known = next_tag(run('git', 'tag', '--list', 'web-v*').split(), pkgver.group(1))
+    tag_commits = remote_tags()
+    tag, known = next_tag(tag_commits, pkgver.group(1))
     if requested:
         if requested in known:
             raise ShipError(f'{requested} already exists; deploy it with `web deploy {requested}`')
@@ -80,7 +94,7 @@ def release(repo, requested):
         tag = requested
     if known:
         latest = max(known, key=version_key)
-        changed = run('git', 'diff', '--name-only', f'{latest}^{{commit}}', revision, '--', *WEB_PATHS)
+        changed = run('git', 'diff', '--name-only', tag_commits[latest], revision, '--', *WEB_PATHS)
         if not changed:
             raise ShipError(f'no frontend changes since {latest}; nothing to release')
     print(f'{tag} <- origin/main {revision[:12]}', flush=True)
