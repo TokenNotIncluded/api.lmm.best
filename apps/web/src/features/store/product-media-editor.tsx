@@ -25,59 +25,68 @@ export function StoreProductMediaEditor({
 }) {
   const { t } = useTranslation()
   return (
-    <div className='space-y-3 sm:col-span-2'>
-      <div className='grid gap-3 sm:grid-cols-2'>
-        {[
-          {
-            id: 'store-logo-image',
-            label: t('Product logo image'),
-            value: logo,
-            change: onLogoChange,
-          },
-          {
-            id: 'store-header-image',
-            label: t('Product header image'),
-            value: header,
-            change: onHeaderChange,
-          },
-        ].map((field) => {
-          const preview = normalizeStoreImageSource(field.value)
-          return (
-            <div key={field.id} className='space-y-2'>
-              <Label htmlFor={field.id}>{field.label}</Label>
-              <Textarea
-                id={field.id}
-                rows={3}
-                maxLength={svgSupported ? STORE_SVG_MAX_BYTES : 4096}
-                value={field.value}
-                onChange={(event) => field.change(event.target.value)}
-                placeholder={
-                  svgSupported ? t('HTTPS image URL or SVG text') : 'https://'
-                }
-              />
-              {preview && (
-                <img
-                  src={preview}
-                  alt={t('Preview')}
-                  className='bg-muted max-h-48 max-w-full rounded-md object-contain'
-                  referrerPolicy='no-referrer'
+    <details className='min-w-0 sm:col-span-2'>
+      <summary className='text-muted-foreground focus-visible:outline-ring w-fit cursor-pointer rounded-sm py-2 text-sm focus-visible:outline-2'>
+        {t('Product images')} · {t('Optional')}
+      </summary>
+      <div className='space-y-5 pt-4'>
+        <div className='grid gap-5 sm:grid-cols-2'>
+          {[
+            {
+              id: 'store-logo-image',
+              label: t('Product logo image'),
+              value: logo,
+              change: onLogoChange,
+            },
+            {
+              id: 'store-header-image',
+              label: t('Product header image'),
+              value: header,
+              change: onHeaderChange,
+            },
+          ].map((field) => {
+            const preview = normalizeStoreImageSource(field.value)
+            return (
+              <div key={field.id} className='space-y-2'>
+                <Label htmlFor={field.id}>{field.label}</Label>
+                <Textarea
+                  id={field.id}
+                  rows={3}
+                  maxLength={svgSupported ? STORE_SVG_MAX_BYTES : 4096}
+                  value={field.value}
+                  onChange={(event) => field.change(event.target.value)}
+                  placeholder={
+                    svgSupported ? t('HTTPS image URL or SVG text') : 'https://'
+                  }
                 />
-              )}
-            </div>
-          )
-        })}
+                {preview && (
+                  <img
+                    key={preview}
+                    src={preview}
+                    alt={t('Preview')}
+                    className='max-h-48 max-w-full rounded-lg object-contain'
+                    referrerPolicy='no-referrer'
+                    onError={(event) => {
+                      event.currentTarget.hidden = true
+                    }}
+                  />
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <div className='space-y-2'>
+          <Label htmlFor='store-images'>{t('Additional image URLs')}</Label>
+          <Textarea
+            id='store-images'
+            rows={2}
+            maxLength={32 * Math.ceil(STORE_SVG_MAX_BYTES / 3) * 4}
+            value={additional}
+            onChange={(event) => onAdditionalChange(event.target.value)}
+            placeholder={t('One URL per line')}
+          />
+        </div>
       </div>
-      <div className='space-y-2'>
-        <Label htmlFor='store-images'>{t('Additional image URLs')}</Label>
-        <Textarea
-          id='store-images'
-          rows={2}
-          maxLength={32 * Math.ceil(STORE_SVG_MAX_BYTES / 3) * 4}
-          value={additional}
-          onChange={(event) => onAdditionalChange(event.target.value)}
-          placeholder={t('One URL per line')}
-        />
-      </div>
-    </div>
+    </details>
   )
 }
