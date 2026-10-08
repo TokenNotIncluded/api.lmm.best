@@ -25,25 +25,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/store-review"
-          tar -czf "$RUNNER_TEMP/store-review/node-runtime.tar.gz" node_modules apps/web/node_modules
+          tar -czf "$RUNNER_TEMP/store-review/node-runtime.tar.gz" node_modules
           cp "$(command -v bun)" "$RUNNER_TEMP/store-review/bun"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: store-review-runtime
           path: ${{ runner.temp }}/store-review
+          compression-level: 0
           retention-days: 1
       - name: Run existing store tests serially
         shell: bash
         working-directory: apps/web
         run: |
-          set -o pipefail
           failed=0
           for test in src/features/store/*.test.ts src/features/store/*.test.tsx; do
             bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./$test" >> "$RUNNER_TEMP/store-baseline.log" 2>&1 || failed=1
           done
           tail -40 "$RUNNER_TEMP/store-baseline.log"
           exit "$failed"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: store-review-baseline
