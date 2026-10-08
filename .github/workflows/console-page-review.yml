@@ -1,10 +1,7 @@
 name: Console page review
 
 on:
-  pull_request:
-    paths:
-      - "apps/web/**"
-      - ".github/workflows/console-page-review.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read

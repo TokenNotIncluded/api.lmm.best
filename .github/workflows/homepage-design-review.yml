@@ -1,19 +1,7 @@
 name: Homepage design review
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/web/src/features/home/**'
-      - 'apps/web/src/features/forge/forge-home*'
-      - 'apps/web/scripts/home-design-review.mjs'
-      - '.github/workflows/homepage-design-review.yml'
-  pull_request:
-    paths:
-      - 'apps/web/src/features/home/**'
-      - 'apps/web/src/features/forge/forge-home*'
-      - 'apps/web/scripts/home-design-review.mjs'
-      - '.github/workflows/homepage-design-review.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

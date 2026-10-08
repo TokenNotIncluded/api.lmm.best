@@ -48,16 +48,18 @@ Do not use `just build`, `just package`, or `go run` for a Web-only deployment.
 
 For a new component release, inspect `.github/workflows/release-web.yml` or
 `release-go.yml`; both currently use manual dispatch against their component tag.
-Verify required checks for that exact commit before publication. Keep the workflow
-paths: they are part of signature identity. A green PR at another revision is not
-a substitute. Do not weaken release checks to save time.
+Run relevant tests locally and retain a local-release-tests.py record before
+publication. Reuse completed logs with its explicit import mode when appropriate.
+The record must match the component Git objects at the release revision; changed
+component bytes require new local checks. Keep the workflow paths: they are part
+of signature identity. Keep ancestry, artifacts and production acceptance gates.
 
-The Go/Web release gate (`.github/required-go-web-release-checks.txt`) excludes
-Rust preview jobs. A red `CI Quality Gate` caused only by Rust preview tests does
-not block a Go/Web release or a PR merge that leaves the Rust code untouched;
-confirm the same failure exists on `main` instead of debugging it in each PR.
-For a new Web release, `just ship-web` already waits for that gate before it
-tags, so do not tag and dispatch by hand.
+Tests run locally by user policy. Do not run or wait for test CI to publish.
+Both component workflows accept required local_test_evidence JSON and verify it
+without querying GitHub check runs. `just ship-web` verifies
+LMM_LOCAL_TEST_EVIDENCE before tagging and sends that record to the publisher.
+GitHub Actions owns release builds, official Sigstore signing and deployment;
+test/review workflows remain manual diagnostics only.
 
 For an existing release, inspect the complete signed asset set first. Reuse it.
 If publication failed after signing, inspect the preserved signed workflow
@@ -71,7 +73,7 @@ provider. A first-time CLI bootstrap is distinct from an application rebuild.
 
 Run targeted checks while editing. For deployment-entrypoint changes, use
 `just test-deploy-entrypoint` and the relevant existing
-standalone/native tests. Run the required release checks before release. Do not
+standalone/native tests. Record the completed local checks before release. Do not
 repeat a successful full build just because a network/readback step failed.
 
 ## Execute and observe

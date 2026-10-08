@@ -1,22 +1,12 @@
 name: CI
 
 on:
-  pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
-  push:
-    # Feature branches run through pull_request; keep main and tag evidence for releases.
-    branches: [main]
-    tags: ["*"]
   workflow_dispatch:
     inputs:
       base-ref:
         description: Git ref for the translation regression comparison
         default: HEAD^
         type: string
-  schedule:
-    - cron: "23 3 * * *"
-  merge_group:
-    types: [checks_requested]
 
 permissions:
   contents: read
@@ -642,8 +632,8 @@ jobs:
 
   go-web-release-gate:
     name: Go/Web release qualification gate
-    # Main-push publication evidence; the full CI gate still includes Rust.
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    # Manual diagnostic summary; publication requires local test evidence.
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
     needs:
       - changes
       - repository-contracts

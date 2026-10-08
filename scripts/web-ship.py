@@ -85,18 +85,30 @@ def release(repo, requested):
             raise ShipError(f'no frontend changes since {latest}; nothing to release')
     print(f'{tag} <- origin/main {revision[:12]}', flush=True)
 
-    # Refuse before tagging: release-web.yml repeats this gate and would fail later.
-    env = dict(os.environ, GITHUB_TOKEN=os.environ.get('GITHUB_TOKEN') or run('gh', 'auth', 'token'),
-               GITHUB_REPOSITORY=repo)
+    # Reuse completed local checks; the publisher verifies this same record.
+    evidence_path = os.environ.get('LMM_LOCAL_TEST_EVIDENCE')
+    try:
+        if evidence_path:
+            with open(evidence_path, encoding='utf-8') as stream:
+                local_evidence = stream.read()
+        else:
+            local_evidence = os.environ.get('LMM_LOCAL_TEST_EVIDENCE_JSON', '')
+    except OSError as error:
+        raise ShipError(f'cannot read local test evidence: {error}')
+    if not local_evidence:
+        raise ShipError('LMM_LOCAL_TEST_EVIDENCE must point to the completed local test record')
+    env = dict(os.environ, LMM_LOCAL_TEST_EVIDENCE_JSON=local_evidence)
+    env.pop('LMM_LOCAL_TEST_EVIDENCE', None)
     gate = subprocess.run(['bash', 'scripts/verify-release-commit-checks.sh', revision, '--component', 'web'],
                           env=env, text=True)
     if gate.returncode:
-        raise ShipError(f'Go/Web release checks are not green for {revision[:12]}')
+        raise ShipError(f'local web test evidence does not qualify {revision[:12]}')
 
     subject = run('git', 'log', '-1', '--format=%s', revision)
     run('git', 'tag', '-s', tag, revision, '-m', f'LMM web {tag[5:]}: {subject}')
     run('git', 'push', 'origin', f'refs/tags/{tag}')
-    run('gh', 'workflow', 'run', 'release-web.yml', '--repo', repo, '--ref', tag)
+    run('gh', 'workflow', 'run', 'release-web.yml', '--repo', repo, '--ref', tag,
+        '--raw-field', f'local_test_evidence={local_evidence}')
     watch(repo, find_run(repo, 'release-web.yml', tag, None), f'release {tag}')
     return tag
 

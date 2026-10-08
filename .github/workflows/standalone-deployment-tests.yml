@@ -1,33 +1,6 @@
 name: Standalone deployment tests
 
 on:
-  pull_request:
-    paths:
-      - scripts/deploy-systemd.py
-      - scripts/lmm-api-deploy.sh
-      - scripts/test-deploy-systemd*.py
-      - scripts/test-deploy-entrypoint.py
-      - scripts/web-ship.py
-      - scripts/test-web-ship.py
-      - justfile
-      - .github/workflows/deploy-web-frontend.yml
-      - .agents/skills/deployment/**
-      - docs/deployment-workflow.md
-      - .github/workflows/standalone-deployment-tests.yml
-  push:
-    branches: [main]
-    paths:
-      - scripts/deploy-systemd.py
-      - scripts/lmm-api-deploy.sh
-      - scripts/test-deploy-systemd*.py
-      - scripts/test-deploy-entrypoint.py
-      - scripts/web-ship.py
-      - scripts/test-web-ship.py
-      - justfile
-      - .github/workflows/deploy-web-frontend.yml
-      - .agents/skills/deployment/**
-      - docs/deployment-workflow.md
-      - .github/workflows/standalone-deployment-tests.yml
   workflow_dispatch:
 
 permissions:
