@@ -20,15 +20,16 @@ import { VChart } from '@visactor/react-vchart'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { getSuccessRateColor } from '@/features/performance-metrics/lib/format'
 import { resolveForgeColor } from '@/lib/forge-colors'
-import { useThemeRadiusPx } from '@/lib/theme-radius'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { cn } from '@/lib/utils'
 import { VCHART_OPTION } from '@/lib/vchart'
 
-import type { LatencyTimePoint, UptimeDayPoint } from '../lib/mock-stats'
+import type {
+  LatencyTimePoint,
+  SuccessRateTimePoint,
+} from '../lib/performance-series'
 
 function formatHourLabel(iso: string): string {
   const date = new Date(iso)
@@ -36,7 +37,7 @@ function formatHourLabel(iso: string): string {
   return `${String(hours).padStart(2, '0')}:00`
 }
 
-function formatDayLabel(date: string): string {
+function formatSampleLabel(date: string): string {
   const parsed = new Date(date)
   if (date.includes('T')) {
     return parsed.toLocaleString(undefined, {
@@ -69,30 +70,27 @@ function getChartThemeTokens(resolvedTheme: string) {
   }
 }
 
-const UPTIME_AXIS_MAX = 100
-const UPTIME_FOCUSED_AXIS_MIN = 95
-const UPTIME_MINOR_OUTAGE_AXIS_MIN = 90
+const SUCCESS_RATE_AXIS_MAX = 100
+const SUCCESS_RATE_FOCUSED_AXIS_MIN = 95
+const SUCCESS_RATE_WIDE_AXIS_MIN = 90
 
-function toUptimeChartValue(value: number): number {
+function toSuccessRateChartValue(value: number): number {
   if (!Number.isFinite(value)) return 0
-  return Math.min(UPTIME_AXIS_MAX, Math.max(0, value))
+  return Math.min(SUCCESS_RATE_AXIS_MAX, Math.max(0, value))
 }
 
-function getUptimeAxisMin(values: number[]): number {
+function getSuccessRateAxisMin(values: number[]): number {
   const finiteValues = values.filter((value) => Number.isFinite(value))
-  if (finiteValues.length === 0) return UPTIME_FOCUSED_AXIS_MIN
+  if (finiteValues.length === 0) return SUCCESS_RATE_FOCUSED_AXIS_MIN
 
   const minValue = Math.max(0, Math.min(...finiteValues))
-  if (minValue >= UPTIME_FOCUSED_AXIS_MIN) return UPTIME_FOCUSED_AXIS_MIN
-  if (minValue >= UPTIME_MINOR_OUTAGE_AXIS_MIN) {
-    return UPTIME_MINOR_OUTAGE_AXIS_MIN
+  if (minValue >= SUCCESS_RATE_FOCUSED_AXIS_MIN)
+    return SUCCESS_RATE_FOCUSED_AXIS_MIN
+  if (minValue >= SUCCESS_RATE_WIDE_AXIS_MIN) {
+    return SUCCESS_RATE_WIDE_AXIS_MIN
   }
 
   return Math.max(0, Math.floor((minValue - 5) / 10) * 10)
-}
-
-function stripUptimePointSuffix(value: string): string {
-  return value.replace(/__(start|end)$/, '')
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +109,7 @@ export function LatencyTrendChart(props: {
   const spec = useMemo(() => {
     if (props.series.length === 0) return null
     const data = props.series.map((point) => ({
-      time: formatHourLabel(point.timestamp),
+      time: point.timestamp,
       group: point.group,
       ttft: point.ttft_ms,
     }))
@@ -132,7 +130,7 @@ export function LatencyTrendChart(props: {
       legends: { visible: false },
       tooltip: {
         mark: {
-          title: { value: (d: { time: string }) => d.time },
+          title: { value: (d: { time: string }) => formatSampleLabel(d.time) },
           content: [
             {
               key: t('Average TTFT'),
@@ -145,6 +143,8 @@ export function LatencyTrendChart(props: {
         {
           orient: 'bottom',
           label: {
+            formatMethod: (val: number | string) =>
+              formatHourLabel(String(val)),
             style: { fill: textColor, fontSize: 10 },
           },
           tick: { visible: false },
@@ -195,11 +195,11 @@ export function LatencyTrendChart(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Uptime trend chart (24h, point-line chart)
+// Request success-rate trend (observed API samples)
 // ---------------------------------------------------------------------------
 
-export function UptimeTrendChart(props: {
-  series: UptimeDayPoint[]
+export function SuccessRateTrendChart(props: {
+  series: SuccessRateTimePoint[]
   className?: string
 }) {
   const { t } = useTranslation()
@@ -210,26 +210,19 @@ export function UptimeTrendChart(props: {
   const spec = useMemo(() => {
     if (props.series.length === 0) return null
 
-    const rawData = props.series.map((point) => ({
-      date: formatDayLabel(point.date),
-      uptime: toUptimeChartValue(point.uptime_pct),
-      incidents: point.incidents,
-      outage: point.outage_minutes,
+    const data = props.series.map((point) => ({
+      date: point.timestamp,
+      successRate: toSuccessRateChartValue(point.success_rate),
     }))
-    const data =
-      rawData.length === 1
-        ? [
-            { ...rawData[0], date: `${rawData[0].date}__start` },
-            { ...rawData[0], date: `${rawData[0].date}__end` },
-          ]
-        : rawData
-    const axisMin = getUptimeAxisMin(rawData.map((point) => point.uptime))
+    const axisMin = getSuccessRateAxisMin(
+      data.map((point) => point.successRate)
+    )
 
     return {
       type: 'line' as const,
-      data: [{ id: 'uptime', values: data }],
+      data: [{ id: 'success-rate', values: data }],
       xField: 'date',
-      yField: 'uptime',
+      yField: 'successRate',
       smooth: true,
       line: {
         style: { stroke: seriesColor, lineWidth: 2 },
@@ -240,27 +233,20 @@ export function UptimeTrendChart(props: {
           size: 5,
           stroke: pointColor,
           lineWidth: 1.5,
-          fill: (datum: { uptime: number }) =>
-            getSuccessRateColor(datum.uptime),
+          fill: (datum: { successRate: number }) =>
+            getSuccessRateColor(datum.successRate),
         },
       },
       tooltip: {
         mark: {
           title: {
-            value: (d: { date: string }) => stripUptimePointSuffix(d.date),
+            value: (d: { date: string }) => formatSampleLabel(d.date),
           },
           content: [
             {
-              key: t('Uptime'),
-              value: (d: { uptime: number }) => `${d.uptime.toFixed(2)}%`,
-            },
-            {
-              key: t('Incidents'),
-              value: (d: { incidents: number }) => `${d.incidents}`,
-            },
-            {
-              key: t('Outage'),
-              value: (d: { outage: number }) => `${d.outage} ${t('minutes')}`,
+              key: t('Success rate'),
+              value: (d: { successRate: number }) =>
+                `${d.successRate.toFixed(2)}%`,
             },
           ],
         },
@@ -270,7 +256,7 @@ export function UptimeTrendChart(props: {
           orient: 'bottom',
           label: {
             formatMethod: (val: number | string) =>
-              stripUptimePointSuffix(String(val)),
+              formatSampleLabel(String(val)),
             style: { fill: textColor, fontSize: 10 },
             autoLimit: true,
           },
@@ -279,7 +265,7 @@ export function UptimeTrendChart(props: {
         {
           orient: 'left',
           min: axisMin,
-          max: UPTIME_AXIS_MAX,
+          max: SUCCESS_RATE_AXIS_MAX,
           label: {
             formatMethod: (val: number | string) => `${val}%`,
             style: { fill: textColor, fontSize: 10 },
@@ -301,7 +287,7 @@ export function UptimeTrendChart(props: {
           props.className
         )}
       >
-        {t('No uptime data available')}
+        {t('Performance data is not yet available for this model.')}
       </div>
     )
   }
@@ -310,101 +296,7 @@ export function UptimeTrendChart(props: {
     <div className={cn('h-56 sm:h-64', props.className)}>
       {themeReady && spec && (
         <VChart
-          key={`uptime-trend-${resolvedTheme}`}
-          spec={{
-            ...spec,
-            theme: resolvedTheme === 'dark' ? 'dark' : 'light',
-            background: 'transparent',
-          }}
-          option={VCHART_OPTION}
-        />
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Throughput by group (horizontal bar)
-// ---------------------------------------------------------------------------
-
-export function ThroughputBarChart(props: {
-  rows: { group: string; throughput_tps: number }[]
-  className?: string
-}) {
-  const { t } = useTranslation()
-  const { resolvedTheme, themeReady } = useChartTheme()
-  const { textColor, gridColor, seriesColor } =
-    getChartThemeTokens(resolvedTheme)
-  const { customization } = useThemeCustomization()
-  const barRadius = useThemeRadiusPx(
-    '--radius-sm',
-    `${customization.preset}:${customization.radius}`
-  )
-
-  const filtered = useMemo(
-    () => props.rows.filter((r) => r.throughput_tps > 0),
-    [props.rows]
-  )
-
-  const spec = useMemo(() => {
-    if (filtered.length === 0) return null
-    return {
-      type: 'bar' as const,
-      direction: 'horizontal' as const,
-      data: [{ id: 'tput', values: filtered.map((r) => ({ ...r })) }],
-      xField: 'throughput_tps',
-      yField: 'group',
-      bar: {
-        style: {
-          fill: seriesColor,
-          ...(barRadius == null ? {} : { cornerRadius: barRadius }),
-        },
-      },
-      label: {
-        visible: true,
-        position: 'right',
-        style: { fontSize: 11, fill: textColor },
-        formatMethod: (text: string) => `${text} t/s`,
-      },
-      axes: [
-        {
-          orient: 'left',
-          label: { style: { fill: textColor, fontSize: 10 } },
-          tick: { visible: false },
-        },
-        {
-          orient: 'bottom',
-          label: { style: { fill: textColor, fontSize: 10 } },
-          grid: {
-            visible: true,
-            style: { lineDash: [3, 3], stroke: gridColor },
-          },
-        },
-      ],
-      tooltip: {
-        mark: {
-          title: { value: (d: { group: string }) => d.group },
-          content: [
-            {
-              key: t('Throughput'),
-              value: (d: { throughput_tps: number }) =>
-                `${d.throughput_tps.toFixed(1)} t/s`,
-            },
-          ],
-        },
-      },
-    }
-  }, [barRadius, filtered, gridColor, seriesColor, t, textColor])
-
-  if (filtered.length === 0) {
-    return null
-  }
-
-  return (
-    <div className={cn('h-48 sm:h-56', props.className)}>
-      {themeReady && spec && (
-        <VChart
-          key={`tput-${resolvedTheme}`}
+          key={`successRate-trend-${resolvedTheme}`}
           spec={{
             ...spec,
             theme: resolvedTheme === 'dark' ? 'dark' : 'light',
