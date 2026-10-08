@@ -1,5 +1,6 @@
 """Test the frontend release orchestration with fake git/gh; no network access."""
 from pathlib import Path
+import importlib.util
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 REVISION = 'b' * 40
@@ -19,17 +21,22 @@ FAKE = f'#!{sys.executable}\n' + textwrap.dedent('''\
     with open(os.environ['COMMAND_LOG'], 'a') as log:
         log.write(json.dumps([name, *args]) + '\\n')
     state = json.loads(pathlib.Path(os.environ['FAKE_STATE']).read_text())
+    if name == 'git' and args[:1] == ['fetch'] and any(arg.startswith('refs/tags/') for arg in args) and state.get('fail_tag_fetch'):
+        sys.exit(1)
     fail = state.get('fail', {})
     key = ' '.join([name, *args[:2]])
     if key in fail:
         sys.exit(fail[key])
     if name == 'git':
-        if args[:1] == ['rev-parse']: print(state['revision'])
+        if args[:1] == ['rev-parse']:
+            print(state.get('fetched_tag_revision', 'c' * 40) if args[1] == 'FETCH_HEAD^{commit}' else state['revision'])
         elif args[:1] == ['show']: print('pkgname=x\\npkgver=' + state['pkgver'])
         elif args[:1] == ['ls-remote']:
             for tag in state['tags']:
                 print('f' * 40 + '\\trefs/tags/' + tag)
                 print('c' * 40 + '\\trefs/tags/' + tag + '^{}')
+        elif args[:2] == ['show-ref', '--verify']:
+            sys.exit(0 if args[-1].removeprefix('refs/tags/') in state.get('local_tags', []) else 1)
         elif args[:1] == ['diff']: print(state.get('changed', 'apps/web/src/a.ts'))
         elif args[:1] == ['log']: print('feat(web): subject')
     elif name == 'gh':
@@ -100,7 +107,38 @@ class WebShipTests(unittest.TestCase):
         self.assertEqual(0, self.call('release').returncode)
         self.assertEqual([], self.calls(('git', 'tag', '--list')))
         self.assertNotIn('--tags', self.calls(('git', 'fetch'))[0])
+        self.assertIn('--no-tags', self.calls(('git', 'fetch'))[0])
+        self.assertEqual(['git', 'fetch', '--quiet', '--no-tags', '--refmap=', 'origin', 'refs/tags/web-v0.1.136'],
+                         self.calls(('git', 'fetch'))[1])
         self.assertEqual('c' * 40, self.calls(('git', 'diff'))[0][3])
+
+    def test_remote_tag_changed_between_listing_and_fetch_refuses_to_tag(self):
+        self.state['fetched_tag_revision'] = 'd' * 40
+        result = self.call('release')
+        self.assertEqual(1, result.returncode)
+        self.assertIn('changed on origin', result.stderr)
+        self.assertEqual([], self.calls(('git', 'tag', '-s')))
+        self.assertEqual([], self.calls(('gh', 'workflow')))
+
+    def test_failed_remote_tag_download_refuses_to_tag(self):
+        self.state['fail_tag_fetch'] = True
+        self.assertEqual(1, self.call('release').returncode)
+        self.assertEqual([], self.calls(('git', 'tag', '-s')))
+
+    def test_local_only_next_tag_is_preserved_and_never_published(self):
+        self.state['local_tags'] = ['web-v0.1.137']
+        result = self.call('release')
+        self.assertEqual(1, result.returncode)
+        self.assertIn('exists locally but not on origin', result.stderr)
+        self.assertEqual([], self.calls(('bash',)))
+        self.assertEqual([], self.calls(('git', 'push')))
+
+    def test_requested_tag_must_exceed_aur_floor_before_any_publication(self):
+        self.state['pkgver'] = '0.1.137'
+        result = self.call('release', 'web-v0.1.137')
+        self.assertEqual(1, result.returncode)
+        self.assertIn('AUR pkgver', result.stderr)
+        self.assertEqual([], self.calls(('git', 'tag', '-s')))
 
     def test_release_stops_before_deploy(self):
         result = self.call('release')
@@ -164,6 +202,60 @@ class WebShipTests(unittest.TestCase):
                                 cwd='/', env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(2, result.returncode)
         self.assertIn('web-vX.Y.Z', result.stderr)
+
+
+class RealRemoteTagTests(unittest.TestCase):
+    def test_shallow_remote_object_and_divergent_local_tag_with_tag_fetch_config(self):
+        with tempfile.TemporaryDirectory(prefix='real remote tags ') as temporary:
+            root = Path(temporary)
+            source, origin, client = (root / name for name in ('source', 'origin', 'client'))
+            for path in (source, client):
+                path.mkdir()
+                subprocess.run(['git', 'init', '-q', '-b', 'main', str(path)], check=True)
+                for key, value in (('user.name', 'Fixture'), ('user.email', 'fixture@example.invalid'),
+                                   ('commit.gpgsign', 'false'), ('tag.gpgsign', 'false')):
+                    subprocess.run(['git', '-C', str(path), 'config', key, value], check=True)
+            subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(origin)], check=True)
+
+            def command(path, *args, required=True):
+                result = subprocess.run(['git', '-C', str(path), *args], text=True, capture_output=True)
+                if required and result.returncode:
+                    self.fail(result.stderr)
+                return result
+
+            def commit(path, text):
+                (path / 'file').write_text(text)
+                command(path, 'add', '.')
+                command(path, 'commit', '-qm', text)
+                return command(path, 'rev-parse', 'HEAD').stdout.strip()
+
+            remote_commit = commit(source, 'remote old')
+            command(source, 'tag', '-a', 'web-v0.1.136', '-m', 'remote release')
+            commit(source, 'remote main')
+            command(source, 'remote', 'add', 'origin', str(origin))
+            command(source, 'push', '-q', 'origin', 'main', 'refs/tags/web-v0.1.136')
+            local_commit = commit(client, 'diverged local')
+            command(client, 'tag', '-a', 'web-v0.1.136', '-m', 'preserved local release')
+            command(client, 'remote', 'add', 'origin', str(origin))
+            command(client, 'config', 'remote.origin.tagOpt', '--tags')
+            command(client, 'config', '--add', 'remote.origin.fetch', '+refs/tags/*:refs/tags/*')
+            command(client, 'fetch', '--quiet', '--depth=1', '--no-tags', 'origin', 'main')
+            self.assertNotEqual(0, command(client, 'cat-file', '-e', remote_commit + '^{commit}', required=False).returncode)
+            spec = importlib.util.spec_from_file_location('real_web_ship', ROOT / 'scripts/web-ship.py')
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            def run(*argv, capture=True):
+                self.assertEqual('git', argv[0])
+                result = command(client, *argv[1:], required=False)
+                if result.returncode:
+                    raise module.ShipError(result.stderr)
+                return result.stdout.strip()
+
+            with patch.object(module, 'run', run):
+                self.assertEqual(remote_commit, module.remote_tags()['web-v0.1.136'])
+                self.assertEqual(remote_commit, module.fetch_remote_tag('web-v0.1.136', remote_commit))
+            self.assertEqual(local_commit, command(client, 'rev-parse', 'refs/tags/web-v0.1.136^{commit}').stdout.strip())
 
 
 if __name__ == '__main__':

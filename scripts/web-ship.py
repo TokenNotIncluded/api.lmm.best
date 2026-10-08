@@ -77,8 +77,26 @@ def remote_tags():
     return commits
 
 
+def fetch_remote_tag(tag, expected_commit):
+    # Fetch into FETCH_HEAD only: a divergent local tag must remain untouched.
+    run('git', 'fetch', '--quiet', '--no-tags', '--refmap=', 'origin', f'refs/tags/{tag}')
+    commit = run('git', 'rev-parse', 'FETCH_HEAD^{commit}')
+    if commit != expected_commit:
+        raise ShipError(f'{tag} changed on origin during release preparation; inspect it before retrying')
+    return commit
+
+
+def refuse_local_tag_collision(tag):
+    result = subprocess.run(['git', 'show-ref', '--verify', '--quiet', f'refs/tags/{tag}'],
+                            text=True, capture_output=True)
+    if result.returncode == 0:
+        raise ShipError(f'{tag} exists locally but not on origin; retain it and choose another new tag')
+    if result.returncode != 1:
+        raise ShipError('could not inspect the proposed local tag')
+
+
 def release(repo, requested):
-    run('git', 'fetch', '--quiet', 'origin', 'main')
+    run('git', 'fetch', '--quiet', '--no-tags', 'origin', 'main')
     revision = run('git', 'rev-parse', 'origin/main^{commit}')
     pkgver = run('git', 'show', 'origin/main:packaging/aur/lmm-api-web-bin/PKGBUILD')
     pkgver = re.search(r'^pkgver=(\d+\.\d+\.\d+)$', pkgver, re.M)
@@ -91,10 +109,14 @@ def release(repo, requested):
             raise ShipError(f'{requested} already exists; deploy it with `web deploy {requested}`')
         if known and version_key(requested) <= max(map(version_key, known)):
             raise ShipError(f'{requested} must be newer than {max(known, key=version_key)}')
+        if version_key(requested) <= tuple(int(part) for part in pkgver.group(1).split('.')):
+            raise ShipError(f'{requested} must be newer than AUR pkgver {pkgver.group(1)}')
         tag = requested
+    refuse_local_tag_collision(tag)
     if known:
         latest = max(known, key=version_key)
-        changed = run('git', 'diff', '--name-only', tag_commits[latest], revision, '--', *WEB_PATHS)
+        previous = fetch_remote_tag(latest, tag_commits[latest])
+        changed = run('git', 'diff', '--name-only', previous, revision, '--', *WEB_PATHS)
         if not changed:
             raise ShipError(f'no frontend changes since {latest}; nothing to release')
     print(f'{tag} <- origin/main {revision[:12]}', flush=True)
