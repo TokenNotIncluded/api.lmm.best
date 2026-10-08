@@ -1,7 +1,6 @@
 package model
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -502,15 +501,15 @@ func loadPostgresCatalogSnapshot(db *gorm.DB, schema string) (postgresCatalogSna
 	if !isSafePostgresApplicationSchema(schema) {
 		return postgresCatalogSnapshot{}, fmt.Errorf("unsafe PostgreSQL application schema %q", schema)
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		return postgresCatalogSnapshot{}, fmt.Errorf("open PostgreSQL catalog connection: %w", err)
-	}
+	// Keep reads on the supplied transaction/connection and honor its context.
+	// db.DB() would escape a caller's read-only transaction back to the pool.
+	conn := db.Statement.ConnPool
+	ctx := db.Statement.Context
 	snapshot := postgresCatalogSnapshot{
 		Indexes:     make(map[postgresCatalogKey]postgresIndexSpec),
 		Constraints: make(map[postgresCatalogKey]postgresConstraintSpec),
 	}
-	indexRows, err := sqlDB.QueryContext(context.Background(), postgresIndexesCatalogQuery, schema)
+	indexRows, err := conn.QueryContext(ctx, postgresIndexesCatalogQuery, schema)
 	if err != nil {
 		return postgresCatalogSnapshot{}, fmt.Errorf("query PostgreSQL index catalog: %w", err)
 	}
@@ -542,7 +541,7 @@ func loadPostgresCatalogSnapshot(db *gorm.DB, schema string) (postgresCatalogSna
 		return postgresCatalogSnapshot{}, fmt.Errorf("close PostgreSQL index catalog: %w", err)
 	}
 
-	constraintRows, err := sqlDB.QueryContext(context.Background(), postgresConstraintsCatalogQuery, schema)
+	constraintRows, err := conn.QueryContext(ctx, postgresConstraintsCatalogQuery, schema)
 	if err != nil {
 		return postgresCatalogSnapshot{}, fmt.Errorf("query PostgreSQL constraint catalog: %w", err)
 	}

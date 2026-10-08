@@ -370,6 +370,10 @@ func mainMigrationModels() []interface{} {
 }
 
 func migrateDB() error {
+	models, err := startupMigrationModels(DB)
+	if err != nil {
+		return err
+	}
 	backfillConsoleActivation := ConsoleActivationNeedsLegacyBackfill()
 	if err := migratePasskeyCredentialUserIndex(); err != nil {
 		return err
@@ -381,7 +385,7 @@ func migrateDB() error {
 		return err
 	}
 
-	err := DB.AutoMigrate(mainMigrationModels()...)
+	err = DB.AutoMigrate(models...)
 	if err != nil {
 		return err
 	}
@@ -429,7 +433,7 @@ func migrateDB() error {
 	if err := migrateLegacySubscriptionPlanCurrencies(); err != nil {
 		return err
 	}
-	return nil
+	return verifyEnabledIdentityStorageSchema(DB)
 }
 
 func backfillTokenCreationSources(db *gorm.DB) error {

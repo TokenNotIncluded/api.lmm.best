@@ -26,10 +26,10 @@ type OAuthBillingBinding struct {
 }
 
 func MigrateOAuthBilling(db *gorm.DB) error {
-	if err := MigrateOAuthServer(db); err != nil {
+	if err := validateOAuthStorageDialect(db); err != nil {
 		return err
 	}
-	return db.AutoMigrate(&OAuthBillingBinding{})
+	return db.AutoMigrate(oauthBillingMigrationModels()...)
 }
 
 // EnsureOAuthBillingToken must only be called after live resource validation.

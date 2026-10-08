@@ -76,12 +76,12 @@ var oauthIntegration atomic.Pointer[OAuthIntegration]
 func CurrentOAuthIntegration() *OAuthIntegration { return oauthIntegration.Load() }
 
 func OAuthServerConfigFromEnv() (OAuthServerConfig, error) {
-	value := os.Getenv("OAUTH_SERVER_ENABLED")
-	if value == "" || value == "false" {
-		return OAuthServerConfig{}, nil
+	enabled, err := model.OAuthServerEnabledFromEnv()
+	if err != nil {
+		return OAuthServerConfig{}, err
 	}
-	if value != "true" {
-		return OAuthServerConfig{}, errors.New("OAUTH_SERVER_ENABLED must be true or false")
+	if !enabled {
+		return OAuthServerConfig{}, nil
 	}
 	cfg := OAuthServerConfig{Enabled: true, Issuer: os.Getenv("OAUTH_SERVER_ISSUER")}
 	if err := json.Unmarshal([]byte(os.Getenv("OAUTH_SERVER_GROUPS")), &cfg.Groups); err != nil {
@@ -95,8 +95,9 @@ func OAuthServerConfigFromEnv() (OAuthServerConfig, error) {
 	return cfg, nil
 }
 
-// ConfigureOAuthIntegration is startup-only, before serving requests. The flag
-// remains false unless both trusted configuration and storage initialization pass.
+// ConfigureOAuthIntegration is startup-only, before serving requests. Schema
+// changes belong to the startup apply phase; this check is safe in verify mode.
+// The flag remains false unless trusted configuration and storage checks pass.
 func ConfigureOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration, error) {
 	oauthIntegration.Store(nil)
 	if !cfg.Enabled {
@@ -106,7 +107,7 @@ func ConfigureOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegr
 	if err != nil {
 		return nil, err
 	}
-	if err = model.MigrateOAuthBilling(db); err != nil {
+	if err = model.VerifyOAuthBillingSchema(db); err != nil {
 		return nil, err
 	}
 	oauthIntegration.Store(integration)

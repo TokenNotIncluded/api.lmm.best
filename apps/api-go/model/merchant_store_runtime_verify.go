@@ -17,13 +17,17 @@ func runtimeVerificationModels(db *gorm.DB) ([]interface{}, error) {
 	if db == nil {
 		return nil, fmt.Errorf("verify merchant-store writer floor: %w", ErrMerchantStoreWriterFrozen)
 	}
+	models, err := startupMigrationModels(db)
+	if err != nil {
+		return nil, err
+	}
 	// Standalone apply creates the latest catalogue without activating shop
 	// writers. A missing gate therefore requires the complete catalogue; it
 	// must never imply an older floor or permission to write.
 	var option Option
-	err := db.Session(&gorm.Session{NewDB: true}).Where("key = ?", MerchantStoreWriterCapabilityOption).First(&option).Error
+	err = db.Session(&gorm.Session{NewDB: true}).Where("key = ?", MerchantStoreWriterCapabilityOption).First(&option).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return append(mainMigrationModels(), &SubscriptionPlan{}), nil
+		return append(models, &SubscriptionPlan{}), nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("verify merchant-store writer floor: %w", err)
@@ -32,7 +36,6 @@ func runtimeVerificationModels(db *gorm.DB) ([]interface{}, error) {
 	if err != nil {
 		return nil, fmt.Errorf("verify merchant-store writer floor: %w", err)
 	}
-	models := mainMigrationModels()
 	if floor < 7 {
 		frozen := make([]interface{}, 0, len(models))
 		for _, item := range models {

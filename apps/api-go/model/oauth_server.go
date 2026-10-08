@@ -1,10 +1,6 @@
 package model
 
-import (
-	"fmt"
-
-	"gorm.io/gorm"
-)
+import "gorm.io/gorm"
 
 // OAuthServerAuthorization is a short-lived, browser-bound consent transaction.
 // All bearer capabilities (including the browser binding) are stored as digests.
@@ -90,16 +86,11 @@ type OAuthServerToken struct {
 
 func (OAuthServerToken) TableName() string { return "oauth_server_tokens" }
 
-// MigrateOAuthServer is explicitly opt-in. It is NOT registered with the main
-// migration path. Pass the authoritative writer DB, never a read replica.
+// MigrateOAuthServer is an explicit opt-in for isolated storage users. Normal
+// startup includes it when OAuth is enabled. Use the authoritative writer DB.
 func MigrateOAuthServer(db *gorm.DB) error {
-	if db == nil {
-		return fmt.Errorf("oauth server migration: nil database")
+	if err := validateOAuthStorageDialect(db); err != nil {
+		return err
 	}
-	switch db.Dialector.Name() {
-	case "sqlite", "postgres":
-		return db.AutoMigrate(&OAuthServerAuthorization{}, &OAuthServerGrant{}, &OAuthServerCode{}, &OAuthServerToken{})
-	default:
-		return fmt.Errorf("oauth server migration: unsupported dialect %q", db.Dialector.Name())
-	}
+	return db.AutoMigrate(oauthServerMigrationModels()...)
 }

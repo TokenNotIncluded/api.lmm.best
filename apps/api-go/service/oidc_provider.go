@@ -22,18 +22,16 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-type oidcRecord struct {
-	Key       string `gorm:"primaryKey;size:160"`
-	Value     string `gorm:"type:text;not null"`
-	Owner     string `gorm:"size:128;index:idx_oidc_owner_expiry"`
-	ExpiresAt int64  `gorm:"index;index:idx_oidc_owner_expiry"`
-}
-
-func (oidcRecord) TableName() string { return "lmm_oidc_records" }
+type oidcRecord = model.OIDCRecord
 
 type oidcStore struct{ db *gorm.DB }
 
 func (s oidcStore) Set(ctx context.Context, key string, value []byte, expires int64, owner string) error {
+	// Retire expired records during normal provider writes. Configuration and
+	// schema verification stay read-only, including on an existing-schema serve.
+	if err := s.db.WithContext(ctx).Where("expires_at <= ?", time.Now().Unix()).Delete(&oidcRecord{}).Error; err != nil {
+		return err
+	}
 	row := oidcRecord{key, string(value), owner, expires}
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value", "owner", "expires_at"})}).Create(&row).Error
 }
@@ -92,8 +90,9 @@ func (s oidcStore) Families(ctx context.Context, owner string) ([][]byte, error)
 // ConfigureSubprojectOIDC uses the SAME LMM user/session tables and verified
 // refresh cookie as native OAuth. No group, account level or paid status is
 // imported into a subproject's community identity or governance permissions.
+// Storage is applied by the startup migration phase, never by route mounting.
 func ConfigureSubprojectOIDC(db *gorm.DB) (*oidcprovider.Provider, error) {
-	if os.Getenv("LMM_OIDC_ENABLED") != "true" {
+	if !model.SubprojectOIDCEnabledFromEnv() {
 		return nil, nil
 	}
 	if db == nil {
@@ -158,10 +157,7 @@ func ConfigureSubprojectOIDC(db *gorm.DB) (*oidcprovider.Provider, error) {
 		}
 		networks = append(networks, network)
 	}
-	if e = db.AutoMigrate(&oidcRecord{}); e != nil {
-		return nil, e
-	}
-	if e = db.Where("expires_at <= ?", time.Now().Unix()).Delete(&oidcRecord{}).Error; e != nil {
+	if e = model.VerifyOIDCStorageSchema(db); e != nil {
 		return nil, e
 	}
 	browser := &OAuthIntegration{DB: db}

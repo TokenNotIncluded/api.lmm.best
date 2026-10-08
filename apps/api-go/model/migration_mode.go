@@ -588,7 +588,11 @@ func verifyPostgresMigrationPostconditions(db *gorm.DB, schema string) error {
 	if err := verifyCompanyBillingProfilePostgresContract(db, schema); err != nil {
 		return err
 	}
-	return nil
+	models, err := identityMigrationModels(db)
+	if err != nil {
+		return err
+	}
+	return verifyIdentityStoragePostconditions(db, schema, models)
 }
 
 func verifyLogDatabaseSchema(db *gorm.DB, databaseType common.DatabaseType) error {

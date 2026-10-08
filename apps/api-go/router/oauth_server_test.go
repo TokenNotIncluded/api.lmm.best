@@ -102,6 +102,7 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	require.NoError(t, err)
 	otherLogin, err := service.CreateLoginSession(other.Id, "password", "192.0.2.1", "oauth-test")
 	require.NoError(t, err)
+	require.NoError(t, model.MigrateOAuthBilling(db))
 	integration, err := service.ConfigureOAuthIntegration(db, service.OAuthServerConfig{Enabled: true, Issuer: oauthTestIssuer, Groups: []string{"default", "vip", "future"}})
 	require.NoError(t, err)
 	channel := model.Channel{Id: 300, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "offline-fixture", Key: "not-a-network-key", Models: "gpt-4o", Group: "default,vip,future"}

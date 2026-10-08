@@ -15,6 +15,7 @@ import (
 
 func TestToolMarketOAuthClientListIsAccountScopedAndContainsOnlyTargets(t *testing.T) {
 	db, user, _ := setupOpenSourceBountyMCPControllerTest(t)
+	require.NoError(t, model.MigrateOAuthBilling(db))
 	integration, err := service.ConfigureOAuthIntegration(db, service.OAuthServerConfig{Enabled: true, Issuer: "https://oauth.example.test", Groups: []string{"default"}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = service.ConfigureOAuthIntegration(nil, service.OAuthServerConfig{}) })
