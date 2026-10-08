@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { BubbleChatSparkIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Link, type LinkProps } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfigDrawer } from '@/components/config-drawer'
@@ -113,11 +113,6 @@ export function AppHeader({
       requestAssistantOpen()
     }
   }
-
-  const dismissHeaderTools = useCallback(
-    () => notifications.setPopoverOpen(false),
-    [notifications.setPopoverOpen]
-  )
 
   const tools: HeaderTool[] = []
   if (showStore) {
@@ -255,7 +250,7 @@ export function AppHeader({
           {showBalanceBadge && <AccountBalanceBadge compactMobile />}
           <HeaderTools
             items={tools}
-            onDismiss={dismissHeaderTools}
+            onDismiss={() => notifications.setPopoverOpen(false)}
             unreadCount={showNotifications ? notifications.unreadCount : 0}
           />
         </div>

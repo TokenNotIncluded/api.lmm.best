@@ -68,10 +68,18 @@ export async function reviewMobileHeader(page, snapshot, errors) {
   })
   await notifications.waitFor({ state: 'visible' })
   await withinViewport(page, notifications, 'notifications')
+  const timeline = notifications.getByRole('tab', {
+    name: 'Timeline',
+    exact: true,
+  })
+  await timeline.click()
+  assert.equal(await timeline.getAttribute('aria-selected'), 'true')
+  await notifications.waitFor({ state: 'visible' })
   await snapshot(page, `mobile-notifications-${width}`, errors)
   await page.keyboard.press('Escape')
   await notifications.waitFor({ state: 'hidden' })
-  // Base UI dismisses the popover stack and restores the header trigger.
+  // Close nested overlays in their native order, then restore the header trigger.
+  if (await menu.isVisible()) await page.keyboard.press('Escape')
   await menu.waitFor({ state: 'hidden' })
   assert.equal(
     await more.evaluate((element) => element === document.activeElement),

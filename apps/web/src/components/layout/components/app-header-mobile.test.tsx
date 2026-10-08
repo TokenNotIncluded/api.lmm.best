@@ -293,7 +293,18 @@ for (const width of [320, 640, 767]) {
       )
       assert.ok(shop)
       assert.equal(shop.getAttribute('href'), '/store')
-      assert.ok(menu.querySelector('[data-testid="header-tool-notifications"]'))
+      const notifications = menu.querySelector<HTMLButtonElement>(
+        '[data-testid="header-tool-notifications"] button'
+      )
+      assert.ok(notifications)
+      await act(async () => notifications.click())
+      assert.equal(notifications.getAttribute('aria-expanded'), 'true')
+      // Opening a controlled child rerenders AppHeader with a new dismiss callback.
+      // That callback change must not be treated as the menu unmounting.
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 30)))
+      assert.equal(notifications.getAttribute('aria-expanded'), 'true')
+      await act(async () => notifications.click())
+      assert.equal(notifications.getAttribute('aria-expanded'), 'false')
       // Test dismissal without issuing a request or requiring a store route fixture.
       shop.addEventListener('click', (event) => event.preventDefault())
       await act(async () => shop.click())

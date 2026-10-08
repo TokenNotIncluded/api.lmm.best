@@ -7,7 +7,13 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { Ellipsis } from 'lucide-react'
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useEffectEvent,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -39,8 +45,9 @@ function MobileHeaderTools({
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
 
-  // Reset externally controlled child panels when switching to the desktop row.
-  useEffect(() => () => onDismiss?.(), [onDismiss])
+  const dismissOnUnmount = useEffectEvent(() => onDismiss?.())
+  // A new callback from the parent is not an unmount. Keep open panels intact.
+  useEffect(() => () => dismissOnUnmount(), [])
 
   const close = () => {
     setOpen(false)
