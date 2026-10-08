@@ -4213,7 +4213,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "アカウント情報の引き渡し用です。ユーザー名、パスワード、任意のログインURL、説明をまとめて1項目として追加します。",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "アクティベーションキー用です。1行に1つずつインポートします。購入者には入力したキーがそのまま届きます。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
@@ -11447,6 +11447,22 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "信頼できる支払い証拠がない記録：{{unconfirmed}} 件；金額に異常がある記録：{{invalid}} 件。これらは支払合計に含まれていません。",
     "请刷新重试，当前金额未确认。": "再読み込みしてお試しください。金額はまだ確認されていません。",
     "退款后净付款": "返金後の純支払額",
-    "部分充值记录无法确认实付": "一部のチャージ記録は実際の支払額を確認できません"
+    "部分充值记录无法确认实付": "一部のチャージ記録は実際の支払額を確認できません",
+    "Fast and Ultrafast pricing": "Fast and Ultrafast pricing",
+    "Sync all supported official OpenAI prices once. No per-model multiplier rules are needed.": "Sync all supported official OpenAI prices once. No per-model multiplier rules are needed.",
+    "Service-tier pricing is unavailable. This feature requires the updated Go backend.": "Service-tier pricing is unavailable. This feature requires the updated Go backend.",
+    "Official service-tier prices synchronized": "Official service-tier prices synchronized",
+    "Official prices are ready for {{count}} models.": "Official prices are ready for {{count}} models.",
+    "Prices are missing or expired. Accelerated requests are blocked.": "Prices are missing or expired. Accelerated requests are blocked.",
+    "Last price sync": "Last price sync",
+    "Prices expire after {{hours}} hours. A failed sync keeps the previous snapshot and never enables acceleration.": "Prices expire after {{hours}} hours. A failed sync keeps the previous snapshot and never enables acceleration.",
+    "Sync all official service-tier prices": "Sync all official service-tier prices",
+    "Enable accelerated pricing": "Enable accelerated pricing",
+    "Disabled by default. Only selected groups can use acceleration. Empty group lists allow nobody.": "Disabled by default. Only selected groups can use acceleration. Empty group lists allow nobody.",
+    "Sales multiplier on official tier cost": "Sales multiplier on official tier cost",
+    "1.20 adds 20% to the official tier cost, not to the standard model price.": "1.20 adds 20% to the official tier cost, not to the standard model price.",
+    "Accelerated calls use wallet funds and a full reservation. Group discounts below 1 are not applied; higher group multipliers still apply. Ordinary model prices and price locks are unchanged.": "Accelerated calls use wallet funds and a full reservation. Group discounts below 1 are not applied; higher group multipliers still apply. Ordinary model prices and price locks are unchanged.",
+    "Global api.openai.com text requests only. Unpriced models, hosted tools, audio, background tasks and unpriced long contexts are blocked before sending.": "Global api.openai.com text requests only. Unpriced models, hosted tools, audio, background tasks and unpriced long contexts are blocked before sending.",
+    "Synchronizing...": "Synchronizing..."
   }
 }

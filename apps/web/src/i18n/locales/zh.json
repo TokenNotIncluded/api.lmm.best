@@ -4213,7 +4213,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "用于交付账户信息。将用户名、密码、可选的登录网址和说明一起作为一项添加。",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "用于激活密钥。每行导入一个密钥；买家收到的密钥与提供的完全一致。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
@@ -11447,6 +11447,22 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "缺少可信实付凭证：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。这些记录未计入上述付款总额。",
     "请刷新重试，当前金额未确认。": "请刷新重试，当前金额尚未确认。",
     "退款后净付款": "退款后净付款",
-    "部分充值记录无法确认实付": "部分充值记录无法确认实付金额"
+    "部分充值记录无法确认实付": "部分充值记录无法确认实付金额",
+    "Fast and Ultrafast pricing": "Fast 与 Ultrafast 计费",
+    "Sync all supported official OpenAI prices once. No per-model multiplier rules are needed.": "一键同步所有受支持模型的 OpenAI 官方价格，无需逐个模型配置倍率。",
+    "Service-tier pricing is unavailable. This feature requires the updated Go backend.": "加速计费功能不可用。此功能需要更新后的 Go 后端。",
+    "Official service-tier prices synchronized": "官方加速价格已同步",
+    "Official prices are ready for {{count}} models.": "已准备好 {{count}} 个模型的官方价格。",
+    "Prices are missing or expired. Accelerated requests are blocked.": "价格缺失或已过期。加速请求将被拦截。",
+    "Last price sync": "上次价格同步",
+    "Prices expire after {{hours}} hours. A failed sync keeps the previous snapshot and never enables acceleration.": "价格在 {{hours}} 小时后过期。同步失败时保留原价格，不会自动开启加速。",
+    "Sync all official service-tier prices": "一键同步官方加速价格",
+    "Enable accelerated pricing": "启用加速计费",
+    "Disabled by default. Only selected groups can use acceleration. Empty group lists allow nobody.": "默认关闭。只有选中的分组可以使用加速。未选分组时不允许任何用户使用。",
+    "Sales multiplier on official tier cost": "官方加速成本的销售倍率",
+    "1.20 adds 20% to the official tier cost, not to the standard model price.": "1.20 表示在官方加速成本上加价 20%，不是将普通模型价格乘以 1.20。",
+    "Accelerated calls use wallet funds and a full reservation. Group discounts below 1 are not applied; higher group multipliers still apply. Ordinary model prices and price locks are unchanged.": "加速请求使用钱包余额并足额预扣。不应用低于 1 的分组折扣，高于 1 的分组倍率仍生效。普通模型价格和价格锁不变。",
+    "Global api.openai.com text requests only. Unpriced models, hosted tools, audio, background tasks and unpriced long contexts are blocked before sending.": "仅支持全球 api.openai.com 文本请求。未定价模型、官方托管工具、音频、后台任务及未定价长上下文会在发送前被拦截。",
+    "Synchronizing...": "同步中…"
   }
 }

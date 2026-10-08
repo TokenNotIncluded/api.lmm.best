@@ -569,6 +569,12 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 			// prepayment is refunded without replaying an already-started stream.
 			summary.Quota = 0
 			extraContent = append(extraContent, "请求未正常完成且没有可计费用量；不使用历史或预扣额度估算")
+		} else if relayInfo.ServiceTierQuote != nil && estimatedCap > 0 {
+			summary.Quota = estimatedCap
+			estimatedMissingUsage = true
+			estimateBasis = "service_tier_request_reservation"
+			relayInfo.ServiceTierQuote.ReconciliationRequired = true
+			extraContent = append(extraContent, "加速请求缺少用量；按本次加速预扣结算，不使用普通请求历史均价")
 		} else {
 			estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, estimatedCap)
 			estimateSamples = samples
@@ -591,6 +597,18 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 			}
 		}
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d, estimate cap %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota, estimatedCap))
+	}
+	if relayInfo.ServiceTierQuote != nil && billingUsage != nil && summary.hasBillableUsage() {
+		tierQuota, tierErr := serviceTierUsageQuota(relayInfo, billingUsage)
+		if tierErr != nil {
+			// Never treat an unpriced provider result as a free request. Retain this
+			// request's reservation and expose the discrepancy for reconciliation.
+			relayInfo.ServiceTierQuote.ReconciliationRequired = true
+			summary.Quota = estimatedBillingQuotaCap(relayInfo)
+			extraContent = append(extraContent, "加速用量无法按价格快照结算；保留预扣并需对账："+tierErr.Error())
+		} else {
+			summary.Quota = tierQuota
+		}
 	}
 	if summary.BillingExemptReason != "" || summary.hasBillableUsage() || estimatedMissingUsage || (relayInfo.SystemOneUsageStatus == "reported" && summary.Quota > 0) || relayInfo.RelayMode == relayconstant.RelayModeModerations {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
@@ -637,6 +655,10 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 			other["usage_estimate_samples"] = estimateSamples
 			other["usage_estimate_cap"] = estimatedBillingQuotaCap(relayInfo)
 		}
+	}
+	if relayInfo.ServiceTierQuote != nil {
+		other["service_tier_pricing"] = relayInfo.ServiceTierQuote
+		other["service_tier_credits_per_usd"] = relayInfo.ServiceTierCreditsPerUSD
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	AppendMeasuredBillingDimensions(other, billingUsage)

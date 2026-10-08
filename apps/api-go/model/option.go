@@ -315,6 +315,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if err := setting.ValidateServiceTierOption(key, value); err != nil {
+		return err
+	}
 	if key == MerchantStoreAnalyticsRetentionOption {
 		_, err := ParseMerchantStoreAnalyticsConfig(value)
 		return err
@@ -829,6 +832,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if err := setting.ValidateServiceTierOption(key, value); err != nil {
+		return err
+	}
 	if key == PublicCreditsPerUSDOptionKey {
 		denomination, parseErr := parsePublicCreditRate(value)
 		if parseErr != nil {

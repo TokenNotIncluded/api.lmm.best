@@ -720,6 +720,28 @@ func buildResponsesWSCreatePayload(c *gin.Context, relayInfo *relaycommon.RelayI
 			return nil, newAPIErrorFromParamOverride(err)
 		}
 	}
+	targetURL, tierErr := adaptor.GetRequestURL(relayInfo)
+	if tierErr != nil {
+		return nil, types.NewError(tierErr, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	overrides, tierErr := relaychannel.ResolveHeaderOverride(relayInfo, sanitizedResponsesWSHeaderContext(c))
+	if tierErr != nil {
+		return nil, types.NewError(tierErr, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	tierHeaders := http.Header{}
+	host := ""
+	for name, value := range overrides {
+		tierHeaders.Set(name, value)
+		if strings.EqualFold(name, "Host") {
+			host = value
+		}
+	}
+	// Tier selection belongs to each response.create, not a shared socket.
+	tierHeaders.Del("OpenAI-Service-Tier")
+	jsonData, tierErr = helper.ApplyServiceTierToJSON(c, relayInfo, toWebSocketURL(targetURL), host, tierHeaders, jsonData)
+	if tierErr != nil {
+		return nil, types.NewError(tierErr, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
 	// Match the actual WebSocket URL/Host selection and enforce identity only
 	// after the client's body and channel parameter overrides are finalized.
 	if targetURL, urlErr := adaptor.GetRequestURL(relayInfo); urlErr == nil {
@@ -797,6 +819,7 @@ func dialResponsesWebSocketUpstream(c *gin.Context, adaptor relaychannel.Adaptor
 	for key, value := range headerOverride {
 		targetHeader.Set(key, value)
 	}
+	targetHeader.Del("OpenAI-Service-Tier")
 	mergeHeaderTokens(targetHeader, "OpenAI-Beta", responsesWSRequiredBetaTokens(info)...)
 	targetConn, resp, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
 	statusCode := http.StatusInternalServerError
@@ -1198,6 +1221,7 @@ func (s *responsesWSSession) observeUpstreamMessageForState(state *responsesWSCa
 	success := false
 	requestSucceeded := false
 	state.dataMu.Lock()
+	state.info.ObserveServiceTier(message)
 	state.info.SetFirstResponseTime()
 	if streamResponse.Response != nil {
 		state.info.ObserveResponseModel(streamResponse.Response.Model)

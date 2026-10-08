@@ -56,6 +56,7 @@ mod ollama;
 mod reconcile;
 mod response_model;
 mod responses_terminal;
+mod service_tier;
 mod settlement;
 mod token_count;
 mod tools;
@@ -195,9 +196,10 @@ impl OpenAiUpstreamClient {
     ) -> Result<OpenAiRelayResult, OpenAiRelayFailure> {
         let url = upstream_url(&target.base_url, request.endpoint)
             .map_err(|()| invalid_target_failure())?;
+        let body = service_tier::guard_body(&url, &request.headers, &request.raw_body)?;
         let upstream_request =
             copy_upstream_headers(self.client.post(url), &request.headers, &target.api_key)
-                .body(request.raw_body.clone());
+                .body(body);
         let upstream = self
             .client
             .send(upstream_request)

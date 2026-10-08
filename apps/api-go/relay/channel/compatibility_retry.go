@@ -11,6 +11,7 @@ import (
 	common2 "github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
+	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
 
 	"github.com/gin-gonic/gin"
@@ -246,6 +247,10 @@ func maybeRetryOpenAICompatibilityError(c *gin.Context, client *http.Client, req
 
 	retryReq, err := cloneRequestWithBody(req, retryBody)
 	if err != nil {
+		return resp, nil
+	}
+	// Compatibility retries must not remove the reserved output cap or paid tier.
+	if err := helper.ApplyServiceTierToRequest(c, retryReq, info); err != nil {
 		return resp, nil
 	}
 	_ = resp.Body.Close()
