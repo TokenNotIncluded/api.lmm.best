@@ -5,21 +5,46 @@ on:
     paths: [.github/workflows/l0-l1-workbench.yml]
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
-  source:
+  baseline:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - name: Export tracked source only
-        run: |
-          mkdir -p /tmp/l0-l1-review
-          git archive --format=tar.gz HEAD -o /tmp/l0-l1-review/source.tar.gz
-          git rev-parse HEAD > /tmp/l0-l1-review/commit.txt
-      - uses: actions/upload-artifact@v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          name: l0-l1-source
-          path: /tmp/l0-l1-review/
-          retention-days: 2
+          bun-version: '1.3.14'
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Baseline frontend
+        working-directory: apps/web
+        run: |
+          mkdir -p "$RUNNER_TEMP/l0-baseline"
+          failed=0
+          for file in $(find src/features/onboarding src/features/todos src/features/assistant src/routes/_authenticated/todos -name '*.test.ts' -o -name '*.test.tsx' | sort); do
+            if ! bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" >> "$RUNNER_TEMP/l0-baseline/web.log" 2>&1; then failed=1; fi
+          done
+          if grep -Eq '^# fail [1-9]|^not ok |^[[:space:]]*[1-9][0-9]* fail' "$RUNNER_TEMP/l0-baseline/web.log"; then failed=1; fi
+          tail -n 30 "$RUNNER_TEMP/l0-baseline/web.log"
+          exit "$failed"
+      - name: Baseline backend
+        if: ${{ !cancelled() }}
+        working-directory: apps/api-go
+        run: |
+          mkdir -p "$RUNNER_TEMP/l0-baseline"
+          go test -p 2 ./model ./controller ./router -run 'Test(UnifiedTodo|AssistantRegistration|Registration|DeveloperAccess|TrustLevel|.*PaidActivation|.*PaidTopUp)' -count=1 2>&1 | tee "$RUNNER_TEMP/l0-baseline/go.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: l0-l1-baseline
+          path: ${{ runner.temp }}/l0-baseline/
+          retention-days: 3
