@@ -546,32 +546,35 @@ func (runtime *productionRuntime) qualifyMerchantStoreCapsule(ctx context.Contex
 	}
 	child, err := runtime.merchantStoreCapsuleEnvironment(ctx, c, digest, invocation)
 	if err != nil {
-		return err
+		return fmt.Errorf("portable capsule environment qualification: %w", err)
 	}
 	targets := []productionMerchantStoreWriterTarget{c.Writer.Candidate, c.Writer.Rollback}
 	if c.Format == 2 {
 		targets = targets[:1]
 	}
 	for i, target := range targets {
+		role := "candidate"
+		if i == 1 {
+			role = "rollback"
+		}
 		provider, err := runtime.verifyMerchantStoreCapsuleArtifact(ctx, c, i == 1)
 		if err != nil {
-			return err
+			return fmt.Errorf("portable capsule %s artifact qualification: %w", role, err)
 		}
 		output, callErr := runVerifiedBinary(ctx, runtime.runner, provider, []string{"merchant-store-writer-gate", "status"}, child, filepath.Dir(provider), 35*time.Second, true)
 		if err := qualifyMerchantStoreWriterStatus(output, callErr, c.Writer, target); err != nil {
-			return err
+			return fmt.Errorf("portable capsule %s writer status qualification: %w", role, err)
 		}
 		if verify {
-			role := "candidate"
-			if i == 1 {
-				role = "rollback"
-			}
 			if err := runtime.verifyMerchantStoreWriterProvider(ctx, merchantStoreCapsuleWorkspace(c), provider, child, role); err != nil {
 				return err
 			}
 		}
 	}
-	return runtime.verifyMerchantStoreCapsuleSchema(ctx, c, child)
+	if err := runtime.verifyMerchantStoreCapsuleSchema(ctx, c, child); err != nil {
+		return fmt.Errorf("portable capsule schema qualification: %w", err)
+	}
+	return nil
 }
 
 func (runtime *productionRuntime) verifyMerchantStoreCapsuleSchema(ctx context.Context, c productionMerchantStoreCapsule, child []string) error {
