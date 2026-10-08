@@ -3,14 +3,12 @@
   "name": "LMM Forge",
   "direction": "protocol punch / cut wordmark",
   "status": "ready",
-  "compApproval": "No comp was approved. The user approved monochrome, sharp lettering, and strong contrast.",
+  "compApproval": "No new visual approval is claimed. The compact mark retains the established monochrome cut-letter identity.",
   "provenance": {
     "kind": "original precise SVG geometry",
-    "method": "Authored filled paths from explicit coordinates. No font outlines, generated raster, stock art, external references, scripts, or font requests are used.",
+    "method": "Authored filled paths from explicit coordinates. No font outlines, stock art, scripts, or external resources. App icons are rasterized from the symbol path.",
     "generatedRasterNeeded": false,
-    "productionRasterAssets": [],
-    "proofRaster": "output/brand-review/logo-proof.png",
-    "proofRasterOrigin": "Rasterized from the authored SVG paths for size and contrast inspection only."
+    "productionRasterAssets": ["apps/web/public/apple-touch-icon.png", "apps/web/public/favicon.ico"]
   },
   "ink": {
     "light": "#000000",
@@ -22,21 +20,21 @@
   "symbol": {
     "asset": ".github/assets/lmm-symbol.svg",
     "viewBox": [0, 0, 128, 128],
-    "bounds": [6, 10, 122, 112],
-    "path": "M6 10H24V94H32V20H44L52 40L60 20H72V94H82V20H94L102 40L110 20H122V100L110 112H6Z M44 94V52L52 70L60 52V94Z M94 94V52L102 70L110 52V94Z",
+    "bounds": [8, 16, 120, 112],
+    "path": "M8 16H24V96H120V104L112 112H8Z M40 80V16H50L56 30L62 16H72V80H62V42L56 56L50 42V80Z M88 80V16H98L104 30L110 16H120V80H110V42L104 56L98 42V80Z",
     "geometry": {
-      "lSpineWidth": 18,
-      "baseHeight": 18,
-      "mStemWidth": 12,
-      "mWidths": [40, 40],
-      "mLowerCounterWidth": 16,
-      "lToMGap": 8,
-      "mToMGap": 10,
-      "terminalCut": {"angleDegrees": 45, "run": 12, "rise": 12},
-      "connectivity": "One filled silhouette, connected through the L base; two internal counterforms."
+      "lSpineWidth": 16,
+      "baseHeight": 16,
+      "mStemWidth": 10,
+      "mWidths": [32, 32],
+      "lToMGap": 16,
+      "mToMGap": 16,
+      "baseGap": 16,
+      "terminalCut": {"angleDegrees": 45, "run": 8, "rise": 8},
+      "connectivity": "Three separate filled forms: the L foundation and two open M shapes."
     },
     "recommendedMinimumCssSize": 16,
-    "opticalRisk": "At 16 px the 8-unit L-to-M gap is one pixel and each M stem is 1.5 pixels. Keep the full viewBox and use native size rasterization; avoid additional padding inside a tiny icon slot."
+    "opticalRisk": "Inspect at native size. Keep the full viewBox; do not shrink the README tile into a 16px favicon."
   },
   "lettering": {
     "units": "One cap height equals 100 geometry units.",
@@ -88,8 +86,8 @@
     "opticalRisk": "FORGE is display lettering. Use the compact symbol below a 20 px cap height. The R counter and G aperture need enough pixels to stay distinct."
   },
   "compositionGuidance": {
-    "reuse": "Insert these exact paths with fill-rule=evenodd. Scale groups uniformly. Preserve within-group positions; LMM and FORGE may be composed independently as two lines.",
-    "clearSpace": "For ordinary logo placement, leave at least one 20-unit wordmark stem or one 18-unit symbol spine around the artwork. The full symbol viewBox already provides its small-icon optical margin.",
+    "reuse": "Insert the exact paths with fill-rule=evenodd. Scale groups uniformly. Preserve within-group positions; LMM and FORGE may be composed independently as two lines.",
+    "clearSpace": "Keep the full symbol viewBox. Allow at least one 20-unit wordmark stem around larger lettering.",
     "doNot": ["add outlines", "add route graphs or circles", "stretch glyphs non-uniformly", "fill the counterforms", "add gradients or font substitutions"]
   }
 }

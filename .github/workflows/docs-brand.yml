@@ -1,0 +1,44 @@
+name: Docs and Brand
+
+on:
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.github/assets/**'
+      - 'apps/web/public/**'
+      - 'apps/web/src/components/lmm-brand-mark.tsx'
+      - 'scripts/check-docs-brand.py'
+      - 'scripts/test_docs_brand.py'
+      - '.github/workflows/docs-brand.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - '.github/assets/**'
+      - 'apps/web/public/**'
+      - 'apps/web/src/components/lmm-brand-mark.tsx'
+      - 'scripts/check-docs-brand.py'
+      - 'scripts/test_docs_brand.py'
+      - '.github/workflows/docs-brand.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-brand-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-brand:
+    name: Entry documents and logo consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Test the checker
+        run: python3 -B -m unittest discover -s scripts -p test_docs_brand.py -v
+      - name: Check documentation and brand assets
+        run: python3 -B scripts/check-docs-brand.py

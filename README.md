@@ -1,81 +1,43 @@
-<!--
-THESIS: The original cut wordmark owns the cover; precision comes from its silhouette.
-OWN-WORLD: Black and white, filled geometry, broad counterforms, one consistent 45-degree cut.
-STORY: Understand model access, tool publishing, and collaboration; choose a working entry.
-FIRST VIEWPORT: Oversized stepped lettering on desktop, stacked lettering on mobile; left-aligned copy and actions below. Release metadata sits with contribution guidance.
-FORM: Protocol punch, grounded direction 7, seed 04aecdac. User chose code-first SVG. Signature: one shared geometry reorganizes for the viewport; static imagery and native GitHub interactions.
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
--->
+<div align="center">
+  <img src=".github/assets/lmm-logo.svg" alt="LMM Forge" width="96" height="96" />
+  <h1>LMM Forge</h1>
+  <p>模型接入、MCP 工具与开源协作，一个控制台。</p>
+  <p>
+    <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
+    <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=go-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=go-v%2A&amp;label=Go&amp;display_name=tag" alt="Go release" /></a>
+    <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=web-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=web-v%2A&amp;label=Web&amp;display_name=tag" alt="Web release" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
+  </p>
+  <p><strong>简体中文</strong> · <a href="README_EN.md">English</a></p>
+  <p><a href="https://api.lmm.best">在线体验</a> · <a href="https://api.lmm.best/guide">接入指南</a> · <a href="docs/README.md">项目文档</a> · <a href="https://github.com/TokenNotIncluded/api.lmm.best/issues">问题反馈</a></p>
+</div>
 
-<p>
-  <picture>
-    <source media="(max-width: 640px) and (prefers-color-scheme: dark)" srcset=".github/assets/readme-cover-mobile-dark.svg">
-    <source media="(max-width: 640px)" srcset=".github/assets/readme-cover-mobile-light.svg">
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/readme-cover-dark.svg">
-    <img src=".github/assets/readme-cover-light.svg" alt="LMM Forge — AI APIs, MCP tools, and open-source collaboration" width="1440">
-  </picture>
-</p>
+## 简介
 
-**AI APIs. MCP tools. Open-source work.**
+LMM Forge 是一个开源的 AI 服务控制台。它将模型调用、Remote MCP 工具市场和开源悬赏协作放在同一个账户与额度体系中。用户可以接入自己的客户端，发布收费工具，也可以通过完成开源任务获得平台余额。
 
-Model access, tool publishing, and bounty collaboration in one open-source console.
+本项目基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 持续开发。Go 是默认后端，前端使用 React 与 TypeScript；Rust 后端和独立 CLI 仍为预览版。
 
-<p>
-  <a href="https://lmm.best"><strong>Explore&nbsp;LMM</strong></a> ·
-  <a href="https://lmm.best/guide">Connect&nbsp;a&nbsp;client</a> ·
-  <a href="https://lmm.best/tool-market">Publish&nbsp;a&nbsp;tool</a> ·
-  <a href="docs/README.md">Read&nbsp;the&nbsp;docs</a>
-</p>
+## 核心能力
 
-## Start here
-
-| Your goal | Your next step |
+| 方向 | 可以做什么 |
 | --- | --- |
-| Use models with your preferred client | [Client setup](https://lmm.best/guide) · [Model pricing](https://lmm.best/pricing) |
-| Publish tools and earn platform balance | [Tool marketplace](https://lmm.best/tool-market) · [Publishing workflow](#tool-marketplace) |
-| Contribute to open-source projects | [Bounty workflow](docs/open-source-bounties.md) |
-| Develop or operate your own instance | [Run locally](#run-locally) · [Deploy and upgrade](#deploy-and-upgrade) |
+| 模型接入 | 接入 OpenAI Chat Completions / Responses、Anthropic Messages 和 Gemini 接口，管理渠道、分组、额度与用量记录。 |
+| 客户端连接 | 通过 OAuth 连接 Pi、DSH、OpenCode 和 Codewhale；VS Code、Zed 集成仍在预览阶段。 |
+| 工具市场 | 接入已有的 HTTPS Remote MCP 服务，按工具设置价格，发布经过验证与审核的版本。 |
+| 权限与支出 | 分别控制工具加载、调用授权、客户端权限、调用次数、有效期与支出上限。 |
+| 开源协作 | 发布悬赏、锁定奖励、提交 Issue / PR 证据，并完成审核、验收与争议处理。 |
+| 管理控制台 | 管理用户、角色、余额、充值和用量；支持桌面端、移动端及深浅色界面。 |
 
-## What you can build
+实际可用的模型与能力取决于上游渠道和账户权限。工具收入进入平台余额，**目前不支持提现**。加载工具不等于授权付费；内置绘图工具不收工具调用费，但模型用量仍会计费。
 
-**Model access.** Route requests through OpenAI Chat Completions and Responses, Anthropic Messages, or Gemini interfaces. Account quotas, provider routing, and usage records share one console. Available models depend on the configured providers and account permissions.
+## 在线体验
 
-OAuth-based client setup supports Pi, DSH, OpenCode, and Codewhale; VS Code and Zed integrations are in preview. Each client receives the permissions explicitly approved by the user.
+直接查看[服务首页](https://api.lmm.best)、[模型定价](https://api.lmm.best/pricing)和[工具市场](https://api.lmm.best/tool-market)。使用已有服务不需要部署本仓库；接入客户端请从[新手指南](https://api.lmm.best/guide)开始。
 
-**A tool business.** Connect an existing Remote MCP service, price individual tools, and earn platform balance from successful paid calls. Users choose the versions they load and control client permissions and spending limits.
+## 快速开始
 
-**Open-source collaboration.** Publish challenges, lock rewards, submit Issue/PR evidence, and follow review, acceptance, and dispute workflows. See the [bounty guide](docs/open-source-bounties.md) for settlement rules.
-
-Administrators manage users, roles, groups, balances, top-ups, and usage through desktop and mobile console views.
-
-## Tool marketplace
-
-### Publish a service
-
-1. **Connect.** Register a public HTTPS Remote MCP endpoint, inspect its tool definitions, and set a free or paid price for each tool. Bearer and API Key authentication are supported for remote services.
-2. **Validate and review.** Submit a specific validated version for administrator review. Validated, free drafts visible only to their author can be activated directly; public, shared, or paid services require review.
-3. **Load and authorize.** Users load a tool version and separately approve its use, including client, call-count, expiry, and spending limits. Loading a tool does not authorize payment.
-
-### Earn platform balance
-
-Successful paid calls split credits between the creator and the configured platform recipient. Creators can spend their balance on models and other tools. **Withdrawals are not supported.**
-
-The super administrator configures the platform fee and recipient account. The software does not impose a fixed fee percentage.
-
-Built-in drawing, wallet, and bounty tools have no tool invocation fee. Drawing still incurs model usage costs, and wallet transfers move the specified balance. Publishing connects an existing Remote MCP service; serverless code uploads are not currently supported.
-
-[Marketplace guide](docs/tool-market-guide.md) · [Client connections and permissions](docs/tool-market-connections.md)
-
-## Run locally
-
-### Requirements
-
-- Git, [Just](https://github.com/casey/just), Bun **1.3.14**, and Node.js **22.12+**
-- Go **1.25.1 or newer** for the default backend
-- PostgreSQL and Valkey services for a dedicated local development environment
-- Optional: Rust **1.91.0** for the preview backend
-
-### Set up the workspace
+以下步骤用于本地开发，**不是生产安装脚本**。准备 Git、Just、Bun 1.3.14、Node.js 22.12+、Go 1.25.1+，以及独立的 PostgreSQL 和 Valkey 服务。
 
 ```bash
 git clone https://github.com/TokenNotIncluded/api.lmm.best.git
@@ -84,138 +46,51 @@ just setup
 cp .env.example apps/api-go/.env
 ```
 
-Edit `apps/api-go/.env` before starting the backend:
+先编辑 `apps/api-go/.env`：填写 `SQL_DSN`、`REDIS_CONN_STRING`，并设置独立随机的 `SESSION_SECRET` 与 `CRYPTO_SECRET`。请使用开发数据库：服务启动时默认执行数据库迁移。
 
-- Set `SQL_DSN` to your development PostgreSQL database and `REDIS_CONN_STRING` to your Valkey instance.
-- Set independent, random `SESSION_SECRET` and `CRYPTO_SECRET` values. Keep these stable across restarts.
-- The template binds the API to `127.0.0.1:3000`. Use a dedicated development database: startup applies schema migrations by default.
-
-The Go development command runs from `apps/api-go` and loads `.env` from that directory.
-
-### Start both services
-
-Run the backend from the repository root:
+在仓库根目录启动后端：
 
 ```bash
 just dev-go
 ```
 
-In a second terminal, start the frontend on a separate port:
+在第二个终端启动前端，避免与后端的 3000 端口冲突：
 
 ```bash
 bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 ```
 
-Open <http://localhost:5173> and complete the setup flow. The frontend proxies API requests to `http://localhost:3000`; set `VITE_REACT_APP_SERVER_URL` when using a different backend address.
+打开 <http://localhost:5173>，完成初始化。完整配置、测试命令和 Rust 预览说明见[本地开发指南](docs/development.md)。仓库不附带开发 Compose 文件或 Dockerfile，不能直接将 `just dev` 或 Docker 构建命令当作开箱即用的入口。
 
-`just dev`, `just infra-up`, and `just dev-rust` require a local `docker-compose.dev.yml`, which is not included in this repository. The two-terminal flow above uses your existing development database and cache services.
+## 部署与升级
 
-Check the default production components locally:
+Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布版本不会自动部署到生产。**
 
-```bash
-just build
-just test
-```
-
-## Deploy and upgrade
-
-**Go and Web ship independently.** Their release tags are `go-vX.Y.Z` and `web-vX.Y.Z`. Rust remains a preview backend. Merging code or publishing a release does not deploy it to production.
-
-Choose the workflow for your existing installation. Local development commands are not production installers; package-owned files should be updated through their signed transaction workflow.
-
-| Installation | Workflow |
+| 已有安装方式 | 从这里开始 |
 | --- | --- |
-| Standalone Go on systemd | Start with `sudo bash scripts/lmm-api-deploy.sh systemd doctor`, then follow `upgrade` and explicit `confirm` in the [standalone guide](docs/manual-systemd-deployment.md). This updates an existing server. |
-| Package-owned Go/Web | Use the installed `/usr/bin/lmm-api-deploy production` entry point and its [signed release plan](docs/seamless-upgrades.md). |
-| Frontend-only update | Check compatibility with the active Go backend, then manually dispatch [`deploy-web-frontend.yml`](.github/workflows/deploy-web-frontend.yml) with a signed `web-vX.Y.Z` release. |
+| 独立 systemd 服务 | [检查、升级、确认与回退](docs/manual-systemd-deployment.md) |
+| 软件包管理的 Go / Web | [签名发布与升级事务](docs/seamless-upgrades.md) |
+| 只更新前端 | [组件发布边界](docs/release-architecture.md) · [前端部署工作流](.github/workflows/deploy-web-frontend.yml) |
+| 数据库与缓存 | [PostgreSQL 迁移](docs/postgresql-migration.md) · [生产切换](docs/postgresql-cutover.md) · [Valkey 运维](docs/valkey-lmm-api.md) |
 
-Frontend-only deployment switches the static release and preserves the previous frontend for explicit rollback. Provider packages install real `lmm-api-go` or `lmm-api-rs` binaries; production and operator commands enter through the one-hop `lmm-api` provider symlink.
+## 文档
 
-`bash scripts/lmm-api-deploy.sh --help` works without a compiled backend.
+[文档目录](docs/README.md)按使用、开发和运维任务分类。常用入口：
 
-[Component release architecture](docs/release-architecture.md) · [PostgreSQL migration](docs/postgresql-migration.md) · [Production cutover](docs/postgresql-cutover.md) · [Valkey operations](docs/valkey-lmm-api.md)
+- **使用与协作：**[工具发布](docs/tool-market-guide.md)、[连接与授权](docs/tool-market-connections.md)、[悬赏与结算](docs/open-source-bounties.md)。
+- **开发与接口：**[本地开发](docs/development.md)、[贡献指南](CONTRIBUTING.md)、[管理 API](docs/openapi/api.json)、[模型转发 API](docs/openapi/relay.json)。
+- **发布与维护：**[发布架构](docs/release-architecture.md)、[认证与会话](docs/authentication.md)、[Rust 预览](docs/rust-blue-green.md)。
 
-## Explore the codebase
+## 贡献与安全
 
-The production default is a Go API with a React and TypeScript frontend built with Rsbuild. Rust backend and CLI work remain explicit previews.
+提交前阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，使用仓库的 [Issue 模板](.github/ISSUE_TEMPLATE)，并说明实际执行的验证。问题支持见 [SUPPORT.md](SUPPORT.md)，社区规范见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
 
-| Path | Responsibility |
-| --- | --- |
-| [`apps/web`](apps/web) | Shared web console and public pages |
-| [`apps/api-go`](apps/api-go) | Default API backend and provider CLI |
-| [`apps/api-rust`](apps/api-rust) | Preview backend |
-| [`apps/lmm`](apps/lmm/README.md) | Preview setup CLI: discovery, planning, and read-only OAuth login |
-| [`packages`](packages) | Client integrations |
-| [`scripts`](scripts) | Development, verification, and deployment tooling |
-| [`packaging`](packaging) | Provider packages and immutable runtime assets |
-| [`docs`](docs/README.md) | Product, API, and operations references |
+漏洞报告请按 [SECURITY.md](SECURITY.md) 处理。不要在 Issue、日志或截图中公开密钥和账户信息。默认边缘访问策略阻止地理位置为中国大陆（`CN`）的请求，管理员可以配置明确的 IP 路由规则。
 
-<details>
-<summary><strong>Development and operator commands</strong></summary>
+[用户协议](docs/legal/user-agreement.md) · [隐私政策](docs/legal/privacy-policy.md) · [服务条款](docs/legal/terms-of-service.md) · [Logo 与使用规范](.github/assets/README.md)
 
-```text
-just setup              Install dependencies from the committed lockfile
-just dev-go             Start the Go development backend
-just dev-web            Start the frontend (default port 3000)
-just build              Build the frontend and Go backend
-just test               Run backend and frontend tests
-just check              Format, lint, typecheck, tests, and deployment contracts
-just deploy-production  Promote an already-staged signed package release plan
-```
+## 许可证与致谢
 
-Use the explicit frontend command in [Run locally](#run-locally) to keep the frontend and API ports separate.
+本项目按 [AGPL-3.0](LICENSE) 发布。上游署名和必要声明保留在 [NOTICE](NOTICE)、[FORK.md](FORK.md) 与[第三方许可证清单](THIRD-PARTY-LICENSES.md)中。
 
-- `just --list` shows all available recipes.
-- `just dev` and `just infra-up` / `just infra-down` use a locally supplied Compose file.
-- `just build-all` / `just test-all` include the Rust preview backend.
-- `just clean-generated` clears generated build artifacts.
-- `just package` requires a configured `LMM_API_BUILD_WORKSPACE`; see the [AUR packaging guide](packaging/aur/README.md).
-- Docker recipes require locally supplied Dockerfiles, which are not included in this repository.
-
-</details>
-
-<details>
-<summary><strong>Product, API, and operations documentation</strong></summary>
-
-| Topic | Reference |
-| --- | --- |
-| Documentation index | [All guides](docs/README.md) |
-| Authentication and sessions | [Authentication](docs/authentication.md) |
-| Tools and permissions | [Marketplace guide](docs/tool-market-guide.md) · [Connections](docs/tool-market-connections.md) |
-| Open-source work | [Bounties and settlement](docs/open-source-bounties.md) |
-| Editor integrations | [OpenCode](docs/opencode-provider.md) · [VS Code and Zed](docs/editor-providers.md) |
-| Releases and upgrades | [Architecture](docs/release-architecture.md) · [Signed upgrades](docs/seamless-upgrades.md) |
-| Backend preview | [Rust blue-green](docs/rust-blue-green.md) |
-| API specifications | [Admin API](docs/openapi/api.json) · [Relay API](docs/openapi/relay.json) |
-| Dependency notices | [Third-party licenses](THIRD-PARTY-LICENSES.md) |
-
-</details>
-
-## Contribute
-
-<p>
-  <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=go-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=go-v%2A&amp;label=Go" alt="Go release"></a>
-  <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=web-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=web-v%2A&amp;label=Web" alt="Web release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
-</p>
-
-LMM Forge is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). [FORK.md](FORK.md) records the upstream relationship and attribution requirements.
-
-For development requirements and scoped changes, start with [CONTRIBUTING.md](CONTRIBUTING.md). Use the repository's [Issue templates](.github/ISSUE_TEMPLATE) for bug reports and feature requests.
-
-[Support](SUPPORT.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Security policy](SECURITY.md)
-
-## Security and terms
-
-The default edge policy blocks requests geolocated to Mainland China (`CN`). Administrators can configure explicit IP routing rules.
-
-Report vulnerabilities through [SECURITY.md](SECURITY.md). User-facing policies are documented in the [user agreement](docs/legal/user-agreement.md), [privacy policy](docs/legal/privacy-policy.md), and [terms of service](docs/legal/terms-of-service.md).
-
-## Brand assets
-
-[Compact symbol](.github/assets/lmm-symbol.svg) · [Full wordmark](.github/assets/lmm-wordmark.svg) · [Usage and source geometry](.github/assets/README.md)
-
-## License
-
-Released under [AGPL-3.0](LICENSE). Upstream attribution and required notices are preserved in [NOTICE](NOTICE) and [FORK.md](FORK.md).
+README 的信息层次参考了 [TokenRouter](https://github.com/TokenFlux/TokenRouter)。本文的功能、部署说明、许可证与 Logo 均以 LMM Forge 本身为准。
