@@ -68,6 +68,8 @@ func InitOptionMap() {
 	defer optionUpdateMutex.Unlock()
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
+	common.OptionMap[setting.MerchantStoreCommerceImportEnabledOption] = "false"
+	common.OptionMap[setting.MerchantStoreCommerceImportTrustedOriginsOption] = "[]"
 	common.OptionMap[AssistantRegistrationAutoSuspendOption] = "true"
 	common.OptionMap[AssistantRegistrationDailyCapOption] = "5"
 
@@ -315,6 +317,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == setting.MerchantStoreCommerceImportEnabledOption || key == setting.MerchantStoreCommerceImportTrustedOriginsOption {
+		return setting.ValidateCommerceImportOption(key, value)
+	}
 	if key == MerchantStoreAnalyticsRetentionOption {
 		_, err := ParseMerchantStoreAnalyticsConfig(value)
 		return err

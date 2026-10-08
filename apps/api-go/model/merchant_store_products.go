@@ -11,11 +11,24 @@ import (
 )
 
 func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput) (*MerchantStoreProduct, error) {
+	if err := validateStoreProduct(&in); err != nil {
+		return nil, err
+	}
+	var p *MerchantStoreProduct
+	err := marketTransaction(DB, func(tx *gorm.DB) error {
+		var err error
+		p, err = storeSaveProductDraft(tx, actor, id, in)
+		return err
+	})
+	return p, err
+}
+
+func storeSaveProductDraft(tx *gorm.DB, actor int, id string, in MerchantStoreProductInput) (*MerchantStoreProduct, error) {
 	if e := validateStoreProduct(&in); e != nil {
 		return nil, e
 	}
 	var p MerchantStoreProduct
-	e := marketTransaction(DB, func(tx *gorm.DB) error {
+	e := func() error {
 		if in.CategoryID != nil {
 			if e := storeRequireCategoriesWriter(tx); e != nil {
 				return e
@@ -136,7 +149,7 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 			return e
 		}
 		return storeEvent(tx, actor, p.ID, "save_draft")
-	})
+	}()
 	return &p, e
 }
 func SubmitMerchantStoreProduct(actor int, id string) error {
@@ -335,20 +348,38 @@ func AddMerchantStoreVariantStock(actor int, id, variantID string, items []strin
 	if len(items) == 0 || len(items) > 10000 {
 		return 0, ErrMerchantStoreInput
 	}
+	for _, item := range items {
+		if len(strings.TrimSpace(item)) == 0 || len(item) > 32768 {
+			return 0, ErrMerchantStoreInput
+		}
+	}
+	var count int
+	err := storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		var err error
+		count, err = storeAddVariantStock(tx, actor, p, variantID, items)
+		return err
+	})
+	return count, err
+}
+
+func storeAddVariantStock(tx *gorm.DB, actor int, p *MerchantStoreProduct, variantID string, items []string) (int, error) {
+	if len(items) == 0 || len(items) > 10000 {
+		return 0, ErrMerchantStoreInput
+	}
 	rows := make([]MerchantStoreStock, 0, len(items))
 	for _, item := range items {
 		if len(strings.TrimSpace(item)) == 0 || len(item) > 32768 {
 			return 0, ErrMerchantStoreInput
 		}
-		row := MerchantStoreStock{ID: uuid.NewString(), ProductID: id, VariantID: &variantID, State: "available", CreatedAt: common.GetTimestamp()}
-		cipher, e := storeEncrypt("stock", id+":"+row.ID, item)
+		row := MerchantStoreStock{ID: uuid.NewString(), ProductID: p.ID, VariantID: &variantID, State: "available", CreatedAt: common.GetTimestamp()}
+		cipher, e := storeEncrypt("stock", p.ID+":"+row.ID, item)
 		if e != nil {
 			return 0, e
 		}
 		row.Ciphertext = cipher
 		rows = append(rows, row)
 	}
-	e := storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+	e := func() error {
 		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
@@ -381,7 +412,7 @@ func AddMerchantStoreVariantStock(actor int, id, variantID string, items []strin
 			rows[i].Position = last + int64(i) + 1
 		}
 		return tx.CreateInBatches(rows, 100).Error
-	})
+	}()
 	if e != nil {
 		return 0, e
 	}

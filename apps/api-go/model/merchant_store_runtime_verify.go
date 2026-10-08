@@ -36,14 +36,14 @@ func runtimeVerificationModels(db *gorm.DB) ([]interface{}, error) {
 	if err != nil {
 		return nil, fmt.Errorf("verify merchant-store writer floor: %w", err)
 	}
-	if floor < 7 {
+	if floor < 8 {
 		frozen := make([]interface{}, 0, len(models))
 		for _, item := range models {
 			stmt := &gorm.Statement{DB: db}
 			if err := stmt.Parse(item); err != nil {
 				return nil, fmt.Errorf("verify migration model: %w", err)
 			}
-			if (floor < 6 && storePhaseSixTable(stmt.Schema.Table)) || storePhaseSevenTable(stmt.Schema.Table) {
+			if (floor < 6 && storePhaseSixTable(stmt.Schema.Table)) || (floor < 7 && storePhaseSevenTable(stmt.Schema.Table)) || storeCommerceImportTable(stmt.Schema.Table) {
 				continue
 			}
 			if floor < 6 && stmt.Schema.Table == "merchant_store_products" {

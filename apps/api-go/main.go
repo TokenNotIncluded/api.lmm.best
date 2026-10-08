@@ -158,6 +158,7 @@ func runServer() {
 	loops.Go(service.RunRatioNotifications)
 	loops.Go(common.RunSystemMonitor)
 	loops.Go(service.RunAuthArtifactCleanup)
+	loops.Go(service.RunCommerceImportMaintenance)
 	loops.Go(model.RunAcquisitionRetention)
 	loops.Go(model.RunAcquisitionActivity)
 

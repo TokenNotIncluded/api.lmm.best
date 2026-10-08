@@ -1,3 +1,4 @@
+import { COMMERCE_IMPORT_SETTINGS_COPY } from '../integrations/commerce-import-settings-copy.js'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -35,6 +36,10 @@ const MonitoringSettingsSection = lazyNamedSection(
 const WorkerSettingsSection = lazyNamedSection(
   () => import('../integrations/worker-settings-section.js'),
   'WorkerSettingsSection'
+)
+const CommerceImportSettingsSection = lazyNamedSection(
+  () => import('../integrations/commerce-import-settings-section.js'),
+  'CommerceImportSettingsSection'
 )
 const LogSettingsSection = lazyNamedSection(
   () => import('../maintenance/log-settings-section.js'),
@@ -131,6 +136,11 @@ const OPERATIONS_SECTIONS = [
     id: 'hero-sms',
     titleKey: 'HeroSMS temporary activations',
     build: () => <HeroSmsSettingsSection />,
+  },
+  {
+    id: 'commerce-import',
+    titleKey: COMMERCE_IMPORT_SETTINGS_COPY.title,
+    build: () => <CommerceImportSettingsSection />,
   },
   {
     id: 'logs',

@@ -20,7 +20,7 @@ func TestMerchantStoreRuntimeVerificationCatalogFollowsDurableFloor(t *testing.T
 	require.NoError(t, BootstrapMerchantStoreWriterGate(db))
 	full, err := buildPostgresSchemaInventory(db, "app_test", append(mainMigrationModels(), &SubscriptionPlan{}))
 	require.NoError(t, err)
-	for _, floor := range []int{1, 2, 3, 4, 5, 6, 7} {
+	for _, floor := range []int{1, 2, 3, 4, 5, 6, 7, 8} {
 		t.Run(fmt.Sprint(floor), func(t *testing.T) {
 			// This tests model selection, not activation: real activation is
 			// exercised separately on the complete PostgreSQL catalogue.
@@ -35,20 +35,30 @@ func TestMerchantStoreRuntimeVerificationCatalogFollowsDurableFloor(t *testing.T
 				for _, object := range inventory.Objects {
 					present = present || object.table == table
 				}
-				require.Equal(t, floor == 7, present, "phase-seven table %s follows the durable floor", table)
+				require.Equal(t, floor >= 7, present, "phase-seven table %s follows the durable floor", table)
 			}
-			if floor == 7 {
+			for _, item := range CommerceImportModels() {
+				stmt := &gorm.Statement{DB: db}
+				require.NoError(t, stmt.Parse(item))
+				present := false
+				for _, object := range inventory.Objects {
+					present = present || object.table == stmt.Schema.Table
+				}
+				require.Equal(t, floor >= 8, present, "commerce-import table %s follows the durable floor", stmt.Schema.Table)
+			}
+			if floor == 8 {
 				require.Equal(t, full, inventory)
 				return
 			}
-			// Phase-seven's four tables are absent below seven. Below six,
+			// Commerce-import tables are absent below eight, and phase-seven's
+			// four tables are absent below seven. Below six,
 			// only the two phase-six tables, their constraints/indexes and
 			// category_id's column/index also disappear. Every older global
 			// and shop column, index and constraint remains authoritative.
 			expectedObjects := []string{}
 			actualObjects := []string{}
 			for _, object := range full.Objects {
-				if !storePhaseSevenTable(object.table) && (floor >= 6 || (!storePhaseSixTable(object.table) && !storePhaseSixColumn(object.table, object.column))) {
+				if !storeCommerceImportTable(object.table) && (floor >= 7 || !storePhaseSevenTable(object.table)) && (floor >= 6 || (!storePhaseSixTable(object.table) && !storePhaseSixColumn(object.table, object.column))) {
 					expectedObjects = append(expectedObjects, object.table+"."+object.column)
 				}
 			}
@@ -58,14 +68,14 @@ func TestMerchantStoreRuntimeVerificationCatalogFollowsDurableFloor(t *testing.T
 			require.Equal(t, expectedObjects, actualObjects)
 			expectedIndexes := []postgresIndexSpec{}
 			for _, index := range full.Indexes {
-				if !storePhaseSevenTable(index.Table) && (floor >= 6 || (!storePhaseSixTable(index.Table) && index.Name != "idx_merchant_store_products_category_id")) {
+				if !storeCommerceImportTable(index.Table) && (floor >= 7 || !storePhaseSevenTable(index.Table)) && (floor >= 6 || (!storePhaseSixTable(index.Table) && index.Name != "idx_merchant_store_products_category_id")) {
 					expectedIndexes = append(expectedIndexes, index)
 				}
 			}
 			require.Equal(t, expectedIndexes, inventory.Indexes)
 			expectedConstraints := []postgresConstraintSpec{}
 			for _, constraint := range full.Constraints {
-				if !storePhaseSevenTable(constraint.Table) && (floor >= 6 || !storePhaseSixTable(constraint.Table)) {
+				if !storeCommerceImportTable(constraint.Table) && (floor >= 7 || !storePhaseSevenTable(constraint.Table)) && (floor >= 6 || !storePhaseSixTable(constraint.Table)) {
 					expectedConstraints = append(expectedConstraints, constraint)
 				}
 			}
@@ -104,7 +114,7 @@ func TestMerchantStoreRuntimeVerificationMissingFloorRequiresFullCatalog(t *test
 	var count int64
 	require.NoError(t, db.Model(&Option{}).Count(&count).Error)
 	require.Zero(t, count, "verification never creates an activation marker")
-	for _, value := range []string{"", "0", "8", "06", " 6", "6 ", "unknown"} {
+	for _, value := range []string{"", "0", fmt.Sprint(MerchantStoreWriterCapability + 1), "06", " 6", "6 ", "unknown"} {
 		t.Run(fmt.Sprintf("invalid-%q", value), func(t *testing.T) {
 			require.NoError(t, db.Where("key = ?", MerchantStoreWriterCapabilityOption).Delete(&Option{}).Error)
 			require.NoError(t, db.Create(&Option{Key: MerchantStoreWriterCapabilityOption, Value: value}).Error)

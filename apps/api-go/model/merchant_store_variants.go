@@ -195,8 +195,21 @@ func SaveMerchantStoreVariant(actor int, productID, id string, in MerchantStoreV
 	if err := storeValidateVariant(&in); err != nil {
 		return nil, err
 	}
-	var result MerchantStoreVariant
+	var result *MerchantStoreVariant
 	err := storeWithActiveProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		var err error
+		result, err = storeSaveVariantDraft(tx, actor, p, id, in)
+		return err
+	})
+	return result, err
+}
+
+func storeSaveVariantDraft(tx *gorm.DB, actor int, p *MerchantStoreProduct, id string, in MerchantStoreVariantInput) (*MerchantStoreVariant, error) {
+	if err := storeValidateVariant(&in); err != nil {
+		return nil, err
+	}
+	var result MerchantStoreVariant
+	err := func() error {
 		if err := storeRequireVariantWriter(tx); err != nil {
 			return err
 		}
@@ -246,10 +259,9 @@ func SaveMerchantStoreVariant(actor int, productID, id string, in MerchantStoreV
 			return err
 		}
 		return storeEvent(tx, actor, result.ID, "variant_saved")
-	})
+	}()
 	return &result, err
 }
-
 func SetMerchantStoreVariantEnabled(actor int, productID, id string, enabled bool) error {
 	return storeWithActiveProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
 		if err := storeRequireVariantWriter(tx); err != nil {

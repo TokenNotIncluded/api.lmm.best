@@ -38,7 +38,14 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 	accessReady := set.Bool("reviewed-access-ready", false, "activate-access: operator confirms full access/catalogue/guest-email schema and all serving and retained writers support capability five")
 	phaseSixReady := set.Bool("reviewed-phase-six-ready", false, "activate-phase-six: operator confirms reviewed categories/likes schema and all serving and retained writers support capability six")
 	fixedContentReady := set.Bool("reviewed-fixed-content-ready", false, "prepare-fixed-content/activate-fixed-content: operator confirms reviewed phase-seven content and anonymous analytics schema and all serving and retained writers support capability seven")
+	commerceImportReady := set.Bool("reviewed-commerce-import-ready", false, "prepare-commerce-import/activate-commerce-import: operator confirms reviewed optional commerce integration schema and all serving and retained writers support capability eight")
 	if err := set.Parse(args[1:]); err != nil || set.NArg() != 0 {
+		return appcli.ExitUsage
+	}
+	if *commerceImportReady && args[0] != "prepare-commerce-import" && args[0] != "activate-commerce-import" {
+		return appcli.ExitUsage
+	}
+	if (args[0] == "prepare-commerce-import" || args[0] == "activate-commerce-import") && (!*commerceImportReady || *fixedContentReady || *ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady || (*expected != 7 && *expected != 8) || *requireWritable) {
 		return appcli.ExitUsage
 	}
 	if *fixedContentReady && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" {
@@ -65,13 +72,13 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 	if args[0] == "activate-phase-six" && (!*phaseSixReady || *accessReady || *schemaReady || *ready || *lifecycleReady || *refundsReady || (*expected != 5 && *expected != 6) || *requireWritable) {
 		return appcli.ExitUsage
 	}
-	if args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && (*expected != 0 || *ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady) {
+	if args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && args[0] != "prepare-commerce-import" && args[0] != "activate-commerce-import" && (*expected != 0 || *ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady) {
 		return appcli.ExitUsage
 	}
 	if args[0] == "bootstrap" && *requireWritable {
 		return appcli.ExitUsage
 	}
-	if args[0] != "status" && args[0] != "bootstrap" && args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && args[0] != "verify-fixed-content" {
+	if args[0] != "status" && args[0] != "bootstrap" && args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && args[0] != "verify-fixed-content" && args[0] != "prepare-commerce-import" && args[0] != "activate-commerce-import" && args[0] != "verify-commerce-import" {
 		return appcli.ExitUsage
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -106,6 +113,12 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 		err = model.ActivateMerchantStoreFixedContent(db, *expected)
 	case "activate-phase-six":
 		err = model.ActivateMerchantStorePhaseSix(db, *expected)
+	case "verify-commerce-import":
+		err = model.VerifyMerchantStoreCommerceImport(db)
+	case "prepare-commerce-import":
+		err = model.PrepareMerchantStoreCommerceImport(db, *expected)
+	case "activate-commerce-import":
+		err = model.ActivateMerchantStoreCommerceImport(db, *expected)
 	}
 	if err != nil {
 		return appcli.ExitError

@@ -11,6 +11,13 @@ import (
 func TestMerchantStoreWriterGateCommandRejectsFlagsBeforeDatabaseAccess(t *testing.T) {
 	t.Setenv("SQL_DSN", "postgres://private-password@127.0.0.1:1/must-never-connect?sslmode=disable")
 	for _, args := range [][]string{
+		{"prepare-commerce-import"}, {"activate-commerce-import"},
+		{"prepare-commerce-import", "--expected-current=6", "--reviewed-commerce-import-ready"},
+		{"activate-commerce-import", "--expected-current=7"},
+		{"activate-commerce-import", "--expected-current=7", "--reviewed-commerce-import-ready", "--require-writable"},
+		{"activate-commerce-import", "--expected-current=7", "--reviewed-commerce-import-ready", "--reviewed-fixed-content-ready"},
+		{"verify-commerce-import", "--expected-current=7"}, {"verify-commerce-import", "--reviewed-commerce-import-ready"},
+		{"status", "--reviewed-commerce-import-ready"},
 		{"prepare-fixed-content"}, {"activate-fixed-content"},
 		{"prepare-fixed-content", "--expected-current=5", "--reviewed-fixed-content-ready"},
 		{"activate-fixed-content", "--expected-current=6"},
@@ -57,6 +64,9 @@ func TestMerchantStoreWriterGateCommandRequiresExplicitDatabaseWithoutServerStar
 	t.Setenv("SQL_DSN", "")
 	for _, args := range [][]string{
 		{"status"}, {"bootstrap"}, {"verify-fixed-content"},
+		{"verify-commerce-import"},
+		{"prepare-commerce-import", "--expected-current=7", "--reviewed-commerce-import-ready"},
+		{"activate-commerce-import", "--expected-current=7", "--reviewed-commerce-import-ready"},
 		{"prepare-fixed-content", "--expected-current=6", "--reviewed-fixed-content-ready"},
 		{"activate-fixed-content", "--expected-current=6", "--reviewed-fixed-content-ready"},
 		{"prepare-schema", "--expected-current=5", "--reviewed-store-schema-ready"},

@@ -99,6 +99,9 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 	// Database, gateway, crypto and provider errors can contain credentials or
 	// private delivery data. Never serialize their raw error strings.
 	response := gin.H{"success": false, "code": code, "message": message}
+	if requestID := c.GetString("commerce_import_request_id"); requestID != "" {
+		response["request_id"] = requestID
+	}
 	if termsUpdated != nil {
 		response["request_key"], response["order_created"] = termsUpdated.RequestKey(), false
 	}

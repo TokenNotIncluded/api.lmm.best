@@ -48,10 +48,10 @@ func Dispatch(args []string, version string, stdout, stderr io.Writer) Result {
 	case "migrate":
 		return dispatchMigration(args[1:], stdout, stderr)
 	case "merchant-store-writer-gate":
-		if len(args) > 1 && (args[1] == "capability" || args[1] == "status" || args[1] == "bootstrap" || args[1] == "activate" || args[1] == "activate-lifecycle" || args[1] == "activate-refunds" || args[1] == "prepare-schema" || args[1] == "activate-access" || args[1] == "activate-phase-six" || args[1] == "prepare-fixed-content" || args[1] == "verify-fixed-content" || args[1] == "activate-fixed-content") {
+		if len(args) > 1 && (args[1] == "capability" || args[1] == "status" || args[1] == "bootstrap" || args[1] == "activate" || args[1] == "activate-lifecycle" || args[1] == "activate-refunds" || args[1] == "prepare-schema" || args[1] == "activate-access" || args[1] == "activate-phase-six" || args[1] == "prepare-fixed-content" || args[1] == "verify-fixed-content" || args[1] == "activate-fixed-content" || args[1] == "prepare-commerce-import" || args[1] == "verify-commerce-import" || args[1] == "activate-commerce-import") {
 			return Result{Mode: ModeMerchantStoreWriterGate, GateArgs: append([]string(nil), args[1:]...)}
 		}
-		_, _ = fmt.Fprintln(stderr, "choose merchant-store-writer-gate capability|status|bootstrap|activate|activate-lifecycle|activate-refunds|prepare-schema|activate-access|activate-phase-six|prepare-fixed-content|verify-fixed-content|activate-fixed-content")
+		_, _ = fmt.Fprintln(stderr, "choose merchant-store-writer-gate capability|status|bootstrap|activate|activate-lifecycle|activate-refunds|prepare-schema|activate-access|activate-phase-six|prepare-fixed-content|verify-fixed-content|activate-fixed-content|prepare-commerce-import|verify-commerce-import|activate-commerce-import")
 		return Result{ExitCode: ExitUsage}
 	case "request":
 		return Result{ExitCode: RunRequest(args[1:], version, stdout, stderr)}
@@ -118,7 +118,7 @@ func WriteUsage(output io.Writer) {
 	_, _ = fmt.Fprintln(output, `Usage:
   lmm-api [serve] [server options]
   lmm-api migrate --apply|--verify
-  lmm-api merchant-store-writer-gate capability|status|bootstrap|activate|activate-lifecycle|activate-refunds|prepare-schema|activate-access|activate-phase-six|prepare-fixed-content|verify-fixed-content|activate-fixed-content [operator options]
+  lmm-api merchant-store-writer-gate capability|status|bootstrap|activate|activate-lifecycle|activate-refunds|prepare-schema|activate-access|activate-phase-six|prepare-fixed-content|verify-fixed-content|activate-fixed-content|prepare-commerce-import|verify-commerce-import|activate-commerce-import [operator options]
   lmm-api request [request options] [URL-or-path]
   /usr/bin/lmm-api-deploy build|frontend|production ...
   lmm-api geoip update

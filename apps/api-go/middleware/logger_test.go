@@ -23,6 +23,8 @@ func TestLoggerStripsOAuthQueriesButRetainsOrdinaryQueries(t *testing.T) {
 	for _, path := range []string{
 		"/api/oauth2/authorize?state=secret-state&code_challenge=secret-challenge",
 		"/api/user/auth/oauth2/consent?csrf=secret-csrf",
+		"/api/user/auth/store-commerce-import/callback?code=secret-code&state=secret-state&iss=https%3A%2F%2Fmerchant.example.com",
+		"/api/user/auth/store-commerce-import/complete?code=secret-code",
 		"/oauth/lmm/callback?code=secret-code&state=secret-state",
 		"/api/models?filter=visible",
 	} {

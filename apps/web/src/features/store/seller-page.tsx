@@ -41,6 +41,7 @@ import { StoreProductAnalytics } from './analytics'
 import { storeApi } from './api'
 import { StoreCategorySelect, StoreProductCategoryEditor } from './categories'
 import { useStoreCategories } from './category-support'
+import { StoreCommerceImport } from './commerce-import'
 import {
   DELIVERY_TEMPLATES,
   structuredTemplate,
@@ -250,6 +251,7 @@ function StoreSellerCenter() {
         </div>
         <div className='flex flex-wrap gap-2'>
           <StoreProductAnalytics />
+          <StoreCommerceImport />
           {config.data?.store_access_supported === true && (
             <Button
               variant='outline'

@@ -32,6 +32,10 @@ func TestAssistantAdminOperationContractsCriticalPayloads(t *testing.T) {
 		{"AddDiscountCode", []string{"code", "discount_percent"}},
 		{"AddRedemption", []string{"quota", "count"}},
 		{"AdminCreateSubscriptionPlan", []string{"plan"}},
+		{"CreateCommerceImportConnection", []string{"origin", "client_id"}},
+		{"AuthorizeCommerceImportConnection", []string{"cards_issue"}},
+		{"ImportCommerceImportProduct", []string{"product_id", "revision", "visibility", "confirmed", "variants"}},
+		{"RestockCommerceImportProduct", []string{"product_id", "variant_id", "count", "expected_revision"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.handler, func(t *testing.T) {
