@@ -946,3 +946,85 @@ test('buyer can cancel only a requested refund using its existing refund identit
   assert.match(document.body.textContent || '', /Refund request cancelled/)
   assert.equal(hasButton('Cancel refund request'), false)
 })
+
+const externalRedemptionNotice =
+  'The external redemption status is unknown and needs manual verification with the merchant. A local refund does not revoke external cards.'
+
+for (const audience of ['buyer', 'seller', 'root'] as const) {
+  test(`${audience} sees the external redemption notice before and after a completed local refund`, async () => {
+    let completed = false
+    const completedRefund: StoreRefund = {
+      ...refund,
+      status: 'completed',
+      completed_at: 2000,
+    }
+    const records = requests((request) => {
+      if (request.method === 'POST') {
+        completed = true
+        return envelope(completedRefund)
+      }
+      const externalView: StoreRefundView = {
+        ...view,
+        external_redemption_status: 'unknown',
+        remaining_quota: completed ? 0 : view.remaining_quota,
+        refunded_quota: completed ? view.principal_quota : view.refunded_quota,
+        refunded_quantity: completed ? view.quantity : view.refunded_quantity,
+        max_quantity: completed ? 0 : view.max_quantity,
+        eligible_items: completed ? [] : view.eligible_items,
+        refunds: completed ? [completedRefund] : [],
+      }
+      return envelope(externalView)
+    })
+    await mount(
+      <StoreRefundPanel orderId={orderId} audience={audience} />,
+      audience === 'root' ? 100 : 1
+    )
+    assert.equal(records.length, 0)
+    await click(button('Refunds'))
+    await act(flush)
+    assert.ok(
+      (document.body.textContent || '').includes(externalRedemptionNotice)
+    )
+    assert.equal(hasButton('Refund by quantity'), true)
+    assert.equal(hasButton('Refund by amount'), true)
+
+    const submitLabel =
+      audience === 'buyer' ? 'Request refund' : 'Refund this order'
+    await submit('Refund reason', 'Agreed local refund', submitLabel)
+    await act(flush)
+    const writes = records.filter((request) => request.method === 'POST')
+    assert.equal(writes.length, 1)
+    assert.equal(
+      writes[0].url,
+      `/api/store/orders/${orderId}/refunds${audience === 'buyer' ? '' : '/proactive'}`
+    )
+    assert.ok(
+      (document.body.textContent || '').includes(externalRedemptionNotice)
+    )
+    assert.match(document.body.textContent || '', /Refund completed/)
+    assert.equal(hasButton(submitLabel), false)
+  })
+
+  test(`${audience} sees no external redemption notice on an ordinary order without the field`, async () => {
+    const records = requests()
+    await mount(
+      <StoreRefundPanel orderId={orderId} audience={audience} />,
+      audience === 'root' ? 100 : 1
+    )
+    await click(button('Refunds'))
+    await act(flush)
+    assert.match(document.body.textContent || '', /Available to refund/)
+    assert.equal(
+      (document.body.textContent || '').includes(externalRedemptionNotice),
+      false
+    )
+    assert.equal(
+      records.filter((request) => request.method === 'GET').length,
+      1
+    )
+    assert.equal(
+      records.some((request) => request.method === 'POST'),
+      false
+    )
+  })
+}

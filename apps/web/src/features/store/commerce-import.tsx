@@ -697,8 +697,9 @@ export function StoreCommerceImportManager({
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>{t(copy.disconnectTitle)}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t(copy.disconnectHelp)}
+                  <AlertDialogDescription render={<div />}>
+                    <p>{t(copy.disconnectHelp)}</p>
+                    <p className='mt-2'>{t(copy.disconnectRetentionHelp)}</p>
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

@@ -22,6 +22,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { STORE_COMMERCE_IMPORT_COPY as commerceCopy } from './commerce-import-copy'
 import {
   storeRefundNativeAmountSupported,
   storeRefundNativeAmountText,
@@ -249,6 +250,13 @@ export function StoreRefundPanel({
           ) : (
             refundView && (
               <>
+                {refundView.external_redemption_status === 'unknown' && (
+                  <Alert>
+                    <AlertDescription>
+                      {t(commerceCopy.refundExternalUnknown)}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 {showOrderIdentity && (
                   <div className='space-y-1 text-sm'>
                     <p className='font-medium break-words'>

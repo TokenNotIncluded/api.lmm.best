@@ -43,6 +43,7 @@ export interface StoreRefund {
 }
 
 export interface StoreRefundView {
+  external_redemption_status?: 'unknown'
   delivery_template?: string
   order_id: string
   product_title: string

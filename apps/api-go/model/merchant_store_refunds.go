@@ -315,6 +315,9 @@ func storeRefundView(tx *gorm.DB, o *MerchantStoreOrder) (*MerchantStoreRefundVi
 		v.RefundedAmountMinor = &done
 		v.RemainingAmountMinor = &left
 	}
+	if e := storeCommerceImportRefundRedemptionStatus(tx, o, v); e != nil {
+		return nil, e
+	}
 	return v, nil
 }
 func GetMerchantStoreRefunds(actor int, id string) (*MerchantStoreRefundView, error) {

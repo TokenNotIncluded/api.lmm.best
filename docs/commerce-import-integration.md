@@ -38,6 +38,8 @@ The first explicit upstream validation rejection can prove no issuance. A reject
 
 Disconnect attempts grant revocation while the issuer remains in the current trusted-origin list, including after the administrator disables new imports. Removing an issuer from that list prevents sending it credentials, so remote revocation then needs merchant verification. Disconnect clears local credentials/sessions/recovery responses and stops integration operations. It preserves imported/unsold/sold card stock, products/SKU mappings, orders, wallet and ledger records. A failed revocation request still disconnects locally. Disconnect or a local refund does not claim that an external card has been invalidated; v1 does not expose redemption/refund eligibility, so that requires manual verification with the merchant.
 
+Imported orders' existing local refund view exposes `external_redemption_status="unknown"`. Buyer, seller and administrator panels display the manual-verification notice, including completed refunds and disconnected connections. This is local source information; it adds no Extore v1 field, redemption query, cancellation action or change to refund amounts/eligibility. Ordinary and historical pre-capability-8 orders retain their existing view.
+
 ## Schema and retention
 
 Capability 8 registers exactly six independent integration tables. A capability-7 runtime excludes those tables from historical qualification. On an isolated restored clone, the later release operator can review and run:

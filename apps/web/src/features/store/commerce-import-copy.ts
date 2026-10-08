@@ -27,6 +27,8 @@ export const STORE_COMMERCE_IMPORT_COPY = {
   disconnectTitle: 'Disconnect this shop?',
   disconnectHelp:
     'This stops product reading and card generation. Cards already issued remain valid, and existing local products and inventory are kept.',
+  disconnectRetentionHelp:
+    'Disconnecting clears connection credentials and recoverable responses. Unresolved batches still require manual reconciliation. Existing products, inventory, orders and financial records are kept.',
   cancel: 'Cancel',
   connected:
     'Shop connected. Review products before importing; no product or inventory has been imported yet.',
@@ -120,6 +122,8 @@ export const STORE_COMMERCE_IMPORT_COPY = {
     'The original issuance needs manual reconciliation. Do not generate a replacement batch automatically.',
   invalidCatalog: 'The external shop returned an unsupported product catalog.',
   invalidAuthorization: 'The shop returned an invalid authorization address.',
+  refundExternalUnknown:
+    'The external redemption status is unknown and needs manual verification with the merchant. A local refund does not revoke external cards.',
 } as const
 
 // Draft only. Locale files are maintained by the separately assigned translator.
@@ -153,6 +157,8 @@ export const STORE_COMMERCE_IMPORT_ZH_CN: Record<
   disconnectTitle: '断开这个商城？',
   disconnectHelp:
     '断开后停止读取商品和生成卡密。已发行卡密仍有效，本地商品和库存会保留。',
+  disconnectRetentionHelp:
+    '断开会清除连接凭据和可恢复回执。结果未确认的批次仍需人工核对。已有商品、库存、订单和财务记录会保留。',
   cancel: '取消',
   connected: '商城已连接。请预览后再导入；目前尚未导入商品或库存。',
   denied: '授权已拒绝。准备好后可重新授权读取商品。',
@@ -231,4 +237,6 @@ export const STORE_COMMERCE_IMPORT_ZH_CN: Record<
   manualError: '原批次发行需要人工核对。不要自动生成替代批次。',
   invalidCatalog: '外部商城返回了不支持的商品目录。',
   invalidAuthorization: '商城返回的授权地址无效。',
+  refundExternalUnknown:
+    '外部兑换状态未知，需要向商家人工核对。本地退款不会撤销外部卡密。',
 }
