@@ -1,0 +1,31 @@
+name: Store integration review
+
+on:
+  push:
+    branches: [codex/store-extore-native-import]
+    paths: [.github/workflows/store-extore-review.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Export tracked review sources
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/store-review"
+          git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/store-review/api-source.tar.gz"
+          git clone --depth=1 https://github.com/TokenNotIncluded/extore.git "$RUNNER_TEMP/extore-source"
+          git -C "$RUNNER_TEMP/extore-source" archive --format=tar HEAD | gzip > "$RUNNER_TEMP/store-review/extore-source.tar.gz"
+          git -C "$RUNNER_TEMP/extore-source" rev-parse HEAD > "$RUNNER_TEMP/store-review/extore-revision.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-review-sources
+          path: ${{ runner.temp }}/store-review
+          retention-days: 1
