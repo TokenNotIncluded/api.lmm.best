@@ -39,6 +39,7 @@ import {
   onAssistantRailChange,
   toggleAssistantRail,
 } from '@/features/assistant/assistant-rail'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useStatus } from '@/hooks/use-status'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
@@ -49,6 +50,7 @@ import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
 import { AccountBalanceBadge } from './account-balance-badge'
 import { Header } from './header'
+import { HeaderTools, type HeaderTool } from './header-tools'
 import { StoreIcon } from './store-icon'
 import { SystemBrand } from './system-brand'
 import { TopNav } from './top-nav'
@@ -95,6 +97,7 @@ export function AppHeader({
   const { t } = useTranslation()
   const { status } = useStatus()
   const notifications = useNotifications()
+  const isMobile = useIsMobile()
   const user = useAuthStore((state) => state.auth.user)
   const assistantEnabled = status?.assistant?.enabled !== false
   const mobileAssistantAvailable = showMobileAssistant && user !== null
@@ -113,11 +116,91 @@ export function AppHeader({
     }
   }
 
+  const tools: HeaderTool[] = []
+  if (showStore) {
+    tools.push({
+      id: 'store',
+      label: t('Shop'),
+      content: (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='ghost'
+                size='icon'
+                className='size-11 rounded-lg md:size-8'
+                render={<Link to={'/store' as LinkProps['to']} />}
+                aria-label={t('Open shop')}
+                title={t('Open shop')}
+                data-testid='header-store-link'
+              />
+            }
+          >
+            <StoreIcon aria-hidden='true' />
+          </TooltipTrigger>
+          <TooltipContent side='bottom'>{t('Shop')}</TooltipContent>
+        </Tooltip>
+      ),
+    })
+  }
+  if (showNotifications) {
+    tools.push({
+      id: 'notifications',
+      label: t('Notifications'),
+      content: (
+        <NotificationPopover
+          open={notifications.popoverOpen}
+          onOpenChange={notifications.setPopoverOpen}
+          unreadCount={notifications.unreadCount}
+          activeTab={notifications.activeTab}
+          onTabChange={notifications.setActiveTab}
+          notice={notifications.notice}
+          announcements={notifications.announcements}
+          ratioFeed={notifications.ratioFeed}
+          bountyTips={notifications.bountyTips}
+          thankingTipId={notifications.thankingTipId}
+          onThankTip={notifications.thankTip}
+          loading={notifications.loading}
+        />
+      ),
+    })
+  }
+  if (showLanguageSwitcher) {
+    tools.push({
+      id: 'language',
+      label: t('Language'),
+      content: <LanguageSwitcher />,
+    })
+  }
+  if (showConfigDrawer) {
+    tools.push({
+      id: 'appearance',
+      label: t('Appearance'),
+      content: <ConfigDrawer />,
+    })
+  }
+  if (showProfileDropdown) {
+    tools.push({
+      id: 'profile',
+      label: t('Profile'),
+      content: <ProfileDropdown />,
+    })
+  }
+
+  const compactTools = isMobile && tools.length > 1
+  const [previousCompactTools, setPreviousCompactTools] = useState(compactTools)
+  // Reset owned state before moving controls. An unmount effect is too late:
+  // the new notification popup would first mount open, then race its exit.
+  if (previousCompactTools !== compactTools) {
+    setPreviousCompactTools(compactTools)
+    notifications.closePopover()
+  }
+
   return (
     <Header showSidebarTrigger={showSidebarTrigger}>
       {showBrand && <SystemBrand variant='inline' />}
       {leftContent ? (
-        <div className='ms-1 flex min-w-0 flex-1 items-center sm:ms-2 sm:flex-initial'>
+        <div className='ms-1 flex min-w-0 flex-1 items-center md:ms-2 md:flex-initial'>
           {leftContent}
         </div>
       ) : null}
@@ -131,7 +214,7 @@ export function AppHeader({
         </div>
       )}
       {rightContent ?? (
-        <div className='ms-auto flex shrink-0 items-center gap-1 sm:gap-2'>
+        <div className='ms-auto flex shrink-0 items-center gap-1 md:gap-2'>
           {showTopNav && (
             <div className='lg:hidden'>
               <TopNav links={links} aria-label={t('Header navigation')} />
@@ -145,9 +228,9 @@ export function AppHeader({
                     variant='ghost'
                     size='icon'
                     className={cn(
-                      'relative isolate size-11 overflow-hidden rounded-lg sm:size-8',
-                      !showMobileAssistant && 'hidden sm:inline-flex',
-                      !assistantEnabled && 'sm:hidden',
+                      'relative isolate size-11 overflow-hidden rounded-lg md:size-8',
+                      !showMobileAssistant && 'hidden md:inline-flex',
+                      !assistantEnabled && 'md:hidden',
                       railOpen && 'bg-accent text-accent-foreground'
                     )}
                     aria-label={t('Open AI assistant')}
@@ -175,48 +258,13 @@ export function AppHeader({
               </TooltipContent>
             </Tooltip>
           )}
-          {showStore && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant='ghost'
-                    size='icon'
-                    className='size-11 rounded-lg sm:size-8'
-                    render={<Link to={'/store' as LinkProps['to']} />}
-                    aria-label={t('Open shop')}
-                    title={t('Open shop')}
-                    data-testid='header-store-link'
-                  />
-                }
-              >
-                <StoreIcon aria-hidden='true' />
-              </TooltipTrigger>
-              <TooltipContent side='bottom'>{t('Shop')}</TooltipContent>
-            </Tooltip>
-          )}
-          {showNotifications && (
-            <NotificationPopover
-              open={notifications.popoverOpen}
-              onOpenChange={notifications.setPopoverOpen}
-              unreadCount={notifications.unreadCount}
-              activeTab={notifications.activeTab}
-              onTabChange={notifications.setActiveTab}
-              notice={notifications.notice}
-              announcements={notifications.announcements}
-              ratioFeed={notifications.ratioFeed}
-              bountyTips={notifications.bountyTips}
-              thankingTipId={notifications.thankingTipId}
-              onThankTip={notifications.thankTip}
-              loading={notifications.loading}
-            />
-          )}
-          {showBalanceBadge && (
-            <AccountBalanceBadge compactMobile={showMobileAssistant} />
-          )}
-          {showLanguageSwitcher && <LanguageSwitcher />}
-          {showConfigDrawer && <ConfigDrawer />}
-          {showProfileDropdown && <ProfileDropdown />}
+          {showBalanceBadge && <AccountBalanceBadge compactMobile />}
+          <HeaderTools
+            items={tools}
+            compact={compactTools}
+            onDismiss={() => notifications.setPopoverOpen(false)}
+            unreadCount={showNotifications ? notifications.unreadCount : 0}
+          />
         </div>
       )}
     </Header>
