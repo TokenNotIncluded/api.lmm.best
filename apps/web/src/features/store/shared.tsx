@@ -48,7 +48,7 @@ export function StoreShell() {
           path === '/store' && 'flex flex-1 flex-col'
         )}
       >
-        <div className='flex flex-wrap items-center justify-between gap-3 border-b pb-4'>
+        <div className='flex flex-wrap items-center justify-between gap-4 py-3'>
           <a
             href='/store'
             className='flex items-center gap-2 text-lg font-semibold'
@@ -93,7 +93,7 @@ export function StoreAuthGate({ children }: { children: ReactNode }) {
   if (user) return <Fragment key={user.id}>{children}</Fragment>
   const redirect = `${window.location.pathname}${window.location.search}`
   return (
-    <div className='space-y-3 rounded-lg border p-6'>
+    <div className='space-y-4 py-10'>
       <h1 className='text-lg font-semibold'>{t('Sign in to continue')}</h1>
       <p className='text-muted-foreground text-sm'>
         {t(

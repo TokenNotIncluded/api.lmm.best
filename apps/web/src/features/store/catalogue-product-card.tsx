@@ -53,7 +53,7 @@ export function StoreCatalogueProductCard({
       <article
         ref={impressionRef}
         data-store-product-id={product.id}
-        className='bg-card min-w-0 overflow-hidden rounded-lg border sm:grid sm:grid-cols-[minmax(0,1fr)_16rem]'
+        className='min-w-0 py-6 sm:grid sm:grid-cols-[minmax(0,1fr)_16rem] sm:gap-8'
       >
         <a
           href={href}
@@ -64,13 +64,13 @@ export function StoreCatalogueProductCard({
             title={product.title}
             list
           />
-          <div className='flex min-w-0 flex-1 flex-col gap-3 p-4'>
+          <div className='flex min-w-0 flex-1 flex-col gap-3 px-1 py-4 sm:px-5'>
             <StoreBadges product={product} />
             <StoreCatalogueTags product={product} />
             <h2 className='line-clamp-2 font-semibold break-words'>
               {product.title}
             </h2>
-            <p className='text-muted-foreground line-clamp-2 min-h-10 text-sm break-words'>
+            <p className='text-muted-foreground line-clamp-2 text-sm break-words'>
               {product.description}
             </p>
             <div className='flex flex-wrap items-center justify-between gap-2 text-sm'>
@@ -81,7 +81,7 @@ export function StoreCatalogueProductCard({
             </div>
           </div>
         </a>
-        <div className='flex min-w-0 flex-col gap-3 border-t px-4 py-3 sm:border-s sm:border-t-0'>
+        <div className='flex min-w-0 flex-col gap-4 px-1 py-3 sm:px-4'>
           <StoreMerchantIdentity
             seller={product.seller}
             sellerId={product.seller_id}
@@ -95,24 +95,20 @@ export function StoreCatalogueProductCard({
   return (
     <Card
       ref={impressionRef}
+      variant='paper'
       role='article'
       data-store-product-id={product.id}
       data-store-card-priority={featured ? 'lead' : 'standard'}
       className={cn(
-        'col-span-12 min-w-0 gap-0 rounded-xl py-0 shadow-none ring-0 sm:col-span-6',
+        'col-span-12 min-w-0 gap-0 rounded-none bg-transparent py-0 shadow-none ring-0 sm:col-span-6',
         featured ? 'lg:col-span-4' : 'lg:col-span-3'
       )}
     >
-      <CardHeader
-        className={cn(
-          'gap-2 px-4 pt-4 pb-4',
-          featured && 'sm:px-6 sm:pt-6 sm:pb-5'
-        )}
-      >
+      <CardHeader className={cn('gap-3 px-0 pt-2 pb-6', featured && 'sm:pb-7')}>
         <h2
           className={cn(
-            'line-clamp-2 min-h-12 text-lg leading-6 font-semibold tracking-tight break-words',
-            featured && 'sm:min-h-14 sm:text-xl sm:leading-7'
+            'line-clamp-2 text-lg leading-6 font-semibold tracking-tight break-words',
+            featured && 'sm:text-xl sm:leading-7'
           )}
         >
           <a
@@ -122,30 +118,22 @@ export function StoreCatalogueProductCard({
             {product.title}
           </a>
         </h2>
-        <CardDescription className='line-clamp-2 min-h-10 leading-5 break-words'>
+        <CardDescription className='line-clamp-2 leading-6 break-words'>
           {product.description}
         </CardDescription>
         <StoreBadges product={product} />
       </CardHeader>
-      <a
+      <StoreProductCardMedia
+        images={product.image_urls || []}
+        title={product.title}
+        list={false}
+        featured={featured}
         href={href}
-        aria-label={product.title}
-        className={cn(
-          'focus-visible:outline-ring mx-4 block overflow-hidden rounded-lg focus-visible:outline-2',
-          featured && 'sm:mx-6'
-        )}
-      >
-        <StoreProductCardMedia
-          images={product.image_urls || []}
-          title={product.title}
-          list={false}
-          featured={featured}
-        />
-      </a>
+      />
       <CardContent
         className={cn(
-          'flex min-w-0 flex-1 flex-col gap-4 px-4 py-4',
-          featured && 'sm:px-6 sm:py-5'
+          'flex min-w-0 flex-1 flex-col gap-4 px-0 py-5',
+          featured && 'sm:py-6'
         )}
       >
         <StoreCatalogueTags product={product} />
@@ -158,7 +146,11 @@ export function StoreCatalogueProductCard({
           >
             <StoreProductPrice product={product} />
           </strong>
-          <Button className='h-11 max-w-full' render={<a href={href} />}>
+          <Button
+            variant='ghost'
+            className='h-11 max-w-full px-2'
+            render={<a href={href} />}
+          >
             {t('View details')}
             <HugeiconsIcon
               icon={ArrowRight01Icon}
@@ -171,15 +163,21 @@ export function StoreCatalogueProductCard({
       </CardContent>
       <CardFooter
         className={cn(
-          'flex min-w-0 flex-col items-stretch gap-3 px-4 py-4',
-          featured && 'sm:px-6'
+          'flex min-w-0 flex-col items-stretch gap-4 rounded-none border-0 bg-transparent px-0 pt-0 pb-4'
         )}
       >
         <StoreMerchantIdentity
           seller={product.seller}
           sellerId={product.seller_id}
         />
-        <StoreCollectionActions product={product} />
+        <details className='group text-sm'>
+          <summary className='text-muted-foreground hover:text-foreground cursor-pointer py-2'>
+            {t('Cart and favorites')}
+          </summary>
+          <div className='pt-2'>
+            <StoreCollectionActions product={product} />
+          </div>
+        </details>
       </CardFooter>
     </Card>
   )

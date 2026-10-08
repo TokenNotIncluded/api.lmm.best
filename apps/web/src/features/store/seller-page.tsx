@@ -46,6 +46,9 @@ import {
   structuredTemplate,
   validateComposedItems,
 } from './delivery-template'
+import { StoreExtoreImport } from './extore-import'
+import { EXTORE_COPY as extoreCopy } from './extore-import-copy'
+import type { ExtoreDraft } from './extore-import-protocol'
 import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
 import { StoreFixedContentEditor } from './fixed-content-editor'
 import { StoreInventoryComposer } from './inventory-composer'
@@ -135,6 +138,21 @@ function StoreSellerCenter() {
   })
   const promotionKeys = useRef(new Map<string, string>())
   const [editing, setEditing] = useState<StoreProduct | 'new' | null>(null)
+  const [extoreCallback, setExtoreCallback] = useState<string | null>(() => {
+    const query = new URLSearchParams(window.location.search)
+    return query.has('state') &&
+      query.has('iss') &&
+      (query.has('code') || query.has('error'))
+      ? window.location.href
+      : null
+  })
+  const [importing, setImporting] = useState(!!extoreCallback)
+  const [importedDraft, setImportedDraft] = useState<ExtoreDraft | null>(null)
+  useEffect(() => {
+    if (extoreCallback) {
+      window.history.replaceState(window.history.state, '', '/store/manage')
+    }
+  }, [extoreCallback])
   const [catalogueProduct, setCatalogueProduct] = useState<StoreProduct | null>(
     null
   )
@@ -258,7 +276,23 @@ function StoreSellerCenter() {
               {t(accessCopy.termsTitle)}
             </Button>
           )}
-          <Button onClick={() => setEditing('new')}>{t('New product')}</Button>
+          <Button
+            variant='ghost'
+            onClick={() => {
+              setExtoreCallback(null)
+              setImporting(true)
+            }}
+          >
+            {t(extoreCopy.title)}
+          </Button>
+          <Button
+            onClick={() => {
+              setImportedDraft(null)
+              setEditing('new')
+            }}
+          >
+            {t('New product')}
+          </Button>
         </div>
       </div>
       <StoreError
@@ -269,14 +303,14 @@ function StoreSellerCenter() {
         <StoreLoading />
       ) : (
         query.data && (
-          <div className='divide-y rounded-lg border'>
+          <div className='divide-border/50 divide-y'>
             {!query.data.items.length && (
               <p className='text-muted-foreground p-8 text-center text-sm'>
                 {t('No products yet')}
               </p>
             )}
             {query.data.items.map((product) => (
-              <article key={product.id} className='space-y-3 p-4'>
+              <article key={product.id} className='space-y-4 py-6'>
                 <div className='flex flex-wrap items-start justify-between gap-3'>
                   <div className='min-w-0 space-y-1'>
                     <h2 className='font-semibold break-words'>
@@ -604,10 +638,51 @@ function StoreSellerCenter() {
           onClose={() => setPromotionCodes(null)}
         />
       )}
+      {importing &&
+        (config.isPending ? (
+          <StoreLoading />
+        ) : config.data?.extore_import_supported &&
+          config.data.extore_redirect_uri ? (
+          <StoreExtoreImport
+            userId={user.id}
+            callbackUrl={extoreCallback}
+            redirectUri={config.data.extore_redirect_uri}
+            accessSupported={config.data.store_access_supported === true}
+            onClose={() => {
+              setImporting(false)
+              setExtoreCallback(null)
+            }}
+            onImport={(draft) => {
+              setImportedDraft(draft)
+              setImporting(false)
+              setExtoreCallback(null)
+              setEditing('new')
+            }}
+          />
+        ) : (
+          <Dialog
+            open
+            onOpenChange={(open) => {
+              if (!open) {
+                setImporting(false)
+                setExtoreCallback(null)
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogTitle>{t(extoreCopy.title)}</DialogTitle>
+              <DialogDescription>{t(extoreCopy.unsupported)}</DialogDescription>
+              <StoreError error={config.error} />
+            </DialogContent>
+          </Dialog>
+        ))}
       {editing !== null && (
         <StoreProductEditor
           key={editing === 'new' ? 'new' : editing.id}
           product={editing === 'new' ? undefined : editing}
+          importedDraft={
+            editing === 'new' ? (importedDraft ?? undefined) : undefined
+          }
           allowedMethods={allowedMethods}
           minimumPriceQuota={config.data?.minimum_unit_price_quota}
           linkPresets={config.data?.product_link_presets}
@@ -736,6 +811,7 @@ function StoreSellerCenter() {
 }
 export function StoreProductEditor({
   product,
+  importedDraft,
   allowedMethods,
   minimumPriceQuota,
   linkPresets = [],
@@ -749,6 +825,7 @@ export function StoreProductEditor({
   onSaved,
 }: {
   product?: StoreProduct
+  importedDraft?: ExtoreDraft
   allowedMethods: StorePaymentMethod[]
   minimumPriceQuota?: number
   linkPresets?: StoreLinkPreset[]
@@ -782,24 +859,25 @@ export function StoreProductEditor({
           },
           money.config
         )
+  const initialProduct = product ?? importedDraft?.fields
   const [draft, setDraft] = useState<StoreProductInput>(() => ({
     ...EMPTY,
-    ...product,
-    visibility: storeVisibility(product || {}),
-    purchase_login_required: storePurchaseLoginRequired(product || {}),
-    links: product?.links?.map((link) => ({ ...link })) || [],
-    image_urls: [...(product?.image_urls || [])],
+    ...initialProduct,
+    visibility: storeVisibility(initialProduct || {}),
+    purchase_login_required: storePurchaseLoginRequired(initialProduct || {}),
+    links: initialProduct?.links?.map((link) => ({ ...link })) || [],
+    image_urls: [...(initialProduct?.image_urls || [])],
   }))
   const [confirmAccountCollection, setConfirmAccountCollection] =
     useState(false)
   const [logoImage, setLogoImage] = useState(
-    storeImageEditorText(product?.image_urls?.[0] || '')
+    storeImageEditorText(initialProduct?.image_urls?.[0] || '')
   )
   const [headerImage, setHeaderImage] = useState(
-    storeImageEditorText(product?.image_urls?.[1] || '')
+    storeImageEditorText(initialProduct?.image_urls?.[1] || '')
   )
   const [images, setImages] = useState(
-    (product?.image_urls || []).slice(2).join('\n')
+    (initialProduct?.image_urls || []).slice(2).join('\n')
   )
   const fixedContent = useStoreFixedContentDraft(
     product?.id,
@@ -950,6 +1028,27 @@ export function StoreProductEditor({
               : 'Save a draft first. Submit it after adding stock and configuring payment methods.'
           )}
         </DialogDescription>
+        {importedDraft && !product && (
+          <div className='space-y-2 text-sm'>
+            <p className='text-muted-foreground'>
+              {t(extoreCopy.reference)}:{' '}
+              {importedDraft.referencePrice
+                ? `${importedDraft.referencePrice} ${importedDraft.referenceCurrency}`
+                : t(extoreCopy.unknownPrice)}
+            </p>
+            <p>{t(extoreCopy.draftHelp)}</p>
+            <details>
+              <summary className='text-muted-foreground cursor-pointer py-2'>
+                {t(extoreCopy.source)}
+              </summary>
+              <p className='text-xs break-all'>
+                {importedDraft.source.issuer} / {importedDraft.source.shopId} /{' '}
+                {importedDraft.source.productId} /{' '}
+                {importedDraft.source.variantId}
+              </p>
+            </details>
+          </div>
+        )}
         <form onSubmit={(event) => void save(event)} className='space-y-5'>
           <StoreError error={error} />
           <div className='grid gap-4 sm:grid-cols-2'>
@@ -1062,94 +1161,104 @@ export function StoreProductEditor({
               onAdditionalChange={setImages}
             />
           </div>
-          <fieldset className='space-y-3 border-t pt-4'>
-            <legend className='font-semibold'>{t('Product links')}</legend>
-            {draft.links.map((link, index) => (
-              <div
-                key={index}
-                className='grid gap-2 sm:grid-cols-[1fr_2fr_auto]'
-              >
-                <Input
-                  aria-label={t('Link title')}
-                  value={link.title}
-                  maxLength={200}
-                  placeholder={t('Link title')}
-                  onChange={(event) =>
-                    change(
-                      'links',
-                      draft.links.map((item, position) =>
-                        position === index
-                          ? { ...item, title: event.target.value }
-                          : item
-                      )
-                    )
-                  }
-                />
-                <Input
-                  aria-label={t('Link URL')}
-                  value={link.url}
-                  placeholder='https://'
-                  maxLength={2000}
-                  onChange={(event) =>
-                    change(
-                      'links',
-                      draft.links.map((item, position) =>
-                        position === index
-                          ? { ...item, url: event.target.value }
-                          : item
-                      )
-                    )
-                  }
-                />
-                <Button
-                  type='button'
-                  variant='ghost'
-                  onClick={() =>
-                    change(
-                      'links',
-                      draft.links.filter((_, position) => position !== index)
-                    )
-                  }
+          <details
+            className='space-y-4 py-2'
+            onInvalidCapture={(event) => {
+              event.currentTarget.open = true
+            }}
+          >
+            <summary className='cursor-pointer py-2 text-sm font-medium'>
+              {t('Product links')}
+            </summary>
+            <fieldset className='min-w-0 space-y-3'>
+              <legend className='sr-only'>{t('Product links')}</legend>
+              {draft.links.map((link, index) => (
+                <div
+                  key={index}
+                  className='grid gap-2 sm:grid-cols-[1fr_2fr_auto]'
                 >
-                  {t('Remove')}
-                </Button>
-                <Input
-                  className='sm:col-span-3'
-                  aria-label={t('Link description')}
-                  value={link.description}
-                  placeholder={t('Link description')}
-                  maxLength={2000}
-                  onChange={(event) =>
-                    change(
-                      'links',
-                      draft.links.map((item, position) =>
-                        position === index
-                          ? { ...item, description: event.target.value }
-                          : item
+                  <Input
+                    aria-label={t('Link title')}
+                    value={link.title}
+                    maxLength={200}
+                    placeholder={t('Link title')}
+                    onChange={(event) =>
+                      change(
+                        'links',
+                        draft.links.map((item, position) =>
+                          position === index
+                            ? { ...item, title: event.target.value }
+                            : item
+                        )
                       )
-                    )
-                  }
-                />
-              </div>
-            ))}
-            <StoreLinkPresetChooser
-              presets={linkPresets}
-              onAdd={(link) => change('links', [...draft.links, link])}
-            />
-            <Button
-              type='button'
-              size='sm'
-              variant='outline'
-              onClick={() =>
-                change('links', [
-                  ...draft.links,
-                  { title: '', url: '', description: '' },
-                ])
-              }
-            >
-              {t('Add link')}
-            </Button>
-          </fieldset>
+                    }
+                  />
+                  <Input
+                    aria-label={t('Link URL')}
+                    value={link.url}
+                    placeholder='https://'
+                    maxLength={2000}
+                    onChange={(event) =>
+                      change(
+                        'links',
+                        draft.links.map((item, position) =>
+                          position === index
+                            ? { ...item, url: event.target.value }
+                            : item
+                        )
+                      )
+                    }
+                  />
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    onClick={() =>
+                      change(
+                        'links',
+                        draft.links.filter((_, position) => position !== index)
+                      )
+                    }
+                  >
+                    {t('Remove')}
+                  </Button>
+                  <Input
+                    className='sm:col-span-3'
+                    aria-label={t('Link description')}
+                    value={link.description}
+                    placeholder={t('Link description')}
+                    maxLength={2000}
+                    onChange={(event) =>
+                      change(
+                        'links',
+                        draft.links.map((item, position) =>
+                          position === index
+                            ? { ...item, description: event.target.value }
+                            : item
+                        )
+                      )
+                    }
+                  />
+                </div>
+              ))}
+              <StoreLinkPresetChooser
+                presets={linkPresets}
+                onAdd={(link) => change('links', [...draft.links, link])}
+              />
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                onClick={() =>
+                  change('links', [
+                    ...draft.links,
+                    { title: '', url: '', description: '' },
+                  ])
+                }
+              >
+                {t('Add link')}
+              </Button>
+            </fieldset>
+          </details>
           <div className='grid gap-4 sm:grid-cols-2'>
             <div className='space-y-2'>
               <Label htmlFor='store-template'>{t('Delivery template')}</Label>
@@ -1258,86 +1367,96 @@ export function StoreProductEditor({
               </p>
             )}
           </fieldset>
-          <fieldset className='space-y-3 border-t pt-4'>
-            <legend className='font-semibold'>{t('Pickup protection')}</legend>
-            <label className='flex items-center justify-between gap-4 text-sm'>
-              <span className='space-y-1'>
-                <span className='block'>
-                  {t('Require purchasing account to collect')}
+          <details
+            className='space-y-4 py-2'
+            onInvalidCapture={(event) => {
+              event.currentTarget.open = true
+            }}
+          >
+            <summary className='cursor-pointer py-2 text-sm font-medium'>
+              {t('Pickup protection')}
+            </summary>
+            <fieldset className='min-w-0 space-y-3'>
+              <legend className='sr-only'>{t('Pickup protection')}</legend>
+              <label className='flex items-center justify-between gap-4 text-sm'>
+                <span className='space-y-1'>
+                  <span className='block'>
+                    {t('Require purchasing account to collect')}
+                  </span>
+                  <span className='text-muted-foreground block text-xs leading-5'>
+                    {t(
+                      'If your IP cannot sign in and you have no valid session, sign in from an allowed network first. For collection from any IP, sellers can turn off account-only collection and require a pickup code instead.'
+                    )}
+                  </span>
                 </span>
-                <span className='text-muted-foreground block text-xs leading-5'>
-                  {t(
-                    'If your IP cannot sign in and you have no valid session, sign in from an allowed network first. For collection from any IP, sellers can turn off account-only collection and require a pickup code instead.'
-                  )}
-                </span>
-              </span>
-              <Switch
-                checked={draft.pickup_login_required}
-                onCheckedChange={(value) => {
-                  if (
-                    accessSupported &&
-                    value &&
-                    !storePurchaseLoginRequired(draft)
-                  ) {
-                    setConfirmAccountCollection(true)
-                  } else {
-                    change('pickup_login_required', value)
-                  }
-                }}
-              />
-            </label>
-            <p className='text-muted-foreground text-xs leading-5'>
-              {t(
-                'Buyers can always fill in these fields. The switches only make them required.'
-              )}
-            </p>
-            {(
-              [
+                <Switch
+                  checked={draft.pickup_login_required}
+                  onCheckedChange={(value) => {
+                    if (
+                      accessSupported &&
+                      value &&
+                      !storePurchaseLoginRequired(draft)
+                    ) {
+                      setConfirmAccountCollection(true)
+                    } else {
+                      change('pickup_login_required', value)
+                    }
+                  }}
+                />
+              </label>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(
+                  'Buyers can always fill in these fields. The switches only make them required.'
+                )}
+              </p>
+              {(
                 [
-                  'pickup_code_required',
-                  'Pickup code',
-                  'store-pickup-code-preview',
-                  'Require a pickup code',
-                ],
-                [
-                  'email_pickup_link',
-                  'Pickup email',
-                  'store-pickup-email-preview',
-                  'Require a pickup email',
-                ],
-              ] as const
-            ).map(([key, label, id, requiredLabel]) => (
-              <div key={key} className='space-y-2'>
-                <Label htmlFor={id}>{t(label)}</Label>
-                <div className='flex items-center gap-3'>
-                  <Input
-                    id={id}
-                    readOnly
-                    tabIndex={-1}
-                    placeholder={t('Buyer enters this at checkout')}
-                    className='h-11 min-w-0 flex-1'
-                  />
-                  <label className='flex shrink-0 items-center gap-2 text-xs'>
-                    {t('Required field', { defaultValue: t('Required') })}
-                    <Switch
-                      aria-label={t(requiredLabel)}
-                      checked={draft[key]}
-                      onCheckedChange={(value) => change(key, value)}
+                  [
+                    'pickup_code_required',
+                    'Pickup code',
+                    'store-pickup-code-preview',
+                    'Require a pickup code',
+                  ],
+                  [
+                    'email_pickup_link',
+                    'Pickup email',
+                    'store-pickup-email-preview',
+                    'Require a pickup email',
+                  ],
+                ] as const
+              ).map(([key, label, id, requiredLabel]) => (
+                <div key={key} className='space-y-2'>
+                  <Label htmlFor={id}>{t(label)}</Label>
+                  <div className='flex items-center gap-3'>
+                    <Input
+                      id={id}
+                      readOnly
+                      tabIndex={-1}
+                      placeholder={t('Buyer enters this at checkout')}
+                      className='h-11 min-w-0 flex-1'
                     />
-                  </label>
+                    <label className='flex shrink-0 items-center gap-2 text-xs'>
+                      {t('Required field', { defaultValue: t('Required') })}
+                      <Switch
+                        aria-label={t(requiredLabel)}
+                        checked={draft[key]}
+                        onCheckedChange={(value) => change(key, value)}
+                      />
+                    </label>
+                  </div>
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      key === 'pickup_code_required'
+                        ? 'If filled in, this code protects collection. Use at least 8 characters and keep it safe.'
+                        : 'If filled in, the pickup link will be sent to this email after payment.'
+                    )}
+                  </p>
                 </div>
-                <p className='text-muted-foreground text-xs'>
-                  {t(
-                    key === 'pickup_code_required'
-                      ? 'If filled in, this code protects collection. Use at least 8 characters and keep it safe.'
-                      : 'If filled in, the pickup link will be sent to this email after payment.'
-                  )}
-                </p>
-              </div>
-            ))}
-          </fieldset>
+              ))}
+            </fieldset>
+          </details>
           {purchaseLimitsSupported && (
-            <fieldset className='space-y-3 rounded-lg border p-4'>
+            <fieldset className='space-y-3 py-4'>
               <legend className='px-1 text-sm font-medium'>
                 {t(purchaseCopy.title)}
               </legend>

@@ -76,7 +76,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
     retry: false,
   })
   return (
-    <div className='flex flex-1 flex-col gap-5'>
+    <div className='flex flex-1 flex-col gap-8'>
       <StoreAnnouncement
         supported={support.data?.store_merchant_home_supported === true}
       />
@@ -86,9 +86,9 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           supported={support.data?.store_merchant_home_supported === true}
         />
       )}
-      <div className='flex min-h-28 flex-wrap items-end justify-between gap-4 border-b py-5'>
+      <div className='flex min-h-28 flex-wrap items-end justify-between gap-6 pt-8 pb-4'>
         <div className='relative z-10 space-y-1'>
-          <h1 className='console-page-title text-xl font-bold'>
+          <h1 className='console-page-title text-3xl font-semibold tracking-tight sm:text-4xl'>
             {query.data?.seller &&
             support.data?.store_merchant_home_supported !== true
               ? t('Shop by {{name}}', {
@@ -219,7 +219,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
             query.data && (
               <>
                 {query.data.items.length === 0 ? (
-                  <div className='flex flex-1 flex-col items-center justify-center gap-6 border-t px-4 py-10 text-center'>
+                  <div className='flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center'>
                     <div className='max-w-md space-y-2'>
                       <h2 className='font-semibold'>
                         {t(
@@ -252,8 +252,8 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                 ) : (
                   <div
                     className={cn(
-                      'grid gap-4',
-                      view === 'cards' && 'grid-cols-12 sm:gap-5'
+                      'grid gap-x-10 gap-y-12 py-4',
+                      view === 'cards' && 'grid-cols-12 sm:gap-8'
                     )}
                   >
                     {query.data.items.map((product, index) => (
