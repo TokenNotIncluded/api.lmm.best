@@ -114,6 +114,18 @@ export async function reviewMobileHeader(page, snapshot, errors) {
     await more.waitFor({ state: 'hidden' })
     await notifications.waitFor({ state: 'hidden' })
     await page.getByTestId('header-store-link').waitFor({ state: 'visible' })
+    const desktopNotifications = page.getByRole('button', {
+      name: 'Notifications',
+      exact: true,
+    })
+    assert.equal(
+      await desktopNotifications.getAttribute('aria-expanded'),
+      'false'
+    )
+    await desktopNotifications.click()
+    await settlePopup(notifications)
+    await page.keyboard.press('Escape')
+    await notifications.waitFor({ state: 'hidden' })
     await page.setViewportSize({ width: 390, height: 844 })
     await more.waitFor({ state: 'visible' })
     await menu.waitFor({ state: 'hidden' })
