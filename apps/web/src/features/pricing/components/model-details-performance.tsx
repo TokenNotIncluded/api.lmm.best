@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, HeartPulse, Timer } from 'lucide-react'
+import { HeartPulse, Timer } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -33,13 +33,19 @@ import {
   formatUptimePct,
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
-import type { PerformanceGroup } from '@/features/performance-metrics/types'
 import { cn } from '@/lib/utils'
 
-import type { UptimeDayPoint } from '../lib/mock-stats'
+import {
+  toLatencySeries,
+  toSuccessRateSeries,
+  type SuccessRateTimePoint,
+} from '../lib/performance-series'
 import type { PricingModel } from '../types'
-import { LatencyTrendChart, UptimeTrendChart } from './model-details-charts'
-import { UptimeSparkline } from './model-details-uptime-sparkline'
+import {
+  LatencyTrendChart,
+  SuccessRateTrendChart,
+} from './model-details-charts'
+import { SuccessRateSparkline } from './model-details-success-rate-sparkline'
 
 function StatCard(props: {
   icon: React.ComponentType<{ className?: string }>
@@ -80,76 +86,6 @@ type PerformanceRow = {
   avg_tps: number
 }
 
-function toUptimePct(value: number): number {
-  if (!Number.isFinite(value)) return 0
-  const clamped = Math.min(100, Math.max(0, value))
-  return Math.round(clamped * 100) / 100
-}
-
-function toLatencySeries(groups: PerformanceGroup[]) {
-  const byTs = new Map<number, number[]>()
-  for (const group of groups) {
-    for (const point of group.series) {
-      if (point.avg_ttft_ms <= 0) continue
-      const current = byTs.get(point.ts) ?? []
-      current.push(point.avg_ttft_ms)
-      byTs.set(point.ts, current)
-    }
-  }
-
-  return [...byTs.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([ts, values]) => ({
-      timestamp: new Date(ts * 1000).toISOString(),
-      group: 'latency',
-      ttft_ms: Math.round(
-        values.reduce((sum, value) => sum + value, 0) / values.length
-      ),
-    }))
-}
-
-function toUptimeSeries(groups: PerformanceGroup[]): UptimeDayPoint[] {
-  const byTs = new Map<number, { rates: number[]; incidents: number }>()
-  for (const group of groups) {
-    for (const point of group.series) {
-      const current = byTs.get(point.ts) ?? { rates: [], incidents: 0 }
-      if (Number.isFinite(point.success_rate)) {
-        const successRate = toUptimePct(point.success_rate)
-        current.rates.push(successRate)
-        if (successRate < 100) current.incidents += 1
-      }
-      byTs.set(point.ts, current)
-    }
-  }
-  return [...byTs.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([ts, value]) => {
-      const uptime =
-        value.rates.length > 0
-          ? value.rates.reduce((sum, rate) => sum + rate, 0) /
-            value.rates.length
-          : 0
-      return {
-        date: new Date(ts * 1000).toISOString(),
-        uptime_pct: toUptimePct(uptime),
-        incidents: value.incidents,
-        outage_minutes: 0,
-      }
-    })
-}
-
-function toGroupUptimeSeries(group: PerformanceGroup): UptimeDayPoint[] {
-  return group.series.map((point) => {
-    const successRate = toUptimePct(point.success_rate)
-    return {
-      date: new Date(point.ts * 1000).toISOString(),
-      uptime_pct: successRate,
-      incidents: successRate < 100 ? 1 : 0,
-      outage_minutes: 0,
-    }
-  })
-}
-
 function average(
   rows: PerformanceRow[],
   field: 'avg_ttft_ms' | 'avg_latency_ms'
@@ -184,11 +120,13 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
     [groups]
   )
   const latencySeries = useMemo(() => toLatencySeries(groups), [groups])
-  const uptimeSeries = useMemo(() => toUptimeSeries(groups), [groups])
-  const uptimeByGroup = useMemo<Record<string, UptimeDayPoint[]>>(() => {
-    const map: Record<string, UptimeDayPoint[]> = {}
+  const successRateSeries = useMemo(() => toSuccessRateSeries(groups), [groups])
+  const successRateByGroup = useMemo<
+    Record<string, SuccessRateTimePoint[]>
+  >(() => {
+    const map: Record<string, SuccessRateTimePoint[]> = {}
     for (const group of groups) {
-      map[group.group] = toGroupUptimeSeries(group)
+      map[group.group] = toSuccessRateSeries([group])
     }
     return map
   }, [groups])
@@ -217,7 +155,6 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
       ? successRates.reduce((sum, value) => sum + value, 0) /
         successRates.length
       : 0
-  const incidentCount = uptimeSeries.reduce((s, p) => s + p.incidents, 0)
 
   return (
     <div className='flex flex-col gap-4'>
@@ -237,13 +174,6 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
           icon={HeartPulse}
           label={t('Success rate')}
           value={formatUptimePct(successRate)}
-          hint={
-            incidentCount > 0
-              ? t('{{count}} incidents in the last 24 hours', {
-                  count: incidentCount,
-                })
-              : t('No incidents in the last 24 hours')
-          }
           valueClassName={getSuccessRateTextClass(successRate)}
         />
       </div>
@@ -295,9 +225,9 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
               className: cn(tableStyles.compactHeaderCell, 'min-w-[180px]'),
               cellClassName: tableStyles.compactCell,
               cell: (perf) => (
-                <UptimeSparkline
+                <SuccessRateSparkline
                   size='sm'
-                  series={uptimeByGroup[perf.group] ?? []}
+                  series={successRateByGroup[perf.group] ?? []}
                 />
               ),
             },
@@ -317,29 +247,10 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
       <section>
         <SectionHeader
           icon={HeartPulse}
-          title={t('Availability (last 24h)')}
-          description={
-            incidentCount > 0
-              ? t(
-                  'Request success rate; {{incidents}} incident buckets in the last 24 hours',
-                  {
-                    incidents: incidentCount,
-                  }
-                )
-              : t('Request success rate sampled over the last 24 hours')
-          }
-          accent={
-            incidentCount > 0 ? (
-              <span className='forge-price-warning-text inline-flex items-center gap-1'>
-                <AlertTriangle className='size-3.5' />
-                {t('{{count}} incidents', {
-                  count: incidentCount,
-                })}
-              </span>
-            ) : null
-          }
+          title={t('Success rate')}
+          description={t('Request success rate sampled over the last 24 hours')}
         />
-        <UptimeTrendChart series={uptimeSeries} />
+        <SuccessRateTrendChart series={successRateSeries} />
       </section>
     </div>
   )
@@ -349,7 +260,6 @@ function SectionHeader(props: {
   icon: React.ComponentType<{ className?: string }>
   title: string
   description?: string
-  accent?: React.ReactNode
 }) {
   const Icon = props.icon
   return (
@@ -367,9 +277,6 @@ function SectionHeader(props: {
           )}
         </div>
       </div>
-      {props.accent && (
-        <div className='shrink-0 text-xs font-medium'>{props.accent}</div>
-      )}
     </div>
   )
 }

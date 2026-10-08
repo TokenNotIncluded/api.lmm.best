@@ -3,7 +3,7 @@
 This file summarizes direct third-party dependencies used by distributed builds of this project.
 It is an engineering compliance artifact and should be kept with Docker images, standalone binaries, frontend bundles, and Electron installers.
 
-Scope: direct dependencies from `go.mod` and `apps/web/package.json`.
+Scope: direct dependencies from `apps/api-go/go.mod` and `apps/web/package.json`.
 Transitive dependencies should be audited before a final external release.
 
 ## Dependency Inventory
@@ -93,10 +93,8 @@ Transitive dependencies should be audited before a final external release.
 | web | production | npm | `i18next-browser-languagedetector` | `8.2.1` | MIT |
 | web | production | npm | `input-otp` | `1.4.2` | MIT |
 | web | production | npm | `katex` | `0.17.0` | MIT |
-| web | production | npm | `liquid-gooey` | `0.2.1` | MIT |
 | web | production | npm | `lucide-react` | `1.25.0` | ISC |
 | web | production | npm | `marked` | `18.0.6` | MIT |
-| web | production | npm | `metal-fx` | `1.0.4` | MIT |
 | web | production | npm | `motion` | `12.42.2` | MIT |
 | web | production | npm | `nanoid` | `5.1.16` | MIT |
 | web | production | npm | `qrcode.react` | `4.2.0` | ISC |
@@ -135,7 +133,9 @@ Transitive dependencies should be audited before a final external release.
 | electron | development | npm | `electron` | `39.8.5` | MIT |
 | electron | development | npm | `electron-builder` | `26.7.0` | MIT |
 
-## Package-specific attributions
+## Historical package attributions
+
+These packages were used by retired visual effects and are no longer direct dependencies. Their attribution is retained for prior distributions.
 
 - `liquid-gooey`: Copyright (c) 2026 Jakub Antalik. Licensed under MIT.
 - `metal-fx`: Copyright (c) 2026 Jakub Antalik. Licensed under MIT.

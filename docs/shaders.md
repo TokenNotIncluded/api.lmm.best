@@ -1,17 +1,17 @@
 # Shaders in LMM Forge
 
-The Web app uses the official `shaders@4.0.0` package, pinned in its existing Bun workspace lock. Home, store, tool market and assistant entry points share `ForgeShaderSurface`; they do not create an effect for each product, tool, amount or table row. Existing homepage 3D models and scroll transitions remain separate.
+The Web app uses the official `shaders@4.0.0` package, pinned in its existing Bun workspace lock. The application header, tool market and assistant launcher use `ForgeShaderSurface`. The current homepage and store do not mount it. Effects are not created for each product, tool, amount or table row.
 
-The shared composition comes from our original **Forge Ambient** effect in the connected Shaders project. The official CLI-installed source is parsed offline into a small JSON configuration. Home, store, tools, ecosystem, future and assistant variations read its shape, speed, seed and grid settings, while colors use the app's semantic theme colors, including light, dark and custom presets. The browser needs no Shaders account, remote preset fetch, runtime API key or telemetry.
+The shared composition comes from our original **Forge Ambient** effect in the connected Shaders project. The official CLI-installed source is parsed offline into a small JSON configuration. The host reads its shape, speed, seed and grid settings, while colors use the app's semantic theme colors, including light, dark and custom presets. Available composition variants are not a list of active page integrations. The browser needs no Shaders account, remote preset fetch, runtime API key or telemetry.
 
 ## Runtime
 
 `src/components/shaders/forge-shader-surface.tsx` is the React host. It lazily imports the official public `shaders/core` renderer after visibility, motion, capacity and native GPU-adapter checks. A browser that exposes WebGPU but denies an adapter keeps the static composition without downloading the SDK. The SDK's `<Shader>` React root currently does not expose resolution or frame rate controls; passing invented `dpr` or `frameloop` props would only put attributes on its HTML element. The owned React host uses the supported renderer API instead.
 
-- At most one shader render context across all mounted routes; this budget does not include the existing homepage Three.js renderer. Other visible surfaces keep their static composition until capacity is available. This conservative limit also avoids concurrent WebGPU context loss observed on the actual review browser.
+- At most one shader render context across all mounted routes. Other visible surfaces keep their static composition until capacity is available. This conservative limit also avoids concurrent WebGPU context loss observed on the actual review browser.
 - Canvas dimensions are bounded before initialization to a maximum first allocation of 1024 × 640 pixels. The runtime then uses 80% resolution, at most 24 frames per second, or 18 for assistant intent.
 - Editor settings pass a literal-only parser and bounds check. Route variations retain at most eight gradient points and 48 grid cells; editor root attributes, executable expressions and new layer types require an explicit adapter change.
-- Hidden tabs, offscreen surfaces, reduced motion, data saving, homepage pause and inactive entry points stop the animation and release their context. Assistant effects run only on pointer or keyboard intent.
+- Hidden tabs, offscreen surfaces, reduced motion, data saving, the host pause flag and inactive entry points stop the animation and release their context. Assistant effects run only on pointer or keyboard intent.
 - A CSS composition remains visible when WebGPU is unavailable, denied, lost or unable to compile. Shader readiness never gates text, navigation, search, checkout or keyboard access.
 - Cleanup runs immediately and again after asynchronous GPU acquisition settles; the capacity lease is retained until then. Canvas contexts are unconfigured. The SDK's shared default device is not forcibly destroyed by one consumer.
 

@@ -30,6 +30,11 @@ This directory contains operational, API, and legal documentation for LMM Forge.
 - [`profile-usage-aggregation.md`](./profile-usage-aggregation.md): one revocable SVG for LMM, Cursor, and imported AI account usage.
 - [`moderation-security-review.md`](./moderation-security-review.md): opt-in asynchronous OpenAI Moderation, group modes, wallet penalties, risk attribution, and public disclosure.
 
+## Frontend maintenance
+
+- [`frontend-design.md`](./frontend-design.md): current interface rules, retained error-page design, and cleanup boundaries.
+- [`shaders.md`](./shaders.md): active shader integrations, runtime limits, and the offline editor-sync contract.
+
 ## API contracts
 
 - [`openapi/api.json`](./openapi/api.json): admin API contract.
