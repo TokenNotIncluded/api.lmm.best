@@ -1,0 +1,34 @@
+name: Service tier verification
+on:
+  push:
+    branches: [fix/service-tier-safe-pricing]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export tracked public source for review
+        run: git archive --format=tar.gz HEAD > /tmp/service-tier-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: service-tier-source
+          path: /tmp/service-tier-source.tar.gz
+          retention-days: 1
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - run: go test ./relay/helper ./relay/common ./setting/... ./types
+        working-directory: apps/api-go
