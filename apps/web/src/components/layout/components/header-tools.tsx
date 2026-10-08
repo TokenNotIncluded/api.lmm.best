@@ -7,13 +7,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import { Ellipsis } from 'lucide-react'
-import {
-  Fragment,
-  useEffect,
-  useEffectEvent,
-  useState,
-  type ReactNode,
-} from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -23,7 +17,6 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { useIsMobile } from '@/hooks/use-mobile'
 
 export type HeaderTool = {
   id: string
@@ -33,6 +26,7 @@ export type HeaderTool = {
 
 type HeaderToolsProps = {
   items: HeaderTool[]
+  compact: boolean
   unreadCount?: number
   onDismiss?: () => void
 }
@@ -44,10 +38,6 @@ function MobileHeaderTools({
 }: HeaderToolsProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-
-  const dismissOnUnmount = useEffectEvent(() => onDismiss?.())
-  // A new callback from the parent is not an unmount. Keep open panels intact.
-  useEffect(() => () => dismissOnUnmount(), [])
 
   const close = () => {
     setOpen(false)
@@ -125,11 +115,10 @@ function MobileHeaderTools({
   )
 }
 
-/** Keep one mounted copy of each control; phones use the sidebar breakpoint. */
+/** The state owner selects the placement; each control mounts only once. */
 export function HeaderTools(props: HeaderToolsProps) {
-  const isMobile = useIsMobile()
   if (props.items.length === 0) return null
-  if (isMobile && props.items.length > 1) {
+  if (props.compact) {
     return <MobileHeaderTools {...props} />
   }
   return props.items.map((item) => (

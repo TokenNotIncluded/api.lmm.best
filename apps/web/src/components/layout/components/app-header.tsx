@@ -39,6 +39,7 @@ import {
   onAssistantRailChange,
   toggleAssistantRail,
 } from '@/features/assistant/assistant-rail'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useStatus } from '@/hooks/use-status'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
@@ -96,6 +97,7 @@ export function AppHeader({
   const { t } = useTranslation()
   const { status } = useStatus()
   const notifications = useNotifications()
+  const isMobile = useIsMobile()
   const user = useAuthStore((state) => state.auth.user)
   const assistantEnabled = status?.assistant?.enabled !== false
   const mobileAssistantAvailable = showMobileAssistant && user !== null
@@ -185,6 +187,15 @@ export function AppHeader({
     })
   }
 
+  const compactTools = isMobile && tools.length > 1
+  const [previousCompactTools, setPreviousCompactTools] = useState(compactTools)
+  // Reset owned state before moving controls. An unmount effect is too late:
+  // the new notification popup would first mount open, then race its exit.
+  if (previousCompactTools !== compactTools) {
+    setPreviousCompactTools(compactTools)
+    notifications.closePopover()
+  }
+
   return (
     <Header showSidebarTrigger={showSidebarTrigger}>
       {showBrand && <SystemBrand variant='inline' />}
@@ -250,6 +261,7 @@ export function AppHeader({
           {showBalanceBadge && <AccountBalanceBadge compactMobile />}
           <HeaderTools
             items={tools}
+            compact={compactTools}
             onDismiss={() => notifications.setPopoverOpen(false)}
             unreadCount={showNotifications ? notifications.unreadCount : 0}
           />
