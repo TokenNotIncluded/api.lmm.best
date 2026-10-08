@@ -1,0 +1,46 @@
+name: Temporary homepage format export
+on:
+  pull_request:
+    types: [synchronize]
+    paths:
+      - 'apps/web/src/features/home/**'
+      - 'apps/web/src/features/forge/forge-home.css'
+      - '.github/workflows/homepage-format-export.yml'
+permissions:
+  contents: read
+jobs:
+  export:
+    if: github.event.pull_request.number == 609
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @lmm/web format
+      - name: Print reformatted homepage sources
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('apps/web/src/features')
+          names = [
+            'forge/forge-home.css',
+            'home/home-motion.ts',
+            'home/home-poster.test.ts',
+            'home/home-poster.ts',
+            'home/home-sculptures.test.ts',
+            'home/home-sculptures.ts',
+            'home/sculptures/README.md',
+            'home/sculptures/abstract.ts',
+            'home/sculptures/cosmos.ts',
+            'home/sculptures/future.ts',
+            'home/sculptures/geometry.ts',
+            'home/sculptures/market.ts',
+            'home/sculptures/nature.ts',
+          ]
+          data = {str(root / n): (root / n).read_text() for n in names}
+          print('FORMATTED_SOURCE_START' + json.dumps(data, ensure_ascii=True, separators=(',', ':')) + 'FORMATTED_SOURCE_END', flush=True)
+          PY
