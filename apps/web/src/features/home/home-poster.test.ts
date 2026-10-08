@@ -5,8 +5,13 @@ import { test } from 'node:test'
 import { createHomePoster } from './home-poster'
 
 const pointer = {
-  x: 32, y: 32, vx: 0, vy: 0,
-  previousX: 32, previousY: 32, active: false,
+  x: 32,
+  y: 32,
+  vx: 0,
+  vy: 0,
+  previousX: 32,
+  previousY: 32,
+  active: false,
 }
 
 function fixture() {
@@ -20,7 +25,9 @@ function fixture() {
       createElement() {
         const image = {
           onerror: null as (() => void) | null,
-          set src(_value: string) { queueMicrotask(() => image.onerror?.()) },
+          set src(_value: string) {
+            queueMicrotask(() => image.onerror?.())
+          },
         }
         return image
       },
@@ -36,13 +43,20 @@ function fixture() {
     canvas() {
       let pixels = new Uint8ClampedArray()
       const element = {
-        clientWidth: 64, clientHeight: 64, width: 0, height: 0,
+        clientWidth: 64,
+        clientHeight: 64,
+        width: 0,
+        height: 0,
         dataset: {} as Record<string, string>,
         getContext: () => ({
           createImageData: (width: number, height: number) => ({
-            width, height, data: new Uint8ClampedArray(width * height * 4),
+            width,
+            height,
+            data: new Uint8ClampedArray(width * height * 4),
           }),
-          putImageData: (image: ImageData) => { pixels = new Uint8ClampedArray(image.data) },
+          putImageData: (image: ImageData) => {
+            pixels = new Uint8ClampedArray(image.data)
+          },
         }),
       }
       const poster = createHomePoster(element as unknown as HTMLCanvasElement)
@@ -50,7 +64,10 @@ function fixture() {
       posters.push(poster)
       return { element, poster, pixels: () => pixels }
     },
-    light() { root.className = 'light'; ground = '#f6f4f0' },
+    light() {
+      root.className = 'light'
+      ground = '#f6f4f0'
+    },
     close() {
       for (const poster of posters) poster.dispose()
       for (const [key, descriptor] of previous) {
@@ -72,13 +89,16 @@ test('failed image loading still produces the lotus and future is not a lotus', 
     assert.ok(pixels().some((n, i) => i % 4 !== 3 && n !== 7))
     poster.draw(4, pointer, 0, true)
     assert.equal(element.dataset.sculpture, 'pelicanBicycle')
-  } finally { view.close() }
+  } finally {
+    view.close()
+  }
 })
 
 test('page and mobile canvas clocks are independent and survive pause', () => {
   const view = fixture()
   try {
-    const first = view.canvas(), second = view.canvas()
+    const first = view.canvas(),
+      second = view.canvas()
     for (let i = 0; i < 122; i++) first.poster.draw(0, pointer, 0.08)
     assert.equal(first.element.dataset.sculpture, 'fish')
     second.poster.draw(0, pointer, 0, true)
@@ -89,7 +109,9 @@ test('page and mobile canvas clocks are independent and survive pause', () => {
     assert.equal(first.element.dataset.sculpture, 'pelicanBicycle')
     first.poster.draw(0, pointer, 0, true)
     assert.equal(first.element.dataset.sculpture, 'fish')
-  } finally { view.close() }
+  } finally {
+    view.close()
+  }
 })
 
 test('pause freezes brush offsets, theme redraws use light pixels, disposal is final', () => {
@@ -112,5 +134,7 @@ test('pause freezes brush offsets, theme redraws use light pixels, disposal is f
     const disposed = pixels()
     poster.draw(1, brush, 0.08)
     assert.deepEqual(pixels(), disposed)
-  } finally { view.close() }
+  } finally {
+    view.close()
+  }
 })

@@ -32,9 +32,15 @@ export const palette = {
   rust: [211, 113, 86] as Vec3,
 }
 export const tint = (color: Vec3, light: number): Vec3 => [
-  color[0] * light, color[1] * light, color[2] * light,
+  color[0] * light,
+  color[1] * light,
+  color[2] * light,
 ]
-export function rotate(axis: 0 | 1 | 2, angle: number, center: Vec3 = [0, 0, 0]): Deform {
+export function rotate(
+  axis: 0 | 1 | 2,
+  angle: number,
+  center: Vec3 = [0, 0, 0]
+): Deform {
   const a = (axis + 1) % 3,
     b = (axis + 2) % 3
   const c = Math.cos(angle),
@@ -64,20 +70,28 @@ export class Shape {
       for (let col = 0; col < columns; col++) {
         const u = row / (rows - 1),
           v = col / (columns - 1)
-        this.add(sample(u, v), typeof color === 'function' ? color(u, v) : color, part)
+        this.add(
+          sample(u, v),
+          typeof color === 'function' ? color(u, v) : color,
+          part
+        )
       }
     }
   }
   ellipsoid(center: Vec3, radius: Vec3, color: Vec3, part = 0, count = 1400) {
     for (let i = 0; i < count; i++) {
-      const y = 1 - 2 * (i + 0.5) / count,
+      const y = 1 - (2 * (i + 0.5)) / count,
         r = Math.sqrt(1 - y * y),
         a = i * 2.3999632297
       const x = Math.cos(a) * r,
         z = Math.sin(a) * r
       const light = 0.61 + 0.39 * Math.max(0, -x * 0.35 + y * 0.5 + z * 0.65)
       this.add(
-        [center[0] + radius[0] * x, center[1] + radius[1] * y, center[2] + radius[2] * z],
+        [
+          center[0] + radius[0] * x,
+          center[1] + radius[1] * y,
+          center[2] + radius[2] * z,
+        ],
         tint(color, light),
         part
       )
@@ -115,11 +129,15 @@ export class Shape {
         by = tz * ax - tx * az,
         bz = tx * ay - ty * ax
       for (let j = 0; j < sides; j++) {
-        const a = j / sides * TAU,
+        const a = (j / sides) * TAU,
           c = Math.cos(a) * radius,
           s = Math.sin(a) * radius
         this.add(
-          [p[0] + ax * c + bx * s, p[1] + ay * c + by * s, p[2] + az * c + bz * s],
+          [
+            p[0] + ax * c + bx * s,
+            p[1] + ay * c + by * s,
+            p[2] + az * c + bz * s,
+          ],
           tint(color, 0.72 + 0.28 * (j / sides)),
           part
         )
@@ -128,7 +146,7 @@ export class Shape {
   }
   line(a: Vec3, b: Vec3, radius: number, color: Vec3, part = 0, steps = 28) {
     this.tube(
-      t => [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)],
+      (t) => [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)],
       radius,
       color,
       part,
@@ -147,7 +165,7 @@ export class Shape {
     const a = (axis + 1) % 3,
       b = (axis + 2) % 3
     this.tube(
-      t => {
+      (t) => {
         const v: Vec3 = [...center]
         v[a] += Math.cos(t * TAU) * radius
         v[b] += Math.sin(t * TAU) * radius
@@ -170,7 +188,7 @@ export class Shape {
           Math.max(3, Math.ceil(size[b] * 43)),
           (u, v) => {
             const point: Vec3 = [...center]
-            point[axis] += side * size[axis] / 2
+            point[axis] += (side * size[axis]) / 2
             point[a] += (u - 0.5) * size[a]
             point[b] += (v - 0.5) * size[b]
             return point
@@ -181,7 +199,10 @@ export class Shape {
       }
     }
   }
-  model(animate: Sculpture['animate'], view: [number, number] = [0, 0]): Sculpture {
+  model(
+    animate: Sculpture['animate'],
+    view: [number, number] = [0, 0]
+  ): Sculpture {
     return { points: this.points, animate, view }
   }
 }

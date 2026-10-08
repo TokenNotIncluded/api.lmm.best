@@ -51,7 +51,8 @@ export function mountHomeMotion(root: HTMLElement) {
     progress = 0,
     target = 0
   let manual: number | null = null
-  let layout = false, filmVisible = true
+  let layout = false,
+    filmVisible = true
   const visibleCopies = new Set<HTMLCanvasElement>()
   const pointer = {
     x: 0,
@@ -166,10 +167,13 @@ export function mountHomeMotion(root: HTMLElement) {
     filmVisible = layout || (art.bottom > 0 && art.top < window.innerHeight)
     visibleCopies.clear()
     if (!layout) {
-      for (const copy of root.querySelectorAll<HTMLCanvasElement>('[data-chapter-film]')) {
+      for (const copy of root.querySelectorAll<HTMLCanvasElement>(
+        '[data-chapter-film]'
+      )) {
         const rect = copy.getBoundingClientRect()
         if (rect.bottom > 0 && rect.top < window.innerHeight) {
-          if (!copies.has(copy)) copies.set(copy, createHomePoster(copy, refresh))
+          if (!copies.has(copy))
+            copies.set(copy, createHomePoster(copy, refresh))
           visibleCopies.add(copy)
         }
       }
@@ -220,9 +224,22 @@ export function mountHomeMotion(root: HTMLElement) {
       button.setAttribute('aria-pressed', String(index === active))
       button.closest('li')?.toggleAttribute('data-active', index === active)
     })
-    if (filmVisible) film?.draw(layout ? progress : 0, pointerCanvas === canvas ? pointer : restingPointer, elapsed / 1000, !animate)
+    if (filmVisible)
+      film?.draw(
+        layout ? progress : 0,
+        pointerCanvas === canvas ? pointer : restingPointer,
+        elapsed / 1000,
+        !animate
+      )
     for (const copy of visibleCopies) {
-      copies.get(copy)?.draw(Number(copy.dataset.chapterFilm), pointerCanvas === copy ? pointer : restingPointer, elapsed / 1000, !animate)
+      copies
+        .get(copy)
+        ?.draw(
+          Number(copy.dataset.chapterFilm),
+          pointerCanvas === copy ? pointer : restingPointer,
+          elapsed / 1000,
+          !animate
+        )
     }
     dirty = false
     if (film && animate && (filmVisible || visibleCopies.size)) schedule()
@@ -236,7 +253,11 @@ export function mountHomeMotion(root: HTMLElement) {
       return
     }
     const eventTarget = event.target as HTMLElement | null
-    const touched = !layout ? eventTarget?.closest('[data-cinema-panel]')?.querySelector<HTMLCanvasElement>('[data-chapter-film]') : null
+    const touched = !layout
+      ? eventTarget
+          ?.closest('[data-cinema-panel]')
+          ?.querySelector<HTMLCanvasElement>('[data-chapter-film]')
+      : null
     const targetCanvas = touched ?? canvas
     if (pointerCanvas !== targetCanvas) pointerTarget.active = false
     pointerCanvas = targetCanvas
@@ -302,10 +323,14 @@ export function mountHomeMotion(root: HTMLElement) {
       })
     : null
   const resizeObserver = supported ? new window.ResizeObserver(refresh) : null
-  const themeObserver = typeof window.MutationObserver === 'function'
-    ? new window.MutationObserver(refresh)
-    : null
-  themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  const themeObserver =
+    typeof window.MutationObserver === 'function'
+      ? new window.MutationObserver(refresh)
+      : null
+  themeObserver?.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  })
   observer?.observe(cinema)
   resizeObserver?.observe(inner)
   cinema.addEventListener('pointermove', move, { passive: true })
