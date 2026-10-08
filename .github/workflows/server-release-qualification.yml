@@ -184,7 +184,7 @@ jobs:
           TEST_POSTGRES_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
           TEST_POSTGRES_ISOLATED_SCHEMA: '1'
           CREDIT_TRANSITION_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/credit_transition_test?sslmode=disable
-        run: GOMAXPROCS=2 go test -race -p 1 -count=1 -v ./model ./controller -run '^(TestCreditPreparationPostgresPreservesEveryExistingValue|TestPaymentCreditInvariantsPostgres|TestSubscriptionWalletFixedUSDAndDynamicCNYPostgres|TestPublicCreditConfigPostgresConcurrentCASAndReadOnlySnapshot|TestWalletTransferPublicCreditPostgres|TestPublicTopUpQuoteCheckoutAndHistoricalRefundKeepFrozenMoneyPostgres)$' -timeout 180s
+        run: GOMAXPROCS=2 go test -race -p 1 -count=1 -v ./model ./controller -run '^(TestCreditPreparationPostgresPreservesEveryExistingValue|TestPaymentCreditInvariantsPostgres|TestSubscriptionWalletFixedUSDAndDynamicCNYPostgres|TestPublicCreditConfigPostgresConcurrentCASAndReadOnlySnapshot|TestWalletTransferPublicCreditPostgres|TestPublicTopUpQuoteCheckoutAndHistoricalRefundKeepFrozenMoneyPostgres|TestTrustPaidCreditsHistoricalRefundNullPostgres)$' -timeout 180s
       - name: Require authenticated Valkey
         env:
           VALKEY_CONTAINER_ID: ${{ job.services.valkey.id }}

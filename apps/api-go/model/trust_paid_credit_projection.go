@@ -71,9 +71,15 @@ func trustPaidCreditSQL(tx *gorm.DB) (string, []interface{}, error) {
 	// A fully reversed historical order contributes no paid entitlement even
 	// when it predates the optional migration's refundable-order audit.
 	sql.WriteString("CASE WHEN top_ups.refunded_quota = (" + credited + ") THEN 0 ")
+	// PostgreSQL resolves an inner CASE with only untyped NULL branches to
+	// text before combining it with the outer integer credit branches.
+	unknownQuota := "CAST(NULL AS BIGINT)"
+	if p.dialect == "mysql" {
+		unknownQuota = "CAST(NULL AS SIGNED)"
+	}
 	for _, id := range ids {
 		guard := p.orders[id].condition
-		quota := "NULL"
+		quota := unknownQuota
 		if base, ok := p.refundFacts[id]; ok {
 			order, present := current[id]
 			remainingPaid := base.OriginalPaidAmountMicros - base.OriginalRefundedAmountMicros
