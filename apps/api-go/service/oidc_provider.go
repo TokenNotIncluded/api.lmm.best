@@ -32,7 +32,7 @@ func (s oidcStore) Set(ctx context.Context, key string, value []byte, expires in
 	if err := s.db.WithContext(ctx).Where("expires_at <= ?", time.Now().Unix()).Delete(&oidcRecord{}).Error; err != nil {
 		return err
 	}
-	row := oidcRecord{key, string(value), owner, expires}
+	row := oidcRecord{Key: key, Value: string(value), Owner: owner, ExpiresAt: expires}
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value", "owner", "expires_at"})}).Create(&row).Error
 }
 func (s oidcStore) Get(ctx context.Context, key string) ([]byte, error) {
