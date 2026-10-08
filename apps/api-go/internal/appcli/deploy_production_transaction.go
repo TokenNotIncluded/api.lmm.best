@@ -1735,15 +1735,7 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 	if gate.GoPID == 0 && gate.GoInvocationID == "" && gate.StopStartedUTC.IsZero() && !gate.AdmissionClosed {
 		// Admission can time out before stopBillingWriter records an identity.
 		// Only restore ingress if systemd proves this writer predates the gate.
-		started, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl,
-			Args: []string{"show", runtime.paths.Service, "--property=ExecMainStartTimestamp", "--value"},
-			Env:  []string{"LC_ALL=C", "TZ=UTC"}})
-		startTime, parseErr := time.Parse("Mon 2006-01-02 15:04:05 MST", strings.TrimSpace(string(started)))
-		pid, pidErr := strconv.Atoi(state["MainPID"])
-		if err != nil || parseErr != nil || pidErr != nil || pid <= 1 || len(state["InvocationID"]) != 32 || gate.StartedUTC.IsZero() || !startTime.Before(gate.StartedUTC.Truncate(time.Second)) {
-			return true, productionStatus{}, errors.New("cannot prove unchanged writer before admission timeout")
-		}
-		if err := runtime.verifyServiceRestartBaseline(ctx, *manifest); err != nil {
+		if err := runtime.verifyUnchangedAdmissionWriter(ctx, *manifest, state); err != nil {
 			return true, productionStatus{}, err
 		}
 		sameWriter = true
@@ -1796,6 +1788,9 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 	if err := runtime.verifyExistingSchemaLifecycle(ctx, *manifest); err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback admission invariant: %w", err)
 	}
+	previousRollback := runtime.billingRollback
+	runtime.billingRollback = true // The unchanged installed writer is still N-1.
+	defer func() { runtime.billingRollback = previousRollback }()
 	if err := runtime.reopenBillingAdmission(ctx, workspace, manifest); err != nil {
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback billing restore failed: %w", err)
 	}
@@ -1806,6 +1801,9 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 		return true, productionStatus{}, fmt.Errorf("pre-stop rollback final existing-schema invariant: %w", err)
 	}
 	rolledBack := productionStatus{Phase: "ROLLED_BACK", Version: manifest.OldVersion, Previous: manifest.ExpectedVersion, Reason: "unchanged-writer-restored"}
+	if !manifest.BillingGate.AdmissionClosed {
+		rolledBack.Reason = productionUnchangedAdmissionRecoveryReason
+	}
 	if err := runtime.writeStatus(workspace, rolledBack); err != nil {
 		return true, productionStatus{}, err
 	}

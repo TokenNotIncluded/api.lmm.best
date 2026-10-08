@@ -178,10 +178,14 @@ func (runtime *productionRuntime) verifyMerchantStoreFenceTerminal(ctx context.C
 		return errors.New("merchant deployment holder terminal manifest changed")
 	}
 	// AdmissionClosed records the completed drain; reopening preserves it.
-	if manifest.BillingGate == nil || !manifest.BillingGate.AdmissionClosed || !manifest.BillingGate.AdmissionReopened {
+	rollback := status.Phase == "ROLLED_BACK"
+	if manifest.BillingGate == nil || !manifest.BillingGate.AdmissionReopened {
 		return errors.New("merchant deployment fence release requires reopened admission evidence")
 	}
-	rollback := status.Phase == "ROLLED_BACK"
+	incompleteAdmission := !manifest.BillingGate.AdmissionClosed
+	if incompleteAdmission && (!rollback || status.Reason != productionUnchangedAdmissionRecoveryReason) {
+		return errors.New("merchant deployment fence release requires reopened admission evidence")
+	}
 	if !rollback && manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
 		// Promotion can install its qualified edge policy after reopening.
 		if err := runtime.verifyEdgePolicy(ctx, runtime.paths.EdgeAssetRoot); err != nil {
@@ -218,6 +222,13 @@ func (runtime *productionRuntime) verifyMerchantStoreFenceTerminal(ctx context.C
 	pid, parseErr := strconv.Atoi(unit["MainPID"])
 	if err != nil || parseErr != nil || pid <= 1 || unit["ActiveState"] != "active" || !existingSchemaInvocationPattern.MatchString(unit["InvocationID"]) {
 		return errors.New("merchant deployment terminal writer generation is unavailable")
+	}
+	if incompleteAdmission {
+		// Only the native pre-stop recovery path writes this reason. Recheck its
+		// live unchanged-writer proof, rather than trusting the terminal label.
+		if err := runtime.verifyUnchangedAdmissionWriter(ctx, manifest, unit); err != nil {
+			return err
+		}
 	}
 	if digest, err := sha256File(filepath.Join("/proc", strconv.Itoa(pid), "exe")); err != nil || digest != expectedPayload {
 		return errors.New("merchant deployment terminal running writer is not its qualified target")
