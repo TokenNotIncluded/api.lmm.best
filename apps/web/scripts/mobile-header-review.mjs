@@ -8,6 +8,14 @@ the Free Software Foundation, either version 3 of the License, or
 */
 import assert from 'node:assert/strict'
 
+// Base UI marks a popup visible before its scale-in animation has finished.
+async function settlePopup(locator) {
+  await locator.waitFor({ state: 'visible' })
+  await locator.evaluate((element) =>
+    Promise.all(element.getAnimations().map((animation) => animation.finished))
+  )
+}
+
 async function withinViewport(page, locator, name) {
   const box = await locator.boundingBox()
   const viewport = page.viewportSize()
@@ -47,12 +55,15 @@ export async function reviewMobileHeader(page, snapshot, errors) {
 
   await more.click()
   const menu = page.getByTestId('header-tools-menu')
-  await menu.waitFor({ state: 'visible' })
+  await settlePopup(menu)
   await withinViewport(page, menu, 'more actions')
   const shop = menu.getByTestId('header-store-link')
   assert.equal(await shop.getAttribute('href'), '/store')
   const shopBox = await shop.boundingBox()
-  assert.ok(shopBox && shopBox.width >= 44 && shopBox.height >= 44)
+  assert.ok(
+    shopBox && shopBox.width >= 44 && shopBox.height >= 44,
+    `Shop touch target: ${JSON.stringify(shopBox)}`
+  )
   await snapshot(page, `mobile-tools-${width}`, errors)
   await page.evaluate(() => document.documentElement.classList.add('dark'))
   await snapshot(page, `mobile-tools-${width}-dark`, errors)
@@ -66,7 +77,7 @@ export async function reviewMobileHeader(page, snapshot, errors) {
   const notifications = page.locator('[data-slot="popover-content"]').filter({
     has: page.getByRole('heading', { name: 'Notifications', exact: true }),
   })
-  await notifications.waitFor({ state: 'visible' })
+  await settlePopup(notifications)
   await withinViewport(page, notifications, 'notifications')
   const timeline = notifications.getByRole('tab', {
     name: 'Timeline',
@@ -81,6 +92,11 @@ export async function reviewMobileHeader(page, snapshot, errors) {
   // Close nested overlays in their native order, then restore the header trigger.
   if (await menu.isVisible()) await page.keyboard.press('Escape')
   await menu.waitFor({ state: 'hidden' })
+  await page.waitForFunction(
+    () =>
+      document.activeElement?.getAttribute('data-testid') ===
+      'header-more-actions'
+  )
   assert.equal(
     await more.evaluate((element) => element === document.activeElement),
     true
