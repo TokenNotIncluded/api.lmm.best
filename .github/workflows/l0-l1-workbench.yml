@@ -1,0 +1,25 @@
+name: L0-L1 isolated workbench
+on:
+  push:
+    branches: [work/l0-l1-retirement-20261009]
+    paths: [.github/workflows/l0-l1-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export tracked source only
+        run: |
+          mkdir -p /tmp/l0-l1-review
+          git archive --format=tar.gz HEAD -o /tmp/l0-l1-review/source.tar.gz
+          git rev-parse HEAD > /tmp/l0-l1-review/commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: l0-l1-source
+          path: /tmp/l0-l1-review/
+          retention-days: 2
