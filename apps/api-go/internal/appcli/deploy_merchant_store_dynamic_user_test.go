@@ -84,7 +84,9 @@ func TestProductionMerchantStoreDynamicUserActualPrivilegeBoundary(t *testing.T)
 		return b
 	}
 	id := fmt.Sprintf("lmm-native-dynamic-owned-%d-%d", os.Getpid(), time.Now().UnixNano())
-	unit, private, public := id+".service", "/run/"+id+"-private", "/run/"+id+"-public"
+	// /run may be mounted noexec (including the Ubuntu qualification guest).
+	// Keep private data there, but execute the owned test ELF from /opt.
+	unit, private, public := id+".service", "/run/"+id+"-private", "/opt/"+id+"-public"
 	base, dropDir := "/usr/lib/systemd/system/"+unit, "/etc/systemd/system/"+unit+".d"
 	drop := dropDir + "/90-merchant-startup-baseline.conf"
 	state := "/var/lib/private/" + id

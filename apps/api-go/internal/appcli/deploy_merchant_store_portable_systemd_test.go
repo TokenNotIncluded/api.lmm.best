@@ -34,6 +34,12 @@ func TestProductionMerchantStorePortableSystemdControlChild(t *testing.T) {
 	if err := runtime.portableStartControlPID(context.Background(), c, invocation); err != nil {
 		t.Fatal(err)
 	}
+	state, err := runtime.merchantStoreStartupState(context.Background(), unit)
+	if err != nil || !merchantStoreStartupActivating(state, invocation, os.Getpid()) ||
+		merchantStoreStartupActivating(state, strings.Repeat("f", 32), os.Getpid()) ||
+		merchantStoreStartupActivating(state, invocation, 1) {
+		t.Fatalf("held checker did not bind the actual start-pre state: %v %v", state, err)
+	}
 	digest, err := sha256File("/proc/self/exe")
 	if err != nil {
 		t.Fatal(err)
