@@ -5,6 +5,7 @@ on:
     paths:
       - 'apps/api-go/service/**'
       - 'apps/api-go/model/**'
+      - 'apps/api-go/pkg/accountfunding/**'
       - 'apps/api-go/relay/channel/claude/**'
       - 'apps/api-go/setting/model_setting/**'
       - 'apps/api-go/go.mod'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'apps/api-go/service/**'
       - 'apps/api-go/model/**'
+      - 'apps/api-go/pkg/accountfunding/**'
       - 'apps/api-go/relay/channel/claude/**'
       - 'apps/api-go/setting/model_setting/**'
       - 'apps/api-go/go.mod'
@@ -48,6 +50,8 @@ jobs:
           cache-dependency-path: |
             apps/api-go/go.sum
             apps/api-go/relaykit/go.sum
+      - name: Validate per-key payer order and team account isolation
+        run: go test -race -p 2 ./pkg/accountfunding -count=1 -timeout=1m
       - name: Run real service-package regressions under the race detector
         run: go test -race -p 2 ./service -run '^(TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption)' -count=1 -timeout=5m
       - name: Validate Claude refusal evidence and default-off policy
