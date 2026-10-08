@@ -249,6 +249,10 @@ func (lease *productionMerchantStoreFence) Check(ctx context.Context, expected *
 // Claim only after acquiring the live shared lock. An existing key is never
 // overwritten, and a crash after this INSERT deliberately leaves a blocker.
 func (lease *productionMerchantStoreFence) ClaimOwner(ctx context.Context, owner productionMerchantStoreFenceOwner) error {
+	return lease.claimOwner(ctx, owner, nil)
+}
+
+func (lease *productionMerchantStoreFence) claimOwner(ctx context.Context, owner productionMerchantStoreFenceOwner, guard func(context.Context) error) error {
 	if lease.startupOnly && owner.Purpose != "start" {
 		return errors.New("startup baseline cannot claim an ordinary deployment owner")
 	}
@@ -289,8 +293,18 @@ func (lease *productionMerchantStoreFence) ClaimOwner(ctx context.Context, owner
 		}
 	}
 	key := merchantStoreFenceOwnerKey(owner)
+	if guard != nil {
+		if err := guard(ctx); err != nil {
+			return err
+		}
+	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO "`+lease.identity.Schema+`".options(key,value) VALUES($1,$2)`, key, string(canonical)); err != nil {
 		return errors.New("merchant deployment owner already exists or could not be claimed")
+	}
+	if guard != nil {
+		if err := guard(ctx); err != nil {
+			return err
+		}
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		return errors.New("merchant deployment owner claim commit failed; do not retry or clear the reserved key")

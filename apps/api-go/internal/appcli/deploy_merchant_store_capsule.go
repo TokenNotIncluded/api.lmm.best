@@ -373,7 +373,7 @@ func merchantStorePortableStartCommand(value, extended, binary, path, digest str
 }
 
 func merchantStorePortableHookBytes(binary, path, digest string) []byte {
-	return []byte("[Service]\nExecStartPre=\nExecStartPre=+" + binary + " operator production writer-start --capsule " + path + " --capsule-sha256 " + digest + "\n")
+	return []byte(fmt.Sprintf("[Service]\nTimeoutStartSec=%ds\nExecStartPre=\nExecStartPre=+%s operator production writer-start --capsule %s --capsule-sha256 %s\n", int(merchantStoreStartupLimit/time.Second), binary, path, digest))
 }
 
 // The actual loaded '+' command and its root-owned persistent drop-in are

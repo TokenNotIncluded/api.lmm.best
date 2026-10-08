@@ -11,9 +11,11 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/internal/deploymentfence"
@@ -30,7 +32,7 @@ func (runtime *productionRuntime) portableOwner(ctx context.Context, c productio
 	path := merchantStorePortableOwnerPath(c, invocation)
 	body, err := runtime.readExistingSchemaSealedFile(path, true)
 	if err != nil {
-		return productionMerchantStoreFenceOwner{}, nil, errors.New("portable live owner receipt is missing or unsafe")
+		return productionMerchantStoreFenceOwner{}, nil, merchantStorePortableProofError{stage: "receipt-missing-or-unsafe"}
 	}
 	owner, err := parseMerchantStoreFenceOwner(body)
 	purpose, unit := "portable-deploy", merchantStorePortableUnit(c.DeploymentID)
@@ -40,11 +42,11 @@ func (runtime *productionRuntime) portableOwner(ctx context.Context, c productio
 	if err != nil || owner.Purpose != purpose || owner.Service != c.Service || owner.StartInvocationID != invocation || owner.DeploymentID != c.DeploymentID || owner.Host != c.Host ||
 		owner.PlanSHA256 != digest || owner.ContractSHA256 != merchantStoreFenceContractSHA(c.Writer) || owner.ProviderSHA256 != c.Writer.Candidate.PayloadSHA256 || owner.HolderUnit != unit ||
 		owner.SystemIdentifier != c.Writer.SystemIdentifier || owner.Database != c.Writer.Database || owner.DatabaseOID != c.Writer.DatabaseOID || owner.Schema != c.Writer.Schema || owner.SchemaOID != c.Writer.SchemaOID || owner.Role != c.Writer.Role {
-		return owner, nil, errors.New("portable owner receipt differs from immutable host/capsule/session binding")
+		return owner, nil, merchantStorePortableProofError{stage: "immutable-owner-binding"}
 	}
 	actual, err := runtime.billingUnitState(ctx, owner.HolderUnit)
 	if err != nil || actual["ActiveState"] != "active" || actual["SubState"] != "running" || actual["Restart"] != "no" || actual["MainPID"] != strconv.Itoa(owner.HolderPID) || actual["ExecMainPID"] != strconv.Itoa(owner.HolderPID) || actual["InvocationID"] != owner.HolderInvocationID || sha256MustEqual(filepath.Join("/proc", strconv.Itoa(owner.HolderPID), "exe"), owner.ProviderSHA256) != nil {
-		return owner, nil, errors.New("portable actual holder unit/PID/executable generation was lost")
+		return owner, nil, merchantStorePortableProofError{stage: "holder-generation"}
 	}
 	return owner, body, nil
 }
@@ -59,35 +61,36 @@ func (runtime *productionRuntime) requestMerchantStorePortableFence(ctx context.
 	}
 	info, err := os.Lstat(socket)
 	if err != nil {
-		return errors.New("portable holder socket is missing")
+		return merchantStorePortableProofError{stage: "socket-missing"}
 	}
 	uid, _, ok := deploymentFileOwnership(info)
 	if !ok || uid != runtime.requiredOwnerUID || info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0600 {
-		return errors.New("portable holder socket is unsafe")
+		return merchantStorePortableProofError{stage: "socket-ownership"}
 	}
 	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "unix", socket)
 	if err != nil {
-		return errors.New("portable holder cannot be reached; ACTIVE owner requires review")
+		return merchantStorePortableProofError{stage: "socket-connect"}
 	}
 	defer conn.Close()
 	if err := merchantStoreFencePeer(conn, runtime.requiredOwnerUID, owner.HolderPID); err != nil {
-		return err
+		return merchantStorePortableProofError{stage: "physical-peer"}
 	}
-	_ = conn.SetDeadline(time.Now().Add(90 * time.Second))
+	stopCancel := merchantStoreBoundConnection(ctx, conn)
+	defer stopCancel()
 	operation := "check"
 	if release {
 		operation = "release"
 	}
 	request := merchantStoreFenceRequest{Protocol: merchantStoreFenceProtocol, Operation: operation, PlanSHA256: digest, ContractSHA256: owner.ContractSHA256, Nonce: owner.Nonce}
 	if json.NewEncoder(conn).Encode(request) != nil {
-		return errors.New("portable holder request failed")
+		return merchantStorePortableProofError{stage: "request-write"}
 	}
 	var reply merchantStoreFenceReply
 	decoder := json.NewDecoder(io.LimitReader(conn, 20000))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&reply) != nil || decoder.Decode(&struct{}{}) != io.EOF || reply.Protocol != merchantStoreFenceProtocol || reply.Owner != string(body) ||
 		!release && (!reply.Held || reply.Released) || release && (reply.Held || !reply.Released) {
-		return errors.New("portable physical session/exact owner proof failed")
+		return merchantStorePortableProofError{stage: "physical-session-exact-owner"}
 	}
 	return nil
 }
@@ -272,6 +275,11 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 	if c.Format == 2 && startInvocation == "" {
 		return errors.New("startup baseline requires an actual per-start invocation")
 	}
+	if startInvocation != "" {
+		if err := runtime.merchantStoreStartupGuard(ctx, c, startInvocation, true); err != nil {
+			return err
+		}
+	}
 	if err := runtime.qualifyMerchantStoreCapsule(ctx, c, digest, startInvocation, false); err != nil {
 		return err
 	}
@@ -335,7 +343,18 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 			return errors.New("portable holder state already exists; retained evidence requires review")
 		}
 	}
-	if err := lease.ClaimOwner(ctx, owner); err != nil {
+	claim := func(ctx context.Context, guard func(context.Context) error) error {
+		return lease.claimOwner(ctx, owner, guard)
+	}
+	if startInvocation != "" {
+		guard := func(ctx context.Context) error {
+			return runtime.merchantStoreStartupGuard(ctx, c, startInvocation, true)
+		}
+		err = merchantStoreGuardedStartupClaim(ctx, guard, claim)
+	} else {
+		err = lease.ClaimOwner(ctx, owner)
+	}
+	if err != nil {
 		return err
 	}
 	ownerJSON, _ := canonicalMerchantStoreFenceOwner(owner)
@@ -348,17 +367,23 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 	}
 	listener.SetUnlinkOnClose(false)
 	defer listener.Close()
+	stopListenerCancel := context.AfterFunc(ctx, func() { _ = listener.Close() })
+	defer stopListenerCancel()
 	if err := os.Chmod(socketPath, 0600); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(2 * time.Minute)
 	for {
+		if startInvocation != "" {
+			if err := runtime.merchantStoreStartupGuard(ctx, c, startInvocation, false); err != nil {
+				return fmt.Errorf("%w; ACTIVE owner remains permanently fenced", err)
+			}
+		}
 		if err := lease.CheckOwner(ctx); err != nil {
 			return err
 		}
 		if startInvocation != "" {
 			state, err := runtime.billingUnitState(ctx, c.Service)
-			if err != nil || state["InvocationID"] != startInvocation || state["ActiveState"] != "activating" && state["ActiveState"] != "active" || time.Now().After(deadline) {
+			if err != nil || state["InvocationID"] != startInvocation || state["ActiveState"] != "activating" && state["ActiveState"] != "active" {
 				return errors.New("per-start service failed or timed out; ACTIVE owner remains permanently fenced")
 			}
 			if state["ActiveState"] == "active" && state["SubState"] == "running" {
@@ -377,6 +402,9 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 					rollback = true
 				}
 				if err := runtime.verifyPortableRunningWriter(ctx, c, digest, startInvocation, rollback); err != nil {
+					return err
+				}
+				if err := runtime.merchantStoreStartupGuard(ctx, c, startInvocation, false); err != nil {
 					return err
 				}
 				if err := lease.ReleaseOwner(ctx); err != nil {
@@ -413,7 +441,8 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 }
 func (runtime *productionRuntime) handleMerchantStorePortableConnection(ctx context.Context, c productionMerchantStoreCapsule, digest, invocation string, owner productionMerchantStoreFenceOwner, ownerJSON []byte, lease *productionMerchantStoreFence, conn net.Conn) bool {
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(90 * time.Second))
+	stopCancel := merchantStoreBoundConnection(ctx, conn)
+	defer stopCancel()
 	if merchantStoreFencePeer(conn, runtime.requiredOwnerUID, 0) != nil {
 		return false
 	}
@@ -422,7 +451,13 @@ func (runtime *productionRuntime) handleMerchantStorePortableConnection(ctx cont
 		return false
 	}
 	if request.Operation == "check" {
-		_ = json.NewEncoder(conn).Encode(merchantStoreFenceReply{Protocol: merchantStoreFenceProtocol, Owner: string(ownerJSON), Held: true})
+		if invocation != "" && runtime.merchantStoreStartupGuard(ctx, c, invocation, true) != nil {
+			return false
+		}
+		if json.NewEncoder(conn).Encode(merchantStoreFenceReply{Protocol: merchantStoreFenceProtocol, Owner: string(ownerJSON), Held: true}) == nil && invocation != "" {
+			budget := ctx.Value(merchantStoreStartupBudgetKey{}).(merchantStoreStartupBudget)
+			*budget.handoff = true
+		}
 		return false
 	}
 	// A startup holder only self-releases after actual new PID/readiness. No
@@ -464,15 +499,46 @@ func (runtime *productionRuntime) ensureMerchantStorePortableFence(ctx context.C
 	args := []string{"operator", "production", "writer-capsule", "hold", "--capsule", filepath.Join(c.Root, "capsule.json"), "--capsule-sha256", digest}
 	if invocation != "" {
 		unit = merchantStoreStartUnit(c.DeploymentID, invocation)
-		args = []string{"operator", "production", "writer-start", "hold", "--capsule", filepath.Join(c.Root, "capsule.json"), "--capsule-sha256", digest, "--start-invocation", invocation}
+		budget, ok := ctx.Value(merchantStoreStartupBudgetKey{}).(merchantStoreStartupBudget)
+		if !ok || budget.holder == nil {
+			return errMerchantStartupBudget
+		}
+		if err := runtime.merchantStoreStartupGuard(ctx, c, invocation, true); err != nil {
+			return err
+		}
+		args = []string{"operator", "production", "writer-start", "hold", "--capsule", filepath.Join(c.Root, "capsule.json"), "--capsule-sha256", digest, "--start-invocation", invocation, "--start-deadline-monotonic-usec", strconv.FormatUint(budget.deadlineUS, 10), "--start-control-pid", strconv.Itoa(budget.controlPID)}
 	}
 	provider := filepath.Join(c.Root, "tmp", "migrations", "merchant-store-candidate", productionCandidateLinkName)
 	if target, err := os.Readlink(provider); err != nil || target != backendGoName || runtime.merchantStoreCapsuleFile(filepath.Join(filepath.Dir(provider), backendGoName), 0700) != nil || sha256MustEqual(provider, c.Writer.Candidate.PayloadSHA256) != nil {
 		return errors.New("portable holder candidate has not actually been qualified")
 	}
-	command := []string{"--quiet", "--collect", "--unit", unit, "--property=Type=simple", "--property=User=root", "--property=Restart=no", "--property=KillMode=control-group", "--", provider}
+	holderType := "simple"
+	if invocation != "" {
+		// Only return after exec, so the parent can bind the actual ELF and argv
+		// before entering its wait. Ordinary deployment holders retain their type.
+		holderType = "exec"
+	}
+	command := []string{"--quiet", "--collect", "--unit", unit, "--property=Type=" + holderType, "--property=User=root", "--property=Restart=no", "--property=KillMode=control-group", "--", provider}
 	command = append(command, args...)
-	if _, err := runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/systemd-run", Args: command, Timeout: 30 * time.Second}); err != nil {
+	_, startErr := runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/systemd-run", Args: command, Timeout: 30 * time.Second})
+	if invocation != "" {
+		budget := ctx.Value(merchantStoreStartupBudgetKey{}).(merchantStoreStartupBudget)
+		// A canceled systemd-run may already have created its child. Capture
+		// only our exact argv/ELF/generation so failure cleanup can stop it.
+		captureCtx, captureCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		captureErr := runtime.captureMerchantStoreStartupHolder(captureCtx, c, unit, provider, args, budget.holder)
+		captureCancel()
+		if startErr != nil {
+			return errors.New("per-start supervision: holder creation failed or was canceled; exact child cleanup required")
+		}
+		if captureErr != nil {
+			return captureErr
+		}
+		return runtime.waitMerchantStoreStartupHolder(ctx, c, invocation, func(ctx context.Context) error {
+			return runtime.requestMerchantStorePortableFence(ctx, c, digest, invocation, false)
+		})
+	}
+	if startErr != nil {
 		return errors.New("portable holder systemd unit could not be created")
 	}
 	for attempt := 0; attempt < 240; attempt++ {
@@ -486,11 +552,28 @@ func (runtime *productionRuntime) ensureMerchantStorePortableFence(ctx context.C
 	}
 	return errors.New("portable holder did not establish actual durable ownership; startup is blocked")
 }
-func (runtime *productionRuntime) merchantStorePortableStart(ctx context.Context, c productionMerchantStoreCapsule, digest string) error {
+func (runtime *productionRuntime) merchantStorePortableStart(ctx context.Context, c productionMerchantStoreCapsule, digest string) (resultErr error) {
 	invocation := os.Getenv("INVOCATION_ID")
 	if c.StartupPolicy != "per-start" || !existingSchemaInvocationPattern.MatchString(invocation) {
 		return errors.New("portable per-start hook requires its actual service invocation")
 	}
+	bounded, cancel, err := runtime.bindMerchantStoreStartupBudget(ctx, c, invocation, 0, os.Getpid())
+	if err != nil {
+		return err
+	}
+	ctx = bounded
+	defer func() {
+		if resultErr == nil {
+			resultErr = runtime.merchantStoreStartupGuard(ctx, c, invocation, true)
+		}
+		cancel()
+		if resultErr != nil {
+			budget := ctx.Value(merchantStoreStartupBudgetKey{}).(merchantStoreStartupBudget)
+			if err := runtime.cancelMerchantStoreStartupHolder(c, invocation, budget.holder); err != nil {
+				resultErr = fmt.Errorf("%w; %v", resultErr, err)
+			}
+		}
+	}()
 	if err := runtime.portableStartControlPID(ctx, c, invocation); err != nil {
 		return err
 	}
@@ -528,7 +611,9 @@ func runProductionMerchantStorePortableStart(args []string, stdout, stderr io.Wr
 	path := flags.String("capsule", "", "root-private immutable portable capsule")
 	digest := flags.String("capsule-sha256", "", "exact immutable capsule digest")
 	invocation := flags.String("start-invocation", "", "holder-only actual service invocation")
-	if flags.Parse(args) != nil || flags.NArg() != 0 || *path == "" || *digest == "" || hold && !existingSchemaInvocationPattern.MatchString(*invocation) || !hold && *invocation != "" {
+	deadline := flags.String("start-deadline-monotonic-usec", "", "holder-only nonrenewable startup deadline")
+	controlPID := flags.Int("start-control-pid", 0, "holder-only actual ExecStartPre PID")
+	if flags.Parse(args) != nil || flags.NArg() != 0 || *path == "" || *digest == "" || hold && (!existingSchemaInvocationPattern.MatchString(*invocation) || *deadline == "" || *controlPID <= 1) || !hold && (*invocation != "" || *deadline != "" || *controlPID != 0) {
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
@@ -536,12 +621,21 @@ func runProductionMerchantStorePortableStart(args []string, stdout, stderr io.Wr
 		return ExitError
 	}
 	c, err := runtime.loadMerchantStoreCapsule(*path, *digest)
+	ctx, signalCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer signalCancel()
 	if err == nil {
 		if hold {
-			err = runtime.holdMerchantStorePortableFence(context.Background(), c, *digest, *invocation)
+			deadlineUS, parseErr := strconv.ParseUint(*deadline, 10, 64)
+			if parseErr != nil || deadlineUS == 0 || strings.Trim(*deadline, "0123456789") != "" {
+				return ExitUsage
+			}
+			var cancel context.CancelFunc
+			ctx, cancel, err = runtime.bindMerchantStoreStartupBudget(ctx, c, *invocation, deadlineUS, *controlPID)
+			if err == nil {
+				defer cancel()
+				err = runtime.holdMerchantStorePortableFence(ctx, c, *digest, *invocation)
+			}
 		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
 			err = runtime.merchantStorePortableStart(ctx, c, *digest)
 		}
 	}
