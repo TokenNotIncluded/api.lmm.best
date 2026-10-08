@@ -126,7 +126,7 @@ test('pause freezes brush offsets, theme redraws use light pixels, disposal is f
     assert.deepEqual(pixels(), frozen)
     view.light()
     poster.draw(2, pointer, 0, true)
-    assert.deepEqual([...pixels().slice(0, 4)], [246, 244, 240, 255])
+    assert.deepEqual(pixels().slice(0, 4), [246, 244, 240, 255])
     poster.dispose()
     assert.equal(element.width, 0)
     assert.equal(element.height, 0)

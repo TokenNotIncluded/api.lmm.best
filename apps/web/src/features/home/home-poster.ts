@@ -217,8 +217,9 @@ export function createHomePoster(
       const left = sequenceAt(from, ages[from]),
         right = sequenceAt(to, ages[to])
       canvas.dataset.sculpture = pageMix < 0.5 ? left.from : right.from
-      if (imageSettled || from !== 0 || left.from !== 'lotus')
+      if (imageSettled || from !== 0 || left.from !== 'lotus') {
         canvas.dataset.ready = 'true'
+      }
       const grid = w < 680 ? 1.7 : 2.7,
         diameter = grid * 0.76 * ratio
       const fullSize = Math.floor(diameter)

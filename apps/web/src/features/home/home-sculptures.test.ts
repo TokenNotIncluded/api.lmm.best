@@ -48,8 +48,8 @@ test('every object holds, disperses and loops back to its first object', () => {
 })
 
 test('invalid and negative clocks cannot produce missing geometry', () => {
-  for (const chapter of [-4, NaN, Infinity, 0, 4, 20]) {
-    for (const time of [-1, NaN, Infinity, 0, 1e10]) {
+  for (const chapter of [-4, Number.NaN, Infinity, 0, 4, 20]) {
+    for (const time of [-1, Number.NaN, Infinity, 0, 1e10]) {
       const frame = sequenceAt(chapter, time)
       assert.ok(frame.mix >= 0 && frame.mix <= 1)
       assert.ok(getSculpture(frame.from).points.length)

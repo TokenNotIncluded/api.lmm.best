@@ -95,8 +95,9 @@ function inside(x: number, y: number, polygon: number[][]) {
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const [ax, ay] = polygon[i],
       [bx, by] = polygon[j]
-    if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax)
+    if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax) {
       hit = !hit
+    }
   }
   return hit
 }
@@ -118,8 +119,9 @@ export function earth(): Sculpture {
     const cloud =
       Math.sin(lon * 0.12 + Math.sin(lat * 0.1) * 3) +
       Math.cos(lat * 0.16 - lon * 0.045)
-    if (cloud > 1.42 && Math.abs(lat) < 71)
+    if (cloud > 1.42 && Math.abs(lat) < 71) {
       s.add(p.map((x) => x * 1.023) as Vec3, tint(C.cream, 0.91), 1)
+    }
   }
   return s.model(
     (t) => {
@@ -154,8 +156,9 @@ function rocky(mars: boolean): Sculpture {
         shade *= distance < 0.8 ? 0.65 + distance * 0.24 : 1.05
       }
     }
-    if (mars)
+    if (mars) {
       shade *= 0.82 + 0.16 * Math.sin(p[0] * 8 + p[2] * 5) * Math.cos(p[1] * 11)
+    }
     const color: Vec3 = mars
       ? p[1] > 0.93
         ? C.cream

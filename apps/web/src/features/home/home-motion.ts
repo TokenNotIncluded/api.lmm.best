@@ -172,8 +172,9 @@ export function mountHomeMotion(root: HTMLElement) {
       )) {
         const rect = copy.getBoundingClientRect()
         if (rect.bottom > 0 && rect.top < window.innerHeight) {
-          if (!copies.has(copy))
+          if (!copies.has(copy)) {
             copies.set(copy, createHomePoster(copy, refresh))
+          }
           visibleCopies.add(copy)
         }
       }
@@ -224,13 +225,14 @@ export function mountHomeMotion(root: HTMLElement) {
       button.setAttribute('aria-pressed', String(index === active))
       button.closest('li')?.toggleAttribute('data-active', index === active)
     })
-    if (filmVisible)
+    if (filmVisible) {
       film?.draw(
         layout ? progress : 0,
         pointerCanvas === canvas ? pointer : restingPointer,
         elapsed / 1000,
         !animate
       )
+    }
     for (const copy of visibleCopies) {
       copies
         .get(copy)

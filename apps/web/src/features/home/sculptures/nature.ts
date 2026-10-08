@@ -65,8 +65,9 @@ export function lotus(): Sculpture {
     (t) => {
       const open = 0.67 + Math.sin((t * TAU) / 5.6) * 0.31
       return (p, v) => {
-        if (p.closed)
+        if (p.closed) {
           for (let i = 0; i < 3; i++) v[i] = mix(p.closed[i], v[i], open)
+        }
       }
     },
     [0, 0.3]
@@ -77,8 +78,9 @@ export function fish(): Sculpture {
   const s = new Shape()
   s.ellipsoid([0.05, 0, 0], [0.84, 0.39, 0.28], C.cream, 0, 11000)
   for (const p of s.points) {
-    if (Math.sin(p.x * 8 + p.y * 10) + Math.cos(p.z * 19 - p.x * 4) > 0.35)
+    if (Math.sin(p.x * 8 + p.y * 10) + Math.cos(p.z * 19 - p.x * 4) > 0.35) {
       p.color = tint(C.rust, 0.72 + hash(p.x + p.y) * 0.25)
+    }
   }
   s.surface(
     70,
@@ -210,7 +212,7 @@ export function dandelion(): Sculpture {
       0.4 + direction[1] * 0.66,
       direction[2] * 0.66,
     ]
-    for (let i = 0; i < 16; i++)
+    for (let i = 0; i < 16; i++) {
       s.add(
         [
           (direction[0] * i) / 24,
@@ -220,6 +222,7 @@ export function dandelion(): Sculpture {
         tint(C.cream, 0.6),
         seed + 1
       )
+    }
     const tangent: Vec3 =
       Math.abs(y) < 0.9
         ? [-direction[2], 0, direction[0]]
@@ -339,7 +342,7 @@ export function dragonfly(): Sculpture {
         part
       )
     }
-    for (let leg = 0; leg < 3; leg++)
+    for (let leg = 0; leg < 3; leg++) {
       s.tube(
         (t) => [
           side * (0.07 + t * 0.25),
@@ -352,6 +355,7 @@ export function dragonfly(): Sculpture {
         25,
         6
       )
+    }
   }
   return s.model(
     (t) => {

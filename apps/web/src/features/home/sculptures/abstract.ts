@@ -31,7 +31,7 @@ export function socket(): Sculpture {
 }
 export function gyroscope(): Sculpture {
   const s = new Shape()
-  for (const axis of [0, 1, 2] as const)
+  for (const axis of [0, 1, 2] as const) {
     s.ring(
       [0, 0, 0],
       1.04 - axis * 0.17,
@@ -40,6 +40,7 @@ export function gyroscope(): Sculpture {
       axis + 1,
       axis
     )
+  }
   s.ellipsoid([0, 0, 0], [0.28, 0.28, 0.28], C.rose, 0, 2200)
   return s.model(
     (t) => {

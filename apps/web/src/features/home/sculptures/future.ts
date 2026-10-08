@@ -39,15 +39,16 @@ export function pelicanBicycle(): Sculpture {
     [seat, stem],
     [stem, crank],
     [stem, front],
-  ] as [Vec3, Vec3][])
+  ] as [Vec3, Vec3][]) {
     s.line(a, b, 0.025, C.rust)
+  }
   s.line(stem, [0.45, 0.05, 0], 0.021, C.gold)
   s.line([0.36, 0.05, 0], [0.57, 0.05, 0], 0.025, C.ink)
   s.box([-0.33, -0.12, 0], [0.31, 0.065, 0.16], C.ink)
   s.ring(crank, 0.105, 0.018, C.gold, 3)
   s.line([-0.15, -0.65, 0.1], [0.11, -0.65, 0.1], 0.014, C.cream, 3)
   s.ellipsoid([-0.18, 0.28, 0.06], [0.42, 0.39, 0.26], C.cream, 4, 4700)
-  for (let feather = 0; feather < 7; feather++)
+  for (let feather = 0; feather < 7; feather++) {
     s.ellipsoid(
       [-0.4 + feather * 0.067, 0.3 - feather * 0.037, 0.26],
       [0.09, 0.21, 0.065],
@@ -55,6 +56,7 @@ export function pelicanBicycle(): Sculpture {
       4,
       340
     )
+  }
   s.tube(
     (t) => [0.14 + Math.sin(t * 3) * 0.06, 0.42 + t * 0.49, 0.025],
     0.091,
@@ -136,8 +138,9 @@ export function emperorBear(): Sculpture {
   s.ellipsoid([-0.22, 0.82, 0], [0.15, 0.18, 0.14], C.cream, 5, 1500)
   s.ellipsoid([-0.22, 0.86, -0.08], [0.16, 0.19, 0.1], C.ink, 5, 800)
   s.ellipsoid([-0.22, 0.65, 0.115], [0.064, 0.1, 0.045], C.ink, 5, 400)
-  for (const x of [-0.27, -0.17])
+  for (const x of [-0.27, -0.17]) {
     s.ellipsoid([x, 0.85, 0.127], [0.018, 0.013, 0.012], C.ink, 5, 80)
+  }
   s.box([-0.22, 1.02, 0], [0.33, 0.09, 0.22], C.gold, 5)
   s.box([-0.22, 1.085, 0], [0.53, 0.055, 0.38], C.ink, 5)
   for (let tassel = 0; tassel < 9; tassel++) {
@@ -186,8 +189,9 @@ export function emperorBear(): Sculpture {
     s.ellipsoid([0.04, -0.49, side * 0.4], [0.13, 0.058, 0.09], C.ink, 5, 450)
   }
   for (const point of s.points) {
-    if ((point.part === 5 || point.part === 6) && point.y > 0.15)
+    if ((point.part === 5 || point.part === 6) && point.y > 0.15) {
       point.y = 0.15 + (point.y - 0.15) * 0.77
+    }
   }
   return s.model(
     (t) => {
@@ -239,8 +243,8 @@ export function catBomb(): Sculpture {
     s.ellipsoid([x, -0.86, 0.1], [0.13, 0.075, 0.16], C.cream, 0, 550)
   }
   s.ellipsoid([-0.39, 0.08, 0.319], [0.045, 0.027, 0.02], C.rose, 0, 200)
-  for (const side of [-1, 1])
-    for (let w = 0; w < 3; w++)
+  for (const side of [-1, 1]) {
+    for (let w = 0; w < 3; w++) {
       s.line(
         [-0.39 + side * 0.12, 0.01, 0.31],
         [-0.39 + side * 0.45, 0.1 - w * 0.07, 0.32],
@@ -249,6 +253,8 @@ export function catBomb(): Sculpture {
         0,
         20
       )
+    }
+  }
   s.line([-0.2, -0.18, 0.22], [0.17, 0.1, 0.24], 0.074, C.gold, 1, 60)
   s.ellipsoid([0.17, 0.1, 0.24], [0.1, 0.07, 0.07], C.cream, 1, 550)
   s.line([0.18, 0.13, 0.24], [0.4, 0.3, 0.07], 0.008, C.gold, 1, 25)
