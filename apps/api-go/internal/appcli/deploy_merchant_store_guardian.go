@@ -374,7 +374,10 @@ func (runtime *productionRuntime) verifyMerchantStoreWriterProvider(ctx context.
 		return err
 	}
 	_, err = runVerifiedBinary(ctx, runtime.runner, provider, []string{"migrate", "--verify"}, sealedChild, directory, 5*time.Minute, true)
-	return err
+	if err != nil {
+		return fmt.Errorf("merchant writer %s migrate --verify failed: %w", role, err)
+	}
+	return nil
 }
 
 func (runtime *productionRuntime) handleMerchantStoreFenceConnection(ctx context.Context, workspace productionWorkspace, manifest productionManifest, owner productionMerchantStoreFenceOwner, ownerJSON []byte, lease *productionMerchantStoreFence, connection net.Conn) bool {
