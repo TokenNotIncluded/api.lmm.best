@@ -9,6 +9,8 @@ pub enum Error {
     #[error("{0}")]
     Invalid(&'static str),
     #[error("{0}")]
+    Conflict(&'static str),
+    #[error("{0}")]
     Database(#[from] sqlx::Error),
 }
 impl From<&'static str> for Error {
@@ -276,15 +278,21 @@ impl PgAcquisitionStore {
         Ok(())
     }
     pub async fn report(&self, user: i64, input: Option<Input>, delete: bool) -> Result<Value> {
+        if user <= 0 {
+            return Err(INVALID.into());
+        }
+        let mut saved = None;
         if let Some(input) = input {
             let detail = self_report(input.text("source"), input.text("detail"))?;
-            sqlx::query("INSERT INTO acquisition_self_reports(user_id,source,detail,updated_at) VALUES($1,$2,$3,$4) ON CONFLICT(user_id) DO UPDATE SET source=EXCLUDED.source,detail=EXCLUDED.detail,updated_at=EXCLUDED.updated_at").bind(user).bind(input.text("source")).bind(detail).bind(Utc::now().timestamp()).execute(&self.pool).await?;
+            saved = Some(sqlx::query_scalar::<_,Value>("INSERT INTO acquisition_self_reports(user_id,source,detail,updated_at) VALUES($1,$2,$3,$4) ON CONFLICT(user_id) DO UPDATE SET source=EXCLUDED.source,detail=EXCLUDED.detail,updated_at=EXCLUDED.updated_at RETURNING json_build_object('source',source,'detail',COALESCE(detail,''),'updated_at',COALESCE(updated_at,0))").bind(user).bind(input.text("source")).bind(detail).bind(Utc::now().timestamp()).fetch_one(&self.pool).await?);
         }
         if delete {
             sqlx::query("DELETE FROM acquisition_self_reports WHERE user_id=$1")
                 .bind(user)
                 .execute(&self.pool)
                 .await?;
+        } else if let Some(saved) = saved {
+            return Ok(saved);
         }
         Ok(sqlx::query_scalar::<_,Value>("SELECT json_build_object('source',source,'detail',COALESCE(detail,''),'updated_at',COALESCE(updated_at,0)) FROM acquisition_self_reports WHERE user_id=$1 AND updated_at>=$2").bind(user).bind(Utc::now().timestamp()-ACCOUNT_DAYS*86400).fetch_optional(&self.pool).await?.unwrap_or(Value::Null))
     }
@@ -310,6 +318,134 @@ impl PgAcquisitionStore {
         }
         tx.commit().await?;
         Ok(())
+    }
+    pub async fn target_role(&self, user: i64) -> Result<Option<i64>> {
+        if user <= 0 {
+            return Ok(None);
+        }
+        Ok(
+            sqlx::query_scalar("SELECT role FROM users WHERE id=$1 AND deleted_at IS NULL")
+                .bind(user)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+    pub async fn corrections(&self, user: i64) -> Result<Value> {
+        let cutoff = Utc::now().timestamp() - ACCOUNT_DAYS * 86400;
+        let head = sqlx::query_scalar::<_, Value>(
+            "SELECT to_jsonb(acquisition_correction_heads) FROM acquisition_correction_heads WHERE user_id=$1 AND revision>0 AND updated_at>=$2",
+        )
+        .bind(user)
+        .bind(cutoff)
+        .fetch_optional(&self.pool)
+        .await?
+        .unwrap_or(Value::Null);
+        let mut items = sqlx::query_scalar::<_, Value>(
+            "SELECT to_jsonb(acquisition_corrections) FROM acquisition_corrections WHERE user_id=$1 AND created_at>=$2 ORDER BY id DESC LIMIT 101",
+        )
+        .bind(user)
+        .bind(cutoff)
+        .fetch_all(&self.pool)
+        .await?;
+        let has_more = items.len() > 100;
+        items.truncate(100);
+        Ok(json!({"head":head,"items":items,"has_more":has_more}))
+    }
+    pub async fn save_correction(&self, user: i64, actor: i64, input: Input) -> Result<Value> {
+        let expected = input.int("expected_revision");
+        let source = input.text("source");
+        let reason = correction_reason(input.text("reason"))?;
+        if user <= 0 || actor <= 0 || expected < 0 || source.is_empty() || label(source) != source {
+            return Err(INVALID.into());
+        }
+        let now = Utc::now().timestamp();
+        let cutoff = now - ACCOUNT_DAYS * 86400;
+        let mut tx = self.pool.begin().await?;
+        let Some((target_role, created_at)) = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT role,created_at FROM users WHERE id=$1 AND deleted_at IS NULL",
+        )
+        .bind(user)
+        .fetch_optional(&mut *tx)
+        .await?
+        else {
+            return Err(sqlx::Error::RowNotFound.into());
+        };
+        if target_role >= 10 {
+            return Err(INVALID.into());
+        }
+        sqlx::query("INSERT INTO acquisition_correction_heads(user_id,revision,source,updated_at) VALUES($1,0,'',0) ON CONFLICT DO NOTHING")
+            .bind(user)
+            .execute(&mut *tx)
+            .await?;
+        let (stored_revision, stored_source, updated_at): (i64, String, i64) = sqlx::query_as(
+            "SELECT COALESCE(revision,0),COALESCE(source,''),COALESCE(updated_at,0) FROM acquisition_correction_heads WHERE user_id=$1 FOR UPDATE",
+        )
+        .bind(user)
+        .fetch_one(&mut *tx)
+        .await?;
+        // The read contract hides correction heads outside the retention window. Treat the
+        // same head as revision zero while holding its row lock so a client can start a new
+        // visible chain, while a concurrent second revision-zero write still conflicts.
+        let (revision, head_source) = if updated_at >= cutoff {
+            (stored_revision, stored_source)
+        } else {
+            (0, String::new())
+        };
+        let consent = sqlx::query_scalar::<_, bool>(
+            "SELECT COALESCE(allowed,FALSE) FROM acquisition_consents WHERE user_id=$1",
+        )
+        .bind(user)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if consent == Some(false) {
+            return Err(INVALID.into());
+        }
+        if revision != expected {
+            return Err(Error::Conflict(
+                "Source correction changed; reload before saving",
+            ));
+        }
+        let mut previous = head_source;
+        if revision == 0 {
+            previous = sqlx::query_scalar::<_, String>(
+                "SELECT COALESCE(registration_source,'') FROM acquisition_accounts WHERE user_id=$1 AND created_at>=$2",
+            )
+            .bind(user)
+            .bind(cutoff)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or_default();
+            if previous.is_empty() {
+                let (started_at, _) = config(&mut tx).await?;
+                previous = if created_at < started_at {
+                    "historical_unrecorded".into()
+                } else {
+                    "unknown".into()
+                };
+            }
+        }
+        let saved = sqlx::query_scalar::<_, Value>(
+            "INSERT INTO acquisition_corrections(user_id,previous_revision,previous_source,source,reason,actor_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING to_jsonb(acquisition_corrections)",
+        )
+        .bind(user)
+        .bind(revision)
+        .bind(previous)
+        .bind(source)
+        .bind(reason)
+        .bind(actor)
+        .bind(now)
+        .fetch_one(&mut *tx)
+        .await?;
+        let id = saved.get("id").and_then(Value::as_i64).ok_or(INVALID)?;
+        sqlx::query("UPDATE acquisition_correction_heads SET revision=$2,source=$3,updated_at=$4 WHERE user_id=$1")
+            .bind(user)
+            .bind(id)
+            .bind(source)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(saved)
     }
     pub async fn audit(
         &self,
