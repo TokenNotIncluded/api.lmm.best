@@ -51,9 +51,9 @@ const storeAndSecurityReads: Record<string, unknown> = {
 
 The platform provides listing review, payment records and delivery links. A listing review is not a guarantee of product quality, suitability, legality or continued availability. Contact the merchant first about product issues, and keep your order number and payment record when requesting platform assistance. The platform may pause products or investigate reports.
 
-Digital text and activation codes may be revealed immediately after confirmed payment. Do not share your private delivery link or pickup code. Check the merchant's stated terms before buying; any refund request must be handled according to the applicable order and payment terms.
+Digital text and activation codes may be revealed immediately after confirmed payment. Do not share your private delivery link or pickup code. Check the applicable product terms and support instructions before buying.
 
-Payments credited to a merchant's platform balance cannot be withdrawn and may only be used for consumption on the platform. External merchant gateways receive the payment directly, while the platform charges the merchant a service fee in credits.
+External merchant orders are processed by the selected merchant or its payment provider. Payments credited to a merchant's platform balance cannot be withdrawn and may only be used for consumption on the platform. External merchant gateways receive the payment directly, while the platform charges the merchant a service fee in credits.
 
 By accepting, you confirm that you have read these terms and understand that you are purchasing from the named third-party merchant. You can reopen this notice at any time from the shop.`,
     platform_payment_methods: [
@@ -322,6 +322,34 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (path === '/api/ratio_sync/service_tiers') {
+    if (url.username || url.password || (user?.role ?? 0) < ROLE.SUPER_ADMIN) {
+      return undefined
+    }
+    // An unsynchronized, disabled installation. Never fetch provider prices or
+    // grant accelerated access while reviewing console pages.
+    return {
+      success: true,
+      data: {
+        policy: {
+          enabled: false,
+          fast_markup: 1.2,
+          ultrafast_markup: 1.2,
+          fast_groups: [],
+          ultrafast_groups: [],
+        },
+        catalog: {
+          source: '',
+          fetched_at: '0001-01-01T00:00:00Z',
+          sha256: '',
+          models: {},
+        },
+        fresh: false,
+        max_age_hours: 24,
+        groups: { default: 1 },
+      },
+    }
+  }
   if (Object.hasOwn(storeAndSecurityReads, path)) {
     if (url.username || url.password) return undefined
     // Both security GET routes require AdminAuth on the real router. Falling
