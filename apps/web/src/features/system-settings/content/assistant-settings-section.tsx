@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -51,6 +52,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { INTERFACE_LANGUAGE_OPTIONS } from '@/i18n/languages'
 import { api } from '@/lib/api'
 
@@ -121,8 +123,8 @@ const DEFAULT_CONVERSATION_STARTERS: ConversationStarter[] = [
   },
   {
     id: 'ai_recommendation',
-    label: { default: 'Help me write an L1 recommendation.' },
-    prompt: { default: 'Help me write an L1 recommendation.' },
+    label: { default: 'How do I apply for L1 access?' },
+    prompt: { default: 'How do I apply for L1 access?' },
   },
 ]
 
@@ -595,6 +597,7 @@ export function AssistantSettingsSection(props: {
   const { t } = useTranslation()
   const updateOptions = useUpdateOptions()
   const [panel, setPanel] = useState<AssistantSettingsGroup>('model')
+  const walletCurrency = useWalletCurrency()
   const baseline = useRef(props.defaultValues)
   const workspace = useRef<HTMLDivElement>(null)
   const form = useForm<AssistantSettingsFormValues>({
@@ -668,7 +671,6 @@ export function AssistantSettingsSection(props: {
     enabled,
     agentLoopEnabled,
     cacheEnabled,
-    reviewEnabled,
     retentionEnabled,
     searchProvider,
     selectedGroup,
@@ -679,7 +681,6 @@ export function AssistantSettingsSection(props: {
       'AssistantEnabled',
       'AssistantAgentLoopEnabled',
       'AssistantCacheEnabled',
-      'AssistantReviewEnabled',
       'AssistantRetentionEnabled',
       'AssistantSearchProvider',
       'AssistantGroup',
@@ -705,7 +706,6 @@ export function AssistantSettingsSection(props: {
   const assistantGroups = [
     ...new Set([
       props.defaultValues.AssistantGroup || 'default',
-      props.defaultValues.AssistantReviewGroup || 'default',
       props.defaultValues.AssistantModerationGroup || 'default',
       ...(groupsQuery.data ?? []),
     ]),
@@ -1620,6 +1620,60 @@ export function AssistantSettingsSection(props: {
                 hidden={panel !== 'review'}
                 className='assistant-settings-panel'
               >
+                <SettingsDisclosure title={t('New-user gift')} defaultOpen>
+                  <FormField
+                    control={form.control}
+                    name='AssistantNewUserGiftMaxCredits'
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className='flex items-center justify-between gap-3'>
+                          <FormLabel>
+                            {t('Welcome-gift maximum ({{currency}})', {
+                              currency: walletCurrency.label,
+                            })}
+                          </FormLabel>
+                          <Select
+                            value={walletCurrency.currency}
+                            onValueChange={(value) =>
+                              void walletCurrency.setPreference(
+                                value as 'USD' | 'CNY' | 'CREDIT'
+                              )
+                            }
+                          >
+                            <SelectTrigger
+                              className='w-28'
+                              aria-label={t('Currency')}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value='USD'>USD</SelectItem>
+                              <SelectItem value='CNY'>CNY</SelectItem>
+                              <SelectItem value='CREDIT'>
+                                {t('Credits')}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <FormControl>
+                          <CreditAmountInput
+                            name={field.name}
+                            ref={field.ref}
+                            onBlur={field.onBlur}
+                            value={field.value}
+                            onValueChange={field.onChange}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Maximum for one welcome gift. Set to 0 to disable issuing and claiming gifts; already claimed balances stay unchanged.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </SettingsDisclosure>
                 <SettingsDisclosure title={t('Access & safety')} defaultOpen>
                   <div className='space-y-6'>
                     <AssistantL1ReviewSettings
@@ -1627,97 +1681,6 @@ export function AssistantSettingsSection(props: {
                       groupsLoading={groupsQuery.isLoading}
                       getModels={getEnabledAssistantModelIDs}
                     />
-
-                    <div className='grid gap-5 border-t pt-6'>
-                      <div>
-                        <h3 className='text-sm font-medium'>
-                          {t('Automatic review')}
-                        </h3>
-                        <p className='text-muted-foreground mt-1 text-sm'>
-                          {t(
-                            'Periodically summarize anonymous assistant metrics and highlight conversion, support, and safety follow-ups.'
-                          )}
-                        </p>
-                      </div>
-
-                      <FormField
-                        control={form.control}
-                        name='AssistantReviewEnabled'
-                        render={({ field }) => (
-                          <SettingsSwitchItem>
-                            <SettingsSwitchContent>
-                              <FormLabel>
-                                {t('Enable scheduled review')}
-                              </FormLabel>
-                              <FormDescription>
-                                {t(
-                                  'Create a bounded background review without copying conversations or user identities.'
-                                )}
-                              </FormDescription>
-                            </SettingsSwitchContent>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </SettingsSwitchItem>
-                        )}
-                      />
-
-                      <div className='grid gap-5 sm:grid-cols-2'>
-                        <FormField
-                          control={form.control}
-                          name='AssistantReviewWindowDays'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('Review window (days)')}</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type='number'
-                                  min={1}
-                                  max={90}
-                                  step={1}
-                                  {...safeNumberFieldProps(field)}
-                                  disabled={!reviewEnabled}
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                {t('Summarize the last 1–90 days.')}
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name='AssistantReviewIntervalHours'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                {t('Review interval (hours)')}
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  type='number'
-                                  min={1}
-                                  max={168}
-                                  step={1}
-                                  {...safeNumberFieldProps(field)}
-                                  disabled={!reviewEnabled}
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                {t('Run every 1–168 hours.')}
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                    </div>
                   </div>
                 </SettingsDisclosure>
               </section>

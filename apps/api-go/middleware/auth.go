@@ -395,6 +395,19 @@ func preActivationRouteAllowed(method string, path string) bool {
 		// Checkout must precede paid activation. UserAuth, body limits and the
 		// provider-specific payment policy still run on every request.
 		return method == http.MethodPost
+	case "/api/user/topup/currency/amount", "/api/user/topup/currency/pay",
+		"/api/user/topup/currency/stripe/amount", "/api/user/topup/currency/stripe/pay",
+		"/api/user/topup/currency/waffo/amount", "/api/user/topup/currency/waffo/pay",
+		"/api/user/topup/currency/waffo-pancake/amount", "/api/user/topup/currency/waffo-pancake/pay",
+		"/api/user/topup/currency/discount-code/validate",
+		"/api/user/topup/currency/v2/amount", "/api/user/topup/currency/v2/pay",
+		"/api/user/topup/currency/v2/stripe/amount", "/api/user/topup/currency/v2/stripe/pay",
+		"/api/user/topup/currency/v2/waffo/amount", "/api/user/topup/currency/v2/waffo/pay",
+		"/api/user/topup/currency/v2/waffo-pancake/amount", "/api/user/topup/currency/v2/waffo-pancake/pay",
+		"/api/user/topup/currency/v2/discount-code/validate":
+		// Versioned checkout keeps the same identity and payment gates as legacy
+		// checkout. List exact registered paths so other wallet operations stay closed.
+		return method == http.MethodPost
 	case "/api/livez", "/api/uptime/status", "/api/scripts", "/api/games/signal/daily", "/api/games/signal/leaderboard":
 		return method == http.MethodGet
 	case "/api/games/signal/attempts", "/api/games/signal/finish":

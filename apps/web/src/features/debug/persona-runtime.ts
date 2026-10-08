@@ -619,11 +619,12 @@ function preConversationPresets() {
 function personaTodoPage(category = 'all') {
   const categories = [
     'security_incident',
-    'security_review',
     'open_source_bounty_review',
     'open_source_bounty',
     'developer_access',
     'account_action',
+    'moderation',
+    'human_support',
   ].map((key) => ({ key, total: 0, unread: 0 }))
 
   return {

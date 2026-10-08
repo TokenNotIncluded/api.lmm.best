@@ -333,8 +333,10 @@ describe('Drawing mobile controls', () => {
     }
   })
 
-  test('keeps MCP configuration out of the primary workflow until requested', async () => {
+  test('links agent setup to the tool market without loading legacy MCP settings', async () => {
+    const reads: string[] = []
     api.get = (async (url: string) => {
+      reads.push(url)
       if (url === '/api/assistant/status') {
         return {
           data: {
@@ -374,235 +376,15 @@ describe('Drawing mobile controls', () => {
         rendered.container.querySelector('#drawing-mcp-endpoint'),
         null
       )
-      const mcpButton = [...rendered.container.querySelectorAll('button')].find(
-        (button) => button.textContent?.includes('Drawing MCP')
+      assert.equal(rendered.container.querySelector('#drawing-mcp-panel'), null)
+      const toolMarket = rendered.container.querySelector(
+        'a[href="/tool-market"]'
       )
-      assert.ok(mcpButton)
-      assert.equal(mcpButton.getAttribute('aria-expanded'), 'false')
-
-      await act(async () => {
-        mcpButton.click()
-        await flushEffects()
-      })
-
-      assert.ok(rendered.container.querySelector('#drawing-mcp-endpoint'))
-      assert.equal(mcpButton.getAttribute('aria-expanded'), 'true')
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-    }
-  })
-
-  test('loads configured MCP management and clears the old secret when switching keys', async () => {
-    let tokenStatusKey = 1
-    let keyCreateCalls = 0
-    api.get = (async (url: string) => {
-      if (url === '/api/assistant/status') {
-        return {
-          data: {
-            success: true,
-            data: {
-              enabled: true,
-              developer_access_granted: true,
-              drawing_web_access: {
-                minimum_balance_usd: 0,
-                minimum_balance_credit: 0,
-                balance_credit: 35_000_000,
-                balance_usd: 10,
-                allowed: true,
-              },
-            },
-          },
-        }
-      }
-      if (url === '/api/pricing') return { data: pricing }
-      if (url === '/api/user/self/groups') {
-        return {
-          data: {
-            success: true,
-            data: {
-              ...pricing.usable_group,
-              'mobile-image-group': {
-                ...pricing.usable_group['mobile-image-group'],
-                warning: {
-                  enabled: true,
-                  message: 'Confirm this drawing group.',
-                  mode: 'modal',
-                  confirmations: 2,
-                },
-              },
-            },
-          },
-        }
-      }
-      if (url === '/api/drawing/mcp-keys') {
-        return {
-          data: {
-            success: true,
-            data: {
-              keys: [
-                {
-                  id: 1,
-                  name: 'A',
-                  group: 'mobile-image-group',
-                  status: 1,
-                  remain_quota: 9000000,
-                  used_quota: 1000000,
-                  unlimited_quota: true,
-                },
-                {
-                  id: 2,
-                  name: 'B',
-                  group: 'mobile-image-group',
-                  status: 1,
-                  remain_quota: 8000000,
-                  used_quota: 2000000,
-                  unlimited_quota: false,
-                },
-                ...(keyCreateCalls > 0
-                  ? [
-                      {
-                        id: 3,
-                        name: 'new-mcp-key',
-                        group: 'mobile-image-group',
-                        status: 1,
-                        remain_quota: 7000000,
-                        used_quota: 0,
-                        unlimited_quota: false,
-                      },
-                    ]
-                  : []),
-              ],
-            },
-          },
-        }
-      }
-      if (url === '/api/drawing/mcp-token') {
-        return {
-          data: {
-            success: true,
-            data: {
-              status: {
-                configured: true,
-                api_key_id: tokenStatusKey,
-                default_model: 'image-2',
-              },
-            },
-          },
-        }
-      }
-      throw new Error(`unexpected GET ${url}`)
-    }) as typeof api.get
-    api.post = (async (url: string, body?: unknown) => {
-      if (url === '/api/drawing/key') {
-        keyCreateCalls += 1
-        assert.deepEqual(body, {})
-        return {
-          data: {
-            success: true,
-            data: {
-              id: 3,
-              name: 'drawing-image-2',
-              group: 'image-2',
-              created: true,
-            },
-          },
-        }
-      }
-      assert.equal(url, '/api/drawing/mcp-token')
+      assert.ok(toolMarket)
+      assert.equal(toolMarket.textContent?.trim(), 'Tool market')
       assert.equal(
-        (body as { default_model?: string }).default_model,
-        'image-2'
-      )
-      return { data: { success: true, data: { token: 'secret-A' } } }
-    }) as typeof api.post
-
-    const rendered = await renderDrawing()
-    try {
-      await act(
-        async () =>
-          await waitForCondition(
-            () => rendered.container.querySelectorAll('select').length === 5,
-            'drawing controls did not render'
-          )
-      )
-      const mcpButton = [...rendered.container.querySelectorAll('button')].find(
-        (button) => button.textContent?.includes('Drawing MCP')
-      )
-      assert.ok(mcpButton)
-      await act(async () => {
-        mcpButton.click()
-        await flushEffects()
-      })
-      await act(
-        async () =>
-          await waitForCondition(
-            () =>
-              rendered.container.querySelector('#drawing-mcp-api-key') !== null,
-            'MCP panel did not render'
-          )
-      )
-      assert.ok(
-        [...rendered.container.querySelectorAll('button')].some((button) =>
-          button.textContent?.includes('Rotate MCP token')
-        )
-      )
-      assert.match(
-        rendered.container.querySelector('#drawing-mcp-api-key')?.textContent ??
-          '',
-        /Unlimited/
-      )
-      const createButton = [
-        ...rendered.container.querySelectorAll('button'),
-      ].find((button) =>
-        button.textContent?.includes('Prepare an API key for MCP')
-      )
-      assert.ok(createButton)
-      await act(async () => {
-        createButton.click()
-        await flushEffects()
-      })
-      assert.equal(keyCreateCalls, 1)
-      const keySelect = rendered.container.querySelector(
-        '#drawing-mcp-api-key'
-      ) as HTMLSelectElement | null
-      assert.ok(keySelect)
-      const defaultModelSelect = rendered.container.querySelector(
-        '#drawing-mcp-default-model'
-      ) as HTMLSelectElement | null
-      assert.ok(defaultModelSelect)
-      assert.equal(defaultModelSelect.value, 'image-2')
-      keySelect.value = '1'
-      await act(async () => {
-        keySelect.dispatchEvent(new Event('change', { bubbles: true }))
-        await flushEffects()
-      })
-      const generate = [...rendered.container.querySelectorAll('button')].find(
-        (button) =>
-          button.textContent?.includes('Generate token and copy config')
-      )
-      assert.ok(generate)
-      await act(async () => {
-        generate.click()
-        await flushEffects()
-      })
-      assert.match(
-        (
-          rendered.container.querySelector(
-            '#drawing-mcp-config'
-          ) as HTMLTextAreaElement | null
-        )?.value ?? '',
-        /secret-A/
-      )
-      tokenStatusKey = 1
-      keySelect.value = '2'
-      await act(async () => {
-        keySelect.dispatchEvent(new Event('change', { bubbles: true }))
-        await flushEffects()
-      })
-      assert.equal(
-        rendered.container.querySelector('#drawing-mcp-config'),
-        null
+        reads.some((url) => url.startsWith('/api/drawing/mcp-')),
+        false
       )
     } finally {
       await act(async () => rendered.root.unmount())
@@ -933,7 +715,7 @@ describe('Drawing balance and browser history', () => {
   })
 
   for (const balance of [34_965_000, 35_000_000, null]) {
-    test(`balance ${balance} gates only web generation while key/MCP controls remain available`, async () => {
+    test(`balance ${balance} gates only web generation while API key and tool market controls remain available`, async () => {
       mockWorkbench(() => balance)
       let keyCalls = 0
       api.post = (async (url: string, body: unknown) => {
@@ -983,10 +765,9 @@ describe('Drawing balance and browser history', () => {
           button(rendered.container, 'Prepare image-2 API Key').disabled,
           false
         )
-        assert.equal(button(rendered.container, 'Drawing MCP').disabled, false)
+        assert.ok(rendered.container.querySelector('a[href="/tool-market"]'))
         await act(async () => {
           button(rendered.container, 'Prepare image-2 API Key').click()
-          button(rendered.container, 'Drawing MCP').click()
           await flushEffects()
         })
         assert.equal(keyCalls, 1)
@@ -995,7 +776,10 @@ describe('Drawing balance and browser history', () => {
           /image-2 API Key ready/
         )
         assert.ok(rendered.container.querySelector('a[href="/keys"]'))
-        assert.ok(rendered.container.querySelector('#drawing-mcp-endpoint'))
+        assert.equal(
+          rendered.container.querySelector('#drawing-mcp-endpoint'),
+          null
+        )
       } finally {
         await act(async () => rendered.root.unmount())
         rendered.queryClient.clear()
@@ -1114,7 +898,7 @@ describe('Drawing balance and browser history', () => {
         /Request failed/
       )
       assert.equal(button(rendered.container, 'Generate image').disabled, true)
-      assert.equal(button(rendered.container, 'Drawing MCP').disabled, false)
+      assert.ok(rendered.container.querySelector('a[href="/tool-market"]'))
       assert.equal(calls, 1)
     } finally {
       await act(async () => rendered.root.unmount())

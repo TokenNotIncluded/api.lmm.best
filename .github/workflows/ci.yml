@@ -160,11 +160,17 @@ jobs:
           go-version-file: apps/api-go/go.mod
           cache-dependency-path: apps/api-go/go.sum
 
+      - name: Install verified native-contract cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Bind cosign to the native fixed system path
+        run: bash scripts/install-ci-native-cosign.sh
+
       - name: Install archive inspection tool
         run: |
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libarchive-tools
+          sudo apt-get install --no-install-recommends --yes libarchive-tools nginx curl util-linux systemd
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
 
       - name: Verify native inspection, workspace, release, and package contracts
@@ -294,11 +300,17 @@ jobs:
           bash ../../scripts/check-go-format.sh .
           go vet ./...
 
+      - name: Install verified native-contract cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Bind cosign to the native fixed system path
+        run: bash scripts/install-ci-native-cosign.sh
+
       - name: Install production contract tools
         run: |
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libarchive-tools
+          sudo apt-get install --no-install-recommends --yes libarchive-tools nginx curl util-linux systemd
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
           bsdtar --version | sed -n '1p'
 
@@ -612,6 +624,8 @@ jobs:
         run: |
           chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-matrix.sh
+          shellcheck packaging/aur/test-merchant-writer-marker.sh
+          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-merchant-writer-marker.sh
 
       - name: Verify pinned Go release integrity
         env:

@@ -101,5 +101,37 @@ class CurrentGoOwnershipTests(unittest.TestCase):
                 ownership.check_source(broken)
 
 
+class RetiredGoRouteTests(unittest.TestCase):
+    def setUp(self):
+        directory = ownership.ROOT / "apps/api-rust/tests/fixtures/routes"
+        self.rows = ownership.route_rows(directory / "retired-go-routes.tsv")
+        self.frozen = {tuple(row[:2]) for row in ownership.route_rows(directory / "legacy-go-routes.tsv")}
+
+    def test_exact_retired_contracts_preserve_the_frozen_baseline(self):
+        ownership.check_retired_go_routes(self.rows, {}, self.frozen)
+
+    def test_missing_duplicate_unknown_method_path_and_old_handler_are_rejected(self):
+        for broken in (
+            self.rows[:-1], self.rows + [self.rows[0]],
+            [["PUT", *self.rows[0][1:]], *self.rows[1:]],
+            [[self.rows[0][0], "/api/unknown", self.rows[0][2]], *self.rows[1:]],
+            [[*self.rows[0][:2], "other.handler"], *self.rows[1:]],
+            [[*self.rows[0], "extra"], *self.rows[1:]],
+        ):
+            with self.subTest(row=broken[0]), self.assertRaises(ValueError):
+                ownership.check_retired_go_routes(broken, {}, self.frozen)
+
+    def test_reactivated_route_cannot_keep_a_retirement_exception(self):
+        for handler in (self.rows[0][2], "other.new_handler"):
+            with self.subTest(handler=handler), self.assertRaisesRegex(ValueError, "registered again"):
+                ownership.check_retired_go_routes(
+                    self.rows, {tuple(self.rows[0][:2]): handler}, self.frozen)
+
+    def test_retirement_cannot_change_immutable_frozen_scope(self):
+        with self.assertRaisesRegex(ValueError, "frozen evidence"):
+            ownership.check_retired_go_routes(
+                self.rows, {}, self.frozen | {tuple(self.rows[0][:2])})
+
+
 if __name__ == "__main__":
     unittest.main()

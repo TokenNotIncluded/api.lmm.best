@@ -13,6 +13,9 @@ import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StoreCategoriesManager } from './categories'
+import { safeStoreMediaUrl } from './product-media'
+import { StoreRootRefunds } from './refund-panel'
 import { StoreAmount, StoreAuthGate, StoreError, StoreLoading } from './shared'
 import type { StoreProduct } from './types'
 import { safeStoreUrl } from './utils'
@@ -49,6 +52,10 @@ function StoreReviews() {
       <h1 className='console-page-title text-xl font-bold'>
         {t('Review products')}
       </h1>
+      <StoreRootRefunds />
+      {config.data?.store_categories_supported === true && (
+        <StoreCategoriesManager />
+      )}
       <p className='text-muted-foreground text-sm'>
         {t(
           'Administrators may review their own products. Approval publishes the product to the public store.'
@@ -196,11 +203,11 @@ function StoreReviewRow({
       {product.image_urls?.length > 0 && (
         <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
           {product.image_urls
-            .filter((url) => safeStoreUrl(url))
+            .filter((url) => safeStoreMediaUrl(url))
             .map((url, index) => (
               <img
                 key={index}
-                src={safeStoreUrl(url)}
+                src={safeStoreMediaUrl(url)}
                 alt={product.title}
                 className='aspect-video w-full rounded-md object-cover'
                 loading='lazy'

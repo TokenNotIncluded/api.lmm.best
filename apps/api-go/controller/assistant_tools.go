@@ -11,7 +11,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/i18n"
 	"github.com/LIghtJUNction/api.lmm.best/model"
-	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -226,28 +225,6 @@ func AdminGetAssistantProfileSummary(c *gin.Context) {
 	common.ApiSuccess(c, summary)
 }
 
-func AdminGetAssistantReview(c *gin.Context) {
-	task, err := model.GetLatestSystemTask(model.SystemTaskTypeAssistantReview)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if task == nil {
-		common.ApiSuccess(c, nil)
-		return
-	}
-	common.ApiSuccess(c, task.ToResponse())
-}
-
-func AdminRunAssistantReview(c *gin.Context) {
-	task, err := service.StartAssistantReview()
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, task.ToResponse())
-}
-
 func AdminListAssistantRequestReviews(c *gin.Context) {
 	userID, err := strconv.Atoi(strings.TrimSpace(c.Query("user_id")))
 	if err != nil || userID <= 0 {
@@ -301,7 +278,6 @@ func AdminListAssistantRequestReviews(c *gin.Context) {
 		// Queue saturation is process-wide and intentionally read-only. Expose
 		// the bounded review coverage counters to administrators so dropped
 		// samples are visible without delaying user requests.
-		"queue_stats": assistantReviewQueueStatsSnapshot(),
 	})
 }
 

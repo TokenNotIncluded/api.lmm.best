@@ -86,67 +86,41 @@ await i18n.use(initReactI18next).init({
 const policyResponse = {
   success: true,
   data: {
-    policy_version: 'anthropic-aligned-v1',
-    reference_effective_date: '2025-09-15',
-    reference_url: 'https://www.anthropic.com/legal/aup',
-    alignment: 'Local public adaptation',
-    enforcement: {
+    policy_version: 'moderation-v1',
+    reference_effective_date: '2026-10-07',
+    reference_url: 'https://platform.openai.com/docs/guides/moderation',
+    alignment: 'OpenAI Moderation',
+    moderation: {
       enabled: true,
-      on_prompt: true,
-      action: 'block',
+      assistant_enabled: true,
+      engine: 'openai_moderation',
+      async: true,
+      group_policies: {
+        default: {
+          mode: 'strict',
+          category_fines_usd: { harassment: 0.25 },
+          amount_currency: 'USD',
+        },
+      },
+      supported_inputs: ['text'],
+      notice_only: false,
     },
-    protected_groups: ['default'],
-    risk_categories: [
-      {
-        id: 'privacy_identity',
-        name: 'Privacy and identity rights',
-        layer: 'universal_standard',
-        severity: 'high',
-        description: 'Unauthorized use of private data.',
-        source: 'anthropic_usage_policy',
-      },
-    ],
-    rules: [
-      {
-        id: 'privacy-rule',
-        name: 'Protect private data',
-        category: 'privacy_identity',
-        layer: 'universal_standard',
-        severity: 'high',
-        source: 'local_custom',
-        version: '1',
-        description: 'Do not expose another person’s sensitive data.',
-      },
-    ],
-    violation_fees: [
-      {
-        code: 'violation_fee.grok.csam',
-        provider: 'Grok / xAI upstream',
-        trigger: 'The upstream provider returns a violation marker.',
-        enabled: true,
-        amount_usd: 0.25,
-        charge_unit: 'per request',
-        retryable: false,
-        description: 'An additional fee may be charged.',
-        charging_notes: 'The fee is applied only when enabled.',
-        local_guardrail_fee: false,
-      },
-    ],
   },
 }
 
 const statsResponse = {
   success: true,
   data: {
-    start_timestamp: 1_780_000_000,
-    end_timestamp: 1_780_086_400,
-    total_matches: 17,
-    blocked_matches: 11,
-    audited_matches: 6,
-    affected_requests: 14,
-    affected_users: 3,
-    by_category: [{ key: 'privacy_identity', count: 9 }],
-    by_rule: [{ key: 'privacy-rule', count: 9 }],
+    moderation: {
+      pending: 2,
+      running: 1,
+      completed: 34,
+      failed: 3,
+      cancelled: 4,
+      flagged: 7,
+      fined: 2,
+      charged_quota: 100000,
+    },
   },
 }
 
@@ -192,29 +166,10 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('SecurityContent', () => {
-  test('distinguishes live Moderation totals from historical rule statistics', async () => {
+  test('shows current Moderation totals without historical rule statistics', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/security/policy') return { data: policyResponse }
-      if (url === '/api/security/stats') {
-        return {
-          data: {
-            ...statsResponse,
-            data: {
-              ...statsResponse.data,
-              moderation: {
-                pending: 2,
-                running: 1,
-                completed: 34,
-                failed: 3,
-                cancelled: 4,
-                flagged: 7,
-                fined: 2,
-                charged_quota: 100000,
-              },
-            },
-          },
-        }
-      }
+      if (url === '/api/security/stats') return { data: statsResponse }
       throw new Error(`Unexpected GET ${url}`)
     }) as typeof api.get
     const rendered = await renderSecurityContent()
@@ -225,7 +180,7 @@ describe('SecurityContent', () => {
       assert.match(content, /Flagged Moderation reviews/)
       assert.match(content, /Reviews with wallet deductions/)
       assert.match(content, /34/)
-      assert.match(content, /Historical rule matching statistics/)
+      assert.doesNotMatch(content, /Historical rule matching statistics/)
       assert.match(
         content,
         /Flagged reviews include user input and assistant output/
@@ -239,7 +194,7 @@ describe('SecurityContent', () => {
     }
   })
 
-  test('renders policy categories, rule summaries, real stats, and fee rules', async () => {
+  test('renders current policy, fees and metadata without retired sections or endpoints', async () => {
     const requestedUrls: string[] = []
     api.get = (async (url: string) => {
       requestedUrls.push(url)
@@ -250,20 +205,26 @@ describe('SecurityContent', () => {
 
     const rendered = await renderSecurityContent()
     try {
-      await waitForText(rendered.container, 'Protect private data')
+      await waitForText(rendered.container, 'Moderation group policies')
       const content = rendered.container.textContent ?? ''
 
-      assert.match(content, /Privacy and identity rights/)
       assert.match(content, /Policy metadata/)
       assert.match(content, /default/)
-      assert.match(content, /Historical safety rules and fees/)
-      assert.doesNotMatch(content, /Block matching requests/)
-      assert.match(content, /retired literal rules/)
-      assert.match(content, /OpenAI Moderation/)
-      assert.match(content, /17/)
-      assert.match(content, /11/)
-      assert.match(content, /violation_fee\.grok\.csam/)
+      assert.match(content, /Current Moderation settings/)
+      assert.match(content, /harassment/)
       assert.match(content, /0\.25 USD/)
+      assert.doesNotMatch(
+        content,
+        /Historical|Legacy detection|retired literal|violation_fee\.grok/
+      )
+      assert.equal(
+        rendered.container.querySelector('#security-policy-title'),
+        null
+      )
+      assert.equal(
+        rendered.container.querySelector('#security-enforcement-title'),
+        null
+      )
       assert.deepEqual(
         requestedUrls.filter((url) => url.startsWith('/api/security/')).sort(),
         ['/api/security/policy', '/api/security/stats']
@@ -286,49 +247,16 @@ describe('SecurityContent', () => {
     try {
       await waitForText(
         rendered.container,
-        'The public security policy is not available yet.'
+        'Moderation settings are not published yet.'
       )
       const content = rendered.container.textContent ?? ''
 
       assert.match(content, /No live risk metrics are available yet\./)
-      assert.match(
-        content,
-        /No categories, rules, or fee amounts are fabricated/
-      )
-      assert.match(content, /\/api\/security\/policy/)
+      assert.match(content, /Active groups and fees cannot be confirmed/)
       assert.match(content, /\/api\/security\/stats/)
       assert.doesNotMatch(content, /0\.25 USD/)
     } finally {
       await act(async () => rendered.root.unmount())
     }
   })
-})
-
-test('an explicit USD provider fee bypasses the legacy pricing-unit bridge', async () => {
-  api.get = (async (url: string) => {
-    if (url === '/api/security/policy') {
-      return {
-        data: {
-          ...policyResponse,
-          data: {
-            ...policyResponse.data,
-            violation_fees: policyResponse.data.violation_fees.map((fee) => ({
-              ...fee,
-              amount_currency: 'USD',
-            })),
-          },
-        },
-      }
-    }
-    if (url === '/api/security/stats') return { data: statsResponse }
-    throw new Error(`Unexpected GET ${url}`)
-  }) as typeof api.get
-  const rendered = await renderSecurityContent()
-  try {
-    await waitForText(rendered.container, 'violation_fee.grok.csam')
-    assert.match(rendered.container.textContent ?? '', /0\.25 USD/)
-    assert.doesNotMatch(rendered.container.textContent ?? '', /0\.05 USD/)
-  } finally {
-    await act(async () => rendered.root.unmount())
-  }
 })

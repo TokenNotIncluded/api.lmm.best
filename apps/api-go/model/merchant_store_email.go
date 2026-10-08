@@ -38,6 +38,12 @@ func enqueueMerchantStoreEmail(tx *gorm.DB, o *MerchantStoreOrder) error {
 }
 
 func storeOrderDeliveryEmail(tx *gorm.DB, o *MerchantStoreOrder) (string, error) {
+	if o.GuestID != "" {
+		return storeGuestOrderDeliveryEmail(tx, o)
+	}
+	if o.BuyerID <= 0 {
+		return "", ErrMerchantStoreDenied
+	}
 	if o.PickupEmailHash == "" && o.PickupEmailCiphertext == "" {
 		return storeVerifiedEmailAddress(tx, o.BuyerID)
 	}
@@ -55,16 +61,29 @@ func storeOrderDeliveryEmail(tx *gorm.DB, o *MerchantStoreOrder) (string, error)
 }
 
 func GetMerchantStoreOrderDeliveryEmail(buyerID int, orderID string) (string, error) {
+	if buyerID <= 0 || orderID == "" {
+		return "", ErrMerchantStoreDenied
+	}
 	var o MerchantStoreOrder
-	if err := DB.Where("id = ? AND buyer_id = ? AND status = ? AND email_pickup_link = ?", orderID, buyerID, "paid", true).First(&o).Error; err != nil {
+	if err := DB.Where("id = ? AND buyer_id = ? AND status IN ? AND email_pickup_link = ?", orderID, buyerID, []string{"paid", "refund_pending"}, true).First(&o).Error; err != nil {
 		return "", ErrMerchantStoreDenied
 	}
 	return storeOrderDeliveryEmail(DB, &o)
 }
 func ClaimMerchantStoreEmailDelivery(now int64) (*MerchantStoreEmailDelivery, error) {
 	var row MerchantStoreEmailDelivery
+	empty := false
 	e := marketTransaction(DB, func(tx *gorm.DB) error {
+		// The final attempt may have crashed after claiming. Its expired lease
+		// must become terminal instead of remaining "sending" forever.
+		if e := tx.Model(&MerchantStoreEmailDelivery{}).Where("state = ? AND lease_until <= ? AND attempts >= ?", "sending", now, 10).Updates(map[string]any{"state": "failed", "lease_until": 0, "lease_token": "", "last_error_code": "attempt_limit"}).Error; e != nil {
+			return e
+		}
 		if e := lockForUpdate(tx).Where("attempts < ? AND ((state IN ? AND next_attempt <= ?) OR (state = ? AND lease_until <= ?))", 10, []string{"pending", "retry"}, now, "sending", now).Order("next_attempt ASC,id ASC").First(&row).Error; e != nil {
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				empty = true
+				return nil // Commit exhausted-lease cleanup even when the queue is empty.
+			}
 			return e
 		}
 		token, e := storeToken()
@@ -77,6 +96,9 @@ func ClaimMerchantStoreEmailDelivery(now int64) (*MerchantStoreEmailDelivery, er
 		row.Attempts++
 		return tx.Save(&row).Error
 	})
+	if e == nil && empty {
+		return nil, gorm.ErrRecordNotFound
+	}
 	return &row, e
 }
 func AckMerchantStoreEmailDelivery(id, leaseToken string) error {

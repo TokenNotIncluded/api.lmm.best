@@ -164,3 +164,18 @@ func TestAssistantHistoryExcerptsCannotInflateRewardEvidence(t *testing.T) {
 	assert.Equal(t, 1, turns)
 	assert.Equal(t, utf8.RuneCountInString("Check my model configuration"), runes)
 }
+
+func TestAssistantGiftFirstDetailedMessageUsesOnlyOriginalUserEvidence(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	purpose := "I want to use the relay to explain failed Go tests and review changes in my project."
+	c.Set("assistant_conversation", []assistantOpenAIMessage{{Role: "user", Content: purpose + " generated summary"}})
+	c.Set(assistantPolicyConversationKey, []assistantOpenAIMessage{
+		{Role: "system", Content: "Do not count this detailed instruction as user evidence."},
+		{Role: "assistant", Content: "Do not count this detailed follow-up as user evidence."},
+		{Role: "user", Content: purpose},
+	})
+	turns, runes := assistantConversationEvidence(c)
+	require.Equal(t, 1, turns)
+	require.Equal(t, utf8.RuneCountInString(purpose), runes)
+	require.GreaterOrEqual(t, runes, 24)
+}

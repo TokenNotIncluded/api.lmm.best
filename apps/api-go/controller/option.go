@@ -49,6 +49,17 @@ func GetOptions(c *gin.Context) {
 			continue
 		}
 		value := common.Interface2String(v)
+		if k == setting.AssistantNewUserGiftMaxCreditsOptionKey && strings.TrimSpace(value) == "" {
+			cap, capErr := setting.AssistantNewUserGiftMaxCredits("")
+			if capErr != nil {
+				common.ApiError(c, capErr)
+				return
+			}
+			value = strconv.Itoa(cap)
+		}
+		if k == model.TrustLevelBenefitsOptionKey {
+			value = model.TrustLevelConfigurationJSON()
+		}
 		isSensitiveKey := strings.HasSuffix(k, "Token") ||
 			strings.HasSuffix(k, "Secret") ||
 			strings.HasSuffix(k, "Key") ||
@@ -66,7 +77,7 @@ func GetOptions(c *gin.Context) {
 		"success":               true,
 		"message":               "",
 		"data":                  options,
-		"capabilities":          gin.H{"model_price_locks": true, "usd_pricing_options": true},
+		"capabilities":          gin.H{"model_price_locks": true, "usd_pricing_options": true, "trust_level_benefits": true},
 		"pricing_storage_basis": "legacy_pricing_unit",
 	})
 }

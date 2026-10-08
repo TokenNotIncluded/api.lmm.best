@@ -89,6 +89,7 @@ func UpdateUserSettingPreservingLocale(userID int, setting dto.UserSetting) erro
 				return err
 			}
 		}
+		setting.MerchantStoreHome = current.MerchantStoreHome
 		setting.Language = current.Language
 		setting.SettlementCurrency = current.SettlementCurrency
 		setting.WalletDisplayCurrency = current.WalletDisplayCurrency

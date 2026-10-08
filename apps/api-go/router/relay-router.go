@@ -181,8 +181,6 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 		assistantAdminRouter.GET("/first-questions", middleware.DisableCache(), controller.AdminGetAssistantFirstQuestionSummary)
 		assistantAdminRouter.GET("/profiles", controller.AdminGetAssistantProfileSummary)
 		assistantAdminRouter.GET("/funding", controller.AdminGetAssistantFundingSummary)
-		assistantAdminRouter.GET("/review", middleware.DisableCache(), controller.AdminGetAssistantReview)
-		assistantAdminRouter.POST("/review/run", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AdminRunAssistantReview)
 		assistantAdminRouter.GET("/request-reviews", middleware.DisableCache(), controller.AdminListAssistantRequestReviews)
 		assistantAdminRouter.POST("/users/:user_id/request-reviews/reset", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AdminResetAssistantRequestReviewViolations)
 	}

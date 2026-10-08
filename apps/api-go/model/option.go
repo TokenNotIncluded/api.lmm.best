@@ -40,7 +40,13 @@ func isRetiredIPAccessOptionKey(key string) bool {
 	return retired
 }
 
-func isRetiredDynamicPricingOption(key string) bool {
+func isRetiredConfigurationOption(key string) bool {
+	switch key {
+	case "AdvancedSecurityEnabled", "AdvancedSecurityOnPromptEnabled", "AdvancedSecurityAction", "AdvancedSecurityRules", "violation_fee.enabled", "violation_fee.policies":
+		return true
+	case "AssistantReviewEnabled", "AssistantReviewWindowDays", "AssistantReviewIntervalHours", "AssistantReviewProbability", "AssistantReviewGroup", "AssistantReviewModel", "AssistantReviewReasoningEffort", "AssistantReviewGroupPolicies":
+		return true
+	}
 	return key == "dynamic_pricing_setting" || strings.HasPrefix(key, "dynamic_pricing_setting.")
 }
 
@@ -50,7 +56,7 @@ func AllOption() ([]*Option, error) {
 	err = DB.Find(&options).Error
 	active := options[:0]
 	for _, option := range options {
-		if !isRetiredDynamicPricingOption(option.Key) {
+		if !isRetiredConfigurationOption(option.Key) {
 			active = append(active, option)
 		}
 	}
@@ -166,6 +172,7 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantStreamEnabledOptionKey] = strconv.FormatBool(assistantSettings.StreamEnabled)
 	common.OptionMap[setting.AssistantTemperatureOptionKey] = strconv.FormatFloat(assistantSettings.Temperature, 'f', -1, 64)
 	common.OptionMap[setting.AssistantMaxTokensOptionKey] = strconv.Itoa(assistantSettings.MaxTokens)
+	common.OptionMap[setting.AssistantNewUserGiftMaxCreditsOptionKey] = assistantSettings.NewUserGiftMaxCredits
 	common.OptionMap[setting.AssistantWeeklyCreditUSDOptionKey] = "0"
 	common.OptionMap[setting.AssistantAgentLoopEnabledOptionKey] = strconv.FormatBool(assistantSettings.AgentLoopEnabled)
 	common.OptionMap[setting.AssistantMaxStepsOptionKey] = strconv.Itoa(assistantSettings.MaxSteps)
@@ -181,14 +188,6 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantSearchMCPToolOptionKey] = assistantSettings.SearchMCPTool
 	common.OptionMap[setting.AssistantSkillsOptionKey] = assistantSettings.Skills
 	common.OptionMap[setting.AssistantSkillFilesOptionKey] = setting.AssistantSkillFilesJSON(assistantSettings.SkillFiles)
-	common.OptionMap[setting.AssistantReviewEnabledOptionKey] = strconv.FormatBool(assistantSettings.ReviewEnabled)
-	common.OptionMap[setting.AssistantReviewWindowDaysOptionKey] = strconv.Itoa(assistantSettings.ReviewWindowDays)
-	common.OptionMap[setting.AssistantReviewIntervalHoursOptionKey] = strconv.Itoa(assistantSettings.ReviewIntervalHours)
-	common.OptionMap[setting.AssistantReviewProbabilityOptionKey] = strconv.FormatFloat(assistantSettings.ReviewProbability, 'f', -1, 64)
-	common.OptionMap[setting.AssistantReviewGroupOptionKey] = assistantSettings.ReviewGroup
-	common.OptionMap[setting.AssistantReviewModelOptionKey] = assistantSettings.ReviewModel
-	common.OptionMap[setting.AssistantReviewReasoningEffortOptionKey] = assistantSettings.ReviewReasoningEffort
-	common.OptionMap[setting.AssistantReviewGroupPoliciesOptionKey] = setting.AssistantReviewGroupPoliciesJSON(assistantSettings.ReviewGroupPolicies)
 	for key, value := range setting.GetModerationSettings().OptionValues() {
 		common.OptionMap[key] = value
 	}
@@ -255,11 +254,6 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
-	advancedSecuritySettings := setting.GetAdvancedSecuritySettings()
-	common.OptionMap[setting.AdvancedSecurityEnabledOptionKey] = strconv.FormatBool(advancedSecuritySettings.Enabled)
-	common.OptionMap[setting.AdvancedSecurityOnPromptOptionKey] = strconv.FormatBool(advancedSecuritySettings.OnPrompt)
-	common.OptionMap[setting.AdvancedSecurityActionOptionKey] = advancedSecuritySettings.Action
-	common.OptionMap[setting.AdvancedSecurityRulesOptionKey] = setting.AdvancedSecurityRulesToJSONString()
 	antiRelaySettings := setting.GetAntiRelaySettings()
 	common.OptionMap[setting.AntiRelayEnabledOptionKey] = strconv.FormatBool(antiRelaySettings.Enabled)
 	common.OptionMap[setting.AntiRelayRejectProxyHeadersOptionKey] = strconv.FormatBool(antiRelaySettings.RejectProxyHeaders)
@@ -272,6 +266,8 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
 	common.OptionMap["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	common.OptionMap["ExposeRatioEnabled"] = strconv.FormatBool(ratio_setting.IsExposeRatioEnabled())
+
+	common.OptionMap[TrustLevelBenefitsOptionKey] = ""
 
 	// 自动添加所有注册的模型配置
 	modelConfigs := config.GlobalConfig.ExportAllConfigs()
@@ -319,6 +315,21 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == MerchantStoreAnalyticsRetentionOption {
+		_, err := ParseMerchantStoreAnalyticsConfig(value)
+		return err
+	}
+	if storeReservedWriterOptionKey(key) {
+		return ErrMerchantStoreWriterGateReserved
+	}
+	if key == MerchantStoreProductLinkPresetsOption {
+		_, err := parseStoreLinkPresets(value)
+		return err
+	}
+	if key == TrustLevelBenefitsOptionKey {
+		_, err := ParseTrustLevelConfiguration(value)
+		return err
+	}
 	if key == "payment_setting.amount_options" || key == "payment_setting.amount_discount" {
 		return operation_setting.ValidatePaymentCatalogJSON(key, value, operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens)
 	}
@@ -370,8 +381,8 @@ func validateOptionValue(key string, value string) error {
 	if key == "general_setting.custom_currency_code" {
 		return operation_setting.ValidateCustomCurrencyCode(value)
 	}
-	if isRetiredDynamicPricingOption(key) {
-		return errors.New("dynamic pricing has been removed; use fixed group ratios")
+	if isRetiredConfigurationOption(key) {
+		return errors.New("this configuration option has been removed")
 	}
 	if err := setting.ValidateAssistantOption(key, value); err != nil {
 		return err
@@ -387,21 +398,6 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == setting.AssistantGroupOptionKey && !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
 		return errors.New("assistant routing group must be an existing group")
-	}
-	if key == setting.AssistantReviewModelOptionKey {
-		group := strings.TrimSpace(setting.GetAssistantSettings().ReviewGroup)
-		if group == "" {
-			group = setting.DefaultAssistantReviewGroup
-		}
-		if !IsModelEnabledForGroup(group, strings.TrimSpace(value)) {
-			return fmt.Errorf("assistant review model is not enabled in the %s group; choose a live model from the model list", group)
-		}
-	}
-	if key == setting.AssistantReviewGroupOptionKey && !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
-		return errors.New("assistant review routing group must be an existing group")
-	}
-	if err := setting.ValidateAdvancedSecurityOption(key, value); err != nil {
-		return err
 	}
 	if err := setting.ValidateAntiRelayOption(key, value); err != nil {
 		return err
@@ -434,9 +430,6 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "GroupGroupRatio" {
 		return ratio_setting.CheckGroupGroupRatio(value)
-	}
-	if key == operation_setting.ViolationFeeOptionKey+".policies" {
-		return operation_setting.ValidateViolationFeeSettingsJSON(`{"enabled":true,"policies":` + value + `}`)
 	}
 	if err := validateAbsoluteHTTPURLOption(key, value); err != nil {
 		return err
@@ -748,7 +741,6 @@ func validateOptionValues(values map[string]string) error {
 		return errors.New("at least one option is required")
 	}
 	assistantRouteChanged := false
-	assistantReviewRouteChanged := false
 	l1AutoReviewValues := make(map[string]string)
 	moderationValues := make(map[string]string)
 	for key, value := range values {
@@ -763,9 +755,6 @@ func validateOptionValues(values map[string]string) error {
 		switch key {
 		case setting.AssistantGroupOptionKey, setting.AssistantModelOptionKey:
 			assistantRouteChanged = true
-			continue
-		case setting.AssistantReviewGroupOptionKey, setting.AssistantReviewModelOptionKey:
-			assistantReviewRouteChanged = true
 			continue
 		}
 		if err := validateOptionValue(key, value); err != nil {
@@ -787,24 +776,6 @@ func validateOptionValues(values map[string]string) error {
 			}
 		}
 		if err := validateAssistantRouteValues(values); err != nil {
-			return err
-		}
-	}
-	if assistantReviewRouteChanged {
-		if value, ok := values[setting.AssistantReviewGroupOptionKey]; ok {
-			if err := setting.ValidateAssistantOption(setting.AssistantReviewGroupOptionKey, value); err != nil {
-				return err
-			}
-			if !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
-				return errors.New("assistant review routing group must be an existing group")
-			}
-		}
-		if value, ok := values[setting.AssistantReviewModelOptionKey]; ok {
-			if err := setting.ValidateAssistantOption(setting.AssistantReviewModelOptionKey, value); err != nil {
-				return err
-			}
-		}
-		if err := validateAssistantReviewRouteValues(values); err != nil {
 			return err
 		}
 	}
@@ -847,29 +818,6 @@ func validateAssistantRouteValues(values map[string]string) error {
 	return nil
 }
 
-func validateAssistantReviewRouteValues(values map[string]string) error {
-	settings := setting.GetAssistantSettings()
-	group := strings.TrimSpace(settings.ReviewGroup)
-	if value, ok := values[setting.AssistantReviewGroupOptionKey]; ok {
-		group = strings.TrimSpace(value)
-	}
-	if group == "" {
-		group = setting.DefaultAssistantReviewGroup
-	}
-	if !ratio_setting.ContainsGroupRatio(group) {
-		return errors.New("assistant review routing group must be an existing group")
-	}
-
-	modelID := strings.TrimSpace(settings.ReviewModel)
-	if value, ok := values[setting.AssistantReviewModelOptionKey]; ok {
-		modelID = strings.TrimSpace(value)
-	}
-	if modelID == "" || !IsModelEnabledForGroup(group, modelID) {
-		return fmt.Errorf("assistant review model is not enabled in the %s group; choose a live model from the model list", group)
-	}
-	return nil
-}
-
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
 // transaction, then dispatches them through updateOptionMap in one pass. If
 // any DB write fails the whole transaction rolls back and no in-memory state
@@ -878,62 +826,6 @@ func validateAssistantReviewRouteValues(values map[string]string) error {
 func UpdateOptionsBulk(values map[string]string) error {
 	_, err := UpdateOptionsBulkWithWarnings(values)
 	return err
-}
-
-// UpdateAdvancedSecurityOptions persists and applies the four guardrail
-// settings as a unit. Database readers see one transaction, while request
-// handlers see one runtime settings swap instead of four intermediate states.
-func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string) error {
-	optionUpdateMutex.Lock()
-	defer optionUpdateMutex.Unlock()
-	values := map[string]string{
-		setting.AdvancedSecurityEnabledOptionKey:  strconv.FormatBool(enabled),
-		setting.AdvancedSecurityOnPromptOptionKey: strconv.FormatBool(onPrompt),
-		setting.AdvancedSecurityActionOptionKey:   action,
-		setting.AdvancedSecurityRulesOptionKey:    rules,
-	}
-	keys := []string{
-		setting.AdvancedSecurityRulesOptionKey,
-		setting.AdvancedSecurityActionOptionKey,
-		setting.AdvancedSecurityOnPromptOptionKey,
-		setting.AdvancedSecurityEnabledOptionKey,
-	}
-	for _, key := range keys {
-		if err := validateOptionValue(key, values[key]); err != nil {
-			return err
-		}
-	}
-
-	if err := DB.Transaction(func(tx *gorm.DB) error {
-		for _, key := range keys {
-			option := Option{Key: key}
-			if err := tx.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
-				return err
-			}
-			option.Value = values[key]
-			if err := tx.Save(&option).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Validation above makes this deterministic after the transaction. Keeping
-	// the setter defensive prevents future validation/runtime drift.
-	if err := setting.ApplyAdvancedSecuritySettings(enabled, onPrompt, action, rules); err != nil {
-		return err
-	}
-	common.OptionMapRWMutex.Lock()
-	if common.OptionMap == nil {
-		common.OptionMap = make(map[string]string)
-	}
-	for _, key := range keys {
-		common.OptionMap[key] = values[key]
-	}
-	common.OptionMapRWMutex.Unlock()
-	return nil
 }
 
 func updateOptionMap(key string, value string) (err error) {
@@ -958,7 +850,7 @@ func updateOptionMap(key string, value string) (err error) {
 	if setting.IsModerationOption(key) {
 		return applyModerationOptionMap(map[string]string{key: value})
 	}
-	if isRetiredDynamicPricingOption(key) {
+	if isRetiredConfigurationOption(key) {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()
@@ -1112,10 +1004,6 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.ModelRequestRateLimitEnabled = boolValue
 		case "StopOnSensitiveEnabled":
 			setting.StopOnSensitiveEnabled = boolValue
-		case setting.AdvancedSecurityEnabledOptionKey:
-			setting.SetAdvancedSecurityEnabled(boolValue)
-		case setting.AdvancedSecurityOnPromptOptionKey:
-			setting.SetAdvancedSecurityOnPrompt(boolValue)
 		case setting.AntiRelayEnabledOptionKey:
 			setting.SetAntiRelayEnabled(boolValue)
 		case setting.AntiRelayRejectProxyHeadersOptionKey:
@@ -1144,8 +1032,6 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.SetAssistantStreamEnabled(boolValue)
 		case setting.AssistantCacheEnabledOptionKey:
 			setting.SetAssistantCacheEnabled(boolValue)
-		case setting.AssistantReviewEnabledOptionKey:
-			setting.SetAssistantReviewEnabled(boolValue)
 		case setting.AssistantRetentionEnabledOptionKey:
 			setting.SetAssistantRetentionEnabled(boolValue)
 		}
@@ -1186,6 +1072,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantTemperature(value)
 	case setting.AssistantMaxTokensOptionKey:
 		err = setting.UpdateAssistantMaxTokens(value)
+	case setting.AssistantNewUserGiftMaxCreditsOptionKey:
+		err = setting.UpdateAssistantNewUserGiftMaxCredits(value)
 	case setting.AssistantMaxStepsOptionKey:
 		err = setting.UpdateAssistantMaxSteps(value)
 	case setting.AssistantTimeoutSecondsOptionKey:
@@ -1210,20 +1098,6 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantSkills(value)
 	case setting.AssistantSkillFilesOptionKey:
 		err = setting.UpdateAssistantSkillFiles(value)
-	case setting.AssistantReviewWindowDaysOptionKey:
-		err = setting.UpdateAssistantReviewWindowDays(value)
-	case setting.AssistantReviewIntervalHoursOptionKey:
-		err = setting.UpdateAssistantReviewIntervalHours(value)
-	case setting.AssistantReviewProbabilityOptionKey:
-		err = setting.UpdateAssistantReviewProbability(value)
-	case setting.AssistantReviewGroupOptionKey:
-		err = setting.UpdateAssistantReviewGroup(value)
-	case setting.AssistantReviewModelOptionKey:
-		err = setting.UpdateAssistantReviewModel(value)
-	case setting.AssistantReviewReasoningEffortOptionKey:
-		err = setting.UpdateAssistantReviewReasoningEffort(value)
-	case setting.AssistantReviewGroupPoliciesOptionKey:
-		err = setting.UpdateAssistantReviewGroupPolicies(value)
 	case setting.AssistantActiveRetentionDaysOptionKey:
 		err = setting.UpdateAssistantActiveRetentionDays(value)
 	case setting.AssistantArchivedRetentionDaysOptionKey:
@@ -1410,10 +1284,6 @@ func updateOptionMap(key string, value string) (err error) {
 		}
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
-	case setting.AdvancedSecurityActionOptionKey:
-		err = setting.UpdateAdvancedSecurityAction(value)
-	case setting.AdvancedSecurityRulesOptionKey:
-		err = setting.UpdateAdvancedSecurityRules(value)
 	case setting.AntiRelayBlockedCIDRsOptionKey:
 		err = setting.UpdateAntiRelayBlockedCIDRs(value)
 	case setting.AntiRelayTrustedProxyCIDRsOptionKey:

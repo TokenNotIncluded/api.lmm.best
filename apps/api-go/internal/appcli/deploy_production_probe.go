@@ -350,6 +350,12 @@ func exactPackageNameListed(output []byte, expected string) bool {
 }
 
 func (runtime *productionRuntime) healthCheck(ctx context.Context, workspace productionWorkspace, manifest productionManifest) error {
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, false); err != nil {
+		return err
+	}
+	if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, manifest, true, runtime.billingRollback); err != nil {
+		return err
+	}
 	if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"is-active", "--quiet", runtime.paths.Service}}); err != nil {
 		return errors.New("lmm-api service is not active")
 	}

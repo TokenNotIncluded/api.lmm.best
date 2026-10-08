@@ -28,6 +28,8 @@ func merchantStoreControllerRequest(t *testing.T, actor int, body string, handle
 func TestMerchantStoreControllerVerificationNeverReturnsCodeOrAcceptsOtherAddress(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "store-controller-fixture-encryption-key-20261006-123456789")
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
 	user := model.User{Username: "store-email-owner", AffCode: "store-email-owner", Email: "owner@example.test", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
@@ -78,6 +80,8 @@ func TestMerchantStoreControllerVerificationNeverReturnsCodeOrAcceptsOtherAddres
 func TestMerchantStoreControllerVerificationSanitizesSenderFailures(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "store-controller-fixture-encryption-key-20261006-123456789")
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
 	user := model.User{Username: "store-email-failure", AffCode: "store-email-failure", Email: "owner@example.test", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
@@ -95,6 +99,8 @@ func TestMerchantStoreControllerVerificationSanitizesSenderFailures(t *testing.T
 
 func TestMerchantStoreControllerConfigPatchPreservesFrozenUnitSettings(t *testing.T) {
 	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
 	root := model.User{Username: "store-config-root", AffCode: "store-config-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&root).Error)

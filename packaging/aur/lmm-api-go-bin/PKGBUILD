@@ -58,7 +58,7 @@ esac
 
 prepare() {
   local archive="${_artifact}-${_release_arch}.tar.gz"
-  local expected actual
+  local expected actual merchant_writer_capability
 
   expected=$(awk 'NR == 1 { print $1 }' "${archive}.sha256")
   [[ ${expected} =~ ^[[:xdigit:]]{64}$ ]] || return 1
@@ -105,6 +105,13 @@ prepare() {
     if [[ -e ${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY ]]; then
       [[ -f ${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY && ! -L ${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY ]] || return 1
       [[ $(<"${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY") == v1 ]] || return 1
+    fi
+    if [[ -e ${bundle}/MERCHANT_STORE_WRITER_CAPABILITY || -L ${bundle}/MERCHANT_STORE_WRITER_CAPABILITY ]]; then
+      [[ -f ${bundle}/MERCHANT_STORE_WRITER_CAPABILITY && ! -L ${bundle}/MERCHANT_STORE_WRITER_CAPABILITY ]] || return 1
+      merchant_writer_capability=$(<"${bundle}/MERCHANT_STORE_WRITER_CAPABILITY")
+      [[ ${merchant_writer_capability} =~ ^[1-9]$ ]] || return 1
+      cmp -s <(printf '%s\n' "$merchant_writer_capability") \
+        "${bundle}/MERCHANT_STORE_WRITER_CAPABILITY" || return 1
     fi
     grep -Fqx 'Environment=LMM_API_FRONTEND_DIR=/srv/lmm-api-frontend/current' \
       "${bundle}/lmm-api.service"
@@ -176,6 +183,10 @@ package() {
   if [[ -f ${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY ]]; then
     install -Dm0644 "${bundle}/MANAGED_BILLING_SETTLEMENT_CAPABILITY" \
       "${pkgdir}/usr/share/doc/${pkgname}/MANAGED_BILLING_SETTLEMENT_CAPABILITY"
+  fi
+  if [[ -f ${bundle}/MERCHANT_STORE_WRITER_CAPABILITY ]]; then
+    install -Dm0644 "${bundle}/MERCHANT_STORE_WRITER_CAPABILITY" \
+      "${pkgdir}/usr/share/doc/${pkgname}/MERCHANT_STORE_WRITER_CAPABILITY"
   fi
 
   install -d -m0755 "${pkgdir}/usr/share/lmm-api-go/edge-policy"

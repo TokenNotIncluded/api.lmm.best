@@ -20,6 +20,8 @@ func marketAIWorkerFixture(t *testing.T, mode string) (*gorm.DB, int, *model.Mer
 	t.Helper()
 	db, userID := setupAssistantFundingTestDB(t, 1000000)
 	db.Logger = logger.Discard
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(append(model.MerchantStoreModels(), &model.Option{}, &model.ModerationJob{}, &model.ViolationFeeRecord{}, &model.AssistantRequestReview{}, &model.ModerationNotice{}, &model.WalletTransfer{})...))
 	for key, value := range map[string]string{setting.StoreAIReviewModeOptionKey: mode, setting.ModerationEnabledOptionKey: "true", setting.ModerationGroupPoliciesOptionKey: `{"default":{"mode":"strict","amount_currency":"USD","category_fines_usd":{"hate":100}}}`} {
 		require.NoError(t, db.Create(&model.Option{Key: key, Value: value}).Error)

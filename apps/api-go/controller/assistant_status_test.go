@@ -139,11 +139,9 @@ func TestAssistantStatusCapabilities(t *testing.T) {
 	}
 
 	admin := capabilities(users[0].Id)
-	assert.True(t, admin["assistant_review"])
 	assert.False(t, admin["admin_config"])
 	assert.False(t, admin["admin_pricing"])
 	root := capabilities(users[1].Id)
-	assert.True(t, root["assistant_review"])
 	assert.True(t, root["admin_config"])
 	assert.True(t, root["admin_pricing"])
 }

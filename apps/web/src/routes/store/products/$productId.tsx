@@ -4,10 +4,42 @@ import { createFileRoute } from '@tanstack/react-router'
 import { StoreProductPage } from '@/features/store/product-page'
 
 export const Route = createFileRoute('/store/products/$productId')({
+  validateSearch: (search: Record<string, unknown>) => ({
+    owner_preview:
+      search.owner_preview === true || search.owner_preview === 'true',
+    promotion: typeof search.promotion === 'string' ? search.promotion : '',
+    variant_id:
+      typeof search.variant_id === 'string' &&
+      /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(search.variant_id)
+        ? search.variant_id
+        : undefined,
+    quantity:
+      Number.isSafeInteger(Number(search.quantity)) &&
+      Number(search.quantity) > 0 &&
+      Number(search.quantity) <= 1000
+        ? Number(search.quantity)
+        : 1,
+    cart_item_id:
+      typeof search.cart_item_id === 'string' &&
+      /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(search.cart_item_id)
+        ? search.cart_item_id
+        : undefined,
+  }),
   component: Page,
 })
 
 function Page() {
   const { productId } = Route.useParams()
-  return <StoreProductPage id={productId} />
+  const { owner_preview, promotion, variant_id, quantity, cart_item_id } =
+    Route.useSearch()
+  return (
+    <StoreProductPage
+      id={productId}
+      ownerPreview={owner_preview}
+      promotionCode={promotion}
+      initialVariantId={variant_id}
+      initialQuantity={quantity}
+      cartItemId={cart_item_id}
+    />
+  )
 }

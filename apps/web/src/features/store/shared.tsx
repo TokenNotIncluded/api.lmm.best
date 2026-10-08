@@ -8,7 +8,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Outlet, useRouterState } from '@tanstack/react-router'
-import { Fragment, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
@@ -62,9 +62,11 @@ export function StoreShell() {
           >
             {[
               ['/store', 'Browse products'],
+              ['/store/cart', 'Shopping cart'],
+              ['/store/favorites', 'Favorite products'],
               ['/store/orders', 'My orders'],
               ['/store/manage', 'Seller center'],
-              ['/store/settings', 'Payment settings'],
+              ['/store/settings', 'Settings'],
               ...(user && user.role >= 10
                 ? [['/store/review', 'Review products']]
                 : []),
@@ -116,7 +118,7 @@ export function StoreAmount({ quota }: { quota: number }) {
   }
   return (
     <span className='tabular-nums'>
-      {money.formatQuota(quota, { abbreviate: false })}
+      {money.formatQuota(quota, { abbreviate: false, digitsSmall: 2 })}
     </span>
   )
 }
@@ -164,33 +166,47 @@ export function StoreBadges({ product }: { product: StoreProduct }) {
   const { t } = useTranslation()
   return (
     <div className='flex flex-wrap items-center gap-2 text-xs'>
+      {product.unlimited_supply && (
+        <span className='bg-muted text-muted-foreground rounded px-2 py-1'>
+          {t('Unlimited supply')}
+        </span>
+      )}
+      {product.category?.name && (
+        <span className='bg-muted text-muted-foreground rounded px-2 py-1'>
+          {product.category.name}
+        </span>
+      )}
       {product.official && (
         <span className='bg-primary/10 text-primary inline-flex items-center gap-1 rounded px-2 py-1'>
           <HugeiconsIcon icon={Tick02Icon} className='size-3.5' />
           {t('Official')}
         </span>
       )}
-      {product.promotion_expires_at > Date.now() / 1000 && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span
-                tabIndex={0}
-                aria-label={t('Promoted product')}
-                className='text-warning inline-flex items-center gap-1 rounded px-1 py-1'
-              />
-            }
-          >
-            <HugeiconsIcon icon={SparklesIcon} className='size-4' />
-            {t('Promoted')}
-          </TooltipTrigger>
-          <TooltipContent>
-            {t(
-              'The seller paid for higher placement. Promotion does not guarantee product quality.'
-            )}
-          </TooltipContent>
-        </Tooltip>
-      )}
+      {product.status === 'published' &&
+        !product.trading_paused &&
+        ((product.unlimited_supply && product.sale_limit == null) ||
+          (product.sale_available ?? 0) > 0) &&
+        product.promotion_expires_at > Date.now() / 1000 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  tabIndex={0}
+                  aria-label={t('Promoted product')}
+                  className='text-warning inline-flex items-center gap-1 rounded px-1 py-1'
+                />
+              }
+            >
+              <HugeiconsIcon icon={SparklesIcon} className='size-4' />
+              {t('Promoted')}
+            </TooltipTrigger>
+            <TooltipContent>
+              {t(
+                'The seller paid for higher placement. Promotion does not guarantee product quality.'
+              )}
+            </TooltipContent>
+          </Tooltip>
+        )}
     </div>
   )
 }
@@ -198,13 +214,19 @@ export function StoreBadges({ product }: { product: StoreProduct }) {
 export function CopyStoreValue({
   value,
   label = 'Copy',
+  disabled = false,
 }: {
   value: string
   label?: string
+  disabled?: boolean
 }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState(false)
+  useEffect(() => {
+    setCopied(false)
+    setError(false)
+  }, [value])
   async function copy() {
     try {
       await navigator.clipboard.writeText(value)
@@ -220,6 +242,7 @@ export function CopyStoreValue({
         type='button'
         size='sm'
         variant='outline'
+        disabled={disabled}
         onClick={() => void copy()}
       >
         <HugeiconsIcon

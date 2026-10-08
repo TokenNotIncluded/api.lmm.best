@@ -43,6 +43,12 @@ for (const key of [
     value: dom[key],
   })
 }
+Object.defineProperty(dom.navigator, 'locks', {
+  configurable: true,
+  value: {
+    request: async (_name: string, task: () => Promise<unknown>) => task(),
+  },
+})
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
@@ -126,6 +132,28 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 35))
 }
 async function mount(node: React.ReactNode, signedIn = true) {
+  const mockPost = api.post
+  api.post = (async (url: string, body: unknown, options?: unknown) => {
+    const buyerId = useAuthStore.getState().auth.user?.id
+    const response = await mockPost(url, body, options as never)
+    if (
+      url === '/api/store/orders' &&
+      response.data?.success === true &&
+      response.data?.data?.order
+    ) {
+      const request = body as Record<string, unknown>
+      response.data.data.order = {
+        product_id: request.product_id,
+        variant_id: request.variant_id,
+        quantity: request.quantity,
+        payment_method: request.payment_method,
+        buyer_id: buyerId,
+        ...response.data.data.order,
+      }
+    }
+    return response
+  }) as typeof api.post
+
   useSystemConfigStore.setState({
     config: {
       ...originalConfig,
@@ -167,6 +195,22 @@ async function mount(node: React.ReactNode, signedIn = true) {
     await flush()
   })
   await act(flush)
+}
+async function replaceCheckout(next: StoreProduct) {
+  assert.ok(root)
+  assert.ok(client)
+  const mountedRoot = root
+  const mountedClient = client
+  await act(async () => {
+    mountedRoot.render(
+      <QueryClientProvider client={mountedClient}>
+        <I18nextProvider i18n={i18n}>
+          <StoreCheckout product={next} />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+    await flush()
+  })
 }
 function required<T>(value: T | null | undefined): T {
   assert.ok(value)
@@ -231,9 +275,44 @@ afterEach(async () => {
   api.post = originalPost
   useAuthStore.getState().auth.setUser(null)
   useSystemConfigStore.setState({ config: originalConfig })
+  localStorage.clear()
   document.body.replaceChildren()
 })
 after(() => dom.happyDOM.abort())
+
+test('unlimited fixed content can be purchased with zero stock while remaining capped by purchase limits', async () => {
+  const writes = mockCheckout()
+  const fixed = {
+    ...product,
+    template: 'fixed-content' as const,
+    unlimited_supply: true,
+    available_stock: 0,
+    sale_available: 0,
+    sale_limit: null,
+    max_quantity_per_order: 3,
+  }
+  await mount(<StoreCheckout product={fixed} />)
+  assert.match(document.body.textContent || '', /Unlimited supply/)
+  assert.doesNotMatch(
+    document.body.textContent || '',
+    /Stock:|Infinity|9007199254740991/
+  )
+  const more = required(
+    document.querySelector<HTMLButtonElement>(
+      '[aria-label="Increase quantity"]'
+    )
+  )
+  await click(more)
+  await click(more)
+  assert.equal(more.disabled, true)
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '3'
+  )
+  await click(button('Place order'))
+  assert.equal(writes[0].quantity, 3)
+  assert.equal(fixed.available_stock, 0)
+})
 
 test('visible quantity controls obey stock and a merchant can order their own whole batch', async () => {
   const writes = mockCheckout()
@@ -272,6 +351,106 @@ test('visible quantity controls obey stock and a merchant can order their own wh
   assert.equal('variant_id' in writes[0], false)
 })
 
+test('restocking keeps quantity controls visible and a refreshed buyer or order cap clamps the count', async () => {
+  mockCheckout()
+  await mount(<StoreCheckout product={{ ...product, available_stock: 1 }} />)
+  const more = required(
+    document.querySelector<HTMLButtonElement>(
+      '[aria-label="Increase quantity"]'
+    )
+  )
+  assert.equal(more.disabled, true)
+  await replaceCheckout({ ...product, available_stock: 8 })
+  assert.equal(more.disabled, false)
+  await click(more)
+  await click(more)
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '3'
+  )
+  await replaceCheckout({
+    ...product,
+    available_stock: 8,
+    max_quantity_per_order: 2,
+  })
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '2'
+  )
+  assert.equal(more.disabled, true)
+  await replaceCheckout({
+    ...product,
+    available_stock: 8,
+    max_quantity_per_buyer: 4,
+    buyer_purchase_remaining: 1,
+  })
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '1'
+  )
+  assert.equal(more.disabled, true)
+  await replaceCheckout({
+    ...product,
+    available_stock: 8,
+    max_quantity_per_buyer: 4,
+    buyer_purchase_remaining: 0,
+  })
+  assert.equal(button('Place order').disabled, true)
+  assert.ok(document.getElementById('store-quantity'))
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '1'
+  )
+})
+
+test('switching to a smaller specification adjusts the selected quantity without changing sales quota', async () => {
+  mockCheckout()
+  const variant = (id: string, capacity: number) => ({
+    id,
+    product_id: product.id,
+    name: id,
+    price_quota: product.price_quota,
+    template: product.template,
+    enabled: true,
+    created_at: 1,
+    updated_at: 1,
+    is_default: false,
+    inventory_total: capacity,
+    inventory_available: capacity,
+    reserved_stock: 0,
+    sale_available: capacity,
+    trading_paused: false,
+  })
+  const withVariants = {
+    ...product,
+    sale_available: 8,
+    sale_limit: 20,
+    variants: [variant('large', 5), variant('small', 1)],
+  }
+  await mount(<StoreCheckout product={withVariants} />)
+  await click(
+    required(
+      document.querySelector<HTMLInputElement>(
+        'input[name="store-variant"][value="large"]'
+      )
+    )
+  )
+  await input('store-quantity', '4')
+  await click(
+    required(
+      document.querySelector<HTMLInputElement>(
+        'input[name="store-variant"][value="small"]'
+      )
+    )
+  )
+  assert.equal(
+    (document.getElementById('store-quantity') as HTMLInputElement).value,
+    '1'
+  )
+  assert.equal(withVariants.sale_limit, 20)
+  assert.equal(withVariants.sale_available, 8)
+})
+
 test('fractional, exponent, excessive, empty and unsafe total inputs cannot place an order', async () => {
   const writes = mockCheckout()
   await mount(
@@ -303,7 +482,7 @@ test('fractional, exponent, excessive, empty and unsafe total inputs cannot plac
   assert.equal(button('Place order').disabled, false)
 })
 
-test('unchanged network retries reuse the key; a changed quantity gets a new key', async () => {
+test('unknown network retries keep the original quantity and request key until the original order is resolved', async () => {
   const attempts: Array<Record<string, unknown>> = []
   api.get = (async () =>
     envelope({
@@ -317,24 +496,24 @@ test('unchanged network retries reuse the key; a changed quantity gets a new key
       throw new Error('Simulated retryable network error')
     }
     return envelope({
-      order: { ...pending, quantity: 2, price_quota: 1000000 },
+      order: { ...pending, quantity: 1, price_quota: 500000 },
       created: true,
     })
   }) as typeof api.post
   await mount(<StoreCheckout product={product} />)
   await click(button('Place order'))
-  await click(button('Place order'))
+  await click(button('Retry this order request'))
   await input('store-quantity', '2')
-  await click(button('Place order'))
+  await click(button('Retry this order request'))
   assert.deepEqual(
     attempts.map((attempt) => attempt.quantity),
-    [1, 1, 2]
+    [1, 1, 1]
   )
   assert.equal(attempts[0].request_key, attempts[1].request_key)
-  assert.notEqual(attempts[0].request_key, attempts[2].request_key)
+  assert.equal(attempts[0].request_key, attempts[2].request_key)
 })
 
-test('balance quantity can be 1000; switching to a platform gateway keeps input but requires at most 100', async () => {
+test('balance quantity can be 1000; switching to a platform gateway clamps the count to its current cap', async () => {
   const writes = mockCheckout()
   await mount(
     <StoreCheckout
@@ -359,16 +538,16 @@ test('balance quantity can be 1000; switching to a platform gateway keeps input 
   )
   assert.equal(
     (document.getElementById('store-quantity') as HTMLInputElement).value,
-    '200'
+    '100'
   )
-  assert.equal(button('Place order').disabled, true)
+  assert.equal(button('Place order').disabled, false)
   await input('store-quantity', '100')
   await click(button('Place order'))
   assert.equal(writes[0].quantity, 100)
   assert.equal(writes[0].payment_method, 'platform:waffo_pancake')
 })
 
-test('stock changes preserve excessive input and prevent a stale order until corrected', async () => {
+test('stock changes clamp excessive input before an explicit purchase', async () => {
   const writes = mockCheckout()
   const { useState } = await import('react')
   function StockChange() {
@@ -388,12 +567,14 @@ test('stock changes preserve excessive input and prevent a stale order until cor
   await click(button('Reduce stock'))
   assert.equal(
     (document.getElementById('store-quantity') as HTMLInputElement).value,
-    '3'
+    '1'
   )
-  assert.equal(button('Place order').disabled, true)
+  assert.equal(button('Place order').disabled, false)
   assert.equal(writes.length, 0)
   await input('store-quantity', '1')
   assert.equal(button('Place order').disabled, false)
+  await click(button('Place order'))
+  assert.equal(writes[0].quantity, 1)
 })
 
 test('batch collection displays and copies every delivered item together', async () => {

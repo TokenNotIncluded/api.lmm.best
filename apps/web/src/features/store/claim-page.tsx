@@ -6,12 +6,16 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
+import { Markdown } from '@/components/ui/markdown'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
+import { StoreClaimItems } from './claim-items'
+import { STORE_FIXED_CONTENT_COPY as copy } from './fixed-content-copy'
+import { StorePickupRefunds } from './refund-panel'
 import { CopyStoreValue, StoreError, StoreLoading } from './shared'
 import type { StoreClaim } from './types'
+import { safeStoreUrl } from './utils'
 
 export function StoreClaimPage({ token }: { token: string }) {
   const user = useAuthStore((state) => state.auth.user)
@@ -66,6 +70,7 @@ function StoreClaimContent({ token }: { token: string }) {
     )
   }
   const metadata = query.data
+  const quantity = claim?.quantity ?? metadata.quantity
   return (
     <div className='space-y-6'>
       <div className='space-y-2'>
@@ -73,6 +78,16 @@ function StoreClaimContent({ token }: { token: string }) {
           {t('Collect your items')}
         </h1>
         <h2 className='text-lg break-words'>{metadata.product_title}</h2>
+        {(claim?.variant_name || metadata.variant_name) && (
+          <p className='text-muted-foreground text-sm break-words'>
+            {t('Specification')}: {claim?.variant_name || metadata.variant_name}
+          </p>
+        )}
+        {quantity != null && (
+          <p className='text-muted-foreground text-sm'>
+            {t('Quantity')}: {quantity}
+          </p>
+        )}
         <p className='text-muted-foreground text-sm'>
           {t(
             'Keep this link private. Anyone meeting its protection requirements can collect the items.'
@@ -80,9 +95,13 @@ function StoreClaimContent({ token }: { token: string }) {
         </p>
       </div>
       <StoreError error={error} />
-      {metadata.status !== 'paid' ? (
+      {!['paid', 'refund_pending'].includes(metadata.status) ? (
         <p className='rounded-lg border p-4 text-sm'>
-          {t('This order is not paid yet. Check its status in order history.')}
+          {t(
+            metadata.status === 'refunded'
+              ? 'This order has been refunded.'
+              : 'This order is not paid yet. Check its status in order history.'
+          )}
         </p>
       ) : metadata.pickup_login_required && !metadata.pickup_login_satisfied ? (
         <div className='space-y-3 rounded-lg border p-4'>
@@ -109,32 +128,54 @@ function StoreClaimContent({ token }: { token: string }) {
           </Button>
         </div>
       ) : claim ? (
-        <div className='space-y-4'>
-          <div className='flex items-center justify-between gap-3'>
-            <span className='text-sm'>
-              {t('{{count}} items', { count: claim.items.length })}
-            </span>
-            <CopyStoreValue
-              value={claim.items.join('\n')}
-              label='Copy all items'
-            />
-          </div>
-          {claim.items.map((item, index) => (
-            <div key={index} className='space-y-2 border-t pt-4'>
-              <Label htmlFor={`pickup-item-${index}`}>
-                {t('Item {{number}}', { number: index + 1 })}
-              </Label>
-              <Textarea
-                id={`pickup-item-${index}`}
-                value={item}
-                readOnly
-                rows={Math.min(6, Math.max(2, item.split('\n').length))}
-                autoComplete='off'
-                spellCheck={false}
-              />
-              <CopyStoreValue value={item} />
+        <div className='flex flex-col gap-6'>
+          {claim.product_description && (
+            <Markdown className='min-w-0'>{claim.product_description}</Markdown>
+          )}
+          {!!claim.product_links?.length && (
+            <div className='flex flex-col gap-3'>
+              <h3 className='text-sm font-semibold'>{t('Product links')}</h3>
+              {claim.product_links.map((link, index) => {
+                const url = safeStoreUrl(link.url)
+                if (!url) return null
+                return (
+                  <div key={index} className='flex flex-col gap-1 text-sm'>
+                    <a
+                      href={url}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='focus-visible:outline-ring underline underline-offset-4 focus-visible:outline-2'
+                    >
+                      {link.title || url}
+                    </a>
+                    {link.description && (
+                      <p className='text-muted-foreground break-words whitespace-pre-wrap'>
+                        {link.description}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-          ))}
+          )}
+          {claim.delivery_template === 'fixed-content' ? (
+            claim.fixed_content && (
+              <section className='min-w-0 space-y-3'>
+                <h3 className='text-sm font-semibold'>{t(copy.content)}</h3>
+                <Markdown className='min-w-0'>{claim.fixed_content}</Markdown>
+                <CopyStoreValue value={claim.fixed_content} label='Copy all' />
+              </section>
+            )
+          ) : (
+            <StoreClaimItems
+              key={claim.order_id}
+              items={claim.items}
+              itemStockIds={claim.item_stock_ids}
+              itemPositions={claim.item_positions}
+              deliveryTemplate={claim.delivery_template}
+              variantName={claim.variant_name || metadata.variant_name}
+            />
+          )}
         </div>
       ) : (
         <form
@@ -173,6 +214,16 @@ function StoreClaimContent({ token }: { token: string }) {
             {t(busy ? 'Collecting...' : 'Collect items')}
           </Button>
         </form>
+      )}
+      {['paid', 'refund_pending', 'refunded'].includes(metadata.status) && (
+        <StorePickupRefunds
+          metadata={metadata}
+          token={token}
+          onChanged={async () => {
+            setClaim(null)
+            await query.refetch()
+          }}
+        />
       )}
       <a
         href='/store/orders'

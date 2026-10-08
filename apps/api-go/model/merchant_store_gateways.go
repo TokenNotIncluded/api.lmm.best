@@ -30,6 +30,9 @@ func SaveMerchantStoreGateway(sellerID int, provider string, enabled bool, confi
 		if e := marketLockUsers(tx, sellerID); e != nil {
 			return e
 		}
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
 		u, e := storeUser(tx, sellerID, common.RoleCommonUser)
 		if e != nil {
 			return e

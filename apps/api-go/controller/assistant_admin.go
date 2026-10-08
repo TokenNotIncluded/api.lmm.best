@@ -89,6 +89,7 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"AssistantStreamEnabled":                        "Stream assistant responses to the console",
 	"AssistantTemperature":                          "Assistant response temperature",
 	"AssistantMaxTokens":                            "Maximum assistant response tokens",
+	"AssistantNewUserGiftMaxCredits":                "Maximum one-time new-user gift in integer wallet credits (0 disables issuance)",
 	"AssistantAgentLoopEnabled":                     "Enable safe assistant tool calls",
 	"AssistantMaxSteps":                             "Maximum assistant tool-loop steps",
 	"AssistantTimeoutSeconds":                       "Assistant tool-loop timeout",
@@ -101,14 +102,6 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"AssistantSearchMCPTool":                        "Assistant MCP search tool name",
 	"AssistantSkills":                               "Assistant skills and playbooks",
 	"AssistantSkillFiles":                           "Administrator-managed platform skill files",
-	"AssistantReviewEnabled":                        "Enable automatic assistant review",
-	"AssistantReviewWindowDays":                     "Assistant review window in days",
-	"AssistantReviewIntervalHours":                  "Assistant review interval in hours",
-	"AssistantReviewProbability":                    "Per-request assistant review sampling probability",
-	"AssistantReviewGroup":                          "Background assistant review routing group",
-	"AssistantReviewModel":                          "Background assistant review model ID",
-	"AssistantReviewReasoningEffort":                "Background assistant review reasoning effort",
-	"AssistantReviewGroupPolicies":                  "Per-routing-group assistant review policies",
 	"ServerAddress":                                 "Public service address",
 	"WorkerUrl":                                     "Worker service URL",
 	"CustomCallbackAddress":                         "Payment callback address",
@@ -170,10 +163,6 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"QuotaForInviter":                               "Invitation reward for inviter",
 	"QuotaForInvitee":                               "Invitation reward for invitee",
 	"OpenSourceBountyFeeRate":                       "Open-source bounty platform fee",
-	"AdvancedSecurityEnabled":                       "Enable advanced security rules",
-	"AdvancedSecurityOnPromptEnabled":               "Apply advanced security rules to prompts",
-	"AdvancedSecurityAction":                        "Advanced security action",
-	"AdvancedSecurityRules":                         "Advanced security rule set",
 	"LinuxDOMinimumTrustLevel":                      "Minimum LinuxDO trust level",
 	"QuotaRemindThreshold":                          "Quota reminder threshold",
 	"PreConsumedQuota":                              "Pre-consumed request quota",
@@ -1251,30 +1240,6 @@ func executeAssistantAdminConfigTool(c *gin.Context, userID int) map[string]any 
 		"configurable_settings":      settings,
 		"sensitive_settings_omitted": true,
 		"write_rule":                 "Use prepare_admin_config_change, then wait for explicit UI confirmation.",
-	}
-}
-
-func executeAssistantReviewTool(userID int) map[string]any {
-	if _, err := assistantAdminUser(userID); err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}
-	}
-	task, err := model.GetLatestSystemTask(model.SystemTaskTypeAssistantReview)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "automatic assistant review is unavailable"}
-	}
-	if task == nil {
-		return map[string]any{"ok": true, "status": "not_run", "review": nil}
-	}
-	if task.Status != model.SystemTaskStatusSucceeded {
-		return map[string]any{"ok": true, "status": task.Status, "review": nil, "updated_at": task.UpdatedAt}
-	}
-	review := model.AssistantReview{}
-	if err := json.Unmarshal([]byte(task.Result), &review); err != nil {
-		return map[string]any{"ok": false, "error": "automatic assistant review result is invalid"}
-	}
-	return map[string]any{
-		"ok": true, "status": task.Status, "updated_at": task.UpdatedAt,
-		"privacy_scope": "aggregate_only", "review": review,
 	}
 }
 

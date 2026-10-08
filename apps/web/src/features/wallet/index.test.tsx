@@ -488,9 +488,11 @@ async function renderWallet(
     selfQuota?: number
     topupRecords?: TopupRecord[]
     paymentReturn?: 'return' | 'cancel'
+    user?: Partial<AuthUser>
   } = {}
 ) {
   const user = {
+    ...options.user,
     id: 7,
     username: 'checkout-user',
     role: 1,
@@ -696,6 +698,56 @@ for (const paymentReturn of ['return', 'cancel'] as const) {
         .querySelector('[data-testid="wallet-token-cloud-balance"]')
         ?.getAttribute('data-success'),
       'true'
+    )
+    queryClient.clear()
+  })
+}
+
+for (const paymentReturn of ['return', 'cancel'] as const) {
+  test(`an L0 checkout ${paymentReturn} can read its pending order without activation or another payment`, async () => {
+    window.localStorage.removeItem('wallet-topup-cloud:7')
+    const { container, queryClient } = await renderWallet(false, {
+      paymentReturn,
+      topupRecords: [
+        {
+          id: 44,
+          user_id: 7,
+          amount: 10,
+          money: 70,
+          trade_no: 'l0-pending-checkout',
+          payment_method: 'alipay',
+          create_time: Math.floor(Date.now() / 1000),
+          complete_time: 0,
+          status: 'pending',
+        },
+      ],
+    })
+    const reads: string[] = []
+    const fixtureGet = api.get
+    api.get = (async (url, ...args) => {
+      reads.push(url)
+      return fixtureGet(url, ...args)
+    }) as typeof api.get
+    const check = [
+      ...container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((button) => button.textContent === 'Check payment status')
+    assert.ok(check)
+    assert.ok(container.textContent?.includes('Order History'))
+    await act(async () => {
+      check.click()
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    })
+    const dialog = document.querySelector('[role="dialog"]')
+    assert.ok(dialog?.textContent?.includes('l0-pending-checkout'))
+    assert.ok(reads.some((url) => url.startsWith('/api/user/topup/self?')))
+    assert.ok(reads.every((url) => !url.startsWith('/api/user/topup?')))
+    assert.equal(
+      useAuthStore.getState().auth.user?.developer_access_granted,
+      false
+    )
+    assert.equal(
+      container.querySelector('[data-testid="payment-success-receipt"]'),
+      null
     )
     queryClient.clear()
   })
@@ -2072,6 +2124,64 @@ test('invalid URL discount code does not abort checkout when switching payment m
   queryClient.clear()
 })
 
+const l0ActivationShortfallAccount: Partial<AuthUser> = {
+  onboarding: {
+    activation_complete: false,
+    credential_complete: false,
+    first_request_complete: false,
+    stage: 'activate',
+    paid_activation_enabled: true,
+    paid_activation_min_credits: '26000001',
+    paid_activation_min_amount: 9999,
+  },
+  trust_level_info: {
+    level: 0,
+    automatic_level: 0,
+    override_level: null,
+    paid_amount: 99999,
+    paid_credits: '1000000',
+    discount_ratio: 1,
+    discount_percent: 0,
+    inactivity_decay_steps: 0,
+    decay_period_days: 0,
+    overridden: false,
+  },
+}
+
+test('L0 checkout starts with its exact configured activation shortfall without starting payment', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const requests: Array<{ url: string; amount: number }> = []
+  api.post = v2PaymentPost((async (url, request) => {
+    const amount = (request as AmountRequest).amount
+    requests.push({ url, amount })
+    return {
+      data: { message: 'success', data: String(amount / 500000) },
+    }
+  }) as typeof api.post)
+  const { container, queryClient } = await renderWallet(false, {
+    user: l0ActivationShortfallAccount,
+    setting: { wallet_display_currency: 'USD' },
+  })
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#topup-amount')?.value,
+    '≈50'
+  )
+  assert.ok(requests.length > 0)
+  assert.ok(
+    requests.every(
+      ({ url, amount }) =>
+        url === '/api/user/topup/currency/v2/amount' && amount === 25000001
+    ),
+    'only quotes are requested and they retain the exact credit shortfall'
+  )
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  assert.equal(
+    useAuthStore.getState().auth.user?.developer_access_granted,
+    false
+  )
+  queryClient.clear()
+})
+
 test('an MCP top-up link only prefills the wallet and waits for user payment selection', async () => {
   window.history.replaceState({}, '', '/wallet?topup_amount=25')
   const requests: string[] = []
@@ -2085,7 +2195,9 @@ test('an MCP top-up link only prefills the wallet and waits for user payment sel
       },
     }
   }) as typeof api.post)
-  const { container, queryClient } = await renderWallet()
+  const { container, queryClient } = await renderWallet(false, {
+    user: l0ActivationShortfallAccount,
+  })
   const input = container.querySelector<HTMLInputElement>('#topup-amount')
   assert.ok(input)
   assert.equal(input.value, '25')

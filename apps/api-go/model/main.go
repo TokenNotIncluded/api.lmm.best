@@ -254,8 +254,14 @@ func initDBWithMigrationSession(chooser databaseChooser) (*StartupMigrationSessi
 			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
 		}
 		err = session.runPrimaryPhase(DB, dbType, func() error {
+			if err := checkMerchantStoreWriterMigration(DB); err != nil {
+				return err
+			}
 			common.SysLog("database migration started")
-			return migrateDB()
+			if err := migrateDB(); err != nil {
+				return err
+			}
+			return nil
 		}, func() error {
 			common.SysLog("database migration verification started")
 			return verifyPostgresRuntimeAndSchema(DB)
@@ -351,8 +357,8 @@ func mainMigrationModels() []interface{} {
 		&UserOAuthBinding{}, &PerfMetric{}, &SystemInstance{}, &SystemTask{}, &SystemTaskLock{},
 		&CasbinRule{}, &AuthzRole{},
 		&WaffoPancakeWebhookReceipt{}, &CompanyBillingProfile{},
-		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantTurnReceipt{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AssistantRegistrationProfile{}, &AssistantRegistrationFingerprint{}, &AssistantRegistrationCase{}, &AssistantRegistrationEvent{}, &AdvancedSecurityEvent{},
-		&ViolationFeeState{}, &ViolationFeeRecord{}, &ViolationFeeAppeal{},
+		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantTurnReceipt{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AssistantRegistrationProfile{}, &AssistantRegistrationFingerprint{}, &AssistantRegistrationCase{}, &AssistantRegistrationEvent{},
+		&ViolationFeeRecord{}, &ViolationFeeAppeal{},
 		&ModerationJob{}, &ModerationNotice{},
 		&ReferralReward{}, &ReferralLedgerEntry{}, &ReferralModerationEvent{},
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
@@ -572,7 +578,6 @@ func migrateDBFast() error {
 		{&AssistantRegistrationFingerprint{}, "AssistantRegistrationFingerprint"},
 		{&AssistantRegistrationCase{}, "AssistantRegistrationCase"},
 		{&AssistantRegistrationEvent{}, "AssistantRegistrationEvent"},
-		{&AdvancedSecurityEvent{}, "AdvancedSecurityEvent"},
 		{&ReleaseNote{}, "ReleaseNote"},
 		{&RatioNotification{}, "RatioNotification"},
 		{&RatioDelivery{}, "RatioDelivery"},

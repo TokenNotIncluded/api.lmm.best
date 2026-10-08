@@ -84,6 +84,10 @@ export const merchantStoreCopy = {
     'Importing...': 'Importing...',
     'Invalid amount': 'Invalid amount',
     'Inventory import is too large': 'Inventory import is too large',
+    "Check each item's size or split this inventory import into smaller batches.":
+      "Check each item's size or split this inventory import into smaller batches.",
+    'Closing will discard the unsaved inventory draft. Continue?':
+      'Closing will discard the unsaved inventory draft. Continue?',
     'Inventory records': 'Inventory records',
     'Inventory text': 'Inventory text',
     'Item {{number}}': 'Item {{number}}',
@@ -389,6 +393,10 @@ export const merchantStoreCopy = {
     'Importing...': '正在导入…',
     'Invalid amount': '金额无效',
     'Inventory import is too large': '导入库存内容过大，请缩小文件或减少条目',
+    "Check each item's size or split this inventory import into smaller batches.":
+      '请检查单条内容大小，或分成较小的批次导入。',
+    'Closing will discard the unsaved inventory draft. Continue?':
+      '关闭将丢弃尚未保存的库存草稿。仍要继续吗？',
     'Inventory records': '库存记录',
     'Inventory text': '库存文本',
     'Item {{number}}': '第 {{number}} 条',
@@ -689,6 +697,10 @@ export const merchantStoreCopy = {
     'Importing...': '正在匯入…',
     'Invalid amount': '金額無效',
     'Inventory import is too large': '匯入的庫存內容過大，請縮小檔案或減少筆數',
+    "Check each item's size or split this inventory import into smaller batches.":
+      '請檢查單筆內容大小，或分成較小的批次匯入。',
+    'Closing will discard the unsaved inventory draft. Continue?':
+      '關閉將捨棄尚未儲存的庫存草稿。仍要繼續嗎？',
     'Inventory records': '庫存紀錄',
     'Inventory text': '庫存文字',
     'Item {{number}}': '第 {{number}} 筆',
@@ -991,6 +1003,10 @@ export const merchantStoreCopy = {
     'Invalid amount': 'Montant invalide',
     'Inventory import is too large':
       'Le stock à importer est trop volumineux. Réduisez le fichier ou le nombre d’éléments.',
+    "Check each item's size or split this inventory import into smaller batches.":
+      'Vérifiez la taille de chaque élément ou répartissez cet import de stock en lots plus petits.',
+    'Closing will discard the unsaved inventory draft. Continue?':
+      'La fermeture supprimera le brouillon de stock non enregistré. Continuer ?',
     'Inventory records': 'Registre du stock',
     'Inventory text': 'Texte du stock',
     'Item {{number}}': 'Article {{number}}',
@@ -1300,6 +1316,10 @@ export const merchantStoreCopy = {
     'Invalid amount': '金額が無効です',
     'Inventory import is too large':
       'インポートする在庫が大きすぎます。ファイルサイズまたは件数を減らしてください。',
+    "Check each item's size or split this inventory import into smaller batches.":
+      '各項目のサイズを確認するか、在庫のインポートを小さなバッチに分けてください。',
+    'Closing will discard the unsaved inventory draft. Continue?':
+      '閉じると、未保存の在庫下書きは破棄されます。続行しますか？',
     'Inventory records': '在庫記録',
     'Inventory text': '在庫テキスト',
     'Item {{number}}': '商品 {{number}}',
@@ -1610,6 +1630,10 @@ export const merchantStoreCopy = {
     'Invalid amount': 'Некорректная сумма',
     'Inventory import is too large':
       'Импортируемый запас слишком велик. Уменьшите размер файла или количество записей.',
+    "Check each item's size or split this inventory import into smaller batches.":
+      'Проверьте размер каждой записи или разделите импорт остатков на более мелкие пакеты.',
+    'Closing will discard the unsaved inventory draft. Continue?':
+      'При закрытии несохраненный черновик остатков будет удален. Продолжить?',
     'Inventory records': 'Записи запаса',
     'Inventory text': 'Текст запаса',
     'Item {{number}}': 'Товар {{number}}',
@@ -1920,6 +1944,10 @@ export const merchantStoreCopy = {
     'Invalid amount': 'Số tiền không hợp lệ',
     'Inventory import is too large':
       'Dữ liệu kho nhập vào quá lớn. Hãy giảm kích thước tệp hoặc số mục.',
+    "Check each item's size or split this inventory import into smaller batches.":
+      'Kiểm tra kích thước từng mục hoặc chia lần nhập kho này thành các đợt nhỏ hơn.',
+    'Closing will discard the unsaved inventory draft. Continue?':
+      'Đóng cửa sổ sẽ xóa bản nháp kho chưa lưu. Tiếp tục?',
     'Inventory records': 'Bản ghi hàng trong kho',
     'Inventory text': 'Văn bản hàng trong kho',
     'Item {{number}}': 'Mục {{number}}',

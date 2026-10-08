@@ -25,7 +25,6 @@ import type {
   BountyDispute,
   BountyDisputeReason,
   BountyFeeConfig,
-  BountyMcpConnection,
   BountyProject,
   BountyProjectDetail,
   BountyTipNotification,
@@ -70,22 +69,6 @@ export async function listBounties() {
 
 export function getBountyConfig() {
   return unwrap<BountyFeeConfig>(api.get('/api/open-source-bounties/config'))
-}
-
-export function getMcpTokenStatus() {
-  return unwrap<BountyMcpConnection>(
-    api.get('/api/open-source-bounties/mcp-token')
-  )
-}
-
-export function rotateMcpToken() {
-  return unwrap<BountyMcpConnection & { token: string }>(
-    api.post('/api/open-source-bounties/mcp-token')
-  )
-}
-
-export function revokeMcpToken() {
-  return unwrap<null>(api.delete('/api/open-source-bounties/mcp-token'))
 }
 
 export function listOwnedBounties(archived = false) {

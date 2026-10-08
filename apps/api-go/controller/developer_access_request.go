@@ -35,6 +35,15 @@ type developerAccessRequestSelfResponse struct {
 	ReviewedAt       int64  `json:"reviewed_at"`
 }
 
+// Legacy HTTP confirmation payload; never created by the assistant.
+type assistantL1RecommendationDraft struct {
+	UserStatement    string `json:"user_statement"`
+	Recommendation   string `json:"recommendation"`
+	PresetId         string `json:"preset_id,omitempty"`
+	PresetGeneration int64  `json:"preset_generation,omitempty"`
+	PresetVersion    string `json:"preset_version,omitempty"`
+}
+
 func toDeveloperAccessRequestSelfResponse(request *model.DeveloperAccessRequest) any {
 	if request == nil {
 		return nil

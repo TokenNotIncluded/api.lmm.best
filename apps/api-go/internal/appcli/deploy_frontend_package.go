@@ -64,7 +64,11 @@ func (osFrontendPackageCommandRunner) Run(ctx context.Context, name string, args
 	var command *exec.Cmd
 	switch name {
 	case "/usr/bin/nginx":
-		command = exec.CommandContext(ctx, "/usr/bin/nginx", args...)
+		path, _, err := productionSystemToolPath(name)
+		if err != nil {
+			return err
+		}
+		command = exec.CommandContext(ctx, path, args...)
 	case "/usr/bin/systemctl":
 		command = exec.CommandContext(ctx, "/usr/bin/systemctl", args...)
 	default:

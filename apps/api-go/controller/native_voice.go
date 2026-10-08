@@ -214,9 +214,7 @@ func prepareNativeVoice(c *gin.Context, kind dto.NativeVoiceKind, modelName stri
 
 func checkNativeVoiceSecurity(c *gin.Context, info *relaycommon.RelayInfo, raw []byte) error {
 	text := dto.ModerationTextFromRealtimeJSON(raw)
-	if service.EvaluateAdvancedSecurityText(c, info, text).Blocked() {
-		return errors.New("voice event blocked by security rules")
-	}
+	service.EvaluateAdvancedSecurityText(c, info, text)
 	return nil
 }
 

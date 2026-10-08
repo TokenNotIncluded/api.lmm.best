@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -26,6 +27,9 @@ type assistantNewUserGiftResponse struct {
 	common.CreditDenomination
 	CreditAmountUnit   string `json:"credit_amount_unit"`
 	PublicCreditAmount string `json:"public_credit_amount"`
+	MaxCreditAmount    int    `json:"max_credit_amount"`
+	ClaimAvailable     bool   `json:"claim_available"`
+	ClaimBlockedCode   string `json:"claim_blocked_code,omitempty"`
 }
 
 func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any, error) {
@@ -38,10 +42,23 @@ func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any,
 			return nil, err
 		}
 	}
+	cap, capErr := assistantCurrentGiftMaxCredits()
+	if capErr != nil {
+		return nil, capErr
+	}
+	claimAvailable := gift != nil && gift.Status == model.AssistantGiftOffered && credits > 0
+	blocked := ""
+	if claimAvailable {
+		if limitErr := model.CheckAssistantGiftCreditLimit(credits, cap); limitErr != nil {
+			claimAvailable = false
+			blocked = model.AssistantGiftErrorCode(limitErr)
+		}
+	}
 	fields := map[string]any{
 		"amount_cents": amountCents, "amount_unit": "LEGACY_CENTS",
 		"credit_amount": credits, "credit_amount_unit": common.LedgerQuotaUnit, "amount_usd": nil,
 		"currency": "USD", "credits_per_usd": nil,
+		"max_credit_amount": cap, "gift_enabled": cap > 0, "claim_available": claimAvailable, "claim_blocked_code": blocked,
 	}
 	usd, anchor, err := assistantFiatProjection(int64(credits))
 	if errors.Is(err, errAssistantCurrencyProjectionUnavailable) {
@@ -73,7 +90,7 @@ func assistantGiftResponse(gift *model.AssistantNewUserGift) (*assistantNewUserG
 	}
 	response := &assistantNewUserGiftResponse{
 		AssistantNewUserGift: gift, AmountUnit: "LEGACY_CENTS", CreditAmount: fields["credit_amount"].(int),
-		Currency: "USD",
+		Currency: "USD", MaxCreditAmount: fields["max_credit_amount"].(int), ClaimAvailable: fields["claim_available"].(bool), ClaimBlockedCode: fields["claim_blocked_code"].(string),
 	}
 	response.CreditAmountUnit = common.LedgerQuotaUnit
 	// Reuse the same captured basis that produced public_credit_amount.
@@ -121,6 +138,10 @@ func ClaimAssistantNewUserGift(c *gin.Context) {
 	if err != nil {
 		status := http.StatusConflict
 		code := "ASSISTANT_NEW_USER_GIFT_UNAVAILABLE"
+		if errors.Is(err, model.ErrAssistantGiftLimit) || errors.Is(err, model.ErrAssistantGiftDisabled) {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"success": false, "code": model.AssistantGiftErrorCode(err), "message": err.Error()})
+			return
+		}
 		if !errors.Is(err, model.ErrAssistantGiftUnavailable) {
 			common.ApiError(c, err)
 			return
@@ -190,26 +211,39 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 	if assistantRewardReadOnlyRequest(c) {
 		return assistantGiftReadOnlyRequestResult()
 	}
-	if unit := inputString(input, "amount_unit"); unit != "" && unit != "LEGACY_CENTS" {
-		return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_cents uses LEGACY_CENTS, not fiat cents"}
-	}
-	amount, ok := inputNumber(input, "amount_cents")
-	if !ok || math.IsNaN(amount) || math.IsInf(amount, 0) || math.Trunc(amount) != amount {
-		return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_cents must be an integer from 0 to 1000"}
-	}
 	turns, runes := assistantConversationEvidence(c)
-	gift, created, err := model.DecideAssistantNewUserGift(
-		userID,
-		assistantHistoryConversationID(c),
-		int(amount),
-		inputString(input, "reason"),
-		turns,
-		runes,
-		c.ClientIP(),
-	)
+	var gift *model.AssistantNewUserGift
+	var created bool
+	var err error
+	unit := inputString(input, "amount_unit")
+	if _, canonical := input["amount_credits"]; canonical {
+		if unit != "" && unit != common.LedgerQuotaUnit {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_credits uses integer wallet credits"}
+		}
+		if _, mixed := input["amount_cents"]; mixed {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "supply amount_credits only; do not mix amount units"}
+		}
+		amount, ok := inputNumber(input, "amount_credits")
+		if !ok || math.IsNaN(amount) || math.IsInf(amount, 0) || math.Trunc(amount) != amount || amount < 0 || amount > common.MaxWalletQuota {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_credits must be a non-negative safe integer"}
+		}
+		gift, created, err = model.DecideAssistantNewUserGiftCredits(userID, assistantHistoryConversationID(c), int(amount), inputString(input, "reason"), turns, runes, c.ClientIP())
+	} else {
+		if unit != "" && unit != "LEGACY_CENTS" {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_cents uses LEGACY_CENTS, not fiat cents"}
+		}
+		amount, ok := inputNumber(input, "amount_cents")
+		if !ok || math.IsNaN(amount) || math.IsInf(amount, 0) || math.Trunc(amount) != amount || amount < 0 || amount > common.MaxWalletQuota {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_cents must be a non-negative safe integer"}
+		}
+		gift, created, err = model.DecideAssistantNewUserGift(userID, assistantHistoryConversationID(c), int(amount), inputString(input, "reason"), turns, runes, c.ClientIP())
+	}
 	if err != nil {
 		reasonCode := model.AssistantGiftErrorCode(err)
 		switch {
+		case errors.Is(err, model.ErrAssistantGiftLimit), errors.Is(err, model.ErrAssistantGiftDisabled):
+			cap, _ := assistantCurrentGiftMaxCredits()
+			return map[string]any{"ok": false, "status": reasonCode, "reason_code": reasonCode, "error": err.Error(), "max_credit_amount": cap, "gift_enabled": cap > 0}
 		case errors.Is(err, model.ErrAssistantGiftIneligible), errors.Is(err, model.ErrAssistantGiftAbuse):
 			if reasonCode == "" {
 				reasonCode = "ineligible"
@@ -220,7 +254,7 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 				reasonCode = "invalid_decision"
 			}
 			if reasonCode == "insufficient_conversation" {
-				return map[string]any{"ok": false, "status": "more_conversation_needed", "reason_code": reasonCode, "error": "continue the conversation with at least two substantive user turns before evaluating the one-time gift"}
+				return map[string]any{"ok": false, "status": "more_conversation_needed", "reason_code": reasonCode, "error": "ask for the missing concrete purpose or planned work before evaluating the one-time gift; one sufficiently detailed user message is enough"}
 			}
 			return map[string]any{"ok": false, "status": "invalid_decision", "reason_code": reasonCode, "error": "the one-time gift decision was invalid"}
 		default:
@@ -231,7 +265,7 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 	if err != nil {
 		return map[string]any{"ok": false, "status": "unavailable", "error": "gift currency units are unavailable"}
 	}
-	if gift.Status == model.AssistantGiftOffered && c != nil {
+	if gift.Status == model.AssistantGiftOffered && money["claim_available"] == true && c != nil {
 		action := make(map[string]any, len(money)+3)
 		for key, value := range money {
 			action[key] = value
@@ -240,6 +274,13 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 		c.Set(assistantClientActionKey, action)
 	}
 	money["ok"], money["created"], money["status"], money["reason"] = true, created, gift.Status, gift.Reason
-	money["next_step"] = "The user claims an offered gift from the gift shown in the chat. Never claim it for them. amount_cents is LEGACY_CENTS; explain the gift using public_credit_amount or amount_usd."
+	money["next_step"] = "The user claims an available offered gift from the gift shown in the chat. Respect claim_available and the current max_credit_amount; never promise a blocked claim. Never claim it for them. amount_cents is LEGACY_CENTS; explain the gift using public_credit_amount or amount_usd."
 	return money
+}
+
+func assistantCurrentGiftMaxCredits() (int, error) {
+	if model.DB != nil {
+		return model.AssistantGiftMaxCreditsDB(model.DB)
+	}
+	return setting.AssistantNewUserGiftMaxCredits(setting.GetAssistantSettings().NewUserGiftMaxCredits)
 }

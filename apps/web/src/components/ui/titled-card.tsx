@@ -34,6 +34,7 @@ type TitledCardProps = {
   description?: ReactNode
   icon?: ReactNode
   action?: ReactNode
+  actionPlacement?: 'beside' | 'below'
   children?: ReactNode
   disableHoverEffect?: boolean
   appearance?: 'paper' | 'outlined'
@@ -51,6 +52,7 @@ export function TitledCard({
   description,
   icon,
   action,
+  actionPlacement = 'beside',
   children,
   disableHoverEffect,
   appearance = 'paper',
@@ -77,14 +79,22 @@ export function TitledCard({
           headerClassName
         )}
       >
-        <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+        <div
+          className={cn(
+            'flex min-w-0 flex-col gap-3',
+            actionPlacement === 'beside' &&
+              'sm:flex-row sm:items-start sm:justify-between'
+          )}
+        >
           <div className='flex min-w-0 items-center gap-3'>
             {icon != null && (
               <IconBadge size='title' tone={iconTone} className={iconClassName}>
                 {icon}
               </IconBadge>
             )}
-            <div className='min-w-0'>
+            <div
+              className={cn('min-w-0', actionPlacement === 'below' && 'flex-1')}
+            >
               <CardTitle
                 className={cn(
                   'text-lg tracking-tight sm:text-xl',
@@ -103,7 +113,14 @@ export function TitledCard({
             </div>
           </div>
           {action != null && (
-            <div className='w-full shrink-0 sm:w-auto'>{action}</div>
+            <div
+              className={cn(
+                'w-full shrink-0',
+                actionPlacement === 'beside' && 'sm:w-auto'
+              )}
+            >
+              {action}
+            </div>
           )}
         </div>
       </CardHeader>

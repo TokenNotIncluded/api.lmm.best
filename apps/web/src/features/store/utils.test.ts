@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { analyzeInventoryItems } from './inventory-import-analysis'
 import {
   CREDITS_PER_USD,
   EXTERNAL_MINIMUM_QUOTA,
@@ -74,6 +75,26 @@ test('inventory handles BOM, CRLF, empty lines and preserves duplicate units', (
   )
   assert.equal(parseInventoryText('密'.repeat(10000)).length, 1)
   assert.throws(() => parseInventoryText('密'.repeat(11000)), /too large/)
+})
+test('inventory import duplicate preview preserves reusable items and exact card text', () => {
+  const original = parseInventoryText(
+    '\uFEFFkey-A\r\nkey-A\r\n key-A \r\nkey-a\r\n密钥\r\n密钥\r\n\r\n'
+  )
+  const snapshot = [...original]
+  const preview = analyzeInventoryItems(original)
+  assert.equal(preview.count, 6)
+  assert.equal(preview.repeated, 2)
+  assert.deepEqual(preview.unique, ['key-A', ' key-A ', 'key-a', '密钥'])
+  assert.deepEqual(original, snapshot)
+  assert.deepEqual(analyzeInventoryItems([]), {
+    count: 0,
+    repeated: 0,
+    unique: [],
+  })
+  assert.equal(
+    analyzeInventoryItems(Array(1000).fill('same delivery text')).count,
+    1000
+  )
 })
 test('seller links reject executable protocols, embedded credentials and malformed URLs', () => {
   for (const input of [

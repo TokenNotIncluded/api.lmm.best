@@ -384,32 +384,32 @@ func TestTaskHistoryPrune(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, DB.Create(&SystemTask{
 			TaskID: taskID,
-			Type:   SystemTaskTypeAssistantReview,
+			Type:   SystemTaskTypeAssistantRetention,
 			Status: SystemTaskStatusSucceeded,
 		}).Error)
 	}
-	active := createLegacyPendingSystemTask(t, SystemTaskTypeAssistantReview)
+	active := createLegacyPendingSystemTask(t, SystemTaskTypeAssistantRetention)
 	other := createLegacyPendingSystemTask(t, SystemTaskTypeLogCleanup)
 	require.NoError(t, DB.Model(other).Updates(map[string]any{
 		"status": SystemTaskStatusSucceeded,
 	}).Error)
 
-	eligible, err := PreviewTaskHistoryCleanup(SystemTaskTypeAssistantReview, 30)
+	eligible, err := PreviewTaskHistoryCleanup(SystemTaskTypeAssistantRetention, 30)
 	require.NoError(t, err)
 	assert.EqualValues(t, 5, eligible)
 
-	deleted, err := CleanupTaskHistory(SystemTaskTypeAssistantReview, 30)
+	deleted, err := CleanupTaskHistory(SystemTaskTypeAssistantRetention, 30)
 	require.NoError(t, err)
 	assert.EqualValues(t, 5, deleted)
 
-	eligible, err = PreviewTaskHistoryCleanup(SystemTaskTypeAssistantReview, 30)
+	eligible, err = PreviewTaskHistoryCleanup(SystemTaskTypeAssistantRetention, 30)
 	require.NoError(t, err)
 	assert.Zero(t, eligible)
-	require.NoError(t, PruneTaskHistory(SystemTaskTypeAssistantReview, 30))
+	require.NoError(t, PruneTaskHistory(SystemTaskTypeAssistantRetention, 30))
 
 	var terminalCount int64
 	require.NoError(t, DB.Model(&SystemTask{}).
-		Where("type = ? AND status IN ?", SystemTaskTypeAssistantReview, []SystemTaskStatus{SystemTaskStatusSucceeded, SystemTaskStatusFailed}).
+		Where("type = ? AND status IN ?", SystemTaskTypeAssistantRetention, []SystemTaskStatus{SystemTaskStatusSucceeded, SystemTaskStatusFailed}).
 		Count(&terminalCount).Error)
 	assert.EqualValues(t, 30, terminalCount)
 	reloaded, err := GetSystemTaskByTaskID(active.TaskID)
@@ -427,7 +427,7 @@ func TestListSystemTaskSummariesOmitsLargePayloadAndResult(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, DB.Create(&SystemTask{
 		TaskID:  taskID,
-		Type:    SystemTaskTypeAssistantReview,
+		Type:    SystemTaskTypeAssistantRetention,
 		Status:  SystemTaskStatusSucceeded,
 		Payload: large,
 		State:   `{"progress":42,"detail":"not returned by the list"}`,
@@ -455,7 +455,7 @@ func TestListSystemTaskSummariesDoesNotSelectOversizedState(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, DB.Create(&SystemTask{
 		TaskID: taskID,
-		Type:   SystemTaskTypeAssistantReview,
+		Type:   SystemTaskTypeAssistantRetention,
 		Status: SystemTaskStatusSucceeded,
 		State:  `{"progress":42,"detail":"` + strings.Repeat("x", systemTaskSummaryStateMaxBytes) + `"}`,
 	}).Error)

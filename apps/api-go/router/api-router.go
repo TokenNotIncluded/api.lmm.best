@@ -145,25 +145,15 @@ func SetApiRouter(router *gin.Engine) {
 			securityRoute.GET("/policy", controller.GetPublicSecurityPolicy)
 			securityRoute.GET("/stats", controller.GetPublicSecurityStats)
 		}
-		// Advanced-security rules are a raw JSON policy document. Keep the root
-		// editor bounded before DecodeJson retains an arbitrary-sized RawMessage.
-		apiRouter.PUT("/security/admin/settings", middleware.RequestBodyLimit(rawOptionMutationRequestMaxBytes), middleware.RootAuth(), middleware.DisableCache(), controller.UpdateAdvancedSecuritySettings)
 		apiRouter.GET("/security/market-ai-review/settings", middleware.AdminAuth(), middleware.DisableCache(), controller.GetMarketAIReviewSettings)
 		apiRouter.PUT("/security/market-ai-review/settings", middleware.RootAuth(), middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateMarketAIReviewSettings)
 		securityAdminRoute := apiRouter.Group("/security/admin")
 		securityAdminRoute.Use(middleware.AdminAuth())
 		{
 			securityAdminRoute.GET("/policy", controller.GetAdminSecurityPolicy)
-			securityAdminRoute.GET("/stats", controller.GetAdminSecurityStats)
-			securityAdminRoute.GET("/events", controller.ListAdminSecurityEvents)
 			securityAdminRoute.GET("/moderation/models", middleware.DisableCache(), controller.GetAdminModerationModels)
 			securityAdminRoute.GET("/moderation-reviews", middleware.DisableCache(), controller.ListAdminModerationReviews)
 			securityAdminRoute.GET("/moderation-stats", middleware.DisableCache(), controller.GetAdminModerationStats)
-			securityAdminRoute.GET("/ai-reviews", controller.ListAdminAssistantSecurityReviews)
-			securityAdminRoute.GET("/review-runs", controller.ListAdminAssistantReviewTasks)
-			securityAdminRoute.GET("/review-runs/cleanup-preview", middleware.DisableCache(), controller.PreviewAdminAssistantReviewTaskCleanup)
-			securityAdminRoute.DELETE("/review-runs", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.DeleteAdminAssistantReviewTasks)
-			securityAdminRoute.GET("/review-runs/:task_id", controller.GetAdminAssistantReviewTask)
 			securityAdminRoute.GET("/violation-fee-appeals", middleware.DisableCache(), controller.ListAdminViolationFeeAppeals)
 			securityAdminRoute.POST("/violation-fee-appeals/:id/:action", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ReviewAdminViolationFeeAppeal)
 		}
@@ -703,6 +693,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			financeRoute.GET("/export", controller.ExportFinancialData)
 			financeRoute.GET("/overview", controller.GetFinanceOverview)
+			financeRoute.GET("/site-statistics", controller.GetAdminSiteStatistics)
 			financeRoute.GET("/users", controller.GetFinanceUsers)
 			financeRoute.GET("/users/:user_id", controller.GetFinanceUser)
 			financeRoute.GET("/entries", controller.ListFinanceEntries)

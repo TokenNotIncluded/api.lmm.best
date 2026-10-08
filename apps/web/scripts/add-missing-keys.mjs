@@ -32,7 +32,6 @@ import { balanceQueryCopy } from './balance-query-copy.mjs'
 import { billingJsonEditorCopy } from './billing-json-editor-copy.mjs'
 import { codewhaleGuideCopy } from './codewhale-guide-copy.mjs'
 import { creditCurrencyCopy } from './credit-currency-copy.mjs'
-import { drawingMcpExtraCopy } from './drawing-mcp-extra-copy.mjs'
 import { drawingWalletCopy } from './drawing-wallet-copy.mjs'
 import { dshGuideCopy } from './dsh-guide-copy.mjs'
 import { forgeRefreshCopy } from './forge-refresh-copy.mjs'
@@ -43,6 +42,7 @@ import {
   merchantStoreCopy,
   merchantStoreRetiredKeys,
 } from './merchant-store-copy.mjs'
+import { merchantStoreVariantsCopy } from './merchant-store-variants-copy.mjs'
 import { moderationAuditCopy } from './moderation-audit-copy.mjs'
 import { moderationCopy } from './moderation-copy.mjs'
 import { nativeBillingCopy } from './native-billing-copy.mjs'
@@ -57,9 +57,18 @@ import { publicCreditDisplayCopy } from './public-credit-display-copy.mjs'
 import { remoteControlCopy } from './remote-control-copy.mjs'
 import { responsesWebSocketCopy } from './responses-websocket-copy.mjs'
 import { rssCopy } from './rss-copy.mjs'
+import { storeAnalyticsLunaCopy } from './store-analytics-luna-copy.mjs'
+import { storeCategoryLunaCopy } from './store-category-luna-copy.mjs'
+import { storeDeliveryTemplateLunaCopy } from './store-delivery-template-luna-copy.mjs'
 import { storeEmptyStateCopy } from './store-empty-state-copy.mjs'
+import { storeMediaLunaCopy } from './store-media-luna-copy.mjs'
+import { storeMerchantHomeLunaCopy } from './store-merchant-home-luna-copy.mjs'
+import { storeMinimumPriceLunaCopy } from './store-minimum-price-luna-copy.mjs'
 import { storePaymentCategoryLunaCopy } from './store-payment-category-luna-copy.mjs'
 import { storeQuantityLunaCopy } from './store-quantity-luna-copy.mjs'
+import { storeSalesLimitLunaCopy } from './store-sales-limit-luna-copy.mjs'
+import { storeSocialLunaCopy } from './store-social-luna-copy.mjs'
+import { storeTestModeLunaCopy } from './store-test-mode-luna-copy.mjs'
 import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
 import { toolMarketClientRecordsLunaCopy } from './tool-market-client-records-luna-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
@@ -4513,131 +4522,19 @@ for (const [locale, translations] of Object.entries(
   Object.assign(newKeys[locale], translations)
 }
 
-const drawingMcpTranslations = {
-  en: {
-    'Drawing MCP': 'Drawing MCP',
-    'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.':
-      'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.',
-    'Generate or rotate the personal MCP token? Existing MCP agents using the old token will stop working immediately.':
-      'Generate or rotate the personal MCP token? Existing MCP agents using the old token will stop working immediately.',
-    'Drawing MCP configuration copied.': 'Drawing MCP configuration copied.',
-    'Unable to copy the drawing MCP configuration.':
-      'Unable to copy the drawing MCP configuration.',
-    'Unable to create the drawing MCP configuration.':
-      'Unable to create the drawing MCP configuration.',
-    'Copy drawing MCP config': 'Copy drawing MCP config',
-    'Generate token and copy config': 'Generate token and copy config',
-    'Agent configuration': 'Agent configuration',
-    'The personal token is shown only in this session. Store the copied configuration in your Agent securely.':
-      'The personal token is shown only in this session. Store the copied configuration in your Agent securely.',
-  },
-  zh: {
-    'Drawing MCP': '绘图 MCP',
-    'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.':
-      '将 Agent 连接到此绘图工作台，使用专用 MCP 端点。生成操作沿用本页面的分组权限和计费规则。',
-    'Generate or rotate the personal MCP token? Existing MCP agents using the old token will stop working immediately.':
-      '生成或轮换个人 MCP 令牌？使用旧令牌的现有 MCP Agent 将立即停止工作。',
-    'Drawing MCP configuration copied.': '绘图 MCP 配置已复制。',
-    'Unable to copy the drawing MCP configuration.': '无法复制绘图 MCP 配置。',
-    'Unable to create the drawing MCP configuration.':
-      '无法创建绘图 MCP 配置。',
-    'Copy drawing MCP config': '复制绘图 MCP 配置',
-    'Generate token and copy config': '生成令牌并复制配置',
-    'Agent configuration': 'Agent 配置',
-    'The personal token is shown only in this session. Store the copied configuration in your Agent securely.':
-      '个人令牌仅在本次会话中显示。请将复制的配置安全地保存到 Agent。',
-  },
-  'zh-TW': {
-    'Drawing MCP': '繪圖 MCP',
-    'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.':
-      '將 Agent 連接到此繪圖工作台，使用專用 MCP 端點。生成操作沿用本頁的分組權限與計費規則。',
-    'Generate or rotate the personal MCP token? Existing MCP agents using the old token will stop working immediately.':
-      '要生成或輪換個人 MCP 權杖嗎？使用舊權杖的現有 MCP Agent 會立即停止運作。',
-    'Drawing MCP configuration copied.': '繪圖 MCP 設定已複製。',
-    'Unable to copy the drawing MCP configuration.': '無法複製繪圖 MCP 設定。',
-    'Unable to create the drawing MCP configuration.':
-      '無法建立繪圖 MCP 設定。',
-    'Copy drawing MCP config': '複製繪圖 MCP 設定',
-    'Generate token and copy config': '生成權杖並複製設定',
-    'Agent configuration': 'Agent 設定',
-    'The personal token is shown only in this session. Store the copied configuration in your Agent securely.':
-      '個人權杖僅在本次工作階段顯示。請將複製的設定安全地儲存到 Agent。',
-  },
-  fr: {
-    'Drawing MCP': 'MCP de dessin',
-    'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.':
-      'Connectez un Agent à cet atelier de dessin via le point de terminaison MCP dédié. La génération conserve les mêmes droits de groupe et la même facturation que cette page.',
-    'Generate or rotate the personal MCP token? Existing MCP agents using the old token will stop working immediately.':
-      'Générer ou renouveler le jeton MCP personnel ? Les Agents MCP utilisant l’ancien jeton cesseront immédiatement de fonctionner.',
-    'Drawing MCP configuration copied.':
-      'Configuration du MCP de dessin copiée.',
-    'Unable to copy the drawing MCP configuration.':
-      'Impossible de copier la configuration du MCP de dessin.',
-    'Unable to create the drawing MCP configuration.':
-      'Impossible de créer la configuration du MCP de dessin.',
-    'Copy drawing MCP config': 'Copier la configuration MCP de dessin',
-    'Generate token and copy config':
-      'Générer le jeton et copier la configuration',
-    'Agent configuration': 'Configuration de l’Agent',
-    'The personal token is shown only in this session. Store the copied configuration in your Agent securely.':
-      'Le jeton personnel est affiché uniquement pendant cette session. Conservez la configuration copiée en sécurité dans votre Agent.',
-  },
-  ja: {
-    'Drawing MCP': '描画 MCP',
-    'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.':
-      '専用 MCP エンドポイントで Agent をこの描画ワークベンチに接続します。生成にはこのページと同じグループ権限と料金が適用されます。',
-    'Generate or rotate the personal MCP token? Existing MCP agents using the old token will stop working immediately.':
-      '個人 MCP トークンを生成またはローテーションしますか？古いトークンを使う既存の MCP Agent は直ちに利用できなくなります。',
-    'Drawing MCP configuration copied.': '描画 MCP 設定をコピーしました。',
-    'Unable to copy the drawing MCP configuration.':
-      '描画 MCP 設定をコピーできません。',
-    'Unable to create the drawing MCP configuration.':
-      '描画 MCP 設定を作成できません。',
-    'Copy drawing MCP config': '描画 MCP 設定をコピー',
-    'Generate token and copy config': 'トークンを生成して設定をコピー',
-    'Agent configuration': 'Agent 設定',
-    'The personal token is shown only in this session. Store the copied configuration in your Agent securely.':
-      '個人トークンはこのセッションでのみ表示されます。コピーした設定は Agent に安全に保存してください。',
-  },
-  ru: {
-    'Drawing MCP': 'MCP для рисования',
-    'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.':
-      'Подключите Agent к этой рабочей области рисования через отдельную конечную точку MCP. Генерация использует те же права группы и тарификацию, что и эта страница.',
-    'Generate or rotate the personal MCP token? Existing MCP agents using the old token will stop working immediately.':
-      'Создать или обновить персональный MCP-токен? Существующие MCP Agent со старым токеном сразу перестанут работать.',
-    'Drawing MCP configuration copied.':
-      'Конфигурация MCP для рисования скопирована.',
-    'Unable to copy the drawing MCP configuration.':
-      'Не удалось скопировать конфигурацию MCP для рисования.',
-    'Unable to create the drawing MCP configuration.':
-      'Не удалось создать конфигурацию MCP для рисования.',
-    'Copy drawing MCP config': 'Скопировать конфигурацию MCP для рисования',
-    'Generate token and copy config':
-      'Создать токен и скопировать конфигурацию',
-    'Agent configuration': 'Конфигурация Agent',
-    'The personal token is shown only in this session. Store the copied configuration in your Agent securely.':
-      'Персональный токен отображается только в этой сессии. Надёжно сохраните скопированную конфигурацию в Agent.',
-  },
-  vi: {
-    'Drawing MCP': 'MCP vẽ ảnh',
-    'Connect an Agent to this drawing workbench with the dedicated MCP endpoint. Generation keeps the same group permissions and billing as this page.':
-      'Kết nối Agent với bàn vẽ này qua endpoint MCP riêng. Việc tạo ảnh dùng cùng quyền nhóm và cách tính phí như trang này.',
-    'Generate or rotate the personal MCP token? Existing MCP agents using the old token will stop working immediately.':
-      'Tạo hoặc xoay vòng token MCP cá nhân? Các MCP Agent đang dùng token cũ sẽ ngừng hoạt động ngay lập tức.',
-    'Drawing MCP configuration copied.': 'Đã sao chép cấu hình MCP vẽ ảnh.',
-    'Unable to copy the drawing MCP configuration.':
-      'Không thể sao chép cấu hình MCP vẽ ảnh.',
-    'Unable to create the drawing MCP configuration.':
-      'Không thể tạo cấu hình MCP vẽ ảnh.',
-    'Copy drawing MCP config': 'Sao chép cấu hình MCP vẽ ảnh',
-    'Generate token and copy config': 'Tạo token và sao chép cấu hình',
-    'Agent configuration': 'Cấu hình Agent',
-    'The personal token is shown only in this session. Store the copied configuration in your Agent securely.':
-      'Token cá nhân chỉ hiển thị trong phiên này. Hãy lưu cấu hình đã sao chép an toàn trong Agent.',
-  },
+const drawingKeySourceTranslations = {
+  en: { 'Drawing MCP': 'Drawing MCP' },
+  zh: { 'Drawing MCP': '绘图 MCP' },
+  'zh-TW': { 'Drawing MCP': '繪圖 MCP' },
+  fr: { 'Drawing MCP': 'MCP de dessin' },
+  ja: { 'Drawing MCP': '描画 MCP' },
+  ru: { 'Drawing MCP': 'MCP для рисования' },
+  vi: { 'Drawing MCP': 'MCP vẽ ảnh' },
 }
 
-for (const [locale, translations] of Object.entries(drawingMcpTranslations)) {
+for (const [locale, translations] of Object.entries(
+  drawingKeySourceTranslations
+)) {
   Object.assign(newKeys[locale], translations)
 }
 
@@ -11886,6 +11783,59 @@ const retiredGameKeys = new Set([
 ])
 
 async function main() {
+  if (process.argv.includes('--store-analytics-only')) {
+    for (const [locale, values] of Object.entries(storeAnalyticsLunaCopy)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      let count = 0
+      for (const [key, value] of Object.entries(values)) {
+        if (!Object.hasOwn(json.translation, key)) {
+          json.translation[key] = value
+          count++
+        }
+      }
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: ${count} missing analytics translations added`)
+    }
+    return
+  }
+  if (process.argv.includes('--store-media-only')) {
+    for (const [locale, translations] of Object.entries(storeMediaLunaCopy)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      delete json.translation['HTTPS image URL or static SVG text']
+      delete json.translation['Use a valid image URL or safe static SVG.']
+      for (const [key, value] of Object.entries(translations)) {
+        if (!Object.hasOwn(json.translation, key)) json.translation[key] = value
+      }
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+    }
+    return
+  }
+
+  if (process.argv.includes('--store-categories-only')) {
+    for (const [locale, translations] of Object.entries(
+      storeCategoryLunaCopy
+    )) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      for (const [key, value] of Object.entries(translations)) {
+        if (!Object.hasOwn(json.translation, key)) json.translation[key] = value
+      }
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: category translations applied`)
+    }
+    return
+  }
   if (process.argv.includes('--retire-games-only')) {
     for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
       const filePath = path.join(LOCALES_DIR, `${locale}.json`)
@@ -12005,10 +11955,28 @@ async function main() {
     return
   }
 
+  if (process.argv.includes('--only-store-social')) {
+    // Keep every established translation intact; this scope owns only the
+    // three new storefront like actions supplied by the reviewed Luna module.
+    for (const [locale, values] of Object.entries(storeSocialLunaCopy)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      Object.assign(json.translation, values)
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+    }
+    return
+  }
+
   // Allow scoped additions without overwriting unrelated in-progress translations.
   const clientRecordsOnly = process.argv.includes('--only-client-records')
   const paymentDecimalOnly = process.argv.includes('--only-payment-decimal')
   const merchantStoreOnly = process.argv.includes('--only-merchant-store')
+  const merchantStoreVariantsOnly = process.argv.includes(
+    '--only-merchant-store-variants'
+  )
   const paymentOnly = process.argv.includes('--only-payment-pricing')
   const homeOnly = process.argv.includes('--only-home-editorial')
   const homeTokenOnly = process.argv.includes('--only-home-token')
@@ -12043,6 +12011,7 @@ async function main() {
   const scoped =
     clientRecordsOnly ||
     paymentDecimalOnly ||
+    merchantStoreVariantsOnly ||
     merchantStoreOnly ||
     moderationOnly ||
     nativeBillingOnly ||
@@ -12152,9 +12121,11 @@ async function main() {
   for (const [locale, baseTranslations] of Object.entries(
     clientRecordsOnly
       ? toolMarketClientRecordsLunaCopy
-      : merchantStoreOnly
-        ? merchantStoreCopy
-        : selectedEntries
+      : merchantStoreVariantsOnly
+        ? merchantStoreVariantsCopy
+        : merchantStoreOnly
+          ? merchantStoreCopy
+          : selectedEntries
   )) {
     const translations = scoped
       ? baseTranslations
@@ -12167,7 +12138,6 @@ async function main() {
           ...drawingWalletCopy[locale],
           ...piOAuthCopy[locale],
           ...assistantSettingsCopy[locale],
-          ...drawingMcpExtraCopy[locale],
           ...piGuideCopy[locale],
           ...dshGuideCopy[locale],
           ...codewhaleGuideCopy[locale],
@@ -13289,11 +13259,33 @@ for (const [locale, values] of Object.entries(storeEmptyStateCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
+for (const [locale, values] of Object.entries(storeTestModeLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+for (const [locale, values] of Object.entries(merchantStoreVariantsCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeDeliveryTemplateLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+for (const [locale, values] of Object.entries(storeSalesLimitLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+for (const [locale, values] of Object.entries(storeMinimumPriceLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
 for (const [locale, values] of Object.entries(storePaymentCategoryLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
 for (const [locale, values] of Object.entries(storeQuantityLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+for (const [locale, values] of Object.entries(storeCategoryLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+for (const [locale, values] of Object.entries(storeMediaLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 
@@ -13306,6 +13298,18 @@ for (const [locale, values] of Object.entries(aboutTranslations)) {
 }
 
 for (const [locale, values] of Object.entries(toolMarketDeleteLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeSocialLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeMerchantHomeLunaCopy)) {
+  Object.assign(newKeys[locale], values)
+}
+
+for (const [locale, values] of Object.entries(storeAnalyticsLunaCopy)) {
   Object.assign(newKeys[locale], values)
 }
 

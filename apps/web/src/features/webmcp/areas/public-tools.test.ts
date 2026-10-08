@@ -25,6 +25,65 @@ function tool(name: string) {
   return found
 }
 
+test('security reads expose current moderation policy and statistics', async () => {
+  const get = api.get
+  const calls: string[] = []
+  const moderation = {
+    enabled: true,
+    assistant_enabled: false,
+    engine: 'openai_moderation',
+    async: true,
+    group_policies: {
+      default: { mode: 'strict', category_fines_usd: { violence: 0.5 } },
+    },
+    supported_inputs: ['text'],
+    notice_only: false,
+  }
+  const stats = {
+    pending: 2,
+    running: 1,
+    completed: 7,
+    failed: 0,
+    cancelled: 0,
+    flagged: 3,
+    fined: 1,
+    charged_quota: 250000,
+  }
+  api.get = (async (url: string) => {
+    calls.push(url)
+    const data =
+      url === '/api/security/policy'
+        ? {
+            policy_version: 'current',
+            reference_effective_date: '2026-10-07',
+            reference_url: 'https://example.test/policy',
+            alignment: 'current moderation',
+            moderation,
+          }
+        : { moderation: stats }
+    return { data: { success: true, data } }
+  }) as typeof api.get
+  try {
+    assert.deepEqual(await tool('lmm_security_read').execute({}, options), {
+      page: '/security',
+      policy: {
+        version: 'current',
+        alignment: 'current moderation',
+        reference_effective_date: '2026-10-07',
+        reference_url: 'https://example.test/policy',
+        moderation,
+      },
+      stats: { moderation: stats },
+    })
+    assert.deepEqual(calls.sort(), [
+      '/api/security/policy',
+      '/api/security/stats',
+    ])
+  } finally {
+    api.get = get
+  }
+})
+
 test('red packet claims require confirmation and never return a redemption secret', async () => {
   const auth = useAuthStore.getState().auth
   const post = api.post

@@ -283,26 +283,13 @@ describe('assistant response parsing', () => {
     assert.equal(parseAssistantIntent(undefined), undefined)
   })
 
-  test('accepts only complete L1 recommendation actions', () => {
-    assert.deepEqual(
-      parseAssistantAction({
-        type: 'l1_recommendation',
-        user_statement: '  I am building an internal coding tool. ',
-        recommendation: ' Recommend L1 because the use case is concrete. ',
-        confirmation_token: ' confirmation-token ',
-      }),
-      {
-        type: 'l1_recommendation',
-        user_statement: 'I am building an internal coding tool.',
-        recommendation: 'Recommend L1 because the use case is concrete.',
-        confirmation_token: 'confirmation-token',
-      }
-    )
+  test('ignores retired recommendation actions even with a confirmation token', () => {
     assert.equal(
       parseAssistantAction({
         type: 'l1_recommendation',
-        user_statement: '',
-        recommendation: 'missing statement',
+        user_statement: 'I am building an internal coding tool.',
+        recommendation: 'A cached recommendation.',
+        confirmation_token: 'confirmation-token',
       }),
       undefined
     )
@@ -718,6 +705,65 @@ describe('assistant response parsing', () => {
       }),
       undefined
     )
+  })
+
+  test('accepts exact catalogue deep links and rejects external or malformed targets', () => {
+    const id = '768e7947-0652-4c6b-a998-712958765432'
+    for (const action of [
+      { type: 'navigate', path: '/store', query: {} },
+      { type: 'navigate', path: `/store/products/${id}`, query: {} },
+      {
+        type: 'navigate',
+        path: `/store/products/${id}`,
+        query: { owner_preview: true },
+      },
+      { type: 'navigate', path: '/tool-market', query: { service_id: id } },
+    ]) {
+      assert.deepEqual(parseAssistantAction(action), action)
+    }
+    for (const path of [
+      '//attacker.test/store',
+      'https://console.example.test/store',
+      `/store/products/${id}/../orders`,
+      `/store/products/${id}%2f..`,
+      '/store/products/not-a-product',
+      '/store/claim/private-token',
+    ]) {
+      assert.equal(
+        parseAssistantAction({ type: 'navigate', path, query: {} }),
+        undefined
+      )
+    }
+    for (const query of [
+      { service_id: 'https://attacker.test' },
+      { service_id: `${id}/invoke` },
+      { service_id: id, redirect: '//attacker.test' },
+      { service_id: 7 },
+      [],
+    ]) {
+      assert.equal(
+        parseAssistantAction({ type: 'navigate', path: '/tool-market', query }),
+        undefined
+      )
+    }
+    assert.equal(
+      parseAssistantAction({
+        type: 'navigate',
+        path: `/store/products/${id}`,
+        query: { grant: true },
+      }),
+      undefined
+    )
+    for (const value of [false, 'true', 1, null]) {
+      assert.equal(
+        parseAssistantAction({
+          type: 'navigate',
+          path: `/store/products/${id}`,
+          query: { owner_preview: value },
+        }),
+        undefined
+      )
+    }
   })
 
   test('accepts only self display-name previews with a confirmation token', () => {
@@ -1429,4 +1475,37 @@ describe('assistant conversation history API', () => {
       ]
     )
   })
+})
+
+test('accepts canonical credit gifts beyond the old cap and one-credit gifts without inventing legacy cents', () => {
+  for (const credits of [1, 9000000]) {
+    const action = parseAssistantAction({
+      type: 'new_user_gift',
+      status: 'offered',
+      amount_cents: 0,
+      amount_unit: 'LEGACY_CENTS',
+      credit_amount: credits,
+      amount_usd: credits / 500000,
+      currency: 'USD',
+      credits_per_usd: 500000,
+      max_credit_amount: 9000000,
+      claim_available: true,
+      reason: 'A concrete legitimate workflow.',
+    })
+    assert.ok(action)
+    assert.equal(action.type, 'new_user_gift')
+    if (action.type === 'new_user_gift') {
+      assert.equal(action.credit_amount, credits)
+    }
+  }
+  assert.equal(
+    parseAssistantAction({
+      type: 'new_user_gift',
+      status: 'offered',
+      amount_cents: 0,
+      credit_amount: 1,
+      reason: 'A concrete legitimate workflow.',
+    }),
+    undefined
+  )
 })

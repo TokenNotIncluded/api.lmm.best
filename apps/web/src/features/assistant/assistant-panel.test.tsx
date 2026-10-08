@@ -1015,7 +1015,7 @@ describe('AssistantPanel', () => {
     { timeout: 30_000 },
     async () => {
       const keys = {
-        ai_recommendation: 'Help me write an L1 recommendation.',
+        ai_recommendation: 'How do I apply for L1 access?',
         getting_started: 'Where should I start?',
         new_user_gift: 'How do I get the new-user gift?',
         weekly_discount: 'Any top-up discounts this week?',
@@ -2905,7 +2905,7 @@ describe('AssistantPanel', () => {
       assert.ok(textarea)
       await setTextareaValue(
         textarea,
-        'I want Claude Code access for my private project.'
+        'I want developer access for my private project.'
       )
       await act(async () => {
         findButton('Send').click()

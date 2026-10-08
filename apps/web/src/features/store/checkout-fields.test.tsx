@@ -42,6 +42,12 @@ for (const key of [
     value: dom[key],
   })
 }
+Object.defineProperty(dom.navigator, 'locks', {
+  configurable: true,
+  value: {
+    request: async (_name: string, task: () => Promise<unknown>) => task(),
+  },
+})
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
@@ -56,6 +62,9 @@ const { useAuthStore } = await import('@/stores/auth-store')
 const { api } = await import('@/lib/api')
 const { StoreCheckout } = await import('./product-page')
 const { StoreProductEditor } = await import('./seller-page')
+const { StoreInventoryComposer } = await import('./inventory-composer')
+const { StoreInventoryImportPreview } =
+  await import('./inventory-import-preview')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
 const originalGet = api.get
@@ -91,6 +100,28 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 35))
 }
 async function mount(node: React.ReactNode) {
+  const mockPost = api.post
+  api.post = (async (url: string, body: unknown, options?: unknown) => {
+    const buyerId = useAuthStore.getState().auth.user?.id
+    const response = await mockPost(url, body, options as never)
+    if (
+      url === '/api/store/orders' &&
+      response.data?.success === true &&
+      response.data?.data?.order
+    ) {
+      const request = body as Record<string, unknown>
+      response.data.data.order = {
+        product_id: request.product_id,
+        variant_id: request.variant_id,
+        quantity: request.quantity,
+        payment_method: request.payment_method,
+        buyer_id: buyerId,
+        ...response.data.data.order,
+      }
+    }
+    return response
+  }) as typeof api.post
+
   useAuthStore
     .getState()
     .auth.setUser({ id: 2, role: 1, username: 'buyer-2', quota: 5000000 })
@@ -173,9 +204,55 @@ afterEach(async () => {
   api.post = originalPost
   api.put = originalPut
   useAuthStore.getState().auth.setUser(null)
+  localStorage.clear()
   document.body.replaceChildren()
 })
 after(() => dom.happyDOM.abort())
+
+test('inventory composer reports a draft before a merchant clicks Add', async () => {
+  const dirty: boolean[] = []
+  await mount(
+    <StoreInventoryComposer
+      template='account-details'
+      items={[]}
+      onChange={() =>
+        assert.fail('the unadded draft must not import inventory')
+      }
+      onDraftChange={(value) => dirty.push(value)}
+      disabled={false}
+    />
+  )
+  assert.equal(dirty.at(-1), false)
+  await input(field('store-delivery-username'), 'unfinished-user')
+  assert.equal(dirty.at(-1), true)
+  await input(field('store-delivery-username'), '')
+  assert.equal(dirty.at(-1), false)
+})
+
+test('inventory preview names the chosen custom variant without exposing cards or silently removing repeats', async () => {
+  const items = ['private-card-fixture', 'private-card-fixture', ' different ']
+  let selected: string[] | undefined
+  await mount(
+    <StoreInventoryImportPreview
+      items={items}
+      target='自定义规格 · 18 个月'
+      onRemoveDuplicates={(value) => {
+        selected = value
+      }}
+      disabled={false}
+    />
+  )
+  assert.match(document.body.textContent ?? '', /自定义规格 · 18 个月/)
+  assert.equal(
+    document.body.textContent?.includes('private-card-fixture'),
+    false
+  )
+  assert.equal(selected, undefined)
+  assert.equal(items.length, 3)
+  await click(button('Remove exact duplicates'))
+  assert.deepEqual(selected, ['private-card-fixture', ' different '])
+  assert.equal(items.length, 3)
+})
 
 for (const codeRequired of [false, true]) {
   for (const emailRequired of [false, true]) {
@@ -282,6 +359,7 @@ test('seller pickup controls are field previews with required switches and save 
         email_pickup_link: true,
       }}
       allowedMethods={['balance']}
+      minimumPriceQuota={500000}
       onClose={() => {}}
       onSaved={async () => {}}
     />

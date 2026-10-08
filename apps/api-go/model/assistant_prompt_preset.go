@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	PromptPresetVersion   = "aggregate-topic-v2"
-	fallbackPresetVersion = "backend-seed-v2"
+	PromptPresetVersion   = "aggregate-topic-v3"
+	fallbackPresetVersion = "backend-seed-v3"
 	maxPromptPresets      = 4
 	presetGenerations     = 12
 	presetRetentionDays   = 90
@@ -226,7 +226,6 @@ type topicRule struct {
 // Only fixed, reviewed topic names can cross from aggregate questions into a
 // generated preset. Source substrings are never copied to cache rows.
 var topicRules = []topicRule{
-	{Topic: "推荐信", Terms: []string{"推荐信", "推荐正文", "recommendation", "reference letter"}},
 	{Topic: "开发者访问", Terms: []string{"l0", "l1", "开发者权限", "开发者访问", "developer access", "api access"}},
 	{Topic: "API Key", Terms: []string{"api key", "apikey", "密钥"}},
 	{Topic: "Base URL", Terms: []string{"base url", "接口地址"}},

@@ -163,26 +163,33 @@ test('opening an auth page navigates and rejects an unknown page', async () => {
   assert.equal(calls.length, 1)
 })
 
-test('onboarding status reports L0 progress and the next step', async () => {
-  useAuthStore.setState({
-    auth: {
-      ...useAuthStore.getState().auth,
-      user: {
-        id: 42,
-        username: 'l0-progress',
-        role: 1,
-        developer_access_granted: false,
-        onboarding: {
-          activation_complete: false,
-          credential_complete: false,
-          first_request_complete: false,
-          stage: 'activate',
-          paid_activation_enabled: true,
-          paid_activation_min_amount: 5,
-        },
-        trust_level_info: { level: 0, paid_amount: 2 },
-      },
-    } as never,
+test('onboarding status reports exact L0 credit progress and the next step without legacy dollar projections', async () => {
+  useAuthStore.getState().auth.setUser({
+    id: 42,
+    username: 'l0-progress',
+    role: 1,
+    developer_access_granted: false,
+    onboarding: {
+      activation_complete: false,
+      credential_complete: false,
+      first_request_complete: false,
+      stage: 'activate',
+      paid_activation_enabled: true,
+      paid_activation_min_amount: 9999,
+      paid_activation_min_credits: '2500001',
+    },
+    trust_level_info: {
+      level: 0,
+      automatic_level: 0,
+      override_level: null,
+      paid_amount: 99999,
+      paid_credits: '1000000',
+      discount_ratio: 1,
+      discount_percent: 0,
+      inactivity_decay_steps: 0,
+      decay_period_days: 0,
+      overridden: false,
+    },
   })
   const { tools } = buildTools()
   const result = (await byName(tools, 'lmm_onboarding_status').execute(
@@ -194,11 +201,13 @@ test('onboarding status reports L0 progress and the next step', async () => {
   assert.equal(result.stage, 'activate')
   assert.deepEqual(result.paid_access, {
     mode: 'topup',
-    paid_amount_usd: 2,
-    threshold_usd: 5,
-    remaining_usd: 3,
+    quota_unit: 'LEDGER_QUOTA',
+    paid_credits: '1000000',
+    threshold_credits: '2500001',
+    remaining_credits: '1500001',
     note: 'Displayed progress only. Topping up does not itself grant developer access; the server decides.',
   })
+  assert.doesNotMatch(JSON.stringify(result.paid_access), /_usd|9999/)
   assert.deepEqual(result.next_step, {
     path: '/getting-started',
     label: 'Check API access status',
@@ -212,6 +221,14 @@ test('onboarding status stays readable while signed out', async () => {
     { signal: signal() }
   )) as Record<string, unknown>
   assert.equal(result.authenticated, false)
+  assert.deepEqual(result.paid_access, {
+    mode: 'unknown',
+    quota_unit: 'LEDGER_QUOTA',
+    paid_credits: null,
+    threshold_credits: null,
+    remaining_credits: null,
+    note: 'Displayed progress only. Topping up does not itself grant developer access; the server decides.',
+  })
   assert.deepEqual(result.next_step, {
     path: '/sign-in',
     label: 'Sign in to get started',

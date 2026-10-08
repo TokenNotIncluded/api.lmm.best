@@ -290,6 +290,7 @@ func merchantStoreServiceDB(t *testing.T, method string) merchantStoreServiceFix
 		_ = pool.Close()
 	})
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.ModerationJob{}))
+	require.NoError(t, model.BootstrapMerchantStoreWriterGate(db))
 	require.NoError(t, db.AutoMigrate(model.MerchantStoreModels()...))
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "C5wmMzDh1QsVZb0saEW9ulAPzVN87Boqv3DK6eIrKXc2YLfg")
 	f := merchantStoreServiceFixture{buyer: model.User{Username: "store-buyer", AffCode: "store-buyer", Role: 1, Status: 1, Quota: 10000000, Email: "buyer@example.com"}, seller: model.User{Username: "store-seller", AffCode: "store-seller", Role: 1, Status: 1, Quota: 10000000}, root: model.User{Username: "store-root", AffCode: "store-root", Role: 100, Status: 1}}
@@ -629,6 +630,11 @@ func TestMerchantStorePickupEmailOutboxUsesBuyerAndRetriesPrivately(t *testing.T
 		calls++
 		require.Equal(t, f.buyer.Email, email.destination)
 		require.Equal(t, order.TradeNo, email.tradeNo)
+		require.NotNil(t, email.details)
+		require.Equal(t, order.ProductID, email.details.ProductID)
+		require.Equal(t, order.ProductTitle, email.details.ProductTitle)
+		require.Equal(t, order.Quantity, email.details.Quantity)
+		require.Equal(t, order.ID, email.details.OrderID)
 		require.True(t, strings.HasPrefix(email.pickupURL, "https://api.example.com/store/claim/"))
 		require.Len(t, strings.TrimPrefix(email.pickupURL, "https://api.example.com/store/claim/"), 43)
 		return fmt.Errorf("SMTP failed buyer@example.com secret-token")

@@ -48,6 +48,8 @@ import { Route as SecurityIndexRouteImport } from './routes/security/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as StatusIndexRouteImport } from './routes/status/index'
 import { Route as StoreIndexRouteImport } from './routes/store/index'
+import { Route as StoreCartRouteImport } from './routes/store/cart'
+import { Route as StoreFavoritesRouteImport } from './routes/store/favorites'
 import { Route as StoreManageRouteImport } from './routes/store/manage'
 import { Route as StoreOrdersRouteImport } from './routes/store/orders'
 import { Route as StoreReviewRouteImport } from './routes/store/review'
@@ -95,6 +97,7 @@ import { Route as AuthenticatedWorkspaceIndexRouteImport } from './routes/_authe
 import { Route as GamesSignalIndexRouteImport } from './routes/games/signal/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as StoreClaimTokenRouteImport } from './routes/store/claim/$token'
+import { Route as StorePreviewProductIdRouteImport } from './routes/store/preview/$productId'
 import { Route as StoreProductsProductIdRouteImport } from './routes/store/products/$productId'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
@@ -303,6 +306,16 @@ const StatusIndexRoute = StatusIndexRouteImport.update({
 const StoreIndexRoute = StoreIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreCartRoute = StoreCartRouteImport.update({
+  id: '/cart',
+  path: '/cart',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreFavoritesRoute = StoreFavoritesRouteImport.update({
+  id: '/favorites',
+  path: '/favorites',
   getParentRoute: () => StoreRoute,
 } as any)
 const StoreManageRoute = StoreManageRouteImport.update({
@@ -573,6 +586,11 @@ const StoreClaimTokenRoute = StoreClaimTokenRouteImport.update({
   path: '/claim/$token',
   getParentRoute: () => StoreRoute,
 } as any)
+const StorePreviewProductIdRoute = StorePreviewProductIdRouteImport.update({
+  id: '/preview/$productId',
+  path: '/preview/$productId',
+  getParentRoute: () => StoreRoute,
+} as any)
 const StoreProductsProductIdRoute = StoreProductsProductIdRouteImport.update({
   id: '/products/$productId',
   path: '/products/$productId',
@@ -690,6 +708,8 @@ export interface FileRoutesByFullPath {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
   '/store/manage': typeof StoreManageRoute
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
@@ -716,6 +736,7 @@ export interface FileRoutesByFullPath {
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -789,6 +810,8 @@ export interface FileRoutesByTo {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
   '/store/manage': typeof StoreManageRoute
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
@@ -815,6 +838,7 @@ export interface FileRoutesByTo {
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/ai-directory': typeof AuthenticatedAiDirectoryIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
@@ -893,6 +917,8 @@ export interface FileRoutesById {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
   '/store/manage': typeof StoreManageRoute
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
@@ -919,6 +945,7 @@ export interface FileRoutesById {
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/_authenticated/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -996,6 +1023,8 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
     | '/store/manage'
     | '/store/orders'
     | '/store/review'
@@ -1022,6 +1051,7 @@ export interface FileRouteTypes {
     | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/store/claim/$token'
+    | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/ai-directory/'
     | '/channels/'
@@ -1095,6 +1125,8 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
     | '/store/manage'
     | '/store/orders'
     | '/store/review'
@@ -1121,6 +1153,7 @@ export interface FileRouteTypes {
     | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/store/claim/$token'
+    | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/ai-directory'
     | '/channels'
@@ -1198,6 +1231,8 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
     | '/store/manage'
     | '/store/orders'
     | '/store/review'
@@ -1224,6 +1259,7 @@ export interface FileRouteTypes {
     | '/_authenticated/subscriptions/reset'
     | '/_authenticated/usage-logs/$section'
     | '/store/claim/$token'
+    | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/_authenticated/ai-directory/'
     | '/_authenticated/channels/'
@@ -1582,6 +1618,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StoreIndexRouteImport
       parentRoute: typeof StoreRoute
     }
+    '/store/cart': {
+      id: '/store/cart'
+      path: '/cart'
+      fullPath: '/store/cart'
+      preLoaderRoute: typeof StoreCartRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/favorites': {
+      id: '/store/favorites'
+      path: '/favorites'
+      fullPath: '/store/favorites'
+      preLoaderRoute: typeof StoreFavoritesRouteImport
+      parentRoute: typeof StoreRoute
+    }
     '/store/manage': {
       id: '/store/manage'
       path: '/manage'
@@ -1911,6 +1961,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StoreClaimTokenRouteImport
       parentRoute: typeof StoreRoute
     }
+    '/store/preview/$productId': {
+      id: '/store/preview/$productId'
+      path: '/preview/$productId'
+      fullPath: '/store/preview/$productId'
+      preLoaderRoute: typeof StorePreviewProductIdRouteImport
+      parentRoute: typeof StoreRoute
+    }
     '/store/products/$productId': {
       id: '/store/products/$productId'
       path: '/products/$productId'
@@ -2197,22 +2254,28 @@ const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
 interface StoreRouteChildren {
+  StoreCartRoute: typeof StoreCartRoute
+  StoreFavoritesRoute: typeof StoreFavoritesRoute
   StoreManageRoute: typeof StoreManageRoute
   StoreOrdersRoute: typeof StoreOrdersRoute
   StoreReviewRoute: typeof StoreReviewRoute
   StoreSettingsRoute: typeof StoreSettingsRoute
   StoreIndexRoute: typeof StoreIndexRoute
   StoreClaimTokenRoute: typeof StoreClaimTokenRoute
+  StorePreviewProductIdRoute: typeof StorePreviewProductIdRoute
   StoreProductsProductIdRoute: typeof StoreProductsProductIdRoute
 }
 
 const StoreRouteChildren: StoreRouteChildren = {
+  StoreCartRoute: StoreCartRoute,
+  StoreFavoritesRoute: StoreFavoritesRoute,
   StoreManageRoute: StoreManageRoute,
   StoreOrdersRoute: StoreOrdersRoute,
   StoreReviewRoute: StoreReviewRoute,
   StoreSettingsRoute: StoreSettingsRoute,
   StoreIndexRoute: StoreIndexRoute,
   StoreClaimTokenRoute: StoreClaimTokenRoute,
+  StorePreviewProductIdRoute: StorePreviewProductIdRoute,
   StoreProductsProductIdRoute: StoreProductsProductIdRoute,
 }
 

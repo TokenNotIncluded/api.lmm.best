@@ -209,7 +209,7 @@ async function click(element: HTMLElement) {
     await flush()
   })
 }
-async function mount(role = 1, id = 2) {
+async function mount(role = 1, id = 2, initialServiceID?: string) {
   resetMarketCurrencyTest()
   useAuthStore.getState().auth.setUser({
     id,
@@ -231,7 +231,7 @@ async function mount(role = 1, id = 2) {
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <ToolMarket />
+          <ToolMarket initialServiceID={initialServiceID} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -323,6 +323,71 @@ after(() => {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor)
     else Reflect.deleteProperty(globalThis, key)
   }
+})
+
+test('a service deep link opens only the exact published detail without loading, granting or calling', async () => {
+  const id = '768e7947-0652-4c6b-a998-712958765432'
+  const item = detail(id, 'remote', 12345, 'public')
+  item.version.name = 'Merchant-defined catalogue helper'
+  stubNavigation([item])
+  const reads: { id: string; mode: string }[] = []
+  marketAPI.detail = async (serviceID, mode = 'published') => {
+    reads.push({ id: serviceID, mode })
+    return item
+  }
+  marketAPI.invoke = async () =>
+    assert.fail('A deep link cannot call or charge')
+  const { container } = await mount(1, 2, id)
+  await waitFor(
+    () => container.querySelector('h3')?.textContent === item.version.name
+  )
+  assert.deepEqual(reads, [{ id, mode: 'published' }])
+  await click(button('Back to list', container))
+  assert.equal(container.querySelector('h3'), null)
+  assert.equal(reads.length, 1, 'closing detail does not reopen it')
+})
+
+test('a malformed service deep link remains on the catalogue without a detail request', async () => {
+  stubNavigation([remote])
+  marketAPI.detail = async () =>
+    assert.fail('Malformed IDs must not reach the detail API')
+  const { container } = await mount(1, 2, '//attacker.test/mcp')
+  await waitFor(
+    () => container.textContent?.includes(remote.version.name) === true
+  )
+  assert.equal(findButton('Back to list', container), undefined)
+})
+
+test('a deep link rechecks visibility after an account switch and discards the previous private detail', async () => {
+  const id = '768e7947-0652-4c6b-a998-712958765432'
+  const item = detail(id, 'remote')
+  item.version.name = 'Private service of the previous account'
+  stubNavigation([item])
+  const viewers: number[] = []
+  marketAPI.detail = async () => {
+    const viewer = useAuthStore.getState().auth.user?.id ?? 0
+    viewers.push(viewer)
+    if (viewer === 2) return item
+    throw new Error('unavailable')
+  }
+  const { container } = await mount(1, 2, id)
+  await waitFor(
+    () => container.querySelector('h3')?.textContent === item.version.name
+  )
+  await act(async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 3, username: 'next-viewer', role: 1 })
+    await flush()
+  })
+  await waitFor(
+    () =>
+      container.textContent?.includes(
+        'This service is unavailable or you do not have access.'
+      ) === true
+  )
+  assert.equal(container.textContent?.includes(item.version.name), false)
+  assert.deepEqual(viewers, [2, 3])
 })
 
 test('deleting an authored service requires confirmation and removes it from the management list', async () => {

@@ -61,6 +61,12 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
+const {
+  createRouter,
+  createRootRoute,
+  createMemoryHistory,
+  RouterContextProvider,
+} = await import('@tanstack/react-router')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 
@@ -212,12 +218,18 @@ async function render(node: React.ReactNode): Promise<Rendered> {
   const root = createRoot(container)
 
   await act(async () => {
+    const router = createRouter({
+      routeTree: createRootRoute(),
+      history: createMemoryHistory({ initialEntries: ['/wallet'] }),
+    })
     root.render(
-      <I18nextProvider i18n={i18n}>
-        <PaymentCurrencyProvider>
-          <PaymentDisplayFixture>{node}</PaymentDisplayFixture>
-        </PaymentCurrencyProvider>
-      </I18nextProvider>
+      <RouterContextProvider router={router}>
+        <I18nextProvider i18n={i18n}>
+          <PaymentCurrencyProvider>
+            <PaymentDisplayFixture>{node}</PaymentDisplayFixture>
+          </PaymentCurrencyProvider>
+        </I18nextProvider>
+      </RouterContextProvider>
     )
   })
 

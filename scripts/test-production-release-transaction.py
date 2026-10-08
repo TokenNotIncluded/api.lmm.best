@@ -9,7 +9,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -225,42 +224,53 @@ class MerchantPostgresWorkflowTests(unittest.TestCase):
         "wallet-boundary-full-rollback",
     )
 
+    @classmethod
+    def setUpClass(cls):
+        runner = SCRIPT.parent / 'ci/qualify-merchant-store-postgres.py'
+        spec = importlib.util.spec_from_file_location('merchant_postgres_qualification', runner)
+        assert spec and spec.loader
+        cls.runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.runner)
+
     def run_result_guard(self, events):
         workflow = (SCRIPT.parent.parent / '.github/workflows/server-release-qualification.yml').read_text()
-        step = workflow.split('- name: Protect merchant settlement and inventory under PostgreSQL concurrency\n', 1)[1].split('\n      - name:', 1)[0]
+        step_name = '- name: Protect merchant settlement, upgrades, and fulfillment under PostgreSQL concurrency\n'
+        self.assertIn(step_name, workflow)
+        step = workflow.split(step_name, 1)[1].split('\n      - name:', 1)[0]
         self.assertIn('MERCHANT_STORE_POSTGRES_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable', step)
-        self.assertIn("-run '^TestMerchantStorePostgres(DSNGuard|Concurrency)$'", step)
+        self.assertIn("GOMAXPROCS: '2'", step)
         self.assertIn('set -euo pipefail', step)
-        guard = textwrap.dedent(step.split("python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
-        with tempfile.TemporaryDirectory(prefix='lmm-merchant-pg-result-') as directory:
-            root = Path(directory)
-            working = root / 'apps/api-go'
-            working.mkdir(parents=True)
-            log = root / 'qualification-artifacts/go/merchant-store/postgres.jsonl'
-            log.parent.mkdir(parents=True)
-            log.write_text(''.join(json.dumps(event) + '\n' for event in events))
-            return subprocess.run([sys.executable, '-c', guard], cwd=working,
-                                  capture_output=True, text=True, timeout=5)
+        self.assertIn('python3 -B scripts/ci/qualify-merchant-store-postgres.py', step)
+        self.assertIn('--artifact-directory "$GITHUB_WORKSPACE/qualification-artifacts/go/merchant-store"', step)
+        self.assertIn('--runner-temp "$RUNNER_TEMP"', step)
+        return self.runner.validate_pg(events)
 
     def passing_events(self):
-        return [{"Action": "pass", "Test": "TestMerchantStorePostgresConcurrency/" + case}
-                for case in self.cases]
+        return [{"Action": "pass", "Package": self.runner.PACKAGE, "Test": name}
+                for name in (*self.runner.PARENTS, *self.runner.LEAVES)] + [
+                    {"Action": "pass", "Package": self.runner.PACKAGE}]
 
     def test_all_six_real_cases_are_required(self):
+        self.assertEqual(len(self.runner.PARENTS), 13)
+        self.assertEqual(len(self.runner.LEAVES), 20)
+        for case in self.cases:
+            with self.subTest(case=case):
+                self.assertIn("TestMerchantStorePostgresConcurrency/" + case, self.runner.LEAVES)
         result = self.run_result_guard(self.passing_events())
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('6/6 passed, 0 skipped', result.stdout)
+        self.assertEqual(result, {'parents_passed': 13, 'pg_leaves_passed': 20, 'failed': 0, 'skipped': 0})
 
     def test_a_skip_cannot_hide_behind_a_passing_parent(self):
-        events = self.passing_events() + [{"Action": "skip", "Test": "TestMerchantStorePostgresConcurrency/fixture"}]
-        result = self.run_result_guard(events)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('without skips', result.stderr)
+        events = self.passing_events() + [{"Action": "skip", "Package": self.runner.PACKAGE,
+                                          "Test": "TestMerchantStorePostgresConcurrency/fixture"}]
+        with self.assertRaisesRegex(ValueError, 'rejects every skipped or failed'):
+            self.run_result_guard(events)
 
     def test_a_missing_concurrency_case_refuses_qualification(self):
-        result = self.run_result_guard(self.passing_events()[:-1])
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('all six cases', result.stderr)
+        for case in self.cases:
+            name = "TestMerchantStorePostgresConcurrency/" + case
+            events = [event for event in self.passing_events() if event.get('Test') != name]
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, name):
+                self.run_result_guard(events)
 
 
 class WorkflowWiringTests(unittest.TestCase):

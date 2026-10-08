@@ -4,7 +4,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net"
+	"net/mail"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +17,36 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/stretchr/testify/require"
 )
+
+func merchantStoreEmailTestBodies(t *testing.T, raw []byte) map[string]string {
+	t.Helper()
+	message, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	require.NoError(t, err)
+	kind, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	bodies := make(map[string]string)
+	if kind == "multipart/alternative" {
+		reader := multipart.NewReader(message.Body, params["boundary"])
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+			partKind, _, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+			require.NoError(t, err)
+			require.Equal(t, "base64", part.Header.Get("Content-Transfer-Encoding"))
+			body, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, part))
+			require.NoError(t, err)
+			bodies[partKind] = string(body)
+		}
+	} else {
+		body, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, message.Body))
+		require.NoError(t, err)
+		bodies[kind] = string(body)
+	}
+	return bodies
+}
 
 func merchantStoreSMTPTestSettings(t *testing.T) {
 	t.Helper()
@@ -40,12 +74,10 @@ func TestMerchantStorePickupEmailRejectsHeaderInjectionAndSeparatesVerification(
 	email := merchantStorePickupEmail{destination: "buyer@example.com", tradeNo: "MS" + strings.Repeat("a", 30), pickupURL: "https://api.example.com/store/claim/" + strings.Repeat("a", 43)}
 	message, _, _, err := merchantStorePickupEmailMessage(email)
 	require.NoError(t, err)
-	parts := strings.SplitN(string(message), "\r\n\r\n", 2)
-	require.Len(t, parts, 2)
-	content, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(parts[1], "\r\n", ""))
-	require.NoError(t, err)
-	require.Contains(t, string(content), email.pickupURL)
-	require.NotContains(t, string(content), "PRIVATE-CARD")
+	bodies := merchantStoreEmailTestBodies(t, message)
+	require.Contains(t, bodies["text/plain"], email.pickupURL)
+	require.Contains(t, bodies["text/html"], email.pickupURL)
+	require.NotContains(t, bodies["text/plain"], "PRIVATE-CARD")
 	for _, bad := range []string{"buyer@example.com\r\nBcc: other@example.com", "not-an-address", "buyer@example.com\x00"} {
 		email.destination = bad
 		_, _, _, err := merchantStorePickupEmailMessage(email)
@@ -54,11 +86,12 @@ func TestMerchantStorePickupEmailRejectsHeaderInjectionAndSeparatesVerification(
 	email = merchantStorePickupEmail{destination: "buyer@example.com", verificationCode: "123456"}
 	message, _, _, err = merchantStorePickupEmailMessage(email)
 	require.NoError(t, err)
-	parts = strings.SplitN(string(message), "\r\n\r\n", 2)
-	content, err = base64.StdEncoding.DecodeString(strings.ReplaceAll(parts[1], "\r\n", ""))
-	require.NoError(t, err)
-	require.Contains(t, string(content), "123456")
-	require.NotContains(t, string(content), "/store/claim/")
+	bodies = merchantStoreEmailTestBodies(t, message)
+	require.Len(t, bodies, 2)
+	require.Contains(t, bodies["text/plain"], "123456")
+	require.NotContains(t, bodies["text/plain"], "/store/claim/")
+	require.Contains(t, bodies["text/html"], "123456")
+	require.NotContains(t, bodies["text/html"], "/store/claim/")
 	email.verificationCode = "１２３４５６"
 	_, _, _, err = merchantStorePickupEmailMessage(email)
 	require.Error(t, err)
@@ -107,13 +140,16 @@ func TestMerchantStoreOrderSearchEmailHasIndependentPurposeAndNoOrderContent(t *
 	message, _, destination, err := merchantStorePickupEmailMessage(merchantStorePickupEmail{destination: "search@example.test", verificationCode: "123456", orderSearch: true})
 	require.NoError(t, err)
 	require.Equal(t, "search@example.test", destination)
-	parts := strings.SplitN(string(message), "\r\n\r\n", 2)
-	content, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(parts[1], "\r\n", ""))
-	require.NoError(t, err)
-	require.Contains(t, string(content), "订单查询验证码：123456")
-	require.Contains(t, string(content), "10 分钟")
-	require.NotContains(t, string(content), "/store/claim/")
-	require.NotContains(t, string(content), "订单号：")
+	bodies := merchantStoreEmailTestBodies(t, message)
+	require.Len(t, bodies, 2)
+	require.Contains(t, bodies["text/plain"], "订单查询验证码：123456")
+	require.Contains(t, bodies["text/plain"], "10 分钟")
+	for _, kind := range []string{"text/plain", "text/html"} {
+		require.Contains(t, bodies[kind], "商店订单查询验证码")
+		require.Contains(t, bodies[kind], "123456")
+		require.NotContains(t, bodies[kind], "/store/claim/")
+		require.NotContains(t, bodies[kind], "订单号：")
+	}
 	_, _, _, err = merchantStorePickupEmailMessage(merchantStorePickupEmail{destination: "search@example.test", verificationCode: "123456", orderSearch: true, pickupURL: "https://api.example.test/store/claim/private"})
 	require.Error(t, err)
 }

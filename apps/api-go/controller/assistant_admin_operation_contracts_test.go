@@ -32,7 +32,6 @@ func TestAssistantAdminOperationContractsCriticalPayloads(t *testing.T) {
 		{"AddDiscountCode", []string{"code", "discount_percent"}},
 		{"AddRedemption", []string{"quota", "count"}},
 		{"AdminCreateSubscriptionPlan", []string{"plan"}},
-		{"UpdateAdvancedSecuritySettings", []string{"enabled", "on_prompt", "action", "rules"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.handler, func(t *testing.T) {
@@ -109,5 +108,32 @@ func TestAssistantAdminTokenLogPaginationContract(t *testing.T) {
 		if _, ok := properties[key]; ok {
 			t.Errorf("token-log reads must not advertise the ignored scope/filter parameter %q", key)
 		}
+	}
+}
+
+func TestAssistantAdminOperationContractsProductTestModeIsOptionalNonNullBoolean(t *testing.T) {
+	contract := assistantAdminOperationContract("SaveMerchantStoreProduct")
+	body := contract["body_schema"].(map[string]any)
+	properties := body["properties"].(map[string]any)
+	flag := properties["test_mode"].(map[string]any)
+	if flag["type"] != "boolean" || flag["anyOf"] != nil {
+		t.Fatalf("the optional test flag must not advertise accepted JSON null: %v", flag)
+	}
+	if required, ok := body["required"].([]any); ok {
+		for _, field := range required {
+			if field == "test_mode" {
+				t.Fatal("omitted test mode must remain backward compatible")
+			}
+		}
+	}
+	if properties["seller_id"] != nil || properties["buyer_id"] != nil {
+		t.Fatal("product ownership must come from authenticated context")
+	}
+	preview := assistantAdminOperationContract("GetMerchantStoreProductPreview")
+	if preview["contract_status"] != "derived" || preview["body_schema"] != nil {
+		t.Fatal("private preview must have a derived read-only contract")
+	}
+	if preview["path_schema"].(map[string]any)["properties"].(map[string]any)["id"].(map[string]any)["type"] != "string" {
+		t.Fatal("private preview needs the product path id")
 	}
 }

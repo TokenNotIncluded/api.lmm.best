@@ -24,7 +24,6 @@ import {
   Bug01Icon,
   CancelCircleIcon,
   CheckmarkCircle02Icon,
-  Copy01Icon,
   CustomerSupportIcon,
   Delete02Icon,
   ExternalLinkIcon,
@@ -118,7 +117,6 @@ import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
 import { useStatus } from '@/hooks/use-status'
 import { getSelf } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
-import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { formatQuota } from '@/lib/format'
 import { isCreditAmount } from '@/lib/quota-input'
 import { cn } from '@/lib/utils'
@@ -134,7 +132,6 @@ import {
   deleteBounty,
   getBountyConfig,
   getBountyDetail,
-  getMcpTokenStatus,
   getPendingBountyReviewCount,
   listAcceptedBounties,
   listAdminBountyDisputes,
@@ -145,10 +142,8 @@ import {
   publishBounty,
   rateBountyOwner,
   resolveBountyDispute,
-  revokeMcpToken,
   resumeBounty,
   reviewChallenge,
-  rotateMcpToken,
   submitChallenge,
   tipChallenge,
   unarchiveBounty,
@@ -870,14 +865,24 @@ export function OpenSourceBounties({
                   </p>
                 </div>
               </div>
-              <Button onClick={openCreateDialog}>
-                <HugeiconsIcon
-                  icon={PlusSignIcon}
-                  strokeWidth={2}
-                  data-icon='inline-start'
-                />
-                {t('Create bounty')}
-              </Button>
+              <div className='flex flex-wrap gap-2'>
+                <Button variant='outline' render={<a href='/tool-market' />}>
+                  MCP · {t('Tool market')}
+                  <HugeiconsIcon
+                    icon={ExternalLinkIcon}
+                    strokeWidth={2}
+                    data-icon='inline-end'
+                  />
+                </Button>
+                <Button onClick={openCreateDialog}>
+                  <HugeiconsIcon
+                    icon={PlusSignIcon}
+                    strokeWidth={2}
+                    data-icon='inline-start'
+                  />
+                  {t('Create bounty')}
+                </Button>
+              </div>
             </div>
           </CardStaggerItem>
 
@@ -962,9 +967,6 @@ export function OpenSourceBounties({
                     {t('Dispute cases')}
                   </TabsTrigger>
                 ) : null}
-                <TabsTrigger value='mcp' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('MCP automation')}
-                </TabsTrigger>
                 <TabsTrigger value='rules' className={BOUNTY_VIEW_TAB_CLASS}>
                   {t('Rules')}
                 </TabsTrigger>
@@ -1184,10 +1186,6 @@ export function OpenSourceBounties({
                   />
                 </TabsContent>
               ) : null}
-
-              <TabsContent value='mcp' className='mt-3 sm:mt-4'>
-                <McpSettingsPanel />
-              </TabsContent>
 
               <TabsContent value='rules' className='mt-3 sm:mt-4'>
                 <RulesPanel />
@@ -1560,6 +1558,7 @@ export function BountyCard({
   return (
     <TitledCard
       title={project.title}
+      actionPlacement='below'
       description={project.owner_username}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='[overflow-wrap:anywhere]'
@@ -1754,7 +1753,7 @@ function BountyStatusBar({
     <div
       data-bounty-status-bar
       aria-label={t('Bounty status summary')}
-      className='flex max-w-full flex-wrap items-center gap-1.5 sm:max-w-xl sm:justify-end'
+      className='flex min-w-0 flex-wrap items-center gap-1.5'
     >
       <Badge variant='outline'>{statusLabel(t, project.status)}</Badge>
       {items
@@ -1803,6 +1802,7 @@ export function OwnerProjectCard(props: {
   return (
     <TitledCard
       title={project.title}
+      actionPlacement='below'
       description={project.repository_url}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='break-all'
@@ -2046,6 +2046,7 @@ function ChallengeCard({
   return (
     <TitledCard
       title={challenge.project_title || t('Bounty challenge')}
+      actionPlacement='below'
       description={`${challenge.owner_username ?? ''} · ${statusLabel(t, challenge.status)}`}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='[overflow-wrap:anywhere]'
@@ -3420,175 +3421,6 @@ function DisputesPanel({
         </Field>
       </Dialog>
     </>
-  )
-}
-
-function McpSettingsPanel() {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [revealedToken, setRevealedToken] = useState('')
-  const [pending, setPending] = useState(false)
-  const connectionQuery = useQuery({
-    queryKey: ['open-source-bounties', 'mcp-token'],
-    queryFn: getMcpTokenStatus,
-  })
-  const endpoint =
-    typeof window === 'undefined'
-      ? '/mcp'
-      : `${window.location.origin}${connectionQuery.data?.endpoint ?? '/mcp'}`
-  const protocolVersion = connectionQuery.data?.protocol_version ?? '2026-07-28'
-  const prompt = useMemo(
-    () => `Connect to the api.lmm.best Open-source bounties MCP server.
-
-Endpoint: ${endpoint}
-Protocol: MCP ${protocolVersion}, stateless Streamable HTTP
-Authorization: Bearer ${revealedToken || '<YOUR_PERSONAL_MCP_TOKEN>'}
-
-Use the open_source_bounty_operator prompt and the open_source_bounties.* tools to manage my bounties end to end. Treat every bounty as a peer-to-peer transaction between its publisher and contributor; an administrator intervenes only when either party opens a dispute. Never fabricate defects, Issues, pull requests, tests, review results, dispute evidence, tips, or ratings. Read current state before changing anything. Publishing debits the gross listed price from my balance, credits the public platform fee to the enabled super administrator account, and locks the remaining net contributor rewards in escrow. If I am that super administrator, report both the gross debit and fee credit and the resulting net balance decrease. Daily check-in rewards are credited to the same balance and can fund listings. The public board ranks listings by gross price per fix from highest to lowest. When any tool returns input_required for publishing, approval/payment, rejection, closing/refunding, tipping, rating, dispute opening/resolution, draft deletion, or withdrawal, show me the exact action, recipient, public score, gross price, net reward, fee, evidence, and balance impact, then continue only after I explicitly confirm. Tips are non-refundable and separate from escrow. A contributor may submit a matching GitHub Issue URL, pull request URL, or both, plus an optional completion note. The bounty publisher reviews the completed work directly. Reviewers must record a truthful 1-5 contributor score and public evaluation; contributors may rate the publisher/verifier after review, and both sides can see mutual ratings and historical averages. If the parties disagree, open a dispute with the real challenge ID and evidence. Treat an open dispute as frozen until a third-party administrator records a conclusion and, when justified, transfers the locked reward from escrow.`,
-    [endpoint, protocolVersion, revealedToken]
-  )
-
-  const rotate = async () => {
-    if (
-      connectionQuery.data?.status.configured &&
-      !window.confirm(
-        t(
-          'Rotate the personal MCP token? The previous token will stop working immediately.'
-        )
-      )
-    ) {
-      return
-    }
-    setPending(true)
-    try {
-      const connection = await rotateMcpToken()
-      setRevealedToken(connection.token)
-      await queryClient.invalidateQueries({
-        queryKey: ['open-source-bounties', 'mcp-token'],
-      })
-      toast.success(
-        t('Personal MCP token generated. Copy it now; it is shown only once.')
-      )
-    } catch {
-      toast.error(t('Unable to update the personal MCP token.'))
-    } finally {
-      setPending(false)
-    }
-  }
-
-  const revoke = async () => {
-    if (
-      !window.confirm(
-        t(
-          'Revoke the personal MCP token? Connected AI clients will lose access immediately.'
-        )
-      )
-    ) {
-      return
-    }
-    setPending(true)
-    try {
-      await revokeMcpToken()
-      setRevealedToken('')
-      await queryClient.invalidateQueries({
-        queryKey: ['open-source-bounties', 'mcp-token'],
-      })
-      toast.success(t('Personal MCP token revoked.'))
-    } catch {
-      toast.error(t('Unable to revoke the personal MCP token.'))
-    } finally {
-      setPending(false)
-    }
-  }
-
-  const copyPrompt = async () => {
-    const copied = await copyToClipboard(prompt)
-    if (copied) {
-      toast.success(t('AI prompt copied.'))
-    } else {
-      toast.error(
-        t(
-          'Copy failed. The complete prompt remains visible for manual copying.'
-        )
-      )
-    }
-  }
-
-  return (
-    <TitledCard
-      title={t('Open-source bounty MCP')}
-      description={t(
-        'Use one personal token to let an AI publish, accept, verify, dispute, tip, rate, and settle bounties through /mcp.'
-      )}
-      icon={<HugeiconsIcon icon={SourceCodeIcon} strokeWidth={1.8} />}
-      iconTone='info'
-      disableHoverEffect
-      action={<Badge variant='outline'>MCP {protocolVersion}</Badge>}
-    >
-      <div className='flex flex-col gap-4'>
-        <div className='grid gap-4 sm:grid-cols-2'>
-          <Field label={t('MCP endpoint')} htmlFor='bounty-mcp-endpoint'>
-            <Input id='bounty-mcp-endpoint' value={endpoint} readOnly />
-          </Field>
-          <Field label={t('Token status')} htmlFor='bounty-mcp-token-status'>
-            <Input
-              id='bounty-mcp-token-status'
-              value={
-                connectionQuery.data?.status.configured
-                  ? connectionQuery.data.status.token_hint
-                  : t('Not configured')
-              }
-              readOnly
-            />
-          </Field>
-        </div>
-        {revealedToken ? (
-          <Alert>
-            <AlertTitle>{t('Copy this token now')}</AlertTitle>
-            <AlertDescription>
-              {t(
-                'For security, the plaintext token will not be shown again after you leave this page.'
-              )}
-            </AlertDescription>
-            <Textarea
-              className='mt-3 font-mono text-xs'
-              value={revealedToken}
-              readOnly
-              rows={3}
-            />
-          </Alert>
-        ) : null}
-        <div className='flex flex-wrap gap-2'>
-          <Button onClick={rotate} disabled={pending}>
-            {connectionQuery.data?.status.configured
-              ? t('Rotate token')
-              : t('Generate token')}
-          </Button>
-          {connectionQuery.data?.status.configured ? (
-            <Button variant='destructive' onClick={revoke} disabled={pending}>
-              {t('Revoke token')}
-            </Button>
-          ) : null}
-          <Button variant='outline' onClick={copyPrompt} disabled={pending}>
-            <HugeiconsIcon
-              icon={Copy01Icon}
-              strokeWidth={2}
-              data-icon='inline-start'
-            />
-            {t('Copy AI prompt')}
-          </Button>
-        </div>
-        <Field label={t('AI prompt')} htmlFor='bounty-mcp-prompt'>
-          <Textarea
-            id='bounty-mcp-prompt'
-            value={prompt}
-            readOnly
-            rows={14}
-            className='font-mono text-xs'
-          />
-        </Field>
-      </div>
-    </TitledCard>
   )
 }
 

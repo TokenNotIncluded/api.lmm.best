@@ -133,6 +133,8 @@ const CONTENT_SECTIONS = [
           AssistantStreamEnabled: settings.AssistantStreamEnabled,
           AssistantTemperature: settings.AssistantTemperature,
           AssistantMaxTokens: settings.AssistantMaxTokens,
+          AssistantNewUserGiftMaxCredits:
+            settings.AssistantNewUserGiftMaxCredits,
           AssistantAgentLoopEnabled: settings.AssistantAgentLoopEnabled,
           AssistantMaxSteps: settings.AssistantMaxSteps,
           AssistantTimeoutSeconds: settings.AssistantTimeoutSeconds,
@@ -160,15 +162,6 @@ const CONTENT_SECTIONS = [
             settings.AssistantL1AutoReviewMinConfidence,
           AssistantL1AutoApprovalUserIDs:
             settings.AssistantL1AutoApprovalUserIDs,
-          AssistantReviewEnabled: settings.AssistantReviewEnabled,
-          AssistantReviewWindowDays: settings.AssistantReviewWindowDays,
-          AssistantReviewIntervalHours: settings.AssistantReviewIntervalHours,
-          AssistantReviewProbability: settings.AssistantReviewProbability,
-          AssistantReviewGroup: settings.AssistantReviewGroup,
-          AssistantReviewModel: settings.AssistantReviewModel,
-          AssistantReviewReasoningEffort:
-            settings.AssistantReviewReasoningEffort,
-          AssistantReviewGroupPolicies: settings.AssistantReviewGroupPolicies,
           AssistantRetentionEnabled: settings.AssistantRetentionEnabled,
           AssistantActiveRetentionDays: settings.AssistantActiveRetentionDays,
           AssistantArchivedRetentionDays:

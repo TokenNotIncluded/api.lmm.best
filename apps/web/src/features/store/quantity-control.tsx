@@ -53,9 +53,10 @@ export function StoreQuantityControl({
           type='text'
           inputMode='numeric'
           pattern='[1-9][0-9]*'
+          maxLength={16}
           role='spinbutton'
           aria-valuemin={1}
-          aria-valuemax={max}
+          aria-valuemax={Math.max(1, max)}
           aria-valuenow={quantity}
           value={value}
           disabled={disabled}

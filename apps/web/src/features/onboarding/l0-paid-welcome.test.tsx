@@ -81,6 +81,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const originalConfig = useSystemConfigStore.getState().config
 const { subscribeToAssistantOpen } =
   await import('@/features/assistant/assistant-events')
 const { developerAccessRequestQueryKey } = await import('./api')
@@ -99,30 +101,47 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 30))
 
 after(() => {
   api.get = originalGet
+  useSystemConfigStore.setState({ config: originalConfig })
   dom.close()
 })
 
 test('L0 keeps top-up reachable from the default chat scene and links it to checkout', async () => {
   // The regression this guards: the only recharge entry used to live inside the
   // access tab, so an L0 user landing on the default chat scene never saw one.
+  useSystemConfigStore.setState({
+    config: {
+      ...originalConfig,
+      currency: {
+        ...originalConfig.currency,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+      },
+    },
+  })
   const user: AuthUser = {
     id: 708,
     username: 'l0-persistent-topup',
     role: 1,
     developer_access_granted: false,
+    setting: { wallet_display_currency: 'CNY' },
     onboarding: {
       activation_complete: false,
       credential_complete: false,
       first_request_complete: false,
       stage: 'activate' as const,
       paid_activation_enabled: true,
-      paid_activation_min_amount: 5,
+      paid_activation_min_credits: '2500001',
+      paid_activation_min_amount: 9999,
     },
     trust_level_info: {
       level: 0,
       automatic_level: 0,
       override_level: null,
-      paid_amount: 2,
+      paid_amount: 99999,
+      paid_credits: '1000000',
       discount_ratio: 1,
       discount_percent: 0,
       inactivity_decay_steps: 0,
@@ -197,7 +216,7 @@ test('L0 keeps top-up reachable from the default chat scene and links it to chec
     )
     assert.match(
       container.querySelector('.l0-rail-meta')?.textContent ?? '',
-      /Top up \$3\.00 for instant approval/
+      /Top up 21\.01 CNY for instant approval/
     )
     assert.ok(direct.classList.contains('l0-rail-action--ghost'))
     assert.equal(container.querySelector('.l0-ring'), null)
@@ -229,7 +248,19 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
       first_request_complete: false,
       stage: 'activate' as const,
       paid_activation_enabled: true,
-      paid_activation_min_amount: 1,
+      paid_activation_min_credits: '500000',
+    },
+    trust_level_info: {
+      level: 0,
+      automatic_level: 0,
+      override_level: null,
+      paid_amount: 0,
+      paid_credits: '0',
+      discount_ratio: 1,
+      discount_percent: 0,
+      inactivity_decay_steps: 0,
+      decay_period_days: 0,
+      overridden: false,
     },
   }
   let accessReads = 0

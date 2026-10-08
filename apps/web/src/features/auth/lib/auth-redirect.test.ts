@@ -40,6 +40,16 @@ describe('authentication redirect validation', () => {
     )
   })
 
+  test('preserves a product SKU, quantity, encoded promotion and fragment', () => {
+    const productPath =
+      '/store/products/product-fixture?variant_id=variant-fixture&quantity=3&promotion=SUMMER%2B10#purchase'
+    assert.equal(sanitizeAuthRedirect(productPath, origin), productPath)
+    assert.equal(
+      sanitizeAuthRedirect(`${origin}${productPath}`, origin),
+      productPath
+    )
+  })
+
   test('rejects external and ambiguously parsed redirect targets', () => {
     const unsafeTargets: unknown[] = [
       undefined,

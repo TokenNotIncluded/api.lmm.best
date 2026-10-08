@@ -335,3 +335,52 @@ describe('assistant game-style progress', () => {
     }
   })
 })
+
+describe('welcome gift current cap', () => {
+  for (const code of ['gift_disabled', 'gift_limit_exceeded']) {
+    test(`keeps the stored offer visible but blocks claiming when ${code}`, async () => {
+      let claims = 0
+      api.get = (async () => ({
+        data: {
+          success: true,
+          data: {
+            amount_cents: 0,
+            quota: 7000000,
+            credit_amount: 7000000,
+            status: 'offered',
+            reason: 'Stored gift offer',
+            created_at: 1,
+            claimed_at: 0,
+            claim_available: false,
+            claim_blocked_code: code,
+            max_credit_amount: code === 'gift_disabled' ? 0 : 100000,
+          },
+        },
+      })) as typeof api.get
+      api.post = (async () => {
+        claims++
+        return { data: { success: true } }
+      }) as typeof api.post
+      const rendered = await render(<AssistantNewUserGift enabled />)
+      try {
+        const claim =
+          rendered.container.querySelector<HTMLButtonElement>('button')
+        assert.ok(claim)
+        assert.equal(claim.disabled, true)
+        await act(async () => {
+          claim.click()
+          await flushQueries()
+        })
+        assert.equal(claims, 0)
+        assert.match(
+          rendered.container.textContent ?? '',
+          code === 'gift_disabled'
+            ? /currently disabled/
+            : /exceeds the current maximum/
+        )
+      } finally {
+        await unmount(rendered)
+      }
+    })
+  }
+})

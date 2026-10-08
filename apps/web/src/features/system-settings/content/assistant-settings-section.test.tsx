@@ -101,6 +101,7 @@ const baseValues = {
   AssistantStreamEnabled: true,
   AssistantTemperature: 0.2,
   AssistantMaxTokens: 900,
+  AssistantNewUserGiftMaxCredits: 5000000,
   AssistantAgentLoopEnabled: true,
   AssistantMaxSteps: 6,
   AssistantTimeoutSeconds: 45,
@@ -123,14 +124,6 @@ const baseValues = {
   AssistantL1AutoReviewPrompt: '',
   AssistantL1AutoReviewMinConfidence: 0.98,
   AssistantL1AutoApprovalUserIDs: '',
-  AssistantReviewEnabled: true,
-  AssistantReviewWindowDays: 30,
-  AssistantReviewIntervalHours: 24,
-  AssistantReviewProbability: 0,
-  AssistantReviewGroup: 'default',
-  AssistantReviewModel: 'deepseek-v4-flash',
-  AssistantReviewReasoningEffort: 'auto',
-  AssistantReviewGroupPolicies: '{}',
   AssistantRetentionEnabled: true,
   AssistantActiveRetentionDays: 90,
   AssistantArchivedRetentionDays: 30,
@@ -373,13 +366,7 @@ describe('assistant search provider settings', () => {
           ),
           null
         )
-        assert.equal(
-          rendered.container.querySelector(
-            '[data-testid="assistant-review-route-fields"]'
-          ),
-          null
-        )
-        // The connection tab loads its selector once, not a separate risk-review model.
+        // The connection tab loads its selector once, without unrelated model requests.
         assert.equal(
           requests.filter((url) => url === '/api/assistant/models').length,
           1
@@ -450,8 +437,6 @@ describe('assistant search provider settings', () => {
   test('validates bounded conversation retention settings', () => {
     assert.equal(assistantSettingsSchema.safeParse(baseValues).success, true)
     for (const invalid of [
-      { AssistantReviewWindowDays: 0 },
-      { AssistantReviewIntervalHours: 169 },
       { AssistantTemperature: -0.1 },
       { AssistantTemperature: 2.1 },
       { AssistantMaxTokens: 63 },
@@ -481,7 +466,7 @@ describe('assistant search provider settings', () => {
     }
   })
 
-  test('accepts every supported reasoning effort for primary and review routes', () => {
+  test('accepts every supported reasoning effort for assistant responses', () => {
     assert.deepEqual(ASSISTANT_REASONING_EFFORTS, [
       'auto',
       'none',
@@ -497,7 +482,6 @@ describe('assistant search provider settings', () => {
         assistantSettingsSchema.safeParse({
           ...baseValues,
           AssistantReasoningEffort: effort,
-          AssistantReviewReasoningEffort: effort,
         }).success,
         true,
         effort
@@ -506,7 +490,7 @@ describe('assistant search provider settings', () => {
     assert.equal(
       assistantSettingsSchema.safeParse({
         ...baseValues,
-        AssistantReviewReasoningEffort: 'ultra',
+        AssistantReasoningEffort: 'ultra',
       }).success,
       false
     )
@@ -573,31 +557,6 @@ describe('assistant search provider settings', () => {
     )
     assert.match(container.textContent ?? '', /official Exa Search API/)
     await cleanup()
-  })
-
-  test('retains aggregate reporting but not a separate sampled review model', async () => {
-    const rendered = await renderSettings('none')
-    try {
-      assert.equal(
-        rendered.container.querySelector(
-          '[data-testid="assistant-review-route-fields"]'
-        ),
-        null
-      )
-      assert.equal(
-        rendered.container.querySelector(
-          'input[name="AssistantReviewProbability"]'
-        ),
-        null
-      )
-      assert.ok(
-        rendered.container.querySelector(
-          'input[name="AssistantReviewWindowDays"]'
-        )
-      )
-    } finally {
-      await rendered.cleanup()
-    }
   })
 
   test('saves changed assistant options through one bulk mutation', async () => {
@@ -865,11 +824,7 @@ describe('assistant settings workspace', () => {
       return { data: { success: true } }
     }) as typeof api.post
     const page = await renderSettings('none')
-    const presetsKey = [
-      'assistant-pre-conversation-presets',
-      'natural-v2',
-      'en',
-    ]
+    const presetsKey = ['assistant-pre-conversation-presets', 'access-v3', 'en']
     const statusKey = ['assistant-status', 7, 'session']
     page.queryClient.setQueryData(presetsKey, { presets: [] })
     page.queryClient.setQueryData(statusKey, { enabled: true })
@@ -995,6 +950,108 @@ describe('assistant asynchronous Moderation settings', () => {
       api.get = originalGet
       api.post = originalPost
       await rendered.cleanup()
+    }
+  })
+})
+
+describe('administrator welcome-gift cap', () => {
+  test('rejects non-integer, negative and unsafe credit maxima', () => {
+    for (const value of [
+      -1,
+      0.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...baseValues,
+          AssistantNewUserGiftMaxCredits: value,
+        }).success,
+        false
+      )
+    }
+    for (const value of [0, 1, 9000000, Number.MAX_SAFE_INTEGER]) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...baseValues,
+          AssistantNewUserGiftMaxCredits: value,
+        }).success,
+        true
+      )
+    }
+  })
+  test('edits in USD and keeps exactly the same integer credits when switching display units', async () => {
+    const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
+      await import('@/stores/system-config-store')
+    const { useWalletCurrencyPreferenceStore } =
+      await import('@/stores/wallet-currency-preference-store')
+    const oldConfig = useSystemConfigStore.getState().config
+    const oldPreference = useWalletCurrencyPreferenceStore.getState().preference
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        cnyPerUsd: 7,
+        legacyPricingUnitsPerUsd: 1,
+      },
+    })
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+    const originalGet = api.get,
+      originalPost = api.post
+    let captured: Record<string, string> | undefined
+    api.get = (async () => ({ data: { data: ['default'] } })) as typeof api.get
+    api.post = (async (
+      _url: string,
+      body: { values?: Record<string, string> }
+    ) => {
+      captured = body.values
+      return { data: { success: true } }
+    }) as typeof api.post
+    const rendered = await renderSettings('none')
+    try {
+      const input = rendered.container.querySelector<HTMLInputElement>(
+        'input[name="AssistantNewUserGiftMaxCredits"]'
+      )
+      const form = rendered.container.querySelector('form')
+      assert.ok(input)
+      assert.ok(form)
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value'
+        )?.set
+        assert.ok(setter)
+        setter.call(input, '2.5')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+        await flushEffects()
+      })
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+        await flushEffects()
+      })
+      assert.equal(input.value, '17.5')
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+        await flushEffects()
+      })
+      assert.equal(input.value, '1250000')
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.deepEqual(captured, { AssistantNewUserGiftMaxCredits: '1250000' })
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await rendered.cleanup()
+      useSystemConfigStore.getState().setConfig(oldConfig)
+      useWalletCurrencyPreferenceStore.getState().setPreference(oldPreference)
     }
   })
 })

@@ -1,47 +1,21 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
-/* One homepage stylesheet. Public navigation and account surfaces retain their own styles. */
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Reference-pinned direction: a black interactive pointillist poster. The
+   original sculptures morph through Store / Tools / Ecosystem / Future.
+   Real actions and all account decisions remain in ForgeHome. */
+@font-face {
+  font-family: 'Forge Poster';
+  src: url('../home/assets/bodoni-moda.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
 .lmm-home {
   --home-gutter: clamp(1.25rem, 4vw, 4rem);
   --home-rule: color-mix(in oklch, var(--foreground) 12%, transparent);
   --home-accent: var(--forge-clay);
-  --home-stage-ground: var(--background);
-  --home-stage-ink: var(--foreground);
-  --home-stage-muted: var(--muted-foreground);
-  --home-stage-wire: var(--forge-extra-stone-light);
-  --home-stage-idle: var(--forge-muted-ink-light);
-  --home-stage-lattice: var(--forge-extra-taupe-light);
-  --home-stage-forward: var(--forge-clay);
-  --home-stage-highlight: var(--foreground);
-  --home-stage-feedback: var(--forge-sage);
-  --home-stage-feedback-deep: var(--forge-destructive-light);
-  --home-stage-link: var(--forge-destructive-light);
-  background: var(--background);
+  --home-stage-wire: var(--muted-foreground);
   color: var(--foreground);
+  background: var(--background);
   font-family: var(--font-body);
-}
-.dark .lmm-home {
-  --home-stage-wire: var(--forge-extra-stone-dark);
-  --home-stage-idle: var(--forge-extra-stone-dark);
-  --home-stage-lattice: var(--forge-extra-taupe-dark);
-  --home-stage-feedback-deep: var(--forge-destructive-dark);
-  --home-stage-link: var(--forge-clay-dark);
 }
 .lmm-home *,
 .lmm-home *::before,
@@ -58,8 +32,7 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-home a {
   text-underline-offset: 0.3em;
 }
-.lmm-home button,
-.lmm-home summary {
+.lmm-home :is(button, summary) {
   cursor: pointer;
 }
 .lmm-home button:disabled {
@@ -69,695 +42,181 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-home svg {
   flex-shrink: 0;
 }
-.lmm-intro {
-  padding: clamp(2.5rem, 3.7vw, 3.8rem) var(--home-gutter) 2rem;
-  text-align: center;
-}
-.lmm-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin: 0 0 1.5rem;
-  color: var(--muted-foreground);
-  font-size: 0.72rem;
-  font-weight: 550;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.1em;
-}
-.lmm-intro .lmm-eyebrow {
-  justify-content: center;
-}
-.lmm-wordmark {
-  color: var(--foreground);
-  font-size: 1.4rem;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.1em;
-}
-.lmm-wordmark > span {
-  color: var(--home-accent);
-  display: inline-block;
-  font-size: 1.6rem;
-  margin-left: 0.25rem;
-}
-.lmm-intro h1 {
-  max-width: 56rem;
-  margin: 0 auto;
-  font-size: clamp(3.2rem, 6.6vw, 6.2rem);
-  font-weight: 750;
-  line-height: 1.03;
-  letter-spacing: -0.03em;
-  text-wrap: balance;
-}
-.lmm-title-phrase {
-  display: inline-block;
-  max-width: 100%;
-  text-wrap: balance;
-}
-.lmm-intro-description {
-  max-width: 32rem;
-  margin: 1.5rem auto 0;
-  color: var(--muted-foreground);
-  font-size: 1rem;
-  line-height: 1.8;
-  text-wrap: balance;
-}
-.lmm-intro-actions {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1.6rem;
-  margin-top: 1.6rem;
-}
-.lmm-intro-actions [data-slot='button'] {
-  min-height: 3rem;
-  padding-inline: 1.4rem;
-  border-radius: 0;
-  box-shadow: none;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.lmm-intro-actions > [data-slot='button']:first-child {
-  padding-right: 1.9rem;
-  clip-path: polygon(
-    0 0,
-    100% 0,
-    100% calc(100% - var(--cut-size, 0.625rem)),
-    calc(100% - var(--cut-size, 0.625rem)) 100%,
-    0 100%
-  );
-}
-.lmm-intro-actions > [data-slot='button']:first-child:focus-visible {
-  clip-path: none;
-}
-.lmm-intro-actions a {
-  font-size: 0.875rem;
-}
-.lmm-access-note {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-  margin: 1.5rem 0 0;
-  padding: 0;
-  max-width: 38rem;
-  list-style: none;
-  border-top: 0;
-  font-size: 0.75rem;
-  line-height: 1.65;
-  color: var(--muted-foreground);
-}
-.lmm-access-note li {
-  display: flex;
-  align-items: baseline;
-  gap: 0.55rem;
-}
-.lmm-access-note li::before {
-  content: '';
-  display: inline-block;
-  flex: 0 0 0.35rem;
-  height: 0.35rem;
-  background: currentColor;
-  clip-path: polygon(0 0, 100% 0, 100% 45%, 45% 100%, 0 100%);
-  transform: translateY(-0.15em);
-}
-.lmm-text-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.7rem;
-  min-height: 2.75rem;
-  color: inherit;
-  text-decoration: none;
-  font-size: 0.875rem;
-}
-.lmm-text-link svg {
-  width: 1rem;
-  height: 1rem;
-  transition: transform 180ms ease;
-}
-.lmm-text-link:hover {
-  text-decoration: underline;
-}
-.lmm-text-link:hover svg {
-  transform: translateX(3px);
-}
-.lmm-cinema {
-  width: min(calc(100% - 2 * var(--home-gutter)), 84rem);
-  margin: 0.75rem auto 0;
-}
-.lmm-cinema-inner {
-  --pointer-x: 0px;
-  --pointer-y: 0px;
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  border-radius: 0;
-  border: 0;
-  background:
-    radial-gradient(
-      circle at 20% 46%,
-      color-mix(in oklch, var(--forge-clay) 4%, transparent),
-      transparent 34%
-    ),
-    radial-gradient(
-      circle at 46% 18%,
-      color-mix(in oklch, var(--forge-sage) 3%, transparent),
-      transparent 30%
-    ),
-    var(--background);
-  box-shadow: none;
-  color: var(--home-stage-ink);
-  color-scheme: inherit;
-  min-height: 38rem;
-  padding-bottom: 8rem;
-}
-.lmm-visual {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 56%;
-  overflow: hidden;
-  border-right: 0;
-  background:
-    radial-gradient(
-      circle at 38% 48%,
-      color-mix(in oklch, var(--forge-clay) 4%, transparent),
-      transparent 44%
-    ),
-    radial-gradient(
-      circle at 70% 26%,
-      color-mix(in oklch, var(--forge-sage) 3%, transparent),
-      transparent 36%
-    ),
-    var(--home-stage-ground);
-  -webkit-mask-image: linear-gradient(
-    90deg,
-    #000 0%,
-    #000 82%,
-    rgb(0 0 0 / 86%) 90%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    90deg,
-    #000 0%,
-    #000 82%,
-    rgb(0 0 0 / 86%) 90%,
-    transparent 100%
-  );
-  transform: translate3d(
-      calc(var(--pointer-x) * 0.08),
-      calc(var(--pointer-y) * 0.06),
-      0
-    )
-    scale(1.015);
-  transform-origin: center;
-}
-.lmm-visual .lmm-film {
-  --film-layout: center;
-  height: 100%;
-}
-.lmm-token-cloud {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  overflow: hidden;
-  pointer-events: none;
-  user-select: none;
-  contain: strict;
-}
-.lmm-token-cloud > [data-token-particle] {
-  position: absolute;
-  top: 0;
-  left: 0;
-  color: var(--home-stage-muted);
-  opacity: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  text-shadow: none;
-  transition: opacity 180ms ease-out;
-}
-.lmm-token-cloud > button[data-token-option] {
-  border: 0;
-  min-width: 2.75rem;
-  min-height: 2.75rem;
-  padding: 0.25rem;
-  background: none;
-  pointer-events: auto;
-  cursor: grab;
-  touch-action: manipulation;
-}
-.lmm-token-cloud > button[data-token-option]:active {
-  cursor: grabbing;
-}
-.lmm-token-cloud > button[data-selected] {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.35em;
-}
-.lmm-token-cloud [data-tint='feedback'] {
-  color: var(--home-stage-feedback);
-}
-.lmm-token-cloud [data-tint='highlight'] {
-  color: var(--home-stage-highlight);
-}
-.lmm-token-cloud [data-tint='forward'] {
-  color: var(--home-stage-forward);
-}
-.lmm-home:is(
-    [data-motion='loading'],
-    [data-motion='playing'],
-    [data-motion='paused']
-  )
-  .lmm-cinema {
-  height: 200svh;
-  min-height: 96rem;
-}
-.lmm-home:is(
-    [data-motion='loading'],
-    [data-motion='playing'],
-    [data-motion='paused']
-  )
-  .lmm-cinema-inner {
-  position: sticky;
-  top: 5rem;
-  display: grid;
-  grid-template-columns: 54% 43% 3%;
-  grid-template-rows: minmax(0, 1fr) auto;
-  height: calc(100svh - 12rem);
-  min-height: 32rem;
-  max-height: 52rem;
-  padding-block: 4rem 2.5rem;
-}
-.lmm-visual:not([data-rendered])::before {
-  content: '';
-  position: absolute;
-  left: 6%;
-  top: 20%;
-  width: 40%;
-  height: 56%;
-  background: radial-gradient(
-      circle,
-      transparent 0 0.4rem,
-      var(--home-stage-wire) 0.4rem 0.55rem,
-      transparent 0.6rem
-    )
-    0 0 / 2.2rem 2.2rem;
-  mask-image: radial-gradient(closest-side, #000 55%, transparent);
-}
-.lmm-scene-panel {
-  position: relative;
-  z-index: 2;
-  width: min(43%, 33rem);
-  margin: 4rem 3% 0 auto;
-  padding: 0;
-  text-align: left;
-}
-.lmm-home:is(
-    [data-motion='loading'],
-    [data-motion='playing'],
-    [data-motion='paused']
-  )
-  .lmm-scene-panel {
-  grid-area: 1 / 2;
-  align-self: center;
-  position: relative;
-  width: 100%;
-  margin: 0;
-  transform: translate3d(0, var(--panel-offset, 0.9rem), 0);
-  filter: none;
-  opacity: var(--panel-opacity, 0);
-  visibility: hidden;
-  transition:
-    opacity 180ms ease-out,
-    transform 240ms ease-out,
-    visibility 180ms;
-  pointer-events: none;
-}
-.lmm-home:is(
-    [data-motion='loading'],
-    [data-motion='playing'],
-    [data-motion='paused']
-  )
-  .lmm-scene-panel[data-visible] {
-  visibility: visible;
-  transform: translate3d(
-    calc(var(--pointer-x) * -0.12),
-    calc(var(--panel-offset, 0rem) + var(--pointer-y) * -0.08),
-    0
-  );
-}
-.lmm-home:is(
-    [data-motion='loading'],
-    [data-motion='playing'],
-    [data-motion='paused']
-  )
-  .lmm-scene-panel[data-active] {
-  pointer-events: auto;
-}
-.lmm-scene-panel h2,
-.lmm-scene-panel.lmm-intro h1 {
-  margin: 0;
-  font-family: var(--font-body);
-  font-size: clamp(2.6rem, 4.4vw, 4.4rem);
-  font-weight: 750;
-  line-height: 1.04;
-  letter-spacing: -0.05em;
-  text-wrap: balance;
-  color: var(--home-stage-ink);
-}
-.lmm-scene-panel h2 {
-  font-size: clamp(2.2rem, 3.5vw, 3.25rem);
-}
-.lmm-scene-panel [data-gravity-title] {
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  transition: transform 300ms cubic-bezier(0.2, 0.75, 0.2, 1);
-}
-.lmm-scene-panel [data-gravity-title][data-dragging] {
-  cursor: grabbing;
-}
-.lmm-scene-panel [data-gravity-title]:focus-visible {
-  outline: 2px solid var(--home-stage-link);
-  outline-offset: 0.15em;
-}
-.lmm-moving-word,
-.lmm-moving-letter {
-  display: inline-block;
-}
-.lmm-moving-word {
-  white-space: nowrap;
-}
-.lmm-scene-panel > p,
-.lmm-scene-panel .lmm-intro-description {
-  max-width: 46ch;
-  margin: 1.5rem 0 0;
-  color: var(--home-stage-muted);
-  font-size: clamp(0.94rem, 1.1vw, 1rem);
-  line-height: 1.75;
-}
-.lmm-scene-panel .lmm-access-note {
-  font-size: 0.75rem;
-  color: var(--home-stage-muted);
-  margin-top: 1.5rem;
-}
-.lmm-scene-panel .lmm-intro-actions {
-  justify-content: flex-start;
-  gap: 1rem;
-  margin-top: 1.6rem;
-}
-.lmm-core-protocols {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  margin-top: 1.6rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--home-rule);
-  color: var(--home-stage-muted);
-  font-size: 0.78rem;
-}
-.lmm-core-protocols code {
-  overflow-wrap: anywhere;
-}
+.lmm-text-link,
 .lmm-core-link,
 .lmm-core-continue {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  color: var(--home-stage-ink);
-  text-underline-offset: 0.3em;
-}
-.lmm-core-link {
-  margin-top: 1.5rem;
+  gap: 0.7rem;
   min-height: 2.75rem;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.3rem;
-  font-size: 0.9rem;
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.875rem;
 }
-.lmm-chapter-film {
-  display: none;
-  --film-layout: center;
-  width: 100%;
-  height: clamp(16rem, 72vw, 22rem);
+.lmm-text-link svg,
+.lmm-core-link svg,
+.lmm-core-continue svg {
+  width: 1rem;
+  height: 1rem;
 }
-.lmm-world-film {
+.lmm-text-link:hover,
+.lmm-core-link:hover,
+.lmm-core-continue:hover {
+  text-decoration: underline;
+}
+.lmm-cinema {
+  position: relative;
+  background: #070707;
+  color: #f5f3f1;
+}
+.lmm-cinema-inner {
+  position: relative;
+  min-height: 43rem;
+  isolation: isolate;
+  overflow: hidden;
+}
+.lmm-poster-art {
+  position: absolute;
+  inset: 1rem -3% 0 29%;
+  z-index: -1;
+  pointer-events: none;
+}
+.lmm-poster-fallback {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  object-fit: contain;
+}
+.lmm-poster-art:has(canvas[data-ready]) .lmm-poster-fallback {
+  display: none;
+}
+.lmm-poster-art canvas:not([data-ready]) {
   opacity: 0;
+}
+.lmm-poster-art canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.lmm-poster-brand {
+  position: absolute;
+  top: 2rem;
+  left: var(--home-gutter);
+  right: 30%;
+  font-family: 'Forge Poster', var(--font-serif);
+  font-size: clamp(3.8rem, 6.4vw, 6rem);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
   pointer-events: none;
 }
-.lmm-world-film[data-ready] {
-  opacity: var(--world-opacity, 0);
+.lmm-poster-caption {
+  position: absolute;
+  top: 2.6rem;
+  right: var(--home-gutter);
+  text-align: right;
+  color: #d4ccc9;
+  font-size: 0.65rem;
+  line-height: 1.6;
 }
-.lmm-cinema-inner .lmm-film {
-  opacity: var(--hero-opacity, 1);
-  transform: translate3d(var(--hero-offset, 0rem), 0, 0);
+.lmm-scene-panel {
+  position: relative;
+  max-width: 32rem;
+  padding: 16.5rem 0 7rem var(--home-gutter);
+  text-align: left;
+  scroll-margin-top: 5rem;
 }
-.lmm-cinema-inner
-  :is(.lmm-token-cloud, .lmm-token-input, .lmm-simulation-info) {
-  opacity: var(--hero-opacity, 1);
+.lmm-scene-panel :is(h1, h2) {
+  margin: 0;
+  max-width: 26rem;
+  font-size: clamp(2.2rem, 3.55vw, 3.65rem);
+  line-height: 1.18;
+  font-weight: 550;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.lmm-scene-panel p {
+  max-width: 24rem;
+  color: #d4ccc9;
+  font-size: 0.93rem;
+  line-height: 1.8;
+  margin-top: 1.4rem;
+}
+.lmm-intro-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem 1rem;
+  margin-top: 1.6rem;
+  align-items: center;
+}
+.lmm-cinema .lmm-intro-actions [data-slot='button'] {
+  min-height: 3rem;
+  padding-inline: 1.1rem;
+  border-radius: 0;
+  background: #f2ede9;
+  color: #181413;
+  border: 0;
+  box-shadow: none;
+}
+.lmm-cinema .lmm-intro-actions [data-slot='button']:nth-child(2) {
+  background: #30292c;
+  color: #f5e8ee;
+}
+.lmm-cinema .lmm-intro-actions [data-slot='button']:hover {
+  background: #f2b7cf;
+  color: #181413;
+}
+.lmm-world-primary {
+  margin-top: 0.7rem;
+  border-bottom: 1px solid #c4b6bc;
+  font-weight: 600;
 }
 .lmm-world-links {
   display: flex;
+  gap: 1.5rem;
   flex-wrap: wrap;
-  gap: 0.25rem 1.4rem;
-}
-.lmm-scene-panel:not(.lmm-intro) h2 {
-  font-size: clamp(2.4rem, 3.8vw, 3.75rem);
-  letter-spacing: -0.04em;
-}
-.lmm-core-link.lmm-world-primary {
-  min-height: 3rem;
-  padding: 0.65rem 1rem;
-  border: 0;
-  background: var(--home-stage-ink);
-  color: var(--home-stage-ground);
-  font-weight: 650;
-}
-.lmm-core-link.lmm-world-primary:hover {
-  text-decoration: underline;
-}
-.lmm-cinema-inner:not([data-chapter='0']) .lmm-visual::before {
-  display: none;
 }
 .lmm-core-steps {
-  grid-area: 2 / 2;
-  position: relative;
-  z-index: 3;
   display: flex;
-  gap: 0.6rem;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
   list-style: none;
   margin: 0;
   padding: 0;
-  font-size: 0.75rem;
-  color: var(--home-stage-muted);
-  margin-top: 2rem;
-}
-.lmm-core-steps li {
-  flex: 1;
-  min-width: 0;
-  border-top: 0;
-  border-bottom: 1px solid var(--home-rule);
 }
 .lmm-core-steps button {
-  display: block;
-  width: 100%;
+  min-width: 2.75rem;
   min-height: 2.75rem;
-  border: 0;
   background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+  border: 0;
+  color: #c7bdc1;
+  font-size: 0.78rem;
+  padding: 0.5rem 0;
 }
-.lmm-core-steps [data-active] {
-  color: var(--foreground);
-  border-bottom-color: var(--home-accent);
-  font-weight: 600;
+.lmm-core-steps [data-active] button {
+  color: #fff;
+  box-shadow: inset 0 -1px 0 #f3e5eb;
 }
 .lmm-core-continue {
   position: absolute;
-  z-index: 3;
-  /* Sits beside the "?" button, clear of the page's floating widgets. */
-  left: 4.6rem;
-  top: 1.6rem;
-  min-height: 2.5rem;
-  padding: 0 1rem;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
+  bottom: 2.4rem;
+  left: var(--home-gutter);
   font-size: 0.75rem;
-  text-decoration: none;
-}
-.lmm-core-continue svg {
-  transform: rotate(90deg);
-  transition: translate 180ms ease;
-}
-.lmm-core-continue:hover {
-  border-color: var(--home-stage-link);
-}
-.lmm-core-continue:hover svg {
-  translate: 0 2px;
-}
-.lmm-core-continue svg,
-.lmm-core-link svg {
-  width: 1rem;
-  height: 1rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-.lmm-home:not([data-motion='loading']):not([data-motion='playing']):not(
-    [data-motion='paused']
-  )
-  .lmm-film {
-  height: 22rem;
-}
-.lmm-home:not([data-motion='loading']):not([data-motion='playing']):not(
-    [data-motion='paused']
-  )
-  .lmm-cinema-inner {
-  display: block;
-  position: relative;
-  top: auto;
-  height: auto;
-  max-height: none;
-  padding-top: 24rem;
-}
-.lmm-home:not([data-motion='loading']):not([data-motion='playing']):not(
-    [data-motion='paused']
-  )
-  .lmm-scene-panel {
-  width: auto;
-  max-width: 42rem;
-  margin: 2.5rem 2rem;
-}
-.lmm-home:not([data-motion='loading']):not([data-motion='playing']):not(
-    [data-motion='paused']
-  )
-  .lmm-core-steps {
-  display: none;
-}
-.lmm-film {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.lmm-token-input {
-  position: absolute;
-  z-index: 2;
-  left: 7%;
-  top: 30%;
-  width: 7rem;
-  height: 5rem;
-  border: 0;
-  background: transparent;
-  pointer-events: auto;
-}
-.lmm-token-input::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 0.3rem;
-  width: 2.5rem;
-  height: 1px;
-  background: color-mix(in oklch, var(--home-stage-forward) 48%, transparent);
-  opacity: 0.22;
-  transform: translateX(-50%) scaleX(0.72);
-  transition:
-    opacity 180ms ease,
-    transform 220ms ease,
-    box-shadow 220ms ease;
-}
-.lmm-token-input[data-drag-over]::after {
-  opacity: 0.95;
-  transform: translateX(-50%) scaleX(1.5);
-  box-shadow: 0 0 1rem
-    color-mix(in oklch, var(--home-stage-forward) 38%, transparent);
-}
-.lmm-token-result {
-  position: absolute;
-  top: calc(100% + 0.35rem);
-  left: 50%;
-  width: max-content;
-  max-width: min(16rem, calc(100vw - 2rem));
-  padding: 0.25rem 0;
-  border: 0;
-  background: transparent;
-  color: var(--home-stage-muted);
-  font-size: 0.68rem;
-  line-height: 1.5;
-  white-space: nowrap;
-  transform: translateX(-50%);
-}
-.lmm-token-result strong {
-  color: var(--home-stage-link);
-  font-weight: 600;
-}
-.lmm-simulation-info {
-  position: absolute;
-  z-index: 4;
-  top: 1.6rem;
-  left: 1.6rem;
-}
-.lmm-simulation-info summary {
-  display: grid;
-  place-items: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  border: 1px solid color-mix(in oklch, var(--home-stage-ink) 14%, transparent);
-  border-radius: 50%;
-  background: color-mix(in oklch, var(--home-stage-ground) 80%, transparent);
-  color: var(--home-stage-muted);
-  list-style: none;
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-.lmm-simulation-info summary:hover,
-.lmm-simulation-info[open] summary {
-  color: var(--home-stage-ink);
-  border-color: var(--home-stage-link);
-}
-.lmm-simulation-info summary::-webkit-details-marker {
-  display: none;
-}
-.lmm-simulation-info p {
-  position: absolute;
-  top: 3rem;
-  left: 0;
-  width: min(17rem, calc(100vw - 2rem));
-  margin: 0;
-  padding: 0.8rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--popover);
-  color: var(--home-stage-ink);
-  box-shadow: 0 0.8rem 2rem
-    color-mix(in oklch, var(--forge-ink-light) 18%, transparent);
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-.lmm-caption-dot {
-  color: #e9aa75;
 }
 .lmm-motion-toggle {
   position: absolute;
-  bottom: 1.7rem;
-  right: 2rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.9rem;
+  right: var(--home-gutter);
+  bottom: 2.4rem;
   min-height: 2.75rem;
-  z-index: 3;
-  border: 0;
-  border-radius: 2rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  color: #ded5d9;
   background: transparent;
-  color: var(--home-stage-ink);
+  border: 0;
   font-size: 0.75rem;
 }
 .lmm-motion-toggle svg {
@@ -767,12 +226,72 @@ For commercial licensing, please contact support@quantumnous.com
   stroke: currentColor;
   stroke-width: 1.5;
 }
-.lmm-motion-toggle:hover {
-  border-color: var(--home-stage-link);
-  color: var(--home-stage-link);
+.lmm-cinema :is(a, button):focus-visible {
+  outline-color: #f2b7cf;
 }
-.lmm-home .lmm-motion-toggle:focus-visible {
-  outline-color: var(--home-stage-link);
+.lmm-cinema ::selection {
+  background: #f2b7cf;
+  color: #171014;
+}
+.lmm-chapter-film {
+  display: none;
+}
+@media (min-width: 901px) and (min-height: 601px) and (prefers-reduced-motion: no-preference) {
+  .lmm-home[data-motion='playing'] .lmm-cinema,
+  .lmm-home[data-motion='paused'] .lmm-cinema {
+    height: 420svh;
+  }
+  .lmm-home[data-motion='playing'] .lmm-cinema-inner,
+  .lmm-home[data-motion='paused'] .lmm-cinema-inner {
+    position: sticky;
+    top: 4rem;
+    height: calc(100svh - 11rem);
+    min-height: 34rem;
+    max-height: 56rem;
+  }
+  .lmm-home:is(
+      [data-motion='playing'],
+      [data-motion='paused'],
+      [data-motion='loading']
+    )
+    .lmm-scene-panel {
+    position: absolute;
+    inset: 0 auto 0 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: 9rem;
+    width: 42%;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(1.2rem);
+    transition:
+      opacity 500ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 650ms cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 500ms;
+  }
+  .lmm-home:is(
+      [data-motion='playing'],
+      [data-motion='paused'],
+      [data-motion='loading']
+    )
+    .lmm-scene-panel[data-active] {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+  }
+  .lmm-home[data-motion='loading'] .lmm-scene-panel[data-cinema-panel='0'] {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+  }
+  .lmm-core-steps {
+    position: absolute;
+    bottom: 2.4rem;
+    left: 45%;
+    right: 13%;
+    justify-content: center;
+  }
 }
 .lmm-protocols {
   display: flex;
@@ -824,7 +343,7 @@ For commercial licensing, please contact support@quantumnous.com
   font-size: clamp(2.1rem, 3.8vw, 3.4rem);
   font-weight: 750;
   line-height: 1.06;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.035em;
   text-wrap: balance;
 }
 /* Cut mark: the logo's 45° base cut, set as a solid block above each
@@ -1341,190 +860,6 @@ For commercial licensing, please contact support@quantumnous.com
   height: clamp(2.75rem, 8vw, 7rem);
   object-fit: contain;
 }
-@media (max-width: 900px) {
-  .lmm-explore-console {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-  .lmm-explore-preview {
-    display: none;
-  }
-  .lmm-section-intro > .lmm-text-link {
-    position: static;
-    margin-top: 1.2rem;
-  }
-  .lmm-story {
-    gap: 2rem;
-  }
-  .lmm-story-step {
-    min-height: 12rem;
-    grid-template-columns: 1.5rem minmax(0, 1fr);
-  }
-  .lmm-assistant-surface {
-    padding: 0;
-  }
-  .lmm-protocols {
-    gap: 1rem 2.5rem;
-  }
-}
-@media (max-width: 680px) {
-  .lmm-intro {
-    padding-top: 2.7rem;
-  }
-  .lmm-intro h1 {
-    font-size: clamp(2.8rem, 10.6vw, 4.2rem);
-    letter-spacing: -0.03em;
-  }
-  .lmm-intro-description {
-    font-size: 0.9rem;
-    margin-top: 1.2rem;
-  }
-  .lmm-intro-actions {
-    gap: 1.2rem;
-  }
-  .lmm-access-note {
-    font-size: 0.68rem;
-  }
-  .lmm-cinema {
-    width: calc(100% - 1.5rem);
-    padding: 0.25rem;
-  }
-  .lmm-cinema-inner {
-    height: 38rem;
-    transform: none;
-    border-radius: 0.75rem;
-  }
-  .lmm-motion-toggle {
-    bottom: 1.5rem;
-    right: 1rem;
-  }
-  .lmm-simulation-info {
-    top: 1.2rem;
-    left: 1.2rem;
-  }
-  .lmm-motion-toggle > [data-pause-label],
-  .lmm-motion-toggle > [data-play-label] {
-    display: none;
-  }
-  .lmm-motion-toggle {
-    width: 2.75rem;
-    justify-content: center;
-    padding: 0;
-  }
-  .lmm-protocols {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-    text-align: center;
-    padding-top: 1.5rem;
-    font-size: 0.68rem;
-  }
-  .lmm-section {
-    padding-top: 5rem;
-  }
-  .lmm-section h2 {
-    font-size: 2.1rem;
-  }
-  .lmm-story {
-    display: flex;
-    flex-direction: column;
-    margin-top: 2rem;
-    gap: 2rem;
-  }
-  .lmm-story-steps {
-    width: 100%;
-  }
-  .lmm-story-step {
-    min-height: 0;
-    padding: 1.6rem 0;
-  }
-  .lmm-story-step h3 {
-    font-size: 1.06rem;
-  }
-  .lmm-story-step p {
-    font-size: 0.85rem;
-    margin-block: 0.6rem;
-  }
-  .lmm-story-preview {
-    position: static;
-    width: 100%;
-    padding-top: 0;
-  }
-  .lmm-story-controls {
-    display: none;
-  }
-  .lmm-code-surface {
-    transform: none;
-  }
-  .lmm-home .forge-home-code-card {
-    padding: 1rem;
-  }
-  .lmm-home .forge-home-code-tabs {
-    gap: 0.1rem;
-  }
-  .lmm-home .forge-home-code-tabs button {
-    padding-inline: 0.65rem;
-  }
-  .lmm-home .forge-home-code-block {
-    font-size: 0.68rem;
-  }
-  .lmm-assistant-section {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2.4rem;
-  }
-  .lmm-assistant-surface {
-    padding: 0;
-  }
-  .lmm-destinations {
-    gap: 0;
-    margin-top: 0;
-  }
-  .lmm-destinations a {
-    min-height: 4.5rem;
-  }
-  .lmm-home-footer {
-    margin-top: 3rem;
-  }
-}
-@media (max-height: 650px) {
-  .lmm-story-preview {
-    position: static;
-  }
-  .lmm-story-step {
-    min-height: 12rem;
-  }
-}
-.lmm-home[data-motion='paused'] .lmm-code-surface,
-.lmm-home[data-motion='reduced'] .lmm-code-surface {
-  transform: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .lmm-motion-toggle {
-    display: none !important;
-  }
-  .lmm-home *,
-  .lmm-home *::before,
-  .lmm-home *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
-  }
-  .lmm-cinema-inner,
-  .lmm-code-surface {
-    transform: none !important;
-  }
-}
-.lmm-home[data-motion='static'] .lmm-chapter-film,
-.lmm-home[data-motion='reduced'] .lmm-chapter-film {
-  display: block;
-  margin-bottom: 1.25rem;
-}
-@media (max-width: 680px), (max-height: 600px) {
-  .lmm-home[data-motion] .lmm-chapter-film {
-    display: block;
-    margin-bottom: 1.25rem;
-  }
-}
 .lmm-copy-button {
   border: 1px solid var(--home-rule);
   border-radius: 0.4rem;
@@ -1634,13 +969,147 @@ For commercial licensing, please contact support@quantumnous.com
 .lmm-endpoint-panel > code {
   display: block;
   font-size: 1.4rem;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.035em;
 }
-:lang(zh) .lmm-intro h1,
-:lang(zh) .lmm-intro-description {
-  text-wrap: wrap;
+
+@media (max-width: 900px),
+  (max-height: 600px),
+  (prefers-reduced-motion: reduce) {
+  .lmm-cinema-inner {
+    min-height: 0;
+    padding-bottom: 1rem;
+  }
+  .lmm-poster-art {
+    inset: 7rem 0 auto;
+    height: 30rem;
+  }
+  .lmm-poster-brand {
+    top: 1.6rem;
+    right: var(--home-gutter);
+    font-size: clamp(2.8rem, 7vw, 5rem);
+  }
+  .lmm-poster-caption {
+    display: none;
+  }
+  .lmm-scene-panel {
+    max-width: none;
+    padding: 3rem var(--home-gutter);
+  }
+  .lmm-intro {
+    padding-top: 36rem;
+  }
+  .lmm-scene-panel :is(h1, h2) {
+    max-width: 36rem;
+    font-size: clamp(2rem, 5vw, 3rem);
+  }
+  .lmm-scene-panel p {
+    max-width: 38rem;
+  }
+  .lmm-chapter-film {
+    display: block;
+    width: 100%;
+    height: 21rem;
+    margin-bottom: 1.5rem;
+  }
+  .lmm-scene-panel:not(.lmm-intro) {
+    border-top: 1px solid #292226;
+  }
+  .lmm-core-steps {
+    padding: 1rem var(--home-gutter);
+  }
+  .lmm-core-continue {
+    position: static;
+    margin: 0 var(--home-gutter) 1rem;
+  }
+  .lmm-motion-toggle {
+    top: 6rem;
+    bottom: auto;
+  }
+  .lmm-story-preview {
+    position: static;
+  }
+  .lmm-explore-console {
+    grid-template-columns: 1fr;
+  }
+  .lmm-explore-preview {
+    display: none;
+  }
 }
 @media (max-width: 680px) {
+  /* Leave the shared fixed feedback action its own lane on compact screens. */
+  .lmm-intro-actions,
+  .lmm-intro-description {
+    padding-inline-end: 7.5rem;
+  }
+  .lmm-cinema .lmm-intro-actions [data-slot='button'] {
+    max-width: 100%;
+    height: auto;
+    white-space: normal;
+    padding-block: 0.7rem;
+  }
+
+  .lmm-poster-art {
+    height: 23rem;
+    inset-block-start: 6rem;
+  }
+  .lmm-intro {
+    padding-top: 27rem;
+  }
+  .lmm-scene-panel {
+    padding-bottom: 3rem;
+  }
+  .lmm-scene-panel :is(h1, h2) {
+    font-size: 2rem;
+  }
+  .lmm-scene-panel p {
+    font-size: 0.88rem;
+  }
+  .lmm-chapter-film {
+    height: 16rem;
+  }
+  .lmm-motion-toggle {
+    top: 5rem;
+  }
+  .lmm-motion-toggle [data-play-label],
+  .lmm-motion-toggle [data-pause-label] {
+    display: none;
+  }
+  .lmm-motion-toggle {
+    min-width: 2.75rem;
+    justify-content: center;
+  }
+  .lmm-section {
+    padding-top: 4rem;
+  }
+  .lmm-section h2 {
+    font-size: 2rem;
+  }
+  .lmm-story {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+  .lmm-story-steps,
+  .lmm-story-preview {
+    width: 100%;
+  }
+  .lmm-story-step {
+    min-height: 0;
+    padding: 1.6rem 0;
+  }
+  .lmm-story-step h3 {
+    font-size: 1.06rem;
+  }
+  .lmm-story-step p {
+    font-size: 0.85rem;
+    margin-block: 0.6rem;
+  }
+  .lmm-story-controls {
+    display: none;
+  }
+  .lmm-code-surface {
+    transform: none;
+  }
   .lmm-story-panel:not([data-story-panel='2']) {
     display: none;
   }
@@ -1650,259 +1119,42 @@ For commercial licensing, please contact support@quantumnous.com
     pointer-events: auto;
     transform: none;
   }
-}
-
-@media (max-width: 680px) {
-  :lang(zh) .lmm-intro h1 {
-    font-size: clamp(1.9rem, 8vw, 2.75rem);
+  .lmm-assistant-section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+  }
+  .lmm-assistant-surface {
+    padding: 0;
+  }
+  .lmm-destinations a {
+    min-height: 4.5rem;
+  }
+  .lmm-home-footer {
+    margin-top: 3rem;
+  }
+  .lmm-home .forge-home-code-card {
+    padding: 1rem;
+  }
+  .lmm-home .forge-home-code-block {
+    font-size: 0.68rem;
   }
 }
-
-/* Compact screens use the complete content flow below; desktop retains its native scroll runway. */
-@media (max-height: 600px),
-  (max-width: 680px) and (max-height: 700px),
-  (prefers-reduced-motion: reduce) {
-  .lmm-home[data-motion] .lmm-cinema {
-    height: auto;
-    min-height: 0;
-  }
-  .lmm-home[data-motion] .lmm-cinema-inner {
-    display: block;
-    position: relative;
-    top: auto;
-    height: auto;
-    max-height: none;
-    padding: 22rem 0 3rem;
-  }
-  .lmm-home[data-motion] .lmm-film {
-    height: 24rem;
-  }
-  .lmm-home[data-motion] .lmm-scene-panel {
-    position: relative;
-    top: auto;
-    right: auto;
-    width: auto;
-    margin: 2rem;
-    transform: none;
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-  }
-  .lmm-home[data-motion] .lmm-scene-panel[data-active] {
-    transform: none;
-    filter: none;
-  }
-  .lmm-core-steps {
-    display: none;
-  }
-}
-
-.lmm-cinema .lmm-intro {
-  padding: 0;
-}
-.lmm-cinema .lmm-motion-toggle {
-  top: 1.6rem;
-  right: 1.6rem;
-  bottom: auto;
-}
-
-.lmm-cinema .lmm-intro-actions [data-slot='button'] {
-  background: var(--home-stage-ink);
-  color: var(--home-stage-ground);
-  box-shadow: none;
-  transition: transform 180ms ease;
-}
-.lmm-cinema .lmm-intro-actions [data-slot='button']:hover {
-  background: var(--home-stage-ink);
-  color: var(--home-stage-ground);
-  transform: translateY(-1px);
-}
-.lmm-cinema .lmm-intro-actions [data-slot='button']:active {
-  transform: scale(0.97);
-}
-.lmm-cinema .lmm-intro-actions .lmm-text-link {
-  color: var(--home-stage-ink);
-}
-/* Top-up is the action L0 users could not find: give it a visible chip. */
-.lmm-cinema .lmm-intro-actions .lmm-topup-link {
-  padding: 0.6rem 1rem;
-  min-height: 2.75rem;
-  border: 1px solid color-mix(in oklch, var(--home-stage-ink) 30%, transparent);
-  border-radius: 0.6rem;
-  font-weight: 500;
-}
-.lmm-cinema .lmm-intro-actions .lmm-topup-link:hover {
-  border-color: var(--forge-clay);
-  color: var(--forge-clay);
-}
-.lmm-cinema .lmm-core-steps {
-  color: var(--home-stage-muted);
-}
-.lmm-cinema :is(a, button):focus-visible {
-  outline-color: var(--home-stage-link);
-}
-.lmm-cinema ::selection {
-  background: color-mix(in oklch, var(--forge-clay) 36%, transparent);
-  color: var(--home-stage-ink);
-}
-/* The renderer centres the network when the copy is stacked below it. */
-.lmm-home:not([data-motion='loading']):not([data-motion='playing']):not(
-    [data-motion='paused']
-  )
-  .lmm-film {
-  --film-layout: center;
-}
-@media (max-height: 600px),
-  (max-width: 680px) and (max-height: 700px),
-  (prefers-reduced-motion: reduce) {
-  .lmm-home[data-motion] .lmm-film {
-    --film-layout: center;
-  }
-}
-
-.lmm-home:not([data-motion='loading']):not([data-motion='playing']):not(
-    [data-motion='paused']
-  )
-  .lmm-visual {
-  position: absolute;
-  width: 100%;
-  height: 22rem;
-  border-right: 0;
-  border-bottom: 0;
-  -webkit-mask-image: none;
-  mask-image: none;
+.lmm-home[data-motion='paused'] .lmm-code-surface,
+.lmm-home[data-motion='reduced'] .lmm-code-surface {
   transform: none;
 }
-@media (max-height: 600px),
-  (max-width: 680px) and (max-height: 700px),
-  (prefers-reduced-motion: reduce) {
-  .lmm-home[data-motion] .lmm-visual {
-    position: absolute;
-    width: 100%;
-    height: 22rem;
-    border-right: 0;
-    border-bottom: 0;
-    -webkit-mask-image: none;
-    mask-image: none;
-    transform: none;
+@media (prefers-reduced-motion: reduce) {
+  .lmm-home *,
+  .lmm-home *::before,
+  .lmm-home *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
-  .lmm-home[data-motion] .lmm-visual .lmm-film {
-    height: 100%;
+  .lmm-code-surface {
+    transform: none !important;
   }
-}
-
-/* Portrait phones and compact landscape screens lead with the account action.
-   Keep every scene accessible in document flow, with the visualization after
-   the introduction instead of reserving a screen-sized scroll runway. */
-@media (max-width: 680px), (max-width: 960px) and (max-height: 600px) {
-  .lmm-home[data-motion] .lmm-cinema {
-    width: calc(100% - 2 * var(--home-gutter));
-    height: auto;
-    min-height: 0;
-    margin-top: 1.5rem;
-  }
-  .lmm-home[data-motion] .lmm-cinema-inner {
-    display: flex;
-    flex-direction: column;
-    position: relative;
-    top: auto;
-    height: auto;
-    min-height: 0;
-    max-height: none;
-    padding: 0;
-    background: var(--background);
-  }
-  .lmm-home[data-motion] .lmm-scene-panel,
-  .lmm-home[data-motion] .lmm-scene-panel[data-active] {
-    position: relative;
-    grid-area: auto;
-    order: 2;
-    width: 100%;
-    max-width: none;
-    margin: 1.5rem 0 0;
-    padding: 1.5rem 0 0;
-    border-top: 1px solid var(--home-rule);
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    filter: none;
-    transform: none;
-  }
-  .lmm-home[data-motion] .lmm-scene-panel.lmm-intro {
-    order: 0;
-    margin: 0;
-    padding: 0;
-    border-top: 0;
-  }
-  .lmm-home[data-motion] .lmm-visual {
-    position: relative;
-    grid-area: auto;
-    order: 1;
-    width: 100%;
-    height: clamp(9rem, 42vw, 13rem);
-    min-height: 0;
-    margin-top: 1.5rem;
-    border: 0;
-    -webkit-mask-image: none;
-    mask-image: none;
-    transform: none;
-  }
-  .lmm-home[data-motion] .lmm-visual .lmm-film {
-    height: 100%;
-    --film-layout: center;
-  }
-  .lmm-home[data-motion] .lmm-intro h1 {
-    font-size: clamp(2rem, 8vw, 2.75rem);
-    line-height: 1.12;
-  }
-  .lmm-home[data-motion] .lmm-scene-panel h2 {
-    font-size: 1.5rem;
-    line-height: 1.25;
-  }
-  .lmm-home[data-motion] .lmm-scene-panel > p {
-    margin-top: 0.75rem;
-    font-size: 1rem;
-    line-height: 1.65;
-  }
-  .lmm-scene-panel [data-gravity-title] {
-    touch-action: pan-y;
-  }
-  .lmm-scene-panel .lmm-intro-actions {
-    gap: 0.5rem 1rem;
-    margin-top: 1.25rem;
-  }
-  .lmm-scene-panel .lmm-access-note {
-    gap: 0.35rem 1rem;
-    margin-top: 1rem;
-    font-size: 0.8125rem;
-  }
-  .lmm-core-protocols,
-  .lmm-core-link {
-    margin-top: 0.75rem;
-    font-size: 0.875rem;
-  }
-  .lmm-core-steps {
-    display: none;
-  }
-  .lmm-core-continue {
-    position: relative;
-    top: auto;
-    left: auto;
-    order: 3;
-    align-self: flex-start;
-    margin-top: 1.5rem;
-    font-size: 0.875rem;
-  }
-  .lmm-cinema .lmm-motion-toggle {
-    position: relative;
-    top: auto;
-    right: auto;
-    bottom: auto;
-    order: 3;
-    align-self: flex-end;
-    margin-top: -2.75rem;
-  }
-  .lmm-section {
-    padding-top: 3rem;
+  .lmm-motion-toggle {
+    display: none !important;
   }
 }

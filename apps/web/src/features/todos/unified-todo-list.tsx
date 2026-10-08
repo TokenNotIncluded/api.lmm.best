@@ -34,7 +34,6 @@ import {
   todoDetailNumber,
   todoDetailString,
   todoItemCanOpen,
-  todoSecurityReviewDestination,
 } from './todo-navigation'
 import {
   applyTodoOrder,
@@ -97,10 +96,7 @@ function UnifiedTodoListContent() {
   }, [categoryKey])
 
   const navigateToItem = async (item: TodoItem) => {
-    const securityDestination = todoSecurityReviewDestination(item)
-    if (securityDestination) {
-      await navigate({ to: securityDestination })
-    } else if (
+    if (
       item.category === 'developer_access' ||
       item.category === 'account_action'
     ) {

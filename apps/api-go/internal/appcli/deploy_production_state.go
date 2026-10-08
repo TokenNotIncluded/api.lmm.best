@@ -186,53 +186,55 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	var process *exec.Cmd
-	switch command.Name {
-	case commandAge:
-		process = exec.CommandContext(ctx, "/usr/bin/age", command.Args...)
-	case commandBsdtar:
-		process = exec.CommandContext(ctx, "/usr/bin/bsdtar", command.Args...)
-	case commandBun:
-		process = exec.CommandContext(ctx, "/usr/bin/bun", command.Args...)
-	case commandCosign:
-		process = exec.CommandContext(ctx, "/usr/bin/cosign", command.Args...)
-	case commandFile:
-		process = exec.CommandContext(ctx, "/usr/bin/file", command.Args...)
-	case commandGit:
-		process = exec.CommandContext(ctx, "/usr/bin/git", command.Args...)
-	case commandGo:
-		process = exec.CommandContext(ctx, "/usr/bin/go", command.Args...)
-	case commandID:
-		process = exec.CommandContext(ctx, "/usr/bin/id", command.Args...)
-	case commandJournalctl:
-		process = exec.CommandContext(ctx, "/usr/bin/journalctl", command.Args...)
-	case commandMakepkg:
-		process = exec.CommandContext(ctx, "/usr/bin/makepkg", command.Args...)
-	case commandNginx:
-		process = exec.CommandContext(ctx, "/usr/bin/nginx", command.Args...)
-	case commandPacman:
-		process = exec.CommandContext(ctx, "/usr/bin/pacman", command.Args...)
-	case commandPGDump:
-		process = exec.CommandContext(ctx, "/usr/bin/pg_dump", command.Args...)
-	case commandPGRestore:
-		process = exec.CommandContext(ctx, "/usr/bin/pg_restore", command.Args...)
-	case commandPSQL:
-		process = exec.CommandContext(ctx, "/usr/bin/psql", command.Args...)
-	case commandRunuser:
-		process = exec.CommandContext(ctx, "/usr/bin/runuser", command.Args...)
-	case commandSCP:
-		process = exec.CommandContext(ctx, "/usr/bin/scp", command.Args...)
-	case commandSSH:
-		process = exec.CommandContext(ctx, "/usr/bin/ssh", command.Args...)
-	case commandSudo:
-		process = exec.CommandContext(ctx, "/usr/bin/sudo", command.Args...)
-	case commandSystemctl:
-		process = exec.CommandContext(ctx, "/usr/bin/systemctl", command.Args...)
-	case commandVercmp:
-		process = exec.CommandContext(ctx, "/usr/bin/vercmp", command.Args...)
-	case productionOperatorBinary:
-		process = exec.CommandContext(ctx, "/usr/bin/lmm-api", command.Args...)
-	default:
-		return nil, fmt.Errorf("command executable is not allowlisted: %q", command.Name)
+	portableTool, handled, err := productionSystemToolPath(command.Name)
+	if err != nil {
+		return nil, err
+	}
+	if handled {
+		process = exec.CommandContext(ctx, portableTool, command.Args...)
+	} else {
+		switch command.Name {
+		case commandAge:
+			process = exec.CommandContext(ctx, "/usr/bin/age", command.Args...)
+		case commandBsdtar:
+			process = exec.CommandContext(ctx, "/usr/bin/bsdtar", command.Args...)
+		case commandBun:
+			process = exec.CommandContext(ctx, "/usr/bin/bun", command.Args...)
+		case commandFile:
+			process = exec.CommandContext(ctx, "/usr/bin/file", command.Args...)
+		case commandGit:
+			process = exec.CommandContext(ctx, "/usr/bin/git", command.Args...)
+		case commandGo:
+			process = exec.CommandContext(ctx, "/usr/bin/go", command.Args...)
+		case commandID:
+			process = exec.CommandContext(ctx, "/usr/bin/id", command.Args...)
+		case commandJournalctl:
+			process = exec.CommandContext(ctx, "/usr/bin/journalctl", command.Args...)
+		case commandMakepkg:
+			process = exec.CommandContext(ctx, "/usr/bin/makepkg", command.Args...)
+		case commandPacman:
+			process = exec.CommandContext(ctx, "/usr/bin/pacman", command.Args...)
+		case commandPGDump:
+			process = exec.CommandContext(ctx, "/usr/bin/pg_dump", command.Args...)
+		case commandPGRestore:
+			process = exec.CommandContext(ctx, "/usr/bin/pg_restore", command.Args...)
+		case commandPSQL:
+			process = exec.CommandContext(ctx, "/usr/bin/psql", command.Args...)
+		case commandSCP:
+			process = exec.CommandContext(ctx, "/usr/bin/scp", command.Args...)
+		case commandSSH:
+			process = exec.CommandContext(ctx, "/usr/bin/ssh", command.Args...)
+		case commandSudo:
+			process = exec.CommandContext(ctx, "/usr/bin/sudo", command.Args...)
+		case commandSystemctl:
+			process = exec.CommandContext(ctx, "/usr/bin/systemctl", command.Args...)
+		case commandVercmp:
+			process = exec.CommandContext(ctx, "/usr/bin/vercmp", command.Args...)
+		case productionOperatorBinary:
+			process = exec.CommandContext(ctx, "/usr/bin/lmm-api", command.Args...)
+		default:
+			return nil, fmt.Errorf("command executable is not allowlisted: %q", command.Name)
+		}
 	}
 	if command.Dir != "" {
 		process.Dir = command.Dir
@@ -248,7 +250,7 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 		process.Stdout = &boundedBillingOutput{buffer: &stdout, limit: command.OutputLimit}
 		process.Stderr = &boundedBillingOutput{buffer: &stderr, limit: command.OutputLimit}
 	}
-	err := process.Run()
+	err = process.Run()
 	if err == nil {
 		return stdout.Bytes(), nil
 	}
@@ -266,6 +268,64 @@ func (osProductionCommandRunner) Run(parent context.Context, command productionC
 		return nil, fmt.Errorf("command %s failed: %w", filepath.Base(command.Name), err)
 	}
 	return nil, fmt.Errorf("command %s failed: %w: %s", filepath.Base(command.Name), err, detail)
+}
+
+// Linux distributions install these native tools in different system
+// directories. Only these exact root-owned paths are admitted; PATH and an
+// operator-provided executable are never used. An unsafe existing first choice
+// is an error, rather than an excuse to select a different executable.
+func productionSystemToolPath(name string) (string, bool, error) {
+	var candidates []string
+	switch name {
+	case commandCosign:
+		candidates = []string{"/usr/bin/cosign", "/usr/local/bin/cosign"}
+	case commandNginx:
+		candidates = []string{"/usr/bin/nginx", "/usr/sbin/nginx"}
+	case commandRunuser:
+		candidates = []string{"/usr/bin/runuser", "/usr/sbin/runuser"}
+	case "/usr/bin/curl":
+		candidates = []string{"/usr/bin/curl"}
+	case "systemd-run", "/usr/bin/systemd-run":
+		candidates = []string{"/usr/bin/systemd-run"}
+	default:
+		return "", false, nil
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Lstat(candidate); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return "", true, fmt.Errorf("inspect native system tool %s: %w", candidate, err)
+		}
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil || !productionSystemToolTargetAllowed(resolved, candidates) {
+			return "", true, fmt.Errorf("native system tool %s has an unsafe target", candidate)
+		}
+		for _, spelling := range []string{candidate, resolved} {
+			for path := spelling; ; path = filepath.Dir(path) {
+				info, err := os.Lstat(path)
+				if err != nil {
+					return "", true, fmt.Errorf("native system tool %s has an unavailable ancestor", candidate)
+				}
+				uid, _, ownershipOK := deploymentFileOwnership(info)
+				if !ownershipOK || uid != 0 || info.Mode()&os.ModeSymlink == 0 && info.Mode().Perm()&0022 != 0 {
+					return "", true, fmt.Errorf("native system tool %s has unsafe ownership or permissions", candidate)
+				}
+				if path == "/" {
+					break
+				}
+			}
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0100 == 0 {
+			return "", true, fmt.Errorf("native system tool %s is not an executable regular file", candidate)
+		}
+		return resolved, true, nil
+	}
+	return "", true, fmt.Errorf("required native system tool %s is unavailable", name)
+}
+
+func productionSystemToolTargetAllowed(resolved string, candidates []string) bool {
+	return filepath.Clean(resolved) == resolved && slices.Contains(candidates, resolved)
 }
 
 // pi-lens-ignore: go-bare-error
@@ -291,6 +351,9 @@ type productionRuntime struct {
 	billingConnections            func() (int, error)
 	billingExecutableSHA256       func(int) (string, error)
 	maintenanceProcessEnvironment func(int) ([]byte, error)
+	merchantStoreLastWriterCheck  productionMerchantStoreWriterTarget
+	merchantStoreAuthority        productionMerchantStoreAuthority
+	merchantStoreSocketDirectory  string // Test-only path injection; production always uses the fixed /run directory.
 	cleanupProcessReferences      func(string) (bool, error)
 	paths                         productionPaths
 	runner                        productionCommandRunner
@@ -316,6 +379,7 @@ func defaultProductionRuntime() *productionRuntime {
 }
 
 type productionTransactionOptions struct {
+	MerchantStoreWriter      *productionMerchantStoreWriterContract
 	SchemaMode               string
 	ExistingSchemaContract   *productionExistingSchemaContract
 	StagedPlanPath           string
@@ -379,10 +443,11 @@ type productionFrontendTransition struct {
 }
 
 type productionManifest struct {
-	SchemaMode             string                            `json:"schema_mode,omitempty"`
-	ExistingSchemaContract *productionExistingSchemaContract `json:"existing_schema_contract,omitempty"`
-	SchemaPlanSHA256       string                            `json:"schema_plan_sha256,omitempty"`
-	MaintenanceCapture     *productionMaintenanceCapture     `json:"maintenance_capture,omitempty"`
+	MerchantStoreWriter    *productionMerchantStoreWriterContract `json:"merchant_store_writer,omitempty"`
+	SchemaMode             string                                 `json:"schema_mode,omitempty"`
+	ExistingSchemaContract *productionExistingSchemaContract      `json:"existing_schema_contract,omitempty"`
+	SchemaPlanSHA256       string                                 `json:"schema_plan_sha256,omitempty"`
+	MaintenanceCapture     *productionMaintenanceCapture          `json:"maintenance_capture,omitempty"`
 
 	MaintenanceHandoff *productionMaintenanceHandoff `json:"maintenance_handoff,omitempty"`
 
@@ -507,6 +572,7 @@ func packageIntegrityClean(output []byte, name string) bool {
 }
 
 type productionPackageMetadata struct {
+	MerchantStoreWriterCapability     int
 	Name                              string
 	Version                           string
 	Identity                          string
@@ -537,6 +603,37 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 	if err != nil {
 		return productionPackageMetadata{}, fmt.Errorf("query package identity: %w", err)
 	}
+	return runtime.packageMetadataWithIdentity(ctx, packagePath, identityOutput, packageNames...)
+}
+
+// A single-provider startup baseline is explicitly portable. Ordinary package
+// selection above still requires the real pacman query and never falls back.
+func (runtime *productionRuntime) startupBaselinePackageMetadata(ctx context.Context, packagePath string) (productionPackageMetadata, error) {
+	release := productionReleaseRuntime{runner: runtime.runner}
+	headers, err := release.archiveMembers(ctx, packagePath)
+	if err != nil {
+		return productionPackageMetadata{}, err
+	}
+	header, found := headers[".PKGINFO"]
+	if !found || header.Type != "file" || header.Mode != 0644 || header.UID != 0 || header.GID != 0 || header.Link != "" {
+		return productionPackageMetadata{}, errors.New("startup baseline package .PKGINFO header is unsafe")
+	}
+	content, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, ".PKGINFO"}, Timeout: 15 * time.Second, OutputLimit: 1 << 20})
+	if err != nil {
+		return productionPackageMetadata{}, fmt.Errorf("read startup baseline package identity: %w", err)
+	}
+	fields, err := parsePackageInfoContent(content)
+	if err != nil {
+		return productionPackageMetadata{}, err
+	}
+	if len(fields["pkgname"]) != 1 || fields["pkgname"][0] != productionAURPackageName || len(fields["pkgver"]) != 1 {
+		return productionPackageMetadata{}, errors.New("startup baseline package identity is ambiguous or not the official Go package")
+	}
+	identity := []byte(fields["pkgname"][0] + " " + fields["pkgver"][0])
+	return runtime.packageMetadataWithIdentity(ctx, packagePath, identity, productionAURPackageName)
+}
+
+func (runtime *productionRuntime) packageMetadataWithIdentity(ctx context.Context, packagePath string, identityOutput []byte, packageNames ...string) (productionPackageMetadata, error) {
 	fields := strings.Fields(string(identityOutput))
 	if len(fields) != 2 || !slices.Contains(packageNames, fields[0]) {
 		return productionPackageMetadata{}, fmt.Errorf("package identity is not one of %v", packageNames)
@@ -579,6 +676,12 @@ func (runtime *productionRuntime) packageMetadata(ctx context.Context, packagePa
 		metadata.OAuthManagedTokenIsolation = capabilityErr == nil && capability == "v1"
 		billingCapability, billingCapabilityErr := readMember("MANAGED_BILLING_SETTLEMENT_CAPABILITY")
 		metadata.ManagedBillingSettlementIsolation = billingCapabilityErr == nil && billingCapability == "v1"
+	}
+	if packageName == productionAURPackageName || packageName == productionSourcePackageName {
+		metadata.MerchantStoreWriterCapability, err = runtime.merchantStorePackageCapability(ctx, packagePath, packageName)
+		if err != nil {
+			return productionPackageMetadata{}, err
+		}
 	}
 	if packageName == productionWebPackageName {
 		index, err := runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", packagePath, "usr/share/lmm-api-web/frontend-dist/index.html"}})
@@ -1334,6 +1437,11 @@ func (runtime *productionRuntime) readManifestSchema(workspace productionWorkspa
 	if err := runtime.validateManifestSchema(workspace, manifest); err != nil {
 		return productionManifest{}, err
 	}
+	if manifest.MerchantStoreWriter != nil {
+		if err := validateMerchantStoreWriterContract(manifest.MerchantStoreWriter); err != nil {
+			return productionManifest{}, err
+		}
+	}
 	if err := validateProductionExistingSchemaManifestPlan(workspace, manifest); err != nil {
 		return productionManifest{}, err
 	}
@@ -1558,6 +1666,10 @@ func validateProductionExistingSchemaManifestPlan(workspace productionWorkspace,
 	plan, err := loadStagedProductionExistingSchemaPlan(workspace, path, manifest.SchemaPlanSHA256)
 	if err != nil {
 		return err
+	}
+	if (manifest.MerchantStoreWriter == nil) != (plan.MerchantStoreWriter == nil) ||
+		(manifest.MerchantStoreWriter != nil && *manifest.MerchantStoreWriter != *plan.MerchantStoreWriter) {
+		return errors.New("merchant writer manifest qualification differs from the immutable release plan")
 	}
 	if manifest.ExistingSchemaContract == nil || *manifest.ExistingSchemaContract != *plan.ExistingSchemaContract ||
 		manifest.OperatorUser != plan.OperatorUser || manifest.ExpectedVersion != plan.ExpectedVersion ||

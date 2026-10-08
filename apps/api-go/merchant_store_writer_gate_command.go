@@ -1,0 +1,124 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/LIghtJUNction/api.lmm.best/internal/appcli"
+	"github.com/LIghtJUNction/api.lmm.best/model"
+)
+
+func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return appcli.ExitUsage
+	}
+	// Publication reads the compiled source capability without opening a
+	// database, starting resources, or treating it as a writable-floor proof.
+	if args[0] == "capability" {
+		if len(args) != 1 {
+			return appcli.ExitUsage
+		}
+		if _, err := fmt.Fprintf(stdout, "%d\n", model.MerchantStoreWriterCapability); err != nil {
+			return appcli.ExitError
+		}
+		return appcli.ExitOK
+	}
+	set := flag.NewFlagSet("merchant-store-writer-gate "+args[0], flag.ContinueOnError)
+	set.SetOutput(stderr)
+	requireWritable := set.Bool("require-writable", false, "status: fail when this binary cannot create new shop writes")
+	expected := set.Int("expected-current", 0, "activate: exact current required writer capability")
+	ready := set.Bool("reviewed-variants-ready", false, "activate: operator confirms reviewed schema and all serving writers are ready")
+	lifecycleReady := set.Bool("reviewed-lifecycle-ready", false, "activate-lifecycle: operator confirms every serving writer supports retained product retirement")
+	refundsReady := set.Bool("reviewed-refunds-ready", false, "activate-refunds: operator confirms complete refund, provider, promotion and limit schema and all serving writers support terminal refund acknowledgments")
+	schemaReady := set.Bool("reviewed-store-schema-ready", false, "prepare-schema: operator confirms reviewed shop-only DDL and clone preservation proof")
+	accessReady := set.Bool("reviewed-access-ready", false, "activate-access: operator confirms full access/catalogue/guest-email schema and all serving and retained writers support capability five")
+	phaseSixReady := set.Bool("reviewed-phase-six-ready", false, "activate-phase-six: operator confirms reviewed categories/likes schema and all serving and retained writers support capability six")
+	fixedContentReady := set.Bool("reviewed-fixed-content-ready", false, "prepare-fixed-content/activate-fixed-content: operator confirms reviewed phase-seven content and anonymous analytics schema and all serving and retained writers support capability seven")
+	if err := set.Parse(args[1:]); err != nil || set.NArg() != 0 {
+		return appcli.ExitUsage
+	}
+	if *fixedContentReady && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" {
+		return appcli.ExitUsage
+	}
+	if (args[0] == "prepare-fixed-content" || args[0] == "activate-fixed-content") && (!*fixedContentReady || *ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady || (*expected != 6 && *expected != 7) || *requireWritable) {
+		return appcli.ExitUsage
+	}
+	if args[0] == "activate" && (!*ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady || (*expected != 1 && *expected != 2) || *requireWritable) {
+		return appcli.ExitUsage
+	}
+	if args[0] == "activate-lifecycle" && (!*lifecycleReady || *ready || *refundsReady || *schemaReady || *accessReady || *phaseSixReady || (*expected != 2 && *expected != 3) || *requireWritable) {
+		return appcli.ExitUsage
+	}
+	if args[0] == "activate-refunds" && (!*refundsReady || *ready || *lifecycleReady || *schemaReady || *accessReady || *phaseSixReady || (*expected != 3 && *expected != 4) || *requireWritable) {
+		return appcli.ExitUsage
+	}
+	if args[0] == "prepare-schema" && (!*schemaReady || *accessReady || *phaseSixReady || *ready || *lifecycleReady || *refundsReady || *expected < 1 || *expected > model.MerchantStoreWriterCapability || *requireWritable) {
+		return appcli.ExitUsage
+	}
+	if args[0] == "activate-access" && (!*accessReady || *phaseSixReady || *schemaReady || *ready || *lifecycleReady || *refundsReady || (*expected != 4 && *expected != 5) || *requireWritable) {
+		return appcli.ExitUsage
+	}
+	if args[0] == "activate-phase-six" && (!*phaseSixReady || *accessReady || *schemaReady || *ready || *lifecycleReady || *refundsReady || (*expected != 5 && *expected != 6) || *requireWritable) {
+		return appcli.ExitUsage
+	}
+	if args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && (*expected != 0 || *ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady) {
+		return appcli.ExitUsage
+	}
+	if args[0] == "bootstrap" && *requireWritable {
+		return appcli.ExitUsage
+	}
+	if args[0] != "status" && args[0] != "bootstrap" && args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && args[0] != "verify-fixed-content" {
+		return appcli.ExitUsage
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db, err := model.OpenMerchantStoreWriterGateDatabase(ctx)
+	if err != nil {
+		return appcli.ExitError
+	}
+	pool, err := db.DB()
+	if err != nil {
+		return appcli.ExitError
+	}
+	defer pool.Close()
+	switch args[0] {
+	case "bootstrap":
+		err = model.BootstrapMerchantStoreWriterGate(db)
+	case "activate":
+		err = model.ActivateMerchantStoreVariants(db, *expected)
+	case "activate-lifecycle":
+		err = model.ActivateMerchantStoreProductLifecycle(db, *expected)
+	case "activate-refunds":
+		err = model.ActivateMerchantStoreRefunds(db, *expected)
+	case "prepare-schema":
+		err = model.PrepareMerchantStoreSchema(db, *expected)
+	case "activate-access":
+		err = model.ActivateMerchantStoreAccess(db, *expected)
+	case "verify-fixed-content":
+		err = model.VerifyMerchantStoreFixedContent(db)
+	case "prepare-fixed-content":
+		err = model.PrepareMerchantStoreFixedContent(db, *expected)
+	case "activate-fixed-content":
+		err = model.ActivateMerchantStoreFixedContent(db, *expected)
+	case "activate-phase-six":
+		err = model.ActivateMerchantStorePhaseSix(db, *expected)
+	}
+	if err != nil {
+		return appcli.ExitError
+	}
+	status, err := model.GetMerchantStoreWriterGateStatus(db)
+	if err := json.NewEncoder(stdout).Encode(status); err != nil {
+		return appcli.ExitError
+	}
+	if err != nil {
+		return appcli.ExitError
+	}
+	if *requireWritable && !status.NewWritesAllowed {
+		return appcli.ExitError
+	}
+	return appcli.ExitOK
+}

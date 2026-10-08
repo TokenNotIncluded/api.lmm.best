@@ -7,11 +7,12 @@ golden_hash_file="${repo_root}/apps/api-rust/tests/fixtures/routes/go-routes.sha
 legacy_manifest="${routes_dir}/legacy-go-routes.tsv"
 rust_manifest="${routes_dir}/rust-implemented-routes.tsv"
 normal_manifest="${routes_dir}/rust-normal-mounted-routes.tsv"
+retired_go_manifest="${routes_dir}/retired-go-routes.tsv"
 fail_closed_shells="${routes_dir}/rust-mounted-fail-closed-shells.tsv"
 current_manifest_source="${repo_root}/apps/api-go/cmd/route-manifest/main.go"
 
 for required_file in "${golden_hash_file}" "${legacy_manifest}" "${rust_manifest}" \
-  "${normal_manifest}" "${fail_closed_shells}" "${routes_dir}/ownership.tsv" \
+  "${normal_manifest}" "${retired_go_manifest}" "${fail_closed_shells}" "${routes_dir}/ownership.tsv" \
   "${routes_dir}/current-go-only-ownership.tsv"; do
   if [[ ! -f "${required_file}" ]]; then
     echo "missing route contract file: ${required_file}" >&2
@@ -161,13 +162,20 @@ awk -F '\t' '
 # frozen evidence. Keep their exact method/handler/auth/source ownership gate.
 python3 -B "${repo_root}/apps/api-rust/tests/scripts/check-current-go-only-ownership.py" "${current_manifest}"
 
-rust_report="$(awk -F '\t' -v current_routes="${current_runtime}/identities.tsv" '
+rust_report="$(awk -F '\t' -v current_routes="${current_runtime}/identities.tsv" \
+  -v retired_routes="${retired_go_manifest}" '
   BEGIN {
     while ((getline line < current_routes) > 0) {
       split(line, fields, "\t")
       current[fields[1] SUBSEP fields[2]] = 1
     }
     close(current_routes)
+    while ((getline line < retired_routes) > 0) {
+      if (line ~ /^#/ || line == "") continue
+      split(line, fields, "\t")
+      retired[fields[1] SUBSEP fields[2]] = 1
+    }
+    close(retired_routes)
   }
   FNR == NR {
     legacy[$1 SUBSEP $2] = 1
@@ -189,20 +197,21 @@ rust_report="$(awk -F '\t' -v current_routes="${current_runtime}/identities.tsv"
       print "known blocker adapter cannot qualify as a Rust implementation: " $1 " " $2 > "/dev/stderr"
       failures++
     }
-    if (!(identity in legacy) && !(identity in current)) {
+    if (!(identity in legacy) && !(identity in current) && !(identity in retired)) {
       print "Rust implementation is absent from frozen and current Go route inventories: " $1 " " $2 > "/dev/stderr"
       failures++
     }
     if (identity in legacy) frozen_count++
+    else if (identity in retired) retired_count++
     else current_only_count++
     count++
   }
   END {
     if (failures) exit 1
-    printf "%d\t%d\t%d\n", count, frozen_count, current_only_count
+    printf "%d\t%d\t%d\t%d\n", count, frozen_count, current_only_count, retired_count
   }
 ' "${legacy_manifest}" "${rust_manifest}")"
-IFS=$'\t' read -r rust_count frozen_implementation_count current_only_count <<<"${rust_report}"
+IFS=$'\t' read -r rust_count frozen_implementation_count current_only_count retired_implementation_count <<<"${rust_report}"
 
 shell_report="$(awk -F '\t' \
   -v current_routes="${current_runtime}/identities.tsv" \
@@ -296,5 +305,5 @@ python3 "${repo_root}/apps/api-rust/tests/scripts/check-epay-runtime-wiring.py"
 
 echo "verified immutable legacy Go route baseline: ${route_count} routes (${actual_hash})"
 echo "current Go route inventory: ${current_route_count} identities"
-echo "Rust implementation coverage: ${rust_count} routes (${frozen_implementation_count}/${route_count} frozen + ${current_only_count} current-only); implementation does not imply production ownership"
+echo "Rust implementation inventory: ${rust_count} routes (${frozen_implementation_count}/${route_count} frozen + ${current_only_count} current-only + ${retired_implementation_count} retired-Go); retired routes have no current Go parity or production ownership credit"
 echo "Mounted fail-closed compatibility shells: ${shell_count} routes (${frozen_shell_count} frozen + ${current_only_shell_count} current-only); no implementation or ownership credit"

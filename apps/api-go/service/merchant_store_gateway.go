@@ -27,6 +27,7 @@ var (
 	ErrMerchantStorePaymentIgnored       = errors.New("merchant store payment event does not apply")
 	ErrMerchantStorePaymentAccess        = errors.New("merchant store order is unavailable")
 	ErrMerchantStorePaymentNetwork       = errors.New("merchant store payment gateway must use a public HTTPS destination")
+	ErrMerchantStorePaymentMinimum       = errors.New("merchant store payment is below one settlement minor unit")
 )
 
 // Credentials are write-only. A blank credential keeps the existing value;

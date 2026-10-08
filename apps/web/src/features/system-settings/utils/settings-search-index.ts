@@ -52,6 +52,18 @@ const SETTINGS_SYNONYMS: Record<string, readonly string[]> = {
   'auth/bot-protection': ['captcha', 'turnstile', 'spam', 'abuse'],
   'auth/custom-oauth': ['oidc', 'openid', 'identity provider', 'idp'],
   // Billing & Payment
+  'billing/levels-benefits': [
+    'level',
+    'benefits',
+    'trust',
+    'l1',
+    'l2',
+    'l3',
+    'l4',
+    'administrator',
+    'recharge threshold',
+    'discount',
+  ],
   'billing/quota': ['credit', 'balance', 'new user gift', 'initial quota'],
   'billing/currency': [
     'exchange rate',

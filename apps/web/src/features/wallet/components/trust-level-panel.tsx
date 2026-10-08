@@ -27,22 +27,31 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import {
+  formatMinimumQuotaInCurrency,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 import type { TrustLevelTier } from '@/stores/auth-store'
 
 import type { UserWalletData } from '../types'
+import { getTrustLevelProgress, parseTrustCredits } from './trust-level-display'
 
 interface TrustLevelPanelProps {
   user: UserWalletData | null
   loading?: boolean
+  onRefresh?: () => Promise<void> | void
+  refreshing?: boolean
+  refreshError?: boolean
 }
 
 function formatDiscount(percent: number) {
-  return `${Math.round(percent)}%`
+  return `${Number(percent.toFixed(6))}%`
 }
 
 function benefitLabel(code: string, t: (key: string) => string) {
@@ -53,6 +62,10 @@ function benefitLabel(code: string, t: (key: string) => string) {
       return t('Usage discount')
     case 'standard_access':
       return t('Standard access')
+    case 'administrator_access':
+      return t('Administrator access')
+    case 'superadministrator_access':
+      return t('Super administrator access')
     default:
       return code
   }
@@ -71,10 +84,12 @@ function formatTierBenefits(tier: TrustLevelTier, t: (key: string) => string) {
 export function TrustLevelPanel({
   user,
   loading = false,
+  onRefresh,
+  refreshing = false,
+  refreshError = false,
 }: TrustLevelPanelProps) {
-  const { t } = useTranslation()
-  const { formatLegacyAmount: formatPlatformCreditBalance } =
-    useWalletCurrency()
+  const { t, i18n } = useTranslation()
+  const currency = useWalletCurrency()
   const info = user?.trust_level_info
   const tiers = user?.trust_level_tiers ?? []
 
@@ -98,26 +113,49 @@ export function TrustLevelPanel({
     )
   }
 
-  const currentLevel = info?.level ?? 0
-  const automaticLevel = info?.automatic_level ?? currentLevel
-  const nextTier = tiers.find((tier) => tier.level === info?.next_level)
-  const currentTier = tiers.find((tier) => tier.level === automaticLevel)
-  const previousAmount = currentTier?.min_paid_amount ?? 0
-  const nextAmount = nextTier?.min_paid_amount ?? previousAmount
-  const amountRange = Math.max(nextAmount - previousAmount, 1)
-  const creditedLegacyAmount = info?.paid_amount ?? 0
-  const progress = info?.next_level
-    ? Math.min(
-        100,
-        Math.max(
-          0,
-          ((creditedLegacyAmount - previousAmount) / amountRange) * 100
-        )
-      )
-    : 100
-  const roleAssigned = currentLevel >= 5
+  const {
+    currentLevel,
+    automaticLevel,
+    automaticTiers,
+    nextLevel,
+    progress,
+    roleAssigned,
+  } = getTrustLevelProgress(info, tiers, user?.role)
+  const recoveryLevel =
+    !roleAssigned &&
+    !info?.overridden &&
+    automaticLevel != null &&
+    automaticLevel > currentLevel &&
+    (info?.inactivity_decay_steps ?? 0) > 0
+      ? automaticLevel
+      : null
+  const formatPaidCredits = (
+    credits: string | null | undefined,
+    minimum = false
+  ) => {
+    const exact = parseTrustCredits(credits)
+    if (exact == null) return '-'
+    if (exact <= BigInt(Number.MAX_SAFE_INTEGER)) {
+      return minimum
+        ? formatMinimumQuotaInCurrency(
+            Number(exact),
+            currency.currency,
+            {
+              locale: getCurrencyFormattingLocale(
+                i18n.resolvedLanguage || i18n.language
+              ),
+              creditLabel: currency.label,
+            },
+            currency.config
+          )
+        : currency.formatQuota(Number(exact))
+    }
+    return `${exact.toLocaleString(i18n.resolvedLanguage || i18n.language)} ${t('Credits')}`
+  }
   let decayLabel = t('No further decay at the current level')
-  if (info?.overridden) {
+  if (roleAssigned) {
+    decayLabel = t('Assigned by account role')
+  } else if (info?.overridden) {
     decayLabel = t('Paused while an administrator override is active')
   } else if (info?.next_decay_at) {
     decayLabel = t('Next review {{date}}', {
@@ -125,10 +163,10 @@ export function TrustLevelPanel({
     })
   }
   let statusLabel = t('Automatic')
-  if (info?.overridden) {
-    statusLabel = t('Administrator override')
-  } else if (roleAssigned) {
+  if (roleAssigned) {
     statusLabel = t('Role-assigned access')
+  } else if (info?.overridden) {
+    statusLabel = t('Administrator override')
   }
 
   return (
@@ -143,7 +181,9 @@ export function TrustLevelPanel({
                 aria-hidden='true'
               />
               <div>
-                <p className='text-sm font-semibold'>{t('Trust program')}</p>
+                <p className='text-sm font-semibold'>
+                  {t('Levels & Benefits')}
+                </p>
                 <p className='text-muted-foreground text-xs'>
                   {roleAssigned
                     ? t('Role-assigned access')
@@ -151,10 +191,27 @@ export function TrustLevelPanel({
                 </p>
               </div>
             </div>
-            <Badge variant={info?.overridden ? 'warning' : 'outline'}>
-              {statusLabel}
-            </Badge>
+            <div className='flex flex-wrap items-center gap-2'>
+              <Badge variant={info?.overridden ? 'warning' : 'outline'}>
+                {statusLabel}
+              </Badge>
+              {onRefresh ? (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  disabled={refreshing}
+                  onClick={() => void onRefresh()}
+                >
+                  {t(refreshing ? 'Refreshing...' : 'Refresh account status')}
+                </Button>
+              ) : null}
+            </div>
           </div>
+          {refreshError ? (
+            <p role='status' className='text-muted-foreground mt-2 text-xs'>
+              {t('Refresh failed')}
+            </p>
+          ) : null}
 
           <div className='mt-6 flex items-end gap-3'>
             <span className='font-mono text-5xl leading-none font-semibold tracking-tight tabular-nums'>
@@ -166,35 +223,75 @@ export function TrustLevelPanel({
             </span>
           </div>
 
-          <div className='mt-6 space-y-2'>
-            <div className='flex items-center justify-between gap-3 text-xs'>
-              <span className='text-muted-foreground'>
-                {info?.next_level
-                  ? t('Progress to L{{level}}', { level: info.next_level })
-                  : t('Highest automatic level reached')}
-              </span>
-              <span className='font-medium tabular-nums'>
-                {Math.round(progress)}%
-              </span>
-            </div>
-            <Progress value={progress} className='h-2' />
-            <div className='text-muted-foreground flex flex-wrap justify-between gap-x-4 gap-y-1 text-[11px] leading-4'>
-              <span>
-                {t('Eligible credited balance')}:{' '}
-                {formatPlatformCreditBalance(creditedLegacyAmount)}
-              </span>
-              {info?.amount_to_next_level != null && info.next_level && (
-                <span>
-                  {t('{{amount}} needed for L{{level}}', {
-                    amount: formatPlatformCreditBalance(
-                      info.amount_to_next_level
-                    ),
-                    level: info.next_level,
-                  })}
-                </span>
+          {roleAssigned ? (
+            <p
+              className='text-muted-foreground mt-6 text-sm leading-6'
+              data-testid='role-level-explanation'
+            >
+              {t(
+                'L5 and L6 are administrator roles. Recharges only change automatic levels L0–L4 and cannot grant administrator access.'
               )}
+            </p>
+          ) : info?.paid_credit_projection_available === false ? (
+            <p className='text-muted-foreground mt-6 text-sm'>
+              {t('Cumulative eligible recharge')}: {t('Unavailable')}
+            </p>
+          ) : nextLevel != null ? (
+            <div
+              className='mt-6 space-y-2'
+              data-testid='recharge-level-progress'
+            >
+              <div className='flex items-center justify-between gap-3 text-xs'>
+                <span className='text-muted-foreground'>
+                  {t('Progress to L{{level}}', { level: nextLevel })}
+                </span>
+                <span className='font-medium tabular-nums'>
+                  {progress == null ? '-' : `${Math.round(progress)}%`}
+                </span>
+              </div>
+              {progress != null && (
+                <Progress value={progress} className='h-2' />
+              )}
+              <div className='text-muted-foreground flex flex-wrap justify-between gap-x-4 gap-y-1 text-[11px] leading-4'>
+                <span>
+                  {t('Cumulative eligible recharge')}:{' '}
+                  {formatPaidCredits(info?.paid_credits)}
+                </span>
+                {info?.credits_to_next_level != null && (
+                  <span>
+                    {t('{{amount}} needed for L{{level}}', {
+                      amount: formatPaidCredits(
+                        info?.credits_to_next_level,
+                        true
+                      ),
+                      level: nextLevel,
+                    })}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          ) : automaticLevel === 4 && recoveryLevel === null ? (
+            <p className='text-muted-foreground mt-6 text-sm'>
+              {t('Highest automatic level reached')}
+            </p>
+          ) : null}
+
+          {recoveryLevel !== null ? (
+            <div className='mt-4 space-y-2' data-testid='trust-level-recovery'>
+              <p className='text-muted-foreground text-sm'>
+                {t('Use the API to restore your automatic level L{{level}}.', {
+                  level: recoveryLevel,
+                })}
+              </p>
+              <Button
+                variant='outline'
+                size='sm'
+                render={<a href='/getting-started' />}
+              >
+                {t('Continue setup')}
+              </Button>
+            </div>
+          ) : null}
 
           <div className='mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3'>
             <div className='bg-muted/40 rounded-md p-3'>
@@ -204,10 +301,14 @@ export function TrustLevelPanel({
                   className='size-4'
                   aria-hidden='true'
                 />
-                {t(roleAssigned ? 'Trust level' : 'Automatic level')}
+                {t('Automatic recharge level')}
               </div>
               <p className='mt-2 font-mono text-lg font-semibold'>
-                L{automaticLevel}
+                {automaticLevel != null &&
+                automaticLevel >= 0 &&
+                automaticLevel <= 4
+                  ? `L${automaticLevel}`
+                  : '-'}
               </p>
             </div>
             <div className='bg-muted/40 rounded-md p-3'>
@@ -230,7 +331,7 @@ export function TrustLevelPanel({
                   className='size-4'
                   aria-hidden='true'
                 />
-                {t('Activity review')}
+                {t(roleAssigned ? 'Assignment' : 'Activity review')}
               </div>
               <p className='text-muted-foreground mt-2 text-xs leading-5'>
                 {decayLabel}
@@ -242,20 +343,26 @@ export function TrustLevelPanel({
         <div className='min-w-0'>
           <div className='flex items-center justify-between gap-3'>
             <div>
-              <p className='text-sm font-semibold'>{t('Level benefits')}</p>
+              <p className='text-sm font-semibold'>
+                {t('Automatic recharge levels (L0–L4)')}
+              </p>
               <p className='text-muted-foreground mt-1 text-xs'>
-                {t('Higher levels reduce usage cost')}
+                {t(
+                  'Each level has its configured benefits and usage discount.'
+                )}
               </p>
             </div>
-            <Badge variant='secondary'>
-              {t('{{days}}-day review', {
-                days: info?.decay_period_days ?? 90,
-              })}
-            </Badge>
+            {!roleAssigned && (info?.decay_period_days ?? 0) > 0 && (
+              <Badge variant='secondary'>
+                {t('{{days}}-day review', {
+                  days: info?.decay_period_days ?? 90,
+                })}
+              </Badge>
+            )}
           </div>
           <Separator className='my-4' />
           <div className='grid grid-cols-5 gap-1.5 sm:gap-2'>
-            {tiers.map((tier: TrustLevelTier) => {
+            {automaticTiers.map((tier: TrustLevelTier) => {
               const active = tier.level === currentLevel
               const automatic = tier.level === automaticLevel
               const benefitSummary = formatTierBenefits(tier, t)
@@ -283,9 +390,9 @@ export function TrustLevelPanel({
                       : formatDiscount(tier.discount_percent)}
                   </p>
                   <p className='text-muted-foreground mt-1 truncate text-[10px]'>
-                    {tier.min_paid_amount === 0
+                    {tier.min_paid_credits === '0'
                       ? t('No minimum')
-                      : formatPlatformCreditBalance(tier.min_paid_amount)}
+                      : formatPaidCredits(tier.min_paid_credits, true)}
                   </p>
                   <p
                     className='text-muted-foreground mt-2 line-clamp-2 text-[10px] leading-4'
@@ -296,6 +403,47 @@ export function TrustLevelPanel({
                 </div>
               )
             })}
+          </div>
+          <div
+            className='mt-4 grid gap-2 sm:grid-cols-2'
+            data-testid='role-levels'
+          >
+            {([5, 6] as const).map((level) => (
+              <div
+                key={level}
+                className={`flex min-w-0 items-start gap-3 rounded-md border p-3 ${currentLevel === level ? 'border-primary bg-primary/10' : 'bg-muted/20'}`}
+              >
+                <span className='font-mono text-sm font-semibold'>
+                  L{level}
+                </span>
+                <div className='min-w-0 text-xs'>
+                  <p className='font-medium'>
+                    {t(level === 5 ? 'Administrator' : 'Super administrator')}
+                  </p>
+                  <p className='text-muted-foreground mt-1'>
+                    {t('Assigned by account role')}
+                  </p>
+                  {user?.trust_level_role_tiers
+                    ?.filter((tier) => tier.level === level)
+                    .map((tier) => (
+                      <div
+                        key={tier.level}
+                        className='text-muted-foreground mt-2 space-y-1'
+                      >
+                        <p>
+                          {formatDiscount(tier.discount_percent)}{' '}
+                          {t('usage discount')}
+                        </p>
+                        <p>
+                          {tier.benefits
+                            .map((code) => benefitLabel(code, t))
+                            .join(' · ') || t('No additional benefits')}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ))}
           </div>
           <p className='text-muted-foreground mt-4 text-xs leading-5'>
             {t(

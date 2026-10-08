@@ -7,13 +7,13 @@ import "strings"
 // merely because it carries a known preset ID.
 var requiredPromptPresetCopy = map[string]map[string]string{
 	"ai_recommendation": {
-		"en":    "Help me write an L1 recommendation.",
-		"zh":    "帮我写封 L1 推荐信吧。",
-		"zh-TW": "幫我寫封 L1 推薦信吧。",
-		"fr":    "Aidez-moi à rédiger une recommandation L1.",
-		"ja":    "L1 の推薦文を書くのを手伝ってください。",
-		"ru":    "Помогите мне написать рекомендацию для L1.",
-		"vi":    "Giúp tôi viết thư giới thiệu để lên L1.",
+		"en":    "How do I apply for L1 access?",
+		"zh":    "如何申请 L1 访问权限？",
+		"zh-TW": "如何申請 L1 存取權限？",
+		"fr":    "Comment demander l’accès L1 ?",
+		"ja":    "L1 の利用を申請するには？",
+		"ru":    "Как запросить доступ L1?",
+		"vi":    "Làm cách nào để xin quyền L1?",
 	},
 	"getting_started": {
 		"en":    "Where should I start?",

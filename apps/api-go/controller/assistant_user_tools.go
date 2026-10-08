@@ -270,8 +270,34 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 		"profile":              "/profile",
 		"support":              "/support",
 		"open-source-bounties": "/open-source-bounties",
+		"store":                "/store",
+		"tool-market":          "/tool-market",
 	}
 	path, ok := paths[page]
+	query := map[string]any{}
+	if page == "store-product" || page == "tool-market-service" {
+		id := strings.TrimSpace(inputString(input, "identifier"))
+		if !assistantCatalogID(id) {
+			return assistantCatalogError("input_invalid")
+		}
+		if page == "store-product" {
+			product, err := model.GetMerchantStoreProductForViewer(actorUserID, id)
+			if err != nil {
+				return assistantCatalogError("item_unavailable")
+			}
+			path = "/store/products/" + id
+			if product.TestMode {
+				query["owner_preview"] = true
+			}
+		} else {
+			if _, err := model.GetToolMarketDetail(actorUserID, id, false); err != nil {
+				return assistantCatalogError("item_unavailable")
+			}
+			path = "/tool-market"
+			query["service_id"] = id
+		}
+		ok = true
+	}
 	if page == "users" {
 		actor, err := model.GetUserById(actorUserID, false)
 		if err != nil || actor.Role < common.RoleAdminUser {
@@ -315,7 +341,6 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 		return map[string]any{"ok": false, "status": "page_invalid", "error": "this page is not available through assistant navigation"}
 	}
 
-	query := map[string]any{}
 	identifier := strings.TrimSpace(inputString(input, "identifier"))
 	if identifier == "" {
 		identifier = strings.TrimSpace(inputString(input, "query"))

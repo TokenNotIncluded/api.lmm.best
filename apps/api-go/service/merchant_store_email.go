@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -8,9 +9,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"mime"
+	"mime/multipart"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +31,7 @@ type merchantStorePickupEmail struct {
 	pickupURL        string
 	verificationCode string
 	orderSearch      bool
+	details          *model.MerchantStoreOrderPickupDetails
 }
 
 func merchantStoreMailAddress(raw string) (*mail.Address, error) {
@@ -55,9 +59,9 @@ func merchantStorePickupEmailMessage(email merchantStorePickupEmail) ([]byte, st
 		return nil, "", "", errMerchantStoreEmail
 	}
 	subject := "商店订单取货链接"
-	content := "你的商店订单已完成支付。\r\n\r\n订单号：" + email.tradeNo + "\r\n取货链接：" + email.pickupURL + "\r\n\r\n请妥善保管取货链接。如商品设置了取件码或登录保护，取货时仍需验证。\r\n平台不会在邮件中发送卡密原文。\r\n"
+	content, htmlContent := "", ""
 	if email.verificationCode != "" {
-		if len(email.verificationCode) != 6 || strings.Trim(email.verificationCode, "0123456789") != "" || email.pickupURL != "" || email.tradeNo != "" {
+		if len(email.verificationCode) != 6 || strings.Trim(email.verificationCode, "0123456789") != "" || email.pickupURL != "" || email.tradeNo != "" || email.details != nil {
 			return nil, "", "", errMerchantStoreEmail
 		}
 		subject = "商店取货邮箱验证"
@@ -66,11 +70,13 @@ func merchantStorePickupEmailMessage(email merchantStorePickupEmail) ([]byte, st
 			subject = "商店订单查询验证码"
 			content = "商店订单查询验证码：" + email.verificationCode + "\r\n\r\n验证码仅用于验证此邮箱的订单查询权限，10 分钟内有效。若不是你本人操作，请忽略此邮件。请勿将验证码提供给他人。\r\n"
 		}
-	} else {
-		if !merchantStoreTradeNoPattern.MatchString(email.tradeNo) {
+		htmlContent, err = renderMerchantStoreVerificationEmail(subject, email.verificationCode)
+		if err != nil {
 			return nil, "", "", errMerchantStoreEmail
 		}
-		if _, err := merchantStorePublicHTTPSURL(email.pickupURL, false); err != nil {
+	} else {
+		content, htmlContent, err = renderMerchantStorePickupEmail(email)
+		if err != nil {
 			return nil, "", "", errMerchantStoreEmail
 		}
 	}
@@ -82,6 +88,22 @@ func merchantStorePickupEmailMessage(email merchantStorePickupEmail) ([]byte, st
 	if at < 1 || at == len(sender.Address)-1 {
 		return nil, "", "", errMerchantStoreEmail
 	}
+	body, contentType, encoding := merchantStoreEmailBody(content, htmlContent)
+	headers := []string{
+		"From: " + (&mail.Address{Name: common.SystemName, Address: sender.Address}).String(),
+		"To: " + destination.String(),
+		"Subject: " + mime.QEncoding.Encode("UTF-8", subject),
+		"Date: " + time.Now().Format(time.RFC1123Z),
+		"Message-ID: <store." + hex.EncodeToString(messageID) + "@" + sender.Address[at+1:] + ">",
+		"MIME-Version: 1.0", "Content-Type: " + contentType,
+	}
+	if encoding != "" {
+		headers = append(headers, "Content-Transfer-Encoding: "+encoding)
+	}
+	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + body), sender.Address, destination.Address, nil
+}
+
+func merchantStoreEmailBase64(content string) string {
 	encoded := base64.StdEncoding.EncodeToString([]byte(content))
 	var body strings.Builder
 	for len(encoded) > 76 {
@@ -89,15 +111,22 @@ func merchantStorePickupEmailMessage(email merchantStorePickupEmail) ([]byte, st
 		encoded = encoded[76:]
 	}
 	body.WriteString(encoded + "\r\n")
-	headers := []string{
-		"From: " + (&mail.Address{Name: common.SystemName, Address: sender.Address}).String(),
-		"To: " + destination.String(),
-		"Subject: " + mime.QEncoding.Encode("UTF-8", subject),
-		"Date: " + time.Now().Format(time.RFC1123Z),
-		"Message-ID: <store." + hex.EncodeToString(messageID) + "@" + sender.Address[at+1:] + ">",
-		"MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64",
+	return body.String()
+}
+
+func merchantStoreEmailBody(plain, html string) (string, string, string) {
+	if html == "" {
+		return merchantStoreEmailBase64(plain), "text/plain; charset=UTF-8", "base64"
 	}
-	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + body.String()), sender.Address, destination.Address, nil
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, part := range []struct{ kind, content string }{{"text/plain", plain}, {"text/html", html}} {
+		header := textproto.MIMEHeader{"Content-Type": {part.kind + "; charset=UTF-8"}, "Content-Transfer-Encoding": {"base64"}}
+		output, _ := writer.CreatePart(header) // bytes.Buffer writes cannot fail.
+		_, _ = output.Write([]byte(merchantStoreEmailBase64(part.content)))
+	}
+	_ = writer.Close()
+	return body.String(), mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": writer.Boundary()}), ""
 }
 
 // A verification request sends only an ownership code to the current DB
@@ -218,8 +247,15 @@ func processMerchantStorePickupEmailBatch(ctx context.Context, limit int, sender
 			return processed, err
 		}
 		errorCode := ""
-		email, err := model.GetMerchantStoreOrderDeliveryEmail(row.BuyerID, row.OrderID)
-		if errors.Is(err, model.ErrMerchantStoreEmailUnverified) || (err == nil && email == "") {
+		payload, err := model.GetMerchantStoreEmailDeliveryPayload(row.ID, row.LeaseToken)
+		if errors.Is(err, model.ErrMerchantStoreEmailDeliveryClosed) {
+			if err := model.CloseMerchantStoreEmailDelivery(row.ID, row.LeaseToken); err != nil {
+				return processed, err
+			}
+			processed++
+			continue
+		}
+		if errors.Is(err, model.ErrMerchantStoreEmailUnverified) {
 			if err := model.DeferMerchantStoreEmailVerification(row.ID, row.LeaseToken); err != nil {
 				return processed, err
 			}
@@ -227,24 +263,16 @@ func processMerchantStorePickupEmailBatch(ctx context.Context, limit int, sender
 			continue
 		}
 		if err != nil {
-			errorCode = "buyer_unavailable"
-		} else if _, err := merchantStoreMailAddress(email); err != nil {
+			errorCode = "delivery_unavailable"
+		} else if _, err := merchantStoreMailAddress(payload.Destination); err != nil {
 			errorCode = "buyer_email_unavailable"
-		}
-		token, err := model.GetMerchantStoreOrderPickupToken(row.BuyerID, row.OrderID)
-		if err != nil {
-			errorCode = "pickup_unavailable"
-		}
-		order, err := model.GetMerchantStorePaymentOrder(row.OrderID)
-		if err != nil || order == nil || order.BuyerID != row.BuyerID || order.Status != "paid" || !order.EmailPickupLink {
-			errorCode = "order_unavailable"
 		}
 		origin, err := merchantStorePublicOrigin()
 		if err != nil {
 			errorCode = "origin_unavailable"
 		}
 		if errorCode == "" {
-			if err := sender(ctx, merchantStorePickupEmail{destination: email, tradeNo: order.TradeNo, pickupURL: origin + "/store/claim/" + token}); err != nil {
+			if err := sender(ctx, merchantStorePickupEmail{destination: payload.Destination, tradeNo: payload.TradeNo, pickupURL: origin + "/store/claim/" + payload.PickupToken, details: payload.Details}); err != nil {
 				errorCode = "smtp_delivery_failed"
 			}
 		}
@@ -279,6 +307,9 @@ func RunMerchantStoreWorker(ctx context.Context) {
 		}
 		if err := reconcileMerchantStorePaymentBatch(ctx, 5); err != nil && ctx.Err() == nil {
 			common.SysError("merchant store payment reconciliation failed")
+		}
+		if err := reconcileMerchantStoreRefundBatch(ctx, 5); err != nil && ctx.Err() == nil {
+			common.SysError("merchant store refund reconciliation failed")
 		}
 		// Unconfigured SMTP should leave queued emails recoverable instead of
 		// consuming all retry attempts before the operator enables mail.

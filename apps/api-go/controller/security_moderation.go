@@ -49,11 +49,7 @@ func ListAdminModerationReviews(c *gin.Context) {
 		return
 	}
 	actorRole, actorID := c.GetInt("role"), c.GetInt("id")
-	identities := make([]model.AdvancedSecurityEvent, 0, len(rows))
-	for _, row := range rows {
-		identities = append(identities, model.AdvancedSecurityEvent{UserID: row.UserID})
-	}
-	roles := securityEventTargetRoles(identities, actorRole, actorID)
+	roles := moderationReviewTargetRoles(rows, actorRole, actorID)
 	items := make([]dto.SecurityModerationReview, 0, len(rows))
 	for _, row := range rows {
 		item := dto.SecurityModerationReview{
@@ -76,7 +72,7 @@ func ListAdminModerationReviews(c *gin.Context) {
 		if item.Categories == nil {
 			item.Categories = []string{}
 		}
-		if !canRevealSecurityEvent(row.UserID, actorRole, actorID, roles) {
+		if !canRevealModerationReview(row.UserID, actorRole, actorID, roles) {
 			// Preserve aggregate classification facts while respecting the same
 			// higher-role identity boundary as the existing security history.
 			item.UserID, item.RequestID, item.Group = 0, "", ""
@@ -192,4 +188,46 @@ func parseModerationJobFilter(c *gin.Context) (model.ModerationJobFilter, int, i
 		filter.UserID = value
 	}
 	return filter, page, pageSize, nil
+}
+
+func moderationReviewTargetRoles(reviews []model.ModerationJob, actorRole, actorID int) map[int]int {
+	roles := make(map[int]int)
+	if actorRole >= common.RoleRootUser || model.DB == nil {
+		return roles
+	}
+	ids := make([]int, 0, len(reviews))
+	seen := make(map[int]struct{}, len(reviews))
+	for _, review := range reviews {
+		if review.UserID <= 0 || review.UserID == actorID {
+			continue
+		}
+		if _, ok := seen[review.UserID]; ok {
+			continue
+		}
+		seen[review.UserID] = struct{}{}
+		ids = append(ids, review.UserID)
+	}
+	if len(ids) == 0 {
+		return roles
+	}
+	var rows []struct {
+		ID   int `gorm:"column:id"`
+		Role int `gorm:"column:role"`
+	}
+	if err := model.DB.Model(&model.User{}).
+		Select("id, role").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return roles
+	}
+	for _, row := range rows {
+		roles[row.ID] = row.Role
+	}
+	return roles
+}
+
+func canRevealModerationReview(userID, actorRole, actorID int, targetRoles map[int]int) bool {
+	if userID <= 0 || userID == actorID || actorRole >= common.RoleRootUser {
+		return true
+	}
+	targetRole, ok := targetRoles[userID]
+	return ok && canManageTargetRole(actorRole, targetRole)
 }

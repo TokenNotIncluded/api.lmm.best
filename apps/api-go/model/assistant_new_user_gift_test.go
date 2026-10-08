@@ -31,7 +31,7 @@ func setupAssistantGiftTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	DB = db
 	require.NoError(t, db.AutoMigrate(RegistrationGuardMigrationModels()...))
-	require.NoError(t, db.AutoMigrate(&User{}, &TopUp{}, &AssistantNewUserGift{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}))
+	require.NoError(t, db.AutoMigrate(&Option{}, &User{}, &TopUp{}, &AssistantNewUserGift{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}))
 	t.Cleanup(func() {
 		DB = previousDB
 		common.RedisEnabled = previousRedis
@@ -87,6 +87,28 @@ func TestAssistantNewUserGiftIsOneTimeAndClaimIsIdempotent(t *testing.T) {
 	assert.True(t, alreadyClaimed)
 	require.NoError(t, db.First(&stored, user.Id).Error)
 	assert.Equal(t, gift.Quota, stored.Quota)
+}
+
+func TestAssistantGiftDetailedFirstMessageDoesNotRequireFollowUp(t *testing.T) {
+	db := setupAssistantGiftTestDB(t)
+	user := newAssistantGiftUser(t, db, "gift-first-detail", "first-detail@example.com")
+	_, created, err := DecideAssistantNewUserGift(user.Id, 17, 100, "I will use the relay to review Go changes and explain failed tests.", 1, 23, "198.51.100.75")
+	require.ErrorIs(t, err, ErrAssistantGiftInvalid)
+	require.False(t, created)
+	require.Equal(t, "insufficient_conversation", AssistantGiftErrorCode(err))
+	gift, created, err := DecideAssistantNewUserGift(user.Id, 17, 100, "I will use the relay to review Go changes and explain failed tests.", 1, 75, "198.51.100.75")
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, AssistantGiftOffered, gift.Status)
+	require.Equal(t, 500_000, gift.Quota)
+	var stored User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	require.Zero(t, stored.Quota, "evaluation must not claim the gift")
+	again, created, err := DecideAssistantNewUserGift(user.Id, 18, 900, "Retry must preserve the first decision.", 1, 75, "198.51.100.75")
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, gift.Id, again.Id)
+	require.Equal(t, gift.Quota, again.Quota)
 }
 
 func TestAssistantGiftRiskKeySurvivesCryptoSecretRotation(t *testing.T) {
@@ -153,7 +175,7 @@ func TestAssistantNewUserGiftClaimDoesNotConsumeGiftForDisabledUser(t *testing.T
 func TestAssistantNewUserGiftRejectsIneligibleOrShallowDecisions(t *testing.T) {
 	db := setupAssistantGiftTestDB(t)
 	user := newAssistantGiftUser(t, db, "shallow-gift-user", "shallow@example.com")
-	_, _, err := DecideAssistantNewUserGift(user.Id, 0, 100, "Too early.", 1, 100, "198.51.100.20")
+	_, _, err := DecideAssistantNewUserGift(user.Id, 0, 100, "No user-authored evidence.", 0, 100, "198.51.100.20")
 	assert.ErrorIs(t, err, ErrAssistantGiftInvalid)
 	assert.Equal(t, "insufficient_conversation", AssistantGiftErrorCode(err))
 	shortReasonUser := newAssistantGiftUser(t, db, "short-reason-user", "short-reason@example.com")
@@ -164,7 +186,7 @@ func TestAssistantNewUserGiftRejectsIneligibleOrShallowDecisions(t *testing.T) {
 	concise := newAssistantGiftUser(t, db, "concise-gift-user", "concise@example.com")
 	// Two substantive turns are sufficient even when the language uses fewer
 	// than the old, arbitrary 24-rune aggregate threshold.
-	gift, created, err := DecideAssistantNewUserGift(concise.Id, 1, 100, "软件开发与编程辅助。", 2, 24, "198.51.100.23")
+	gift, created, err := DecideAssistantNewUserGift(concise.Id, 1, 100, "软件开发与编程辅助。", 1, 24, "198.51.100.23")
 	require.NoError(t, err)
 	assert.True(t, created)
 	assert.Equal(t, AssistantGiftOffered, gift.Status)

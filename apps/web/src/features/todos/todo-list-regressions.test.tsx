@@ -129,13 +129,13 @@ async function renderList() {
     path: '/',
     component: () => null,
   })
-  const securityRoute = createRoute({
+  const usersRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: 'security',
+    path: 'users',
     component: () => null,
   })
   const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute, securityRoute]),
+    routeTree: rootRoute.addChildren([indexRoute, usersRoute]),
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
   const container = document.createElement('div')
@@ -222,8 +222,9 @@ describe('todo feed regressions', () => {
         page({
           items: [
             item(1, {
-              category: 'security_review',
-              summary: 'Open the audit timeline',
+              category: 'security_incident',
+              summary: 'Review the affected user',
+              details: { username: 'customer' },
             }),
           ],
         })
@@ -231,8 +232,11 @@ describe('todo feed regressions', () => {
     api.post = (() => read.promise) as typeof api.post
     const rendered = await renderList()
     try {
-      await click(rendered.container, 'Open the audit timeline')
-      assert.equal(rendered.router.state.location.pathname, '/security')
+      await click(rendered.container, 'Review the affected user')
+      assert.equal(rendered.router.state.location.pathname, '/users')
+      const search = rendered.router.state.location.search
+      assert.ok('filter' in search)
+      assert.equal(search.filter, 'customer')
       await act(async () => {
         read.reject(new Error('Read receipt failed'))
         await flush()

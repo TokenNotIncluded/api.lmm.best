@@ -36,6 +36,8 @@ func marketTestDB(t *testing.T) *gorm.DB {
 	sqlDB.SetMaxOpenConns(1)
 	DB = db
 	require.NoError(t, db.AutoMigrate(append([]interface{}{&User{}, &Option{}, &ModerationJob{}}, toolMarketModels()...)...))
+	// Test-only explicit initialization precedes shop DDL. Runtime never seeds it.
+	require.NoError(t, BootstrapMerchantStoreWriterGate(db))
 	t.Cleanup(func() {
 		DB = oldDB
 		common.RedisEnabled = oldRedis

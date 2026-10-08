@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { storeApi } from './api'
+import { StoreAPIError, storeApi } from './api'
 import { StoreDeliveryEmail } from './delivery-email'
+import { StoreGuestOrders } from './guest-orders'
+import { StoreRefundPanel } from './refund-panel'
 import {
   CopyStoreValue,
   StoreAmount,
@@ -24,6 +27,16 @@ import {
 } from './utils'
 
 export function StoreOrdersPage() {
+  const user = useAuthStore((state) => state.auth.user)
+  const config = useQuery({
+    queryKey: ['store', 'config'],
+    queryFn: storeApi.config,
+    enabled: !user,
+    retry: false,
+  })
+  if (!user && config.data?.store_access_supported === true) {
+    return <StoreGuestOrders lookupSupported />
+  }
   return (
     <StoreAuthGate>
       <StoreOrders />
@@ -61,6 +74,7 @@ function StoreOrders() {
           onClick={() => {
             void query.refetch()
             if (selectedValid) void selected.refetch()
+            void refreshCurrentAccount()
           }}
         >
           {t('Refresh')}
@@ -173,6 +187,8 @@ export function StoreOrderRow({
   const client = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [payment, setPayment] = useState<StorePaymentSession | null>(null)
+  const [paymentIssuanceUncertain, setPaymentIssuanceUncertain] =
+    useState(false)
   const [link, setLink] = useState('')
   const [error, setError] = useState<unknown>(null)
   useEffect(() => {
@@ -180,11 +196,43 @@ export function StoreOrderRow({
   }, [buyer, order.status])
   async function refreshOrders() {
     await Promise.all([
-      client.invalidateQueries({ queryKey: ['store', 'orders', user.id] }),
-      client.invalidateQueries({
-        queryKey: ['store', 'order', user.id, order.id],
-      }),
+      client.invalidateQueries(
+        { queryKey: ['store', 'orders', user.id] },
+        { throwOnError: true }
+      ),
+      client.invalidateQueries(
+        { queryKey: ['store', 'order', user.id, order.id] },
+        { throwOnError: true }
+      ),
+      client.invalidateQueries({ queryKey: ['store', 'payments', user.id] }),
+      ...(useAuthStore.getState().auth.user?.id === user.id
+        ? [refreshCurrentAccount()]
+        : []),
     ])
+  }
+  async function preparePayment() {
+    setPaymentIssuanceUncertain(true)
+    try {
+      const session = await storeApi.pay(order.id, order.currency || undefined)
+      setPayment(session)
+    } catch (issue) {
+      // A lost response may already have issued a payment obligation. Keep
+      // cancellation unavailable until an authoritative read succeeds.
+      if (
+        !(issue instanceof StoreAPIError) ||
+        issue.code !== 'STORE_PAYMENT_MINIMUM'
+      ) {
+        try {
+          await refreshOrders()
+          setPaymentIssuanceUncertain(false)
+        } catch {
+          /* Keep the original preparation error and the unresolved state. */
+        }
+      }
+      throw issue
+    }
+    await refreshOrders()
+    setPaymentIssuanceUncertain(false)
   }
   async function action(fn: () => Promise<void>) {
     if (busy) return
@@ -194,6 +242,32 @@ export function StoreOrderRow({
       await fn()
     } catch (issue) {
       setError(issue)
+      if (
+        issue instanceof StoreAPIError &&
+        issue.code === 'STORE_PAYMENT_MINIMUM' &&
+        issue.orderCancelled === true &&
+        issue.orderStatus === 'cancelled' &&
+        issue.orderId === order.id
+      ) {
+        setPayment(null)
+        try {
+          await refreshOrders()
+          setPaymentIssuanceUncertain(false)
+        } catch {
+          /* Keep the confirmed minimum error and require a fresh order read. */
+        }
+      } else if (
+        issue instanceof StoreAPIError &&
+        issue.code === 'STORE_CONFLICT'
+      ) {
+        setPaymentIssuanceUncertain(true)
+        try {
+          await refreshOrders()
+          setPaymentIssuanceUncertain(false)
+        } catch {
+          /* Preserve the conflict while cancellation remains unavailable. */
+        }
+      }
     } finally {
       setBusy(false)
     }
@@ -203,6 +277,9 @@ export function StoreOrderRow({
       <div className='flex flex-wrap items-start justify-between gap-3'>
         <div className='min-w-0 space-y-1'>
           <h2 className='font-semibold break-words'>{order.product_title}</h2>
+          <p className='text-muted-foreground text-sm'>
+            {order.variant_name || t('Historic/default variant')}
+          </p>
           <p className='text-muted-foreground text-xs break-all'>
             {order.trade_no}
           </p>
@@ -232,7 +309,7 @@ export function StoreOrderRow({
       <StoreError error={error} />
       {buyer && (
         <div className='flex flex-wrap items-center gap-2'>
-          {order.status === 'paid' && (
+          {['paid', 'refund_pending'].includes(order.status) && (
             <Button
               size='sm'
               disabled={busy}
@@ -253,18 +330,7 @@ export function StoreOrderRow({
               <Button
                 size='sm'
                 disabled={busy}
-                onClick={() =>
-                  void action(async () => {
-                    const session = await storeApi.pay(
-                      order.id,
-                      order.currency || undefined
-                    )
-                    setPayment(session)
-                    if (session.status === 'paid') {
-                      await refreshOrders()
-                    }
-                  })
-                }
+                onClick={() => void action(preparePayment)}
               >
                 {t(
                   order.payment_method === 'balance'
@@ -272,7 +338,7 @@ export function StoreOrderRow({
                     : 'Prepare payment'
                 )}
               </Button>
-              {order.payment_issued === false && (
+              {order.payment_issued === false && !paymentIssuanceUncertain && (
                 <Button
                   size='sm'
                   variant='outline'
@@ -298,6 +364,7 @@ export function StoreOrderRow({
                 void action(async () => {
                   await storeApi.reconcile(order.id)
                   await refreshOrders()
+                  setPaymentIssuanceUncertain(false)
                 })
               }
             >
@@ -354,6 +421,13 @@ export function StoreOrderRow({
             'The pickup link will be sent to the email provided at checkout. You can always retrieve the link here.'
           )}
         </p>
+      )}
+      {['paid', 'refund_pending', 'refunded'].includes(order.status) && (
+        <StoreRefundPanel
+          orderId={order.id}
+          audience={buyer ? 'buyer' : 'seller'}
+          onChanged={refreshOrders}
+        />
       )}
     </article>
   )

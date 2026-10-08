@@ -63,6 +63,7 @@ const STATUS_RELATED_KEYS = new Set([
   'AssistantStreamEnabled',
   'AssistantTemperature',
   'AssistantMaxTokens',
+  'AssistantNewUserGiftMaxCredits',
   'AssistantAgentLoopEnabled',
   'AssistantMaxSteps',
   'AssistantTimeoutSeconds',
@@ -76,14 +77,6 @@ const STATUS_RELATED_KEYS = new Set([
   'AssistantSearchMCPTool',
   'AssistantSkills',
   'AssistantSkillFiles',
-  'AssistantReviewEnabled',
-  'AssistantReviewWindowDays',
-  'AssistantReviewIntervalHours',
-  'AssistantReviewProbability',
-  'AssistantReviewGroup',
-  'AssistantReviewModel',
-  'AssistantReviewReasoningEffort',
-  'AssistantReviewGroupPolicies',
   'AssistantRetentionEnabled',
   'AssistantActiveRetentionDays',
   'AssistantArchivedRetentionDays',
@@ -124,6 +117,9 @@ async function invalidateOptionQueries(
   }
   if (changedKeys.includes('RSSFeeds')) {
     refreshes.push(invalidate(['rss']))
+  }
+  if (changedKeys.includes('AssistantNewUserGiftMaxCredits')) {
+    refreshes.push(invalidate(['assistant-new-user-gift']))
   }
   if (changedKeys.includes('AssistantPreConversationPresets')) {
     refreshes.push(invalidate(['assistant-pre-conversation-presets']))

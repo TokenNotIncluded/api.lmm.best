@@ -38,61 +38,98 @@ type MerchantStoreLink struct {
 	Description string `json:"description"`
 }
 type MerchantStoreProduct struct {
-	ID                  string              `json:"id" gorm:"primaryKey;size:36"`
-	SellerID            int                 `json:"seller_id" gorm:"not null;index"`
-	Title               string              `json:"title" gorm:"size:200;not null"`
-	Description         string              `json:"description" gorm:"type:text"`
-	ImageURLs           []string            `json:"image_urls" gorm:"serializer:json;type:text"`
-	Contact             string              `json:"contact" gorm:"type:text"`
-	Links               []MerchantStoreLink `json:"links" gorm:"serializer:json;type:text"`
-	PriceQuota          int                 `json:"price_quota" gorm:"type:bigint;not null"`
-	Template            string              `json:"template" gorm:"size:32"`
-	DeliveryStrategy    string              `json:"delivery_strategy" gorm:"size:16"`
-	PaymentMethods      []string            `json:"payment_methods" gorm:"serializer:json;type:text"`
-	PickupLoginRequired bool                `json:"pickup_login_required"`
-	PickupCodeRequired  bool                `json:"pickup_code_required"`
-	EmailPickupLink     bool                `json:"email_pickup_link"`
-	Status              string              `json:"status" gorm:"size:16;not null;index"`
-	ReviewNote          string              `json:"review_note" gorm:"type:text"`
-	ReviewedBy          int                 `json:"reviewed_by"`
-	ReviewedAt          int64               `json:"reviewed_at"`
-	AIReviewToken       string              `json:"-" gorm:"type:varchar(36);not null;default:''"`
-	PromotionExpiresAt  int64               `json:"promotion_expires_at" gorm:"index"`
-	CreatedAt           int64               `json:"created_at"`
-	UpdatedAt           int64               `json:"updated_at"`
-	Official            bool                `json:"official" gorm:"-"`
-	AvailableStock      int64               `json:"available_stock" gorm:"-"`
-	TradingPaused       bool                `json:"trading_paused" gorm:"-"`
+	Likes                 *MerchantStoreProductLikes      `json:"likes,omitempty" gorm:"-:all"`
+	Catalogue             *MerchantStoreCatalogueMetadata `json:"catalogue,omitempty" gorm:"-"`
+	DisplayTags           []string                        `json:"display_tags" gorm:"-"`
+	NetPaidQuantity       *int64                          `json:"net_paid_quantity" gorm:"-"`
+	ID                    string                          `json:"id" gorm:"primaryKey;size:36"`
+	SellerID              int                             `json:"seller_id" gorm:"not null;index"`
+	Seller                *MerchantStorePublicSeller      `json:"seller,omitempty" gorm:"-:all"`
+	CategoryID            string                          `json:"category_id" gorm:"size:36;not null;default:'';index"`
+	Category              *MerchantStoreCategoryBadge     `json:"category,omitempty" gorm:"-:all"`
+	Title                 string                          `json:"title" gorm:"size:200;not null"`
+	Description           string                          `json:"description" gorm:"type:text"`
+	ImageURLs             []string                        `json:"image_urls" gorm:"serializer:json;type:text"`
+	Contact               string                          `json:"contact" gorm:"type:text"`
+	Links                 []MerchantStoreLink             `json:"links" gorm:"serializer:json;type:text"`
+	PriceQuota            int                             `json:"price_quota" gorm:"type:bigint;not null"`
+	TestMode              bool                            `json:"test_mode" gorm:"not null;default:false"`
+	Visibility            string                          `json:"visibility" gorm:"size:16;not null;default:'';index"`
+	PurchaseLoginRequired bool                            `json:"purchase_login_required" gorm:"not null;default:true"`
+	SaleLimit             *int64                          `json:"sale_limit" gorm:"type:bigint"`
+	MaxQuantityPerOrder   *int64                          `json:"max_quantity_per_order" gorm:"type:bigint"`
+	MaxQuantityPerBuyer   *int64                          `json:"max_quantity_per_buyer" gorm:"type:bigint"`
+	Template              string                          `json:"template" gorm:"size:32"`
+	DeliveryStrategy      string                          `json:"delivery_strategy" gorm:"size:16"`
+	PaymentMethods        []string                        `json:"payment_methods" gorm:"serializer:json;type:text"`
+	PickupLoginRequired   bool                            `json:"pickup_login_required"`
+	PickupCodeRequired    bool                            `json:"pickup_code_required"`
+	EmailPickupLink       bool                            `json:"email_pickup_link"`
+	Status                string                          `json:"status" gorm:"size:16;not null;index"`
+	ReviewNote            string                          `json:"review_note" gorm:"type:text"`
+	ReviewedBy            int                             `json:"reviewed_by"`
+	ReviewedAt            int64                           `json:"reviewed_at"`
+	AIReviewToken         string                          `json:"-" gorm:"type:varchar(36);not null;default:''"`
+	PromotionExpiresAt    int64                           `json:"promotion_expires_at" gorm:"index"`
+	CreatedAt             int64                           `json:"created_at"`
+	UpdatedAt             int64                           `json:"updated_at"`
+	Official              bool                            `json:"official" gorm:"-"`
+	UnlimitedSupply       bool                            `json:"unlimited_supply" gorm:"-"`
+	AvailableStock        int64                           `json:"available_stock" gorm:"-"`
+	PaidQuantity          int64                           `json:"paid_quantity" gorm:"-"`
+	ReservedQuantity      int64                           `json:"reserved_quantity" gorm:"-"`
+	SaleAvailable         int64                           `json:"sale_available" gorm:"-"`
+	TradingPaused         bool                            `json:"trading_paused" gorm:"-"`
+	DefaultVariantID      string                          `json:"default_variant_id" gorm:"-"`
+	Variants              []MerchantStoreVariant          `json:"variants" gorm:"-"`
+	InventoryTotal        int64                           `json:"inventory_total" gorm:"-"`
+	InventoryAvailable    int64                           `json:"inventory_available" gorm:"-"`
+	PriceMinQuota         int                             `json:"price_min_quota" gorm:"-"`
+	PriceMaxQuota         int                             `json:"price_max_quota" gorm:"-"`
+
+	BuyerPurchaseRemaining *int64 `json:"buyer_purchase_remaining,omitempty" gorm:"-"`
 }
 type MerchantStoreProductInput struct {
-	Title               string              `json:"title"`
-	Description         string              `json:"description"`
-	ImageURLs           []string            `json:"image_urls"`
-	Contact             string              `json:"contact"`
-	Links               []MerchantStoreLink `json:"links"`
-	PriceQuota          int                 `json:"price_quota"`
-	Template            string              `json:"template"`
-	DeliveryStrategy    string              `json:"delivery_strategy"`
-	PaymentMethods      []string            `json:"payment_methods"`
-	PickupLoginRequired bool                `json:"pickup_login_required"`
-	PickupCodeRequired  bool                `json:"pickup_code_required"`
-	EmailPickupLink     bool                `json:"email_pickup_link"`
+	CategoryID            *string             `json:"category_id,omitempty"`
+	Title                 string              `json:"title"`
+	Description           string              `json:"description"`
+	ImageURLs             []string            `json:"image_urls"`
+	Contact               string              `json:"contact"`
+	Links                 []MerchantStoreLink `json:"links"`
+	PriceQuota            int                 `json:"price_quota"`
+	TestMode              *bool               `json:"test_mode,omitempty"`
+	Visibility            *string             `json:"visibility,omitempty"`
+	PurchaseLoginRequired *bool               `json:"purchase_login_required,omitempty"`
+	MaxQuantityPerOrder   *int64              `json:"max_quantity_per_order,omitempty"`
+	MaxQuantityPerBuyer   *int64              `json:"max_quantity_per_buyer,omitempty"`
+	Template              string              `json:"template"`
+	FixedContent          *string             `json:"fixed_content,omitempty"`
+	DeliveryStrategy      string              `json:"delivery_strategy"`
+	PaymentMethods        []string            `json:"payment_methods"`
+	PickupLoginRequired   bool                `json:"pickup_login_required"`
+	PickupCodeRequired    bool                `json:"pickup_code_required"`
+	EmailPickupLink       bool                `json:"email_pickup_link"`
+
+	maxQuantityPerOrderPresent bool
+	maxQuantityPerBuyerPresent bool
 }
 type MerchantStoreStock struct {
-	ID         string `json:"id" gorm:"primaryKey;size:36"`
-	ProductID  string `json:"product_id" gorm:"size:36;not null;index:store_stock_available,priority:1"`
-	Ciphertext string `json:"-" gorm:"type:text;not null"`
-	State      string `json:"state" gorm:"size:16;not null;index:store_stock_available,priority:2"`
-	OrderID    string `json:"-" gorm:"size:64;index"`
-	Position   int64  `json:"position" gorm:"index:store_stock_available,priority:3"`
-	CreatedAt  int64  `json:"created_at"`
+	ID         string  `json:"id" gorm:"primaryKey;size:36"`
+	ProductID  string  `json:"product_id" gorm:"size:36;not null;index:store_stock_available,priority:1;index:store_stock_variant_available,priority:1"`
+	VariantID  *string `json:"variant_id" gorm:"type:varchar(36);index:store_stock_variant_available,priority:2"`
+	Ciphertext string  `json:"-" gorm:"type:text;not null"`
+	State      string  `json:"state" gorm:"size:16;not null;index:store_stock_available,priority:2;index:store_stock_variant_available,priority:3"`
+	OrderID    string  `json:"-" gorm:"size:64;index"`
+	Position   int64   `json:"position" gorm:"index:store_stock_available,priority:3;index:store_stock_variant_available,priority:4"`
+	CreatedAt  int64   `json:"created_at"`
 }
 type MerchantStoreConfig struct {
-	ID                 int    `json:"-" gorm:"primaryKey"`
-	FeeBPS             int    `json:"fee_bps"`
-	RecipientID        int    `json:"recipient_id"`
-	PromotionQuota     int    `json:"promotion_quota" gorm:"type:bigint"`
-	LinuxDOUnitsPerUSD string `json:"linuxdo_units_per_usd" gorm:"size:64"`
+	ID                    int    `json:"-" gorm:"primaryKey"`
+	FeeBPS                int    `json:"fee_bps"`
+	RecipientID           int    `json:"recipient_id"`
+	PromotionQuota        int    `json:"promotion_quota" gorm:"type:bigint"`
+	MinimumUnitPriceQuota int    `json:"minimum_unit_price_quota" gorm:"type:bigint;not null;default:500000"`
+	LinuxDOUnitsPerUSD    string `json:"linuxdo_units_per_usd" gorm:"size:64"`
 }
 type MerchantStoreDisclaimerAcceptance struct {
 	UserID     int    `json:"-" gorm:"primaryKey"`
@@ -126,7 +163,12 @@ type MerchantStoreEvent struct {
 }
 
 func MerchantStoreModels() []interface{} {
-	return []interface{}{&MerchantStoreProduct{}, &MerchantStoreStock{}, &MerchantStoreConfig{}, &MerchantStoreOrder{}, &MerchantStoreTransfer{}, &MerchantStoreDisclaimerAcceptance{}, &MerchantStoreGateway{}, &MerchantStorePromotion{}, &MerchantStoreEvent{}, &MerchantStoreEmailDelivery{}, &MerchantStorePaymentReceipt{}, &MerchantStoreVerifiedEmail{}, &MerchantStoreEmailVerificationChallenge{}, &MerchantStoreOrderSearchChallenge{}, &MerchantStoreOrderSearchAuthorization{}}
+	models := []interface{}{&MerchantStoreProduct{}, &MerchantStoreStock{}, &MerchantStoreConfig{}, &MerchantStoreOrder{}, &MerchantStoreTransfer{}, &MerchantStoreDisclaimerAcceptance{}, &MerchantStoreGateway{}, &MerchantStorePromotion{}, &MerchantStoreEvent{}, &MerchantStoreEmailDelivery{}, &MerchantStorePaymentReceipt{}, &MerchantStoreVerifiedEmail{}, &MerchantStoreEmailVerificationChallenge{}, &MerchantStoreOrderSearchChallenge{}, &MerchantStoreOrderSearchAuthorization{}, &MerchantStoreVariant{}, &MerchantStoreRefund{}, &MerchantStoreRefundItem{}, &MerchantStoreRefundPaymentBasis{}, &MerchantStoreDiscountCode{}, &MerchantStoreRefundProviderAttempt{}, &MerchantStoreGuest{}, &MerchantStoreSellerTerms{}, &MerchantStoreTermsAcceptance{}, &MerchantStoreGuestEmailVerification{}}
+	models = append(models, MerchantStoreCatalogueModels()...)
+	models = append(models, &MerchantStoreCategory{})
+	models = append(models, MerchantStoreSocialModels()...)
+	models = append(models, storeFixedContentModels()...)
+	return append(models, storeAnalyticsModels()...)
 }
 func storeHash(s string) string { sum := sha256.Sum256([]byte(s)); return hex.EncodeToString(sum[:]) }
 func storeToken() (string, error) {
@@ -165,11 +207,11 @@ func storeConfig(tx *gorm.DB) (MerchantStoreConfig, error) {
 		if e = tx.Where("role = ? AND status = ?", common.RoleRootUser, common.UserStatusEnabled).Order("id ASC").First(&u).Error; e != nil {
 			return c, ErrMerchantStoreUnavailable
 		}
-		c = MerchantStoreConfig{ID: 1, FeeBPS: 100, RecipientID: u.Id, PromotionQuota: MerchantStoreCreditsPerUSD}
+		c = MerchantStoreConfig{ID: 1, FeeBPS: 100, RecipientID: u.Id, PromotionQuota: MerchantStoreCreditsPerUSD, MinimumUnitPriceQuota: MerchantStoreCreditsPerUSD}
 	} else if e != nil {
 		return c, e
 	}
-	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) {
+	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !marketQuotaValid(c.MinimumUnitPriceQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) {
 		return c, ErrMerchantStoreInput
 	}
 	_, e = storeUser(tx, c.RecipientID, common.RoleRootUser)
@@ -177,7 +219,7 @@ func storeConfig(tx *gorm.DB) (MerchantStoreConfig, error) {
 }
 func GetMerchantStoreConfig() (MerchantStoreConfig, error) { return storeConfig(DB) }
 func SetMerchantStoreConfig(actor int, c MerchantStoreConfig) error {
-	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) || c.RecipientID <= 0 {
+	if c.FeeBPS < 0 || c.FeeBPS > 10000 || !marketQuotaValid(c.PromotionQuota) || !marketQuotaValid(c.MinimumUnitPriceQuota) || !storeLinuxDORateValid(c.LinuxDOUnitsPerUSD) || c.RecipientID <= 0 {
 		return ErrMerchantStoreInput
 	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
@@ -190,8 +232,10 @@ func SetMerchantStoreConfig(actor int, c MerchantStoreConfig) error {
 		if _, e := storeUser(tx, c.RecipientID, common.RoleRootUser); e != nil {
 			return e
 		}
-		c.ID = 1
-		return tx.Save(&c).Error
+		if e := storeRequireWriter(tx); e != nil {
+			return e
+		}
+		return storeWriteConfig(tx, c)
 	})
 }
 func storeFee(price, bps int) int { return marketFee(price, bps) }
@@ -222,10 +266,13 @@ func validateStoreProduct(in *MerchantStoreProductInput) error {
 	if in.Title == "" || len(in.Title) > 200 || len(in.Description) > 128<<10 || len(in.Contact) > 4096 || len(in.ImageURLs) > 32 || len(in.Links) > 2000 || in.PriceQuota <= 0 || !marketQuotaValid(in.PriceQuota) {
 		return ErrMerchantStoreInput
 	}
+	if !storePurchaseLimitValid(in.MaxQuantityPerOrder) || !storePurchaseLimitValid(in.MaxQuantityPerBuyer) {
+		return ErrMerchantStoreInput
+	}
 	if in.Template == "" {
 		in.Template = "card-key"
 	}
-	if in.Template != "card-key" && in.Template != "text" && in.Template != "custom-text" {
+	if !storeDeliveryTemplateSupported(in.Template) {
 		return ErrMerchantStoreInput
 	}
 	if in.DeliveryStrategy == "" {
@@ -234,10 +281,17 @@ func validateStoreProduct(in *MerchantStoreProductInput) error {
 	if in.DeliveryStrategy != "sequential" && in.DeliveryStrategy != "random" {
 		return ErrMerchantStoreInput
 	}
-	for _, v := range in.ImageURLs {
-		if !storeURL(v) {
-			return ErrMerchantStoreInput
+	images := make([]string, len(in.ImageURLs))
+	for index, value := range in.ImageURLs {
+		// Optional logo/header slots retain the rest of the ordered gallery.
+		if index < 2 && strings.TrimSpace(value) == "" {
+			continue
 		}
+		image, err := normalizeMerchantStoreImage(value)
+		if err != nil {
+			return err
+		}
+		images[index] = image
 	}
 	for _, v := range in.Links {
 		if len(v.Title) == 0 || len(v.Title) > 200 || len(v.Description) > 4096 || !storeURL(v.URL) {
@@ -251,6 +305,7 @@ func validateStoreProduct(in *MerchantStoreProductInput) error {
 		}
 		seen[m] = true
 	}
+	in.ImageURLs = images
 	return nil
 }
 func storePaymentMethod(m string) bool {
@@ -268,6 +323,9 @@ func storeProductOwner(tx *gorm.DB, actor int, id string) (*MerchantStoreProduct
 	if _, e := storeUser(tx, actor, common.RoleCommonUser); e != nil {
 		return nil, e
 	}
+	if p.Status == "deleted" {
+		return nil, gorm.ErrRecordNotFound
+	}
 	return &p, nil
 }
 func storeWithProduct(id string, fn func(*gorm.DB, *MerchantStoreProduct) error) error {
@@ -280,6 +338,17 @@ func storeWithProduct(id string, fn func(*gorm.DB, *MerchantStoreProduct) error)
 	})
 }
 
+// Product management rejects retained deleted rows. Order transactions still
+// use storeWithProduct so paid and pending orders can settle and deliver stock.
+func storeWithActiveProduct(id string, fn func(*gorm.DB, *MerchantStoreProduct) error) error {
+	return storeWithProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if p.Status == "deleted" {
+			return gorm.ErrRecordNotFound
+		}
+		return fn(tx, p)
+	})
+}
+
 // Global store economics are editable only by a superadministrator.
 func SetMerchantStorePromotionPrice(actor, quota int) error {
 	if !marketQuotaValid(quota) {
@@ -287,6 +356,9 @@ func SetMerchantStorePromotionPrice(actor, quota int) error {
 	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if _, e := storeUser(tx, actor, common.RoleRootUser); e != nil {
+			return e
+		}
+		if e := storeRequireWriter(tx); e != nil {
 			return e
 		}
 		c, e := storeConfig(tx)

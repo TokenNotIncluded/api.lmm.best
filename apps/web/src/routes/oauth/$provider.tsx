@@ -340,7 +340,7 @@ function OAuthCallback() {
             }
             if (data.require_2fa === true) {
               setPending2FAFlowToken(data.flow_token)
-              redirectTo2FA()
+              redirectTo2FA(search.redirect)
               return
             }
             prepareCredentialRequestOptions(data.options)

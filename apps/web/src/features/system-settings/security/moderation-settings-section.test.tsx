@@ -95,25 +95,23 @@ test('saves scope and private identifier changes together without enabling revie
       data:
         url === '/api/group/'
           ? ['default', 'route-one']
-          : url.endsWith('/review-runs')
-            ? []
-            : {
-                items: [],
-                rows: [],
-                total: 0,
-                page: 1,
-                page_size: 20,
-                settings: { enabled: false },
-                rules: [],
-                pending: 0,
-                running: 0,
-                completed: 0,
-                failed: 0,
-                cancelled: 0,
-                flagged: 0,
-                fined: 0,
-                charged_quota: 0,
-              },
+          : {
+              items: [],
+              rows: [],
+              total: 0,
+              page: 1,
+              page_size: 20,
+              settings: { enabled: false },
+              rules: [],
+              pending: 0,
+              running: 0,
+              completed: 0,
+              failed: 0,
+              cancelled: 0,
+              flagged: 0,
+              fined: 0,
+              charged_quota: 0,
+            },
     },
   })) as typeof api.get
   api.post = (async (url: string, body: { values: Record<string, string> }) => {

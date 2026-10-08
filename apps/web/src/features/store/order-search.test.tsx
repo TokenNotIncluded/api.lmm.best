@@ -98,8 +98,32 @@ function mockRequests(
   const requests: Request[] = []
   function response(request: Request) {
     requests.push(request)
+    if (request.method === 'GET' && request.url === '/api/store/config') {
+      return result({
+        store_catalogue_supported: false,
+        store_collections_supported: false,
+      })
+    }
+    const productListing =
+      request.method === 'GET' && request.url === '/api/store/products'
+    const orderSummary =
+      request.method === 'GET' &&
+      /^\/api\/store\/order-search\/[^/?#]+$/.test(request.url)
+    const verifiedSearch =
+      request.method === 'POST' &&
+      [
+        '/api/store/order-search/email/send',
+        '/api/store/order-search/email/confirm',
+        '/api/store/order-search',
+      ].includes(request.url)
+    assert.ok(
+      productListing || orderSummary || verifiedSearch,
+      `Unexpected ${request.method} fixture request: ${request.url}`
+    )
     if (reply) return reply(request)
-    if (request.url === '/api/store/products') return ordersResult([])
+    if (productListing) {
+      return result({ items: [], offset: 0, limit: 24, has_more: false })
+    }
     if (request.url.endsWith('/email/send')) return sendResult()
     if (request.url.endsWith('/email/confirm')) return confirmResult()
     if (request.url === '/api/store/order-search') return ordersResult()
@@ -269,7 +293,10 @@ test('email search asks for explicit verification without reading or sending the
   assert.equal(document.querySelector('#store-order-search-code'), null)
   assert.deepEqual(
     requests.map(({ method, url }) => ({ method, url })),
-    [{ method: 'GET', url: '/api/store/products' }]
+    [
+      { method: 'GET', url: '/api/store/config' },
+      { method: 'GET', url: '/api/store/products' },
+    ]
   )
   assert.equal(JSON.stringify(requests).includes(email), false)
   assertMemoryOnly(email)
@@ -522,6 +549,7 @@ test('automatic mode recognizes a new MS order number and displays only its safe
   assert.deepEqual(
     requests.map(({ method, url }) => ({ method, url })),
     [
+      { method: 'GET', url: '/api/store/config' },
       { method: 'GET', url: '/api/store/products' },
       { method: 'GET', url: `/api/store/order-search/${tradeNo}` },
     ]
@@ -612,5 +640,55 @@ test('order-number errors are visible and unsafe pickup URLs never create links'
   assert.equal(
     requests.some(({ method }) => method === 'POST'),
     false
+  )
+})
+
+test('seller storefront sends its seller filter and displays seller identity rather than the signed-in buyer', async () => {
+  owner(99)
+  const requests = mockRequests(() =>
+    result({
+      items: [],
+      offset: 0,
+      limit: 24,
+      has_more: false,
+      seller: {
+        id: 27,
+        username: 'actual-merchant',
+        display_name: 'Actual merchant shop',
+        contact_email: 'public-sales@example.test',
+      },
+    })
+  )
+  await mount(<StorePage sellerId={27} />)
+  assert.equal(requests.length, 2)
+  const listing = requests.find(({ url }) => url === '/api/store/products')
+  assert.ok(listing)
+  assert.deepEqual((listing.config as { params: unknown }).params, {
+    q: '',
+    offset: 0,
+    limit: 24,
+    sort: 'comprehensive',
+    seller_id: 27,
+  })
+  assert.match(
+    document.querySelector('h1')?.textContent || '',
+    /Actual merchant shop/
+  )
+  assert.match(document.body.textContent || '', /@actual-merchant/)
+  assert.doesNotMatch(document.body.textContent || '', /buyer-99/)
+  const merchantLink = [
+    ...document.querySelectorAll<HTMLAnchorElement>('a'),
+  ].find((node) => node.textContent?.trim() === 'User ID: 27')
+  assert.equal(merchantLink?.getAttribute('href'), '/store?seller_id=27')
+  assert.equal(
+    document.querySelector('a[href^="mailto:"]')?.getAttribute('href'),
+    'mailto:public-sales%40example.test'
+  )
+  assert.ok(
+    [...document.querySelectorAll<HTMLAnchorElement>('a')].some(
+      (node) =>
+        node.getAttribute('href') === '/store' &&
+        node.textContent?.trim() === 'Browse all sellers'
+    )
   )
 })

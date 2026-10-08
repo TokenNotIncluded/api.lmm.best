@@ -31,7 +31,7 @@ type merchantStoreTablePlan struct {
 }
 
 var merchantStoreExpectedTables = []string{
-	"merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_gateways", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_stocks", "merchant_store_transfers", "merchant_store_verified_emails",
+	"merchant_store_cart_items", "merchant_store_catalogue_metadata", "merchant_store_categories", "merchant_store_configs", "merchant_store_disclaimer_acceptances", "merchant_store_discount_codes", "merchant_store_email_deliveries", "merchant_store_email_verification_challenges", "merchant_store_events", "merchant_store_favorites", "merchant_store_fixed_contents", "merchant_store_gateways", "merchant_store_guest_email_verifications", "merchant_store_guests", "merchant_store_order_fixed_deliveries", "merchant_store_order_search_authorizations", "merchant_store_order_search_challenges", "merchant_store_orders", "merchant_store_payment_receipts", "merchant_store_product_likes", "merchant_store_product_traffic_days", "merchant_store_product_traffic_receipts", "merchant_store_products", "merchant_store_promotions", "merchant_store_refund_items", "merchant_store_refund_payment_bases", "merchant_store_refund_provider_attempts", "merchant_store_refunds", "merchant_store_seller_terms", "merchant_store_stocks", "merchant_store_terms_acceptances", "merchant_store_transfers", "merchant_store_variants", "merchant_store_verified_emails",
 }
 
 func merchantStoreSourceSchemaPlan(t *testing.T) []merchantStoreTablePlan {
@@ -98,7 +98,7 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 		}
 		require.True(t, found, "column %s.%s exists", entry.Table, entry.Column)
 	}
-	for _, entry := range []struct{ Table, Column string }{{"merchant_store_products", "price_quota"}, {"merchant_store_orders", "unit_price_quota"}, {"merchant_store_orders", "price_quota"}, {"merchant_store_orders", "fee_quota"}, {"merchant_store_orders", "amount_minor"}, {"merchant_store_configs", "promotion_quota"}, {"merchant_store_transfers", "quota"}} {
+	for _, entry := range []struct{ Table, Column string }{{"merchant_store_products", "price_quota"}, {"merchant_store_products", "max_quantity_per_order"}, {"merchant_store_products", "max_quantity_per_buyer"}, {"merchant_store_variants", "price_quota"}, {"merchant_store_orders", "unit_price_quota"}, {"merchant_store_orders", "price_quota"}, {"merchant_store_orders", "original_price_quota"}, {"merchant_store_orders", "discount_quota"}, {"merchant_store_orders", "fee_quota"}, {"merchant_store_orders", "amount_minor"}, {"merchant_store_configs", "promotion_quota"}, {"merchant_store_configs", "minimum_unit_price_quota"}, {"merchant_store_transfers", "quota"}, {"merchant_store_refunds", "principal_quota"}, {"merchant_store_refunds", "amount_minor"}, {"merchant_store_refunds", "retained_fee_quota"}, {"merchant_store_refund_payment_bases", "amount_minor"}, {"merchant_store_refund_provider_attempts", "lease_until"}, {"merchant_store_refund_provider_attempts", "next_check_at"}} {
 		found := false
 		for _, column := range byTable[entry.Table].Columns {
 			if column.Name == entry.Column {
@@ -108,10 +108,48 @@ func TestMerchantStoreSchemaPlan(t *testing.T) {
 		}
 		require.True(t, found)
 	}
+	configSchema, e := schema.Parse(&MerchantStoreConfig{}, &sync.Map{}, schema.NamingStrategy{})
+	require.NoError(t, e)
+	minimum := configSchema.LookUpField("MinimumUnitPriceQuota")
+	require.NotNil(t, minimum)
+	require.True(t, minimum.NotNull)
+	require.True(t, minimum.HasDefaultValue)
+	require.Equal(t, "500000", minimum.DefaultValue)
+	// Legacy stock stays nullable and untouched. Historical orders acquire empty
+	// snapshots, rather than an invented association to today's default variant.
+	stockSchema, e := schema.Parse(&MerchantStoreStock{}, &sync.Map{}, schema.NamingStrategy{})
+	require.NoError(t, e)
+	stockVariant := stockSchema.LookUpField("VariantID")
+	require.NotNil(t, stockVariant)
+	require.False(t, stockVariant.NotNull)
+	require.False(t, stockVariant.HasDefaultValue)
+	require.Equal(t, "varchar(36)", stockVariant.TagSettings["TYPE"])
+	orderSchema, e := schema.Parse(&MerchantStoreOrder{}, &sync.Map{}, schema.NamingStrategy{})
+	require.NoError(t, e)
+	for _, fieldName := range []string{"VariantID", "VariantName"} {
+		field := orderSchema.LookUpField(fieldName)
+		require.NotNil(t, field)
+		require.True(t, field.NotNull)
+		require.True(t, field.HasDefaultValue)
+		require.Empty(t, field.DefaultValue)
+	}
+	for _, fieldName := range []string{"OriginalPriceQuota", "DiscountQuota", "DiscountBPS", "PromotionID", "PromotionCode"} {
+		field := orderSchema.LookUpField(fieldName)
+		require.NotNil(t, field)
+		require.True(t, field.NotNull)
+		require.True(t, field.HasDefaultValue, "historical orders retain empty promotion snapshots")
+	}
+	stockIndexes := map[string][]string{}
+	for _, index := range byTable["merchant_store_stocks"].Indexes {
+		stockIndexes[index.Name] = index.Columns
+	}
+	require.Equal(t, []string{"product_id", "state", "position"}, stockIndexes["store_stock_available"], "retain the N-1 lookup index")
+	require.Equal(t, []string{"product_id", "variant_id", "state", "position"}, stockIndexes["store_stock_variant_available"])
 	encoded, e := json.MarshalIndent(struct {
-		Scope  string                   `json:"scope"`
-		Tables []merchantStoreTablePlan `json:"tables"`
-	}{Scope: "15 additive merchant-store tables only; no existing user, wallet or financial-history DDL", Tables: plan}, "", "  ")
+		WriterCapability int                      `json:"writer_capability"`
+		Scope            string                   `json:"scope"`
+		Tables           []merchantStoreTablePlan `json:"tables"`
+	}{WriterCapability: MerchantStoreWriterCapability, Scope: "Merchant-store model set including one guest/address email verification table; includes the exact access, catalogue and guest-email groups plus phase-six global categories and independent likes plus phase-seven private shared content, per-order encrypted payloads and anonymous traffic days and receipts (34 tables); no user, wallet or financial-history DDL", Tables: plan}, "", "  ")
 	require.NoError(t, e)
 	if output := os.Getenv("MERCHANT_STORE_SCHEMA_PLAN_OUTPUT"); output != "" {
 		file, e := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)

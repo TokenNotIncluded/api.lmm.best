@@ -19,7 +19,7 @@ import (
 var existingSchemaFinancialEnvironment = []string{"LMM_CREDIT_TRANSITION_PLAN", "LMM_CREDIT_TRANSITION_SHA256"}
 var existingSchemaInvocationPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
-const existingSchemaUnitProperties = "Environment,EnvironmentFiles,PassEnvironment,UnsetEnvironment,MainPID,InvocationID,ActiveState,ExecStart,ExecStartPre,ExecStartPost,ExecCondition,ExecStop,ExecStopPost,FragmentPath"
+const existingSchemaUnitProperties = "Environment,EnvironmentFiles,PassEnvironment,UnsetEnvironment,MainPID,InvocationID,ActiveState,ExecStart,ExecStartPre,ExecStartPreEx,ExecStartPost,ExecCondition,ExecStop,ExecStopPost,FragmentPath,DropInPaths"
 
 // Only the disposable verification child receives a read-only connection. The
 // running service must remain able to serve ordinary business transactions.
@@ -30,6 +30,19 @@ func (runtime *productionRuntime) existingSchemaMigrationEnvironment(environment
 	values, err := parseProductionEnvironment(environment)
 	if err != nil {
 		return nil, err
+	}
+	return runtime.existingSchemaMigrationValues(values, schema)
+}
+
+// Accept the already inspected effective ordered systemd environment without
+// serializing parsed secrets back through a shell/env-file quoting grammar.
+func (runtime *productionRuntime) existingSchemaMigrationValues(effective map[string]string, schema string) ([]string, error) {
+	if !isDatabaseSchema(schema) {
+		return nil, errors.New("verify-existing schema is unsafe")
+	}
+	values := make(map[string]string, len(effective))
+	for key, value := range effective {
+		values[key] = value
 	}
 	databaseURL, err := productionDatabaseURL(values)
 	if err != nil {
@@ -223,7 +236,14 @@ func (runtime *productionRuntime) verifyExistingSchemaEffectiveSearchPath(ctx co
 	if err := validateProductionExistingSchemaContract(expected); err != nil {
 		return err
 	}
-	databaseURL, environment, err := productionDatabaseCommand(values)
+	// The adapter must not promote the operator's ambient PGOPTIONS into URI
+	// options before the process-environment filtering below can remove them.
+	commandValues := make(map[string]string, len(values)+1)
+	for key, value := range values {
+		commandValues[key] = value
+	}
+	commandValues["PGOPTIONS"] = values["PGOPTIONS"]
+	databaseURL, environment, err := productionDatabaseCommand(commandValues)
 	if err != nil {
 		return err
 	}
@@ -331,7 +351,7 @@ func (runtime *productionRuntime) loadedExistingSchemaUnit(ctx context.Context) 
 	for _, key := range strings.Split(existingSchemaUnitProperties, ",") {
 		if _, present := values[key]; !present {
 			switch key {
-			case "PassEnvironment", "UnsetEnvironment", "ExecStartPre", "ExecStartPost", "ExecCondition", "ExecStop", "ExecStopPost", "FragmentPath":
+			case "PassEnvironment", "UnsetEnvironment", "ExecStartPre", "ExecStartPreEx", "ExecStartPost", "ExecCondition", "ExecStop", "ExecStopPost", "FragmentPath", "DropInPaths":
 				// systemctl omits unset array properties, including with --all.
 				values[key] = ""
 			default:

@@ -74,7 +74,7 @@ func generatePromptPreset(candidate promptCandidate, topicCounts map[string]int6
 	prompt := ""
 	switch candidate.Intent {
 	case AssistantIntentRecommendation:
-		prompt = fmt.Sprintf("请围绕%s读取我当前唯一的 L1 推荐信，并根据这次对话直接帮我起草或完善；信息足够后在界面中让我确认。", focus)
+		prompt = fmt.Sprintf("请围绕%s核对我当前的访问权限与注册验证状态，并说明按现有配置获取 L1 访问权限的下一步。", focus)
 	case AssistantIntentOnboarding:
 		prompt = fmt.Sprintf("请围绕%s评估我的当前状态，并给出最短、可执行的入门步骤。", focus)
 	case AssistantIntentClientSetup:

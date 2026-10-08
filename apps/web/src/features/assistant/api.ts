@@ -24,6 +24,7 @@ import axios, { type AxiosError } from 'axios'
 import type { QuotaDataItem } from '@/features/dashboard/types'
 import type { PricingData } from '@/features/pricing/types'
 import type { PlanRecord } from '@/features/subscriptions/types'
+import { CATALOGUE_ID_PATTERN } from '@/features/tool-market/service-link'
 import { api, getCommonHeaders, getFreshAuthHeaders } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -248,6 +249,9 @@ export type AssistantJourney = {
 export type AssistantNewUserGift = {
   amount_cents: number
   amount_unit?: 'LEGACY_CENTS'
+  max_credit_amount?: number
+  claim_available?: boolean
+  claim_blocked_code?: string
   credit_amount?: number
   amount_usd?: number | null
   currency?: 'USD'
@@ -268,6 +272,9 @@ export type AssistantNewUserGiftAction = {
   type: 'new_user_gift'
   amount_cents: number
   amount_unit?: 'LEGACY_CENTS'
+  max_credit_amount?: number
+  claim_available?: boolean
+  claim_blocked_code?: string
   credit_amount?: number
   amount_usd?: number | null
   currency?: 'USD'
@@ -291,13 +298,6 @@ export type AssistantWeeklyDiscountAction = {
   discount_percent: number
   status: 'offered'
   reason: string
-}
-
-export type AssistantL1RecommendationAction = {
-  type: 'l1_recommendation'
-  user_statement: string
-  recommendation: string
-  confirmation_token: string
 }
 
 export type AssistantAccountDisableAction = {
@@ -416,6 +416,9 @@ export type AssistantNavigationPath =
   | '/support'
   | '/open-source-bounties'
   | '/users'
+  | '/store'
+  | `/store/products/${string}`
+  | '/tool-market'
 
 export type AssistantNavigationAction = {
   type: 'navigate'
@@ -472,7 +475,6 @@ export type AssistantToolTrace = {
 }
 
 export type AssistantAction =
-  | AssistantL1RecommendationAction
   | AssistantAccountDisableAction
   | AssistantHumanSupportAction
   | AssistantCreateKeyAction
@@ -815,11 +817,12 @@ const ASSISTANT_NAVIGATION_PATHS = new Set<AssistantNavigationPath>([
   '/support',
   '/open-source-bounties',
   '/users',
+  '/store',
+  '/tool-market',
 ])
 
-const ASSISTANT_NAVIGATION_QUERY_KEYS: Record<
-  AssistantNavigationPath,
-  readonly string[]
+const ASSISTANT_NAVIGATION_QUERY_KEYS: Partial<
+  Record<AssistantNavigationPath, readonly string[]>
 > = {
   '/': [],
   '/getting-started': [],
@@ -835,6 +838,8 @@ const ASSISTANT_NAVIGATION_QUERY_KEYS: Record<
   '/support': [],
   '/open-source-bounties': [],
   '/users': ['filter', 'l0Only'],
+  '/store': [],
+  '/tool-market': ['service_id'],
 }
 
 function parseAssistantNavigationAction(
@@ -844,16 +849,34 @@ function parseAssistantNavigationAction(
     return undefined
   }
   const path = action.path.trim() as AssistantNavigationPath
-  if (!ASSISTANT_NAVIGATION_PATHS.has(path)) return undefined
+  const productID = path.startsWith('/store/products/')
+    ? path.slice('/store/products/'.length)
+    : undefined
+  const productPath =
+    productID !== undefined && CATALOGUE_ID_PATTERN.test(productID)
+  if (!ASSISTANT_NAVIGATION_PATHS.has(path) && !productPath) return undefined
   const queryValue = action.query
   const query: Record<string, string | number | boolean> = {}
   if (queryValue !== undefined) {
     if (!queryValue || typeof queryValue !== 'object') return undefined
-    const allowedKeys = ASSISTANT_NAVIGATION_QUERY_KEYS[path]
+    if (Array.isArray(queryValue)) return undefined
+    const allowedKeys = productPath
+      ? ['owner_preview']
+      : (ASSISTANT_NAVIGATION_QUERY_KEYS[path] ?? [])
     for (const [key, value] of Object.entries(
       queryValue as Record<string, unknown>
     )) {
       if (!allowedKeys.includes(key)) return undefined
+      if (productPath && (key !== 'owner_preview' || value !== true)) {
+        return undefined
+      }
+      if (
+        path === '/tool-market' &&
+        key === 'service_id' &&
+        (typeof value !== 'string' || !CATALOGUE_ID_PATTERN.test(value))
+      ) {
+        return undefined
+      }
       if (
         typeof value !== 'string' &&
         typeof value !== 'number' &&
@@ -881,8 +904,15 @@ function parseAssistantNewUserGiftAction(
     action.status !== 'offered' ||
     typeof action.amount_cents !== 'number' ||
     !Number.isInteger(action.amount_cents) ||
-    action.amount_cents < 1 ||
-    action.amount_cents > 1000 ||
+    action.amount_cents < 0 ||
+    !Number.isSafeInteger(action.amount_cents) ||
+    (action.amount_cents === 0 &&
+      !(
+        typeof action.credit_amount === 'number' &&
+        Number.isSafeInteger(action.credit_amount) &&
+        action.credit_amount > 0
+      )) ||
+    action.claim_available === false ||
     typeof action.reason !== 'string'
   ) {
     return undefined
@@ -912,10 +942,26 @@ function parseAssistantNewUserGiftAction(
           credits_per_usd: action.credits_per_usd,
         }
       : {}
+  if (action.amount_cents === 0 && !('credit_amount' in money)) return undefined
+  if (
+    typeof action.max_credit_amount === 'number' &&
+    'credit_amount' in money &&
+    (money.credit_amount as number) > action.max_credit_amount
+  ) {
+    return undefined
+  }
   return {
     type: 'new_user_gift',
     ...money,
     amount_cents: action.amount_cents,
+    ...(typeof action.max_credit_amount === 'number' &&
+    Number.isSafeInteger(action.max_credit_amount) &&
+    action.max_credit_amount >= 0
+      ? { max_credit_amount: action.max_credit_amount }
+      : {}),
+    ...(typeof action.claim_available === 'boolean'
+      ? { claim_available: action.claim_available }
+      : {}),
     status: 'offered',
     reason,
   }
@@ -1426,22 +1472,6 @@ export function parseAssistantAction(
         ...(size ? { size } : {}),
         ...(quality ? { quality } : {}),
       }
-    }
-  }
-
-  if (
-    action.type === 'l1_recommendation' &&
-    typeof action.user_statement === 'string' &&
-    typeof action.recommendation === 'string'
-  ) {
-    const userStatement = action.user_statement.trim()
-    const recommendation = action.recommendation.trim()
-    if (!userStatement || !recommendation) return undefined
-    return {
-      type: 'l1_recommendation',
-      user_statement: userStatement,
-      recommendation,
-      confirmation_token: confirmationToken,
     }
   }
 
@@ -2103,16 +2133,26 @@ export async function claimAssistantNewUserGift(): Promise<{
   gift: AssistantNewUserGift
   already_claimed: boolean
 }> {
-  const response = await api.post<
-    AssistantAPIResponse<{
-      gift: AssistantNewUserGift
-      already_claimed: boolean
-    }>
-  >('/api/assistant/new-user-gift/claim', undefined, {
-    skipBusinessError: true,
-    skipErrorHandler: true,
-  })
-  return requireAssistantData(response.data, 'Unable to claim welcome gift')
+  try {
+    const response = await api.post<
+      AssistantAPIResponse<{
+        gift: AssistantNewUserGift
+        already_claimed: boolean
+      }>
+    >('/api/assistant/new-user-gift/claim', undefined, {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+    return requireAssistantData(response.data, 'Unable to claim welcome gift')
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw normalizeAssistantRequestError(
+        error,
+        'Unable to claim welcome gift'
+      )
+    }
+    throw error
+  }
 }
 
 export async function getAssistantWeeklyDiscount(): Promise<AssistantWeeklyDiscount | null> {

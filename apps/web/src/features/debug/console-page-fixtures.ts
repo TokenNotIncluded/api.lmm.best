@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AxiosAdapter, InternalAxiosRequestConfig } from 'axios'
 
+import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { DEBUG_WALLET_TOPUP_INFO } from './wallet-review-fixtures'
@@ -25,6 +26,80 @@ import { DEBUG_WALLET_TOPUP_INFO } from './wallet-review-fixtures'
 const stamp = 1790035200
 const page = { items: [], total: 0, page: 1, page_size: 20, size: 20 }
 const modelNames = ['gpt-5-mini', 'claude-sonnet']
+
+// GetMerchantStoreConfig, GetMarketAIReviewSettings and
+// ListAdminViolationFeeAppeals expose these success shapes. Empty configured
+// payment methods leave only the built-in balance method; no provider is called.
+const storeAndSecurityReads: Record<string, unknown> = {
+  '/api/store/config': {
+    fee_bps: 100,
+    promotion_quota: 500000,
+    minimum_unit_price_quota: 500000,
+    product_test_mode_supported: true,
+    store_catalogue_supported: true,
+    store_collections_supported: true,
+    store_access_supported: true,
+    product_purchase_limits_supported: true,
+    product_link_presets: [],
+    linuxdo_units_per_usd: '',
+    // common.FixedCreditsPerUSD and MerchantStoreCreditsPerUSD are fixed at
+    // 500000; the external merchant threshold is ten times that ledger basis.
+    credits_per_usd: 500000,
+    external_minimum_quota: 5000000,
+    disclaimer_version: 'merchant-store-v1',
+    disclaimer_text: `Third-party products are sold and delivered by the listed merchant. Please read the description, delivery conditions, price and merchant contact details before ordering. The official badge identifies products sold by a current platform administrator; other products are independent merchant products.
+
+The platform provides listing review, payment records and delivery links. A listing review is not a guarantee of product quality, suitability, legality or continued availability. Contact the merchant first about product issues, and keep your order number and payment record when requesting platform assistance. The platform may pause products or investigate reports.
+
+Digital text and activation codes may be revealed immediately after confirmed payment. Do not share your private delivery link or pickup code. Check the merchant's stated terms before buying; any refund request must be handled according to the applicable order and payment terms.
+
+Payments credited to a merchant's platform balance cannot be withdrawn and may only be used for consumption on the platform. External merchant gateways receive the payment directly, while the platform charges the merchant a service fee in credits.
+
+By accepting, you confirm that you have read these terms and understand that you are purchasing from the named third-party merchant. You can reopen this notice at any time from the shop.`,
+    platform_payment_methods: [
+      {
+        provider: 'balance',
+        payment_type: 'balance',
+        name: 'Platform balance',
+        supported: true,
+        configured: true,
+      },
+    ],
+    platform_payment_catalog: [
+      {
+        provider: 'balance',
+        payment_type: 'balance',
+        name: 'Platform balance',
+        supported: true,
+        configured: true,
+      },
+    ],
+  },
+  '/api/security/market-ai-review/settings': {
+    tool_mode: 'off',
+    store_mode: 'off',
+    review_group: 'default',
+    review_model: 'omni-moderation-latest',
+    engine: 'openai_moderation',
+    supported_inputs: ['text'],
+    categories: [
+      'harassment',
+      'harassment/threatening',
+      'hate',
+      'hate/threatening',
+      'illicit',
+      'illicit/violent',
+      'self-harm',
+      'self-harm/intent',
+      'self-harm/instructions',
+      'sexual',
+      'sexual/minors',
+      'violence',
+      'violence/graphic',
+    ],
+  },
+  '/api/security/admin/violation-fee-appeals': [],
+}
 
 // Explicit read-only fixtures, not production fallbacks. Unknown requests still
 // reach the persona adapter and fail closed; no payment or administrative write
@@ -139,10 +214,6 @@ const reads: Record<string, unknown> = {
     reference_effective_date: '',
     reference_url: '',
     alignment: '',
-    enforcement: { enabled: false, on_prompt: false, action: 'audit' },
-    risk_categories: [],
-    rules: [],
-    violation_fees: [],
     moderation: {
       enabled: false,
       assistant_enabled: false,
@@ -154,28 +225,15 @@ const reads: Record<string, unknown> = {
     },
   },
   '/api/security/stats': {
-    total_matches: 0,
-    blocked_matches: 0,
-    audited_matches: 0,
-    affected_requests: 0,
-    affected_users: 0,
-    by_category: [],
-  },
-  '/api/security/admin/stats': {
-    total_matches: 0,
-    blocked_matches: 0,
-    audited_matches: 0,
-    affected_requests: 0,
-    affected_users: 0,
-    by_category: [],
-    by_rule: [],
-    ai_review: {
-      total: 0,
+    moderation: {
+      pending: 0,
+      running: 0,
       completed: 0,
-      violations: 0,
-      abuses: 0,
       failed: 0,
-      by_group: [],
+      cancelled: 0,
+      flagged: 0,
+      fined: 0,
+      charged_quota: 0,
     },
   },
   '/api/security/admin/moderation-reviews': {
@@ -193,13 +251,6 @@ const reads: Record<string, unknown> = {
     flagged: 0,
     fined: 0,
     charged_quota: 0,
-  },
-  '/api/security/admin/ai-reviews': page,
-  '/api/security/admin/events': page,
-  '/api/security/admin/review-runs': [],
-  '/api/security/admin/policy': {
-    settings: { enabled: false, on_prompt: false, action: 'audit' },
-    rules: [],
   },
   '/api/assistant/admin/registration-events': [],
   '/api/option/hero-sms': {
@@ -271,6 +322,19 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (Object.hasOwn(storeAndSecurityReads, path)) {
+    if (url.username || url.password) return undefined
+    // Both security GET routes require AdminAuth on the real router. Falling
+    // through preserves the persona adapter's fail-closed behavior for users.
+    if (path !== '/api/store/config' && (user?.role ?? 0) < ROLE.ADMIN) {
+      return undefined
+    }
+    return {
+      success: true,
+      message: '',
+      data: structuredClone(storeAndSecurityReads[path]),
+    }
+  }
   if (
     path === '/api/ai-directory/ads' &&
     new URLSearchParams(window.location.search).get('ads_preview') === '1'

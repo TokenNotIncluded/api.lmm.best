@@ -603,22 +603,19 @@ func applyL0UserFilterWithPolicy(tx *gorm.DB, query *gorm.DB, policy DeveloperAc
 	ordinaryL0 := "users.trust_level_override IS NULL AND users.console_activated_at = 0"
 	args := []interface{}{TrustLevelMinUser + 1, TrustLevelMaxUser}
 	if policy.paidActivationEnabled {
-		expression, expressionArgs, legacyQuota, err := legacyPaidPolicyCreditedQuotaSQL()
+		expression, expressionArgs, err := trustPaidCreditSQL(tx)
 		if err != nil {
 			query.AddError(err)
 			return query
 		}
 		paid := successfulExternalPaidTopUpQuery(tx.Model(&TopUp{}).
-			Select("1").Where("top_ups.user_id = users.id")).
-			Where("("+expression+") > 0", expressionArgs...)
-		if policy.paidActivationMinMicros > 0 {
-			// Sum before rounding, just like the authoritative access snapshot.
-			// This is the immutable legacy policy Q, not the USD anchor K.
-			// Floating division and single-argument ROUND work on all three DBs.
-			havingArgs := append(append([]interface{}{}, expressionArgs...), legacyQuota.InexactFloat64(), policy.paidActivationMinMicros)
-			paid = paid.Group("top_ups.user_id").Having(
-				"ROUND(SUM("+expression+") * 1000000.0 / NULLIF(?, 0)) >= ?", havingArgs...)
-		}
+			Select("1").Where("top_ups.user_id = users.id")).Group("top_ups.user_id")
+		// Eligibility and L0 listing use the same net integer credit facts.
+		// An unsupported historical order makes the whole user unavailable.
+		havingArgs := append(append([]interface{}{}, expressionArgs...), expressionArgs...)
+		havingArgs = append(havingArgs, policy.trustConfiguration.Tiers[1].MinPaidCredits)
+		havingArgs = append(havingArgs, expressionArgs...)
+		paid = paid.Having("SUM(CASE WHEN ("+expression+") IS NULL THEN 1 ELSE 0 END) = 0 AND SUM("+expression+") >= ? AND SUM(CASE WHEN ("+expression+") > 0 THEN 1 ELSE 0 END) > 0", havingArgs...)
 		ordinaryL0 += " AND NOT EXISTS (?)"
 		args = append(args, paid)
 	}
@@ -967,8 +964,9 @@ func (user *User) finishInsert(inviterId int) {
 		if defaultSidebarConfig != "" {
 			currentSetting := createdUser.GetSetting()
 			currentSetting.SidebarModules = defaultSidebarConfig
-			createdUser.SetSetting(currentSetting)
-			createdUser.Update(false)
+			if err := UpdateUserSettingPreservingLocale(createdUser.Id, currentSetting); err != nil {
+				common.SysLog("failed to initialize user sidebar settings: " + err.Error())
+			}
 			common.SysLog(fmt.Sprintf("为新用户 %s (角色: %d) 初始化边栏配置", createdUser.Username, createdUser.Role))
 		}
 	}
@@ -1015,8 +1013,9 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 		if defaultSidebarConfig != "" {
 			currentSetting := createdUser.GetSetting()
 			currentSetting.SidebarModules = defaultSidebarConfig
-			createdUser.SetSetting(currentSetting)
-			createdUser.Update(false)
+			if err := UpdateUserSettingPreservingLocale(createdUser.Id, currentSetting); err != nil {
+				common.SysLog("failed to initialize user sidebar settings: " + err.Error())
+			}
 			common.SysLog(fmt.Sprintf("为新用户 %s (角色: %d) 初始化边栏配置", createdUser.Username, createdUser.Role))
 		}
 	}
@@ -1075,6 +1074,7 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	}
 	if err = tx.Model(&current).Omit(
 		"access_token",
+		"setting", // Dedicated setting writers merge under a row lock; stale profile snapshots cannot replace them.
 		"quota",
 		"used_quota",
 		"request_count",
@@ -1658,22 +1658,31 @@ func UpdateUserUsedQuota(id int, quota int) {
 }
 
 func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {
-	err := DB.Model(&User{}).Where("id = ?", id).Updates(
-		map[string]interface{}{
-			"used_quota":           boundedQuotaCounterExpr("used_quota", quota),
-			"request_count":        boundedInt32CounterExpr("request_count", count),
-			"last_api_activity_at": common.GetTimestamp(),
-		},
-	).Error
+	updates := map[string]interface{}{
+		"used_quota":    boundedQuotaCounterExpr("used_quota", quota),
+		"request_count": boundedInt32CounterExpr("request_count", count),
+	}
+	if count > 0 {
+		updates["last_api_activity_at"] = common.GetTimestamp()
+	}
+	err := DB.Model(&User{}).Where("id = ?", id).Updates(updates).Error
 	if err != nil {
 		common.SysLog("failed to update user used quota and request count: " + err.Error())
 		return
 	}
 
-	//// 更新缓存
-	//if err := invalidateUserCache(id); err != nil {
-	//	common.SysError("failed to invalidate user cache: " + err.Error())
-	//}
+	if count > 0 {
+		invalidateUserActivityCache(id)
+	}
+}
+
+// Activity is part of the cached trust-decay anchor. Publish a committed
+// request even when billing has no wallet delta, so the next request observes
+// the restored level. Accounting corrections alone are not new API activity.
+func invalidateUserActivityCache(id int) {
+	if err := invalidateUserCache(id); err != nil {
+		common.SysLog("failed to invalidate user cache after API activity: " + err.Error())
+	}
 }
 
 func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, requestCount int) error {
@@ -1693,9 +1702,11 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 		}
 	}
 	updates := map[string]interface{}{
-		"used_quota":           boundedQuotaCounterExpr("used_quota", usedQuota),
-		"request_count":        boundedInt32CounterExpr("request_count", requestCount),
-		"last_api_activity_at": common.GetTimestamp(),
+		"used_quota":    boundedQuotaCounterExpr("used_quota", usedQuota),
+		"request_count": boundedInt32CounterExpr("request_count", requestCount),
+	}
+	if requestCount > 0 {
+		updates["last_api_activity_at"] = common.GetTimestamp()
 	}
 	if quota != 0 {
 		updates["quota"] = gorm.Expr("quota + ?", quota)
@@ -1708,6 +1719,9 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 	if quota != 0 && result.RowsAffected != 1 {
 		common.SysLog("failed to batch update user quota, used quota and request count: wallet quota boundary exceeded")
 		return ErrWalletQuotaOutOfRange
+	}
+	if requestCount > 0 && result.RowsAffected > 0 {
+		invalidateUserActivityCache(id)
 	}
 	return nil
 }

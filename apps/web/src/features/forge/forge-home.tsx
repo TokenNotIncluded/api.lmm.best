@@ -22,6 +22,7 @@ import { ArrowRight } from 'lucide-react'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { StoreIcon } from '@/components/layout/components/store-icon'
 import { Button } from '@/components/ui/button'
 import {
   InputGroup,
@@ -260,6 +261,12 @@ export function ForgeHome() {
           >
             {actionLabel}
             <ArrowRight data-icon='inline-end' />
+          </Button>
+        }
+        storeAction={
+          <Button size='lg' render={<Link to='/store' />}>
+            <StoreIcon data-icon='inline-start' aria-hidden='true' />
+            {t('Browse products')}
           </Button>
         }
         pricingAction={

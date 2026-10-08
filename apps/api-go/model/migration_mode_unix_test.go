@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/internal/deploymentfence"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -40,6 +41,9 @@ type migrationUnixDriverState struct {
 	connections int
 	queries     []migrationUnixQuery
 	lockOwner   int
+	fenceOwner  int
+	fenceRecord bool
+	failRelease bool
 }
 
 type migrationUnixDriver struct{ state *migrationUnixDriverState }
@@ -83,7 +87,17 @@ func (*migrationUnixConn) Prepare(string) (driver.Stmt, error) {
 func (*migrationUnixConn) Begin() (driver.Tx, error) {
 	return nil, errors.New("migration identity fixture does not support transactions")
 }
-func (*migrationUnixConn) Close() error { return nil }
+func (conn *migrationUnixConn) Close() error {
+	conn.state.mu.Lock()
+	defer conn.state.mu.Unlock()
+	if conn.state.lockOwner == conn.id {
+		conn.state.lockOwner = 0
+	}
+	if conn.state.fenceOwner == conn.id {
+		conn.state.fenceOwner = 0
+	}
+	return nil
+}
 
 func (conn *migrationUnixConn) QueryContext(_ context.Context, query string, arguments []driver.NamedValue) (driver.Rows, error) {
 	conn.state.mu.Lock()
@@ -108,21 +122,42 @@ func (conn *migrationUnixConn) QueryContext(_ context.Context, query string, arg
 		return &migrationUnixRows{values: []driver.Value{endpoint.systemID}}, nil
 	case strings.Contains(query, "pg_try_advisory_lock"):
 		kind = "acquire"
-		if len(arguments) != 1 || arguments[0].Value != MigrationAdvisoryLockKey {
+		if len(arguments) != 1 {
 			return nil, errors.New("migration fixture received an incorrect advisory-lock key")
 		}
-		locked := conn.state.lockOwner == 0
+		owner := &conn.state.lockOwner
+		if arguments[0].Value == deploymentfence.AdvisoryKey {
+			kind, owner = "fence-acquire", &conn.state.fenceOwner
+		} else if arguments[0].Value != MigrationAdvisoryLockKey {
+			return nil, errors.New("migration fixture received an incorrect advisory-lock key")
+		}
+		locked := *owner == 0
 		if locked {
-			conn.state.lockOwner = conn.id
+			*owner = conn.id
 		}
 		values = []driver.Value{locked}
 	case strings.Contains(query, "pg_advisory_unlock"):
 		kind = "release"
-		unlocked := conn.state.lockOwner == conn.id
+		if len(arguments) != 1 {
+			return nil, errors.New("migration fixture received an incorrect release key")
+		}
+		owner := &conn.state.lockOwner
+		if arguments[0].Value == deploymentfence.AdvisoryKey {
+			kind, owner = "fence-release", &conn.state.fenceOwner
+		} else if arguments[0].Value != MigrationAdvisoryLockKey {
+			return nil, errors.New("migration fixture received an incorrect release key")
+		}
+		if conn.state.failRelease {
+			conn.state.queries = append(conn.state.queries, migrationUnixQuery{conn.id, kind})
+			return nil, errors.New("fixture cannot confirm advisory unlock")
+		}
+		unlocked := *owner == conn.id
 		if unlocked {
-			conn.state.lockOwner = 0
+			*owner = 0
 		}
 		values = []driver.Value{unlocked}
+	case strings.Contains(query, deploymentfence.PostgreSQLPresencePredicate):
+		kind, values = "fence-presence", []driver.Value{conn.state.fenceRecord}
 	default:
 		return nil, fmt.Errorf("unexpected migration identity fixture query %q", query)
 	}

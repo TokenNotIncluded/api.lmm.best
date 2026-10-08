@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
   // Assistant starters use stable server IDs to select these keys.
-  'Help me write an L1 recommendation.',
+  'How do I apply for L1 access?',
   'Where should I start?',
   'How do I get the new-user gift?',
   'Any top-up discounts this week?',

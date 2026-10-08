@@ -312,8 +312,23 @@ func (runtime *productionRuntime) paruInstall(ctx context.Context, workspace pro
 	if err := runtime.preflightParuInstall(ctx, workspace, userName, packagePath); err != nil {
 		return err
 	}
+	var manifest productionManifest
+	var err error
+	if runtime.billingRollback {
+		// Recovery must preserve the retained-provider checks without requiring
+		// an already damaged candidate or unused auxiliary backup to survive.
+		manifest, err = runtime.readManifestForRollback(workspace)
+	} else {
+		manifest, err = runtime.readManifest(workspace)
+	}
+	if err != nil {
+		return errors.New("package mutation requires its immutable deployment/recovery manifest")
+	}
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, false); err != nil {
+		return err
+	}
 	args := []string{"--user", userName, "--", runtime.paths.ParuBinary, "-U", "--noconfirm", "--", packagePath}
-	_, err := runtime.runner.Run(ctx, productionCommand{Name: commandRunuser, Args: args, Timeout: 5 * time.Minute})
+	_, err = runtime.runner.Run(ctx, productionCommand{Name: commandRunuser, Args: args, Timeout: 5 * time.Minute})
 	return err
 }
 
@@ -694,6 +709,7 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 		options.ExistingSchemaContract = plan.ExistingSchemaContract
+		options.MerchantStoreWriter = plan.MerchantStoreWriter
 		if err := runtime.verifyExistingSchemaSignedUnitBinding(ctx, options.ExistingSchemaContract, options.GoPackage, options.GoRollbackPackage); err != nil {
 			return productionStatus{}, err
 		}
@@ -1011,7 +1027,8 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		}
 	}
 	manifest := productionManifest{
-		SchemaMode: options.SchemaMode, ExistingSchemaContract: options.ExistingSchemaContract,
+		MerchantStoreWriter: options.MerchantStoreWriter,
+		SchemaMode:          options.SchemaMode, ExistingSchemaContract: options.ExistingSchemaContract,
 		MaintenanceHandoff: runtime.maintenanceHandoff,
 		Format:             productionTransactionFormat, DeploymentID: workspace.id,
 		OperatorUser: options.OperatorUser,
@@ -1058,9 +1075,16 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 			return productionStatus{}, err
 		}
 	}
-	if options.GoChanged && !runtime.maintenanceStopped() {
-		if err := runtime.preflightBillingWriter(ctx, &manifest); err != nil {
-			return productionStatus{}, fmt.Errorf("billing writer preflight: %w", err)
+	if options.GoChanged {
+		for _, rollback := range []bool{false, true} {
+			if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, manifest, false, rollback); err != nil {
+				return productionStatus{}, fmt.Errorf("merchant writer pre-stop qualification: %w", err)
+			}
+		}
+		if !runtime.maintenanceStopped() {
+			if err := runtime.preflightBillingWriter(ctx, &manifest); err != nil {
+				return productionStatus{}, fmt.Errorf("billing writer preflight: %w", err)
+			}
 		}
 	}
 	if runtime.maintenanceStopped() {
@@ -1070,6 +1094,11 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 	}
 	if err := runtime.writeManifest(workspace, manifest); err != nil {
 		return productionStatus{}, fmt.Errorf("write deployment manifest: %w", err)
+	}
+	if manifest.Go.Changed {
+		if err := runtime.ensureMerchantStoreFence(ctx, workspace, manifest); err != nil {
+			return productionStatus{}, err
+		}
 	}
 	if options.Action == "maintenance-capture" {
 		if runtime.maintenanceHandoff == nil || runtime.maintenanceStopped() {
@@ -1204,6 +1233,12 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		}
 		if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
 			return productionStatus{}, fmt.Errorf("candidate startup existing-schema invariant: %w", err)
+		}
+		if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, manifest, true, false); err != nil {
+			return productionStatus{}, fmt.Errorf("candidate installed writer qualification: %w", err)
+		}
+		if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, false); err != nil {
+			return productionStatus{}, err
 		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
 			return productionStatus{}, fmt.Errorf("start candidate Go service: %w", err)
@@ -1434,6 +1469,9 @@ func (runtime *productionRuntime) confirmLoaded(ctx context.Context, workspace p
 	if err := runtime.writeStatus(workspace, confirmed); err != nil {
 		return productionStatus{}, err
 	}
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, true); err != nil {
+		return productionStatus{}, err
+	}
 	if manifest.MaintenanceHandoff == nil {
 		if err := runtime.finalizeTransactionFiles(workspace); err != nil {
 			return productionStatus{}, err
@@ -1494,6 +1532,12 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 	}
 	if err := runtime.verifyExistingSchemaLifecycle(ctx, manifest); err != nil {
 		return fail(fmt.Errorf("rollback existing-schema preflight: %w", err))
+	}
+	if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, manifest, false, true); err != nil {
+		return fail(fmt.Errorf("rollback writer pre-stop qualification: %w", err))
+	}
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, false); err != nil {
+		return fail(err)
 	}
 	if early, earlyStatus, earlyErr := runtime.rollbackBeforeWriterStop(ctx, workspace, &manifest, status); early {
 		if earlyErr != nil {
@@ -1572,6 +1616,12 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 				return fail(fmt.Errorf("N-1 existing-schema restart invariant: %w", err))
 			}
 		}
+		if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, manifest, true, true); err != nil {
+			return fail(fmt.Errorf("installed rollback writer qualification: %w", err))
+		}
+		if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, false); err != nil {
+			return fail(err)
+		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
 			return fail(fmt.Errorf("start rolled-back backend service: %w", err))
 		}
@@ -1628,6 +1678,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		rolledBack.Reason = "compatible-post-rollback-reobserved; " + reason
 	}
 	if err := runtime.writeStatus(workspace, rolledBack); err != nil {
+		return fail(err)
+	}
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, true); err != nil {
 		return fail(err)
 	}
 	if !runtime.maintenancePost() {
@@ -1727,6 +1780,12 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 		if err := runtime.verifyExistingSchemaLifecycle(ctx, *manifest); err != nil {
 			return true, productionStatus{}, err
 		}
+		if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, *manifest, true, true); err != nil {
+			return true, productionStatus{}, err
+		}
+		if err := runtime.requestMerchantStoreFence(ctx, workspace, *manifest, false); err != nil {
+			return true, productionStatus{}, err
+		}
 		if _, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl, Args: []string{"enable", "--now", runtime.paths.Service}}); err != nil {
 			return true, productionStatus{}, err
 		}
@@ -1748,6 +1807,9 @@ func (runtime *productionRuntime) rollbackBeforeWriterStop(ctx context.Context, 
 	}
 	rolledBack := productionStatus{Phase: "ROLLED_BACK", Version: manifest.OldVersion, Previous: manifest.ExpectedVersion, Reason: "unchanged-writer-restored"}
 	if err := runtime.writeStatus(workspace, rolledBack); err != nil {
+		return true, productionStatus{}, err
+	}
+	if err := runtime.requestMerchantStoreFence(ctx, workspace, *manifest, true); err != nil {
 		return true, productionStatus{}, err
 	}
 	persisted, err := runtime.readStatus(workspace)

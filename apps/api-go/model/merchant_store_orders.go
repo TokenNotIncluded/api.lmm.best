@@ -18,12 +18,24 @@ type MerchantStoreOrder struct {
 	ID                         string `json:"id" gorm:"primaryKey;size:64"`
 	TradeNo                    string `json:"trade_no" gorm:"size:32;uniqueIndex;not null"`
 	BuyerID                    int    `json:"buyer_id" gorm:"not null;index"`
+	GuestID                    string `json:"-" gorm:"size:36;not null;default:'';index"`
+	SellerTermsVersion         string `json:"seller_terms_version" gorm:"size:36;not null;default:''"`
+	SellerTermsContent         string `json:"seller_terms_content" gorm:"type:text;not null;default:''"`
+	SellerTermsAcceptedAt      int64  `json:"seller_terms_accepted_at" gorm:"type:bigint;not null;default:0"`
 	SellerID                   int    `json:"seller_id" gorm:"not null;index"`
 	ProductID                  string `json:"product_id" gorm:"size:36;not null;index"`
+	VariantID                  string `json:"variant_id" gorm:"type:varchar(36);not null;default:''"`
+	VariantName                string `json:"variant_name" gorm:"type:varchar(200);not null;default:''"`
 	ProductTitle               string `json:"product_title" gorm:"size:200"`
+	DeliveryTemplate           string `json:"delivery_template" gorm:"type:varchar(32);not null;default:''"`
 	Quantity                   int    `json:"quantity"`
 	UnitPriceQuota             int    `json:"unit_price_quota" gorm:"type:bigint"`
 	PriceQuota                 int    `json:"price_quota" gorm:"type:bigint"`
+	OriginalPriceQuota         int    `json:"original_price_quota" gorm:"type:bigint;not null;default:0"`
+	DiscountQuota              int    `json:"discount_quota" gorm:"type:bigint;not null;default:0"`
+	DiscountBPS                int    `json:"discount_bps" gorm:"not null;default:0"`
+	PromotionID                string `json:"promotion_id" gorm:"type:varchar(36);not null;default:'';index"`
+	PromotionCode              string `json:"promotion_code" gorm:"type:varchar(128);not null;default:''"`
 	FeeQuota                   int    `json:"fee_quota" gorm:"type:bigint"`
 	FeeBPS                     int    `json:"fee_bps"`
 	RecipientID                int    `json:"-"`
@@ -69,28 +81,47 @@ type MerchantStorePaymentReceipt struct {
 	CreatedAt int64  `json:"-"`
 }
 type MerchantStoreCheckoutInput struct {
-	BuyerID           int    `json:"-"`
-	ProductID         string `json:"product_id"`
-	Quantity          int    `json:"quantity"`
-	RequestKey        string `json:"request_key"`
-	PaymentMethod     string `json:"payment_method"`
-	PickupCode        string `json:"pickup_code"`
-	PickupEmail       string `json:"pickup_email"`
-	DisclaimerVersion string `json:"disclaimer_version"`
+	BuyerID            int    `json:"-"`
+	ProductID          string `json:"product_id"`
+	VariantID          string `json:"variant_id"`
+	Quantity           int    `json:"quantity"`
+	RequestKey         string `json:"request_key"`
+	PaymentMethod      string `json:"payment_method"`
+	PromotionCode      string `json:"promotion_code"`
+	PickupCode         string `json:"pickup_code"`
+	PickupEmail        string `json:"pickup_email"`
+	DisclaimerVersion  string `json:"disclaimer_version"`
+	GuestToken         string `json:"-"`
+	SellerTermsVersion string `json:"seller_terms_version"`
+	AcceptSellerTerms  bool   `json:"accept_seller_terms"`
 }
 type MerchantStoreClaimMetadata struct {
 	PickupLoginSatisfied bool   `json:"pickup_login_satisfied"`
 	Status               string `json:"status"`
 	OrderID              string `json:"order_id"`
 	ProductTitle         string `json:"product_title"`
+	VariantID            string `json:"variant_id"`
+	VariantName          string `json:"variant_name"`
+	DeliveryTemplate     string `json:"delivery_template"`
 	Quantity             int    `json:"quantity"`
 	PickupLoginRequired  bool   `json:"pickup_login_required"`
 	PickupCodeRequired   bool   `json:"pickup_code_required"`
 }
 type MerchantStoreClaim struct {
-	OrderID      string   `json:"order_id"`
-	ProductTitle string   `json:"product_title"`
-	Items        []string `json:"items"`
+	FixedContent       string              `json:"fixed_content,omitempty"`
+	OrderID            string              `json:"order_id"`
+	TradeNo            string              `json:"trade_no"`
+	ProductID          string              `json:"product_id"`
+	ProductTitle       string              `json:"product_title"`
+	ProductDescription string              `json:"product_description,omitempty"`
+	ProductLinks       []MerchantStoreLink `json:"product_links,omitempty"`
+	VariantID          string              `json:"variant_id"`
+	VariantName        string              `json:"variant_name"`
+	DeliveryTemplate   string              `json:"delivery_template"`
+	Quantity           int                 `json:"quantity"`
+	Items              []string            `json:"items"`
+	ItemStockIDs       []string            `json:"item_stock_ids"`
+	ItemPositions      []int               `json:"item_positions"`
 }
 
 func fmtStoreActor(id int) string { return strconv.Itoa(id) }
@@ -100,10 +131,36 @@ func storeCheckoutDigest(in MerchantStoreCheckoutInput) string {
 	if in.PickupEmail != "" {
 		values = append(values, storeHash(in.PickupEmail))
 	}
+	// Preserve the legacy digest exactly for default/old requests. Never
+	// append an empty field and invalidate an already-paid request replay.
+	if in.VariantID != "" && in.VariantID != MerchantStoreDefaultVariantID(in.ProductID) {
+		values = append(values, in.VariantID)
+	}
+	if in.PromotionCode != "" {
+		values = append(values, []any{"promotion", in.PromotionCode})
+	}
+	if in.SellerTermsVersion != "" || in.AcceptSellerTerms {
+		values = append(values, in.SellerTermsVersion, in.AcceptSellerTerms)
+	}
 	return marketDigest(values)
 }
 func storeAcceptDisclaimer(tx *gorm.DB, in MerchantStoreCheckoutInput, official bool) error {
 	if official {
+		return nil
+	}
+	if in.BuyerID == 0 {
+		guest, e := ResolveMerchantStoreGuest(tx, in.GuestToken)
+		if e != nil {
+			return e
+		}
+		var n int64
+		e = tx.Model(&MerchantStoreTermsAcceptance{}).Where("id = ? AND kind = ? AND subject = ? AND seller_id = 0 AND version = ?", storeAgreementAcceptanceID("platform", "guest:"+guest.ID, 0, MerchantStoreDisclaimerVersion), "platform", "guest:"+guest.ID, MerchantStoreDisclaimerVersion).Count(&n).Error
+		if e != nil {
+			return e
+		}
+		if n != 1 {
+			return ErrMerchantStoreDisclaimer
+		}
 		return nil
 	}
 	var a MerchantStoreDisclaimerAcceptance
@@ -134,11 +191,25 @@ func HasMerchantStoreDisclaimerAcceptance(buyerID int) (bool, error) {
 }
 func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrder, bool, error) {
 	var e error
+	in.PromotionCode = strings.TrimSpace(in.PromotionCode)
 	in.PickupEmail, e = NormalizeMerchantStorePickupEmail(in.PickupEmail)
 	if e != nil {
 		return nil, false, e
 	}
-	if in.BuyerID <= 0 || in.Quantity < 1 || in.Quantity > 1000 || in.RequestKey == "" || len(in.RequestKey) > 128 || !storePaymentMethod(in.PaymentMethod) || len(in.PickupCode) > 72 {
+	if in.BuyerID < 0 || in.Quantity < 1 || in.Quantity > 1000 || in.RequestKey == "" || len(in.RequestKey) > 128 || (!storePaymentMethod(in.PaymentMethod) && in.PaymentMethod != "free") || len(in.PickupCode) > 72 || len(in.VariantID) > 36 || len(in.PromotionCode) > 128 {
+		return nil, false, ErrMerchantStoreInput
+	}
+	guestID := ""
+	if in.BuyerID == 0 {
+		guest, err := ResolveMerchantStoreGuest(DB, in.GuestToken)
+		if err != nil {
+			return nil, false, err
+		}
+		guestID = guest.ID
+		if in.PaymentMethod == "balance" {
+			return nil, false, ErrMerchantStoreDenied
+		}
+	} else if in.GuestToken != "" {
 		return nil, false, ErrMerchantStoreInput
 	}
 	var o MerchantStoreOrder
@@ -155,47 +226,112 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if _, e = storeUser(tx, c.RecipientID, common.RoleRootUser); e != nil {
 			return e
 		}
-		buyer, e := storeUser(tx, in.BuyerID, common.RoleCommonUser)
-		if e != nil {
-			return e
+		if in.BuyerID > 0 {
+			if _, e := storeUser(tx, in.BuyerID, common.RoleCommonUser); e != nil {
+				return e
+			}
+		} else {
+			var guest MerchantStoreGuest
+			if e := lockForUpdate(tx).Where("id = ? AND token_hash = ? AND expires_at > ?", guestID, storeHash(in.GuestToken), common.GetTimestamp()).First(&guest).Error; e != nil {
+				return ErrMerchantStoreDenied
+			}
 		}
 		seller, e := storeUser(tx, p.SellerID, common.RoleCommonUser)
 		if e != nil {
 			return e
 		}
+		subject := "user:" + fmtStoreActor(in.BuyerID)
 		id := storeHash("order:" + fmtStoreActor(in.BuyerID) + ":" + in.RequestKey)
+		if guestID != "" {
+			subject = "guest:" + guestID
+			id = storeHash("order:" + subject + ":" + in.RequestKey)
+		}
 		digest := storeCheckoutDigest(in)
 		if e = tx.First(&o, "id = ?", id).Error; e == nil {
-			if o.InputDigest != digest {
+			if o.InputDigest != digest || o.BuyerID != in.BuyerID || o.GuestID != guestID {
 				return ErrMerchantStoreConflict
 			}
 			return storeOrderEmailViews(tx, in.BuyerID, []*MerchantStoreOrder{&o})
 		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e
 		}
-		if e = storeRequirePaymentCategory(tx, seller.Id, in.PaymentMethod); e != nil {
+		if e = storeRequireWriter(tx); e != nil {
 			return e
 		}
-		if in.PaymentMethod != "balance" {
+		// A valid existing order retains its frozen obligations when the listing
+		// changes mode. Only new orders use the current visibility/buyer policy.
+		if checkedGuest, err := CheckMerchantStoreProductPurchaseAccess(tx, p, in.BuyerID, in.GuestToken); err != nil {
+			return err
+		} else if checkedGuest != guestID {
+			return ErrMerchantStoreDenied
+		}
+		if guestID != "" {
+			if e := MerchantStoreAccessRequiresWriter(tx); e != nil {
+				return e
+			}
+			if p.PurchaseLoginRequired || p.PickupLoginRequired {
+				return ErrMerchantStoreLoginRequired
+			}
+			if e := storeRequireGuestCheckoutEmail(tx, guestID, p.EmailPickupLink, in.PickupEmail); e != nil {
+				return e
+			}
+		}
+		terms, termsAt, e := storeCheckoutSellerTerms(tx, seller.Id, subject, in)
+		if e != nil {
+			var changed *merchantStoreTermsVersionChanged
+			if errors.As(e, &changed) {
+				return &MerchantStoreTermsUpdatedError{requestKey: in.RequestKey}
+			}
+			return e
+		}
+		// Existing orders above returned before current listing policy. Check
+		// the unit price, never quantity times price, under the current config.
+		variant, e := storeSelectedVariant(tx, p, in.VariantID)
+		if e != nil {
+			return e
+		}
+		if variant.PriceQuota <= 0 || variant.PriceQuota > common.MaxWalletQuota/in.Quantity {
+			return ErrMerchantStoreInput
+		}
+		originalPrice := variant.PriceQuota * in.Quantity
+		promotion, price, e := storeDiscountCodeTx(tx, p, in.PromotionCode, variant.ID, in.Quantity, originalPrice)
+		if e != nil {
+			return e
+		}
+		free := promotion != nil && promotion.DiscountBPS == 10000 && price == 0
+		// Zero-price fulfilment requires an explicit, validated full discount.
+		// Keep it inside this transaction: stock and both quantity limits follow.
+		if free != (in.PaymentMethod == "free") {
+			return ErrMerchantStoreInput
+		}
+		if !free {
+			if e = storeRequirePaymentCategory(tx, seller.Id, in.PaymentMethod); e != nil {
+				return e
+			}
+		}
+		if !free && in.PaymentMethod != "balance" {
 			if in.Quantity > 100 {
 				return ErrMerchantStoreInput
 			}
 			var pending, sameProduct int64
-			q := tx.Model(&MerchantStoreOrder{}).Where("buyer_id = ? AND status IN ?", buyer.Id, []string{"pending", "reconciliation_pending"})
+			q := storeCheckoutBuyerOrders(tx, in.BuyerID, guestID).Where("status IN ?", []string{"pending", "reconciliation_pending"})
 			if e = q.Count(&pending).Error; e != nil {
 				return e
 			}
-			if e = tx.Model(&MerchantStoreOrder{}).Where("buyer_id = ? AND product_id = ? AND status IN ?", buyer.Id, p.ID, []string{"pending", "reconciliation_pending"}).Count(&sameProduct).Error; e != nil {
+			if e = storeCheckoutBuyerOrders(tx, in.BuyerID, guestID).Where("product_id = ? AND status IN ?", p.ID, []string{"pending", "reconciliation_pending"}).Count(&sameProduct).Error; e != nil {
 				return e
 			}
 			if pending >= 3 || sameProduct >= 1 {
 				return ErrMerchantStorePendingLimit
 			}
 		}
-		if p.Status != "published" {
-			return ErrMerchantStoreUnavailable
+		if e = storeCheckSaleLimit(tx, p, in.Quantity); e != nil {
+			return e
 		}
-		allowed := false
+		if e = storeCheckPurchaseLimitsForSubject(tx, p, in.BuyerID, guestID, in.Quantity); e != nil {
+			return e
+		}
+		allowed := free
 		for _, method := range p.PaymentMethods {
 			if method == in.PaymentMethod {
 				allowed = true
@@ -210,10 +346,6 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if p.EmailPickupLink && in.PickupEmail == "" {
 			return ErrMerchantStoreInput
 		}
-		if p.PriceQuota <= 0 || p.PriceQuota > common.MaxWalletQuota/in.Quantity {
-			return ErrMerchantStoreInput
-		}
-		price := p.PriceQuota * in.Quantity
 		fee := storeFee(price, c.FeeBPS)
 		if seller.Role == common.RoleRootUser {
 			fee = 0
@@ -221,9 +353,11 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 		if seller.Quota < fee {
 			return ErrMerchantStoreBalance
 		}
-		var gateway MerchantStoreGateway
-		if e = tx.Where("seller_id = ? AND provider = ? AND enabled = ?", seller.Id, in.PaymentMethod, true).First(&gateway).Error; e != nil {
-			return ErrMerchantStoreUnavailable
+		if !free {
+			var gateway MerchantStoreGateway
+			if e = tx.Where("seller_id = ? AND provider = ? AND enabled = ?", seller.Id, in.PaymentMethod, true).First(&gateway).Error; e != nil {
+				return ErrMerchantStoreUnavailable
+			}
 		}
 		if strings.HasPrefix(in.PaymentMethod, "external:") {
 			if seller.Quota <= MerchantStoreExternalMinimumQuota {
@@ -247,7 +381,15 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			return e
 		}
 		now := common.GetTimestamp()
-		o = MerchantStoreOrder{ID: id, BuyerID: buyer.Id, SellerID: seller.Id, ProductID: p.ID, ProductTitle: p.Title, Quantity: in.Quantity, UnitPriceQuota: p.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: in.PickupCode != "", EmailPickupLink: in.PickupEmail != "", OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
+		o = MerchantStoreOrder{ID: id, BuyerID: in.BuyerID, GuestID: guestID, SellerID: seller.Id, ProductID: p.ID, VariantID: variant.ID, VariantName: variant.Name, ProductTitle: p.Title, DeliveryTemplate: variant.Template, Quantity: in.Quantity, UnitPriceQuota: variant.PriceQuota, PriceQuota: price, FeeQuota: fee, FeeBPS: c.FeeBPS, RecipientID: c.RecipientID, InputDigest: digest, PaymentMethod: in.PaymentMethod, Status: "pending", PickupTokenHash: storeHash(token), PickupTokenCiphertext: cipher, PickupLoginRequired: p.PickupLoginRequired, PickupCodeRequired: in.PickupCode != "", EmailPickupLink: in.PickupEmail != "", OfficialAtPurchase: seller.Role >= common.RoleAdminUser, CreatedAt: now, ExpiresAt: now + 1800}
+		o.OriginalPriceQuota = originalPrice
+		if promotion != nil {
+			o.PromotionID, o.PromotionCode = promotion.ID, promotion.Code
+			o.DiscountBPS, o.DiscountQuota = promotion.DiscountBPS, originalPrice-price
+		}
+		if terms != nil {
+			o.SellerTermsVersion, o.SellerTermsContent, o.SellerTermsAcceptedAt = terms.Version, terms.Content, termsAt
+		}
 		if in.PickupEmail != "" {
 			o.PickupEmailHash = storeHash(in.PickupEmail)
 			o.PickupEmailCiphertext, e = storeEncrypt("order-pickup-email", id, in.PickupEmail)
@@ -262,37 +404,51 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			}
 			o.PickupCodeHash = string(hash)
 		}
-		var stock []MerchantStoreStock
-		q := tx.Select("id").Where("product_id = ? AND state = ?", p.ID, "available")
-		if p.DeliveryStrategy == "random" {
-			if tx.Dialector.Name() == "mysql" {
-				q = q.Order("RAND()")
-			} else {
-				q = q.Order("RANDOM()")
+		if storeFixedDelivery(&o) {
+			if e := storeSnapshotFixedContent(tx, p, variant, &o); e != nil {
+				return e
 			}
 		} else {
-			q = q.Order("position ASC,id ASC")
-		}
-		if e = q.Limit(in.Quantity).Find(&stock).Error; e != nil {
-			return e
-		}
+			var stock []MerchantStoreStock
+			q := storeVariantStock(tx.Select("id"), p.ID, variant.ID).Where("state = ?", "available")
+			if p.DeliveryStrategy == "random" {
+				if tx.Dialector.Name() == "mysql" {
+					q = q.Order("RAND()")
+				} else {
+					q = q.Order("RANDOM()")
+				}
+			} else {
+				q = q.Order("position ASC,id ASC")
+			}
+			if e = q.Limit(in.Quantity).Find(&stock).Error; e != nil {
+				return e
+			}
 
-		if len(stock) < in.Quantity {
-			return ErrMerchantStoreStock
+			if len(stock) < in.Quantity {
+				return ErrMerchantStoreStock
+			}
+			ids := make([]string, in.Quantity)
+			for i := 0; i < in.Quantity; i++ {
+				ids[i] = stock[i].ID
+			}
+			r := tx.Model(&MerchantStoreStock{}).Where("id IN ? AND state = ?", ids, "available").Updates(map[string]any{"state": "reserved", "order_id": id})
+			if r.Error != nil {
+				return r.Error
+			}
+			if r.RowsAffected != int64(in.Quantity) {
+				return ErrMerchantStoreStock
+			}
 		}
-		ids := make([]string, in.Quantity)
-		for i := 0; i < in.Quantity; i++ {
-			ids[i] = stock[i].ID
-		}
-		r := tx.Model(&MerchantStoreStock{}).Where("id IN ? AND state = ?", ids, "available").Updates(map[string]any{"state": "reserved", "order_id": id})
-		if r.Error != nil {
-			return r.Error
-		}
-		if r.RowsAffected != int64(in.Quantity) {
-			return ErrMerchantStoreStock
-		}
-		if in.PaymentMethod == "balance" {
-			if e = storeDebit(tx, buyer.Id, price); e != nil {
+		if free {
+			// No wallet movement, fee hold, or gateway request exists for a gift.
+			o.Status, o.PaidAt, o.Currency = "paid", now, "CREDIT"
+			if !storeFixedDelivery(&o) {
+				if e = storeOrderStock(tx.Model(&MerchantStoreStock{}), &o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
+					return e
+				}
+			}
+		} else if in.PaymentMethod == "balance" {
+			if e = storeDebit(tx, in.BuyerID, price); e != nil {
 				return e
 			}
 			if e = storeCredit(tx, seller.Id, price-fee); e != nil {
@@ -301,7 +457,7 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			if e = storeCredit(tx, c.RecipientID, fee); e != nil {
 				return e
 			}
-			if e = storeTransfer(tx, id, "sale", buyer.Id, seller.Id, price); e != nil {
+			if e = storeTransfer(tx, id, "sale", in.BuyerID, seller.Id, price); e != nil {
 				return e
 			}
 			if e = storeTransfer(tx, id, "fee", seller.Id, c.RecipientID, fee); e != nil {
@@ -309,8 +465,10 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			}
 			o.Status = "paid"
 			o.PaidAt = now
-			if e = tx.Model(&MerchantStoreStock{}).Where("order_id = ? AND state = ?", id, "reserved").Update("state", "delivered").Error; e != nil {
-				return e
+			if !storeFixedDelivery(&o) {
+				if e = storeOrderStock(tx.Model(&MerchantStoreStock{}), &o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
+					return e
+				}
 			}
 		} else if fee > 0 {
 			if e = storeDebit(tx, seller.Id, fee); e != nil {
@@ -330,8 +488,8 @@ func CreateMerchantStoreOrder(in MerchantStoreCheckoutInput) (*MerchantStoreOrde
 			}
 		}
 		created = true
-		invalidations = []int{buyer.Id, seller.Id, c.RecipientID}
-		return storeEvent(tx, buyer.Id, id, "checkout")
+		invalidations = []int{in.BuyerID, seller.Id, c.RecipientID}
+		return storeEvent(tx, in.BuyerID, id, "checkout")
 	})
 	if e == nil && created {
 		marketInvalidate(invalidations...)
@@ -470,7 +628,7 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 	}
 	var invalidations []int
 	e := storeOrderTx(id, func(tx *gorm.DB, o *MerchantStoreOrder) error {
-		if o.Status == "paid" {
+		if o.Status == "paid" || o.Status == "refund_pending" || o.Status == "refunded" {
 			if o.ProviderTradeID == providerTradeID {
 				return nil
 			}
@@ -500,12 +658,18 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		if o.FeeQuota > 0 && !o.FeeHeld {
 			return ErrMerchantStoreConflict
 		}
-		var reserved int64
-		if e := tx.Model(&MerchantStoreStock{}).Where("order_id = ? AND state = ?", id, "reserved").Count(&reserved).Error; e != nil {
-			return e
-		}
-		if reserved != int64(o.Quantity) {
-			return ErrMerchantStoreStock
+		if storeFixedDelivery(o) {
+			if _, e := storeReadOrderFixedContent(tx, o); e != nil {
+				return e
+			}
+		} else {
+			var reserved int64
+			if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Count(&reserved).Error; e != nil {
+				return e
+			}
+			if reserved != int64(o.Quantity) {
+				return ErrMerchantStoreStock
+			}
 		}
 		if strings.HasPrefix(o.PaymentMethod, "platform:") {
 			if e := ApplyWalletQuotaDelta(tx, o.SellerID, o.PriceQuota); e != nil {
@@ -531,8 +695,10 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 		if e := tx.Save(o).Error; e != nil {
 			return e
 		}
-		if e := tx.Model(&MerchantStoreStock{}).Where("order_id = ? AND state = ?", id, "reserved").Update("state", "delivered").Error; e != nil {
-			return e
+		if !storeFixedDelivery(o) {
+			if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Update("state", "delivered").Error; e != nil {
+				return e
+			}
 		}
 		if e := enqueueMerchantStoreEmail(tx, o); e != nil {
 			return e
@@ -546,9 +712,17 @@ func CompleteMerchantStorePayment(id, providerTradeID string) error {
 	return e
 }
 func closeMerchantStoreOrder(id string, actor int, expired, providerClosed bool, closureReference string) error {
+	return closeMerchantStoreOrderAuthorized(id, actor, expired, providerClosed, closureReference, nil)
+}
+
+func closeMerchantStoreOrderAuthorized(id string, actor int, expired, providerClosed bool, closureReference string, authorize func(*gorm.DB, *MerchantStoreOrder) error) error {
 	var sellerID int
 	e := storeOrderTx(id, func(tx *gorm.DB, o *MerchantStoreOrder) error {
-		if expired {
+		if authorize != nil {
+			if e := authorize(tx, o); e != nil {
+				return e
+			}
+		} else if expired {
 			if o.ExpiresAt > common.GetTimestamp() {
 				return ErrMerchantStoreConflict
 			}
@@ -595,8 +769,10 @@ func closeMerchantStoreOrder(id string, actor int, expired, providerClosed bool,
 		if e := tx.Save(o).Error; e != nil {
 			return e
 		}
-		if e := tx.Model(&MerchantStoreStock{}).Where("order_id = ? AND state = ?", id, "reserved").Updates(map[string]any{"state": "available", "order_id": ""}).Error; e != nil {
-			return e
+		if !storeFixedDelivery(o) {
+			if e := storeOrderStock(tx.Model(&MerchantStoreStock{}), o).Where("state = ?", "reserved").Updates(map[string]any{"state": "available", "order_id": ""}).Error; e != nil {
+				return e
+			}
 		}
 		sellerID = o.SellerID
 		return storeEvent(tx, actor, id, o.Status)
@@ -699,7 +875,7 @@ func GetMerchantStoreOrderPickupToken(buyerID int, id string) (string, error) {
 	if e != nil {
 		return "", e
 	}
-	if o.BuyerID != buyerID || o.Status != "paid" {
+	if o.BuyerID != buyerID || (o.Status != "paid" && o.Status != "refund_pending") {
 		return "", ErrMerchantStoreDenied
 	}
 	return storeDecrypt("pickup", o.ID, o.PickupTokenCiphertext)
@@ -720,10 +896,10 @@ func InspectMerchantStoreClaim(token string) (*MerchantStoreClaimMetadata, error
 		return nil, ErrMerchantStoreDenied
 	}
 	var o MerchantStoreOrder
-	if e := DB.Where("pickup_token_hash = ? AND status = ?", storeHash(token), "paid").First(&o).Error; e != nil {
+	if e := DB.Where("pickup_token_hash = ? AND status IN ?", storeHash(token), []string{"paid", "refund_pending"}).First(&o).Error; e != nil {
 		return nil, ErrMerchantStoreDenied
 	}
-	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
+	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
 }
 func ClaimMerchantStoreOrder(token, code string, buyerID int) (*MerchantStoreClaim, error) {
 	return ClaimMerchantStoreOrderWithAuthorization(token, code, buyerID, nil)
@@ -742,7 +918,7 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 	}
 	var result MerchantStoreClaim
 	e := storeOrderTx(lookup.ID, func(tx *gorm.DB, o *MerchantStoreOrder) error {
-		if o.Status != "paid" || o.PickupTokenHash != storeHash(token) {
+		if (o.Status != "paid" && o.Status != "refund_pending") || o.PickupTokenHash != storeHash(token) {
 			return ErrMerchantStoreDenied
 		}
 		if authorize != nil {
@@ -761,20 +937,74 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 		if (o.PickupCodeRequired || o.PickupCodeHash != "") && bcrypt.CompareHashAndPassword([]byte(o.PickupCodeHash), []byte(code)) != nil {
 			return ErrMerchantStoreDenied
 		}
+		if storeFixedDelivery(o) {
+			quantity, e := storeFixedAvailableQuantity(tx, o, false)
+			if e != nil {
+				return e
+			}
+			if quantity < 1 {
+				return ErrMerchantStoreConflict
+			}
+			content, e := storeReadOrderFixedContent(tx, o)
+			if e != nil {
+				return e
+			}
+			details, e := storeOrderPickupDetails(tx, o)
+			if e != nil {
+				return e
+			}
+			result = MerchantStoreClaim{OrderID: o.ID, TradeNo: o.TradeNo, ProductID: o.ProductID, ProductTitle: o.ProductTitle, ProductDescription: details.ProductDescription, ProductLinks: details.ProductLinks, Quantity: quantity, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, FixedContent: content, Items: []string{}, ItemStockIDs: []string{}, ItemPositions: []int{}}
+			if o.ClaimedAt == 0 {
+				return tx.Model(o).Update("claimed_at", common.GetTimestamp()).Error
+			}
+			return nil
+		}
 		var rows []MerchantStoreStock
-		if e := tx.Where("order_id = ? AND state = ?", o.ID, "delivered").Order("position ASC,id ASC").Find(&rows).Error; e != nil {
+		if e := storeOrderStock(tx, o).Where("state = ?", "delivered").Order("position ASC,id ASC").Find(&rows).Error; e != nil {
 			return e
 		}
-		if len(rows) != o.Quantity {
+		refunded, e := MerchantStoreCompletedRefundQuantity(tx, o)
+		if e != nil {
+			return e
+		}
+		if len(rows)+int(refunded) != o.Quantity {
 			return ErrMerchantStoreConflict
 		}
-		result = MerchantStoreClaim{OrderID: o.ID, ProductTitle: o.ProductTitle, Items: make([]string, 0, len(rows))}
+		positions, e := storeOrderItemPositions(tx, o)
+		if e != nil {
+			return e
+		}
+		details, e := storeOrderPickupDetails(tx, o)
+		if e != nil {
+			return e
+		}
+		if o.Status == "refund_pending" {
+			held, e := storeRefundHeldStockIDs(tx, o)
+			if e != nil {
+				return e
+			}
+			remaining := make([]MerchantStoreStock, 0, len(rows))
+			for _, row := range rows {
+				if !held[row.ID] {
+					remaining = append(remaining, row)
+				}
+			}
+			rows = remaining
+			if len(rows) == 0 {
+				return ErrMerchantStoreConflict
+			}
+		}
+		result = MerchantStoreClaim{OrderID: o.ID, TradeNo: o.TradeNo, ProductID: o.ProductID,
+			ProductTitle: o.ProductTitle, ProductDescription: details.ProductDescription,
+			ProductLinks: details.ProductLinks, Quantity: len(rows), VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Items: make([]string, 0, len(rows)), ItemStockIDs: make([]string, 0, len(rows)), ItemPositions: make([]int, 0, len(rows))}
 		for _, row := range rows {
 			value, e := storeDecrypt("stock", row.ProductID+":"+row.ID, row.Ciphertext)
 			if e != nil {
 				return e
 			}
 			result.Items = append(result.Items, value)
+			result.ItemStockIDs = append(result.ItemStockIDs, row.ID)
+			result.ItemPositions = append(result.ItemPositions, positions[row.ID])
 		}
 		if o.ClaimedAt == 0 {
 			o.ClaimedAt = common.GetTimestamp()
@@ -882,7 +1112,17 @@ func RecordMerchantStoreVerifiedPaymentIssue(id, receipt, code string) error {
 	if receipt == "" || len(receipt) > 128 || !storePaymentIssueCodeValid(code) {
 		return ErrMerchantStoreInput
 	}
+	var lookup MerchantStoreOrder
+	if e := DB.First(&lookup, "id = ?", id).Error; e != nil {
+		return e
+	}
 	return marketTransaction(DB, func(tx *gorm.DB) error {
+		// This evidence changes paid sales usage. Match checkout's product->order
+		// lock order, while preserving real payment evidence if a product vanished.
+		var product MerchantStoreProduct
+		if e := lockForUpdate(tx).First(&product, "id = ?", lookup.ProductID).Error; e != nil && !errors.Is(e, gorm.ErrRecordNotFound) {
+			return e
+		}
 		var o MerchantStoreOrder
 		if e := lockForUpdate(tx).First(&o, "id = ?", id).Error; e != nil {
 			return e
@@ -893,7 +1133,7 @@ func RecordMerchantStoreVerifiedPaymentIssue(id, receipt, code string) error {
 		if o.ProviderTradeID != "" && o.ProviderTradeID != receipt {
 			return ErrMerchantStoreConflict
 		}
-		if o.Status == "paid" {
+		if o.Status == "paid" || o.Status == "refund_pending" || o.Status == "refunded" {
 			if o.ProviderTradeID == receipt {
 				return nil
 			}

@@ -93,6 +93,9 @@ func SetMerchantStorePaymentCategories(sellerID int, value MerchantStorePaymentC
 		if err := marketLockUsers(tx, sellerID); err != nil {
 			return err
 		}
+		if err := storeRequireWriter(tx); err != nil {
+			return err
+		}
 		if _, err := storeUser(tx, sellerID, common.RoleCommonUser); err != nil {
 			return err
 		}

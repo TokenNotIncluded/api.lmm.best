@@ -3,49 +3,118 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { ForgeShaderSurface } from '@/components/shaders/forge-shader-surface'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { storeApi } from './api'
+import { catalogueApi } from './catalogue-api'
+import { StoreCatalogueFiltersPanel } from './catalogue-filters'
+import { StoreCatalogueProductCard } from './catalogue-product-card'
+import { useStoreCatalogueSupport } from './catalogue-support'
+import type { StoreCatalogueFilters } from './catalogue-types'
+import { StoreCategorySelect } from './categories'
+import { useStoreCategories } from './category-support'
+import {
+  readStoreCatalogueView,
+  writeStoreCatalogueView,
+} from './collection-storage'
+import { StoreAnnouncement, StoreMerchantHomeHeader } from './merchant-home'
+import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreOrderSearch } from './order-search'
-import { StoreAmount, StoreBadges, StoreError, StoreLoading } from './shared'
-import { safeStoreUrl } from './utils'
+import { StoreError, StoreLoading } from './shared'
+import { useStoreViewer } from './store-viewer'
+import { useStoreTrafficPage } from './traffic-page'
 
 type SearchType = 'auto' | 'products' | 'order' | 'email'
 
-export function StorePage() {
+export function StorePage({ sellerId }: { sellerId?: number } = {}) {
   const { t } = useTranslation()
   const [input, setInput] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [categoryId, setCategoryId] = useState('')
   const [searchType, setSearchType] = useState<SearchType>('auto')
+  const [filters, setFilters] = useState<StoreCatalogueFilters>({
+    sort: 'comprehensive',
+  })
+  const [view, setView] = useState(readStoreCatalogueView)
+  const trafficPage = useStoreTrafficPage()
   const [lookup, setLookup] = useState<{
     mode: 'order' | 'email'
     value: string
   } | null>(null)
   const user = useAuthStore((state) => state.auth.user)
+  const viewer = useStoreViewer()
+  const support = useStoreCatalogueSupport()
+  const categories = useStoreCategories(
+    support.data?.store_categories_supported === true
+  )
   const query = useQuery({
-    queryKey: ['store', 'products', search, page],
-    queryFn: () => storeApi.products(search, page),
+    queryKey: [
+      'store',
+      'products',
+      viewer,
+      search,
+      page,
+      sellerId,
+      filters,
+      categoryId,
+      support.catalogueSupported,
+    ],
+    queryFn: ({ signal }) =>
+      catalogueApi.products(
+        {
+          search,
+          page,
+          sellerId,
+          ...(categories.data?.supported ? { categoryId } : {}),
+          ...(support.catalogueSupported ? filters : {}),
+        },
+        signal
+      ),
     retry: false,
   })
   return (
     <div className='flex flex-1 flex-col gap-5'>
-      <div className='relative isolate flex min-h-28 flex-wrap items-end justify-between gap-4 overflow-hidden border-b py-5'>
-        <div className='pointer-events-none absolute inset-y-0 end-0 w-2/5'>
-          <ForgeShaderSurface variant='store' className='opacity-40' />
-        </div>
+      <StoreAnnouncement
+        supported={support.data?.store_merchant_home_supported === true}
+      />
+      {sellerId && (
+        <StoreMerchantHomeHeader
+          sellerId={sellerId}
+          supported={support.data?.store_merchant_home_supported === true}
+        />
+      )}
+      <div className='flex min-h-28 flex-wrap items-end justify-between gap-4 border-b py-5'>
         <div className='relative z-10 space-y-1'>
           <h1 className='console-page-title text-xl font-bold'>
-            {t('Browse products')}
+            {query.data?.seller &&
+            support.data?.store_merchant_home_supported !== true
+              ? t('Shop by {{name}}', {
+                  name:
+                    query.data.seller.display_name ||
+                    query.data.seller.username,
+                })
+              : t('Browse products')}
           </h1>
           <p className='text-muted-foreground text-sm'>
             {t(
               'Explore digital products from the community and official sellers.'
             )}
           </p>
+          {query.data?.seller &&
+            support.data?.store_merchant_home_supported !== true && (
+              <StoreMerchantIdentity seller={query.data.seller} />
+            )}
+          {sellerId && (
+            <a
+              href='/store'
+              className='text-muted-foreground inline-block text-sm hover:underline'
+            >
+              {t('Browse all sellers')}
+            </a>
+          )}
         </div>
         <Button
           variant='outline'
@@ -103,6 +172,38 @@ export function StorePage() {
           {t('Search')}
         </Button>
       </form>
+      {!lookup && categories.data?.supported && (
+        <StoreCategorySelect
+          id='store-category-filter'
+          all
+          value={categoryId}
+          items={categories.data.items}
+          onChange={(value) => {
+            setCategoryId(value)
+            setPage(1)
+          }}
+        />
+      )}
+      {!lookup && (
+        <StoreError
+          error={categories.error}
+          retry={() => void categories.refetch()}
+        />
+      )}
+      {!lookup && support.catalogueSupported && (
+        <StoreCatalogueFiltersPanel
+          value={filters}
+          onChange={(value) => {
+            setFilters(value)
+            setPage(1)
+          }}
+          view={view}
+          onViewChange={(value) => {
+            setView(value)
+            writeStoreCatalogueView(value)
+          }}
+        />
+      )}
       {lookup ? (
         <StoreOrderSearch
           key={`${lookup.mode}-${lookup.value}-${user?.id || 'guest'}`}
@@ -149,46 +250,20 @@ export function StorePage() {
                     </div>
                   </div>
                 ) : (
-                  <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
-                    {query.data.items.map((product) => (
-                      <article
+                  <div
+                    className={cn(
+                      'grid gap-4',
+                      view === 'cards' && 'grid-cols-12 sm:gap-5'
+                    )}
+                  >
+                    {query.data.items.map((product, index) => (
+                      <StoreCatalogueProductCard
                         key={product.id}
-                        className='bg-card overflow-hidden rounded-lg border'
-                      >
-                        <a
-                          href={`/store/products/${product.id}`}
-                          className='focus-visible:outline-ring block focus-visible:outline-2'
-                        >
-                          {safeStoreUrl(product.image_urls?.[0] || '') ? (
-                            <img
-                              src={safeStoreUrl(product.image_urls[0])}
-                              alt={product.title}
-                              className='aspect-[16/9] w-full object-cover'
-                              loading='lazy'
-                              referrerPolicy='no-referrer'
-                            />
-                          ) : null}
-                          <div className='space-y-3 p-4'>
-                            <StoreBadges product={product} />
-                            <h2 className='truncate font-semibold'>
-                              {product.title}
-                            </h2>
-                            <p className='text-muted-foreground line-clamp-2 min-h-10 text-sm'>
-                              {product.description}
-                            </p>
-                            <div className='flex items-center justify-between gap-2 text-sm'>
-                              <strong>
-                                <StoreAmount quota={product.price_quota} />
-                              </strong>
-                              <span className='text-muted-foreground'>
-                                {t('Stock: {{count}}', {
-                                  count: product.available_stock,
-                                })}
-                              </span>
-                            </div>
-                          </div>
-                        </a>
-                      </article>
+                        product={product}
+                        trafficPage={trafficPage}
+                        featured={index < 3}
+                        list={view === 'list'}
+                      />
                     ))}
                   </div>
                 )}

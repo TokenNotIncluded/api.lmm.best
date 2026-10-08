@@ -205,6 +205,7 @@ func TestFreshPaidTopUpAggregateUsesLegacyWriterFallbackAndCreateTimeAnchor(t *t
 func TestFreshPaidTopUpAggregateUsesCreditedQuotaInsteadOfSettledMoney(t *testing.T) {
 	db := setupTopUpAccessTestDB(t)
 	previousQuotaPerUnit := common.QuotaPerUnit
+	// Legacy pricing calibration must not change the fixed 500,000-credit USD basis.
 	common.QuotaPerUnit = 999_999
 	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	t.Cleanup(func() { common.QuotaPerUnit = previousQuotaPerUnit })
@@ -223,7 +224,9 @@ func TestFreshPaidTopUpAggregateUsesCreditedQuotaInsteadOfSettledMoney(t *testin
 	aggregate, err := getFreshPaidTopUpAggregate(topUp.UserId)
 	require.NoError(t, err)
 	assert.True(t, aggregate.paidActivationComplete(CurrentDeveloperAccessPolicy()))
-	assert.InDelta(t, 123.456912, aggregate.PaidAmount, 0.000001)
+	assert.Equal(t, topUp.CreditedQuota, aggregate.PaidCredits)
+	assert.InDelta(t, 246.913578, aggregate.PaidAmount, 0.000001,
+		"paid-credit projection uses credited quota at 500,000 credits per USD, not legacy pricing units or settled cash")
 }
 
 func TestLinuxDOCreditDoesNotCountAsPaidTopUp(t *testing.T) {

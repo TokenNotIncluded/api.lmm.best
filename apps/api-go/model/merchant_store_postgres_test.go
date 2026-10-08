@@ -140,6 +140,7 @@ func merchantStorePGDB(t *testing.T) (*gorm.DB, string, *gorm.DB, string) {
 	usePostgresDatabaseType(t)
 	t.Setenv("MERCHANT_STORE_ENCRYPTION_KEY", "C5wmMzDh1QsVZb0saEW9ulAPzVN87Boqv3DK6eIrKXc2YLfg")
 	require.NoError(t, db.AutoMigrate(&User{}, &WalletTransfer{}, &ModerationJob{}, &Option{}))
+	require.NoError(t, BootstrapMerchantStoreWriterGate(db))
 	legacy := marketTestUser(t, db, "legacy-fixture", 1234567, common.RoleCommonUser)
 	require.NoError(t, db.Create(&WalletTransfer{SenderID: legacy.Id, RequestKey: "legacy-store-test-fixture", Token: strings.Repeat("a", 64), Quota: 34567, Status: "claimed", CreatedAt: 100, ClaimedAt: 200, RecipientID: legacy.Id, RecipientEmail: "legacy@example.test"}).Error)
 	before := merchantStorePGFingerprint(t, db, schemaName)
@@ -157,7 +158,7 @@ func merchantStorePGDB(t *testing.T) (*gorm.DB, string, *gorm.DB, string) {
 			added = append(added, name)
 		}
 	}
-	require.Equal(t, merchantStoreExpectedTables, added, "exactly the declared 13 merchant tables were added")
+	require.Equal(t, merchantStoreExpectedTables, added, "exactly the declared merchant tables were added")
 	t.Cleanup(func() {
 		require.Equal(t, before, merchantStorePGFingerprint(t, db, schemaName), "all concurrent merchant transactions preserve the unrelated legacy fixture")
 	})

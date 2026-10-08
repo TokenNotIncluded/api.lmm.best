@@ -32,7 +32,7 @@ export type SystemOptionsResponse = {
   success: boolean
   message: string
   data: SystemOption[]
-  capabilities?: { model_price_locks?: boolean }
+  capabilities?: { model_price_locks?: boolean; trust_level_benefits?: boolean }
 }
 
 export type UpdateOptionRequest = {
@@ -72,13 +72,6 @@ export type UsdExchangeRateResponse =
       message: string
       data?: never
     }
-
-export type UpdateAdvancedSecuritySettingsRequest = {
-  enabled: boolean
-  on_prompt: boolean
-  action: 'block' | 'audit'
-  rules: unknown
-}
 
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
@@ -278,6 +271,7 @@ export type ContentSettings = {
   AssistantStreamEnabled: boolean
   AssistantTemperature: number
   AssistantMaxTokens: number
+  AssistantNewUserGiftMaxCredits: number
   AssistantAgentLoopEnabled: boolean
   AssistantMaxSteps: number
   AssistantTimeoutSeconds: number
@@ -300,14 +294,6 @@ export type ContentSettings = {
   AssistantL1AutoReviewPrompt: string
   AssistantL1AutoReviewMinConfidence: number
   AssistantL1AutoApprovalUserIDs: string
-  AssistantReviewEnabled: boolean
-  AssistantReviewWindowDays: number
-  AssistantReviewIntervalHours: number
-  AssistantReviewProbability: number
-  AssistantReviewGroup: string
-  AssistantReviewModel: string
-  AssistantReviewReasoningEffort: AssistantReasoningEffort
-  AssistantReviewGroupPolicies: string
   AssistantRetentionEnabled: boolean
   AssistantActiveRetentionDays: number
   AssistantArchivedRetentionDays: number
@@ -384,6 +370,7 @@ export type ModelSettings = {
 }
 
 export type BillingSettings = {
+  TrustLevelBenefits: string
   ReferralMinTopUpQuota: number
   ReferralMaxRewardQuota: number
   ReferralPenaltyPercent: number
@@ -530,10 +517,6 @@ export type SecuritySettings = {
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean
   SensitiveWords: string
-  AdvancedSecurityEnabled: boolean
-  AdvancedSecurityOnPromptEnabled: boolean
-  AdvancedSecurityAction: 'block' | 'audit'
-  AdvancedSecurityRules: string
   AntiRelayEnabled: boolean
   AntiRelayRejectProxyHeadersEnabled: boolean
   AntiRelayHTTPSOnlyEnabled: boolean

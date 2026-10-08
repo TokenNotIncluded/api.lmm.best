@@ -247,7 +247,7 @@ func executeAssistantNewUserGiftStatusTool(c *gin.Context, userID int) map[strin
 	if userID <= 0 {
 		return map[string]any{"ok": false, "status": "unavailable", "read_only": true, "error": "A signed-in user is required to read their gift status."}
 	}
-	// This is the only database operation. In particular, do not call Decide,
+	// Only read the stored gift and current cap. In particular, do not call Decide,
 	// registration/risk observation, or eligibility checks from a status read.
 	gift, err := model.GetAssistantNewUserGift(userID)
 	if err != nil {
@@ -262,7 +262,7 @@ func executeAssistantNewUserGiftStatusTool(c *gin.Context, userID int) map[strin
 	}
 	for key, value := range map[string]any{
 		"ok": true, "read_only": true, "status": "none",
-		"one_time_decision_used": false, "claim_available": false,
+		"one_time_decision_used": false, "claim_available": result["claim_available"],
 		"next_step": "No gift decision is stored. This does not establish eligibility. Explain the one-time rules if asked; an evaluation requires a separate explicit application and sufficient conversation detail.",
 	} {
 		result[key] = value
@@ -274,11 +274,14 @@ func executeAssistantNewUserGiftStatusTool(c *gin.Context, userID int) map[strin
 	result["one_time_decision_used"] = true
 	switch gift.Status {
 	case model.AssistantGiftOffered:
-		result["claim_available"] = true
+		if result["claim_available"] != true {
+			result["next_step"] = "The stored offer is unchanged but cannot currently be claimed under the administrator-configured gift cap. Do not promise a claim or create another decision."
+			return result
+		}
 		result["next_step"] = "The existing offered gift is ready for the user to claim from the gift card. Never claim it for them or evaluate it again."
 		if c != nil {
 			money := make(map[string]any)
-			for _, key := range []string{"amount_cents", "amount_unit", "credit_amount", "credit_amount_unit", "public_credit_amount", "amount_usd", "currency", "credits_per_usd", "credit_unit_schema_version", "quota_unit", "public_credit_unit", "legacy_credit_unit", "ledger_quota_per_usd", "ledger_quota_per_usd_exact", "public_credits_per_usd", "public_credits_per_usd_exact"} {
+			for _, key := range []string{"amount_cents", "amount_unit", "credit_amount", "credit_amount_unit", "public_credit_amount", "amount_usd", "currency", "credits_per_usd", "credit_unit_schema_version", "quota_unit", "public_credit_unit", "legacy_credit_unit", "ledger_quota_per_usd", "ledger_quota_per_usd_exact", "public_credits_per_usd", "public_credits_per_usd_exact", "max_credit_amount", "claim_available", "claim_blocked_code"} {
 				money[key] = result[key]
 			}
 			money["type"], money["status"] = "new_user_gift", gift.Status

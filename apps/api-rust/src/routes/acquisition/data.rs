@@ -333,8 +333,126 @@ pub fn correction_reason(reason: &str) -> Result<String, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Input, correction_reason, normalize, self_report};
+    use super::{
+        Input, correction_reason, label, normalize, self_report, unescape, valid_id, visitor_hash,
+    };
     use serde_json::json;
+
+    #[test]
+    fn input_decoder_preserves_go_field_matching_null_and_type_rules() {
+        let input: Input = serde_json::from_str(
+            r#"{
+                "SOURCE":"first",
+                "source":null,
+                "linK_id":"campaign-link",
+                "Expected_Revision":7,
+                "unknown":{"wrong":["types",1,true]}
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(input.text("source"), "first");
+        assert_eq!(input.text("link_id"), "campaign-link");
+        assert_eq!(input.int("expected_revision"), 7);
+        assert_eq!(input.text("unknown"), "");
+        assert!(!input.bool("missing"));
+
+        let folded: Input = serde_json::from_str(r#"{"ſOURCE":"community"}"#).unwrap();
+        assert_eq!(folded.text("source"), "community");
+
+        for malformed in [
+            r#"{"source":7}"#,
+            r#"{"consent":"true"}"#,
+            r#"{"days":false}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<Input>(malformed).is_err(),
+                "known fields must reject the wrong JSON type: {malformed}"
+            );
+        }
+        assert!(serde_json::from_str::<Input>("null").unwrap().0.is_empty());
+    }
+
+    #[test]
+    fn attribution_helpers_reject_credentials_and_ambiguous_encodings() {
+        assert_eq!(
+            unescape("campaign%20launch+a", true).unwrap(),
+            "campaign launch a"
+        );
+        for encoded in ["%", "%0", "%zz", "%ff"] {
+            assert!(unescape(encoded, false).is_err(), "{encoded}");
+        }
+        assert!(valid_id("0123456789abcdef0123456789ABCDEF"));
+        assert!(!valid_id("0123456789abcdef"));
+        assert_eq!(
+            visitor_hash("visitor"),
+            "5f14f9e6d80f802a65269804f2552ef9889f2c7ccec5067214e58a1e48e0b3ff"
+        );
+
+        assert_eq!(label("  community  "), "community");
+        for private in [
+            "sk-privatevalue",
+            "Bearer credential",
+            "one.two.three",
+            "01234567890123456789012345678901234567890",
+        ] {
+            assert!(label(private).is_empty(), "{private}");
+        }
+    }
+
+    #[test]
+    fn visit_normalization_prefers_safe_campaigns_then_external_referrers() {
+        let base = |source: &str, referrer: &str| {
+            serde_json::from_value::<Input>(json!({
+                "consent": true,
+                "consent_version": 2,
+                "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "landing": "/pricing?utm_source=docs#plans",
+                "source": source,
+                "referrer": referrer
+            }))
+            .unwrap()
+        };
+
+        let campaign = normalize(
+            &base("documentation", "https://external.example/path"),
+            &["lmm.best"],
+            123,
+        )
+        .unwrap();
+        assert_eq!(campaign.source, "documentation");
+        assert_eq!(campaign.evidence, "campaign_parameters");
+
+        let referrer = normalize(
+            &base("sk-privatevalue", "https://News.Example:443/path?q=1"),
+            &["lmm.best"],
+            124,
+        )
+        .unwrap();
+        assert_eq!(referrer.source, "news.example");
+        assert_eq!(referrer.referrer_host, "news.example");
+        assert_eq!(referrer.evidence, "browser_referrer");
+
+        for private_referrer in [
+            "https://user@example.com/path",
+            "https://127.0.0.1/path",
+            "https://service.local/path",
+            "https://example.com/%ff",
+        ] {
+            let visit = normalize(&base("", private_referrer), &[], 125).unwrap();
+            assert_eq!(visit.source, "unknown", "{private_referrer}");
+            assert_eq!(visit.referrer_host, "", "{private_referrer}");
+            assert_eq!(visit.evidence, "unavailable", "{private_referrer}");
+        }
+
+        let own = normalize(
+            &base("", "https://status.api.lmm.best/path"),
+            &["api.lmm.best"],
+            126,
+        )
+        .unwrap();
+        assert_eq!(own.source, "unknown");
+        assert!(own.referrer_host.is_empty());
+    }
 
     #[test]
     fn visit_keeps_only_safe_attribution_fields() {
@@ -375,12 +493,30 @@ mod tests {
         let input: Input = serde_json::from_value(value).unwrap();
         assert!(normalize(&input, &[], 123).is_err());
         assert!(self_report("community", "token=private").is_err());
+        assert!(self_report("unknown", "safe detail").is_err());
+        assert!(self_report("community", &"x".repeat(161)).is_err());
+        assert_eq!(
+            self_report("community", "  verified by support  ").unwrap(),
+            "verified by support"
+        );
         assert_eq!(
             correction_reason("  verified source  ").unwrap(),
             "verified source"
         );
-        for reason in ["no", "person@example.com", "token=private"] {
-            assert!(correction_reason(reason).is_err());
+        assert_eq!(
+            correction_reason(&"界".repeat(300))
+                .unwrap()
+                .chars()
+                .count(),
+            300
+        );
+        for reason in [
+            "no".into(),
+            "person@example.com".into(),
+            "token=private".into(),
+            "界".repeat(301),
+        ] {
+            assert!(correction_reason(&reason).is_err());
         }
     }
 }

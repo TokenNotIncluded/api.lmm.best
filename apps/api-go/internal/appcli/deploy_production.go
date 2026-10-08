@@ -40,6 +40,16 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	switch args[0] {
+	case "writer-capsule":
+		return runProductionMerchantStoreCapsule(args[1:], stdout, stderr)
+	case "writer-start":
+		return runProductionMerchantStorePortableStart(args[1:], stdout, stderr)
+	case "writer-check":
+		return runProductionMerchantStoreWriterCheck(args[1:], stdout, stderr)
+	case "writer-fence":
+		return runProductionMerchantStoreFence(args[1:], stdout, stderr)
+	case "writer-start-check":
+		return runProductionMerchantStoreStartCheck(args[1:], stdout, stderr)
 	case "maintenance":
 		return runProductionMaintenance(args[1:], stdout, stderr)
 	case "plan":

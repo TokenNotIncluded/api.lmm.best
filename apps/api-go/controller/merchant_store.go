@@ -35,11 +35,22 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		return
 	}
 	status, code, message := http.StatusInternalServerError, "STORE_UNAVAILABLE", "The shop could not complete this request."
+	var termsUpdated *model.MerchantStoreTermsUpdatedError
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		status, code, message = http.StatusNotFound, "STORE_NOT_FOUND", "The shop item or order was not found."
 	case errors.Is(err, model.ErrMerchantStoreInput):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_INVALID_INPUT", "Please check the shop information and amounts."
+	case errors.Is(err, model.ErrMerchantStoreRefundUnsupported):
+		status, code, message = http.StatusConflict, "STORE_REFUND_EVIDENCE_REQUIRED", "This payment needs verified provider evidence before a partial refund."
+	case errors.Is(err, model.ErrMerchantStoreWriterFrozen):
+		status, code, message = http.StatusServiceUnavailable, "STORE_UPGRADE_IN_PROGRESS", "Shop updates are in progress. Existing orders remain accessible."
+	case errors.Is(err, model.ErrMerchantStoreVariantRequired):
+		status, code, message = http.StatusUnprocessableEntity, "STORE_VARIANT_REQUIRED", "Select a product variant before ordering."
+	case errors.Is(err, model.ErrMerchantStoreMinimumPrice):
+		status, code, message = http.StatusUnprocessableEntity, "STORE_MINIMUM_PRICE", "The product unit price is below the current minimum."
+	case errors.Is(err, model.ErrMerchantStoreTestMode):
+		status, code, message = http.StatusUnprocessableEntity, "STORE_TEST_MODE", "Exit product test mode before submitting or publishing."
 	case errors.Is(err, model.ErrMerchantStorePaymentSelection):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_SELECTION_UNAVAILABLE", "Select only currently enabled merchant payment methods."
 	case errors.Is(err, model.ErrMerchantStorePaymentCategoryDisabled):
@@ -52,8 +63,16 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusConflict, "STORE_INSUFFICIENT_BALANCE", "There are not enough credits to complete this operation."
 	case errors.Is(err, model.ErrMerchantStoreStock):
 		status, code, message = http.StatusConflict, "STORE_OUT_OF_STOCK", "The product has insufficient available stock."
+	case errors.Is(err, model.ErrMerchantStorePurchaseLimit):
+		status, code, message = http.StatusConflict, "STORE_PURCHASE_LIMIT", "This quantity exceeds the product purchase limit."
 	case errors.Is(err, model.ErrMerchantStoreDisclaimer):
 		status, code, message = http.StatusConflict, "STORE_DISCLAIMER_REQUIRED", "Read and accept the current merchant disclaimer before ordering."
+	case errors.As(err, &termsUpdated):
+		status, code, message = http.StatusConflict, "STORE_TERMS_UPDATED", "The seller terms changed before this order was created. Read and accept the current terms."
+	case errors.Is(err, model.ErrMerchantStoreSellerTerms):
+		status, code, message = http.StatusConflict, "STORE_SELLER_TERMS_REQUIRED", "Read and accept the current seller terms before ordering."
+	case errors.Is(err, model.ErrMerchantStoreLoginRequired):
+		status, code, message = http.StatusUnauthorized, "STORE_LOGIN_REQUIRED", "Sign in before ordering this product."
 	case errors.Is(err, model.ErrMerchantStoreEmailUnverified):
 		status, code, message = http.StatusConflict, "STORE_EMAIL_VERIFICATION_REQUIRED", "Verify your current email address before receiving private delivery links."
 	case errors.Is(err, model.ErrMerchantStoreEmailVerificationInvalid):
@@ -62,6 +81,12 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusTooManyRequests, "STORE_EMAIL_VERIFICATION_COOLDOWN", "Wait one minute before requesting another email verification code."
 	case errors.Is(err, model.ErrMerchantStoreUnavailable):
 		status, code, message = http.StatusConflict, "STORE_TRADING_PAUSED", "This product or payment method is currently unavailable."
+	case errors.Is(err, model.ErrMerchantStoreDiscountUnavailable):
+		status, code, message = http.StatusConflict, "STORE_PROMOTION_UNAVAILABLE", "Store promotion unavailable"
+	case errors.Is(err, model.ErrMerchantStoreDiscountLimit):
+		status, code, message = http.StatusConflict, "STORE_PROMOTION_LIMIT", "Store promotion limit reached"
+	case errors.Is(err, service.ErrMerchantStorePaymentMinimum):
+		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_MINIMUM", "The payment amount is below the gateway minimum. Choose another available payment method."
 	case errors.Is(err, service.ErrMerchantStorePaymentConfiguration):
 		status, code, message = http.StatusConflict, "STORE_PAYMENT_CONFIGURATION", "This payment method needs a valid configuration."
 	case errors.Is(err, service.ErrMerchantStorePaymentVerification):
@@ -73,7 +98,18 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 	}
 	// Database, gateway, crypto and provider errors can contain credentials or
 	// private delivery data. Never serialize their raw error strings.
-	c.AbortWithStatusJSON(status, gin.H{"success": false, "code": code, "message": message})
+	response := gin.H{"success": false, "code": code, "message": message}
+	if termsUpdated != nil {
+		response["request_key"], response["order_created"] = termsUpdated.RequestKey(), false
+	}
+	var minimum *service.MerchantStorePaymentMinimumError
+	if errors.As(err, &minimum) {
+		response["order_id"], response["order_status"], response["order_cancelled"] = minimum.OrderID, minimum.OrderStatus, minimum.OrderCancelled
+		if !minimum.OrderCancelled {
+			response["message"] = "The order or product state has changed. Please refresh."
+		}
+	}
+	c.AbortWithStatusJSON(status, response)
 }
 
 func merchantStorePage(c *gin.Context) (int, int, bool) {
@@ -104,63 +140,117 @@ func ListMerchantStore(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, err := model.ListPublicMerchantStoreProducts(c.Query("q"), offset, limit)
+	sellerID := 0
+	if raw, present := c.GetQuery("seller_id"); present || len(c.Request.URL.Query()["seller_id"]) != 0 {
+		var parseErr error
+		sellerID, parseErr = strconv.Atoi(raw)
+		if parseErr != nil || len(c.Request.URL.Query()["seller_id"]) != 1 || sellerID < 1 || int64(sellerID) > 2147483647 || raw != strconv.Itoa(sellerID) {
+			merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+			return
+		}
+	}
+	catalogueQuery, ok := merchantStoreCatalogueQuery(c)
+	if !ok {
+		return
+	}
+	if catalogueQuery.CategoryID != "" && !model.MerchantStoreCategoriesSupported() {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreWriterFrozen)
+		return
+	}
+	var items []model.MerchantStoreProduct
+	var err error
+	if model.MerchantStoreCatalogueSupported() {
+		items, err = model.ListMerchantStoreCatalogue(merchantStoreViewer(c), c.Query("q"), sellerID, offset, limit, catalogueQuery)
+	} else {
+		// Older floors retain their original read contract; supplied new filters
+		// cannot silently turn into client-side filtering over one page.
+		if catalogueQuery.Sort != "" || catalogueQuery.Tag != "" || catalogueQuery.Stock != "" || catalogueQuery.CategoryID != "" || catalogueQuery.AutoDelivery != nil || catalogueQuery.AIProcessing != nil || catalogueQuery.GuestPurchase != nil {
+			merchantStoreRespond(c, nil, model.ErrMerchantStoreUnavailable)
+			return
+		}
+		items, err = model.ListMerchantStoreProductsForSellerViewer(merchantStoreViewer(c), c.Query("q"), sellerID, offset, limit)
+	}
 	for i := range items {
 		items[i] = publicStoreProduct(items[i])
 	}
-	merchantStoreList(c, items, offset, limit, err)
+	if err != nil {
+		merchantStoreRespond(c, nil, err)
+		return
+	}
+	if items == nil {
+		items = []model.MerchantStoreProduct{}
+	}
+	var seller *model.MerchantStorePublicSeller
+	if sellerID != 0 {
+		seller, err = model.GetMerchantStoreSellerProfileForViewer(merchantStoreViewer(c), sellerID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		}
+	}
+	merchantStoreRespond(c, gin.H{"items": items, "offset": offset, "limit": limit, "has_more": len(items) == limit, "seller": seller}, err)
 }
 
 func GetPublicMerchantStoreProduct(c *gin.Context) {
-	p, err := model.GetPublicMerchantStoreProduct(c.Param("id"))
+	p, err := model.GetMerchantStoreProductForViewer(merchantStoreViewer(c), c.Param("id"))
 	if err == nil {
 		*p = publicStoreProduct(*p)
+		if len(c.Request.Header.Values("X-Store-Guest")) != 0 {
+			err = model.PopulateMerchantStoreGuestPurchaseRemaining(merchantStoreGuestHeader(c), p)
+		} else {
+			err = model.PopulateMerchantStoreBuyerPurchaseRemaining(merchantStoreViewer(c), p)
+		}
 	}
 	merchantStoreRespond(c, p, err)
 }
 
 func GetMerchantStoreConfig(c *gin.Context) {
 	config, err := model.GetMerchantStoreConfig()
+	var presets []model.MerchantStoreLinkPreset
+	if err == nil {
+		presets, err = model.GetMerchantStoreLinkPresets()
+	}
 	catalog := service.MerchantStorePlatformPaymentCatalog(availablePaymentMethods(operation_setting.IsPaymentComplianceConfirmed()))
 	merchantStoreRespond(c, gin.H{
-		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota,
-		"linuxdo_units_per_usd": config.LinuxDOUnitsPerUSD,
-		"credits_per_usd":       common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
+		"fee_bps": config.FeeBPS, "promotion_quota": config.PromotionQuota, "minimum_unit_price_quota": config.MinimumUnitPriceQuota,
+		"product_test_mode_supported":       true,
+		"store_catalogue_supported":         model.MerchantStoreCatalogueSupported(),
+		"store_collections_supported":       model.MerchantStoreCollectionsSupported(),
+		"store_categories_supported":        model.MerchantStoreCategoriesSupported(),
+		"store_likes_supported":             model.MerchantStoreLikesSupported(),
+		"store_svg_media_supported":         true,
+		"store_merchant_home_supported":     true,
+		"store_access_supported":            model.MerchantStoreAccessSupported(),
+		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),
+		"fixed_content_supported":           model.MerchantStoreFixedContentSupported(),
+		"product_link_presets":              presets,
+		"linuxdo_units_per_usd":             config.LinuxDOUnitsPerUSD,
+		"credits_per_usd":                   common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,
 		"disclaimer_version": model.MerchantStoreDisclaimerVersion, "disclaimer_text": merchantStoreDisclaimerText,
 		"platform_payment_methods": service.AvailableMerchantStorePlatformMethods(catalog),
 		"platform_payment_catalog": catalog,
 	}, err)
 }
 
-func SetMerchantStoreConfig(c *gin.Context) {
+func SaveMerchantStoreLinkPresets(c *gin.Context) {
 	var input struct {
-		FeeBPS             *int    `json:"fee_bps"`
-		RecipientID        *int    `json:"recipient_id"`
-		PromotionQuota     *int    `json:"promotion_quota"`
-		LinuxDOUnitsPerUSD *string `json:"linuxdo_units_per_usd"`
+		Presets []model.MerchantStoreLinkPreset `json:"presets"`
 	}
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
+		return
+	}
+	merchantStoreRespond(c, nil, model.SaveMerchantStoreLinkPresets(c.GetInt("id"), input.Presets))
+}
+
+func SetMerchantStoreConfig(c *gin.Context) {
+	var input model.MerchantStoreConfigPatch
 	if c.ShouldBindJSON(&input) != nil {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
 		return
 	}
-	current, err := model.GetMerchantStoreConfig()
-	if err != nil {
-		merchantStoreRespond(c, nil, err)
-		return
-	}
-	if input.FeeBPS != nil {
-		current.FeeBPS = *input.FeeBPS
-	}
-	if input.RecipientID != nil {
-		current.RecipientID = *input.RecipientID
-	}
-	if input.PromotionQuota != nil {
-		current.PromotionQuota = *input.PromotionQuota
-	}
-	if input.LinuxDOUnitsPerUSD != nil {
-		current.LinuxDOUnitsPerUSD = *input.LinuxDOUnitsPerUSD
-	}
-	merchantStoreRespond(c, nil, model.SetMerchantStoreConfig(c.GetInt("id"), current))
+	merchantStoreRespond(c, nil, model.PatchMerchantStoreConfig(c.GetInt("id"), input))
 }
 
 func SetMerchantStorePromotionPrice(c *gin.Context) {
@@ -177,8 +267,10 @@ func SetMerchantStorePromotionPrice(c *gin.Context) {
 func GetMerchantStoreDisclaimer(c *gin.Context) {
 	accepted := false
 	var err error
-	if c.GetInt("id") > 0 {
+	if merchantStoreViewer(c) > 0 {
 		accepted, err = model.HasMerchantStoreDisclaimerAcceptance(c.GetInt("id"))
+	} else {
+		accepted, err = model.HasMerchantStoreGuestDisclaimerAcceptance(merchantStoreGuestHeader(c))
 	}
 	merchantStoreRespond(c, gin.H{"version": model.MerchantStoreDisclaimerVersion, "text": merchantStoreDisclaimerText, "accepted": accepted}, err)
 }
@@ -209,6 +301,17 @@ func GetMerchantStoreProductDraft(c *gin.Context) {
 	merchantStoreRespond(c, p, err)
 }
 
+func GetMerchantStoreProductPreview(c *gin.Context) {
+	p, err := model.GetMerchantStoreProductPreview(c.GetInt("id"), c.Param("id"))
+	if err == nil {
+		err = model.PopulateMerchantStoreBuyerPurchaseRemaining(c.GetInt("id"), p)
+	}
+	if err == nil {
+		*p = publicStoreProduct(*p)
+	}
+	merchantStoreRespond(c, p, err)
+}
+
 func SaveMerchantStoreProduct(c *gin.Context) {
 	var input model.MerchantStoreProductInput
 	if c.ShouldBindJSON(&input) != nil {
@@ -221,6 +324,14 @@ func SaveMerchantStoreProduct(c *gin.Context) {
 
 func SubmitMerchantStoreProduct(c *gin.Context) {
 	merchantStoreRespond(c, nil, model.SubmitMerchantStoreProduct(c.GetInt("id"), c.Param("id")))
+}
+
+func UnlistMerchantStoreProduct(c *gin.Context) {
+	merchantStoreRespond(c, nil, model.UnlistMerchantStoreProduct(c.GetInt("id"), c.Param("id")))
+}
+
+func DeleteMerchantStoreProduct(c *gin.Context) {
+	merchantStoreRespond(c, nil, model.DeleteMerchantStoreProduct(c.GetInt("id"), c.Param("id")))
 }
 
 func SetMerchantStoreProductPaused(c *gin.Context) {
@@ -294,6 +405,10 @@ func ReviewMerchantStoreProduct(c *gin.Context) {
 }
 
 func CreateMerchantStoreOrder(c *gin.Context) {
+	if len(c.Request.Header.Values("X-Store-Guest")) != 0 {
+		merchantStoreRespond(c, nil, model.ErrMerchantStoreDenied)
+		return
+	}
 	var input model.MerchantStoreCheckoutInput
 	if c.ShouldBindJSON(&input) != nil {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)

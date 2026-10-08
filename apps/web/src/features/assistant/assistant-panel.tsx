@@ -129,7 +129,6 @@ import {
   type AssistantAdminChangeAction,
   type AssistantImageGenerationAction,
   type AssistantHumanSupportAction,
-  type AssistantL1RecommendationAction,
   type AssistantNavigationAction,
   type AssistantToolTrace,
   type AssistantUserAction,
@@ -272,6 +271,12 @@ function assistantNavigationLabel(
     return translate('Open usage logs')
   }
   if (action.path === '/profile') return translate('Open account bindings')
+  if (action.path.startsWith('/store/products/')) {
+    return translate('Open product')
+  }
+  if (action.path === '/tool-market' && action.query.service_id) {
+    return translate('Open tool service')
+  }
   return translate('Open page')
 }
 
@@ -1272,8 +1277,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const [agentStep, setAgentStep] = useState(0)
   const assistantAbortControllerRef = useRef<AbortController | null>(null)
   const submittedAutoSendIdRef = useRef<string | undefined>(undefined)
-  const [recommendationDraft, setRecommendationDraft] =
-    useState<AssistantL1RecommendationAction | null>(null)
   const [accountDisableDraft, setAccountDisableDraft] =
     useState<AssistantAccountDisableAction | null>(null)
   const [humanSupportAction, setHumanSupportAction] =
@@ -1444,7 +1447,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
 
   const clearToolState = useCallback(() => {
     setActiveTool(null)
-    setRecommendationDraft(null)
     setAccountDisableDraft(null)
     setHumanSupportAction(null)
     setKeyCreationAction(null)
@@ -1824,7 +1826,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         suggestedAction = getAssistantActionForTarget(suggestedTarget, t)
       }
       if (directL1GrantSucceeded) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -1832,7 +1833,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool('setup')
         suggestedAction = getAssistantActionForTarget('client-setup', t)
       } else if (imageAction) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -1840,7 +1840,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool(null)
         suggestedAction = undefined
       } else if (adminChange) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -1848,7 +1847,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool(null)
         suggestedAction = undefined
       } else if (reply.action?.type === 'navigate') {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setUserActionDraft(null)
@@ -1858,23 +1856,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           label: assistantNavigationLabel(reply.action, t),
           href: assistantNavigationHref(reply.action),
         }
-      } else if (reply.action?.type === 'l1_recommendation') {
-        // Old cached replies may contain a letter/token. Access is now decided
-        // from server-recorded evidence; do not restore that retired form.
-        setRecommendationDraft(null)
-        setAccountDisableDraft(null)
-        setHumanSupportAction(null)
-        setUserActionDraft(null)
-        setActiveTool('activation')
-        suggestedAction = {
-          kind: 'tool',
-          label: t('Registration verification'),
-          tool: 'activation',
-        }
       } else if (reply.action?.type === 'account_disable_request') {
         setAccountDisableDraft(reply.action)
         setHumanSupportAction(null)
-        setRecommendationDraft(null)
         setKeyCreationAction(null)
         setUserActionDraft(null)
         setActiveTool(null)
@@ -1883,7 +1867,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setKeyManagementAction(keyManagementAction)
         setKeyCreationAction(null)
         setHumanSupportAction(null)
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setUserActionDraft(null)
         setActiveTool(null)
@@ -1891,13 +1874,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       } else if (reply.action?.type === 'create_key') {
         setKeyCreationAction(reply.action)
         setHumanSupportAction(null)
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setUserActionDraft(null)
         setActiveTool('key')
         suggestedAction = undefined
       } else if (userAction) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -1905,7 +1886,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool(null)
         suggestedAction = undefined
       } else if (humanSupportAction) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(humanSupportAction)
         setKeyCreationAction(null)
@@ -1994,7 +1974,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message)
       if (showVerificationOnFailure) {
-        setRecommendationDraft(null)
         setActiveTool('activation')
       }
       let errorAction: AssistantAction | undefined
@@ -2529,8 +2508,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       ) : null}
                       {activeTool === 'activation' && accountAccessConfirmed ? (
                         <AssistantActivationTool
-                          recommendationDraft={recommendationDraft}
-                          onDraftConsumed={() => setRecommendationDraft(null)}
                           onContinueSetup={() => setActiveTool('setup')}
                           onApproved={refreshAuthenticatedUser}
                         />

@@ -42,7 +42,7 @@ const TODO_CATEGORIES = [
   'developer_access',
   'account_action',
   'security_incident',
-  'security_review',
+  'moderation',
   'human_support',
 ] as const
 

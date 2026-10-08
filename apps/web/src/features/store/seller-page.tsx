@@ -1,8 +1,18 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,13 +23,46 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
+import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import {
+  formatMinimumQuotaInCurrency,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
+import { StoreProductAccessSettings } from './access-settings'
+import { storeVisibility, storePurchaseLoginRequired } from './access-types'
+import { StoreProductAnalytics } from './analytics'
 import { storeApi } from './api'
+import { StoreCategorySelect, StoreProductCategoryEditor } from './categories'
+import { useStoreCategories } from './category-support'
+import {
+  DELIVERY_TEMPLATES,
+  structuredTemplate,
+  validateComposedItems,
+} from './delivery-template'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
+import { StoreFixedContentEditor } from './fixed-content-editor'
+import { StoreInventoryComposer } from './inventory-composer'
+import { StoreInventoryImportPreview } from './inventory-import-preview'
+import { StoreLinkPresetChooser } from './link-presets'
+import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
+import { storeImageEditorText, STORE_SVG_DATA_PREFIX } from './product-media'
+import { StoreProductMediaEditor } from './product-media-editor'
+import { storeProductMediaDraft } from './product-media-fields'
+import { StorePromotionCodes } from './promotion-codes'
+import { storePurchaseLimit } from './purchase-limits'
+import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
+import { StoreSalesLimit } from './sales-limit'
+import { STORE_SALES_LIMIT_COPY as salesCopy } from './sales-limit-copy'
+import { SellerCatalogueEditor } from './seller-catalogue-editor'
 import {
   StoreAmount,
   StoreAuthGate,
@@ -27,11 +70,16 @@ import {
   StoreError,
   StoreLoading,
 } from './shared'
+import { STORE_TEST_MODE_COPY as testCopy } from './test-mode-copy'
 import type {
+  StoreLinkPreset,
   StorePaymentMethod,
   StoreProduct,
   StoreProductInput,
+  StoreVariant,
+  StorePage,
 } from './types'
+import { useStoreFixedContentDraft } from './use-store-fixed-content'
 import {
   paymentLabel,
   MAX_IMPORT_BYTES,
@@ -39,6 +87,9 @@ import {
   safeStoreUrl,
   storeRequestKey,
 } from './utils'
+import { StoreInventoryTotals, StoreProductPrice } from './variant-summary'
+import { legacyVariantProduct } from './variant-utils'
+import { StoreVariantsManager } from './variants-manager'
 
 const EMPTY: StoreProductInput = {
   title: '',
@@ -46,7 +97,7 @@ const EMPTY: StoreProductInput = {
   image_urls: [],
   contact: '',
   links: [],
-  price_quota: 500000,
+  price_quota: 0,
   template: 'card-key',
   delivery_strategy: 'sequential',
   payment_methods: [],
@@ -55,9 +106,10 @@ const EMPTY: StoreProductInput = {
   email_pickup_link: false,
 }
 export function StoreSellerPage() {
+  const user = useAuthStore((state) => state.auth.user)
   return (
     <StoreAuthGate>
-      <StoreSellerCenter />
+      <StoreSellerCenter key={user?.id || 'guest'} />
     </StoreAuthGate>
   )
 }
@@ -83,23 +135,49 @@ function StoreSellerCenter() {
   })
   const promotionKeys = useRef(new Map<string, string>())
   const [editing, setEditing] = useState<StoreProduct | 'new' | null>(null)
+  const [catalogueProduct, setCatalogueProduct] = useState<StoreProduct | null>(
+    null
+  )
   const [inventory, setInventory] = useState<StoreProduct | null>(null)
   const [aiReviewId, setAIReviewId] = useState<string | null>(null)
   const [promoting, setPromoting] = useState<StoreProduct | null>(null)
+  const [promotionCodes, setPromotionCodes] = useState<StoreProduct | null>(
+    null
+  )
+  const [lifecycle, setLifecycle] = useState<{
+    product: StoreProduct
+    kind: 'unlist' | 'delete'
+  } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-  async function action(product: StoreProduct, fn: () => Promise<unknown>) {
+  async function action(
+    product: StoreProduct,
+    fn: () => Promise<unknown>,
+    onSuccess?: () => void
+  ) {
     if (busy !== null) return
     setBusy(product.id)
     setError(null)
     try {
       await fn()
+      if (promoting && useAuthStore.getState().auth.user?.id === user.id) {
+        void refreshCurrentAccount()
+        void client.invalidateQueries({
+          queryKey: ['store', 'payments', user.id],
+        })
+      }
+      onSuccess?.()
       await client.invalidateQueries({
         queryKey: ['market-ai-reviews', user.id, 'product', product.id],
       })
       await client.invalidateQueries({
         queryKey: ['store', 'my-products', user.id],
       })
+      await client.invalidateQueries({ queryKey: ['store', 'products'] })
+      await client.invalidateQueries({
+        queryKey: ['store', 'product'],
+      })
+      await client.invalidateQueries({ queryKey: ['store', 'reviews'] })
       if (promoting) promotionKeys.current.delete(promoting.id)
       setPromoting(null)
     } catch (issue) {
@@ -107,6 +185,51 @@ function StoreSellerCenter() {
     } finally {
       setBusy(null)
     }
+  }
+  function confirmLifecycle() {
+    if (!lifecycle) return
+    const { product, kind } = lifecycle
+    void action(
+      product,
+      () =>
+        kind === 'delete'
+          ? storeApi.deleteProduct(product.id)
+          : storeApi.unlistProduct(product.id),
+      () => {
+        client.setQueriesData<StorePage<StoreProduct>>(
+          { queryKey: ['store', 'products'] },
+          (previous) =>
+            previous && {
+              ...previous,
+              items: previous.items.filter((item) => item.id !== product.id),
+            }
+        )
+        client.removeQueries({
+          predicate: ({ queryKey }) =>
+            queryKey[0] === 'store' &&
+            (queryKey[1] === 'product' || queryKey[1] === 'product-preview') &&
+            (queryKey.length === 3
+              ? queryKey[2] === product.id
+              : queryKey[3] === product.id),
+        })
+        client.setQueriesData<StorePage<StoreProduct>>(
+          { queryKey: ['store', 'my-products', user.id] },
+          (previous) =>
+            previous && {
+              ...previous,
+              items:
+                kind === 'delete'
+                  ? previous.items.filter((item) => item.id !== product.id)
+                  : previous.items.map((item) =>
+                      item.id === product.id
+                        ? { ...item, status: 'unlisted' as const }
+                        : item
+                    ),
+            }
+        )
+        setLifecycle(null)
+      }
+    )
   }
   const allowedMethods: StorePaymentMethod[] =
     settings.data?.items
@@ -125,7 +248,18 @@ function StoreSellerCenter() {
             )}
           </p>
         </div>
-        <Button onClick={() => setEditing('new')}>{t('New product')}</Button>
+        <div className='flex flex-wrap gap-2'>
+          <StoreProductAnalytics />
+          {config.data?.store_access_supported === true && (
+            <Button
+              variant='outline'
+              render={<a href='/store/settings#seller-terms' />}
+            >
+              {t(accessCopy.termsTitle)}
+            </Button>
+          )}
+          <Button onClick={() => setEditing('new')}>{t('New product')}</Button>
+        </div>
       </div>
       <StoreError
         error={error || query.error}
@@ -149,15 +283,22 @@ function StoreSellerCenter() {
                       {product.title}
                     </h2>
                     <div className='text-muted-foreground flex flex-wrap items-center gap-3 text-xs'>
-                      <span>{t(product.status)}</span>
                       <span>
-                        {t('Stock: {{count}}', {
-                          count: product.available_stock,
-                        })}
+                        {t(
+                          product.status === 'off_shelf'
+                            ? salesCopy.offShelfStatus
+                            : product.status
+                        )}
                       </span>
-                      <StoreAmount quota={product.price_quota} />
+                      <StoreProductPrice product={product} />
                       <StoreBadges product={product} />
                     </div>
+                    {config.data?.store_categories_supported === true && (
+                      <StoreProductCategoryEditor
+                        key={`${product.id}-${product.category_id ?? ''}`}
+                        product={product}
+                      />
+                    )}
                   </div>
                   <div className='flex flex-wrap gap-2'>
                     <Button
@@ -167,6 +308,15 @@ function StoreSellerCenter() {
                     >
                       {t('Edit')}
                     </Button>
+                    {config.data?.store_catalogue_supported === true && (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        onClick={() => setCatalogueProduct(product)}
+                      >
+                        {t('Product tags')}
+                      </Button>
+                    )}
                     <Button
                       size='sm'
                       variant='outline'
@@ -174,20 +324,30 @@ function StoreSellerCenter() {
                     >
                       {t('Add inventory')}
                     </Button>
-                    {['draft', 'rejected'].includes(product.status) && (
-                      <Button
-                        size='sm'
-                        disabled={busy !== null}
-                        onClick={() =>
-                          void action(product, () =>
-                            storeApi.submitProduct(product.id)
-                          )
-                        }
-                      >
-                        {t('Submit for review')}
-                      </Button>
-                    )}
-                    {['published', 'paused'].includes(product.status) && (
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      onClick={() => setPromotionCodes(product)}
+                    >
+                      {t('Promotion codes')}
+                    </Button>
+                    {storeVisibility(product) !== 'private' &&
+                      ['draft', 'rejected'].includes(product.status) && (
+                        <Button
+                          size='sm'
+                          disabled={busy !== null}
+                          onClick={() =>
+                            void action(product, () =>
+                              storeApi.submitProduct(product.id)
+                            )
+                          }
+                        >
+                          {t('Submit for review')}
+                        </Button>
+                      )}
+                    {(['published', 'paused'].includes(product.status) ||
+                      (storeVisibility(product) === 'private' &&
+                        ['draft', 'pending'].includes(product.status))) && (
                       <Button
                         size='sm'
                         variant='outline'
@@ -208,17 +368,123 @@ function StoreSellerCenter() {
                         )}
                       </Button>
                     )}
-                    {product.status === 'published' && (
+                    {storeVisibility(product) !== 'private' &&
+                      product.status === 'published' && (
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => setPromoting(product)}
+                        >
+                          {t('Promote product')}
+                        </Button>
+                      )}
+                    {storeVisibility(product) === 'private' && (
                       <Button
                         size='sm'
                         variant='outline'
-                        onClick={() => setPromoting(product)}
+                        render={<a href={`/store/preview/${product.id}`} />}
                       >
-                        {t('Promote product')}
+                        {t(testCopy.preview)}
                       </Button>
                     )}
+                    {storeVisibility(product) !== 'private' &&
+                      ['published', 'paused', 'off_shelf'].includes(
+                        product.status
+                      ) && (
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={busy !== null}
+                          onClick={() =>
+                            void action(product, () =>
+                              storeApi.listing(
+                                product.id,
+                                product.status === 'off_shelf'
+                              )
+                            )
+                          }
+                        >
+                          {t(
+                            product.status === 'off_shelf'
+                              ? salesCopy.relist
+                              : salesCopy.offShelf
+                          )}
+                        </Button>
+                      )}
+                    {product.status !== 'unlisted' && (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={busy !== null}
+                        onClick={() => {
+                          setError(null)
+                          setLifecycle({ product, kind: 'unlist' })
+                        }}
+                      >
+                        {t('Unlist product')}
+                      </Button>
+                    )}
+                    <Button
+                      size='sm'
+                      variant='destructive'
+                      disabled={busy !== null}
+                      onClick={() => {
+                        setError(null)
+                        setLifecycle({ product, kind: 'delete' })
+                      }}
+                    >
+                      {t('Delete product')}
+                    </Button>
                   </div>
                 </div>
+                <StoreInventoryTotals product={product} />
+                <StoreVariantsManager
+                  product={product}
+                  fixedContentSupported={
+                    config.data?.fixed_content_supported === true
+                  }
+                  minimumPriceQuota={config.data?.minimum_unit_price_quota}
+                  onChanged={async () => {
+                    await Promise.all([
+                      client.invalidateQueries({
+                        queryKey: ['store', 'my-products', user.id],
+                      }),
+                      client.invalidateQueries({
+                        queryKey: ['store', 'products'],
+                      }),
+                      client.invalidateQueries({
+                        queryKey: ['store', 'product'],
+                      }),
+                      client.invalidateQueries({
+                        queryKey: [
+                          'store',
+                          'product-preview',
+                          product.id,
+                          user.id,
+                        ],
+                      }),
+                      client.invalidateQueries({
+                        queryKey: [
+                          'market-ai-reviews',
+                          user.id,
+                          'product',
+                          product.id,
+                        ],
+                      }),
+                    ])
+                  }}
+                />
+                {product.sale_limit !== undefined && (
+                  <StoreSalesLimit
+                    key={`${product.id}:${product.updated_at}:${product.sale_limit}`}
+                    product={product}
+                    onSaved={async () => {
+                      await client.invalidateQueries({
+                        queryKey: ['store', 'my-products', user.id],
+                      })
+                    }}
+                  />
+                )}
                 <MarketAIReviewHistory
                   source='product'
                   id={product.id}
@@ -263,30 +529,154 @@ function StoreSellerCenter() {
           'Edits to approved product details require another review. Inventory contents are never shown publicly.'
         )}
       </p>
+      <AlertDialog
+        open={lifecycle !== null}
+        onOpenChange={(open) => {
+          if (!open && busy === null) setLifecycle(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t(
+                lifecycle?.kind === 'delete'
+                  ? 'Delete product?'
+                  : 'Unlist product?'
+              )}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                lifecycle?.kind === 'delete'
+                  ? 'Remove {{title}} from your products and the store. Existing orders and delivered items remain accessible.'
+                  : 'Remove {{title}} from the store. You can edit and submit it for review again. Existing orders remain accessible.',
+                { title: lifecycle?.product.title || '' }
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <StoreError error={error} />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy !== null}>
+              {t('Cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant={lifecycle?.kind === 'delete' ? 'destructive' : 'default'}
+              disabled={busy !== null}
+              onClick={confirmLifecycle}
+            >
+              {t(
+                busy !== null
+                  ? 'Saving...'
+                  : lifecycle?.kind === 'delete'
+                    ? 'Delete product'
+                    : 'Unlist product'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <Dialog
+        open={!!catalogueProduct}
+        onOpenChange={(value) => {
+          if (!value) setCatalogueProduct(null)
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>{t('Product tags')}</DialogTitle>
+          <DialogDescription>{catalogueProduct?.title}</DialogDescription>
+          {catalogueProduct && (
+            <SellerCatalogueEditor
+              key={catalogueProduct.id}
+              product={catalogueProduct}
+              onSaved={() => {
+                setCatalogueProduct(null)
+                void client.invalidateQueries({
+                  queryKey: ['store', 'my-products', user.id],
+                })
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+      {promotionCodes && (
+        <StorePromotionCodes
+          key={promotionCodes.id}
+          product={promotionCodes}
+          onClose={() => setPromotionCodes(null)}
+        />
+      )}
       {editing !== null && (
         <StoreProductEditor
           key={editing === 'new' ? 'new' : editing.id}
           product={editing === 'new' ? undefined : editing}
           allowedMethods={allowedMethods}
+          minimumPriceQuota={config.data?.minimum_unit_price_quota}
+          linkPresets={config.data?.product_link_presets}
+          testModeSupported={config.data?.product_test_mode_supported === true}
+          accessSupported={config.data?.store_access_supported === true}
+          categoriesSupported={config.data?.store_categories_supported === true}
+          svgMediaSupported={config.data?.store_svg_media_supported === true}
+          fixedContentSupported={config.data?.fixed_content_supported === true}
+          purchaseLimitsSupported={
+            config.data?.product_purchase_limits_supported === true
+          }
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null)
-            await client.invalidateQueries({
-              queryKey: ['store', 'my-products', user.id],
-            })
+            await Promise.all([
+              client.invalidateQueries({
+                queryKey: ['store', 'my-products', user.id],
+              }),
+              client.invalidateQueries({ queryKey: ['store', 'products'] }),
+              ...(editing !== 'new'
+                ? [
+                    client.invalidateQueries({
+                      queryKey: ['store', 'product'],
+                    }),
+                    client.invalidateQueries({
+                      queryKey: ['store', 'product-preview'],
+                    }),
+                  ]
+                : []),
+            ])
           }}
         />
       )}
       {inventory && (
         <StoreInventoryImport
           key={inventory.id}
-          product={inventory}
+          product={
+            query.data?.items.find((product) => product.id === inventory.id) ||
+            inventory
+          }
           onClose={() => setInventory(null)}
+          onChanged={async () => {
+            await Promise.all([
+              client.invalidateQueries({
+                queryKey: ['store', 'my-products', user.id],
+              }),
+              client.invalidateQueries({ queryKey: ['store', 'products'] }),
+              client.invalidateQueries({
+                queryKey: ['store', 'product', inventory.id],
+              }),
+              client.invalidateQueries({
+                queryKey: ['store', 'product-preview', inventory.id, user.id],
+              }),
+            ])
+          }}
           onSaved={async () => {
             setInventory(null)
-            await client.invalidateQueries({
-              queryKey: ['store', 'my-products', user.id],
-            })
+            await Promise.all([
+              client.invalidateQueries({
+                queryKey: ['store', 'my-products', user.id],
+              }),
+              client.invalidateQueries({ queryKey: ['store', 'products'] }),
+              client.invalidateQueries({
+                queryKey: ['store', 'product', inventory.id],
+              }),
+              client.invalidateQueries({
+                queryKey: ['store', 'product-preview', inventory.id, user.id],
+              }),
+            ])
           }}
         />
       )}
@@ -347,23 +737,83 @@ function StoreSellerCenter() {
 export function StoreProductEditor({
   product,
   allowedMethods,
+  minimumPriceQuota,
+  linkPresets = [],
+  testModeSupported = false,
+  accessSupported = false,
+  categoriesSupported = false,
+  svgMediaSupported = false,
+  purchaseLimitsSupported = false,
+  fixedContentSupported = false,
   onClose,
   onSaved,
 }: {
   product?: StoreProduct
   allowedMethods: StorePaymentMethod[]
+  minimumPriceQuota?: number
+  linkPresets?: StoreLinkPreset[]
+  testModeSupported?: boolean
+  accessSupported?: boolean
+  categoriesSupported?: boolean
+  svgMediaSupported?: boolean
+  purchaseLimitsSupported?: boolean
+  fixedContentSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
-  const { t } = useTranslation()
-  const price = useStoreMoneyDraft(product?.price_quota || EMPTY.price_quota)
+  const { t, i18n } = useTranslation()
+  const categories = useStoreCategories(categoriesSupported)
+  const money = useWalletCurrency()
+  const price = useStoreMoneyDraft(product?.price_quota ?? Number.NaN)
+  const minimum =
+    Number.isSafeInteger(minimumPriceQuota) && (minimumPriceQuota ?? -1) >= 0
+      ? minimumPriceQuota
+      : undefined
+  const minimumAmount =
+    minimum === undefined
+      ? ''
+      : formatMinimumQuotaInCurrency(
+          minimum,
+          price.currency,
+          {
+            locale: getCurrencyFormattingLocale(i18n.language),
+            creditLabel: t('Credits'),
+            abbreviate: false,
+          },
+          money.config
+        )
   const [draft, setDraft] = useState<StoreProductInput>(() => ({
     ...EMPTY,
     ...product,
+    visibility: storeVisibility(product || {}),
+    purchase_login_required: storePurchaseLoginRequired(product || {}),
     links: product?.links?.map((link) => ({ ...link })) || [],
     image_urls: [...(product?.image_urls || [])],
   }))
-  const [images, setImages] = useState((product?.image_urls || []).join('\n'))
+  const [confirmAccountCollection, setConfirmAccountCollection] =
+    useState(false)
+  const [logoImage, setLogoImage] = useState(
+    storeImageEditorText(product?.image_urls?.[0] || '')
+  )
+  const [headerImage, setHeaderImage] = useState(
+    storeImageEditorText(product?.image_urls?.[1] || '')
+  )
+  const [images, setImages] = useState(
+    (product?.image_urls || []).slice(2).join('\n')
+  )
+  const fixedContent = useStoreFixedContentDraft(
+    product?.id,
+    product?.default_variant_id ||
+      product?.variants?.find((variant) => variant.is_default)?.id,
+    product?.template === 'fixed-content'
+  )
+
+  const [orderLimit, setOrderLimit] = useState(
+    String(product?.max_quantity_per_order ?? '')
+  )
+  const [buyerLimit, setBuyerLimit] = useState(
+    String(product?.max_quantity_per_buyer ?? '')
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const change = <K extends keyof StoreProductInput>(
@@ -376,22 +826,29 @@ export function StoreProductEditor({
     setBusy(true)
     setError(null)
     try {
+      if (minimum === undefined) {
+        throw new Error(t('Loading...'))
+      }
       if (!price.quota || !draft.title.trim()) {
         throw new Error('Enter a valid title and price')
+      }
+      if (price.quota < minimum) {
+        throw new Error(t(minimumCopy.error, { amount: minimumAmount }))
       }
       if (
         draft.payment_methods.some((method) => !allowedMethods.includes(method))
       ) {
         throw new Error(t(copy.unavailable))
       }
-      const imageUrls = images
-        .split(/\r?\n/)
-        .map((url) => url.trim())
-        .filter(Boolean)
+      const imageUrls = storeProductMediaDraft(logoImage, headerImage, images)
       if (
-        imageUrls.some((url) => !safeStoreUrl(url)) ||
-        draft.links.some((link) => !safeStoreUrl(link.url))
+        !imageUrls ||
+        (!svgMediaSupported &&
+          imageUrls.some((url) => url.startsWith(STORE_SVG_DATA_PREFIX)))
       ) {
+        throw new Error(t('Use a valid image URL or safe SVG.'))
+      }
+      if (draft.links.some((link) => !safeStoreUrl(link.url))) {
         throw new Error('Use valid HTTP or HTTPS links')
       }
       const body: StoreProductInput = {
@@ -407,6 +864,33 @@ export function StoreProductEditor({
         pickup_login_required: draft.pickup_login_required,
         pickup_code_required: draft.pickup_code_required,
         email_pickup_link: draft.email_pickup_link,
+      }
+      if (draft.template === 'fixed-content') {
+        if (!fixedContent.valid) throw new Error(t(fixedCopy.invalid))
+        if (fixedContent.write !== undefined) {
+          body.fixed_content = fixedContent.write
+        }
+      }
+      if (categoriesSupported) body.category_id = draft.category_id ?? ''
+      if (accessSupported) {
+        const visibility = storeVisibility(draft)
+        const loginRequired = storePurchaseLoginRequired(draft)
+        if (!loginRequired && draft.pickup_login_required) {
+          throw new Error(t(accessCopy.pickupConflict))
+        }
+        body.visibility = visibility
+        body.purchase_login_required = loginRequired
+      } else if (testModeSupported) {
+        body.test_mode = draft.test_mode === true
+      }
+      if (purchaseLimitsSupported) {
+        const perOrder = storePurchaseLimit(orderLimit)
+        const perBuyer = storePurchaseLimit(buyerLimit)
+        if (perOrder === undefined || perBuyer === undefined) {
+          throw new Error(t(purchaseCopy.invalid))
+        }
+        body.max_quantity_per_order = perOrder
+        body.max_quantity_per_buyer = perBuyer
       }
       if (product) await storeApi.updateProduct(product.id, body)
       else await storeApi.createProduct(body)
@@ -426,9 +910,44 @@ export function StoreProductEditor({
     >
       <DialogContent className='sm:max-w-3xl'>
         <DialogTitle>{t(product ? 'Edit product' : 'New product')}</DialogTitle>
+        <AlertDialog
+          open={confirmAccountCollection}
+          onOpenChange={setConfirmAccountCollection}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t(accessCopy.accountCollectionTitle)}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t(accessCopy.accountCollectionHelp)}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>
+                {t('Cancel')}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                onClick={() => {
+                  setDraft((current) => ({
+                    ...current,
+                    pickup_login_required: true,
+                    purchase_login_required: true,
+                  }))
+                  setConfirmAccountCollection(false)
+                }}
+              >
+                {t(accessCopy.accountCollectionConfirm)}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <DialogDescription>
           {t(
-            'Save a draft first. Submit it after adding stock and configuring payment methods.'
+            draft.template === 'fixed-content'
+              ? fixedCopy.draftHelp
+              : 'Save a draft first. Submit it after adding stock and configuring payment methods.'
           )}
         </DialogDescription>
         <form onSubmit={(event) => void save(event)} className='space-y-5'>
@@ -444,6 +963,24 @@ export function StoreProductEditor({
                 onChange={(event) => change('title', event.target.value)}
               />
             </div>
+            {categoriesSupported && (
+              <div className='sm:col-span-2'>
+                <StoreError
+                  error={categories.error}
+                  retry={() => void categories.refetch()}
+                />
+                <StoreCategorySelect
+                  id='store-product-category'
+                  value={draft.category_id ?? ''}
+                  items={categories.data?.items ?? []}
+                  current={product?.category}
+                  disabled={
+                    busy || categories.isPending || !categories.data?.supported
+                  }
+                  onChange={(value) => change('category_id', value)}
+                />
+              </div>
+            )}
             <div className='space-y-2 sm:col-span-2'>
               <Label htmlFor='store-description'>{t('Description')}</Label>
               <Textarea
@@ -455,6 +992,13 @@ export function StoreProductEditor({
               />
             </div>
             <div className='space-y-2'>
+              {product?.variants && (
+                <p className='text-muted-foreground text-xs leading-5'>
+                  {t(
+                    'Product price and template edits apply only to the default variant. Other variants are managed separately.'
+                  )}
+                </p>
+              )}
               <Label htmlFor='store-price'>
                 {t('Unit price')} ({price.currency})
               </Label>
@@ -483,11 +1027,21 @@ export function StoreProductEditor({
                   required
                 />
               </div>
-              <p className='text-muted-foreground text-xs'>
-                {price.quota === undefined
-                  ? t('Invalid amount')
-                  : `${price.quota.toLocaleString()} ${t('Credits')}`}
-              </p>
+              {price.quota === undefined && (
+                <p className='text-destructive text-xs'>
+                  {t('Invalid amount')}
+                </p>
+              )}
+              {minimum !== undefined && minimum > 0 && (
+                <p className='text-muted-foreground text-xs'>
+                  {t(minimumCopy.current, { amount: minimumAmount })}
+                </p>
+              )}
+              {minimum === undefined && (
+                <p className='text-muted-foreground text-xs'>
+                  {t('Loading...')}
+                </p>
+              )}
             </div>
             <div className='space-y-2'>
               <Label htmlFor='store-contact'>{t('Seller contact')}</Label>
@@ -498,17 +1052,15 @@ export function StoreProductEditor({
                 onChange={(event) => change('contact', event.target.value)}
               />
             </div>
-            <div className='space-y-2 sm:col-span-2'>
-              <Label htmlFor='store-images'>{t('Product image URLs')}</Label>
-              <Textarea
-                id='store-images'
-                rows={2}
-                maxLength={20000}
-                value={images}
-                onChange={(event) => setImages(event.target.value)}
-                placeholder={t('One URL per line')}
-              />
-            </div>
+            <StoreProductMediaEditor
+              logo={logoImage}
+              header={headerImage}
+              additional={images}
+              svgSupported={svgMediaSupported}
+              onLogoChange={setLogoImage}
+              onHeaderChange={setHeaderImage}
+              onAdditionalChange={setImages}
+            />
           </div>
           <fieldset className='space-y-3 border-t pt-4'>
             <legend className='font-semibold'>{t('Product links')}</legend>
@@ -580,6 +1132,10 @@ export function StoreProductEditor({
                 />
               </div>
             ))}
+            <StoreLinkPresetChooser
+              presets={linkPresets}
+              onAdd={(link) => change('links', [...draft.links, link])}
+            />
             <Button
               type='button'
               size='sm'
@@ -608,10 +1164,22 @@ export function StoreProductEditor({
                   )
                 }
               >
-                <option value='card-key'>{t('Activation keys')}</option>
-                <option value='text'>{t('Text items')}</option>
-                <option value='custom-text'>{t('Custom text')}</option>
+                {Object.entries(DELIVERY_TEMPLATES)
+                  .filter(
+                    ([key]) =>
+                      key !== 'fixed-content' ||
+                      fixedContentSupported ||
+                      draft.template === key
+                  )
+                  .map(([key, template]) => (
+                    <option key={key} value={key}>
+                      {t(template.label)}
+                    </option>
+                  ))}
               </select>
+              <p className='text-muted-foreground text-xs'>
+                {t(DELIVERY_TEMPLATES[draft.template].help)}
+              </p>
             </div>
             <div className='space-y-2'>
               <Label htmlFor='store-delivery'>{t('Delivery strategy')}</Label>
@@ -619,6 +1187,7 @@ export function StoreProductEditor({
                 id='store-delivery'
                 className='bg-background h-11 w-full rounded-md border px-3 text-sm'
                 value={draft.delivery_strategy}
+                disabled={draft.template === 'fixed-content'}
                 onChange={(event) =>
                   change(
                     'delivery_strategy',
@@ -631,6 +1200,13 @@ export function StoreProductEditor({
               </select>
             </div>
           </div>
+          {draft.template === 'fixed-content' && (
+            <StoreFixedContentEditor
+              id='store-fixed-content'
+              draft={fixedContent}
+              disabled={busy}
+            />
+          )}
           <fieldset className='space-y-2 border-t pt-4'>
             <legend className='font-semibold'>{t('Payment methods')}</legend>
             <p className='text-muted-foreground text-sm'>{t(copy.subset)}</p>
@@ -697,9 +1273,17 @@ export function StoreProductEditor({
               </span>
               <Switch
                 checked={draft.pickup_login_required}
-                onCheckedChange={(value) =>
-                  change('pickup_login_required', value)
-                }
+                onCheckedChange={(value) => {
+                  if (
+                    accessSupported &&
+                    value &&
+                    !storePurchaseLoginRequired(draft)
+                  ) {
+                    setConfirmAccountCollection(true)
+                  } else {
+                    change('pickup_login_required', value)
+                  }
+                }}
               />
             </label>
             <p className='text-muted-foreground text-xs leading-5'>
@@ -752,6 +1336,81 @@ export function StoreProductEditor({
               </div>
             ))}
           </fieldset>
+          {purchaseLimitsSupported && (
+            <fieldset className='space-y-3 rounded-lg border p-4'>
+              <legend className='px-1 text-sm font-medium'>
+                {t(purchaseCopy.title)}
+              </legend>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-2'>
+                  <Label htmlFor='store-order-limit'>
+                    {t(purchaseCopy.perOrder)}
+                  </Label>
+                  <Input
+                    id='store-order-limit'
+                    inputMode='numeric'
+                    pattern='[1-9][0-9]*'
+                    maxLength={16}
+                    placeholder={t(purchaseCopy.unlimited)}
+                    value={orderLimit}
+                    disabled={busy}
+                    onChange={(event) => setOrderLimit(event.target.value)}
+                  />
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='store-buyer-limit'>
+                    {t(purchaseCopy.perBuyer)}
+                  </Label>
+                  <Input
+                    id='store-buyer-limit'
+                    inputMode='numeric'
+                    pattern='[1-9][0-9]*'
+                    maxLength={16}
+                    placeholder={t(purchaseCopy.unlimited)}
+                    value={buyerLimit}
+                    disabled={busy}
+                    onChange={(event) => setBuyerLimit(event.target.value)}
+                  />
+                </div>
+              </div>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(purchaseCopy.help)}
+              </p>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(purchaseCopy.buyerHelp)}
+              </p>
+            </fieldset>
+          )}
+          {accessSupported && (
+            <StoreProductAccessSettings
+              value={{
+                visibility: storeVisibility(draft),
+                purchase_login_required: storePurchaseLoginRequired(draft),
+                pickup_login_required: draft.pickup_login_required,
+              }}
+              disabled={busy}
+              onChange={(access) =>
+                setDraft((current) => ({ ...current, ...access }))
+              }
+            />
+          )}
+          {testModeSupported && !accessSupported && (
+            <div className='space-y-2 rounded-lg border p-4'>
+              <label className='flex items-center justify-between gap-4 text-sm'>
+                <span>{t(testCopy.label)}</span>
+                <Switch
+                  checked={draft.test_mode === true}
+                  onCheckedChange={(value) => change('test_mode', value)}
+                />
+              </label>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(testCopy.help)}
+              </p>
+              <p className='text-muted-foreground text-xs leading-5'>
+                {t(testCopy.changed)}
+              </p>
+            </div>
+          )}
           <div className='flex justify-end gap-2 border-t pt-4'>
             <Button
               type='button'
@@ -761,7 +1420,15 @@ export function StoreProductEditor({
             >
               {t('Cancel')}
             </Button>
-            <Button type='submit' disabled={busy || price.quota === undefined}>
+            <Button
+              type='submit'
+              disabled={
+                busy ||
+                price.quota === undefined ||
+                minimum === undefined ||
+                (draft.template === 'fixed-content' && !fixedContent.valid)
+              }
+            >
               {t(busy ? 'Saving...' : 'Save draft')}
             </Button>
           </div>
@@ -774,10 +1441,135 @@ export function StoreInventoryImport({
   product,
   onClose,
   onSaved,
+  onChanged,
 }: {
   product: StoreProduct
   onClose: () => void
   onSaved: () => Promise<void>
+  onChanged?: () => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [variantId, setVariantId] = useState(
+    product.default_variant_id ||
+      product.variants?.find((variant) => variant.is_default)?.id ||
+      ''
+  )
+  const [busy, setBusy] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const legacy = legacyVariantProduct(product)
+  const variant = product.variants?.find(
+    (item) => item.id === variantId && item.product_id === product.id
+  )
+  function selectVariant(id: string) {
+    if (busy || id === variantId) return
+    if (
+      dirty &&
+      !window.confirm(
+        t('Switching variants clears the unsaved inventory draft. Continue?')
+      )
+    ) {
+      return
+    }
+    setVariantId(id)
+    setDirty(false)
+  }
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (open || busy) return
+        if (
+          dirty &&
+          !window.confirm(
+            t('Closing will discard the unsaved inventory draft. Continue?')
+          )
+        ) {
+          return
+        }
+        onClose()
+      }}
+    >
+      <DialogContent className='sm:max-w-xl'>
+        <DialogTitle>{t('Add inventory')}</DialogTitle>
+        <Tabs
+          value={variantId}
+          onValueChange={(id) => selectVariant(String(id))}
+        >
+          {!legacy && (
+            <div className='space-y-2'>
+              <TabsList
+                aria-label={t('Variant inventory')}
+                variant='line'
+                className='h-auto flex-wrap justify-start'
+              >
+                {product.variants?.map((item) => (
+                  <TabsTrigger
+                    key={item.id}
+                    value={item.id}
+                    disabled={busy}
+                    className='min-h-11 break-words whitespace-normal'
+                  >
+                    {item.name || t('Default variant')}
+                    {!item.enabled && (
+                      <span className='text-muted-foreground ml-1 text-xs'>
+                        ({t('Disabled')})
+                      </span>
+                    )}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Imports go only to the selected variant. Disabled variants can still be restocked.'
+                )}
+              </p>
+              {variant && (
+                <StoreInventoryTotals product={product} variant={variant} />
+              )}
+            </div>
+          )}
+          {legacy || variant ? (
+            <TabsContent value={variantId}>
+              {(variant?.template ?? product.template) === 'fixed-content' ? (
+                <p className='text-muted-foreground text-sm'>
+                  {t(fixedCopy.noImport)}
+                </p>
+              ) : (
+                <StoreInventoryContent
+                  key={variant?.id || 'legacy-default'}
+                  product={product}
+                  variant={variant}
+                  onSaved={onSaved}
+                  onChanged={onChanged}
+                  onBusyChange={setBusy}
+                  onDirtyChange={setDirty}
+                />
+              )}
+            </TabsContent>
+          ) : (
+            <p className='text-muted-foreground text-sm'>
+              {t('Choose a variant before importing inventory.')}
+            </p>
+          )}
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  )
+}
+function StoreInventoryContent({
+  product,
+  variant,
+  onSaved,
+  onChanged,
+  onBusyChange,
+  onDirtyChange,
+}: {
+  product: StoreProduct
+  variant?: StoreVariant
+  onBusyChange: (value: boolean) => void
+  onDirtyChange: (value: boolean) => void
+  onSaved: () => Promise<void>
+  onChanged?: () => Promise<void>
 }) {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
@@ -786,16 +1578,46 @@ export function StoreInventoryImport({
   const [error, setError] = useState<unknown>(null)
   const user = useAuthStore((state) => state.auth.user)!
   const stock = useQuery({
-    queryKey: ['store', 'stock', user.id, product.id, page],
-    queryFn: () => storeApi.stock(product.id, page),
+    queryKey: [
+      'store',
+      'stock',
+      user.id,
+      product.id,
+      variant?.id || 'legacy-default',
+      page,
+    ],
+    queryFn: () =>
+      variant
+        ? storeApi.variantStock(product.id, variant.id, page)
+        : storeApi.stock(product.id, page),
     retry: false,
   })
-  let count = 0
+  const [removeId, setRemoveId] = useState<string | null>(null)
+  const template = variant?.template ?? product.template
+  const composed = template === 'custom-text' || structuredTemplate(template)
+  const [composedItems, setComposedItems] = useState<string[]>([])
+  const [composerDirty, setComposerDirty] = useState(false)
+  useEffect(() => onBusyChange(busy), [busy, onBusyChange])
+  useEffect(
+    () =>
+      onDirtyChange(
+        text.length > 0 || composedItems.length > 0 || composerDirty
+      ),
+    [text, composedItems, composerDirty, onDirtyChange]
+  )
+  let previewItems = composed ? composedItems : []
+  let previewError: unknown = null
   try {
-    count = parseInventoryText(text).length
-  } catch {
-    /* submit validates size */
+    if (!composed) {
+      previewItems = parseInventoryText(text)
+      validateComposedItems(previewItems)
+    }
+  } catch (issue) {
+    previewItems = []
+    previewError = issue
   }
+  const importError = previewError || error
+  const count = previewItems.length
   async function loadFile(file?: File) {
     if (!file) return
     try {
@@ -820,10 +1642,16 @@ export function StoreInventoryImport({
     setBusy(true)
     setError(null)
     try {
-      const items = parseInventoryText(text)
+      const items = composed ? composedItems : parseInventoryText(text)
+      validateComposedItems(items)
       if (!items.length) throw new Error('Add at least one inventory item')
-      await storeApi.inventory(product.id, items)
+      if (variant) {
+        await storeApi.importVariantStock(product.id, variant.id, items)
+      } else {
+        await storeApi.inventory(product.id, items)
+      }
       setText('')
+      setComposedItems([])
       await onSaved()
     } catch (issue) {
       setError(issue)
@@ -832,21 +1660,78 @@ export function StoreInventoryImport({
     }
   }
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose()
-      }}
-    >
-      <DialogContent className='sm:max-w-xl'>
-        <DialogTitle>{t('Add inventory')}</DialogTitle>
-        <DialogDescription>
-          {product.title} ·{' '}
-          {t(
-            'One text item per line. Empty lines are ignored. Duplicate lines remain separate stock items.'
-          )}
-        </DialogDescription>
-        <StoreError error={error} />
+    <div className='space-y-4'>
+      <DialogDescription>
+        {product.title} ·{' '}
+        {composed
+          ? t(DELIVERY_TEMPLATES[template].help)
+          : t(
+              'One text item per line. Empty lines are ignored. Duplicate lines remain separate stock items.'
+            )}
+      </DialogDescription>
+      <AlertDialog
+        open={!!removeId}
+        onOpenChange={(value) => {
+          if (!value && !busy) setRemoveId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Remove')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('Remove this inventory item? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <p className='text-sm break-words'>
+            {product.title} · {variant?.name || t('Historic/default variant')}
+          </p>
+          <p className='text-muted-foreground text-xs break-all'>{removeId}</p>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={() => {
+                if (
+                  busy ||
+                  !removeId ||
+                  !stock.data?.items.some(
+                    (item) => item.id === removeId && item.state === 'available'
+                  )
+                ) {
+                  return
+                }
+                const id = removeId
+                setBusy(true)
+                setError(null)
+                void (
+                  variant
+                    ? storeApi.removeVariantStock(product.id, variant.id, id)
+                    : storeApi.removeStock(product.id, id)
+                )
+                  .then(async () => {
+                    setRemoveId(null)
+                    await stock.refetch()
+                    await onChanged?.()
+                  })
+                  .catch(setError)
+                  .finally(() => setBusy(false))
+              }}
+            >
+              {t('Remove')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <StoreError error={importError} />
+      {importError instanceof Error &&
+        importError.message === 'Inventory import is too large' && (
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              "Check each item's size or split this inventory import into smaller batches."
+            )}
+          </p>
+        )}
+      {!composed && (
         <div className='flex flex-wrap gap-2'>
           <Button
             type='button'
@@ -884,6 +1769,16 @@ export function StoreInventoryImport({
             />
           </label>
         </div>
+      )}
+      {composed ? (
+        <StoreInventoryComposer
+          template={template}
+          items={composedItems}
+          onChange={setComposedItems}
+          disabled={busy}
+          onDraftChange={setComposerDirty}
+        />
+      ) : (
         <Textarea
           rows={9}
           value={text}
@@ -891,79 +1786,79 @@ export function StoreInventoryImport({
           aria-label={t('Inventory text')}
           placeholder={t('One item per line')}
         />
-        <p className='text-muted-foreground text-xs'>
-          {t('{{count}} items ready to import', { count })} ·{' '}
-          {t('Maximum 10,000 items or 2 MB per import.')}
-        </p>
-        <Button disabled={!count || busy} onClick={() => void save()}>
-          {t(busy ? 'Importing...' : 'Import inventory')}
-        </Button>
-        <section className='space-y-3 border-t pt-4'>
-          <h2 className='text-sm font-semibold'>{t('Inventory records')}</h2>
-          <StoreError error={stock.error} retry={() => void stock.refetch()} />
-          {stock.isPending ? (
-            <StoreLoading />
-          ) : (
-            stock.data && (
-              <>
-                <div className='divide-y'>
-                  {!stock.data.items.length && (
-                    <p className='text-muted-foreground py-2 text-xs'>
-                      {t('No inventory yet')}
-                    </p>
-                  )}
-                  {stock.data.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className='flex items-center justify-between gap-2 py-2 text-xs'
-                    >
-                      <span className='min-w-0 break-all'>
-                        {item.id} · {t(item.state)}
-                      </span>
-                      {item.state === 'available' && (
-                        <Button
-                          size='sm'
-                          variant='ghost'
-                          disabled={busy}
-                          onClick={() => {
-                            setBusy(true)
-                            setError(null)
-                            void storeApi
-                              .removeStock(product.id, item.id)
-                              .then(() => stock.refetch())
-                              .catch((issue) => setError(issue))
-                              .finally(() => setBusy(false))
-                          }}
-                        >
-                          {t('Remove')}
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className='flex justify-end gap-2'>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    disabled={page === 1}
-                    onClick={() => setPage((value) => value - 1)}
+      )}
+      <StoreInventoryImportPreview
+        items={previewItems}
+        target={variant?.name || t('Historic/default variant')}
+        disabled={busy}
+        onRemoveDuplicates={(items) => {
+          if (composed) setComposedItems(items)
+          else setText(items.join('\n'))
+        }}
+      />
+      <p className='text-muted-foreground text-xs'>
+        {t('Maximum 10,000 items or 2 MB per import.')}
+      </p>
+      <Button disabled={!count || busy} onClick={() => void save()}>
+        {t(busy ? 'Importing...' : 'Import inventory')}
+      </Button>
+      <section className='space-y-3 border-t pt-4'>
+        <h2 className='text-sm font-semibold'>{t('Inventory records')}</h2>
+        <StoreError error={stock.error} retry={() => void stock.refetch()} />
+        {stock.isPending ? (
+          <StoreLoading />
+        ) : (
+          stock.data && (
+            <>
+              <div className='divide-y'>
+                {!stock.data.items.length && (
+                  <p className='text-muted-foreground py-2 text-xs'>
+                    {t('No inventory yet')}
+                  </p>
+                )}
+                {stock.data.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className='flex items-center justify-between gap-2 py-2 text-xs'
                   >
-                    {t('Previous page')}
-                  </Button>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    disabled={!stock.data.has_more}
-                    onClick={() => setPage((value) => value + 1)}
-                  >
-                    {t('Next page')}
-                  </Button>
-                </div>
-              </>
-            )
-          )}
-        </section>
-      </DialogContent>
-    </Dialog>
+                    <span className='min-w-0 break-all'>
+                      {item.id} · {t(item.state)}
+                    </span>
+                    {item.state === 'available' && (
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        disabled={busy}
+                        onClick={() => setRemoveId(item.id)}
+                      >
+                        {t('Remove')}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className='flex justify-end gap-2'>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={page === 1}
+                  onClick={() => setPage((value) => value - 1)}
+                >
+                  {t('Previous page')}
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={!stock.data.has_more}
+                  onClick={() => setPage((value) => value + 1)}
+                >
+                  {t('Next page')}
+                </Button>
+              </div>
+            </>
+          )
+        )}
+      </section>
+    </div>
   )
 }

@@ -380,8 +380,16 @@ func productionDatabaseCommand(values map[string]string) (string, []string, erro
 		return "", nil, err
 	}
 	parsed, err := url.Parse(databaseURL)
-	if err != nil {
+	if err != nil || parsed.Fragment != "" {
 		return "", nil, errors.New("production database URL is invalid")
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return "", nil, errors.New("production database parameters are invalid")
+	}
+	converted, err := productionLibpqRuntimeParameters(query, values)
+	if err != nil {
+		return "", nil, err
 	}
 	overrides := make(map[string]string)
 	if parsed.User != nil {
@@ -390,7 +398,113 @@ func productionDatabaseCommand(values map[string]string) (string, []string, erro
 			parsed.User = url.User(parsed.User.Username())
 		}
 	}
+	if passwords, present := query["password"]; present {
+		if len(passwords) != 1 || strings.ContainsRune(passwords[0], '\x00') {
+			return "", nil, errors.New("production database password parameter is invalid")
+		}
+		overrides["PGPASSWORD"] = passwords[0]
+		query.Del("password")
+		converted = true
+	}
+	if converted {
+		// libpq percent-decodes URI values; unlike Go's query parser it does
+		// not decode form-encoded '+' as a space.
+		parsed.RawQuery = strings.ReplaceAll(query.Encode(), "+", "%20")
+	}
 	return parsed.String(), productionChildEnvironment(values, overrides), nil
+}
+
+// Sealed business-role probes inherit only the inspected child environment,
+// plus a URI password extracted by the adapter. Operator PG* defaults must not
+// become an extra connection authority at this boundary.
+func productionSealedDatabaseCommand(values map[string]string) (string, []string, error) {
+	sealed := make(map[string]string, len(values)+1)
+	for key, value := range values {
+		sealed[key] = value
+	}
+	sealed["PGOPTIONS"] = values["PGOPTIONS"]
+	dsn, environment, err := productionDatabaseCommand(sealed)
+	if err != nil {
+		return "", nil, err
+	}
+	rawDSN, _ := productionDatabaseURL(values)
+	parsed, _ := url.Parse(rawDSN)
+	passwordPresent := parsed.Query().Has("password")
+	if parsed.User != nil {
+		_, present := parsed.User.Password()
+		passwordPresent = passwordPresent || present
+	}
+	filtered := make([]string, 0, len(sealed)+1)
+	for _, assignment := range environment {
+		key, _, _ := strings.Cut(assignment, "=")
+		if _, present := sealed[key]; present || key == "PGPASSWORD" && passwordPresent {
+			filtered = append(filtered, assignment)
+		}
+	}
+	return dsn, filtered, nil
+}
+
+func productionLibpqRuntimeParameters(query url.Values, values map[string]string) (bool, error) {
+	// These are the two pgx startup parameters used by the native schema
+	// fence. Leave other connection parameters for libpq to validate instead
+	// of guessing which unknown names might be server settings.
+	runtimeKeys := []string{"search_path", "default_transaction_read_only"}
+	options, err := productionPostgresRuntimeOptions(query, values)
+	if err != nil {
+		return false, err
+	}
+	if !query.Has(runtimeKeys[0]) && !query.Has(runtimeKeys[1]) {
+		return false, nil
+	}
+	// A trailing unpaired backslash would escape the separator we append.
+	trailingBackslashes := len(options) - len(strings.TrimRight(options, `\`))
+	if strings.ContainsRune(options, '\x00') || trailingBackslashes%2 != 0 {
+		return false, errors.New("production database runtime options are invalid")
+	}
+	for _, key := range runtimeKeys {
+		entries, present := query[key]
+		if !present {
+			continue
+		}
+		// PostgreSQL applies direct startup GUCs after options. Appending them
+		// preserves that precedence, including intentionally empty values.
+		var escaped strings.Builder
+		for _, character := range entries[0] {
+			if character == '\\' || strings.ContainsRune(" \t\n\r\v\f", character) {
+				escaped.WriteByte('\\')
+			}
+			escaped.WriteRune(character)
+		}
+		if options != "" {
+			options += " "
+		}
+		options += "-c " + key + "=" + escaped.String()
+		query.Del(key)
+	}
+	query.Set("options", options)
+	return true, nil
+}
+
+func productionPostgresRuntimeOptions(query url.Values, values map[string]string) (string, error) {
+	for _, key := range []string{"options", "search_path", "default_transaction_read_only"} {
+		if entries, present := query[key]; present && (len(entries) != 1 || strings.ContainsRune(entries[0], '\x00')) {
+			// pgx selects the first URI value, whereas libpq can select the last.
+			return "", errors.New("production database runtime parameters are invalid")
+		}
+	}
+	// A URI value, even explicitly empty, overrides PGOPTIONS for both drivers.
+	// An inspected empty PGOPTIONS must likewise override an ambient default.
+	options, present := values["PGOPTIONS"]
+	if !present {
+		options = os.Getenv("PGOPTIONS")
+	}
+	if uriOptions, present := query["options"]; present {
+		options = uriOptions[0]
+	}
+	if strings.ContainsRune(options, '\x00') {
+		return "", errors.New("production database runtime options are invalid")
+	}
+	return options, nil
 }
 
 func productionChildEnvironment(values map[string]string, overrides map[string]string) []string {

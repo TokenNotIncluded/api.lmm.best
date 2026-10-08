@@ -382,7 +382,10 @@ func verifyPostgresRuntimeAndSchema(db *gorm.DB) error {
 	if err := verifyPostgresRuntimeIdentity(identity); err != nil {
 		return err
 	}
-	requiredModels := append(mainMigrationModels(), &SubscriptionPlan{})
+	requiredModels, err := runtimeVerificationModels(db)
+	if err != nil {
+		return err
+	}
 	inventory, err := buildPostgresSchemaInventory(db, identity.SchemaName, requiredModels)
 	if err != nil {
 		return err

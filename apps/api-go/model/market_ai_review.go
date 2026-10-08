@@ -132,6 +132,7 @@ type marketReviewText struct {
 	Description string             `json:"description"`
 	Tools       []marketReviewName `json:"tools,omitempty"`
 	Links       []marketReviewName `json:"links,omitempty"`
+	Variants    []marketReviewName `json:"variants,omitempty"`
 }
 type marketReviewName struct {
 	Name        string `json:"name"`
@@ -161,6 +162,17 @@ func marketReviewContent(tx *gorm.DB, source, target, version string) (string, s
 		text.Title, text.Description = p.Title, p.Description
 		for _, link := range p.Links {
 			text.Links = append(text.Links, marketReviewName{link.Title, link.Description})
+		}
+		variants, err := storeVariants(tx, &p)
+		if err != nil {
+			return "", "", err
+		}
+		for _, variant := range variants {
+			// A compatibility default adds no new public content and must not
+			// change the digest of an already queued legacy review.
+			if !variant.IsDefault || variant.Name != "Default" {
+				text.Variants = append(text.Variants, marketReviewName{variant.Name, ""})
+			}
 		}
 	} else {
 		return "", "", ErrModerationJobInvalid
@@ -269,7 +281,15 @@ func marketAIReviewTarget(tx *gorm.DB, j *ModerationJob, locked bool) (*ToolMark
 		if err := q.Where("id = ?", j.TargetID).First(&p).Error; err != nil {
 			return nil, nil, nil, false, err
 		}
-		return nil, nil, &p, p.SellerID == j.UserID && p.Status == "pending" && p.AIReviewToken == j.RequestID, nil
+		valid := MerchantStoreProductVisibility(&p) != "private" && p.SellerID == j.UserID && p.Status == "pending" && p.AIReviewToken == j.RequestID
+		if valid {
+			if e := storeRequireConfiguredSellerTerms(tx, p.SellerID); errors.Is(e, ErrMerchantStoreSellerTerms) {
+				valid = false
+			} else if e != nil {
+				return nil, nil, &p, valid, e
+			}
+		}
+		return nil, nil, &p, valid, nil
 	}
 	return nil, nil, nil, false, ErrModerationJobInvalid
 }
@@ -381,7 +401,8 @@ func CompleteMarketAIReview(ctx context.Context, id int64, owner string, c Marke
 			return err
 		}
 		service, version, product, current, err := marketAIReviewTarget(tx, &identity, true)
-		if err != nil {
+		writerFrozen := product != nil && errors.Is(err, ErrMerchantStoreWriterFrozen)
+		if err != nil && !writerFrozen {
 			return err
 		}
 		var j ModerationJob
@@ -400,13 +421,18 @@ func CompleteMarketAIReview(ctx context.Context, id int64, owner string, c Marke
 		}
 		values := map[string]any{"status": ModerationJobCompleted, "market_outcome": "reference", "flagged": c.Flagged, "categories_json": string(encodedCats), "category_scores_json": string(encodedScores), "response_model": c.ResponseModel, "payload": "", "lease_owner": "", "lease_until": 0, "updated_at": now, "completed_at": now, "error_message": "", "fee_status": "none", "requested_quota": 0, "charged_quota": 0, "fee_record_id": 0, "review_id": 0}
 		_, digest, err := marketReviewContent(tx, j.Source, j.TargetID, j.TargetVersion)
-		if err != nil {
+		contentFrozen := product != nil && errors.Is(err, ErrMerchantStoreWriterFrozen)
+		if err != nil && !contentFrozen {
 			return err
 		}
-		if !current || user.Status != common.UserStatusEnabled || digest != j.InputDigest || j.InputTruncated {
+		if !current || user.Status != common.UserStatusEnabled || (!contentFrozen && digest != j.InputDigest) || j.InputTruncated {
 			values["status"], values["market_outcome"], values["error_message"] = ModerationJobCancelled, "stale", "market_review_stale"
 		} else if s.Mode(j.Source) == setting.MarketAIReviewOff || s.ReviewGroup != j.ReviewGroup || s.ReviewModel != j.ReviewModel {
 			values["status"], values["market_outcome"], values["error_message"] = ModerationJobCancelled, "stale", "market_review_disabled"
+		} else if writerFrozen || contentFrozen {
+			// Finish only an authenticated, current leased task. Frozen listing
+			// writers cannot publish, but the private result must not retry forever.
+			values["market_outcome"], values["error_message"] = "manual_required", "market_review_writer_upgrade"
 		} else if j.CapturedMode == setting.MarketAIReviewAuto && s.Mode(j.Source) == setting.MarketAIReviewAuto {
 			if version != nil && !c.Flagged {
 				valid := c.TechnicalValidationPassed && version.ValidationDigest != "" && version.ValidationDigest == version.Digest
@@ -431,6 +457,14 @@ func CompleteMarketAIReview(ctx context.Context, id int64, owner string, c Marke
 			}
 			values["market_outcome"] = outcome
 			if product != nil {
+				if err := storeRequireWriter(tx); err != nil {
+					values["market_outcome"], values["error_message"] = "manual_required", "market_review_writer_upgrade"
+					return tx.Model(&j).Updates(values).Error
+				}
+				if err := storeRequireVariantPublication(tx, product); err != nil {
+					values["market_outcome"], values["error_message"] = "manual_required", "market_review_writer_upgrade"
+					return tx.Model(&j).Updates(values).Error
+				}
 				product.Status, product.ReviewedBy, product.ReviewedAt, product.UpdatedAt = status, 0, now, now
 				product.ReviewNote = "AI listing text review: " + outcome
 				if err = tx.Save(product).Error; err != nil {
@@ -563,10 +597,13 @@ func ListMarketAIReviews(ctx context.Context, actor int, source, target, version
 		}
 	} else {
 		var p MerchantStoreProduct
-		if err := db.Where("id = ?", target).First(&p).Error; err != nil {
+		if err := db.Where("id = ? AND status <> ?", target, "deleted").First(&p).Error; err != nil {
 			return nil, err
 		}
 		owner = p.SellerID
+		if p.TestMode && actor != owner {
+			return nil, ErrToolMarketDenied
+		}
 	}
 	if actor != owner && user.Role < common.RoleAdminUser {
 		return nil, ErrToolMarketDenied

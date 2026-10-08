@@ -47,6 +47,20 @@ type MerchantStorePaymentSession struct {
 	Status      string            `json:"status"`
 }
 
+// The API exposes only these recovery facts, never raw gateway/database errors.
+// A minimum refusal may race first issuance; only confirmed cancellation lets
+// the buyer create a replacement balance order without retaining obligations.
+type MerchantStorePaymentMinimumError struct {
+	OrderID        string
+	OrderStatus    string
+	OrderCancelled bool
+}
+
+func (e *MerchantStorePaymentMinimumError) Error() string {
+	return ErrMerchantStorePaymentMinimum.Error()
+}
+func (e *MerchantStorePaymentMinimumError) Unwrap() error { return ErrMerchantStorePaymentMinimum }
+
 type merchantStorePaymentContext struct {
 	Provider        string                            `json:"provider"`
 	Config          merchantStoreGatewayConfig        `json:"config"`
@@ -357,6 +371,67 @@ func loadMerchantStorePaymentContext(order *model.MerchantStoreOrder) (merchantS
 	return context, nil
 }
 
+// A new gateway invoice must reach one actual settlement minor unit before
+// rounding. Never turn a fractional-cent price into a larger gateway bill.
+func merchantStoreDiscountPaymentMinimum(order *model.MerchantStoreOrder, rate string, pricing *paymentpricing.SettlementPricing) error {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil || !anchor.Equal(decimal.NewFromInt(merchantStoreCreditsPerUSD)) || order.PriceQuota <= 0 {
+		return ErrMerchantStorePaymentConfiguration
+	}
+	numerator := decimal.NewFromInt(int64(order.PriceQuota))
+	denominator := anchor
+	if pricing != nil {
+		quotaBasis, err := common.LegacyPricingQuotaPerUnit()
+		if err != nil || !quotaBasis.Equal(anchor) {
+			return ErrMerchantStorePaymentConfiguration
+		}
+		switch {
+		case pricing.UsesFixedCreditDenomination:
+			numerator = numerator.Mul(pricing.SettlementUnitsPerUSD)
+		case pricing.UsesSettlementUnitsPerPlatformUnit:
+			numerator = numerator.Mul(pricing.SettlementUnitsPerPlatformUnit)
+			denominator = quotaBasis
+		default:
+			numerator = numerator.Mul(pricing.SettlementUnitsPerUSD)
+			denominator = quotaBasis.Mul(pricing.PlatformUnitsPerUSD)
+		}
+	} else {
+		ratio, err := merchantStoreParsePositiveRate(rate)
+		if err != nil {
+			return err
+		}
+		numerator = numerator.Mul(ratio)
+	}
+	if !numerator.IsPositive() || !denominator.IsPositive() {
+		return ErrMerchantStorePaymentConfiguration
+	}
+	if numerator.Mul(decimal.NewFromInt(100)).LessThan(denominator) {
+		return ErrMerchantStorePaymentMinimum
+	}
+	return nil
+}
+
+func merchantStorePaymentPreparationFailure(order *model.MerchantStoreOrder, err error, cancel func() error) error {
+	if !errors.Is(err, ErrMerchantStorePaymentMinimum) {
+		return err
+	}
+	if order == nil || cancel == nil {
+		return ErrMerchantStorePaymentAccess
+	}
+	// The minimum check runs before binding an invoice or sending provider HTTP.
+	// Cancellation rechecks stock/payment obligations under the order's product
+	// lock. A concurrent issued/verified/unknown obligation refuses this cleanup.
+	cancelErr := cancel()
+	if cancelErr != nil && !errors.Is(cancelErr, model.ErrMerchantStoreConflict) {
+		return cancelErr
+	}
+	current, loadErr := model.GetMerchantStorePaymentOrder(order.ID)
+	if loadErr != nil {
+		return loadErr
+	}
+	return &MerchantStorePaymentMinimumError{OrderID: current.ID, OrderStatus: current.Status, OrderCancelled: current.Status == "cancelled"}
+}
+
 func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, requestedCurrency string) error {
 	if order.GatewaySnapshot != "" {
 		context, err := loadMerchantStorePaymentContext(order)
@@ -419,6 +494,9 @@ func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, request
 	if err != nil {
 		return err
 	}
+	if err := merchantStoreDiscountPaymentMinimum(order, rate, platformPricing); err != nil {
+		return err
+	}
 	origin, err := merchantStoreCallbackOrigin()
 	if err != nil {
 		return err
@@ -454,11 +532,23 @@ func prepareMerchantStorePaymentContext(order *model.MerchantStoreOrder, request
 // currency. Price, owner, fees and converted amount always come from the order.
 func CreateMerchantStorePaymentSession(ctx context.Context, buyerID int, orderID, requestedCurrency string) (*MerchantStorePaymentSession, error) {
 	order, err := model.GetMerchantStorePaymentOrder(orderID)
-	if err != nil || order == nil || order.BuyerID != buyerID || buyerID <= 0 || !merchantStoreTradeNoPattern.MatchString(order.TradeNo) {
+	if err != nil || order == nil || order.BuyerID != buyerID || buyerID <= 0 || order.GuestID != "" || !merchantStoreTradeNoPattern.MatchString(order.TradeNo) {
 		return nil, ErrMerchantStorePaymentAccess
 	}
+	return createMerchantStorePaymentSessionForOrder(ctx, order, requestedCurrency, func() error {
+		return model.CancelMerchantStoreOrder(buyerID, orderID)
+	})
+}
+
+func createMerchantStorePaymentSessionForOrder(ctx context.Context, order *model.MerchantStoreOrder, requestedCurrency string, cancel func() error) (*MerchantStorePaymentSession, error) {
 	if order.PaymentMethod == MerchantStoreBalance {
 		return &MerchantStorePaymentSession{OrderID: order.ID, Method: "balance", Currency: "CREDIT", Status: order.Status}, nil
+	}
+	if order.PaymentMethod == "free" {
+		if order.Status != "paid" || order.PaidAt <= 0 || order.PriceQuota != 0 || order.DiscountBPS != 10000 || order.PromotionID == "" || order.FeeQuota != 0 || order.GatewaySnapshot != "" {
+			return nil, ErrMerchantStorePaymentAccess
+		}
+		return &MerchantStorePaymentSession{OrderID: order.ID, Method: "free", Currency: "CREDIT", Amount: "0", Status: order.Status}, nil
 	}
 	if order.Status != "pending" {
 		return nil, ErrMerchantStorePaymentAccess
@@ -468,9 +558,9 @@ func CreateMerchantStorePaymentSession(ctx context.Context, buyerID int, orderID
 	}
 	requestedCurrency = strings.ToUpper(strings.TrimSpace(requestedCurrency))
 	if err := prepareMerchantStorePaymentContext(order, requestedCurrency); err != nil {
-		return nil, err
+		return nil, merchantStorePaymentPreparationFailure(order, err, cancel)
 	}
-	order, err = model.GetMerchantStorePaymentOrder(orderID)
+	order, err := model.GetMerchantStorePaymentOrder(order.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +651,7 @@ func createMerchantStorePancakeSessionWithClient(ctx context.Context, order *mod
 			ExpiresInSeconds: &expiresIn, SuccessURL: &returnURL, OrderMerchantExternalID: &order.TradeNo,
 			Metadata: map[string]string{"lmm_store_order_id": order.ID, "lmm_store_product_id": order.ProductID, "lmm_pancake_product_id": paymentContext.Config.ProductID, "lmm_store_seller_id": strconv.Itoa(order.SellerID)},
 		},
-		BuyerIdentity: WaffoPancakeBuyerIdentityFromUserID(order.BuyerID),
+		BuyerIdentity: model.MerchantStoreOrderBuyerIdentity(order),
 	}
 	// BuyerEmail is deliberately omitted: a merchant does not receive the
 	// platform account email merely because the buyer purchases a product.
@@ -650,7 +740,13 @@ func HandleMerchantStoreEpayCallback(_ context.Context, orderID string, paramete
 	if err != nil {
 		return err
 	}
-	return completeMerchantStoreVerifiedPayment(order.ID, tradeID)
+	if err := completeMerchantStoreVerifiedPayment(order.ID, tradeID); err != nil {
+		return err
+	}
+	if order.PaymentMethod == MerchantStorePlatformLinuxDO {
+		return merchantStoreRecordLinuxDORefundBasis(order.ID, tradeID, order.AmountMinor)
+	}
+	return nil
 }
 
 // Only verified provider adapters may enter this helper. Preserving paid
@@ -689,7 +785,7 @@ func validateMerchantStorePancakeCallback(order *model.MerchantStoreOrder, payme
 	if err := ValidateWaffoPancakeWebhookEvent(event); err != nil {
 		return "", ErrMerchantStorePaymentVerification
 	}
-	if event.Mode != paymentContext.Config.Environment || event.StoreID != paymentContext.Config.StoreID || event.Data.Currency != order.Currency || event.Data.OrderMerchantExternalID != order.TradeNo || event.Data.MerchantProvidedBuyerIdentity != WaffoPancakeBuyerIdentityFromUserID(order.BuyerID) || event.Data.OrderMetadata["lmm_store_order_id"] != order.ID || event.Data.OrderMetadata["lmm_store_product_id"] != order.ProductID || event.Data.OrderMetadata["lmm_pancake_product_id"] != paymentContext.Config.ProductID || event.Data.OrderMetadata["lmm_store_seller_id"] != strconv.Itoa(order.SellerID) {
+	if event.Mode != paymentContext.Config.Environment || event.StoreID != paymentContext.Config.StoreID || event.Data.Currency != order.Currency || event.Data.OrderMerchantExternalID != order.TradeNo || event.Data.MerchantProvidedBuyerIdentity != model.MerchantStoreOrderBuyerIdentity(order) || event.Data.OrderMetadata["lmm_store_order_id"] != order.ID || event.Data.OrderMetadata["lmm_store_product_id"] != order.ProductID || event.Data.OrderMetadata["lmm_pancake_product_id"] != paymentContext.Config.ProductID || event.Data.OrderMetadata["lmm_store_seller_id"] != strconv.Itoa(order.SellerID) {
 		return "", ErrMerchantStorePaymentVerification
 	}
 	minor, err := merchantStoreMoneyToMinor(event.Data.Amount)
@@ -722,7 +818,7 @@ func HandleMerchantStorePancakeWebhook(_ context.Context, scope string, sellerID
 	if err != nil {
 		return ErrMerchantStorePaymentVerification
 	}
-	if event.EventType != "order.completed" || !merchantStoreTradeNoPattern.MatchString(event.Data.OrderMerchantExternalID) {
+	if (event.EventType != "order.completed" && event.EventType != "refund.succeeded" && event.EventType != "refund.failed") || !merchantStoreTradeNoPattern.MatchString(event.Data.OrderMerchantExternalID) {
 		return ErrMerchantStorePaymentIgnored
 	}
 	order, err := model.GetMerchantStorePaymentOrderByTradeNo(event.Data.OrderMerchantExternalID)
@@ -736,9 +832,15 @@ func HandleMerchantStorePancakeWebhook(_ context.Context, scope string, sellerID
 	if err != nil {
 		return err
 	}
+	if event.EventType == "refund.succeeded" || event.EventType == "refund.failed" {
+		return merchantStoreHandleRefundNotification(order, payload, signature, event.Data.RefundTicketMerchantExternalID)
+	}
 	tradeID, err := validateMerchantStorePancakeCallback(order, paymentContext, event)
 	if err != nil {
 		return err
 	}
-	return completeMerchantStoreVerifiedPayment(order.ID, tradeID)
+	if err := completeMerchantStoreVerifiedPayment(order.ID, tradeID); err != nil {
+		return err
+	}
+	return merchantStoreRecordPancakeRefundBasis(order.ID, payload, signature)
 }

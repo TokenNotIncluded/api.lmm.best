@@ -1,0 +1,125 @@
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+
+import { storeApi } from './api'
+import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
+import { STORE_SALES_LIMIT_COPY as copy } from './sales-limit-copy'
+import { StoreError } from './shared'
+import type { StoreProduct } from './types'
+
+export function StoreSalesLimit({
+  product,
+  onSaved,
+}: {
+  product: StoreProduct
+  onSaved: () => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const paidQuantity = product.paid_quantity
+  const serverRemaining =
+    typeof paidQuantity === 'number' &&
+    Number.isSafeInteger(paidQuantity) &&
+    paidQuantity >= 0
+      ? Math.max(0, (product.sale_limit ?? 0) - paidQuantity)
+      : undefined
+  const [unlimited, setUnlimited] = useState(product.sale_limit === null)
+  const [limit, setLimit] = useState(String(serverRemaining ?? ''))
+  const [busy, setBusy] = useState(false)
+  const [edited, setEdited] = useState(false)
+  const savedFromSnapshot = useRef<string | undefined>(undefined)
+  const snapshot = `${product.sale_limit ?? 'unlimited'}:${paidQuantity ?? 'unknown'}`
+  useEffect(() => {
+    if (edited || savedFromSnapshot.current === snapshot) return
+    savedFromSnapshot.current = undefined
+    setUnlimited(product.sale_limit === null)
+    setLimit(String(serverRemaining ?? ''))
+  }, [edited, snapshot, product.sale_limit, serverRemaining])
+  const [error, setError] = useState<unknown>(null)
+  async function save(event: React.FormEvent) {
+    event.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const amount = Number(limit)
+      if (
+        !unlimited &&
+        (!/^\d+$/.test(limit) || !Number.isSafeInteger(amount) || amount < 0)
+      ) {
+        throw new Error(t(copy.invalid))
+      }
+      await storeApi.remainingQuota(product.id, unlimited ? null : amount)
+      savedFromSnapshot.current = snapshot
+      await onSaved()
+      setEdited(false)
+    } catch (issue) {
+      setError(issue)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <form
+      onSubmit={(event) => void save(event)}
+      className='space-y-3 rounded-md border p-3'
+    >
+      <h3 className='text-sm font-semibold'>{t(copy.title)}</h3>
+      <StoreError error={error} />
+      <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
+        <span>
+          {product.unlimited_supply
+            ? t(fixedCopy.unlimited)
+            : t(copy.inventory, {
+                count: product.inventory_total ?? product.available_stock,
+              })}
+        </span>
+        <span>{t(copy.paid, { count: paidQuantity ?? '—' })}</span>
+        <span>{t(copy.reserved, { count: product.reserved_quantity })}</span>
+        {(!product.unlimited_supply || product.sale_limit != null) && (
+          <span>{t(copy.available, { count: product.sale_available })}</span>
+        )}
+      </div>
+      <div className='flex items-center justify-between gap-3'>
+        <Label htmlFor={`store-unlimited-${product.id}`}>
+          {t(copy.unlimited)}
+        </Label>
+        <Switch
+          id={`store-unlimited-${product.id}`}
+          checked={unlimited}
+          disabled={busy}
+          onCheckedChange={(value) => {
+            setEdited(true)
+            setUnlimited(value)
+          }}
+        />
+      </div>
+      {!unlimited && (
+        <div className='space-y-2'>
+          <Label htmlFor={`store-sale-limit-${product.id}`}>
+            {t(copy.limit)}
+          </Label>
+          <Input
+            id={`store-sale-limit-${product.id}`}
+            inputMode='numeric'
+            value={limit}
+            onChange={(event) => {
+              setEdited(true)
+              setLimit(event.target.value)
+            }}
+            disabled={busy}
+          />
+        </div>
+      )}
+      <p className='text-muted-foreground text-xs'>{t(copy.help)}</p>
+      <Button type='submit' size='sm' disabled={busy}>
+        {t(busy ? 'Saving...' : copy.save)}
+      </Button>
+    </form>
+  )
+}

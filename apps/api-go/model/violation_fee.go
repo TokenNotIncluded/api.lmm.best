@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
-	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"gorm.io/gorm"
 )
 
@@ -25,19 +24,6 @@ var (
 	ErrViolationFeeAppealPending  = errors.New("该违规扣费已有待处理申诉")
 	ErrViolationFeeAppealState    = errors.New("该违规扣费记录当前不可申诉")
 )
-
-// ViolationFeeState holds only the counter for the selected group policy.
-// It is reset lazily on the first violation after the configured period.
-type ViolationFeeState struct {
-	ID              uint   `json:"id" gorm:"primaryKey"`
-	UserID          int    `json:"user_id" gorm:"not null;uniqueIndex:idx_violation_fee_state_user_policy,priority:1;index"`
-	PolicyKey       string `json:"policy_key" gorm:"type:varchar(128);not null;uniqueIndex:idx_violation_fee_state_user_policy,priority:2"`
-	PeriodStartedAt int64  `json:"period_started_at" gorm:"not null"`
-	ViolationCount  int    `json:"violation_count" gorm:"not null;default:0"`
-	UpdatedAt       int64  `json:"updated_at" gorm:"not null;index"`
-}
-
-func (ViolationFeeState) TableName() string { return "violation_fee_states" }
 
 // ViolationFeeRecord is the immutable charging audit row. The policy is
 // matched by group, while model/provider details are deliberately absent.
@@ -65,157 +51,6 @@ type ViolationFeeRecord struct {
 }
 
 func (ViolationFeeRecord) TableName() string { return "violation_fee_records" }
-
-type ViolationFeeChargeInput struct {
-	UserID          int
-	RequestID       string
-	Policy          operation_setting.ViolationFeePolicy
-	Group           string
-	RequestedAmount float64
-	RequestedQuota  int
-	ErrorCode       string
-	Now             int64
-}
-
-type ViolationFeeChargeResult struct {
-	Record       ViolationFeeRecord
-	AlreadyExist bool
-}
-
-// ApplyViolationFee atomically advances the period counter, charges no more
-// than the user's current wallet quota, and writes the audit row. It never
-// touches token quota or subscription balances.
-func ApplyViolationFee(input ViolationFeeChargeInput) (*ViolationFeeChargeResult, error) {
-	if DB == nil || input.UserID <= 0 {
-		return nil, errors.New("invalid violation fee charge")
-	}
-	if input.Now <= 0 {
-		input.Now = common.GetTimestamp()
-	}
-	input.Group = strings.TrimSpace(input.Group)
-	input.RequestID = strings.TrimSpace(input.RequestID)
-	if input.RequestID == "" {
-		input.RequestID = common.NewRequestId()
-	}
-	policyKey := input.Policy.Key()
-	result := &ViolationFeeChargeResult{}
-	walletDelta := 0
-
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var existing ViolationFeeRecord
-		if err := lockForUpdate(tx).Where("user_id = ? AND request_id = ?", input.UserID, input.RequestID).First(&existing).Error; err == nil {
-			result.Record = existing
-			result.AlreadyExist = true
-			return nil
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-
-		var state ViolationFeeState
-		stateErr := lockForUpdate(tx).
-			Where("user_id = ? AND policy_key = ?", input.UserID, policyKey).
-			First(&state).Error
-		if errors.Is(stateErr, gorm.ErrRecordNotFound) {
-			state = ViolationFeeState{UserID: input.UserID, PolicyKey: policyKey, PeriodStartedAt: input.Now}
-		} else if stateErr != nil {
-			return stateErr
-		}
-		periodSeconds := input.Policy.PeriodSeconds
-		if periodSeconds <= 0 {
-			periodSeconds = 30 * 24 * 60 * 60
-		}
-		if state.PeriodStartedAt <= 0 || input.Now-state.PeriodStartedAt >= periodSeconds {
-			state.PeriodStartedAt = input.Now
-			state.ViolationCount = 0
-		}
-		state.ViolationCount++
-		state.UpdatedAt = input.Now
-		if state.ID == 0 {
-			if err := tx.Create(&state).Error; err != nil {
-				return err
-			}
-		} else if err := tx.Save(&state).Error; err != nil {
-			return err
-		}
-		requestedAmount := input.RequestedAmount
-		if requestedAmount <= 0 {
-			requestedAmount = input.Policy.AmountForOccurrence(state.ViolationCount)
-		}
-		requestedQuota := input.RequestedQuota
-		if requestedQuota <= 0 {
-			requestedQuota = common.QuotaFromFloat(requestedAmount * common.QuotaPerUnit)
-		}
-		if requestedAmount <= 0 || requestedQuota <= 0 {
-			return errors.New("violation fee policy produced an invalid amount")
-		}
-
-		var user User
-		if err := lockForUpdate(tx).Where("id = ?", input.UserID).First(&user).Error; err != nil {
-			return err
-		}
-		available := user.Quota
-		if available < 0 {
-			available = 0
-		}
-		chargedQuota := requestedQuota
-		if chargedQuota > available {
-			if input.Policy.DrainBalanceWhenShort {
-				chargedQuota = available
-			} else {
-				chargedQuota = 0
-			}
-		}
-		if chargedQuota < 0 {
-			chargedQuota = 0
-		}
-		walletDelta = -chargedQuota
-		if user.Quota < 0 {
-			if err := common.ValidateWalletQuota(user.Quota); err != nil {
-				return ErrWalletQuotaOutOfRange
-			}
-			walletDelta = -user.Quota
-		}
-		if err := ApplyWalletQuotaDelta(tx, input.UserID, walletDelta); err != nil {
-			return err
-		}
-
-		chargedAmount := requestedAmount
-		if chargedQuota < requestedQuota {
-			chargedAmount = requestedAmount * float64(chargedQuota) / float64(requestedQuota)
-		}
-		record := ViolationFeeRecord{
-			UserID: input.UserID, RequestID: input.RequestID, PolicyKey: policyKey, Group: input.Group,
-			Occurrence: state.ViolationCount, PeriodStartedAt: state.PeriodStartedAt,
-			PeriodEndsAt:       state.PeriodStartedAt + periodSeconds,
-			RequestedAmountUSD: requestedAmount, ChargedAmountUSD: chargedAmount,
-			RequestedQuota: requestedQuota, ChargedQuota: chargedQuota,
-			ErrorCode: input.ErrorCode, Status: ViolationFeeRecordStatusCharged, CreatedAt: input.Now,
-		}
-		if err := tx.Create(&record).Error; err != nil {
-			return err
-		}
-		result.Record = record
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if !result.AlreadyExist && walletDelta != 0 && common.RedisEnabled {
-		// Keep the Redis wallet counter aligned only after the database commits.
-		go func(userID, delta int) {
-			if delta < 0 {
-				if err := cacheDecrUserQuota(userID, int64(-delta)); err != nil {
-					common.SysLog("failed to decrease violation fee quota cache: " + err.Error())
-				}
-				return
-			}
-			if err := invalidateUserCache(userID); err != nil {
-				common.SysLog("failed to invalidate normalized violation fee quota cache: " + err.Error())
-			}
-		}(result.Record.UserID, walletDelta)
-	}
-	return result, nil
-}
 
 type ViolationFeeAppeal struct {
 	ID          uint   `json:"id" gorm:"primaryKey"`

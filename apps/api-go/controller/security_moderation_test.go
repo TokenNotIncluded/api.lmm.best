@@ -36,7 +36,7 @@ func setupSecurityModerationDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Option{}, &model.ModerationJob{}, &model.AdvancedSecurityEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Option{}, &model.ModerationJob{}))
 	oldDB, oldRedis := model.DB, common.RedisEnabled
 	model.DB, common.RedisEnabled = db, false
 	oldSettings := setting.GetModerationSettings()

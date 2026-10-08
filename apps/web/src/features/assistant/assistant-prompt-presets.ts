@@ -19,7 +19,7 @@ import { ROLE } from '@/lib/roles'
 import type { AssistantPreConversationPreset } from './api'
 
 // Bump both the query key and HTTP URL when reviewed starter copy changes.
-export const ASSISTANT_PROMPT_PRESET_COPY_VERSION = 'natural-v2'
+export const ASSISTANT_PROMPT_PRESET_COPY_VERSION = 'access-v3'
 
 type AssistantPresetViewer = {
   role: number
@@ -27,7 +27,7 @@ type AssistantPresetViewer = {
 }
 
 const requiredPresetKeys = {
-  ai_recommendation: 'Help me write an L1 recommendation.',
+  ai_recommendation: 'How do I apply for L1 access?',
   getting_started: 'Where should I start?',
   new_user_gift: 'How do I get the new-user gift?',
   weekly_discount: 'Any top-up discounts this week?',
@@ -37,7 +37,7 @@ const fallbackPresets: AssistantPreConversationPreset[] = Object.entries(
   requiredPresetKeys
 ).map(([id, prompt]) => ({ id, prompt, label: prompt }))
 
-export function canSeeL1Recommendation(
+export function canSeeAccessVerificationPreset(
   user: AssistantPresetViewer | null | undefined
 ): boolean {
   return Boolean(
@@ -51,7 +51,7 @@ export function filterAssistantPreConversationPresets(
 ): AssistantPreConversationPreset[] {
   return (presets ?? fallbackPresets).filter(
     (preset) =>
-      preset.id !== 'ai_recommendation' || canSeeL1Recommendation(user)
+      preset.id !== 'ai_recommendation' || canSeeAccessVerificationPreset(user)
   )
 }
 

@@ -216,6 +216,27 @@ test('marking one to-do read needs a concrete category and source id', async () 
   signIn()
   const { tools } = buildTools()
   const tool = byName(tools, 'lmm_workbench_mark_todo_read')
+  const expectedCategories = [
+    'all',
+    'open_source_bounty_review',
+    'open_source_bounty',
+    'developer_access',
+    'account_action',
+    'security_incident',
+    'moderation',
+    'human_support',
+  ]
+  for (const name of [
+    'lmm_workbench_list_todos',
+    'lmm_workbench_mark_todos_read',
+    'lmm_workbench_mark_todo_read',
+  ]) {
+    const properties = byName(tools, name).inputSchema.properties as Record<
+      string,
+      { enum?: string[] }
+    >
+    assert.deepEqual(properties.category.enum, expectedCategories)
+  }
   await assert.rejects(
     tool.execute(
       { category: 'all', source_id: 3, confirm: true },
@@ -230,6 +251,29 @@ test('marking one to-do read needs a concrete category and source id', async () 
     ),
     /source_id is required/
   )
+  const original = api.post
+  const requested: Array<{ url: string; body: unknown }> = []
+  api.post = (async (url: string, body: unknown) => {
+    requested.push({ url, body })
+    return { data: { success: true, data: { marked: 1 } } }
+  }) as typeof api.post
+  try {
+    assert.deepEqual(
+      await tool.execute(
+        { category: 'moderation', source_id: 7, confirm: true },
+        { signal: signal() }
+      ),
+      { category: 'moderation', source_id: 7, marked: 1 }
+    )
+    assert.deepEqual(requested, [
+      {
+        url: '/api/todos/read',
+        body: { category: 'moderation', ids: [7], all: false },
+      },
+    ])
+  } finally {
+    api.post = original
+  }
 })
 
 test('the key list never echoes a full key, only a mask', async () => {

@@ -59,6 +59,10 @@ func main() {
 		runMigrationCommand(model.DBMigrationModeApply)
 	case appcli.ModeMigrateVerify:
 		runMigrationCommand(model.DBMigrationModeVerify)
+	case appcli.ModeMerchantStoreWriterGate:
+		if code := runMerchantStoreWriterGateCommand(dispatch.GateArgs, os.Stdout, os.Stderr); code != appcli.ExitOK {
+			os.Exit(code)
+		}
 	default:
 		if dispatch.ExitCode != appcli.ExitOK {
 			os.Exit(dispatch.ExitCode)

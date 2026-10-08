@@ -1,20 +1,33 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { api } from '@/lib/api'
 
+import { STORE_ACCESS_COPY } from './access-copy'
+import type { StoreCatalogueProduct } from './catalogue-types'
+import { storeSocialProductResponse } from './product-social-state'
+import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
 import type {
+  StoreCategory,
+  StoreCategoryInput,
+  StoreCategoryList,
   StoreCheckoutInput,
   StoreCheckoutResult,
   StoreClaim,
   StoreClaimMetadata,
   StoreConfig,
+  StoreLinkPreset,
   StoreDisclaimer,
   StoreOrder,
   StorePage,
+  StoreSeller,
+  StoreMerchantHome,
+  StoreMerchantHomeInput,
   StorePaymentSettings,
   StorePaymentCategories,
   StoreGatewayInput,
   StoreGateway,
   StoreProduct,
+  StoreVariant,
+  StoreVariantInput,
   StoreProductInput,
   StorePaymentSession,
   StoreStock,
@@ -22,22 +35,89 @@ import type {
   StoreOrderSummary,
 } from './types'
 
-type Envelope<T> = { success: boolean; message?: string; data: T }
+type Envelope<T> = {
+  success: boolean
+  code?: string
+  message?: string
+  order_id?: string
+  order_status?: string
+  order_cancelled?: boolean
+  request_key?: string
+  order_created?: boolean
+  data: T
+}
+function errorMessage(body?: { code?: unknown; message?: unknown }) {
+  // Known codes have stable localized copy; arbitrary server messages retain
+  // their original meaning instead of being guessed from HTTP status.
+  if (body?.code === 'STORE_VARIANT_REQUIRED') {
+    return 'Choose a variant before ordering.'
+  }
+  if (body?.code === 'STORE_UPGRADE_IN_PROGRESS') {
+    return 'Shop upgrade is in progress. Existing orders are still accessible.'
+  }
+  if (body?.code === 'STORE_TERMS_UPDATED') {
+    return STORE_ACCESS_COPY.termsChanged
+  }
+  if (body?.code === 'STORE_PURCHASE_LIMIT') {
+    return STORE_PURCHASE_LIMIT_COPY.error
+  }
+  return typeof body?.message === 'string' && body.message
+    ? body.message
+    : 'Store request failed'
+}
+export class StoreAPIError extends Error {
+  readonly code?: string
+  readonly orderId?: string
+  readonly orderStatus?: string
+  readonly orderCancelled?: boolean
+  readonly requestKey?: string
+  readonly orderCreated?: boolean
+  constructor(body?: {
+    code?: unknown
+    message?: unknown
+    order_id?: unknown
+    order_status?: unknown
+    order_cancelled?: unknown
+    request_key?: unknown
+    order_created?: unknown
+  }) {
+    super(errorMessage(body))
+    this.name = 'StoreAPIError'
+    this.code = typeof body?.code === 'string' ? body.code : undefined
+    this.orderId =
+      typeof body?.order_id === 'string' ? body.order_id : undefined
+    this.orderStatus =
+      typeof body?.order_status === 'string' ? body.order_status : undefined
+    this.requestKey =
+      typeof body?.request_key === 'string' ? body.request_key : undefined
+    this.orderCreated =
+      typeof body?.order_created === 'boolean' ? body.order_created : undefined
+    this.orderCancelled =
+      typeof body?.order_cancelled === 'boolean'
+        ? body.order_cancelled
+        : undefined
+  }
+}
 async function unwrap<T>(request: Promise<{ data: Envelope<T> }>) {
   let response: { data: Envelope<T> }
   try {
     response = await request
   } catch (error) {
-    const body = (error as { response?: { data?: { message?: unknown } } })
-      ?.response?.data
-    throw new Error(
-      typeof body?.message === 'string' ? body.message : 'Store request failed'
-    )
+    const body = (
+      error as {
+        response?: { data?: ConstructorParameters<typeof StoreAPIError>[0] }
+      }
+    )?.response?.data
+    throw new StoreAPIError(body)
   }
   if (response.data.success !== true) {
-    throw new Error(response.data.message || 'Store request failed')
+    throw new StoreAPIError(response.data)
   }
   return response.data.data
+}
+type StoreAuthScope = {
+  userId: number | undefined
+  sessionId: string | undefined
 }
 const options = { skipErrorHandler: true, skipBusinessError: true }
 const root = '/api/store'
@@ -51,17 +131,84 @@ const claimOptions = {
   disableDuplicate: true,
   withCredentials: true,
 }
+async function allStoreCategories(admin = false): Promise<StoreCategoryList> {
+  const items: StoreCategory[] = []
+  let offset = 0
+  for (;;) {
+    const page = await unwrap<StoreCategoryList>(
+      api.get(`${root}/${admin ? 'admin/' : ''}categories`, {
+        ...options,
+        params: { offset, limit: 100 },
+      })
+    )
+    items.push(...page.items)
+    if (!page.supported || !page.has_more) return { ...page, items }
+    const next = page.offset + page.limit
+    if (!Number.isSafeInteger(next) || next <= offset || !page.items.length) {
+      throw new Error('Store request failed')
+    }
+    offset = next
+  }
+}
 export const storeApi = {
+  merchantHome: (id: number, signal?: AbortSignal) =>
+    unwrap<StoreMerchantHome>(
+      api.get(`${root}/merchants/${id}`, { ...options, signal })
+    ),
+  myHome: () => unwrap<StoreMerchantHome>(api.get(`${root}/my/home`, options)),
+  saveHome: (body: StoreMerchantHomeInput) =>
+    unwrap<StoreMerchantHome>(api.put(`${root}/my/home`, body, options)),
+  announcement: (signal?: AbortSignal) =>
+    unwrap<{ content: string }>(
+      api.get(`${root}/announcement`, { ...options, signal })
+    ),
+  saveAnnouncement: (content: string) =>
+    unwrap<{ content: string }>(
+      api.put(`${root}/announcement`, { content }, options)
+    ),
+  categories: () => allStoreCategories(),
+  adminCategories: () => allStoreCategories(true),
+  createCategory: (body: StoreCategoryInput) =>
+    unwrap<StoreCategory>(api.post(`${root}/admin/categories`, body, options)),
+  updateCategory: (id: string, body: StoreCategoryInput) =>
+    unwrap<StoreCategory>(
+      api.put(
+        `${root}/admin/categories/${encodeURIComponent(id)}`,
+        body,
+        options
+      )
+    ),
+  productCategory: (id: string, category_id: string) =>
+    unwrap<StoreProduct>(
+      api.put(
+        `${root}/products/${encodeURIComponent(id)}/category`,
+        { category_id },
+        options
+      )
+    ),
   config: () => unwrap<StoreConfig>(api.get(`${root}/config`, options)),
-  products: (search = '', page = 1) =>
-    unwrap<StorePage<StoreProduct>>(
+  products: (search = '', page = 1, sellerId?: number) =>
+    unwrap<StorePage<StoreProduct> & { seller?: StoreSeller | null }>(
       api.get(`${root}/products`, {
         ...options,
-        params: { q: search, offset: (page - 1) * 24, limit: 24 },
+        params: {
+          q: search,
+          offset: (page - 1) * 24,
+          limit: 24,
+          ...(sellerId ? { seller_id: sellerId } : {}),
+        },
       })
     ),
   product: (id: string) =>
     unwrap<StoreProduct>(api.get(`${root}/products/${id}`, options)),
+  previewProduct: (id: string, signal?: AbortSignal) =>
+    storeSocialProductResponse(
+      () =>
+        unwrap<StoreCatalogueProduct>(
+          api.get(`${root}/my/products/${id}/preview`, { ...options, signal })
+        ),
+      (data) => [data]
+    ),
   myProducts: (page = 1) =>
     unwrap<StorePage<StoreProduct>>(
       api.get(`${root}/my/products`, {
@@ -77,6 +224,26 @@ export const storeApi = {
     unwrap<null>(api.post(`${root}/products/${id}/submit`, {}, options)),
   pauseProduct: (id: string, paused: boolean) =>
     unwrap<null>(api.put(`${root}/products/${id}/paused`, { paused }, options)),
+  saleLimit: (id: string, sale_limit: number | null) =>
+    unwrap<null>(
+      api.put(`${root}/products/${id}/sale-limit`, { sale_limit }, options)
+    ),
+  listing: (id: string, listed: boolean) =>
+    unwrap<null>(
+      api.put(`${root}/products/${id}/listing`, { listed }, options)
+    ),
+  remainingQuota: (id: string, available_count: number | null) =>
+    unwrap<null>(
+      api.put(
+        `${root}/products/${id}/sales-availability`,
+        { available_count },
+        options
+      )
+    ),
+  unlistProduct: (id: string) =>
+    unwrap<null>(api.post(`${root}/products/${id}/unlist`, {}, options)),
+  deleteProduct: (id: string) =>
+    unwrap<null>(api.delete(`${root}/products/${id}`, options)),
   inventory: (id: string, items: string[]) =>
     unwrap<{ added: number }>(
       api.post(`${root}/products/${id}/inventory`, { items }, options)
@@ -91,6 +258,51 @@ export const storeApi = {
   removeStock: (id: string, stockId: string) =>
     unwrap<null>(
       api.delete(`${root}/products/${id}/inventory/${stockId}`, options)
+    ),
+  createVariant: (id: string, body: StoreVariantInput) =>
+    unwrap<StoreVariant>(
+      api.post(`${root}/products/${id}/variants`, body, options)
+    ),
+  updateVariant: (id: string, variantId: string, body: StoreVariantInput) =>
+    unwrap<StoreVariant>(
+      api.put(`${root}/products/${id}/variants/${variantId}`, body, options)
+    ),
+  variantFixedContent: (id: string, variantId: string) =>
+    unwrap<{ content: string }>(
+      api.get(
+        `${root}/products/${id}/variants/${variantId}/fixed-content`,
+        options
+      )
+    ),
+  enableVariant: (id: string, variantId: string, enabled: boolean) =>
+    unwrap<StoreVariant>(
+      api.put(
+        `${root}/products/${id}/variants/${variantId}/enabled`,
+        { enabled },
+        options
+      )
+    ),
+  variantStock: (id: string, variantId: string, page = 1) =>
+    unwrap<StorePage<StoreStock>>(
+      api.get(`${root}/products/${id}/variants/${variantId}/inventory`, {
+        ...options,
+        params: { offset: (page - 1) * 20, limit: 20 },
+      })
+    ),
+  importVariantStock: (id: string, variantId: string, items: string[]) =>
+    unwrap<{ added: number }>(
+      api.post(
+        `${root}/products/${id}/variants/${variantId}/inventory`,
+        { items },
+        options
+      )
+    ),
+  removeVariantStock: (id: string, variantId: string, stockId: string) =>
+    unwrap<null>(
+      api.delete(
+        `${root}/products/${id}/variants/${variantId}/inventory/${stockId}`,
+        options
+      )
     ),
   promoteProduct: (id: string, request_key: string) =>
     unwrap<StorePromotion>(
@@ -107,17 +319,26 @@ export const storeApi = {
         params: { role, offset: (page - 1) * 20, limit: 20 },
       })
     ),
-  order: (id: string) =>
-    unwrap<StoreOrder>(api.get(`${root}/orders/${id}`, options)),
-  checkout: (body: StoreCheckoutInput) =>
-    unwrap<StoreCheckoutResult>(api.post(`${root}/orders`, body, options)),
-  pay: (id: string, currency?: string) =>
+  order: (id: string, authScope?: StoreAuthScope) =>
+    unwrap<StoreOrder>(
+      api.get(`${root}/orders/${id}`, {
+        ...options,
+        ...(authScope ? { authScope } : {}),
+      })
+    ),
+  checkout: (body: StoreCheckoutInput, authScope?: StoreAuthScope) =>
+    unwrap<StoreCheckoutResult>(
+      api.post(`${root}/orders`, body, {
+        ...options,
+        ...(authScope ? { authScope } : {}),
+      })
+    ),
+  pay: (id: string, currency?: string, authScope?: StoreAuthScope) =>
     unwrap<StorePaymentSession>(
-      api.post(
-        `${root}/orders/${id}/pay`,
-        currency ? { currency } : {},
-        options
-      )
+      api.post(`${root}/orders/${id}/pay`, currency ? { currency } : {}, {
+        ...options,
+        ...(authScope ? { authScope } : {}),
+      })
     ),
   cancel: (id: string) =>
     unwrap<null>(api.post(`${root}/orders/${id}/cancel`, {}, options)),
@@ -129,12 +350,12 @@ export const storeApi = {
     ),
   disclaimer: () =>
     unwrap<StoreDisclaimer>(api.get(`${root}/disclaimer`, options)),
-  acceptDisclaimer: (version: string) =>
+  acceptDisclaimer: (version: string, authScope?: StoreAuthScope) =>
     unwrap<null>(
       api.post(
         `${root}/disclaimer/accept`,
         { version, accepted: true },
-        options
+        { ...options, ...(authScope ? { authScope } : {}) }
       )
     ),
   paymentSettings: () =>
@@ -175,13 +396,19 @@ export const storeApi = {
   saveConfig: (
     body: Pick<
       StoreConfig,
-      'fee_bps' | 'promotion_quota' | 'recipient_id' | 'linuxdo_units_per_usd'
+      | 'fee_bps'
+      | 'promotion_quota'
+      | 'minimum_unit_price_quota'
+      | 'recipient_id'
+      | 'linuxdo_units_per_usd'
     >
   ) => unwrap<null>(api.put(`${root}/config`, body, options)),
   savePromotionPrice: (promotion_quota: number) =>
     unwrap<null>(
       api.put(`${root}/promotion-config`, { promotion_quota }, options)
     ),
+  saveLinkPresets: (presets: StoreLinkPreset[]) =>
+    unwrap<null>(api.put(`${root}/product-link-presets`, { presets }, options)),
   deliveryEmailStatus: () =>
     unwrap<{ verified: boolean; email?: string }>(
       api.get(`${root}/email/status`, options)

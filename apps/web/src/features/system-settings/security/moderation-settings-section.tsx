@@ -41,13 +41,13 @@ import {
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOptions } from '../hooks/use-update-option'
+import { ModerationAuditPanel } from './moderation-audit-panel'
 import { ModerationGroupPolicyEditor } from './moderation-group-policy-editor'
 import { ModerationRouteFields } from './moderation-route-fields'
 import {
   moderationSettingsSchema,
   type ModerationSettingsFormValues,
 } from './moderation-settings-schema'
-import { SecurityAuditPanel } from './security-audit'
 
 function rebaseModerationDraft(
   previous: ModerationSettingsFormValues,
@@ -306,7 +306,7 @@ export function ModerationSettingsSection({
           </div>
         </SettingsForm>
       </Form>
-      <SecurityAuditPanel />
+      <ModerationAuditPanel />
     </SettingsSection>
   )
 }
