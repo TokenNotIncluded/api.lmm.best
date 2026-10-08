@@ -186,7 +186,11 @@ fn quote_and_url_normalization_match_current_go_oracle() {
         // Go's calculator also accepts historical rates in test fixtures.
         // Real ledgers are fixed at 500,000 credits/USD.
         if units != "500000" && (100..=1_000_000).contains(&bid) {
-            assert_eq!(outcome.unwrap_err(), AdError::CurrencyUnavailable, "{vector}");
+            assert_eq!(
+                outcome.unwrap_err(),
+                AdError::CurrencyUnavailable,
+                "{vector}"
+            );
         } else if vector["error"] == "" {
             assert_eq!(
                 outcome.unwrap(),
@@ -715,17 +719,32 @@ async fn postgres_cache_and_audit_failures_do_not_reverse_committed_wallet_chang
 #[test]
 fn fixed_usd_bid_enforces_immutable_credit_basis() {
     for rate in ["500000", "5e5", "+500000.0000", "000500000"] {
-        assert_eq!(charge_quota_with_credits_per_usd(100, rate).unwrap(), 500_000);
+        assert_eq!(
+            charge_quota_with_credits_per_usd(100, rate).unwrap(),
+            500_000
+        );
     }
     assert_eq!(charge_quota(100, 500_000.0).unwrap(), 500_000);
-    assert_eq!(charge_quota_with_credits_per_usd(125, "500000").unwrap(), 625_000);
+    assert_eq!(
+        charge_quota_with_credits_per_usd(125, "500000").unwrap(),
+        625_000
+    );
     assert_eq!(
         charge_quota_with_credits_per_usd(1_000_000, "500000").unwrap(),
         5_000_000_000
     );
     for rate in [
-        "", "0", "-1", "NaN", "+Inf", "1e400", "9007199254740991.0001",
-        "9007199254740992", "3500000", "1000.1", "1e-30",
+        "",
+        "0",
+        "-1",
+        "NaN",
+        "+Inf",
+        "1e400",
+        "9007199254740991.0001",
+        "9007199254740992",
+        "3500000",
+        "1000.1",
+        "1e-30",
     ] {
         assert_eq!(
             charge_quota_with_credits_per_usd(100, rate).unwrap_err(),
@@ -739,7 +758,10 @@ fn fixed_usd_bid_enforces_immutable_credit_basis() {
         AdError::InvalidBid
     );
     assert_eq!(charged_amount_usd(500_000, "500000").as_deref(), Some("1"));
-    assert_eq!(charged_amount_usd(-500_000, "500000").as_deref(), Some("-1"));
+    assert_eq!(
+        charged_amount_usd(-500_000, "500000").as_deref(),
+        Some("-1")
+    );
     assert_eq!(charged_amount_usd(1, "500000").as_deref(), Some("0.000002"));
     assert_eq!(charged_amount_usd(0, "500000").as_deref(), Some("0"));
 }
@@ -800,10 +822,7 @@ async fn postgres_actual_usd_basis_preserves_legacy_replay_refund_and_value_orde
         ads.iter().map(|ad| ad.id).collect::<Vec<_>>(),
         vec![fresh_id, legacy_id]
     );
-    assert_eq!(
-        ads[1].charged_amount_usd.as_deref(),
-        Some("1")
-    );
+    assert_eq!(ads[1].charged_amount_usd.as_deref(), Some("1"));
     sqlx::query("DELETE FROM options WHERE key='CreditsPerUSD'")
         .execute(&fixture.pg)
         .await
