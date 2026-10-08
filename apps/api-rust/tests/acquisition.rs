@@ -1769,7 +1769,7 @@ async fn postgres_corrections_paginate_recent_history_without_leaking_expired_ro
     sqlx::query(
         "INSERT INTO acquisition_corrections(\
             user_id,previous_revision,previous_source,source,reason,actor_id,created_at)\
-         SELECT 7,sequence-1,'community','documentation','verified page',101,$1\
+         SELECT 7,sequence-1,'community','documentation','verified page',101,$1 \
          FROM generate_series(1,101) AS sequence",
     )
     .bind(now)
