@@ -1,24 +1,24 @@
 {
   "amounts": [
     {
-      "charged_amount_usd": "0.1428571428571429",
+      "charged_amount_usd": "1",
       "charged_quota": 500000,
-      "credits_per_usd": "3500000"
+      "credits_per_usd": "500000"
     },
     {
-      "charged_amount_usd": "1",
+      "charged_amount_usd": "7",
       "charged_quota": 3500000,
-      "credits_per_usd": "3500000"
+      "credits_per_usd": "500000"
     },
     {
       "charged_amount_usd": "0",
       "charged_quota": 0,
-      "credits_per_usd": "3500000"
+      "credits_per_usd": "500000"
     },
     {
-      "charged_amount_usd": "-0.1428571428571429",
+      "charged_amount_usd": "-1",
       "charged_quota": -500000,
-      "credits_per_usd": "3500000"
+      "credits_per_usd": "500000"
     },
     {
       "charged_amount_usd": "1.2338766123387661",

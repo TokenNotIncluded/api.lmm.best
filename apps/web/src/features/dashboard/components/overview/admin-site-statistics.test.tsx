@@ -36,6 +36,7 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { INTERFACE_LANGUAGE_OPTIONS } = await import('@/i18n/languages')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { AdminSiteStatisticsPanel } = await import('./admin-site-statistics')
 const originalGet = api.get
@@ -50,6 +51,7 @@ afterEach(async () => {
   dispose = undefined
   api.get = originalGet
   useAuthStore.getState().auth.setUser(originalUser)
+  await i18n.changeLanguage('en')
   document.body.replaceChildren()
 })
 after(() => dom.close())
@@ -182,6 +184,24 @@ test('admins see exact credits and original-currency discounted payment and refu
     'demotion removes already-loaded aggregate data'
   )
 })
+
+for (const { code } of INTERFACE_LANGUAGE_OPTIONS) {
+  test(`administrator statistics render with the ${code} interface language`, async () => {
+    useAuthStore.getState().auth.setUser(user(10))
+    await i18n.changeLanguage(code)
+    api.get = (async () => ({
+      data: { success: true, data },
+    })) as typeof api.get
+    const container = await mount()
+    const locale = code === 'zhCN' ? 'zh-CN' : code === 'zhTW' ? 'zh-TW' : code
+    const total = new Intl.NumberFormat(locale).format(
+      BigInt(data.total_used_credits)
+    )
+    await until(() => container.textContent?.includes(total) === true)
+    assert.doesNotMatch(container.textContent ?? '', /当前金额未确认/)
+    assert.match(container.textContent ?? '', /USD|CNY|LDC/)
+  })
+}
 
 test('failed or malformed sources stay unknown and explicit refresh recovers', async () => {
   useAuthStore.getState().auth.setUser(user(100))

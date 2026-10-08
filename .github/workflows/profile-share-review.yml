@@ -1,13 +1,7 @@
 name: Profile share SVG review
 
 on:
-  pull_request:
-    paths:
-      - "apps/web/src/features/profile/**"
-      - "apps/api-go/controller/profile_share*.go"
-      - "apps/api-go/model/profile_share*.go"
-      - "apps/web/scripts/profile-share-review.mjs"
-      - ".github/workflows/profile-share-review.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read

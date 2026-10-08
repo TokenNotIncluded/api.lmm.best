@@ -143,11 +143,14 @@ func TestProductionMerchantStoreContractFileDigestCannotBeRebound(t *testing.T) 
 	}
 }
 
-type merchantStoreVerificationCommandFixture struct{ commands []productionCommand }
+type merchantStoreVerificationCommandFixture struct {
+	commands []productionCommand
+	err      error
+}
 
 func (fixture *merchantStoreVerificationCommandFixture) Run(_ context.Context, command productionCommand) ([]byte, error) {
 	fixture.commands = append(fixture.commands, command)
-	return nil, nil
+	return nil, fixture.err
 }
 
 func TestProductionMerchantStoreBothProviderVerificationUsesSealedReadOnlyChild(t *testing.T) {
@@ -173,6 +176,14 @@ func TestProductionMerchantStoreBothProviderVerificationUsesSealedReadOnlyChild(
 				if err := runtime.verifyMerchantStoreWriterProvider(context.Background(), workspace, "/qualified/retained-provider", bad, role); err == nil || len(runner.commands) != before {
 					t.Fatal("unsafe provider verification reached a subprocess")
 				}
+			}
+			runner.err = errors.New("command runuser failed: exit status 1")
+			err := runtime.verifyMerchantStoreWriterProvider(context.Background(), workspace, "/qualified/private-provider", child, role)
+			if !errors.Is(err, runner.err) || !strings.Contains(err.Error(), role+" migrate --verify failed") {
+				t.Fatalf("verification failure lost provider role, step or cause: %v", err)
+			}
+			if strings.Contains(err.Error(), "postgres://") || strings.Contains(err.Error(), "private-provider") || !runner.commands[len(runner.commands)-1].Sensitive {
+				t.Fatal("verification diagnostic exposed private input or disabled subprocess redaction")
 			}
 		})
 	}

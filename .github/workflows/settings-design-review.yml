@@ -1,14 +1,7 @@
 name: Settings design review
 
 on:
-  push:
-    branches: [design/settings-workspace-20260922]
-  pull_request:
-    paths:
-      - 'apps/web/src/features/system-settings/**'
-      - 'apps/web/src/components/layout/**'
-      - 'apps/web/scripts/visual-review/**'
-      - '.github/workflows/settings-design-review.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

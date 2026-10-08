@@ -1,97 +1,37 @@
----
-name: LMM Forge README brand
-description: Original cut lettering in black and white for the repository entry and reusable SVG assets.
-colors:
-  black: "#000000"
-  white: "#ffffff"
----
+# LMM Forge repository identity
 
-# Design System: LMM Forge README brand
+This record covers the README, reusable logo assets, and the shared default symbol. Application layouts follow their own design records.
 
-## Overview
+## Identity
 
-**Creative North Star: "Protocol punch"**
+Keep the established black-and-white cut lettering. The updated compact mark has an L foundation below two separate M forms. A 16-unit gap separates the main parts and the foundation; a 45-degree cut ends the base. These gaps replace the previous joined, tightly spaced silhouette.
 
-Broad, original cut lettering gives LMM Forge a direct silhouette. Open counterforms, sharp terminals, and strong black-and-white contrast carry the identity. The wordmark leads; flat space gives the glyphs room to read.
+The source is [logo-geometry.json](.github/assets/logo-geometry.json). The full wordmark is unchanged. Do not substitute a font, stretch the glyphs, close the gaps, or add gradients, shadows, or motion to the logo.
 
-This record governs the root README and reusable logo assets in `.github/assets` only. Application surfaces keep their own closer-scoped design records. The user confirmed monochrome, sharp lettering, and strong contrast; no visual comp was approved. The built SVGs and [master geometry](.github/assets/logo-geometry.json) are the visual source of truth.
+## README
 
-**Key Characteristics:**
+Use a compact, centered logo, the project name, one descriptive line, four useful badges, and native text links. Chinese is the default README; English is available in `README_EN.md`. Both versions must describe the same features and limits.
 
-- Original filled vector lettering with open counterforms.
-- Pure black and white, with explicit light and dark placements.
-- Shared master geometry, recomposed for desktop and mobile.
+The badges show the actual CI workflow, separate Go and Web releases, and this project's AGPL license. Do not use a general latest-release badge that can confuse Go and Web. Do not add a container badge while the documented checkout lacks Dockerfiles.
 
-## Colors
+Below the header, show the purpose, core features, live site, local start, deployment choices, documentation, and contribution and license details. Keep detailed environment and recipe notes in [the development guide](docs/development.md). Use GitHub-native text and tables; do not put essential instructions inside an image.
 
-The palette uses two exact colors; polarity follows the placement background.
+TokenRouter is the information-layout reference. No reference-project artwork, screenshots, feature claims, or license text are copied.
 
-### Primary
+## Logo placements
 
-- **Black** (`colors.black`): lettering on the light covers and default ink in the transparent logo assets.
+| Placement | Asset or behavior |
+| --- | --- |
+| README | [Fixed black tile with a white mark](.github/assets/lmm-logo.svg), displayed at 96px. |
+| Reusable symbol | [Transparent SVG](.github/assets/lmm-symbol.svg), black or white according to the color scheme. |
+| Website | `LmmBrandMark` inherits `currentColor`; the public SVG uses the same geometry. Custom tenant logos keep their existing behavior. |
+| Small icons | Keep the full 128-unit viewBox; inspect at 16, 24, and 32px without extra inner padding. |
+| Full wordmark | Preserve the existing paths and spacing; minimum cap height is 20px. |
 
-### Neutral
+The old responsive wordmark covers remain available at their original paths. They are no longer the main README image. Do not remove them without checking external use.
 
-- **White** (`colors.white`): light-cover background and ink on dark placements. Dark covers reverse the same pair.
+## Verification
 
-**The Full Contrast Rule.** Use black on white or white on black for the brand artwork. Keep the independent logo assets transparent; set their ink explicitly when the placement background is fixed.
+`python3 scripts/check-docs-brand.py` checks local entry-document links, matching badge sets, safe SVG structure, and shared symbol paths. Use a browser to inspect narrow and wide README layouts, light and dark themes, and the logo at native icon sizes. A source check does not establish full application compatibility or production deployment.
 
-## Typography
-
-The logo is original SVG geometry, not a font. Reuse its paths rather than typing a replacement. Its master cap height is 100 geometry units, with broad vertical strokes (20 units), horizontal strokes (18 units), and small bowl overshoots (1 unit). These are drawing proportions, not CSS typography tokens.
-
-README body text, headings, links, tables, and code blocks use GitHub-native typography and behavior. This record defines no body font, type scale, or interactive control library.
-
-## Layout
-
-Scale logos proportionally and preserve each word group's internal spacing. The horizontal wordmark keeps a larger word break (40 geometry units). Ordinary placements allow at least one wordmark stem (20 units) or symbol spine (18 units) of clear space, scaled with the artwork. Small icon slots retain the symbol's full viewBox without additional internal padding.
-
-The README cover is a surface-specific composition:
-
-| Placement | SVG canvas | Arrangement |
-| --- | --- | --- |
-| Desktop | 1440 × 600 | LMM at the upper left; FORGE steps down and right. |
-| Mobile | 720 × 480 | Both words form a left-aligned stack; FORGE scales to fit. |
-
-The README `<picture>` selects the mobile cover at viewport widths of 640px or less and selects the matching dark cover with `prefers-color-scheme: dark`. The light desktop cover is the fallback. Product copy and working links sit below the static artwork; GitHub controls their wrapping and interaction.
-
-## Elevation & Depth
-
-The artwork is flat. It uses no custom shadows, gradients, textures, animation, or transitions. Depth comes from filled silhouettes and open space. GitHub's surrounding interface remains host-controlled.
-
-## Shapes
-
-Filled paths, squared bowls, open M counterforms, and consistent diagonal terminal cuts define the form. The compact symbol connects a thick L spine and base to two open M shapes; its final base cut is 45 degrees. Use `fill-rule="evenodd"` so internal counterforms remain open.
-
-**The Master Geometry Rule.** Preserve the exact paths and within-group positions from `logo-geometry.json`. LMM and FORGE may move and scale uniformly as separate groups; never stretch or redraw the glyphs.
-
-## Components
-
-### Compact symbol
-
-[lmm-symbol.svg](.github/assets/lmm-symbol.svg) is a transparent 128 × 128 asset with `viewBox="0 0 128 128"`. Use it from 16px. At that size, the L-to-M gap is one pixel and each M stem is 1.5 pixels, so preserve the full viewBox and inspect at native size. Prefer the symbol when the wordmark would fall below its minimum cap height.
-
-### Full wordmark
-
-[lmm-wordmark.svg](.github/assets/lmm-wordmark.svg) is a transparent 718 × 104 asset with `viewBox="0 -2 718 104"`. Keep its cap height at least 20px so the R counter and G aperture remain distinct. Both standalone logo assets default to black ink and switch to white with the dark color-scheme media query.
-
-### README covers
-
-The [desktop light](.github/assets/readme-cover-light.svg) / [dark](.github/assets/readme-cover-dark.svg) and [mobile light](.github/assets/readme-cover-mobile-light.svg) / [dark](.github/assets/readme-cover-mobile-dark.svg) pairs embed explicit backgrounds and the same exact word paths. Preserve their accessible titles and descriptions and the README image's descriptive alt text. Links below the image remain native text links.
-
-All shipping artwork is precisely authored SVG with no font outlines, generated raster, stock art, external fonts, scripts, or external resources. [Usage guidance](.github/assets/README.md) and the repository license apply. Local inspection evidence is kept in `output/brand-review/` and `.impeccable/review/`. Those captures and the finish review (`disposition: ship`) are verification records, separate from the published brand assets.
-
-## Do's and Don'ts
-
-### Do:
-
-- **Do** reuse the exact master paths, open counterforms, and proportional scaling.
-- **Do** choose ink for the actual placement background and retain black-and-white contrast.
-- **Do** keep the symbol's full viewBox and honor the minimum symbol size and wordmark cap height.
-- **Do** preserve accessible image descriptions and native text links outside the artwork.
-
-### Don't:
-
-- **Don't** substitute a font, add outlines, fill counterforms, or stretch the glyphs.
-- **Don't** add gradients, route graphs, circles, shadows, textures, or motion to these brand assets.
-- **Don't** treat the README composition as an application-wide layout rule or an application logo rollout.
+Artwork is authored vector geometry. App-icon rasters must identify that source in their sidecars. Do not claim a visual approval, build result, screenshot, or deployment that was not obtained.

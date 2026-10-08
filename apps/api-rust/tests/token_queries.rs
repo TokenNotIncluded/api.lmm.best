@@ -17,10 +17,10 @@ use lmm_api_rs::{
 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
-async fn public_denomination_refreshes_both_node_caches_without_repricing_or_ledger_writes() {
+async fn fixed_credit_options_refresh_both_node_caches_without_repricing_or_ledger_writes() {
     let fixture = Fixture::new().await;
     fixture.pricing_schema().await;
-    sqlx::raw_sql("UPDATE options SET value='3359744' WHERE key='CreditsPerUSD';UPDATE options SET value='500000' WHERE key IN ('QuotaPerUnit','LegacyPricingQuotaPerUnit');INSERT INTO options VALUES('PublicCreditsPerUSD','100000'),('ModelRatio','{\"priced\":2}'),('ModelPrice','{}');INSERT INTO models(model_name) VALUES('priced');INSERT INTO abilities VALUES('priced','default',1,TRUE);UPDATE tokens SET remain_quota=3359744,used_quota=6719488 WHERE id=11")
+    sqlx::raw_sql("INSERT INTO options VALUES('ModelRatio','{\"priced\":2}'),('ModelPrice','{}');INSERT INTO models(model_name) VALUES('priced');INSERT INTO abilities VALUES('priced','default',1,TRUE);UPDATE tokens SET remain_quota=500000,used_quota=1000000 WHERE id=11")
         .execute(&fixture.pg).await.unwrap();
     let cached: BTreeMap<String, String> = sqlx::query_as("SELECT key,value FROM options")
         .fetch_all(&fixture.pg)
@@ -28,9 +28,12 @@ async fn public_denomination_refreshes_both_node_caches_without_repricing_or_led
         .unwrap()
         .into_iter()
         .collect();
-    let stale_a = Arc::new(ProcessRuntimeOptions::new(cached.clone()));
+    let mut stale_a_options = cached.clone();
+    stale_a_options.insert("PublicCreditsPerUSD".into(), "100000".into());
+    let stale_a = Arc::new(ProcessRuntimeOptions::new(stale_a_options));
     let mut stale_b_options = cached;
     stale_b_options.insert("PublicCreditsPerUSD".into(), "99999".into());
+    stale_b_options.insert("CreditsPerUSD".into(), "3359744".into());
     let stale_b = Arc::new(ProcessRuntimeOptions::new(stale_b_options));
     let apps = [stale_a.clone(), stale_b.clone()].map(|runtime| {
         router(
@@ -40,7 +43,9 @@ async fn public_denomination_refreshes_both_node_caches_without_repricing_or_led
     });
     let before = fixture.ledger_snapshot().await;
     let mut prior_price = None;
-    for public in [100_000, 200_000] {
+    // A stale cache must not reject the valid durable basis or bless an old
+    // denomination. Restore the fixed basis after each incompatible snapshot.
+    for public in [500_000, 100_000, 500_000, 200_000, 500_000] {
         sqlx::query("UPDATE options SET value=$1 WHERE key='PublicCreditsPerUSD'")
             .bind(public.to_string())
             .execute(&fixture.pg)
@@ -52,6 +57,21 @@ async fn public_denomination_refreshes_both_node_caches_without_repricing_or_led
                 .oneshot(request("/v1/usage", "Bearer query-key"))
                 .await
                 .unwrap();
+            if public != 500_000 {
+                assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+                assert_eq!(body(response).await["error"], "quota_query_unavailable");
+                let response = app
+                    .clone()
+                    .oneshot(request("/v1/pricing?model=priced", "Bearer query-key"))
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(
+                    body(response).await["message"],
+                    "pricing currency units unavailable"
+                );
+                continue;
+            }
             assert_eq!(response.status(), StatusCode::OK);
             let usage = body(response).await;
             assert_eq!(usage["remaining"], 1.0);
@@ -59,7 +79,7 @@ async fn public_denomination_refreshes_both_node_caches_without_repricing_or_led
             assert_eq!(usage["public_credit_balance"], public.to_string());
             assert_eq!(usage["public_credit_used"], (public * 2).to_string());
             assert_eq!(usage["public_credits_per_usd_exact"], public.to_string());
-            assert_eq!(usage["ledger_quota_per_usd_exact"], "3359744");
+            assert_eq!(usage["ledger_quota_per_usd_exact"], "500000");
             assert_eq!(usage["quota_unit"], "LEDGER_QUOTA");
             let response = app
                 .clone()
@@ -70,7 +90,7 @@ async fn public_denomination_refreshes_both_node_caches_without_repricing_or_led
             let price = body(response).await;
             assert_eq!(price["pricing_currency"], "USD");
             assert_eq!(price["public_credits_per_usd_exact"], public.to_string());
-            assert_eq!(price["ledger_quota_per_usd_exact"], "3359744");
+            assert_eq!(price["ledger_quota_per_usd_exact"], "500000");
             if let Some(prior) = &prior_price {
                 assert_eq!(prior, &price["data"]);
             }
@@ -79,6 +99,7 @@ async fn public_denomination_refreshes_both_node_caches_without_repricing_or_led
     }
     assert_eq!(stale_a.snapshot().await["PublicCreditsPerUSD"], "100000");
     assert_eq!(stale_b.snapshot().await["PublicCreditsPerUSD"], "99999");
+    assert_eq!(stale_b.snapshot().await["CreditsPerUSD"], "3359744");
     assert_eq!(before, fixture.ledger_snapshot().await);
     fixture.cleanup().await;
 }
@@ -213,7 +234,7 @@ impl Fixture {
             .connect(&url)
             .await
             .unwrap();
-        sqlx::raw_sql("CREATE TABLE users(id BIGINT PRIMARY KEY,status BIGINT,quota BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE tokens(id BIGINT PRIMARY KEY,user_id BIGINT,key TEXT,status BIGINT,expired_time BIGINT,allow_ips TEXT,remain_quota BIGINT,used_quota BIGINT,unlimited_quota BOOLEAN,oauth_managed BOOLEAN,accessed_time BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE logs(user_id BIGINT,token_id BIGINT,type BIGINT,quota BIGINT,created_at BIGINT);CREATE TABLE options(key TEXT PRIMARY KEY,value TEXT);INSERT INTO users VALUES(1,1,999999,NULL);INSERT INTO tokens VALUES(11,1,'query-key',1,-1,'',8850,12080,FALSE,FALSE,17,NULL);INSERT INTO options VALUES('QuotaPerUnit','100'),('CreditsPerUSD','700'),('LegacyPricingQuotaPerUnit','100'),('USDExchangeRate','7'),('TopUpPlatformUnitsPerCNY','1'),('LogConsumeEnabled','true');").execute(&pg).await.unwrap();
+        sqlx::raw_sql("CREATE TABLE users(id BIGINT PRIMARY KEY,status BIGINT,quota BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE tokens(id BIGINT PRIMARY KEY,user_id BIGINT,key TEXT,status BIGINT,expired_time BIGINT,allow_ips TEXT,remain_quota BIGINT,used_quota BIGINT,unlimited_quota BOOLEAN,oauth_managed BOOLEAN,accessed_time BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE logs(user_id BIGINT,token_id BIGINT,type BIGINT,quota BIGINT,created_at BIGINT);CREATE TABLE options(key TEXT PRIMARY KEY,value TEXT);INSERT INTO users VALUES(1,1,999999,NULL);INSERT INTO tokens VALUES(11,1,'query-key',1,-1,'',8850,12080,FALSE,FALSE,17,NULL);INSERT INTO options VALUES('QuotaPerUnit','500000'),('CreditsPerUSD','500000'),('LegacyPricingQuotaPerUnit','500000'),('PublicCreditsPerUSD','500000'),('USDExchangeRate','7'),('TopUpPlatformUnitsPerCNY','1'),('LogConsumeEnabled','true');").execute(&pg).await.unwrap();
         Self { admin, pg, schema }
     }
     fn app(&self) -> axum::Router {
@@ -258,23 +279,23 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
     assert_eq!(oracle["catalog"].as_array().unwrap().len(), 10);
     assert_eq!(oracle["float_json"].as_array().unwrap().len(), 14);
     assert_eq!(oracle["cases"].as_array().unwrap().len(), 6);
-    assert_eq!(oracle["options"]["CreditsPerUSD"], "3500000");
+    assert_eq!(oracle["options"]["CreditsPerUSD"], "500000");
     assert_eq!(oracle["options"]["LegacyPricingQuotaPerUnit"], "500000");
     let first = oracle["cases"][0]["entries"].as_array().unwrap();
     let literal = |model: &str| first.iter().find(|row| row["model"] == model).unwrap();
-    // Independent amounts for initial FX=7, Q=500000, K=3500000.
+    // Independent amounts for fixed Q=K=500000, regardless of live FX=7.
     // The reference exporter cannot silently bless an empty or fake-USD oracle.
     let literal_prices = raw_prices(raw_cases[0]["entries"].get());
     let price =
         |model: &str, field: &str| &literal_prices[&(model.into(), "default".into(), field.into())];
-    assert_eq!(price("gpt-4o", "input_price"), "0.3464285714285714");
-    assert_eq!(price("gpt-4o", "output_price"), "1.0392857142857141");
+    assert_eq!(price("gpt-4o", "input_price"), "2.425");
+    assert_eq!(price("gpt-4o", "output_price"), "7.2749999999999995");
     assert_eq!(literal("gpt-4o")["model_ratio"], 1.25);
     assert_eq!(literal("gpt-4o")["cache_ratio"], 0.5);
-    assert_eq!(price("image", "request_price"), "0.005542857142857143");
+    assert_eq!(price("image", "request_price"), "0.0388");
     assert_eq!(
         literal("tier")["billing_expression"],
-        "(p * 2 + c * 4) / (7)"
+        "(p * 2 + c * 4) / (1)"
     );
     for (key, value) in oracle["options"].as_object().unwrap() {
         sqlx::query("INSERT INTO options(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").bind(key).bind(value.as_str().unwrap()).execute(&fixture.pg).await.unwrap();
@@ -422,7 +443,7 @@ async fn configured_token_prices_match_current_go_reference_live_maps_and_limits
     );
     assert_eq!(
         response_prices(&after_fx_text)[&("gpt-4o".into(), "default".into(), "input_price".into())],
-        "0.7142857142857143"
+        "5"
     );
     fixture.cleanup().await;
 }
@@ -528,6 +549,8 @@ async fn token_pricing_checks_permissions_before_query_validation_and_never_muta
         ("CreditsPerUSD", None),
         ("LegacyPricingQuotaPerUnit", None),
         ("CreditsPerUSD", Some("0")),
+        ("CreditsPerUSD", Some("700")),
+        ("CreditsPerUSD", Some("3500000")),
         ("CreditsPerUSD", Some("-1")),
         ("CreditsPerUSD", Some("1e-80")),
         ("CreditsPerUSD", Some("NaN")),
@@ -535,6 +558,10 @@ async fn token_pricing_checks_permissions_before_query_validation_and_never_muta
         ("LegacyPricingQuotaPerUnit", Some("0")),
         ("LegacyPricingQuotaPerUnit", Some("101")),
         ("QuotaPerUnit", Some("NaN")),
+        ("QuotaPerUnit", Some("100")),
+        ("PublicCreditsPerUSD", Some("100000")),
+        ("PublicCreditsPerUSD", Some("200000")),
+        ("PublicCreditsPerUSD", Some("0")),
     ] {
         match value {
             Some(value) => {
@@ -569,7 +596,7 @@ async fn token_pricing_checks_permissions_before_query_validation_and_never_muta
         let after: Value = sqlx::query_scalar("SELECT jsonb_build_object('tokens',(SELECT jsonb_agg(to_jsonb(tokens)) FROM tokens),'users',(SELECT jsonb_agg(to_jsonb(users)) FROM users))")
             .fetch_one(&fixture.pg).await.unwrap();
         assert_eq!(before, after);
-        let original = if key == "CreditsPerUSD" { "700" } else { "100" };
+        let original = "500000";
         sqlx::query(
             "INSERT INTO options VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
         )
@@ -579,10 +606,12 @@ async fn token_pricing_checks_permissions_before_query_validation_and_never_muta
         .await
         .unwrap();
     }
-    sqlx::raw_sql("UPDATE options SET value='3500000' WHERE key='CreditsPerUSD';UPDATE options SET value='500000' WHERE key IN ('LegacyPricingQuotaPerUnit','QuotaPerUnit');INSERT INTO models(model_name) VALUES('vendor/priced');INSERT INTO abilities VALUES('vendor/priced','default',1,TRUE);INSERT INTO options VALUES('ModelRatio','{\"vendor/priced\":1}'),('ModelPrice','{}') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").execute(&fixture.pg).await.unwrap();
+    sqlx::raw_sql("INSERT INTO models(model_name) VALUES('vendor/priced');INSERT INTO abilities VALUES('vendor/priced','default',1,TRUE);INSERT INTO options VALUES('ModelRatio','{\"vendor/priced\":1}'),('ModelPrice','{}') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value").execute(&fixture.pg).await.unwrap();
     for (model, completion, status) in [
         ("1", "-1", StatusCode::SERVICE_UNAVAILABLE),
-        ("1", "5e-324", StatusCode::SERVICE_UNAVAILABLE),
+        // Keep the completion product below the smallest positive f64 at the
+        // fixed USD basis; a nonzero price must never silently become free.
+        ("0.125", "5e-324", StatusCode::SERVICE_UNAVAILABLE),
         ("5e-324", "1", StatusCode::SERVICE_UNAVAILABLE),
         ("1e-80", "1", StatusCode::SERVICE_UNAVAILABLE),
         ("1", "0", StatusCode::OK),
@@ -624,9 +653,12 @@ async fn token_pricing_checks_permissions_before_query_validation_and_never_muta
 async fn token_pricing_uses_shared_credited_trust_facts_and_excludes_internal_credits() {
     let fixture = Fixture::new().await;
     fixture.pricing_schema().await;
-    sqlx::raw_sql("UPDATE users SET trust_level_override=NULL;UPDATE options SET value='1000' WHERE key IN ('QuotaPerUnit','LegacyPricingQuotaPerUnit');UPDATE options SET value='7000' WHERE key='CreditsPerUSD';INSERT INTO options VALUES('ModelRatio','{\"priced\":1}'),('ModelPrice','{}');INSERT INTO models(model_name) VALUES('priced');INSERT INTO abilities VALUES('priced','default',1,TRUE)").execute(&fixture.pg).await.unwrap();
+    sqlx::raw_sql("UPDATE users SET trust_level_override=NULL;INSERT INTO options VALUES('ModelRatio','{\"priced\":1}'),('ModelPrice','{}');INSERT INTO models(model_name) VALUES('priced');INSERT INTO abilities VALUES('priced','default',1,TRUE)").execute(&fixture.pg).await.unwrap();
     let now = chrono::Utc::now().timestamp();
-    for (provider, method, credit) in [("stripe", "stripe", 500000_i64), ("epay", "ldc", 9999999)] {
+    for (provider, method, credit) in [
+        ("stripe", "stripe", 250000000_i64),
+        ("epay", "ldc", 4999999500),
+    ] {
         sqlx::query(
             "INSERT INTO top_ups VALUES(1,'success',$1,0,1000000,1000000,1.0,$2,$3,'USD',$4,$4)",
         )
@@ -647,7 +679,7 @@ async fn token_pricing_uses_shared_credited_trust_facts_and_excludes_internal_cr
     )
     .await;
     assert_eq!(quote["data"][0]["trust_discount_ratio"], 0.94);
-    assert_eq!(quote["data"][0]["input_price"], 134.28571428571428);
+    assert_eq!(quote["data"][0]["input_price"], 1.88);
     sqlx::query("UPDATE top_ups SET status='refunded' WHERE payment_provider='stripe'")
         .execute(&fixture.pg)
         .await
@@ -717,14 +749,14 @@ async fn persisted_usage_is_exact_token_scoped_utc_and_never_changes_credentials
     assert_eq!(snapshot["valid"], true);
     assert_eq!(snapshot["currency"], "USD");
     assert_eq!(snapshot["scope"], "token");
-    assert_eq!(snapshot["remaining"], 12.642857142857142);
-    assert_eq!(snapshot["used_total"], 17.257142857142856);
-    assert_eq!(snapshot["total_quota"], 29.9);
+    assert_eq!(snapshot["remaining"], 0.0177);
+    assert_eq!(snapshot["used_total"], 0.02416);
+    assert_eq!(snapshot["total_quota"], 0.04186);
     let read_at = snapshot["updated_at"].as_i64().unwrap();
     assert_eq!(
         snapshot["used_today"],
         if read_at - read_at.rem_euclid(86400) == start {
-            json!(0.3285714285714286)
+            json!(0.00046)
         } else {
             json!(0.0)
         }
@@ -749,7 +781,7 @@ async fn persisted_usage_is_exact_token_scoped_utc_and_never_changes_credentials
             "USD usage is fixed by K despite FX and recharge promotion changes"
         );
     }
-    assert_eq!(after_fx["remaining"], 12.642857142857142);
+    assert_eq!(after_fx["remaining"], 0.0177);
     sqlx::query("UPDATE tokens SET unlimited_quota=TRUE,status=4 WHERE id=11")
         .execute(&fixture.pg)
         .await

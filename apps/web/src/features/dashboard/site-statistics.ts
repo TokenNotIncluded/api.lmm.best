@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { z } from 'zod'
 
+import { toIntlLocale } from '@/i18n/languages'
 import { api } from '@/lib/api'
 
 const positiveInteger = z.string().regex(/^\d+$/)
@@ -45,7 +46,7 @@ export async function getAdminSiteStatistics(): Promise<AdminSiteStatistics> {
 }
 
 export function formatSiteCredits(value: string, locale: string): string {
-  return new Intl.NumberFormat(locale).format(BigInt(value))
+  return new Intl.NumberFormat(toIntlLocale(locale)).format(BigInt(value))
 }
 
 export function formatSitePaymentMicros(value: string, locale: string): string {
@@ -57,7 +58,7 @@ export function formatSitePaymentMicros(value: string, locale: string): string {
     .replace(/0+$/, '')
     .padEnd(2, '0')
   const decimalSeparator =
-    new Intl.NumberFormat(locale)
+    new Intl.NumberFormat(toIntlLocale(locale))
       .formatToParts(1.1)
       .find((part) => part.type === 'decimal')?.value ?? '.'
   return `${formatSiteCredits(units.toString(), locale)}${decimalSeparator}${fraction}`

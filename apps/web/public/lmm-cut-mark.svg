@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="lmm-symbol-title lmm-symbol-desc">
   <title id="lmm-symbol-title">LMM Forge symbol</title>
-  <desc id="lmm-symbol-desc">A solid L spine and base carry two open M shapes. A single diagonal cut finishes the base.</desc>
+  <desc id="lmm-symbol-desc">An L-shaped foundation beneath two separate M forms. Open spacing and a diagonal terminal keep the mark clear at small sizes.</desc>
   <style>
     .ink { fill: #000; }
     @media (prefers-color-scheme: dark) { .ink { fill: #fff; } }
   </style>
-  <path class="ink" fill-rule="evenodd" d="M6 10H24V94H32V20H44L52 40L60 20H72V94H82V20H94L102 40L110 20H122V100L110 112H6Z M44 94V52L52 70L60 52V94Z M94 94V52L102 70L110 52V94Z"/>
+  <path class="ink" fill-rule="evenodd" d="M8 16H24V96H120V104L112 112H8Z M40 80V16H50L56 30L62 16H72V80H62V42L56 56L50 42V80Z M88 80V16H98L104 30L110 16H120V80H110V42L104 56L98 42V80Z"/>
 </svg>

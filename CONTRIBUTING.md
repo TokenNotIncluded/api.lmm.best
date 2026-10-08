@@ -27,18 +27,15 @@ are required by maintainers during review.
 
 ## Development setup
 
-```bash
-just setup
-just dev
-```
+Follow the [local development guide](docs/development.md) to configure PostgreSQL,
+Valkey, and `apps/api-go/.env`. Start Go with `just dev-go`, then run the frontend
+in a separate terminal on port 5173 as shown in that guide.
 
-For headless backend-only work:
+`just dev` and `just dev-rust` require a locally supplied `docker-compose.dev.yml`;
+the repository does not include it. They are not fresh-checkout shortcuts.
 
-```bash
-just dev-go
-# or
-just dev-rust
-```
+For README or logo changes, also run `python3 scripts/check-docs-brand.py` and
+inspect light/dark placements and small icon sizes.
 
 ## Quality gates
 

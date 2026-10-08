@@ -244,7 +244,7 @@ export function SummaryCards() {
       icon: config.icon,
       tone: tones[index] ?? 'accent-3',
       sparkline:
-        usageReady && (usageTrendQuery.data?.data.length ?? 0) > 0
+        usageReady && (usageTrendQuery.data?.data?.length ?? 0) > 0
           ? config.key === 'todayUsage'
             ? sparklineData.usage
             : getSummarySparkline(config.key, sparklineData)
