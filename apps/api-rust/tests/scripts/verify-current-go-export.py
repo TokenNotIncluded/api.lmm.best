@@ -99,6 +99,10 @@ def verify(kind, source, shared_input=None):
             raise ValueError("current Go AI directory USD amount vectors are incomplete")
         return 96
     if kind == "token-pricing":
+        options = data.get("options", {})
+        anchors = ("CreditsPerUSD", "LegacyPricingQuotaPerUnit", "QuotaPerUnit", "PublicCreditsPerUSD")
+        if any(options.get(key) != "500000" for key in anchors):
+            raise ValueError("current Go token pricing export must use the fixed 500000 credit basis")
         required = {"default-discount", "group-override", "two-groups", "model-limit", "wildcard-limit", "expression"}
         cases = data.get("cases", [])
         if len(cases) != len(required) or {case.get("name") for case in cases} != required:
