@@ -482,7 +482,7 @@ async fn postgres_create_replay_quote_changes_and_concurrency_charge_once() {
         .execute(&fixture.pg)
         .await
         .unwrap();
-    let mut poor = input("directory-insufficient-0003", 100);
+    let poor = input("directory-insufficient-0003", 100);
     assert_eq!(
         fixture.store.create(2, poor).await.unwrap_err(),
         AdError::Insufficient
@@ -774,8 +774,7 @@ async fn postgres_actual_usd_basis_preserves_legacy_replay_refund_and_value_orde
     let legacy = normalize_ad(input("directory-legacy-paid-0001", 2000)).unwrap();
     let legacy_id: i64 = sqlx::query_scalar("INSERT INTO ai_directory_ads(owner_user_id,name,url,summary,description,bid_cents,charged_quota,request_id,status,paid_at,expires_at,hidden_at,refunded_at) VALUES(1,$1,$2,$3,$4,2000,500000,$5,'active',1,$6,0,0) RETURNING id::BIGINT")
         .bind(&legacy.name).bind(&legacy.url).bind(&legacy.summary).bind(&legacy.description).bind(&legacy.request_id).bind(chrono::Utc::now().timestamp()+86400).fetch_one(&fixture.pg).await.unwrap();
-    let mut fresh_input = input("directory-real-dollar-0001", 700);
-    fresh_input.expected_quota = 3_500_000;
+    let fresh_input = input("directory-real-dollar-0001", 700);
     let mut tasks = tokio::task::JoinSet::new();
     for _ in 0..16 {
         let store = fixture.store.clone();
