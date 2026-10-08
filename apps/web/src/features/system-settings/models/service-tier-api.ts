@@ -25,8 +25,9 @@ export interface ServiceTierState {
 type Result = { success: boolean; message?: string; data: ServiceTierState }
 const endpoint = '/api/ratio_sync/service_tiers'
 function unwrap(result: Result) {
-  if (!result.success || !result.data)
+  if (!result.success || !result.data) {
     throw new Error(result.message || 'Service-tier pricing is unavailable')
+  }
   return result.data
 }
 export async function getServiceTierPricing(): Promise<ServiceTierState> {
