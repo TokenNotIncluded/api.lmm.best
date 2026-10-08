@@ -113,7 +113,13 @@ func (runtime *productionRuntime) requestMerchantStoreFence(ctx context.Context,
 	if err := merchantStoreFencePeer(connection, runtime.requiredOwnerUID, owner.HolderPID); err != nil {
 		return err
 	}
-	_ = connection.SetDeadline(time.Now().Add(90 * time.Second))
+	deadline := time.Now().Add(90 * time.Second)
+	if limit, ok := ctx.Deadline(); ok && limit.Before(deadline) {
+		deadline = limit
+	}
+	_ = connection.SetDeadline(deadline)
+	stopCancellation := context.AfterFunc(ctx, func() { _ = connection.Close() })
+	defer stopCancellation()
 	operation := "check"
 	if release {
 		operation = "release"
@@ -438,9 +444,26 @@ func (runtime *productionRuntime) ensureMerchantStoreFence(ctx context.Context, 
 		"--workspace", workspace.root, "--release-plan", plan, "--release-plan-sha256", manifest.SchemaPlanSHA256}, Timeout: 30 * time.Second}); err != nil {
 		return errors.New("merchant deployment durable holder unit could not be started")
 	}
-	for attempt := 0; attempt < 20; attempt++ {
-		if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, false); err == nil {
+	return runtime.awaitMerchantStoreFence(ctx, func(ctx context.Context) error {
+		return runtime.requestMerchantStoreFence(ctx, workspace, manifest, false)
+	})
+}
+
+// Holder qualification reads both signed providers and the physical database.
+// A slow host must retain its original holder rather than launch a replacement.
+func (runtime *productionRuntime) awaitMerchantStoreFence(ctx context.Context, check func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	deadline := runtime.now().Add(2 * time.Minute)
+	for runtime.now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := check(ctx); err == nil {
 			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		runtime.sleep(500 * time.Millisecond)
 	}
