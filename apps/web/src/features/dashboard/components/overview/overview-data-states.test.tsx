@@ -208,6 +208,41 @@ test('failed usage stays unknown and a new account fetches its own usage', async
   assert.doesNotMatch(container.textContent ?? '', /Failed to load data/)
 })
 
+test('successful null usage renders an empty overview without crashing', async () => {
+  type User = NonNullable<typeof originalUser>
+  useAuthStore.getState().auth.setUser({
+    id: 903,
+    username: 'empty-usage',
+    role: 1,
+    quota: 5000000,
+    used_quota: 0,
+    request_count: 0,
+    group: 'default',
+  } as User)
+  api.get = (async (url: string) => {
+    if (url === '/api/status') {
+      return {
+        data: {
+          success: true,
+          data: { system_name: 'Test', display_in_currency: true },
+        },
+      }
+    }
+    if (url === '/api/data/self') {
+      return { data: { success: true, data: null } }
+    }
+    throw new Error(`Unexpected ${url}`)
+  }) as typeof api.get
+  const container = await mount(SummaryCards)
+  await until(() => container.textContent?.includes('No recent usage') === true)
+  assert.match(container.textContent ?? '', /Usage at a glance/)
+  assert.match(container.textContent ?? '', /Last 24h usage/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /Failed to load data|Unknown/
+  )
+})
+
 test('empty and loading panels preserve their header action', async () => {
   let clicks = 0
   const container = await mount(() => (
