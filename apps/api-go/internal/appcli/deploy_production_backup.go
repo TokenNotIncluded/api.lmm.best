@@ -407,10 +407,12 @@ func productionDatabaseCommand(values map[string]string) (string, []string, erro
 		converted = true
 	}
 	if converted {
-		// libpq percent-decodes URI values; unlike Go's query parser it does
-		// not decode form-encoded '+' as a space.
-		parsed.RawQuery = strings.ReplaceAll(query.Encode(), "+", "%20")
+		parsed.RawQuery = query.Encode()
 	}
+	// libpq percent-decodes URI values; unlike Go's query parser it does not
+	// decode form-encoded '+' as a space. Normalize even options-only URIs,
+	// preserving their original parameter order when no conversion was needed.
+	parsed.RawQuery = strings.ReplaceAll(parsed.RawQuery, "+", "%20")
 	return parsed.String(), productionChildEnvironment(values, overrides), nil
 }
 

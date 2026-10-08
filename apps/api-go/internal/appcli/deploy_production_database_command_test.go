@@ -6,7 +6,88 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
+
+func TestProductionDatabaseCommandPreservesPGXQueryEncoding(t *testing.T) {
+	t.Setenv("PGOPTIONS", "-c application_name=ambient")
+	tests := []struct {
+		name       string
+		parameters string
+		options    *string
+		appName    string
+	}{
+		{"form-options-only", "options=" + url.QueryEscape("-c search_path=fenced -c default_transaction_read_only=on"), stringPointer("-c search_path=fenced -c default_transaction_read_only=on"), ""},
+		{"percent-options-only", "options=-c%20search_path%3Dfenced%20-c%20default_transaction_read_only%3Don", stringPointer("-c search_path=fenced -c default_transaction_read_only=on"), ""},
+		{"literal-plus", "options=-c+application_name%3Da%2Bb", stringPointer("-c application_name=a+b"), ""},
+		{"already-encoded-plus", "options=-c%20application_name%3Da%2Bb", stringPointer("-c application_name=a+b"), ""},
+		{"encoded-percent", "options=-c+application_name%3Da%2520b%252Bc", stringPointer("-c application_name=a%20b%2Bc"), ""},
+		{"empty-options", "options=", stringPointer(""), ""},
+		{"bare-empty-options", "options", stringPointer(""), ""},
+		{"missing-options", "", nil, ""},
+		{"form-without-options", "application_name=form+name%2Bplus", nil, "form name+plus"},
+		{"empty-options-with-form-value", "options=&application_name=form+name%2Bplus", stringPointer(""), "form name+plus"},
+		{"unknown-preserved", "options=-c+search_path%3Dfenced&future_setting=private+value%2Bplus", stringPointer("-c search_path=fenced"), ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			original := "postgres://business@database.example/lmm?sslmode=require&" + test.parameters
+			values := map[string]string{"SQL_DSN": original, "PGOPTIONS": "-c application_name=inspected"}
+			adapted, environment, err := productionDatabaseCommand(values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			originalConfig, err := pgx.ParseConfig(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed := mustDatabaseURL(t, adapted)
+			query := parsed.Query()
+			if query.Get("sslmode") != "require" || parsed.User.Username() != "business" || parsed.Host != "database.example" || parsed.Path != "/lmm" {
+				t.Fatal("normalization changed connection identity or SSL mode")
+			}
+			if query.Has("options") != (test.options != nil) || test.options != nil && query.Get("options") != *test.options {
+				t.Fatalf("options=%q present=%t", query.Get("options"), query.Has("options"))
+			}
+			if query.Get("application_name") != test.appName {
+				t.Fatalf("application_name=%q want=%q", query.Get("application_name"), test.appName)
+			}
+			// libpq decodes percent escapes without form decoding. Verify the
+			// actual command URI, rather than Go's Query() decoding it again.
+			for _, pair := range strings.Split(parsed.RawQuery, "&") {
+				key, rawValue, _ := strings.Cut(pair, "=")
+				value, err := url.PathUnescape(rawValue)
+				if err != nil || strings.Contains(rawValue, "+") {
+					t.Fatal("command URI still relies on form decoding")
+				}
+				if key == "options" || key == "application_name" || key == "future_setting" {
+					if value != originalConfig.RuntimeParams[key] {
+						t.Fatalf("libpq %s=%q differs from pgx %q", key, value, originalConfig.RuntimeParams[key])
+					}
+				}
+			}
+			if strings.Contains(test.parameters, "future_setting=") && query.Get("future_setting") != "private value+plus" {
+				t.Fatal("unknown parameter was silently dropped or changed")
+			}
+			if values["SQL_DSN"] != original || values["PGOPTIONS"] != "-c application_name=inspected" ||
+				!containsString(environment, "SQL_DSN="+original) || !containsString(environment, "PGOPTIONS=-c application_name=inspected") {
+				t.Fatal("normalization changed the inspected pgx environment")
+			}
+		})
+	}
+}
+
+func TestProductionDatabaseCommandPreservesUnconvertedParameterOrder(t *testing.T) {
+	const originalQuery = "sslmode=disable&ssl=true&options=-c+search_path%3Dfenced&future_setting=first+value&future_setting=last%2Bvalue"
+	adapted, _, err := productionDatabaseCommand(map[string]string{"SQL_DSN": "postgres://business@database.example/lmm?" + originalQuery})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mustDatabaseURL(t, adapted).RawQuery != "sslmode=disable&ssl=true&options=-c%20search_path%3Dfenced&future_setting=first%20value&future_setting=last%2Bvalue" {
+		t.Fatal("normalization reordered aliases, dropped duplicate unknown parameters, or changed a literal plus")
+	}
+}
 
 func TestProductionDatabaseCommandAdaptsKnownRuntimeParameters(t *testing.T) {
 	t.Setenv("PGOPTIONS", "-c statement_timeout=ambient")
@@ -17,6 +98,7 @@ func TestProductionDatabaseCommandAdaptsKnownRuntimeParameters(t *testing.T) {
 		want       string
 	}{
 		{"uri-options-win", "options=-c%20statement_timeout%3D25%20-c%20search_path%3Dother%20-c%20default_transaction_read_only%3Doff&search_path=fenced&default_transaction_read_only=on", stringPointer("-c statement_timeout=ignored"), "-c statement_timeout=25 -c search_path=other -c default_transaction_read_only=off -c search_path=fenced -c default_transaction_read_only=on"},
+		{"form-uri-options-win", "options=-c+search_path%3Dother+-c+default_transaction_read_only%3Doff&search_path=fenced&default_transaction_read_only=on", stringPointer("-c statement_timeout=ignored"), "-c search_path=other -c default_transaction_read_only=off -c search_path=fenced -c default_transaction_read_only=on"},
 		{"explicit-environment", "search_path=fenced", stringPointer("-c statement_timeout=50"), "-c statement_timeout=50 -c search_path=fenced"},
 		{"ambient-environment", "search_path=fenced", nil, "-c statement_timeout=ambient -c search_path=fenced"},
 		{"explicit-empty-environment", "search_path=fenced", stringPointer(""), "-c search_path=fenced"},
@@ -90,14 +172,26 @@ func TestProductionDatabaseCommandRejectsAmbiguousRuntimeParameters(t *testing.T
 }
 
 func TestProductionDatabaseCommandKeepsQueryPasswordOutOfArguments(t *testing.T) {
-	adapted, environment, err := productionDatabaseCommand(map[string]string{
-		"SQL_DSN": "postgres://app:original@localhost/lmm?password=query%40password&sslmode=require",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(adapted, "password") || strings.Contains(adapted, "original") || !containsString(environment, "PGPASSWORD=query@password") {
-		t.Fatal("URI query password did not override userinfo privately")
+	for _, test := range []struct{ encoded, decoded string }{
+		{"query%40password", "query@password"},
+		{"query+password%2Bplus%2520", "query password+plus%20"},
+		{"query%20password%2Bplus%2520", "query password+plus%20"},
+		{"", ""},
+	} {
+		t.Run(test.encoded, func(t *testing.T) {
+			original := "postgres://app:original@localhost/lmm?password=" + test.encoded + "&sslmode=require"
+			values := map[string]string{"SQL_DSN": original}
+			adapted, environment, err := productionDatabaseCommand(values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(adapted, "password") || strings.Contains(adapted, "original") || !containsString(environment, "PGPASSWORD="+test.decoded) {
+				t.Fatal("URI query password did not override userinfo privately")
+			}
+			if values["SQL_DSN"] != original || !containsString(environment, "SQL_DSN="+original) {
+				t.Fatal("password extraction changed the inspected pgx environment")
+			}
+		})
 	}
 }
 

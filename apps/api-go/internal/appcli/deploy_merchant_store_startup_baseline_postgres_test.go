@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,20 +114,44 @@ REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC;GRANT EXEC
 	// A legitimate URI override must select the same schema for pgx capture
 	// and libpq, even when the inspected PGOPTIONS is nonempty and different.
 	runtime := productionRuntime{runner: osProductionCommandRunner{}}
-	for _, uriOptions := range []string{"-csearch_path%3Dbaseline_store%20-cdefault_transaction_read_only%3Doff", ""} {
-		override := map[string]string{"SQL_DSN": values["SQL_DSN"] + "&options=" + uriOptions, "PGOPTIONS": "-csearch_path=public -cdefault_transaction_read_only=on"}
+	for _, test := range []struct{ name, uriOptions, literalValue string }{
+		{"percent-options", "-csearch_path%3Dbaseline_store%20-cdefault_transaction_read_only%3Doff", ""},
+		{"form-options-literal-plus", url.QueryEscape("-csearch_path=baseline_store -cdefault_transaction_read_only=off -clmm.adapter_literal=uri+override"), "uri+override"},
+		{"percent-options-literal-plus", "-csearch_path%3Dbaseline_store%20-cdefault_transaction_read_only%3Doff%20-clmm.adapter_literal%3Duri%2Boverride", "uri+override"},
+		{"empty-options", "", ""},
+	} {
+		override := map[string]string{"SQL_DSN": values["SQL_DSN"] + "&options=" + test.uriOptions, "PGOPTIONS": "-csearch_path=public -cdefault_transaction_read_only=on"}
+		originalDSN := override["SQL_DSN"]
 		captured, err := captureMerchantStartupDatabase(ctx, override)
 		if err != nil || captured.Schema != db.Schema || captured.Role != db.Role || !stringsEqual(captured.FloorValues, db.FloorValues) {
-			t.Fatalf("actual URI options override capture=%+v err=%v", captured, err)
+			t.Fatalf("actual %s override capture=%+v err=%v", test.name, captured, err)
 		}
 		dsn, environment, err := productionSealedDatabaseCommand(override)
 		if err != nil {
 			t.Fatal(err)
 		}
-		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-qAt", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "--command", "SELECT current_schema(),current_setting('default_transaction_read_only')"}, Env: environment, Sensitive: true})
-		if err != nil || strings.TrimSpace(string(output)) != "baseline_store|off" {
-			t.Fatalf("actual libpq URI options override=%q err=%v", output, err)
+		query := "SELECT current_schema(),current_setting('default_transaction_read_only')"
+		want := "baseline_store|off"
+		if test.literalValue != "" {
+			query += ",current_setting('lmm.adapter_literal')"
+			want += "|" + test.literalValue
 		}
+		output, err := runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-qAt", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "--command", query}, Env: environment, Sensitive: true})
+		if err != nil || strings.TrimSpace(string(output)) != want {
+			t.Fatalf("actual libpq %s override=%q err=%v", test.name, output, err)
+		}
+		if override["SQL_DSN"] != originalDSN || !containsString(environment, "SQL_DSN="+originalDSN) || override["PGOPTIONS"] != "-csearch_path=public -cdefault_transaction_read_only=on" {
+			t.Fatal("native adapter changed the sealed pgx environment")
+		}
+	}
+	unknownDSN, unknownEnvironment, err := productionSealedDatabaseCommand(map[string]string{"SQL_DSN": values["SQL_DSN"] + "&options=-csearch_path%3Dbaseline_store&future_setting=private+value"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := exec.CommandContext(ctx, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "--dbname", unknownDSN, "--command", "SELECT 1")
+	unknown.Env = unknownEnvironment
+	if output, err := unknown.CombinedOutput(); err == nil || !strings.Contains(string(output), `invalid URI query parameter: "future_setting"`) {
+		t.Fatal("libpq did not reject the preserved unknown URI parameter")
 	}
 	// Capture the actual catalog independently, then verify it through the
 	// production writer->capsule psql path using the very same fenced child.
@@ -176,7 +201,7 @@ REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC;GRANT EXEC
 	if err := runtime.verifyMerchantStoreCapsuleSchema(ctx, capsule, fencedChild); err == nil || err.Error() != "portable physical identity/schema metadata drifted" {
 		t.Fatalf("actual capsule accepted catalog drift: %v", err)
 	}
-	t.Log("actual_capsule_psql=true sealed_child_schema=baseline_store sealed_child_read_only=on write_rejected=true catalog_drift_rejected=true uri_options_override_pgoptions=true empty_uri_options_override_pgoptions=true")
+	t.Log("actual_capsule_psql=true sealed_child_schema=baseline_store sealed_child_read_only=on write_rejected=true catalog_drift_rejected=true uri_options_override_pgoptions=true empty_uri_options_override_pgoptions=true form_uri_options_round_trip=true literal_plus_preserved=true unknown_uri_parameter_rejected=true raw_sealed_environment_preserved=true")
 	c := testMerchantStartupBaseline(t, defaultProductionPaths())
 	b := c.Baseline
 	b.Role = db.Role
