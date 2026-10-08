@@ -153,7 +153,7 @@ fn input(id: &str, bid: i64) -> AIDirectoryAdInput {
         summary: " Useful ".into(),
         description: " Detail ".into(),
         bid_cents: bid,
-        expected_quota: bid * 10,
+        expected_quota: bid * 5_000,
         request_id: id.into(),
     }
 }
@@ -180,11 +180,18 @@ fn quote_and_url_normalization_match_current_go_oracle() {
     };
     for vector in oracle["quotes"].as_array().unwrap() {
         assert_eq!(vector["legacy_quota_per_unit"], "500000");
-        let outcome = charge_quota_with_credits_per_usd(
-            vector["bid_cents"].as_i64().unwrap(),
-            vector["credits_per_usd"].as_str().unwrap(),
-        );
-        if vector["error"] == "" {
+        let bid = vector["bid_cents"].as_i64().unwrap();
+        let units = vector["credits_per_usd"].as_str().unwrap();
+        let outcome = charge_quota_with_credits_per_usd(bid, units);
+        // Go's calculator also accepts historical rates in test fixtures.
+        // Real ledgers are fixed at 500,000 credits/USD.
+        if units != "500000" && (100..=1_000_000).contains(&bid) {
+            assert_eq!(
+                outcome.unwrap_err(),
+                AdError::CurrencyUnavailable,
+                "{vector}"
+            );
+        } else if vector["error"] == "" {
             assert_eq!(
                 outcome.unwrap(),
                 vector["quota"].as_i64().unwrap(),
@@ -199,13 +206,15 @@ fn quote_and_url_normalization_match_current_go_oracle() {
         }
     }
     for vector in oracle["amounts"].as_array().unwrap() {
+        let units = vector["credits_per_usd"].as_str().unwrap();
+        let expected = if units == "500000" {
+            vector["charged_amount_usd"].as_str()
+        } else {
+            None
+        };
         assert_eq!(
-            charged_amount_usd(
-                vector["charged_quota"].as_i64().unwrap(),
-                vector["credits_per_usd"].as_str().unwrap()
-            )
-            .as_deref(),
-            vector["charged_amount_usd"].as_str(),
+            charged_amount_usd(vector["charged_quota"].as_i64().unwrap(), units).as_deref(),
+            expected,
             "{vector}",
         );
     }
@@ -361,7 +370,7 @@ impl Fixture {
             .connect(&url)
             .await
             .unwrap();
-        sqlx::raw_sql("CREATE TABLE options(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE users(id BIGINT PRIMARY KEY,username TEXT,quota BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE logs(id BIGSERIAL PRIMARY KEY,user_id BIGINT,created_at BIGINT,type BIGINT,content TEXT,username TEXT,token_name TEXT,model_name TEXT,quota BIGINT,prompt_tokens BIGINT,completion_tokens BIGINT,use_time BIGINT,is_stream BOOLEAN,channel_id BIGINT,token_id BIGINT,\"group\" TEXT,ip TEXT,other TEXT,request_id TEXT);INSERT INTO users VALUES(1,'owner',1000000,NULL),(2,'other',1000000,NULL),(3,'admin',0,NULL),(4,'root',0,NULL);INSERT INTO options VALUES('QuotaPerUnit','500000'),('CreditsPerUSD','1000'),('AIDirectoryLinks','[]');").execute(&pg).await.unwrap();
+        sqlx::raw_sql("CREATE TABLE options(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE users(id BIGINT PRIMARY KEY,username TEXT,quota BIGINT,deleted_at TIMESTAMPTZ);CREATE TABLE logs(id BIGSERIAL PRIMARY KEY,user_id BIGINT,created_at BIGINT,type BIGINT,content TEXT,username TEXT,token_name TEXT,model_name TEXT,quota BIGINT,prompt_tokens BIGINT,completion_tokens BIGINT,use_time BIGINT,is_stream BOOLEAN,channel_id BIGINT,token_id BIGINT,\"group\" TEXT,ip TEXT,other TEXT,request_id TEXT);INSERT INTO users VALUES(1,'owner',100000000,NULL),(2,'other',100000000,NULL),(3,'admin',0,NULL),(4,'root',0,NULL);INSERT INTO options VALUES('QuotaPerUnit','500000'),('CreditsPerUSD','500000'),('AIDirectoryLinks','[]');").execute(&pg).await.unwrap();
         let migration = include_str!("../migrations/0015_current_catalog.sql")
             .replace("__LMM_APP_SCHEMA__", &schema);
         sqlx::raw_sql(&migration).execute(&pg).await.unwrap();
@@ -421,11 +430,16 @@ async fn postgres_create_replay_quote_changes_and_concurrency_charge_once() {
     }
     assert_eq!(created, 1);
     assert_eq!(ids.len(), 1);
-    assert_eq!(fixture.quota(1).await, 998750);
+    assert_eq!(fixture.quota(1).await, 99_375_000);
     sqlx::query("UPDATE options SET value='2000' WHERE key='CreditsPerUSD'")
         .execute(&fixture.pg)
         .await
         .unwrap();
+    assert_eq!(
+        fixture.store.quote(125).await.unwrap_err(),
+        AdError::CurrencyUnavailable
+    );
+    // Previously paid requests still replay when new charges are unavailable.
     assert!(
         !fixture
             .store
@@ -442,12 +456,14 @@ async fn postgres_create_replay_quote_changes_and_concurrency_charge_once() {
             .unwrap_err(),
         AdError::Conflict
     );
+    sqlx::query("UPDATE options SET value='500000' WHERE key='CreditsPerUSD'")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
+    let mut stale = input("directory-changed-price-0002", 125);
+    stale.expected_quota = 1_250;
     assert_eq!(
-        fixture
-            .store
-            .create(1, input("directory-changed-price-0002", 125))
-            .await
-            .unwrap_err(),
+        fixture.store.create(1, stale).await.unwrap_err(),
         AdError::QuoteChanged
     );
     let mut different = input("directory-concurrent-0001", 125);
@@ -470,8 +486,7 @@ async fn postgres_create_replay_quote_changes_and_concurrency_charge_once() {
         .execute(&fixture.pg)
         .await
         .unwrap();
-    let mut poor = input("directory-insufficient-0003", 100);
-    poor.expected_quota = 2000;
+    let poor = input("directory-insufficient-0003", 100);
     assert_eq!(
         fixture.store.create(2, poor).await.unwrap_err(),
         AdError::Insufficient
@@ -499,7 +514,7 @@ async fn postgres_hide_refunds_once_and_wallet_failure_rolls_back_visibility() {
         AdError::WalletRange
     );
     assert_eq!(fixture.store.active(0).await.unwrap().0[0].status, "active");
-    sqlx::query("UPDATE users SET quota=999000 WHERE id=1")
+    sqlx::query("UPDATE users SET quota=500000 WHERE id=1")
         .execute(&fixture.pg)
         .await
         .unwrap();
@@ -608,7 +623,7 @@ async fn postgres_public_private_pagination_expiry_and_http_contract() {
     .await;
     assert_eq!(
         quote["data"],
-        json!({"bid_cents":125,"quota":1250,"currency":"USD","pricing_schema_version":2,"duration_days":30,"min_bid_cents":100,"max_bid_cents":1000000})
+        json!({"bid_cents":125,"quota":625000,"currency":"USD","pricing_schema_version":2,"duration_days":30,"min_bid_cents":100,"max_bid_cents":1000000})
     );
     let response = app
         .clone()
@@ -635,7 +650,7 @@ async fn postgres_public_private_pagination_expiry_and_http_contract() {
     )
     .await;
     assert_eq!(response["data"]["refunded"], true);
-    assert_eq!(response["data"]["refunded_quota"], 1000);
+    assert_eq!(response["data"]["refunded_quota"], 500_000);
     let audit: String =
         sqlx::query_scalar("SELECT other FROM logs WHERE user_id=4 ORDER BY id DESC LIMIT 1")
             .fetch_one(&fixture.pg)
@@ -690,7 +705,7 @@ async fn postgres_cache_and_audit_failures_do_not_reverse_committed_wallet_chang
         .await
         .unwrap();
     assert!(created);
-    assert_eq!(fixture.quota(1).await, 999000);
+    assert_eq!(fixture.quota(1).await, 99_500_000);
     assert!(
         !failing
             .create(1, input("directory-cache-0002", 100))
@@ -702,24 +717,21 @@ async fn postgres_cache_and_audit_failures_do_not_reverse_committed_wallet_chang
 }
 
 #[test]
-fn real_usd_bid_uses_exact_credit_basis_and_safe_ceiling() {
+fn fixed_usd_bid_enforces_immutable_credit_basis() {
+    for rate in ["500000", "5e5", "+500000.0000", "000500000"] {
+        assert_eq!(
+            charge_quota_with_credits_per_usd(100, rate).unwrap(),
+            500_000
+        );
+    }
+    assert_eq!(charge_quota(100, 500_000.0).unwrap(), 500_000);
     assert_eq!(
-        charge_quota_with_credits_per_usd(100, "3500000").unwrap(),
-        3_500_000
-    );
-    assert_eq!(charge_quota(100, 3_500_000.0).unwrap(), 3_500_000);
-    assert_eq!(
-        charge_quota_with_credits_per_usd(125, "1000.1").unwrap(),
-        1251
-    );
-    assert_eq!(charge_quota_with_credits_per_usd(100, "1e-30").unwrap(), 1);
-    assert_eq!(
-        charge_quota_with_credits_per_usd(100, "9007199254740991").unwrap(),
-        MAX_WALLET_QUOTA
+        charge_quota_with_credits_per_usd(125, "500000").unwrap(),
+        625_000
     );
     assert_eq!(
-        charge_quota_with_credits_per_usd(125, "9007199254740991").unwrap_err(),
-        AdError::WalletRange
+        charge_quota_with_credits_per_usd(1_000_000, "500000").unwrap(),
+        5_000_000_000
     );
     for rate in [
         "",
@@ -730,32 +742,28 @@ fn real_usd_bid_uses_exact_credit_basis_and_safe_ceiling() {
         "1e400",
         "9007199254740991.0001",
         "9007199254740992",
+        "3500000",
+        "1000.1",
+        "1e-30",
     ] {
         assert_eq!(
             charge_quota_with_credits_per_usd(100, rate).unwrap_err(),
             AdError::CurrencyUnavailable,
             "{rate}"
         );
+        assert_eq!(charged_amount_usd(500_000, rate), None, "{rate}");
     }
     assert_eq!(
         charge_quota_with_credits_per_usd(99, "").unwrap_err(),
         AdError::InvalidBid
     );
+    assert_eq!(charged_amount_usd(500_000, "500000").as_deref(), Some("1"));
     assert_eq!(
-        charged_amount_usd(500_000, "3500000").as_deref(),
-        Some("0.1428571428571429")
+        charged_amount_usd(-500_000, "500000").as_deref(),
+        Some("-1")
     );
-    assert_eq!(
-        charged_amount_usd(3_500_000, "3500000").as_deref(),
-        Some("1")
-    );
-    assert_eq!(
-        charged_amount_usd(1, "1e-30").as_deref(),
-        Some("1000000000000000000000000000000")
-    );
-    assert_eq!(charged_amount_usd(1, "20000000000000000"), None);
-    assert_eq!(charged_amount_usd(500_000, ""), None);
-    assert_eq!(charged_amount_usd(0, "3500000").as_deref(), Some("0"));
+    assert_eq!(charged_amount_usd(1, "500000").as_deref(), Some("0.000002"));
+    assert_eq!(charged_amount_usd(0, "500000").as_deref(), Some("0"));
 }
 
 #[tokio::test]
@@ -766,22 +774,29 @@ async fn postgres_actual_usd_basis_preserves_legacy_replay_refund_and_value_orde
         .execute(&fixture.pg)
         .await
         .unwrap();
+    assert_eq!(
+        fixture.store.quote(100).await.unwrap_err(),
+        AdError::CurrencyUnavailable
+    );
+    sqlx::query("UPDATE options SET value='500000' WHERE key='CreditsPerUSD'")
+        .execute(&fixture.pg)
+        .await
+        .unwrap();
     sqlx::query("UPDATE users SET quota=10000000 WHERE id=1")
         .execute(&fixture.pg)
         .await
         .unwrap();
-    // Q=500,000 is the old pricing unit, not the immutable USD wallet basis.
-    assert_eq!(fixture.store.quote(100).await.unwrap(), 3_500_000);
+    // Legacy pricing Q must never replace the immutable ledger basis K.
+    assert_eq!(fixture.store.quote(100).await.unwrap(), 500_000);
     sqlx::query("UPDATE options SET value='1' WHERE key='QuotaPerUnit'")
         .execute(&fixture.pg)
         .await
         .unwrap();
-    assert_eq!(fixture.store.quote(100).await.unwrap(), 3_500_000);
+    assert_eq!(fixture.store.quote(100).await.unwrap(), 500_000);
     let legacy = normalize_ad(input("directory-legacy-paid-0001", 2000)).unwrap();
     let legacy_id: i64 = sqlx::query_scalar("INSERT INTO ai_directory_ads(owner_user_id,name,url,summary,description,bid_cents,charged_quota,request_id,status,paid_at,expires_at,hidden_at,refunded_at) VALUES(1,$1,$2,$3,$4,2000,500000,$5,'active',1,$6,0,0) RETURNING id::BIGINT")
         .bind(&legacy.name).bind(&legacy.url).bind(&legacy.summary).bind(&legacy.description).bind(&legacy.request_id).bind(chrono::Utc::now().timestamp()+86400).fetch_one(&fixture.pg).await.unwrap();
-    let mut fresh_input = input("directory-real-dollar-0001", 100);
-    fresh_input.expected_quota = 3_500_000;
+    let fresh_input = input("directory-real-dollar-0001", 700);
     let mut tasks = tokio::task::JoinSet::new();
     for _ in 0..16 {
         let store = fixture.store.clone();
@@ -794,7 +809,7 @@ async fn postgres_actual_usd_basis_preserves_legacy_replay_refund_and_value_orde
         let (ad, new) = outcome.unwrap().unwrap();
         created += usize::from(new);
         assert_eq!(ad.charged_quota, 3_500_000);
-        assert_eq!(ad.charged_amount_usd.as_deref(), Some("1"));
+        assert_eq!(ad.charged_amount_usd.as_deref(), Some("7"));
         if fresh_id != 0 {
             assert_eq!(ad.id, fresh_id);
         }
@@ -807,10 +822,7 @@ async fn postgres_actual_usd_basis_preserves_legacy_replay_refund_and_value_orde
         ads.iter().map(|ad| ad.id).collect::<Vec<_>>(),
         vec![fresh_id, legacy_id]
     );
-    assert_eq!(
-        ads[1].charged_amount_usd.as_deref(),
-        Some("0.1428571428571429")
-    );
+    assert_eq!(ads[1].charged_amount_usd.as_deref(), Some("1"));
     sqlx::query("DELETE FROM options WHERE key='CreditsPerUSD'")
         .execute(&fixture.pg)
         .await

@@ -2,6 +2,7 @@ package model
 
 // Export current Go behavior for Rust's independently implemented catalogue.
 // No production configuration or database is read by this oracle.
+// Historical variable-K inputs are standalone math fixtures; production rejects them.
 import (
 	"encoding/json"
 	"os"
@@ -38,8 +39,8 @@ func TestRustAIDirectoryCurrentGoOracle(t *testing.T) {
 		k string
 		q int64
 	}{
-		{"3500000", 500000}, {"3500000", 3500000}, {"3500000", 0},
-		{"3500000", -500000}, {"1000.1", 1234}, {"1e-30", 1},
+		{"500000", 500000}, {"500000", 3500000}, {"500000", 0},
+		{"500000", -500000}, {"1000.1", 1234}, {"1e-30", 1},
 		{"9007199254740991", 1}, {"1.234567890123456789012345678901", int64(common.MaxWalletQuota)},
 		{"", 500000},
 	} {
