@@ -97,7 +97,7 @@ class WebShipTests(unittest.TestCase):
         self.assertEqual(0, self.call('release').returncode)
         self.assertEqual([], self.calls(('git', 'tag', '--list')))
         self.assertNotIn('--tags', self.calls(('git', 'fetch'))[0])
-        self.assertEqual('c' * 40, self.calls(('git', 'diff'))[0][2])
+        self.assertEqual('c' * 40, self.calls(('git', 'diff'))[0][3])
 
     def test_release_stops_before_deploy(self):
         result = self.call('release')
