@@ -1,0 +1,387 @@
+diff --git a/apps/api-go/model/option.go b/apps/api-go/model/option.go
+index 9c86eee..0095fcd 100644
+--- a/apps/api-go/model/option.go
++++ b/apps/api-go/model/option.go
+@@ -315,6 +315,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
+ }
+ 
+ func validateOptionValue(key string, value string) error {
++	if err := setting.ValidateServiceTierOption(key, value); err != nil {
++		return err
++	}
+ 	if key == MerchantStoreAnalyticsRetentionOption {
+ 		_, err := ParseMerchantStoreAnalyticsConfig(value)
+ 		return err
+@@ -829,6 +832,9 @@ func UpdateOptionsBulk(values map[string]string) error {
+ }
+ 
+ func updateOptionMap(key string, value string) (err error) {
++	if err := setting.ValidateServiceTierOption(key, value); err != nil {
++		return err
++	}
+ 	if key == PublicCreditsPerUSDOptionKey {
+ 		denomination, parseErr := parsePublicCreditRate(value)
+ 		if parseErr != nil {
+diff --git a/apps/api-go/relay/channel/api_request.go b/apps/api-go/relay/channel/api_request.go
+index 0b8b0ec..4d76d0d 100644
+--- a/apps/api-go/relay/channel/api_request.go
++++ b/apps/api-go/relay/channel/api_request.go
+@@ -539,6 +539,9 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
+ 
+ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+ 	resetUpstreamCompatibilityMarkers(c)
++	if err := helper.ApplyServiceTierToRequest(c, req, info); err != nil {
++		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
++	}
+ 	// Enforce trusted private identity after conversion, raw pass-through and
+ 	// all request/header overrides, immediately before the final transport.
+ 	helper.ApplyOpenAIPrivateSafetyIdentifierToRequest(req, info)
+diff --git a/apps/api-go/relay/channel/compatibility_retry.go b/apps/api-go/relay/channel/compatibility_retry.go
+index 1803922..37fb9c6 100644
+--- a/apps/api-go/relay/channel/compatibility_retry.go
++++ b/apps/api-go/relay/channel/compatibility_retry.go
+@@ -11,6 +11,7 @@ import (
+ 	common2 "github.com/LIghtJUNction/api.lmm.best/common"
+ 	"github.com/LIghtJUNction/api.lmm.best/constant"
+ 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
++	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
+ 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
+ 
+ 	"github.com/gin-gonic/gin"
+@@ -248,6 +249,10 @@ func maybeRetryOpenAICompatibilityError(c *gin.Context, client *http.Client, req
+ 	if err != nil {
+ 		return resp, nil
+ 	}
++	// Compatibility retries must not remove the reserved output cap or paid tier.
++	if err := helper.ApplyServiceTierToRequest(c, retryReq, info); err != nil {
++		return resp, nil
++	}
+ 	_ = resp.Body.Close()
+ 	retryResp, err := client.Do(retryReq)
+ 	if err != nil {
+diff --git a/apps/api-go/relay/channel/openai/chat_via_responses.go b/apps/api-go/relay/channel/openai/chat_via_responses.go
+index a934993..f963b83 100644
+--- a/apps/api-go/relay/channel/openai/chat_via_responses.go
++++ b/apps/api-go/relay/channel/openai/chat_via_responses.go
+@@ -41,6 +41,7 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+ 	}
+ 
+ 	info.ObserveResponseModel(responsesResp.Model)
++	info.ObserveServiceTier(body)
+ 	chatResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAI, &responsesResp)
+ 	if err != nil {
+ 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+@@ -112,6 +113,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
+ 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+ 			break
+ 		}
++		info.ObserveServiceTier([]byte(data))
+ 		if streamResp.Response != nil {
+ 			info.ObserveResponseModel(streamResp.Response.Model)
+ 		}
+@@ -292,6 +294,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 			return
+ 		}
+ 
++		info.ObserveServiceTier([]byte(data))
+ 		if streamResp.Response != nil {
+ 			info.ObserveResponseModel(streamResp.Response.Model)
+ 		}
+diff --git a/apps/api-go/relay/channel/openai/relay-openai.go b/apps/api-go/relay/channel/openai/relay-openai.go
+index 168e203..04f1068 100644
+--- a/apps/api-go/relay/channel/openai/relay-openai.go
++++ b/apps/api-go/relay/channel/openai/relay-openai.go
+@@ -162,6 +162,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
+ 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
+ 
+ 	handleData := func(data string, sr *helper.StreamResult) {
++		info.ObserveServiceTier([]byte(data))
+ 		if lastStreamData != "" && !lastStreamDataSent && !shouldHoldOpenAIUsageChunk(info, lastStreamData) {
+ 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+ 				common.SysLog("error handling stream format: " + err.Error())
+@@ -380,6 +381,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
+ 	}
+ 
+ 	info.ObserveResponseModel(simpleResponse.Model)
++	info.ObserveServiceTier(responseBody)
+ 	for _, choice := range simpleResponse.Choices {
+ 		if choice.FinishReason == constant.FinishReasonContentFilter {
+ 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
+diff --git a/apps/api-go/relay/channel/openai/relay_responses.go b/apps/api-go/relay/channel/openai/relay_responses.go
+index 1c0b742..2d0ce56 100644
+--- a/apps/api-go/relay/channel/openai/relay_responses.go
++++ b/apps/api-go/relay/channel/openai/relay_responses.go
+@@ -40,6 +40,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
+ 	}
+ 
+ 	info.ObserveResponseModel(responsesResponse.Model)
++	info.ObserveServiceTier(responseBody)
+ 
+ 	// 写入新的 response body
+ 	service.IOCopyBytesGracefully(c, resp, responseBody)
+@@ -109,6 +110,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+ 			return
+ 		}
+ 		streamResponse := event.ResponsesStreamResponse
++		info.ObserveServiceTier([]byte(data))
+ 		if strings.ContainsAny(streamResponse.Type, "\r\n") {
+ 			// JSON escapes are decoded above; validate the value at the SSE
+ 			// boundary before it can introduce another event or data field.
+diff --git a/apps/api-go/relay/channel/openai/responses_via_chat.go b/apps/api-go/relay/channel/openai/responses_via_chat.go
+index 926e20a..19b3e7e 100644
+--- a/apps/api-go/relay/channel/openai/responses_via_chat.go
++++ b/apps/api-go/relay/channel/openai/responses_via_chat.go
+@@ -36,6 +36,7 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
+ 	}
+ 
+ 	info.ObserveResponseModel(chatResp.Model)
++	info.ObserveServiceTier(body)
+ 	if responseID := helper.GetResponseID(c); responseID != "" {
+ 		chatResp.Id = responseID
+ 	}
+@@ -125,6 +126,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
+ 			return
+ 		}
+ 		info.ObserveResponseModel(chunk.Model)
++		info.ObserveServiceTier([]byte(data))
+ 		endEvidence.observe(&chunk)
+ 
+ 		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &chunk)
+diff --git a/apps/api-go/relay/common/relay_info.go b/apps/api-go/relay/common/relay_info.go
+index e49f6cf..0450d7b 100644
+--- a/apps/api-go/relay/common/relay_info.go
++++ b/apps/api-go/relay/common/relay_info.go
+@@ -11,6 +11,7 @@ import (
+ 	"github.com/LIghtJUNction/api.lmm.best/common"
+ 	"github.com/LIghtJUNction/api.lmm.best/constant"
+ 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
++	"github.com/LIghtJUNction/api.lmm.best/pkg/servicetier"
+ 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
+ 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
+ 	"github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert/convmeta"
+@@ -82,6 +83,9 @@ type TokenCountMeta struct {
+ }
+ 
+ type RelayInfo struct {
++	ServiceTierQuote         *servicetier.Quote
++	ServiceTierCreditsPerUSD string
++
+ 	TokenId               int
+ 	TokenKey              string
+ 	TokenGroup            string
+@@ -241,6 +245,9 @@ func (info *RelayInfo) CompleteResponseOutcome(apiErr *types.NewAPIError) {
+ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+ 	info.resetResponseModel()
+ 	info.ResponsesUsageReported = false
++	if info.ServiceTierQuote != nil {
++		info.ServiceTierQuote.ActualTier = ""
++	}
+ 	info.SystemOneUsageStatus = ""
+ 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
+ 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
+diff --git a/apps/api-go/relay/helper/price.go b/apps/api-go/relay/helper/price.go
+index 3244f77..75638e3 100644
+--- a/apps/api-go/relay/helper/price.go
++++ b/apps/api-go/relay/helper/price.go
+@@ -82,6 +82,9 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
+ }
+ 
+ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
++	if price, handled, err := modelPriceHelperServiceTier(c, info, promptTokens, meta); handled {
++		return price, err
++	}
+ 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
+ 
+ 	groupRatioInfo := HandleGroupRatio(c, info)
+diff --git a/apps/api-go/relay/responses_websocket.go b/apps/api-go/relay/responses_websocket.go
+index ecf17f6..2aa6c19 100644
+--- a/apps/api-go/relay/responses_websocket.go
++++ b/apps/api-go/relay/responses_websocket.go
+@@ -720,6 +720,28 @@ func buildResponsesWSCreatePayload(c *gin.Context, relayInfo *relaycommon.RelayI
+ 			return nil, newAPIErrorFromParamOverride(err)
+ 		}
+ 	}
++	targetURL, tierErr := adaptor.GetRequestURL(relayInfo)
++	if tierErr != nil {
++		return nil, types.NewError(tierErr, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
++	}
++	overrides, tierErr := relaychannel.ResolveHeaderOverride(relayInfo, sanitizedResponsesWSHeaderContext(c))
++	if tierErr != nil {
++		return nil, types.NewError(tierErr, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
++	}
++	tierHeaders := http.Header{}
++	host := ""
++	for name, value := range overrides {
++		tierHeaders.Set(name, value)
++		if strings.EqualFold(name, "Host") {
++			host = value
++		}
++	}
++	// Tier selection belongs to each response.create, not a shared socket.
++	tierHeaders.Del("OpenAI-Service-Tier")
++	jsonData, tierErr = helper.ApplyServiceTierToJSON(c, relayInfo, toWebSocketURL(targetURL), host, tierHeaders, jsonData)
++	if tierErr != nil {
++		return nil, types.NewError(tierErr, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
++	}
+ 	// Match the actual WebSocket URL/Host selection and enforce identity only
+ 	// after the client's body and channel parameter overrides are finalized.
+ 	if targetURL, urlErr := adaptor.GetRequestURL(relayInfo); urlErr == nil {
+@@ -797,6 +819,7 @@ func dialResponsesWebSocketUpstream(c *gin.Context, adaptor relaychannel.Adaptor
+ 	for key, value := range headerOverride {
+ 		targetHeader.Set(key, value)
+ 	}
++	targetHeader.Del("OpenAI-Service-Tier")
+ 	mergeHeaderTokens(targetHeader, "OpenAI-Beta", responsesWSRequiredBetaTokens(info)...)
+ 	targetConn, resp, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
+ 	statusCode := http.StatusInternalServerError
+@@ -1198,6 +1221,7 @@ func (s *responsesWSSession) observeUpstreamMessageForState(state *responsesWSCa
+ 	success := false
+ 	requestSucceeded := false
+ 	state.dataMu.Lock()
++	state.info.ObserveServiceTier(message)
+ 	state.info.SetFirstResponseTime()
+ 	if streamResponse.Response != nil {
+ 		state.info.ObserveResponseModel(streamResponse.Response.Model)
+diff --git a/apps/api-go/router/api-router.go b/apps/api-go/router/api-router.go
+index 20e1380..284ec2a 100644
+--- a/apps/api-go/router/api-router.go
++++ b/apps/api-go/router/api-router.go
+@@ -545,6 +545,9 @@ func SetApiRouter(router *gin.Engine) {
+ 		ratioSyncRoute.Use(middleware.RootAuth())
+ 		{
+ 			ratioSyncRoute.GET("/channels", controller.GetSyncableChannels)
++			ratioSyncRoute.GET("/service_tiers", controller.GetServiceTierPricing)
++			ratioSyncRoute.PUT("/service_tiers", controller.UpdateServiceTierPricing)
++			ratioSyncRoute.POST("/service_tiers/sync", controller.SyncServiceTierPricing)
+ 			ratioSyncRoute.POST("/fetch", controller.FetchUpstreamRatios)
+ 		}
+ 		registerChannelRoutes(apiRouter)
+diff --git a/apps/api-go/service/billing.go b/apps/api-go/service/billing.go
+index e776c78..db6398d 100644
+--- a/apps/api-go/service/billing.go
++++ b/apps/api-go/service/billing.go
+@@ -46,6 +46,8 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
+ 	var apiErr *types.NewAPIError
+ 	if relayInfo != nil && relayInfo.IsAssistant {
+ 		session, apiErr = NewAssistantBillingSession(c, relayInfo, preConsumedQuota)
++	} else if relayInfo != nil && relayInfo.ServiceTierQuote != nil {
++		session, apiErr = NewBudgetBillingSession(c, relayInfo, preConsumedQuota)
+ 	} else {
+ 		session, apiErr = NewBillingSession(c, relayInfo, preConsumedQuota)
+ 	}
+diff --git a/apps/api-go/service/billing_session.go b/apps/api-go/service/billing_session.go
+index f13f85c..ba26dad 100644
+--- a/apps/api-go/service/billing_session.go
++++ b/apps/api-go/service/billing_session.go
+@@ -662,6 +662,12 @@ func newBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
+ 	}
+ 
+ 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
++	if relayInfo.ServiceTierQuote != nil {
++		if pref == "subscription_only" {
++			return nil, types.NewErrorWithStatusCode(errors.New("accelerated requests require wallet funding; subscription_only is not supported"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
++		}
++		pref = "wallet_only"
++	}
+ 
+ 	// 钱包路径需要先检查用户额度
+ 	tryWallet := func() (*BillingSession, *types.NewAPIError) {
+diff --git a/apps/api-go/service/text_quota.go b/apps/api-go/service/text_quota.go
+index 5189e28..c482014 100644
+--- a/apps/api-go/service/text_quota.go
++++ b/apps/api-go/service/text_quota.go
+@@ -569,6 +569,12 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
+ 			// prepayment is refunded without replaying an already-started stream.
+ 			summary.Quota = 0
+ 			extraContent = append(extraContent, "请求未正常完成且没有可计费用量；不使用历史或预扣额度估算")
++		} else if relayInfo.ServiceTierQuote != nil && estimatedCap > 0 {
++			summary.Quota = estimatedCap
++			estimatedMissingUsage = true
++			estimateBasis = "service_tier_request_reservation"
++			relayInfo.ServiceTierQuote.ReconciliationRequired = true
++			extraContent = append(extraContent, "加速请求缺少用量；按本次加速预扣结算，不使用普通请求历史均价")
+ 		} else {
+ 			estimated, samples, estimateErr := model.EstimateRecentModelQuota(summary.ModelName, estimatedCap)
+ 			estimateSamples = samples
+@@ -592,6 +598,18 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
+ 		}
+ 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, fallback billing applied=%t, userId %d, channelId %d, tokenId %d, model %s, pre-consumed quota %d, estimate cap %d", estimatedMissingUsage, relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota, estimatedCap))
+ 	}
++	if relayInfo.ServiceTierQuote != nil && billingUsage != nil && summary.hasBillableUsage() {
++		tierQuota, tierErr := serviceTierUsageQuota(relayInfo, billingUsage)
++		if tierErr != nil {
++			// Never treat an unpriced provider result as a free request. Retain this
++			// request's reservation and expose the discrepancy for reconciliation.
++			relayInfo.ServiceTierQuote.ReconciliationRequired = true
++			summary.Quota = estimatedBillingQuotaCap(relayInfo)
++			extraContent = append(extraContent, "加速用量无法按价格快照结算；保留预扣并需对账："+tierErr.Error())
++		} else {
++			summary.Quota = tierQuota
++		}
++	}
+ 	if summary.BillingExemptReason != "" || summary.hasBillableUsage() || estimatedMissingUsage || (relayInfo.SystemOneUsageStatus == "reported" && summary.Quota > 0) || relayInfo.RelayMode == relayconstant.RelayModeModerations {
+ 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
+ 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
+@@ -638,6 +656,10 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
+ 			other["usage_estimate_cap"] = estimatedBillingQuotaCap(relayInfo)
+ 		}
+ 	}
++	if relayInfo.ServiceTierQuote != nil {
++		other["service_tier_pricing"] = relayInfo.ServiceTierQuote
++		other["service_tier_credits_per_usd"] = relayInfo.ServiceTierCreditsPerUSD
++	}
+ 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
+ 	AppendMeasuredBillingDimensions(other, billingUsage)
+ 	if relayInfo.RelayMode == relayconstant.RelayModeModerations {
+diff --git a/apps/api-rust/src/routes/relay_openai.rs b/apps/api-rust/src/routes/relay_openai.rs
+index 73ddc8c..846d183 100644
+--- a/apps/api-rust/src/routes/relay_openai.rs
++++ b/apps/api-rust/src/routes/relay_openai.rs
+@@ -57,6 +57,7 @@ mod reconcile;
+ mod response_model;
+ mod responses_terminal;
+ mod settlement;
++mod service_tier;
+ mod token_count;
+ mod tools;
+ 
+@@ -195,9 +196,10 @@ impl OpenAiUpstreamClient {
+     ) -> Result<OpenAiRelayResult, OpenAiRelayFailure> {
+         let url = upstream_url(&target.base_url, request.endpoint)
+             .map_err(|()| invalid_target_failure())?;
++        let body = service_tier::guard_body(&url, &request.headers, &request.raw_body)?;
+         let upstream_request =
+             copy_upstream_headers(self.client.post(url), &request.headers, &target.api_key)
+-                .body(request.raw_body.clone());
++                .body(body);
+         let upstream = self
+             .client
+             .send(upstream_request)
+diff --git a/apps/web/src/features/system-settings/models/section-registry.tsx b/apps/web/src/features/system-settings/models/section-registry.tsx
+index 063d36c..8b22ee9 100644
+--- a/apps/web/src/features/system-settings/models/section-registry.tsx
++++ b/apps/web/src/features/system-settings/models/section-registry.tsx
+@@ -49,6 +49,11 @@ const RoutingReliabilitySection = lazyNamedSection(
+   'RoutingReliabilitySection'
+ )
+ 
++const ServiceTierSettingsCard = lazyNamedSection(
++  () => import('./service-tier-settings-card'),
++  'ServiceTierSettingsCard'
++)
++
+ function formatJsonForEditor(value: string, fallback: string) {
+   const raw = (value ?? '').toString().trim()
+   if (!raw) return fallback
+@@ -60,6 +65,11 @@ function formatJsonForEditor(value: string, fallback: string) {
+ }
+ 
+ const MODELS_SECTIONS = [
++  {
++    id: 'service-tier-pricing',
++    titleKey: 'Fast and Ultrafast pricing',
++    build: (_settings: ModelSettings) => <ServiceTierSettingsCard />,
++  },
+   {
+     id: 'global',
+     titleKey: 'Global Model Configuration',
