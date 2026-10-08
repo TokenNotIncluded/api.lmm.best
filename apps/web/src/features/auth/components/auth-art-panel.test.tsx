@@ -140,4 +140,36 @@ describe('AuthArtPanel optional game', () => {
       await act(async () => rendered.root.unmount())
     }
   })
+
+  test('secondary settings stay collapsed without hiding the board or actions', async () => {
+    const rendered = await renderArtwork()
+    try {
+      const settings = rendered.container.querySelector('details')
+      assert.ok(settings)
+      assert.equal(settings.open, false)
+      assert.match(settings.querySelector('summary')?.textContent ?? '', /5 × 5/)
+      assert.equal(settings.querySelectorAll('option').length, 3)
+      assert.equal(
+        rendered.container.querySelectorAll('[role="gridcell"]').length,
+        25
+      )
+      const practice = rendered.container.querySelector(
+        '.signal-game-modes button[aria-pressed="true"]'
+      )
+      assert.equal(practice?.textContent?.trim(), 'Practice')
+      assert.equal(
+        rendered.container
+          .querySelector('.signal-game-link')
+          ?.getAttribute('href'),
+        '/games/signal'
+      )
+      assert.match(
+        rendered.container.querySelector('.signal-game-note')?.textContent ??
+          '',
+        /sign in or register at any time/
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+    }
+  })
 })

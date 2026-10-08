@@ -54,7 +54,6 @@ export function GeneralError({
       <ErrorPageFrame
         status={status ?? 500}
         showStatus={!minimal}
-        artSrc='/error-recovery-oat.png'
         title={
           isRateLimited
             ? t('Too many requests. Give it a beat.')
