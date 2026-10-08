@@ -29,7 +29,7 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/overview-tooling/revision.txt"
           git archive --format=tar.gz -o "$RUNNER_TEMP/overview-tooling/source.tar.gz" HEAD
           cp "$(command -v bun)" "$RUNNER_TEMP/overview-tooling/bun"
-          tar -czf "$RUNNER_TEMP/overview-tooling/dependencies.tar.gz" node_modules apps/web/node_modules
+          tar -czf "$RUNNER_TEMP/overview-tooling/dependencies.tar.gz" node_modules
           gzip "$RUNNER_TEMP/overview-tooling/bun"
           du -h "$RUNNER_TEMP/overview-tooling/"*
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
