@@ -67,10 +67,10 @@ jobs:
             }
           done
           for port in "$API_PORT" "$INGRESS_PORT"; do
-            [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] && (( port <= 65535 )) || {
+            if ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || (( port > 65535 )); then
               echo 'Deployment ports must be integers from 1 to 65535' >&2
               exit 1
-            }
+            fi
           done
           [[ "$PUBLIC_ORIGIN" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/?$ ]] || {
             echo 'PUBLIC_ORIGIN must be an HTTPS origin without credentials or a path' >&2
