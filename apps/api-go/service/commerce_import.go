@@ -357,7 +357,10 @@ func ImportCommerceImportDraft(ctx context.Context, actor int, id string, input 
 			encoded, _ = json.Marshal(listing)
 		}
 		in := model.CommerceImportProductInput{ExternalProductID: listing.ID, ShopID: listing.ShopID, Revision: listing.Revision, RedemptionURL: listing.RedemptionURL, Mode: product.Mode, RawJSON: string(encoded), Visibility: input.Visibility}
-		in.Product = model.MerchantStoreProductInput{Title: commerceLocalized(product.Name), Description: commerceLocalized(product.Description), Contact: product.SupportEmail, Template: "card-key", DeliveryStrategy: "sequential", PaymentMethods: []string{"balance"}, PickupLoginRequired: true, PickupCodeRequired: true, Visibility: input.Visibility, Links: []model.MerchantStoreLink{{Title: "Redemption", URL: listing.RedemptionURL}}}
+		// A source listing never selects local payment channels. The ordinary
+		// draft path accepts no selection; the seller chooses supported channels
+		// later using the existing product/payment settings before trading.
+		in.Product = model.MerchantStoreProductInput{Title: commerceLocalized(product.Name), Description: commerceLocalized(product.Description), Contact: product.SupportEmail, Template: "card-key", DeliveryStrategy: "sequential", PaymentMethods: []string{}, PickupLoginRequired: true, PickupCodeRequired: true, Visibility: input.Visibility, Links: []model.MerchantStoreLink{{Title: "Redemption", URL: listing.RedemptionURL}}}
 		for index, variant := range listing.Variants {
 			confirmation, ok := confirmed[variant.ID]
 			if !ok || confirmation.Enabled && !variant.Enabled {

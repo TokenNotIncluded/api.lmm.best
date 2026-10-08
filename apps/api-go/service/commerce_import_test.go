@@ -229,6 +229,38 @@ func TestCommerceImportConfirmedDraftAndExactBodyRecovery(t *testing.T) {
 	require.EqualValues(t, 2, count)
 }
 
+func TestCommerceImportNewCommonSellerWithoutPaymentsCanSaveDraft(t *testing.T) {
+	f := commerceServiceDB(t)
+	require.Equal(t, common.RoleCommonUser, f.seller.Role)
+	require.NoError(t, model.DB.Where("seller_id = ?", f.seller.Id).Delete(&model.MerchantStoreGateway{}).Error)
+	require.NoError(t, model.DB.Where("seller_id = ?", f.seller.Id).Delete(&model.MerchantStoreSellerTerms{}).Error)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", f.seller.Id).Update("quota", 0).Error)
+	commerceAuthorizeFixture(t, f, false, 900)
+	_, err := FetchCommerceImportCatalog(context.Background(), f.seller.Id, f.connection.ID)
+	require.NoError(t, err)
+	input := CommerceImportDraftInput{ProductID: f.listing.ID, Revision: f.listing.Revision, Visibility: commerceString("public"), Confirmed: true, Variants: []CommerceImportDraftVariant{{ExternalID: "custom-standard", PriceQuota: commerceInt(500000), Enabled: true}, {ExternalID: "unlimited-name", PriceQuota: commerceInt(700001), Enabled: true}}}
+	mapped, err := ImportCommerceImportDraft(context.Background(), f.seller.Id, f.connection.ID, input)
+	require.NoError(t, err)
+	product, err := model.GetMerchantStoreProduct(f.seller.Id, mapped.LocalProductID)
+	require.NoError(t, err)
+	require.Equal(t, "draft", product.Status)
+	require.Empty(t, product.PaymentMethods, "import must not choose or enable a payment channel")
+	require.Equal(t, 500000, product.PriceQuota)
+	require.Zero(t, product.AvailableStock)
+	var gateways, terms, orders, transfers int64
+	require.NoError(t, model.DB.Model(&model.MerchantStoreGateway{}).Where("seller_id = ?", f.seller.Id).Count(&gateways).Error)
+	require.NoError(t, model.DB.Model(&model.MerchantStoreSellerTerms{}).Where("seller_id = ?", f.seller.Id).Count(&terms).Error)
+	require.NoError(t, model.DB.Model(&model.MerchantStoreOrder{}).Where("seller_id = ?", f.seller.Id).Count(&orders).Error)
+	require.NoError(t, model.DB.Model(&model.MerchantStoreTransfer{}).Count(&transfers).Error)
+	require.Zero(t, gateways)
+	require.Zero(t, terms)
+	require.Zero(t, orders)
+	require.Zero(t, transfers)
+	var seller model.User
+	require.NoError(t, model.DB.First(&seller, f.seller.Id).Error)
+	require.Zero(t, seller.Quota)
+}
+
 func TestCommerceImportPersistentSettingsDisableImportsButPermitTrustedRevocation(t *testing.T) {
 	f := commerceServiceDB(t)
 	require.NoError(t, os.Unsetenv("MERCHANT_STORE_COMMERCE_IMPORT_ORIGINS"))
