@@ -3,7 +3,6 @@ import {
   Copy01Icon,
   Loading03Icon,
   SparklesIcon,
-  Store01Icon,
   Tick02Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
@@ -22,10 +21,10 @@ import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { StoreNavigation } from './store-navigation'
 import type { StoreProduct } from './types'
 
 export function StoreShell() {
-  const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const path = useRouterState({ select: (state) => state.location.pathname })
   if (path.startsWith('/store/claim/')) {
@@ -44,44 +43,11 @@ export function StoreShell() {
     >
       <div
         className={cn(
-          'mx-auto w-full max-w-6xl space-y-7',
+          'mx-auto flex w-full max-w-6xl flex-col gap-5 sm:gap-7',
           path === '/store' && 'flex flex-1 flex-col'
         )}
       >
-        <div className='flex flex-wrap items-center justify-between gap-4 py-3'>
-          <a
-            href='/store'
-            className='flex items-center gap-2 text-lg font-semibold'
-          >
-            <HugeiconsIcon icon={Store01Icon} className='size-5' />
-            {t('Shop')}
-          </a>
-          <nav
-            aria-label={t('Store navigation')}
-            className='flex flex-wrap gap-1 text-sm'
-          >
-            {[
-              ['/store', 'Browse products'],
-              ['/store/cart', 'Shopping cart'],
-              ['/store/favorites', 'Favorite products'],
-              ['/store/orders', 'My orders'],
-              ['/store/manage', 'Seller center'],
-              ['/store/settings', 'Settings'],
-              ...(user && user.role >= 10
-                ? [['/store/review', 'Review products']]
-                : []),
-            ].map(([href, label]) => (
-              <a
-                key={href}
-                href={href}
-                aria-current={path === href ? 'page' : undefined}
-                className='hover:bg-muted aria-[current=page]:bg-muted rounded-md px-3 py-2 aria-[current=page]:font-medium'
-              >
-                {t(label)}
-              </a>
-            ))}
-          </nav>
-        </div>
+        <StoreNavigation path={path} canReview={!!user && user.role >= 10} />
         <Outlet />
       </div>
     </PublicLayout>
@@ -165,7 +131,7 @@ export function StoreError({
 export function StoreBadges({ product }: { product: StoreProduct }) {
   const { t } = useTranslation()
   return (
-    <div className='flex flex-wrap items-center gap-2 text-xs'>
+    <div className='flex flex-wrap items-center gap-2 text-xs empty:hidden'>
       {product.unlimited_supply && (
         <span className='bg-muted text-muted-foreground rounded px-2 py-1'>
           {t('Unlimited supply')}

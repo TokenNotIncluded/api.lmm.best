@@ -61,7 +61,10 @@ export function StoreProductCardMedia({
     <a
       href={href}
       aria-label={title}
-      className='focus-visible:outline-ring block rounded-xl focus-visible:outline-2'
+      className={cn(
+        'focus-visible:outline-ring block rounded-xl focus-visible:outline-2',
+        list && 'sm:w-44 sm:shrink-0 sm:self-start'
+      )}
     >
       {media}
     </a>
