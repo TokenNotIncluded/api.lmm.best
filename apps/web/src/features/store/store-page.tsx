@@ -252,8 +252,8 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                 ) : (
                   <div
                     className={cn(
-                      'grid gap-x-10 gap-y-12 py-4',
-                      view === 'cards' && 'grid-cols-12 sm:gap-8'
+                      'grid gap-x-4 gap-y-12 py-4',
+                      view === 'cards' && 'grid-cols-12 sm:gap-x-8 lg:gap-x-12'
                     )}
                   >
                     {query.data.items.map((product, index) => (
