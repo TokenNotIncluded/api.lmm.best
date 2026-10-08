@@ -87,7 +87,10 @@ export function ErrorArtwork({ status }: { status?: string | number }) {
           d={marks[String(status)] ?? disconnected}
         />
       </svg>
-      <path className='error-art-spark' d='M369 78v16m-8-8h16M125 344v12m-6-6h12' />
+      <path
+        className='error-art-spark'
+        d='M369 78v16m-8-8h16M125 344v12m-6-6h12'
+      />
     </svg>
   )
 }
