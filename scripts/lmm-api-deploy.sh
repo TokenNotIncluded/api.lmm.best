@@ -12,6 +12,8 @@ case ${1:-help} in
 Usage: scripts/lmm-api-deploy.sh <command> [options]
 
 Frontend-only deployment from a workstation (GitHub CLI; no backend build):
+  web ship [web-vX.Y.Z]            Tag origin/main, sign-publish, deploy, wait
+  web release [web-vX.Y.Z]         Tag origin/main and sign-publish only
   web deploy web-vX.Y.Z            Dispatch an existing signed release once
   web list                        List recent frontend deployment runs
   web status RUN_ID               Inspect one exact run
@@ -54,7 +56,11 @@ if [[ ${1:-} == web ]]; then
   case $action in
     help|-h|--help)
       cat <<'USAGE'
-Usage: scripts/lmm-api-deploy.sh web {deploy TAG|list|status RUN_ID|watch RUN_ID}
+Usage: scripts/lmm-api-deploy.sh web {ship [TAG]|release [TAG]|deploy TAG|list|status RUN_ID|watch RUN_ID}
+
+ship/release tag origin/main (next patch version by default) with your signing
+key only after its Go/Web release checks are green, then run release-web.yml.
+ship also deploys that release and waits for both workflows.
 
 Requires an authenticated GitHub CLI (gh). Check compatibility with BOTH active
 Go backends before deploying a frontend-only hotfix. Use the combined signed
@@ -66,6 +72,10 @@ Dispatch success means requested, not deployed. Inspect the exact run with
 status/watch; do not blindly redispatch after an error or a partial rollout.
 USAGE
       exit 0
+      ;;
+    ship|release)
+      cd -- "$REPO_ROOT"
+      exec python3 -B "$SCRIPT_DIR/web-ship.py" "$action" "$@"
       ;;
     deploy)
       if [[ $# != 1 || ! $1 =~ ^web-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then

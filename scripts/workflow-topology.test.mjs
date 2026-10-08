@@ -103,7 +103,7 @@ test('manual frontend deployment is restricted to a signed web release on both o
   assert.match(release, /Preserve signed web package for recovery/);
   assert.match(release, /gh release upload/);
   assert.match(release, /stable_checks == 2/);
-  assert.match(deploy, /for attempt in 1 2 3 4 5 6/);
+  assert.match(deploy, /curl --fail [^\n]*\\\n\s+--retry 3 /);
   assert.ok(deploy.includes('/releases/download/${RELEASE_TAG}'));
   assert.match(deploy, /cosign verify-blob/);
   assert.match(deploy, /certificate-oidc-issuer/);
@@ -111,8 +111,8 @@ test('manual frontend deployment is restricted to a signed web release on both o
   assert.match(deploy, /\[\[ "\$target" == "\$revision" \]\]/);
   assert.doesNotMatch(deploy, /gh release download/);
   assert.match(deploy, /sha256sum --check/);
-  assert.match(deploy, /publish \"ArchDmit/);
-  assert.match(deploy, /publish \"DmitUbuntu/);
+  assert.match(deploy, /publish "API origin" "\$API_HOST" "\$API_PORT"\n\s+publish "Public ingress" "\$INGRESS_HOST" "\$INGRESS_PORT"/);
+  assert.match(deploy, /StrictHostKeyChecking=yes/);
   assert.doesNotMatch(deploy, /release-go\.yml|production-release-transaction\.py|lmm-api-deploy\s|operator\s+plan/);
 });
 

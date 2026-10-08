@@ -4,6 +4,24 @@ Go and Web are separate release components. A source merge, a successful build,
 a signed release, and a completed production deployment are different states.
 Do not rebuild both components just to publish a frontend change.
 
+## Read the live state first
+
+Before choosing a path, spend one minute on read-only facts. It is faster than
+discovering a half-finished transaction halfway through a new one:
+
+```bash
+curl -s https://api.lmm.best/api/status | jq -r .data.version   # served Go version
+ssh ArchDmit   'readlink -f /srv/lmm-api-frontend/current; systemctl list-units --no-legend "lmm*"'
+ssh DmitUbuntu 'readlink -f /srv/lmm-api-frontend/current; systemctl list-units --no-legend "lmm*"'
+gh run list --workflow deploy-web-frontend.yml --limit 3
+```
+
+Anything besides `lmm-api.service` (and Ubuntu's cluster tunnel) — for example
+a transient `lmm-merchant-portable-*` writer-capsule holder — belongs to an
+unfinished backend transaction. Do not start another backend deployment and do
+not stop it to get unstuck; resolve that transaction first. A Web-only release
+does not touch it.
+
 ## Frontend-only update
 
 Check that the new frontend works with **both active Go backends** first. Changes
@@ -11,6 +29,27 @@ that require a newer backend must use the combined signed transaction instead.
 The existing `release-web.yml` workflow builds, checks, signs, and publishes the
 archive. It runs manually against an immutable `web-vX.Y.Z` tag; a branch is not
 a release identity. Keep all required release checks.
+
+### One command
+
+```bash
+just ship-web            # next patch version, or: just ship-web web-vX.Y.Z
+just release-web         # same, but stop after the signed release is published
+```
+
+`web ship` fetches `origin/main`, picks the next patch tag (above both the
+latest `web-v*` tag and the AUR `pkgver`), refuses when nothing under
+`apps/web`, `packages`, `package.json` or `bun.lock` changed since the last
+tag, and waits for the commit's Go/Web release checks
+(`.github/required-go-web-release-checks.txt`) before creating anything. It
+then creates a signed annotated tag with your local Git signing key, pushes
+it, dispatches `release-web.yml`, watches that exact run, dispatches
+`deploy-web-frontend.yml` once and watches it. Each dispatch happens at most
+once; on failure it prints the run ID and stops. Rust preview jobs are not in
+the Go/Web release gate, so a red Rust preview does not block a frontend
+release.
+
+### Step by step
 
 From a workstation with an authenticated GitHub CLI:
 
@@ -98,7 +137,8 @@ fails rather than silently selecting another program.
 
 ## Verify changes to this workflow
 
-Run `just test-deploy-entrypoint` or `python3 -B scripts/test-deploy-entrypoint.py -v`.
+Run `just test-deploy-entrypoint` (it runs `scripts/test-deploy-entrypoint.py`
+and `scripts/test-web-ship.py`).
 The tests use fake local commands and a loopback HTTP server, never production
 services. They cover argument validation, build reuse, failure propagation,
 transient downloads and revision/hash rejection. The standalone deployment CI

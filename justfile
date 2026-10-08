@@ -200,6 +200,14 @@ package: package-go
 package-go:
     bash scripts/lmm-api-deploy.sh package
 
+# Tag origin/main, sign-publish and deploy the frontend; waits for both runs.
+ship-web *tag:
+    bash scripts/lmm-api-deploy.sh web ship {{tag}}
+
+# Tag origin/main and sign-publish the frontend without deploying it.
+release-web *tag:
+    bash scripts/lmm-api-deploy.sh web release {{tag}}
+
 # Dispatch an existing signed frontend release, without building Go or Web.
 deploy-web tag:
     bash scripts/lmm-api-deploy.sh web deploy {{quote(tag)}}
@@ -214,6 +222,7 @@ deploy-web-watch run_id:
 # Check workstation deployment paths without server/database access.
 test-deploy-entrypoint:
     python3 -B scripts/test-deploy-entrypoint.py -v
+    python3 -B scripts/test-web-ship.py -v
 
 # Validate the public AUR package that consumes prebuilt release assets.
 test-package-bin:

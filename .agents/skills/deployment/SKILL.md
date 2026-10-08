@@ -17,10 +17,22 @@ Use connected repository/server reads when available. Do not ask for facts those
 reads can establish. Changes to tooling alone do not authorize a release or a
 production rollout. Never use the archived personal fork as the default target.
 
+First run the read-only checks in `docs/deployment-workflow.md` ("Read the live
+state first"): served Go version, both hosts' active frontend release and `lmm*`
+units, recent deploy runs. Also look for unpushed fixes in other worktrees and
+earlier sessions' last reported step. An extra transient unit (for example a
+`lmm-merchant-portable-*` writer-capsule holder) means a backend transaction is
+unfinished: report it, do not stop it, and do not start another backend rollout.
+
+To decide what actually changed, diff the last tags against `origin/main`:
+`git diff --stat web-vLATEST origin/main -- apps/web packages package.json bun.lock`
+and `git diff --stat go-vLATEST origin/main -- apps/api-go`. Ship only the
+component that changed. Frontend-only work is the fast path; prefer it.
+
 Choose one path:
 
-- Web-only, compatible with both active Go backends: existing signed Web archive
-  through `deploy-web-frontend.yml` and `scripts/lmm-api-deploy.sh web`.
+- Web-only, compatible with both active Go backends: `just ship-web` (tag,
+  sign-publish, deploy, wait) or `just deploy-web TAG` for an existing release.
 - Standalone Go/systemd: the Python `systemd` path in the same entrypoint; read
   `docs/manual-systemd-deployment.md`. Do not route package-owned files here.
 - Package-owned Go/Web: installed `/usr/bin/lmm-api-deploy production`; read
@@ -40,6 +52,13 @@ Verify required checks for that exact commit before publication. Keep the workfl
 paths: they are part of signature identity. A green PR at another revision is not
 a substitute. Do not weaken release checks to save time.
 
+The Go/Web release gate (`.github/required-go-web-release-checks.txt`) excludes
+Rust preview jobs. A red `CI Quality Gate` caused only by Rust preview tests does
+not block a Go/Web release or a PR merge that leaves the Rust code untouched;
+confirm the same failure exists on `main` instead of debugging it in each PR.
+For a new Web release, `just ship-web` already waits for that gate before it
+tags, so do not tag and dispatch by hand.
+
 For an existing release, inspect the complete signed asset set first. Reuse it.
 If publication failed after signing, inspect the preserved signed workflow
 artifact and exact release state before recovery. Do not rebuild/resign the same
@@ -51,7 +70,7 @@ operator once if its source changed; otherwise reuse a reviewed compatible
 provider. A first-time CLI bootstrap is distinct from an application rebuild.
 
 Run targeted checks while editing. For deployment-entrypoint changes, use
-`python3 -B scripts/test-deploy-entrypoint.py -v` and the relevant existing
+`just test-deploy-entrypoint` and the relevant existing
 standalone/native tests. Run the required release checks before release. Do not
 repeat a successful full build just because a network/readback step failed.
 

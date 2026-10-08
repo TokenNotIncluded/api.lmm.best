@@ -7,6 +7,8 @@ on:
       - scripts/lmm-api-deploy.sh
       - scripts/test-deploy-systemd*.py
       - scripts/test-deploy-entrypoint.py
+      - scripts/web-ship.py
+      - scripts/test-web-ship.py
       - justfile
       - .github/workflows/deploy-web-frontend.yml
       - .agents/skills/deployment/**
@@ -19,6 +21,8 @@ on:
       - scripts/lmm-api-deploy.sh
       - scripts/test-deploy-systemd*.py
       - scripts/test-deploy-entrypoint.py
+      - scripts/web-ship.py
+      - scripts/test-web-ship.py
       - justfile
       - .github/workflows/deploy-web-frontend.yml
       - .agents/skills/deployment/**
@@ -45,6 +49,7 @@ jobs:
           python3 -c 'import sys; assert sys.version_info >= (3, 11)'
           bash -n scripts/lmm-api-deploy.sh
           python3 -B scripts/test-deploy-entrypoint.py -v
+          python3 -B scripts/test-web-ship.py -v
           python3 -B scripts/test-deploy-systemd.py -v
           python3 -B scripts/test-deploy-systemd-archive-staged.py -v
           python3 -B scripts/test-deploy-systemd-cli.py -v
