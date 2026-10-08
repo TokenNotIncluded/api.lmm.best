@@ -86,7 +86,8 @@ after(() => domWindow.close())
 async function renderHeader(
   width: number,
   showAssistant = true,
-  assistantEnabled = true
+  assistantEnabled = true,
+  headerOptions: { showStore?: boolean; showNotifications?: boolean } = {}
 ) {
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
@@ -136,6 +137,7 @@ async function renderHeader(
           showAssistant={showAssistant}
           showMobileAssistant
           leftContent={<span>Users</span>}
+          {...headerOptions}
         />
       </SidebarProvider>
     ),
@@ -257,6 +259,77 @@ test('the shop link stays named and reachable when the assistant is hidden', asy
     assert.equal(shop.getAttribute('href'), '/store')
     assert.equal(shop.getAttribute('aria-label'), 'Open shop')
     assert.equal(shop.tagName, 'A')
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+for (const width of [320, 640, 767]) {
+  test(`the ${width}px header groups secondary controls without hiding the wallet`, async () => {
+    const rendered = await renderHeader(width, true, true, {
+      showNotifications: true,
+    })
+    try {
+      const trigger = rendered.container.querySelector<HTMLButtonElement>(
+        '[data-testid="header-more-actions"]'
+      )
+      assert.ok(trigger)
+      assert.equal(trigger.getAttribute('aria-expanded'), 'false')
+      assert.ok(
+        rendered.container.querySelector('[data-testid="mobile-account-balance"]')
+      )
+      assert.equal(
+        rendered.container.querySelector('[data-testid="header-store-link"]'),
+        null
+      )
+      await act(async () => trigger.click())
+      assert.equal(trigger.getAttribute('aria-expanded'), 'true')
+      const menu = document.querySelector('[data-testid="header-tools-menu"]')
+      assert.ok(menu)
+      const shop = menu.querySelector<HTMLAnchorElement>(
+        '[data-testid="header-store-link"]'
+      )
+      assert.ok(shop)
+      assert.equal(shop.getAttribute('href'), '/store')
+      assert.ok(menu.querySelector('[data-testid="header-tool-notifications"]'))
+      // Test dismissal without issuing a request or requiring a store route fixture.
+      shop.addEventListener('click', (event) => event.preventDefault())
+      await act(async () => shop.click())
+      assert.equal(trigger.getAttribute('aria-expanded'), 'false')
+    } finally {
+      await rendered.cleanup()
+    }
+  })
+}
+
+test('the desktop header leaves secondary controls directly available', async () => {
+  const rendered = await renderHeader(1440, true, true, {
+    showNotifications: true,
+  })
+  try {
+    assert.equal(
+      rendered.container.querySelector('[data-testid="header-more-actions"]'),
+      null
+    )
+    assert.ok(
+      rendered.container.querySelector('[data-testid="header-store-link"]')
+    )
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+test('disabled secondary controls do not create an empty more menu', async () => {
+  const rendered = await renderHeader(390, true, true, { showStore: false })
+  try {
+    assert.equal(
+      rendered.container.querySelector('[data-testid="header-more-actions"]'),
+      null
+    )
+    assert.equal(
+      rendered.container.querySelector('[data-testid="header-store-link"]'),
+      null
+    )
   } finally {
     await rendered.cleanup()
   }
