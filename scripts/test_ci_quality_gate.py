@@ -103,7 +103,7 @@ class QualityGateTests(unittest.TestCase):
         self.assertIn("CI_NEEDS: ${{ toJSON(needs) }}", gate)
         self.assertIn("run: python3 -B scripts/ci_quality_gate.py", gate)
 
-    def test_go_web_publication_gate_covers_all_non_rust_jobs_on_main_push(self):
+    def test_manual_go_web_diagnostic_gate_covers_all_non_rust_jobs(self):
         jobs_text = WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1]
         gate = jobs_text.split("  go-web-release-gate:\n", 1)[1]
         gate = re.split(r"\n  [a-zA-Z_][a-zA-Z0-9_-]*:", gate, maxsplit=1)[0]
@@ -120,7 +120,7 @@ class QualityGateTests(unittest.TestCase):
         })
         self.assertIn("name: Go/Web release qualification gate\n", gate)
         self.assertIn(
-            "    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}\n",
+            "    if: ${{ always() && github.event_name == 'workflow_dispatch' }}\n",
             gate,
         )
         self.assertIn("CI_GO_WEB_NEEDS: ${{ toJSON(needs) }}", gate)
@@ -142,7 +142,13 @@ class QualityGateTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read\n", text)
         self.assertNotIn('test -z "$(gofmt -l .)"', text)
         self.assertNotIn("| head -1", text)
-        self.assertIn("merge_group:\n    types: [checks_requested]", text)
+        trigger_block = re.search(r"(?m)^on:\n((?:[ \t].*\n|\n)*)", text)
+        self.assertIsNotNone(trigger_block)
+        self.assertEqual(len(re.findall(r'''(?m)^(?:on|'on'|"on"):''', text)), 1)
+        events = [line for line in trigger_block.group(1).splitlines()
+                  if re.match(r"^  \S", line) and not line.startswith("  #")]
+        self.assertEqual(events, ["  workflow_dispatch:"])
+        self.assertIn("workflow_dispatch:\n    inputs:\n      base-ref:", text)
 
     def run_gate(self, raw, summary_path=None):
         env = os.environ.copy()

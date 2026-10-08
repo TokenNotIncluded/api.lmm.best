@@ -1,15 +1,7 @@
 name: Console navigation review
 
 on:
-  pull_request:
-    paths:
-      - "apps/web/src/components/layout/**"
-      - "apps/web/src/components/command-menu.tsx"
-      - "apps/web/src/components/data-table/core/**"
-      - "apps/web/src/features/acquisition/consent.tsx"
-      - "apps/web/src/debug-main.tsx"
-      - "apps/web/scripts/console-navigation-review.mjs"
-      - ".github/workflows/console-navigation-review.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read

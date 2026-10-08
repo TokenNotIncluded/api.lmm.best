@@ -65,7 +65,9 @@ class WebShipTests(unittest.TestCase):
         }
         self.env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'],
                         COMMAND_LOG=str(self.log), FAKE_STATE=str(self.state_file),
-                        LMM_WEB_SHIP_POLL_SECONDS='0', LMM_WEB_SHIP_POLL_ATTEMPTS='2')
+                        LMM_WEB_SHIP_POLL_SECONDS='0', LMM_WEB_SHIP_POLL_ATTEMPTS='2',
+                        LMM_LOCAL_TEST_EVIDENCE_JSON='{"format":1,"component":"web"}')
+        self.env.pop('LMM_LOCAL_TEST_EVIDENCE', None)
         self.env.pop('LMM_API_GITHUB_REPOSITORY', None)
         self.env.pop('GITHUB_TOKEN', None)
 
@@ -87,6 +89,7 @@ class WebShipTests(unittest.TestCase):
         dispatches = self.calls(('gh', 'workflow', 'run'))
         self.assertEqual(2, len(dispatches))
         self.assertIn('release-web.yml', dispatches[0])
+        self.assertIn('local_test_evidence={"format":1,"component":"web"}', dispatches[0])
         self.assertIn('release_tag=web-v0.1.137', dispatches[1])
         self.assertEqual(['11', '22'], [row[3] for row in self.calls(('gh', 'run', 'watch'))])
 
@@ -96,11 +99,19 @@ class WebShipTests(unittest.TestCase):
         self.assertEqual(1, len(self.calls(('gh', 'workflow', 'run'))))
         self.assertIn('not deployed', result.stdout)
 
-    def test_red_release_gate_creates_no_tag(self):
+    def test_failed_local_evidence_gate_creates_no_tag(self):
         self.state['gate'] = 1
         self.assertEqual(1, self.call('ship').returncode)
         self.assertEqual([], self.calls(('git', 'tag', '-s')))
         self.assertEqual([], self.calls(('gh', 'workflow')))
+
+    def test_missing_local_evidence_creates_no_tag_or_token_read(self):
+        self.env.pop('LMM_LOCAL_TEST_EVIDENCE_JSON')
+        result = self.call('ship')
+        self.assertEqual(1, result.returncode)
+        self.assertIn('local test record', result.stderr)
+        self.assertEqual([], self.calls(('git', 'tag', '-s')))
+        self.assertEqual([], self.calls(('gh', 'auth')))
 
     def test_no_frontend_change_refuses(self):
         self.state['changed'] = ''

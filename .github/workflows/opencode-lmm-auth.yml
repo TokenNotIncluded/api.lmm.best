@@ -1,14 +1,6 @@
 name: OpenCode LMM OAuth plugin
 
 on:
-  pull_request:
-    paths:
-      - 'packages/opencode-lmm-auth'
-      - 'packages/opencode-lmm-auth/**'
-      - '.gitmodules'
-      - 'apps/api-go/service/oauth_server.go'
-      - 'apps/api-go/router/oauth_opencode_test.go'
-      - '.github/workflows/opencode-lmm-auth.yml'
   workflow_dispatch:
 
 permissions:
