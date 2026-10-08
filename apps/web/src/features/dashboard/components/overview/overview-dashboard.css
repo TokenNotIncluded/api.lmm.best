@@ -1,0 +1,237 @@
+/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+.overview-dashboard {
+  container-type: inline-size;
+  max-width: 80rem;
+  margin-inline: auto;
+  width: 100%;
+}
+
+.overview-summary {
+  display: grid;
+  gap: 2rem;
+}
+
+.overview-balance {
+  min-width: 0;
+  padding: 1.5rem;
+  background: var(--muted);
+  border-radius: 1.25rem;
+}
+
+.overview-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.overview-balance-value {
+  margin-block: 1.25rem 1.75rem;
+  font-size: clamp(2rem, 5cqi, 3.25rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.overview-unit {
+  display: inline-block;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.overview-balance-value .overview-unit {
+  font-size: 0.95rem;
+}
+
+.overview-balance-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.overview-usage {
+  align-self: center;
+  min-width: 0;
+}
+
+.overview-metrics {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.overview-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+
+.overview-metric-value {
+  text-align: end;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.overview-site-statistics {
+  border-block-start: 1px solid var(--border);
+  padding-block-start: 1.75rem;
+}
+
+.overview-site-totals {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.overview-site-value {
+  margin-block-start: 0.65rem;
+  font-size: clamp(1.25rem, 3cqi, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.overview-payment-row {
+  display: grid;
+  grid-template-areas: 'currency net' 'gross refund';
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding-block: 1.25rem;
+}
+
+.overview-payment-row + .overview-payment-row {
+  border-block-start: 1px solid var(--border);
+}
+
+.overview-payment-currency {
+  grid-area: currency;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.overview-payment-gross {
+  grid-area: gross;
+  font-size: 0.875rem;
+}
+
+.overview-payment-refund {
+  grid-area: refund;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  text-align: end;
+}
+
+.overview-payment-net {
+  grid-area: net;
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-align: end;
+}
+
+.overview-payment-net dt {
+  font-weight: 400;
+}
+
+.overview-notes {
+  border-block-start: 1px solid var(--border);
+  padding-block-start: 0.5rem;
+}
+
+.overview-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 44px;
+  padding-block: 0.65rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.overview-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.overview-disclosure > summary:hover {
+  color: var(--foreground);
+}
+
+.overview-disclosure > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: 0.25rem;
+}
+
+.overview-disclosure[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.overview-disclosure > p {
+  max-width: 72ch;
+  padding-block-end: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.8;
+}
+
+.overview-disclosure-warning > summary {
+  color: var(--foreground);
+}
+
+.overview-warning-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.overview-warning-count {
+  border-radius: 0.3rem;
+  padding: 0.1rem 0.45rem;
+  background: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@container (min-width: 32rem) {
+  .overview-site-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+  }
+
+  .overview-payment-row {
+    grid-template-areas: 'currency gross refund net';
+    grid-template-columns: minmax(3rem, 0.5fr) repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+}
+
+@container (min-width: 46rem) {
+  .overview-summary {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: clamp(2rem, 5cqi, 4rem);
+  }
+
+  .overview-balance {
+    padding: 2rem;
+  }
+
+  .overview-metrics {
+    gap: 1.5rem;
+  }
+}
