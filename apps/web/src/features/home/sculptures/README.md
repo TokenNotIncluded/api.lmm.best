@@ -4,14 +4,14 @@ The five chapters, page content, native scrolling, controls and point brush stay
 
 `home-sculptures.ts` defines the typed factory registry and sequences. Each object holds for 7.2 seconds, then disperses and reforms for 2.4 seconds. The last object returns to the first. Only visible canvases advance their clocks. Pause, reduced motion and data-saving keep the existing lifecycle behavior. All canvases share the existing animation loop.
 
-| File | Objects |
-| --- | --- |
-| `nature.ts` | Lotus, fish, jellyfish, dandelion, cloud, dragonfly, rose |
-| `market.ts` | Shop, vending machine, market stall |
+| File          | Objects                                                                                |
+| ------------- | -------------------------------------------------------------------------------------- |
+| `nature.ts`   | Lotus, fish, jellyfish, dandelion, cloud, dragonfly, rose                              |
+| `market.ts`   | Shop, vending machine, market stall                                                    |
 | `abstract.ts` | Radial mechanism, gyroscope, Mobius strip, braided trefoil, double helix, wave ribbons |
-| `cosmos.ts` | Earth, Moon, Mars, Sun, solar system, galaxy, black hole |
-| `future.ts` | Pelican cycling, emperor cycling, cat with a cartoon fuse |
-| `bicycle.ts` | Shared frame, wheels, crank, pedals and fixed-length rider legs |
+| `cosmos.ts`   | Earth, Moon, Mars, Sun, solar system, galaxy, black hole                               |
+| `future.ts`   | Pelican cycling, emperor cycling, cat with a cartoon fuse                              |
+| `bicycle.ts`  | Shared frame, wheels, crank, pedals and fixed-length rider legs                        |
 
 ## Add an object
 

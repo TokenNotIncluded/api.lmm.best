@@ -60,6 +60,8 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
+// These fixtures start after the root has completed its session bootstrap.
+useAuthStore.getState().auth.setBootstrapState('complete')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const originalConfig = useSystemConfigStore.getState().config
 const { api } = await import('@/lib/api')
