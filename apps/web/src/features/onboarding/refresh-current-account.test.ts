@@ -183,8 +183,9 @@ test('a grant refresh sends a fresh identity-scoped GET instead of joining the o
     })
   const oldRequest = refreshCurrentAccount()
   const newRequest = refreshCurrentAccount()
-  for (let tick = 0; tick < 20 && reads.length < 2; tick++)
+  for (let tick = 0; tick < 20 && reads.length < 2; tick++) {
     await Promise.resolve()
+  }
   assert.equal(
     reads.length,
     2,
