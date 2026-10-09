@@ -75,6 +75,9 @@ test('all seven locales omit retired L1 labels but keep current activation and i
       readFileSync(new URL(name, localeRoot), 'utf8')
     )
     for (const key of [
+      'AI recommendation',
+      'Submitting replaces this application and sends it for review again. The previous review note is cleared; the AI recommendation is retained.',
+      'The AI recommendation expired. Ask the assistant to prepare it again, or continue editing it yourself.',
       'Recommendation letter',
       'L1 recommendation archive',
       'View L1 recommendation archive',
