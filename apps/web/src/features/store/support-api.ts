@@ -65,34 +65,90 @@ const options = { skipErrorHandler: true, skipBusinessError: true }
 const conversationPath = (id: string) =>
   `${root}/support/conversations/${encodeURIComponent(id)}`
 
-async function read<T>(request: Promise<{ data: { success: boolean; data: T; code?: string; message?: string } }>): Promise<T> {
+async function read<T>(
+  request: Promise<{
+    data: { success: boolean; data: T; code?: string; message?: string }
+  }>
+): Promise<T> {
   try {
     const { data } = await request
     if (!data.success) throw new StoreAPIError(data)
     return data.data
   } catch (error) {
     if (error instanceof StoreAPIError) throw error
-    throw new StoreAPIError((error as { response?: { data?: { code?: string; message?: string } } })?.response?.data)
+    throw new StoreAPIError(
+      (error as { response?: { data?: { code?: string; message?: string } } })
+        ?.response?.data
+    )
   }
 }
 
 export const supportApi = {
-  conversations: (role: SupportRole, status: string, unread: boolean, page: number, signal?: AbortSignal) =>
-    read<SupportPage<SupportThread>>(api.get(`${root}/support/conversations`, { ...options, signal, params: { role, status, unread, offset: (page - 1) * 30, limit: 30 } })),
-  open: (input: { product_id?: string; order_id?: string }, signal?: AbortSignal) =>
-    read<SupportConversation>(api.post(`${root}/support/conversations`, input, { ...options, signal })),
+  conversations: (
+    role: SupportRole,
+    status: string,
+    unread: boolean,
+    page: number,
+    signal?: AbortSignal
+  ) =>
+    read<SupportPage<SupportThread>>(
+      api.get(`${root}/support/conversations`, {
+        ...options,
+        signal,
+        params: { role, status, unread, offset: (page - 1) * 30, limit: 30 },
+      })
+    ),
+  open: (
+    input: { product_id?: string; order_id?: string },
+    signal?: AbortSignal
+  ) =>
+    read<SupportConversation>(
+      api.post(`${root}/support/conversations`, input, { ...options, signal })
+    ),
   history: (id: string, before = 0, signal?: AbortSignal) =>
-    read<SupportHistory>(api.get(`${conversationPath(id)}/messages`, { ...options, signal, params: { before, limit: 50 } })),
+    read<SupportHistory>(
+      api.get(`${conversationPath(id)}/messages`, {
+        ...options,
+        signal,
+        params: { before, limit: 50 },
+      })
+    ),
   send: (id: string, body: string, requestKey: string) =>
-    read<SupportMessage>(api.post(`${conversationPath(id)}/messages`, { body, request_key: requestKey }, options)),
+    read<SupportMessage>(
+      api.post(
+        `${conversationPath(id)}/messages`,
+        { body, request_key: requestKey },
+        options
+      )
+    ),
   markRead: (id: string, through: number) =>
-    read<Record<string, never>>(api.put(`${conversationPath(id)}/read`, { through_id: through }, options)),
+    read<Record<string, never>>(
+      api.put(`${conversationPath(id)}/read`, { through_id: through }, options)
+    ),
   status: (id: string, status: SupportStatus) =>
-    read<Record<string, never>>(api.put(`${conversationPath(id)}/status`, { status }, options)),
+    read<Record<string, never>>(
+      api.put(`${conversationPath(id)}/status`, { status }, options)
+    ),
   customers: (search: string, page: number, signal?: AbortSignal) =>
-    read<SupportPage<StoreCustomer>>(api.get(`${root}/my/customers`, { ...options, signal, params: { q: search, offset: (page - 1) * 30, limit: 30 } })),
-  saveCustomer: (buyerId: number, input: Pick<StoreCustomer, 'note' | 'tags' | 'revision'>) =>
-    read<Record<string, never>>(api.put(`${root}/my/customers/${buyerId}`, input, options)),
+    read<SupportPage<StoreCustomer>>(
+      api.get(`${root}/my/customers`, {
+        ...options,
+        signal,
+        params: { q: search, offset: (page - 1) * 30, limit: 30 },
+      })
+    ),
+  saveCustomer: (
+    buyerId: number,
+    input: Pick<StoreCustomer, 'note' | 'tags' | 'revision'>
+  ) =>
+    read<Record<string, never>>(
+      api.put(`${root}/my/customers/${buyerId}`, input, options)
+    ),
   assistantContext: (id: string, signal?: AbortSignal) =>
-    read<SupportAssistantContext>(api.get(`${conversationPath(id)}/assistant-context`, { ...options, signal })),
+    read<SupportAssistantContext>(
+      api.get(`${conversationPath(id)}/assistant-context`, {
+        ...options,
+        signal,
+      })
+    ),
 }

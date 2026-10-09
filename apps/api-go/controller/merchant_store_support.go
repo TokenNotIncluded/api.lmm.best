@@ -10,7 +10,9 @@ import (
 
 func ListMerchantStoreSupport(c *gin.Context) {
 	offset, limit, ok := merchantStorePage(c)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	unread := c.DefaultQuery("unread", "false")
 	if unread != "true" && unread != "false" {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
@@ -23,7 +25,7 @@ func ListMerchantStoreSupport(c *gin.Context) {
 func OpenMerchantStoreSupport(c *gin.Context) {
 	var in struct {
 		ProductID string `json:"product_id"`
-		OrderID string `json:"order_id"`
+		OrderID   string `json:"order_id"`
 	}
 	if c.ShouldBindJSON(&in) != nil {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
@@ -47,7 +49,7 @@ func GetMerchantStoreSupportHistory(c *gin.Context) {
 func SendMerchantStoreSupportMessage(c *gin.Context) {
 	var in struct {
 		RequestKey string `json:"request_key"`
-		Body string `json:"body"`
+		Body       string `json:"body"`
 	}
 	if c.ShouldBindJSON(&in) != nil {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
@@ -58,7 +60,9 @@ func SendMerchantStoreSupportMessage(c *gin.Context) {
 }
 
 func MarkMerchantStoreSupportRead(c *gin.Context) {
-	var in struct { ThroughID int64 `json:"through_id"` }
+	var in struct {
+		ThroughID int64 `json:"through_id"`
+	}
 	if c.ShouldBindJSON(&in) != nil {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
 		return
@@ -68,7 +72,9 @@ func MarkMerchantStoreSupportRead(c *gin.Context) {
 }
 
 func SetMerchantStoreSupportStatus(c *gin.Context) {
-	var in struct { Status string `json:"status"` }
+	var in struct {
+		Status string `json:"status"`
+	}
 	if c.ShouldBindJSON(&in) != nil {
 		merchantStoreRespond(c, nil, model.ErrMerchantStoreInput)
 		return
@@ -79,7 +85,9 @@ func SetMerchantStoreSupportStatus(c *gin.Context) {
 
 func ListMerchantStoreCustomers(c *gin.Context) {
 	offset, limit, ok := merchantStorePage(c)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	rows, err := model.ListMerchantStoreCustomers(c.Request.Context(), c.GetInt("id"), c.Query("q"), offset, limit)
 	merchantStoreList(c, rows, offset, limit, err)
 }

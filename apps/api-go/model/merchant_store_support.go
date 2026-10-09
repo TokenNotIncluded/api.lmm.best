@@ -37,7 +37,6 @@ type MerchantStoreSupportMessage struct {
 	ConversationID string `json:"conversation_id" gorm:"size:36;not null;index:store_support_history,priority:1;uniqueIndex:store_support_replay,priority:1"`
 	SenderID       int    `json:"sender_id" gorm:"not null;uniqueIndex:store_support_replay,priority:2"`
 	RequestKey     string `json:"-" gorm:"size:64;not null;uniqueIndex:store_support_replay,priority:3"`
-	BodyDigest     string `json:"-" gorm:"size:64;not null"`
 	Ciphertext     string `json:"-" gorm:"type:text;not null"`
 	Body           string `json:"body" gorm:"-:all"`
 	CreatedAt      int64  `json:"created_at" gorm:"not null"`
@@ -52,8 +51,8 @@ type MerchantStoreSupportThread struct {
 
 type MerchantStoreSupportHistory struct {
 	Conversation MerchantStoreSupportConversation `json:"conversation"`
-	Items        []MerchantStoreSupportMessage     `json:"items"`
-	HasMore      bool                              `json:"has_more"`
+	Items        []MerchantStoreSupportMessage    `json:"items"`
+	HasMore      bool                             `json:"has_more"`
 }
 
 func MerchantStoreSupportModels() []interface{} {
@@ -220,7 +219,11 @@ func SendMerchantStoreSupportMessage(ctx context.Context, actor int, id, request
 		result = MerchantStoreSupportMessage{}
 		err = tx.Where("conversation_id = ? AND sender_id = ? AND request_key = ?", id, actor, requestKey).First(&result).Error
 		if err == nil {
-			if result.BodyDigest != storeHash(body) {
+			previous, decryptErr := storeDecrypt("support-message", id+":"+requestKey+":"+strconv.Itoa(actor), result.Ciphertext)
+			if decryptErr != nil {
+				return decryptErr
+			}
+			if previous != body {
 				return ErrMerchantStoreConflict
 			}
 			result.Body = body
@@ -234,7 +237,7 @@ func SendMerchantStoreSupportMessage(ctx context.Context, actor int, id, request
 			return err
 		}
 		now := common.GetTimestamp()
-		result = MerchantStoreSupportMessage{ConversationID: id, SenderID: actor, RequestKey: requestKey, BodyDigest: storeHash(body), Ciphertext: ciphertext, Body: body, CreatedAt: now}
+		result = MerchantStoreSupportMessage{ConversationID: id, SenderID: actor, RequestKey: requestKey, Ciphertext: ciphertext, Body: body, CreatedAt: now}
 		if err := tx.Create(&result).Error; err != nil {
 			return err
 		}

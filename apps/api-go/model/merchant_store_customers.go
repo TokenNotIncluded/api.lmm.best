@@ -121,7 +121,7 @@ func ListMerchantStoreCustomers(ctx context.Context, seller int, search string, 
 
 func SaveMerchantStoreCustomer(ctx context.Context, seller, buyer int, in MerchantStoreCustomerInput) error {
 	in.Note = strings.TrimSpace(in.Note)
-	if in.Revision < 0 || !utf8.ValidString(in.Note) || utf8.RuneCountInString(in.Note) > 4000 || strings.ContainsRune(in.Note, 0) || len(in.Tags) > 10 {
+	if in.Revision < 0 || in.Revision >= 9007199254740991 || !utf8.ValidString(in.Note) || utf8.RuneCountInString(in.Note) > 4000 || strings.ContainsRune(in.Note, 0) || len(in.Tags) > 10 {
 		return ErrMerchantStoreInput
 	}
 	tags := make([]string, 0, len(in.Tags))
@@ -210,9 +210,9 @@ func GetMerchantStoreSupportAssistantContext(ctx context.Context, actor int, id 
 		}
 		if err == nil {
 			result.Order = &struct {
-				ID string `json:"id"`
-				Status string `json:"status"`
-				Quantity int `json:"quantity"`
+				ID       string `json:"id"`
+				Status   string `json:"status"`
+				Quantity int    `json:"quantity"`
 			}{order.ID, order.Status, order.Quantity}
 		}
 	}

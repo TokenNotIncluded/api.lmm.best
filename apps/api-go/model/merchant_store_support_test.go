@@ -199,7 +199,11 @@ func TestMerchantStoreSupportAssistantAllowlistAndBounds(t *testing.T) {
 		require.Len(t, context.Messages, 10)
 		require.LessOrEqual(t, len([]rune(context.Messages[0].Text)), 501)
 		require.Equal(t, order.ID, context.Order.ID)
-		if actor == f.seller.Id { require.Equal(t, "seller", context.Role) } else { require.Equal(t, "buyer", context.Role) }
+		if actor == f.seller.Id {
+			require.Equal(t, "seller", context.Role)
+		} else {
+			require.Equal(t, "buyer", context.Role)
+		}
 		encoded, err := json.Marshal(context)
 		require.NoError(t, err)
 		for _, hidden := range []string{"NEVER-SHARE-NOTE", "pickup", "checkout_url", "gateway", "buyer_id", "seller_id", "email", "CARD-SECRET"} {
@@ -222,15 +226,24 @@ func TestMerchantStoreSupportConcurrentReplay(t *testing.T) {
 			defer wg.Done()
 			message, err := SendMerchantStoreSupportMessage(ctx, f.buyer.Id, thread.ID, "same-request-key", "same body")
 			errors <- err
-			if err == nil { ids <- message.ID }
+			if err == nil {
+				ids <- message.ID
+			}
 		}()
 	}
 	wg.Wait()
 	close(errors)
 	close(ids)
-	for err := range errors { require.NoError(t, err) }
+	for err := range errors {
+		require.NoError(t, err)
+	}
 	var first int64
-	for id := range ids { if first == 0 { first = id }; require.Equal(t, first, id) }
+	for id := range ids {
+		if first == 0 {
+			first = id
+		}
+		require.Equal(t, first, id)
+	}
 	history, err := GetMerchantStoreSupportHistory(ctx, f.buyer.Id, thread.ID, 0, 50)
 	require.NoError(t, err)
 	require.Len(t, history.Items, 1)
@@ -242,8 +255,14 @@ func TestMerchantStoreSupportIndependentMigrationRegistry(t *testing.T) {
 	require.NoError(t, DB.AutoMigrate(MerchantStoreSupportModels()...))
 	for _, support := range MerchantStoreSupportModels() {
 		found := false
-		for _, main := range mainMigrationModels() { if reflect.TypeOf(main) == reflect.TypeOf(support) { found = true } }
+		for _, main := range mainMigrationModels() {
+			if reflect.TypeOf(main) == reflect.TypeOf(support) {
+				found = true
+			}
+		}
 		require.True(t, found, "support must be in normal migrations")
-		for _, historic := range MerchantStoreModels() { require.NotEqual(t, reflect.TypeOf(support), reflect.TypeOf(historic), "do not change historical store activation requirements") }
+		for _, historic := range MerchantStoreModels() {
+			require.NotEqual(t, reflect.TypeOf(support), reflect.TypeOf(historic), "do not change historical store activation requirements")
+		}
 	}
 }
