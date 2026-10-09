@@ -40,6 +40,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 
 	info.ObserveResponseModel(responsesResponse.Model)
+	info.ObserveServiceTier(responseBody)
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
@@ -109,6 +110,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			return
 		}
 		streamResponse := event.ResponsesStreamResponse
+		info.ObserveServiceTier([]byte(data))
 		if strings.ContainsAny(streamResponse.Type, "\r\n") {
 			// JSON escapes are decoded above; validate the value at the SSE
 			// boundary before it can introduce another event or data field.

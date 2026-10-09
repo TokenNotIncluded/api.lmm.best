@@ -4213,7 +4213,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "Dành cho việc giao tài khoản. Thêm tên người dùng, mật khẩu, URL đăng nhập không bắt buộc và hướng dẫn cùng nhau trong một mục.",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "Dành cho khóa kích hoạt. Nhập mỗi dòng một khóa; người mua nhận được từng khóa đúng như đã cung cấp.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
@@ -11447,6 +11447,22 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Thiếu bằng chứng thanh toán đáng tin cậy cho {{unconfirmed}} giao dịch; {{invalid}} giao dịch có số tiền bất thường. Các giao dịch này không được tính vào tổng thanh toán.",
     "请刷新重试，当前金额未确认。": "Vui lòng tải lại trang và thử lại. Số tiền hiện chưa được xác nhận.",
     "退款后净付款": "Khoản thanh toán ròng sau hoàn tiền",
-    "部分充值记录无法确认实付": "Không thể xác nhận khoản thanh toán thực tế cho một số giao dịch nạp tiền"
+    "部分充值记录无法确认实付": "Không thể xác nhận khoản thanh toán thực tế cho một số giao dịch nạp tiền",
+    "Fast and Ultrafast pricing": "Fast and Ultrafast pricing",
+    "Sync all supported official OpenAI prices once. No per-model multiplier rules are needed.": "Sync all supported official OpenAI prices once. No per-model multiplier rules are needed.",
+    "Service-tier pricing is unavailable. This feature requires the updated Go backend.": "Service-tier pricing is unavailable. This feature requires the updated Go backend.",
+    "Official service-tier prices synchronized": "Official service-tier prices synchronized",
+    "Official prices are ready for {{count}} models.": "Official prices are ready for {{count}} models.",
+    "Prices are missing or expired. Accelerated requests are blocked.": "Prices are missing or expired. Accelerated requests are blocked.",
+    "Last price sync": "Last price sync",
+    "Prices expire after {{hours}} hours. A failed sync keeps the previous snapshot and never enables acceleration.": "Prices expire after {{hours}} hours. A failed sync keeps the previous snapshot and never enables acceleration.",
+    "Sync all official service-tier prices": "Sync all official service-tier prices",
+    "Enable accelerated pricing": "Enable accelerated pricing",
+    "Disabled by default. Only selected groups can use acceleration. Empty group lists allow nobody.": "Disabled by default. Only selected groups can use acceleration. Empty group lists allow nobody.",
+    "Sales multiplier on official tier cost": "Sales multiplier on official tier cost",
+    "1.20 adds 20% to the official tier cost, not to the standard model price.": "1.20 adds 20% to the official tier cost, not to the standard model price.",
+    "Accelerated calls use wallet funds and a full reservation. Group discounts below 1 are not applied; higher group multipliers still apply. Ordinary model prices and price locks are unchanged.": "Accelerated calls use wallet funds and a full reservation. Group discounts below 1 are not applied; higher group multipliers still apply. Ordinary model prices and price locks are unchanged.",
+    "Global api.openai.com text requests only. Unpriced models, hosted tools, audio, background tasks and unpriced long contexts are blocked before sending.": "Global api.openai.com text requests only. Unpriced models, hosted tools, audio, background tasks and unpriced long contexts are blocked before sending.",
+    "Synchronizing...": "Synchronizing..."
   }
 }

@@ -36,6 +36,7 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	info.ObserveResponseModel(chatResp.Model)
+	info.ObserveServiceTier(body)
 	if responseID := helper.GetResponseID(c); responseID != "" {
 		chatResp.Id = responseID
 	}
@@ -125,6 +126,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return
 		}
 		info.ObserveResponseModel(chunk.Model)
+		info.ObserveServiceTier([]byte(data))
 		endEvidence.observe(&chunk)
 
 		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &chunk)

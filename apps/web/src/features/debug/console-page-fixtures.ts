@@ -361,6 +361,34 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (path === '/api/ratio_sync/service_tiers') {
+    if (url.username || url.password || (user?.role ?? 0) < ROLE.SUPER_ADMIN) {
+      return undefined
+    }
+    // An unsynchronized, disabled installation. Never fetch provider prices or
+    // grant accelerated access while reviewing console pages.
+    return {
+      success: true,
+      data: {
+        policy: {
+          enabled: false,
+          fast_markup: 1.2,
+          ultrafast_markup: 1.2,
+          fast_groups: [],
+          ultrafast_groups: [],
+        },
+        catalog: {
+          source: '',
+          fetched_at: '0001-01-01T00:00:00Z',
+          sha256: '',
+          models: {},
+        },
+        fresh: false,
+        max_age_hours: 24,
+        groups: { default: 1 },
+      },
+    }
+  }
   if (path === '/api/finance/site-statistics') {
     if (
       url.username ||
