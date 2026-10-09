@@ -1,0 +1,191 @@
+diff --git a/apps/api-go/controller/assistant_persona_matrix_test.go b/apps/api-go/controller/assistant_persona_matrix_test.go
+index 99311d7bb4626624bb77670777d2fb0370c10636..658b7e94e531618cc7da54729d113ce7c4f28ddc 100644
+--- a/apps/api-go/controller/assistant_persona_matrix_test.go
++++ b/apps/api-go/controller/assistant_persona_matrix_test.go
+@@ -165,0 +166,2 @@ func TestAssistantPersonaMatrix(t *testing.T) {
++				"get_overview_greeting", "set_overview_greeting", "get_site_issues", "create_site_issue",
++				"show_chart", "show_statistics", "show_choices", "show_flowchart",
+@@ -166,0 +169,6 @@ func TestAssistantPersonaMatrix(t *testing.T) {
++			if context.AdministratorMode || context.DeveloperAccessGranted {
++				expectedAllowed = append(expectedAllowed, "send_invitation", "get_connected_market_tools", "connect_market_tool", "call_market_tool")
++			}
++			if context.AdministratorMode {
++				expectedAllowed = append(expectedAllowed, "update_site_issue")
++			}
+diff --git a/apps/api-go/controller/assistant_test.go b/apps/api-go/controller/assistant_test.go
+index b35c6737e96f3a2e596a9135d7119d69307ad0fc..9eb3877cc73a289c13ba7de29110ca1ca18e3414 100644
+--- a/apps/api-go/controller/assistant_test.go
++++ b/apps/api-go/controller/assistant_test.go
+@@ -1343 +1343 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T)
+-	require.Len(t, definitions, 54)
++	require.Len(t, definitions, 67)
+diff --git a/apps/api-go/controller/assistant_workspace.go b/apps/api-go/controller/assistant_workspace.go
+index 2f4438d54f81291512c2c5185a15cf3fd572fa90..97ed36aaca0468a467eadb0a0a00e2f4ce57ed25 100644
+--- a/apps/api-go/controller/assistant_workspace.go
++++ b/apps/api-go/controller/assistant_workspace.go
+@@ -180,0 +181,7 @@ func executeAssistantWorkspaceTool(c *gin.Context, call assistantOpenAIToolCall,
++		permissions := []string{}
++		if tool.Permissions != "" && json.Unmarshal([]byte(tool.Permissions), &permissions) != nil {
++			return assistantWorkspaceFailure("invalid_market_permissions")
++		}
++		if permissions == nil {
++			permissions = []string{}
++		}
+@@ -182 +189 @@ func executeAssistantWorkspaceTool(c *gin.Context, call assistantOpenAIToolCall,
+-		preview = map[string]any{"service_id": request.ServiceID, "tool_id": request.ToolID, "version_id": request.VersionID, "service_name": detail.Version.Name, "tool_name": tool.Name, "description": tool.Description, "permissions": tool.Permissions, "price_quota": tool.PriceQuota, "billing_mode": tool.BillingMode, "billing_rules": tool.BillingRules, "input_token_price_quota": tool.InputTokenPriceQuota, "max_input_tokens": tool.MaxInputTokens, "price_unit": "CREDIT", "defaults": model.AssistantMarketLimits{MaxCalls: 1, LifetimeSeconds: 600}}
++		preview = map[string]any{"service_id": request.ServiceID, "tool_id": request.ToolID, "version_id": request.VersionID, "service_name": detail.Version.Name, "tool_name": tool.Name, "description": tool.Description, "permissions": permissions, "price_quota": tool.PriceQuota, "billing_mode": tool.BillingMode, "billing_rules": tool.BillingRules, "input_token_price_quota": tool.InputTokenPriceQuota, "max_input_tokens": tool.MaxInputTokens, "price_unit": "CREDIT", "defaults": model.AssistantMarketLimits{MaxCalls: 1, LifetimeSeconds: 600}}
+diff --git a/apps/api-go/model/assistant_market_connection.go b/apps/api-go/model/assistant_market_connection.go
+index 0a7400c6ef6cb08cdd5f7c364f4c13fed2bd981c..da3d87ca8fb70be715726bce86af740fbe6109da 100644
+--- a/apps/api-go/model/assistant_market_connection.go
++++ b/apps/api-go/model/assistant_market_connection.go
+@@ -34 +34,8 @@ func ConnectAssistantMarketToolTX(tx *gorm.DB, userID int, input AssistantMarket
+-	if !policy.MarketServiceAllowed(input.ServiceID) {
++	if err := RequireAssistantMarketAccessDB(tx, userID, input.ServiceID); err != nil {
++		return nil, err
++	}
++	level, err := AssistantToolLevelDB(tx, userID)
++	if err != nil {
++		return nil, err
++	}
++	if !policy.MarketServiceAllowed(input.ServiceID) || !policy.AllowedAtLevel("connect_market_tool", level) {
+@@ -62,0 +70,17 @@ func AssistantMarketGrants(userID int, toolID, versionID string) ([]ToolMarketGr
++
++// Keep the policy row locked through reservation/dispatch. An old grant is not
++// permission to invoke a service after the operator removes it from the assistant.
++func RequireAssistantMarketAccessDB(tx *gorm.DB, userID int, serviceID string) error {
++	_, policy, err := ReadAssistantToolPolicyDB(tx)
++	if err != nil {
++		return err
++	}
++	level, err := AssistantToolLevelDB(tx, userID)
++	if err != nil {
++		return err
++	}
++	if !policy.MarketServiceAllowed(serviceID) || !policy.AllowedAtLevel("call_market_tool", level) {
++		return ErrToolMarketDenied
++	}
++	return nil
++}
+diff --git a/apps/api-go/model/assistant_weekly_discount_test.go b/apps/api-go/model/assistant_weekly_discount_test.go
+index 768cf82942677518359832c9b3ba07e63a260fb2..37da1297f68f3b53ab817b63824310e12565e6d8 100644
+--- a/apps/api-go/model/assistant_weekly_discount_test.go
++++ b/apps/api-go/model/assistant_weekly_discount_test.go
+@@ -21,0 +22 @@ func TestAssistantWeeklyDiscountIsOnePerWeekAndClaimIsIdempotent(t *testing.T) {
++	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
+diff --git a/apps/api-go/model/assistant_workspace.go b/apps/api-go/model/assistant_workspace.go
+index d35ab5749954a7d0dcaaea02ac11a5249fc46c31..8bba94cb6b8d7ec0347b831faca11a1e0d8d86cd 100644
+--- a/apps/api-go/model/assistant_workspace.go
++++ b/apps/api-go/model/assistant_workspace.go
+@@ -114,6 +114,7 @@ type AssistantSiteIssueEvent struct {
+-	ID        int64  `json:"id" gorm:"primaryKey"`
+-	IssueID   int64  `json:"issue_id" gorm:"not null;index"`
+-	ActorID   int    `json:"-" gorm:"not null"`
+-	Status    string `json:"status" gorm:"size:24;not null"`
+-	Note      string `json:"note" gorm:"type:text;not null"`
+-	CreatedAt int64  `json:"created_at" gorm:"not null"`
++	Visibility string `json:"visibility" gorm:"size:16;not null;default:admin"`
++	ID         int64  `json:"id" gorm:"primaryKey"`
++	IssueID    int64  `json:"issue_id" gorm:"not null;index"`
++	ActorID    int    `json:"-" gorm:"not null"`
++	Status     string `json:"status" gorm:"size:24;not null"`
++	Note       string `json:"note" gorm:"type:text;not null"`
++	CreatedAt  int64  `json:"created_at" gorm:"not null"`
+@@ -163 +164 @@ func CreateAssistantSiteIssueTX(tx *gorm.DB, userID int, input AssistantSiteIssu
+-	if err := tx.Create(&AssistantSiteIssueEvent{IssueID: issue.ID, ActorID: userID, Status: "open", Note: "", CreatedAt: issue.CreatedAt}).Error; err != nil {
++	if err := tx.Create(&AssistantSiteIssueEvent{IssueID: issue.ID, ActorID: userID, Visibility: issue.Visibility, Status: "open", Note: "", CreatedAt: issue.CreatedAt}).Error; err != nil {
+@@ -207 +208,5 @@ func GetAssistantSiteIssue(actorID int, issueID int64) (*AssistantSiteIssue, []A
+-	if err := DB.Where("issue_id = ?", issue.ID).Order("id DESC").Limit(30).Find(&events).Error; err != nil {
++	query := DB.Where("issue_id = ?", issue.ID)
++	if actor.Role < common.RoleAdminUser {
++		query = query.Where("visibility = ?", "user")
++	}
++	if err := query.Order("id DESC").Limit(30).Find(&events).Error; err != nil {
+@@ -245 +250 @@ func UpdateAssistantSiteIssueTX(tx *gorm.DB, actor *User, input AssistantSiteIss
+-	if err := tx.Create(&AssistantSiteIssueEvent{IssueID: issue.ID, ActorID: actor.Id, Status: issue.Status, Note: input.Note, CreatedAt: issue.UpdatedAt}).Error; err != nil {
++	if err := tx.Create(&AssistantSiteIssueEvent{IssueID: issue.ID, ActorID: actor.Id, Visibility: issue.Visibility, Status: issue.Status, Note: input.Note, CreatedAt: issue.UpdatedAt}).Error; err != nil {
+diff --git a/apps/api-go/model/assistant_workspace_test.go b/apps/api-go/model/assistant_workspace_test.go
+index 9c24acda8b906eb1f8d05ab737ddc4f4988638e4..b2fd2bef776de0f8511aacc0b370036dff969d07 100644
+--- a/apps/api-go/model/assistant_workspace_test.go
++++ b/apps/api-go/model/assistant_workspace_test.go
+@@ -16,0 +17 @@ func assistantWorkspaceTestDB(t *testing.T) *gorm.DB {
++	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
+@@ -203,0 +205,59 @@ func TestAssistantWorkspaceWeeklyLimitIsCheckedAtDecisionAndClaim(t *testing.T)
++
++func TestAssistantWorkspaceInternalNotesStayPrivateAfterPublishing(t *testing.T) {
++	db := assistantWorkspaceTestDB(t)
++	reporter := assistantWorkspaceUser(t, db, "report-privacy", common.RoleCommonUser)
++	admin := assistantWorkspaceUser(t, db, "report-admin", common.RoleAdminUser)
++	var issue *AssistantSiteIssue
++	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
++		var err error
++		issue, err = CreateAssistantSiteIssueTX(tx, reporter.Id, AssistantSiteIssueInput{Kind: "bug", Title: "Hidden report", Body: "A report requiring internal triage.", Visibility: "admin"})
++		return err
++	}))
++	for _, update := range []AssistantSiteIssueUpdate{
++		{ID: issue.ID, Revision: 1, Status: "triaged", Visibility: "admin", Note: "Internal investigation note"},
++		{ID: issue.ID, Revision: 2, Status: "resolved", Visibility: "user", Note: "The issue is fixed"},
++	} {
++		require.NoError(t, db.Transaction(func(tx *gorm.DB) error { _, err := UpdateAssistantSiteIssueTX(tx, &admin, update); return err }))
++	}
++	_, publicEvents, err := GetAssistantSiteIssue(reporter.Id, issue.ID)
++	require.NoError(t, err)
++	require.Len(t, publicEvents, 1)
++	require.Equal(t, "The issue is fixed", publicEvents[0].Note)
++	_, allEvents, err := GetAssistantSiteIssue(admin.Id, issue.ID)
++	require.NoError(t, err)
++	require.Len(t, allEvents, 3)
++}
++
++func TestAssistantMarketRevocationStopsReservationAndDispatch(t *testing.T) {
++	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
++	f := newMarketFixture(t, 100)
++	require.NoError(t, f.db.AutoMigrate(&TopUp{}))
++	require.NoError(t, f.db.Model(&User{}).Where("id = ?", f.buyer.Id).Update("trust_level_override", 1).Error)
++	allow := fmt.Sprintf(`{"version":1,"groups":{},"tools":{},"rules":{"call_market_tool":{"min_level":1,"max_level":6,"market_service_ids":[%q]}}}`, f.service.ID)
++	setPolicy := func(raw string) {
++		require.NoError(t, f.db.Save(&Option{Key: setting.AssistantToolPolicyOptionKey, Value: raw}).Error)
++	}
++	setPolicy(allow)
++	require.NoError(t, SetToolMarketInstallation(f.buyer.Id, AssistantToolMarketClient, f.tool.ToolID, f.tool.VersionID, true))
++	grant, err := CreateToolMarketGrant(f.buyer.Id, ToolMarketGrant{ClientID: AssistantToolMarketClient, ToolID: f.tool.ToolID, VersionID: f.tool.VersionID, MaxPriceQuota: 100, MaxTotalQuota: 500, MaxCalls: 5, ExpiresAt: common.GetTimestamp() + 600})
++	require.NoError(t, err)
++	input := f.input("assistant-before-revoke")
++	input.ClientID, input.GrantID = AssistantToolMarketClient, grant.ID
++	call, created, err := ReserveToolMarketCall(input)
++	require.NoError(t, err)
++	require.True(t, created)
++	balance := marketTestBalance(t, f.db, f.buyer.Id)
++	setPolicy(setting.DefaultAssistantToolPolicy) // empty allowlist, old grant still exists
++	started, err := StartToolMarketCall(call.ID)
++	require.Error(t, err)
++	require.False(t, started)
++	input.RequestKey = "assistant-after-revoke"
++	_, created, err = ReserveToolMarketCall(input)
++	require.Error(t, err)
++	require.False(t, created)
++	require.Equal(t, balance, marketTestBalance(t, f.db, f.buyer.Id))
++	var saved ToolMarketGrant
++	require.NoError(t, f.db.First(&saved, "id = ?", grant.ID).Error)
++	require.Equal(t, 1, saved.ReservedCalls)
++	require.Equal(t, 0, saved.SuccessfulCalls)
++}
+diff --git a/apps/api-go/model/tool_market_billing.go b/apps/api-go/model/tool_market_billing.go
+index 1f002ec07007f2150d9e178f5d24fe0dc698b7d0..0cc1a1245c060d06195b47b20ee61d35d5fc29b4 100644
+--- a/apps/api-go/model/tool_market_billing.go
++++ b/apps/api-go/model/tool_market_billing.go
+@@ -129,0 +130,5 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
++		if in.ClientID == AssistantToolMarketClient {
++			if err := RequireAssistantMarketAccessDB(tx, in.UserID, service.ID); err != nil {
++				return err
++			}
++		}
+diff --git a/apps/api-go/model/tool_market_builtin.go b/apps/api-go/model/tool_market_builtin.go
+index 9a1a528200ba27d4b6739fb494d6fc2bd890ec19..f55b1b222981e20e09ff0fbcf739e5a52a6acff0 100644
+--- a/apps/api-go/model/tool_market_builtin.go
++++ b/apps/api-go/model/tool_market_builtin.go
+@@ -283,0 +284,5 @@ func marketAuthorizeCallDispatch(tx *gorm.DB, call ToolMarketCall) error {
++	if call.ClientID == AssistantToolMarketClient {
++		if err := RequireAssistantMarketAccessDB(tx, call.UserID, call.ServiceID); err != nil {
++			return err
++		}
++	}
