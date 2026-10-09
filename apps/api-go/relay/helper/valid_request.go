@@ -47,6 +47,8 @@ func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dt
 		request, err = GetAndValidateResponsesCompactionRequest(c)
 	case types.RelayFormatOpenAIAlphaSearch:
 		request, err = GetAndValidateAlphaSearchRequest(c)
+	case types.RelayFormatOpenAIDecisions:
+		request, err = GetAndValidateDecisionsRequest(c)
 	case types.RelayFormatSystemOne:
 		request, err = GetAndValidateSystemOneRequest(c)
 
