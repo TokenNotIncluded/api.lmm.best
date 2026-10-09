@@ -113,9 +113,6 @@ func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {
 	user := &User{Email: "race@example.test", Username: "assistant-direct-race", AffCode: "assistant-direct-race-aff", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(user).Error)
 	require.NoError(t, ObserveAssistantRegistration(user.Id, "198.51.100.12", ""))
-	conversation, err := PrepareAssistantConversation(user.Id, 0, "first")
-	require.NoError(t, err)
-	recordAssistantDirectL1Turns(t, user.Id, conversation.Id, 3)
 
 	results := make(chan *AssistantDeveloperAccessGrant, 2)
 	errorsFound := make(chan error, 2)
@@ -125,7 +122,7 @@ func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {
 		workers.Go(func() {
 			<-start
 			grant, callErr := GrantAssistantDeveloperAccess(
-				user.Id, conversation.Id,
+				user.Id, 0,
 				"I will use LMM for a concrete coding workflow.",
 				"The user described a legitimate coding workflow.",
 			)
@@ -158,6 +155,9 @@ func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {
 	require.NoError(t, db.Model(&DeveloperAccessRecommendationArchive{}).Where("user_id = ?", user.Id).Count(&archives).Error)
 	assert.EqualValues(t, 1, requests)
 	assert.EqualValues(t, 1, archives)
+	var conversations int64
+	require.NoError(t, db.Model(&AssistantConversation{}).Where("user_id = ?", user.Id).Count(&conversations).Error)
+	assert.EqualValues(t, 1, conversations)
 }
 
 func TestAssistantDirectL1GrantRetiredRejectionDoesNotBlockOrChangeHistory(t *testing.T) {
@@ -192,4 +192,33 @@ func TestAssistantDirectL1GrantCannotBypassRiskOrDisabledAccount(t *testing.T) {
 			assert.Zero(t, stored.ConsoleActivatedAt)
 		})
 	}
+}
+
+func TestAssistantDirectL1GrantCreatesFirstConversationAtomically(t *testing.T) {
+	user, existing := setupAssistantDirectL1GrantTest(t)
+	require.NoError(t, DB.Delete(existing).Error)
+	grant, err := GrantAssistantDeveloperAccess(user.Id, 0, "制作开源软件", "")
+	require.NoError(t, err)
+	require.True(t, grant.Activated)
+	require.Positive(t, grant.ConversationID)
+	assert.Zero(t, grant.CompletedTurns)
+	var conversation AssistantConversation
+	require.NoError(t, DB.First(&conversation, grant.ConversationID).Error)
+	assert.Equal(t, user.Id, conversation.UserId)
+	assert.Equal(t, "制作开源软件", conversation.Title)
+}
+
+func TestAssistantDirectL1GrantRollsBackFirstConversationWhenAuditFails(t *testing.T) {
+	user, existing := setupAssistantDirectL1GrantTest(t)
+	require.NoError(t, DB.Delete(existing).Error)
+	require.NoError(t, DB.Migrator().DropTable(&DeveloperAccessRecommendationArchive{}))
+	_, err := GrantAssistantDeveloperAccess(user.Id, 0, "制作开源软件", "")
+	require.Error(t, err)
+	var count int64
+	require.NoError(t, DB.Model(&AssistantConversation{}).Where("user_id = ?", user.Id).Count(&count).Error)
+	assert.Zero(t, count)
+	require.NoError(t, DB.Model(&DeveloperAccessRequest{}).Where("user_id = ?", user.Id).Count(&count).Error)
+	assert.Zero(t, count)
+	require.NoError(t, DB.First(user, user.Id).Error)
+	assert.Zero(t, user.ConsoleActivatedAt)
 }

@@ -41,6 +41,7 @@ var (
 
 type AssistantDeveloperAccessGrant struct {
 	Request        *DeveloperAccessRequest
+	ConversationID int64
 	CompletedTurns int
 	Activated      bool
 }
@@ -252,7 +253,7 @@ func SubmitConfirmedAssistantDeveloperAccessRecommendation(token string, match A
 // row serializes this action with submissions, reviews, resets, and concurrent
 // tool calls. The approved request row is the durable audit record.
 func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason string, recommendation string) (*AssistantDeveloperAccessGrant, error) {
-	if userID <= 0 || conversationID <= 0 {
+	if userID <= 0 || conversationID < 0 {
 		return nil, gorm.ErrInvalidData
 	}
 	normalizedReason, err := normalizeDeveloperAccessRequestText(reason)
@@ -276,10 +277,15 @@ func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason stri
 		if err := lockForUpdate(tx).Where("id = ?", userID).First(&user).Error; err != nil {
 			return err
 		}
-		completedTurns, err := countCompletedAssistantConversationTurnsWithTx(tx, userID, conversationID, true)
-		if err != nil {
-			return err
+		completedTurns := 0
+		if conversationID > 0 {
+			var err error
+			completedTurns, err = countCompletedAssistantConversationTurnsWithTx(tx, userID, conversationID, true)
+			if err != nil {
+				return err
+			}
 		}
+		result.ConversationID = conversationID
 		result.CompletedTurns = completedTurns
 		if user.Status != common.UserStatusEnabled || user.Role != common.RoleCommonUser || user.TrustLevelOverride != nil {
 			return ErrAssistantDirectGrantNotL0
@@ -306,6 +312,21 @@ func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason stri
 			return err
 		}
 		now := common.GetTimestamp()
+		if conversationID == 0 {
+			// A successful first-turn action needs an owned conversation before
+			// the answer is written. Create it in this transaction so a failed
+			// risk check or audit write never leaves an empty conversation.
+			conversation := AssistantConversation{
+				UserId: userID, Title: assistantConversationTitle(normalizedReason),
+				LastMessagePreview: assistantConversationTitle(normalizedReason),
+				CreatedAt:          now, UpdatedAt: now,
+			}
+			if err := tx.Create(&conversation).Error; err != nil {
+				return err
+			}
+			conversationID = conversation.Id
+			result.ConversationID = conversationID
+		}
 		auditNote := fmt.Sprintf("AI assistant granted L1 after %d completed turns in conversation %d", completedTurns, conversationID)
 		latest = DeveloperAccessRequest{
 			UserId: userID, Status: DeveloperAccessRequestApproved,

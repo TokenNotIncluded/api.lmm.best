@@ -11,7 +11,13 @@ import { afterEach, describe, test } from 'node:test'
 
 import { api } from '@/lib/api'
 
-import { getTodos, markAllTodosRead, markTodoRead, type TodoItem } from './api'
+import {
+  getTodos,
+  markAllTodosRead,
+  markTodoRead,
+  type TodoItem,
+  type TodoPage,
+} from './api'
 
 const originalGet = api.get
 const originalPost = api.post
@@ -56,7 +62,18 @@ describe('unified to-do API', () => {
     api.get = (async (url, config) => {
       requestedURL = url
       assert.equal(config?.signal, controller.signal)
-      return { data: { success: true, data: { page: 2 } } }
+      const page: TodoPage = {
+        items: [],
+        page: 2,
+        page_size: 50,
+        total: 51,
+        category: 'all',
+        unread_count: 0,
+        total_unread_count: 0,
+        unread_by_category: {},
+        categories: [],
+      }
+      return { data: { success: true, data: page } }
     }) as typeof api.get
     const result = await getTodos('all', 2, controller.signal)
     assert.equal(requestedURL, '/api/todos?category=all&p=2&page_size=50')
@@ -122,4 +139,52 @@ describe('unified to-do API', () => {
       { url: '/api/todos/read', body: { category: 'all', ids: [], all: true } },
     ])
   })
+})
+
+test('retired applications disappear from a previous backend response and unread counts', async () => {
+  const item = (
+    category: TodoItem['category'],
+    source_id: number
+  ): TodoItem => ({
+    id: `${category}:${source_id}`,
+    source_id,
+    category,
+    type: 'test',
+    title: 'test',
+    summary: '',
+    read: false,
+    created_at: 1,
+    updated_at: 1,
+  })
+  const current = item('open_source_bounty_review', 2)
+  const page: TodoPage = {
+    items: [item('developer_access', 1), current],
+    page: 1,
+    page_size: 50,
+    total: 2,
+    category: 'all',
+    unread_count: 2,
+    total_unread_count: 2,
+    unread_by_category: { developer_access: 1, open_source_bounty_review: 1 },
+    categories: [
+      { key: 'developer_access', total: 1, unread: 1 },
+      { key: 'open_source_bounty_review', total: 1, unread: 1 },
+    ],
+  }
+  api.get = (async () => ({
+    data: { success: true, data: page },
+  })) as typeof api.get
+  const result = await getTodos('all')
+  assert.deepEqual(result.items, [current])
+  assert.deepEqual(result.categories, [
+    { key: 'open_source_bounty_review', total: 1, unread: 1 },
+  ])
+  assert.equal(result.unread_count, 1)
+  assert.equal(result.total_unread_count, 1)
+  assert.deepEqual(result.unread_by_category, { open_source_bounty_review: 1 })
+  assert.equal(
+    result.total,
+    2,
+    'Preserve page positions while the old backend is deployed'
+  )
 })

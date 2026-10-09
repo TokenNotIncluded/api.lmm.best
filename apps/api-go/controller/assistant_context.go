@@ -190,8 +190,8 @@ type assistantUserContext struct {
 	// It only disambiguates read-only follow-ups and never authorizes a decision.
 	RewardTopic string `json:"-"`
 	// CompletedAssistantTurns is derived only from durable, server-owned
-	// user/assistant pairs. It gates the narrow L0 direct-grant tool and never
-	// trusts transcript messages supplied by the browser.
+	// user/assistant pairs for context and audit, not an L1 eligibility gate.
+	// It never trusts transcript messages supplied by the browser.
 	CompletedAssistantTurns int `json:"-"`
 	// GiftRewardBlocked is derived from the complete current conversation, not
 	// just the latest turn. A user must not bypass the promotion/security guard

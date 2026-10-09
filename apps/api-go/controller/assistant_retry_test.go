@@ -494,12 +494,15 @@ func TestAssistantRetryDoesNotDuplicateFirstTurnConversationOnReplay(t *testing.
 		Role:     common.RoleCommonUser,
 		Status:   common.UserStatusEnabled,
 		Group:    "default",
+		// L0 admission tools must use live checks, not a cached natural-language answer.
+		ConsoleActivatedAt: common.GetTimestamp(),
 	}
 	require.NoError(t, db.Create(&user).Error)
 
 	message := "replay this assistant answer without creating another conversation"
 	settings := setting.GetAssistantSettings()
 	userContext := assistantUserContextForRequest(user.Id, message)
+	require.True(t, userContext.DeveloperAccessGranted)
 	cacheKey := assistantCacheKey(
 		settings,
 		[]assistantOpenAIMessage{{Role: "user", Content: message}},
@@ -577,12 +580,15 @@ func TestAssistantClientTurnReplaysSavedReplyWithoutTimeOrAttemptHeuristics(t *t
 		Role:     common.RoleCommonUser,
 		Status:   common.UserStatusEnabled,
 		Group:    "default",
+		// L0 admission tools must use live checks, not a cached natural-language answer.
+		ConsoleActivatedAt: common.GetTimestamp(),
 	}
 	require.NoError(t, db.Create(&user).Error)
 
 	message := "replay this assistant answer without creating another conversation"
 	settings := setting.GetAssistantSettings()
 	userContext := assistantUserContextForRequest(user.Id, message)
+	require.True(t, userContext.DeveloperAccessGranted)
 	cacheKey := assistantCacheKey(
 		settings,
 		[]assistantOpenAIMessage{{Role: "user", Content: message}},

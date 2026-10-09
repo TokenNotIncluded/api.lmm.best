@@ -2458,8 +2458,8 @@ func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[str
 		return map[string]any{"ok": false, "status": "context_unavailable", "error": "signed-in account is unavailable"}
 	}
 	conversationID := assistantHistoryConversationID(c)
-	if conversationID <= 0 {
-		return map[string]any{"ok": false, "status": "context_unavailable", "error": "an owned conversation is required; retry or contact support, not extra messages"}
+	if conversationID < 0 || (conversationID == 0 && strings.TrimSpace(c.GetString("assistant_history_latest_message")) == "") {
+		return map[string]any{"ok": false, "status": "context_unavailable", "error": "a current user message is required; retry or contact support, not extra messages"}
 	}
 	statement := strings.TrimSpace(inputString(input, "user_statement"))
 	recommendation := strings.TrimSpace(inputString(input, "recommendation"))
@@ -2477,6 +2477,9 @@ func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[str
 		default:
 			return map[string]any{"ok": false, "status": "grant_failed", "error": "L1 access could not be granted"}
 		}
+	}
+	if grant.ConversationID > 0 {
+		c.Set("assistant_history_conversation_id", grant.ConversationID)
 	}
 	status := "already_active"
 	if grant.Activated {

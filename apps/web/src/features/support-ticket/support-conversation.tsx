@@ -87,10 +87,11 @@ function Conversation() {
                   redactAssistantMessageForRequest(message).content.trim()
                 if (!safe || support.busy) return
                 void perform(() => support.send(safe)).then((sent) => {
-                  if (sent)
+                  if (sent) {
                     setMessage((current) =>
                       current === message ? '' : current
                     )
+                  }
                 })
               }}
             >
