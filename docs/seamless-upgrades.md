@@ -10,7 +10,7 @@ providers and does not replace the signed package controller or its gates.
 Its software rollback does not restore a database. The standalone workflow and
 signed package controller have separate transaction and recovery contracts.
 
-Packages install a real `lmm-api-go` or `lmm-api-rs` provider and a one-hop
+Current packages install the real `lmm-api-go` provider and a one-hop
 `/usr/bin/lmm-api` symlink. Service and native operator actions enter through
 that symlink. The reviewed `/usr/bin/lmm-api-deploy` package script is the public
 deployment entry; it dispatches native operator actions through `lmm-api`.
@@ -130,26 +130,21 @@ probes for legacy classification, then follow the supported
 [legacy native CLI bootstrap](backend-cli-deployment-contract.md#staging-from-a-legacy-native-cli)
 before relying on the unified controller.
 
-Always read `apps/api-rust/tests/fixtures/routes/route-gate.tsv` for the
-current route ownership and approval state; prose is not an authority for
-route counts.
+## New core boundary
 
-## Rust provider boundary
-
-Rust remains a migration candidate. Build, package, provider-link, and service
-operations follow the [Rust provider rollout contract](rust-blue-green.md).
-The old shell-managed blue/green slot framework is retired. A compiled binary,
-mounted route, successful readiness probe, or historical rehearsal does not
-transfer production business ownership. Ownership remains on the approved
-backend until the independent differential and deployment gates pass.
+The old Rust provider is removed. The [new core and Go extensions](core-migration.md)
+use independent Docker projects, not a switch of the current native provider link.
+Existing Go remains the production owner. New-core process health is not business
+readiness; real accounting, authentication, stream and rollback gates must pass
+before any transfer of traffic.
 
 ## PostgreSQL production migration and reconciliation prerequisite
 
 The historical SQLite-to-PostgreSQL shell coordinator is retired. Production
 migration and verification use `/usr/bin/lmm-api migrate --apply|--verify`
 under the [PostgreSQL production boundary](postgresql-cutover.md).
-Use the [offline migration rehearsal](postgresql-migration.md) for fresh,
-isolated schema preparation and verification; it does not authorize traffic.
+See the [database migration boundary](postgresql-migration.md) for the new-core
+rehearsal requirements; its importer is not implemented yet.
 
 Verify the active schema, durable write boundary, signed package identities,
 N/N-1 compatibility, and authenticated canaries before a database-changing

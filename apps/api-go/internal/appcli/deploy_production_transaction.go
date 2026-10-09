@@ -644,11 +644,11 @@ func (runtime *productionRuntime) prepareLegacyProviderRollback(manifest product
 
 func (runtime *productionRuntime) selectInstalledProvider(ctx context.Context, target string) error {
 	selector := backendRuntime{
-		paths: backendPaths{Canonical: runtime.paths.InstalledBinary, Go: runtime.paths.LegacyGoBinary, Rust: filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), backendRustName)},
+		paths: backendPaths{Canonical: runtime.paths.InstalledBinary, Go: runtime.paths.LegacyGoBinary},
 		owner: productionBackendOwner{ctx: ctx, runner: runtime.runner}, effectiveID: runtime.effectiveUID,
 		requiredUID: runtime.requiredOwnerUID,
 	}
-	if target != backendGoName && target != backendRustName {
+	if target != backendGoName {
 		return errors.New("installed provider target is unsupported")
 	}
 	if _, err := selector.selectProvider(target); err != nil {
@@ -675,7 +675,7 @@ func providerLinkState(path string) (string, error) {
 	if err != nil || filepath.IsAbs(target) || filepath.Base(target) != target {
 		return "", errors.New("canonical backend link target is unsafe")
 	}
-	if target != backendGoName && target != backendRustName {
+	if target != backendGoName {
 		return "", errors.New("canonical backend link target is unsupported")
 	}
 	return target, nil

@@ -14,12 +14,11 @@ REQUIRED_JOBS = (
     "pi-lmm-provider",
     "web",
     "go",
-    "rust-preview",
+    "core",
     "route-coverage-contract",
-    "rust-real-integration",
+    "extensions",
     "aur-package-matrix",
     "translations",
-    "root-route-acceptance-lockfile",
     "rustsec",
 )
 KNOWN_RESULTS = frozenset(("success", "failure", "cancelled", "skipped"))

@@ -1,0 +1,30 @@
+name: lmm-extensions
+services:
+  extensions:
+    image: lmm-extensions:${LMM_EXTENSIONS_IMAGE_TAG:-dev}
+    build:
+      context: ../..
+      dockerfile: deployment/docker/extensions.Dockerfile
+    ports:
+      - "127.0.0.1:${LMM_EXTENSIONS_PORT:-18081}:8081"
+    environment:
+      LMM_EXTENSION_LISTEN: "0.0.0.0:8081"
+      LMM_EXTENSION_TOKEN_FILE: /run/secrets/extension_token
+      GOMEMLIMIT: 128MiB
+    secrets: [extension_token]
+    restart: unless-stopped
+    stop_grace_period: 35s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 192m
+    cpus: 0.5
+    pids_limit: 64
+    networks: [core]
+secrets:
+  extension_token:
+    file: ./.secrets/extensions-token
+networks:
+  core:
+    name: lmm-core-runtime
+    external: true

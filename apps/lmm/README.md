@@ -102,7 +102,7 @@ cargo build --manifest-path apps/lmm/Cargo.toml --locked --release
 ```
 
 也可从仓库根目录使用 `just lmm catalog`、`just test-lmm`、`just build-lmm`。
-独立 Cargo 工程与后端 `apps/api-rust` 分开锁定依赖，避免将 CLI 发布绑定到后端构建。
+独立 Cargo 工程与后端 `apps/core-rust` 分开锁定依赖，避免将 CLI 发布绑定到后端构建。
 源码开发需要 Rust；面向普通用户的签名二进制、安装器和更新渠道尚待发布，
 当前没有声称普通用户已经能“一键安装”。CI 构建产物仅作开发预览，不自动发布。
 
