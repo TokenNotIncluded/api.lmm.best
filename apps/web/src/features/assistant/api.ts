@@ -16,9 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
 import axios, { type AxiosError } from 'axios'
 
 import type { QuotaDataItem } from '@/features/dashboard/types'
@@ -45,6 +42,17 @@ import {
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
 import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
 import type { AssistantSupportRequest } from './assistant-support-api'
+import {
+  parseAssistantVisualization,
+  type AssistantVisualization,
+} from './assistant-visualization-data'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import {
+  parseAssistantWorkspaceAction,
+  type AssistantWorkspaceAction,
+} from './assistant-workspace-contract'
 import { getGuideEligibleModels } from './setup-guide'
 
 export type {
@@ -466,6 +474,7 @@ export type AssistantUserAction =
   | AssistantUserAccountAction
 
 export type AssistantToolTrace = {
+  visualization?: AssistantVisualization
   callId?: string
   name: string
   status: 'output-available' | 'output-error' | 'approval-requested'
@@ -475,6 +484,7 @@ export type AssistantToolTrace = {
 }
 
 export type AssistantAction =
+  | AssistantWorkspaceAction
   | AssistantAccountDisableAction
   | AssistantHumanSupportAction
   | AssistantCreateKeyAction
@@ -976,7 +986,7 @@ function parseAssistantWeeklyDiscountAction(
     typeof action.discount_percent !== 'number' ||
     !Number.isInteger(action.discount_percent) ||
     action.discount_percent < 1 ||
-    action.discount_percent > 10 ||
+    action.discount_percent > 99 ||
     typeof action.reason !== 'string'
   ) {
     return undefined
@@ -1161,6 +1171,15 @@ export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
         ...(input && Object.keys(input).length > 0 ? { input } : {}),
         ...(result !== undefined ? { result } : {}),
         ...(errorCode ? { errorCode } : {}),
+        ...(trace.status === 'output-available' &&
+        parseAssistantVisualization(name, trace.visualization)
+          ? {
+              visualization: parseAssistantVisualization(
+                name,
+                trace.visualization
+              ),
+            }
+          : {}),
       }
     })
     .filter((trace): trace is AssistantToolTrace => trace !== null)
@@ -1171,6 +1190,9 @@ export function parseAssistantAction(
 ): AssistantAction | undefined {
   if (!value || typeof value !== 'object') return undefined
   const action = value as Record<string, unknown>
+  if (action.type === 'workspace_action') {
+    return parseAssistantWorkspaceAction(value)
+  }
   if (action.type === 'api_key_action') {
     return parseAssistantKeyManagementAction(value)
   }

@@ -36,7 +36,14 @@ export function assistantToolOutcome(
   // that a key was created, deleted, or disabled.
   if (
     trace.name === 'request_create_key' ||
-    trace.name === 'prepare_api_key_action'
+    trace.name === 'prepare_api_key_action' ||
+    [
+      'set_overview_greeting',
+      'create_site_issue',
+      'update_site_issue',
+      'send_invitation',
+      'connect_market_tool',
+    ].includes(trace.name)
   ) {
     return 'prepared'
   }

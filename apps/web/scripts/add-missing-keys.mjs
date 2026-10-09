@@ -28,6 +28,7 @@ import { aiDirectoryCopy } from './ai-directory-copy.mjs'
 import { apiKeySourceCopy } from './api-key-source-copy.mjs'
 import { assistantSettingsCopy } from './assistant-settings-copy.mjs'
 import { assistantToolCopy } from './assistant-tool-copy.mjs'
+import { assistantWorkspaceCopy } from './assistant-workspace-copy.mjs'
 import { balanceQueryCopy } from './balance-query-copy.mjs'
 import { billingJsonEditorCopy } from './billing-json-editor-copy.mjs'
 import { codewhaleGuideCopy } from './codewhale-guide-copy.mjs'
@@ -11784,6 +11785,22 @@ const retiredGameKeys = new Set([
 ])
 
 async function main() {
+  if (process.argv.includes('--assistant-workspace-only')) {
+    for (const [locale, translations] of Object.entries(
+      assistantWorkspaceCopy
+    )) {
+      Object.assign(newKeys[locale], translations)
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      Object.assign(json.translation, translations)
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: assistant workspace translations applied`)
+    }
+    return
+  }
   if (process.argv.includes('--only-trust-level-reset')) {
     for (const [locale, values] of Object.entries(trustLevelResetCopy)) {
       const filePath = path.join(LOCALES_DIR, `${locale}.json`)

@@ -18,9 +18,10 @@ const (
 // AssistantToolPolicy can only remove capabilities. Existing account, role,
 // confirmation, registration and billing checks remain authoritative.
 type AssistantToolPolicy struct {
-	Version int             `json:"version"`
-	Groups  map[string]bool `json:"groups"`
-	Tools   map[string]bool `json:"tools"`
+	Version int                          `json:"version"`
+	Groups  map[string]bool              `json:"groups"`
+	Tools   map[string]bool              `json:"tools"`
+	Rules   map[string]AssistantToolRule `json:"rules,omitempty"`
 }
 
 type AssistantToolInfo struct {
@@ -65,6 +66,7 @@ var assistantToolCatalogue = []AssistantToolGroup{
 		{"prepare_api_key_action", "Prepare API key revocation", "Prepare deletion or disabling of one exact owned key; confirmation and secure verification remain required.", "confirmation", "user"},
 	}},
 	{"rewards", "Rewards", []AssistantToolInfo{
+		{"send_invitation", "Send an invitation", "Prepare an invitation email using your own referral link; send only after confirmation.", "confirmation", "l1"},
 		{"get_invitation_rewards", "Invitation rewards", "Read your invitation reward status and the current reward rules.", "read_only", "l1"},
 		{"get_new_user_gift_status", "Welcome gift status", "Read a stored gift decision without evaluating or claiming a gift.", "read_only", "user"},
 		{"prepare_new_user_gift", "Evaluate a welcome gift", "Record a one-time eligibility decision and prepare its claim card; credit is granted only after claiming.", "server_guarded", "user"},
@@ -90,6 +92,8 @@ var assistantToolCatalogue = []AssistantToolGroup{
 		{"request_human_support", "Prepare human support or account review", "Prepare an in-site handoff or account-disable review request; the user must confirm.", "confirmation", "user"},
 	}},
 	{"personalization", "Memory and personalization", []AssistantToolInfo{
+		{"get_overview_greeting", "Read overview greeting", "Read your localized overview templates and supported variables.", "read_only", "user"},
+		{"set_overview_greeting", "Edit overview greeting", "Prepare a change to your own localized greeting without changing other settings.", "confirmation", "user"},
 		{"set_conversation_title", "Conversation title", "Store a short title for the current new conversation without account changes.", "server_guarded", "user"},
 		{"recall_memory", "Recall your memories", "Read only your own relevant long-term memories.", "read_only", "user"},
 		{"remember_memory", "Remember a preference", "Store a bounded durable preference or project detail for your account; secrets are prohibited.", "server_guarded", "user"},
@@ -117,6 +121,22 @@ var assistantToolCatalogue = []AssistantToolGroup{
 		{"prepare_admin_channel_change", "Prepare channel changes", "Prepare validated channel changes while preserving role and secret restrictions.", "confirmation", "admin"},
 		{"prepare_admin_model_sync", "Prepare model metadata import", "Verify selected upstream model IDs and prepare a root-only metadata import.", "confirmation", "root"},
 		{"prepare_admin_pricing_change", "Prepare model pricing changes", "Prepare exact pricing changes with root authority and explicit browser confirmation.", "confirmation", "root"},
+	}},
+	{"site_issues", "Site improvement issues", []AssistantToolInfo{
+		{"get_site_issues", "Read issue status", "Read your visible reports and updates; administrators can read all reports.", "read_only", "user"},
+		{"create_site_issue", "Create an improvement issue", "Prepare a bug, security, experience or feature report for confirmation.", "confirmation", "user"},
+		{"update_site_issue", "Update issue status", "Prepare an administrator update with status, visibility and a note.", "confirmation", "admin"},
+	}},
+	{"market_connections", "Tool market connections", []AssistantToolInfo{
+		{"get_connected_market_tools", "Read connected market tools", "Read allowed services, exact schemas and your own current grants.", "read_only", "l1"},
+		{"connect_market_tool", "Authorize a market tool", "Prepare version-bound access and spending limits for browser confirmation.", "confirmation", "l1"},
+		{"call_market_tool", "Use a connected market tool", "Call an allowed remote tool using your explicit bounded grant and the existing billing checks.", "server_guarded", "l1"},
+	}},
+	{"visualizations", "Visualizations", []AssistantToolInfo{
+		{"show_chart", "Statistical chart", "Display a line, bar or donut chart from bounded data.", "read_only", "user"},
+		{"show_statistics", "Statistic cards", "Display key values with labels and optional icons.", "read_only", "user"},
+		{"show_choices", "Choice buttons", "Offer choices that fill the composer without submitting actions.", "read_only", "user"},
+		{"show_flowchart", "Flow diagram", "Display a process using labelled steps and connections.", "read_only", "user"},
 	}},
 }
 
@@ -181,6 +201,12 @@ func NormalizeAssistantToolPolicy(raw string) (string, AssistantToolPolicy, erro
 			if err := decoder.Decode(&policy.Version); err != nil || policy.Version != 1 {
 				return invalid()
 			}
+		case "rules":
+			rules, err := decodeAssistantToolRules(decoder)
+			if err != nil {
+				return invalid()
+			}
+			policy.Rules = rules
 		case "groups", "tools":
 			if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
 				return invalid()

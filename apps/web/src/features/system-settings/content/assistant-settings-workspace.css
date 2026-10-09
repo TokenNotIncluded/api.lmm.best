@@ -101,3 +101,28 @@ License, or (at your option) any later version.
     flex: 1;
   }
 }
+
+/* Tool configuration remains reachable when a group is switched off. */
+.assistant-tool-center .assistant-tool-group {
+  margin-top: 1.75rem;
+}
+.assistant-tool-center .assistant-tool-row {
+  border-color: color-mix(in oklch, var(--border) 55%, transparent);
+}
+.assistant-tool-center .assistant-tool-row:hover {
+  background: color-mix(in oklch, var(--muted) 35%, transparent);
+}
+@media (max-width: 600px) {
+  .assistant-tool-center .assistant-tool-row {
+    flex-direction: column;
+    gap: 0.8rem;
+    padding: 1rem;
+  }
+  .assistant-tool-center .assistant-tool-row-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .assistant-tool-center .assistant-tool-row-actions button {
+    min-height: 2.75rem;
+  }
+}
