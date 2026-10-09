@@ -82,7 +82,7 @@ export function FeedbackRewardButton() {
   ]
 
   return (
-    <div className='pointer-events-none fixed right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 print:hidden'>
+    <div className='lmm-feedback-reward pointer-events-none fixed right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 print:hidden'>
       <Popover>
         <PopoverTrigger
           render={

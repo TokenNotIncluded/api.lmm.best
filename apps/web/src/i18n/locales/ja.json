@@ -4304,7 +4304,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "アカウント情報の引き渡し用です。ユーザー名、パスワード、任意のログインURL、説明をまとめて1項目として追加します。",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "アクティベーションキー用です。1行に1つずつインポートします。購入者には入力したキーがそのまま届きます。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
@@ -11712,6 +11712,7 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "信頼できる支払い証拠がない記録：{{unconfirmed}} 件；金額に異常がある記録：{{invalid}} 件。これらは支払合計に含まれていません。",
     "请刷新重试，当前金额未确认。": "再読み込みしてお試しください。金額はまだ確認されていません。",
     "退款后净付款": "返金後の純支払額",
-    "部分充值记录无法确认实付": "一部のチャージ記録は実際の支払額を確認できません"
+    "部分充值记录无法确认实付": "一部のチャージ記録は実際の支払額を確認できません",
+    "Service information": "サービスとプライバシー"
   }
 }

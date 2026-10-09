@@ -29,6 +29,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { LayoutProvider } from '@/context/layout-provider'
 import { ModelPlazaProvider } from '@/context/model-plaza-provider'
 import { SearchProvider } from '@/context/search-provider'
+import { SourceConsent } from '@/features/acquisition/consent'
 import { AssistantLauncher } from '@/features/assistant/assistant-launcher'
 import { MandatoryAnnouncements } from '@/features/onboarding/mandatory-announcements'
 import { ModelPlazaPanel } from '@/features/pricing/components/model-plaza-panel'
@@ -107,8 +108,10 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                     </div>
                   </SidebarInset>
                 </div>
+                <AccessRestrictionNotice compact>
+                  <SourceConsent />
+                </AccessRestrictionNotice>
                 {consoleActivated && !assistantPage && <ConsoleMobileDock />}
-                <AccessRestrictionNotice className='shrink-0' />
                 <ReleaseNoteDialog />
                 <CommandMenu />
                 <ShortcutCheatsheetDialog />

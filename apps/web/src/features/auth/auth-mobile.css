@@ -91,19 +91,27 @@
     text-align: start;
     text-wrap: balance;
   }
-  .auth-editorial .auth-field {
-    min-height: 3.15rem;
+  .auth-editorial
+    .auth-form-stage
+    input:not([type='checkbox']):not([type='radio']) {
+    min-height: 50px;
     border-radius: 1rem;
     font-size: 1rem;
-    background: var(--background);
+    background: color-mix(in oklch, var(--muted) 45%, var(--background));
   }
   .auth-editorial
     .auth-form-stage
     button:not([role='checkbox']):not([role='switch']) {
-    min-height: 2.75rem;
+    min-height: 44px;
+  }
+  .auth-editorial .auth-form-stage input[type='password'] {
+    padding-inline-end: 3.25rem;
+  }
+  .auth-editorial .auth-form-stage button.absolute {
+    min-width: 44px;
   }
   .auth-editorial .auth-form-stage button[type='submit'] {
-    min-height: 3.15rem;
+    min-height: 50px;
     border-radius: 1rem;
   }
   .auth-editorial .auth-game-disclosure {

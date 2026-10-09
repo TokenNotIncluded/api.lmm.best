@@ -93,6 +93,8 @@ async function setup(context, host, persona) {
 }
 async function snapshot(page, name) {
   await page.evaluate(() => document.fonts.ready)
+  // Wait for sheet entry and chapter cross-fades, not the looping sculpture.
+  await page.waitForTimeout(1200)
   await page.screenshot({ path: `${output}/${name}.png` })
   const metrics = await page.evaluate(() => ({
     width: innerWidth,
@@ -249,7 +251,10 @@ try {
         await page.goto(origin + path, { waitUntil: 'networkidle' })
         await page.waitForTimeout(500)
         const metrics = await snapshot(page, path.slice(1))
-        if (['/about', '/user-agreement', '/privacy-policy'].includes(path)) {
+        if (path === '/about') {
+          assert.equal(new URL(page.url()).pathname, '/challenges')
+        }
+        if (['/user-agreement', '/privacy-policy'].includes(path)) {
           assert.ok((await page.locator('[data-reading-section]').count()) >= 3)
           await page
             .getByRole('button', { name: /展开全部|Expand all/ })
@@ -261,6 +266,24 @@ try {
         }
         if (path === '/sign-in' || path === '/sign-up') {
           assert.ok((await page.locator('input').count()) > 0)
+          const fields = await page
+            .locator(
+              '.auth-form-stage input:not([type="hidden"]):not([type="checkbox"])'
+            )
+            .evaluateAll((nodes) =>
+              nodes
+                .filter((node) => node.getBoundingClientRect().width > 0)
+                .map((node) => ({
+                  height: node.getBoundingClientRect().height,
+                  font: getComputedStyle(node).fontSize,
+                }))
+            )
+          assert.ok(
+            fields.every(
+              (field) => field.height >= 44 && parseFloat(field.font) >= 16
+            ),
+            JSON.stringify(fields)
+          )
         }
         assert.deepEqual(errors, [])
         report.push({ name: path, ok: true, metrics })
@@ -293,6 +316,7 @@ try {
               '/wallet',
               '/profile',
               '/usage-logs/common',
+              '/about',
             ]
           : [
               '/system-settings/site/system-info',
@@ -316,6 +340,15 @@ try {
             .waitFor({ timeout: 30000 })
           await page.waitForTimeout(1400)
           const metrics = await snapshot(page, name)
+          assert.equal(
+            await page.getByText(/PERSONA_DEBUG_UNMOCKED_REQUEST/).count(),
+            0
+          )
+          if (path === '/about') {
+            assert.ok(
+              (await page.locator('[data-reading-section]').count()) >= 3
+            )
+          }
           if (persona === 'admin') {
             const handle = page.locator('.settings-scrub-handle')
             await handle.click()

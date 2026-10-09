@@ -4304,7 +4304,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "For account delivery. Add the username, password, optional login URL, and instructions together as one item.",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "For activation keys. Import one key per line; buyers copy each key exactly as supplied.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
@@ -11712,6 +11712,7 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Reliable payment evidence is missing for {{unconfirmed}} records; {{invalid}} records have amount irregularities. These records are excluded from the payment totals.",
     "请刷新重试，当前金额未确认。": "Please refresh and try again. The amount is not yet confirmed.",
     "退款后净付款": "Net payments after refunds",
-    "部分充值记录无法确认实付": "Actual payments cannot be confirmed for some top-up records"
+    "部分充值记录无法确认实付": "Actual payments cannot be confirmed for some top-up records",
+    "Service information": "Service information"
   }
 }

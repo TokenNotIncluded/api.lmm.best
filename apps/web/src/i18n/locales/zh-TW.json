@@ -4304,7 +4304,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "用於交付帳戶資料。將使用者名稱、密碼、可選的登入網址和說明一起作為一項新增。",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "用於啟用金鑰。每行匯入一組金鑰；買家收到的金鑰與提供的完全一致。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
@@ -11712,6 +11712,7 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "缺少可信付款證明：{{unconfirmed}} 筆；金額紀錄異常：{{invalid}} 筆。以上付款總額未計入這些紀錄。",
     "请刷新重试，当前金额未确认。": "請重新整理後再試，目前金額尚未確認。",
     "退款后净付款": "退款後淨付款",
-    "部分充值记录无法确认实付": "部分儲值紀錄無法確認實際付款"
+    "部分充值记录无法确认实付": "部分儲值紀錄無法確認實際付款",
+    "Service information": "服務說明與隱私"
   }
 }

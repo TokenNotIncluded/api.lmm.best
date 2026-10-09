@@ -106,6 +106,13 @@ By accepting, you confirm that you have read these terms and understand that you
 // reach the persona adapter and fail closed; no payment or administrative write
 // is added here. Activated only by console_review=1 in the development entry.
 const reads: Record<string, unknown> = {
+  '/api/about':
+    '# Local review\nSynthetic content for layout review.\n\n## Account\nUse your own account.\n\n## Keys\nDo not share keys.\n\n## Usage\nReview recorded usage.\n\n## Support\nKeep your request ID.',
+  '/api/assistant/workspace/greeting': {
+    templates: {},
+    revision: 0,
+    updated_at: 0,
+  },
   '/api/user/company-billing-profile': null,
   '/api/user/topup/info': DEBUG_WALLET_TOPUP_INFO,
   '/api/user/aff': 'local-preview-referral',

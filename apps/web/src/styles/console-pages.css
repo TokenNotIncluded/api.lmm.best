@@ -349,3 +349,43 @@ For commercial licensing, please contact support@quantumnous.com
     min-height: 2.75rem;
   }
 }
+
+.console-service-notice {
+  position: relative;
+  background: var(--background);
+  color: var(--muted-foreground);
+  text-align: center;
+  font-size: 0.7rem;
+}
+.console-service-notice > summary {
+  min-height: 2.75rem;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+.console-service-notice > summary::-webkit-details-marker {
+  display: none;
+}
+.console-service-notice[open] > summary {
+  color: var(--foreground);
+}
+.console-service-notice-content {
+  position: absolute;
+  bottom: 100%;
+  left: 1rem;
+  right: 1rem;
+  z-index: 40;
+  max-height: min(50dvh, 24rem);
+  overflow-y: auto;
+  border-radius: 1rem;
+  padding: 0.75rem;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 -8px 35px
+    color-mix(in oklch, var(--foreground) 12%, transparent);
+}
+.console-service-notice :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
