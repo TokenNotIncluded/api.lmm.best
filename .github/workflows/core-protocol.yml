@@ -1,0 +1,65 @@
+name: Core protobuf transport checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: core-protocol-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOWORK: "off"
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.25.1'
+          cache-dependency-path: apps/extensions-go/go.sum
+      - name: Install pinned Rust and protobuf compiler
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes protobuf-compiler
+      - name: Check generated Go bindings
+        run: bash scripts/generate-core-protocol.sh --check
+      - name: Rust checks and real database tests
+        working-directory: apps/core-rust
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --all-targets
+      - name: Go contract and race tests
+        working-directory: apps/extensions-go
+        run: |
+          bash ../../scripts/check-go-format.sh .
+          go mod verify
+          go vet ./...
+          go test -race ./... -count=1
+          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+      - name: Native protobuf round trips and failure recovery
+        run: python3 -B scripts/test-core-rpc-docker.py
+      - name: Service boundary contracts
+        run: python3 -B scripts/test-core-boundaries.py
