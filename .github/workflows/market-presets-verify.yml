@@ -2,9 +2,7 @@ name: Marketplace branch verification
 on:
   push:
     branches: [codex/market-provider-presets-20261009]
-    paths:
-      - .github/workflows/market-presets-verify.yml
-      - .market-presets.patch.gz.b64
+    paths: [.market-presets.patch.ready]
 permissions:
   contents: read
 concurrency:
@@ -34,24 +32,43 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - name: Apply reviewed development patch on this branch only
+      - name: Apply checked source on this development branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .market-presets.patch.part-*.b64 | base64 --decode | gzip -d > "$RUNNER_TEMP/market.patch"
+          expected="$(cat .market-presets.patch.ready)"
+          test "$(sha256sum "$RUNNER_TEMP/market.patch" | cut -d' ' -f1)" = "$expected"
+          git apply --check "$RUNNER_TEMP/market.patch"
+          git apply --index "$RUNNER_TEMP/market.patch"
+          git rm -f --ignore-unmatch .market-presets.patch.ready .market-presets.patch.part-*.b64 .github/workflows/market-presets-development.yml
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+      - name: Format changed marketplace files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR -- 'apps/web/src/features/tool-market/*.ts' 'apps/web/src/features/tool-market/*.tsx')
+          if ((${#files[@]})); then
+            (cd apps/web && bunx --no-install oxfmt -c .oxfmtrc.json --write "${files[@]#apps/web/}")
+            git add -- "${files[@]}"
+          fi
+      - name: Commit reviewed source and record exact test revision
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if test -f .market-presets.patch.gz.b64; then
-            base64 --decode .market-presets.patch.gz.b64 | gzip -d > "$RUNNER_TEMP/market.patch"
-            git apply --check "$RUNNER_TEMP/market.patch"
-            git apply --index "$RUNNER_TEMP/market.patch"
-            git rm -f --ignore-unmatch .market-presets.patch.gz.b64 .github/workflows/market-presets-development.yml
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: add marketplace provider presets, price multipliers and MCP OAuth'
-            header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-            echo "::add-mask::$header"
-            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $header" push origin HEAD:refs/heads/codex/market-provider-presets-20261009
-          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: add marketplace provider presets, price multipliers and MCP OAuth'
+          header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$header"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $header" push origin HEAD:refs/heads/codex/market-provider-presets-20261009
           mkdir -p /tmp/market-evidence
           git rev-parse HEAD | tee /tmp/market-evidence/tested-sha.txt
+          git diff 50b8ef9db62b287dbeb0ebcb438ea19983b4320a -- apps/api-go apps/web/src/features/tool-market docs > /tmp/market-evidence/source.patch
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
@@ -63,23 +80,20 @@ jobs:
         run: |
           set -o pipefail
           go test -p 2 -count=1 ./oauthserver ./model ./service ./controller ./router -run 'OAuth|ToolMarket' 2>&1 | tee /tmp/market-evidence/go.log
-          if test -d marketprice; then
-            go test -race -count=1 ./marketprice 2>&1 | tee /tmp/market-evidence/pricing.log
-          fi
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        if: always()
-        with:
-          bun-version: '1.3.14'
-      - name: Install frontend dependencies
-        if: always()
-        run: bun install --frozen-lockfile
-      - name: Frontend type check and marketplace tests
+          go test -race -count=1 ./marketprice 2>&1 | tee /tmp/market-evidence/pricing.log
+      - name: Frontend type check
         if: always()
         working-directory: apps/web
         shell: bash
         run: |
           set -o pipefail
           bun run typecheck 2>&1 | tee /tmp/market-evidence/types.log
+      - name: Frontend marketplace regression suites
+        if: always()
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -o pipefail
           bun test src/features/tool-market 2>&1 | tee /tmp/market-evidence/web-tests.log
       - uses: actions/upload-artifact@v4
         if: always()
