@@ -1,0 +1,154 @@
+diff --git a/apps/web/src/features/assistant/assistant-visualization.tsx b/apps/web/src/features/assistant/assistant-visualization.tsx
+index 3af8e5f359d8986608d4ffb269583444296336a9..02468eac698343727e0030f33748dd6abb3b8858 100644
+--- a/apps/web/src/features/assistant/assistant-visualization.tsx
++++ b/apps/web/src/features/assistant/assistant-visualization.tsx
+@@ -12,6 +12,7 @@ import { useId, useState } from 'react'
+ import { useTranslation } from 'react-i18next'
+ 
+ import { Button } from '@/components/ui/button'
++import { toIntlLocale } from '@/i18n/languages'
+ 
+ import {
+   chartDomain,
+@@ -127,7 +128,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
+   const uid = useId().replaceAll(':', '')
+   const labels = visual.labels ?? [],
+     series = visual.series ?? []
+-  const number = new Intl.NumberFormat(i18n.language, {
++  const number = new Intl.NumberFormat(toIntlLocale(i18n.language), {
+     maximumSignificantDigits: 6,
+   })
+   const [min, max] = chartDomain(series)
+@@ -283,7 +284,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
+                     textAnchor='end'
+                     className='assistant-visual-axis'
+                   >
+-                    {new Intl.NumberFormat(i18n.language, {
++                    {new Intl.NumberFormat(toIntlLocale(i18n.language), {
+                       notation: 'compact',
+                       maximumFractionDigits: 1,
+                     }).format(value)}
+diff --git a/apps/web/src/features/dashboard/components/overview/overview-greeting.tsx b/apps/web/src/features/dashboard/components/overview/overview-greeting.tsx
+index 9471ae44edef2e26dc63cac17bba4be5c13070f4..af37602afeea93a74eb6d3dd05ce1556edeb31d8 100644
+--- a/apps/web/src/features/dashboard/components/overview/overview-greeting.tsx
++++ b/apps/web/src/features/dashboard/components/overview/overview-greeting.tsx
+@@ -13,6 +13,7 @@ import {
+   DialogTitle,
+ } from '@/components/ui/dialog'
+ import { useWalletCurrency } from '@/hooks/use-wallet-currency'
++import { normalizeInterfaceLanguage } from '@/i18n/languages'
+ import { api } from '@/lib/api'
+ import { ROLE } from '@/lib/roles'
+ import { useAuthStore, type AuthUser } from '@/stores/auth-store'
+@@ -102,7 +103,7 @@ function OverviewGreetingSession({ user }: { user: AuthUser }) {
+       typeof user.quota === 'number' ? wallet.formatQuota(user.quota) : '—',
+   })
+   const defaultTemplate = (locale: string) =>
+-    t('HI,$name, it is $time', { lng: locale })
++    t('HI,$name, it is $time', { lng: normalizeInterfaceLanguage(locale) })
+   const template =
+     preference.data?.templates[language] || defaultTemplate(language)
+   const greeting = expandOverviewGreeting(template, valuesFor(language))
+diff --git a/apps/web/src/features/dashboard/components/overview/overview-personalization-data.test.ts b/apps/web/src/features/dashboard/components/overview/overview-personalization-data.test.ts
+index e1393938828f9ea2b9b39621801f366aa9c6eda1..a4ed01d51b3ac8988d3d626f5c05e8c743a2adb7 100644
+--- a/apps/web/src/features/dashboard/components/overview/overview-personalization-data.test.ts
++++ b/apps/web/src/features/dashboard/components/overview/overview-personalization-data.test.ts
+@@ -25,6 +25,8 @@ test('greeting uses literal one-pass variables and locale fallback', () => {
+   assert.equal(validGreetingTemplate('$secret'), false)
+   assert.equal(validGreetingTemplate('a'.repeat(513)), false)
+   assert.equal(overviewLanguage('zh-Hant-TW'), 'zh-TW')
++  assert.equal(overviewLanguage('zhCN'), 'zh')
++  assert.equal(overviewLanguage('zhTW'), 'zh-TW')
+   assert.equal(overviewLanguage('en-US'), 'en')
+   assert.equal(overviewLanguage('xx'), 'en')
+   assert.throws(() =>
+@@ -88,3 +90,17 @@ test('usage totals use recorded values and fold the remainder without loss', ()
+     )
+   )
+ })
++
++
++test('usage date formatting accepts the actual Chinese interface codes', () => {
++  const range = overviewUsageRange(7, new Date(2026, 9, 9, 19, 0, 0))
++  for (const locale of ['zhCN', 'zhTW']) {
++    const result = buildOverviewUsage(
++      [{ created_at: range.end_timestamp, count: 42, model_name: 'test' }],
++      'requests', range.start_timestamp, range.end_timestamp, locale, '其他', '未知'
++    )
++    assert.equal(result.total, 42)
++    assert.equal(result.labels.length, 7)
++    assert.ok(result.labels.some((label) => label.includes('月')))
++  }
++})
+diff --git a/apps/web/src/features/dashboard/components/overview/overview-personalization-data.ts b/apps/web/src/features/dashboard/components/overview/overview-personalization-data.ts
+index e269dcb60a517fa60f80aa63f03d20eb7317c034..9dccbc8037190b84af3b42330e43c4bc27ba69f6 100644
+--- a/apps/web/src/features/dashboard/components/overview/overview-personalization-data.ts
++++ b/apps/web/src/features/dashboard/components/overview/overview-personalization-data.ts
+@@ -1,5 +1,6 @@
+ /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+ import type { QuotaDataItem } from '@/features/dashboard/types'
++import { normalizeInterfaceLanguage, toIntlLocale } from '@/i18n/languages'
+ 
+ export const GREETING_LANGUAGES = [
+   'en',
+@@ -28,12 +29,8 @@ export type OverviewGreetingPreference = {
+ }
+ 
+ export function overviewLanguage(language: string): GreetingLanguage {
+-  const normalized = language.replaceAll('_', '-').toLowerCase()
+-  if (/^zh-(tw|hk|mo|hant)(-|$)/.test(normalized)) return 'zh-TW'
+-  const base = normalized.split('-')[0]
+-  return GREETING_LANGUAGES.includes(base as GreetingLanguage)
+-    ? (base as GreetingLanguage)
+-    : 'en'
++  const normalized = normalizeInterfaceLanguage(language)
++  return normalized === 'zhCN' ? 'zh' : normalized === 'zhTW' ? 'zh-TW' : normalized
+ }
+ export function validGreetingTemplate(template: string): boolean {
+   return (
+@@ -119,7 +116,7 @@ export function buildOverviewUsage(
+   const days = new Map<string, { label: string; value: number }>()
+   const cursor = new Date(start * 1000)
+   cursor.setHours(0, 0, 0, 0)
+-  const formatter = new Intl.DateTimeFormat(locale, {
++  const formatter = new Intl.DateTimeFormat(toIntlLocale(locale), {
+     month: 'short',
+     day: 'numeric',
+   })
+diff --git a/apps/web/src/features/system-settings/content/assistant-tool-configuration.tsx b/apps/web/src/features/system-settings/content/assistant-tool-configuration.tsx
+index a9f2285e834ee4a3f3cfc1f62e0ae66165e8ef17..db81f7b3e297524beec77856282accc1705b05a8 100644
+--- a/apps/web/src/features/system-settings/content/assistant-tool-configuration.tsx
++++ b/apps/web/src/features/system-settings/content/assistant-tool-configuration.tsx
+@@ -126,7 +126,7 @@ export function AssistantToolConfiguration({
+                       className='w-full'
+                       disabled={disabled}
+                     >
+-                      <SelectValue />
++                      <SelectValue>{levelName(rule[key])}</SelectValue>
+                     </SelectTrigger>
+                     <SelectContent alignItemWithTrigger={false}>
+                       {levels.map((level) => (
+@@ -216,7 +216,9 @@ export function AssistantToolConfiguration({
+                   className='w-full'
+                   disabled={disabled}
+                 >
+-                  <SelectValue />
++                  <SelectValue>
++                    {t(rule.default_visibility === 'admin' ? 'Administrators only' : 'Reporter and administrators')}
++                  </SelectValue>
+                 </SelectTrigger>
+                 <SelectContent alignItemWithTrigger={false}>
+                   <SelectItem value='user'>
+diff --git a/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx b/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx
+index 20c5c5427e4e221e41d9fe2f95eebb9ef27cdb97..be1a4c114d22c8bfc49eeae66c12923fc9689a3d 100644
+--- a/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx
++++ b/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx
+@@ -450,6 +450,8 @@ test('configures a disabled tool group without enabling it or saving early', asy
+     assert.match(dialog.textContent ?? '', /Changes stay in this draft/)
+     const controls = dialog.querySelectorAll('[role="combobox"]')
+     assert.equal(controls.length, 2)
++    assert.equal(controls[0].textContent, 'L1')
++    assert.equal(controls[1].textContent, 'L6 (Super administrator)')
+     await click(controls[0])
+     const options = Array.from(document.querySelectorAll('[role="option"]'))
+     assert.equal(
