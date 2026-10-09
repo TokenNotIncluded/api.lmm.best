@@ -39,6 +39,9 @@ jobs:
           p = Path('scripts/store-publishing-workbench.py')
           s = p.read_text().replace("import { STORE_ACCESS_COPY as accessCopy } from './access-copy'", "import { STORE_ACCESS_COPY } from './access-copy'", 2)
           s = s.replace('.includes(issue.code)', ".includes(issue.code ?? '')")
+          s = s.replace('{editing && (', '{editing !== null && (')
+          s = s.replace('# Format only intended source files;', "exec(Path('scripts/store-publishing-tests.py').read_text())\n\n# Format only intended source files;")
+          s = s.replace('assert anchor in s', 'assert anchor in s, repr(anchor)').replace('assert anchor in part', 'assert anchor in part, repr(anchor)').replace('assert anchor in editor', 'assert anchor in editor, repr(anchor)')
           p.write_text(s)
           PY
             python3 scripts/store-publishing-workbench.py
@@ -81,7 +84,7 @@ jobs:
           paths = json.loads(Path('/tmp/store-publishing-paths.json').read_text())
           subprocess.run(['git', 'add', '--', *paths], check=True)
           PY
-          git rm -f scripts/store-publishing-workbench.py .github/workflows/store-publishing-workbench.yml
+          git rm -f scripts/store-publishing-workbench.py scripts/store-publishing-tests.py .github/workflows/store-publishing-workbench.yml
           git diff --cached --check
           git commit -m 'fix(store): clarify publishing, configure terms inline, and create variants atomically'
           git push origin "HEAD:refs/heads/$BRANCH"
