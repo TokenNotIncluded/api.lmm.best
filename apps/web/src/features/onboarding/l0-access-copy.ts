@@ -14,6 +14,12 @@ import { normalizeInterfaceLanguage } from '@/i18n/languages'
 export function getL0AccessCopy(language: string) {
   const t = appI18n.getFixedT(normalizeInterfaceLanguage(language))
   return {
+    upgradeTitle: t('Upgrade to a full account'),
+    upgradeNote: t('Chat for free or top up to upgrade to a full account.'),
+    freeUpgradeNote: t('Chat for free to upgrade to a full account.'),
+    chatFree: t('Chat (free)'),
+    topUpUpgrade: t('Top up to upgrade'),
+    paymentDetails: t('Paid upgrade details'),
     greeting: t('What will you make?'),
     prompt: t('Ask a question. Start an idea.'),
     explore: t('Explore'),

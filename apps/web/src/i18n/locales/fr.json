@@ -11715,6 +11715,12 @@
     "部分充值记录无法确认实付": "Le paiement réel de certaines recharges ne peut pas être confirmé",
     "Service information": "Service et confidentialité",
     "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "L’import Extore nécessite une clé de chiffrement persistante sur le serveur. Demandez à un administrateur de la configurer.",
-    "This draft stays private. Review its visibility before publishing.": "Ce brouillon reste privé. Vérifiez sa visibilité avant publication."
+    "This draft stays private. Review its visibility before publishing.": "Ce brouillon reste privé. Vérifiez sa visibilité avant publication.",
+    "Upgrade to a full account": "Activer votre compte",
+    "Chat for free or top up to upgrade to a full account.": "Discutez gratuitement ou rechargez pour activer votre compte.",
+    "Chat for free to upgrade to a full account.": "Discutez gratuitement pour activer votre compte.",
+    "Chat (free)": "Discuter (gratuit)",
+    "Top up to upgrade": "Recharger et activer",
+    "Paid upgrade details": "Conditions de recharge"
   }
 }

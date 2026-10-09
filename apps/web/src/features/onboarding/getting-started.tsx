@@ -47,19 +47,26 @@ export function GettingStarted() {
 
   if (!onboarding.activationComplete) {
     return (
-      <SectionPageLayout>
+      <SectionPageLayout className='l0-getting-started'>
         <SectionPageLayout.Title>
           {t('Getting started')}
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <Button variant='ghost' size='sm' render={<Link to='/pricing' />}>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='min-h-11'
+            aria-label={t('Models and pricing')}
+            render={<Link to='/pricing' />}
+          >
             <HugeiconsIcon
               icon={DashboardSquare01Icon}
               strokeWidth={2}
               data-icon='inline-start'
               aria-hidden='true'
             />
-            {t('Models and pricing')}
+            <span className='sm:hidden'>{t('Models')}</span>
+            <span className='hidden sm:inline'>{t('Models and pricing')}</span>
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>

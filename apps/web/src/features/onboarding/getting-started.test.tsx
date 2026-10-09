@@ -499,7 +499,7 @@ describe('getting started access boundaries', () => {
     )
     await act(async () => {
       button(page, 'Explore').click()
-      button(page, 'Chat to enable L1').click()
+      button(page, 'Chat (free)').click()
       await flushEffects()
     })
     assert.equal(
@@ -515,7 +515,7 @@ describe('getting started access boundaries', () => {
   })
   test('shows a current hold and a support escape path, never a letter editor', async () => {
     const page = await renderPage(false, undefined, { state: 'held' })
-    await act(async () => button(page, 'Unlock').click())
+    await act(async () => button(page, 'Access details').click())
     assert.match(
       page.container.textContent ?? '',
       /Registration needs another check/
@@ -641,7 +641,8 @@ describe('getting started access boundaries', () => {
       assert.doesNotMatch(page.container.textContent ?? '', /NaN|undefined/)
       if (language === 'en') {
         assert.match(
-          page.container.querySelector('.l0-rail-meta')?.textContent ?? '',
+          page.container.querySelector('[data-testid="l0-paid-progress"]')
+            ?.textContent ?? '',
           /Top up 3\.01 USD for instant approval/
         )
       }
@@ -765,4 +766,110 @@ test('activated onboarding offers direct setup actions without requiring a conve
     /One conversation to get started|What the assistant can do/
   )
   await unmountPage(page)
+})
+
+for (const [name, enabled] of [
+  ['disabled', false],
+  ['unknown', undefined],
+] as const) {
+  test(`free dialogue remains explicit when paid activation is ${name}`, async () => {
+    const page = await renderPage(false, undefined, null, {
+      onboarding: {
+        activation_complete: false,
+        credential_complete: false,
+        first_request_complete: false,
+        stage: 'activate',
+        paid_activation_enabled: enabled,
+      },
+    })
+    try {
+      assert.equal(
+        page.container.querySelector('[data-testid="l0-upgrade-description"]')
+          ?.textContent,
+        'Chat for free to upgrade to a full account.'
+      )
+      assert.equal(
+        page.container.querySelector('[data-testid="l0-topup-direct"]'),
+        null
+      )
+      assert.equal(
+        page.container.querySelector('[data-testid="l0-paid-progress"]'),
+        null
+      )
+      assert.ok(
+        page.container.querySelector('[data-testid="l0-wallet-fallback"]')
+      )
+      await act(async () => {
+        button(page, 'Explore').click()
+        await flushEffects()
+      })
+      await act(async () => {
+        button(page, 'Chat (free)').click()
+        await flushEffects()
+      })
+      assert.equal(
+        document.activeElement,
+        page.container.querySelector('#l0-question')
+      )
+      assert.equal(consumeQueuedAssistantRequest(), undefined)
+      assert.equal(
+        useAuthStore.getState().auth.user?.developer_access_granted,
+        false
+      )
+    } finally {
+      await unmountPage(page)
+    }
+  })
+}
+
+test('payment confirmation does not ask a paid user to recharge again', async () => {
+  const page = await renderPage(false, undefined, null, {
+    onboarding: {
+      activation_complete: false,
+      credential_complete: false,
+      first_request_complete: false,
+      stage: 'activate',
+      paid_activation_enabled: true,
+      paid_activation_complete: true,
+      paid_activation_min_credits: '500000',
+    },
+    trust_level_info: {
+      level: 0,
+      automatic_level: 0,
+      override_level: null,
+      paid_amount: 0,
+      paid_credits: '500000',
+      discount_ratio: 1,
+      discount_percent: 0,
+      inactivity_decay_steps: 0,
+      decay_period_days: 0,
+      overridden: false,
+    },
+  })
+  try {
+    assert.match(
+      page.container.querySelector('[data-testid="l0-upgrade-description"]')
+        ?.textContent ?? '',
+      /Credit requirement met/
+    )
+    const refresh = page.container.querySelector<HTMLButtonElement>(
+      '[data-testid="l0-check-payment"]'
+    )
+    assert.ok(refresh)
+    assert.equal(refresh.disabled, false)
+    assert.equal(
+      page.container.querySelector('[data-testid="l0-topup-direct"]'),
+      null
+    )
+    assert.equal(
+      page.container.querySelector('[data-testid="l0-chat-free"]'),
+      null
+    )
+    assert.equal(
+      useAuthStore.getState().auth.user?.developer_access_granted,
+      false
+    )
+  } finally {
+    await unmountPage(page)
+  }
 })

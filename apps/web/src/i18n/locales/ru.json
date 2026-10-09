@@ -11715,6 +11715,12 @@
     "部分充值记录无法确认实付": "Не удалось подтвердить фактическую оплату по некоторым пополнениям",
     "Service information": "Сервис и конфиденциальность",
     "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Для импорта из Extore нужен постоянный ключ шифрования на сервере. Попросите администратора настроить его.",
-    "This draft stays private. Review its visibility before publishing.": "Этот черновик остаётся закрытым. Проверьте настройки видимости перед публикацией."
+    "This draft stays private. Review its visibility before publishing.": "Этот черновик остаётся закрытым. Проверьте настройки видимости перед публикацией.",
+    "Upgrade to a full account": "Активируйте аккаунт",
+    "Chat for free or top up to upgrade to a full account.": "Бесплатно пообщайтесь с помощником или пополните баланс, чтобы активировать аккаунт.",
+    "Chat for free to upgrade to a full account.": "Бесплатно пообщайтесь с помощником, чтобы активировать аккаунт.",
+    "Chat (free)": "Чат (бесплатно)",
+    "Top up to upgrade": "Пополнить и активировать",
+    "Paid upgrade details": "Условия платной активации"
   }
 }

@@ -11715,6 +11715,12 @@
     "部分充值记录无法确认实付": "Không thể xác nhận khoản thanh toán thực tế cho một số giao dịch nạp tiền",
     "Service information": "Dịch vụ và quyền riêng tư",
     "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Nhập từ Extore cần khóa mã hóa cố định trên máy chủ. Hãy yêu cầu quản trị viên kiểm tra cấu hình.",
-    "This draft stays private. Review its visibility before publishing.": "Bản nháp này vẫn ở chế độ riêng tư. Kiểm tra chế độ hiển thị trước khi xuất bản."
+    "This draft stays private. Review its visibility before publishing.": "Bản nháp này vẫn ở chế độ riêng tư. Kiểm tra chế độ hiển thị trước khi xuất bản.",
+    "Upgrade to a full account": "Nâng cấp thành tài khoản chính thức",
+    "Chat for free or top up to upgrade to a full account.": "Trò chuyện miễn phí hoặc nạp tiền để nâng cấp thành tài khoản chính thức.",
+    "Chat for free to upgrade to a full account.": "Trò chuyện miễn phí để nâng cấp thành tài khoản chính thức.",
+    "Chat (free)": "Trò chuyện (miễn phí)",
+    "Top up to upgrade": "Nạp tiền để nâng cấp",
+    "Paid upgrade details": "Điều kiện nâng cấp bằng nạp tiền"
   }
 }
