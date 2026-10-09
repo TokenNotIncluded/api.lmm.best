@@ -11,6 +11,26 @@ const originalGet = api.get
 const previousAuth = useAuthStore.getState().auth
 const user = { id: 41, username: 'test', quota: 10 } as AuthUser
 
+function deferredAccountRead() {
+  let resolve: (value: unknown) => void = () => undefined
+  let reject: (error: Error) => void = () => undefined
+  const response = new Promise<unknown>((resolveResponse, rejectResponse) => {
+    resolve = resolveResponse
+    reject = rejectResponse
+  })
+  return {
+    response,
+    resolve: (granted: boolean) =>
+      resolve({
+        data: {
+          success: true,
+          data: { ...user, developer_access_granted: granted },
+        },
+      }),
+    reject,
+  }
+}
+
 afterEach(() => {
   api.get = originalGet
   useAuthStore.setState({ auth: previousAuth })
@@ -74,3 +94,63 @@ test('a grant refresh cannot promote a newer session of the same account', async
     false
   )
 })
+
+for (const order of ['new-first', 'old-first']) {
+  test(`same-account reads retain the new L1 result when responses finish ${order}`, async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ ...user, developer_access_granted: false })
+    const oldRead = deferredAccountRead()
+    const newRead = deferredAccountRead()
+    let calls = 0
+    api.get = (() =>
+      ++calls === 1 ? oldRead.response : newRead.response) as typeof api.get
+    const oldRequest = refreshCurrentAccount()
+    const newRequest = refreshCurrentAccount()
+    if (order === 'new-first') {
+      newRead.resolve(true)
+      assert.equal((await newRequest)?.developer_access_granted, true)
+      oldRead.resolve(false)
+      assert.equal(await oldRequest, null)
+    } else {
+      oldRead.resolve(false)
+      assert.equal(await oldRequest, null)
+      newRead.resolve(true)
+      assert.equal((await newRequest)?.developer_access_granted, true)
+    }
+    assert.equal(
+      useAuthStore.getState().auth.user?.developer_access_granted,
+      true
+    )
+  })
+}
+
+for (const order of ['failure-first', 'stale-first']) {
+  test(`a failed newer refresh preserves confirmed L1 when responses finish ${order}`, async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ ...user, developer_access_granted: true })
+    const oldRead = deferredAccountRead()
+    const newRead = deferredAccountRead()
+    let calls = 0
+    api.get = (() =>
+      ++calls === 1 ? oldRead.response : newRead.response) as typeof api.get
+    const oldRequest = refreshCurrentAccount()
+    const newRequest = refreshCurrentAccount()
+    if (order === 'failure-first') {
+      newRead.reject(new Error('HTTP 503'))
+      assert.equal(await newRequest, null)
+      oldRead.resolve(false)
+      assert.equal(await oldRequest, null)
+    } else {
+      oldRead.resolve(false)
+      assert.equal(await oldRequest, null)
+      newRead.reject(new Error('HTTP 503'))
+      assert.equal(await newRequest, null)
+    }
+    assert.equal(
+      useAuthStore.getState().auth.user?.developer_access_granted,
+      true
+    )
+  })
+}
