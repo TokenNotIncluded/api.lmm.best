@@ -1,0 +1,35 @@
+{
+  "apps/web/src/features/system-settings/content/assistant-settings-section.tsx": {
+    "before": "ae0b9c4ab5a9c84796d1acb462b80a1321d29be42cd466e41d9f51390bea36b8",
+    "after": "5c7614ef7318828a5872dca02e84c4551d2eb330324a7675f512fb7b20e4a83c",
+    "parts": [
+      [0,609],
+      "  const [configurationRequest, setConfigurationRequest] = useState<{ name: string; id: number }>()\n",
+      [609,650],
+      "    const tool = field.startsWith('AssistantSearch') ? 'search_web' : field === 'AssistantNewUserGiftMaxCredits' ? 'prepare_new_user_gift' : undefined\n    if (tool) setConfigurationRequest((previous) => ({ name: tool, id: (previous?.id ?? 0) + 1 }))\n",
+      [650,697],
+      "        }\n        if (JSON.stringify(JSON.parse(beforeRefresh.AssistantToolPolicy || DEFAULT_ASSISTANT_TOOL_POLICY).rules ?? {}) !== JSON.stringify(JSON.parse(fresh.incoming.AssistantToolPolicy || DEFAULT_ASSISTANT_TOOL_POLICY).rules ?? {})) {\n          setPanel('tools')\n          setToolPolicyNotice({ message: 'Tool conditions changed in another session. Review the merged limits and save again.' })\n          return\n",
+      [697,864],
+      "  }\n\n  const toolSpecificSettings = (name: string) => {\n    if (name === 'search_web') return <section className='space-y-5'>\n",
+      [1384,1549],
+      "    </section>\n    if (name === 'prepare_new_user_gift') return <section className='space-y-5'>\n",
+      [1764,1816],
+      "    </section>\n    return null\n",
+      [864,1375],
+      "                          renderSettings={toolSpecificSettings}\n                          configurationRequest={configurationRequest}\n",
+      [1375,1381],
+      "                <SettingsDisclosure title={t('Skills and playbooks')} defaultOpen>\n",
+      [1382,1384], [1549,1763], "\n", [1817,2027]
+    ]
+  },
+  "apps/web/src/features/system-settings/content/assistant-settings-workspace.css": {
+    "before": "fb43065be44716cb2c91b75d10ced7f6bbfeb89b66f23675cc78759d3e991407",
+    "after": "95f5f406365e0e84f9ec56a324d698bab4b07d37adad56dcce7a9b8aab41a05d",
+    "parts": [[0,103], "\n/* Tool configuration remains reachable when a group is switched off. */\n.assistant-tool-center .assistant-tool-group { margin-top: 1.75rem; }\n.assistant-tool-center .assistant-tool-row { border-color: color-mix(in oklch, var(--border) 55%, transparent); }\n.assistant-tool-center .assistant-tool-row:hover { background: color-mix(in oklch, var(--muted) 35%, transparent); }\n@media (max-width: 600px) {\n  .assistant-tool-center .assistant-tool-row { flex-direction: column; gap: .8rem; padding: 1rem; }\n  .assistant-tool-center .assistant-tool-row-actions { width: 100%; justify-content: space-between; }\n  .assistant-tool-center .assistant-tool-row-actions button { min-height: 2.75rem; }\n}\n"]
+  },
+  "apps/web/src/features/system-settings/content/assistant-settings-workspace.ts": {
+    "before": "30553360dbbb2c66f872910a1c734150dff101c128e83d7793b7efa235213361",
+    "after": "9590891898919f58f331c97ea172ac1a869a4c1c9a97bced2925ac89d986dbdf",
+    "parts": [[0,28], "  if (/Gift/.test(field)) return 'tools'\n  if (/Review|Registration|Approval/.test(field)) return 'review'\n", [29,59]]
+  }
+}
