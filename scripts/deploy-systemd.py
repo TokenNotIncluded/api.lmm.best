@@ -922,7 +922,7 @@ def later_provider_inputs(manifest, state_raw, capsule_raw, plan_raw):
     if state.get('release') != manifest['release'] or state.get('phase') != 'CONFIRMED' or state.get('migrate') is not False or state.get('backup_exclude_tables') != [] or any(key.startswith('maintenance_') for key in state):
         raise RuntimeError('later-provider owner is not a confirmed ordinary transaction')
     root = str(Path(manifest['capsule_path']).parent)
-    if capsule.get('format') != 1 or capsule.get('deployment_id') != state['release'] or capsule.get('root') != root or capsule.get('binary') != str(BINARY) or capsule.get('service') != SERVICE or capsule.get('startup_policy') != 'per-start' or capsule.get('schema_mode') != 'verify-existing':
+    if capsule.get('format') != 1 or capsule.get('deployment_id') != state['release'] or capsule.get('root') != root or capsule.get('binary') not in (str(BINARY), str(ENTRY)) or capsule.get('service') != SERVICE or capsule.get('startup_policy') != 'per-start' or capsule.get('schema_mode') != 'verify-existing':
         raise RuntimeError('later-provider capsule scope differs from confirmed owner')
     if capsule.get('controller_plan_sha256') != manifest['controller_plan_sha256'] or plan.get('format') != 7 or plan.get('deployment_id') != state['release'] or plan.get('schema_mode') != 'verify-existing':
         raise RuntimeError('later-provider original controller plan differs')
@@ -942,6 +942,44 @@ def later_provider_inputs(manifest, state_raw, capsule_raw, plan_raw):
     if candidate.get('payload_sha256') != state.get('sha256') or candidate.get('version') != state.get('version', '') + '-1' or candidate.get('release_tag') != 'go-v' + state.get('version', '') or candidate.get('workflow') != 'release-go.yml':
         raise RuntimeError('later-provider official candidate differs from confirmed state')
     return state, capsule, plan
+
+
+def later_entry(manifest, capsule, state, uid=0):
+    # Native capsules name the service entry; the installed ELF is a separate
+    # regular file. Qualify the exact alias while this provider is current.
+    if capsule.get('binary') not in (str(BINARY), str(ENTRY)) or ENTRY.parent != BINARY.parent:
+        raise RuntimeError('later-provider entry scope differs')
+    identity = lambda info: (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+                             info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    cleanup_path(ENTRY.parent, uid=uid)
+    parents = {path: path.lstat() for path in (ENTRY.parent, *ENTRY.parent.parents)}
+    link = ENTRY.lstat()
+    if not stat.S_ISLNK(link.st_mode) or link.st_uid != uid or link.st_gid != os.getgid() or link.st_nlink != 1 or os.readlink(ENTRY) != BINARY.name:
+        raise RuntimeError('later-provider entry is not the exact protected relative alias')
+    target = cleanup_path(BINARY, uid=uid)
+    if not stat.S_ISREG(target.st_mode) or target.st_nlink != 1 or target.st_gid != os.getgid():
+        raise RuntimeError('later-provider alias target is not the protected regular ELF')
+    descriptor = os.open(BINARY, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        opened = os.fstat(descriptor)
+        if identity(opened) != identity(target):
+            raise RuntimeError('later-provider alias target changed while opening')
+        with os.fdopen(descriptor, 'rb', closefd=False) as source:
+            payload = hashlib.file_digest(source, 'sha256').hexdigest()
+        if payload != state['sha256'] or identity(os.fstat(descriptor)) != identity(target) or identity(BINARY.lstat()) != identity(target):
+            raise RuntimeError('later-provider alias target differs from its signed payload')
+    finally:
+        os.close(descriptor)
+    if identity(ENTRY.lstat()) != identity(link) or os.readlink(ENTRY) != BINARY.name:
+        raise RuntimeError('later-provider protected alias changed while qualifying')
+    cleanup_path(ENTRY.parent, uid=uid)
+    for path, before in parents.items():
+        after = path.lstat()
+        if (before.st_dev, before.st_ino, before.st_uid, before.st_gid, before.st_mode) != (after.st_dev, after.st_ino, after.st_uid, after.st_gid, after.st_mode):
+            raise RuntimeError('later-provider protected alias parent changed')
+    return {'path': str(ENTRY), 'target': BINARY.name, 'payload_sha256': payload,
+            'entry_device': link.st_dev, 'entry_inode': link.st_ino,
+            'target_device': target.st_dev, 'target_inode': target.st_ino}
 
 
 def later_signed_archive(asset, bundle, asset_sha, bundle_sha, version, component):
@@ -1115,6 +1153,7 @@ def qualify_later_provider(manifest_raw, post):
                                    candidate['release_asset_sha256'], candidate['signature_bundle_sha256'], state['version'], 'go')
     if backend != {'source_revision': candidate['git_revision'], 'payload_sha256': state['sha256']} or digest(BINARY) != state['sha256']:
         raise RuntimeError('later-provider installed ELF is not the signed origin candidate')
+    entry = later_entry(manifest, capsule, state)
     generation = later_generation(manifest)
     if generation['running_sha256'] != state['sha256']:
         raise RuntimeError('later-provider running ELF differs from its signed origin')
@@ -1139,6 +1178,7 @@ def qualify_later_provider(manifest_raw, post):
              'manifest_sha256': hashlib.sha256(manifest_raw).hexdigest(),
              'input_sha256': {name: hashlib.sha256(raw).hexdigest() for name, raw in inputs.items()},
              'generation': generation, 'physical_database': {key: physical[key] for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid')},
+             'entry': entry,
              'actual_database': database,
              'native_check': {'exit_code': result.returncode, 'stdout_sha256': hashlib.sha256(result.stdout).hexdigest(), 'stderr_sha256': hashlib.sha256(result.stderr).hexdigest()},
              'frontend': web, 'frontend_target': manifest['frontend_target']}
@@ -1161,6 +1201,9 @@ def recheck_later_provider(manifest_raw, proof, inputs):
     if later_generation(manifest) != proof['generation']:
         raise RuntimeError('later-provider actual generation changed during registration')
     capsule = history_json(inputs['origin-capsule.json'])
+    state = history_json(inputs['origin-state.json'])
+    if later_entry(manifest, capsule, state) != proof['entry']:
+        raise RuntimeError('later-provider qualified alias changed during registration')
     if later_database_status(manifest, capsule) != proof['actual_database']:
         raise RuntimeError('later-provider database/owner changed during registration')
     for path, sha in proof['artifact_sha256'].items():
