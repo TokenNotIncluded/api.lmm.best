@@ -1,28 +1,32 @@
 # 内置 AI 客服工具
 
-内置客服当前注册 67 个工具，按 16 组管理。原有商品和 MCP 目录组只查询目录；新增市场接入组在用户明确授权后可调用远程工具，详见下文。
+内置客服当前注册 70 个工具，按 17 组管理。原有商品和 MCP 目录组只查询目录；新增市场接入组在用户明确授权后可调用远程工具，详见下文。
 
 超级管理员可在「系统设置 → 内置助手 → 工具」搜索工具、开关整组或单个工具，并保存配置。默认继承已有能力和权限；全局开关只能收紧能力，不能让 L0 获得 L1、管理员或超级管理员权限。
 
 ## 工具目录
 
-| 组 | 工具 | 能力 |
-|---|---|---|
-| 服务帮助（5） | `get_service_facts`, `navigate_to_page`, `get_setup_guide`, `search_web`, `calculate_math` | 查询连接地址、活动、客户端配置；提供站内链接；搜索、计算。 |
-| 账户与升级（6） | `get_account_access`, `get_user_overview`, `get_user_usage_summary`, `get_usage_summary`, `prepare_user_action`, `grant_l1_access` | 查询账户、余额、进度和用量；准备账户操作表单；服务端验证后升级当前 L0 账户。 |
-| 模型与费用（4） | `get_available_models`, `get_model_pricing`, `calculate_cost`, `get_plan_offers` | 查询真实模型、价格和套餐；按已知价格估算费用。 |
-| API 密钥（3） | `request_create_key`, `list_my_api_keys`, `prepare_api_key_action` | 查询本人密钥元数据，准备创建、停用或删除一个精确密钥的确认卡。密钥内容不交给模型。 |
-| 奖励（5） | `get_invitation_rewards`, `get_new_user_gift_status`, `prepare_new_user_gift`, `get_weekly_discount_status`, `prepare_weekly_discount` | 查询邀请奖励、新人礼及每周折扣；评估奖励资格并记录一次性决策，领取仍需用户确认。 |
-| 开源悬赏（2） | `get_bounty_guide`, `get_bounty_data` | 查询流程、公开悬赏及有权限访问的个人或管理数据；不出资、结算或转账。 |
-| 商品与工具目录（4） | `get_store_products`, `get_store_product`, `get_tool_market_services`, `get_tool_market_service` | 查询商品和 MCP 服务目录、详情及要求。 |
-| 绘图（1） | `prepare_image_generation` | 准备使用可用绘图模型的确认卡；用户确认后的生成可能扣费。 |
-| 人工支持（3） | `get_human_support_status`, `book_technical_support`, `request_human_support` | 查询资格和请求；用户明确预约后提交站内预约；准备人工转交或账户停用审核申请。 |
-| 记忆与个性化（5） | `set_conversation_title`, `recall_memory`, `remember_memory`, `remember_profile_skill`, `forget_profile_skill` | 设置标题，查询、保存本人记忆和回答偏好；按用户明确要求移除 AI 生成的偏好。 |
-| 注册保护（4） | `get_registration_risk`, `notify_registration_risk`, `end_registration_conversation`, `ban_l0_user` | 检查当前 L0 的服务器证据；依据确定性校验记录警报、暂停验证或封禁当前 L0。 |
-| 管理读取（7） | `get_admin_user_skills`, `get_admin_server_config`, `get_admin_channels`, `get_admin_model_inventory`, `list_admin_operations`, `execute_admin_operation`, `audit_admin_model_pricing` | 有权限的管理员查询用户偏好、配置、渠道、模型和定价；发现控制台操作并执行经过审查的只读操作。 |
-| 管理变更（5） | `prepare_admin_user_skill_change`, `prepare_admin_config_change`, `prepare_admin_channel_change`, `prepare_admin_model_sync`, `prepare_admin_pricing_change` | 准备精确变更预览，管理员在界面确认后才应用。配置、价格和模型同步要求超级管理员。 |
+| 组 | 工具 |
+| --- | --- |
+| 站内政策（3） | `get_site_policy`, `search_site_policies`, `prepare_admin_site_policy_change` |
+| 服务帮助（5） | `get_service_facts`, `navigate_to_page`, `get_setup_guide`, `search_web`, `calculate_math` |
+| 账户与升级（6） | `get_account_access`, `get_user_overview`, `get_user_usage_summary`, `get_usage_summary`, `prepare_user_action`, `grant_l1_access` |
+| 模型与费用（4） | `get_available_models`, `get_model_pricing`, `calculate_cost`, `get_plan_offers` |
+| API 密钥（3） | `request_create_key`, `list_my_api_keys`, `prepare_api_key_action` |
+| 奖励（6） | `send_invitation`, `get_invitation_rewards`, `get_new_user_gift_status`, `prepare_new_user_gift`, `get_weekly_discount_status`, `prepare_weekly_discount` |
+| 开源悬赏（2） | `get_bounty_guide`, `get_bounty_data` |
+| 商品与工具目录（4） | `get_store_products`, `get_store_product`, `get_tool_market_services`, `get_tool_market_service` |
+| 绘图（1） | `prepare_image_generation` |
+| 人工支持（3） | `get_human_support_status`, `book_technical_support`, `request_human_support` |
+| 记忆与个性化（7） | `get_overview_greeting`, `set_overview_greeting`, `set_conversation_title`, `recall_memory`, `remember_memory`, `remember_profile_skill`, `forget_profile_skill` |
+| 注册保护（4） | `get_registration_risk`, `notify_registration_risk`, `end_registration_conversation`, `ban_l0_user` |
+| 管理读取（7） | `get_admin_user_skills`, `get_admin_server_config`, `get_admin_channels`, `get_admin_model_inventory`, `list_admin_operations`, `execute_admin_operation`, `audit_admin_model_pricing` |
+| 管理变更（5） | `prepare_admin_user_skill_change`, `prepare_admin_config_change`, `prepare_admin_channel_change`, `prepare_admin_model_sync`, `prepare_admin_pricing_change` |
+| 站内改进（3） | `get_site_issues`, `create_site_issue`, `update_site_issue` |
+| 工具市场接入（3） | `get_connected_market_tools`, `connect_market_tool`, `call_market_tool` |
+| 原生展示（4） | `show_chart`, `show_statistics`, `show_choices`, `show_flowchart` |
 
-39 个工具只读或展示数据，15 个工具准备确认表单，12 个工具会在服务端规则允许时保存记录、调用远程工具或改变状态，1 个工具生成站内链接。特别是名称带 `prepare` 的新人礼和每周折扣会保存决策、消耗相应机会，并非纯预览。预约、记忆、标题、L1 升级和注册保护也有实际写入，因此单独标为「服务端校验写入」。
+41 个工具只读或展示数据，16 个工具准备确认表单，12 个工具会在服务端规则允许时保存记录、调用远程工具或改变状态，1 个工具生成站内链接。特别是名称带 `prepare` 的新人礼和每周折扣会保存决策、消耗相应机会，并非纯预览。预约、记忆、标题、L1 升级和注册保护也有实际写入，因此单独标为「服务端校验写入」。
 
 ## 开关规则
 
@@ -53,7 +57,7 @@ cd apps/api-go
 go test ./setting ./controller -run TestAssistantToolPolicy -count=1
 ```
 
-测试包括实际注册目录匹配、67 个禁用模拟调用、权限和组继承、目录缓存失效、强制选择、无工具时的模型请求、旧确认卡和管理读取别名。前端测试模拟工具目录接口及开关、搜索、保存、配置错误和重试，没有调用真实账务、删除、预约或发送消息工具。
+测试包括实际注册目录匹配、70 个禁用模拟调用、权限和组继承、目录缓存失效、强制选择、无工具时的模型请求、旧确认卡和管理读取别名。前端测试模拟工具目录接口及开关、搜索、保存、配置错误和重试，没有调用真实账务、删除、预约或发送消息工具。
 
 ## 工具配置中心
 
@@ -69,9 +73,9 @@ go test ./setting ./controller -run TestAssistantToolPolicy -count=1
 
 多个管理员编辑同一规则时保留更严格的交集，并要求复核；无法同时满足的等级范围不会被自动放宽。仍使用现有版本比较，409 冲突不自动重试。模型不能调用工具开启自身权限。
 
-## 新增工具
+## 其他扩展工具
 
-共新增 13 个工具，目录合计 67 个。新增「原生可视化」「站内改进 issue」「工具市场接入」三组。
+既有个性化、原生可视化、站内改进和工具市场接入能力继续保留。
 
 | 用途 | 工具 | 实际行为 |
 | --- | --- | --- |
@@ -91,4 +95,22 @@ issue 类型包括 bug、security、experience、feature。用户可见指「提
 
 概览图表读取本人实际用量，提供 7/30 天视图以及请求、token、费用指标。加载失败与无数据分别显示，不使用随机数或零值掩盖错误。折线、柱状、环形图附有可展开数据表。统计卡使用固定图标列表；流程图有文字步骤；选择按钮只填入输入框，不自动发送消息或确认付费操作。聊天中助手自行提供的数据有来源提示，不当作服务端验证结果。
 
-新功能包括 Go 数据表迁移，需要配套部署 Go 和 Web。Rust 预览后端尚未实现这些新增接口，不能仅替换前端就认为两个后端均已支持。本分支没有修改生产配置、余额、发送真实邀请或部署。
+既有 issue 和市场接入功能包括 Go 数据表迁移；本次工具修复与政策工具不新增数据表。需要配套部署 Go 和 Web。Rust 预览后端尚未实现这些新增接口，不能仅替换前端就认为两个后端均已支持。本分支没有修改生产配置、余额、发送真实邀请或部署。
+
+## 配置与报错修复
+
+所有注册工具的配置弹窗均可打开。没有 `policy_rules` 能力标记的旧后端仍可编辑基础开关和已有服务商设置；高级等级规则禁用并明确提示升级，不再使整个配置按钮失效。弹窗中的开关仍是草稿，保存后才生效。整组关闭仍覆盖单工具开关。
+
+管理目录绑定当前 Gin 实例，并在真正的 `/api/assistant/chat` 路由捕获原始认证信息。中转计费修改身份或请求头不会把它误当成管理员身份；执行时仍检查原用户的实时权限和会话。未接入目录与权限拒绝分别返回安全错误码。
+
+`get_admin_server_config` 默认返回 10 项、每项最多 256 字符预览。使用 `query` 搜索，再使用 `key` 精确读取，按 `next_value_offset` 获取完整值。配置预览不等于完整配置。超过结果限制的只读调用明确标为失败，不再显示已完成。管理员面板不请求不适用的新人礼和每周折扣卡。
+
+## 读取、搜索与编辑站内政策
+
+`get_site_policy`、`search_site_policies` 和 `prepare_admin_site_policy_change` 对应用户协议、隐私政策、退款政策，统一读取数据库内的 `legal.*` 设置。公开页面也读取同一份已提交内容。新增 `/refund-policy` 和 `/api/refund-policy`；没有独立退款政策时明确显示尚未配置，不推断为无退款限制，也不覆盖既有 `/terms` 内容。
+
+读取支持 `document`（`user_agreement`、`privacy_policy`、`refund_policy`）、`language`（`zh-CN`、`en`）及字符分页。英文未配置时返回主文档并标记回退。搜索是字面文本匹配，支持匹配分页；外部链接不抓取、不执行，未配置和外链文档单独报告。
+
+编辑只限 L6（超级管理员）。先读取最新 `revision`，再传完整 `content`，或唯一匹配的 `old_text` 与 `new_text`。工具只生成预览，必须点击浏览器确认才能发布。确认绑定当前用户和会话、一次有效；发布时在数据库锁内再次比较原文，其他页面修改过原文则拒绝覆盖。关闭工具、退出会话或撤销权限后，旧确认不能继续执行。模型不能修改工具权限来绕过这些限制。
+
+本次不修改任何已发布条款，不自动导入法律文本，不连接真实付费工具或生产账户进行破坏性测试。回归测试覆盖每个工具的保存、开关和等级规则，全部配置弹窗，以及实际管理路由、分页、错误显示、政策一致性和确认冲突。

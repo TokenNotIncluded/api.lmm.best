@@ -72,8 +72,8 @@ func TestAssistantToolPolicyCatalogueMatchesActualDefinitions(t *testing.T) {
 		}
 	}
 	assert.Equal(t, registered, metadata, "new tools must be classified before they can be enabled")
-	assert.Len(t, registered, 67)
-	assert.Equal(t, map[string]int{"read_only": 39, "confirmation": 15, "server_guarded": 12, "navigation": 1}, effects)
+	assert.Len(t, registered, 70)
+	assert.Equal(t, map[string]int{"read_only": 41, "confirmation": 16, "server_guarded": 12, "navigation": 1}, effects)
 	assert.NotContains(t, assistantAdminAvailableConfigLabels(), setting.AssistantToolPolicyOptionKey, "the model cannot re-enable its tools")
 }
 

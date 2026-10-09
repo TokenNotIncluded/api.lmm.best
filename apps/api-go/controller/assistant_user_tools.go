@@ -39,6 +39,7 @@ func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any
 	}
 	if ok, exists := result["ok"].(bool); exists && !ok {
 		trace.Status = "output-error"
+		trace.ErrorCode = assistantPublicToolErrorCode(result)
 	}
 	if status, _ := result["status"].(string); status == "confirmation_required" || status == "navigation_ready" {
 		trace.Status = "approval-requested"
@@ -68,7 +69,7 @@ func assistantSafeToolInput(arguments string) map[string]any {
 		"action": {}, "days": {}, "group": {}, "identifier": {}, "model_id": {},
 		"expression": {}, "page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
 		"target_user_id": {}, "title": {}, "topic": {}, "operation_id": {},
-		"token_id": {},
+		"token_id": {}, "document": {}, "language": {}, "key": {},
 	}
 	result := make(map[string]any)
 	for key, value := range input {

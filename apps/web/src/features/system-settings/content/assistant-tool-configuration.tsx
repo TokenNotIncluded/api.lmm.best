@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -40,6 +41,8 @@ export function AssistantToolConfiguration({
   onClose,
   disabled,
   children,
+  rulesSupported = true,
+  groupEnabled = true,
 }: {
   tool: AssistantCatalogTool
   policy: AssistantToolPolicy
@@ -47,13 +50,16 @@ export function AssistantToolConfiguration({
   onClose: () => void
   disabled?: boolean
   children?: ReactNode
+  rulesSupported?: boolean
+  groupEnabled?: boolean
 }) {
   const { t } = useTranslation()
   const id = useId()
   const rule = assistantToolRule(policy, tool)
   const defaults = defaultAssistantToolRule(tool)
-  const change = (values: Partial<AssistantToolRule>) =>
-    onChange(updateAssistantToolRule(policy, tool.name, { ...rule, ...values }))
+  const change = (values: Partial<AssistantToolRule>) => {
+    if (rulesSupported && !disabled) { onChange(updateAssistantToolRule(policy, tool.name, { ...rule, ...values })) }
+  }
   const levelName = (level: number) =>
     level === 6
       ? t('L6 (Super administrator)')
@@ -72,7 +78,7 @@ export function AssistantToolConfiguration({
       }}
     >
       <DialogContent
-        className='sm:max-w-2xl'
+        className='max-h-[90dvh] overflow-y-auto sm:max-w-2xl'
         data-testid='assistant-tool-configuration'
       >
         <DialogHeader>
@@ -89,6 +95,14 @@ export function AssistantToolConfiguration({
           </DialogDescription>
         </DialogHeader>
         <div className='space-y-6'>
+          <div className='flex items-center justify-between gap-4'>
+            <label htmlFor={`${id}-enabled`}>{t('Enable this tool')}</label>
+            <Switch id={`${id}-enabled`} checked={policy.tools[tool.name] !== false} disabled={disabled}
+              onCheckedChange={(enabled) => onChange(JSON.stringify({...policy, tools:{...policy.tools,[tool.name]:enabled}}))} />
+          </div>
+          {!groupEnabled && <p role='status' className='text-muted-foreground text-sm'>{t('This tool group is disabled. Enable its group to use the saved tool settings.')}</p>}
+          {!rulesSupported && <p role='status' className='text-muted-foreground text-sm'>{t('This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.')}</p>}
+          <fieldset disabled={disabled || !rulesSupported} className='space-y-6 disabled:opacity-60'>
           <section className='space-y-3' aria-labelledby={`${id}-access`}>
             <h4 id={`${id}-access`} className='font-medium'>
               {t('Allowed account levels')}
@@ -124,7 +138,7 @@ export function AssistantToolConfiguration({
                     <SelectTrigger
                       id={`${id}-${key}`}
                       className='w-full'
-                      disabled={disabled}
+                      disabled={disabled || !rulesSupported}
                     >
                       <SelectValue>{levelName(rule[key])}</SelectValue>
                     </SelectTrigger>
@@ -214,7 +228,7 @@ export function AssistantToolConfiguration({
                 <SelectTrigger
                   id={`${id}-visibility`}
                   className='w-full'
-                  disabled={disabled}
+                  disabled={disabled || !rulesSupported}
                 >
                   <SelectValue>
                     {t(
@@ -243,17 +257,18 @@ export function AssistantToolConfiguration({
           {tool.name === 'call_market_tool' && (
             <AssistantMarketConnections
               ids={rule.market_service_ids ?? []}
-              disabled={disabled}
+              disabled={disabled || !rulesSupported}
               onChange={(ids) => change({ market_service_ids: ids })}
             />
           )}
+          </fieldset>
           {children}
         </div>
         <footer className='flex flex-wrap items-center justify-between gap-3 border-t pt-4'>
           <Button
             type='button'
             variant='ghost'
-            disabled={disabled}
+            disabled={disabled || !rulesSupported}
             onClick={() => onChange(updateAssistantToolRule(policy, tool.name))}
           >
             {t('Reset tool rules')}

@@ -138,17 +138,21 @@ export function AssistantToolPolicyEditor(props: {
       0
     )
 
+  const selectedGroup = groups?.find((group) =>
+    group.tools.some((tool) => tool.name === selectedTool?.name)
+  )
   return (
     <div
       className='assistant-tool-center space-y-5'
       data-testid='assistant-tool-policy-editor'
     >
       {props.active &&
-        policyRulesSupported &&
         valid &&
         policy &&
         selectedTool && (
           <AssistantToolConfiguration
+            rulesSupported={policyRulesSupported}
+            groupEnabled={!selectedGroup || policy.groups[selectedGroup.id] !== false}
             tool={selectedTool}
             policy={policy}
             onChange={props.onChange}
@@ -348,7 +352,7 @@ export function AssistantToolPolicyEditor(props: {
                             variant='ghost'
                             size='sm'
                             disabled={
-                              props.disabled || !valid || !policyRulesSupported
+                              props.disabled || !valid
                             }
                             aria-label={t('Configure {{tool}}', {
                               tool: t(tool.label),

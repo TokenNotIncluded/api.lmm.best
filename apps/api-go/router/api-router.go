@@ -66,6 +66,8 @@ const (
 func SetApiRouter(router *gin.Engine) {
 	router.GET("/scripts/:name", middleware.DisableCache(), controller.GetScriptRaw)
 	operations := controller.NewAssistantAdminOperationRegistry(router)
+	// The chat route is registered by SetRelayRouter, outside apiRouter.
+	router.Use(operations.AssistantChatMiddleware())
 	apiRouter := &assistantRouterGroup{group: router.Group("/api"), operations: operations}
 	apiRouter.Use(operations.Middleware())
 	apiRouter.Use(middleware.RouteTag("api"))
@@ -109,6 +111,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/notice", controller.GetNotice)
 		apiRouter.GET("/user-agreement", controller.GetUserAgreement)
 		apiRouter.GET("/privacy-policy", controller.GetPrivacyPolicy)
+		apiRouter.GET("/refund-policy", controller.GetRefundPolicy)
 		apiRouter.GET("/about", controller.GetAbout)
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)

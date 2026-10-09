@@ -318,6 +318,10 @@ func updateOptionsWithPriceLocksUSD(values map[string]string, lockModel string, 
 }
 
 func updateOptionsWithPriceLocksUSDAndPolicy(values map[string]string, lockModel string, locked bool, usd *USDPriceUpdate, expectedPolicy *string) (OptionUpdateResult, error) {
+	return updateOptionsWithPriceLocksAndExpectations(values, lockModel, locked, usd, expectedPolicy, nil)
+}
+
+func updateOptionsWithPriceLocksAndExpectations(values map[string]string, lockModel string, locked bool, usd *USDPriceUpdate, expectedPolicy *string, expectedSitePolicies map[string]string) (OptionUpdateResult, error) {
 	result := OptionUpdateResult{}
 	for key := range values {
 		if storeReservedWriterOptionKey(key) {
@@ -350,6 +354,9 @@ func updateOptionsWithPriceLocksUSDAndPolicy(values map[string]string, lockModel
 	var pricingSnapshot map[string]string
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockSitePolicyUpdate(tx, values, expectedSitePolicies); err != nil {
+			return err
+		}
 		if err := lockAssistantToolPolicyUpdate(tx, values, expectedPolicy); err != nil {
 			return err
 		}

@@ -490,8 +490,8 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_admin_server_config",
-				Description: "For an administrator only, read the current non-secret server configuration that the assistant can safely manage. Credentials, provider keys, payment secrets, session secrets, and arbitrary shell or database access are always omitted.",
-				Parameters:  emptyObjectSchema(),
+				Description: "For a root administrator only, search non-secret server settings by key or label and paginate bounded value previews. To read a complete value, supply its exact key and follow next_value_offset until value_truncated is false. A page is not the entire configuration. Credentials and assistant tool policy are omitted.",
+				Parameters:  assistantAdminConfigReadSchema(),
 			},
 		},
 		{
@@ -570,6 +570,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 	definitions = slices.DeleteFunc(definitions, func(tool assistantOpenAIToolDefinition) bool {
 		return tool.Function.Name == assistantInterlocutorAssessmentTool
 	})
+	definitions = append(definitions, assistantSitePolicyToolDefinitions()...)
 	definitions = append(definitions, assistantRegistrationTools()...)
 	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
 	definitions = append(definitions, assistantAdminPricingAuditTools()...)
@@ -636,7 +637,7 @@ func keyForTools(context assistantUserContext) toolSetKey {
 	if context.AdministratorMode {
 		key |= toolAdmin
 	}
-	if context.AccessLevel == "ROOT" {
+	if context.AdministratorMode && assistantContextLevel(context) == 6 {
 		key |= toolRoot
 	}
 	if context.DeveloperAccessGranted {
@@ -696,6 +697,9 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 }
 
 func assistantToolPermittedForContext(name string, userContext assistantUserContext) bool {
+	if name == "get_site_policy" || name == "search_site_policies" {
+		return true
+	}
 	if assistantVisualizationKind(name) != "" {
 		return true
 	}
@@ -745,9 +749,9 @@ func assistantToolPermittedForContext(name string, userContext assistantUserCont
 		return false
 	}
 	if userContext.AdministratorMode {
-		if userContext.AccessLevel != "ROOT" {
+		if assistantContextLevel(userContext) != 6 {
 			switch name {
-			case "get_admin_server_config", "prepare_admin_config_change", "prepare_admin_pricing_change", "prepare_admin_model_sync":
+			case "get_admin_server_config", "prepare_admin_config_change", "prepare_admin_pricing_change", "prepare_admin_model_sync", "prepare_admin_site_policy_change":
 				return false
 			}
 		}
@@ -1864,7 +1868,7 @@ func assistantToolCallReadOnly(c *gin.Context, call assistantOpenAIToolCall) boo
 		return assistantAdminOperationReadOnly(c, call.Function.Arguments)
 	}
 	return assistantVisualizationKind(name) != "" || strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
-		strings.HasPrefix(name, "calculate_") || name == "search_web" || name == "audit_admin_model_pricing" || name == "recall_memory"
+		strings.HasPrefix(name, "calculate_") || name == "search_web" || name == "search_site_policies" || name == "audit_admin_model_pricing" || name == "recall_memory"
 }
 
 func assistantAdminRetryMutationBlocked(c *gin.Context, call assistantOpenAIToolCall) bool {
@@ -2343,8 +2347,14 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantAdminOperationTool(c, actorUserID, input)
 	case "audit_admin_model_pricing":
 		return executeAssistantAdminPricingAuditTool(actorUserID, input)
+	case "get_site_policy":
+		return executeAssistantGetSitePolicy(c, input)
+	case "search_site_policies":
+		return executeAssistantSearchSitePolicies(c, input)
+	case "prepare_admin_site_policy_change":
+		return executeAssistantPrepareSitePolicy(c, actorUserID, input)
 	case "get_admin_server_config":
-		return executeAssistantAdminConfigTool(c, actorUserID)
+		return executeAssistantAdminConfigTool(c, actorUserID, input)
 	case "get_admin_model_inventory":
 		return executeAssistantAdminModelInventoryTool(actorUserID)
 	case "prepare_admin_model_sync":

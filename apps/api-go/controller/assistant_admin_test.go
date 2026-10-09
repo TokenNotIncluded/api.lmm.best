@@ -255,7 +255,7 @@ func TestAssistantAdminConfigDirectoryOmitsSensitiveRegisteredFields(t *testing.
 
 func TestAssistantAdminToolsRejectNonAdministrator(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-admin-denied")
-	result := executeAssistantAdminConfigTool(c, c.GetInt("id"))
+	result := executeAssistantAdminConfigTool(c, c.GetInt("id"), nil)
 	require.Equal(t, false, result["ok"])
 	result = executeAssistantAdminPricingChangeTool(c, c.GetInt("id"), map[string]any{
 		"model_id": "model",

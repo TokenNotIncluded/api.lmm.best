@@ -39,6 +39,11 @@ func executeAssistantAgentTool(c *gin.Context, call assistantOpenAIToolCall) (re
 		return map[string]any{"ok": false, "status": "cancelled", "error": "tool cancelled before execution"}
 	}
 	result = executeAssistantTool(c, call)
+	if readOnly {
+		if _, err := common.MarshalLimit(result, assistantToolResultMaxBytes); err != nil {
+			result = map[string]any{"ok": false, "status": "response_limit_exceeded", "error": "Read result exceeded the context budget. Request a smaller page, query or exact item; this result does not verify the requested data.", "mutation_attempted": false}
+		}
+	}
 	if finishAssistantRegistrationTermination(c) {
 		return
 	}

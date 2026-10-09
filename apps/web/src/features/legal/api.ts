@@ -33,3 +33,8 @@ export async function getPrivacyPolicy(language?: string) {
   })
   return res.data
 }
+
+export async function getRefundPolicy(language?: string) {
+ const res = await api.get<LegalDocumentResponse>('/api/refund-policy', {params: language ? {lang: language} : undefined})
+ return res.data
+}

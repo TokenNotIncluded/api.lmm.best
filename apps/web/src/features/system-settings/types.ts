@@ -166,6 +166,8 @@ export type SiteSettings = {
   'legal.privacy_policy': string
   'legal.user_agreement_en': string
   'legal.privacy_policy_en': string
+  'legal.refund_policy': string
+  'legal.refund_policy_en': string
   HeaderNavModules: string
   SidebarModulesAdmin: string
 }
