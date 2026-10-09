@@ -142,7 +142,10 @@ func ValidateOAuthRelayModel(c *gin.Context, routedModel string) bool {
 	return true
 }
 
-type oauthModelBody struct{ Model string }
+type oauthModelBody struct {
+	Model         string
+	maxModelBytes int
+}
 
 func (b *oauthModelBody) UnmarshalJSON(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -190,7 +193,11 @@ func (b *oauthModelBody) UnmarshalJSON(data []byte) error {
 	if _, err := decoder.Token(); err != io.EOF {
 		return errors.New("trailing JSON")
 	}
-	if b.Model == "" || len(b.Model) > 512 {
+	limit := b.maxModelBytes
+	if limit == 0 {
+		limit = 512
+	}
+	if b.Model == "" || len(b.Model) > limit {
 		return errors.New("missing model")
 	}
 	return nil
