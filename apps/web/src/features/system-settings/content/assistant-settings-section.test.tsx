@@ -991,7 +991,7 @@ describe('assistant settings workspace', () => {
       assert.equal(
         requests.filter((url) => url === '/api/assistant/admin/tool-catalog')
           .length,
-        1
+        2
       )
     } finally {
       api.get = originalGet
@@ -1511,6 +1511,7 @@ async function openToolConfiguration(
         data: {
           success: true,
           data: {
+            capabilities: { policy_rules: true },
             groups: [
               {
                 id: 'review_tools',

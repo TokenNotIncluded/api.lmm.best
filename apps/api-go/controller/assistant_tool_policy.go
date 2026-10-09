@@ -40,7 +40,10 @@ func AdminGetAssistantToolCatalogue(c *gin.Context) {
 	if !requireAssistantBrowserSession(c) {
 		return
 	}
-	common.ApiSuccess(c, gin.H{"groups": setting.AssistantToolCatalogue()})
+	common.ApiSuccess(c, gin.H{
+		"groups":       setting.AssistantToolCatalogue(),
+		"capabilities": gin.H{"policy_rules": true},
+	})
 }
 
 // Check before consuming a preview or starting work. Disabling a tool also
