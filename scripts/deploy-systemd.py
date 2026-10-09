@@ -23,6 +23,8 @@ import subprocess
 import sys
 import time
 import math
+import socket
+import tarfile
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -766,12 +768,14 @@ def released_ancestors():
         cleanup_path(work)
         cleanup_path(work / 'receipt.json', private_file=True)
         receipt = json.loads((work / 'receipt.json').read_bytes())
-        if receipt.get('format') != 'lmm-systemd-released-history-v1' or receipt.get('post') != work.name:
+        if receipt.get('format') not in ('lmm-systemd-released-history-v1', 'lmm-systemd-released-history-v2') or receipt.get('post') != work.name:
             raise RuntimeError('unknown released-history receipt')
         controller = guardian.bound_file(work / 'controller.json', receipt['controller_sha256'])
         confirmation = guardian.bound_file(work / 'confirmation.json', receipt['confirmation_sha256'])
         if released_history_proof(work.name, controller, confirmation) != {k: receipt[k] for k in ('post', 'ancestors', 'state_sha256', 'controller_sha256', 'confirmation_sha256')}:
             raise RuntimeError('registered original history evidence changed')
+        if receipt['format'] == 'lmm-systemd-released-history-v2':
+            verify_registered_later_provider(work, receipt['later_provider'])
         result.update(receipt['ancestors'])
     return result
 
@@ -813,6 +817,8 @@ def history_locks():
                 raise RuntimeError('live owner or guardian holds a history lock') from None
             identities.append((path, fd, opened.st_dev, opened.st_ino))
         def verify_held_paths():
+            if NATIVE_TRANSACTION_LEASE.exists() or NATIVE_TRANSACTION_LEASE.is_symlink():
+                raise RuntimeError('native deployment lease appeared during history repair')
             for path, fd, device, inode in identities:
                 opened = os.fstat(fd)
                 named = history_lock_path(path)
@@ -842,27 +848,378 @@ def history_directory(path):
         raise RuntimeError('history directory must be private')
 
 
+def history_json(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise RuntimeError('history JSON contains duplicate fields')
+            result[key] = value
+        return result
+    value = json.loads(raw, object_pairs_hook=unique)
+    if not isinstance(value, dict):
+        raise RuntimeError('history JSON must be an object')
+    return value
+
+
+LATER_PROVIDER_FIELDS = {'format', 'release', 'state_sha256', 'capsule_path', 'capsule_sha256',
+                         'controller_plan_path', 'controller_plan_sha256', 'frontend_asset',
+                         'frontend_asset_sha256', 'frontend_bundle', 'frontend_bundle_sha256',
+                         'frontend_version', 'frontend_target', 'boot_id', 'main_pid', 'invocation_id'}
+
+# This exact official source implements merchantStorePortableStart's live
+# ordinary parent check. A later source/provider needs its own reviewed binding.
+# Source: apps/api-go/internal/appcli/deploy_merchant_store_portable_start.go
+ORDINARY_PARENT_STARTUP_ORIGIN = {
+    'release': 'go98-paid-credit-fix-20261009',
+    'state_sha256': 'ef493796a9353e724f4e21975d312b222b6163c6c4bb52387e022953f4e5c93c',
+    'capsule_sha256': '790b47a3abab7a0829fc0238f70796fdc7e574752950c48823ad772bd6c1710f',
+    'released_owner_sha256': '2e80508e615d5a417abc76cd50858610b20e4b1b07a51fca2b6680cbe0aea46a',
+    'source_revision': '9142a5d7bfbd26dc0737923db9c88438739135c6',
+    'startup_source_sha256': '9b24f484010c168715b1899065a2e5a023ab4cc5ca2a9f42379d8798cd223a91',
+    'provider_sha256': 'ba36577b81de6caace84b162ef81cd60f8988dc88b94cb5b1dbf042343a886d9',
+    'contract_sha256': '878c9e6965013f61f624bfb87f3745deafcc6a5d23bcd5e4225c8918672228fd',
+}
+
+
+def later_provider_manifest(raw):
+    manifest = history_json(raw)
+    parent_fields = {'startup_mode', 'released_owner_sha256', 'startup_journal_sha256'}
+    parent = manifest.get('startup_mode') == 'ordinary-parent-cas-journal'
+    if set(manifest) != LATER_PROVIDER_FIELDS | (parent_fields if parent else set()) or manifest['format'] != 'lmm-systemd-later-provider-v1':
+        raise RuntimeError('unknown later-provider manifest fields or format')
+    if not isinstance(manifest['release'], str) or not re.fullmatch(RELEASE_PATTERN, manifest['release']):
+        raise RuntimeError('later-provider release ID is invalid')
+    for key in ('state_sha256', 'capsule_sha256', 'controller_plan_sha256', 'frontend_asset_sha256', 'frontend_bundle_sha256'):
+        if not isinstance(manifest[key], str) or not re.fullmatch('[0-9a-f]{64}', manifest[key]):
+            raise RuntimeError('later-provider digest is invalid')
+    if parent:
+        for key in ('released_owner_sha256', 'startup_journal_sha256'):
+            if not isinstance(manifest[key], str) or not re.fullmatch('[0-9a-f]{64}', manifest[key]):
+                raise RuntimeError('ordinary parent startup proof digest is invalid')
+        if any(manifest[key] != ORDINARY_PARENT_STARTUP_ORIGIN[key] for key in ('release', 'state_sha256', 'capsule_sha256', 'released_owner_sha256')):
+            raise RuntimeError('ordinary parent startup origin is not the reviewed confirmed provider')
+    if type(manifest['main_pid']) is not int or manifest['main_pid'] <= 1 or not isinstance(manifest['invocation_id'], str) or not re.fullmatch('[0-9a-f]{32}', manifest['invocation_id']):
+        raise RuntimeError('later-provider generation is invalid')
+    if not isinstance(manifest['boot_id'], str) or not re.fullmatch('[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', manifest['boot_id']):
+        raise RuntimeError('later-provider boot identity is invalid')
+    if not isinstance(manifest['frontend_version'], str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', manifest['frontend_version']):
+        raise RuntimeError('later-provider frontend version is invalid')
+    if not isinstance(manifest['frontend_target'], str) or not re.fullmatch('releases/[A-Za-z0-9][A-Za-z0-9._-]{0,100}', manifest['frontend_target']):
+        raise RuntimeError('later-provider frontend target is invalid')
+    for key in ('capsule_path', 'controller_plan_path', 'frontend_asset', 'frontend_bundle'):
+        value = manifest[key]
+        if not isinstance(value, str) or not Path(value).is_absolute() or '..' in Path(value).parts or os.path.normpath(value) != value:
+            raise RuntimeError('later-provider input path is not canonical')
+    expected = Path('/var/lib/lmm-api-go-deploy/merchant-capsules') / manifest['release'] / 'capsule.json'
+    if Path(manifest['capsule_path']) != expected:
+        raise RuntimeError('later-provider capsule is not in its actual release root')
+    return manifest
+
+
+def later_provider_inputs(manifest, state_raw, capsule_raw, plan_raw):
+    state, capsule, plan = map(history_json, (state_raw, capsule_raw, plan_raw))
+    if state.get('release') != manifest['release'] or state.get('phase') != 'CONFIRMED' or state.get('migrate') is not False or state.get('backup_exclude_tables') != [] or any(key.startswith('maintenance_') for key in state):
+        raise RuntimeError('later-provider owner is not a confirmed ordinary transaction')
+    root = str(Path(manifest['capsule_path']).parent)
+    if capsule.get('format') != 1 or capsule.get('deployment_id') != state['release'] or capsule.get('root') != root or capsule.get('binary') != str(BINARY) or capsule.get('service') != SERVICE or capsule.get('startup_policy') != 'per-start' or capsule.get('schema_mode') != 'verify-existing':
+        raise RuntimeError('later-provider capsule scope differs from confirmed owner')
+    if capsule.get('controller_plan_sha256') != manifest['controller_plan_sha256'] or plan.get('format') != 7 or plan.get('deployment_id') != state['release'] or plan.get('schema_mode') != 'verify-existing':
+        raise RuntimeError('later-provider original controller plan differs')
+    for key in ('format', 'system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'metadata_sha256', 'signed_unit_sha256'):
+        if capsule.get('existing_schema_contract', {}).get(key) != plan.get('existing_schema_contract', {}).get(key):
+            raise RuntimeError('later-provider physical schema differs from original plan')
+    for key in ('format', 'required_capability', 'system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role', 'signed_unit_sha256', 'recovery_policy', 'candidate', 'rollback'):
+        if capsule.get('merchant_store_writer', {}).get(key) != plan.get('merchant_store_writer', {}).get(key):
+            raise RuntimeError('later-provider writer qualification differs from original plan')
+    fields = ('name', 'version', 'package_sha256', 'git_revision', 'contract_revision', 'payload_sha256',
+              'release_asset_sha256', 'signature_bundle_sha256', 'release_tag', 'workflow')
+    for role in ('candidate', 'rollback'):
+        target, planned = capsule.get(role, {}), plan.get('go_' + role, {})
+        if any(target.get(key) != planned.get(key) for key in fields):
+            raise RuntimeError('later-provider signed package differs from original plan')
+    candidate = capsule['candidate']
+    if candidate.get('payload_sha256') != state.get('sha256') or candidate.get('version') != state.get('version', '') + '-1' or candidate.get('release_tag') != 'go-v' + state.get('version', '') or candidate.get('workflow') != 'release-go.yml':
+        raise RuntimeError('later-provider official candidate differs from confirmed state')
+    return state, capsule, plan
+
+
+def later_signed_archive(asset, bundle, asset_sha, bundle_sha, version, component):
+    # Verify the official certificate before trusting/executing any provider.
+    cleanup_path(asset, private_file=True)
+    cleanup_path(bundle, private_file=True)
+    if digest(asset) != asset_sha or digest(bundle) != bundle_sha:
+        raise RuntimeError('later-provider signed artifact bytes changed')
+    tag = ('go-v' if component == 'go' else 'web-v') + version
+    identity = 'https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-' + component + '.yml@refs/tags/' + tag
+    result = subprocess.run(['cosign', 'verify-blob', '--bundle', str(bundle), '--certificate-identity', identity,
+                             '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com', str(asset)],
+                            capture_output=True, timeout=180)
+    if result.returncode:
+        raise RuntimeError('later-provider official artifact signature failed')
+    files, seen = {}, set()
+    with tarfile.open(asset, 'r:*') as archive:
+        for member in archive:
+            name = member.name.rstrip('/')
+            if not name or name.startswith('/') or '\\' in name or '..' in Path(name).parts or name in seen or not (member.isfile() or member.isdir()):
+                raise RuntimeError('later-provider signed archive has unsafe entries')
+            seen.add(name)
+            if member.isfile():
+                if member.size > 128 * 1024 * 1024:
+                    raise RuntimeError('later-provider signed archive entry is too large')
+                with archive.extractfile(member) as source:
+                    files[name] = hashlib.file_digest(source, 'sha256').hexdigest()
+                if name.endswith('/REVISION') or name == 'REVISION':
+                    revision = archive.extractfile(member).read(100).decode().strip()
+    if not isinstance(locals().get('revision'), str) or not re.fullmatch('[0-9a-f]{40}', revision):
+        raise RuntimeError('later-provider signed archive lacks its source revision')
+    if component == 'go':
+        roots = {name.split('/')[0] for name in seen}
+        if len(roots) != 1:
+            raise RuntimeError('later-provider Go archive has multiple roots')
+        prefix = next(iter(roots)) + '/'
+        if prefix + 'lmm-api-go' not in files:
+            raise RuntimeError('later-provider signed Go payload is missing')
+        return {'source_revision': revision, 'payload_sha256': files[prefix + 'lmm-api-go']}
+    frontend = {name.removeprefix('dist/'): sha for name, sha in files.items() if name.startswith('dist/')}
+    if 'index.html' not in frontend:
+        raise RuntimeError('later-provider signed frontend payload is missing')
+    tree = hashlib.sha256()
+    for name, sha in sorted(frontend.items()):
+        tree.update(name.encode() + b'\0' + sha.encode() + b'\0')
+    return {'source_revision': revision, 'tree_sha256': tree.hexdigest(), 'index_sha256': frontend['index.html'], 'files': len(frontend)}
+
+
+def later_parent_startup(manifest):
+    capsule = history_json(guardian.bound_file(Path(manifest['capsule_path']), manifest['capsule_sha256']))
+    origin = ORDINARY_PARENT_STARTUP_ORIGIN
+    if any(manifest.get(key) != origin[key] for key in ('release', 'state_sha256', 'capsule_sha256', 'released_owner_sha256')):
+        raise RuntimeError('ordinary parent startup origin binding changed')
+    if capsule.get('format') != 1 or capsule.get('deployment_id') != origin['release'] or capsule.get('host') != socket.gethostname() or capsule.get('candidate', {}).get('git_revision') != origin['source_revision'] or capsule.get('candidate', {}).get('payload_sha256') != origin['provider_sha256']:
+        raise RuntimeError('ordinary parent startup lacks its officially reviewed source/provider')
+    writer = capsule.get('merchant_store_writer', {})
+    contract_sha = hashlib.sha256(json.dumps(writer, separators=(',', ':')).encode()).hexdigest()
+    if contract_sha != origin['contract_sha256']:
+        raise RuntimeError('ordinary parent startup writer contract changed')
+    directory = Path(capsule['root']) / 'state'
+    raw = guardian.bound_file(directory / 'portable-released-owner.json', manifest['released_owner_sha256'])
+    owner = history_json(raw)
+    expected = {'format': 1, 'state': 'ACTIVE', 'purpose': 'portable-deploy', 'deployment_id': origin['release'],
+                'host': capsule['host'], 'service': SERVICE, 'plan_sha256': manifest['capsule_sha256'],
+                'contract_sha256': contract_sha, 'provider_sha256': origin['provider_sha256'],
+                'holder_unit': 'lmm-merchant-portable-' + origin['release'] + '.service'}
+    expected.update({key: writer[key] for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')})
+    if set(owner) != set(expected) | {'nonce', 'holder_pid', 'holder_invocation_id', 'backend_pid'} or any(owner.get(key) != value for key, value in expected.items()) or type(owner.get('holder_pid')) is not int or owner['holder_pid'] <= 1 or type(owner.get('backend_pid')) is not int or owner['backend_pid'] <= 1 or not re.fullmatch('[0-9a-f]{32}', owner.get('holder_invocation_id', '')) or not re.fullmatch('[0-9a-f]{32}', owner.get('nonce', '')):
+        raise RuntimeError('ordinary parent released owner is not the exact native session')
+    for name in ('portable-owner.json', 'holder.sock'):
+        if (directory / name).exists() or (directory / name).is_symlink():
+            raise RuntimeError('ordinary parent still has live communication evidence')
+    if Path('/proc', str(owner['holder_pid'])).exists():
+        raise RuntimeError('ordinary parent holder process is still present')
+    names = 'LoadState,MainPID,InvocationID,ControlPID,ActiveState,SubState,Result,ControlGroup'
+    result = subprocess.run(['systemctl', 'show', owner['holder_unit'], '--property=' + names], capture_output=True, text=True, timeout=15)
+    if result.returncode:
+        raise RuntimeError('ordinary parent terminal unit inspection failed')
+    held = dict(row.split('=', 1) for row in result.stdout.splitlines())
+    if held.get('ActiveState') != 'inactive' or held.get('SubState') != 'dead' or held.get('MainPID') != '0' or held.get('ControlPID') != '0' or held.get('ControlGroup') or held.get('Result') != 'success' or held.get('LoadState') not in ('not-found', 'loaded') or held.get('InvocationID') not in ('', owner['holder_invocation_id']):
+        raise RuntimeError('ordinary parent holder has not truly terminated')
+    result = subprocess.run(['journalctl', '--no-pager', '-o', 'json', '_SYSTEMD_INVOCATION_ID=' + manifest['invocation_id'],
+                             'MESSAGE=merchant_store_start=qualified'], capture_output=True, timeout=30)
+    if result.returncode:
+        raise RuntimeError('ordinary parent actual startup journal query failed')
+    rows = [history_json(row) for row in result.stdout.splitlines() if row]
+    if len(rows) != 1:
+        raise RuntimeError('ordinary parent requires exactly one native startup journal entry')
+    row = rows[0]
+    if row.get('MESSAGE') != 'merchant_store_start=qualified' or row.get('_SYSTEMD_INVOCATION_ID') != manifest['invocation_id'] or row.get('_SYSTEMD_UNIT') != SERVICE or row.get('_BOOT_ID') != manifest['boot_id'].replace('-', '') or row.get('_UID') != '0' or not isinstance(row.get('_PID'), str) or not row['_PID'].isdecimal() or int(row['_PID']) <= 1 or int(row['_PID']) == manifest['main_pid']:
+        raise RuntimeError('ordinary parent native startup journal identity differs')
+    journal_sha = hashlib.sha256(json.dumps(row, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    if journal_sha != manifest['startup_journal_sha256']:
+        raise RuntimeError('ordinary parent original startup journal bytes changed')
+    return {'mode': manifest['startup_mode'], 'released_owner_sha256': manifest['released_owner_sha256'],
+            'journal_sha256': journal_sha, 'guard_pid': int(row['_PID']), 'holder_final': held,
+            'source_revision': origin['source_revision'], 'startup_source_sha256': origin['startup_source_sha256']}
+
+
+def later_generation(manifest):
+    names = 'MainPID,InvocationID,NRestarts,ControlPID,ActiveState,SubState,Result,ExecStartPre,Environment'
+    loaded = dict(row.split('=', 1) for row in run('systemctl', 'show', SERVICE, '--property=' + names).splitlines())
+    if any(loaded.get(k) != v for k, v in {'MainPID': str(manifest['main_pid']), 'InvocationID': manifest['invocation_id'],
+          'NRestarts': '0', 'ControlPID': '0', 'ActiveState': 'active', 'SubState': 'running', 'Result': 'success'}.items()):
+        raise RuntimeError('later-provider actual service generation differs')
+    if Path('/proc/sys/kernel/random/boot_id').read_text().strip() != manifest['boot_id']:
+        raise RuntimeError('later-provider boot changed')
+    # A real successful typed writer-start must be the loaded startup guard.
+    if 'writer-start' not in loaded.get('ExecStartPre', ''):
+        raise RuntimeError('later-provider typed startup guard is not loaded')
+    startup = None
+    if manifest.get('startup_mode') == 'ordinary-parent-cas-journal':
+        startup = later_parent_startup(manifest)
+    elif 'status=0' not in loaded['ExecStartPre'] or 'code=exited' not in loaded['ExecStartPre']:
+        raise RuntimeError('later-provider actual startup did not complete successfully')
+    process = Path('/proc', str(manifest['main_pid']))
+    environment = process.joinpath('environ').read_bytes()
+    if len(environment) > 1024 * 1024:
+        raise RuntimeError('later-provider process environment is too large')
+    env_files = []
+    for name in service_environment_files():
+        path = Path(name.removeprefix('-'))
+        cleanup_path(path, private_file=True)
+        env_files.append({'path': str(path), 'sha256': digest(path)})
+    result = {'boot_id': manifest['boot_id'], 'main_pid': manifest['main_pid'], 'invocation_id': manifest['invocation_id'],
+            'installed_sha256': digest(BINARY), 'running_sha256': digest(process / 'exe'),
+            'process_environment_sha256': hashlib.sha256(environment).hexdigest(),
+            'loaded_environment_sha256': hashlib.sha256(loaded['Environment'].encode()).hexdigest(),
+            'ordered_environment_files': env_files}
+    if startup:
+        result['startup'] = startup
+    return result
+
+
+def later_database_status(manifest, capsule):
+    process = Path('/proc', str(manifest['main_pid']), 'environ').read_bytes().split(b'\0')
+    values = dict(row.split(b'=', 1) for row in process if b'=' in row)
+    if values.get(b'LOG_SQL_DSN') not in (None, b'', values.get(b'SQL_DSN')):
+        raise RuntimeError('later-provider has a separate unproved log database')
+    values.pop(b'LOG_SQL_DSN', None)
+    env = database_environment_from_values(values)
+    predicate = r"pg_catalog.lower(pg_catalog.btrim(key, E' \t\n\r\f\013\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000')) LIKE 'merchantstoredeploymentfence:%'"
+    query = "SELECT json_build_object('system_identifier',(SELECT system_identifier::text FROM pg_control_system()),'database',current_database(),'database_oid',(SELECT oid::bigint FROM pg_database WHERE datname=current_database()),'schema',current_schema(),'schema_oid',(SELECT oid::bigint FROM pg_namespace WHERE nspname=current_schema()),'role',current_user,'reserved_count',(SELECT count(*) FROM options WHERE " + predicate + '))'
+    result = subprocess.run(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--command', 'BEGIN READ ONLY; ' + query + '; ROLLBACK;'], env=env, capture_output=True, timeout=30)
+    if result.returncode:
+        raise RuntimeError('later-provider actual physical database/owner check failed')
+    actual = history_json(result.stdout)
+    writer = capsule['merchant_store_writer']
+    if type(actual.get('reserved_count')) is not int or actual['reserved_count'] != 0 or any(actual.get(key) != writer.get(key) for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')):
+        raise RuntimeError('later-provider physical database differs or has a live durable owner')
+    return actual
+
+
+def qualify_later_provider(manifest_raw, post):
+    manifest = later_provider_manifest(manifest_raw)
+    paths = {'origin-state.json': (ROOT / manifest['release'] / 'state.json', manifest['state_sha256']),
+             'origin-capsule.json': (Path(manifest['capsule_path']), manifest['capsule_sha256']),
+             'origin-plan.json': (Path(manifest['controller_plan_path']), manifest['controller_plan_sha256'])}
+    inputs = {name: guardian.bound_file(path, sha) for name, (path, sha) in paths.items()}
+    state, capsule, plan = later_provider_inputs(manifest, inputs['origin-state.json'], inputs['origin-capsule.json'], inputs['origin-plan.json'])
+    if capsule.get('host') != socket.gethostname():
+        raise RuntimeError('later-provider capsule belongs to another host')
+    prepared = history_json(guardian.bound_file(post['prepare_config_path'], post['prepare_config_sha256']))
+    physical = capsule.get('existing_schema_contract', {})
+    if any(physical.get(key) != prepared.get('database', {}).get(key) for key in ('system_identifier', 'database', 'database_oid', 'schema')):
+        raise RuntimeError('later-provider crosses the released physical database')
+    if capsule.get('merchant_store_writer', {}).get('role') != prepared.get('database', {}).get('database_user'):
+        raise RuntimeError('later-provider crosses the released database role')
+    candidate = capsule['candidate']; root = Path(capsule['root'])
+    backend = later_signed_archive(root / candidate['release_asset'], root / candidate['signature_bundle'],
+                                   candidate['release_asset_sha256'], candidate['signature_bundle_sha256'], state['version'], 'go')
+    if backend != {'source_revision': candidate['git_revision'], 'payload_sha256': state['sha256']} or digest(BINARY) != state['sha256']:
+        raise RuntimeError('later-provider installed ELF is not the signed origin candidate')
+    generation = later_generation(manifest)
+    if generation['running_sha256'] != state['sha256']:
+        raise RuntimeError('later-provider running ELF differs from its signed origin')
+    result = subprocess.run([str(BINARY), 'operator', 'production', 'writer-capsule', 'check', '--capsule',
+                             manifest['capsule_path'], '--capsule-sha256', manifest['capsule_sha256']],
+                            capture_output=True, timeout=900)
+    if result.returncode or b'merchant_store_capsule=qualified' not in result.stdout:
+        raise RuntimeError('later-provider actual native qualification failed')
+    database = later_database_status(manifest, capsule)
+    web = later_signed_archive(Path(manifest['frontend_asset']), Path(manifest['frontend_bundle']),
+                               manifest['frontend_asset_sha256'], manifest['frontend_bundle_sha256'], manifest['frontend_version'], 'web')
+    current = FRONTEND / 'current'
+    if not current.is_symlink() or os.readlink(current) != manifest['frontend_target']:
+        raise RuntimeError('later-provider active frontend changed')
+    published = FRONTEND / manifest['frontend_target']; cleanup_path(published)
+    if tree_digest(published) != web['tree_sha256'] or digest(published / 'index.html') != web['index_sha256']:
+        raise RuntimeError('later-provider active frontend differs from signed payload')
+    healthy(state['version'], None)
+    if later_generation(manifest) != generation or any(guardian.bound_file(path, sha) != inputs[name] for name, (path, sha) in paths.items()):
+        raise RuntimeError('later-provider identity changed during qualification')
+    proof = {'format': 'lmm-systemd-later-provider-qualification-v1', 'release': state['release'],
+             'manifest_sha256': hashlib.sha256(manifest_raw).hexdigest(),
+             'input_sha256': {name: hashlib.sha256(raw).hexdigest() for name, raw in inputs.items()},
+             'generation': generation, 'physical_database': {key: physical[key] for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid')},
+             'actual_database': database,
+             'native_check': {'exit_code': result.returncode, 'stdout_sha256': hashlib.sha256(result.stdout).hexdigest(), 'stderr_sha256': hashlib.sha256(result.stderr).hexdigest()},
+             'frontend': web, 'frontend_target': manifest['frontend_target']}
+    artifacts = {str(root / capsule[role][key]): capsule[role][sha_key]
+                 for role in ('candidate', 'rollback')
+                 for key, sha_key in (('package_path', 'package_sha256'), ('release_asset', 'release_asset_sha256'), ('signature_bundle', 'signature_bundle_sha256'))}
+    artifacts.update({manifest['frontend_asset']: manifest['frontend_asset_sha256'], manifest['frontend_bundle']: manifest['frontend_bundle_sha256']})
+    proof['artifact_sha256'] = artifacts
+    recheck_later_provider(manifest_raw, proof, inputs)
+    return proof, inputs
+
+
+def recheck_later_provider(manifest_raw, proof, inputs):
+    manifest = later_provider_manifest(manifest_raw)
+    for name, path, sha in (('origin-state.json', ROOT / manifest['release'] / 'state.json', manifest['state_sha256']),
+                            ('origin-capsule.json', Path(manifest['capsule_path']), manifest['capsule_sha256']),
+                            ('origin-plan.json', Path(manifest['controller_plan_path']), manifest['controller_plan_sha256'])):
+        if guardian.bound_file(path, sha) != inputs[name]:
+            raise RuntimeError('later-provider immutable origin changed during registration')
+    if later_generation(manifest) != proof['generation']:
+        raise RuntimeError('later-provider actual generation changed during registration')
+    capsule = history_json(inputs['origin-capsule.json'])
+    if later_database_status(manifest, capsule) != proof['actual_database']:
+        raise RuntimeError('later-provider database/owner changed during registration')
+    for path, sha in proof['artifact_sha256'].items():
+        cleanup_path(Path(path), private_file=True)
+        if digest(Path(path)) != sha:
+            raise RuntimeError('later-provider qualified signed artifacts changed')
+    if os.readlink(FRONTEND / 'current') != manifest['frontend_target'] or tree_digest(FRONTEND / manifest['frontend_target']) != proof['frontend']['tree_sha256']:
+        raise RuntimeError('later-provider qualified frontend changed during registration')
+
+
+def verify_registered_later_provider(work, binding):
+    manifest_raw = guardian.bound_file(work / 'later-provider.json', binding['manifest_sha256'])
+    manifest = later_provider_manifest(manifest_raw)
+    qualification = history_json(guardian.bound_file(work / 'later-qualification.json', binding['qualification_sha256']))
+    expected_inputs = {'origin-state.json': manifest['state_sha256'], 'origin-capsule.json': manifest['capsule_sha256'], 'origin-plan.json': manifest['controller_plan_sha256']}
+    if binding.get('input_sha256') != expected_inputs or qualification.get('release') != manifest['release']:
+        raise RuntimeError('registered later-provider manifest identity changed')
+    inputs = {name: guardian.bound_file(work / name, sha) for name, sha in binding['input_sha256'].items()}
+    if set(inputs) != {'origin-state.json', 'origin-capsule.json', 'origin-plan.json'} or qualification.get('format') != 'lmm-systemd-later-provider-qualification-v1' or qualification.get('manifest_sha256') != binding['manifest_sha256'] or qualification.get('input_sha256') != binding['input_sha256'] or qualification.get('native_check', {}).get('exit_code') != 0:
+        raise RuntimeError('registered later-provider qualification changed')
+    if manifest.get('startup_mode') == 'ordinary-parent-cas-journal':
+        startup = qualification.get('generation', {}).get('startup', {})
+        expected = {'mode': manifest['startup_mode'], 'released_owner_sha256': manifest['released_owner_sha256'],
+                    'journal_sha256': manifest['startup_journal_sha256'],
+                    **{key: ORDINARY_PARENT_STARTUP_ORIGIN[key] for key in ('source_revision', 'startup_source_sha256')}}
+        if any(startup.get(key) != value for key, value in expected.items()):
+            raise RuntimeError('registered ordinary parent startup proof changed')
+    later_provider_inputs(manifest, inputs['origin-state.json'], inputs['origin-capsule.json'], inputs['origin-plan.json'])
+    # Deliberately historical: a subsequent valid upgrade must not require the
+    # formerly current provider, environment or frontend to remain installed.
+
+
 def register_released_history(args):
     controller = guardian.bound_file(args.released_controller, args.released_controller_sha256)
     confirmation = guardian.bound_file(args.global_confirmation, args.global_confirmation_sha256)
     proof = released_history_proof(args.release, controller, confirmation)
-    # Registration is allowed only while the original post provider is current.
     state = read_state(ROOT / args.release)
-    if digest(BINARY) != state['sha256']:
+    later_raw = guardian.bound_file(args.later_provider, args.later_provider_sha256) if getattr(args, 'later_provider', None) else None
+    if later_raw is None and digest(BINARY) != state['sha256']:
         raise RuntimeError('released post is not the installed current provider')
     generations = json.loads(controller).get('guardian_generations', {})
     pid = generations.get('ubuntu')
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1 or Path('/proc', str(pid)).exists():
         raise RuntimeError('released guardian absence is not established')
-    result = {'format': 'lmm-systemd-released-history-v1', **proof, 'execute': args.execute}
-    if not args.execute:
-        with history_locks():
-            if released_history_proof(args.release, controller, confirmation) != proof:
-                raise RuntimeError('history evidence changed during review')
-    if args.execute:
-        with history_locks():
-            if released_history_proof(args.release, controller, confirmation) != proof or digest(BINARY) != state['sha256']:
-                raise RuntimeError('history evidence changed before registration')
+    result = {'format': 'lmm-systemd-released-history-v2' if later_raw else 'lmm-systemd-released-history-v1', **proof, 'execute': args.execute}
+    with history_locks() as verify_held_paths:
+        verify_held_paths()
+        if released_history_proof(args.release, controller, confirmation) != proof or (later_raw is None and digest(BINARY) != state['sha256']):
+            raise RuntimeError('history evidence changed before registration')
+        qualification, inputs = None, {}
+        if later_raw:
+            maintenance = guardian.handoff(state['maintenance_handoff']['path'], state['maintenance_handoff']['sha256'])
+            qualification, inputs = qualify_later_provider(later_raw, maintenance)
+            qualification_raw = json.dumps(qualification, sort_keys=True).encode() + b'\n'
+            result['later_provider'] = {'manifest_sha256': hashlib.sha256(later_raw).hexdigest(),
+                                      'qualification_sha256': hashlib.sha256(qualification_raw).hexdigest(),
+                                      'input_sha256': qualification['input_sha256']}
+        verify_held_paths()
+        if args.execute:
             root = history_root()
             history_directory(root)
             history_directory(root / 'released')
@@ -871,9 +1228,20 @@ def register_released_history(args):
             history_sync(work.parent)
             immutable_write(work / 'controller.json', controller, 0o600)
             immutable_write(work / 'confirmation.json', confirmation, 0o600)
+            if later_raw:
+                immutable_write(work / 'later-provider.json', later_raw, 0o600)
+                immutable_write(work / 'later-qualification.json', qualification_raw, 0o600)
+                for name, raw in inputs.items():
+                    immutable_write(work / name, raw, 0o600)
+            verify_held_paths()
+            if released_history_proof(args.release, controller, confirmation) != proof:
+                raise RuntimeError('history evidence changed during registration')
+            if later_raw:
+                recheck_later_provider(later_raw, qualification, inputs)
             immutable_write(work / 'receipt.json', json.dumps(result, sort_keys=True).encode() + b'\n', 0o600)
             history_sync(work)
             released_ancestors()
+        verify_held_paths()
     return result
 
 
@@ -1537,6 +1905,8 @@ def main(argv=None):
     parser.add_argument('--release', help='explicit transaction ID; omit for status to list all transactions')
     parser.add_argument('--released-controller', type=Path)
     parser.add_argument('--released-controller-sha256')
+    parser.add_argument('--later-provider', type=Path, help='history registration: exact formally confirmed later-provider qualification inputs')
+    parser.add_argument('--later-provider-sha256')
     parser.add_argument('--staged-state-sha256')
     parser.add_argument('--owner-source-sha256')
     parser.add_argument('--binary', type=Path)
@@ -1593,8 +1963,12 @@ def main(argv=None):
     if args.action == 'register-released-history':
         if not (args.released_controller and args.released_controller_sha256 and args.global_confirmation and args.global_confirmation_sha256):
             parser.error('history registration requires exact RELEASED controller and all-node receipt')
+        if bool(args.later_provider) != bool(args.later_provider_sha256):
+            parser.error('later-provider path and digest must be supplied together')
     elif args.released_controller or args.released_controller_sha256:
         parser.error('released controller is only valid for history registration')
+    if args.action != 'register-released-history' and (args.later_provider or args.later_provider_sha256):
+        parser.error('later-provider is only valid for history registration')
     if args.action in ('register-released-history', 'archive-incomplete', 'archive-staged') and args.maintenance_handoff:
         parser.error('ordinary history commands cannot adopt a maintenance guardian')
     if args.action == 'archive-staged':
