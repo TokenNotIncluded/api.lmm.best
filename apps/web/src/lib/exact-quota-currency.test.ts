@@ -122,7 +122,8 @@ test('invalid integers and unavailable conversion metadata stay unknown', () => 
     quota_unit: 'LEDGER_QUOTA',
     public_credit_unit: 'CREDIT',
     cny_per_usd: 7,
-  }).currency!
+  }).currency
+  assert.ok(invalid)
   assert.equal(
     formatExactQuotaInCurrency('500000', 'CREDIT', options, invalid),
     '-'
