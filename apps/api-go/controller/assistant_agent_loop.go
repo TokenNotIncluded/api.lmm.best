@@ -271,6 +271,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 		// Reserve the last turn for a final natural-language answer. This
 		// makes MaxSteps a hard bound while ensuring a tool call can finish.
 		if agentEnabled && step < maxSteps-1 && !finalAnswerOnly {
+			tools = assistantToolDefinitionsForContext(userContext)
+		}
+		if agentEnabled && len(tools) > 0 && step < maxSteps-1 && !finalAnswerOnly {
 			request.Tools = tools
 			request.ToolChoice = assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
 		}

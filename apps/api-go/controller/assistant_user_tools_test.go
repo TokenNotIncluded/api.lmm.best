@@ -17,7 +17,7 @@ import (
 
 func assistantTargetTestSession(t *testing.T, user *model.User) (*gin.Context, model.UserSession) {
 	t.Helper()
-	require.NoError(t, model.DB.AutoMigrate(&model.UserSession{}))
+	require.NoError(t, model.DB.AutoMigrate(&model.UserSession{}, &model.Option{}))
 	session := model.UserSession{SID: fmt.Sprintf("assistant-target-%d", user.Id), UserID: user.Id, Version: 1, UserAuthVersion: user.AuthVersion,
 		Status: model.UserSessionStatusActive, CreatedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(time.Hour).Unix()}
 	require.NoError(t, model.DB.Create(&session).Error)

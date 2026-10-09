@@ -24,6 +24,7 @@ import {
   ASSISTANT_REASONING_EFFORTS,
   ASSISTANT_SEARCH_PROVIDERS,
 } from '../types'
+import { assistantToolPolicySchema } from './assistant-tool-policy'
 
 export const assistantSettingsSchema = z.object({
   AssistantEnabled: z.boolean(),
@@ -52,6 +53,7 @@ export const assistantSettingsSchema = z.object({
   AssistantSearchURL: z.string().max(512),
   AssistantSearchAPIKey: z.string().max(512),
   AssistantSearchMCPTool: z.string().max(128),
+  AssistantToolPolicy: assistantToolPolicySchema,
   AssistantSkills: z.string().max(12000),
   AssistantSkillFiles: z.string().max(400000),
   AssistantRegistrationAutoSuspendEnabled: z.boolean(),

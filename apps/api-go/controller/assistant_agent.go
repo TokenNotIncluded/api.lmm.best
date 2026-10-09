@@ -471,7 +471,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_user_skill_change",
-				Description: "For an administrator only, prepare a confirmation-gated edit to one permitted lower-role user's assistant memory or profile skill. Use get_admin_user_skills first. In an authenticated administrator agent session, this validates and applies the exact change immediately; otherwise it prepares a confirmation preview. Memory deletes require memory_id. Never store credentials, payment data, protected traits, or security labels.",
+				Description: "For an administrator only, prepare a confirmation-gated edit to one permitted lower-role user's assistant memory or profile skill. Use get_admin_user_skills first. The exact preview requires explicit browser confirmation and never applies from a model tool call. Memory deletes require memory_id. Never store credentials, payment data, protected traits, or security labels.",
 				Parameters: objectSchema(map[string]any{
 					"target_user_id": map[string]any{"type": "integer", "minimum": 1},
 					"kind":           map[string]any{"type": "string", "enum": []string{"memory", "profile"}},
@@ -498,7 +498,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_config_change",
-				Description: "For an administrator only, prepare an exact preview of one or more allowlisted non-secret server settings. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview.",
+				Description: "For a root administrator only, prepare an exact preview of one or more allowlisted non-secret server settings. The exact preview requires explicit browser confirmation and never applies from a model tool call. Assistant tool policy itself can only be changed in the settings console.",
 				Parameters: objectSchema(map[string]any{
 					"changes": map[string]any{
 						"type":                 "object",
@@ -519,7 +519,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_channel_change",
-				Description: "For an administrator only, prepare an exact preview for safe channel routing metadata or enable/disable status. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview. Never request keys, provider settings, headers, proxies, or upstream URLs through this tool.",
+				Description: "For an administrator only, prepare an exact preview for safe channel routing metadata or enable/disable status. The exact preview requires explicit browser confirmation and never applies from a model tool call. Never request keys, provider settings, headers, proxies, or upstream URLs through this tool.",
 				Parameters: objectSchema(map[string]any{
 					"channel_id": map[string]any{"type": "integer", "minimum": 1},
 					"changes": map[string]any{
@@ -541,7 +541,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_model_sync",
-				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. In an authenticated root administrator agent session, this imports the validated metadata immediately and returns the imported and skipped IDs; otherwise it prepares a confirmation preview.",
+				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. The exact preview requires explicit browser confirmation and never imports from a model tool call.",
 				Parameters: objectSchema(map[string]any{
 					"model_ids": map[string]any{"type": "array", "maxItems": assistantAdminMaxModelSyncItems, "items": map[string]any{"type": "string", "maxLength": assistantAdminMaxModelNameRunes}},
 					"locale":    map[string]any{"type": "string", "enum": []string{"en", "zh-CN", "zh-TW", "ja"}},
@@ -552,7 +552,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_pricing_change",
-				Description: "For an administrator only, prepare an exact preview for one enabled model's pricing. Use ratio for token pricing or fixed_request for a per-request price; optional completion, cache, image, and audio ratios update the same exact model. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview.",
+				Description: "For a root administrator only, prepare an exact preview for one enabled model's pricing. Use ratio for token pricing or fixed_request for a per-request price; optional completion, cache, image, and audio ratios update the same exact model. The exact preview requires explicit browser confirmation and never applies from a model tool call.",
 				Parameters: objectSchema(map[string]any{
 					"model_id":               map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
 					"mode":                   map[string]any{"type": "string", "enum": []string{"ratio", "fixed_request"}},
@@ -588,13 +588,19 @@ func assistantToolDefinitionsForContext(userContext assistantUserContext) []assi
 		all := assistantToolDefinitions()
 		set.tools = make([]assistantOpenAIToolDefinition, 0, len(all))
 		for _, definition := range all {
-			if assistantToolAllowedForContext(definition.Function.Name, userContext) {
+			if assistantToolPermittedForContext(definition.Function.Name, userContext) {
 				set.tools = append(set.tools, definition)
 			}
 		}
 	})
-	// Context tool membership can be cached; a financial cap cannot.
-	return assistantRefreshGiftToolDefinition(set.tools)
+	// Account membership can be cached; live administrator policy cannot.
+	tools := make([]assistantOpenAIToolDefinition, 0, len(set.tools))
+	for _, definition := range set.tools {
+		if setting.AssistantToolEnabled(definition.Function.Name) {
+			tools = append(tools, definition)
+		}
+	}
+	return assistantRefreshGiftToolDefinition(tools)
 }
 
 func keyForTools(context assistantUserContext) toolSetKey {
@@ -667,6 +673,10 @@ func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
 }
 
 func assistantToolAllowedForContext(name string, userContext assistantUserContext) bool {
+	return setting.AssistantToolEnabled(name) && assistantToolPermittedForContext(name, userContext)
+}
+
+func assistantToolPermittedForContext(name string, userContext assistantUserContext) bool {
 	if name == "get_new_user_gift_status" || name == "get_weekly_discount_status" {
 		return true
 	}
@@ -771,18 +781,25 @@ func assistantL0InterlocutorAssessmentRequired(_ assistantUserContext) bool {
 }
 
 func assistantToolExecutionAllowedForContext(name string, userContext assistantUserContext) bool {
+	if !setting.AssistantToolEnabled(name) {
+		return false
+	}
+	return assistantToolExecutionPermittedForContext(name, userContext)
+}
+
+func assistantToolExecutionPermittedForContext(name string, userContext assistantUserContext) bool {
 	if name == "get_plan_offers" && !userContext.AdministratorMode && !userContext.DeveloperAccessGranted {
 		// Let the read-only plan tool return the deterministic payment-intent or
 		// restriction result. It does not expose offers or checkout unless its own
 		// policy gate reaches ready.
 		return true
 	}
-	return assistantToolAllowedForContext(name, userContext)
+	return assistantToolPermittedForContext(name, userContext)
 }
 
 func assistantToolChoiceForContext(userContext assistantUserContext) any {
 	name := ""
-	if userContext.ConversationTitleNeeded {
+	if userContext.ConversationTitleNeeded && setting.AssistantToolEnabled("set_conversation_title") {
 		name = "set_conversation_title"
 	} else if assistantPlanOfferWorkflowRequired(userContext) {
 		// A ready, explicit purchase request must read the live offers before
@@ -1219,6 +1236,18 @@ func assistantCreateKeyWorkflowMinSteps(userContext assistantUserContext) int {
 }
 
 func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledTools map[string]bool, successfulTools map[string]bool) any {
+	// A disabled metadata title must not hide the actual requested workflow.
+	if !setting.AssistantToolEnabled("set_conversation_title") {
+		userContext.ConversationTitleNeeded = false
+	}
+	choice := assistantToolChoiceForAgentStepUnfiltered(userContext, calledTools, successfulTools)
+	if name := assistantNamedToolChoiceName(choice); name != "" && !assistantToolAllowedForContext(name, userContext) {
+		return "none"
+	}
+	return choice
+}
+
+func assistantToolChoiceForAgentStepUnfiltered(userContext assistantUserContext, calledTools map[string]bool, successfulTools map[string]bool) any {
 	choice := assistantToolChoiceForContext(userContext)
 	if userContext.ConversationTitleNeeded {
 		return choice
@@ -1975,6 +2004,16 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 	actorUserID := assistantActorUserID(c)
 	name := strings.TrimSpace(call.Function.Name)
+	if !setting.AssistantToolKnown(name) {
+		return map[string]any{"ok": false, "status": "tool_not_allowed", "error": "this assistant action is not registered"}
+	}
+	_, policy, policyErr := refreshAssistantToolPolicy(c)
+	if policyErr != nil {
+		return map[string]any{"ok": false, "status": "tool_policy_unavailable", "error": policyErr.Error()}
+	}
+	if !policy.Enabled(name) {
+		return map[string]any{"ok": false, "status": "tool_disabled", "error": setting.AssistantToolDisabledError(name).Error()}
+	}
 	if assistantRewardReadOnlyRequest(c) {
 		if name == "prepare_new_user_gift" {
 			return assistantGiftReadOnlyRequestResult()
@@ -1985,7 +2024,7 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 	if c != nil {
 		if rawContext, exists := c.Get(assistantUserContextKey); exists {
-			if userContext, ok := rawContext.(assistantUserContext); ok && !assistantToolExecutionAllowedForContext(name, userContext) {
+			if userContext, ok := rawContext.(assistantUserContext); ok && !assistantToolExecutionPermittedForContext(name, userContext) {
 				return map[string]any{
 					"ok":     false,
 					"status": "tool_not_allowed",

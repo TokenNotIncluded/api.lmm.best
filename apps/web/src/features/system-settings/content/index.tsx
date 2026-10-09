@@ -22,6 +22,7 @@ import {
   type ContentSettings,
   type SystemOption,
 } from '../types'
+import { DEFAULT_ASSISTANT_TOOL_POLICY } from './assistant-tool-policy'
 import {
   CONTENT_DEFAULT_SECTION,
   getContentSectionContent,
@@ -64,6 +65,7 @@ const defaultContentSettings: ContentSettings = {
   AssistantSearchURL: '',
   AssistantSearchAPIKey: '',
   AssistantSearchMCPTool: '',
+  AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY,
   AssistantSkills: '',
   AssistantSkillFiles: '[]',
   AssistantRegistrationAutoSuspendEnabled: true,

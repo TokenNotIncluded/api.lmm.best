@@ -918,6 +918,12 @@ func PrepareAssistantRequest(c *gin.Context) {
 			common.SysError(fmt.Sprintf("failed to record assistant first question: %v", err))
 		}
 	}
+	canonicalPolicy, _, policyErr := refreshAssistantToolPolicy(c)
+	if policyErr != nil {
+		writeAssistantError(c, http.StatusServiceUnavailable, "ASSISTANT_TOOL_POLICY_UNAVAILABLE", policyErr)
+		return
+	}
+	settings.ToolPolicy = canonicalPolicy
 	cacheKey := assistantCacheKey(settings, conversation, userContext)
 	if userContext.AdministratorMode || assistantDirectL1GrantAllowed(userContext) || assistantRecommendationWorkflowRequired(userContext) || assistantCreateKeyWorkflowRequired(userContext) || assistantKeyManagementWorkflowRequired(userContext) || assistantNewUserGiftWorkflowRequired(userContext) || assistantNewUserGiftStatusWorkflowRequired(userContext) || assistantWeeklyDiscountWorkflowRequired(userContext) || assistantWeeklyDiscountStatusWorkflowRequired(userContext) {
 		// Access and reward workflows depend on live account facts and can create
@@ -995,7 +1001,9 @@ func PrepareAssistantRequest(c *gin.Context) {
 	if (settings.AgentLoopEnabled && settings.MaxSteps > 1) ||
 		assistantRecommendationWorkflowRequired(userContext) || assistantLiveReadRequired(userContext) {
 		request.Tools = assistantToolDefinitionsForContext(userContext)
-		request.ToolChoice = assistantToolChoiceForAgentStep(userContext, nil, nil)
+		if len(request.Tools) > 0 {
+			request.ToolChoice = assistantToolChoiceForAgentStep(userContext, nil, nil)
+		}
 	}
 	if err := setAssistantRelayRequest(c, request); err != nil {
 		writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_REQUEST_BUILD_FAILED", errors.New("failed to store assistant request"))

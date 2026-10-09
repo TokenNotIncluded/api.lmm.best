@@ -294,6 +294,12 @@ func UpdateOptionsBulkWithWarnings(values map[string]string) (OptionUpdateResult
 	return updateOptionsWithPriceLocks(values, "", false)
 }
 
+// A browser baseline is checked under the same policy-row lock used by every
+// policy writer, including legacy single-option writes on another Go node.
+func UpdateOptionsBulkWithAssistantToolPolicyExpectation(values map[string]string, expected *string) (OptionUpdateResult, error) {
+	return updateOptionsWithPriceLocksUSDAndPolicy(values, "", false, nil, expected)
+}
+
 // UpdateModelPriceLock changes one model against the authoritative stored map,
 // so stale tabs and concurrent administrators cannot drop each other's locks.
 func UpdateModelPriceLock(model string, locked bool) (OptionUpdateResult, error) {
@@ -308,6 +314,10 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 }
 
 func updateOptionsWithPriceLocksUSD(values map[string]string, lockModel string, locked bool, usd *USDPriceUpdate) (OptionUpdateResult, error) {
+	return updateOptionsWithPriceLocksUSDAndPolicy(values, lockModel, locked, usd, nil)
+}
+
+func updateOptionsWithPriceLocksUSDAndPolicy(values map[string]string, lockModel string, locked bool, usd *USDPriceUpdate, expectedPolicy *string) (OptionUpdateResult, error) {
 	result := OptionUpdateResult{}
 	for key := range values {
 		if storeReservedWriterOptionKey(key) {
@@ -340,6 +350,9 @@ func updateOptionsWithPriceLocksUSD(values map[string]string, lockModel string, 
 	var pricingSnapshot map[string]string
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockAssistantToolPolicyUpdate(tx, values, expectedPolicy); err != nil {
+			return err
+		}
 		if err := lockCreditUnitOptionChanges(tx, values); err != nil {
 			return err
 		}

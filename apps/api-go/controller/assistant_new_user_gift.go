@@ -125,6 +125,9 @@ func GetAssistantNewUserGift(c *gin.Context) {
 }
 
 func ClaimAssistantNewUserGift(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "prepare_new_user_gift") {
+		return
+	}
 	// Reject an unavailable denomination before registration or claim writes.
 	if _, err := common.CreditsPerUSD(); err != nil {
 		common.ApiError(c, err)

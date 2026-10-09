@@ -188,6 +188,7 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantSearchMCPToolOptionKey] = assistantSettings.SearchMCPTool
 	common.OptionMap[setting.AssistantSkillsOptionKey] = assistantSettings.Skills
 	common.OptionMap[setting.AssistantSkillFilesOptionKey] = setting.AssistantSkillFilesJSON(assistantSettings.SkillFiles)
+	common.OptionMap[setting.AssistantToolPolicyOptionKey] = assistantSettings.ToolPolicy
 	for key, value := range setting.GetModerationSettings().OptionValues() {
 		common.OptionMap[key] = value
 	}
@@ -1104,6 +1105,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantSkills(value)
 	case setting.AssistantSkillFilesOptionKey:
 		err = setting.UpdateAssistantSkillFiles(value)
+	case setting.AssistantToolPolicyOptionKey:
+		err = setting.UpdateAssistantToolPolicy(value)
 	case setting.AssistantActiveRetentionDaysOptionKey:
 		err = setting.UpdateAssistantActiveRetentionDays(value)
 	case setting.AssistantArchivedRetentionDaysOptionKey:

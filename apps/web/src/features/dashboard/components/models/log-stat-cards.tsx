@@ -16,9 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AlertCircle, CalendarDays, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getUserQuotaDates } from '@/features/dashboard/api'
@@ -28,6 +30,7 @@ import {
   calculateDashboardStats,
   getDefaultDays,
 } from '@/features/dashboard/lib'
+import { registerDashboardUsageTranslations } from '@/features/dashboard/model-usage-i18n'
 import type {
   QuotaDataItem,
   DashboardFilters,
@@ -35,53 +38,53 @@ import type {
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatCompactNumber, formatNumber } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
 import { computeTimeRange } from '@/lib/time'
-import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 interface LogStatCardsProps {
   filters?: DashboardFilters
-  onDataUpdate?: (data: QuotaDataItem[], loading: boolean) => void
+  onDataUpdate?: (
+    data: QuotaDataItem[],
+    loading: boolean,
+    error?: boolean
+  ) => void
 }
 
 const MAX_INLINE_STAT_CHARS = 9
 
 function formatStatNumber(value: number, locale: Intl.LocalesArgument) {
   const fullValue = formatNumber(value, locale)
-  const displayValue =
-    fullValue.length > MAX_INLINE_STAT_CHARS
-      ? formatCompactNumber(value, locale)
-      : fullValue
-
   return {
-    displayValue,
+    displayValue:
+      fullValue.length > MAX_INLINE_STAT_CHARS
+        ? formatCompactNumber(value, locale)
+        : fullValue,
     fullValue,
   }
 }
 
-export function LogStatCards(props: LogStatCardsProps) {
-  const { i18n } = useTranslation()
+export function LogStatCards({ filters, onDataUpdate }: LogStatCardsProps) {
+  const { t, i18n } = useTranslation()
+  registerDashboardUsageTranslations(i18n)
   const { formatQuota } = useWalletCurrency()
   const statCardsConfig = useModelStatCardsConfig()
-  const user = useAuthStore((state) => state.auth.user)
-  const isAdmin = !!(user?.role && user.role >= 10)
-  const [stats, setStats] = useState<{
-    totalQuota: number
-    totalCount: number
-    totalTokens: number
-  } | null>(null)
+  const userRole = useAuthStore((state) => state.auth.user?.role)
+  const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
+  const [stats, setStats] = useState<ReturnType<
+    typeof calculateDashboardStats
+  > | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-
+  const [refreshVersion, setRefreshVersion] = useState(0)
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
   const [timeRangeMinutes, setTimeRangeMinutes] = useState(0)
-
-  const { filters, onDataUpdate } = props
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
 
   useEffect(() => {
-    const abortController = new AbortController()
+    const controller = new AbortController()
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
-
     setError(false)
     onDataUpdate?.([], true)
 
@@ -90,128 +93,148 @@ export function LogStatCards(props: LogStatCardsProps) {
       filters?.start_timestamp,
       filters?.end_timestamp
     )
-    const timeDiff = (timeRange.end_timestamp - timeRange.start_timestamp) / 60
-    setTimeRangeMinutes(timeDiff)
+    setTimeRangeMinutes(
+      (timeRange.end_timestamp - timeRange.start_timestamp) / 60
+    )
 
-    void getUserQuotaDates(buildQueryParams(timeRange, filters), isAdmin)
+    void getUserQuotaDates(
+      buildQueryParams(timeRange, filters),
+      isAdmin,
+      controller.signal
+    )
       .then((res) => {
-        if (abortController.signal.aborted) return
-        const data = res?.data || []
+        if (controller.signal.aborted) return
+        if (!res?.success) throw new Error('Usage request failed')
+        const data = res.data ?? []
+        if (!Array.isArray(data)) throw new Error('Invalid usage response')
         setStats(calculateDashboardStats(data))
+        setUpdatedAt(new Date())
         onDataUpdate?.(data, false)
       })
       .catch(() => {
-        if (abortController.signal.aborted) return
+        if (controller.signal.aborted) return
         setStats(null)
         setError(true)
-        onDataUpdate?.([], false)
+        onDataUpdate?.([], false, true)
       })
       .finally(() => {
-        if (!abortController.signal.aborted) {
-          setLoading(false)
-        }
+        if (!controller.signal.aborted) setLoading(false)
       })
 
-    return () => {
-      abortController.abort()
-    }
-  }, [filters, isAdmin, onDataUpdate])
+    return () => controller.abort()
+  }, [filters, isAdmin, onDataUpdate, refreshVersion])
 
   const adaptedStats = {
     rpm: stats?.totalCount ?? 0,
     quota: stats?.totalQuota ?? 0,
     tpm: stats?.totalTokens ?? 0,
   }
-
-  const items = statCardsConfig.map((config) => {
-    const rawValue = config.getValue(adaptedStats, timeRangeMinutes)
-    const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-    const formatted =
-      config.key === 'quota'
-        ? {
-            displayValue: formatQuota(rawValue),
-            fullValue: formatQuota(rawValue),
-          }
-        : formatStatNumber(rawValue, locale)
-
-    return {
-      title: config.title,
-      value: formatted.displayValue,
-      fullValue: formatted.fullValue,
-      desc: config.description,
-      icon: config.icon,
-      iconTone: config.iconTone,
-    }
-  })
+  const start = filters?.start_timestamp
+  const end = filters?.end_timestamp
+  const rangeLabel =
+    start &&
+    end &&
+    Number.isFinite(start.getTime()) &&
+    Number.isFinite(end.getTime()) &&
+    start <= end
+      ? new Intl.DateTimeFormat(locale, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }).formatRange(start, end)
+      : null
+  const updatedLabel =
+    !error && updatedAt
+      ? t('lastUpdated', {
+          ns: 'dashboardUsage',
+          time: new Intl.DateTimeFormat(locale, {
+            hour: '2-digit',
+            minute: '2-digit',
+          }).format(updatedAt),
+        })
+      : null
 
   return (
-    <div className='bg-card border-border/70 overflow-hidden rounded-xl border shadow-xs transition-all'>
-      <div className='divide-border/60 grid min-w-0 grid-cols-2 divide-x sm:grid-cols-3 lg:grid-cols-5'>
-        {items.map((it, idx) => {
-          const Icon = it.icon
-          let valueContent
-          if (loading) {
-            valueContent = (
-              <div className='mt-1 flex flex-col gap-1 sm:mt-2 sm:gap-1.5'>
-                <Skeleton className='h-5 w-16 sm:h-7 sm:w-20' />
-                <Skeleton className='hidden h-3.5 w-28 md:block' />
-              </div>
-            )
-          } else if (error) {
-            valueContent = (
-              <>
-                <div className='text-muted-foreground mt-1 font-mono text-base leading-tight font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl sm:leading-normal'>
-                  --
-                </div>
-                <div className='text-muted-foreground/40 mt-1 hidden text-xs md:block'>
-                  {it.desc}
-                </div>
-              </>
-            )
-          } else {
-            valueContent = (
-              <>
-                <div
-                  className='text-foreground mt-1.5 max-w-full truncate font-mono text-lg leading-tight font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl sm:leading-normal'
-                  title={it.fullValue}
-                >
-                  {it.value}
-                </div>
-                <div className='text-muted-foreground/60 mt-1 hidden text-xs md:block'>
-                  {it.desc}
-                </div>
-              </>
-            )
-          }
-
+    <section className='dashboard-stats' aria-busy={loading}>
+      <div className='dashboard-stats__toolbar'>
+        <div className='dashboard-stats__period'>
+          {rangeLabel && (
+            <>
+              <CalendarDays size={15} aria-hidden='true' />
+              <span>{rangeLabel}</span>
+            </>
+          )}
+          {filters?.username && (
+            <span className='dashboard-stats__user'>{filters.username}</span>
+          )}
+        </div>
+        <div className='dashboard-stats__refresh'>
+          <span role='status'>
+            {loading ? t('loading', { ns: 'dashboardUsage' }) : updatedLabel}
+          </span>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={loading}
+            onClick={() => setRefreshVersion((version) => version + 1)}
+          >
+            <RefreshCw
+              size={14}
+              aria-hidden='true'
+              className={loading ? 'motion-safe:animate-spin' : undefined}
+            />
+            {t(error ? 'retry' : 'refresh', { ns: 'dashboardUsage' })}
+          </Button>
+        </div>
+      </div>
+      {error && (
+        <div className='dashboard-stats__error' role='alert'>
+          <AlertCircle size={16} aria-hidden='true' />
+          {t('failed', { ns: 'dashboardUsage' })}
+        </div>
+      )}
+      <dl className='dashboard-stats__grid'>
+        {statCardsConfig.map((config) => {
+          const Icon = config.icon
+          const rawValue = config.getValue(adaptedStats, timeRangeMinutes)
+          const formatted =
+            config.key === 'quota'
+              ? {
+                  displayValue: formatQuota(rawValue),
+                  fullValue: formatQuota(rawValue),
+                }
+              : formatStatNumber(rawValue, locale)
           return (
             <div
-              key={it.title}
-              className={cn(
-                'min-w-0 px-3 py-3 transition-colors hover:bg-muted/40 sm:px-5 sm:py-4',
-                idx === items.length - 1 &&
-                  items.length % 2 !== 0 &&
-                  'col-span-2 sm:col-span-1'
-              )}
+              key={config.key}
+              className='dashboard-stat'
+              data-primary={config.key === 'quota'}
             >
-              <div className='flex min-w-0 items-center gap-1.5 sm:gap-2'>
-                <IconBadge
-                  tone={it.iconTone}
-                  size='stat'
-                  className='size-4 rounded-sm sm:size-7 sm:rounded-md [&>svg]:size-2.5 sm:[&>svg]:size-3.5'
-                >
+              <dt>
+                <IconBadge tone={config.iconTone} size='stat'>
                   <Icon />
                 </IconBadge>
-                <div className='text-muted-foreground truncate text-[11px] leading-4 font-medium tracking-wide uppercase sm:text-xs sm:tracking-wider'>
-                  {it.title}
-                </div>
-              </div>
-
-              {valueContent}
+                <span>{config.title}</span>
+              </dt>
+              <dd
+                className='dashboard-stat__value'
+                title={!loading && !error ? formatted.fullValue : undefined}
+              >
+                {loading ? (
+                  <Skeleton className='h-8 w-24' />
+                ) : error ? (
+                  '—'
+                ) : (
+                  formatted.displayValue
+                )}
+              </dd>
+              <dd className='dashboard-stat__hint'>{config.description}</dd>
             </div>
           )
         })}
-      </div>
-    </div>
+      </dl>
+    </section>
   )
 }

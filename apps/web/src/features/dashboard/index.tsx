@@ -32,7 +32,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ROLE } from '@/lib/roles'
-import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ModelsChartPreferences } from './components/models/models-chart-preferences'
@@ -117,27 +116,21 @@ const LazyFlowCharts = lazy(() =>
 
 function LogStatCardsFallback() {
   return (
-    <div className='border-border/70 bg-card overflow-hidden rounded-xl border'>
-      <div className='divide-border/60 grid grid-cols-2 divide-x sm:grid-cols-3 lg:grid-cols-5'>
-        {LOG_STAT_CARD_FALLBACK_KEYS.map((key, index) => (
-          <div
-            key={key}
-            className={cn(
-              'px-2.5 py-1.5 sm:px-5 sm:py-4',
-              index === LOG_STAT_CARD_FALLBACK_KEYS.length - 1 &&
-                'col-span-2 sm:col-span-1'
-            )}
-          >
-            <div className='flex items-center gap-1.5 sm:gap-2'>
-              <Skeleton className='size-4 rounded-sm sm:size-7 sm:rounded-md' />
-              <Skeleton className='h-4 w-16' />
-            </div>
-            <Skeleton className='mt-1 h-5 w-16 sm:mt-2 sm:h-7 sm:w-20' />
-            <Skeleton className='mt-1 hidden h-3.5 w-28 md:block' />
+    <section className='dashboard-stats' aria-busy='true'>
+      <div className='dashboard-stats__toolbar'>
+        <Skeleton className='h-5 w-44' />
+        <Skeleton className='h-8 w-20' />
+      </div>
+      <div className='dashboard-stats__grid'>
+        {LOG_STAT_CARD_FALLBACK_KEYS.map((key) => (
+          <div key={key} className='dashboard-stat'>
+            <Skeleton className='h-7 w-24' />
+            <Skeleton className='mt-3 h-8 w-24' />
+            <Skeleton className='mt-2 h-4 w-28 max-w-full' />
           </div>
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -202,7 +195,8 @@ export function Dashboard() {
     DASHBOARD_DEFAULT_SECTION) as DashboardSectionId
 
   const [modelData, setModelData] = useState<QuotaDataItem[]>([])
-  const [dataLoading, setDataLoading] = useState(false)
+  const [dataLoading, setDataLoading] = useState(true)
+  const [dataError, setDataError] = useState(false)
   const [chartPreferences, setChartPreferences] =
     useState<DashboardChartPreferences>(() => getSavedChartPreferences())
   const [modelFilters, setModelFilters] = useState<DashboardFilters>(() =>
@@ -229,9 +223,10 @@ export function Dashboard() {
   }, [chartPreferences])
 
   const handleDataUpdate = useCallback(
-    (data: QuotaDataItem[], loading: boolean) => {
+    (data: QuotaDataItem[], loading: boolean, error = false) => {
       setModelData(data)
       setDataLoading(loading)
+      setDataError(error)
     },
     []
   )
@@ -366,28 +361,34 @@ export function Dashboard() {
               )}
               <FadeIn delay={0.1}>
                 <Suspense fallback={<ModelChartsFallback />}>
-                  <LazyConsumptionDistributionChart
-                    data={modelData}
-                    loading={dataLoading}
-                    defaultChartType={
-                      chartPreferences.consumptionDistributionChart
-                    }
-                    timeGranularity={
-                      modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
-                    }
-                  />
+                  {!dataError && (
+                    <LazyConsumptionDistributionChart
+                      data={modelData}
+                      loading={dataLoading}
+                      defaultChartType={
+                        chartPreferences.consumptionDistributionChart
+                      }
+                      timeGranularity={
+                        modelFilters.time_granularity ||
+                        DEFAULT_TIME_GRANULARITY
+                      }
+                    />
+                  )}
                 </Suspense>
               </FadeIn>
               <FadeIn delay={0.15}>
                 <Suspense fallback={<ModelChartsFallback />}>
-                  <LazyModelCharts
-                    data={modelData}
-                    loading={dataLoading}
-                    defaultChartTab={chartPreferences.modelAnalyticsChart}
-                    timeGranularity={
-                      modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
-                    }
-                  />
+                  {!dataError && (
+                    <LazyModelCharts
+                      data={modelData}
+                      loading={dataLoading}
+                      defaultChartTab={chartPreferences.modelAnalyticsChart}
+                      timeGranularity={
+                        modelFilters.time_granularity ||
+                        DEFAULT_TIME_GRANULARITY
+                      }
+                    />
+                  )}
                 </Suspense>
               </FadeIn>
             </>

@@ -31,6 +31,11 @@ func setupPrivateSafetyIdentity(t *testing.T) *relaycommon.RelayInfo {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.AssistantGiftRiskKey{}))
 	model.DB, common.CryptoSecret = db, "synthetic-relay-private-key"
+	// Model tests cover durable-key bootstrap; transport assertions use a key
+	// prepared before entering the production request timeout.
+	require.NoError(t, db.Create(&model.AssistantGiftRiskKey{
+		Id: "assistant-gift-risk-v1", Secret: common.CryptoSecret, CreatedAt: common.GetTimestamp(),
+	}).Error)
 	settings := setting.DefaultModerationSettings()
 	settings.Enabled, settings.AssistantEnabled, settings.SafetyIdentifierEnabled = true, true, true
 	settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{

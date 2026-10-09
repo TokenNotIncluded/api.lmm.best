@@ -170,6 +170,9 @@ func executeAssistantCreateKeyRequestTool(c *gin.Context, userID int, input map[
 // PrepareAssistantDefaultKey binds mutable form fields to an opaque,
 // session-scoped draft. The confirmation endpoint never accepts those fields.
 func PrepareAssistantDefaultKey(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "request_create_key") {
+		return
+	}
 	if !requireAssistantBrowserSession(c) {
 		return
 	}

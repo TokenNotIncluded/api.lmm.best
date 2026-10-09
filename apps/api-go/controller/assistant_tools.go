@@ -98,6 +98,9 @@ func getAssistantDeveloperAccess(userID int) (*model.UserBase, bool, error) {
 }
 
 func SubmitAssistantHandoff(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "request_human_support") {
+		return
+	}
 	if !requireAssistantBrowserSession(c) {
 		return
 	}

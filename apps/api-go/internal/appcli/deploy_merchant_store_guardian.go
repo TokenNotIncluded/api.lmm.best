@@ -460,6 +460,12 @@ func (runtime *productionRuntime) awaitMerchantStoreFence(ctx context.Context, c
 			return err
 		}
 		if err := check(ctx); err == nil {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !runtime.now().Before(deadline) {
+				break
+			}
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
