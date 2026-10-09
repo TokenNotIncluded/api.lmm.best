@@ -802,16 +802,34 @@ describe('assistant settings workspace', () => {
     })
   }
 
-  test('saves grouped tool choices in one policy and preserves them across a server refresh', async () => {
+  test('saves local tool choices with remote group disables and a fresh policy baseline', async () => {
     const originalGet = api.get
     const originalPost = api.post
     const requests: string[] = []
-    const updates: Array<{ url: string; values: Record<string, string> }> = []
+    const initialPolicy =
+      '{"version":1,"groups":{},"tools":{"request_create_key":false}}'
+    const remotePolicy =
+      '{"version":1,"groups":{"drawing":false},"tools":{"request_create_key":false}}'
+    const freshPolicy =
+      '{"version":1,"groups":{"drawing":false},"tools":{"request_create_key":false,"request_image_generation":false}}'
+    const updates: Array<{
+      url: string
+      values: Record<string, string>
+      expected_values?: Record<string, string>
+    }> = []
     api.get = (async (url: string) => {
       requests.push(url)
       if (url === '/api/group/') return { data: { data: ['default'] } }
       if (url === '/api/assistant/models') {
         return { data: { data: [baseValues.AssistantModel] } }
+      }
+      if (url === '/api/option/') {
+        return {
+          data: {
+            success: true,
+            data: [{ key: 'AssistantToolPolicy', value: freshPolicy }],
+          },
+        }
       }
       assert.equal(url, '/api/assistant/admin/tool-catalog')
       return {
@@ -839,6 +857,20 @@ describe('assistant settings workspace', () => {
                   },
                 ],
               },
+              {
+                id: 'drawing',
+                label: 'Drawing',
+                tools: [
+                  {
+                    name: 'request_image_generation',
+                    label: 'Generate an image',
+                    description:
+                      'Prepare image generation after user confirmation.',
+                    effect: 'confirmation',
+                    access: 'l1',
+                  },
+                ],
+              },
             ],
           },
         },
@@ -846,15 +878,17 @@ describe('assistant settings workspace', () => {
     }) as typeof api.get
     api.post = (async (
       url: string,
-      body: { values: Record<string, string> }
+      body: {
+        values: Record<string, string>
+        expected_values?: Record<string, string>
+      }
     ) => {
-      updates.push({ url, values: body.values })
+      updates.push({ url, ...body })
       return { data: { success: true } }
     }) as typeof api.post
 
     const page = await renderSettings('none', {
-      AssistantToolPolicy:
-        '{"version":1,"groups":{},"tools":{"request_create_key":false}}',
+      AssistantToolPolicy: initialPolicy,
     })
     try {
       assert.equal(
@@ -906,11 +940,16 @@ describe('assistant settings workspace', () => {
       await act(async () => read.click())
 
       await page.rerender({
-        AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY,
+        AssistantToolPolicy: remotePolicy,
         AssistantTimeoutSeconds: 60,
       })
       assert.equal(read.getAttribute('aria-checked'), 'false')
       assert.equal(create.getAttribute('aria-checked'), 'false')
+      const drawing = page.container.querySelector<HTMLElement>(
+        '[data-tool-group="drawing"] [role="switch"]'
+      )
+      assert.ok(drawing)
+      assert.equal(drawing.getAttribute('aria-checked'), 'false')
       assert.equal(
         page.container.querySelector<HTMLInputElement>(
           'input[name="AssistantTimeoutSeconds"]'
@@ -934,8 +973,15 @@ describe('assistant settings workspace', () => {
       assert.deepEqual(Object.keys(updates[0].values), ['AssistantToolPolicy'])
       assert.deepEqual(JSON.parse(updates[0].values.AssistantToolPolicy), {
         version: 1,
-        groups: { account: true },
-        tools: { request_create_key: false, get_account_access: false },
+        groups: { drawing: false },
+        tools: {
+          request_create_key: false,
+          get_account_access: false,
+          request_image_generation: false,
+        },
+      })
+      assert.deepEqual(updates[0].expected_values, {
+        AssistantToolPolicy: freshPolicy,
       })
       assert.equal(
         page.queryClient.getQueryState(statusKey)?.isInvalidated,
@@ -946,6 +992,202 @@ describe('assistant settings workspace', () => {
           .length,
         1
       )
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await page.cleanup()
+    }
+  })
+
+  test('a pending policy save conflict refreshes remote disables without retrying or discarding the draft', async () => {
+    const originalGet = api.get
+    const originalPost = api.post
+    const remotePolicy = '{"version":1,"groups":{"drawing":false},"tools":{}}'
+    let serverPolicy = DEFAULT_ASSISTANT_TOOL_POLICY
+    let optionReads = 0
+    let rejectPending: ((error: Error) => void) | undefined
+    const writes: Array<{
+      values: Record<string, string>
+      expected_values?: Record<string, string>
+    }> = []
+    api.get = (async (
+      url: string,
+      config?: {
+        skipBusinessError?: boolean
+        skipErrorHandler?: boolean
+        disableDuplicate?: boolean
+        authScope?: unknown
+      }
+    ) => {
+      if (url === '/api/group/') return { data: { data: ['default'] } }
+      if (url === '/api/assistant/models') {
+        return { data: { data: [baseValues.AssistantModel] } }
+      }
+      if (url === '/api/option/') {
+        optionReads += 1
+        assert.equal(config?.skipBusinessError, true)
+        assert.equal(config?.skipErrorHandler, true)
+        assert.equal(config?.disableDuplicate, true)
+        assert.ok(config?.authScope)
+        return {
+          data: {
+            success: true,
+            data: [{ key: 'AssistantToolPolicy', value: serverPolicy }],
+          },
+        }
+      }
+      assert.equal(url, '/api/assistant/admin/tool-catalog')
+      return {
+        data: {
+          success: true,
+          data: {
+            groups: [
+              {
+                id: 'search',
+                label: 'Search',
+                tools: [
+                  {
+                    name: 'search_web',
+                    label: 'Search the web',
+                    description: 'Find public information.',
+                    effect: 'read_only',
+                    access: 'user',
+                  },
+                ],
+              },
+              {
+                id: 'drawing',
+                label: 'Drawing',
+                tools: [
+                  {
+                    name: 'request_image_generation',
+                    label: 'Generate an image',
+                    description:
+                      'Prepare image generation after user confirmation.',
+                    effect: 'confirmation',
+                    access: 'l1',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }
+    }) as typeof api.get
+    api.post = (async (
+      url: string,
+      body: {
+        values: Record<string, string>
+        expected_values?: Record<string, string>
+      }
+    ) => {
+      assert.equal(url, '/api/option/bulk')
+      writes.push(body)
+      if (writes.length === 1) {
+        return new Promise((_resolve, reject) => {
+          rejectPending = reject
+        })
+      }
+      return { data: { success: true } }
+    }) as typeof api.post
+
+    const page = await renderSettings('none')
+    try {
+      const toolsTab = page.container.querySelector<HTMLButtonElement>(
+        '[data-settings-tab="tools"]'
+      )
+      assert.ok(toolsTab)
+      await act(async () => {
+        toolsTab.click()
+        await flushEffects()
+      })
+      const catalogDeadline = Date.now() + 5000
+      while (
+        !page.container.querySelector(
+          '[data-tool-name="search_web"] [role="switch"]'
+        ) &&
+        Date.now() < catalogDeadline
+      ) {
+        await act(flushEffects)
+      }
+      const search = page.container.querySelector<HTMLElement>(
+        '[data-tool-name="search_web"] [role="switch"]'
+      )
+      const drawing = page.container.querySelector<HTMLElement>(
+        '[data-tool-group="drawing"] [role="switch"]'
+      )
+      const form = page.container.querySelector('form')
+      assert.ok(search)
+      assert.ok(drawing)
+      assert.ok(form)
+      await act(async () => search.click())
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.equal(writes.length, 1)
+      assert.equal(optionReads, 1)
+      assert.deepEqual(writes[0].expected_values, {
+        AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY,
+      })
+      assert.ok(rejectPending)
+      const rejectSave = rejectPending
+
+      serverPolicy = remotePolicy
+      await act(async () => {
+        rejectSave(
+          Object.assign(new Error('Assistant tool policy changed'), {
+            response: {
+              status: 409,
+              data: {
+                success: false,
+                code: 'ASSISTANT_TOOL_POLICY_CONFLICT',
+                message: 'Assistant tool policy changed',
+              },
+            },
+          })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.equal(
+        writes.length,
+        1,
+        'a conflict must never trigger a second write'
+      )
+      assert.equal(optionReads, 2)
+      assert.equal(search.getAttribute('aria-checked'), 'false')
+      assert.equal(drawing.getAttribute('aria-checked'), 'false')
+      const alert = page.container.querySelector('[role="alert"]')
+      assert.ok(alert)
+      assert.match(alert.textContent ?? '', /review/i)
+      assert.ok(page.container.textContent?.includes('Unsaved changes'))
+
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.equal(
+        writes.length,
+        2,
+        'the administrator may save again after reviewing'
+      )
+      assert.equal(optionReads, 3)
+      assert.deepEqual(writes[1].expected_values, {
+        AssistantToolPolicy: remotePolicy,
+      })
+      assert.deepEqual(Object.keys(writes[1].values), ['AssistantToolPolicy'])
+      assert.deepEqual(JSON.parse(writes[1].values.AssistantToolPolicy), {
+        version: 1,
+        groups: { drawing: false },
+        tools: { search_web: false },
+      })
     } finally {
       api.get = originalGet
       api.post = originalPost

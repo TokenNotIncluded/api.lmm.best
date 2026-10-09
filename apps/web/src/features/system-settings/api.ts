@@ -19,12 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import type {
+  AssistantSettingsAuthScope,
   ConfirmPaymentComplianceResponse,
   FetchUpstreamRatiosRequest,
   LogCleanupTask,
   SystemOptionsResponse,
   SystemTaskListResponse,
   SystemTaskResponse,
+  UpdateAssistantOptionsRequest,
   UpdateOptionRequest,
   UpdateOptionResponse,
   UsdExchangeRateResponse,
@@ -51,6 +53,26 @@ export async function getSystemOptions(
     '/api/option/',
     settingsRequestConfig(options)
   )
+  if (res.data.success !== true || !Array.isArray(res.data.data)) {
+    throw Object.assign(
+      new Error(res.data.message || 'Failed to load settings'),
+      {
+        response: { data: res.data },
+      }
+    )
+  }
+  return res.data
+}
+
+/** A save preflight must not share an older in-flight settings read. */
+export async function getAssistantSystemOptions(
+  authScope: AssistantSettingsAuthScope
+): Promise<SystemOptionsResponse> {
+  const res = await api.get<SystemOptionsResponse>('/api/option/', {
+    ...settingsRequestConfig({ silent: true }),
+    disableDuplicate: true,
+    authScope,
+  })
   if (res.data.success !== true || !Array.isArray(res.data.data)) {
     throw Object.assign(
       new Error(res.data.message || 'Failed to load settings'),
@@ -113,6 +135,24 @@ export async function updateSystemOptions(
       values,
     },
     settingsRequestConfig(options)
+  )
+  return res.data
+}
+
+/** Tool-policy saves compare the latest baseline atomically with the write. */
+export async function updateAssistantSystemOptions(
+  request: UpdateAssistantOptionsRequest,
+  options?: SettingsRequestOptions
+) {
+  const res = await api.post<UpdateOptionResponse>(
+    '/api/option/bulk',
+    {
+      values: request.values,
+      ...(request.expectedValues
+        ? { expected_values: request.expectedValues }
+        : {}),
+    },
+    { ...settingsRequestConfig(options), authScope: request.authScope }
   )
   return res.data
 }

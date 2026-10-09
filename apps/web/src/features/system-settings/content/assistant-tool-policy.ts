@@ -209,3 +209,47 @@ export function updateAssistantToolPolicy(
     },
   })
 }
+
+/** Merge independent settings; absence inherits enabled, rather than acting as a deletion. */
+export function mergeAssistantToolPolicy(
+  previous: string,
+  draft: string,
+  incoming: string
+): string {
+  if (draft === previous) return incoming
+  if (incoming === previous) return draft
+  const before = parseAssistantToolPolicy(previous)
+  const local = parseAssistantToolPolicy(draft)
+  const remote = parseAssistantToolPolicy(incoming)
+  // Keep malformed local input visible and unsaved, rather than enabling defaults.
+  if (!before || !local || !remote) return draft
+  const mergeMap = (scope: 'groups' | 'tools') => {
+    const names = new Set([
+      ...Object.keys(before[scope]),
+      ...Object.keys(local[scope]),
+      ...Object.keys(remote[scope]),
+    ])
+    const merged: Record<string, boolean> = {}
+    for (const name of [...names].sort()) {
+      const baselineEnabled = before[scope][name] !== false
+      const localEnabled = local[scope][name] !== false
+      const remoteEnabled = remote[scope][name] !== false
+      const localChanged = localEnabled !== baselineEnabled
+      const remoteChanged = remoteEnabled !== baselineEnabled
+      let choice = remote[scope][name]
+      if (localChanged && remoteChanged) {
+        // A concurrent disable cannot be replaced with an enabled choice.
+        choice = localEnabled && remoteEnabled
+      } else if (localChanged) {
+        choice = local[scope][name]
+      }
+      if (choice !== undefined) merged[name] = choice
+    }
+    return merged
+  }
+  return JSON.stringify({
+    version: 1,
+    groups: mergeMap('groups'),
+    tools: mergeMap('tools'),
+  })
+}

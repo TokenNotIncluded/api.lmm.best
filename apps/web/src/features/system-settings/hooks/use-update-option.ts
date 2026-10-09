@@ -25,9 +25,21 @@ import { toast } from 'sonner'
 
 import { getServerErrorToastId } from '@/lib/server-error-message'
 
-import { updateSystemOption, updateSystemOptions } from '../api'
+import {
+  updateAssistantSystemOptions,
+  updateSystemOption,
+  updateSystemOptions,
+} from '../api'
+import {
+  ASSISTANT_TOOL_POLICY_CONFLICT_MESSAGE,
+  isAssistantToolPolicyConflict,
+} from '../content/assistant-tool-policy-save'
 import { updatePublicCreditUnitOption } from '../general/public-credit-unit'
-import type { UpdateOptionRequest, UpdateOptionResponse } from '../types'
+import type {
+  UpdateAssistantOptionsRequest,
+  UpdateOptionRequest,
+  UpdateOptionResponse,
+} from '../types'
 import { showOptionUpdateToast } from '../utils/option-update-toast'
 import { getSettingsErrorMessage } from '../utils/settings-error-message'
 
@@ -208,5 +220,29 @@ export function useUpdateOptions() {
     onSuccess: (data, variables) =>
       refreshAcknowledgedOptions(queryClient, data, Object.keys(variables)),
     onError: reportSaveFailure,
+  })
+}
+
+export function useUpdateAssistantOptions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    retry: false,
+    mutationFn: async (request: UpdateAssistantOptionsRequest) =>
+      acceptSettingsSave(
+        await updateAssistantSystemOptions(request, { silent: true })
+      ),
+    onSuccess: (data, request) =>
+      refreshAcknowledgedOptions(
+        queryClient,
+        data,
+        Object.keys(request.values)
+      ),
+    onError: (error: unknown) => {
+      if (isAssistantToolPolicyConflict(error)) {
+        toast.error(i18next.t(ASSISTANT_TOOL_POLICY_CONFLICT_MESSAGE))
+      } else {
+        reportSaveFailure(error)
+      }
+    },
   })
 }

@@ -49,8 +49,20 @@ export type UpdateOptionRequest = {
 export type UpdateOptionResponse = {
   success: boolean
   message: string
+  code?: string
   warnings?: string[]
   locked_models?: string[]
+}
+
+export type AssistantSettingsAuthScope = {
+  userId: number | undefined
+  sessionId: string | undefined
+}
+
+export type UpdateAssistantOptionsRequest = {
+  values: Record<string, string>
+  expectedValues?: { AssistantToolPolicy: string }
+  authScope: AssistantSettingsAuthScope
 }
 
 export type UsdExchangeRateQuote = {

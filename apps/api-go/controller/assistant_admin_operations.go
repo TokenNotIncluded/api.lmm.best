@@ -218,11 +218,11 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 	if !op.ReadOnly {
 		return assistantAdminOperationError("confirmation_required", "administrator mutations require explicit UI confirmation and cannot be executed by this tool")
 	}
+	_, policy, err := refreshAssistantToolPolicy(c)
+	if err != nil {
+		return assistantAdminOperationError("tool_policy_unavailable", err.Error())
+	}
 	if name := assistantAdminOperationPolicyTool(op.Handler); name != "" {
-		_, policy, err := refreshAssistantToolPolicy(c)
-		if err != nil {
-			return assistantAdminOperationError("tool_policy_unavailable", err.Error())
-		}
 		if !policy.Enabled(name) {
 			return assistantAdminOperationError("tool_disabled", setting.AssistantToolDisabledError(name).Error())
 		}
@@ -293,11 +293,32 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 		}
 	}
 	result["ok"] = success
-	result["response"] = assistantRedactOperationResponse(response, op.Handler)
+	response = assistantRedactOperationResponse(response, op.Handler)
+	if !policy.Enabled("get_admin_user_skills") {
+		omitAssistantOperationProfiles(response)
+	}
+	result["response"] = response
 	if !success {
 		result["status"] = "operation_rejected"
 	}
 	return result
+}
+
+// Mixed user reads can contain assistant profiles alongside ordinary account
+// data. Apply the captured policy to their decoded result rather than blocking
+// user lookup or changing profile visibility in the normal administrator API.
+func omitAssistantOperationProfiles(value any) {
+	switch node := value.(type) {
+	case map[string]any:
+		delete(node, "assistant_profile")
+		for _, child := range node {
+			omitAssistantOperationProfiles(child)
+		}
+	case []any:
+		for _, child := range node {
+			omitAssistantOperationProfiles(child)
+		}
+	}
 }
 
 func assistantAdminOperationError(status, message string) map[string]any {

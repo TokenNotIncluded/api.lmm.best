@@ -52,10 +52,10 @@ test('save acknowledgement retains edits made during saving and clears acknowled
   })
 })
 
-test('tool policy refresh preserves a local policy edit and updates an untouched policy', () => {
+test('tool policy refresh merges independent local tool and remote group edits', () => {
   const initialPolicy = '{"version":1,"groups":{},"tools":{}}'
-  const savedPolicy = '{"version":1,"groups":{"account":false},"tools":{}}'
-  const localPolicy = '{"version":1,"groups":{},"tools":{"web_search":false}}'
+  const savedPolicy = '{"version":1,"groups":{"drawing":false},"tools":{}}'
+  const localPolicy = '{"version":1,"groups":{},"tools":{"search_web":false}}'
   const before = values({ AssistantToolPolicy: initialPolicy })
   const incoming = values({ AssistantToolPolicy: savedPolicy })
 
@@ -63,15 +63,89 @@ test('tool policy refresh preserves a local policy edit and updates an untouched
     rebaseAssistantDraft(before, before, incoming).AssistantToolPolicy,
     savedPolicy
   )
-  assert.equal(
-    rebaseAssistantDraft(
-      before,
-      values({ AssistantToolPolicy: localPolicy }),
-      incoming
-    ).AssistantToolPolicy,
-    localPolicy
+  assert.deepEqual(
+    JSON.parse(
+      rebaseAssistantDraft(
+        before,
+        values({ AssistantToolPolicy: localPolicy }),
+        incoming
+      ).AssistantToolPolicy
+    ),
+    {
+      version: 1,
+      groups: { drawing: false },
+      tools: { search_web: false },
+    }
   )
   assert.equal(before.AssistantToolPolicy, initialPolicy)
+})
+
+test('an explicit default-enabled choice does not override a concurrent remote disable', () => {
+  const before = values({
+    AssistantToolPolicy: '{"version":1,"groups":{},"tools":{}}',
+  })
+  const draft = values({
+    AssistantToolPolicy:
+      '{"version":1,"groups":{},"tools":{"search_web":true}}',
+  })
+  const incoming = values({
+    AssistantToolPolicy:
+      '{"version":1,"groups":{"drawing":false},"tools":{"search_web":false}}',
+  })
+
+  assert.deepEqual(
+    JSON.parse(
+      rebaseAssistantDraft(before, draft, incoming).AssistantToolPolicy
+    ),
+    JSON.parse(incoming.AssistantToolPolicy)
+  )
+})
+
+test('an intentional tool re-enable survives an unrelated remote group disable', () => {
+  const before = values({
+    AssistantToolPolicy:
+      '{"version":1,"groups":{},"tools":{"search_web":false}}',
+  })
+  const draft = values({
+    AssistantToolPolicy:
+      '{"version":1,"groups":{},"tools":{"search_web":true}}',
+  })
+  const incoming = values({
+    AssistantToolPolicy:
+      '{"version":1,"groups":{"drawing":false},"tools":{"search_web":false}}',
+  })
+
+  assert.deepEqual(
+    JSON.parse(
+      rebaseAssistantDraft(before, draft, incoming).AssistantToolPolicy
+    ),
+    {
+      version: 1,
+      groups: { drawing: false },
+      tools: { search_web: true },
+    }
+  )
+})
+
+test('legacy empty policies merge independent leaves without losing a remote disable', () => {
+  const before = values({ AssistantToolPolicy: '' })
+  const draft = values({
+    AssistantToolPolicy: '{"version":1,"tools":{"search_web":false}}',
+  })
+  const incoming = values({
+    AssistantToolPolicy: '{"version":1,"groups":{"drawing":false}}',
+  })
+
+  assert.deepEqual(
+    JSON.parse(
+      rebaseAssistantDraft(before, draft, incoming).AssistantToolPolicy
+    ),
+    {
+      version: 1,
+      groups: { drawing: false },
+      tools: { search_web: false },
+    }
+  )
 })
 
 test('tool policy acknowledgement keeps a newer edit made while the previous policy was saving', () => {
@@ -90,6 +164,32 @@ test('tool policy acknowledgement keeps a newer edit made while the previous pol
     ...confirmed,
     AssistantToolPolicy: pending.AssistantToolPolicy,
   })
+})
+
+test('save acknowledgement retains a newer local tool edit alongside a remote group change', () => {
+  const sent = values({
+    AssistantToolPolicy:
+      '{"version":1,"groups":{},"tools":{"search_web":false}}',
+  })
+  const pending = values({
+    AssistantToolPolicy:
+      '{"version":1,"groups":{},"tools":{"search_web":false,"request_create_key":false}}',
+  })
+  const confirmed = values({
+    AssistantToolPolicy:
+      '{"version":1,"groups":{"drawing":false},"tools":{"search_web":false}}',
+  })
+
+  assert.deepEqual(
+    JSON.parse(
+      rebaseAssistantDraft(sent, pending, confirmed).AssistantToolPolicy
+    ),
+    {
+      version: 1,
+      groups: { drawing: false },
+      tools: { search_web: false, request_create_key: false },
+    }
+  )
 })
 
 test('invalid fields reveal the group that owns the input', () => {
