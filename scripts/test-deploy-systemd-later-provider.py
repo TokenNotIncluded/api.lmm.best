@@ -87,7 +87,7 @@ class LaterProviderHistoryTests(unittest.TestCase):
                      'existing_schema_contract': physical, 'merchant_store_writer': writer}
         self.plan_path = self.write_json(self.base / 'plan.json', self.plan)
         self.capsule = {'format': 1, 'deployment_id': 'later', 'root': str(self.cap_root),
-                        'binary': str(deploy.BINARY), 'service': deploy.SERVICE, 'host': 'fixture-host',
+                        'binary': str(deploy.ENTRY), 'service': deploy.SERVICE, 'host': 'fixture-host',
                         'startup_policy': 'per-start', 'schema_mode': 'verify-existing',
                         'controller_plan_sha256': deploy.digest(self.plan_path), 'candidate': candidate,
                         'rollback': rollback, 'existing_schema_contract': physical, 'merchant_store_writer': writer}
@@ -123,6 +123,9 @@ class LaterProviderHistoryTests(unittest.TestCase):
                                                           'sha256': deploy.digest(deploy.ENVIRONMENT)}]}
         self.real_generation = deploy.later_generation
         self.real_database_status = deploy.later_database_status
+        self.real_entry = deploy.later_entry
+        self.entry_probe = self.stack.enter_context(patch.object(deploy, 'later_entry', side_effect=lambda manifest, capsule, state, uid=0:
+            self.real_entry(manifest, capsule, state, uid=self.uid)))
         self.generation_probe = self.stack.enter_context(patch.object(deploy, 'later_generation', return_value=self.generation))
         self.database_probe = self.stack.enter_context(patch.object(deploy, 'later_database_status', return_value={
             **{key: writer[key] for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')},
@@ -176,6 +179,144 @@ class LaterProviderHistoryTests(unittest.TestCase):
         self.manifest['capsule_sha256'] = deploy.digest(self.cap_path)
         self.manifest['state_sha256'] = deploy.digest(self.origin / 'state.json')
         self.seal_manifest()
+
+    def test_entry_and_direct_binary_scopes_qualify_the_same_real_signed_alias(self):
+        self.later_fixture()
+        # Real symlinks normally have mode 0777; only the protected parent and
+        # target permissions matter, rather than nonexistent symlink chmod.
+        self.assertEqual(0o777, deploy.ENTRY.lstat().st_mode & 0o777)
+        proof, _ = self.qualify()
+        self.assertEqual({'path': str(deploy.ENTRY), 'target': deploy.BINARY.name,
+                          'payload_sha256': deploy.digest(deploy.BINARY),
+                          'entry_device': deploy.ENTRY.lstat().st_dev,
+                          'entry_inode': deploy.ENTRY.lstat().st_ino,
+                          'target_device': deploy.BINARY.lstat().st_dev,
+                          'target_inode': deploy.BINARY.lstat().st_ino}, proof['entry'])
+        self.capsule['binary'] = str(deploy.BINARY)
+        self.reseal_inputs()
+        direct, _ = self.qualify()
+        self.assertEqual(proof['entry'], direct['entry'])
+
+    def test_entry_scope_rejects_arbitrary_capsule_binary_and_different_parents(self):
+        self.later_fixture()
+        state = deploy.read_state(self.origin)
+        for binary in (str(self.base / 'unrelated'), str(deploy.BINARY.parent / './other')):
+            with self.subTest(binary=binary), self.assertRaisesRegex(RuntimeError, 'entry scope differs'):
+                deploy.later_entry(self.manifest, dict(self.capsule, binary=binary), state)
+        with patch.object(deploy, 'ENTRY', self.base / 'other-bin/lmm-api'), self.assertRaisesRegex(RuntimeError, 'entry scope differs'):
+            deploy.later_entry(self.manifest, dict(self.capsule, binary=str(deploy.BINARY)), state)
+
+    def test_entry_rejects_regular_absolute_foreign_and_nonexact_relative_aliases(self):
+        self.later_fixture()
+        state = deploy.read_state(self.origin)
+        foreign = self.write(deploy.BINARY.parent / 'foreign', self.payload, 0o755)
+        for target in (str(deploy.BINARY), str(foreign), foreign.name,
+                       '../bin/lmm-api-go', 'missing'):
+            deploy.ENTRY.unlink()
+            deploy.ENTRY.symlink_to(target)
+            with self.subTest(target=target), self.assertRaisesRegex(RuntimeError, 'protected relative alias'):
+                deploy.later_entry(self.manifest, self.capsule, state)
+        deploy.ENTRY.unlink()
+        self.write(deploy.ENTRY, self.payload, 0o755)
+        with self.assertRaisesRegex(RuntimeError, 'protected relative alias'):
+            deploy.later_entry(self.manifest, self.capsule, state)
+
+    def test_entry_rejects_broken_canonical_alias(self):
+        self.later_fixture()
+        deploy.BINARY.unlink()
+        self.assertTrue(deploy.ENTRY.is_symlink())
+        self.assertFalse(deploy.ENTRY.exists())
+        with self.assertRaises((RuntimeError, OSError)):
+            deploy.later_entry(self.manifest, self.capsule, deploy.read_state(self.origin))
+
+    def test_entry_rejects_unsigned_hardlinked_writable_or_symlink_target(self):
+        self.later_fixture()
+        state = deploy.read_state(self.origin)
+        self.write(deploy.BINARY, b'unsigned changed payload', 0o755)
+        with self.assertRaisesRegex(RuntimeError, 'signed payload'):
+            deploy.later_entry(self.manifest, self.capsule, state)
+        self.write(deploy.BINARY, self.payload, 0o755)
+        hardlink = self.base / 'binary-hardlink'
+        os.link(deploy.BINARY, hardlink)
+        self.assertEqual(2, deploy.BINARY.lstat().st_nlink)
+        with self.assertRaises(RuntimeError):
+            deploy.later_entry(self.manifest, self.capsule, state)
+        hardlink.unlink()
+        deploy.BINARY.chmod(0o777)
+        with self.assertRaises(RuntimeError):
+            deploy.later_entry(self.manifest, self.capsule, state)
+        deploy.BINARY.chmod(0o755)
+        foreign = self.write(self.base / 'other-signed-payload', self.payload, 0o755)
+        deploy.BINARY.unlink()
+        deploy.BINARY.symlink_to(foreign)
+        with self.assertRaises(RuntimeError):
+            deploy.later_entry(self.manifest, self.capsule, state)
+
+    def test_entry_rejects_unsafe_parent_and_link_or_target_ownership(self):
+        self.later_fixture()
+        state = deploy.read_state(self.origin)
+        deploy.ENTRY.parent.chmod(0o777)
+        with self.assertRaises(RuntimeError):
+            deploy.later_entry(self.manifest, self.capsule, state)
+        deploy.ENTRY.parent.chmod(0o700)
+        actual_lstat = Path.lstat
+        for path, field, value in ((deploy.ENTRY, 4, self.uid + 1),
+                                   (deploy.ENTRY, 5, os.getgid() + 1),
+                                   (deploy.ENTRY, 3, 2),
+                                   (deploy.BINARY, 4, self.uid + 1),
+                                   (deploy.BINARY, 5, os.getgid() + 1)):
+            def foreign_stat(selected, *args, **kwargs):
+                info = actual_lstat(selected, *args, **kwargs)
+                if selected == path:
+                    values = list(info)
+                    values[field] = value
+                    return os.stat_result(values)
+                return info
+            with self.subTest(path=path.name, stat_field=field), patch.object(Path, 'lstat', foreign_stat), self.assertRaises(RuntimeError):
+                deploy.later_entry(self.manifest, self.capsule, state)
+
+    def test_entry_detects_target_replacement_while_opening_signed_payload(self):
+        self.later_fixture()
+        actual_open = deploy.os.open
+        moved = self.base / 'retained-old-target'
+        def replace_opened_target(path, flags, *args, **kwargs):
+            descriptor = actual_open(path, flags, *args, **kwargs)
+            if path == deploy.BINARY:
+                deploy.BINARY.rename(moved)
+                self.write(deploy.BINARY, self.payload, 0o755)
+            return descriptor
+        with patch.object(deploy.os, 'open', side_effect=replace_opened_target), self.assertRaisesRegex(RuntimeError, 'changed while opening'):
+            deploy.later_entry(self.manifest, self.capsule, deploy.read_state(self.origin))
+
+    def test_recheck_rejects_same_payload_new_alias_or_target_inode(self):
+        self.later_fixture()
+        proof, inputs = self.qualify()
+        old_link = self.base / 'retained-old-alias'
+        deploy.ENTRY.rename(old_link)
+        deploy.ENTRY.symlink_to(deploy.BINARY.name)
+        self.assertNotEqual(proof['entry']['entry_inode'], deploy.ENTRY.lstat().st_ino)
+        with self.assertRaisesRegex(RuntimeError, 'qualified alias changed'):
+            deploy.recheck_later_provider(self.manifest_path.read_bytes(), proof, inputs)
+        deploy.ENTRY.unlink()
+        old_link.rename(deploy.ENTRY)
+        old_target = self.base / 'retained-old-binary'
+        deploy.BINARY.rename(old_target)
+        self.write(deploy.BINARY, self.payload, 0o755)
+        self.assertEqual(proof['entry']['payload_sha256'], deploy.digest(deploy.BINARY))
+        self.assertNotEqual(proof['entry']['target_inode'], deploy.BINARY.lstat().st_ino)
+        with self.assertRaisesRegex(RuntimeError, 'qualified alias changed'):
+            deploy.recheck_later_provider(self.manifest_path.read_bytes(), proof, inputs)
+
+    def test_alias_replacement_during_final_qualification_cannot_publish_receipt(self):
+        self.later_fixture()
+        self.history_args.execute = True
+        def change_alias(*args):
+            deploy.ENTRY.rename(self.base / 'original-alias')
+            deploy.ENTRY.symlink_to(deploy.BINARY.name)
+        self.probes.side_effect = change_alias
+        with self.assertRaisesRegex(RuntimeError, 'qualified alias changed'):
+            deploy.register_released_history(self.history_args)
+        self.assertFalse(deploy.history_root().exists())
 
     def test_later_provider_dry_run_and_registration_keep_financial_history(self):
         self.later_fixture()
@@ -344,10 +485,16 @@ class LaterProviderHistoryTests(unittest.TestCase):
         (deploy.FRONTEND / 'current').symlink_to('releases/frozen')
         self.generation_probe.reset_mock()
         self.database_probe.reset_mock()
+        # Future releases may legitimately replace both entry and target. The
+        # immutable registered evidence must never probe that later live alias.
+        deploy.ENTRY.unlink()
+        self.write(deploy.ENTRY, b'legitimate later service entry', 0o755)
+        self.entry_probe.reset_mock()
         self.executed.clear()
         self.assertEqual({'bridge', 'capture'}, deploy.released_ancestors())
         self.generation_probe.assert_not_called()
         self.database_probe.assert_not_called()
+        self.entry_probe.assert_not_called()
         self.assertEqual([], self.executed)
         saved = deploy.history_root() / 'released/current'
         for name in ('later-provider.json', 'later-qualification.json', 'origin-state.json', 'origin-capsule.json', 'origin-plan.json'):
