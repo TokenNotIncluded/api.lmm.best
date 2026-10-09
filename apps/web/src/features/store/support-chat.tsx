@@ -38,7 +38,7 @@ export function StoreSupportChat({
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const [cursors, setCursors] = useState([0])
-  const before = cursors.at(-1)
+  const before = cursors.at(-1) ?? 0
   const [busy, setBusy] = useState(false)
   const sending = useRef(false)
   const [error, setError] = useState<unknown>(null)
