@@ -13,6 +13,14 @@ Go 扩展宿主支持显式模块注册、独立路径和服务凭证，**尚未
 身份栈使用独立数据卷、内部数据库网络和文件密钥，Go 扩展不加入数据库网络。
 此后管理核心必须继续组合相同文件，不能用下面的纯基础栈命令重建身份核心。
 
+## 启用 Protobuf 内部通信
+
+按 [核心通信指南](../../docs/core-protocol.md) 分别叠加 `compose.rpc-core.yml`
+和 `compose.rpc-extensions.yml`。Go 使用同一份 Protobuf 契约查询 Rust 的原生身份和团队，
+通过私有 Unix socket 通信，不直接访问数据库。两个服务仍属于独立 Compose 项目。
+Go 只读挂载 socket 目录，更新扩展不会删除该外部卷。
+配置内部通信后，更新或停止服务必须继续使用通信指南中的完整文件组合。
+
 ## 只启动基础栈
 
 在仓库根目录执行。需要 Docker Engine 和 Compose v2。
@@ -81,6 +89,9 @@ docker compose -f deployment/docker/compose.core.yml down
 
 `python3 -B scripts/test-core-identity-docker.py` 使用实际身份配置检查迁移、持久化凭证、
 扩展故障隔离、数据库失效与恢复、Key 撤销。测试只清理随机命名的测试资源。
+
+`python3 -B scripts/test-core-rpc-docker.py` 验证 Go 到 Rust 的实际 Protobuf 请求、
+团队授权、扩展独立重建、核心重启后的重连，以及数据库故障恢复。
 这些测试不是模型流、旧 API Key 迁移或真实账务验收。
 
 完整阶段与上线门槛见 [迁移计划](../../docs/core-migration.md)。

@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
-          go-version: '1.25.1'
+          go-version: '1.27.2'
           cache-dependency-path: apps/extensions-go/go.sum
       - name: Install pinned Rust and protobuf compiler
         run: |
@@ -58,7 +58,7 @@ jobs:
           go mod verify
           go vet ./...
           go test -race ./... -count=1
-          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+          CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
       - name: Native protobuf round trips and failure recovery
         run: python3 -B scripts/test-core-rpc-docker.py
       - name: Service boundary contracts

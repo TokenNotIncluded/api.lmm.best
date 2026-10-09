@@ -1,7 +1,7 @@
-FROM golang:1.25.1-bookworm AS build
+FROM golang:1.27.2-bookworm AS build
 WORKDIR /src
 COPY apps/extensions-go/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /lmm-extensions ./cmd/extensions
+RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags="-s -w" -o /lmm-extensions ./cmd/extensions
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates curl \
