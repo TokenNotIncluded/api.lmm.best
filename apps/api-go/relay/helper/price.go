@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
@@ -289,19 +290,30 @@ func HasModelBillingConfig(modelName string) bool {
 }
 
 func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo) (hosttypes.PriceData, error) {
-	exprStr, ok := billing_setting.GetBillingExpr(info.OriginModelName)
+	return modelPriceHelperTieredForKey(c, info, promptTokens, meta, groupRatioInfo, info.OriginModelName)
+}
+
+func modelPriceHelperTieredForKey(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo, priceKey string) (hosttypes.PriceData, error) {
+	exprStr, ok := billing_setting.GetBillingExpr(priceKey)
 	if !ok {
-		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
+		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", priceKey)
 	}
 
 	estimatedCompletionTokens := meta.MaxTokens
-	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 && info.RelayFormat != types.RelayFormatSystemOne && info.NativeVoiceReserveSeconds == 0 {
+	if info.RelayFormat == types.RelayFormatOpenAIDecisions {
+		estimatedCompletionTokens = 0
+	} else if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 && info.RelayFormat != types.RelayFormatSystemOne && info.NativeVoiceReserveSeconds == 0 {
 		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
 	}
 
 	requestInput, err := ResolveIncomingBillingExprRequestInputForExpr(c, info, exprStr)
 	if err != nil {
 		return hosttypes.PriceData{}, err
+	}
+	if info.RelayFormat == types.RelayFormatOpenAIDecisions {
+		if err := setDecisionsBillingHost(&requestInput, common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl)); err != nil {
+			return hosttypes.PriceData{}, err
+		}
 	}
 
 	zeroCache := float64(0)
@@ -340,7 +352,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	exprHash := billingexpr.ExprHashString(exprStr)
 	snapshot := &billingexpr.BillingSnapshot{
 		BillingMode:               billing_setting.BillingModeTieredExpr,
-		ModelName:                 info.OriginModelName,
+		ModelName:                 priceKey,
 		ExprString:                exprStr,
 		ExprHash:                  exprHash,
 		GroupRatio:                groupRatioInfo.GroupRatio,
