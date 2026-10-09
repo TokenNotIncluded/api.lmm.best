@@ -48,7 +48,10 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/l0-result"
           python3 workbench/.workbench/final-review.py candidate
-          git -C candidate diff --name-only > "$RUNNER_TEMP/l0-result/changed-paths.txt"
+          python3 workbench/.workbench/first-turn-fix.py candidate
+          cp workbench/.workbench/assistant_first_turn_activation_test.go candidate/apps/api-go/controller/assistant_first_turn_activation_test.go
+          git -C candidate add apps/api-go/controller/assistant_first_turn_activation_test.go
+          git -C candidate diff HEAD --name-only > "$RUNNER_TEMP/l0-result/changed-paths.txt"
       - name: Locked dependencies
         id: dependencies
         working-directory: candidate
@@ -130,33 +133,32 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p=Path('candidate/apps/web/src/features/debug/console-page-fixtures.ts')
-          s=p.read_text()
-          s=s.replace("  '/api/assistant/support/self': [],", "  '/api/assistant/support/self': { request: null },\n  '/api/assistant/registration-check': { state: 'ready' },")
+          s=p.read_text().replace("  '/api/assistant/support/self': [],", "  '/api/assistant/support/self': { request: null },\n  '/api/assistant/registration-check': { state: 'ready' },")
           p.write_text(s)
           PY
           (cd candidate/apps/web && LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --host 127.0.0.1 --port 4174 --strict-port) > "$RUNNER_TEMP/l0-result/vite.log" 2>&1 &
           server=$!
           for n in $(seq 1 60); do curl --fail --silent http://127.0.0.1:4174/ >/dev/null && break; sleep 1; done
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/l0-browser/node_modules/playwright/index.mjs" node workbench/.workbench/l0-browser.mjs > "$RUNNER_TEMP/l0-result/browser.log" 2>&1
-      - name: Update clean review branch
+      - name: Publish verified clean review branch
         id: publish
         if: ${{ !cancelled() && steps.format.outcome == 'success' && steps.static.outcome == 'success' && steps.webtests.outcome == 'success' && steps.gotests.outcome == 'success' && steps.race.outcome == 'success' && steps.build.outcome == 'success' }}
         working-directory: candidate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git diff --check
+          git diff HEAD --check
           python3 - <<'PY'
           import subprocess
-          paths=subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()
-          assert len(paths)==7 and all(p.startswith(('apps/api-go/controller/','apps/web/src/')) for p in paths)
+          paths=subprocess.check_output(['git','diff','HEAD','--name-only'],text=True).splitlines()
+          assert len(paths)==11 and all(p.startswith(('apps/api-go/controller/','apps/api-go/model/','apps/web/src/')) for p in paths)
           PY
           git add --update
-          git -c user.name='ChatGPT' -c user.email='chatgpt@users.noreply.github.com' commit -m 'test: cover first-turn activation, retired todos and support navigation'
+          git -c user.name='ChatGPT' -c user.email='chatgpt@users.noreply.github.com' commit -m 'fix: complete atomic first-turn L1 activation and support regressions'
           askpass="$RUNNER_TEMP/l0-askpass.sh"
           printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) echo x-access-token;; *) printf "%s\n" "$GH_TOKEN";; esac' > "$askpass"
           chmod 700 "$askpass"
-          GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git push origin HEAD:refs/heads/fix/l0-first-turn-and-support-20261009
+          GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git push origin HEAD:refs/heads/fix/l0-onboarding-and-support-20261009
           rm -f "$askpass"
           git rev-parse HEAD > "$RUNNER_TEMP/l0-result/published-commit.txt"
       - name: Export exact source and evidence
