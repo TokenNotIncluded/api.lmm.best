@@ -3121,7 +3121,7 @@ export function ChannelMutateDrawer({
                                         />
                                       </FormControl>
                                       <FormDescription>
-                                        <div className='flex flex-col gap-2'>
+                                        <span className='flex flex-col gap-2'>
                                           <span>{keyDescription}</span>
                                           {isBatchMode && (
                                             <Button
@@ -3135,7 +3135,7 @@ export function ChannelMutateDrawer({
                                               {t('Remove Duplicates')}
                                             </Button>
                                           )}
-                                        </div>
+                                        </span>
                                       </FormDescription>
                                       {isEditing && canRevealChannelKey && (
                                         <div className='border-border/60 mt-4 flex flex-col gap-3 border-y border-dashed py-4'>

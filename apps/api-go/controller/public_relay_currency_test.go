@@ -70,13 +70,16 @@ func TestPublicRelayConfigRealUSDAndPreservedRawThreshold(t *testing.T) {
 func TestPublicRelayTipChargesRealUSDAndRejectsUnsafeMoney(t *testing.T) {
 	installPublicMoneyCurrencyFixture(t)
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.PublicRelayContribution{}, &model.PublicRelayTip{}, &model.PublicRelayPreference{}, &model.Log{}))
+	require.NoError(t, db.AutoMigrate(&model.PublicRelayContribution{}, &model.PublicRelayTip{}, &model.PublicRelayPreference{}, &model.Log{}, &model.Channel{}, &model.Ability{}))
 	owner := model.User{Username: "real-usd-relay-owner", AffCode: "real-usd-owner", Group: "default"}
 	tipper := model.User{Username: "real-usd-relay-tipper", AffCode: "real-usd-tipper", Group: "default", Quota: 20000000}
 	require.NoError(t, db.Create(&owner).Error)
 	require.NoError(t, db.Create(&tipper).Error)
 	contribution := model.PublicRelayContribution{UserId: owner.Id, Name: "real usd", Group: "FREE", Status: model.PublicRelayApproved, ChannelId: 1}
 	require.NoError(t, db.Create(&contribution).Error)
+	channel := model.Channel{Id: 1, Type: 1, Group: "FREE", Models: "model-a", Status: common.ChannelStatusEnabled}
+	require.NoError(t, db.Create(&channel).Error)
+	require.NoError(t, channel.AddAbilities(db))
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set("id", tipper.Id); c.Next() })
 	router.POST("/api/public-relays/:id/tip", TipPublicRelay)
