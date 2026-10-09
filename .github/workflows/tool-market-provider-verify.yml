@@ -29,7 +29,7 @@ jobs:
           POSTGRES_DB: market_test
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U market_test -d market_test'
+          --health-cmd=pg_isready
           --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       GOMAXPROCS: '2'
