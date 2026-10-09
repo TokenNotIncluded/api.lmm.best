@@ -70,7 +70,11 @@ func identityMigrationModels(db *gorm.DB) ([]interface{}, error) {
 	if SubprojectOIDCEnabledFromEnv() {
 		models = append(models, &OIDCRecord{})
 	}
-	return models, nil
+	native, err := nativeAccountMigrationModels(db)
+	if err != nil {
+		return nil, err
+	}
+	return append(models, native...), nil
 }
 
 func startupMigrationModels(db *gorm.DB) ([]interface{}, error) {
