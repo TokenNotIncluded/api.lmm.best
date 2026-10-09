@@ -1,0 +1,261 @@
+name: L1 cleanup latest main verification
+on:
+  push:
+    branches: [work/l1-cleanup-audit-20261009]
+    paths: [.github/workflows/l1-latest-main-verify.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  CI: 'true'
+  GOMAXPROCS: '2'
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 40c40d44de85b93559c88aace77ee60914fb2bbd
+          fetch-depth: 0
+      - name: Integrate reviewed concurrent changes without restoring retired APIs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/l1-source"
+          git show d0d2598f9f812bdabedd34ae28de44e1b33ec227:.l1-resolve-main.py > "$RUNNER_TEMP/l1-resolve-main.py"
+          git config user.name 'LIghtJUNction'
+          git config user.email '106986785+LIghtJUNction@users.noreply.github.com'
+          git merge --no-commit --no-ff ed3cb848c733c7ba16704f6ef964cecd132bf686 > "$RUNNER_TEMP/l1-source/merge.log" 2>&1 || true
+          python3 "$RUNNER_TEMP/l1-resolve-main.py"
+          test ! -e .l1-resolve-main.py
+          test ! -e .github/workflows/l1-latest-main-verify.yml
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          forbidden=re.compile(r'推荐信|申请信|recommendation.?letter|recommendation.?archive|AssistantL1AutoReview',re.I)
+          found=[]
+          for p in Path('apps/web/src').rglob('*'):
+              if p.is_file() and p.suffix in ('.ts','.tsx','.json') and '.test.' not in p.name:
+                  for n,line in enumerate(p.read_text().splitlines(),1):
+                      if forbidden.search(line):found.append(f'{p}:{n}:{line}')
+          assert not found,'\n'.join(found)
+          PY
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - run: |
+          bun install --frozen-lockfile
+          bun run --filter @lmm/web format
+          (cd apps/api-go && go run ./cmd/assistant-contracts -root .)
+      - name: Record exact integrated candidate with both parents
+        id: source
+        run: |
+          set -euo pipefail
+          git add -A
+          git diff --cached --check
+          git diff --cached --binary > "$RUNNER_TEMP/l1-source/integration.patch"
+          git commit -m 'merge: preserve latest main and fully retire L1 application surfaces'
+          sha=$(git rev-parse HEAD)
+          git push origin "HEAD:refs/heads/work/l1-cleanup-main-${GITHUB_RUN_ID}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "$sha" | tee "$RUNNER_TEMP/l1-source/revision.txt"
+          git diff --stat ed3cb848c733c7ba16704f6ef964cecd132bf686 HEAD > "$RUNNER_TEMP/l1-source/summary.txt"
+          git archive HEAD | gzip > "$RUNNER_TEMP/l1-source/source.tar.gz"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-latest-source
+          path: ${{ runner.temp }}/l1-source/
+          retention-days: 3
+  web:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Entire current Web test suite in per-file isolation
+        working-directory: apps/web
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'l1-web';root.mkdir()
+          source=sorted([str(p) for p in Path('src').rglob('*.test.ts')]+[str(p) for p in Path('src').rglob('*.test.tsx')])
+          scripts=sorted(str(p) for p in Path('scripts').rglob('*.test.mjs'))
+          tests=[('bun',p) for p in source]+[('node',p) for p in scripts]
+          selected=tests[int(os.environ['SHARD'])::3];assert selected
+          report={'sha':'${{ needs.prepare.outputs.sha }}','total_files':len(tests),'passed':[],'failed':[]}
+          for executable,path in selected:
+              args=['bun','test','--preload','./scripts/test-preload.mjs','--timeout','15000',path] if executable=='bun' else ['node','--test',path]
+              r=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+              with (root/'tests.log').open('a') as f:f.write('\nFILE '+path+'\n'+r.stdout)
+              report['failed' if r.returncode else 'passed'].append(path)
+              if r.returncode:print(r.stdout)
+          (root/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
+          raise SystemExit(bool(report['failed']))
+          PY
+      - name: Type, lint, format, contracts, production build and bundle checks
+        if: ${{ matrix.shard == 0 }}
+        run: |
+          set -euo pipefail
+          {
+            bun run --filter @lmm/web format:check
+            bun run --filter @lmm/web copyright:check
+            bun run --filter @lmm/web typecheck
+            bun run --filter @lmm/web lint
+            bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh
+            bun run --filter @lmm/web build
+            bun run --filter @lmm/web bundle:check
+          } 2>&1 | tee "$RUNNER_TEMP/l1-web/checks.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-latest-web-${{ matrix.shard }}
+          path: ${{ runner.temp }}/l1-web/
+          retention-days: 3
+  go:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TEST_POSTGRES_DSN: postgres://postgres:l1-isolated-test@127.0.0.1:5432/l1_cleanup?sslmode=disable
+      TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: l1-isolated-test
+          POSTGRES_DB: l1_cleanup
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Full affected packages including newly merged tool policy
+        working-directory: apps/api-go
+        run: |
+          mkdir -p "$RUNNER_TEMP/l1-go"
+          go test -json -p 2 ./middleware ./model ./controller ./router ./internal/assistantcontracts ./setting -count=1 > "$RUNNER_TEMP/l1-go/tests.jsonl" 2> "$RUNNER_TEMP/l1-go/stderr.log"
+      - name: Race checks for activation, support, todos, and current tool policy
+        working-directory: apps/api-go
+        run: |
+          set -euo pipefail
+          go test -race -p 2 ./model ./controller ./setting -run 'Test(RetiredDeveloperAccess|Assistant.*(DirectL1|FirstTurn|Registration|Support|ToolPolicy)|UnifiedTodo)' -count=1 2>&1 | tee "$RUNNER_TEMP/l1-go/race.log"
+      - name: Summarize passes, failures, and skips separately
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import collections,json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'l1-go'
+          if not (root/'tests.jsonl').exists():raise SystemExit(0)
+          counts=collections.Counter();failed=[];skipped=[]
+          for line in (root/'tests.jsonl').read_text().splitlines():
+              try:r=json.loads(line)
+              except ValueError:continue
+              if r.get('Test') and '/' not in r['Test'] and r.get('Action') in ('pass','fail','skip'):
+                  counts[r['Action']]+=1
+                  if r['Action']=='fail':failed.append(r['Package']+':'+r['Test'])
+                  if r['Action']=='skip':skipped.append(r['Package']+':'+r['Test'])
+          report={'sha':'${{ needs.prepare.outputs.sha }}','counts':dict(counts),'failed':failed,'skipped':skipped}
+          (root/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
+          print((root/'stderr.log').read_text()[-5000:])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-latest-go
+          path: ${{ runner.temp }}/l1-go/
+          retention-days: 3
+  browser:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: |
+          bun install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Scope read-only browser review to changed application surfaces
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/web/scripts/console-page-review.mjs');s=p.read_text()
+          start=s.index('const userRoutes = [');end=s.index('const report = []',start)
+          s=s[:start]+"const userRoutes = ['/getting-started', '/todos']\nconst adminRoutes = ['/users', '/todos', '/system-settings/content/assistant']\n"+s[end:]
+          old="    ['l1', userRoutes, 1440],\n    ['admin', adminRoutes, 1440],\n    ['l1', mobileRoutes, 390],"
+          new="    ['l0', userRoutes, 1440],\n    ['admin', adminRoutes, 1440],\n    ['l0', userRoutes, 390],\n    ['admin', adminRoutes, 390],"
+          assert old in s;s=s.replace(old,new)
+          s=s.replace('waitFor({ timeout: 30_000 })','waitFor({ timeout: 60_000 })')
+          p.write_text(s)
+          PY
+      - name: Verify desktop and mobile states without external traffic
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/browser/node_modules/playwright/index.mjs
+          CONSOLE_REVIEW_OUTPUT: ${{ runner.temp }}/l1-browser
+          CONSOLE_REVIEW_ORIGIN: http://127.0.0.1:4174
+        run: |
+          set -euo pipefail
+          mkdir -p "$CONSOLE_REVIEW_OUTPUT"
+          git rev-parse HEAD > "$CONSOLE_REVIEW_OUTPUT/revision.txt"
+          LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$CONSOLE_REVIEW_OUTPUT/server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null; then break; fi
+            sleep 2
+          done
+          node scripts/console-page-review.mjs 2>&1 | tee "$CONSOLE_REVIEW_OUTPUT/review.log"
+          python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          report=json.loads((Path(os.environ['CONSOLE_REVIEW_OUTPUT'])/'report.json').read_text())
+          assert len(report)==10,len(report)
+          forbidden=re.compile(r'推荐信|申请信|L1\s*申请|L1 application|recommendation letter|recommendation archive',re.I)
+          for entry in report:assert not forbidden.search(entry['text']),(entry['persona'],entry['path'])
+          print('All 10 current-source browser states passed.')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-latest-browser
+          path: ${{ runner.temp }}/l1-browser/
+          retention-days: 3
