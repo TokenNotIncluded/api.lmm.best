@@ -9,21 +9,139 @@ permissions:
   contents: read
 
 jobs:
-  source:
+  apply:
+    if: github.ref == 'refs/heads/codex/mobile-immersive-settings'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      revision: ${{ steps.commit.outputs.revision }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
+          ref: codex/mobile-immersive-settings
+          fetch-depth: 0
+      - name: Verify and apply the reviewed source patch
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code dbde2ba923c6c685f84d15525f0c24c20e0567e3 HEAD -- apps/web
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os
+          from pathlib import Path
+          parts = [Path(f'.review/mobile.patch.{i}').read_text() for i in range(1, 5)]
+          patch = lzma.decompress(base64.b64decode(''.join(parts), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '82f9eec6f9fdaf837991cdab1b2cadd89da045936ce40a41409ace67b832dbe8'
+          Path(os.environ['RUNNER_TEMP'], 'mobile.patch').write_bytes(patch)
+          PY
+          git apply --check "$RUNNER_TEMP/mobile.patch"
+          git apply --index "$RUNNER_TEMP/mobile.patch"
+          git diff --cached --name-only | grep -q '^apps/web/'
+          if git diff --cached --name-only | grep -v '^apps/web/'; then exit 1; fi
+          git diff --cached --check
+      - name: Commit only the feature branch source changes
+        id: commit
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(web): unify mobile scenes, floating settings and safe WebMCP drafts'
+          git push origin HEAD:refs/heads/codex/mobile-immersive-settings
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  quality:
+    needs: apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.apply.outputs.revision }}
           persist-credentials: false
-      - name: Export tracked sources only
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Independent quality checks
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/mobile-quality"
+          git rev-parse HEAD > "$RUNNER_TEMP/mobile-quality/revision.txt"
+          failed=0
+          for check in copyright:check lint typecheck test format:check; do
+            if bun run --filter @lmm/web "$check" > "$RUNNER_TEMP/mobile-quality/${check//:/-}.log" 2>&1; then
+              printf '%s: PASS\n' "$check" | tee -a "$RUNNER_TEMP/mobile-quality/quality.txt"
+            else
+              failed=1
+              printf '%s: FAIL\n' "$check" | tee -a "$RUNNER_TEMP/mobile-quality/quality.txt"
+              tail -n 30 "$RUNNER_TEMP/mobile-quality/${check//:/-}.log"
+            fi
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: mobile-quality-review
+          path: ${{ runner.temp }}/mobile-quality
+          retention-days: 7
+  browser:
+    needs: apply
+    strategy:
+      fail-fast: false
+      matrix:
+        area: [public, console]
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.apply.outputs.revision }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Prepare isolated browser tooling
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/mobile-review"
-          git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/mobile-review/source.tar.gz"
           git rev-parse HEAD > "$RUNNER_TEMP/mobile-review/revision.txt"
-      - uses: actions/upload-artifact@v4
+          npm install --prefix "$RUNNER_TEMP/mobile-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/mobile-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Build the production public app
+        if: matrix.area == 'public'
+        run: |
+          bun run --filter @lmm/web build > "$RUNNER_TEMP/mobile-review/build.log" 2>&1
+          bun run --filter @lmm/web bundle:check >> "$RUNNER_TEMP/mobile-review/build.log" 2>&1
+      - name: Run responsive and touch assertions
+        shell: bash
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/mobile-browser/node_modules/playwright/index.mjs
+          MOBILE_REVIEW_OUTPUT: ${{ runner.temp }}/mobile-review
+          REVIEW_AREA: ${{ matrix.area }}
+        run: |
+          if [ "$REVIEW_AREA" = console ]; then
+            export MOBILE_CONSOLE_ORIGIN=http://127.0.0.1:4174
+            export MOBILE_REVIEW_CASES=console
+            LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$RUNNER_TEMP/mobile-review/server.log" 2>&1 &
+            port=4174
+          else
+            bun run preview --port 4175 > "$RUNNER_TEMP/mobile-review/server.log" 2>&1 &
+            port=4175
+          fi
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 120); do
+            if curl --fail --silent "http://127.0.0.1:$port/" > /dev/null; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          node scripts/mobile-experience-review.mjs > "$RUNNER_TEMP/mobile-review/browser.log" 2>&1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: mobile-review-source
+          name: mobile-${{ matrix.area }}-review
           path: ${{ runner.temp }}/mobile-review
-          retention-days: 1
+          retention-days: 7
