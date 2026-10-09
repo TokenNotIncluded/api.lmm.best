@@ -38,3 +38,39 @@ test('does not restore the old account if it changes while refreshing', async ()
   assert.equal(await request, null)
   assert.equal(useAuthStore.getState().auth.user?.id, 42)
 })
+
+test('a grant refresh cannot promote a newer session of the same account', async () => {
+  const bundle = (sid: string) => ({
+    access_token: 'local-test-token',
+    token_type: 'Bearer',
+    access_expires_at: 1900000000,
+    user: { ...user, developer_access_granted: false },
+    session: {
+      sid,
+      current: true,
+      login_method: 'password',
+      ip: '127.0.0.1',
+      user_agent: 'local-test',
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: 1900000000,
+    },
+  })
+  useAuthStore.getState().auth.setBundle(bundle('old-session'))
+  let finish: (value: unknown) => void = () => undefined
+  api.get = (() =>
+    new Promise<unknown>((resolve) => {
+      finish = resolve
+    })) as typeof api.get
+  const request = refreshCurrentAccount()
+  useAuthStore.getState().auth.setBundle(bundle('new-session'))
+  finish({
+    data: { success: true, data: { ...user, developer_access_granted: true } },
+  })
+  assert.equal(await request, null)
+  assert.equal(useAuthStore.getState().auth.session?.sid, 'new-session')
+  assert.equal(
+    useAuthStore.getState().auth.user?.developer_access_granted,
+    false
+  )
+})

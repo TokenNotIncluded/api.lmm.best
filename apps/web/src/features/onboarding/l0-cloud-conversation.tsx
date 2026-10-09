@@ -46,6 +46,7 @@ import {
   visualTokenTail,
   type L0TextFlow,
 } from './l0-text-flow'
+import { refreshCurrentAccount } from './use-auth-user-refresh'
 
 const PreviousTurn = memo(function PreviousTurn({ turn }: { turn: CloudTurn }) {
   return (
@@ -144,6 +145,19 @@ export function L0CloudConversation({
             turnId
           )
           if (!sameAccount()) throw new Error('Account changed')
+          // The assistant may have granted L1 on this completed turn. Read the
+          // authoritative account, never derive permission from response text.
+          if (
+            reply.tools?.some(
+              (trace) =>
+                trace.name === 'grant_l1_access' &&
+                trace.status === 'output-available'
+            )
+          ) {
+            // A slow account read must not hold the completed answer open.
+            // The refresh helper checks both account and session before commit.
+            void refreshCurrentAccount()
+          }
           return {
             ...reply,
             needsAction: Boolean(reply.action || reply.supportRequest),
@@ -398,7 +412,7 @@ export function L0CloudConversation({
                 type='button'
                 onClick={onRequestAccess}
               >
-                {t('Apply for access')}
+                {copy.conditions}
               </button>
             )}
           </article>

@@ -184,6 +184,12 @@ function L0WelcomeStage({
       target.focus({ preventScroll: true })
     })
   }
+  const continueConversation = () => {
+    selectScene('chat', true)
+    requestAnimationFrame(() => {
+      document.getElementById('l0-question')?.focus({ preventScroll: true })
+    })
+  }
   const navigateTabs = (
     event: KeyboardEvent<HTMLButtonElement>,
     index: number
@@ -252,10 +258,7 @@ function L0WelcomeStage({
           <details className='l0-help-menu' onKeyDown={closeDisclosure}>
             <summary aria-label={copy.help}>?</summary>
             <div className='l0-help-content'>
-              <button
-                type='button'
-                onClick={() => void navigate({ to: '/support' })}
-              >
+              <button type='button' onClick={continueConversation}>
                 {copy.support}
                 <Arrow diagonal />
               </button>
@@ -272,17 +275,8 @@ function L0WelcomeStage({
       <div className='l0-stage'>
         <section className='l0-rail' aria-label={t('Account and access')}>
           <div className='l0-rail-body'>
-            <p className='l0-rail-headline'>
-              {request.isError
-                ? t('Unable to load access status')
-                : request.data?.status === 'pending'
-                  ? t('Awaiting review')
-                  : request.data?.status === 'rejected'
-                    ? t('Access request rejected')
-                    : request.data?.status === 'approved'
-                      ? t('Access request approved')
-                      : copy.apply}
-            </p>
+            <p className='l0-rail-headline'>{copy.apply}</p>
+            <p className='l0-rail-meta'>{copy.verificationNote}</p>
             <p
               className='l0-rail-meta'
               data-testid={progressReady ? 'l0-paid-progress' : undefined}
@@ -317,27 +311,14 @@ function L0WelcomeStage({
               }
               disabled={busy}
               onClick={() => {
-                if (request.isError) {
-                  void request.refetch()
-                } else if (
-                  request.data?.status === 'approved' ||
-                  access.mode === 'sync'
-                ) {
+                if (access.mode === 'sync') {
                   check()
                 } else {
-                  openApplication()
+                  continueConversation()
                 }
               }}
             >
-              {request.isError ||
-              request.data?.status === 'approved' ||
-              access.mode === 'sync'
-                ? t('Reload account status')
-                : request.data?.status === 'pending'
-                  ? t('View application')
-                  : request.data?.status === 'rejected'
-                    ? t('Revise')
-                    : copy.apply}
+              {access.mode === 'sync' ? t('Reload account status') : copy.apply}
               <Arrow />
             </button>
             {access.mode !== 'active' && (

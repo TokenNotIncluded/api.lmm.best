@@ -65,17 +65,3 @@ export function getDeveloperAccessRequest() {
     })
   )
 }
-
-export function submitDeveloperAccessRequest(input: {
-  reason: string
-  ai_recommendation?: string
-  confirmation_token?: string
-  confirmed: true
-}) {
-  return unwrap<DeveloperAccessRequest>(
-    api.post('/api/user/developer-access/request', input, {
-      skipBusinessError: true,
-      skipErrorHandler: true,
-    })
-  )
-}

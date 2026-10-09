@@ -24,22 +24,21 @@ import type { AuthUser } from '@/stores/auth-store'
 import { getAccountNextStep } from './next-step'
 
 const user: AuthUser = { id: 1, username: 'new-user', role: 1 }
-test('guests start with login and pending users never start with payment', () => {
+test('guests start with login and every L0 history state continues assistant verification', () => {
   assert.equal(getAccountNextStep(null).to, '/sign-in')
-  assert.equal(
-    getAccountNextStep(user, 'pending').label,
-    'View access request status'
-  )
-  assert.equal(getAccountNextStep(user, 'none').label, 'Request API access')
-  assert.equal(
-    getAccountNextStep(user, 'error').label,
-    'Check API access status'
-  )
-  assert.equal(
-    getAccountNextStep(user, 'unknown').label,
-    'Check API access status'
-  )
-  assert.equal(getAccountNextStep(user, 'approved').to, '/getting-started')
+  for (const status of [
+    'pending',
+    'none',
+    'error',
+    'unknown',
+    'approved',
+    'rejected',
+  ] as const) {
+    assert.deepEqual(getAccountNextStep(user, status), {
+      to: '/getting-started',
+      label: 'Continue with the assistant',
+    })
+  }
 })
 test('OAuth and undecided users are not required to create manual keys', () => {
   const approved = {

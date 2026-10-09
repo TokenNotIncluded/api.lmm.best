@@ -19,7 +19,7 @@ export function getL0AccessCopy(language: string) {
     explore: t('Explore'),
     access: t('Unlock'),
     navigation: t('Workspace views'),
-    unlockTitle: t('Apply for access'),
+    unlockTitle: t('Continue with the assistant'),
     modelsNote: t('Find a model for your next request.'),
     toolsNote: t('Bring LMM into the tools you use.'),
     challengesNote: t('Build something together.'),
@@ -36,7 +36,10 @@ export function getL0AccessCopy(language: string) {
     toggleMotion: t('Pause or resume animation'),
     wallet: t('Top up'),
     walletNote: t('Open the wallet to add credit'),
-    apply: t('Apply for access'),
+    apply: t('Continue with the assistant'),
+    verificationNote: t(
+      'The assistant can complete access verification during this conversation. No recommendation letter is required.'
+    ),
     check: t('Already paid'),
     remaining: t('Eligible credit needed'),
     eligibility: t(
