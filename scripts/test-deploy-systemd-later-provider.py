@@ -1,0 +1,498 @@
+"""Local released-history registration tests; no service or remote host access."""
+import importlib.util
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import tarfile
+import unittest
+from unittest.mock import patch
+
+
+spec = importlib.util.spec_from_file_location(
+    'existing_deploy_systemd_tests', Path(__file__).with_name('test-deploy-systemd.py'))
+existing = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(existing)
+deploy = existing.deploy
+
+
+class LaterProviderHistoryTests(unittest.TestCase):
+    setUp = existing.CleanupTests.setUp
+    write = existing.CleanupTests.write
+    state = existing.CleanupTests.state
+    workspace = existing.CleanupTests.workspace
+    install_chain = existing.CleanupTests.install_chain
+    maintenance = existing.CleanupTests.maintenance
+    snapshot = existing.CleanupTests.snapshot
+    proof = existing.OrdinaryHistoryTests.proof
+
+    def write_json(self, path, value):
+        return self.write(path, json.dumps(value, sort_keys=True).encode() + b'\n')
+
+    def make_archive(self, path, files, extra=()):
+        with tarfile.open(path, 'w:gz') as archive:
+            for name, content in files.items():
+                member = tarfile.TarInfo(name)
+                member.size = len(content)
+                member.mode = 0o644
+                archive.addfile(member, io.BytesIO(content))
+            for member, content in extra:
+                archive.addfile(member, io.BytesIO(content) if content is not None else None)
+        path.chmod(0o600)
+        return path
+
+    def later_fixture(self):
+        self.proof()
+        self.origin = self.workspace('later', 'CONFIRMED')
+        self.payload = b'official later provider fixture'
+        self.revision = '1' * 40
+        self.write(deploy.BINARY, self.payload, 0o755)
+        self.write(self.origin / 'lmm-api-go', self.payload, 0o755)
+        state = deploy.read_state(self.origin)
+        state.update(version='0.2.98', sha256=deploy.digest(deploy.BINARY),
+                     migrate=False, backup_exclude_tables=[], previous_version='0.2.97')
+        self.state(self.origin, state)
+        self.cap_root = Path('/var/lib/lmm-api-go-deploy/merchant-capsules/later')
+        self.local_cap_root = self.base / 'capsule'
+        assets = self.local_cap_root / 'assets'
+        assets.mkdir(mode=0o700, parents=True)
+        go_asset = self.make_archive(assets / 'candidate.release.tar.gz', {
+            'lmm-api-go-0.2.98/REVISION': self.revision.encode() + b'\n',
+            'lmm-api-go-0.2.98/lmm-api-go': self.payload})
+        go_bundle = self.write(assets / 'candidate.sigstore.json', b'{"synthetic_signed_bundle":true}\n')
+        go_package = self.write(assets / 'candidate.pkg.tar.zst', b'official candidate package fixture')
+        candidate = {'name': 'lmm-api-go', 'version': '0.2.98-1', 'package_path': 'assets/candidate.pkg.tar.zst',
+                     'package_sha256': deploy.digest(go_package),
+                     'git_revision': self.revision, 'contract_revision': 'fixture-v1',
+                     'payload_sha256': state['sha256'], 'release_asset': 'assets/candidate.release.tar.gz',
+                     'release_asset_sha256': deploy.digest(go_asset), 'signature_bundle': 'assets/candidate.sigstore.json',
+                     'signature_bundle_sha256': deploy.digest(go_bundle), 'release_tag': 'go-v0.2.98',
+                     'workflow': 'release-go.yml'}
+        rollback_package = self.write(assets / 'rollback.pkg.tar.zst', b'official rollback package fixture')
+        rollback_asset = self.write(assets / 'rollback.release.tar.gz', go_asset.read_bytes())
+        rollback_bundle = self.write(assets / 'rollback.sigstore.json', go_bundle.read_bytes())
+        rollback = dict(candidate, version='0.2.97-1', release_tag='go-v0.2.97',
+                        package_path='assets/rollback.pkg.tar.zst', package_sha256=deploy.digest(rollback_package),
+                        release_asset='assets/rollback.release.tar.gz', release_asset_sha256=deploy.digest(rollback_asset),
+                        signature_bundle='assets/rollback.sigstore.json', signature_bundle_sha256=deploy.digest(rollback_bundle))
+        physical = {key: self.database[key] for key in ('system_identifier', 'database', 'database_oid', 'schema')}
+        physical.update(format=1, schema_oid=2200, metadata_sha256='7' * 64, signed_unit_sha256='8' * 64)
+        writer = {key: physical[key] for key in ('format', 'system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'signed_unit_sha256')}
+        writer.update(required_capability='fixture-v1', role=self.database['database_user'],
+                      recovery_policy='original-owner-only', candidate={'payload_sha256': state['sha256']},
+                      rollback={'payload_sha256': '9' * 64})
+        self.plan = {'format': 7, 'deployment_id': 'later', 'schema_mode': 'verify-existing',
+                     'go_candidate': candidate, 'go_rollback': rollback,
+                     'existing_schema_contract': physical, 'merchant_store_writer': writer}
+        self.plan_path = self.write_json(self.base / 'plan.json', self.plan)
+        self.capsule = {'format': 1, 'deployment_id': 'later', 'root': str(self.cap_root),
+                        'binary': str(deploy.BINARY), 'service': deploy.SERVICE, 'host': 'fixture-host',
+                        'startup_policy': 'per-start', 'schema_mode': 'verify-existing',
+                        'controller_plan_sha256': deploy.digest(self.plan_path), 'candidate': candidate,
+                        'rollback': rollback, 'existing_schema_contract': physical, 'merchant_store_writer': writer}
+        self.cap_path = self.write_json(self.local_cap_root / 'capsule.json', self.capsule)
+        web_files = {'dist/index.html': b'later index', 'dist/assets/main.js': b'later web script',
+                     'REVISION': b'3' * 40 + b'\n'}
+        self.web_files = web_files
+        self.web_asset = self.make_archive(self.base / 'web.release.tar.gz', web_files)
+        self.web_bundle = self.write(self.base / 'web.sigstore.json', b'{"synthetic_signed_bundle":true}\n')
+        self.published = deploy.FRONTEND / 'releases' / '0.1.137'
+        (self.published / 'assets').mkdir(mode=0o700, parents=True)
+        for name, content in web_files.items():
+            if name.startswith('dist/'):
+                self.write(self.published / name.removeprefix('dist/'), content, 0o644)
+        (deploy.FRONTEND / 'current').unlink()
+        (deploy.FRONTEND / 'current').symlink_to('releases/0.1.137')
+        self.manifest = {'format': 'lmm-systemd-later-provider-v1', 'release': 'later',
+                         'state_sha256': deploy.digest(self.origin / 'state.json'),
+                         'capsule_path': str(self.cap_root / 'capsule.json'), 'capsule_sha256': deploy.digest(self.cap_path),
+                         'controller_plan_path': str(self.plan_path), 'controller_plan_sha256': deploy.digest(self.plan_path),
+                         'frontend_asset': str(self.web_asset), 'frontend_asset_sha256': deploy.digest(self.web_asset),
+                         'frontend_bundle': str(self.web_bundle), 'frontend_bundle_sha256': deploy.digest(self.web_bundle),
+                         'frontend_version': '0.1.137', 'frontend_target': 'releases/0.1.137',
+                         'boot_id': '11111111-2222-3333-4444-555555555555', 'main_pid': 2147483000,
+                         'invocation_id': '4' * 32}
+        self.manifest_path = self.base / 'later-provider.json'
+        self.seal_manifest()
+        self.generation = {'boot_id': self.manifest['boot_id'], 'main_pid': self.manifest['main_pid'],
+                           'invocation_id': self.manifest['invocation_id'],
+                           'installed_sha256': state['sha256'], 'running_sha256': state['sha256'],
+                           'process_environment_sha256': '5' * 64, 'loaded_environment_sha256': '6' * 64,
+                           'ordered_environment_files': [{'path': str(deploy.ENVIRONMENT),
+                                                          'sha256': deploy.digest(deploy.ENVIRONMENT)}]}
+        self.real_generation = deploy.later_generation
+        self.real_database_status = deploy.later_database_status
+        self.generation_probe = self.stack.enter_context(patch.object(deploy, 'later_generation', return_value=self.generation))
+        self.database_probe = self.stack.enter_context(patch.object(deploy, 'later_database_status', return_value={
+            **{key: writer[key] for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')},
+            'reserved_count': 0}))
+        self.stack.enter_context(patch.object(deploy.socket, 'gethostname', return_value='fixture-host'))
+        real_bound = deploy.guardian.bound_file
+        self.stack.enter_context(patch.object(deploy.guardian, 'bound_file', side_effect=lambda path, sha, *args, **kwargs:
+            real_bound(self.local_path(Path(path)), sha, *args, **kwargs)))
+        real_cleanup = deploy.cleanup_path
+        self.stack.enter_context(patch.object(deploy, 'cleanup_path', side_effect=lambda path, *args, **kwargs:
+            real_cleanup(self.local_path(Path(path)), *args, **kwargs)))
+        real_digest = deploy.digest
+        self.stack.enter_context(patch.object(deploy, 'digest', side_effect=lambda path: real_digest(self.local_path(Path(path)))))
+        real_archive = deploy.later_signed_archive
+        self.stack.enter_context(patch.object(deploy, 'later_signed_archive', side_effect=lambda asset, bundle, *args:
+            real_archive(self.local_path(Path(asset)), self.local_path(Path(bundle)), *args)))
+        self.native_exit = 0
+        self.native_stdout = b'merchant_store_capsule=qualified\n'
+        self.cosign_exit = 0
+        self.executed = []
+        self.stack.enter_context(patch.object(deploy.subprocess, 'run', side_effect=self.fake_command))
+
+    def local_path(self, path):
+        return self.local_cap_root / path.relative_to(self.cap_root) if path.is_relative_to(self.cap_root) else path
+
+    def fake_command(self, argv, **kwargs):
+        self.executed.append(argv)
+        self.assertTrue(kwargs.get('capture_output'))
+        if argv[0] == 'cosign':
+            self.assertEqual(['verify-blob', '--bundle'], argv[1:3])
+            self.assertIn('--certificate-identity', argv)
+            self.assertIn('https://token.actions.githubusercontent.com', argv)
+            return deploy.subprocess.CompletedProcess(argv, self.cosign_exit, b'', b'fixture signature stderr')
+        self.assertEqual([str(deploy.BINARY), 'operator', 'production', 'writer-capsule', 'check', '--capsule',
+                          self.manifest['capsule_path'], '--capsule-sha256', self.manifest['capsule_sha256']], argv)
+        return deploy.subprocess.CompletedProcess(argv, self.native_exit, self.native_stdout, b'')
+
+    def seal_manifest(self):
+        self.write_json(self.manifest_path, self.manifest)
+        self.history_args.later_provider = self.manifest_path
+        self.history_args.later_provider_sha256 = deploy.digest(self.manifest_path)
+
+    def qualify(self):
+        return deploy.qualify_later_provider(self.manifest_path.read_bytes(), self.maintenance())
+
+    def reseal_inputs(self):
+        self.write_json(self.plan_path, self.plan)
+        self.manifest['controller_plan_sha256'] = deploy.digest(self.plan_path)
+        self.capsule['controller_plan_sha256'] = self.manifest['controller_plan_sha256']
+        self.write_json(self.cap_path, self.capsule)
+        self.manifest['capsule_sha256'] = deploy.digest(self.cap_path)
+        self.manifest['state_sha256'] = deploy.digest(self.origin / 'state.json')
+        self.seal_manifest()
+
+    def test_later_provider_dry_run_and_registration_keep_financial_history(self):
+        self.later_fixture()
+        original = self.snapshot(deploy.ROOT)
+        preview = deploy.register_released_history(self.history_args)
+        self.assertEqual('lmm-systemd-released-history-v2', preview['format'])
+        self.assertFalse(deploy.history_root().exists())
+        self.history_args.execute = True
+        registered = deploy.register_released_history(self.history_args)
+        self.assertEqual('lmm-systemd-released-history-v2', registered['format'])
+        self.assertEqual({'bridge', 'capture'}, deploy.released_ancestors())
+        self.assertEqual(original, self.snapshot(deploy.ROOT))
+        saved = deploy.history_root() / 'released/current'
+        self.assertEqual({'controller.json', 'confirmation.json', 'receipt.json', 'later-provider.json',
+                          'later-qualification.json', 'origin-state.json', 'origin-capsule.json', 'origin-plan.json'},
+                         {path.name for path in saved.iterdir()})
+        self.assertGreaterEqual(len([argv for argv in self.executed if argv[0] == 'cosign']), 4)
+        self.probes.assert_any_call('0.2.98', None)
+
+    def test_manifest_rejects_unknown_duplicate_and_unsafe_fields(self):
+        self.later_fixture()
+        changed = dict(self.manifest, unknown='not authority')
+        with self.assertRaisesRegex(RuntimeError, 'unknown'):
+            deploy.later_provider_manifest(json.dumps(changed).encode())
+        raw = self.manifest_path.read_bytes().rstrip()
+        with self.assertRaisesRegex(RuntimeError, 'duplicate'):
+            deploy.later_provider_manifest(raw[:-1] + b',"release":"later"}')
+        for key, value in [('main_pid', True), ('invocation_id', 'invalid'), ('boot_id', 'invalid'),
+                           ('capsule_path', '/var/lib/lmm-api-go-deploy/merchant-capsules/other/capsule.json'),
+                           ('controller_plan_path', '/private/../plan.json'), ('frontend_target', 'releases/../escape'),
+                           ('frontend_version', '0.1.137-1'), ('state_sha256', 'A' * 64)]:
+            with self.subTest(field=key), self.assertRaises(RuntimeError):
+                deploy.later_provider_manifest(json.dumps(dict(self.manifest, **{key: value})).encode())
+
+    def test_origin_inputs_reject_unconfirmed_migrating_and_changed_signed_scope(self):
+        self.later_fixture()
+        original = [json.loads(path.read_bytes()) for path in (self.origin / 'state.json', self.cap_path, self.plan_path)]
+        changes = [(0, 'phase', 'STAGED'), (0, 'migrate', True), (0, 'maintenance_confirmation', True),
+                   (0, 'sha256', 'f' * 64), (0, 'version', '0.2.99'), (0, 'release', 'other'),
+                   (1, 'format', 2), (1, 'root', '/wrong'), (1, 'binary', '/wrong'),
+                   (1, 'service', 'other.service'), (1, 'startup_policy', 'held'),
+                   (1, 'controller_plan_sha256', 'f' * 64), (2, 'format', 6), (2, 'deployment_id', 'other')]
+        for index, key, value in changes:
+            values = json.loads(json.dumps(original))
+            values[index][key] = value
+            with self.subTest(input=index, field=key), self.assertRaises(RuntimeError):
+                deploy.later_provider_inputs(self.manifest, *(json.dumps(value).encode() for value in values))
+        for section, key in [('go_candidate', 'payload_sha256'), ('go_rollback', 'signature_bundle_sha256'),
+                             ('existing_schema_contract', 'database_oid'), ('merchant_store_writer', 'role')]:
+            values = json.loads(json.dumps(original))
+            values[2][section][key] = 'changed'
+            with self.subTest(section=section, field=key), self.assertRaises(RuntimeError):
+                deploy.later_provider_inputs(self.manifest, *(json.dumps(value).encode() for value in values))
+
+    def test_native_check_failure_or_missing_success_marker_prevents_registration(self):
+        self.later_fixture()
+        for code, stdout in [(1, b'merchant_store_capsule=qualified\n'), (0, b'claimed successful\n')]:
+            self.native_exit, self.native_stdout = code, stdout
+            with self.subTest(code=code), self.assertRaisesRegex(RuntimeError, 'native qualification failed'):
+                deploy.register_released_history(self.history_args)
+            self.assertFalse(deploy.history_root().exists())
+
+    def test_original_physical_database_and_business_role_must_match(self):
+        self.later_fixture()
+        initial = json.loads(json.dumps(self.capsule))
+        for key, value in [('system_identifier', '987654321'), ('database', 'another'),
+                           ('database_oid', 43), ('schema', 'other')]:
+            self.capsule = json.loads(json.dumps(initial))
+            self.capsule['existing_schema_contract'][key] = value
+            self.plan['existing_schema_contract'] = self.capsule['existing_schema_contract']
+            self.reseal_inputs()
+            with self.subTest(field=key), self.assertRaisesRegex(RuntimeError, 'released physical database'):
+                self.qualify()
+        self.capsule = json.loads(json.dumps(initial))
+        self.plan['existing_schema_contract'] = self.capsule['existing_schema_contract']
+        self.capsule['merchant_store_writer']['role'] = 'another-role'
+        self.plan['merchant_store_writer'] = self.capsule['merchant_store_writer']
+        self.reseal_inputs()
+        with self.assertRaisesRegex(RuntimeError, 'released database role'):
+            self.qualify()
+
+    def test_installed_and_running_elf_must_be_the_signed_candidate(self):
+        self.later_fixture()
+        self.write(deploy.BINARY, b'changed installed generation', 0o755)
+        with self.assertRaisesRegex(RuntimeError, 'installed ELF'):
+            self.qualify()
+        self.write(deploy.BINARY, self.payload, 0o755)
+        self.generation_probe.return_value = dict(self.generation, running_sha256='f' * 64)
+        with self.assertRaisesRegex(RuntimeError, 'running ELF'):
+            self.qualify()
+
+    def test_runtime_generation_and_origin_byte_change_during_qualification_are_rejected(self):
+        self.later_fixture()
+        self.generation_probe.side_effect = [self.generation, dict(self.generation, invocation_id='a' * 32)]
+        with self.assertRaisesRegex(RuntimeError, 'changed during qualification'):
+            self.qualify()
+        self.generation_probe.side_effect = None
+        original = (self.origin / 'state.json').read_bytes()
+        self.probes.side_effect = lambda *args: self.write(self.origin / 'state.json', original + b' ')
+        with self.assertRaises(RuntimeError):
+            self.qualify()
+
+    def test_backend_and_frontend_signature_failure_never_register(self):
+        self.later_fixture()
+        self.cosign_exit = 1
+        with self.assertRaisesRegex(RuntimeError, 'signature failed'):
+            self.qualify()
+        self.assertFalse(any(argv[0] == str(deploy.BINARY) for argv in self.executed))
+        self.cosign_exit = 0
+        original_command = self.fake_command
+        def web_signature_failure(argv, **kwargs):
+            result = original_command(argv, **kwargs)
+            if argv[0] == 'cosign' and argv[-1] == str(self.web_asset):
+                result.returncode = 1
+            return result
+        with patch.object(deploy.subprocess, 'run', side_effect=web_signature_failure), self.assertRaisesRegex(RuntimeError, 'signature failed'):
+            self.qualify()
+
+    def test_signed_frontend_actual_tree_and_current_link_must_match(self):
+        self.later_fixture()
+        self.write(self.published / 'assets/main.js', b'tampered actual frontend', 0o644)
+        with self.assertRaisesRegex(RuntimeError, 'differs from signed payload'):
+            self.qualify()
+        self.write(self.published / 'assets/main.js', self.web_files['dist/assets/main.js'], 0o644)
+        (deploy.FRONTEND / 'current').unlink()
+        (deploy.FRONTEND / 'current').symlink_to('releases/frozen')
+        with self.assertRaisesRegex(RuntimeError, 'active frontend changed'):
+            self.qualify()
+
+    def test_signed_archive_rejects_traversal_absolute_symlink_and_duplicate_entries(self):
+        self.later_fixture()
+        malformed = [('dist/../escaped', tarfile.REGTYPE, None), ('/absolute', tarfile.REGTYPE, None),
+                     ('dist/back\\slash', tarfile.REGTYPE, None), ('dist/link', tarfile.SYMTYPE, 'index.html'),
+                     ('dist/index.html', tarfile.REGTYPE, None)]
+        for index, (name, kind, link) in enumerate(malformed):
+            entry = tarfile.TarInfo(name)
+            entry.type = kind
+            entry.size = 0
+            entry.linkname = link or ''
+            asset = self.make_archive(self.base / ('unsafe-' + str(index) + '.tar.gz'), self.web_files, [(entry, None)])
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, 'unsafe entries'):
+                deploy.later_signed_archive(asset, self.web_bundle, deploy.digest(asset), deploy.digest(self.web_bundle), '0.1.137', 'web')
+
+    def test_each_held_lock_inode_replacement_blocks_before_receipt_publication(self):
+        self.later_fixture()
+        real_qualify = deploy.qualify_later_provider
+        for name in ('native', 'systemd', 'frontend'):
+            selected = Path(self.locks[name])
+            def replace_held(*args):
+                result = real_qualify(*args)
+                selected.unlink()
+                self.write(selected, b'replacement inode')
+                return result
+            with self.subTest(lock=name), patch.object(deploy, 'qualify_later_provider', side_effect=replace_held):
+                with self.assertRaisesRegex(RuntimeError, 'held history lock inode changed'):
+                    deploy.register_released_history(self.history_args)
+            self.assertFalse(deploy.history_root().exists())
+
+    def test_v2_history_survives_later_current_upgrade_and_rejects_stored_evidence_tampering(self):
+        self.later_fixture()
+        self.history_args.execute = True
+        deploy.register_released_history(self.history_args)
+        self.write(deploy.BINARY, b'new legitimate installed release', 0o755)
+        self.write(deploy.ENVIRONMENT, b'new legitimate current environment\n')
+        (deploy.FRONTEND / 'current').unlink()
+        (deploy.FRONTEND / 'current').symlink_to('releases/frozen')
+        self.generation_probe.reset_mock()
+        self.database_probe.reset_mock()
+        self.executed.clear()
+        self.assertEqual({'bridge', 'capture'}, deploy.released_ancestors())
+        self.generation_probe.assert_not_called()
+        self.database_probe.assert_not_called()
+        self.assertEqual([], self.executed)
+        saved = deploy.history_root() / 'released/current'
+        for name in ('later-provider.json', 'later-qualification.json', 'origin-state.json', 'origin-capsule.json', 'origin-plan.json'):
+            path = saved / name
+            original = path.read_bytes()
+            self.write(path, original + b' ')
+            with self.subTest(file=name), self.assertRaises(RuntimeError):
+                deploy.released_ancestors()
+            self.write(path, original)
+        frozen = deploy.ROOT / 'bridge/state.json'
+        self.write(frozen, frozen.read_bytes() + b' ')
+        with self.assertRaisesRegex(RuntimeError, 'history evidence changed'):
+            deploy.released_ancestors()
+
+    def process_fixture(self):
+        proc = self.base / 'fake-proc'
+        process = proc / str(self.manifest['main_pid'])
+        process.mkdir(mode=0o700, parents=True)
+        self.write(process / 'environ', b'SQL_DSN=postgresql://fixture:fixture-password@localhost/fixture\0')
+        self.write(process / 'exe', self.payload, 0o755)
+        boot = self.write(proc / 'boot_id', self.manifest['boot_id'].encode() + b'\n')
+        def local_proc_path(*args):
+            path = Path(*args)
+            if str(path) == '/proc/sys/kernel/random/boot_id':
+                return boot
+            if path.is_relative_to('/proc'):
+                return proc / path.relative_to('/proc')
+            return path
+        return process, boot, local_proc_path
+
+    def test_actual_generation_checks_pid_invocation_boot_restart_guard_and_environment(self):
+        self.later_fixture()
+        process, boot, local_proc_path = self.process_fixture()
+        loaded = {'MainPID': str(self.manifest['main_pid']), 'InvocationID': self.manifest['invocation_id'],
+                  'NRestarts': '0', 'ControlPID': '0', 'ActiveState': 'active', 'SubState': 'running',
+                  'Result': 'success', 'ExecStartPre': 'argv[]=lmm-api-go operator writer-start code=exited status=0',
+                  'Environment': 'LMM_SERVICE=fixture'}
+        def rendered():
+            return '\n'.join(key + '=' + value for key, value in loaded.items())
+        with patch.object(deploy, 'Path', side_effect=local_proc_path), \
+             patch.object(deploy, 'run', side_effect=lambda *args: rendered()) as command, \
+             patch.object(deploy, 'service_environment_files', return_value=[str(deploy.ENVIRONMENT)]):
+            generation = self.real_generation(self.manifest)
+            self.assertEqual(deploy.digest(deploy.BINARY), generation['running_sha256'])
+            self.assertEqual(hashlib.sha256((process / 'environ').read_bytes()).hexdigest(), generation['process_environment_sha256'])
+            self.assertEqual([{'path': str(deploy.ENVIRONMENT), 'sha256': deploy.digest(deploy.ENVIRONMENT)}], generation['ordered_environment_files'])
+            self.assertEqual(('systemctl', 'show', deploy.SERVICE), command.call_args.args[:3])
+            for key, changed in [('MainPID', '123'), ('InvocationID', 'a' * 32), ('NRestarts', '1'),
+                                 ('ControlPID', '123'), ('ActiveState', 'failed'), ('SubState', 'exited'),
+                                 ('Result', 'timeout'), ('ExecStartPre', 'writer-start code=exited status=1')]:
+                original = loaded[key]
+                loaded[key] = changed
+                with self.subTest(field=key), self.assertRaises(RuntimeError):
+                    self.real_generation(self.manifest)
+                loaded[key] = original
+            self.write(boot, b'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n')
+            with self.assertRaisesRegex(RuntimeError, 'boot changed'):
+                self.real_generation(self.manifest)
+
+    def test_actual_database_read_only_probe_rejects_live_owner_wrong_identity_and_role(self):
+        self.later_fixture()
+        process, _, local_proc_path = self.process_fixture()
+        expected = {**{key: self.capsule['merchant_store_writer'][key]
+                       for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')},
+                    'reserved_count': 0}
+        current = dict(expected)
+        status = {'code': 0}
+        queries = []
+        def query(argv, **kwargs):
+            self.assertEqual(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--command'], argv[:6])
+            self.assertIn('BEGIN READ ONLY;', argv[6])
+            self.assertIn('; ROLLBACK;', argv[6])
+            self.assertIn('pg_catalog.lower(pg_catalog.btrim', argv[6])
+            self.assertIn(r'\u3000', argv[6])
+            self.assertIn('merchantstoredeploymentfence:%', argv[6])
+            self.assertEqual('fixture', kwargs['env']['PGDATABASE'])
+            queries.append(argv[6])
+            return deploy.subprocess.CompletedProcess(argv, status['code'], json.dumps(current).encode(), b'')
+        with patch.object(deploy, 'Path', side_effect=local_proc_path), patch.object(deploy.subprocess, 'run', side_effect=query):
+            self.assertEqual(expected, self.real_database_status(self.manifest, self.capsule))
+            for key, changed in [('reserved_count', 1), ('system_identifier', 'other'), ('database', 'other'),
+                                 ('database_oid', 43), ('schema', 'other'), ('schema_oid', 2201), ('role', 'other')]:
+                current = dict(expected, **{key: changed})
+                with self.subTest(field=key), self.assertRaisesRegex(RuntimeError, 'differs or has a live durable owner'):
+                    self.real_database_status(self.manifest, self.capsule)
+            current = dict(expected)
+            status['code'] = 1
+            with self.assertRaisesRegex(RuntimeError, 'actual physical database/owner check failed'):
+                self.real_database_status(self.manifest, self.capsule)
+            before = len(queries)
+            self.write(process / 'environ', (process / 'environ').read_bytes() + b'LOG_SQL_DSN=postgresql://fixture/logs\0')
+            with self.assertRaisesRegex(RuntimeError, 'separate unproved log database'):
+                self.real_database_status(self.manifest, self.capsule)
+            self.assertEqual(before, len(queries))
+
+    def test_lightweight_recheck_rejects_artifact_generation_database_and_frontend_change(self):
+        self.later_fixture()
+        proof, inputs = self.qualify()
+        self.generation_probe.return_value = dict(self.generation, process_environment_sha256='f' * 64)
+        with self.assertRaisesRegex(RuntimeError, 'actual generation changed'):
+            deploy.recheck_later_provider(self.manifest_path.read_bytes(), proof, inputs)
+        self.generation_probe.return_value = self.generation
+        original_database = self.database_probe.return_value
+        self.database_probe.return_value = dict(original_database, reserved_count=1)
+        with self.assertRaisesRegex(RuntimeError, 'database/owner changed'):
+            deploy.recheck_later_provider(self.manifest_path.read_bytes(), proof, inputs)
+        self.database_probe.return_value = original_database
+        for path in proof['artifact_sha256']:
+            actual = self.local_path(Path(path))
+            original = actual.read_bytes()
+            self.write(actual, original + b' changed')
+            with self.subTest(artifact=actual.name), self.assertRaisesRegex(RuntimeError, 'qualified signed artifacts changed'):
+                deploy.recheck_later_provider(self.manifest_path.read_bytes(), proof, inputs)
+            self.write(actual, original)
+        self.write(self.published / 'index.html', b'changed between qualification and registration', 0o644)
+        with self.assertRaisesRegex(RuntimeError, 'qualified frontend changed'):
+            deploy.recheck_later_provider(self.manifest_path.read_bytes(), proof, inputs)
+
+    def test_registration_race_after_snapshot_writes_never_publishes_receipt(self):
+        self.later_fixture()
+        self.history_args.execute = True
+        original_write = deploy.immutable_write
+        def generation_change_after_snapshot(path, *args):
+            original_write(path, *args)
+            if path.name == 'origin-plan.json':
+                self.generation_probe.return_value = dict(self.generation, invocation_id='a' * 32)
+        with patch.object(deploy, 'immutable_write', side_effect=generation_change_after_snapshot), \
+             self.assertRaisesRegex(RuntimeError, 'actual generation changed'):
+            deploy.register_released_history(self.history_args)
+        saved = deploy.history_root() / 'released/current'
+        self.assertTrue((saved / 'origin-plan.json').exists())
+        self.assertFalse((saved / 'receipt.json').exists())
+
+    def test_original_provider_v1_registration_remains_compatible(self):
+        self.proof()
+        original = self.snapshot(deploy.ROOT)
+        preview = deploy.register_released_history(self.history_args)
+        self.assertEqual('lmm-systemd-released-history-v1', preview['format'])
+        self.assertFalse(deploy.history_root().exists())
+        self.history_args.execute = True
+        result = deploy.register_released_history(self.history_args)
+        self.assertEqual('lmm-systemd-released-history-v1', result['format'])
+        self.assertEqual({'bridge', 'capture'}, deploy.released_ancestors())
+        self.assertEqual(original, self.snapshot(deploy.ROOT))
+
+
+if __name__ == '__main__':
+    unittest.main()
