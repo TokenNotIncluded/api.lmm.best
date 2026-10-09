@@ -94,3 +94,10 @@ Run `go test -race ./pkg/servicetier ./relay/helper ./relay/common` from
 `service-tier-api.test.ts`. Rust guard tests are under
 `routes::relay_openai::service_tier`. No ordinary pricing or live settings are
 changed by these tests.
+
+## New core migration
+
+The former Rust backend has been removed. Rust behavior described in older
+implementation notes is not evidence for the replacement. The [new core](core-migration.md)
+is not business-ready; the existing Go paths remain authoritative until parity
+and migration checks pass.

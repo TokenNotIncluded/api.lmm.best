@@ -645,7 +645,7 @@ func (runtime *productionRuntime) prepareLegacyProviderRollback(manifest product
 
 func (runtime *productionRuntime) selectInstalledProvider(ctx context.Context, target string) error {
 
-	if target != backendGoName && target != backendRustName {
+	if target != backendGoName {
 		return errors.New("installed provider target is unsupported")
 	}
 	if err := appcli.SelectBackendProvider(appcli.BackendPaths{
@@ -675,7 +675,7 @@ func providerLinkState(path string) (string, error) {
 	if err != nil || filepath.IsAbs(target) || filepath.Base(target) != target {
 		return "", errors.New("canonical backend link target is unsafe")
 	}
-	if target != backendGoName && target != backendRustName {
+	if target != backendGoName {
 		return "", errors.New("canonical backend link target is unsupported")
 	}
 	return target, nil

@@ -5,7 +5,7 @@ frontend, produces the real static `lmm-api-go` provider, validates both
 artifacts, and creates a Go Arch package inside an explicit marker-owned
 workspace. The package installs the provider and current shared service assets,
 but does not own `/usr/bin/lmm-api`; the verified CLI selects providers by
-atomically managing that one-hop symlink. Rust remains independently packaged.
+atomically managing that one-hop symlink. The new Rust core is a separate WIP Docker service, not a native package provider.
 
 ```bash
 scripts/lmm-api-deploy.sh build \

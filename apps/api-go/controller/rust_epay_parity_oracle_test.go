@@ -42,7 +42,7 @@ func TestRustEpayCurrentGoOracle(t *testing.T) {
 	}
 	fixturePath := os.Getenv("LMM_EPAY_PARITY_FIXTURES")
 	if fixturePath == "" {
-		fixturePath = "../../api-rust/tests/fixtures/epay-current-go-input.json"
+		fixturePath = "../../../contracts/go-regression/epay-current-go-input.json"
 	}
 	raw, err := os.ReadFile(fixturePath)
 	require.NoError(t, err)

@@ -40,8 +40,7 @@ Use the verified public provider symlink only:
 
 CLI dispatch and status inspection must not expose DSNs or require unrelated
 server startup. A release-scoped candidate runs through a validated workspace
-symlink named `lmm-api`, never by directly executing `lmm-api-go` or
-`lmm-api-rs`.
+symlink named `lmm-api`, never by directly executing `lmm-api-go`.
 
 Migration input comes only from root-only environment configuration. Reports
 contain stable stages/categories and immutable hashes, not DSNs, row values,

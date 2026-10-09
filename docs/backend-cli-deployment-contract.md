@@ -4,27 +4,23 @@ This document is normative for backend packaging and production deployment.
 
 ## Executable layout
 
-The backend providers are real, independently packaged executables:
+The current native Go provider is a real, independently packaged executable:
 
 ```text
 /usr/bin/lmm-api-go
-/usr/bin/lmm-api-rs
 ```
 
 The public backend entry point is a relative symbolic link:
 
 ```text
 /usr/bin/lmm-api -> lmm-api-go
-# or
-/usr/bin/lmm-api -> lmm-api-rs
 ```
 
 `/usr/bin/lmm-api` MUST NOT be a regular provider executable. Provider packages
-MUST NOT install reverse aliases such as `lmm-api-go -> lmm-api`. Both provider
-packages may coexist; neither package owns a fixed `/usr/bin/lmm-api` payload.
+MUST NOT install reverse aliases such as `lmm-api-go -> lmm-api`. Go package variants are mutually exclusive; none owns a fixed `/usr/bin/lmm-api` payload.
 
 A backend selection operation MUST create a temporary relative symlink in
-`/usr/bin`, verify its one-hop target is exactly `lmm-api-go` or `lmm-api-rs`,
+`/usr/bin`, verify its one-hop target is exactly `lmm-api-go`,
 and atomically rename it over `/usr/bin/lmm-api`. It MUST sync `/usr/bin` before
 reporting success. Symlink chains, absolute targets, missing targets, writable
 provider binaries, and provider binaries without verified package ownership are

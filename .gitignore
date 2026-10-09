@@ -44,8 +44,6 @@ token_estimator_test.go
 skills-lock.json
 .playwright-mcp
 /rust/target/
-/apps/api-rust/tests/root-route-acceptance/target/
-/packaging/local/lmm-api-rs-fallback-bin/out/
 
 # Compiled Go server binaries are build artifacts, never sources.
 /apps/api-go/lmm-api
@@ -76,3 +74,6 @@ __pycache__/
 *.orig
 *.rej
 *.bak
+
+/apps/core-rust/target/
+/apps/extensions-go/out/

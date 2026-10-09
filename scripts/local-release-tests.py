@@ -30,7 +30,8 @@ PATHS = {
            'packaging/local/lmm-api-go', 'packaging/aur/lmm-api-go',
            'packaging/aur/lmm-api-go-bin', 'packaging/aur/lmm-api-go-git',
            '.github/workflows/release-go.yml', 'package.json', 'justfile'),
-    'rust': ('apps/api-rust', 'contracts'),
+    'core': ('apps/core-rust', 'contracts/core', 'deployment/docker/core.Dockerfile', 'deployment/docker/compose.core.yml'),
+    'extensions': ('apps/extensions-go', 'contracts/core', 'deployment/docker/extensions.Dockerfile', 'deployment/docker/compose.extensions.yml'),
     'full': ('.',),
 }
 SHA_RE = re.compile(r'^[0-9a-f]{40}$')

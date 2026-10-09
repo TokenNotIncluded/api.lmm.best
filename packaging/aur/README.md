@@ -7,11 +7,10 @@ actions use the separately built and signed `/usr/lib/lmm-api-deploy/engine`.
 | Role | Stable source | Prebuilt release | Build from Git | Installed payload |
 | --- | --- | --- | --- | --- |
 | Go provider | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | real `/usr/bin/lmm-api-go` plus current shared runtime assets |
-| Rust provider | — | — | `lmm-api-rs-git` | real `/usr/bin/lmm-api-rs` |
 | Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` and signed CLI install hook |
 
 `/usr/bin/lmm-api` is not a regular provider payload and is not a reverse alias.
-It is a one-hop relative link to exactly `lmm-api-go` or `lmm-api-rs`, selected
+It is a one-hop relative link to exactly `lmm-api-go`, selected
 atomically by the already verified public CLI. New provider packages do not own
 the link and do not conflict merely because the other provider is installed.
 They provide the virtual `lmm-api-provider` capability for packages that require
@@ -74,9 +73,9 @@ updates only exact `pkgver`, asset/checksum/revision metadata, descriptions, and
 regenerated `.SRCINFO`. Never use `SKIP`, placeholders, mutable URLs, or
 unverified metadata.
 
-Rust remains source-built through `lmm-api-rs-git` until an independent signed
-Rust binary-release workflow and pinned `lmm-api-rs-bin` recipe exist. A Rust
-package or provider link is not production ownership evidence.
+Rust native packages are retired. The new core and Go module host use independent
+Docker projects; see [the migration](../../docs/core-migration.md). They are not
+production-ready and cannot be selected through the native Go operator.
 
 ## Validation
 
@@ -88,7 +87,6 @@ TMPDIR="$TMPDIR" bash packaging/aur/test-verify-go-release-pins.sh
 TMPDIR="$TMPDIR" bash packaging/aur/verify-go-release-pins.sh --pinned
 TMPDIR="$TMPDIR" bash packaging/aur/test-bin-makepkg.sh
 cd apps/api-go && go test ./internal/appcli
-cd apps/api-rust && cargo test --locked
 ```
 
 CI uses `--pinned` to verify the checked-in Go release's signed tag, ancestry,

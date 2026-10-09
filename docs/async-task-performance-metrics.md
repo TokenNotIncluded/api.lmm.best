@@ -16,4 +16,4 @@ Samples run after the existing financial actions and use the enabled setting, bo
 
 This change adds samples to the Go polling lifecycle. Rust already has native Midjourney submission wiring, stored Kling task reads, and task-list reads. Its Suno/Kling/Jimeng submission provider remains unconfigured by default, and generic video routes use the fail-closed service; this change does not extend those providers.
 
-Rust's performance endpoints read the shared `perf_metrics` database. A query specifying both model and group can also merge the configured Valkey active bucket; its summary endpoint reads durable database buckets. Rust has no second process-local collector for these Go polling samples. See [observability.rs](../apps/api-rust/src/routes/observability.rs), [media_tasks.rs](../apps/api-rust/src/routes/media_tasks.rs), and [main.rs](../apps/api-rust/src/main.rs) for the reader and provider wiring.
+The former Rust metrics reader has been retired. The new core has not yet implemented task metrics; current Go collection and storage remain unchanged.

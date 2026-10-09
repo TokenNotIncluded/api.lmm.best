@@ -735,7 +735,6 @@ func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) e
 	provider, err := appcli.VerifyBackendProvider(appcli.BackendPaths{
 		Canonical: runtime.paths.InstalledBinary,
 		Go:        runtime.paths.LegacyGoBinary,
-		Rust:      filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), backendRustName),
 	}, productionBackendOwner{ctx: ctx, runner: runtime.runner}, runtime.requiredOwnerUID)
 	if err != nil {
 		return fmt.Errorf("canonical deployment operator link is invalid: %w", err)
@@ -1461,8 +1460,6 @@ func providerTargetForPackage(name string) (string, error) {
 	switch name {
 	case "lmm-api-go", "lmm-api-go-bin", "lmm-api-go-git":
 		return backendGoName, nil
-	case "lmm-api-rs", "lmm-api-rs-bin", "lmm-api-rs-git":
-		return backendRustName, nil
 	default:
 		return "", fmt.Errorf("unsupported backend provider package %q", name)
 	}
@@ -1495,7 +1492,7 @@ func (runtime *productionRuntime) validateManifestSchema(workspace productionWor
 		return errors.New("deployment manifest candidate provider target is invalid")
 	}
 	switch manifest.PreviousProviderTarget {
-	case backendGoName, backendRustName:
+	case backendGoName:
 		if manifest.PreviousProviderTarget != rollbackProviderTarget {
 			return errors.New("deployment manifest rollback provider target is invalid")
 		}

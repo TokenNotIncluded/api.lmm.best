@@ -13,8 +13,8 @@ Use this guide for a development instance. For an existing production server, us
 | Node.js | 22.12 or newer. |
 | Go | 1.25.1 or newer for the default backend. |
 | PostgreSQL and Valkey | Dedicated development services, separate from production. |
-| Python | 3.10 or newer for the documentation checks in this guide. |
-| Rust | Optional: 1.91.0 for the preview backend. |
+| Python | 3.10 or newer for documentation checks. |
+| Rust | 1.99.0 for the WIP core (see its rust-toolchain.toml). |
 
 ## Set up
 
@@ -88,26 +88,27 @@ For logo changes, run `python3 -B scripts/check-docs-brand.py` without `--docs-o
 | Recipe | Important limit |
 | --- | --- |
 | `just dev`, `just infra-up`, `just infra-down` | Require a local `docker-compose.dev.yml`. This file is not included. |
-| `just dev-rust` | Also requires that local Compose file and its `rust-preview` profile. |
-| `just build-all`, `just test-all` | Include the Rust preview backend. They do not establish production readiness. |
-| `just docker`, `just docker-rust` | Require local Dockerfiles, which are not included. |
+| `just dev-core`, `just dev-extensions` | Start the WIP services separately; the extension host requires a local service credential file. |
+| `just build-all`, `just test-all` | Include the new Rust core and Go module host. They do not establish production readiness. |
+| `just docker-core`, `just docker-extensions` | Build the independent WIP images; see the [Docker guide](../deployment/docker/README.md). |
 | `just package` | Requires `LMM_API_BUILD_WORKSPACE`; see the [AUR guide](../packaging/aur/README.md). |
 | `just clean-generated` | Removes generated build output. |
 
-Use `just --list` to inspect current recipes. Do not describe missing Compose files or Dockerfiles as ready-to-run deployment methods. For Rust rollout limits, see [Rust blue-green](rust-blue-green.md). The independent [LMM CLI](../apps/lmm/README.md) is also a preview. Refactor branches can have different entry points; read the selected revision instead of mixing guides from different branches.
+Use `just --list` to inspect the current recipes. The new core refuses business traffic until the [migration gates](core-migration.md) pass. The independent [LMM CLI](../apps/lmm/README.md) is also a preview.
 
 ## Repository map
 
 | Path | Purpose |
 | --- | --- |
-| [apps/web](../apps/web) | React and TypeScript console and public pages, built with Rsbuild. |
-| [apps/api-go](../apps/api-go) | Default backend and provider CLI. |
-| [apps/api-rust](../apps/api-rust) | Preview backend. |
-| [apps/lmm](../apps/lmm/README.md) | Preview setup CLI: discovery, planning, and read-only OAuth login. |
-| [packages](../packages) | Client integrations. |
-| [scripts](../scripts) | Development, checks, and deployment entry points. |
-| [packaging](../packaging) | Provider packages and immutable runtime assets. |
-| [.agents/skills](../.agents/skills/README.md) | Task-specific Agent instructions and their references or helpers. |
-| [docs](README.md) | Product, API, and operator documentation. |
+| [`apps/web`](../apps/web) | React and TypeScript console and public pages, built with Rsbuild. |
+| [`apps/api-go`](../apps/api-go) | Default backend and provider CLI. |
+| [`apps/core-rust`](../apps/core-rust) | Fresh stable-core foundation, not business-ready. |
+| [`apps/extensions-go`](../apps/extensions-go) | Independent Go module host; feature extraction is pending. |
+| [`apps/lmm`](../apps/lmm/README.md) | Preview setup CLI: discovery, planning, and read-only OAuth login. |
+| [`packages`](../packages) | Client integrations. |
+| [`scripts`](../scripts) | Development, checks, and deployment entry points. |
+| [`packaging`](../packaging) | Provider packages and immutable runtime assets. |
+| [.agents/skills](../.agents/skills/README.md) | Task-specific instructions. |
+| [`docs`](README.md) | Product, API, and operator documentation. |
 
 Go and Web releases are independent. Publishing a release does not deploy it. Use the [release architecture](release-architecture.md) and the guide for the actual installation before updating a server.

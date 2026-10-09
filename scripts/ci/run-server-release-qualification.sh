@@ -2,8 +2,8 @@
 set -euo pipefail
 set +x
 
-backend=${1:?usage: run-server-release-qualification.sh go|rust}
-case "$backend" in go|rust) ;; *) echo "unsupported backend: $backend" >&2; exit 2 ;; esac
+backend=${1:?usage: run-server-release-qualification.sh go}
+case "$backend" in go) ;; *) echo "unsupported backend: $backend" >&2; exit 2 ;; esac
 
 repo_root=$(git rev-parse --show-toplevel)
 runtime_base=${RUNNER_TEMP:-/tmp}
@@ -56,30 +56,6 @@ export LMM_QUALIFICATION_ROOT_PASSWORD='ReleaseCI-2026-Local-Only'
 database_url="postgresql://$pg_user:$pg_password@$pg_host:$pg_port/$pg_database"
 valkey_url="redis://:$valkey_password@127.0.0.1:$valkey_port/0"
 
-if [[ $backend == rust ]]; then
-  schema=lmm_test_release
-  baseline="$runtime/postgresql-baseline.sql"
-  bounty="$runtime/open-source-bounty-forward.sql"
-  sed "s/public\\./$schema./g" \
-    "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$baseline"
-  sed "s/__LMM_APP_SCHEMA__/$schema/g" \
-    "$repo_root/apps/api-rust/migrations/0002_open_source_bounty_schema.sql" >"$bounty"
-
-  psql -h "$pg_host" -p "$pg_port" -U "$pg_user" -d "$pg_database" -v ON_ERROR_STOP=1 <<SQL >/dev/null
-DROP SCHEMA IF EXISTS $schema CASCADE;
-CREATE SCHEMA $schema AUTHORIZATION $pg_user;
-SET search_path TO $schema;
-\i $baseline
-\i $bounty
-CREATE TABLE lmm_schema_contract (
-  singleton BOOLEAN PRIMARY KEY,
-  min_reader_version BIGINT NOT NULL,
-  max_reader_version BIGINT NOT NULL
-);
-INSERT INTO lmm_schema_contract VALUES (TRUE, 1, 1);
-SQL
-  rust_database_url="$database_url?options=-csearch_path%3D$schema"
-fi
 
 start_backend() {
   local log=$1
@@ -103,31 +79,6 @@ start_backend() {
         RELAY_RESPONSE_HEADER_TIMEOUT=1 \
         RELAY_TIMEOUT=6 \
         GIN_MODE=release \
-        VERSION=v0.0.0-release-qualification \
-        "$binary" >"$runtime/$log" 2>&1 &
-      ;;
-    rust)
-      binary=${LMM_QUALIFICATION_RUST_BINARY:?LMM_QUALIFICATION_RUST_BINARY is required}
-      env \
-        LMM_RS_TEST_INSTANCE=1 \
-        LMM_RS_SLOT=single \
-        LMM_RS_TEST_VALKEY_PORT="$valkey_port" \
-        LMM_RS_LISTEN_ADDR="127.0.0.1:$server_port" \
-        DATABASE_URL="$rust_database_url" \
-        VALKEY_URL="$valkey_url" \
-        LMM_SCHEMA_CONTRACT=1 \
-        SESSION_SECRET="$session_secret" \
-        CRYPTO_SECRET="$crypto_secret" \
-        PASSWORD_LOGIN_ENABLED=true \
-        AUTH_COOKIE_SECURE=false \
-        LMM_LOCAL_ACCEPTANCE=true \
-        GLOBAL_API_RATE_LIMIT_ENABLE=false \
-        CRITICAL_RATE_LIMIT_ENABLE=false \
-        SEARCH_RATE_LIMIT_ENABLE=false \
-        TRUSTED_PROXIES=none \
-        LMM_RELAY_RESPONSE_HEADER_TIMEOUT_SECONDS=1 \
-        LMM_RELAY_TIMEOUT_SECONDS=6 \
-        LMM_RELAY_IDLE_TIMEOUT_SECONDS=10 \
         VERSION=v0.0.0-release-qualification \
         "$binary" >"$runtime/$log" 2>&1 &
       ;;
