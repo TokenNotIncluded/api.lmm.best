@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -125,7 +126,7 @@ func executeAssistantAdminOperationsTool(c *gin.Context, userID int, input map[s
 	state.registry.mu.RLock()
 	operations := make([]assistantAdminOperation, 0, len(state.registry.operations))
 	for _, op := range state.registry.operations {
-		if op.MinRole <= role && (id == "" || id == op.ID) && (query == "" || strings.Contains(strings.ToLower(op.ID+" "+op.Handler), query)) {
+		if op.MinRole <= role && assistantAdminOperationPolicyEnabled(op.Handler) && (id == "" || id == op.ID) && (query == "" || strings.Contains(strings.ToLower(op.ID+" "+op.Handler), query)) {
 			operations = append(operations, op)
 		}
 	}
@@ -217,6 +218,15 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 	if !op.ReadOnly {
 		return assistantAdminOperationError("confirmation_required", "administrator mutations require explicit UI confirmation and cannot be executed by this tool")
 	}
+	_, policy, err := refreshAssistantToolPolicy(c)
+	if err != nil {
+		return assistantAdminOperationError("tool_policy_unavailable", err.Error())
+	}
+	if name := assistantAdminOperationPolicyTool(op.Handler); name != "" {
+		if !policy.Enabled(name) {
+			return assistantAdminOperationError("tool_disabled", setting.AssistantToolDisabledError(name).Error())
+		}
+	}
 	requestPath, err := assistantOperationPath(op.Path, input["path_params"])
 	if err != nil {
 		return assistantAdminOperationError("invalid_arguments", err.Error())
@@ -283,11 +293,32 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 		}
 	}
 	result["ok"] = success
-	result["response"] = assistantRedactOperationResponse(response, op.Handler)
+	response = assistantRedactOperationResponse(response, op.Handler)
+	if !policy.Enabled("get_admin_user_skills") {
+		omitAssistantOperationProfiles(response)
+	}
+	result["response"] = response
 	if !success {
 		result["status"] = "operation_rejected"
 	}
 	return result
+}
+
+// Mixed user reads can contain assistant profiles alongside ordinary account
+// data. Apply the captured policy to their decoded result rather than blocking
+// user lookup or changing profile visibility in the normal administrator API.
+func omitAssistantOperationProfiles(value any) {
+	switch node := value.(type) {
+	case map[string]any:
+		delete(node, "assistant_profile")
+		for _, child := range node {
+			omitAssistantOperationProfiles(child)
+		}
+	case []any:
+		for _, child := range node {
+			omitAssistantOperationProfiles(child)
+		}
+	}
 }
 
 func assistantAdminOperationError(status, message string) map[string]any {

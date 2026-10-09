@@ -115,6 +115,7 @@ type AssistantSettings struct {
 	SearchMCPTool          string
 	Skills                 string
 	SkillFiles             []AssistantSkillFile
+	ToolPolicy             string
 	RetentionEnabled       bool
 	ActiveRetentionDays    int
 	ArchivedRetentionDays  int
@@ -147,6 +148,7 @@ var (
 		SearchMCPTool:          "",
 		Skills:                 "",
 		SkillFiles:             nil,
+		ToolPolicy:             DefaultAssistantToolPolicy,
 		RetentionEnabled:       true,
 		ActiveRetentionDays:    90,
 		ArchivedRetentionDays:  30,
@@ -746,6 +748,9 @@ func ValidateAssistantOption(key string, value string) error {
 		}
 	case AssistantSkillFilesOptionKey:
 		_, err := NormalizeAssistantSkillFiles(value)
+		return err
+	case AssistantToolPolicyOptionKey:
+		_, _, err := NormalizeAssistantToolPolicy(value)
 		return err
 	case AssistantActiveRetentionDaysOptionKey:
 		return validateAssistantNumber(value, 7, 3650, "assistant active retention must be between 7 and 3650 days")

@@ -28,6 +28,9 @@ type assistantGroupConfigSnapshot struct {
 // CreateAssistantDefaultKey confirms one opaque server-side draft. Name,
 // group, conversation, and warning policy are loaded from the locked flow.
 func CreateAssistantDefaultKey(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "request_create_key") {
+		return
+	}
 	if !requireAssistantBrowserSession(c) {
 		return
 	}
