@@ -2,26 +2,34 @@ name: Assistant tool review
 on:
   push:
     branches: [work/assistant-tool-control-center-20261009]
-    paths: ['.github/workflows/assistant-tool-review.yml']
+    paths: ['.github/workflows/assistant-tool-review.yml', '.review/assistant-workspace/ready.json']
 permissions:
   contents: read
+concurrency:
+  group: assistant-workspace-review
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
 jobs:
-  source:
+  go:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Export tracked source only
-        run: |
-          mkdir -p /tmp/assistant-source
-          git archive 7ccd63413cba38b5212c416bba69c12c7e4a7638 | gzip > /tmp/assistant-source/main.tar.gz
-          git archive HEAD .review | gzip > /tmp/assistant-source/review.tar.gz
-          git diff ed3cb848c733c7ba16704f6ef964cecd132bf686 7ccd63413cba38b5212c416bba69c12c7e4a7638 -- apps/api-go apps/web/src > /tmp/assistant-source/main-changes.patch
-      - uses: actions/upload-artifact@v4
+      - run: python3 .review/assistant-workspace/recover.py
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
-          name: assistant-recovery-source
-          path: /tmp/assistant-source/
-          retention-days: 2
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Check Go formatting
+        run: |
+          git diff --name-only --diff-filter=ACM HEAD -- apps/api-go | grep '\.go$' | xargs -r gofmt -w
+      - name: Assistant regression tests
+        working-directory: apps/api-go
+        env:
+          GOMAXPROCS: '2'
+        run: go test -p 2 ./setting ./model ./controller -run 'TestAssistant|TestWeeklyDiscount|TestNewUserGift' -count=1
