@@ -2,20 +2,36 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { compareOpenUICells, isBoundedOpenUI, OPENUI_MAX_CHARS, OPENUI_MAX_LINES, resolveOpenUIPage } from './policy'
+import {
+  compareOpenUICells,
+  isBoundedOpenUI,
+  OPENUI_MAX_CHARS,
+  OPENUI_MAX_LINES,
+  resolveOpenUIPage,
+} from './policy'
 
 describe('OpenUI display boundary', () => {
   it('accepts a bounded root program', () => {
     assert.equal(isBoundedOpenUI('root = Stack([])'), true)
   })
   it('rejects ordinary text, HTML and non-root programs', () => {
-    for (const value of ['Hello', '<script>bad()</script>', 'other = Stack([])']) {
+    for (const value of [
+      'Hello',
+      '<script>bad()</script>',
+      'other = Stack([])',
+    ]) {
       assert.equal(isBoundedOpenUI(value), false)
     }
   })
   it('limits input before parsing', () => {
-    assert.equal(isBoundedOpenUI(`root = Stack([])${' '.repeat(OPENUI_MAX_CHARS)}`), false)
-    assert.equal(isBoundedOpenUI(`root = Stack([])${'\n'.repeat(OPENUI_MAX_LINES)}`), false)
+    assert.equal(
+      isBoundedOpenUI(`root = Stack([])${' '.repeat(OPENUI_MAX_CHARS)}`),
+      false
+    )
+    assert.equal(
+      isBoundedOpenUI(`root = Stack([])${'\n'.repeat(OPENUI_MAX_LINES)}`),
+      false
+    )
   })
   it('resolves only known existing console pages', () => {
     assert.equal(resolveOpenUIPage('usage'), '/usage-logs')
@@ -23,7 +39,16 @@ describe('OpenUI display boundary', () => {
     assert.equal(resolveOpenUIPage('tools'), '/tool-market')
   })
   it('rejects external URLs, API paths and prototype names', () => {
-    for (const value of ['javascript:alert(1)', 'https://bad.example', '//bad.example', '/api/user/delete', '__proto__', 'constructor', null, 1]) {
+    for (const value of [
+      'javascript:alert(1)',
+      'https://bad.example',
+      '//bad.example',
+      '/api/user/delete',
+      '__proto__',
+      'constructor',
+      null,
+      1,
+    ]) {
       assert.equal(resolveOpenUIPage(value), null)
     }
   })
