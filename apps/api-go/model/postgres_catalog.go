@@ -51,6 +51,20 @@ type postgresConstraintSpec struct {
 	Validated       bool
 }
 
+// postgresCheckCatalogForm declares a dialect rendering, not a relaxed match.
+// PostgreSQL rewrites string IN checks to typed ANY arrays and includes every
+// referenced column. GORM's portable tag retains neither of those details.
+// Source guards against a changed DDL tag retaining an obsolete catalog form.
+type postgresCheckCatalogForm struct {
+	Source     string
+	Expression string
+	Columns    []string
+}
+
+type postgresCheckCatalogProvider interface {
+	postgresCheckCatalogForms() map[string]postgresCheckCatalogForm
+}
+
 type postgresSchemaInventory struct {
 	Schema      string
 	Objects     []postgresSchemaObject
@@ -134,15 +148,36 @@ func buildPostgresSchemaInventory(db *gorm.DB, schema string, models []interface
 		}
 
 		checks := statement.Schema.ParseCheckConstraints()
+		var forms map[string]postgresCheckCatalogForm
+		if provider, ok := model.(postgresCheckCatalogProvider); ok {
+			forms = provider.postgresCheckCatalogForms()
+		}
+		for name, form := range forms {
+			check, ok := checks[name]
+			if !ok || normalizePostgresSQL(check.Constraint) != normalizePostgresSQL(form.Source) ||
+				strings.TrimSpace(form.Expression) == "" || len(form.Columns) == 0 {
+				return postgresSchemaInventory{}, fmt.Errorf("stale PostgreSQL check catalog form %s.%s", table, name)
+			}
+			for _, column := range form.Columns {
+				if _, ok := statement.Schema.FieldsByDBName[column]; !ok {
+					return postgresSchemaInventory{}, fmt.Errorf("unknown PostgreSQL check column %s.%s", table, column)
+				}
+			}
+		}
 		for _, name := range sortedCatalogNames(checks) {
 			check := checks[name]
 			columns := []string(nil)
 			if check.Field != nil && check.Field.DBName != "" {
 				columns = []string{check.Field.DBName}
 			}
+			expression := check.Constraint
+			if form, ok := forms[name]; ok {
+				columns = append([]string(nil), form.Columns...)
+				expression = form.Expression
+			}
 			inventory.Constraints = append(inventory.Constraints, postgresConstraintSpec{
 				Table: table, Names: pgNames(name), Kind: postgresCheckConstraint,
-				Columns: columns, Check: normalizePostgresSQL(check.Constraint), Validated: true,
+				Columns: columns, Check: normalizePostgresSQL(expression), Validated: true,
 			})
 		}
 

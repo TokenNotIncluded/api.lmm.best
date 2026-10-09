@@ -241,3 +241,25 @@ func RevokeNativeTeamInvitation(c *gin.Context) {
 	err := s.RevokeInvitation(c.Request.Context(), actor, id, c.Param("invitation_id"))
 	nativeAccountReply(c, nil, err)
 }
+
+func ListNativeTeamSentInvitations(c *gin.Context) {
+	s, actor, ok := nativeAccountRequest(c)
+	if !ok {
+		return
+	}
+	id, ok := nativePositiveParam(c, "team_id")
+	if !ok {
+		return
+	}
+	data, err := s.ListSentInvitations(c.Request.Context(), actor, id, c.Query("after"))
+	nativeAccountReply(c, data, err)
+}
+
+func DeclineNativeTeamInvitation(c *gin.Context) {
+	s, actor, ok := nativeAccountRequest(c)
+	if !ok {
+		return
+	}
+	err := s.DeclineInvitation(c.Request.Context(), actor, c.Param("invitation_id"))
+	nativeAccountReply(c, nil, err)
+}

@@ -37,7 +37,7 @@ func TestNativeAccountStrictBody(t *testing.T) {
 }
 
 func TestNativeAccountSessionRequired(t *testing.T) {
-	for _, handler := range []gin.HandlerFunc{ListNativeAccounts, CreateNativeTeam, GetNativeTeam, ListNativeTeamMembers, InviteNativeTeamMember, ListNativeTeamInvitations, AcceptNativeTeamInvitation, UpdateNativeTeamMember, RemoveNativeTeamMember, RevokeNativeTeamInvitation} {
+	for _, handler := range []gin.HandlerFunc{ListNativeAccounts, CreateNativeTeam, GetNativeTeam, ListNativeTeamMembers, InviteNativeTeamMember, ListNativeTeamInvitations, AcceptNativeTeamInvitation, UpdateNativeTeamMember, RemoveNativeTeamMember, RevokeNativeTeamInvitation, ListNativeTeamSentInvitations, DeclineNativeTeamInvitation} {
 		recorder := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(recorder)
 		c.Request = httptest.NewRequest(http.MethodPost, "/api/accounts/teams", strings.NewReader(`{}`))

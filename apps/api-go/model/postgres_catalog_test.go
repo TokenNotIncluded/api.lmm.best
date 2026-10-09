@@ -280,3 +280,51 @@ func findPostgresConstraint(t *testing.T, inventory postgresSchemaInventory, kin
 	t.Fatalf("required %s constraint was not derived", kind)
 	return postgresConstraintSpec{}
 }
+
+// Portable DDL and the PostgreSQL rendering may differ, but both remain exact
+// contracts. Declared forms must not silently outlive a model tag change.
+type postgresCheckCatalogTestModel struct {
+	ID      int64 `gorm:"primaryKey;autoIncrement:false;check:ck_catalog_pair,id > 0 AND id = owner_id"`
+	OwnerID int64
+	Forms   map[string]postgresCheckCatalogForm `gorm:"-"`
+}
+
+func (m postgresCheckCatalogTestModel) postgresCheckCatalogForms() map[string]postgresCheckCatalogForm {
+	return m.Forms
+}
+
+func TestPostgresCatalogExplicitCheckFormsRemainStrict(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	form := postgresCheckCatalogForm{
+		Source: "id > 0 AND id = owner_id", Expression: "id > 0 AND id = owner_id",
+		Columns: []string{"id", "owner_id"},
+	}
+	m := &postgresCheckCatalogTestModel{Forms: map[string]postgresCheckCatalogForm{"ck_catalog_pair": form}}
+	inventory, err := buildPostgresSchemaInventory(db, "public", []interface{}{m})
+	require.NoError(t, err)
+	check := findPostgresConstraint(t, inventory, postgresCheckConstraint)
+	require.Equal(t, form.Columns, check.Columns)
+	require.Equal(t, form.Expression, check.Check)
+	form.Columns[0] = "changed_after_build"
+	require.Equal(t, "id", check.Columns[0], "inventory must not retain a mutable alias")
+	snapshot := catalogSnapshotForInventory(inventory)
+	key := postgresCatalogKey{Table: check.Table, Name: check.Names[0]}
+	actual := snapshot.Constraints[key]
+	actual.Check = "id > 0"
+	snapshot.Constraints[key] = actual
+	require.ErrorContains(t, verifyPostgresCatalogSnapshot(inventory, snapshot), "incompatible semantics")
+	for _, invalid := range []postgresCheckCatalogForm{
+		{Source: "id > 1", Expression: "id > 1", Columns: []string{"id"}},
+		{Source: form.Source, Expression: form.Expression},
+		{Source: form.Source, Columns: []string{"id"}},
+		{Source: form.Source, Expression: form.Expression, Columns: []string{"missing"}},
+	} {
+		m.Forms["ck_catalog_pair"] = invalid
+		_, err := buildPostgresSchemaInventory(db, "public", []interface{}{m})
+		require.Error(t, err)
+	}
+	m.Forms = map[string]postgresCheckCatalogForm{"missing_check": {Source: "id > 0", Expression: "id > 0", Columns: []string{"id"}}}
+	_, err = buildPostgresSchemaInventory(db, "public", []interface{}{m})
+	require.Error(t, err)
+}
