@@ -1,0 +1,39 @@
+name: Home scene workbench
+
+on:
+  push:
+    branches: [codex/home-scenes-workbench-20261009]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: home-scenes-workbench
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Export checked source
+        run: |
+          mkdir -p /tmp/home-scenes-evidence
+          git archive --format=tar.gz HEAD > /tmp/home-scenes-evidence/source.tar.gz
+          git rev-parse HEAD > /tmp/home-scenes-evidence/source-sha.txt
+      - name: Run isolated checks when present
+        shell: bash
+        run: |
+          if test -f .home-scenes-workbench/run.sh; then
+            bash .home-scenes-workbench/run.sh
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: home-scenes-evidence
+          path: /tmp/home-scenes-evidence
+          retention-days: 7
+          if-no-files-found: error
