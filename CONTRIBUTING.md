@@ -31,7 +31,7 @@ Follow the [local development guide](docs/development.md) to configure PostgreSQ
 Valkey, and `apps/api-go/.env`. Start Go with `just dev-go`, then run the frontend
 in a separate terminal on port 5173 as shown in that guide.
 
-`just dev` and `just dev-rust` require a locally supplied `docker-compose.dev.yml`;
+`just dev` requires a locally supplied `docker-compose.dev.yml`;
 the repository does not include it. They are not fresh-checkout shortcuts.
 
 For README or logo changes, also run `python3 scripts/check-docs-brand.py` and
@@ -49,7 +49,7 @@ For production-facing changes:
 
 - `just build`
 - `just check`
-- Any affected app-level test suite in `apps/api-go`, `apps/api-rust`, or `apps/web`.
+- Any affected app-level test suite in `apps/api-go`, `apps/core-rust`, `apps/extensions-go`, or `apps/web`.
 
 If checks are skipped, list the reason clearly in PR description.
 

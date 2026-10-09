@@ -42,7 +42,7 @@ func TestRustStripeSubscriptionCheckoutCurrentGoOracle(t *testing.T) {
 	}
 	input := os.Getenv("LMM_STRIPE_SUBSCRIPTION_CHECKOUT_FIXTURES")
 	if input == "" {
-		input = "../../api-rust/tests/fixtures/stripe-subscription-checkout-current-go-input.json"
+		input = "../../../contracts/go-regression/stripe-subscription-checkout-current-go-input.json"
 	}
 	raw, err := os.ReadFile(input)
 	require.NoError(t, err)

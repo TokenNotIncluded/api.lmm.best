@@ -75,5 +75,6 @@ listener-isolation checks. It never restores PostgreSQL or treats Valkey AOF as
 a database backup.
 
 A provider deployment must remain N/N-1 compatible with the current Valkey key
-contract. Valkey presence alone never grants Rust production route ownership;
-`apps/api-rust/tests/fixtures/routes/route-gate.tsv` remains authoritative.
+contract. Valkey presence alone does not authorize a new core to handle production
+traffic. Follow the [core migration gates](core-migration.md); old route-gate data
+has been retired, not carried forward as new-core acceptance evidence.

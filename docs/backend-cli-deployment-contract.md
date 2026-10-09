@@ -4,27 +4,23 @@ This document is normative for backend packaging and production deployment.
 
 ## Executable layout
 
-The backend providers are real, independently packaged executables:
+The current native Go provider is a real, independently packaged executable:
 
 ```text
 /usr/bin/lmm-api-go
-/usr/bin/lmm-api-rs
 ```
 
 The public backend and operator entry point is always a relative symbolic link:
 
 ```text
 /usr/bin/lmm-api -> lmm-api-go
-# or
-/usr/bin/lmm-api -> lmm-api-rs
 ```
 
 `/usr/bin/lmm-api` MUST NOT be a regular provider executable. Provider packages
-MUST NOT install reverse aliases such as `lmm-api-go -> lmm-api`. Both provider
-packages may coexist; neither package owns a fixed `/usr/bin/lmm-api` payload.
+MUST NOT install reverse aliases such as `lmm-api-go -> lmm-api`. Go package variants are mutually exclusive; none owns a fixed `/usr/bin/lmm-api` payload.
 
 A backend selection operation MUST create a temporary relative symlink in
-`/usr/bin`, verify its one-hop target is exactly `lmm-api-go` or `lmm-api-rs`,
+`/usr/bin`, verify its one-hop target is exactly `lmm-api-go`,
 and atomically rename it over `/usr/bin/lmm-api`. It MUST sync `/usr/bin` before
 reporting success. Symlink chains, absolute targets, missing targets, writable
 provider binaries, and provider binaries without verified package ownership are
@@ -42,15 +38,16 @@ Production services and operator actions MUST invoke `/usr/bin/lmm-api`:
 /usr/bin/lmm-api-deploy production rollback ...
 ```
 
-Deployment code MUST NOT directly execute `/usr/bin/lmm-api-go` or
-`/usr/bin/lmm-api-rs`. Candidate validation uses a release-scoped symlink named
+Current native deployment code MUST NOT directly execute `/usr/bin/lmm-api-go`. Candidate validation uses a release-scoped symlink named
 `lmm-api` whose one-hop target is the staged provider binary. Package inspection
 may refer to provider filenames but may not use them as an operator entry point.
 
-## CLI parity
+## Current Go CLI
 
-`lmm-api-go` and `lmm-api-rs` MUST implement the same public command contract,
-exit codes, deployment-state formats, and safety checks. At minimum this covers:
+The native Go CLI retains its public commands, exit codes, deployment-state
+formats and safety checks. The new Rust core has a separate Docker lifecycle;
+it is not a native provider replacement or an implementation of this CLI.
+At minimum the Go contract covers:
 
 - `serve`, `version`, `status`, `doctor`, and `request`;
 - `migrate --apply|--verify`;
@@ -60,9 +57,9 @@ exit codes, deployment-state formats, and safety checks. At minimum this covers:
 - edge-policy installation and verification;
 - build/release validation needed by packaging and CI.
 
-A provider switch can occur while a deployment is awaiting confirmation.
-Therefore either provider MUST be able to read, validate, confirm, or manually
-roll back a transaction created by the other provider.
+The native selector only accepts Go. Retired Rust candidates and rollback
+packages are rejected. Do not apply this WIP to a host with a pending historical
+Rust-provider transaction: retain its verified operator for manual recovery first.
 
 ## Optional production backups
 
@@ -70,7 +67,7 @@ Release-plan format 6 requires an explicit `disabled` or `controller-only` backu
 mode. Go-only, Web-only, and combined releases may disable backups. Selected
 controller-only backups require authenticated verification of the complete local
 collection; target hosts receive signed metadata rather than archives or keys.
-Both providers MUST validate evidence format 3 and retain legacy readers for
+The Go operator MUST validate evidence format 3 and retain legacy readers for
 existing transactions. Optional backups do not replace verified N-1 packages or
 configuration rollback state.
 
@@ -100,10 +97,9 @@ recovery evidence.
 ## Repository layout
 
 The root `deploy/` directory is not part of the target architecture. Runtime,
-release, validation, migration, and recovery behavior belongs in both backend
-CLIs or their provider-owned libraries. Immutable service/configuration assets
-belong under packaging-owned directories. Shell-only deployment logic and shell
-contract tests must be replaced by Go and Rust tests before `deploy/` is removed.
+release, validation, migration, and recovery behavior belongs in the Go CLI or its provider-owned libraries. Immutable service/configuration assets
+belong under packaging-owned directories. The new isolated Docker development assets live in `deployment/docker`; they do
+not replace the native production operator or authorize deployment.
 
 CI MUST fail if tracked code, workflows, packages, or documentation reintroduce
 a runtime dependency on the removed `deploy/` path or invokes a provider binary

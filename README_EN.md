@@ -16,7 +16,7 @@
 
 LMM Forge is an open-source console for AI services. Model access, a Remote MCP tool marketplace, and open-source bounties share one account and credit system. Connect a client, publish paid tools, or earn platform balance by completing open-source tasks.
 
-This project is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). Go is the default backend. The web app uses React and TypeScript. The Rust backend and standalone CLI are previews.
+This project is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). Go is the default backend. The web app uses React and TypeScript. The Rust core / Go extensions migration is WIP and cannot receive production traffic. The standalone CLI remains a preview.
 
 ## Core features
 
@@ -60,7 +60,7 @@ Start the frontend in a second terminal. Use a separate port because the backend
 bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 ```
 
-Open <http://localhost:5173> and complete setup. See the [development guide](docs/development.md) for configuration, checks, and Rust preview notes. This repository does not include a development Compose file or Dockerfiles. `just dev` and Docker build recipes therefore need extra local setup.
+Open <http://localhost:5173> and complete setup. See the [development guide](docs/development.md) for configuration, checks, and new-core development notes. The existing Go development flow still needs a local `docker-compose.dev.yml`. The new [Docker development stack](deployment/docker/README.md) is for the Rust core / Go extensions migration only, not a production replacement.
 
 ## Deploy and upgrade
 
@@ -79,7 +79,7 @@ The [documentation index](docs/README.md) groups guides by user, developer, and 
 
 - **Use and contribute:** [Tool publishing](docs/tool-market-guide.md), [connections and permissions](docs/tool-market-connections.md), [bounties and settlement](docs/open-source-bounties.md).
 - **Development and APIs:** [Local development](docs/development.md), [contribution guide](CONTRIBUTING.md), [admin API](docs/openapi/api.json), [relay API](docs/openapi/relay.json).
-- **Releases and maintenance:** [Release architecture](docs/release-architecture.md), [authentication and sessions](docs/authentication.md), [Rust preview](docs/rust-blue-green.md).
+- **Releases and maintenance:** [Release architecture](docs/release-architecture.md), [authentication and sessions](docs/authentication.md), [Core and extensions migration](docs/core-migration.md).
 
 ## Contribute and report security issues
 

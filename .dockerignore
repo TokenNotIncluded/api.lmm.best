@@ -11,3 +11,11 @@ docs
 /web/dist
 /.codegraph/
 !THIRD-PARTY-LICENSES.md
+
+**/target
+**/node_modules
+**/out
+**/.env
+**/.env.*
+**/.secrets
+qualification-artifacts

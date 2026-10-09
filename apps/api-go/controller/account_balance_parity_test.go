@@ -34,7 +34,7 @@ func preserveAccountBalanceBasis(t *testing.T) {
 // The Rust durable HTTP test consumes this same fixture. Keep expectations
 // independent of either adapter; timestamps are checked before normalization.
 func TestAccountBalanceSharedParityVectors(t *testing.T) {
-	raw, err := os.ReadFile("../../api-rust/tests/fixtures/account-balance-parity.json")
+	raw, err := os.ReadFile("../../../contracts/go-regression/account-balance-parity.json")
 	require.NoError(t, err)
 	var cases []struct {
 		Name           string  `json:"name"`

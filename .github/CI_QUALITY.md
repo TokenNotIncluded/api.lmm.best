@@ -1,6 +1,6 @@
 # CI quality gate
 
-`CI Quality Gate` aggregates the nine mandatory jobs in `workflows/ci.yml`.
+`CI Quality Gate` aggregates the explicit mandatory jobs in `workflows/ci.yml`.
 It runs with `always()` and accepts only `success`. Failed, cancelled, skipped,
 missing and malformed results fail. Duplicate JSON keys and non-standard JSON
 constants are rejected. The summary contains fixed job names and normalized
