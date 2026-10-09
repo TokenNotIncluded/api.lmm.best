@@ -6,9 +6,55 @@ on:
 permissions:
   contents: read
 jobs:
-  verify:
+  prepare:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify readable patch payloads
+        run: |
+          sed 's/^ diff --git /diff --git /' .native-accounts-production.patch > "$RUNNER_TEMP/production.patch"
+          cp .native-accounts-tests.patch "$RUNNER_TEMP/tests.patch"
+          cp .native-accounts-docs.patch "$RUNNER_TEMP/docs.patch"
+          printf '%s  %s\n' 5ff765d06f7189c87582b5050feb14a579cb4c7df751db8a7f80962b82869716 "$RUNNER_TEMP/production.patch" ed7ba284ff18ed0bf64ee058ce5cd0a7f59bc1fa31ee1e2c1cdc4f4a57f139eb "$RUNNER_TEMP/tests.patch" 15f6da47a5305326552a7dd96c87ae99bc7b5ff31f202406d1ccc19c63a6c4b7 "$RUNNER_TEMP/docs.patch" | sha256sum --check
+      - name: Build exact reviewed source tree
+        id: source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout --detach 8190dbff59af02e97d329687cc37608a1f698074
+          git merge --no-ff 50b8ef9db62b287dbeb0ebcb438ea19983b4320a -m 'Merge main 50b8ef9d into native team development'
+          test "$(git rev-parse HEAD^{tree})" = 65a201f6babff9d3bfb3024a96495710356d44df
+          git apply --index "$RUNNER_TEMP/production.patch" "$RUNNER_TEMP/tests.patch" "$RUNNER_TEMP/docs.patch"
+          git diff --cached --check
+          test "$(git write-tree)" = feec1e38763f7d423b4c787608111db2d65965f3
+          # Workflow writes are applied through the user's GitHub connector, not
+          # this runner token. All source and test files remain exactly matched.
+          git restore --source HEAD --staged --worktree .github/workflows/billing-safety.yml
+          git commit -m 'feat(teams): complete invitation handling and verify native account contracts'
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git log -2 --oneline
+      - name: Publish only the isolated candidate branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git ls-remote origin refs/heads/verify/native-accounts-candidate-e1d3ac50 | cut -f1)" = 8190dbff59af02e97d329687cc37608a1f698074
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/verify/native-accounts-candidate-e1d3ac50
+  verify:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
     env:
       GOMAXPROCS: '2'
       TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/native_accounts_test?sslmode=disable
@@ -27,10 +73,11 @@ jobs:
     defaults:
       run:
         working-directory: apps/api-go
+        shell: bash
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: 8190dbff59af02e97d329687cc37608a1f698074
+          ref: ${{ needs.prepare.outputs.source_sha }}
           persist-credentials: false
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
@@ -38,25 +85,61 @@ jobs:
           cache-dependency-path: |
             apps/api-go/go.sum
             apps/api-go/relaykit/go.sum
-      - name: Print exact native constraint contracts
+      - name: Record tested source
         run: |
-          cat > model/native_account_diagnostic_test.go <<'GO'
-          package model
-          import "testing"
-          func TestNativeAccountDiagnosticPostgres(t *testing.T) {
-            s, _ := nativeAccountFixture(t, true)
-            schema, err := currentPostgresSchema(s.db)
-            if err != nil { t.Fatal(err) }
-            inventory, err := buildPostgresSchemaInventory(s.db, schema, nativeAccountModels())
-            if err != nil { t.Fatal(err) }
-            snapshot, err := loadPostgresCatalogSnapshot(s.db, schema)
-            if err != nil { t.Fatal(err) }
-            for _, expected := range inventory.Constraints {
-              actual := snapshot.Constraints[postgresCatalogKey{Table: expected.Table, Name: expected.Names[0]}]
-              if !postgresConstraintSpecsEqual(expected, actual) {
-                t.Logf("EXPECTED: %+v\nACTUAL: %+v", expected, actual)
-              }
-            }
-          }
-          GO
-          go test -v -p 2 ./model -run '^TestNativeAccountDiagnosticPostgres$' -count=1 -timeout=2m
+          mkdir -p "$RUNNER_TEMP/native-results"
+          git rev-parse HEAD | tee "$RUNNER_TEMP/native-results/source.txt"
+          go version | tee -a "$RUNNER_TEMP/native-results/source.txt"
+      - name: Account and payer rules
+        id: rules
+        continue-on-error: true
+        run: go test -race -json -cover -p 2 ./pkg/account ./pkg/accountfunding -count=1 -timeout=2m | tee "$RUNNER_TEMP/native-results/rules.jsonl"
+      - name: Real SQLite and PostgreSQL storage and schema contracts
+        id: model
+        continue-on-error: true
+        run: go test -race -json -p 2 ./model -run '^(TestNativeAccount|TestTeamAccountAccess|TestEvaluateTrustLevel|TestPostgresCatalog)' -count=1 -timeout=5m | tee "$RUNNER_TEMP/native-results/model.jsonl"
+      - name: Real login session and team HTTP workflows
+        id: http
+        continue-on-error: true
+        run: go test -race -json -p 2 ./controller ./router -run '^TestNativeAccount' -count=1 -timeout=5m | tee "$RUNNER_TEMP/native-results/http.jsonl"
+      - name: Existing billing and session regressions
+        id: billing
+        continue-on-error: true
+        run: go test -race -json -p 2 ./service -run '^(TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption|TestCreateLoginSession|TestLoginSessionCreateRefreshAndRevoke|TestUserAuthVersionInvalidatesExistingSession)' -count=1 -timeout=5m | tee "$RUNNER_TEMP/native-results/billing.jsonl"
+      - name: Build the Go server
+        id: build
+        continue-on-error: true
+        run: go build -p 2 -o "$RUNNER_TEMP/native-api-go" .
+      - name: Summarize exact test outcomes
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os,json,pathlib,collections
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'native-results'
+          for path in root.glob('*.jsonl'):
+            counts=collections.Counter()
+            for line in path.read_text().splitlines():
+              try: event=json.loads(line)
+              except ValueError: continue
+              if event.get('Test') and event.get('Action') in ('pass','fail','skip'):
+                counts[event['Action']]+=1
+                if event['Action']!='pass': print(path.name,event['Action'],event['Test'])
+            print(path.name,dict(counts))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-account-verification-results
+          path: ${{ runner.temp }}/native-results
+          retention-days: 3
+      - name: Require all suites and build to pass
+        if: always()
+        env:
+          RULES: ${{ steps.rules.outcome }}
+          MODEL: ${{ steps.model.outcome }}
+          HTTP: ${{ steps.http.outcome }}
+          BILLING: ${{ steps.billing.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        run: |
+          printf 'rules=%s model=%s http=%s billing=%s build=%s\n' "$RULES" "$MODEL" "$HTTP" "$BILLING" "$BUILD"
+          test "$RULES" = success && test "$MODEL" = success && test "$HTTP" = success && test "$BILLING" = success && test "$BUILD" = success
