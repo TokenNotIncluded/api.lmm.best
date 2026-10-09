@@ -84,6 +84,13 @@ jobs:
           PY
           git diff --check
           git diff --cached --check
+      - name: Refresh derived assistant request contracts for current handlers
+        run: |
+          cd apps/api-go
+          go run ./cmd/assistant-contracts -root .
+          git diff -- controller/assistant_admin_operation_contracts.json > "$RUNNER_TEMP/integration/generated-contracts.patch"
+          git add controller/assistant_admin_operation_contracts.json
+          git diff --cached --check
       - name: Verify merged Go source
         env:
           GOMAXPROCS: '2'
@@ -119,5 +126,5 @@ jobs:
         run: |
           git rm .github/workflows/assistant-integration-check.yml
           git diff --cached --check
-          git commit -m 'chore(assistant): integrate current main and retain both changelog entries'
+          git commit -m 'chore(assistant): integrate main and refresh product request contracts'
           git push origin HEAD:refs/heads/improve/assistant-token-efficiency
