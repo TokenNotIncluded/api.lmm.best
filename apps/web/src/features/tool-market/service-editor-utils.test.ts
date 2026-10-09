@@ -227,7 +227,9 @@ test('refresh refuses a legacy parsed schema whose integer precision is unavaila
 test('provider refresh retains the reviewed multiplier and exact schemas', () => {
   const config = { provider: 'agentkey', multiplier: '1.35' }
   const previous: EditableTools = {
-    tools: [tool('execute_tool', { provider_pricing: config, price_quota: 500000 })],
+    tools: [
+      tool('execute_tool', { provider_pricing: config, price_quota: 500000 }),
+    ],
     selected: ['execute_tool'],
     prices: { execute_tool: '500000' },
   }
@@ -235,9 +237,15 @@ test('provider refresh retains the reviewed multiplier and exact schemas', () =>
     provider_pricing: { provider: 'agentkey', multiplier: '1.2' },
     price_quota: 100000,
   })
-  const refreshed = refreshToolDefinitions(previous, [incoming], { firstDiscovery: false, endpointChanged: false })
+  const refreshed = refreshToolDefinitions(previous, [incoming], {
+    firstDiscovery: false,
+    endpointChanged: false,
+  })
   assert.deepEqual(refreshed.tools[0].provider_pricing, config)
   assert.equal(refreshed.prices.execute_tool, '500000')
-  const changed = refreshToolDefinitions(previous, [tool('execute_tool')], { firstDiscovery: false, endpointChanged: true })
+  const changed = refreshToolDefinitions(previous, [tool('execute_tool')], {
+    firstDiscovery: false,
+    endpointChanged: true,
+  })
   assert.equal(changed.tools[0].provider_pricing, undefined)
 })

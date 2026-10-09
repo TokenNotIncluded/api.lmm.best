@@ -2,104 +2,104 @@
 Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
-import assert from "node:assert/strict";
-import { after, test } from "node:test";
+import assert from 'node:assert/strict'
+import { after, test } from 'node:test'
 
-import { Window } from "happy-dom";
+import { Window } from 'happy-dom'
 
 const domWindow = new Window({
-  url: "https://console.example.test/tool-market",
-});
+  url: 'https://console.example.test/tool-market',
+})
 domWindow.document.write(
-  "<!doctype html><html><head></head><body></body></html>",
-);
-const originalGlobals = new Map<string, PropertyDescriptor | undefined>();
+  '<!doctype html><html><head></head><body></body></html>'
+)
+const originalGlobals = new Map<string, PropertyDescriptor | undefined>()
 for (const key of [
-  "window",
-  "document",
-  "navigator",
-  "localStorage",
-  "HTMLElement",
-  "HTMLInputElement",
-  "SVGElement",
-  "customElements",
-  "Node",
-  "Element",
-  "Event",
-  "MouseEvent",
-  "PointerEvent",
-  "CustomEvent",
-  "MutationObserver",
-  "ResizeObserver",
-  "requestAnimationFrame",
-  "cancelAnimationFrame",
-  "getComputedStyle",
+  'window',
+  'document',
+  'navigator',
+  'localStorage',
+  'HTMLElement',
+  'HTMLInputElement',
+  'SVGElement',
+  'customElements',
+  'Node',
+  'Element',
+  'Event',
+  'MouseEvent',
+  'PointerEvent',
+  'CustomEvent',
+  'MutationObserver',
+  'ResizeObserver',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'getComputedStyle',
 ] as const) {
-  originalGlobals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+  originalGlobals.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
   Object.defineProperty(globalThis, key, {
     configurable: true,
     value: domWindow[key],
-  });
+  })
 }
 originalGlobals.set(
-  "IS_REACT_ACT_ENVIRONMENT",
-  Object.getOwnPropertyDescriptor(globalThis, "IS_REACT_ACT_ENVIRONMENT"),
-);
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  'IS_REACT_ACT_ENVIRONMENT',
+  Object.getOwnPropertyDescriptor(globalThis, 'IS_REACT_ACT_ENVIRONMENT')
+)
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-const { act } = await import("react");
-const { createRoot } = await import("react-dom/client");
+const { act } = await import('react')
+const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
-  await import("@tanstack/react-query");
-const { createInstance } = await import("i18next");
-const { I18nextProvider, initReactI18next } = await import("react-i18next");
-const { api } = await import("@/lib/api");
+  await import('@tanstack/react-query')
+const { createInstance } = await import('i18next')
+const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { api } = await import('@/lib/api')
 const { resetMarketCurrencyTest, useWalletCurrencyPreferenceStore } =
-  await import("./currency-test-support");
-const { ServiceEditor } = await import("./service-editor");
-type MarketDetail = import("./api").MarketDetail;
-type DraftInput = import("./api").DraftInput;
-const i18n = createInstance();
+  await import('./currency-test-support')
+const { ServiceEditor } = await import('./service-editor')
+type MarketDetail = import('./api').MarketDetail
+type DraftInput = import('./api').DraftInput
+const i18n = createInstance()
 await i18n
   .use(initReactI18next)
-  .init({ lng: "en", resources: { en: { translation: {} } } });
+  .init({ lng: 'en', resources: { en: { translation: {} } } })
 
 after(() => {
-  domWindow.close();
+  domWindow.close()
   for (const [key, descriptor] of originalGlobals) {
-    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-    else Reflect.deleteProperty(globalThis, key);
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+    else Reflect.deleteProperty(globalThis, key)
   }
-});
+})
 
 function changeNativeInput(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
-    "value",
-  )?.set;
-  assert.ok(setter);
-  setter.call(input, value);
-  input.dispatchEvent(new Event("input", { bubbles: true }));
+    'value'
+  )?.set
+  assert.ok(setter)
+  setter.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
 function submitForm(container: HTMLElement) {
-  const form = container.querySelector("form");
-  assert.ok(form);
-  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  const form = container.querySelector('form')
+  assert.ok(form)
+  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
 }
 
 async function renderEditor(initial?: MarketDetail, feeBps = 1000) {
-  resetMarketCurrencyTest();
-  useWalletCurrencyPreferenceStore.getState().setPreference("CNY");
+  resetMarketCurrencyTest()
+  useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  const saved: string[] = [];
-  let displayedInitial = initial;
-  let displayedFeeBps = feeBps;
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const saved: string[] = []
+  let displayedInitial = initial
+  let displayedFeeBps = feeBps
   const render = async () => {
     await act(async () =>
       root.render(
@@ -113,24 +113,24 @@ async function renderEditor(initial?: MarketDetail, feeBps = 1000) {
               onCancel={() => {}}
             />
           </I18nextProvider>
-        </QueryClientProvider>,
-      ),
-    );
-  };
-  await render();
+        </QueryClientProvider>
+      )
+    )
+  }
+  await render()
   const settle = async () => {
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-  };
-  await settle();
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+  await settle()
   const button = (name: string) => {
-    const result = [...container.querySelectorAll("button")].find(
-      (item) => item.textContent === name,
-    );
-    assert.ok(result, name);
-    return result;
-  };
+    const result = [...container.querySelectorAll('button')].find(
+      (item) => item.textContent === name
+    )
+    assert.ok(result, name)
+    return result
+  }
   return {
     container,
     client,
@@ -138,758 +138,758 @@ async function renderEditor(initial?: MarketDetail, feeBps = 1000) {
     button,
     settle,
     input: async (id: string, value: string) => {
-      const input = container.querySelector<HTMLInputElement>(id);
-      assert.ok(input, id);
-      await act(async () => changeNativeInput(input, value));
+      const input = container.querySelector<HTMLInputElement>(id)
+      assert.ok(input, id)
+      await act(async () => changeNativeInput(input, value))
     },
     select: async (id: string, value: string) => {
-      const select = container.querySelector<HTMLSelectElement>(id);
-      assert.ok(select, id);
+      const select = container.querySelector<HTMLSelectElement>(id)
+      assert.ok(select, id)
       await act(async () => {
-        select.value = value;
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      });
+        select.value = value
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      })
     },
     submit: async () => {
-      await act(async () => submitForm(container));
-      await settle();
+      await act(async () => submitForm(container))
+      await settle()
     },
     rerenderInitial: async (next: MarketDetail) => {
-      displayedInitial = next;
-      await render();
-      await settle();
+      displayedInitial = next
+      await render()
+      await settle()
     },
     rerenderFee: async (next: number) => {
-      displayedFeeBps = next;
-      await render();
-      await settle();
+      displayedFeeBps = next
+      await render()
+      await settle()
     },
     click: async (name: string) => {
       await act(async () => {
-        if (name === "Save draft") {
-          assert.equal(button(name).disabled, false);
+        if (name === 'Save draft') {
+          assert.equal(button(name).disabled, false)
           // Happy DOM's floating-point step validation rejects valid decimal
           // prices. Exercise the submit handler after checking the UI gate.
-          submitForm(container);
-        } else button(name).click();
-      });
-      await settle();
+          submitForm(container)
+        } else button(name).click()
+      })
+      await settle()
     },
     dispose: async () => {
-      await act(async () => root.unmount());
-      client.clear();
-      container.remove();
+      await act(async () => root.unmount())
+      client.clear()
+      container.remove()
     },
-  };
+  }
 }
 
 const initial: MarketDetail = {
   service: {
-    id: "service-existing",
+    id: 'service-existing',
     owner_id: 1,
-    live_version_id: "version-old",
-    draft_version_id: "version-old",
-    status: "approved",
+    live_version_id: 'version-old',
+    draft_version_id: 'version-old',
+    status: 'approved',
     created_at: 1,
   },
   version: {
-    id: "version-old",
-    name: "Search service",
-    description: "Search",
-    endpoint: "https://tools.example.test/mcp",
-    execution_type: "remote",
-    visibility: "private",
-    status: "draft",
-    review_note: "",
+    id: 'version-old',
+    name: 'Search service',
+    description: 'Search',
+    endpoint: 'https://tools.example.test/mcp',
+    execution_type: 'remote',
+    visibility: 'private',
+    status: 'draft',
+    review_note: '',
   },
   tools: [
     {
-      tool_id: "search-id",
-      version_id: "version-old",
-      name: "search",
-      description: "Search",
+      tool_id: 'search-id',
+      version_id: 'version-old',
+      name: 'search',
+      description: 'Search',
       input_schema: '{"type":"object"}',
-      output_schema: "",
+      output_schema: '',
       permissions: '["read","network"]',
       price_quota: 25000,
     },
   ],
-  pricing: "",
+  pricing: '',
   validated: false,
-};
+}
 const discovered = [
   {
-    name: "search",
-    description: "Search",
-    input_schema: { type: "object", required: ["query"] },
-    permissions: ["read"],
+    name: 'search',
+    description: 'Search',
+    input_schema: { type: 'object', required: ['query'] },
+    permissions: ['read'],
     price_quota: 0,
   },
   {
-    name: "new_tool",
-    description: "New tool",
-    input_schema: { type: "object" },
-    permissions: ["send"],
+    name: 'new_tool',
+    description: 'New tool',
+    input_schema: { type: 'object' },
+    permissions: ['send'],
     price_quota: 0,
   },
-];
+]
 
 function pricingRequests(definitions = discovered) {
-  const originalAdapter = api.defaults.adapter;
-  const drafts: DraftInput[] = [];
+  const originalAdapter = api.defaults.adapter
+  const drafts: DraftInput[] = []
   api.defaults.adapter = async (config) => {
-    const url = config.url ?? "";
+    const url = config.url ?? ''
     const input =
-      typeof config.data === "string" ? JSON.parse(config.data) : config.data;
-    let data: unknown;
-    if (url.endsWith("/inspect")) {
-      data = definitions;
+      typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+    let data: unknown
+    if (url.endsWith('/inspect')) {
+      data = definitions
     } else if (
-      (config.method === "post" && url.endsWith("/services")) ||
-      (config.method === "put" && url.endsWith("/draft"))
+      (config.method === 'post' && url.endsWith('/services')) ||
+      (config.method === 'put' && url.endsWith('/draft'))
     ) {
-      drafts.push(input);
+      drafts.push(input)
       data = {
         ...initial.service,
-        id: "service-pricing",
-        draft_version_id: "version-priced",
-      };
-    } else if (url.endsWith("/credentials")) {
-      data = { mode: "none", configured: false, updated_at: 0 };
-    } else assert.fail(`Unexpected request: ${config.method} ${url}`);
+        id: 'service-pricing',
+        draft_version_id: 'version-priced',
+      }
+    } else if (url.endsWith('/credentials')) {
+      data = { mode: 'none', configured: false, updated_at: 0 }
+    } else assert.fail(`Unexpected request: ${config.method} ${url}`)
     return {
       config,
       status: 200,
-      statusText: "OK",
+      statusText: 'OK',
       headers: {},
       data: { success: true, data },
-    };
-  };
+    }
+  }
   return {
     drafts,
     restore: () => {
-      api.defaults.adapter = originalAdapter;
+      api.defaults.adapter = originalAdapter
     },
-  };
+  }
 }
 
-test("credential inputs show mode-specific and saved hints without exposing a stored secret", async () => {
-  const requests = pricingRequests();
-  const fresh = await renderEditor();
+test('credential inputs show mode-specific and saved hints without exposing a stored secret', async () => {
+  const requests = pricingRequests()
+  const fresh = await renderEditor()
   try {
-    await fresh.select("#market-authentication", "bearer");
+    await fresh.select('#market-authentication', 'bearer')
     let input =
-      fresh.container.querySelector<HTMLInputElement>("#market-secret");
-    assert.ok(input);
-    assert.equal(input.placeholder, "Paste a Bearer token");
-    assert.equal(input.type, "password");
-    assert.equal(input.autocomplete, "new-password");
-    await fresh.select("#market-authentication", "api_key");
-    input = fresh.container.querySelector<HTMLInputElement>("#market-secret");
-    assert.ok(input);
-    assert.equal(input.placeholder, "Paste an API key");
+      fresh.container.querySelector<HTMLInputElement>('#market-secret')
+    assert.ok(input)
+    assert.equal(input.placeholder, 'Paste a Bearer token')
+    assert.equal(input.type, 'password')
+    assert.equal(input.autocomplete, 'new-password')
+    await fresh.select('#market-authentication', 'api_key')
+    input = fresh.container.querySelector<HTMLInputElement>('#market-secret')
+    assert.ok(input)
+    assert.equal(input.placeholder, 'Paste an API key')
   } finally {
-    await fresh.dispose();
-    requests.restore();
+    await fresh.dispose()
+    requests.restore()
   }
 
-  const originalAdapter = api.defaults.adapter;
+  const originalAdapter = api.defaults.adapter
   api.defaults.adapter = async (config) => ({
     config,
     status: 200,
-    statusText: "OK",
+    statusText: 'OK',
     headers: {},
     data: {
       success: true,
-      data: { mode: "bearer", configured: true, updated_at: 1 },
+      data: { mode: 'bearer', configured: true, updated_at: 1 },
     },
-  });
-  const saved = await renderEditor(initial);
+  })
+  const saved = await renderEditor(initial)
   try {
     const input =
-      saved.container.querySelector<HTMLInputElement>("#market-secret");
-    assert.ok(input);
+      saved.container.querySelector<HTMLInputElement>('#market-secret')
+    assert.ok(input)
     assert.equal(
       input.placeholder,
-      "Saved. Leave empty to keep it, or enter a replacement.",
-    );
-    assert.equal(input.value, "");
-    assert.equal(input.type, "password");
-    assert.equal(input.autocomplete, "new-password");
+      'Saved. Leave empty to keep it, or enter a replacement.'
+    )
+    assert.equal(input.value, '')
+    assert.equal(input.type, 'password')
+    assert.equal(input.autocomplete, 'new-password')
     await saved.input(
-      "#market-endpoint",
-      "https://new-provider.example.test/mcp",
-    );
-    assert.equal(input.placeholder, "Paste a Bearer token");
-    await saved.select("#market-authentication", "api_key");
-    assert.equal(input.placeholder, "Paste an API key");
-    assert.equal(input.value, "");
+      '#market-endpoint',
+      'https://new-provider.example.test/mcp'
+    )
+    assert.equal(input.placeholder, 'Paste a Bearer token')
+    await saved.select('#market-authentication', 'api_key')
+    assert.equal(input.placeholder, 'Paste an API key')
+    assert.equal(input.value, '')
   } finally {
-    await saved.dispose();
-    api.defaults.adapter = originalAdapter;
+    await saved.dispose()
+    api.defaults.adapter = originalAdapter
   }
-});
+})
 
 async function readNewService(view: Awaited<ReturnType<typeof renderEditor>>) {
-  await view.input("#market-name", "Priced tool service");
-  await view.input("#market-endpoint", "https://tools.example.test/mcp");
-  await view.click("Read tool definitions");
+  await view.input('#market-name', 'Priced tool service')
+  await view.input('#market-endpoint', 'https://tools.example.test/mcp')
+  await view.click('Read tool definitions')
 }
 
-test("a new service shows pricing guidance before discovery and cannot save undiscovered tools", async () => {
-  const originalAdapter = api.defaults.adapter;
-  const requests: string[] = [];
+test('a new service shows pricing guidance before discovery and cannot save undiscovered tools', async () => {
+  const originalAdapter = api.defaults.adapter
+  const requests: string[] = []
   api.defaults.adapter = async (config) => {
-    if (config.method === "get" && config.url === "/api/tool-market/config") {
+    if (config.method === 'get' && config.url === '/api/tool-market/config') {
       return {
         config,
         status: 200,
-        statusText: "OK",
+        statusText: 'OK',
         headers: {},
         data: { success: true, data: { provider_presets: [] } },
-      };
+      }
     }
-    requests.push(config.url ?? "");
+    requests.push(config.url ?? '')
     assert.fail(
-      "A service without inspected tools must not write or inspect a draft",
-    );
-  };
-  const view = await renderEditor();
+      'A service without inspected tools must not write or inspect a draft'
+    )
+  }
+  const view = await renderEditor()
   try {
     assert.ok(
-      [...view.container.querySelectorAll("legend")].some(
-        (legend) => legend.textContent === "Tools and prices",
+      [...view.container.querySelectorAll('legend')].some(
+        (legend) => legend.textContent === 'Tools and prices'
       ),
-      "pricing is visible as soon as the publisher opens the form",
-    );
+      'pricing is visible as soon as the publisher opens the form'
+    )
     assert.match(
-      view.container.textContent ?? "",
-      /Read the MCP tool definitions first to choose free or paid pricing for each tool/,
-    );
+      view.container.textContent ?? '',
+      /Read the MCP tool definitions first to choose free or paid pricing for each tool/
+    )
     assert.equal(
       view.container.querySelectorAll('input[id^="select-"]').length,
-      0,
-    );
-    await view.input("#market-name", "Uninspected service");
-    await view.input("#market-endpoint", "https://tools.example.test/mcp");
-    assert.equal(view.button("Save draft").disabled, true);
-    await view.submit();
-    assert.deepEqual(requests, []);
-    assert.deepEqual(view.saved, []);
+      0
+    )
+    await view.input('#market-name', 'Uninspected service')
+    await view.input('#market-endpoint', 'https://tools.example.test/mcp')
+    assert.equal(view.button('Save draft').disabled, true)
+    await view.submit()
+    assert.deepEqual(requests, [])
+    assert.deepEqual(view.saved, [])
   } finally {
-    await view.dispose();
-    api.defaults.adapter = originalAdapter;
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
   }
-});
+})
 
-test("each discovered tool can be priced independently and switching back to free saves zero", async () => {
-  const requests = pricingRequests();
-  const view = await renderEditor();
+test('each discovered tool can be priced independently and switching back to free saves zero', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor()
   try {
-    await readNewService(view);
-    for (const name of ["search", "new_tool"]) {
+    await readNewService(view)
+    for (const name of ['search', 'new_tool']) {
       const mode = view.container.querySelector<HTMLSelectElement>(
-        `#billing-mode-${name}`,
-      );
-      assert.ok(mode);
-      assert.equal(mode.value, "free");
+        `#billing-mode-${name}`
+      )
+      assert.ok(mode)
+      assert.equal(mode.value, 'free')
       assert.deepEqual(
         [...mode.options].map((option) => option.textContent),
         [
-          "Free tool",
-          "Paid tool",
-          "Input token usage",
-          "Combined usage pricing",
-        ],
-      );
+          'Free tool',
+          'Paid tool',
+          'Input token usage',
+          'Combined usage pricing',
+        ]
+      )
     }
-    await view.select("#billing-mode-search", "paid");
-    assert.equal(view.button("Save draft").disabled, true);
-    await view.input("#price-search", "7");
-    await view.select("#billing-mode-new_tool", "paid");
-    await view.input("#price-new_tool", "0.000014");
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 1);
+    await view.select('#billing-mode-search', 'paid')
+    assert.equal(view.button('Save draft').disabled, true)
+    await view.input('#price-search', '7')
+    await view.select('#billing-mode-new_tool', 'paid')
+    await view.input('#price-new_tool', '0.000014')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
     assert.deepEqual(
       requests.drafts[0].tools.map(({ name, price_quota }) => ({
         name,
         price_quota,
       })),
       [
-        { name: "search", price_quota: 500000 },
-        { name: "new_tool", price_quota: 1 },
-      ],
-    );
-    await view.select("#billing-mode-search", "free");
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 2);
+        { name: 'search', price_quota: 500000 },
+        { name: 'new_tool', price_quota: 1 },
+      ]
+    )
+    await view.select('#billing-mode-search', 'free')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 2)
     assert.deepEqual(
       requests.drafts[1].tools.map(({ name, price_quota }) => ({
         name,
         price_quota,
       })),
       [
-        { name: "search", price_quota: 0 },
-        { name: "new_tool", price_quota: 1 },
+        { name: 'search', price_quota: 0 },
+        { name: 'new_tool', price_quota: 1 },
       ],
-      "making one tool free must not reset the other tool price",
-    );
-    await view.select("#billing-mode-new_tool", "free");
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 3);
+      'making one tool free must not reset the other tool price'
+    )
+    await view.select('#billing-mode-new_tool', 'free')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 3)
     assert.deepEqual(
       requests.drafts[2].tools.map((tool) => tool.price_quota),
-      [0, 0],
-    );
+      [0, 0]
+    )
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("paid tools with an empty or zero price cannot submit, while explicit free pricing saves zero", async () => {
-  const requests = pricingRequests([discovered[0]]);
-  const view = await renderEditor();
+test('paid tools with an empty or zero price cannot submit, while explicit free pricing saves zero', async () => {
+  const requests = pricingRequests([discovered[0]])
+  const view = await renderEditor()
   try {
-    await readNewService(view);
-    await view.select("#billing-mode-search", "paid");
-    for (const invalidPrice of ["", "0"]) {
-      await view.input("#price-search", invalidPrice);
-      assert.equal(view.button("Save draft").disabled, true, invalidPrice);
-      await view.submit();
-      assert.deepEqual(requests.drafts, []);
-      assert.deepEqual(view.saved, []);
+    await readNewService(view)
+    await view.select('#billing-mode-search', 'paid')
+    for (const invalidPrice of ['', '0']) {
+      await view.input('#price-search', invalidPrice)
+      assert.equal(view.button('Save draft').disabled, true, invalidPrice)
+      await view.submit()
+      assert.deepEqual(requests.drafts, [])
+      assert.deepEqual(view.saved, [])
     }
-    await view.select("#billing-mode-search", "free");
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 1);
-    assert.equal(requests.drafts[0].tools[0].price_quota, 0);
-    assert.deepEqual(view.saved, ["service-pricing"]);
+    await view.select('#billing-mode-search', 'free')
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.equal(requests.drafts[0].tools[0].price_quota, 0)
+    assert.deepEqual(view.saved, ['service-pricing'])
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("net earnings use the current platform fee and refreshing definitions preserves the entered price", async () => {
-  const requests = pricingRequests([discovered[0]]);
-  const view = await renderEditor(undefined, 1000);
+test('net earnings use the current platform fee and refreshing definitions preserves the entered price', async () => {
+  const requests = pricingRequests([discovered[0]])
+  const view = await renderEditor(undefined, 1000)
   try {
-    await readNewService(view);
-    await view.select("#billing-mode-search", "paid");
-    await view.input("#price-search", "7");
+    await readNewService(view)
+    await view.select('#billing-mode-search', 'paid')
+    await view.input('#price-search', '7')
     assert.match(
-      view.container.textContent ?? "",
-      /You receive 6\.3 CNY per successful call after the 10% platform fee\./,
-    );
-    await view.rerenderFee(2500);
+      view.container.textContent ?? '',
+      /You receive 6\.3 CNY per successful call after the 10% platform fee\./
+    )
+    await view.rerenderFee(2500)
     assert.match(
-      view.container.textContent ?? "",
-      /You receive 5\.25 CNY per successful call after the 25% platform fee\./,
-    );
-    await view.click("Read tool definitions");
+      view.container.textContent ?? '',
+      /You receive 5\.25 CNY per successful call after the 25% platform fee\./
+    )
+    await view.click('Read tool definitions')
     assert.equal(
-      view.container.querySelector<HTMLSelectElement>("#billing-mode-search")
+      view.container.querySelector<HTMLSelectElement>('#billing-mode-search')
         ?.value,
-      "paid",
-    );
+      'paid'
+    )
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("#price-search")?.value,
-      "7",
-    );
+      view.container.querySelector<HTMLInputElement>('#price-search')?.value,
+      '7'
+    )
     assert.match(
-      view.container.textContent ?? "",
-      /You receive 5\.25 CNY per successful call after the 25% platform fee\./,
-    );
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 1);
+      view.container.textContent ?? '',
+      /You receive 5\.25 CNY per successful call after the 25% platform fee\./
+    )
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
     assert.equal(
       requests.drafts[0].tools[0].price_quota,
       500000,
-      "the platform fee changes author earnings, not the buyer price",
-    );
+      'the platform fee changes author earnings, not the buyer price'
+    )
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("editor preserves owner policy, requires review, and retries credential writes without a duplicate draft", async () => {
-  const originalAdapter = api.defaults.adapter;
-  const inspections: Record<string, unknown>[] = [];
-  const drafts: Record<string, unknown>[] = [];
-  const credentialWrites: Record<string, unknown>[] = [];
+test('editor preserves owner policy, requires review, and retries credential writes without a duplicate draft', async () => {
+  const originalAdapter = api.defaults.adapter
+  const inspections: Record<string, unknown>[] = []
+  const drafts: Record<string, unknown>[] = []
+  const credentialWrites: Record<string, unknown>[] = []
   api.defaults.adapter = async (config) => {
-    const url = config.url ?? "";
+    const url = config.url ?? ''
     const input =
-      typeof config.data === "string" ? JSON.parse(config.data) : config.data;
-    let data: unknown;
-    let success = true;
-    if (config.method === "get" && url.endsWith("/credentials")) {
-      data = { mode: "bearer", configured: true, updated_at: 1 };
-    } else if (url.endsWith("/inspect")) {
-      inspections.push(input);
-      data = discovered;
-    } else if (url.endsWith("/draft")) {
-      drafts.push(input);
-      data = { ...initial.service, draft_version_id: "version-new" };
-    } else if (config.method === "put" && url.endsWith("/credentials")) {
-      credentialWrites.push(input);
-      success = credentialWrites.length > 1;
-      data = { mode: "bearer", configured: true, updated_at: 2 };
+      typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+    let data: unknown
+    let success = true
+    if (config.method === 'get' && url.endsWith('/credentials')) {
+      data = { mode: 'bearer', configured: true, updated_at: 1 }
+    } else if (url.endsWith('/inspect')) {
+      inspections.push(input)
+      data = discovered
+    } else if (url.endsWith('/draft')) {
+      drafts.push(input)
+      data = { ...initial.service, draft_version_id: 'version-new' }
+    } else if (config.method === 'put' && url.endsWith('/credentials')) {
+      credentialWrites.push(input)
+      success = credentialWrites.length > 1
+      data = { mode: 'bearer', configured: true, updated_at: 2 }
     } else {
-      assert.fail(`Unexpected request: ${config.method} ${url}`);
+      assert.fail(`Unexpected request: ${config.method} ${url}`)
     }
     return {
       config,
       status: 200,
-      statusText: "OK",
+      statusText: 'OK',
       headers: {},
       data: {
         success,
-        code: success ? undefined : "TOOL_MARKET_UNAVAILABLE",
+        code: success ? undefined : 'TOOL_MARKET_UNAVAILABLE',
         data,
       },
-    };
-  };
-  const view = await renderEditor(initial);
+    }
+  }
+  const view = await renderEditor(initial)
   try {
-    await view.click("Read tool definitions");
+    await view.click('Read tool definitions')
     assert.deepEqual(inspections[0], {
       endpoint: initial.version.endpoint,
       service_id: initial.service.id,
       version_id: initial.version.id,
-    });
+    })
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("#price-search")?.value,
-      "0.35",
-    );
+      view.container.querySelector<HTMLInputElement>('#price-search')?.value,
+      '0.35'
+    )
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("input#select-search")
+      view.container.querySelector<HTMLInputElement>('input#select-search')
         ?.checked,
-      true,
-    );
+      true
+    )
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("input#select-new_tool")
+      view.container.querySelector<HTMLInputElement>('input#select-new_tool')
         ?.checked,
-      false,
-    );
-    assert.equal(view.button("Save draft").disabled, true);
-    await view.click("Read tool definitions");
+      false
+    )
+    assert.equal(view.button('Save draft').disabled, true)
+    await view.click('Read tool definitions')
     assert.equal(
-      view.button("Save draft").disabled,
+      view.button('Save draft').disabled,
       true,
-      "rereading does not skip unreviewed schema changes",
-    );
-    const review = [...view.container.querySelectorAll("label")].find((label) =>
-      label.textContent?.includes("I reviewed the endpoint"),
-    );
-    assert.ok(review);
+      'rereading does not skip unreviewed schema changes'
+    )
+    const review = [...view.container.querySelectorAll('label')].find((label) =>
+      label.textContent?.includes('I reviewed the endpoint')
+    )
+    assert.ok(review)
     const reviewCheckbox = review.querySelector<HTMLInputElement>(
-      'input[type="checkbox"]',
-    );
-    assert.ok(reviewCheckbox);
-    await act(async () => reviewCheckbox.click());
+      'input[type="checkbox"]'
+    )
+    assert.ok(reviewCheckbox)
+    await act(async () => reviewCheckbox.click())
     assert.equal(
-      view.button("Save draft").disabled,
+      view.button('Save draft').disabled,
       false,
-      "review allows saving",
-    );
-    await view.click("Save draft");
-    assert.equal(view.saved.length, 0);
+      'review allows saving'
+    )
+    await view.click('Save draft')
+    assert.equal(view.saved.length, 0)
     assert.match(
-      view.container.querySelector('[role="alert"]')?.textContent ?? "",
-      /draft was saved/,
-    );
+      view.container.querySelector('[role="alert"]')?.textContent ?? '',
+      /draft was saved/
+    )
     await view.rerenderInitial({
       ...initial,
-      service: { ...initial.service, draft_version_id: "version-new" },
-      version: { ...initial.version, id: "version-new" },
-    });
-    await view.click("Save draft");
-    assert.deepEqual(view.saved, ["service-existing"]);
-    assert.equal(drafts.length, 1);
+      service: { ...initial.service, draft_version_id: 'version-new' },
+      version: { ...initial.version, id: 'version-new' },
+    })
+    await view.click('Save draft')
+    assert.deepEqual(view.saved, ['service-existing'])
+    assert.equal(drafts.length, 1)
     assert.deepEqual(drafts[0].tools, [
       {
         ...discovered[0],
-        permissions: ["read", "network"],
+        permissions: ['read', 'network'],
         price_quota: 25000,
-        billing_mode: "",
+        billing_mode: '',
         input_token_price_quota: 0,
         max_input_tokens: 0,
       },
-    ]);
-    assert.equal("authentication" in drafts[0], false);
+    ])
+    assert.equal('authentication' in drafts[0], false)
     assert.deepEqual(credentialWrites, [
       {
-        version_id: "version-new",
-        mode: "bearer",
-        copy_from_version_id: "version-old",
+        version_id: 'version-new',
+        mode: 'bearer',
+        copy_from_version_id: 'version-old',
       },
       {
-        version_id: "version-new",
-        mode: "bearer",
-        copy_from_version_id: "version-old",
+        version_id: 'version-new',
+        mode: 'bearer',
+        copy_from_version_id: 'version-old',
       },
-    ]);
-    assert.equal(view.client.getMutationCache().getAll().length, 0);
+    ])
+    assert.equal(view.client.getMutationCache().getAll().length, 0)
   } finally {
-    await view.dispose();
-    api.defaults.adapter = originalAdapter;
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
   }
-});
+})
 
-test("replacement credentials stay outside query caches and draft data", async () => {
-  const originalAdapter = api.defaults.adapter;
-  const inputs: { kind: string; data: Record<string, unknown> }[] = [];
+test('replacement credentials stay outside query caches and draft data', async () => {
+  const originalAdapter = api.defaults.adapter
+  const inputs: { kind: string; data: Record<string, unknown> }[] = []
   api.defaults.adapter = async (config) => {
-    const url = config.url ?? "";
+    const url = config.url ?? ''
     const input =
-      typeof config.data === "string" ? JSON.parse(config.data) : config.data;
-    let data: unknown;
-    if (config.method === "get" && url.endsWith("/credentials")) {
-      data = { mode: "bearer", configured: true, updated_at: 1 };
-    } else if (url.endsWith("/inspect")) {
-      inputs.push({ kind: "inspect", data: input });
-      data = [discovered[0]];
-    } else if (url.endsWith("/draft")) {
-      inputs.push({ kind: "draft", data: input });
-      data = { ...initial.service, draft_version_id: "version-new" };
-    } else if (url.endsWith("/credentials")) {
-      inputs.push({ kind: "credential", data: input });
-      data = { mode: "bearer", configured: true, updated_at: 2 };
-    } else assert.fail(`Unexpected request: ${url}`);
+      typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+    let data: unknown
+    if (config.method === 'get' && url.endsWith('/credentials')) {
+      data = { mode: 'bearer', configured: true, updated_at: 1 }
+    } else if (url.endsWith('/inspect')) {
+      inputs.push({ kind: 'inspect', data: input })
+      data = [discovered[0]]
+    } else if (url.endsWith('/draft')) {
+      inputs.push({ kind: 'draft', data: input })
+      data = { ...initial.service, draft_version_id: 'version-new' }
+    } else if (url.endsWith('/credentials')) {
+      inputs.push({ kind: 'credential', data: input })
+      data = { mode: 'bearer', configured: true, updated_at: 2 }
+    } else assert.fail(`Unexpected request: ${url}`)
     return {
       config,
       status: 200,
-      statusText: "OK",
+      statusText: 'OK',
       headers: {},
       data: { success: true, data },
-    };
-  };
-  const view = await renderEditor(initial);
-  const fixtureSecret = "fixture-secret-local-only";
+    }
+  }
+  const view = await renderEditor(initial)
+  const fixtureSecret = 'fixture-secret-local-only'
   try {
     const input =
-      view.container.querySelector<HTMLInputElement>("#market-secret");
-    assert.ok(input);
-    assert.equal(input.type, "password");
+      view.container.querySelector<HTMLInputElement>('#market-secret')
+    assert.ok(input)
+    assert.equal(input.type, 'password')
     await act(async () => {
-      changeNativeInput(input, fixtureSecret);
-    });
-    await view.click("Read tool definitions");
+      changeNativeInput(input, fixtureSecret)
+    })
+    await view.click('Read tool definitions')
     assert.deepEqual(inputs[0].data.authentication, {
-      mode: "bearer",
+      mode: 'bearer',
       secret: fixtureSecret,
-    });
+    })
     assert.equal(
       JSON.stringify(view.client.getQueryCache().getAll()).includes(
-        fixtureSecret,
+        fixtureSecret
       ),
-      false,
-    );
-    assert.equal(view.client.getMutationCache().getAll().length, 0);
-    const review = [...view.container.querySelectorAll("label")].find((label) =>
-      label.textContent?.includes("I reviewed the endpoint"),
-    );
-    assert.ok(review);
+      false
+    )
+    assert.equal(view.client.getMutationCache().getAll().length, 0)
+    const review = [...view.container.querySelectorAll('label')].find((label) =>
+      label.textContent?.includes('I reviewed the endpoint')
+    )
+    assert.ok(review)
     const reviewCheckbox = review.querySelector<HTMLInputElement>(
-      'input[type="checkbox"]',
-    );
-    assert.ok(reviewCheckbox);
-    await act(async () => reviewCheckbox.click());
+      'input[type="checkbox"]'
+    )
+    assert.ok(reviewCheckbox)
+    await act(async () => reviewCheckbox.click())
     assert.equal(
-      view.button("Save draft").disabled,
+      view.button('Save draft').disabled,
       false,
-      "review allows saving",
-    );
-    await view.click("Save draft");
-    const draft = inputs.find((item) => item.kind === "draft");
-    assert.ok(draft);
-    assert.equal(JSON.stringify(draft.data).includes(fixtureSecret), false);
-    assert.equal("authentication" in draft.data, false);
+      'review allows saving'
+    )
+    await view.click('Save draft')
+    const draft = inputs.find((item) => item.kind === 'draft')
+    assert.ok(draft)
+    assert.equal(JSON.stringify(draft.data).includes(fixtureSecret), false)
+    assert.equal('authentication' in draft.data, false)
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("#market-secret")?.value,
-      "",
-    );
-    assert.deepEqual(view.saved, ["service-existing"]);
+      view.container.querySelector<HTMLInputElement>('#market-secret')?.value,
+      ''
+    )
+    assert.deepEqual(view.saved, ['service-existing'])
   } finally {
-    await view.dispose();
-    api.defaults.adapter = originalAdapter;
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
   }
-});
+})
 
-test("changing the endpoint retains edited tool policy but never forwards the old credential", async () => {
-  const originalAdapter = api.defaults.adapter;
-  const inspections: Record<string, unknown>[] = [];
+test('changing the endpoint retains edited tool policy but never forwards the old credential', async () => {
+  const originalAdapter = api.defaults.adapter
+  const inspections: Record<string, unknown>[] = []
   api.defaults.adapter = async (config) => {
-    const url = config.url ?? "";
+    const url = config.url ?? ''
     const input =
-      typeof config.data === "string" ? JSON.parse(config.data) : config.data;
-    let data: unknown;
-    if (config.method === "get" && url.endsWith("/credentials")) {
-      data = { mode: "bearer", configured: true, updated_at: 1 };
-    } else if (url.endsWith("/inspect")) {
-      inspections.push(input);
-      data = discovered;
-    } else assert.fail(`Unexpected request: ${url}`);
+      typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+    let data: unknown
+    if (config.method === 'get' && url.endsWith('/credentials')) {
+      data = { mode: 'bearer', configured: true, updated_at: 1 }
+    } else if (url.endsWith('/inspect')) {
+      inspections.push(input)
+      data = discovered
+    } else assert.fail(`Unexpected request: ${url}`)
     return {
       config,
       status: 200,
-      statusText: "OK",
+      statusText: 'OK',
       headers: {},
       data: { success: true, data },
-    };
-  };
-  const view = await renderEditor(initial);
+    }
+  }
+  const view = await renderEditor(initial)
   const changeInput = async (id: string, value: string) => {
-    const input = view.container.querySelector<HTMLInputElement>(id);
-    assert.ok(input);
+    const input = view.container.querySelector<HTMLInputElement>(id)
+    assert.ok(input)
     await act(async () => {
-      changeNativeInput(input, value);
-    });
-  };
+      changeNativeInput(input, value)
+    })
+  }
   try {
-    await changeInput("#price-search", "0.25");
-    await changeInput("#market-secret", "fixture-for-old-endpoint");
+    await changeInput('#price-search', '0.25')
+    await changeInput('#market-secret', 'fixture-for-old-endpoint')
     await changeInput(
-      "#market-endpoint",
-      "https://replacement.example.test/mcp",
-    );
+      '#market-endpoint',
+      'https://replacement.example.test/mcp'
+    )
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("#market-secret")?.value,
-      "",
-    );
+      view.container.querySelector<HTMLInputElement>('#market-secret')?.value,
+      ''
+    )
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("#price-search")?.value,
-      "0.25",
-    );
+      view.container.querySelector<HTMLInputElement>('#price-search')?.value,
+      '0.25'
+    )
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("input#select-search")
+      view.container.querySelector<HTMLInputElement>('input#select-search')
         ?.checked,
-      true,
-    );
-    await view.click("Read tool definitions");
+      true
+    )
+    await view.click('Read tool definitions')
     assert.equal(
       inspections.length,
       0,
-      "stored credentials must not be copied across endpoints",
-    );
+      'stored credentials must not be copied across endpoints'
+    )
     assert.match(
-      view.container.querySelector('[role="alert"]')?.textContent ?? "",
-      /Enter a credential/,
-    );
-    await changeInput("#market-secret", "fixture-for-new-endpoint");
-    await view.click("Read tool definitions");
+      view.container.querySelector('[role="alert"]')?.textContent ?? '',
+      /Enter a credential/
+    )
+    await changeInput('#market-secret', 'fixture-for-new-endpoint')
+    await view.click('Read tool definitions')
     assert.deepEqual(inspections[0], {
-      endpoint: "https://replacement.example.test/mcp",
-      authentication: { mode: "bearer", secret: "fixture-for-new-endpoint" },
-    });
-    assert.equal(view.button("Save draft").disabled, true);
-    assert.match(view.container.textContent ?? "", /endpoint changed/);
+      endpoint: 'https://replacement.example.test/mcp',
+      authentication: { mode: 'bearer', secret: 'fixture-for-new-endpoint' },
+    })
+    assert.equal(view.button('Save draft').disabled, true)
+    assert.match(view.container.textContent ?? '', /endpoint changed/)
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("#price-search")?.value,
-      "0.25",
-    );
+      view.container.querySelector<HTMLInputElement>('#price-search')?.value,
+      '0.25'
+    )
     assert.equal(
-      view.container.querySelector<HTMLInputElement>("input#select-new_tool")
+      view.container.querySelector<HTMLInputElement>('input#select-new_tool')
         ?.checked,
-      false,
-    );
+      false
+    )
   } finally {
-    await view.dispose();
-    api.defaults.adapter = originalAdapter;
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
   }
-});
+})
 
 const preciseInputSchema =
-  '{"type":"object","properties":{"id":{"type":"integer","minimum":9007199254740993,"maximum":9007199254740997,"default":9007199254740995}}}';
+  '{"type":"object","properties":{"id":{"type":"integer","minimum":9007199254740993,"maximum":9007199254740997,"default":9007199254740995}}}'
 const preciseOutputSchema =
-  '{"type":"object","properties":{"id":{"type":"integer","const":9007199254740999}}}';
+  '{"type":"object","properties":{"id":{"type":"integer","const":9007199254740999}}}'
 function preciseDetail(): MarketDetail {
-  const item = structuredClone(initial);
-  item.tools[0].input_schema = preciseInputSchema;
-  item.tools[0].output_schema = preciseOutputSchema;
-  return item;
+  const item = structuredClone(initial)
+  item.tools[0].input_schema = preciseInputSchema
+  item.tools[0].output_schema = preciseOutputSchema
+  return item
 }
 function preciseInspectionEnvelope(): string {
-  return `{"success":true,"data":[{"name":"search","description":"Search","input_schema":${preciseInputSchema},"input_schema_json":${JSON.stringify(preciseInputSchema)},"output_schema":${preciseOutputSchema},"output_schema_json":${JSON.stringify(preciseOutputSchema)},"permissions":["read"],"price_quota":0}]}`;
+  return `{"success":true,"data":[{"name":"search","description":"Search","input_schema":${preciseInputSchema},"input_schema_json":${JSON.stringify(preciseInputSchema)},"output_schema":${preciseOutputSchema},"output_schema_json":${JSON.stringify(preciseOutputSchema)},"permissions":["read"],"price_quota":0}]}`
 }
 
-test("stored and rediscovered precise schemas reach the draft HTTP body as exact JSON object values", async () => {
-  const originalAdapter = api.defaults.adapter;
-  const bodies: string[] = [];
+test('stored and rediscovered precise schemas reach the draft HTTP body as exact JSON object values', async () => {
+  const originalAdapter = api.defaults.adapter
+  const bodies: string[] = []
   api.defaults.adapter = async (config) => {
-    const url = config.url ?? "";
-    let data: unknown;
-    if (config.method === "get" && url.endsWith("/credentials")) {
+    const url = config.url ?? ''
+    let data: unknown
+    if (config.method === 'get' && url.endsWith('/credentials')) {
       data = {
         success: true,
-        data: { mode: "none", configured: false, updated_at: 0 },
-      };
-    } else if (url.endsWith("/inspect")) {
+        data: { mode: 'none', configured: false, updated_at: 0 },
+      }
+    } else if (url.endsWith('/inspect')) {
       // Axios parses the object copy and rounds its unsafe integers. Only the
       // accompanying raw schema text can preserve the provider's actual values.
-      data = preciseInspectionEnvelope();
-    } else if (url.endsWith("/draft")) {
-      assert.equal(typeof config.data, "string");
-      bodies.push(config.data);
+      data = preciseInspectionEnvelope()
+    } else if (url.endsWith('/draft')) {
+      assert.equal(typeof config.data, 'string')
+      bodies.push(config.data)
       data = {
         success: true,
-        data: { ...initial.service, draft_version_id: "version-new" },
-      };
-    } else if (config.method === "put" && url.endsWith("/credentials")) {
+        data: { ...initial.service, draft_version_id: 'version-new' },
+      }
+    } else if (config.method === 'put' && url.endsWith('/credentials')) {
       data = {
         success: true,
-        data: { mode: "none", configured: false, updated_at: 0 },
-      };
-    } else assert.fail(`Unexpected request: ${url}`);
-    return { config, status: 200, statusText: "OK", headers: {}, data };
-  };
-  const view = await renderEditor(preciseDetail());
+        data: { mode: 'none', configured: false, updated_at: 0 },
+      }
+    } else assert.fail(`Unexpected request: ${url}`)
+    return { config, status: 200, statusText: 'OK', headers: {}, data }
+  }
+  const view = await renderEditor(preciseDetail())
   try {
     assert.equal(
-      view.container.querySelector("pre")?.textContent,
-      preciseInputSchema,
-    );
-    await view.click("Read tool definitions");
-    assert.equal(view.container.querySelector('[role="alert"]'), null);
+      view.container.querySelector('pre')?.textContent,
+      preciseInputSchema
+    )
+    await view.click('Read tool definitions')
+    assert.equal(view.container.querySelector('[role="alert"]'), null)
     assert.equal(
-      view.button("Save draft").disabled,
+      view.button('Save draft').disabled,
       false,
-      "identical exact schemas do not require a change acknowledgment",
-    );
-    await view.click("Save draft");
-    assert.equal(bodies.length, 1);
-    assert.ok(bodies[0].includes(`"input_schema":${preciseInputSchema}`));
-    assert.ok(bodies[0].includes(`"output_schema":${preciseOutputSchema}`));
-    assert.equal(bodies[0].includes("input_schema_json"), false);
-    assert.equal(bodies[0].includes("output_schema_json"), false);
-    assert.equal(bodies[0].includes("9007199254740992"), false);
-    const saved = JSON.parse(bodies[0]);
-    assert.equal(typeof saved.tools[0].input_schema, "object");
-    assert.deepEqual(saved.tools[0].permissions, ["read", "network"]);
-    assert.equal(saved.tools[0].price_quota, 25000);
-    assert.deepEqual(view.saved, ["service-existing"]);
+      'identical exact schemas do not require a change acknowledgment'
+    )
+    await view.click('Save draft')
+    assert.equal(bodies.length, 1)
+    assert.ok(bodies[0].includes(`"input_schema":${preciseInputSchema}`))
+    assert.ok(bodies[0].includes(`"output_schema":${preciseOutputSchema}`))
+    assert.equal(bodies[0].includes('input_schema_json'), false)
+    assert.equal(bodies[0].includes('output_schema_json'), false)
+    assert.equal(bodies[0].includes('9007199254740992'), false)
+    const saved = JSON.parse(bodies[0])
+    assert.equal(typeof saved.tools[0].input_schema, 'object')
+    assert.deepEqual(saved.tools[0].permissions, ['read', 'network'])
+    assert.equal(saved.tools[0].price_quota, 25000)
+    assert.deepEqual(view.saved, ['service-existing'])
   } finally {
-    await view.dispose();
-    api.defaults.adapter = originalAdapter;
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
   }
-});
+})
 
-test("an unsafe legacy inspection fails visibly and invalidates the earlier save permission", async () => {
-  const originalAdapter = api.defaults.adapter;
-  let reads = 0;
+test('an unsafe legacy inspection fails visibly and invalidates the earlier save permission', async () => {
+  const originalAdapter = api.defaults.adapter
+  let reads = 0
   api.defaults.adapter = async (config) => {
-    const url = config.url ?? "";
-    let data: unknown;
-    if (config.method === "get" && url.endsWith("/credentials")) {
+    const url = config.url ?? ''
+    let data: unknown
+    if (config.method === 'get' && url.endsWith('/credentials')) {
       data = {
         success: true,
-        data: { mode: "none", configured: false, updated_at: 0 },
-      };
-    } else if (url.endsWith("/inspect")) {
-      reads++;
+        data: { mode: 'none', configured: false, updated_at: 0 },
+      }
+    } else if (url.endsWith('/inspect')) {
+      reads++
       data =
         reads === 1
           ? preciseInspectionEnvelope()
@@ -901,391 +901,381 @@ test("an unsafe legacy inspection fails visibly and invalidates the earlier save
                   input_schema: JSON.parse(preciseInputSchema),
                 },
               ],
-            };
-    } else assert.fail("A rejected schema must not be saved or executed");
-    return { config, status: 200, statusText: "OK", headers: {}, data };
-  };
-  const view = await renderEditor(preciseDetail());
-  try {
-    await view.click("Read tool definitions");
-    assert.equal(view.button("Save draft").disabled, false);
-    await view.click("Read tool definitions");
-    assert.match(
-      view.container.querySelector('[role="alert"]')?.textContent ?? "",
-      /operation failed/,
-    );
-    assert.equal(view.button("Save draft").disabled, true);
-    assert.equal(
-      view.container.querySelector("pre")?.textContent,
-      preciseInputSchema,
-    );
-    assert.deepEqual(view.saved, []);
-  } finally {
-    await view.dispose();
-    api.defaults.adapter = originalAdapter;
+            }
+    } else assert.fail('A rejected schema must not be saved or executed')
+    return { config, status: 200, statusText: 'OK', headers: {}, data }
   }
-});
+  const view = await renderEditor(preciseDetail())
+  try {
+    await view.click('Read tool definitions')
+    assert.equal(view.button('Save draft').disabled, false)
+    await view.click('Read tool definitions')
+    assert.match(
+      view.container.querySelector('[role="alert"]')?.textContent ?? '',
+      /operation failed/
+    )
+    assert.equal(view.button('Save draft').disabled, true)
+    assert.equal(
+      view.container.querySelector('pre')?.textContent,
+      preciseInputSchema
+    )
+    assert.deepEqual(view.saved, [])
+  } finally {
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
+  }
+})
 
 async function acknowledgePricingDefinitions(
-  view: Awaited<ReturnType<typeof renderEditor>>,
+  view: Awaited<ReturnType<typeof renderEditor>>
 ) {
-  const label = [...view.container.querySelectorAll("label")].find((item) =>
-    item.textContent?.includes("I reviewed the endpoint"),
-  );
+  const label = [...view.container.querySelectorAll('label')].find((item) =>
+    item.textContent?.includes('I reviewed the endpoint')
+  )
   const checkbox = label?.querySelector<HTMLInputElement>(
-    'input[type="checkbox"]',
-  );
-  if (checkbox && !checkbox.checked) await act(async () => checkbox.click());
+    'input[type="checkbox"]'
+  )
+  if (checkbox && !checkbox.checked) await act(async () => checkbox.click())
 }
 
-test("metered pricing keeps the actual input rate and a separate refundable cap through discovery", async () => {
-  const requests = pricingRequests();
-  const authorized = structuredClone(initial);
-  authorized.tools[0].available_metering_metrics = ["input_tokens"];
-  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema);
-  const view = await renderEditor(authorized);
+test('metered pricing keeps the actual input rate and a separate refundable cap through discovery', async () => {
+  const requests = pricingRequests()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].available_metering_metrics = ['input_tokens']
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  const view = await renderEditor(authorized)
   try {
-    await view.click("Read tool definitions");
-    await view.select("#billing-mode-search", "input_tokens");
-    await view.input("#price-search", "20.58");
-    await view.input("#token-limit-search", "65536");
-    await view.click("Read tool definitions");
-    await acknowledgePricingDefinitions(view);
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 1);
-    const tool = requests.drafts[0].tools.find(({ name }) => name === "search");
-    assert.ok(tool);
-    assert.equal(tool.billing_mode, "input_tokens");
-    assert.equal(tool.input_token_price_quota, 1470000);
-    assert.equal(tool.max_input_tokens, 65536);
-    assert.equal(tool.price_quota, 96338);
+    await view.click('Read tool definitions')
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '20.58')
+    await view.input('#token-limit-search', '65536')
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    const tool = requests.drafts[0].tools.find(({ name }) => name === 'search')
+    assert.ok(tool)
+    assert.equal(tool.billing_mode, 'input_tokens')
+    assert.equal(tool.input_token_price_quota, 1470000)
+    assert.equal(tool.max_input_tokens, 65536)
+    assert.equal(tool.price_quota, 96338)
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("ordinary publishers can select tool-reported usage pricing without provider keys", async () => {
-  const requests = pricingRequests();
-  const view = await renderEditor();
+test('ordinary publishers can select tool-reported usage pricing without provider keys', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor()
   try {
-    await readNewService(view);
+    await readNewService(view)
     const mode = view.container.querySelector<HTMLSelectElement>(
-      "#billing-mode-search",
-    );
-    assert.ok(mode);
+      '#billing-mode-search'
+    )
+    assert.ok(mode)
     assert.equal(
       mode.querySelector<HTMLOptionElement>('[value="input_tokens"]')?.disabled,
-      false,
-    );
+      false
+    )
     assert.equal(
       mode.querySelector<HTMLOptionElement>('[value="metered"]')?.disabled,
-      false,
-    );
-    await view.select("#billing-mode-search", "input_tokens");
-    await view.input("#price-search", "20.58");
-    assert.equal(view.button("Save draft").disabled, false);
+      false
+    )
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '20.58')
+    assert.equal(view.button('Save draft').disabled, false)
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("authorized resource pricing saves a combination and refundable cap", async () => {
-  const requests = pricingRequests();
-  const authorized = structuredClone(initial);
-  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema);
+test('authorized resource pricing saves a combination and refundable cap', async () => {
+  const requests = pricingRequests()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
   authorized.tools[0].available_metering_metrics = [
-    "cpu_core_milliseconds",
-    "memory_mib_seconds",
-  ];
-  authorized.tools[0].billing_mode = "metered";
+    'cpu_core_milliseconds',
+    'memory_mib_seconds',
+  ]
+  authorized.tools[0].billing_mode = 'metered'
   authorized.tools[0].billing_rules = [
-    { metric: "cpu_core_milliseconds", rate_quota: 500000, max_quantity: 2000 },
-    { metric: "memory_mib_seconds", rate_quota: 250000, max_quantity: 1024 },
-  ];
-  authorized.tools[0].price_quota = 1250000;
-  const view = await renderEditor(authorized);
+    { metric: 'cpu_core_milliseconds', rate_quota: 500000, max_quantity: 2000 },
+    { metric: 'memory_mib_seconds', rate_quota: 250000, max_quantity: 1024 },
+  ]
+  authorized.tools[0].price_quota = 1250000
+  const view = await renderEditor(authorized)
   try {
-    await view.click("Read tool definitions");
-    assert.match(view.container.textContent ?? "", /CPU core-second/);
-    assert.match(view.container.textContent ?? "", /Memory GiB-second/);
-    await acknowledgePricingDefinitions(view);
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 1);
-    const tool = requests.drafts[0].tools[0];
-    assert.equal(tool.billing_mode, "metered");
-    assert.deepEqual(tool.billing_rules, authorized.tools[0].billing_rules);
-    assert.equal(tool.price_quota, 1250000);
-    assert.equal(tool.input_token_price_quota, 0);
-    assert.equal(tool.max_input_tokens, 0);
+    await view.click('Read tool definitions')
+    assert.match(view.container.textContent ?? '', /CPU core-second/)
+    assert.match(view.container.textContent ?? '', /Memory GiB-second/)
+    await acknowledgePricingDefinitions(view)
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    const tool = requests.drafts[0].tools[0]
+    assert.equal(tool.billing_mode, 'metered')
+    assert.deepEqual(tool.billing_rules, authorized.tools[0].billing_rules)
+    assert.equal(tool.price_quota, 1250000)
+    assert.equal(tool.input_token_price_quota, 0)
+    assert.equal(tool.max_input_tokens, 0)
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("changing the display unit mid-editor retains one-credit prices and metered rate payloads", async () => {
-  const requests = pricingRequests();
-  const authorized = structuredClone(initial);
-  authorized.tools[0].available_metering_metrics = ["input_tokens"];
-  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema);
-  const view = await renderEditor(authorized);
+test('changing the display unit mid-editor retains one-credit prices and metered rate payloads', async () => {
+  const requests = pricingRequests()
+  const authorized = structuredClone(initial)
+  authorized.tools[0].available_metering_metrics = ['input_tokens']
+  authorized.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  const view = await renderEditor(authorized)
   try {
-    await view.click("Read tool definitions");
-    await view.select("#billing-mode-search", "input_tokens");
-    await view.input("#price-search", "20.58");
-    await view.input("#token-limit-search", "65536");
+    await view.click('Read tool definitions')
+    await view.select('#billing-mode-search', 'input_tokens')
+    await view.input('#price-search', '20.58')
+    await view.input('#token-limit-search', '65536')
     await act(async () =>
       view.container
-        .querySelector<HTMLInputElement>("#select-new_tool")
-        ?.click(),
-    );
-    await acknowledgePricingDefinitions(view);
-    await view.select("#billing-mode-new_tool", "paid");
-    await view.input("#price-new_tool", "0.000014");
-    for (const unit of ["USD", "CREDIT", "CNY"] as const) {
+        .querySelector<HTMLInputElement>('#select-new_tool')
+        ?.click()
+    )
+    await acknowledgePricingDefinitions(view)
+    await view.select('#billing-mode-new_tool', 'paid')
+    await view.input('#price-new_tool', '0.000014')
+    for (const unit of ['USD', 'CREDIT', 'CNY'] as const) {
       await act(async () =>
-        useWalletCurrencyPreferenceStore.getState().setPreference(unit),
-      );
+        useWalletCurrencyPreferenceStore.getState().setPreference(unit)
+      )
       const rate =
-        view.container.querySelector<HTMLInputElement>("#price-search");
+        view.container.querySelector<HTMLInputElement>('#price-search')
       const smallest =
-        view.container.querySelector<HTMLInputElement>("#price-new_tool");
-      assert.ok(rate);
-      assert.ok(smallest);
+        view.container.querySelector<HTMLInputElement>('#price-new_tool')
+      assert.ok(rate)
+      assert.ok(smallest)
       assert.equal(
         rate.value,
-        unit === "USD" ? "2.94" : unit === "CREDIT" ? "1470000" : "20.58",
-      );
+        unit === 'USD' ? '2.94' : unit === 'CREDIT' ? '1470000' : '20.58'
+      )
       assert.equal(
         smallest.value,
-        unit === "USD" ? "0.000002" : unit === "CREDIT" ? "1" : "0.000014",
-      );
-      assert.equal(view.button("Save draft").disabled, false);
+        unit === 'USD' ? '0.000002' : unit === 'CREDIT' ? '1' : '0.000014'
+      )
+      assert.equal(view.button('Save draft').disabled, false)
     }
     await act(async () =>
-      useWalletCurrencyPreferenceStore.getState().setPreference("USD"),
-    );
+      useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+    )
     const smallestInput =
-      view.container.querySelector<HTMLInputElement>("#price-new_tool");
-    assert.ok(smallestInput);
-    await view.input("#price-new_tool", smallestInput.value);
-    await view.click("Read tool definitions");
-    await view.click("Save draft");
-    const rate = requests.drafts[0].tools.find(
-      (tool) => tool.name === "search",
-    );
-    assert.ok(rate);
-    assert.equal(rate.input_token_price_quota, 1470000);
-    assert.equal(rate.price_quota, 96338);
-    assert.equal(rate.max_input_tokens, 65536);
+      view.container.querySelector<HTMLInputElement>('#price-new_tool')
+    assert.ok(smallestInput)
+    await view.input('#price-new_tool', smallestInput.value)
+    await view.click('Read tool definitions')
+    await view.click('Save draft')
+    const rate = requests.drafts[0].tools.find((tool) => tool.name === 'search')
+    assert.ok(rate)
+    assert.equal(rate.input_token_price_quota, 1470000)
+    assert.equal(rate.price_quota, 96338)
+    assert.equal(rate.max_input_tokens, 65536)
     const smallestTool = requests.drafts[0].tools.find(
-      (tool) => tool.name === "new_tool",
-    );
-    assert.ok(smallestTool);
-    assert.equal(smallestTool.price_quota, 1);
+      (tool) => tool.name === 'new_tool'
+    )
+    assert.ok(smallestTool)
+    assert.equal(smallestTool.price_quota, 1)
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
 function usagePricingDraftFixture(): MarketDetail {
-  const detail = structuredClone(initial);
-  detail.tools[0].input_schema = JSON.stringify(discovered[0].input_schema);
-  detail.tools[0].available_metering_metrics = ["cpu_core_milliseconds"];
-  detail.tools[0].billing_mode = "metered";
+  const detail = structuredClone(initial)
+  detail.tools[0].input_schema = JSON.stringify(discovered[0].input_schema)
+  detail.tools[0].available_metering_metrics = ['cpu_core_milliseconds']
+  detail.tools[0].billing_mode = 'metered'
   detail.tools[0].billing_rules = [
-    { metric: "cpu_core_milliseconds", rate_quota: 500000, max_quantity: 1000 },
-  ];
-  detail.tools[0].price_quota = 500000;
-  return detail;
+    { metric: 'cpu_core_milliseconds', rate_quota: 500000, max_quantity: 1000 },
+  ]
+  detail.tools[0].price_quota = 500000
+  return detail
 }
 
-const usageRateSelector = '[id$="-rate-0"]';
+const usageRateSelector = '[id$="-rate-0"]'
 
 function usageRateInput(view: Awaited<ReturnType<typeof renderEditor>>) {
   const input =
-    view.container.querySelector<HTMLInputElement>(usageRateSelector);
-  assert.ok(input);
-  return input;
+    view.container.querySelector<HTMLInputElement>(usageRateSelector)
+  assert.ok(input)
+  return input
 }
 
-test("usage rates retain every decimal keystroke and trailing dot in CNY, USD, and Credits", async () => {
-  const requests = pricingRequests();
-  const detail = usagePricingDraftFixture();
-  const before = JSON.stringify(detail);
-  const view = await renderEditor(detail);
+test('usage rates retain every decimal keystroke and trailing dot in CNY, USD, and Credits', async () => {
+  const requests = pricingRequests()
+  const detail = usagePricingDraftFixture()
+  const before = JSON.stringify(detail)
+  const view = await renderEditor(detail)
   try {
-    await view.click("Read tool definitions");
-    await acknowledgePricingDefinitions(view);
-    assert.equal(usageRateInput(view).type, "text");
-    for (const currency of ["CNY", "USD", "CREDIT"] as const) {
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    assert.equal(usageRateInput(view).type, 'text')
+    for (const currency of ['CNY', 'USD', 'CREDIT'] as const) {
       await act(async () =>
-        useWalletCurrencyPreferenceStore.getState().setPreference(currency),
-      );
-      for (const input of ["0", "0.", "0.0", "0.01"]) {
-        await view.input(usageRateSelector, input);
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      for (const input of ['0', '0.', '0.0', '0.01']) {
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input, `${currency}: ${input}`)
         assert.equal(
-          usageRateInput(view).value,
-          input,
-          `${currency}: ${input}`,
-        );
-        assert.equal(
-          view.button("Save draft").disabled,
-          input !== "0.01" || currency === "CREDIT",
-        );
+          view.button('Save draft').disabled,
+          input !== '0.01' || currency === 'CREDIT'
+        )
       }
-      for (const input of ["1", "1.", "1.0"]) {
-        await view.input(usageRateSelector, input);
-        assert.equal(
-          usageRateInput(view).value,
-          input,
-          `${currency}: ${input}`,
-        );
-        assert.equal(view.button("Save draft").disabled, input === "1.");
+      for (const input of ['1', '1.', '1.0']) {
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input, `${currency}: ${input}`)
+        assert.equal(view.button('Save draft').disabled, input === '1.')
       }
     }
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 1);
-    assert.equal(requests.drafts[0].tools[0].billing_rules?.[0].rate_quota, 1);
-    assert.equal(requests.drafts[0].tools[0].price_quota, 1);
-    assert.equal(JSON.stringify(detail), before);
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
+    assert.equal(requests.drafts[0].tools[0].billing_rules?.[0].rate_quota, 1)
+    assert.equal(requests.drafts[0].tools[0].price_quota, 1)
+    assert.equal(JSON.stringify(detail), before)
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("usage rate currency switches reproject the chosen Credits and retain the real save payload", async () => {
-  const requests = pricingRequests();
-  const detail = usagePricingDraftFixture();
-  const view = await renderEditor(detail);
+test('usage rate currency switches reproject the chosen Credits and retain the real save payload', async () => {
+  const requests = pricingRequests()
+  const detail = usagePricingDraftFixture()
+  const view = await renderEditor(detail)
   try {
-    await view.click("Read tool definitions");
-    await acknowledgePricingDefinitions(view);
-    await view.input(usageRateSelector, "0.07");
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    await view.input(usageRateSelector, '0.07')
     for (const [currency, expected] of [
-      ["USD", "0.01"],
-      ["CREDIT", "5000"],
-      ["CNY", "0.07"],
+      ['USD', '0.01'],
+      ['CREDIT', '5000'],
+      ['CNY', '0.07'],
     ] as const) {
       await act(async () =>
-        useWalletCurrencyPreferenceStore.getState().setPreference(currency),
-      );
-      assert.equal(usageRateInput(view).value, expected);
-      assert.equal(view.button("Save draft").disabled, false);
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      assert.equal(usageRateInput(view).value, expected)
+      assert.equal(view.button('Save draft').disabled, false)
     }
-    await view.click("Save draft");
-    assert.equal(requests.drafts.length, 1);
+    await view.click('Save draft')
+    assert.equal(requests.drafts.length, 1)
     assert.deepEqual(requests.drafts[0].tools[0].billing_rules, [
-      { metric: "cpu_core_milliseconds", rate_quota: 5000, max_quantity: 1000 },
-    ]);
-    assert.equal(requests.drafts[0].tools[0].price_quota, 5000);
-    assert.equal(detail.tools[0].billing_rules?.[0].rate_quota, 500000);
+      { metric: 'cpu_core_milliseconds', rate_quota: 5000, max_quantity: 1000 },
+    ])
+    assert.equal(requests.drafts[0].tools[0].price_quota, 5000)
+    assert.equal(detail.tools[0].billing_rules?.[0].rate_quota, 500000)
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("invalid usage drafts block real form submissions instead of saving the old valid rate", async () => {
-  const requests = pricingRequests();
-  const view = await renderEditor(usagePricingDraftFixture());
+test('invalid usage drafts block real form submissions instead of saving the old valid rate', async () => {
+  const requests = pricingRequests()
+  const view = await renderEditor(usagePricingDraftFixture())
   try {
-    await view.click("Read tool definitions");
-    await acknowledgePricingDefinitions(view);
-    for (const currency of ["CNY", "USD", "CREDIT"] as const) {
+    await view.click('Read tool definitions')
+    await acknowledgePricingDefinitions(view)
+    for (const currency of ['CNY', 'USD', 'CREDIT'] as const) {
       await act(async () =>
-        useWalletCurrencyPreferenceStore.getState().setPreference(currency),
-      );
-      await view.input(usageRateSelector, "1");
-      assert.equal(view.button("Save draft").disabled, false);
+        useWalletCurrencyPreferenceStore.getState().setPreference(currency)
+      )
+      await view.input(usageRateSelector, '1')
+      assert.equal(view.button('Save draft').disabled, false)
       for (const input of [
-        "",
-        "0",
-        "1.",
-        "-1",
-        "junk",
-        "1e4",
-        "9007199254740992",
+        '',
+        '0',
+        '1.',
+        '-1',
+        'junk',
+        '1e4',
+        '9007199254740992',
       ]) {
-        await view.input(usageRateSelector, input);
-        assert.equal(usageRateInput(view).value, input);
-        assert.equal(usageRateInput(view).getAttribute("aria-invalid"), "true");
-        assert.equal(view.button("Save draft").disabled, true);
-        await view.submit();
-        assert.equal(requests.drafts.length, 0, `${currency}: ${input}`);
+        await view.input(usageRateSelector, input)
+        assert.equal(usageRateInput(view).value, input)
+        assert.equal(usageRateInput(view).getAttribute('aria-invalid'), 'true')
+        assert.equal(view.button('Save draft').disabled, true)
+        await view.submit()
+        assert.equal(requests.drafts.length, 0, `${currency}: ${input}`)
       }
-      if (currency === "CREDIT") {
-        await view.input(usageRateSelector, "1.5");
-        await view.submit();
-        assert.equal(requests.drafts.length, 0);
+      if (currency === 'CREDIT') {
+        await view.input(usageRateSelector, '1.5')
+        await view.submit()
+        assert.equal(requests.drafts.length, 0)
       }
     }
-    await view.input(usageRateSelector, "2");
-    await view.click("Save draft");
-    assert.equal(requests.drafts[0].tools[0].billing_rules?.[0].rate_quota, 2);
+    await view.input(usageRateSelector, '2')
+    await view.click('Save draft')
+    assert.equal(requests.drafts[0].tools[0].billing_rules?.[0].rate_quota, 2)
   } finally {
-    await view.dispose();
-    requests.restore();
+    await view.dispose()
+    requests.restore()
   }
-});
+})
 
-test("provider switching clears secrets and locks endpoints without issuing a provider call", async () => {
-  const originalAdapter = api.defaults.adapter;
-  const writes: string[] = [];
+test('provider switching clears secrets and locks endpoints without issuing a provider call', async () => {
+  const originalAdapter = api.defaults.adapter
+  const writes: string[] = []
   api.defaults.adapter = async (config) => {
-    if (config.method !== "get" || config.url !== "/api/tool-market/config") {
-      writes.push(config.url ?? "");
+    if (config.method !== 'get' || config.url !== '/api/tool-market/config') {
+      writes.push(config.url ?? '')
       assert.fail(
-        "Selecting a preset must not contact an upstream or save a draft",
-      );
+        'Selecting a preset must not contact an upstream or save a draft'
+      )
     }
     return {
       config,
       status: 200,
-      statusText: "OK",
+      statusText: 'OK',
       headers: {},
       data: {
         success: true,
         data: {
           provider_presets: [
-            { id: "monid", name: "Monid", endpoint: "https://mcp.monid.ai/v1" },
+            { id: 'monid', name: 'Monid', endpoint: 'https://mcp.monid.ai/v1' },
             {
-              id: "agentkey",
-              name: "AgentKey",
-              endpoint: "https://api.agentkey.app/v1/mcp",
+              id: 'agentkey',
+              name: 'AgentKey',
+              endpoint: 'https://api.agentkey.app/v1/mcp',
             },
           ],
         },
       },
-    };
-  };
-  const view = await renderEditor();
-  try {
-    await view.select("#market-preset", "monid");
-    const endpoint =
-      view.container.querySelector<HTMLInputElement>("#market-endpoint")!;
-    assert.equal(endpoint.value, "https://mcp.monid.ai/v1");
-    assert.equal(endpoint.disabled, true);
-    await view.input("#market-secret", "fixture-key-not-real");
-    await view.input("#market-multiplier", "1.5");
-    await view.select("#market-preset", "agentkey");
-    assert.equal(endpoint.value, "https://api.agentkey.app/v1/mcp");
-    assert.equal(
-      view.container.querySelector<HTMLInputElement>("#market-secret")!.value,
-      "",
-    );
-    assert.equal(view.button("Save draft").disabled, true);
-    await view.select("#market-preset", "");
-    assert.equal(endpoint.value, "");
-    assert.equal(endpoint.disabled, false);
-    assert.equal(view.container.querySelector("#market-multiplier"), null);
-    assert.deepEqual(writes, []);
-  } finally {
-    await view.dispose();
-    api.defaults.adapter = originalAdapter;
+    }
   }
-});
+  const view = await renderEditor()
+  try {
+    await view.select('#market-preset', 'monid')
+    const endpoint =
+      view.container.querySelector<HTMLInputElement>('#market-endpoint')!
+    assert.equal(endpoint.value, 'https://mcp.monid.ai/v1')
+    assert.equal(endpoint.disabled, true)
+    await view.input('#market-secret', 'fixture-key-not-real')
+    await view.input('#market-multiplier', '1.5')
+    await view.select('#market-preset', 'agentkey')
+    assert.equal(endpoint.value, 'https://api.agentkey.app/v1/mcp')
+    assert.equal(
+      view.container.querySelector<HTMLInputElement>('#market-secret')!.value,
+      ''
+    )
+    assert.equal(view.button('Save draft').disabled, true)
+    await view.select('#market-preset', '')
+    assert.equal(endpoint.value, '')
+    assert.equal(endpoint.disabled, false)
+    assert.equal(view.container.querySelector('#market-multiplier'), null)
+    assert.deepEqual(writes, [])
+  } finally {
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
+  }
+})

@@ -316,7 +316,12 @@ export const marketAPI = {
     preset?: string
   ) =>
     unwrap<ToolInput[]>(
-      api.post(`${base}/inspect`, { endpoint, authentication, ...reference, ...(preset ? { preset } : {}) })
+      api.post(`${base}/inspect`, {
+        endpoint,
+        authentication,
+        ...reference,
+        ...(preset ? { preset } : {}),
+      })
     ),
   credentials: (id: string, versionID: string) =>
     unwrap<MarketCredentials>(
