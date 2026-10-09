@@ -11715,6 +11715,12 @@
     "部分充值记录无法确认实付": "Actual payments cannot be confirmed for some top-up records",
     "Service information": "Service information",
     "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore import needs a persistent server encryption key. Ask an administrator to configure it.",
-    "This draft stays private. Review its visibility before publishing.": "This draft stays private. Review its visibility before publishing."
+    "This draft stays private. Review its visibility before publishing.": "This draft stays private. Review its visibility before publishing.",
+    "Upgrade to a full account": "Upgrade to a full account",
+    "Chat for free or top up to upgrade to a full account.": "Chat for free or top up to upgrade to a full account.",
+    "Chat for free to upgrade to a full account.": "Chat for free to upgrade to a full account.",
+    "Chat (free)": "Chat (free)",
+    "Top up to upgrade": "Top up to upgrade",
+    "Paid upgrade details": "Paid upgrade details"
   }
 }
