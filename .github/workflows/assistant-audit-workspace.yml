@@ -1,0 +1,49 @@
+name: Assistant audit workspace
+
+on:
+  push:
+    branches:
+      - fix/assistant-tool-audit-policies
+    paths:
+      - .github/workflows/assistant-audit-workspace.yml
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Export tracked source only
+        run: git archive --format=tar.gz --output="$RUNNER_TEMP/assistant-source.tar.gz" HEAD
+      - name: Upload source for isolated inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-audit-source
+          path: ${{ runner.temp }}/assistant-source.tar.gz
+          retention-days: 1
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Run existing assistant tests before changes
+        working-directory: apps/api-go
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -p 2 ./controller ./setting ./router -run Assistant -count=1 -json | tee "$RUNNER_TEMP/assistant-baseline.jsonl"
+      - name: Upload baseline results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-audit-baseline
+          path: ${{ runner.temp }}/assistant-baseline.jsonl
+          retention-days: 1
