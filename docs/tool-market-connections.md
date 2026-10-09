@@ -1,5 +1,7 @@
 # Tool market connection lifecycle
 
+Browser OAuth is the recommended connection when the native OAuth server is enabled. See [provider presets and MCP OAuth](tool-market-provider-presets.md) for the Codex command, resource boundary and current limitations. The personal-token lifecycle below remains the fallback.
+
 The marketplace connection page groups personal tokens, loaded tools and explicit tool grants by client ID. Creating a new connection defaults to tool invocation without permission to change the client's loaded tool set. Users can independently enable management or choose discovery-only access and select a 1, 7, 30 or 90 day lifetime. A token is not a paid-tool authorization.
 
 The JSON preview uses a placeholder. Only an explicit copy action includes the issued secret in the Authorization header. The issued secret stays in component state, is hidden after five minutes or observed revocation/expiry, and is discarded on account changes. It is not returned as mutation data. Clipboard contents copied explicitly by the user are not automatically erased.

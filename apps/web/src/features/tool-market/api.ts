@@ -16,8 +16,31 @@ export type MarketCapabilities = {
   service_deletion: boolean
   client_record_cleanup: boolean
   meta_delegation: boolean
+  mcp_oauth: boolean
+  metamcp: boolean
+}
+export type ProviderPricing = { provider: string; multiplier: string }
+export type ProviderPreset = {
+  id: string
+  name: string
+  endpoint: string
+  execute_tool: string
+  inspect_tool: string
+  documentation: string
+  oauth: boolean
+  read_tools: string[]
+}
+export type MarketMetaTool = {
+  name: string
+  title?: string
+  description: string
+  inputSchema: Record<string, unknown>
 }
 export type MarketConfig = {
+  meta_tool?: MarketMetaTool
+  provider_presets?: ProviderPreset[]
+  credits_per_usd?: string
+
   enabled: boolean
   fee_bps: number
   recipient_id: number
@@ -55,6 +78,7 @@ export type MarketSummary = {
   min_price_quota?: number
   max_price_quota?: number
   metered_tools?: number
+  provider_tools?: number
 }
 export type BillingRule = {
   metric: string
@@ -62,6 +86,7 @@ export type BillingRule = {
   max_quantity: number
 }
 export type MarketTool = {
+  provider_pricing?: ProviderPricing
   tool_id: string
   version_id: string
   name: string
@@ -95,6 +120,7 @@ export type MarketDetail = {
   allowed_users?: number[]
 }
 export type ToolInput = {
+  provider_pricing?: ProviderPricing
   name: string
   description: string
   input_schema: Record<string, unknown> | string
@@ -294,10 +320,16 @@ export const marketAPI = {
   inspect: (
     endpoint: string,
     authentication?: MarketAuthentication,
-    reference?: { service_id: string; version_id: string }
+    reference?: { service_id: string; version_id: string },
+    preset?: string
   ) =>
     unwrap<ToolInput[]>(
-      api.post(`${base}/inspect`, { endpoint, authentication, ...reference })
+      api.post(`${base}/inspect`, {
+        endpoint,
+        authentication,
+        ...reference,
+        ...(preset ? { preset } : {}),
+      })
     ),
   credentials: (id: string, versionID: string) =>
     unwrap<MarketCredentials>(

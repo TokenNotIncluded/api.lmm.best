@@ -26,7 +26,7 @@ func toolMarketMetaOwnerSubjects(c *gin.Context) ([]model.ToolMarketMetaSubject,
 		if integration == nil || integration.DB != model.DB {
 			return nil, model.ErrToolMarketDenied
 		}
-		return model.ToolMarketMetaOAuthSubjects(c.GetInt("id"), c.Param("id"), integration.Issuer, integration.Resource)
+		return model.ToolMarketMetaOAuthSubjects(c.GetInt("id"), c.Param("id"), integration.Issuer, integration.Resource, integration.MarketResource())
 	default:
 		return nil, model.ErrToolMarketInput
 	}
@@ -136,6 +136,6 @@ func ListToolMarketMetaOAuthClients(c *gin.Context) {
 	}
 	rows, err := model.ListToolMarketOAuthClients(integration.DB.WithContext(c.Request.Context()), c.GetInt("id"), integration.Issuer, integration.Resource,
 		[]string{service.OAuthPiClientID, service.OAuthDshClientID},
-		[]string{service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope}, offset, limit)
+		[]string{service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope}, offset, limit, integration.MarketResource())
 	toolMarketRespond(c, rows, err)
 }

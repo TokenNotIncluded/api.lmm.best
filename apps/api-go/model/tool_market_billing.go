@@ -7,10 +7,15 @@ import (
 	"io"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"gorm.io/gorm"
 )
 
 type ToolMarketCall struct {
+	ProviderRunID        string                  `json:"-" gorm:"size:64;not null;default:''"`
+	ProviderNextPollAt   int64                   `json:"-" gorm:"not null;default:0;index"`
+	ProviderQuote        *marketprovider.Quote   `json:"provider_quote,omitempty" gorm:"serializer:json;type:text"`
+	PriceMultiplier      string                  `json:"price_multiplier,omitempty" gorm:"size:64"`
 	ID                   string                  `json:"id" gorm:"primaryKey;size:64"`
 	UserID               int                     `json:"user_id" gorm:"not null;index"`
 	ClientID             string                  `json:"client_id" gorm:"size:128;not null"`
@@ -65,7 +70,8 @@ type ToolMarketReserveInput struct {
 	GrantID    string
 	Arguments  json.RawMessage
 	// Supplied by the trusted execution adapter, never directly by a client.
-	ResolveBy int64
+	ResolveBy     int64
+	ProviderQuote *marketprovider.Quote
 }
 
 func marketArgumentDigest(raw json.RawMessage) (string, error) {
@@ -156,13 +162,24 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 			return ErrToolMarketDenied
 		}
 		price := version.PriceQuota
+		multiplier := ""
+		if version.ProviderPricing != nil {
+			var quoteErr error
+			price, quoteErr = toolMarketProviderQuota(*version, in.ProviderQuote, config.FeeBPS)
+			if quoteErr != nil {
+				return quoteErr
+			}
+			multiplier = version.ProviderPricing.Multiplier
+		} else if in.ProviderQuote != nil {
+			return ErrToolMarketInput
+		}
 		if !marketQuotaValid(price) {
 			return ErrToolMarketInput
 		}
 		if price > grant.MaxPriceQuota || grant.SpentQuota > grant.MaxTotalQuota || grant.ReservedQuota > grant.MaxTotalQuota-grant.SpentQuota || price > grant.MaxTotalQuota-grant.SpentQuota-grant.ReservedQuota || grant.SuccessfulCalls >= grant.MaxCalls || grant.ReservedCalls >= grant.MaxCalls-grant.SuccessfulCalls {
 			return ErrToolMarketBudget
 		}
-		call = ToolMarketCall{ID: id, UserID: in.UserID, ClientID: in.ClientID, ServiceID: service.ID, ToolID: in.ToolID, VersionID: in.VersionID, GrantID: in.GrantID,
+		call = ToolMarketCall{ProviderQuote: in.ProviderQuote, PriceMultiplier: multiplier, ID: id, UserID: in.UserID, ClientID: in.ClientID, ServiceID: service.ID, ToolID: in.ToolID, VersionID: in.VersionID, GrantID: in.GrantID,
 			BillingMode: version.BillingMode, InputTokenPriceQuota: version.InputTokenPriceQuota, MaxInputTokens: version.MaxInputTokens, BillingRules: version.BillingRules,
 			InputDigest: digest, OwnerID: service.OwnerID, RecipientID: config.RecipientID, PriceQuota: price, FeeBPS: config.FeeBPS, FeeQuota: marketFee(price, config.FeeBPS),
 			ExecutionStatus: "reserved", SettlementStatus: "held", CreatedAt: now, ResolveBy: in.ResolveBy}

@@ -213,24 +213,71 @@ func validIssuer(raw string) bool {
 
 func loopbackURL(raw string) (*url.URL, bool) {
 	u, ok := strictURL(raw)
-	if !ok || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || !canonicalPath(u.Path) {
+	if !ok || u.Scheme != "http" || (u.Hostname() != "127.0.0.1" && u.Hostname() != "::1") || !canonicalPath(u.Path) {
 		return nil, false
 	}
-	if u.Host == "127.0.0.1" {
+	host := u.Hostname()
+	if host == "::1" {
+		host = "[::1]"
+	}
+	if u.Host == host {
 		return u, true
 	}
 	port, err := strconv.Atoi(u.Port())
-	return u, err == nil && port > 0 && port <= 65535 && u.Host == "127.0.0.1:"+strconv.Itoa(port)
+	return u, err == nil && port > 0 && port <= 65535 && u.Host == host+":"+strconv.Itoa(port)
 }
 
 func validRedirect(raw string, client NativeClient) bool {
-	u, ok := loopbackURL(raw)
-	if !ok {
-		return false
+	template, ok := NativeRedirectTemplate(raw)
+	if client.MCPRedirects {
+		template, ok = MCPRedirectTemplate(raw)
 	}
-	return contains(client.RedirectURIs, "http://127.0.0.1"+u.Path)
+	return ok && contains(client.RedirectURIs, template)
 }
 
 func supportedBinding(binding SenderBinding) bool {
 	return binding.Method == "" && binding.Thumbprint == ""
+}
+
+// NativeRedirectTemplate removes only a canonical loopback IP's temporary
+// listener port. IPv4 and IPv6 remain separate registrations, never aliases.
+// DNS names (including localhost), redirects and encoded paths are rejected.
+func NativeRedirectTemplate(raw string) (string, bool) {
+	u, ok := loopbackURL(raw)
+	if !ok {
+		return "", false
+	}
+	u.Host = u.Hostname()
+	if u.Host == "::1" {
+		u.Host = "[::1]"
+	}
+	return u.String(), true
+}
+
+// MCPRedirectTemplate retains exact web and localhost callback URLs. Only
+// loopback IP listeners may change ports. No URL is fetched during validation.
+// Query/fragment callbacks, credentials, encodings, private IPs and ambiguous
+// host/path spellings stay excluded by the common canonical URL checks.
+func MCPRedirectTemplate(raw string) (string, bool) {
+	if template, ok := NativeRedirectTemplate(raw); ok {
+		return template, true
+	}
+	u, ok := strictURL(raw)
+	if !ok || !canonicalPath(u.Path) {
+		return "", false
+	}
+	if validHTTPS(raw) {
+		return raw, true
+	}
+	if u.Scheme != "http" || u.Hostname() != "localhost" {
+		return "", false
+	}
+	if u.Host == "localhost" {
+		return raw, true
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port < 1 || port > 65535 || u.Host != "localhost:"+strconv.Itoa(port) {
+		return "", false
+	}
+	return raw, true
 }

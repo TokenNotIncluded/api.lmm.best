@@ -1,0 +1,143 @@
+name: Tool market provider verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tool-market-provider-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: market_test
+          POSTGRES_PASSWORD: isolated_test_only
+          POSTGRES_DB: market_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd=pg_isready
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      GOMAXPROCS: '2'
+      # This disposable loopback database never holds real account data.
+      OAUTH_SERVER_TEST_POSTGRES_DSN: postgres://market_test:isolated_test_only@127.0.0.1:5432/market_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: |
+            apps/api-go/go.sum
+            apps/api-go/relaykit/go.sum
+      - name: Provider and OAuth core tests
+        working-directory: apps/api-go
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/results"
+          git rev-parse HEAD > "$RUNNER_TEMP/results/commit.txt"
+          go test -json -p 2 ./internal/marketprovider ./oauthserver -count=1 -timeout=6m | tee "$RUNNER_TEMP/results/core-tests.json"
+      - name: Marketplace and OAuth integration tests
+        if: always()
+        working-directory: apps/api-go
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/results"
+          go test -json -p 2 ./model ./service ./controller ./router ./middleware -run 'ToolMarket|MarketRemote|MarketProvider|OAuth|IdentityStorage' -count=1 -timeout=8m | tee "$RUNNER_TEMP/results/integration-tests.json"
+      - name: Build all Go packages
+        if: always()
+        working-directory: apps/api-go
+        run: |
+          set -o pipefail
+          go build -p 2 ./... 2>&1 | tee "$RUNNER_TEMP/results/go-build.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: tool-market-go-results
+          path: ${{ runner.temp }}/results
+          retention-days: 7
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Web typecheck and all marketplace tests
+        working-directory: apps/web
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/results"
+          git rev-parse HEAD > "$RUNNER_TEMP/results/commit.txt"
+          result=0
+          bun run typecheck 2>&1 | tee "$RUNNER_TEMP/results/web-typecheck.txt" || result=1
+          for test in src/features/tool-market/*.test.ts src/features/tool-market/*.test.tsx; do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$test" >> "$RUNNER_TEMP/results/web-tests.txt" 2>&1 || result=1
+          done
+          cat "$RUNNER_TEMP/results/web-tests.txt"
+          exit "$result"
+      - name: Production Web build
+        if: always()
+        working-directory: apps/web
+        run: |
+          set -o pipefail
+          bun run build 2>&1 | tee "$RUNNER_TEMP/results/web-build.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: tool-market-web-results
+          path: ${{ runner.temp }}/results
+          retention-days: 7
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - name: Install locked application and isolated browser tooling
+        run: |
+          bun install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/market-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/market-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Desktop and mobile provider setup and OAuth review
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/market-browser/node_modules/playwright/index.mjs
+          CONSOLE_REVIEW_OUTPUT: ${{ runner.temp }}/market-browser-results
+        run: |
+          set -euo pipefail
+          mkdir -p "$CONSOLE_REVIEW_OUTPUT"
+          git rev-parse HEAD > "$CONSOLE_REVIEW_OUTPUT/commit.txt"
+          LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$CONSOLE_REVIEW_OUTPUT/dev.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = 1
+          node scripts/tool-market-provider-review.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: tool-market-browser-results
+          path: ${{ runner.temp }}/market-browser-results
+          retention-days: 7

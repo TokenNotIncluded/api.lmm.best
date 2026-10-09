@@ -17,7 +17,6 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
@@ -61,6 +60,8 @@ import {
 import { marketErrorKey } from './call-utils'
 import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
+import { MarketMetaToolCard } from './meta-tool-card'
+import { useMarketTranslation as useTranslation } from './provider-i18n'
 import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
 import { parseMarketServiceID } from './service-link'
@@ -433,16 +434,18 @@ function ToolMarketWorkspace({
                 item.min_price_quota !== undefined &&
                 item.max_price_quota !== undefined && (
                   <span className='basis-full text-sm font-medium break-words tabular-nums sm:text-right'>
-                    {(item.metered_tools ?? 0) > 0
-                      ? t('Usage-based billing')
-                      : item.max_price_quota === 0
-                        ? t('Free tool')
-                        : t('{{amount}} per successful call', {
-                            amount:
-                              item.min_price_quota === item.max_price_quota
-                                ? formatQuota(item.min_price_quota)
-                                : `${formatQuota(item.min_price_quota)} – ${formatQuota(item.max_price_quota)}`,
-                          })}
+                    {(item.provider_tools ?? 0) > 0
+                      ? t('Live upstream price × multiplier; capped per call')
+                      : (item.metered_tools ?? 0) > 0
+                        ? t('Usage-based billing')
+                        : item.max_price_quota === 0
+                          ? t('Free tool')
+                          : t('{{amount}} per successful call', {
+                              amount:
+                                item.min_price_quota === item.max_price_quota
+                                  ? formatQuota(item.min_price_quota)
+                                  : `${formatQuota(item.min_price_quota)} – ${formatQuota(item.max_price_quota)}`,
+                            })}
                   </span>
                 )}
             </span>
@@ -973,19 +976,33 @@ function ToolMarketWorkspace({
                                 {tool.name}
                               </h4>
                               <p className='text-sm font-medium tabular-nums'>
-                                {tool.billing_mode === 'metered'
-                                  ? usagePriceLabel(tool, formatQuota, t)
-                                  : tool.billing_mode === 'input_tokens'
-                                    ? t('{{amount}} per million input tokens', {
-                                        amount: formatQuota(
-                                          tool.input_token_price_quota ?? 0
-                                        ),
-                                      })
-                                    : tool.price_quota === 0
-                                      ? t('Free tool')
-                                      : t('{{amount}} per successful call', {
-                                          amount: formatQuota(tool.price_quota),
-                                        })}
+                                {tool.provider_pricing
+                                  ? t(
+                                      'Upstream price × {{multiplier}}; maximum {{amount}} per call',
+                                      {
+                                        multiplier:
+                                          tool.provider_pricing.multiplier,
+                                        amount: formatQuota(tool.price_quota),
+                                      }
+                                    )
+                                  : tool.billing_mode === 'metered'
+                                    ? usagePriceLabel(tool, formatQuota, t)
+                                    : tool.billing_mode === 'input_tokens'
+                                      ? t(
+                                          '{{amount}} per million input tokens',
+                                          {
+                                            amount: formatQuota(
+                                              tool.input_token_price_quota ?? 0
+                                            ),
+                                          }
+                                        )
+                                      : tool.price_quota === 0
+                                        ? t('Free tool')
+                                        : t('{{amount}} per successful call', {
+                                            amount: formatQuota(
+                                              tool.price_quota
+                                            ),
+                                          })}
                               </p>
                             </div>
                             <p className='text-muted-foreground max-w-[70ch] text-sm leading-6 break-words whitespace-pre-wrap'>
@@ -1115,6 +1132,10 @@ function ToolMarketWorkspace({
               ) : (
                 <>
                   <TabsContent value='market' className='space-y-5 pt-4'>
+                    <MarketMetaToolCard
+                      config={config.data}
+                      onConnect={() => chooseTab('connections')}
+                    />
                     <div className='grid items-end gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]'>
                       <form
                         className='min-w-0'

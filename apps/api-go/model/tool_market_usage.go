@@ -19,6 +19,9 @@ func toolMarketTokenQuota(rate, tokens int) (int, error) {
 }
 
 func normalizeToolMarketPricing(tool *ToolMarketToolInput) error {
+	if tool.ProviderPricing != nil && (tool.BillingMode != "" || len(tool.BillingRules) != 0 || tool.InputTokenPriceQuota != 0 || tool.MaxInputTokens != 0 || tool.PriceQuota <= 0) {
+		return ErrToolMarketInput
+	}
 	switch tool.BillingMode {
 	case "", "fixed":
 		if len(tool.BillingRules) != 0 {

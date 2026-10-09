@@ -22,8 +22,12 @@ func (s *Server) Exchange(ctx context.Context, rawBody string, binding SenderBin
 	if err != nil {
 		return nil, err
 	}
-	if _, exists := s.clients[values.Get("client_id")]; !exists {
+	client, exists := s.resolveClient(s.db.WithContext(ctx), values.Get("client_id"))
+	if !exists {
 		return nil, protocolError("invalid_client")
+	}
+	if client.RefreshDisabled && values.Get("grant_type") == "refresh_token" {
+		return nil, protocolError("unauthorized_client")
 	}
 	switch values.Get("grant_type") {
 	case "authorization_code":
@@ -168,15 +172,24 @@ func (s *Server) issuePair(tx *gorm.DB, family *model.OAuthServerGrant, scope st
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := newSecret(refreshPrefix)
-	if err != nil {
-		return nil, err
+	client, exists := s.resolveClient(tx, family.ClientID)
+	if !exists {
+		return nil, protocolError("invalid_client")
+	}
+	refresh := ""
+	if !client.RefreshDisabled {
+		refresh, err = newSecret(refreshPrefix)
+		if err != nil {
+			return nil, err
+		}
 	}
 	accessExpiry := min(now.Add(AccessTTL).UnixMilli(), family.AbsoluteExpiresAtMs)
 	refreshExpiry := min(now.Add(s.idleTTL).UnixMilli(), family.AbsoluteExpiresAtMs)
 	rows := []model.OAuthServerToken{
 		{Digest: digest(access), Issuer: s.issuer, FamilyID: family.ID, Kind: "access", Scope: scope, CreatedAtMs: now.UnixMilli(), ExpiresAtMs: accessExpiry},
-		{Digest: digest(refresh), Issuer: s.issuer, FamilyID: family.ID, Kind: "refresh", Scope: scope, CreatedAtMs: now.UnixMilli(), ExpiresAtMs: refreshExpiry},
+	}
+	if refresh != "" {
+		rows = append(rows, model.OAuthServerToken{Digest: digest(refresh), Issuer: s.issuer, FamilyID: family.ID, Kind: "refresh", Scope: scope, CreatedAtMs: now.UnixMilli(), ExpiresAtMs: refreshExpiry})
 	}
 	if err := tx.Create(&rows).Error; err != nil {
 		return nil, err
@@ -193,7 +206,7 @@ func (s *Server) Revoke(ctx context.Context, rawBody string) error {
 	if err != nil {
 		return err
 	}
-	if _, exists := s.clients[values.Get("client_id")]; !exists {
+	if _, exists := s.resolveClient(s.db.WithContext(ctx), values.Get("client_id")); !exists {
 		return protocolError("invalid_client")
 	}
 	token := values.Get("token")

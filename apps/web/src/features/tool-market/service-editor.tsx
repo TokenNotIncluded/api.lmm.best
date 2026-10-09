@@ -4,7 +4,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -28,6 +27,8 @@ import {
   type ToolInput,
 } from './api'
 import { marketNetQuota } from './money'
+import { useMarketTranslation as useTranslation } from './provider-i18n'
+import { ProviderPresetFields } from './provider-preset-fields'
 import {
   editorCredentialWrite,
   refreshToolDefinitions,
@@ -73,6 +74,23 @@ export function ServiceEditor({
     initial?.version.description ?? ''
   )
   const [endpoint, setEndpoint] = useState(initial?.version.endpoint ?? '')
+  const [presetID, setPresetID] = useState(
+    initial?.tools.find((tool) => tool.provider_pricing)?.provider_pricing
+      ?.provider ?? ''
+  )
+  const [multiplier, setMultiplier] = useState(
+    initial?.tools.find((tool) => tool.provider_pricing)?.provider_pricing
+      ?.multiplier ?? '1.2'
+  )
+  const config = useQuery({
+    queryKey: ['tool-market', 'config'],
+    queryFn: marketAPI.config,
+  })
+  const validMultiplier =
+    /^(?:[1-9][0-9]*)(?:\.[0-9]+)?$/.test(multiplier) &&
+    Number(multiplier) >= 1 &&
+    Number(multiplier) <= 100
+
   const [visibility, setVisibility] = useState(
     initial?.version.visibility ?? 'private'
   )
@@ -81,6 +99,7 @@ export function ServiceEditor({
     () =>
       initial?.tools.map((tool) => ({
         name: tool.name,
+        provider_pricing: tool.provider_pricing,
         description: tool.description,
         input_schema: tool.input_schema,
         ...(tool.output_schema ? { output_schema: tool.output_schema } : {}),
@@ -204,19 +223,23 @@ export function ServiceEditor({
       }
     })
   )
-  const hasInvalidPrice = selected.some((name) => {
-    const tool = tools.find((item) => item.name === name)
-    const mode = billingModes[name]
-    return (
-      priceQuotas[name] === undefined ||
-      (mode === 'input_tokens' &&
-        !tool?.available_metering_metrics?.includes('input_tokens')) ||
-      (mode === 'metered' &&
-        (tool?.billing_rules ?? []).some(
-          (rule) => !tool?.available_metering_metrics?.includes(rule.metric)
-        ))
-    )
-  })
+  const hasInvalidPrice =
+    (Boolean(presetID) &&
+      (!/^(?:[1-9][0-9]*)(?:\.[0-9]+)?$/.test(multiplier) ||
+        Number(multiplier) > 100)) ||
+    selected.some((name) => {
+      const tool = tools.find((item) => item.name === name)
+      const mode = billingModes[name]
+      return (
+        priceQuotas[name] === undefined ||
+        (mode === 'input_tokens' &&
+          !tool?.available_metering_metrics?.includes('input_tokens')) ||
+        (mode === 'metered' &&
+          (tool?.billing_rules ?? []).some(
+            (rule) => !tool?.available_metering_metrics?.includes(rule.metric)
+          ))
+      )
+    })
   const credentialChoice = () =>
     editorCredentialWrite({
       mode: authMode,
@@ -243,7 +266,23 @@ export function ServiceEditor({
       const authentication = reference
         ? undefined
         : { mode: choice.mode, secret: choice.secret }
-      const data = await marketAPI.inspect(endpoint, authentication, reference)
+      const discovered = await marketAPI.inspect(
+        endpoint,
+        authentication,
+        reference,
+        presetID
+      )
+      const ceiling = Math.ceil(Number(config.data?.credits_per_usd ?? '0'))
+      const data = discovered.map((tool) =>
+        tool.provider_pricing
+          ? {
+              ...tool,
+              provider_pricing: { ...tool.provider_pricing, multiplier },
+              price_quota:
+                Number.isSafeInteger(ceiling) && ceiling > 0 ? ceiling : 0,
+            }
+          : tool
+      )
       const refreshed = refreshToolDefinitions(
         { tools, selected, prices },
         data,
@@ -271,7 +310,7 @@ export function ServiceEditor({
         Object.fromEntries(
           refreshed.tools.map((tool) => [
             tool.name,
-            current[tool.name] ?? 'free',
+            tool.provider_pricing ? 'paid' : (current[tool.name] ?? 'free'),
           ])
         )
       )
@@ -345,6 +384,9 @@ export function ServiceEditor({
           .filter((tool) => selected.includes(tool.name))
           .map((tool) => ({
             ...tool,
+            provider_pricing: tool.provider_pricing
+              ? { ...tool.provider_pricing, multiplier }
+              : undefined,
             available_metering_metrics: undefined,
             price_quota: priceQuotas[tool.name] ?? 0,
             billing_mode:
@@ -368,6 +410,8 @@ export function ServiceEditor({
           })),
       }
       if (!input.tools.length) throw new Error('Select a tool')
+      if (input.tools.some((tool) => tool.provider_pricing) && !validMultiplier)
+        throw new Error('Invalid multiplier')
       const fingerprint = JSON.stringify(input)
       const service =
         savedDraft.current?.fingerprint === fingerprint
@@ -422,6 +466,30 @@ export function ServiceEditor({
         }}
       >
         <FieldGroup className='[&_input]:min-h-11'>
+          <ProviderPresetFields
+            presets={config.data?.provider_presets ?? []}
+            selected={presetID}
+            multiplier={multiplier}
+            disabled={pending}
+            onMultiplier={setMultiplier}
+            onSelect={(preset) => {
+              setPresetID(preset?.id ?? '')
+              setEndpoint(preset?.endpoint ?? '')
+              if (!name && preset) setName(preset.name)
+              authEdited.current = true
+              setAuthMode(preset ? 'bearer' : 'none')
+              setSecret('')
+              setTools([])
+              setSelected([])
+              setPrices({})
+              setBillingModes({})
+              setPriceDrafts({})
+              setInspectVersion(0)
+              hasInspected.current = false
+              setChanges(undefined)
+              setReviewedChanges(false)
+            }}
+          />
           <Field>
             <FieldLabel htmlFor='market-name'>{t('Name')}</FieldLabel>
             <Input
@@ -454,7 +522,7 @@ export function ServiceEditor({
               required
               type='url'
               value={endpoint}
-              disabled={pending}
+              disabled={pending || Boolean(presetID)}
               placeholder='https://example.com/mcp'
               onChange={(e) => {
                 setEndpoint(e.target.value)
@@ -474,7 +542,7 @@ export function ServiceEditor({
               id='market-authentication'
               className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
               value={authMode}
-              disabled={pending || !credentialsReady}
+              disabled={pending || !credentialsReady || Boolean(presetID)}
               onChange={(event) => {
                 authEdited.current = true
                 setAuthMode(
@@ -716,7 +784,7 @@ export function ServiceEditor({
                           id={`billing-mode-${tool.name}`}
                           className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
                           value={billingModes[tool.name] ?? 'free'}
-                          disabled={pending}
+                          disabled={pending || Boolean(tool.provider_pricing)}
                           onChange={(event) => {
                             const mode =
                               event.target.value === 'metered'
@@ -744,7 +812,13 @@ export function ServiceEditor({
                           }}
                         >
                           <option value='free'>{t('Free tool')}</option>
-                          <option value='paid'>{t('Paid tool')}</option>
+                          <option value='paid'>
+                            {t(
+                              tool.provider_pricing
+                                ? 'Upstream quote × multiplier'
+                                : 'Paid tool'
+                            )}
+                          </option>
                           <option
                             value='input_tokens'
                             disabled={
@@ -767,9 +841,11 @@ export function ServiceEditor({
                         <Field>
                           <FieldLabel htmlFor={`price-${tool.name}`}>
                             {t(
-                              billingModes[tool.name] === 'input_tokens'
-                                ? 'Price per million input tokens'
-                                : 'Price per successful call'
+                              tool.provider_pricing
+                                ? 'Maximum charge per call'
+                                : billingModes[tool.name] === 'input_tokens'
+                                  ? 'Price per million input tokens'
+                                  : 'Price per successful call'
                             )}{' '}
                             ({label})
                           </FieldLabel>
@@ -826,7 +902,8 @@ export function ServiceEditor({
                                 {t('Enter a positive price for a paid tool.')}
                               </FieldDescription>
                             )}
-                          {billingModes[tool.name] !== 'input_tokens' &&
+                          {!tool.provider_pricing &&
+                            billingModes[tool.name] !== 'input_tokens' &&
                             priceQuota !== undefined &&
                             feeBps !== undefined &&
                             Number.isSafeInteger(feeBps) &&
@@ -846,13 +923,21 @@ export function ServiceEditor({
                             )}
                         </Field>
                       )}
-                      {!tool.available_metering_metrics?.length && (
+                      {tool.provider_pricing && (
                         <p className='text-muted-foreground col-span-full text-sm'>
                           {t(
-                            'Choose the usage units the tool reports. Missing or invalid usage is not charged.'
+                            'The server checks the current USD quote before each call. This amount is a spending ceiling, not a fixed charge. Variable-price tools are blocked until a spending bound can be verified.'
                           )}
                         </p>
                       )}
+                      {!tool.provider_pricing &&
+                        !tool.available_metering_metrics?.length && (
+                          <p className='text-muted-foreground col-span-full text-sm'>
+                            {t(
+                              'Choose the usage units the tool reports. Missing or invalid usage is not charged.'
+                            )}
+                          </p>
+                        )}
                       {billingModes[tool.name] === 'metered' && (
                         <UsagePricingEditor
                           rules={tool.billing_rules ?? []}
