@@ -1,0 +1,24 @@
+name: Assistant tool review
+on:
+  push:
+    branches: [work/assistant-tool-control-center-20261009]
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export source for isolated review
+        run: |
+          mkdir -p /tmp/assistant-review
+          git archive HEAD | gzip > /tmp/assistant-review/source.tar.gz
+          git rev-parse HEAD > /tmp/assistant-review/head.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assistant-source
+          path: /tmp/assistant-review/
+          retention-days: 2
