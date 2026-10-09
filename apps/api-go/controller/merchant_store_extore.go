@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const storeExtorePurpose = "store_extore_import"
+const storeExtorePurpose = service.MerchantStoreExtorePurpose
 
 func storeExtoreError(c *gin.Context, err error) {
 	code, message, status := "STORE_EXTORE_UNAVAILABLE", "Extore could not be read. Start authorization again.", http.StatusBadGateway
@@ -28,8 +28,7 @@ func storeExtoreError(c *gin.Context, err error) {
 	case errors.Is(err, model.ErrAuthFlowInvalid), errors.Is(err, model.ErrAuthFlowExpired), errors.Is(err, model.ErrAuthFlowConsumed):
 		code, message, status = "STORE_EXTORE_EXPIRED", "This import authorization has expired or was already used. Connect again.", http.StatusConflict
 	case errors.Is(err, common.ErrPersistentKeyUnavailable):
-		merchantStoreRespond(c, nil, err)
-		return
+		code, message, status = "STORE_EXTORE_SECURE_STORAGE", "Extore import needs a persistent server encryption key. Ask an administrator to configure it.", http.StatusServiceUnavailable
 	}
 	// Provider, database and cryptography error strings must not reach the client.
 	c.AbortWithStatusJSON(status, gin.H{"success": false, "code": code, "message": message})
@@ -54,17 +53,17 @@ func AuthorizeMerchantStoreExtore(c *gin.Context) {
 		storeExtoreError(c, err)
 		return
 	}
-	if err = service.MerchantStoreExtoreClient.Discover(c.Request.Context(), flow.Origin); err != nil {
-		storeExtoreError(c, err)
-		return
-	}
 	raw, err := json.Marshal(flow)
 	if err != nil {
 		storeExtoreError(c, err)
 		return
 	}
-	encrypted, err := common.EncryptPersistentString(storeExtorePurpose, "CRYPTO_SECRET", "SESSION_SECRET", string(raw))
+	encrypted, err := service.EncryptMerchantStoreExtoreFlow(string(raw))
 	if err != nil {
+		storeExtoreError(c, err)
+		return
+	}
+	if err = service.MerchantStoreExtoreClient.Discover(c.Request.Context(), flow.Origin); err != nil {
 		storeExtoreError(c, err)
 		return
 	}
@@ -100,7 +99,7 @@ func ReadMerchantStoreExtoreCatalog(c *gin.Context) {
 		storeExtoreError(c, err)
 		return
 	}
-	raw, err := common.DecryptPersistentString(storeExtorePurpose, "CRYPTO_SECRET", "SESSION_SECRET", pending.Payload)
+	raw, err := service.DecryptMerchantStoreExtoreFlow(pending.Payload)
 	if err != nil {
 		storeExtoreError(c, err)
 		return

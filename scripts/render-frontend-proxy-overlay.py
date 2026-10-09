@@ -76,6 +76,7 @@ location ^~ /static/ {
     return 418;
 }
 '''
+    overlay += 'location = /store/manage {\n    error_page 418 = @lmm_api_backend;\n    if ($request_method !~ "^(GET|HEAD)$") { return 418; }\n    access_log off;\n    try_files /index.html =404;\n    add_header Cache-Control "no-store" always;\n    add_header Referrer-Policy "no-referrer" always;\n    set $lmm_extore_callback_csp "";\n    if ($args != "") { set $lmm_extore_callback_csp "default-src \'self\'; script-src \'self\' \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data: blob:; font-src \'self\' data:; connect-src \'self\'; worker-src \'self\' blob:; object-src \'none\'; base-uri \'none\'; form-action \'self\'; frame-src \'none\'"; }\n    add_header Content-Security-Policy $lmm_extore_callback_csp always;\n}\n'
     for selector in ('= /index.html', '= /', '~ "' + simple + '"', '~ "' + dynamic + '"'):
         overlay += 'location ' + selector + ' {\n' + entry + '}\n'
     overlay += 'location ~ "^/store/claim/[A-Za-z0-9_-]{43}/?$" {\n' + guard + '''    access_log off;
