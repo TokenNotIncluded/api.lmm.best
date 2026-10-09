@@ -6,8 +6,8 @@ Do not rebuild both components just to publish a frontend change.
 
 ## Read the live state first
 
-Before choosing a path, spend one minute on read-only facts. It is faster than
-discovering a half-finished transaction halfway through a new one:
+Before building or dispatching, freeze one source revision and capture a single
+read-only preflight for the batch. Start with these reads:
 
 ```bash
 curl -s https://api.lmm.best/api/status | jq -r .data.version   # served Go version
@@ -16,6 +16,15 @@ ssh DmitUbuntu 'readlink -f /srv/lmm-api-frontend/current; systemctl list-units 
 gh run list --workflow deploy-web-frontend.yml --limit 3
 ```
 
+Also record each host's installed Go/Web package or standalone identity, active
+frontend revision/index hash, native transaction/owner status and PostgreSQL
+database/schema identity through the selected operator. Inspect the exact
+release and run, not just the newest run. Compare complete component Git objects
+using `scripts/local-release-tests.py`; its paths include packaging/controller
+inputs beyond application source. Select backend-only, frontend-only or combined.
+Refresh mutable host/owner facts at phase boundaries without restarting the
+entire source, artifact and test review.
+
 Anything besides `lmm-api.service` (and Ubuntu's cluster tunnel) — for example
 a transient `lmm-merchant-portable-*` writer-capsule holder — belongs to an
 unfinished backend transaction. Do not start another backend deployment and do
@@ -23,6 +32,19 @@ not stop it to get unstuck; resolve that transaction first. A Web-only release
 does not touch it.
 
 ## Frontend-only update
+
+**Select the installation path before an automatic deploy.** The current
+`deploy-web-frontend.yml` uses `frontend publish` with a static archive. It does
+not install or update Arch's `lmm-api-web-bin` package: `current/index.html` can
+then differ from the installed package used for rollback. Its archive publish
+also does not run the package activation/retention hook. For package-owned
+hosts, use the signed installed-package/native transaction in
+[signed upgrades](seamless-upgrades.md), preserving the installed tuple and
+letting its package hook activate the frontend. Automatic frontend callers must
+select that installed path for those hosts; the existing archive-only workflow
+is not that implementation. Until such a caller is qualified, use the installed
+operator path and `just release-web` for publication only. The archive commands
+below apply to reviewed archive-managed targets.
 
 Check that the new frontend works with **both active Go backends** first. Changes
 that require a newer backend must use the combined signed transaction instead.
@@ -56,7 +78,11 @@ latest `web-v*` tag and the AUR `pkgver`), refuses when nothing under
 `apps/web`, `packages`, `package.json` or `bun.lock` changed since the last
 tag, and verifies the local test record before creating anything. The record
 binds the component's Git objects, so a merge or unrelated source change can reuse
-the same completed tests; any changed component source rejects the record. It
+the same completed tests; changed bound source objects reject the old record.
+For a packaging-only change, preserve the application checks' actual revision,
+exit and raw log hashes, prove unchanged application objects, and append the
+necessary packaging checks to a new record bound to the final source. Do not
+present imported tests as fresh runs or rebuild unchanged application bytes. It
 then creates a signed annotated tag with your local Git signing key, pushes
 it, dispatches `release-web.yml`, watches that exact run, dispatches
 `deploy-web-frontend.yml` once and watches it. Each dispatch happens at most
@@ -127,6 +153,13 @@ a retry. See [server operations](server-ops.md).
 Use the workflow that owns the existing installation. Do not turn a package-owned
 server into a standalone installation to bypass its checks.
 
+A backend-only update reuses the unchanged signed Web release/package; do not
+rebuild, republish or reactivate Web just to change Go. Reuse successful local
+checks and the complete official signed Go asset set when source objects and
+release identity match. Inspect partial publication or an uncertain dispatch
+before recovery; never create another release or resign the same version to
+work around a lost reply.
+
 For standalone systemd, use `systemd doctor`, then stage/apply or `upgrade`,
 verify the changed functions, and explicitly `confirm`. Keep the previous binary,
 frontend and database recovery evidence. See [the standalone guide](manual-systemd-deployment.md).
@@ -136,6 +169,14 @@ workflow with its immutable signed plan. See [signed upgrades](seamless-upgrades
 and [production transactions](production-release-transaction.md). These native
 checks remain in place; this change does not replace database migration or
 recovery logic. Rust remains an explicit preview, not a deployment default.
+
+Review database changes before choosing an ordinary code-update path. New
+tables, migrations or required seed changes need the existing reviewed schema/
+maintenance path and N−1 compatibility; route compatibility alone does not prove
+an unchanged database. Keep both hosts on one ordered batch and component
+version, with only one backend owner/mutation at a time and each host's own
+manifest/owner binding. See the artifact reuse and caller
+handoff steps in [production transactions](production-release-transaction.md).
 
 ## Local package development
 
