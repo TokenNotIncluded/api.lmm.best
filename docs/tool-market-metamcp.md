@@ -4,9 +4,70 @@
 
 本文说明默认 Go 后端，不代表 Rust 预览后端已具有相同能力。
 
+## 先搜索摘要，再读取详情
+
+`search` 默认返回 5 个服务。每项只含服务 `id`、发布版本 `version_id`、名称、用途摘要、工具数量、基础价格范围及按用量计费的工具数量，不返回 `tools`、输入参数定义或输出参数定义。用途摘要最多 240 个字符；截短时返回 `description_truncated: true`。服务摘要与价格范围来自同一次列表查询，不逐项读取详情。
+
+先调用：
+
+```json
+{"name":"metamcp","arguments":{"action":"search","query":"搜索网页"}}
+```
+
+选中服务后，将结果的 `id` 传给 `service_id`：
+
+```json
+{"name":"metamcp","arguments":{"action":"details","service_id":"实际服务 ID"}}
+```
+
+`details` 保留完整描述、工具 ID、当前版本 ID、参数定义和计费规则。服务可能在两次请求之间更新；加载、授权和调用应使用详情中确认过的版本，不要将旧搜索版本与新详情混用。
+
+`min_price_quota` 和 `max_price_quota` 是各工具的基础费用范围，不是按用量收费的最终总价。`metered_tools > 0` 时，必须查看详情中的用量费率。工具调用免费，也不代表确认后的绘图、转账等业务免费。额度单位沿用返回的 `credits_per_usd`。
+
+`offset` 默认是 0。`limit` 仍接受 1–100，兼容已有显式分页请求；`usage` 和 `calls` 的默认数量仍为 20。继续翻页时增加 `offset`；返回数量小于 `limit` 时已到当前结果末尾。空结果使用 `items: []`。
+
+## 精简模式与旧入口兼容
+
+默认连接地址不变：
+
+```text
+https://api.lmm.best/mcp/market
+```
+
+需要只向模型暴露一个工具时，将 MCP 连接地址改为：
+
+```text
+https://api.lmm.best/mcp/market?mode=compact
+```
+
+精简模式的 `tools/list` 只有 `metamcp`。旧的 `lmm_market_*` 和独立 `market_tool_*` 不注册，发现、管理、调用和状态查询均通过 `metamcp` 完成。加载或授权成功后不需要刷新列表，返回的 `refresh_tools_list` 为 `false`。
+
+省略 `mode` 或使用 `mode=full` 时，保留旧管理入口和当前连接已获授权的独立工具入口。只需要这些独立入口时，才按提示刷新列表。不支持组合参数定义的旧客户端可继续使用完整模式中的独立入口。
+
+模式只决定暴露哪些工具，不改变账号、连接身份、权限、授权、额度、用户确认和重复请求处理。两种模式共用已有请求记录。未知模式返回 HTTP 400；所有模式仍需原有认证。客户端应在后续请求中保留同一个连接地址。已有 OAuth 资源标识与授权范围不变。
+
+## 每种操作的必填字段
+
+`inputSchema` 保持对象类型，使用 `oneOf` 列出 12 种操作。每个分支固定 `action`，声明本操作的必填字段，并拒绝其他操作的字段。服务端使用同一份字段规则检查原始 JSON，仍保留动态有效期、额度边界、授权和业务参数检查。
+
+| action | 除 action 外的必填字段 |
+| --- | --- |
+| search | 无；可选 query、offset、limit |
+| details | service_id |
+| status | 无 |
+| load、unload | tool_id、version_id |
+| authorize | tool_id、version_id、max_price_quota、max_total_quota、max_calls、expires_at |
+| set_tool_budget | tool_id、version_id、grant_id、limit_quota |
+| set_client_budget | limit_quota |
+| usage、calls | 无；可选 offset、limit |
+| call_status | call_id |
+| invoke | tool_id、version_id、request_id、arguments |
+
+`expires_at` 为未来的 Unix 秒数。预算字段必须显式给出；`0` 不是无限额度。`invoke.arguments` 必须是对象，即使无参数也须发送 `{}`。参数定义不能代替服务端的权限检查。
+
 ## 直接调用
 
-先用 `search` 或 `details` 取得真实的 `tool_id`、`version_id`、参数定义和价格。工具必须已在当前连接加载，并具有该版本的有效授权。加载不等于授权。
+先用 `search` 选择服务，再用 `details` 取得真实的 `tool_id`、`version_id`、参数定义和价格。已知服务 ID 时可直接读取详情。工具必须已在当前连接加载，并具有该版本的有效授权。加载不等于授权。
 
 向 MCP 的 `tools/call` 发送下面的参数。示例中的 ID 必须替换为实际值。
 
@@ -53,8 +114,8 @@ AI 自己加载、卸载工具仍需要管理权限。AI 创建工具授权仍�
 
 ```sh
 cd apps/api-go
-go test -p 2 ./controller -run 'ToolMarketMeta|ToolMarketBuiltin' -count=1
+go test -p 2 ./controller -run 'ToolMarketMeta|ToolMarketMCP|ToolMarketBuiltin' -count=1
 go test -p 2 ./model ./service -run ToolMarket -count=1
 ```
 
-新增测试覆盖原始数字、输入边界、只读连接、加载与授权分离、账号及连接隔离、版本检查、撤销和次数上限、目标参数检查，以及跨入口确认和重复请求。参数解码测试不能替代真实数据库、执行器和 MCP HTTP 集成测试。
+测试还覆盖 12 种操作的必填字段与跨操作字段、分页默认值、摘要体积、单次列表查询、完整详情、私有服务过滤、精简与完整模式、跨模式重复请求。原有测试覆盖原始数字、输入边界、只读连接、加载与授权分离、账号及连接隔离、版本检查、撤销和次数上限、目标参数检查，以及跨入口确认和重复请求。参数解码测试不能替代真实数据库、执行器和 MCP HTTP 集成测试。
