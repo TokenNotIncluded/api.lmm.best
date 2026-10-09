@@ -210,7 +210,7 @@ test('onboarding status reports exact L0 credit progress and the next step witho
   assert.doesNotMatch(JSON.stringify(result.paid_access), /_usd|9999/)
   assert.deepEqual(result.next_step, {
     path: '/getting-started',
-    label: 'Check API access status',
+    label: 'Continue with the assistant',
   })
 })
 
