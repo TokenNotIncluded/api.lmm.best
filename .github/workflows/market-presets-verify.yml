@@ -68,7 +68,7 @@ jobs:
           git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $header" push origin HEAD:refs/heads/codex/market-provider-presets-20261009
           mkdir -p /tmp/market-evidence
           git rev-parse HEAD | tee /tmp/market-evidence/tested-sha.txt
-          git diff 50b8ef9db62b287dbeb0ebcb438ea19983b4320a -- apps/api-go apps/web/src/features/tool-market docs > /tmp/market-evidence/source.patch
+          git diff HEAD^ -- apps/api-go apps/web/src/features/tool-market docs > /tmp/market-evidence/source.patch
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
