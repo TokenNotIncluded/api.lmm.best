@@ -45,14 +45,22 @@ export const MORPH_SECONDS = 2.4
 export const SCENE_SECONDS = HOLD_SECONDS + MORPH_SECONDS
 
 export function sequenceAt(chapter: number, seconds: number) {
-  const list = HOME_SEQUENCES[Math.max(0, Math.min(4, Math.floor(Number.isFinite(chapter) ? chapter : 0)))]
+  const list =
+    HOME_SEQUENCES[
+      Math.max(
+        0,
+        Math.min(4, Math.floor(Number.isFinite(chapter) ? chapter : 0))
+      )
+    ]
   const time = Math.max(0, Number.isFinite(seconds) ? seconds : 0)
   const index = Math.floor(time / SCENE_SECONDS) % list.length
   const phase = time % SCENE_SECONDS
   return {
     from: list[index],
     to: list[(index + 1) % list.length],
-    mix: smooth(Math.max(0, Math.min(1, (phase - HOLD_SECONDS) / MORPH_SECONDS))),
+    mix: smooth(
+      Math.max(0, Math.min(1, (phase - HOLD_SECONDS) / MORPH_SECONDS))
+    ),
   }
 }
 // Shared across mobile chapter canvases. Never retain all future additions forever.
