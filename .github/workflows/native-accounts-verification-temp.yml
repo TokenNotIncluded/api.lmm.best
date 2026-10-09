@@ -1,0 +1,78 @@
+name: Native accounts isolated verification
+
+on:
+  push:
+    branches: [verify/native-accounts-20261009]
+    paths: ['.github/workflows/native-accounts-verification-temp.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-accounts-isolated-verification
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/native_accounts_test?sslmode=disable
+      TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: native_accounts_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U postgres -d native_accounts_test'
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: apps/api-go
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 8190dbff59af02e97d329687cc37608a1f698074
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: |
+            apps/api-go/go.sum
+            apps/api-go/relaykit/go.sum
+      - name: Record exact source and toolchain
+        run: |
+          git rev-parse HEAD
+          go version
+      - name: Account rules
+        id: rules
+        continue-on-error: true
+        run: go test -race -cover -p 2 ./pkg/account ./pkg/accountfunding -count=1 -timeout=2m
+      - name: Team levels and native storage including PostgreSQL
+        id: model
+        continue-on-error: true
+        run: go test -race -v -p 2 ./model -run '^(TestNativeAccount|TestTeamAccountAccess|TestEvaluateTrustLevel)' -count=1 -timeout=8m
+      - name: Controller and router boundaries
+        id: http
+        continue-on-error: true
+        run: go test -race -v -p 2 ./controller ./router -run '^TestNativeAccount' -count=1 -timeout=8m
+      - name: Existing billing regressions
+        id: billing
+        continue-on-error: true
+        run: go test -race -p 2 ./service -run '^(TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption)' -count=1 -timeout=5m
+      - name: Require every executed suite to pass
+        if: always()
+        env:
+          RULES: ${{ steps.rules.outcome }}
+          MODEL: ${{ steps.model.outcome }}
+          HTTP: ${{ steps.http.outcome }}
+          BILLING: ${{ steps.billing.outcome }}
+        run: |
+          printf 'rules=%s model=%s http=%s billing=%s\n' "$RULES" "$MODEL" "$HTTP" "$BILLING"
+          test "$RULES" = success && test "$MODEL" = success && test "$HTTP" = success && test "$BILLING" = success
