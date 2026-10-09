@@ -119,6 +119,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
         SystemInfoFormValues
       >,
       defaultValues: normalizedDefaults,
+      agentFields: ['SystemName'],
       onSubmit: async (_data, changedFields) => {
         for (const [key, value] of Object.entries(changedFields)) {
           let v = normalizeValue(value)

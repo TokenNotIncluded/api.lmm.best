@@ -62,7 +62,7 @@ function EmptyAboutState() {
         )}
       </p>
 
-      <dl className='mt-12 grid gap-8 border-y py-8 sm:grid-cols-3'>
+      <dl className='mt-12 grid gap-8 py-8 sm:grid-cols-3'>
         {ABOUT_FACTS.map(([value, label]) => (
           <div key={label}>
             <dt className='text-3xl font-semibold tracking-tight'>
@@ -197,8 +197,9 @@ export function About() {
       <main className='mx-auto max-w-6xl px-5 pt-32 pb-24 md:px-10'>
         <RichContent
           mode='markdown'
+          collapsible
           content={rawContent}
-          className='forge-rich-content prose-neutral dark:prose-invert max-w-none'
+          className='prose-neutral dark:prose-invert max-w-none'
         />
       </main>
     </ForgePublicShell>

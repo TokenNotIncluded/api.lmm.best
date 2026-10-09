@@ -64,11 +64,16 @@ function useReadingProgress(
       frame = window.requestAnimationFrame(update)
     }
     update()
-    window.addEventListener('scroll', schedule, { passive: true })
+    document.addEventListener('scroll', schedule, {
+      passive: true,
+      capture: true,
+    })
+    node.addEventListener('toggle', schedule, true)
     window.addEventListener('resize', schedule)
     return () => {
       if (frame) window.cancelAnimationFrame(frame)
-      window.removeEventListener('scroll', schedule)
+      document.removeEventListener('scroll', schedule, true)
+      node.removeEventListener('toggle', schedule, true)
       window.removeEventListener('resize', schedule)
     }
   }, [targetRef, enabled])
@@ -98,7 +103,7 @@ export function LegalDocument({
   const mode = contentIsHtml ? ('html' as const) : ('markdown' as const)
   const articleRef = useRef<HTMLElement>(null)
 
-  const { sections, headings } = useMemo(
+  const { headings } = useMemo(
     () =>
       hasContent && !isUrl
         ? splitLegalSections(rawContent, mode)
@@ -210,46 +215,14 @@ export function LegalDocument({
             {title}
           </h1>
           <p className='legal-meta'>
-            {t('{{count}} sections', { count: headings.length })}
+            {t('On this page')} · {headings.length}
           </p>
-          {showReader ? (
-            sections.map((section, index) => (
-              <section
-                key={section.heading?.id ?? `preamble-${index}`}
-                id={section.heading?.id}
-                aria-labelledby={
-                  section.heading ? `${section.heading.id}-heading` : undefined
-                }
-                className='legal-section'
-              >
-                {section.heading && (
-                  <h2
-                    id={`${section.heading.id}-heading`}
-                    className={
-                      section.heading.level === 1
-                        ? 'legal-h1'
-                        : section.heading.level === 2
-                          ? 'legal-h2'
-                          : 'legal-h3'
-                    }
-                  >
-                    {section.heading.text}
-                  </h2>
-                )}
-                <RichContent
-                  mode={mode}
-                  content={section.body}
-                  className='prose-neutral dark:prose-invert max-w-none'
-                />
-              </section>
-            ))
-          ) : (
-            <RichContent
-              mode={mode}
-              content={rawContent}
-              className='prose-neutral dark:prose-invert max-w-none'
-            />
-          )}
+          <RichContent
+            mode={mode}
+            content={rawContent}
+            collapsible={showReader}
+            className='prose-neutral dark:prose-invert max-w-none'
+          />
         </article>
 
         {showReader && (

@@ -196,8 +196,10 @@ test('upstream variants boundary permits zero and 100, not 101', () => {
       ...input.products[0].variants[0],
       id: `v${i}`,
     }))
-    if (count <= 100)
+    if (count <= 100) {
       assert.equal(parseExtoreCatalog(input).products[0].variants.length, count)
-    else assert.throws(() => parseExtoreCatalog(input))
+    } else {
+      assert.throws(() => parseExtoreCatalog(input))
+    }
   }
 })

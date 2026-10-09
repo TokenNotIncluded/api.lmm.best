@@ -28,6 +28,7 @@ import { useSystemConfig } from '@/hooks/use-system-config'
 import { AuthArtPanel } from './components/auth-art-panel'
 
 import '../forge/forge-public-shell.css'
+import './auth-mobile.css'
 
 type AuthLayoutProps = {
   children: React.ReactNode
@@ -62,10 +63,15 @@ export function AuthLayout({ children }: AuthLayoutProps) {
       </header>
       <div className='grid min-h-0 flex-1 lg:col-start-1 lg:h-full'>
         <div className='no-scrollbar container min-h-0 overflow-y-auto lg:pt-24'>
-          <div className='mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-7 sm:px-8 sm:py-12'>
+          <div className='auth-form-stage mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-5 py-7 sm:px-8 sm:py-12'>
+            <div className='auth-signal' aria-hidden='true'>
+              <span />
+              <span />
+              <span />
+            </div>
             {children}
             <details
-              className='mt-8 w-full lg:hidden'
+              className='auth-game-disclosure mt-8 w-full lg:hidden'
               onToggle={(event) => setMobileGameOpen(event.currentTarget.open)}
             >
               <summary className='text-muted-foreground cursor-pointer py-3 text-center text-sm underline underline-offset-4'>

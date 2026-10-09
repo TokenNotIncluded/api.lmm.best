@@ -1,7 +1,22 @@
 {
   "translation": {
-    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore 匯入需要伺服器設定持久加密金鑰。請聯絡管理員檢查設定。",
-    "This draft stays private. Review its visibility before publishing.": "此草稿保持私人狀態。發布前請確認可見性。",
+    "Adjust settings with WebMCP": "用 WebMCP 調整設定",
+    "Changes are saved only with the Save button.": "只有點擊「儲存」後，變更才會生效。",
+    "Collapse all": "收合全部",
+    "Directory": "目錄",
+    "Expand all": "展開全部",
+    "Hold and drag up or down. Release to open the selected section.": "長按並上下拖動，放開後開啟選取的設定。",
+    "Next settings section": "下一項設定",
+    "Only supported non-secret fields can be prepared. Nothing is saved automatically.": "僅可預填已支援的非敏感欄位，不會自動儲存。",
+    "Open settings directory; hold and drag to switch sections": "開啟設定目錄；長按拖動可切換設定",
+    "Previous settings section": "上一項設定",
+    "Quick navigation": "快捷導覽",
+    "Release to open": "放開後開啟",
+    "Settings draft updated. Review it and press Save to apply.": "設定草稿已更新。請檢查後點擊「儲存」。",
+    "Tool types": "工具類型",
+    "Read supported fields": "讀取支援的欄位",
+    "Prepare a visible draft": "預填可見的草稿",
+    "Review and save yourself": "檢查後手動儲存",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -4289,7 +4304,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "用於交付帳戶資料。將使用者名稱、密碼、可選的登入網址和說明一起作為一項新增。",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "用於啟用金鑰。每行匯入一組金鑰；買家收到的金鑰與提供的完全一致。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
@@ -11697,6 +11712,9 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "缺少可信付款證明：{{unconfirmed}} 筆；金額紀錄異常：{{invalid}} 筆。以上付款總額未計入這些紀錄。",
     "请刷新重试，当前金额未确认。": "請重新整理後再試，目前金額尚未確認。",
     "退款后净付款": "退款後淨付款",
-    "部分充值记录无法确认实付": "部分儲值紀錄無法確認實際付款"
+    "部分充值记录无法确认实付": "部分儲值紀錄無法確認實際付款",
+    "Service information": "服務說明與隱私",
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore 匯入需要伺服器設定持久加密金鑰。請聯絡管理員檢查設定。",
+    "This draft stays private. Review its visibility before publishing.": "此草稿保持私人狀態。發布前請確認可見性。"
   }
 }

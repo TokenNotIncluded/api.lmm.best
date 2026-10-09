@@ -1,7 +1,22 @@
 {
   "translation": {
-    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore のインポートには、サーバーに永続的な暗号化キーを設定する必要があります。管理者に設定の確認を依頼してください。",
-    "This draft stays private. Review its visibility before publishing.": "この下書きは非公開のままです。公開前に表示設定を確認してください。",
+    "Adjust settings with WebMCP": "WebMCP で設定を調整",
+    "Changes are saved only with the Save button.": "変更は「保存」ボタンを押したときにのみ保存されます。",
+    "Collapse all": "すべて折りたたむ",
+    "Directory": "目次",
+    "Expand all": "すべて展開",
+    "Hold and drag up or down. Release to open the selected section.": "長押しして上下にドラッグし、指を離すと選択した設定が開きます。",
+    "Next settings section": "次の設定",
+    "Only supported non-secret fields can be prepared. Nothing is saved automatically.": "対応する機密情報以外の項目のみ入力できます。自動保存はしません。",
+    "Open settings directory; hold and drag to switch sections": "設定の目次を開く。長押ししてドラッグすると設定を切り替えられます。",
+    "Previous settings section": "前の設定",
+    "Quick navigation": "クイックナビゲーション",
+    "Release to open": "離して開く",
+    "Settings draft updated. Review it and press Save to apply.": "設定の下書きを更新しました。確認してから「保存」を押してください。",
+    "Tool types": "ツールの種類",
+    "Read supported fields": "対応する項目を読む",
+    "Prepare a visible draft": "画面に下書きを入力",
+    "Review and save yourself": "確認して手動で保存",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -4289,7 +4304,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "アカウント情報の引き渡し用です。ユーザー名、パスワード、任意のログインURL、説明をまとめて1項目として追加します。",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "アクティベーションキー用です。1行に1つずつインポートします。購入者には入力したキーがそのまま届きます。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
@@ -11697,6 +11712,9 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "信頼できる支払い証拠がない記録：{{unconfirmed}} 件；金額に異常がある記録：{{invalid}} 件。これらは支払合計に含まれていません。",
     "请刷新重试，当前金额未确认。": "再読み込みしてお試しください。金額はまだ確認されていません。",
     "退款后净付款": "返金後の純支払額",
-    "部分充值记录无法确认实付": "一部のチャージ記録は実際の支払額を確認できません"
+    "部分充值记录无法确认实付": "一部のチャージ記録は実際の支払額を確認できません",
+    "Service information": "サービスとプライバシー",
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore のインポートには、サーバーに永続的な暗号化キーを設定する必要があります。管理者に設定の確認を依頼してください。",
+    "This draft stays private. Review its visibility before publishing.": "この下書きは非公開のままです。公開前に表示設定を確認してください。"
   }
 }

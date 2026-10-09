@@ -1,7 +1,22 @@
 {
   "translation": {
-    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Для импорта из Extore нужен постоянный ключ шифрования на сервере. Попросите администратора настроить его.",
-    "This draft stays private. Review its visibility before publishing.": "Этот черновик остаётся закрытым. Проверьте настройки видимости перед публикацией.",
+    "Adjust settings with WebMCP": "Настроить через WebMCP",
+    "Changes are saved only with the Save button.": "Изменения сохраняются только кнопкой «Сохранить».",
+    "Collapse all": "Свернуть всё",
+    "Directory": "Разделы",
+    "Expand all": "Развернуть всё",
+    "Hold and drag up or down. Release to open the selected section.": "Нажмите и удерживайте, затем перетащите вверх или вниз. Отпустите, чтобы открыть выбранный раздел.",
+    "Next settings section": "Следующий раздел настроек",
+    "Only supported non-secret fields can be prepared. Nothing is saved automatically.": "Можно подготовить только поддерживаемые поля без секретных данных. Автоматического сохранения нет.",
+    "Open settings directory; hold and drag to switch sections": "Открыть разделы настроек; удерживайте и перетаскивайте для переключения",
+    "Previous settings section": "Предыдущий раздел настроек",
+    "Quick navigation": "Быстрая навигация",
+    "Release to open": "Отпустите, чтобы открыть",
+    "Settings draft updated. Review it and press Save to apply.": "Черновик настроек обновлён. Проверьте его и нажмите «Сохранить».",
+    "Tool types": "Типы инструментов",
+    "Read supported fields": "Прочитать поддерживаемые поля",
+    "Prepare a visible draft": "Подготовить видимый черновик",
+    "Review and save yourself": "Проверить и сохранить вручную",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -4289,7 +4304,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "Для передачи аккаунта. Добавьте имя пользователя, пароль, необязательную ссылку для входа и инструкции вместе одним элементом.",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "Для ключей активации. Импортируйте по одному ключу в строке; покупатели получат каждый ключ без изменений.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
@@ -11697,6 +11712,9 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Нет надёжного подтверждения оплаты для записей: {{unconfirmed}}; ошибки в суммах: {{invalid}}. Эти записи не включены в общие суммы платежей.",
     "请刷新重试，当前金额未确认。": "Обновите страницу и попробуйте снова. Сумма пока не подтверждена.",
     "退款后净付款": "Чистые платежи после возвратов",
-    "部分充值记录无法确认实付": "Не удалось подтвердить фактическую оплату по некоторым пополнениям"
+    "部分充值记录无法确认实付": "Не удалось подтвердить фактическую оплату по некоторым пополнениям",
+    "Service information": "Сервис и конфиденциальность",
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Для импорта из Extore нужен постоянный ключ шифрования на сервере. Попросите администратора настроить его.",
+    "This draft stays private. Review its visibility before publishing.": "Этот черновик остаётся закрытым. Проверьте настройки видимости перед публикацией."
   }
 }

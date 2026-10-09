@@ -8,7 +8,7 @@ export function HomeDirectoryLink() {
 
   return (
     <aside
-      className='mx-auto w-full max-w-7xl px-4 pt-2 sm:px-6 sm:pt-4'
+      className='home-directory-link mx-auto w-full max-w-7xl px-4 pt-2 sm:px-6 sm:pt-4'
       aria-label={t('AI directory')}
     >
       <Link

@@ -1,7 +1,22 @@
 {
   "translation": {
-    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore import needs a persistent server encryption key. Ask an administrator to configure it.",
-    "This draft stays private. Review its visibility before publishing.": "This draft stays private. Review its visibility before publishing.",
+    "Adjust settings with WebMCP": "Adjust settings with WebMCP",
+    "Changes are saved only with the Save button.": "Changes are saved only with the Save button.",
+    "Collapse all": "Collapse all",
+    "Directory": "Directory",
+    "Expand all": "Expand all",
+    "Hold and drag up or down. Release to open the selected section.": "Hold and drag up or down. Release to open the selected section.",
+    "Next settings section": "Next settings section",
+    "Only supported non-secret fields can be prepared. Nothing is saved automatically.": "Only supported non-secret fields can be prepared. Nothing is saved automatically.",
+    "Open settings directory; hold and drag to switch sections": "Open settings directory; hold and drag to switch sections",
+    "Previous settings section": "Previous settings section",
+    "Quick navigation": "Quick navigation",
+    "Release to open": "Release to open",
+    "Settings draft updated. Review it and press Save to apply.": "Settings draft updated. Review it and press Save to apply.",
+    "Tool types": "Tool types",
+    "Read supported fields": "Read supported fields",
+    "Prepare a visible draft": "Prepare a visible draft",
+    "Review and save yourself": "Review and save yourself",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
@@ -4289,7 +4304,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "For account delivery. Add the username, password, optional login URL, and instructions together as one item.",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "For activation keys. Import one key per line; buyers copy each key exactly as supplied.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
@@ -11697,6 +11712,9 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Reliable payment evidence is missing for {{unconfirmed}} records; {{invalid}} records have amount irregularities. These records are excluded from the payment totals.",
     "请刷新重试，当前金额未确认。": "Please refresh and try again. The amount is not yet confirmed.",
     "退款后净付款": "Net payments after refunds",
-    "部分充值记录无法确认实付": "Actual payments cannot be confirmed for some top-up records"
+    "部分充值记录无法确认实付": "Actual payments cannot be confirmed for some top-up records",
+    "Service information": "Service information",
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore import needs a persistent server encryption key. Ask an administrator to configure it.",
+    "This draft stays private. Review its visibility before publishing.": "This draft stays private. Review its visibility before publishing."
   }
 }
