@@ -32,8 +32,8 @@ function ToolRow({ tool }: { tool: WebMcpToolSummary }) {
   return (
     <div
       className={cn(
-        'group flex flex-col gap-2 rounded-lg border border-border/60 p-3 transition-colors',
-        'hover:border-primary/40 hover:bg-muted/40'
+        'group flex flex-col gap-2 rounded-xl p-3 transition-colors',
+        'hover:bg-muted/40'
       )}
     >
       <div className='flex items-start gap-2'>
@@ -169,6 +169,47 @@ export function WebMcpPage() {
         </div>
       </header>
 
+      <section className='mt-8' aria-label={t('Tool types')}>
+        <div
+          className='flex h-2 gap-1 overflow-hidden rounded-full'
+          aria-hidden='true'
+        >
+          {filters.slice(1).map((item, index) => (
+            <span
+              key={item.id}
+              style={{
+                flex: item.count,
+                background: `var(--chart-${index + 1})`,
+              }}
+            />
+          ))}
+        </div>
+        <details className='bg-muted/30 mt-5 rounded-2xl p-4'>
+          <summary className='min-h-11 cursor-pointer text-sm font-medium'>
+            {t('Adjust settings with WebMCP')} · L6
+          </summary>
+          <ol className='mt-4 grid gap-5 sm:grid-cols-3'>
+            {[
+              'Read supported fields',
+              'Prepare a visible draft',
+              'Review and save yourself',
+            ].map((label, index) => (
+              <li key={label} className='flex items-start gap-3 text-sm'>
+                <span className='text-muted-foreground font-mono text-xs'>
+                  0{index + 1}
+                </span>
+                <span>{t(label)}</span>
+              </li>
+            ))}
+          </ol>
+          <p className='text-muted-foreground mt-5 text-xs leading-relaxed'>
+            {t(
+              'Only supported non-secret fields can be prepared. Nothing is saved automatically.'
+            )}
+          </p>
+        </details>
+      </section>
+
       <div className='mt-8 flex flex-col gap-3 sm:flex-row sm:items-center'>
         <div className='relative flex-1'>
           <Search
@@ -180,7 +221,7 @@ export function WebMcpPage() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('Search tools')}
             aria-label={t('Search tools')}
-            className='pl-9'
+            className='h-11 rounded-xl pl-9 text-base'
           />
         </div>
         <div
@@ -195,10 +236,10 @@ export function WebMcpPage() {
               aria-pressed={filter === item.id}
               onClick={() => setFilter(item.id)}
               className={cn(
-                'inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors',
+                'inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm transition-colors',
                 filter === item.id
-                  ? 'border-primary/40 bg-primary/10 text-foreground'
-                  : 'border-border text-muted-foreground hover:bg-muted/60'
+                  ? 'bg-primary/10 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60'
               )}
             >
               {item.label}
@@ -231,28 +272,36 @@ export function WebMcpPage() {
         <div className='mt-6 space-y-8'>
           {visible.map((group) => (
             <motion.section
-              key={group.key}
+              key={`${group.key}:${query}:${filter}`}
               initial={shouldReduce ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
             >
-              <h2 className='flex items-baseline gap-2 text-sm font-semibold tracking-wide uppercase'>
-                {t(group.label)}
-                <span className='text-muted-foreground text-xs font-normal tabular-nums'>
-                  {group.tools.length}
-                </span>
-              </h2>
-              <div className='mt-3 grid gap-3 sm:grid-cols-2'>
-                {group.tools.map((tool) => (
-                  <ToolRow key={tool.name} tool={tool} />
-                ))}
-              </div>
+              <details
+                open={
+                  Boolean(query.trim()) ||
+                  filter !== 'all' ||
+                  group.key === visible[0]?.key
+                }
+              >
+                <summary className='flex min-h-12 cursor-pointer items-baseline gap-2 text-sm font-semibold'>
+                  {t(group.label)}
+                  <span className='text-muted-foreground text-xs font-normal tabular-nums'>
+                    {group.tools.length}
+                  </span>
+                </summary>
+                <div className='mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2'>
+                  {group.tools.map((tool) => (
+                    <ToolRow key={tool.name} tool={tool} />
+                  ))}
+                </div>
+              </details>
             </motion.section>
           ))}
         </div>
       )}
 
-      <section className='border-border/60 bg-muted/30 mt-12 rounded-lg border p-5'>
+      <section className='bg-muted/30 mt-12 rounded-2xl p-5'>
         <h2 className='text-sm font-semibold'>{t('Clear boundaries')}</h2>
         <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
           {t(

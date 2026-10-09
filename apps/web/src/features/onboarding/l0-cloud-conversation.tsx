@@ -68,7 +68,10 @@ import {
   visualTokenTail,
   type L0TextFlow,
 } from './l0-text-flow'
+import { observeL0Transcript } from './l0-transcript-scroll'
 import { refreshCurrentAccount } from './use-auth-user-refresh'
+
+import './l0-mobile-conversation.css'
 
 const PreviousTurn = memo(function PreviousTurn({ turn }: { turn: CloudTurn }) {
   return (
@@ -122,6 +125,7 @@ export function L0CloudConversation({
   const [prompt, setPrompt] = useState('')
   const [supportRequired, setSupportRequired] = useState(false)
   const [away, setAway] = useState(false)
+  const [engaged, setEngaged] = useState(false)
   const [copyState, setCopyState] = useState<'copied' | 'copyFailed' | null>(
     null
   )
@@ -132,7 +136,8 @@ export function L0CloudConversation({
   const input = useRef<HTMLInputElement>(null)
   const answer = useRef<HTMLDivElement>(null)
   const pane = useRef<HTMLElement>(null)
-  const follow = useRef(true)
+  const transcript = useRef<ReturnType<typeof observeL0Transcript> | null>(null)
+  const transcriptContent = useRef<HTMLDivElement>(null)
   const flow = useRef<L0TextFlow | null>(null)
   const session = useMemo(
     () =>
@@ -192,6 +197,7 @@ export function L0CloudConversation({
   const [state, setState] = useState(session.snapshot)
   const [formatted, setFormatted] = useState(false)
   const busy = state.phase === 'waiting' || state.phase === 'streaming'
+  const hasConversation = state.phase !== 'idle'
   const valid =
     prompt.trim().length > 0 &&
     !getAssistantPromptValidation(prompt, true).invalid
@@ -213,11 +219,20 @@ export function L0CloudConversation({
   useEffect(() => {
     if (!available) session.stop()
   }, [available, session])
-  const toLatest = () => {
-    follow.current = true
-    setAway(false)
-    if (pane.current) pane.current.scrollTop = pane.current.scrollHeight
-  }
+  const toLatest = () => transcript.current?.latest()
+  useLayoutEffect(() => {
+    if (!hasConversation || !pane.current) return
+    const mounted = observeL0Transcript(
+      pane.current,
+      setAway,
+      transcriptContent.current
+    )
+    transcript.current = mounted
+    return () => {
+      mounted.dispose()
+      transcript.current = null
+    }
+  }, [hasConversation])
   const copyResponse = async () => {
     clearTimeout(copyTimer.current)
     try {
@@ -244,9 +259,7 @@ export function L0CloudConversation({
     setFormatted(false)
   }, [state.revision])
   useLayoutEffect(() => {
-    if (active && follow.current && pane.current) {
-      pane.current.scrollTop = pane.current.scrollHeight
-    }
+    if (active) transcript.current?.sync()
     if (answer.current) flow.current?.receive(answer.current, active)
   }, [state.answer, state.revision, active, formatted])
   useLayoutEffect(() => {
@@ -285,7 +298,7 @@ export function L0CloudConversation({
     ) {
       return
     }
-    follow.current = true
+    transcript.current?.latest()
     setAway(false)
     setCopyState(null)
     flow.current?.clear()
@@ -302,7 +315,11 @@ export function L0CloudConversation({
   }
 
   return (
-    <div className='l0-composer' data-phase={state.phase}>
+    <div
+      className='l0-composer'
+      data-phase={state.phase}
+      data-engaged={engaged || hasConversation}
+    >
       <h2
         id='l0-welcome-title'
         className={state.phase === 'idle' ? '' : 'l0-sr-only'}
@@ -346,7 +363,7 @@ export function L0CloudConversation({
               onClick={() => {
                 flow.current?.clear()
                 session.clear()
-                follow.current = true
+                transcript.current?.latest()
                 setAway(false)
                 input.current?.focus()
               }}
@@ -364,85 +381,82 @@ export function L0CloudConversation({
           className='l0-dialogue'
           aria-label={copy.conversation}
           tabIndex={0}
-          onScroll={(event) => {
-            const node = event.currentTarget
-            follow.current =
-              node.scrollHeight - node.scrollTop - node.clientHeight < 48
-            setAway(!follow.current)
-          }}
+          data-mobile-scroll-ignore=''
         >
-          {state.turns.map((turn) => (
-            <PreviousTurn key={turn.id} turn={turn} />
-          ))}
-          <article className='l0-current-turn' data-testid='l0-current-turn'>
-            <p className='l0-question-echo'>{state.question}</p>
-            <div ref={answer} className='l0-answer' aria-live='off'>
-              {formatted ? (
-                <Response>{state.answer}</Response>
-              ) : (
-                <>
-                  {prefix}
-                  {tail.map((token) => (
-                    <span key={token.index} data-l0-arrival>
-                      {token.text}
-                    </span>
-                  ))}
-                </>
-              )}
-            </div>
-            <p className='l0-sr-only' role='status'>
-              {busy
-                ? copy.responding
-                : state.phase === 'error'
-                  ? copy.chatError
-                  : state.answer}
-            </p>
-            {state.phase === 'waiting' && (
-              <div className='l0-await' aria-hidden='true'>
-                <i />
-                <i />
-                <i />
+          <div ref={transcriptContent}>
+            {state.turns.map((turn) => (
+              <PreviousTurn key={turn.id} turn={turn} />
+            ))}
+            <article className='l0-current-turn' data-testid='l0-current-turn'>
+              <p className='l0-question-echo'>{state.question}</p>
+              <div ref={answer} className='l0-answer' aria-live='off'>
+                {formatted ? (
+                  <Response>{state.answer}</Response>
+                ) : (
+                  <>
+                    {prefix}
+                    {tail.map((token) => (
+                      <span key={token.index} data-l0-arrival>
+                        {token.text}
+                      </span>
+                    ))}
+                  </>
+                )}
               </div>
-            )}
-            {state.phase === 'error' && (
-              <p role='alert' className='l0-chat-notice'>
-                {copy.chatError}
+              <p className='l0-sr-only' role='status'>
+                {busy
+                  ? copy.responding
+                  : state.phase === 'error'
+                    ? copy.chatError
+                    : state.answer}
               </p>
-            )}
-            {state.phase === 'stopped' && (
-              <p className='l0-chat-notice'>{copy.stopped}</p>
-            )}
-            {(state.phase === 'error' || state.phase === 'stopped') &&
-              available &&
-              state.question && (
-                <button
-                  type='button'
-                  className='l0-next-action'
-                  onClick={() => {
-                    follow.current = true
-                    setAway(false)
-                    flow.current?.clear()
-                    session.retry()
-                  }}
-                >
-                  <RotateCcw aria-hidden='true' /> {copy.retry}
-                </button>
+              {state.phase === 'waiting' && (
+                <div className='l0-await' aria-hidden='true'>
+                  <i />
+                  <i />
+                  <i />
+                </div>
               )}
-            {state.needsAction &&
-              (supportRequired ? (
-                <Link className='l0-next-action' to='/support'>
-                  {t('Contact support')}
-                </Link>
-              ) : (
-                <button
-                  className='l0-next-action'
-                  type='button'
-                  onClick={onRequestAccess}
-                >
-                  {t('Account and access')}
-                </button>
-              ))}
-          </article>
+              {state.phase === 'error' && (
+                <p role='alert' className='l0-chat-notice'>
+                  {copy.chatError}
+                </p>
+              )}
+              {state.phase === 'stopped' && (
+                <p className='l0-chat-notice'>{copy.stopped}</p>
+              )}
+              {(state.phase === 'error' || state.phase === 'stopped') &&
+                available &&
+                state.question && (
+                  <button
+                    type='button'
+                    className='l0-next-action'
+                    onClick={() => {
+                      transcript.current?.latest()
+                      setAway(false)
+                      flow.current?.clear()
+                      session.retry()
+                    }}
+                  >
+                    <RotateCcw aria-hidden='true' /> {copy.retry}
+                  </button>
+                )}
+              {state.needsAction &&
+                (supportRequired ? (
+                  <Link className='l0-next-action' to='/support'>
+                    {t('Contact support')}
+                  </Link>
+                ) : (
+                  <button
+                    className='l0-next-action'
+                    type='button'
+                    onClick={onRequestAccess}
+                  >
+                    {t('Account and access')}
+                  </button>
+                ))}
+            </article>
+          </div>
         </section>
       )}
       <div className='l0-composer-dock'>
@@ -464,6 +478,7 @@ export function L0CloudConversation({
             id='l0-question'
             value={prompt}
             disabled={!available}
+            onFocus={() => setEngaged(true)}
             onChange={(event) => type(event.currentTarget)}
             onCompositionStart={() => {
               composing.current = true

@@ -26,6 +26,7 @@ for (const key of [
   'Element',
   'Event',
   'MouseEvent',
+  'KeyboardEvent',
   'CustomEvent',
   'MutationObserver',
   'ResizeObserver',
@@ -237,6 +238,21 @@ async function click(node: HTMLElement) {
   })
   await act(flush)
 }
+async function chooseCatalogueOption(id: string, label: string) {
+  const trigger = required(document.querySelector<HTMLButtonElement>(`#${id}`))
+  await click(trigger)
+  const popup = required(
+    document.getElementById(required(trigger.getAttribute('aria-controls')))
+  )
+  const option = required(
+    [...popup.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (node) => node.textContent?.trim() === label
+    )
+  )
+  await click(option)
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false')
+  assert.equal(trigger.textContent?.trim(), label)
+}
 async function waitFor(predicate: () => boolean) {
   for (let i = 0; i < 15 && !predicate(); i++) await act(flush)
   assert.ok(predicate(), document.body.textContent ?? '')
@@ -267,27 +283,14 @@ test('browse uses server sorting and independent filters, renders authoritative 
   assert.match(document.body.textContent ?? '', /Automatic delivery/)
   assert.match(document.body.textContent ?? '', /in_stock/)
   assert.doesNotMatch(document.body.textContent ?? '', /Stock: 99/)
-  const select = required(
-    document.querySelector<HTMLSelectElement>('#store-catalogue-sort')
-  )
-  await act(async () => {
-    select.value = 'sales'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
-  })
+  await chooseCatalogueOption('store-catalogue-sort', 'Best selling')
   assert.equal(
     (lastProductRequest(requests).config as { params: { sort: string } }).params
       .sort,
     'sales'
   )
-  const guest = required(
-    document.querySelector<HTMLSelectElement>('#store-catalogue-guestPurchase')
-  )
-  await act(async () => {
-    guest.value = 'false'
-    guest.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
-  })
+  await click(button('More filters'))
+  await chooseCatalogueOption('store-catalogue-guestPurchase', 'No')
   assert.equal(
     (
       lastProductRequest(requests).config as {
@@ -299,6 +302,83 @@ test('browse uses server sorting and independent filters, renders authoritative 
   await click(button('List'))
   assert.equal(dom.localStorage.getItem(STORE_CATALOGUE_VIEW_KEY), 'list')
   assert.equal(dom.localStorage.getItem(GUEST_STORE_CART_KEY), null)
+})
+
+test('catalogue sort shows translated labels and its selected option, and Escape closes without changing the query', async () => {
+  const requests = mockRequests()
+  await mount(<StorePage />)
+  const trigger = required(
+    document.querySelector<HTMLButtonElement>('#store-catalogue-sort')
+  )
+  assert.equal(trigger.tagName, 'BUTTON')
+  assert.equal(trigger.getAttribute('aria-label'), 'Sort products')
+  assert.equal(trigger.textContent?.trim(), 'Comprehensive order')
+  await click(trigger)
+  const popup = required(
+    document.getElementById(required(trigger.getAttribute('aria-controls')))
+  )
+  assert.equal(popup.querySelectorAll('[role="option"]').length, 3)
+  assert.equal(
+    popup.querySelector('[aria-selected="true"]')?.textContent?.trim(),
+    'Comprehensive order'
+  )
+  await act(async () => {
+    required(document.activeElement).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+    )
+    await flush()
+  })
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false')
+  await waitFor(() => document.activeElement === trigger)
+  assert.equal(
+    (lastProductRequest(requests).config as { params: { sort: string } }).params
+      .sort,
+    'comprehensive'
+  )
+})
+
+test('catalogue dropdowns preserve false versus unset filters and reset their visible labels', async () => {
+  const requests = mockRequests()
+  await mount(<StorePage />)
+  await chooseCatalogueOption('store-catalogue-sort', 'Best selling')
+  await click(button('More filters'))
+  await chooseCatalogueOption('store-catalogue-stock', 'In stock')
+  await chooseCatalogueOption('store-catalogue-autoDelivery', 'Yes')
+  await chooseCatalogueOption('store-catalogue-aiProcessing', 'No')
+  await chooseCatalogueOption('store-catalogue-guestPurchase', 'No')
+  const params = () =>
+    (lastProductRequest(requests).config as { params: Record<string, unknown> })
+      .params
+  assert.equal(params().sort, 'sales')
+  assert.equal(params().stock, 'in_stock')
+  assert.equal(params().auto_delivery, true)
+  assert.equal(params().ai_processing, false)
+  assert.equal(params().guest_purchase, false)
+  await chooseCatalogueOption('store-catalogue-guestPurchase', 'Any')
+  assert.equal(Object.hasOwn(params(), 'guest_purchase'), false)
+  assert.equal(params().ai_processing, false)
+  await click(button('Reset filters'))
+  assert.equal(params().sort, 'comprehensive')
+  for (const key of [
+    'stock',
+    'auto_delivery',
+    'ai_processing',
+    'guest_purchase',
+  ]) {
+    assert.equal(Object.hasOwn(params(), key), false)
+  }
+  for (const [id, label] of [
+    ['sort', 'Comprehensive order'],
+    ['stock', 'Any stock'],
+    ['autoDelivery', 'Any'],
+    ['aiProcessing', 'Any'],
+    ['guestPurchase', 'Any'],
+  ]) {
+    assert.equal(
+      document.querySelector(`#store-catalogue-${id}`)?.textContent?.trim(),
+      label
+    )
+  }
 })
 
 for (const count of [0, 1, 2, 3, 4]) {
@@ -362,14 +442,7 @@ test('large catalogue cards follow freshly sorted server results, while list mod
     return page(sort === 'newest' ? [...cards].reverse() : cards)
   })
   await mount(<StorePage />)
-  const sort = required(
-    document.querySelector<HTMLSelectElement>('#store-catalogue-sort')
-  )
-  await act(async () => {
-    sort.value = 'newest'
-    sort.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
-  })
+  await chooseCatalogueOption('store-catalogue-sort', 'Newest products')
   await waitFor(
     () =>
       document

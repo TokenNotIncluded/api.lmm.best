@@ -90,3 +90,23 @@ func TestTrustPaidCreditsMissingFrozenOrderFailsClosed(t *testing.T) {
 	_, err := getFreshPaidTopUpAggregate(user.Id)
 	require.ErrorIs(t, err, ErrPaidCreditProjectionUnavailable)
 }
+
+func TestFreshUserAccessSnapshotDBUsesCallerDatabaseAndRejectsInvalidRefund(t *testing.T) {
+	db, user := setupAdminUserTopupProjection(t)
+	order := adminTopupProjectionOrder("trust-caller-db", 500000)
+	require.NoError(t, db.Create(&order).Error)
+	previousDB := DB
+	DB = nil
+	defer func() { DB = previousDB }()
+
+	snapshot, err := getFreshUserAccessSnapshotDB(db, &user)
+	require.NoError(t, err, "the caller's database must supply both aggregate and refund audit reads")
+	require.NotNil(t, snapshot.TrustLevel.PaidCredits)
+	require.Equal(t, "500000", *snapshot.TrustLevel.PaidCredits)
+
+	require.NoError(t, db.Model(&TopUp{}).Where("id = ?", order.Id).Update("refunded_quota", 500001).Error)
+	_, err = getFreshUserAccessSnapshotDB(db, &user)
+	require.ErrorIs(t, err, ErrPaidCreditProjectionUnavailable)
+	_, err = AssistantToolLevelDB(db, user.Id)
+	require.ErrorIs(t, err, ErrPaidCreditProjectionUnavailable, "an invalid financial projection must not authorize assistant writes")
+}

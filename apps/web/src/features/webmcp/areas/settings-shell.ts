@@ -11,6 +11,11 @@ import { CONSOLE_SHORTCUTS } from '@/components/layout/lib/shortcuts'
 import { listSystemInstances } from '@/features/system-info/api'
 import { listSystemTasks } from '@/features/system-settings/api'
 import {
+  inspectSettingsAgentForms,
+  stageSettingsAgentForm,
+  SETTINGS_AGENT_FIELDS,
+} from '@/features/system-settings/utils/settings-agent-bridge'
+import {
   buildSettingsSearchIndex,
   searchSettings,
 } from '@/features/system-settings/utils/settings-search-index'
@@ -49,7 +54,73 @@ function finiteNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+const currentSettingsPath = () =>
+  typeof window === 'undefined'
+    ? ''
+    : window.location.pathname + window.location.search
+
 export const settingsShellTools: WebMcpToolFactory = ({ router }) => [
+  {
+    name: 'lmm_settings_form',
+    title: 'Read supported fields on the open settings form',
+    description:
+      'Root administrator only. Read the explicitly supported non-secret fields on the currently mounted settings form, including types, bounds and draft values. No credentials, billing rates or access policies are exposed. An empty list means this page has no supported editable form.',
+    inputSchema: EMPTY_INPUT_SCHEMA,
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+    execute: async (_input, options) => {
+      const user = requireSettingsAccess()
+      ensureNotAborted(options.signal)
+      return {
+        forms: inspectSettingsAgentForms(user.id, currentSettingsPath()),
+        save_required: true,
+      }
+    },
+  },
+  {
+    name: 'lmm_settings_preview',
+    title: 'Prepare a visible settings draft',
+    description:
+      'Root administrator only. Use a fresh form ID from lmm_settings_form and only fields returned for that form. Stage proposed values in the open form and run its existing validation. This does not save or call the settings API. The user must review the visible draft and press Save. Never pass secrets, billing rates or security policies.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        form_id: { type: 'string', maxLength: 64 },
+        changes: {
+          type: 'object',
+          properties: SETTINGS_AGENT_FIELDS,
+          minProperties: 1,
+          maxProperties: 6,
+          additionalProperties: false,
+        },
+      },
+      required: ['form_id', 'changes'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, consequentialHint: true },
+    execute: async (rawInput, options) => {
+      const user = requireSettingsAccess()
+      const input = ensureObject(rawInput)
+      const changes = ensureObject(input.changes)
+      const path = currentSettingsPath()
+      return stageSettingsAgentForm({
+        id: requiredString(input, 'form_id', 64),
+        owner: user.id,
+        path,
+        changes,
+        signal: options.signal,
+        assertAccess: () => {
+          if (
+            requireSettingsAccess().id !== user.id ||
+            currentSettingsPath() !== path
+          ) {
+            throw new Error(
+              'The account or settings page changed; read the current form again'
+            )
+          }
+        },
+      })
+    },
+  },
   {
     name: 'lmm_shell_status',
     title: 'Read interface preferences',

@@ -15,7 +15,7 @@
   min-width: 0;
   padding: 1.25rem;
   background: color-mix(in oklch, var(--muted) 65%, var(--background));
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 1.5rem;
 }
 
@@ -331,5 +331,35 @@
     gap: 2rem;
     padding-inline-end: 2rem;
     border-inline-end: 1px solid var(--border);
+  }
+}
+
+@container (max-width: 32rem) {
+  .overview-dashboard {
+    gap: 2rem;
+  }
+  .overview-summary {
+    gap: 1.5rem;
+  }
+  .overview-balance {
+    padding: 1.25rem;
+  }
+  .overview-balance-value {
+    font-size: clamp(2.1rem, 9cqi, 3rem);
+  }
+  .overview-chart-toolbar {
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  .overview-chart-toolbar button,
+  .overview-chart-toolbar select {
+    min-height: 2.75rem;
+  }
+  .overview-chart-toolbar > div:last-child {
+    width: 100%;
+  }
+  .overview-chart-toolbar [role='group'] {
+    flex: 1;
+    justify-content: space-between;
   }
 }

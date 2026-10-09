@@ -103,6 +103,7 @@ function L0WelcomeStage({
   const [discovery, setDiscovery] = useState(0)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const cloudRef = useRef<HTMLDivElement>(null)
+  const welcomeRef = useRef<HTMLDivElement>(null)
   const accessRef = useRef<HTMLDetailsElement>(null)
   const { state: checkState, check } = useL0AccessCheck(user?.id)
   const registration = useAssistantRegistrationState()
@@ -112,6 +113,7 @@ function L0WelcomeStage({
   const canTopUp = access.mode === 'topup'
   const progressReady = access.thresholdCredits > 0 && access.mode !== 'active'
   const busy = checkState === 'checking'
+  const reloadAccess = access.mode === 'sync' || registration.data === 'active'
   const statusLabel = registration.isError
     ? t('Unable to load access status')
     : t(registrationStateCopy(registration.data ?? 'context_needed').title)
@@ -143,7 +145,7 @@ function L0WelcomeStage({
   const labels = {
     chat: copy.conversation,
     explore: copy.explore,
-    access: copy.access,
+    access: copy.conditions,
   }
 
   useEffect(() => {
@@ -192,6 +194,7 @@ function L0WelcomeStage({
   return (
     <div
       className='l0-welcome'
+      ref={welcomeRef}
       data-testid='l0-conversation'
       data-scene={scene}
       onKeyDown={(event) => {
@@ -205,112 +208,51 @@ function L0WelcomeStage({
         }
       }}
     >
-      <header className='l0-topbar'>
-        <span className='l0-wordmark' aria-hidden='true'>
-          LMM<span>/</span>
-        </span>
-        <div className='l0-topbar-actions'>
-          <button
-            type='button'
-            className='l0-topup-compact'
-            data-testid='l0-topbar-topup'
-            title={copy.walletNote}
-            onClick={topUp}
-          >
-            <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
-              <path d='M12 19V5m-6 6 6-6 6 6' />
-            </svg>
-            <span>{copy.wallet}</span>
-          </button>
-          <button
-            type='button'
-            className='l0-account-status'
-            data-status={status}
-            aria-controls='l0-panel-access'
-            onClick={openAccessDetails}
-          >
-            <span className='l0-status-dot' aria-hidden='true' />
-            <span aria-live='polite'>{statusLabel}</span>
-            <Arrow diagonal />
-          </button>
-          <details className='l0-help-menu' onKeyDown={closeDisclosure}>
-            <summary aria-label={copy.help}>?</summary>
-            <div className='l0-help-content'>
-              <button
-                type='button'
-                onClick={() => void navigate({ to: '/support' })}
-              >
-                {copy.support}
-                <Arrow diagonal />
-              </button>
-              <button type='button' onClick={topUp}>
-                {copy.plans}
-                <Arrow diagonal />
-              </button>
-              <p>{copy.privacyNote}</p>
-            </div>
-          </details>
-        </div>
-      </header>
-
       <div className='l0-stage'>
-        <section className='l0-rail' aria-label={t('Account and access')}>
+        <section className='l0-rail' aria-labelledby='l0-upgrade-title'>
           <div className='l0-rail-body'>
-            <p className='l0-rail-headline'>{t('Enable L1 access')}</p>
-            <p
-              className='l0-rail-meta'
-              data-testid={progressReady ? 'l0-paid-progress' : undefined}
-            >
-              {canTopUp && progressReady
-                ? t('Top up {{amount}} for instant approval.', {
-                    amount: formatMinimumQuotaInCurrency(
-                      access.remainingCredits,
-                      currency.currency,
-                      {
-                        locale: getCurrencyFormattingLocale(language),
-                        creditLabel: currency.label,
-                      },
-                      currency.config
-                    ),
-                  })
-                : access.mode === 'sync'
+            <h2 id='l0-upgrade-title' className='l0-rail-headline'>
+              {copy.upgradeTitle}
+            </h2>
+            <p className='l0-rail-meta' data-testid='l0-upgrade-description'>
+              {reloadAccess
+                ? access.mode === 'sync'
                   ? copy.syncNote
-                  : access.mode === 'review'
-                    ? t(
-                        'Describe what you need. The assistant can enable L1 directly.'
-                      )
-                    : canTopUp
-                      ? copy.eligibility
-                      : copy.unknown}
+                  : statusLabel
+                : canTopUp
+                  ? copy.upgradeNote
+                  : copy.freeUpgradeNote}
             </p>
           </div>
           <div className='l0-rail-actions'>
             <button
               type='button'
               className='l0-rail-action'
-              data-testid={
-                access.mode === 'sync' ? 'l0-check-payment' : undefined
-              }
+              data-testid={reloadAccess ? 'l0-check-payment' : 'l0-chat-free'}
               disabled={busy}
               onClick={() => {
-                if (access.mode === 'sync' || registration.data === 'active') {
+                if (reloadAccess) {
                   check()
                 } else {
                   selectScene('chat', true)
                   requestAnimationFrame(() => {
-                    document
-                      .querySelector<HTMLInputElement>('.l0-input-row input')
-                      ?.focus()
+                    const input =
+                      welcomeRef.current?.querySelector<HTMLInputElement>(
+                        '.l0-input-row input'
+                      )
+                    input?.focus({ preventScroll: true })
+                    input?.scrollIntoView({
+                      block: 'nearest',
+                      behavior: 'auto',
+                    })
                   })
                 }
               }}
             >
-              {access.mode === 'sync' || registration.data === 'active'
-                ? t('Reload account status')
-                : t('Chat to enable L1')}
+              {reloadAccess ? t('Reload account status') : copy.chatFree}
               <Arrow />
             </button>
-            {access.mode !== 'active' && (
+            {!reloadAccess && access.mode !== 'active' && (
               <button
                 type='button'
                 className='l0-rail-action l0-rail-action--ghost'
@@ -319,30 +261,16 @@ function L0WelcomeStage({
                 }
                 onClick={topUp}
               >
-                {copy.wallet}
+                {canTopUp ? copy.topUpUpgrade : copy.wallet}
                 <Arrow />
               </button>
             )}
-            {canTopUp && access.paidCredits > 0 && (
-              <button
-                type='button'
-                className='l0-rail-action l0-rail-action--ghost'
-                data-testid='l0-check-payment'
-                disabled={!user || busy}
-                onClick={check}
-              >
-                {copy.check}
-              </button>
-            )}
-            <Link
-              to='/support'
-              className='l0-rail-action l0-rail-action--ghost'
-              data-testid='l0-contact-support'
-            >
-              {copy.support}
-              <Arrow />
-            </Link>
           </div>
+          {!reloadAccess && !canTopUp && access.mode !== 'active' && (
+            <p className='l0-rail-notice'>
+              {access.mode === 'review' ? copy.reviewNote : copy.unknown}
+            </p>
+          )}
           {checkState && (
             <p className='l0-feedback' role='status' aria-live='polite'>
               {copy[checkState]}
@@ -534,6 +462,51 @@ function L0WelcomeStage({
                   </span>
                 </summary>
                 <div className='l0-account-body'>
+                  {access.mode !== 'active' && (
+                    <div className='l0-payment-info'>
+                      <h3>{copy.paymentDetails}</h3>
+                      <p
+                        data-testid={
+                          canTopUp && progressReady
+                            ? 'l0-paid-progress'
+                            : undefined
+                        }
+                      >
+                        {canTopUp && progressReady
+                          ? t('Top up {{amount}} for instant approval.', {
+                              amount: formatMinimumQuotaInCurrency(
+                                access.remainingCredits,
+                                currency.currency,
+                                {
+                                  locale: getCurrencyFormattingLocale(language),
+                                  creditLabel: currency.label,
+                                },
+                                currency.config
+                              ),
+                            })
+                          : access.mode === 'sync'
+                            ? copy.syncNote
+                            : access.mode === 'review'
+                              ? copy.reviewNote
+                              : canTopUp
+                                ? copy.eligibility
+                                : copy.unknown}
+                      </p>
+                      {canTopUp && progressReady && <p>{copy.eligibility}</p>}
+                      {canTopUp && access.paidCredits > 0 && (
+                        <button
+                          type='button'
+                          className='l0-text-action'
+                          data-testid='l0-check-payment'
+                          disabled={!user || busy}
+                          onClick={check}
+                        >
+                          {copy.check}
+                          <Arrow />
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {children}
                   <details className='l0-oauth' onKeyDown={closeDisclosure}>
                     <summary>
@@ -551,6 +524,38 @@ function L0WelcomeStage({
           </div>
         </div>
       </div>
+
+      <footer className='l0-utility' aria-label={t('Account and access')}>
+        <button
+          type='button'
+          className='l0-account-status'
+          data-status={status}
+          aria-controls='l0-panel-access'
+          onClick={openAccessDetails}
+        >
+          <span className='l0-status-dot' aria-hidden='true' />
+          <span aria-live='polite'>{statusLabel}</span>
+          <Arrow diagonal />
+        </button>
+        <Link
+          to='/support'
+          className='l0-text-action'
+          data-testid='l0-contact-support'
+        >
+          {copy.support}
+          <Arrow diagonal />
+        </Link>
+        <details className='l0-help-menu' onKeyDown={closeDisclosure}>
+          <summary aria-label={copy.help}>?</summary>
+          <div className='l0-help-content'>
+            <button type='button' onClick={topUp}>
+              {copy.plans}
+              <Arrow diagonal />
+            </button>
+            <p>{copy.privacyNote}</p>
+          </div>
+        </details>
+      </footer>
     </div>
   )
 }

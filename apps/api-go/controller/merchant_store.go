@@ -69,6 +69,8 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusConflict, "STORE_DISCLAIMER_REQUIRED", "Read and accept the current merchant disclaimer before ordering."
 	case errors.As(err, &termsUpdated):
 		status, code, message = http.StatusConflict, "STORE_TERMS_UPDATED", "The seller terms changed before this order was created. Read and accept the current terms."
+	case errors.Is(err, model.ErrMerchantStoreSellerTermsNotConfigured):
+		status, code, message = http.StatusConflict, "STORE_SELLER_TERMS_NOT_CONFIGURED", "Configure seller terms before publishing or relisting this product."
 	case errors.Is(err, model.ErrMerchantStoreSellerTerms):
 		status, code, message = http.StatusConflict, "STORE_SELLER_TERMS_REQUIRED", "Read and accept the current seller terms before ordering."
 	case errors.Is(err, model.ErrMerchantStoreLoginRequired):
@@ -224,6 +226,7 @@ func GetMerchantStoreConfig(c *gin.Context) {
 		"store_access_supported":            model.MerchantStoreAccessSupported(),
 		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),
 		"fixed_content_supported":           model.MerchantStoreFixedContentSupported(),
+		"product_variants_create_supported": model.MerchantStoreProductVariantsCreateSupported(),
 		"product_link_presets":              presets,
 		"linuxdo_units_per_usd":             config.LinuxDOUnitsPerUSD,
 		"credits_per_usd":                   common.FixedCreditsPerUSD, "external_minimum_quota": model.MerchantStoreExternalMinimumQuota,

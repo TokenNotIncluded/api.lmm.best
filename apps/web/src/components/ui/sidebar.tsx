@@ -78,6 +78,7 @@ function useSidebar() {
 
 function SidebarProvider({
   defaultOpen = true,
+  persistState = true,
   open: openProp,
   onOpenChange: setOpenProp,
   className,
@@ -86,6 +87,7 @@ function SidebarProvider({
   ...props
 }: React.ComponentProps<'div'> & {
   defaultOpen?: boolean
+  persistState?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
@@ -106,9 +108,11 @@ function SidebarProvider({
       }
 
       // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      if (persistState) {
+        document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      }
     },
-    [setOpenProp, open]
+    [setOpenProp, open, persistState]
   )
 
   // Helper to toggle the sidebar.

@@ -142,9 +142,9 @@ For commercial licensing, please contact support@quantumnous.com
 .dashboard-stat {
   min-width: 0;
   padding: 1.1rem;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--radius-xl, var(--radius));
-  background: var(--card);
+  background: color-mix(in oklch, var(--muted) 35%, var(--background));
 }
 .dashboard-stat[data-primary='true'] {
   border-color: color-mix(in oklch, var(--primary) 48%, var(--border));

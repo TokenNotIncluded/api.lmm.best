@@ -29,6 +29,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { LayoutProvider } from '@/context/layout-provider'
 import { ModelPlazaProvider } from '@/context/model-plaza-provider'
 import { SearchProvider } from '@/context/search-provider'
+import { SourceConsent } from '@/features/acquisition/consent'
 import { AssistantLauncher } from '@/features/assistant/assistant-launcher'
 import { MandatoryAnnouncements } from '@/features/onboarding/mandatory-announcements'
 import { ModelPlazaPanel } from '@/features/pricing/components/model-plaza-panel'
@@ -40,6 +41,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
+import { ConsoleMobileDock } from './console-mobile-dock'
 import { ConsoleLocation } from './console-navigation'
 import {
   MobileScrollChrome,
@@ -60,6 +62,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
+  const settingsPage = pathname.startsWith('/system-settings/')
   const assistantPage = pathname === '/getting-started'
   const focusedOnboarding = assistantPage && !consoleActivated
 
@@ -71,7 +74,8 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
             <SearchProvider>
               <QuickSwitchProvider>
                 <SidebarProvider
-                  defaultOpen={defaultOpen}
+                  defaultOpen={settingsPage ? false : defaultOpen}
+                  persistState={!settingsPage}
                   className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
                 >
                   <SkipToMain />
@@ -88,9 +92,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                           showAssistant={!focusedOnboarding}
                           showMobileAssistant={!assistantPage}
                           leftContent={
-                            focusedOnboarding ? undefined : (
-                              <ConsoleLocation />
-                            )
+                            focusedOnboarding ? undefined : <ConsoleLocation />
                           }
                         />
                       </MobileScrollChrome>
@@ -114,8 +116,11 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                     </SidebarInset>
                   </div>
                   <MobileScrollChrome>
-                    <AccessRestrictionNotice className='shrink-0' />
+                    <AccessRestrictionNotice compact>
+                      <SourceConsent />
+                    </AccessRestrictionNotice>
                   </MobileScrollChrome>
+                  {consoleActivated && !assistantPage && <ConsoleMobileDock />}
                   <ReleaseNoteDialog />
                   <CommandMenu />
                   <ShortcutCheatsheetDialog />

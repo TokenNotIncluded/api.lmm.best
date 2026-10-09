@@ -109,29 +109,20 @@ export function mountHomeMotion(root: HTMLElement) {
     schedule()
   }
   const readLayout = () => {
+    layout = !reduced.matches && !!film && supported
+    root.dataset.cinemaLayout = layout ? 'immersive' : 'stacked'
     const rect = cinema.getBoundingClientRect(),
       box = inner.getBoundingClientRect()
-    layout =
-      window.innerWidth > 900 &&
-      window.innerHeight > 600 &&
-      !reduced.matches &&
-      !!film &&
-      supported
-    const focused = panels.findIndex((panel) =>
-      panel.contains(document.activeElement)
-    )
     target =
       manual !== null
         ? manual
-        : focused >= 0 && layout
-          ? focused
-          : layout
-            ? clamp(
-                ((Number.parseFloat(getComputedStyle(inner).top) || 0) -
-                  rect.top) /
-                  Math.max(1, rect.height - box.height)
-              ) * 4
-            : 0
+        : layout
+          ? clamp(
+              ((Number.parseFloat(getComputedStyle(inner).top) || 0) -
+                rect.top) /
+                Math.max(1, rect.height - box.height)
+            ) * 4
+          : 0
     if (!layout) progress = 0
     if (story) {
       const box = story.getBoundingClientRect()
@@ -143,7 +134,9 @@ export function mountHomeMotion(root: HTMLElement) {
         )
       )
       const current =
-        layout && !paused ? positions.indexOf(Math.min(...positions)) : 2
+        window.innerWidth > 900 && window.innerHeight > 600 && layout && !paused
+          ? positions.indexOf(Math.min(...positions))
+          : 2
       story.dataset.chapter = String(current)
       story.style.setProperty(
         '--story-progress',
@@ -246,15 +239,21 @@ export function mountHomeMotion(root: HTMLElement) {
     dirty = false
     if (film && animate && (filmVisible || visibleCopies.size)) schedule()
   }
-  const move = (event: PointerEvent) => {
+  const brush = (
+    clientX: number,
+    clientY: number,
+    source: EventTarget | null
+  ) => {
+    if (paused || reduced.matches) return
+    const eventTarget = source as Element | null
+    if (typeof eventTarget?.closest !== 'function') return
     if (
-      (!fine.matches && event.pointerType !== 'touch') ||
-      paused ||
-      reduced.matches
+      eventTarget?.closest(
+        'a, button, input, textarea, select, summary, [contenteditable]'
+      )
     ) {
       return
     }
-    const eventTarget = event.target as HTMLElement | null
     const touched = !layout
       ? eventTarget
           ?.closest('[data-cinema-panel]')
@@ -265,16 +264,34 @@ export function mountHomeMotion(root: HTMLElement) {
     pointerCanvas = targetCanvas
     const rect = pointerCanvas.getBoundingClientRect()
     if (!pointerTarget.active) {
-      pointer.x = pointer.previousX = event.clientX - rect.left
-      pointer.y = pointer.previousY = event.clientY - rect.top
+      pointer.x = pointer.previousX = clientX - rect.left
+      pointer.y = pointer.previousY = clientY - rect.top
       pointer.vx = pointer.vy = 0
     }
     pointerTarget = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
+      x: clientX - rect.left,
+      y: clientY - rect.top,
       active: true,
     }
     schedule()
+  }
+  const move = (event: PointerEvent) => {
+    if (
+      fine.matches ||
+      event.pointerType === 'touch' ||
+      event.pointerType === 'pen'
+    ) {
+      brush(event.clientX, event.clientY, event.target)
+    }
+  }
+  // Native scrolling cancels pointer events. Passive touch events keep the
+  // same brush alive without blocking scrolling, zooming or browser gestures.
+  const touch = (event: TouchEvent) => {
+    if (event.touches.length !== 1) {
+      leave()
+      return
+    }
+    brush(event.touches[0].clientX, event.touches[0].clientY, event.target)
   }
   const leave = () => {
     pointerTarget.active = false
@@ -290,6 +307,25 @@ export function mountHomeMotion(root: HTMLElement) {
     )
     if (layout) {
       manual = clamp(value, 4)
+      const rect = cinema.getBoundingClientRect()
+      const distance =
+        rect.top -
+        (Number.parseFloat(getComputedStyle(inner).top) || 0) +
+        ((rect.height - inner.getBoundingClientRect().height) * manual) / 4
+      let parent = cinema.parentElement
+      while (
+        parent &&
+        (!/(auto|scroll)/.test(getComputedStyle(parent).overflowY) ||
+          parent.scrollHeight <= parent.clientHeight)
+      ) {
+        parent = parent.parentElement
+      }
+      // Move the actual scroll position too, so the next swipe continues from
+      // the selected chapter instead of snapping back to the previous one.
+      ;(parent ?? window).scrollBy({
+        top: distance,
+        behavior: reduced.matches || paused ? 'instant' : 'smooth',
+      })
       refresh()
     } else {
       panels[value]?.scrollIntoView({
@@ -340,6 +376,10 @@ export function mountHomeMotion(root: HTMLElement) {
   cinema.addEventListener('pointerleave', leave)
   cinema.addEventListener('pointerup', leave)
   cinema.addEventListener('pointercancel', leave)
+  cinema.addEventListener('touchstart', touch, { passive: true })
+  cinema.addEventListener('touchmove', touch, { passive: true })
+  cinema.addEventListener('touchend', leave)
+  cinema.addEventListener('touchcancel', leave)
   document.addEventListener('scroll', scrollScene, {
     passive: true,
     capture: true,
@@ -372,6 +412,10 @@ export function mountHomeMotion(root: HTMLElement) {
     cinema.removeEventListener('pointerleave', leave)
     cinema.removeEventListener('pointerup', leave)
     cinema.removeEventListener('pointercancel', leave)
+    cinema.removeEventListener('touchstart', touch)
+    cinema.removeEventListener('touchmove', touch)
+    cinema.removeEventListener('touchend', leave)
+    cinema.removeEventListener('touchcancel', leave)
     document.removeEventListener('scroll', scrollScene, true)
     window.removeEventListener('resize', refresh)
     document.removeEventListener('visibilitychange', visibility)
@@ -389,6 +433,7 @@ export function mountHomeMotion(root: HTMLElement) {
       panel.removeAttribute('aria-hidden')
     })
     delete root.dataset.motion
+    delete root.dataset.cinemaLayout
     delete inner.dataset.chapter
     if (story) delete story.dataset.chapter
   }

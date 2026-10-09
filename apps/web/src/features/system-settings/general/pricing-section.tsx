@@ -86,6 +86,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
         PricingFormValues
       >,
       defaultValues,
+      agentFields: ['DisplayTokenStatEnabled'],
       onSubmit: async (_data, changedFields) => {
         for (const [key, value] of Object.entries(changedFields)) {
           if (key !== 'USDExchangeRate' && key !== 'DisplayTokenStatEnabled') {

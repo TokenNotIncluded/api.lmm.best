@@ -6,8 +6,9 @@
     !['code', 'state', 'iss', 'error', 'error_description'].some((key) =>
       query.has(key)
     )
-  )
+  ) {
     return
+  }
   window.__lmmExtoreCallbackPage = true
   Object.defineProperty(window, '__lmmExtoreCallback', {
     value: window.location.href,
