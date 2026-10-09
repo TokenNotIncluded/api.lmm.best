@@ -1,0 +1,72 @@
+name: Normalize reviewed marketplace formatting
+on:
+  push:
+    branches: [feat/tool-market-provider-presets]
+    paths: [.github/workflows/tool-market-format-once.yml]
+permissions:
+  contents: read
+jobs:
+  format:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/feat/tool-market-provider-presets'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Preserve headers and apply repository formatter to changed files only
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, re, subprocess
+          base = '5d7fab5d432025d59d69490501f2a1d57e47fb1c'
+          paths = subprocess.check_output(['git','diff','--name-only',base,'HEAD','--','apps'],text=True).splitlines()
+          web = [p for p in paths if p.startswith('apps/web/') and p.endswith(('.ts','.tsx','.mjs')) and pathlib.Path(p).exists()]
+          go = [p for p in paths if p.endswith('.go') and pathlib.Path(p).exists()]
+          headers = {}
+          for p in web:
+              text = pathlib.Path(p).read_text()
+              match = re.match(r'^(/\*[\s\S]*?\*/\n+)', text)
+              if match:
+                  headers[p] = match[1]
+                  pathlib.Path(p).write_text(text[len(match[1]):])
+          try:
+              subprocess.run(['bun','x','--no-install','oxfmt','-c','.oxfmtrc.json','--write',*[p.removeprefix('apps/web/') for p in web]],cwd='apps/web',check=True)
+          finally:
+              for p, header in headers.items():
+                  pathlib.Path(p).write_text(header + pathlib.Path(p).read_text().lstrip('\n'))
+          if go:
+              subprocess.run(['gofmt','-w',*go],check=True)
+          workflow = pathlib.Path('.github/workflows/tool-market-provider-verify.yml')
+          text = workflow.read_text()
+          old = "--health-cmd 'pg_isready -U market_test -d market_test'"
+          assert text.count(old) == 1
+          workflow.write_text(text.replace(old, '--health-cmd=pg_isready'))
+          PY
+          git rm .github/workflows/tool-market-format-once.yml
+          git add apps .github/workflows/tool-market-provider-verify.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style(tool-market): use native formatting and correct isolated database health check'
+          git push origin HEAD:refs/heads/feat/tool-market-provider-presets
+          mkdir -p "$RUNNER_TEMP/market-formatted"
+          git rev-parse HEAD > "$RUNNER_TEMP/market-formatted/commit.txt"
+          git show -s --format=%T HEAD > "$RUNNER_TEMP/market-formatted/tree.txt"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/market-formatted/source.tar.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: market-formatted-source
+          path: ${{ runner.temp }}/market-formatted
+          retention-days: 7
