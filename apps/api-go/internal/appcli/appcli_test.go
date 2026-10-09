@@ -260,7 +260,7 @@ func TestStatusShouldNotAllowRouteOrMethodOverride(t *testing.T) {
 func TestUsageNamesTheCanonicalBackendBinary(t *testing.T) {
 	var output bytes.Buffer
 	WriteUsage(&output)
-	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "/usr/bin/lmm-api-deploy build") {
+	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "Deployment is a separate tool") {
 		t.Fatalf("usage does not name %s: %q", ProgramName, output.String())
 	}
 	if strings.Contains(output.String(), "lmm-api deploy") || strings.Contains(output.String(), "lmm-api-go request") {
@@ -288,5 +288,20 @@ func TestRequestShouldRejectNonHTTPURLWithoutLeakingToken(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), "never-print-this") {
 		t.Fatal("token was printed in an error")
+	}
+}
+
+func TestBackendRejectsRemovedDeploymentCommands(t *testing.T) {
+	for _, command := range []string{"operator", "deploy", "frontend", "production", "build"} {
+		t.Run(command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			result := Dispatch([]string{command, "help"}, "test", &stdout, &stderr)
+			if result.Mode != ModeExit || result.ExitCode != ExitUsage || stdout.Len() != 0 {
+				t.Fatalf("removed command %q reached a runtime action: %#v", command, result)
+			}
+			if !strings.Contains(stderr.String(), "unknown command") {
+				t.Fatalf("removed command did not fail explicitly: %q", stderr.String())
+			}
+		})
 	}
 }

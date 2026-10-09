@@ -28,7 +28,8 @@
     "typecheck:go": "cd apps/api-go && go test -run '^$' ./...",
     "typecheck:web": "bun run --filter @lmm/web typecheck",
     "typecheck:rust": "cargo check --manifest-path apps/api-rust/Cargo.toml --locked --workspace --all-targets --all-features",
-    "waffo:pancake:smoke": "node scripts/waffo-pancake-smoke.mjs"
+    "waffo:pancake:smoke": "node scripts/waffo-pancake-smoke.mjs",
+    "build:deploy": "mkdir -p apps/api-go/out && cd apps/api-go && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o out/lmm-api-deploy-engine ./cmd/lmm-api-deploy"
   },
   "overrides": {
     "brace-expansion": "2.1.1",

@@ -5,7 +5,9 @@ description: "Use for api.lmm.best releases, deployment, upgrades, rollback, CI 
 
 # Release and deployment
 
-Read `docs/deployment-workflow.md` before acting. Read the selected workflow and
+Read `docs/deployment-workflow.md` and `docs/standalone-deployment-tool.md` before acting.
+The Go API no longer accepts `operator`; scripts must use the separate signed
+deployment executable, retaining exact historical recovery identities. Read the selected workflow and
 its caller at the current revision. Do not rely on a previous conversation's
 release number, a stale local binary, or an assumed automatic deployment trigger.
 
@@ -84,8 +86,8 @@ version or overwrite partial assets by default.
 
 For local legacy packaging, use `just package-go`, with the marker-owned workspace
 set first. It no longer has an unconditional `build` prerequisite. Rebuild the
-operator once if its source changed; otherwise reuse a reviewed compatible
-provider. A first-time CLI bootstrap is distinct from an application rebuild.
+separate deployment tool once if its source changed; otherwise reuse a reviewed compatible
+separate deployment tool. A first-time tool bootstrap is distinct from an application rebuild.
 
 Run targeted checks while editing. For deployment-entrypoint changes, use
 `just test-deploy-entrypoint` and the relevant existing

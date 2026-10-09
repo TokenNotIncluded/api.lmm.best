@@ -4,6 +4,11 @@ Go and Web are separate release components. A source merge, a successful build,
 a signed release, and a completed production deployment are different states.
 Do not rebuild both components just to publish a frontend change.
 
+The [separate deployment tool](standalone-deployment-tool.md) owns native
+operations. New backend binaries do not accept `operator`. Build and stage the
+signed tool independently from API probes; do not point deployment commands at
+the API executable. Retained historical transactions keep their pinned tool.
+
 ## Read the live state first
 
 Before building or dispatching, freeze one source revision and capture a single

@@ -299,7 +299,7 @@ class ArchiveStagedTests(unittest.TestCase):
     def test_ordinary_apply_refuses_partial_staged_archive_before_stop_or_install(self):
         archive = deploy.history_root() / 'staged' / 'next'
         archive.mkdir(mode=0o700, parents=True)
-        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lock), patch.object(deploy, 'check_tools'), patch.object(deploy, 'stop') as stop, patch.object(deploy, 'install') as install:
+        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lock), patch.object(deploy, 'check_tools'), patch.object(deploy, 'check_layout'), patch.object(deploy, 'stop') as stop, patch.object(deploy, 'install') as install:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 code = deploy.main(['apply', '--release', 'next', '--confirm', 'api.lmm.best', '--json'])
