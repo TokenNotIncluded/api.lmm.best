@@ -365,7 +365,11 @@ func ReviewAdminPublicRelayReport(c *gin.Context) {
 		return
 	}
 	if err := model.ReviewPublicRelayReport(id, c.GetInt("id"), input.Close, input.Note); err != nil {
-		common.ApiError(c, err)
+		status := http.StatusUnprocessableEntity
+		if errors.Is(err, model.ErrPublicRelayNotFound) {
+			status = http.StatusNotFound
+		}
+		publicRelayError(c, status, "PUBLIC_RELAY_REPORT_REVIEW_FAILED", err)
 		return
 	}
 	common.ApiSuccess(c, nil)

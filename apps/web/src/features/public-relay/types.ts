@@ -18,6 +18,7 @@ export type PublicRelay = {
   status: 'pending' | 'approved' | 'rejected'
   created_at: number
   updated_at: number
+  review_note?: string
   used_quota?: number
   tip_quota?: number
   tip_count?: number

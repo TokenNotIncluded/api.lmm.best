@@ -368,3 +368,209 @@ test('tip display uses real currency and withdrawal uses remaining Credits', asy
     await i18n.changeLanguage('en')
   }
 })
+
+const settleMarket = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+const marketButton = (container: ParentNode, text: string) => {
+  const button = [...container.querySelectorAll('button')].find(
+    (node) => node.textContent?.trim() === text
+  )
+  assert.ok(button, `Missing button: ${text}`)
+  return button
+}
+async function renderMarket(role = 1) {
+  useAuthStore
+    .getState()
+    .auth.setUser({
+      id: 1,
+      username: 'audit-user',
+      role,
+      developer_access_granted: true,
+    })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <PublicRelay />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  })
+  await settleMarket()
+  return {
+    client,
+    container,
+    async dispose() {
+      await act(async () => root.unmount())
+      client.clear()
+      container.remove()
+    },
+  }
+}
+
+test('routing refresh preserves unsaved switches and saves the displayed choices', async () => {
+  const originalAdapter = api.defaults.adapter
+  const originalAuth = useAuthStore.getState().auth
+  const sent: unknown[] = []
+  let revision = 1
+  let saved = false
+  api.defaults.adapter = async (config) => {
+    const url = config.url ?? ''
+    let data: unknown = { group: 'FREE', items: [] }
+    if (url === '/api/public-relays/config')
+      data = { group: 'FREE', minimum_withdrawal_quota: 5000000 }
+    if (url === '/api/public-relays/routing') {
+      if (config.method === 'put') {
+        sent.push(JSON.parse(String(config.data)))
+        saved = true
+        data = null
+      } else
+        data = {
+          group: 'FREE',
+          items: [
+            {
+              id: 11,
+              channel_id: 91,
+              name: 'Routing fixture',
+              models: 'model-a',
+              group: 'FREE',
+              status: 'approved',
+              position: 0,
+              disabled: saved,
+              updated_at: revision,
+            },
+          ],
+        }
+    }
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: true, data },
+    }
+  }
+  const view = await renderMarket()
+  try {
+    await act(async () =>
+      marketButton(view.container, 'Channel routing').click()
+    )
+    await settleMarket()
+    assert.equal(marketButton(view.container, 'Save routing').disabled, true)
+    await act(async () => marketButton(view.container, 'Enabled').click())
+    assert.equal(
+      marketButton(view.container, 'Disabled').getAttribute('aria-pressed'),
+      'false'
+    )
+    revision++
+    await act(async () => {
+      await view.client.invalidateQueries({
+        queryKey: ['public-relays', 'routing'],
+      })
+    })
+    await settleMarket()
+    assert.ok(
+      marketButton(view.container, 'Disabled'),
+      'server refresh must not discard a local edit'
+    )
+    assert.equal(marketButton(view.container, 'Save routing').disabled, false)
+    await act(async () => marketButton(view.container, 'Save routing').click())
+    await settleMarket()
+    assert.deepEqual(sent, [{ disabled_ids: [91], order_ids: [91] }])
+    assert.equal(marketButton(view.container, 'Save routing').disabled, true)
+  } finally {
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
+    useAuthStore.setState({ auth: originalAuth })
+  }
+})
+
+test('review tab requests recoverable approvals and open reports, and exposes errors', async () => {
+  const originalAdapter = api.defaults.adapter
+  const originalAuth = useAuthStore.getState().auth
+  const requests: Array<{ url: string; status?: string }> = []
+  api.defaults.adapter = async (config) => {
+    const url = config.url ?? ''
+    requests.push({ url, status: config.params?.status })
+    const admin = url.startsWith('/api/public-relays/admin')
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: admin
+        ? { success: false, message: 'Temporary test failure' }
+        : { success: true, data: { group: 'FREE', items: [] } },
+    }
+  }
+  const view = await renderMarket(10)
+  try {
+    await act(async () => marketButton(view.container, 'Review').click())
+    await settleMarket()
+    assert.ok(
+      requests.some(
+        (request) =>
+          request.url === '/api/public-relays/admin' &&
+          request.status === 'reviewable'
+      )
+    )
+    assert.ok(
+      requests.some(
+        (request) =>
+          request.url === '/api/public-relays/admin/reports' &&
+          request.status === 'open'
+      )
+    )
+    assert.equal(view.container.querySelectorAll('[role="alert"]').length, 2)
+    assert.ok(
+      !view.container.textContent?.includes('No pending reviews'),
+      'failed requests must not be presented as empty results'
+    )
+  } finally {
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
+    useAuthStore.setState({ auth: originalAuth })
+  }
+})
+
+test('catalog shows a loading state before the first response', async () => {
+  const originalAdapter = api.defaults.adapter
+  const originalAuth = useAuthStore.getState().auth
+  let finish: (() => void) | undefined
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  api.defaults.adapter = async (config) => {
+    if (config.url?.startsWith('/api/public-relays?')) await pending
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: true, data: { group: 'FREE', items: [] } },
+    }
+  }
+  const view = await renderMarket()
+  try {
+    assert.equal(
+      view.container.querySelector('[role="status"]')?.textContent,
+      'Loading...'
+    )
+    finish?.()
+    await settleMarket()
+    assert.equal(view.container.querySelector('[role="status"]'), null)
+  } finally {
+    finish?.()
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
+    useAuthStore.setState({ auth: originalAuth })
+  }
+})
