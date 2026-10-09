@@ -81,13 +81,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await;
     let _ = stop.send(true);
     #[cfg(unix)]
-    if let Some(mut task) = rpc_task {
-        if tokio::time::timeout(std::time::Duration::from_secs(5), &mut task)
+    if let Some(mut task) = rpc_task
+        && tokio::time::timeout(std::time::Duration::from_secs(5), &mut task)
             .await
             .is_err()
-        {
-            task.abort();
-        }
+    {
+        task.abort();
     }
     signal.abort();
     result?;

@@ -16,14 +16,14 @@ sha2 = "=0.10.9"
 sqlx = { version = "=0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "migrate", "macros"] }
 tokio = { version = "1.47.1", features = ["macros", "net", "rt-multi-thread", "signal", "time", "sync", "io-util"] }
 fs2 = "=0.4.3"
-prost = "=0.14.1"
+prost = "=0.14.4"
 subtle = "=2.6.1"
 tokio-stream = { version = "=0.1.17", features = ["net"] }
-tonic = "=0.14.2"
-tonic-prost = "=0.14.2"
+tonic = "=0.14.6"
+tonic-prost = "=0.14.6"
 
 [build-dependencies]
-tonic-prost-build = "=0.14.2"
+tonic-prost-build = "=0.14.6"
 protoc-bin-vendored = "=3.2.0"
 
 [dev-dependencies]
