@@ -35,8 +35,8 @@ func ModelPriceDecisions(c *gin.Context, info *relaycommon.RelayInfo, promptToke
 	if _, fixed := ratio_setting.GetModelPrice(key, false); fixed || billing_setting.GetBillingMode(key) == billing_setting.BillingModeTieredExpr {
 		return hosttypes.PriceData{}, fmt.Errorf("%s requires an explicit input-token ratio in this Decisions implementation", key)
 	}
-	ratio, found, matched := ratio_setting.GetModelRatio(key)
-	if !found || matched != key {
+	ratio, found := ratio_setting.GetConfiguredModelRatio(key)
+	if !found {
 		return hosttypes.PriceData{}, modelPriceNotConfiguredError(key, info.UserId)
 	}
 	if math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio < 0 {
