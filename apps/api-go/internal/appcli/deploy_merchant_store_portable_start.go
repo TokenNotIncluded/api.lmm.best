@@ -195,7 +195,7 @@ func (runtime *productionRuntime) portableTerminal(ctx context.Context, c produc
 	}
 	// The ordinary standalone wrapper's existing root-owned transaction state
 	// is authority for its phase, not a new self-issued controller approval.
-	path := filepath.Join("/var/lib/lmm-api-deploy-systemd", c.DeploymentID, "state.json")
+	path := filepath.Join(runtime.portableTransactionRoot(), c.DeploymentID, "state.json")
 	raw, err := runtime.readExistingSchemaSealedFile(path, true)
 	if err != nil {
 		return errors.New("portable ordinary transaction state is unavailable")
@@ -541,16 +541,9 @@ func (runtime *productionRuntime) ensureMerchantStorePortableFence(ctx context.C
 	if startErr != nil {
 		return errors.New("portable holder systemd unit could not be created")
 	}
-	for attempt := 0; attempt < 240; attempt++ {
-		if runtime.requestMerchantStorePortableFence(ctx, c, digest, invocation, false) == nil {
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		runtime.sleep(250 * time.Millisecond)
-	}
-	return errors.New("portable holder did not establish actual durable ownership; startup is blocked")
+	return runtime.awaitMerchantStoreFence(ctx, func(ctx context.Context) error {
+		return runtime.requestMerchantStorePortableFence(ctx, c, digest, invocation, false)
+	})
 }
 func (runtime *productionRuntime) merchantStorePortableStart(ctx context.Context, c productionMerchantStoreCapsule, digest string) (resultErr error) {
 	invocation := os.Getenv("INVOCATION_ID")

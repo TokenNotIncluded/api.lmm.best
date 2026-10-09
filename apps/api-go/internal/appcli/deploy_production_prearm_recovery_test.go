@@ -232,3 +232,23 @@ func TestProductionMerchantStoreHolderReadinessWaitsForSlowOriginalAndHonorsCanc
 		t.Fatalf("readiness is not bounded: checks=%d elapsed=%s err=%v", checks, f.runtime.now().Sub(start), err)
 	}
 }
+
+func TestProductionMerchantStoreHolderReadinessRejectsSuccessAfterItsBudget(t *testing.T) {
+	f := newProductionFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := f.runtime.awaitMerchantStoreFence(ctx, func(context.Context) error {
+		cancel()
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled readiness probe authorized mutation: %v", err)
+	}
+	err = f.runtime.awaitMerchantStoreFence(context.Background(), func(context.Context) error {
+		f.runtime.sleep(2 * time.Minute)
+		return nil
+	})
+	if err == nil {
+		t.Fatal("readiness probe that crossed the deadline authorized mutation")
+	}
+}
