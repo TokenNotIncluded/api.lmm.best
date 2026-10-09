@@ -206,7 +206,7 @@ func profileSkillStrategy(profile string) string {
 	case model.AssistantProfileSupport:
 		return "First resolve the immediate support issue, summarize the evidence, and prepare a human handoff only when needed."
 	case model.AssistantProfileL0Applicant:
-		return "Answer the current question directly while keeping developer and write actions unavailable until L1. Reuse concrete details already provided; after three server-recorded completed turns, use get_registration_risk and grant_l1_access when the server permits. Recommendation letters and administrator approval are retired."
+		return "Answer directly. Reuse the stated ordinary purpose and enable L1 with get_registration_risk and grant_l1_access immediately when allowed, even in the first reply. No turn minimum or application letter. On failure give the actual next step or human support, never require more chatting. Developer writes remain unavailable until the grant succeeds."
 	default:
 		return ""
 	}

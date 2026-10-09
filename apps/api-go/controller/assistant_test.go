@@ -549,7 +549,9 @@ func mustAssistantJSON(t *testing.T, value any) []byte {
 func TestPrepareAssistantRequestCacheHitSkipsDuplicateIntentWrite(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
+	require.NoError(t, db.AutoMigrate(&model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}, &model.UserOAuthBinding{}, &model.AssistantUserProfile{}, &model.TopUp{}, &model.DeveloperAccessRequest{}))
+	user := model.User{Id: 42, Username: "cache-active-user", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", ConsoleActivatedAt: common.GetTimestamp()}
+	require.NoError(t, db.Create(&user).Error)
 	original := setting.GetAssistantSettings()
 	setting.SetAssistantEnabled(true)
 	setting.SetAssistantCacheEnabled(true)
@@ -566,6 +568,7 @@ func TestPrepareAssistantRequestCacheHitSkipsDuplicateIntentWrite(t *testing.T) 
 	message := "cache-hit-intent-" + t.Name()
 	settings := setting.GetAssistantSettings()
 	context := assistantUserContextForRequest(42, message)
+	require.True(t, context.DeveloperAccessGranted)
 	key := assistantCacheKey(settings, []assistantOpenAIMessage{{Role: "user", Content: message}}, context)
 	require.NotEmpty(t, key)
 	storeAssistantCachedResponse(settings, key, http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"cached"}}]}`))
@@ -2051,7 +2054,7 @@ func TestAssistantAgentUsesCurrentAccessWithoutReadingRetiredLetter(t *testing.T
 		UserID:               user.Id,
 		Intent:               model.AssistantIntentRecommendation,
 		AccessLevel:          "L0",
-		RecommendationAction: assistantRecommendationActionRevise,
+		RecommendationAction: assistantRecommendationActionNone,
 	})
 
 	turn := 0
@@ -2079,7 +2082,7 @@ func TestAssistantAgentUsesCurrentAccessWithoutReadingRetiredLetter(t *testing.T
 		AgentLoopEnabled: false,
 		MaxSteps:         1,
 		TimeoutSeconds:   45,
-	}, []assistantOpenAIMessage{{Role: "user", Content: "请帮我重写这封推荐信"}})
+	}, []assistantOpenAIMessage{{Role: "user", Content: "请显示我的推荐信"}})
 
 	assert.Equal(t, 1, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
@@ -2709,4 +2712,47 @@ func TestAssistantPlatformSkillFilesStaySeparateFromUserContext(t *testing.T) {
 	encoded, err := json.Marshal(assistantUserContext{UserID: 42, ManualProfileStrategy: "user-only response style"})
 	require.NoError(t, err)
 	assert.NotContains(t, string(encoded), "Use the live catalog first.")
+}
+
+func TestPrepareAssistantRequestL0FirstTurnBypassesCachedAnswer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
+	withAssistantSettings(t, true, "assistant-recommendation-cache-bypass-model")
+	original := setting.GetAssistantSettings()
+	setting.SetAssistantCacheEnabled(true)
+	require.NoError(t, setting.UpdateAssistantCacheTTLMinutes("10"))
+	t.Cleanup(func() {
+		setting.SetAssistantCacheEnabled(original.CacheEnabled)
+		_ = setting.UpdateAssistantCacheTTLMinutes(strconv.Itoa(original.CacheTTLMinutes))
+	})
+
+	message := "制作开源软件 " + t.Name()
+	settings := setting.GetAssistantSettings()
+	context := assistantUserContextForRequest(42, message)
+	require.Equal(t, assistantRecommendationActionNone, context.RecommendationAction)
+	require.True(t, assistantDirectL1GrantAllowed(context))
+	require.Zero(t, context.CompletedAssistantTurns)
+	key := assistantCacheKey(settings, []assistantOpenAIMessage{{Role: "user", Content: message}}, context)
+	require.NotEmpty(t, key)
+	storeAssistantCachedResponse(settings, key, http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"stale cached answer"}}]}`))
+
+	downstreamCalls := 0
+	engine := gin.New()
+	engine.POST("/api/assistant/chat", func(c *gin.Context) {
+		c.Set("id", 42)
+		PrepareAssistantRequest(c)
+	}, func(c *gin.Context) {
+		downstreamCalls++
+		c.Status(http.StatusNoContent)
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/assistant/chat", strings.NewReader(`{"message":"`+message+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusNoContent, response.Code)
+	assert.Empty(t, response.Header().Get("X-LMM-Assistant-Cache"))
+	assert.Equal(t, 1, downstreamCalls)
+	assert.NotContains(t, response.Body.String(), "stale cached answer")
 }

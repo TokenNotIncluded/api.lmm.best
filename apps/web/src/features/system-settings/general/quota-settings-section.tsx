@@ -324,7 +324,7 @@ export function QuotaSettingsSection({
                       </FormLabel>
                       <FormDescription>
                         {t(
-                          'When enabled, new accounts registered through a valid invitation link receive L1 automatically, without a recharge or manual review. Existing accounts are not upgraded.'
+                          'When enabled, new accounts registered through a valid invitation link receive L1 automatically. Existing accounts are not upgraded.'
                         )}
                       </FormDescription>
                     </SettingsSwitchContent>

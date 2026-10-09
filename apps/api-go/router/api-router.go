@@ -266,7 +266,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.GET("/self/onboarding/todo", middleware.DisableCache(), controller.GetL1OnboardingTodo)
 				selfRoute.PATCH("/self/onboarding/todo", middleware.DisableCache(), controller.PatchL1OnboardingTodo)
-				selfRoute.GET("/developer-access/request", controller.GetDeveloperAccessRequest)
+				selfRoute.GET("/developer-access/request", controller.RetiredDeveloperAccessRequest)
 				selfRoute.POST("/developer-access/request", middleware.CriticalRateLimit(), middleware.DecompressRequestMiddleware(), middleware.RequestBodyLimit(userSelfMutationRequestMaxBytes), controller.RetiredDeveloperAccessRequest)
 				selfRoute.GET("/account-action-requests/appeal", middleware.DisableCache(), controller.GetAccountAppeal)
 				selfRoute.GET("/violation-fees", middleware.DisableCache(), controller.ListSelfViolationFeeRecords)
@@ -357,7 +357,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.DELETE("/:id/bindings/:binding_type", controller.AdminClearUserBinding)
 				adminRoute.GET("/:id", controller.GetUser)
 				adminRoute.GET("/:id/announcements", middleware.DisableCache(), controller.GetUserAnnouncementStatus)
-				adminRoute.GET("/:id/developer-access/archives", middleware.DisableCache(), controller.ListUserDeveloperAccessRecommendationArchives)
+				adminRoute.GET("/:id/developer-access/archives", middleware.DisableCache(), controller.RetiredDeveloperAccessRequest)
 				adminRoute.GET("/:id/assistant-profile", controller.AdminGetAssistantUserProfile)
 				adminRoute.PUT("/:id/assistant-profile", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), controller.AdminUpdateAssistantUserProfile)
 				adminRoute.GET("/:id/assistant-memories", controller.AdminListMemories)
@@ -399,9 +399,9 @@ func SetApiRouter(router *gin.Engine) {
 		developerAccessRequestRoute := apiRouter.Group("/developer-access/requests")
 		developerAccessRequestRoute.Use(middleware.AdminAuth())
 		{
-			developerAccessRequestRoute.GET("", controller.ListDeveloperAccessRequests)
-			developerAccessRequestRoute.POST("/:id/approve", middleware.CriticalRateLimit(), controller.ApproveDeveloperAccessRequest)
-			developerAccessRequestRoute.POST("/:id/reject", middleware.CriticalRateLimit(), controller.RejectDeveloperAccessRequest)
+			developerAccessRequestRoute.GET("", controller.RetiredDeveloperAccessRequest)
+			developerAccessRequestRoute.POST("/:id/approve", middleware.CriticalRateLimit(), controller.RetiredDeveloperAccessRequest)
+			developerAccessRequestRoute.POST("/:id/reject", middleware.CriticalRateLimit(), controller.RetiredDeveloperAccessRequest)
 		}
 
 		accountActionRequestRoute := apiRouter.Group("/account-action-requests")

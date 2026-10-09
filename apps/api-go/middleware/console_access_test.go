@@ -18,6 +18,15 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/api/pricing"},
+		{http.MethodPost, "/api/pricing/runtime"},
+		{http.MethodGet, "/api/perf-metrics"},
+		{http.MethodGet, "/api/perf-metrics/summary"},
+		{http.MethodGet, "/api/todos"},
+		{http.MethodPost, "/api/todos/read"},
+		{http.MethodGet, "/api/acquisition/self-report"},
+		{http.MethodPut, "/api/acquisition/self-report"},
+		{http.MethodDelete, "/api/acquisition/self-report"},
 		{http.MethodGet, "/api/user/topup/info"},
 		{http.MethodGet, "/api/user/topup/self"},
 		{http.MethodPost, "/api/user/stripe/pay"},
@@ -52,6 +61,11 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		{http.MethodPost, "/api/user/self/announcements"},
 		{http.MethodGet, "/api/user/self/announcements/read"},
 		{http.MethodGet, "/api/user/42/announcements"},
+		{http.MethodPost, "/api/pricing"},
+		{http.MethodGet, "/api/todos/read"},
+		{http.MethodPost, "/api/acquisition/self-report"},
+		{http.MethodGet, "/api/acquisition/admin"},
+		{http.MethodGet, "/api/todos/admin"},
 		{http.MethodGet, "/api/token"},
 		{http.MethodGet, "/api/open-source-bounties/accepted"},
 		{http.MethodGet, "/api/open-source-bounties/disputes/mine"},
@@ -79,7 +93,6 @@ func TestPreActivationRouteMatrixKeepsChallengesReadOnly(t *testing.T) {
 		{http.MethodPut, "/api/user/sessions/other"},
 		{http.MethodGet, "/api/models"},
 		{http.MethodGet, "/api/channel"},
-		{http.MethodGet, "/api/pricing"},
 		{http.MethodGet, "/api/subscription/plans"},
 		{http.MethodPost, "/api/subscription/balance/pay"},
 		{http.MethodGet, "/api/usage"},
@@ -367,4 +380,48 @@ func TestConsoleAccessGateFailsClosedWhenTrustCalculationFails(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, response.Code)
 	assert.JSONEq(t, `{"message":"Not Found"}`, response.Body.String())
+}
+
+func TestConsoleAccessGateL0RecoveryAndExploreRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, request := range []struct {
+		method, path string
+		allowed      bool
+	}{
+		{http.MethodGet, "/api/pricing", true},
+		{http.MethodPost, "/api/pricing/runtime", true},
+		{http.MethodGet, "/api/perf-metrics", true},
+		{http.MethodGet, "/api/perf-metrics/summary", true},
+		{http.MethodGet, "/api/todos", true},
+		{http.MethodPost, "/api/todos/read", true},
+		{http.MethodGet, "/api/acquisition/self-report", true},
+		{http.MethodPut, "/api/acquisition/self-report", true},
+		{http.MethodDelete, "/api/acquisition/self-report", true},
+		{http.MethodPost, "/api/perf-metrics", false},
+		{http.MethodGet, "/api/perf-metrics/admin", false},
+		{http.MethodGet, "/api/todos/admin", false},
+		{http.MethodGet, "/api/acquisition/admin", false},
+		{http.MethodPost, "/api/token", false},
+	} {
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set(dashboardCredentialContextKey, dashboardCredentialResult{
+				user:           &model.UserBase{Id: 7, Role: common.RoleCommonUser},
+				credentialKind: dashboardCredentialInternal,
+			})
+			c.Next()
+		})
+		router.Use(ConsoleAccessGate())
+		router.Any(request.path, func(c *gin.Context) {
+			assert.False(t, ConsoleActivationGranted(c))
+			c.Status(http.StatusNoContent)
+		})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(request.method, request.path, nil))
+		want := http.StatusNotFound
+		if request.allowed {
+			want = http.StatusNoContent
+		}
+		assert.Equal(t, want, response.Code, "%s %s", request.method, request.path)
+	}
 }

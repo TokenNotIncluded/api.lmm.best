@@ -136,7 +136,7 @@ export function getAuthenticatedLandingRoute(
   user: AuthUser | null | undefined,
   sidebarModulesAdmin: unknown = getCachedSidebarModulesAdmin()
 ): string {
-  // Administrator approval is the access boundary.  The remaining setup
+  // The server access decision is the access boundary.  The remaining setup
   // checklist is guidance for an already-enabled account and must not trap a
   // newly approved L1 user on the L0 welcome page.
   if (!getOnboardingState(user).activationComplete) return '/getting-started'
@@ -184,6 +184,10 @@ export function isContributorRoute(pathname: string): boolean {
   return (
     pathname === '/getting-started' ||
     pathname.startsWith('/getting-started/') ||
+    pathname === '/support' ||
+    pathname === '/support/' ||
+    pathname === '/todos' ||
+    pathname === '/todos/' ||
     pathname === '/wallet' ||
     pathname === '/wallet/' ||
     pathname === '/tool-market' ||

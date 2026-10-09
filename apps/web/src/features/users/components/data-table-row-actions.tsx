@@ -65,7 +65,6 @@ import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { ReferralModerationDialog } from './referral-moderation-dialog'
-import { UserRecommendationArchiveDialog } from './user-recommendation-archive-dialog'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -211,8 +210,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         </TooltipTrigger>
         <TooltipContent>{t('Edit')}</TooltipContent>
       </Tooltip>
-
-      <UserRecommendationArchiveDialog user={user} />
 
       <DataTableRowActionMenu
         ariaLabel={t('Open menu')}

@@ -22,7 +22,8 @@ const (
 	AssistantRegistrationTerminationNotice = "这段对话已暂停，注册核验需要进一步确认。已向管理员的站内风险收件箱提交记录；这不是仅凭说话风格作出的判断。若账号仍可登录，可以转人工说明情况。\n\nThis conversation is paused for registration verification. A record was saved to the administrator risk inbox. This is not a judgment based only on writing style; use human support if your account is still accessible."
 )
 
-var ErrAssistantRegistrationCheck = errors.New("registration verification needs more evidence or support")
+var ErrAssistantRegistrationCheck = errors.New("registration verification is unavailable; retry or contact support")
+var ErrAssistantRegistrationHeld = errors.New("registration has a server-observed restriction; contact support")
 
 // The correlation index never stores conversation text, raw email or IP. It is
 // separate from user-deletable chat history so clearing chat is not a risk reset.
@@ -159,7 +160,10 @@ func ObserveAssistantRegistration(userID int, clientIP, message string) error {
 func registrationSummaryTx(tx *gorm.DB, userID int) (*AssistantRegistrationSummary, error) {
 	var profile AssistantRegistrationProfile
 	if err := tx.First(&profile, "user_id = ?", userID).Error; err != nil {
-		return nil, ErrAssistantRegistrationCheck
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrAssistantRegistrationCheck
+		}
+		return nil, err
 	}
 	now := common.GetTimestamp()
 	if profile.IdentityHash == "" || profile.NetworkHash == "" || profile.ObservedAt > now+60 || now-profile.ObservedAt > 900 {
@@ -224,7 +228,7 @@ func checkAssistantRegistrationTx(tx *gorm.DB, userID int) error {
 		return err
 	}
 	if summary.Decision.Hold {
-		return ErrAssistantRegistrationCheck
+		return errors.Join(ErrAssistantRegistrationCheck, ErrAssistantRegistrationHeld)
 	}
 	return nil
 }
@@ -479,12 +483,18 @@ func PruneAssistantRegistrationFingerprints(now time.Time) error {
 // thresholds. "ready" is eligibility, not a claim to have proved personhood.
 func RegistrationPublicState(userID int) string {
 	var current AssistantRegistrationCase
-	if DB.First(&current, "user_id = ?", userID).Error == nil && current.State == "suspended" {
+	if err := DB.First(&current, "user_id = ?", userID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "unavailable"
+	}
+	if current.State == "suspended" {
 		return "suspended"
 	}
 	summary, err := GetAssistantRegistrationSummary(userID)
-	if err != nil {
+	if errors.Is(err, ErrAssistantRegistrationCheck) {
 		return "context_needed"
+	}
+	if err != nil {
+		return "unavailable"
 	}
 	if summary.Decision.Hold {
 		return "held"

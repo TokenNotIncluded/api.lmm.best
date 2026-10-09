@@ -662,7 +662,7 @@ func TestAssistantHistoryPostgreSQLMigration(t *testing.T) {
 		t.Skip("set TEST_POSTGRES_DSN and TEST_POSTGRES_ISOLATED_SCHEMA=1 to run PostgreSQL assistant history migration test")
 	}
 	previousDB, previousLogDB := DB, LOG_DB
-	db := openIsolatedPostgresCacheTestDB(t, &AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{})
+	db := openIsolatedPostgresCacheTestDB(t, &User{}, &AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{})
 	DB, LOG_DB = db, db
 	usePostgresDatabaseType(t)
 	t.Cleanup(func() { DB, LOG_DB = previousDB, previousLogDB })
@@ -670,6 +670,8 @@ func TestAssistantHistoryPostgreSQLMigration(t *testing.T) {
 		require.True(t, DB.Migrator().HasTable(record))
 	}
 
+	// History writes lock their owner to serialize account deletion.
+	require.NoError(t, DB.Create(&User{Id: 7, Username: "history-migration-owner", AffCode: "history-migration-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}).Error)
 	conversation := AssistantConversation{UserId: 7, Title: "safe", LastMessagePreview: "safe", CreatedAt: 1, UpdatedAt: 1}
 	require.NoError(t, DB.Create(&conversation).Error)
 	require.NoError(t, RecordAssistantConversationTurn(7, conversation.Id, "hello", "world"))

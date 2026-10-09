@@ -29,10 +29,12 @@ const serverErrorMessageKeys = {
     'Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.',
   AUTH_USER_DISABLED:
     'This account is disabled. Use the appeal form below to ask an administrator to restore access.',
+  DEVELOPER_ACCESS_LETTER_RETIRED:
+    'Describe what you need. The assistant can enable L1 directly.',
   DEVELOPER_ACCESS_AI_CONFIRMATION_INVALID:
-    'The AI recommendation expired. Ask the assistant to prepare it again, or continue editing it yourself.',
+    'Describe what you need. The assistant can enable L1 directly.',
   DEVELOPER_ACCESS_AI_CONFIRMATION_MISMATCH:
-    'The AI recommendation expired. Ask the assistant to prepare it again, or continue editing it yourself.',
+    'Describe what you need. The assistant can enable L1 directly.',
   SUBSCRIPTION_PLAN_PAYMENT_METHOD_REQUIRED:
     'Configure at least one available payment method before enabling this plan.',
   TELEGRAM_BIND_DISABLED: 'Telegram binding is disabled.',

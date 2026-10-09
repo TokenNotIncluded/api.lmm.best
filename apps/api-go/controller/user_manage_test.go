@@ -101,20 +101,6 @@ func performAssistantStatusRequest(t *testing.T, userID int) map[string]interfac
 	return payload.Data
 }
 
-func performDeveloperAccessRequest(t *testing.T, userID int) map[string]interface{} {
-	t.Helper()
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/developer-access/request", nil)
-	c.Set("id", userID)
-	GetDeveloperAccessRequest(c)
-	var payload struct {
-		Data map[string]interface{} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
-	return payload.Data
-}
-
 func TestManageUserTrustLevelPersistsOverrideAndCanRestoreAutomatic(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	user := model.User{
@@ -211,10 +197,12 @@ func TestManageUserTrustLevelL0ClearsApprovedDeveloperAccessAndAllowsReapproval(
 	assert.Equal(t, false, assistantStatus["developer_access_granted"])
 	assert.Equal(t, "L0", assistantStatus["access_level"])
 
-	latestRequest := performDeveloperAccessRequest(t, user.Id)
-	assert.Equal(t, model.DeveloperAccessRequestPending, latestRequest["status"])
-	assert.NotEqual(t, model.DeveloperAccessRequestApproved, latestRequest["status"])
-	assert.Equal(t, approved.Id, int(latestRequest["id"].(float64)))
+	latestRequest, err := model.GetDeveloperAccessRequest(user.Id)
+	require.NoError(t, err)
+	require.NotNil(t, latestRequest)
+	assert.Equal(t, model.DeveloperAccessRequestPending, latestRequest.Status)
+	assert.NotEqual(t, model.DeveloperAccessRequestApproved, latestRequest.Status)
+	assert.Equal(t, approved.Id, latestRequest.Id)
 	var requestCount int64
 	require.NoError(t, db.Model(&model.DeveloperAccessRequest{}).Where("user_id = ?", user.Id).Count(&requestCount).Error)
 	assert.EqualValues(t, 1, requestCount)
@@ -225,7 +213,7 @@ func TestManageUserTrustLevelL0ClearsApprovedDeveloperAccessAndAllowsReapproval(
 		"Recommend L1 because the user supplied a concrete integration purpose for the test.",
 	)
 	require.NoError(t, err)
-	assert.Equal(t, int(latestRequest["id"].(float64)), reopened.Id)
+	assert.Equal(t, latestRequest.Id, reopened.Id)
 	approvedAgain, err := model.ReviewDeveloperAccessRequest(9999, reopened.Id, true, "approved again after the explicit L0 reset")
 	require.NoError(t, err)
 	assert.Equal(t, model.DeveloperAccessRequestApproved, approvedAgain.Status)

@@ -19,26 +19,17 @@ For commercial licensing, please contact support@quantumnous.com
 import { getOnboardingState } from '@/lib/console-activation'
 import type { AuthUser } from '@/stores/auth-store'
 
-export type AccessRequestStatus =
-  | 'unknown'
-  | 'error'
-  | 'none'
-  | 'pending'
-  | 'approved'
-  | 'rejected'
 export type ConnectionMethod = 'oauth' | 'api-key'
 
 /** Guidance only: authorization remains the server's responsibility. */
 export function getAccountNextStep(
   user: AuthUser | null | undefined,
-  _requestStatus: AccessRequestStatus = 'unknown',
   method?: ConnectionMethod
 ) {
   if (!user) return { to: '/sign-in', label: 'Sign in to get started' }
   const state = getOnboardingState(user)
   if (!state.activationComplete) {
-    // Historical recommendation letters never block direct assistant verification.
-    return { to: '/getting-started', label: 'Continue with the assistant' }
+    return { to: '/getting-started', label: 'Enable L1 access' }
   }
   if (state.firstRequestComplete) {
     return { to: '/dashboard', label: 'Open dashboard' }

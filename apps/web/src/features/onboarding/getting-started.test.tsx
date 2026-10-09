@@ -160,8 +160,13 @@ async function renderPage(
     if (url === '/api/user/self') {
       return { data: { success: true, data: { ...currentUser } } }
     }
-    if (url === '/api/user/developer-access/request') {
-      return { data: { success: true, data: accessRequest } }
+    if (url === '/api/assistant/registration-check') {
+      return {
+        data: {
+          success: true,
+          data: accessRequest ?? { state: 'context_needed' },
+        },
+      }
     }
     if (url === '/api/status') {
       return {
@@ -205,15 +210,7 @@ async function renderPage(
     await flushEffects()
   })
   await act(flushEffects)
-  return {
-    container,
-    root,
-    queryClient,
-    router,
-    currentUser,
-    gets,
-    getConfigs,
-  }
+  return { container, root, queryClient, router, currentUser, gets, getConfigs }
 }
 async function unmountPage(page: Awaited<ReturnType<typeof renderPage>>) {
   await act(async () => page.root.unmount())
@@ -275,7 +272,11 @@ describe('getting started access boundaries', () => {
     },
   ]) {
     test(`inline grant refreshes access and leaves L0 with ${history ? 'historical pending' : 'no'} application`, async () => {
-      const page = await renderPage(false, undefined, history)
+      const page = await renderPage()
+      page.queryClient.setQueryData(
+        ['assistant-developer-access-request', user.id],
+        history
+      )
       globalThis.fetch = (async () => {
         page.currentUser.developer_access_granted = true
         return new Response(
@@ -333,7 +334,7 @@ describe('getting started access boundaries', () => {
         )
         assert.equal(
           page.gets.filter((url) => url === '/api/user/self').length,
-          1
+          2
         )
       } finally {
         await unmountPage(page)
@@ -391,6 +392,38 @@ describe('getting started access boundaries', () => {
       }
     })
   }
+  test('focus activation uses the authoritative account and ignores retired history', async () => {
+    const page = await renderPage()
+    page.queryClient.setQueryData(
+      ['assistant-developer-access-request', user.id],
+      { status: 'rejected' }
+    )
+    try {
+      page.currentUser.developer_access_granted = true
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'))
+        await flushEffects()
+      })
+      const deadline = Date.now() + 2000
+      while (
+        Date.now() < deadline &&
+        page.router.state.location.pathname !== '/dashboard'
+      ) {
+        await act(flushEffects)
+      }
+      assert.equal(
+        useAuthStore.getState().auth.user?.developer_access_granted,
+        true
+      )
+      assert.equal(page.router.state.location.pathname, '/dashboard')
+      assert.equal(
+        page.gets.some((url) => url.includes('developer-access/request')),
+        false
+      )
+    } finally {
+      await unmountPage(page)
+    }
+  })
   test('keeps the model square discoverable from the L0 onboarding page', async () => {
     const page = await renderPage()
     assert.match(
@@ -437,139 +470,80 @@ describe('getting started access boundaries', () => {
     }
     await unmountPage(l1)
   })
-  test('continues inline verification without posting a retired application or opening a drawer', async () => {
-    const opened: Array<string | undefined> = []
-    const unsubscribe = subscribeToAssistantOpen((request) =>
-      opened.push(request.preset)
-    )
+  test('offers conversation and visible support without querying or submitting retired letters', async () => {
     const page = await renderPage()
-    let posts = 0
-    api.post = (async () => {
-      posts++
-      throw new Error('retired endpoint')
-    }) as typeof api.post
-    try {
-      await act(async () => {
-        button(page, 'Explore').click()
-        button(page, 'Continue with the assistant').click()
-        await flushEffects()
-      })
-      assert.equal(
-        page.container.querySelector<HTMLElement>('#l0-panel-chat')?.hidden,
-        false
-      )
-      assert.equal(document.activeElement?.id, 'l0-question')
-      assert.equal(
-        page.container.querySelector('textarea#access-request-reason'),
-        null
-      )
-      assert.equal(posts, 0)
-      assert.deepEqual(opened, [])
-      assert.match(
-        page.container.textContent ?? '',
-        /No recommendation letter is required/
-      )
-    } finally {
-      unsubscribe()
-      await unmountPage(page)
-    }
-  })
-  test('contact support returns an L0 user to the inline conversation', async () => {
-    const page = await renderPage()
-    try {
-      await act(async () => {
-        button(page, 'Explore').click()
-        button(page, 'Contact support').click()
-        await flushEffects()
-      })
-      assert.equal(page.router.state.location.pathname, '/getting-started')
-      assert.equal(
-        page.container.querySelector<HTMLElement>('#l0-panel-chat')?.hidden,
-        false
-      )
-      assert.equal(document.activeElement?.id, 'l0-question')
-    } finally {
-      await unmountPage(page)
-    }
-  })
-  test('keeps pending review visible without forcing the assistant open', async () => {
-    const opened: Array<string | undefined> = []
-    const unsubscribe = subscribeToAssistantOpen((request) =>
-      opened.push(request.preset)
-    )
-    for (let index = 0; index < 2; index++) {
-      const page = await renderPage(false, undefined, {
-        id: 9901,
-        status: 'pending',
-        reason: '',
-        admin_note: '',
-        created_at: 1,
-        reviewed_at: 0,
-      })
-      assert.deepEqual(opened, [])
-      assert.match(
-        page.container.querySelector(
-          '[data-testid="l0-account-details"] summary'
-        )?.textContent ?? '',
-        /Pending review/
-      )
-      await unmountPage(page)
-    }
-    unsubscribe()
-  })
-  test('shows pending application details and recommendation', async () => {
-    const page = await renderPage(
-      false,
-      undefined,
+    page.queryClient.setQueryData(
+      ['assistant-developer-access-request', user.id],
       {
-        id: 9902,
-        status: 'pending',
-        reason: 'I am building a small Claude Code integration.',
-        source: 'assistant_recommendation',
-        ai_recommendation:
-          'Recommend L1 for a documented development use case.',
-        admin_note: '',
-        created_at: 1,
-        reviewed_at: 0,
-      },
-      { id: 7002 }
+        status: 'rejected',
+        ai_recommendation: 'retired recommendation',
+        admin_note: 'old rejection',
+      }
     )
-    for (const text of [
-      'AI recommendation submitted',
-      'Pending review',
-      'I am building a small Claude Code integration.',
-      'Recommend L1 for a documented development use case.',
-    ]) {
-      assert.ok(page.container.textContent?.includes(text))
-    }
-    assert.equal(page.container.querySelector('[role="progressbar"]'), null)
-    await unmountPage(page)
-  })
-  test('refreshes authoritative access on focus and leaves L0 regardless of historical request status', async () => {
-    const request = {
-      id: 9905,
-      status: 'pending',
-      reason: 'I am building a private coding client.',
-      source: 'assistant_recommendation',
-      ai_recommendation: 'Recommend L1 for a concrete coding workflow.',
-      admin_note: '',
-      created_at: 1,
-      reviewed_at: 0,
-    }
-    const page = await renderPage(false, undefined, request, { id: 7005 })
-    request.status = 'approved'
-    request.admin_note = 'Approved automatically.'
-    request.reviewed_at = 2
-    page.currentUser.developer_access_granted = true
+    await act(flushEffects)
+    assert.ok(
+      page.container.querySelector(
+        '[data-testid="l0-contact-support"][href="/support"]'
+      )
+    )
+    assert.equal(
+      page.container.querySelector('textarea#access-request-reason'),
+      null
+    )
+    assert.ok(
+      !page.gets.some((url) => url.includes('developer-access/request'))
+    )
+    assert.doesNotMatch(
+      page.container.textContent ?? '',
+      /old rejection|retired recommendation|Apply for access|Pending review/
+    )
     await act(async () => {
-      window.dispatchEvent(new Event('focus'))
+      button(page, 'Explore').click()
+      button(page, 'Chat to enable L1').click()
       await flushEffects()
     })
-    const deadline = Date.now() + 2_000
+    assert.equal(
+      page.container.querySelector<HTMLElement>('#l0-panel-chat')?.hidden,
+      false
+    )
+    assert.equal(
+      page.container.querySelector<HTMLElement>('#l0-panel-access')?.hidden,
+      true
+    )
+    assert.equal(consumeQueuedAssistantRequest(), undefined)
+    await unmountPage(page)
+  })
+  test('shows a current hold and a support escape path, never a letter editor', async () => {
+    const page = await renderPage(false, undefined, { state: 'held' })
+    await act(async () => button(page, 'Unlock').click())
+    assert.match(
+      page.container.textContent ?? '',
+      /Registration needs another check/
+    )
+    assert.ok(
+      page.container.querySelector('#l0-panel-access a[href="/support"]')
+    )
+    assert.equal(
+      page.container.querySelector('textarea#access-request-reason'),
+      null
+    )
+    await unmountPage(page)
+  })
+  test('an actual active state refreshes the authenticated user and leaves L0', async () => {
+    const registration = { state: 'context_needed' }
+    const page = await renderPage(false, undefined, registration, { id: 7005 })
+    registration.state = 'active'
+    page.currentUser.developer_access_granted = true
+    await act(async () => {
+      await page.queryClient.invalidateQueries({
+        queryKey: ['assistant-registration-state'],
+      })
+      await flushEffects()
+    })
+    const deadline = Date.now() + 2000
     while (
       Date.now() < deadline &&
-      (useAuthStore.getState().auth.user?.developer_access_granted !== true ||
-        page.router.state.location.pathname !== '/dashboard')
+      useAuthStore.getState().auth.user?.developer_access_granted !== true
     ) {
       await act(flushEffects)
     }
@@ -577,43 +551,11 @@ describe('getting started access boundaries', () => {
       useAuthStore.getState().auth.user?.developer_access_granted,
       true
     )
-    assert.equal(page.router.state.location.pathname, '/dashboard')
-    assert.ok(page.gets.includes('/api/user/self'))
-    await unmountPage(page)
-  })
-  test('keeps rejected historical feedback readable without another application form', async () => {
-    const page = await renderPage(
-      false,
-      undefined,
-      {
-        id: 9903,
-        status: 'rejected',
-        reason: 'Need access.',
-        source: 'assistant_recommendation',
-        ai_recommendation: 'The use case needs more detail.',
-        admin_note: 'Please explain which client and models you plan to use.',
-        created_at: 1,
-        reviewed_at: 2,
-      },
-      { id: 7003 }
+    assert.equal(
+      page.container.querySelector('[data-testid="l0-conversation"]'),
+      null
     )
-    try {
-      assert.match(page.container.textContent ?? '', /Access request rejected/)
-      assert.match(
-        page.container.textContent ?? '',
-        /Please explain which client and models you plan to use/
-      )
-      assert.equal(
-        page.container.querySelector('textarea#access-request-reason'),
-        null
-      )
-      assert.match(
-        page.container.querySelector('.l0-rail-headline')?.textContent ?? '',
-        /Continue with the assistant/
-      )
-    } finally {
-      await unmountPage(page)
-    }
+    await unmountPage(page)
   })
   test('lets L0 browse and fund the account before approval', async () => {
     const page = await renderPage(true)
@@ -699,8 +641,7 @@ describe('getting started access boundaries', () => {
       assert.doesNotMatch(page.container.textContent ?? '', /NaN|undefined/)
       if (language === 'en') {
         assert.match(
-          page.container.querySelector('[data-testid="l0-paid-progress"]')
-            ?.textContent ?? '',
+          page.container.querySelector('.l0-rail-meta')?.textContent ?? '',
           /Top up 3\.01 USD for instant approval/
         )
       }

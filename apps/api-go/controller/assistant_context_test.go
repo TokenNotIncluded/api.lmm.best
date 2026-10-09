@@ -293,11 +293,11 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 		RecommendationAction: assistantRecommendationActionRevise,
 	}
 	assert.Equal(t, "get_account_access", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
-	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
+	assert.Equal(t, "get_registration_risk", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
 		revise,
 		map[string]bool{"get_account_access": true},
 		map[string]bool{"get_account_access": true},
-	))
+	)))
 	assert.False(t, assistantToolAllowedForContext("prepare_l1_recommendation", revise))
 	eligible := revise
 	eligible.CompletedAssistantTurns = model.AssistantDirectGrantMinCompletedTurns
@@ -308,12 +308,12 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 		eligible, map[string]bool{"get_account_access": true, "get_registration_risk": true}, map[string]bool{"get_account_access": true, "get_registration_risk": true},
 	)))
 	assert.Equal(t, 4, assistantRecommendationWorkflowMinSteps(eligible))
-	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
+	assert.Equal(t, "get_registration_risk", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
 		revise,
 		map[string]bool{"get_account_access": true, "prepare_l1_recommendation": true},
 		map[string]bool{"get_account_access": true, "prepare_l1_recommendation": true},
-	))
-	assert.Equal(t, 2, assistantRecommendationWorkflowMinSteps(revise))
+	)))
+	assert.Equal(t, 4, assistantRecommendationWorkflowMinSteps(revise))
 
 	remove := revise
 	remove.RecommendationAction = assistantRecommendationActionRemove
@@ -326,7 +326,7 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 
 	revise.ConversationTitleNeeded = true
 	assert.Equal(t, "set_conversation_title", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
-	assert.Equal(t, 3, assistantRecommendationWorkflowMinSteps(revise))
+	assert.Equal(t, 5, assistantRecommendationWorkflowMinSteps(revise))
 
 	encoded, err := json.Marshal(revise)
 	require.NoError(t, err)
@@ -1029,4 +1029,11 @@ func TestAssistantCacheIsUserScopedAndNormalizesWhitespace(t *testing.T) {
 	// The cache fingerprint must contain the actor identity even when the
 	// account-visible fields happen to be identical.
 	assert.True(t, strings.TrimSpace(firstKey) != strings.TrimSpace(secondKey))
+}
+
+func TestAssistantL1RulesDoNotRetainTheRetiredTurnThreshold(t *testing.T) {
+	assert.Contains(t, assistantSystemRules, "grant_l1_access immediately, including in the first reply")
+	assert.NotContains(t, assistantSystemRules, "after the completed-turn threshold")
+	assert.Contains(t, assistantSystemRules, "never tell them to keep chatting")
+	assert.Contains(t, assistantSystemRules, "offer human support or one retry")
 }

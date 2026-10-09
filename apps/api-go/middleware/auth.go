@@ -422,6 +422,14 @@ func preActivationRouteAllowed(method string, path string) bool {
 		return method == http.MethodGet
 	case "/api/user/self":
 		return method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
+	case "/api/pricing", "/api/perf-metrics", "/api/perf-metrics/summary", "/api/todos":
+		// L0 can browse models and read its own notifications. Per-route auth
+		// and owner/administrator filters still apply. This grants no API use.
+		return method == http.MethodGet
+	case "/api/pricing/runtime", "/api/todos/read":
+		return method == http.MethodPost
+	case "/api/acquisition/self-report":
+		return method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
 	case "/api/user/self/onboarding/todo":
 		return method == http.MethodGet
 	case "/api/user/self/announcements":

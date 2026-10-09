@@ -49,11 +49,7 @@ type RiskEvent = {
 }
 type Envelope<T> = { success: boolean; message?: string; data?: T }
 
-export function AssistantL1ReviewSettings(_props: {
-  groups: string[]
-  groupsLoading: boolean
-  getModels: (group: string) => Promise<string[]>
-}) {
+export function AssistantRegistrationGuardSettings() {
   const { t } = useTranslation()
   const form = useFormContext<AssistantSettingsFormValues>()
   const queryClient = useQueryClient()
@@ -110,7 +106,7 @@ export function AssistantL1ReviewSettings(_props: {
         <h3 className='text-sm font-medium'>{t('Registration protection')}</h3>
         <p className='text-muted-foreground mt-1 text-sm leading-6'>
           {t(
-            'The built-in assistant handles L0 verification using server-checked tools. No separate review model or recommendation-letter queue is required.'
+            'The built-in assistant enables L1 using server-checked tools. Registration protection remains active.'
           )}
         </p>
       </div>

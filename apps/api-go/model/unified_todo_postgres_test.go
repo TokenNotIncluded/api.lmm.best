@@ -24,21 +24,21 @@ func TestPostgresUnifiedTodoUsesOneSnapshot(t *testing.T) {
 	applicant := User{Username: "todo-snapshot-applicant", Password: "password", AffCode: "todo-snapshot-applicant", Role: common.RoleCommonUser}
 	require.NoError(t, db.Create(&admin).Error)
 	require.NoError(t, db.Create(&applicant).Error)
-	request := DeveloperAccessRequest{
-		UserId: applicant.Id, Status: DeveloperAccessRequestPending,
-		Source: DeveloperAccessRequestSourceAI, Reason: "snapshot request", CreatedAt: 1,
+	request := AccountActionRequest{
+		TargetUserId: applicant.Id, RequestedByUserId: applicant.Id, Status: AccountActionStatusPending,
+		Kind: AccountActionKindAppeal, Reason: "snapshot request", CreatedAt: 1,
 	}
 	require.NoError(t, db.Create(&request).Error)
 
 	var candidates []unifiedTodoCandidate
 	err := todoTx(true, func(tx *gorm.DB) error {
-		refs, err := todoRefs(tx, admin.Id, admin.Role, UnifiedTodoCategoryDeveloperAccess, 0, 20)
+		refs, err := todoRefs(tx, admin.Id, admin.Role, UnifiedTodoCategoryAccountAction, 0, 20)
 		if err != nil {
 			return err
 		}
 		require.Len(t, refs, 1)
-		if err := db.Model(&DeveloperAccessRequest{}).Where("id = ?", request.Id).
-			Update("status", DeveloperAccessRequestApproved).Error; err != nil {
+		if err := db.Model(&AccountActionRequest{}).Where("id = ?", request.Id).
+			Update("status", AccountActionStatusApproved).Error; err != nil {
 			return err
 		}
 		candidates, err = loadTodoCandidates(tx, admin.Id, admin.Role, refs)
@@ -48,7 +48,7 @@ func TestPostgresUnifiedTodoUsesOneSnapshot(t *testing.T) {
 	require.Len(t, candidates, 1)
 	assert.Equal(t, request.Id, candidates[0].Item.SourceId)
 
-	page, err := GetUnifiedTodoCenter(admin.Id, admin.Role, UnifiedTodoCategoryDeveloperAccess, 1, 20)
+	page, err := GetUnifiedTodoCenter(admin.Id, admin.Role, UnifiedTodoCategoryAccountAction, 1, 20)
 	require.NoError(t, err)
 	assert.Empty(t, page.Items)
 	assert.Zero(t, page.Total)

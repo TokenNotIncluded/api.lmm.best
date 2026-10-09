@@ -178,7 +178,7 @@ function TrustLevelBenefitsForm({
                     </FormLabel>
                     <FormDescription>
                       {t(
-                        'When enabled, reaching the configured L1 recharge threshold activates developer access. Invitation and manual review access remain separate.'
+                        'When enabled, reaching the configured L1 recharge threshold activates developer access. Invitation access and assistant activation remain separate.'
                       )}
                     </FormDescription>
                   </SettingsSwitchContent>

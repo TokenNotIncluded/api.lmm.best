@@ -72,8 +72,8 @@ import {
   type AssistantSearchProvider,
 } from '../types'
 import { safeNumberFieldProps } from '../utils/numeric-field'
-import { AssistantL1ReviewSettings } from './assistant-l1-review-settings'
 import { AssistantModerationSettings } from './assistant-moderation-settings'
+import { AssistantRegistrationGuardSettings } from './assistant-registration-guard-settings'
 import {
   assistantSettingsSchema,
   type AssistantSettingsFormValues,
@@ -1817,11 +1817,7 @@ export function AssistantSettingsSection(props: {
                 </SettingsDisclosure>
                 <SettingsDisclosure title={t('Access & safety')} defaultOpen>
                   <div className='space-y-6'>
-                    <AssistantL1ReviewSettings
-                      groups={assistantGroups}
-                      groupsLoading={groupsQuery.isLoading}
-                      getModels={getEnabledAssistantModelIDs}
-                    />
+                    <AssistantRegistrationGuardSettings />
                   </div>
                 </SettingsDisclosure>
               </section>
