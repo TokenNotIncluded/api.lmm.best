@@ -433,7 +433,7 @@ function ToolMarketWorkspace({
                 item.min_price_quota !== undefined &&
                 item.max_price_quota !== undefined && (
                   <span className='basis-full text-sm font-medium break-words tabular-nums sm:text-right'>
-                    {(item.metered_tools ?? 0) > 0
+                    {(item.provider_tools ?? 0) > 0 ? t('Live upstream price × multiplier; capped per call') : (item.metered_tools ?? 0) > 0
                       ? t('Usage-based billing')
                       : item.max_price_quota === 0
                         ? t('Free tool')
@@ -973,7 +973,7 @@ function ToolMarketWorkspace({
                                 {tool.name}
                               </h4>
                               <p className='text-sm font-medium tabular-nums'>
-                                {tool.billing_mode === 'metered'
+                                {tool.provider_pricing ? t('Upstream price × {{multiplier}}; maximum {{amount}} per call', {multiplier: tool.provider_pricing.multiplier, amount: formatQuota(tool.price_quota)}) : tool.billing_mode === 'metered'
                                   ? usagePriceLabel(tool, formatQuota, t)
                                   : tool.billing_mode === 'input_tokens'
                                     ? t('{{amount}} per million input tokens', {

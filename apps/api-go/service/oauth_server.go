@@ -149,7 +149,7 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 		cliScopes = append(cliScopes, OAuthGroupScope(group))
 	}
 	clients = append(clients, oauthserver.NativeClient{ID: OAuthCLIClientID, Name: OAuthCLIClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: cliScopes})
-	core, err := oauthserver.New(db, oauthserver.Config{Issuer: cfg.Issuer, Clients: clients}, integration)
+	core, err := oauthserver.New(db, oauthserver.Config{Issuer: cfg.Issuer, Clients: clients, ClientLookup: integration.lookupMCPClient}, integration)
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +234,13 @@ func (s *OAuthIntegration) GrantedGroups(user *model.User, grant oauthserver.Gra
 // validation. Database/cache failures never imply access. It does not mutate
 // OAuth tables or acquire a second pool connection while core owns a transaction.
 func (s *OAuthIntegration) Authorize(ctx context.Context, tx *gorm.DB, grant oauthserver.Grant) error {
+	if strings.HasPrefix(grant.ClientID, oauthMCPClientPrefix) {
+		if tx == nil || grant.Resource != s.MarketResource() || !validMCPScopes(grant.Scopes) {
+			return ErrOAuthDenied
+		}
+		_, err := oauthMCPUser(tx.WithContext(ctx), grant.UserID)
+		return err
+	}
 	if (grant.ClientID != OAuthPiClientID && grant.ClientID != OAuthDshClientID && grant.ClientID != OAuthCLIClientID && grant.ClientID != OAuthCodewhaleClientID && grant.ClientID != OAuthOpenCodeClientID && grant.ClientID != OAuthVSCodeClientID && grant.ClientID != OAuthZedClientID) || grant.Resource != s.Resource {
 		return ErrOAuthDenied
 	}
@@ -278,6 +285,12 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 		return "", nil, err
 	}
 	requested := strings.Split(query.Get("scope"), " ")
+	if strings.HasPrefix(query.Get("client_id"), oauthMCPClientPrefix) {
+		if query.Get("resource") != s.MarketResource() || !validMCPScopes(requested) {
+			return "", nil, ErrOAuthDenied
+		}
+		return query.Encode(), nil, nil
+	}
 	legacyBase := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
 	currentBase := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
 	profiles := [][]string{

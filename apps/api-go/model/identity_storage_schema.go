@@ -36,7 +36,7 @@ func OAuthServerEnabledFromEnv() (bool, error) {
 func SubprojectOIDCEnabledFromEnv() bool { return os.Getenv("LMM_OIDC_ENABLED") == "true" }
 
 func oauthServerMigrationModels() []interface{} {
-	return []interface{}{&OAuthServerAuthorization{}, &OAuthServerGrant{}, &OAuthServerCode{}, &OAuthServerToken{}}
+	return []interface{}{&OAuthServerAuthorization{}, &OAuthServerGrant{}, &OAuthServerCode{}, &OAuthServerToken{}, &OAuthServerMCPClient{}, &OAuthServerMCPRegistry{}}
 }
 
 func oauthBillingMigrationModels() []interface{} {

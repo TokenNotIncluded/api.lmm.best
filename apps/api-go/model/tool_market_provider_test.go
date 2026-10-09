@@ -9,6 +9,7 @@ import (
 )
 
 func TestToolMarketProviderQuotaCeilingAndFee(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, 500000)
 	units, err := common.LedgerQuotaPerUSD()
 	require.NoError(t, err)
 	q := &marketprovider.Quote{Provider: "agentkey", Unit: "call", AmountUSD: "0.004"}

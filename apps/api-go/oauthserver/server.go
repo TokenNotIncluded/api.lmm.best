@@ -15,13 +15,14 @@ import (
 // Server never registers routes or runs migrations. It must use the primary
 // database, with no read-replica resolver and no authorization-result caching.
 type Server struct {
-	db          *gorm.DB
-	issuer      string
-	clients     map[string]NativeClient
-	policy      Policy
-	absoluteTTL time.Duration
-	idleTTL     time.Duration
-	now         func() time.Time
+	db           *gorm.DB
+	issuer       string
+	clients      map[string]NativeClient
+	clientLookup func(*gorm.DB, string) (NativeClient, bool)
+	policy       Policy
+	absoluteTTL  time.Duration
+	idleTTL      time.Duration
+	now          func() time.Time
 }
 
 func New(db *gorm.DB, config Config, policy Policy) (*Server, error) {
@@ -51,7 +52,7 @@ func New(db *gorm.DB, config Config, policy Policy) (*Server, error) {
 	if len(config.Clients) == 0 {
 		return nil, fmt.Errorf("oauth server: at least one pre-registered native client is required")
 	}
-	s := &Server{db: db.Session(&gorm.Session{NewDB: true}), issuer: config.Issuer, clients: make(map[string]NativeClient), policy: policy, absoluteTTL: config.RefreshAbsoluteTTL, idleTTL: config.RefreshIdleTTL, now: time.Now}
+	s := &Server{db: db.Session(&gorm.Session{NewDB: true}), issuer: config.Issuer, clients: make(map[string]NativeClient), policy: policy, clientLookup: config.ClientLookup, absoluteTTL: config.RefreshAbsoluteTTL, idleTTL: config.RefreshIdleTTL, now: time.Now}
 	for _, client := range config.Clients {
 		if err := validateClient(client); err != nil {
 			return nil, err
@@ -65,6 +66,20 @@ func New(db *gorm.DB, config Config, policy Policy) (*Server, error) {
 		s.clients[client.ID] = client
 	}
 	return s, nil
+}
+
+func (s *Server) resolveClient(db *gorm.DB, id string) (NativeClient, bool) {
+	if client, ok := s.clients[id]; ok {
+		return client, true
+	}
+	if s.clientLookup == nil || len(id) > 128 {
+		return NativeClient{}, false
+	}
+	client, ok := s.clientLookup(db.Session(&gorm.Session{NewDB: true}), id)
+	if !ok || client.ID != id || validateClient(client) != nil {
+		return NativeClient{}, false
+	}
+	return client, true
 }
 
 func validateClient(client NativeClient) error {
@@ -90,6 +105,7 @@ func validateClient(client NativeClient) error {
 }
 
 type Metadata struct {
+	RegistrationEndpoint                       string   `json:"registration_endpoint,omitempty"`
 	Issuer                                     string   `json:"issuer"`
 	LMMClientIDsSupported                      []string `json:"lmm_client_ids_supported"`
 	AuthorizationEndpoint                      string   `json:"authorization_endpoint"`
@@ -138,7 +154,7 @@ func grantView(family model.OAuthServerGrant, scope string) Grant {
 }
 
 func (s *Server) grantPermitted(tx *gorm.DB, family model.OAuthServerGrant, scope string) bool {
-	client, exists := s.clients[family.ClientID]
+	client, exists := s.resolveClient(tx, family.ClientID)
 	scopes, err := parseScopes(scope)
 	maximum, maxErr := parseScopes(family.Scope)
 	if !exists || family.Issuer != s.issuer || family.UserID <= 0 || err != nil || maxErr != nil || !scopesWithin(scopes, maximum) || !scopesWithin(scopes, client.Scopes) || !contains(client.Resources, family.Resource) || !validRedirect(family.RedirectURI, client) || !supportedBinding(SenderBinding{Method: family.BindingMethod, Thumbprint: family.BindingThumbprint}) {

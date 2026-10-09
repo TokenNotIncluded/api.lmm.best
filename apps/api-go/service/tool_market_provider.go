@@ -147,6 +147,12 @@ func marketProviderResult(pricing *marketprovider.Pricing, exact map[string]any)
 		return false, false
 	}
 	if pricing.Provider != "monid" {
+		if success, ok := data["success"].(bool); ok && !success {
+			return false, false
+		}
+		if failure, ok := data["error"]; ok && failure != nil && failure != "" {
+			return false, false
+		}
 		return false, true
 	}
 	state, _ := data["status"].(string)

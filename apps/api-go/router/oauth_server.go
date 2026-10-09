@@ -36,6 +36,8 @@ func MountOAuthServerRoutes(router *gin.Engine, integration *service.OAuthIntegr
 	activity := h.Guard(30, "activity")
 	router.GET("/.well-known/oauth-authorization-server", discovery, h.Metadata)
 	router.GET("/.well-known/oauth-protected-resource/api/oauth2", discovery, h.ResourceMetadata)
+	router.GET("/.well-known/oauth-protected-resource/mcp/market", discovery, h.MarketResourceMetadata)
+	router.POST("/api/oauth2/register", h.Guard(10, "registration"), h.RegisterMCPClient)
 	router.GET("/api/oauth2/authorize", browser, h.Authorize)
 	router.POST("/api/user/auth/oauth2/continue", browser, h.Continue)
 	router.POST("/api/user/auth/oauth2/consent", browser, h.Consent)

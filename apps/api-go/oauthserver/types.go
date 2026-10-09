@@ -21,8 +21,8 @@ const (
 	DefaultRefreshIdleTTL     = 7 * 24 * time.Hour
 )
 
-// NativeClient is installed through trusted server configuration, not dynamic
-// registration. RedirectURIs are portless http://127.0.0.1/<registered-path>
+// NativeClient comes from trusted configuration or a validated client lookup.
+// The lookup must use the supplied writer/transaction handle. RedirectURIs are portless http://127.0.0.1/<registered-path>
 // templates. Only the port may vary in an authorization request.
 type NativeClient struct {
 	ID           string
@@ -34,8 +34,11 @@ type NativeClient struct {
 
 type Config struct {
 	// Issuer is a fixed HTTPS origin, never derived from Host/Forwarded headers.
-	Issuer             string
-	Clients            []NativeClient
+	Issuer  string
+	Clients []NativeClient
+	// ClientLookup is optional and fail-closed. Never acquire another connection
+	// when db is a live transaction, or retain its handle.
+	ClientLookup       func(db *gorm.DB, id string) (NativeClient, bool)
 	RefreshAbsoluteTTL time.Duration
 	RefreshIdleTTL     time.Duration
 }

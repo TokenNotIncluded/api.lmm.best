@@ -301,7 +301,7 @@ func runPaidMarketHTTPMCPUploadAndSettlement(t *testing.T, postgres bool) {
 		for _, descriptor := range list.Tools {
 			names = append(names, descriptor.Name)
 			if descriptor.Name == "metamcp" {
-				require.Contains(t, descriptor.Description, "Free built-in tool management")
+				require.Contains(t, descriptor.Description, "Management operations are free")
 			}
 		}
 		require.ElementsMatch(t, expected, names, "only default free management and this client's exact granted tools may be exposed")

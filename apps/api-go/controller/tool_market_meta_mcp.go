@@ -151,6 +151,7 @@ type toolMarketMetaSearchItem struct {
 	MinPriceQuota        int    `json:"min_price_quota"`
 	MaxPriceQuota        int    `json:"max_price_quota"`
 	MeteredTools         int    `json:"metered_tools"`
+	ProviderTools        int    `json:"provider_tools"`
 }
 
 func toolMarketMetaSearch(_ context.Context, identity marketMCPIdentity, input *toolMarketMetaInput) (any, error) {
@@ -171,7 +172,7 @@ func toolMarketMetaSearch(_ context.Context, identity marketMCPIdentity, input *
 			ID: row.ID, VersionID: row.VersionID, Name: row.Name,
 			Description: string(description), DescriptionTruncated: truncated,
 			ToolCount: row.ToolCount, MinPriceQuota: row.MinPriceQuota,
-			MaxPriceQuota: row.MaxPriceQuota, MeteredTools: row.MeteredTools,
+			MaxPriceQuota: row.MaxPriceQuota, MeteredTools: row.MeteredTools, ProviderTools: row.ProviderTools,
 		})
 	}
 	return map[string]any{

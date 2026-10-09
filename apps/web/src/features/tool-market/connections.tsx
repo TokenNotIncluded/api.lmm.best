@@ -53,6 +53,7 @@ import {
   MetaDelegationSetupFields,
 } from './meta-delegation'
 import { metaDelegationAPI, metaDelegationQuota } from './meta-delegation-api'
+import { MarketOAuthConnection } from './oauth-connection'
 import { metaDelegationCopy } from './meta-delegation-copy'
 import {
   configureIssuedMetaDelegation,
@@ -107,6 +108,7 @@ function ConnectionWorkspace({
   ) => String(t(key, { ...values, ns: marketConnectionNamespace }))
   const cache = useQueryClient()
   const metaSupported = marketSupports(config, 'meta_delegation')
+  const oauthEnabled = marketSupports(config, 'mcp_oauth')
   const cleanupSupported = marketSupports(config, 'client_record_cleanup')
   const tokens = useQuery({
     queryKey: ['tool-market', userID, 'tokens'],
@@ -534,6 +536,9 @@ function ConnectionWorkspace({
               {m('summary')}
             </p>
           </div>
+          {oauthEnabled && endpoint && <MarketOAuthConnection endpoint={endpoint} />}
+          <details open={!oauthEnabled} className='space-y-5'>
+          <summary className='cursor-pointer py-2 text-sm font-medium'>{t('Manual connection token')}</summary>
           <form
             onSubmit={(event) => {
               event.preventDefault()
@@ -828,6 +833,7 @@ function ConnectionWorkspace({
             </details>
           )}
           <p className='text-muted-foreground text-xs'>{m('oauthHelp')}</p>
+          </details>
         </section>
 
         <section className='min-w-0 space-y-4'>

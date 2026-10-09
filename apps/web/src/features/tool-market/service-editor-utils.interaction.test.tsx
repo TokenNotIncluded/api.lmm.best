@@ -340,8 +340,11 @@ test('a new service shows pricing guidance before discovery and cannot save undi
   const originalAdapter = api.defaults.adapter
   const requests: string[] = []
   api.defaults.adapter = async (config) => {
+    if (config.method === 'get' && config.url === '/api/tool-market/config') {
+      return { config, status: 200, statusText: 'OK', headers: {}, data: {success: true, data: { provider_presets: [] }} }
+    }
     requests.push(config.url ?? '')
-    assert.fail('A service without inspected tools must not write a draft')
+    assert.fail('A service without inspected tools must not write or inspect a draft')
   }
   const view = await renderEditor()
   try {

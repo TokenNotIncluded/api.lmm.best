@@ -18,7 +18,7 @@ func ListToolMarketAccountResources(c *gin.Context) {
 			return
 		}
 		rows, err := model.ListToolMarketOAuthClients(integration.DB.WithContext(c.Request.Context()), c.GetInt("id"), integration.Issuer, integration.Resource,
-			[]string{service.OAuthPiClientID, service.OAuthDshClientID}, []string{service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope}, offset, limit)
+			[]string{service.OAuthPiClientID, service.OAuthDshClientID}, []string{service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope}, offset, limit, integration.MarketResource())
 		toolMarketRespond(c, rows, err)
 		return
 	}

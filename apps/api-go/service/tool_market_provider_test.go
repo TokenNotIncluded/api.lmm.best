@@ -13,6 +13,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,6 +30,16 @@ func TestToolMarketProviderPresetFiltersAccountTools(t *testing.T) {
 }
 
 func TestToolMarketProviderQuoteAndSettlement(t *testing.T) {
+	previous, previousErr := common.CreditsPerUSD()
+	legacy, _ := common.LegacyPricingQuotaPerUnit()
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
+	t.Cleanup(func() {
+		if previousErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(previous, legacy))
+		}
+	})
 	for _, preset := range marketprovider.Presets() {
 		t.Run(preset.ID, func(t *testing.T) {
 			t.Setenv("TOOL_MARKET_ENCRYPTION_KEY", "provider-fixture-encryption-2026")

@@ -22,7 +22,7 @@ func (s *Server) Exchange(ctx context.Context, rawBody string, binding SenderBin
 	if err != nil {
 		return nil, err
 	}
-	if _, exists := s.clients[values.Get("client_id")]; !exists {
+	if _, exists := s.resolveClient(s.db.WithContext(ctx), values.Get("client_id")); !exists {
 		return nil, protocolError("invalid_client")
 	}
 	switch values.Get("grant_type") {
@@ -193,7 +193,7 @@ func (s *Server) Revoke(ctx context.Context, rawBody string) error {
 	if err != nil {
 		return err
 	}
-	if _, exists := s.clients[values.Get("client_id")]; !exists {
+	if _, exists := s.resolveClient(s.db.WithContext(ctx), values.Get("client_id")); !exists {
 		return protocolError("invalid_client")
 	}
 	token := values.Get("token")

@@ -11703,5 +11703,11 @@
     "Choose a provider, enter its API key, then review the tools and spending ceiling. Your customers sign in to LMM separately; they do not receive this key.": "选择平台，填写 API Key，再检查工具和单次收费上限。买家单独登录 LMM，不会获得这个密钥。",
     "Sale price = upstream USD quote × multiplier. Calls are blocked when the quote is missing, exceeds a spending limit, or the platform fee would make the sale fall below cost.": "售价 = 上游美元报价 × 倍率。报价缺失、超出消费上限，或扣除平台费后不足以覆盖报价时，将阻止调用。",
     "The server checks the current USD quote before each call. This amount is a spending ceiling, not a fixed charge. Variable-price tools are blocked until a spending bound can be verified.": "服务器会在每次调用前查询美元报价。这里设置的是收费上限，不是固定售价。暂时禁止无法确认最高费用的按结果计费工具。"
-  }
+  },
+  "Manual connection token": "手动配置连接令牌",
+  "Browser login (recommended)": "浏览器登录（推荐）",
+  "Run the command, sign in to LMM, and approve access. Your provider key is not sent to the client.": "运行命令，在浏览器登录 LMM 并确认授权。供应商密钥不会发送给客户端。",
+  "After login, select this OAuth client and set tool access and spending limits. Login alone does not authorize spending.": "登录后，选择这个 OAuth 客户端，设置可用工具和消费上限。仅登录不会授予消费权限。",
+  "Live upstream price × multiplier; capped per call": "按上游实时报价乘以倍率计费，每次调用设有上限",
+  "Upstream price × {{multiplier}}; maximum {{amount}} per call": "上游价格 × {{multiplier}}；每次最多 {{amount}}"
 }

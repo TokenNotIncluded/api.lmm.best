@@ -30,14 +30,14 @@ func marketMCPAuthenticate(ctx context.Context, raw string) (marketMCPIdentity, 
 		if integration == nil {
 			return marketMCPIdentity{}, model.ErrToolMarketDenied
 		}
-		grant, user, err := integration.ValidateResource(ctx, raw, service.OAuthMarketDiscoverScope)
+		grant, user, err := integration.ValidateMarketResource(ctx, raw, service.OAuthMarketDiscoverScope)
 		if err != nil {
 			return marketMCPIdentity{}, model.ErrToolMarketDenied
 		}
 		invoke, manage := slices.Contains(grant.Scopes, service.OAuthMarketInvokeScope), slices.Contains(grant.Scopes, service.OAuthMarketManageScope)
 		clientID := "oauth:" + grant.ClientID
 		return marketMCPIdentity{userID: user.Id, clientID: clientID, invoke: invoke, manage: manage,
-			metaSubject: model.ToolMarketMetaSubject{UserID: user.Id, ClientID: clientID, CredentialKind: "oauth", CredentialID: grant.FamilyID, OAuthIssuer: integration.Issuer, OAuthResource: integration.Resource, CanInvoke: invoke, CanManage: manage}}, nil
+			metaSubject: model.ToolMarketMetaSubject{UserID: user.Id, ClientID: clientID, CredentialKind: "oauth", CredentialID: grant.FamilyID, OAuthIssuer: integration.Issuer, OAuthResource: grant.Resource, CanInvoke: invoke, CanManage: manage}}, nil
 	}
 	token, err := model.VerifyToolMarketToken(raw)
 	if err != nil {
@@ -313,7 +313,7 @@ func NewToolMarketMCPHandler() http.Handler {
 		if err != nil {
 			challenge := "Bearer"
 			if integration := service.CurrentOAuthIntegration(); integration != nil {
-				challenge += " resource_metadata=" + strconv.Quote(integration.Issuer+"/.well-known/oauth-protected-resource/api/oauth2")
+				challenge += " resource_metadata=" + strconv.Quote(integration.Issuer+"/.well-known/oauth-protected-resource/mcp/market")
 			}
 			w.Header().Set("WWW-Authenticate", challenge)
 			http.Error(w, "MCP authorization required", http.StatusUnauthorized)

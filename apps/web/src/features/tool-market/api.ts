@@ -16,6 +16,7 @@ export type MarketCapabilities = {
   service_deletion: boolean
   client_record_cleanup: boolean
   meta_delegation: boolean
+  mcp_oauth: boolean
 }
 export type ProviderPricing = { provider: string; multiplier: string }
 export type ProviderPreset = {
@@ -69,6 +70,7 @@ export type MarketSummary = {
   min_price_quota?: number
   max_price_quota?: number
   metered_tools?: number
+  provider_tools?: number
 }
 export type BillingRule = {
   metric: string
