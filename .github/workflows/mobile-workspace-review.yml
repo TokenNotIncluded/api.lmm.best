@@ -1,0 +1,29 @@
+name: Mobile workspace review
+
+on:
+  push:
+    branches: [codex/mobile-immersive-settings]
+    paths: [.github/workflows/mobile-workspace-review.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Export tracked sources only
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/mobile-review"
+          git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/mobile-review/source.tar.gz"
+          git rev-parse HEAD > "$RUNNER_TEMP/mobile-review/revision.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-review-source
+          path: ${{ runner.temp }}/mobile-review
+          retention-days: 1
