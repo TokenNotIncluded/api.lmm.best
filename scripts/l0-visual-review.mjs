@@ -60,11 +60,14 @@ try {
             viewport: innerWidth, documentWidth: document.documentElement.scrollWidth,
             chat: rect('[data-testid="l0-chat-free"]'), topup: rect('[data-testid="l0-topup-direct"]'),
             input: rect('#l0-question'), content: rect('.console-section-content'),
+            title: rect('.console-page-title'), routeActions: rect('.console-page-actions'),
             inputFont: getComputedStyle(document.querySelector('#l0-question')).fontSize,
             railBorder: getComputedStyle(document.querySelector('.l0-rail')).borderTopWidth,
           }
         })
         const g = entry.geometry
+        assert.ok(g.title.height <= 30, 'route title must remain horizontal')
+        assert.ok(g.title.right <= g.routeActions.x + 1, 'title and pricing must not overlap')
         assert.ok(g.documentWidth <= width + 1, 'document must not overflow horizontally')
         assert.ok(g.content.scrollWidth <= g.content.clientWidth + 1, 'content must not overflow horizontally')
         for (const b of [g.chat, g.topup]) {
