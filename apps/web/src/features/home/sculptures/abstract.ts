@@ -13,10 +13,11 @@ function cage(s: Shape, radius: number, color: Vec3, part = 0) {
   const phi = (1 + Math.sqrt(5)) / 2,
     norm = Math.hypot(1, phi)
   const vertices: Vec3[] = []
-  for (const a of [-1, 1])
+  for (const a of [-1, 1]) {
     for (const b of [-phi, phi]) {
       vertices.push([0, a, b], [a, b, 0], [b, 0, a])
     }
+  }
   const points = vertices.map((p) => p.map((v) => (v / norm) * radius) as Vec3)
   points.forEach((p, index) => {
     s.ellipsoid(p, [0.028, 0.028, 0.028], C.cream, part, 80)
@@ -87,7 +88,9 @@ export function socket(): Sculpture {
       const wheel = rotate(2, t * 0.16),
         core = rotate(1, -t * 0.43)
       return (p, v) => {
-        if (p.part) core(p, v)
+        if (p.part) {
+          core(p, v)
+        }
         wheel(p, v)
       }
     },
@@ -100,8 +103,9 @@ export function gyroscope(): Sculpture {
   for (const axis of [0, 1, 2] as const) {
     const radius = 1.08 - axis * 0.19,
       color = [C.teal, C.gold, C.violet][axis]
-    for (const rim of [-0.025, 0.025])
+    for (const rim of [-0.025, 0.025]) {
       s.ring([0, 0, 0], radius + rim, 0.017, color, axis + 1, axis)
+    }
     const a = (axis + 1) % 3,
       b = (axis + 2) % 3
     for (let tick = 0; tick < 32; tick++) {
@@ -113,8 +117,9 @@ export function gyroscope(): Sculpture {
       outer[a] = Math.cos(angle) * (radius + 0.025)
       outer[b] = Math.sin(angle) * (radius + 0.025)
       s.line(inner, outer, 0.006, C.cream, axis + 1, 6)
-      if (tick % 8 === 0)
+      if (tick % 8 === 0) {
         s.ellipsoid(outer, [0.044, 0.044, 0.044], color, axis + 1, 160)
+      }
     }
   }
   cage(s, 0.45, C.rose, 4)
@@ -128,7 +133,9 @@ export function gyroscope(): Sculpture {
         rotate(1, -t * 0.19),
       ]
       return (p, v) => {
-        if (p.part) turns[p.part - 1](p, v)
+        if (p.part) {
+          turns[p.part - 1](p, v)
+        }
       }
     },
     [0.28, 0.29]
@@ -155,10 +162,12 @@ export function mobius(): Sculpture {
         )
     )
   }
-  for (const v of [0, 1 / 3, 2 / 3, 1])
+  for (const v of [0, 1 / 3, 2 / 3, 1]) {
     s.tube((u) => strip(u, v), 0.008, C.gold, 0, 230, 5)
-  for (let rib = 0; rib < 48; rib++)
+  }
+  for (let rib = 0; rib < 48; rib++) {
     s.tube((v) => strip(rib / 48, v), 0.005, tint(C.cream, 0.82), 0, 22, 4)
+  }
   return s.model((t) => rotate(1, t * 0.23), [0.1, 0.42])
 }
 
@@ -195,7 +204,7 @@ export function trefoil(): Sculpture {
       Math.sin(3 * a) * 0.32 + nz * c + bz * d,
     ]
   }
-  for (let band = 0; band < 3; band++)
+  for (let band = 0; band < 3; band++) {
     s.tube(
       (t) => strand(t, (band / 3) * TAU),
       0.043,
@@ -204,6 +213,7 @@ export function trefoil(): Sculpture {
       520,
       12
     )
+  }
   return s.model(
     (t) => {
       const turn = rotate(1, t * 0.24),
@@ -226,7 +236,7 @@ export function helix(): Sculpture {
   ]
   for (const phase of [0, Math.PI]) {
     s.tube((u) => rail(u, phase), 0.05, phase ? C.rose : C.teal, 0, 240, 12)
-    for (let node = 0; node < 23; node++)
+    for (let node = 0; node < 23; node++) {
       s.ellipsoid(
         rail(node / 22, phase),
         [0.068, 0.068, 0.068],
@@ -234,6 +244,7 @@ export function helix(): Sculpture {
         0,
         135
       )
+    }
   }
   for (let i = 0; i < 23; i++) {
     const a = rail(i / 22, 0),
@@ -243,8 +254,9 @@ export function helix(): Sculpture {
     s.line(center, b, 0.022, i % 2 ? C.violet : C.gold, 0, 24)
     s.ellipsoid(center, [0.029, 0.029, 0.029], C.cream, 0, 70)
   }
-  for (let side = 0; side < 2; side++)
+  for (let side = 0; side < 2; side++) {
     s.ellipsoid([0, 0, 0], [0.075, 0.075, 0.075], C.cream, side + 1, 260)
+  }
   return s.model(
     (t) => {
       const turn = rotate(1, t * 0.36),
@@ -253,9 +265,15 @@ export function helix(): Sculpture {
           rail((1 + Math.sin(t * 0.8 + Math.PI)) / 2, Math.PI),
         ]
       return (p, v) => {
-        if (p.part) for (let i = 0; i < 3; i++) v[i] += lights[p.part - 1][i]
+        if (p.part) {
+          for (let i = 0; i < 3; i++) {
+            v[i] += lights[p.part - 1][i]
+          }
+        }
         turn(p, v)
-        for (let i = 0; i < 3; i++) v[i] *= 0.9
+        for (let i = 0; i < 3; i++) {
+          v[i] *= 0.9
+        }
       }
     },
     [0.05, 0.12]
@@ -281,9 +299,12 @@ export function ribbon(): Sculpture {
         0.65 + Math.sin(v * Math.PI) * 0.22 + Math.sin(u * Math.PI) * 0.1
       )
     )
-    for (const v of [0, 1]) s.tube((u) => strip(u, v), 0.008, C.gold, 0, 170, 5)
-    for (let rib = 0; rib < 27; rib++)
+    for (const v of [0, 1]) {
+      s.tube((u) => strip(u, v), 0.008, C.gold, 0, 170, 5)
+    }
+    for (let rib = 0; rib < 27; rib++) {
       s.tube((v) => strip(rib / 27, v), 0.004, tint(C.cream, 0.84), 0, 14, 3)
+    }
   }
   cage(s, 0.26, C.gold, 1)
   return s.model(
@@ -291,8 +312,11 @@ export function ribbon(): Sculpture {
       const turn = rotate(1, t * 0.15),
         core = rotate(2, -t * 0.35)
       return (p, v) => {
-        if (p.part) core(p, v)
-        else v[1] += Math.sin(t * 1.3 + p.x * 3 + p.z * 2) * 0.065
+        if (p.part) {
+          core(p, v)
+        } else {
+          v[1] += Math.sin(t * 1.3 + p.x * 3 + p.z * 2) * 0.065
+        }
         turn(p, v)
       }
     },

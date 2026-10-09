@@ -96,7 +96,9 @@ export function pelicanBicycle(): Sculpture {
       const motion = ride(t),
         nod = rotate(2, Math.sin(t * 1.1) * 0.025, [-0.035, 0.35, 0])
       return (p, v) => {
-        if (p.part === 21) nod(p, v)
+        if (p.part === 21) {
+          nod(p, v)
+        }
         motion(p, v)
       }
     },
@@ -169,12 +171,12 @@ export function emperorBicycle(): Sculpture {
   s.box([-0.19, 0.88, 0], [0.24, 0.12, 0.2], C.ink, 20)
   s.box([-0.17, 0.957, 0], [0.47, 0.035, 0.34], C.gold, 20)
   s.box([-0.17, 0.98, 0], [0.5, 0.025, 0.36], C.ink, 20)
-  for (const end of [-1, 1])
+  for (const end of [-1, 1]) {
     for (let strand = 0; strand < 7; strand++) {
       const x = -0.17 + end * 0.23,
         z = -0.14 + strand * 0.047
       s.line([x, 0.953, z], [x, 0.8, z], 0.0045, C.gold, 21, 18)
-      for (let bead = 0; bead < 3; bead++)
+      for (let bead = 0; bead < 3; bead++) {
         s.ellipsoid(
           [x, 0.82 + bead * 0.044, z],
           [0.011, 0.012, 0.011],
@@ -182,7 +184,9 @@ export function emperorBicycle(): Sculpture {
           21,
           42
         )
+      }
     }
+  }
   for (const side of [-1, 1]) {
     const z = side * 0.125
     s.line([-0.12, 0.39, z], [0.09, 0.13, z], 0.072, robe, 20, 34)
@@ -201,8 +205,9 @@ export function emperorBicycle(): Sculpture {
     (t) => {
       const motion = ride(t)
       return (p, v) => {
-        if (p.part === 21)
+        if (p.part === 21) {
           v[0] += Math.sin(t * 3 + p.z * 3) * (0.96 - p.y) * 0.08
+        }
         motion(p, v)
       }
     },
@@ -225,7 +230,7 @@ export function catBomb(): Sculpture {
   for (const x of [-0.65, -0.28]) {
     s.ellipsoid([x, -0.55, 0.045], [0.158, 0.17, 0.21], C.gold, 0, 650)
     s.ellipsoid([x + 0.01, -0.67, 0.17], [0.15, 0.066, 0.14], C.cream, 0, 400)
-    for (const offset of [-0.045, 0.04])
+    for (const offset of [-0.045, 0.04]) {
       s.line(
         [x + offset, -0.659, 0.285],
         [x + offset, -0.622, 0.277],
@@ -234,6 +239,7 @@ export function catBomb(): Sculpture {
         0,
         9
       )
+    }
   }
   s.ellipsoid([-0.42, 0.36, 0.015], [0.335, 0.293, 0.247], C.gold, 0, 3200)
   for (const side of [-1, 1]) {
@@ -374,13 +380,19 @@ export function catBomb(): Sculpture {
       const blink =
         1 - Math.exp(-Math.pow((((t + 0.7) % 5.4) - 0.15) / 0.075, 2)) * 0.9
       return (p, v) => {
-        if (p.part === 1) paw(p, v)
-        if (p.part === 2) tail(p, v)
+        if (p.part === 1) {
+          paw(p, v)
+        }
+        if (p.part === 2) {
+          tail(p, v)
+        }
         if (p.part === 3) {
           v[0] = 0.46 + (p.x - 0.46) * spark
           v[1] = 0.4 + (p.y - 0.4) * spark
         }
-        if (p.part === 4) v[1] = 0.401 + (p.y - 0.401) * blink
+        if (p.part === 4) {
+          v[1] = 0.401 + (p.y - 0.401) * blink
+        }
       }
     },
     [0.015, 0.03]

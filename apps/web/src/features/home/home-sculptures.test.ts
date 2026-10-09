@@ -91,7 +91,9 @@ for (const id of HOME_SEQUENCES.flat()) {
           b.every((n) => Number.isFinite(n) && Math.abs(n) < 4.5),
           `${id}: ${b}`
         )
-        if (Math.hypot(...a.map((v, axis) => v - b[axis])) > 1e-4) moved++
+        if (Math.hypot(...a.map((v, axis) => v - b[axis])) > 1e-4) {
+          moved++
+        }
       }
     }
     assert.ok(moved > 10, `${id} must have object motion, not only transitions`)
@@ -149,8 +151,9 @@ test('both feet stay opposite on the crank and leg lengths stay fixed for a full
     const t = ((frame / 120) * Math.PI * 2) / 3
     const a = pedalAt(t, -1),
       b = pedalAt(t, 1)
-    for (let axis = 0; axis < 3; axis++)
+    for (let axis = 0; axis < 3; axis++) {
       assert.ok(Math.abs((a[axis] + b[axis]) / 2 - CRANK[axis]) < 1e-12)
+    }
     for (const foot of [a, b]) {
       assert.ok(
         Math.abs(
@@ -197,7 +200,9 @@ test('gyroscope rings tilt out of their original planes, not just spin in place'
   let min = Infinity,
     max = -Infinity
   for (const point of model.points) {
-    if (point.part !== 1) continue
+    if (point.part !== 1) {
+      continue
+    }
     const v: Vec3 = [point.x, point.y, point.z]
     pose(point, v)
     min = Math.min(min, v[0])

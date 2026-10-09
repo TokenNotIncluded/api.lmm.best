@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import type { Shape } from './geometry'
 import {
-  Shape,
   TAU,
   mix,
   palette as C,
@@ -150,17 +150,29 @@ export function bicycle(
       }
     })
     return (p, v) => {
-      if (p.part === 1 || p.part === 2) wheels[p.part - 1](p, v)
-      else if (p.part === 3) crank(p, v)
-      else if (p.part === 4 || p.part === 5 || p.part === 14 || p.part === 15) {
+      if (p.part === 1 || p.part === 2) {
+        wheels[p.part - 1](p, v)
+      } else if (p.part === 3) {
+        crank(p, v)
+      } else if (
+        p.part === 4 ||
+        p.part === 5 ||
+        p.part === 14 ||
+        p.part === 15
+      ) {
         const leg = posed[p.part % 2]
         v[0] += leg.dx
         v[1] += leg.dy
       } else if (p.part >= 10 && p.part <= 13) {
         const leg = posed[Math.floor((p.part - 10) / 2)]
-        if (p.part % 2) leg.lower(p, v)
-        else leg.upper(p, v)
-      } else if (p.part >= 20) v[1] += bob
+        if (p.part % 2) {
+          leg.lower(p, v)
+        } else {
+          leg.upper(p, v)
+        }
+      } else if (p.part >= 20) {
+        v[1] += bob
+      }
     }
   }
 }

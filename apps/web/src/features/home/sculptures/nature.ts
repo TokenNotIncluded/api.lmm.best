@@ -143,8 +143,11 @@ export function lotus(): Sculpture {
     (t) => {
       const open = 0.78 + Math.sin((t * TAU) / 6.4) * 0.2
       return (p, v) => {
-        if (p.closed)
-          for (let i = 0; i < 3; i++) v[i] = mix(p.closed[i], v[i], open)
+        if (p.closed) {
+          for (let i = 0; i < 3; i++) {
+            v[i] = mix(p.closed[i], v[i], open)
+          }
+        }
         v[0] += Math.sin(t * 0.9) * (p.y + 1.26) * 0.016
       }
     },
@@ -175,7 +178,7 @@ export function rose(): Sculpture {
       tint(C.teal, 0.6 + Math.sin(v * Math.PI) * 0.3)
     )
     s.tube((u) => leaf(u, 0.5), 0.009, tint(C.gold, 0.77), 0, 45, 5)
-    for (let rib = 1; rib < 7; rib++)
+    for (let rib = 1; rib < 7; rib++) {
       for (const edge of [0, 1]) {
         s.tube(
           (t) => leaf(rib / 8 + t * 0.12, mix(0.5, edge, t)),
@@ -186,6 +189,7 @@ export function rose(): Sculpture {
           3
         )
       }
+    }
   }
   // Offset whorls curl around the centre rather than forming a flat red disk.
   for (let layer = 0; layer < 4; layer++) {
@@ -247,8 +251,11 @@ export function rose(): Sculpture {
     (t) => {
       const open = 0.83 + Math.sin((t * TAU) / 7.2) * 0.15
       return (p, v) => {
-        if (p.closed)
-          for (let i = 0; i < 3; i++) v[i] = mix(p.closed[i], v[i], open)
+        if (p.closed) {
+          for (let i = 0; i < 3; i++) {
+            v[i] = mix(p.closed[i], v[i], open)
+          }
+        }
         v[0] += Math.sin(t * 0.85) * (p.y + 1.26) * 0.02
       }
     },
@@ -279,7 +286,7 @@ export function fish(): Sculpture {
     }
   )
   // Crescent scales sit just above the body surface, not a painted noise mask.
-  for (let row = 0; row < 12; row++)
+  for (let row = 0; row < 12; row++) {
     for (let col = 0; col < 14; col++) {
       const u = 0.16 + row * 0.047,
         a = ((col + (row % 2) * 0.5) / 14) * TAU
@@ -293,6 +300,7 @@ export function fish(): Sculpture {
         3
       )
     }
+  }
   const tail = (u: number, v: number): Vec3 => {
     const q = v * 2 - 1
     return [
@@ -324,8 +332,9 @@ export function fish(): Sculpture {
     v * 0.015,
   ]
   s.surface(55, 23, dorsal, C.gold, 2)
-  for (let ray = 1; ray < 12; ray++)
+  for (let ray = 1; ray < 12; ray++) {
     s.tube((v) => dorsal(ray / 12, v), 0.005, C.rust, 2, 22, 3)
+  }
   for (const side of [-1, 1]) {
     const fin = (u: number, v: number): Vec3 => [
       0.19 - u * 0.48,
@@ -333,8 +342,9 @@ export function fish(): Sculpture {
       side * (0.19 + u * 0.28),
     ]
     s.surface(36, 23, fin, (u) => tint(C.rose, 0.72 + u * 0.25), 2)
-    for (let ray = 1; ray < 7; ray++)
+    for (let ray = 1; ray < 7; ray++) {
       s.tube((u) => fin(u, ray / 6), 0.004, C.cream, 2, 24, 3)
+    }
     s.ellipsoid(
       [0.66, 0.095, side * 0.18],
       [0.061, 0.062, 0.039],
@@ -391,7 +401,9 @@ export function fish(): Sculpture {
         (p.part === 2 ? Math.sin(t * 5 + p.x * 4) * 0.05 : 0)
       v[0] += 0.24 + Math.sin(t * 0.7) * 0.1
       // Keep the long tail inside the narrow canvas throughout its stroke.
-      for (let axis = 0; axis < 3; axis++) v[axis] *= 0.92
+      for (let axis = 0; axis < 3; axis++) {
+        v[axis] *= 0.92
+      }
     },
     [0.06, 0.12]
   )
@@ -446,7 +458,9 @@ export function jellyfish(): Sculpture {
           const length = 0.27 - p.y
           v[0] += Math.sin(t * 2.4 + length * 4 + p.z * 3) * length * 0.09
           v[2] += Math.cos(t * 2 + length * 3) * length * 0.055
-        } else v[1] += (p.y - 0.26) * pulse * 0.14
+        } else {
+          v[1] += (p.y - 0.26) * pulse * 0.14
+        }
       }
     },
     [0, 0.12]
@@ -512,7 +526,9 @@ export function dandelion(): Sculpture {
         wind = Math.pow((1 - Math.cos(t * 0.75)) / 2, 3)
       return (p, v) => {
         v[0] += sway * (p.y + 1.32)
-        if (!p.part) return
+        if (!p.part) {
+          return
+        }
         const loosen = Math.max(0, wind - hash(p.part) * 0.55)
         v[0] += loosen * (0.7 + hash(p.part + 100) * 0.9)
         v[1] += loosen * (0.2 + hash(p.part + 200) * 0.6)
@@ -627,8 +643,9 @@ export function dragonfly(): Sculpture {
         (_u, v) => tint([188, 220, 215], 0.72 + Math.sin(v * Math.PI) * 0.2),
         part
       )
-      for (const v of [0, 0.35, 0.65, 1])
+      for (const v of [0, 0.35, 0.65, 1]) {
         s.tube((u) => wing(u, v), 0.007, C.teal, part, 72, 4)
+      }
       for (let rib = 1; rib < 15; rib++) {
         const u = rib / 16
         s.tube(
@@ -663,7 +680,9 @@ export function dragonfly(): Sculpture {
       })
       const bank = rotate(2, -0.22 + Math.sin(t * 0.7) * 0.05)
       return (p, v) => {
-        if (p.part) wings[p.part - 1](p, v)
+        if (p.part) {
+          wings[p.part - 1](p, v)
+        }
         bank(p, v)
         v[1] += Math.sin(t * 1.5) * 0.06
         v[0] += Math.sin(t * 0.9) * 0.05
