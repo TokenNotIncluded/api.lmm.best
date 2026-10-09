@@ -23,6 +23,7 @@ import (
 // ChannelCreationInput is shared by the administrator form and reviewed
 // marketplace submissions. Preparation never writes to the database.
 type ChannelCreationInput struct {
+	// Mode must be single, batch, or multi_to_single.
 	Mode                      string                `json:"mode"`
 	MultiKeyMode              constant.MultiKeyMode `json:"multi_key_mode"`
 	BatchAddSetKeyPrefix2Name bool                  `json:"batch_add_set_key_prefix_2_name"`

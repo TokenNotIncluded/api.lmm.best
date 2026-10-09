@@ -163,6 +163,11 @@ test('channel market does not request administrator data for contributors or ord
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 20))
       })
+      assert.equal(
+        document.querySelector('p div, p p'),
+        null,
+        'channel descriptions must use valid paragraph content'
+      )
       assert.ok(
         requests.some((url) => url.startsWith('/api/public-relays?')),
         'the public catalog still loads'
@@ -381,14 +386,12 @@ const marketButton = (container: ParentNode, text: string) => {
   return button
 }
 async function renderMarket(role = 1) {
-  useAuthStore
-    .getState()
-    .auth.setUser({
-      id: 1,
-      username: 'audit-user',
-      role,
-      developer_access_granted: true,
-    })
+  useAuthStore.getState().auth.setUser({
+    id: 1,
+    username: 'audit-user',
+    role,
+    developer_access_granted: true,
+  })
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
@@ -425,14 +428,15 @@ test('routing refresh preserves unsaved switches and saves the displayed choices
   api.defaults.adapter = async (config) => {
     const url = config.url ?? ''
     let data: unknown = { group: 'FREE', items: [] }
-    if (url === '/api/public-relays/config')
+    if (url === '/api/public-relays/config') {
       data = { group: 'FREE', minimum_withdrawal_quota: 5000000 }
+    }
     if (url === '/api/public-relays/routing') {
       if (config.method === 'put') {
         sent.push(JSON.parse(String(config.data)))
         saved = true
         data = null
-      } else
+      } else {
         data = {
           group: 'FREE',
           items: [
@@ -449,6 +453,7 @@ test('routing refresh preserves unsaved switches and saves the displayed choices
             },
           ],
         }
+      }
     }
     return {
       config,
