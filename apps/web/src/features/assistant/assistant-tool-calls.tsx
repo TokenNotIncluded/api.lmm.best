@@ -29,8 +29,8 @@ import {
 } from '@/components/ai-elements/tool'
 
 import type { AssistantToolTrace } from './api.js'
-import { assistantToolErrorMessages } from './assistant-tool-errors'
 import { AssistantSupportReview } from './assistant-support-review'
+import { assistantToolErrorMessages } from './assistant-tool-errors'
 import {
   assistantToolTraceKey,
   assistantToolOutcome,
@@ -44,10 +44,10 @@ const AssistantVisualizationCard = lazy(() =>
 )
 
 const TOOL_TITLE_KEYS = {
- get_admin_server_config: 'Read server settings',
- get_site_policy: 'Read site policy',
- search_site_policies: 'Search site policies',
- prepare_admin_site_policy_change: 'Prepare site policy changes',
+  get_admin_server_config: 'Read server settings',
+  get_site_policy: 'Read site policy',
+  search_site_policies: 'Search site policies',
+  prepare_admin_site_policy_change: 'Prepare site policy changes',
   discover_tools: 'Load assistant tools',
   end_conversation: 'End this turn',
   get_overview_greeting: 'Read overview greeting',

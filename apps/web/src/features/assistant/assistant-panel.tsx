@@ -2491,8 +2491,12 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       </MessageContent>
                     </Message>
                   ) : null}
-                  <AssistantNewUserGift enabled={accountAccessConfirmed && !isAdministrator} />
-                  <AssistantWeeklyDiscount enabled={accountAccessConfirmed && !isAdministrator} />
+                  <AssistantNewUserGift
+                    enabled={accountAccessConfirmed && !isAdministrator}
+                  />
+                  <AssistantWeeklyDiscount
+                    enabled={accountAccessConfirmed && !isAdministrator}
+                  />
                   {!support.aiPaused ? (
                     <div
                       ref={activeToolRegionRef}

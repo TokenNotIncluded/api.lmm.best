@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -21,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { marketAPI } from '@/features/tool-market/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -58,7 +58,11 @@ export function AssistantToolConfiguration({
   const rule = assistantToolRule(policy, tool)
   const defaults = defaultAssistantToolRule(tool)
   const change = (values: Partial<AssistantToolRule>) => {
-    if (rulesSupported && !disabled) { onChange(updateAssistantToolRule(policy, tool.name, { ...rule, ...values })) }
+    if (rulesSupported && !disabled) {
+      onChange(
+        updateAssistantToolRule(policy, tool.name, { ...rule, ...values })
+      )
+    }
   }
   const levelName = (level: number) =>
     level === 6
@@ -97,170 +101,198 @@ export function AssistantToolConfiguration({
         <div className='space-y-6'>
           <div className='flex items-center justify-between gap-4'>
             <label htmlFor={`${id}-enabled`}>{t('Enable this tool')}</label>
-            <Switch id={`${id}-enabled`} checked={policy.tools[tool.name] !== false} disabled={disabled}
-              onCheckedChange={(enabled) => onChange(JSON.stringify({...policy, tools:{...policy.tools,[tool.name]:enabled}}))} />
+            <Switch
+              id={`${id}-enabled`}
+              checked={policy.tools[tool.name] !== false}
+              disabled={disabled}
+              onCheckedChange={(enabled) =>
+                onChange(
+                  JSON.stringify({
+                    ...policy,
+                    tools: { ...policy.tools, [tool.name]: enabled },
+                  })
+                )
+              }
+            />
           </div>
-          {!groupEnabled && <p role='status' className='text-muted-foreground text-sm'>{t('This tool group is disabled. Enable its group to use the saved tool settings.')}</p>}
-          {!rulesSupported && <p role='status' className='text-muted-foreground text-sm'>{t('This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.')}</p>}
-          <fieldset disabled={disabled || !rulesSupported} className='space-y-6 disabled:opacity-60'>
-          <section className='space-y-3' aria-labelledby={`${id}-access`}>
-            <h4 id={`${id}-access`} className='font-medium'>
-              {t('Allowed account levels')}
-            </h4>
-            <div className='grid gap-4 sm:grid-cols-2'>
-              {(['min_level', 'max_level'] as const).map((key) => (
-                <div key={key} className='space-y-2'>
-                  <label
-                    htmlFor={`${id}-${key}`}
-                    className='text-muted-foreground text-sm'
-                  >
-                    {t(key === 'min_level' ? 'Minimum level' : 'Maximum level')}
-                  </label>
-                  <Select
-                    value={String(rule[key])}
-                    onValueChange={(value) => {
-                      if (typeof value !== 'string') return
-                      const n = Number(value)
-                      if (!levels.includes(n)) return
-                      change(
-                        key === 'min_level'
-                          ? {
-                              min_level: n,
-                              max_level: Math.max(n, rule.max_level),
-                            }
-                          : {
-                              max_level: n,
-                              min_level: Math.min(n, rule.min_level),
-                            }
-                      )
-                    }}
-                  >
-                    <SelectTrigger
-                      id={`${id}-${key}`}
-                      className='w-full'
-                      disabled={disabled || !rulesSupported}
-                    >
-                      <SelectValue>{levelName(rule[key])}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false}>
-                      {levels.map((level) => (
-                        <SelectItem key={level} value={String(level)}>
-                          {levelName(level)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-            <p className='text-muted-foreground text-xs leading-relaxed'>
+          {!groupEnabled && (
+            <p role='status' className='text-muted-foreground text-sm'>
               {t(
-                'Both limits are inclusive. L5 is an administrator; L6 is a super administrator. Level rules cannot bypass ownership, confirmation or a tool’s required role.'
+                'This tool group is disabled. Enable its group to use the saved tool settings.'
               )}
             </p>
-          </section>
-          {tool.name === 'prepare_weekly_discount' && (
-            <section className='space-y-3' aria-labelledby={`${id}-discount`}>
-              <h4 id={`${id}-discount`} className='font-medium'>
-                {t('Maximum discount by level')}
+          )}
+          {!rulesSupported && (
+            <p role='status' className='text-muted-foreground text-sm'>
+              {t(
+                'This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.'
+              )}
+            </p>
+          )}
+          <fieldset
+            disabled={disabled || !rulesSupported}
+            className='space-y-6 disabled:opacity-60'
+          >
+            <section className='space-y-3' aria-labelledby={`${id}-access`}>
+              <h4 id={`${id}-access`} className='font-medium'>
+                {t('Allowed account levels')}
               </h4>
-              <p className='text-muted-foreground text-sm'>
-                {t(
-                  'A value of 10 means 10% off, not a 10% payment. Zero disables offers for that level. Existing claimed codes are unchanged.'
-                )}
-              </p>
-              <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
-                {Array.from({ length: 7 }, (_, level) => (
-                  <label key={level} className='space-y-2 text-sm'>
-                    <span className='block'>{levelName(level)}</span>
-                    <div className='relative'>
-                      <Input
-                        type='number'
-                        min={0}
-                        max={99}
-                        step={1}
-                        className='pe-8'
-                        value={weeklyDiscountLimit(rule, level)}
-                        disabled={disabled || level >= 5}
-                        onChange={(event) => {
-                          const value = Number(event.target.value)
-                          if (
-                            Number.isInteger(value) &&
-                            value >= 0 &&
-                            value <= 99
-                          ) {
-                            change({
-                              discount_percent_by_level: {
-                                ...rule.discount_percent_by_level,
-                                [String(level)]: value,
-                              },
-                            })
-                          }
-                        }}
-                      />
-                      <span className='text-muted-foreground pointer-events-none absolute end-3 top-2.5'>
-                        %
-                      </span>
-                    </div>
-                  </label>
+              <div className='grid gap-4 sm:grid-cols-2'>
+                {(['min_level', 'max_level'] as const).map((key) => (
+                  <div key={key} className='space-y-2'>
+                    <label
+                      htmlFor={`${id}-${key}`}
+                      className='text-muted-foreground text-sm'
+                    >
+                      {t(
+                        key === 'min_level' ? 'Minimum level' : 'Maximum level'
+                      )}
+                    </label>
+                    <Select
+                      value={String(rule[key])}
+                      onValueChange={(value) => {
+                        if (typeof value !== 'string') return
+                        const n = Number(value)
+                        if (!levels.includes(n)) return
+                        change(
+                          key === 'min_level'
+                            ? {
+                                min_level: n,
+                                max_level: Math.max(n, rule.max_level),
+                              }
+                            : {
+                                max_level: n,
+                                min_level: Math.min(n, rule.min_level),
+                              }
+                        )
+                      }}
+                    >
+                      <SelectTrigger
+                        id={`${id}-${key}`}
+                        className='w-full'
+                        disabled={disabled || !rulesSupported}
+                      >
+                        <SelectValue>{levelName(rule[key])}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        {levels.map((level) => (
+                          <SelectItem key={level} value={String(level)}>
+                            {levelName(level)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 ))}
               </div>
-              <p className='text-muted-foreground text-xs'>
+              <p className='text-muted-foreground text-xs leading-relaxed'>
                 {t(
-                  'Administrators do not receive conversation rewards. Unconfigured member levels retain the existing 10% limit.'
+                  'Both limits are inclusive. L5 is an administrator; L6 is a super administrator. Level rules cannot bypass ownership, confirmation or a tool’s required role.'
                 )}
               </p>
             </section>
-          )}
-          {tool.name === 'create_site_issue' && (
-            <section className='space-y-3'>
-              <label htmlFor={`${id}-visibility`} className='font-medium'>
-                {t('Default issue visibility')}
-              </label>
-              <Select
-                value={rule.default_visibility ?? 'user'}
-                onValueChange={(value) => {
-                  if (value === 'user' || value === 'admin') {
-                    change({ default_visibility: value })
-                  }
-                }}
-              >
-                <SelectTrigger
-                  id={`${id}-visibility`}
-                  className='w-full'
-                  disabled={disabled || !rulesSupported}
+            {tool.name === 'prepare_weekly_discount' && (
+              <section className='space-y-3' aria-labelledby={`${id}-discount`}>
+                <h4 id={`${id}-discount`} className='font-medium'>
+                  {t('Maximum discount by level')}
+                </h4>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'A value of 10 means 10% off, not a 10% payment. Zero disables offers for that level. Existing claimed codes are unchanged.'
+                  )}
+                </p>
+                <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
+                  {Array.from({ length: 7 }, (_, level) => (
+                    <label key={level} className='space-y-2 text-sm'>
+                      <span className='block'>{levelName(level)}</span>
+                      <div className='relative'>
+                        <Input
+                          type='number'
+                          min={0}
+                          max={99}
+                          step={1}
+                          className='pe-8'
+                          value={weeklyDiscountLimit(rule, level)}
+                          disabled={disabled || level >= 5}
+                          onChange={(event) => {
+                            const value = Number(event.target.value)
+                            if (
+                              Number.isInteger(value) &&
+                              value >= 0 &&
+                              value <= 99
+                            ) {
+                              change({
+                                discount_percent_by_level: {
+                                  ...rule.discount_percent_by_level,
+                                  [String(level)]: value,
+                                },
+                              })
+                            }
+                          }}
+                        />
+                        <span className='text-muted-foreground pointer-events-none absolute end-3 top-2.5'>
+                          %
+                        </span>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Administrators do not receive conversation rewards. Unconfigured member levels retain the existing 10% limit.'
+                  )}
+                </p>
+              </section>
+            )}
+            {tool.name === 'create_site_issue' && (
+              <section className='space-y-3'>
+                <label htmlFor={`${id}-visibility`} className='font-medium'>
+                  {t('Default issue visibility')}
+                </label>
+                <Select
+                  value={rule.default_visibility ?? 'user'}
+                  onValueChange={(value) => {
+                    if (value === 'user' || value === 'admin') {
+                      change({ default_visibility: value })
+                    }
+                  }}
                 >
-                  <SelectValue>
-                    {t(
-                      rule.default_visibility === 'admin'
-                        ? 'Administrators only'
-                        : 'Reporter and administrators'
-                    )}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false}>
-                  <SelectItem value='user'>
-                    {t('Reporter and administrators')}
-                  </SelectItem>
-                  <SelectItem value='admin'>
-                    {t('Administrators only')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className='text-muted-foreground text-xs'>
-                {t(
-                  'User-visible reports are private to their reporter. Security reports and internal notes stay administrator-only.'
-                )}
-              </p>
-            </section>
-          )}
-          {tool.name === 'call_market_tool' && (
-            <AssistantMarketConnections
-              ids={rule.market_service_ids ?? []}
-              disabled={disabled || !rulesSupported}
-              onChange={(ids) => change({ market_service_ids: ids })}
-            />
-          )}
+                  <SelectTrigger
+                    id={`${id}-visibility`}
+                    className='w-full'
+                    disabled={disabled || !rulesSupported}
+                  >
+                    <SelectValue>
+                      {t(
+                        rule.default_visibility === 'admin'
+                          ? 'Administrators only'
+                          : 'Reporter and administrators'
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectItem value='user'>
+                      {t('Reporter and administrators')}
+                    </SelectItem>
+                    <SelectItem value='admin'>
+                      {t('Administrators only')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'User-visible reports are private to their reporter. Security reports and internal notes stay administrator-only.'
+                  )}
+                </p>
+              </section>
+            )}
+            {tool.name === 'call_market_tool' && (
+              <AssistantMarketConnections
+                ids={rule.market_service_ids ?? []}
+                disabled={disabled || !rulesSupported}
+                onChange={(ids) => change({ market_service_ids: ids })}
+              />
+            )}
           </fieldset>
           {children}
         </div>

@@ -234,13 +234,20 @@ test('legacy catalogs open configuration without adding unsupported rules', asyn
     get: () => ({ success: true, data: { groups: catalog.data.groups } }),
   })
   try {
-    const configure = rendered.container.querySelector<HTMLButtonElement>('[aria-label="Configure List API keys"]')
+    const configure = rendered.container.querySelector<HTMLButtonElement>(
+      '[aria-label="Configure List API keys"]'
+    )
     assert.ok(configure)
     assert.equal(configure.disabled, false)
     await click(configure)
-    const dialog = document.querySelector('[data-testid="assistant-tool-configuration"]')
+    const dialog = document.querySelector(
+      '[data-testid="assistant-tool-configuration"]'
+    )
     assert.ok(dialog)
-    assert.match(dialog.textContent ?? '', /does not support tool-level rules yet/)
+    assert.match(
+      dialog.textContent ?? '',
+      /does not support tool-level rules yet/
+    )
     const fieldset = dialog.querySelector('fieldset')
     assert.equal(fieldset?.disabled, true)
     const baseSwitch = dialog.querySelector('[role="switch"]')
@@ -571,22 +578,46 @@ test('weekly discount dialog edits member ceilings but never grants administrato
 })
 
 // Read the authoritative Go catalogue so new tools cannot silently miss this test.
-const toolSource = readFileSync(new URL('../../../../../api-go/setting/assistant_tool_policy.go', import.meta.url), 'utf8')
-const registeredTools = [...toolSource.matchAll(/^\s*\{("[^"\n]+"), ("[^"\n]+"), ("[^"\n]+"), ("(?:read_only|navigation|confirmation|server_guarded)"), ("[^"\n]+")\},$/gm)].map((match) => {
-  const [name, label, description, effect, access] = match.slice(1).map((value) => JSON.parse(value) as string)
+const toolSource = readFileSync(
+  new URL(
+    '../../../../../api-go/setting/assistant_tool_policy.go',
+    import.meta.url
+  ),
+  'utf8'
+)
+const registeredTools = [
+  ...toolSource.matchAll(
+    /^\s*\{("[^"\n]+"), ("[^"\n]+"), ("[^"\n]+"), ("(?:read_only|navigation|confirmation|server_guarded)"), ("[^"\n]+")\},$/gm
+  ),
+].map((match) => {
+  const [name, label, description, effect, access] = match
+    .slice(1)
+    .map((value) => JSON.parse(value) as string)
   return { name, label, description, effect, access }
 })
 assert.equal(registeredTools.length, 72)
 for (const tool of registeredTools) {
   test(`configuration opens and saves a switch for ${tool.name}`, async () => {
     for (const supported of [true, false]) {
-      const rendered = await renderEditor({ get: () => ({ success: true, data: { capabilities: { policy_rules: supported }, groups: [{ id: 'audit', label: 'Audit', tools: [tool] }] } }) })
+      const rendered = await renderEditor({
+        get: () => ({
+          success: true,
+          data: {
+            capabilities: { policy_rules: supported },
+            groups: [{ id: 'audit', label: 'Audit', tools: [tool] }],
+          },
+        }),
+      })
       try {
-        const button = rendered.container.querySelector<HTMLButtonElement>(`[data-tool-name="${tool.name}"] button[aria-label^="Configure "]`)
+        const button = rendered.container.querySelector<HTMLButtonElement>(
+          `[data-tool-name="${tool.name}"] button[aria-label^="Configure "]`
+        )
         assert.ok(button)
         assert.equal(button.disabled, false)
         await click(button)
-        const dialog = document.querySelector('[data-testid="assistant-tool-configuration"]')
+        const dialog = document.querySelector(
+          '[data-testid="assistant-tool-configuration"]'
+        )
         assert.ok(dialog)
         assert.equal(dialog.querySelector('fieldset')?.disabled, !supported)
         await click(dialog.querySelector('[role="switch"]'))

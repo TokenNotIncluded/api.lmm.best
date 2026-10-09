@@ -146,22 +146,21 @@ export function AssistantToolPolicyEditor(props: {
       className='assistant-tool-center space-y-5'
       data-testid='assistant-tool-policy-editor'
     >
-      {props.active &&
-        valid &&
-        policy &&
-        selectedTool && (
-          <AssistantToolConfiguration
-            rulesSupported={policyRulesSupported}
-            groupEnabled={!selectedGroup || policy.groups[selectedGroup.id] !== false}
-            tool={selectedTool}
-            policy={policy}
-            onChange={props.onChange}
-            onClose={closeConfiguration}
-            disabled={props.disabled}
-          >
-            {props.renderSettings?.(selectedTool.name)}
-          </AssistantToolConfiguration>
-        )}
+      {props.active && valid && policy && selectedTool && (
+        <AssistantToolConfiguration
+          rulesSupported={policyRulesSupported}
+          groupEnabled={
+            !selectedGroup || policy.groups[selectedGroup.id] !== false
+          }
+          tool={selectedTool}
+          policy={policy}
+          onChange={props.onChange}
+          onClose={closeConfiguration}
+          disabled={props.disabled}
+        >
+          {props.renderSettings?.(selectedTool.name)}
+        </AssistantToolConfiguration>
+      )}
       <div className='space-y-1'>
         <h3 className='text-sm font-medium'>{t('Built-in assistant tools')}</h3>
         <p className='text-muted-foreground text-sm'>
@@ -351,9 +350,7 @@ export function AssistantToolPolicyEditor(props: {
                             type='button'
                             variant='ghost'
                             size='sm'
-                            disabled={
-                              props.disabled || !valid
-                            }
+                            disabled={props.disabled || !valid}
                             aria-label={t('Configure {{tool}}', {
                               tool: t(tool.label),
                             })}

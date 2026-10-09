@@ -43,6 +43,10 @@ import { redactAssistantMessageForRequest } from './assistant-message-safety'
 import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
 import type { AssistantSupportRequest } from './assistant-support-api'
 import {
+  parseAssistantToolErrorCode,
+  type AssistantToolErrorCode,
+} from './assistant-tool-errors'
+import {
   parseAssistantVisualization,
   type AssistantVisualization,
 } from './assistant-visualization-data'
@@ -53,7 +57,6 @@ import {
   parseAssistantWorkspaceAction,
   type AssistantWorkspaceAction,
 } from './assistant-workspace-contract'
-import { parseAssistantToolErrorCode, type AssistantToolErrorCode } from './assistant-tool-errors'
 import { getGuideEligibleModels } from './setup-guide'
 
 export type {

@@ -28,8 +28,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 
 import { parseAssistantToolTraces } from './api.js'
-import { assistantToolErrorMessages, parseAssistantToolErrorCode } from './assistant-tool-errors'
 import { AssistantToolCalls } from './assistant-tool-calls.js'
+import {
+  assistantToolErrorMessages,
+  parseAssistantToolErrorCode,
+} from './assistant-tool-errors'
 import {
   assistantToolOutcome,
   collapseAssistantToolTraces,
@@ -265,14 +268,33 @@ test('keeps every bounded administrator action and its failed outcome', () => {
 for (const [code, message] of Object.entries(assistantToolErrorMessages)) {
   test(`shows a safe, specific tool error: ${code}`, () => {
     assert.equal(parseAssistantToolErrorCode(code), code)
-    const traces = parseAssistantToolTraces([{ name: 'get_admin_server_config', status: 'output-error', error_code: code }])
+    const traces = parseAssistantToolTraces([
+      {
+        name: 'get_admin_server_config',
+        status: 'output-error',
+        error_code: code,
+      },
+    ])
     assert.equal(traces[0]?.errorCode, code)
-    const markup = renderToStaticMarkup(createElement(I18nextProvider, { i18n: testI18n }, createElement(AssistantToolCalls, { traces })))
+    const markup = renderToStaticMarkup(
+      createElement(
+        I18nextProvider,
+        { i18n: testI18n },
+        createElement(AssistantToolCalls, { traces })
+      )
+    )
     assert.ok(markup.includes(message), markup)
   })
 }
 test('unreviewed provider errors never become public error codes', () => {
-  for (const value of ['sk-example-secret', '__proto__', 'constructor', 500, null, {}]) {
+  for (const value of [
+    'sk-example-secret',
+    '__proto__',
+    'constructor',
+    500,
+    null,
+    {},
+  ]) {
     assert.equal(parseAssistantToolErrorCode(value), undefined)
   }
 })

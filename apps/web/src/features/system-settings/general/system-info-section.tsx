@@ -59,8 +59,8 @@ const _systemInfoSchema = z.object({
     privacy_policy: z.string().optional(),
     user_agreement_en: z.string().optional(),
     privacy_policy_en: z.string().optional(),
-      refund_policy: z.string().optional(),
-      refund_policy_en: z.string().optional(),
+    refund_policy: z.string().optional(),
+    refund_policy_en: z.string().optional(),
   }),
 })
 
@@ -383,14 +383,28 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
               </SettingsFormGrid>
               <SettingsFormGrid>
                 {(['refund_policy', 'refund_policy_en'] as const).map((key) => (
-                  <FormField key={key} control={form.control} name={`legal.${key}`} render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Refund Policy')}{key.endsWith('_en') ? ' (English)' : ''}</FormLabel>
-                      <FormControl><Textarea rows={6} {...field} /></FormControl>
-                      <FormDescription>{t('A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language.')}</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  <FormField
+                    key={key}
+                    control={form.control}
+                    name={`legal.${key}`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('Refund Policy')}
+                          {key.endsWith('_en') ? ' (English)' : ''}
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea rows={6} {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 ))}
               </SettingsFormGrid>
               <SettingsDisclosure title={t('English versions')}>
