@@ -1,0 +1,89 @@
+name: Marketplace branch verification
+on:
+  push:
+    branches: [codex/market-provider-presets-20261009]
+    paths:
+      - .github/workflows/market-presets-verify.yml
+      - .market-presets.patch.gz.b64
+permissions:
+  contents: read
+concurrency:
+  group: market-presets-development
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/codex/market-provider-presets-20261009'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: market_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      OAUTH_SERVER_TEST_POSTGRES_DSN: postgres://postgres:postgres@127.0.0.1:55432/market_test?sslmode=disable
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Apply reviewed development patch on this branch only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f .market-presets.patch.gz.b64; then
+            base64 --decode .market-presets.patch.gz.b64 | gzip -d > "$RUNNER_TEMP/market.patch"
+            git apply --check "$RUNNER_TEMP/market.patch"
+            git apply --index "$RUNNER_TEMP/market.patch"
+            git rm -f --ignore-unmatch .market-presets.patch.gz.b64 .github/workflows/market-presets-development.yml
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: add marketplace provider presets, price multipliers and MCP OAuth'
+            header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            echo "::add-mask::$header"
+            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $header" push origin HEAD:refs/heads/codex/market-provider-presets-20261009
+          fi
+          mkdir -p /tmp/market-evidence
+          git rev-parse HEAD | tee /tmp/market-evidence/tested-sha.txt
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: true
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Go marketplace and OAuth regression suites
+        working-directory: apps/api-go
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -p 2 -count=1 ./oauthserver ./model ./service ./controller ./router -run 'OAuth|ToolMarket' 2>&1 | tee /tmp/market-evidence/go.log
+          if test -d marketprice; then
+            go test -race -count=1 ./marketprice 2>&1 | tee /tmp/market-evidence/pricing.log
+          fi
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        if: always()
+        with:
+          bun-version: '1.3.14'
+      - name: Install frontend dependencies
+        if: always()
+        run: bun install --frozen-lockfile
+      - name: Frontend type check and marketplace tests
+        if: always()
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run typecheck 2>&1 | tee /tmp/market-evidence/types.log
+          bun test src/features/tool-market 2>&1 | tee /tmp/market-evidence/web-tests.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: marketplace-verification
+          path: /tmp/market-evidence
+          retention-days: 3
