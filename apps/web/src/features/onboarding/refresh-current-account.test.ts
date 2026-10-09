@@ -11,6 +11,23 @@ const originalGet = api.get
 const previousAuth = useAuthStore.getState().auth
 const user = { id: 41, username: 'test', quota: 10 } as AuthUser
 
+const bundle = (sid: string, granted = false) => ({
+  access_token: 'local-test-token',
+  token_type: 'Bearer',
+  access_expires_at: 1900000000,
+  user: { ...user, developer_access_granted: granted },
+  session: {
+    sid,
+    current: true,
+    login_method: 'password',
+    ip: '127.0.0.1',
+    user_agent: 'local-test',
+    created_at: 1,
+    last_active_at: 1,
+    expires_at: 1900000000,
+  },
+})
+
 function deferredAccountRead() {
   let resolve: (value: unknown) => void = () => undefined
   let reject: (error: Error) => void = () => undefined
@@ -60,22 +77,6 @@ test('does not restore the old account if it changes while refreshing', async ()
 })
 
 test('a grant refresh cannot promote a newer session of the same account', async () => {
-  const bundle = (sid: string) => ({
-    access_token: 'local-test-token',
-    token_type: 'Bearer',
-    access_expires_at: 1900000000,
-    user: { ...user, developer_access_granted: false },
-    session: {
-      sid,
-      current: true,
-      login_method: 'password',
-      ip: '127.0.0.1',
-      user_agent: 'local-test',
-      created_at: 1,
-      last_active_at: 1,
-      expires_at: 1900000000,
-    },
-  })
   useAuthStore.getState().auth.setBundle(bundle('old-session'))
   let finish: (value: unknown) => void = () => undefined
   api.get = (() =>
@@ -97,9 +98,7 @@ test('a grant refresh cannot promote a newer session of the same account', async
 
 for (const order of ['new-first', 'old-first']) {
   test(`same-account reads retain the new L1 result when responses finish ${order}`, async () => {
-    useAuthStore
-      .getState()
-      .auth.setUser({ ...user, developer_access_granted: false })
+    useAuthStore.getState().auth.setBundle(bundle('same-session', false))
     const oldRead = deferredAccountRead()
     const newRead = deferredAccountRead()
     let calls = 0
@@ -127,9 +126,7 @@ for (const order of ['new-first', 'old-first']) {
 
 for (const order of ['failure-first', 'stale-first']) {
   test(`a failed newer refresh preserves confirmed L1 when responses finish ${order}`, async () => {
-    useAuthStore
-      .getState()
-      .auth.setUser({ ...user, developer_access_granted: true })
+    useAuthStore.getState().auth.setBundle(bundle('same-session', true))
     const oldRead = deferredAccountRead()
     const newRead = deferredAccountRead()
     let calls = 0
