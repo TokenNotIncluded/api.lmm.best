@@ -1,13 +1,17 @@
 FROM rust:1.99.0-bookworm AS build
 WORKDIR /src/apps/core-rust
-COPY apps/core-rust/Cargo.toml apps/core-rust/Cargo.lock ./
+COPY apps/core-rust/Cargo.toml apps/core-rust/Cargo.lock apps/core-rust/build.rs ./
+COPY contracts/proto /src/contracts/proto
 COPY apps/core-rust/src ./src
 COPY apps/core-rust/migrations ./migrations
 RUN cargo build --locked --release --bins
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /run/lmm-core-rpc \
+    && chown 65532:65532 /run/lmm-core-rpc \
+    && chmod 0700 /run/lmm-core-rpc
 COPY --from=build /src/apps/core-rust/target/release/lmm-core /usr/local/bin/lmm-core
 COPY --from=build /src/apps/core-rust/target/release/lmm-core-admin /usr/local/bin/lmm-core-admin
 USER 65532:65532

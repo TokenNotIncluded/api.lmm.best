@@ -1,0 +1,63 @@
+syntax = "proto3";
+package lmm.core.v1;
+option go_package = "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb;corepb";
+
+// Internal, read-only control plane. Not a model relay or a spending grant.
+// Service and user credentials travel in separate metadata, never in messages.
+// Keep existing field numbers and meanings. Reserve removed numbers.
+service CoreControl {
+  rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+  rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
+  rpc ListTeams(ListTeamsRequest) returns (ListTeamsResponse);
+}
+message CapabilitiesRequest {}
+message CapabilitiesResponse {
+  uint32 protocol_major = 1;
+  bool identity_available = 2;
+  repeated string features = 3;
+}
+message AuthorizeRequest {}
+enum AccountKind {
+  ACCOUNT_KIND_UNSPECIFIED = 0;
+  ACCOUNT_KIND_PERSONAL = 1;
+  ACCOUNT_KIND_TEAM = 2;
+}
+message Account {
+  AccountKind kind = 1;
+  int64 id = 2;
+}
+enum CredentialKind {
+  CREDENTIAL_KIND_UNSPECIFIED = 0;
+  CREDENTIAL_KIND_SESSION = 1;
+  CREDENTIAL_KIND_API_KEY = 2;
+}
+message AuthorizeResponse {
+  int64 credential_id = 1;
+  CredentialKind credential_kind = 2;
+  int64 user_id = 3;
+  int32 platform_level = 4;
+  Account owner = 5;
+  // Ordered candidates only. Billing must recheck authority and reserve funds.
+  repeated Account funding_accounts = 6;
+}
+enum TeamRole {
+  TEAM_ROLE_UNSPECIFIED = 0;
+  TEAM_ROLE_OWNER = 1;
+  TEAM_ROLE_ADMIN = 2;
+  TEAM_ROLE_MEMBER = 3;
+}
+message ListTeamsRequest {
+  // Exclusive cursor, nonnegative. Results are ordered by team ID, at most 100.
+  int64 after_id = 1;
+}
+message Team {
+  int64 id = 1;
+  TeamRole role = 2;
+  int64 membership_version = 3;
+  bool can_spend = 4;
+}
+message ListTeamsResponse {
+  repeated Team teams = 1;
+  // Zero means the end; an empty final page is allowed after a full page.
+  int64 next_after_id = 2;
+}
