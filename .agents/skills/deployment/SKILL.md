@@ -92,6 +92,22 @@ Reuse qualified native packages and exact target-side bytes as described in
 `docs/production-release-transaction.md`; metadata differences belong in one
 reviewed delta, not a newly copied, fully re-audited caller for each version.
 
+## Frontend release in two steps
+
+Follow the executable two-step guide in
+`docs/deployment-workflow.md` ("Two explicit steps"). First fast-forward a clean
+local `main`, run `bun install --frozen-lockfile`, then record Web typecheck,
+test, build and bundle checks with `local-release-tests.py run --component web`.
+Its gate requires matching source objects and successful recorded commands; it
+does not require seven named slots. Add change-specific checks when needed.
+Choose an actually unused, newer Web tag, sign and push it, then dispatch
+`release-web.yml` at that tag with `local_test_evidence` and await its exact run.
+Only after the signed Release succeeds, dispatch `deploy-web-frontend.yml` at
+`main` with `release_tag`; require that exact run's success and public acceptance.
+Review compatibility with both active Go providers first. This is the existing
+archive workflow: it still does not update an Arch Web package or run its keep
+hook. Keep the installed-path limitation above; these commands do not fix it.
+
 ## Execute and observe
 
 Use the selected frontend path only after compatibility review and production

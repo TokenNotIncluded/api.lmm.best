@@ -92,19 +92,78 @@ The publisher checks it against its immutable tag checkout, then only builds,
 signs and publishes. Test/review workflows are manual diagnostics, with no
 push, pull-request, tag, merge-group or scheduled triggers.
 
-### Step by step
+### Two explicit steps
 
-From a workstation with an authenticated GitHub CLI:
+Use a clean local `main` checkout and authenticated `gh`. First review the Web
+changes against **both** hosts' active Go providers; the deploy workflow does
+not perform that compatibility review. Choose an actual unused `web-vX.Y.Z`
+tag, newer than existing Web tags and the AUR `pkgver`. Check local/remote tags
+and the Release by tag; only a confirmed absence counts, not a failed network
+read. No example version is an assertion that a tag is available.
+
+**1. Test locally, then publish the signed Release.**
 
 ```bash
-# Use an existing, fully published signed release; substitute its actual tag.
-just deploy-web web-vX.Y.Z
-
-# List runs, then inspect the exact run created for that tag.
-bash scripts/lmm-api-deploy.sh web list
-just deploy-web-status RUN_ID
-just deploy-web-watch RUN_ID
+set -euo pipefail
+git switch main
+git pull --ff-only origin main
+bun install --frozen-lockfile
+web_tag="${LMM_WEB_RELEASE_TAG:?Set the verified unused web-vX.Y.Z tag}"
+web_revision="$(git rev-parse HEAD)"
+web_evidence_dir="$(mktemp -d "${TMPDIR:-/tmp}/lmm-web-local.XXXXXX")"
+web_evidence="$web_evidence_dir/checks.json"
+VITE_REACT_APP_VERSION="${web_tag#web-v}" \
+  python3 scripts/local-release-tests.py run --component web \
+    --revision "$web_revision" --output "$web_evidence" -- bash -euc '
+      bun run --filter @lmm/web typecheck
+      bun run --filter @lmm/web test
+      bun run --filter @lmm/web build
+      bun run --filter @lmm/web bundle:check
+    '
+bash scripts/verify-release-commit-checks.sh "$web_revision" \
+  --component web --evidence "$web_evidence"
+git tag -s "$web_tag" "$web_revision" -m "LMM web $web_tag"
+git push origin "refs/tags/$web_tag"
+gh workflow run release-web.yml --ref "$web_tag" \
+  -F "local_test_evidence=@$web_evidence"
 ```
+
+The evidence validator accepts this successful compound command and binds its
+actual source, exit and log hashes; it does not mandate seven named checks.
+These four checks do not claim formatting, lint or copyright checks ran. Add
+`format:check`, `lint`, `copyright:check` or route/packaging checks when relevant
+to the change, preserving their actual outcomes. Reuse qualifying completed
+records instead of running unchanged checks again. Retain the evidence and logs.
+
+Record the dispatch's exact run ID. If no run URL is returned, list
+`gh run list --workflow release-web.yml --branch "$web_tag"` and match the tag,
+source SHA and dispatch time. Run `gh run watch RELEASE_RUN_ID --exit-status`;
+continue only on that run's completed success and the Release's complete signed
+asset set. A tag push alone does not start `release-web.yml`; its dispatch ref
+must be the tag, not `main`, and its required input is `local_test_evidence`.
+
+**2. Deploy the published Release, then accept the public result.**
+
+```bash
+gh workflow run deploy-web-frontend.yml --ref main -f "release_tag=$web_tag"
+# Record this exact deploy run ID, matching title "Deploy $web_tag frontend".
+gh run watch DEPLOY_RUN_ID --exit-status
+curl --fail --silent --show-error https://api.lmm.best/api/status
+curl --fail --silent --show-error https://api.lmm.best/index.html | sha256sum
+```
+
+Require the exact workflow's completed success, both origin publication checks
+and public `index.html`/asset hashes matching the signed release. Check the
+browser's Web build version against the tag suffix and affected user flows.
+`/api/status.data.version` is the **Go** version; compare it with preflight and
+confirm both active backends remain compatible. HTTP 200 alone is not acceptance.
+This deploy still publishes an archive: it does not update Arch's installed
+Web package or execute its keep hook. Apply the installation-path warning above;
+the two-step guide does not implement an installed-package automatic caller.
+
+For an already published qualified release, skip step 1 and use
+`just deploy-web TAG`; `just deploy-web-status RUN_ID` and
+`just deploy-web-watch RUN_ID` inspect the exact deployment.
 
 Without Just, run `bash scripts/lmm-api-deploy.sh web deploy TAG`, `web status
 RUN_ID`, or `web watch RUN_ID`. These commands need neither a compiled Go
