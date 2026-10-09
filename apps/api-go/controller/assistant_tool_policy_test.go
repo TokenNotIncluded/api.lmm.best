@@ -36,6 +36,19 @@ func assistantPolicyForTest(t *testing.T, groups, tools map[string]bool) {
 }
 
 func TestAssistantToolPolicyCatalogueMatchesActualDefinitions(t *testing.T) {
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	AdminGetAssistantToolCatalogue(c)
+	require.Equal(t, http.StatusOK, response.Code)
+	var catalog struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Capabilities map[string]bool `json:"capabilities"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &catalog))
+	require.True(t, catalog.Success)
+	assert.True(t, catalog.Data.Capabilities["policy_rules"])
 	definitions := buildAssistantTools()
 	registered := map[string]bool{}
 	for _, definition := range definitions {

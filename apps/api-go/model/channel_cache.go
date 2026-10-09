@@ -359,6 +359,8 @@ func filterChannelsByRequestPathAndModel(channels []int, requestPath string, mod
 			keep = true
 		} else if isNativeVoiceRequestPath(requestPath) {
 			keep = ok && (channel.Type == constant.ChannelTypeOpenAI || channel.Type == constant.ChannelTypeNewAPI)
+		} else if isDecisionsRequestPath(requestPath) {
+			keep = ok && channel.Type == constant.ChannelTypeOpenAI
 		} else if isSystemOneRequestPath(requestPath) {
 			keep = ok && (channel.Type == constant.ChannelTypeTypeSafe || channel.Type == constant.ChannelTypeNewAPI)
 		} else if ok {

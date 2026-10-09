@@ -66,16 +66,26 @@ function OverviewGreetingSession({ user }: { user: AuthUser }) {
   const preference = useQuery({
     queryKey: ['overview-greeting', user.id],
     queryFn: async ({ signal }) => {
-      const { data } = await api.get<{ success: boolean; data: unknown }>(
-        '/api/assistant/workspace/greeting',
-        { signal }
-      )
-      if (!data.success) throw new Error('Greeting unavailable')
+      const { data, status } = await api.get<{
+        success: boolean
+        data: unknown
+      }>('/api/assistant/workspace/greeting', {
+        signal,
+        // Older backends do not expose this optional preference API.
+        validateStatus: (status) =>
+          (status >= 200 && status < 300) || status === 404,
+        skipBusinessError: true,
+      })
+      if (status === 404) return null
+      if (data.success !== true) throw new Error('Greeting unavailable')
       return parseOverviewPreference(data.data)
     },
     retry: false,
     staleTime: 30_000,
   })
+  useEffect(() => {
+    if (preference.data === null) setEditor(null)
+  }, [preference.data])
   const language = overviewLanguage(i18n.resolvedLanguage || i18n.language)
   const level =
     user.role >= ROLE.SUPER_ADMIN
@@ -121,6 +131,8 @@ function OverviewGreetingSession({ user }: { user: AuthUser }) {
     if (
       !editor ||
       saving ||
+      !preference.data ||
+      preference.isError ||
       !validGreetingTemplate(editor.template) ||
       useAuthStore.getState().auth.user?.id !== user.id
     ) {
@@ -334,7 +346,11 @@ function OverviewGreetingSession({ user }: { user: AuthUser }) {
                 <Button
                   type='button'
                   disabled={
-                    saving || error || !validGreetingTemplate(editor.template)
+                    saving ||
+                    error ||
+                    !preference.data ||
+                    preference.isError ||
+                    !validGreetingTemplate(editor.template)
                   }
                   onClick={() => void save()}
                 >
