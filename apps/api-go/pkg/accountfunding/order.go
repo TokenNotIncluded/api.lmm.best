@@ -5,31 +5,25 @@ package accountfunding
 import (
 	"errors"
 	"fmt"
+
+	"github.com/LIghtJUNction/api.lmm.best/pkg/account"
 )
 
-type Kind string
+// Aliases preserve the payer-order API and JSON while all account-scoped
+// features share one identity definition.
+type Kind = account.Kind
+type Account = account.Ref
 
 const (
-	Personal Kind = "personal"
-	Team     Kind = "team"
+	Personal = account.Personal
+	Team     = account.Team
 )
-
-// Account identifies a payer by stable ID, never by a mutable handle.
-// The kind is part of the identity: personal:7 and team:7 are different payers.
-type Account struct {
-	Kind Kind  `json:"kind"`
-	ID   int64 `json:"id"`
-}
 
 var (
 	ErrInvalidOwner         = errors.New("invalid API key owner")
 	ErrInvalidOrder         = errors.New("invalid funding account order")
 	ErrAccountNotAuthorized = errors.New("funding account is not authorized")
 )
-
-func (a Account) valid() bool {
-	return a.ID > 0 && (a.Kind == Personal || a.Kind == Team)
-}
 
 // ResolveOrder validates the entire order before returning a detached copy.
 // A nil order means owner-only; an explicit empty order is invalid. Nothing is
@@ -42,7 +36,7 @@ func (a Account) valid() bool {
 // the same transaction that reserves balances and budgets before upstream work.
 // The package is an unconnected WIP foundation; existing relay behavior is intact.
 func ResolveOrder(owner Account, configured []Account, teamGrants map[int64]bool) ([]Account, error) {
-	if !owner.valid() {
+	if !owner.Valid() {
 		return nil, ErrInvalidOwner
 	}
 	if configured == nil {
@@ -57,7 +51,7 @@ func ResolveOrder(owner Account, configured []Account, teamGrants map[int64]bool
 
 	seen := make(map[Account]struct{}, len(configured))
 	for i, account := range configured {
-		if !account.valid() {
+		if !account.Valid() {
 			return nil, fmt.Errorf("%w: invalid account at position %d", ErrInvalidOrder, i)
 		}
 		if _, duplicate := seen[account]; duplicate {
