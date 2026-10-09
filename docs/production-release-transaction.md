@@ -1,8 +1,8 @@
 # Manual release acceptance and rollback
 
-Server deployment is manual. GitHub Actions only builds, tests, signs, and
-publishes artifacts; it does not connect to production. The local
-`scripts/production-release-transaction.py` wrapper remains available to an
+Backend deployment is manual. Tests run locally; GitHub Actions builds, signs
+and publishes official artifacts. The frontend-only exception is described
+below. The local `scripts/production-release-transaction.py` wrapper remains available to an
 operator controlling the native CLI and a verified immutable plan.
 
 ## One transaction owns acceptance
@@ -30,6 +30,41 @@ package integrity, the global deployment lock, billing drain, single-writer
 ownership, migrations, schema compatibility, observation and health gates.
 The wrapper does not restore the database or weaken a native rollback refusal.
 
+## Prepare once, reuse exact artifacts
+
+Freeze the component source and candidate/rollback Go/Web tuples, then capture
+both hosts' active/installed identities and native owner status once. Reuse
+completed local checks with their actual revision, exits and log hashes; verify
+complete component object equality before reuse. Reuse already published signed
+assets and qualified native packages rather than rebuilding or resigning them.
+Keep application tests, artifact qualification and live acceptance distinct.
+
+Bind each real input's canonical path, SHA-256, size and `stat` profile
+(device/inode, uid/gid, mode and link count), checked for replacement while read.
+Enforce the policy for that file role. Private seals still require their stated
+`0600` policy; a qualified native package may legitimately be root-owned,
+service-group-readable `0640`. Do not assume every input is root:root `0600`,
+invent metadata for a template, or chmod an installed package to fit a guess.
+
+Try normal TLS downloads first. Reuse an already qualified exact-byte package
+carrier or an existing target file only after matching its package/payload
+identity, hash and file policy. The controller's `stageRemoteFile` skips SCP
+when the staged destination already has the expected SHA-256; it refuses an
+occupied different digest. That hash reuse does not qualify ownership, modes or
+links; bind their actual profile separately. A reviewed caller may stage from qualified local
+target bytes and then use that same check, avoiding another full package upload.
+This does not authorize unsigned downloads, TLS bypass or arbitrary file copies.
+Reuse does not waive the native plan's signature, tag, package-layout or payload
+checks; qualification receipts remain evidence, not substitutes for those gates.
+
+Review role, metadata and input changes together as one caller delta. Keep the
+verified caller and all source dependencies bound, and run dependent phases
+continuously to the next state boundary. A source-only template is not `READY`.
+Use `followup_task` to resume an idle delegated agent; a queued `send_message`
+does not start it. Stage/promote/observe/confirm the hosts in the reviewed order,
+with the same batch/version and only one backend owner/mutation at a time.
+Preserve each host's own manifest and owner binding; never parallelize owners.
+
 If a durable merchant holder becomes ready after promotion fails with
 `FAILED_PREARM`, do not stop it or replay promotion. A verified signed recovery
 provider can close the original target transaction explicitly:
@@ -51,6 +86,20 @@ An uncertain CAS response requires read-only reconciliation before any further
 action. Holder readiness is bounded to 120 seconds and honors cancellation.
 
 ## Go upgrades with an unchanged database schema
+
+Review the candidate's database changes first. A new table, migration or required
+seed change belongs to the reviewed schema/maintenance path; a prior batch's
+same-schema qualification cannot be inherited. In particular,
+`scripts/native-shared-pg-deploy.py` permits verification only and rejects DDL
+and financial replay. It is not a migration shortcut.
+
+Check the old provider's **per-start restart contract** as well as business and
+`migrate --verify` compatibility. Portable startup qualification compares the
+complete catalog against its sealed `SchemaContract`; even additive tables can
+invalidate that digest and refuse a later restart. The maintenance path does
+not automatically rebind old capsules. Qualify the supported seal transition
+and N−1 restart/recovery path before schema mutation; do not edit an old seal or
+remove its startup check to accept the new catalog.
 
 The native CLI supports an explicitly sealed `verify-existing` schema mode for
 a Go binary change whose candidate and rollback artifacts have the same route
@@ -160,6 +209,9 @@ not by repeating a mutation. In-flight phases are polled for a bounded interval.
 Unknown phases, malformed JSON, mismatched deployment IDs/plan digests/versions,
 unavailable status and incomplete native rollback all fail closed. The last
 known phase is never reused as current evidence after transport is lost.
+Preserve nonzero exits and reconcile the exact native state read-only before
+choosing the documented next phase; do not treat a failed reply as permission
+to dispatch again or restart the whole caller.
 
 A failed confirmation response may hide a still-running remote confirmation.
 The controller only reconciles it. It must not race confirmation with rollback.
@@ -179,6 +231,11 @@ The local wrapper writes a private, atomic result file with the deployment ID,
 plan digest, expected version, native status, outcome, and reason. Keep that file
 outside temporary controller directories. Preserve recovery evidence after an
 interrupted operation; a nonterminal receipt is not success.
+Completion evidence includes each host's exact `CONFIRMED` transaction/provider,
+the PID/start generation and its controlled restart count, released shared-PG
+ownership and integrity checks, and public version/content/functional facts.
+Count the expected single backend restart for that activation separately from
+historical journal entries; a frontend-only update must not restart Go.
 
 No GitHub workflow invokes the Go deployment wrapper: backend deployment stays
 operator-controlled, and no workflow holds a credential that can reach the
@@ -192,6 +249,27 @@ with both active Go backends. Its key is restricted to
 publish` for a new release id. Web changes requiring a new Go backend use the
 native combined transaction. The key cannot invoke this wrapper, the backend
 CLI, or any other command.
+This archive publish does not update a package-owned frontend or run its package
+retention hook. An archive switch is not evidence that the installed rollback
+package changed. The existing hybrid path has these concrete prerequisites:
+
+- On Arch, complete the Web-only native signed transaction first, installing the
+  candidate package while retaining Go. Require its exact `CONFIRMED` receipt,
+  installed package tuple, active frontend release ID and complete frontend-tree
+  equality with the official signed archive. The subsequent workflow must send
+  that same exact ID to the qualified receiver's `already-active` path, which
+  neither switches nor prunes that active release. The workflow does not perform
+  this native package installation.
+- On Ubuntu, the qualified archive receiver must pass an explicit keep count
+  sufficient for the active and required recovery trees. A plan retaining ten
+  releases requires the receiver's actual `--keep 10`; archive publication does
+  not execute the package hook or inherit its keep count.
+
+Capture the installed/package and full-tree evidence outside the workflow and
+bind the actual receiver behavior before dispatch. A workflow ID, successful
+`already-active` reply or matching `index.html` alone does not prove the complete
+frontend tree or rollback package identity. Continue the normal public and
+functional acceptance in [the deployment workflow](deployment-workflow.md#two-explicit-steps).
 
 ## Local validation
 
