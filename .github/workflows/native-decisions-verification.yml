@@ -1,0 +1,44 @@
+name: Native Decisions temporary integration verification
+
+on:
+  push:
+    branches:
+      - feat/native-openai-decisions
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-decisions-verify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  go-backend:
+    name: Go compile, format, vet and all tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: |
+            apps/api-go/go.sum
+            apps/api-go/relaykit/go.sum
+      - name: Validate source formatting
+        working-directory: apps/api-go
+        run: bash ../../scripts/check-go-format.sh .
+      - name: Vet and test all Go backend packages
+        working-directory: apps/api-go
+        run: |
+          go vet ./...
+          go test -p 2 ./...
+      - name: Vet and test independent relaykit module
+        working-directory: apps/api-go/relaykit
+        run: |
+          go vet ./...
+          go test -p 2 ./...
