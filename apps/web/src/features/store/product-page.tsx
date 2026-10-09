@@ -54,6 +54,7 @@ import {
 import { StoreQuantityControl } from './quantity-control'
 import {
   StoreAmount,
+  StoreAuthenticationLoading,
   StoreAuthGate,
   StoreBadges,
   StoreError,
@@ -240,21 +241,32 @@ export function StoreProductPage({
   )
 }
 
-export function StoreCheckout({
-  product: initialProduct,
-  ownerPreview = false,
-  initialVariantId,
-  initialQuantity = 1,
-  cartItemId,
-  promotionCode: initialPromotionCode = '',
-}: {
+type StoreCheckoutProps = {
   product: StoreCatalogueProduct
   ownerPreview?: boolean
   promotionCode?: string
   initialVariantId?: string
   initialQuantity?: number
   cartItemId?: string
-}) {
+}
+
+export function StoreCheckout(props: StoreCheckoutProps) {
+  const user = useAuthStore((state) => state.auth.user)
+  const bootstrapState = useAuthStore((state) => state.auth.bootstrapState)
+  if (!user && bootstrapState !== 'complete') {
+    return <StoreAuthenticationLoading />
+  }
+  return <ResolvedStoreCheckout key={user?.id ?? 'anonymous'} {...props} />
+}
+
+function ResolvedStoreCheckout({
+  product: initialProduct,
+  ownerPreview = false,
+  initialVariantId,
+  initialQuantity = 1,
+  cartItemId,
+  promotionCode: initialPromotionCode = '',
+}: StoreCheckoutProps) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const client = useQueryClient()

@@ -182,3 +182,15 @@ describe('todo dates and destinations', () => {
     assert.equal(todoItemCanOpen(warning, true), false)
   })
 })
+
+test('a stale selected application filter cannot restore the retired tab', () => {
+  assert.deepEqual(visibleTodoCategories([], 'developer_access', true), ['all'])
+  assert.deepEqual(
+    visibleTodoCategories(
+      [{ key: 'developer_access', total: 3, unread: 2 }],
+      'developer_access',
+      false
+    ),
+    ['all']
+  )
+})

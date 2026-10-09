@@ -25,19 +25,23 @@ import * as future from './sculptures/future'
 import { smooth, type Sculpture } from './sculptures/geometry'
 import * as market from './sculptures/market'
 import * as nature from './sculptures/nature'
-
 const factories = { ...nature, ...market, ...abstract, ...cosmos, ...future }
+
 export type SculptureId = keyof typeof factories
 /** Add a factory and its ID here; page layout and pointer physics are independent. */
+
 export const HOME_SEQUENCES = [
-  ['lotus', 'fish', 'jellyfish', 'dandelion', 'cloud', 'dragonfly'],
+  ['lotus', 'fish', 'jellyfish', 'dandelion', 'cloud', 'dragonfly', 'rose'],
   ['shop', 'vending', 'stall'],
   ['socket', 'gyroscope', 'mobius', 'trefoil', 'helix', 'ribbon'],
   ['earth', 'moon', 'mars', 'sun', 'solarSystem', 'galaxy', 'blackHole'],
-  ['pelicanBicycle', 'emperorBear', 'catBomb'],
+  ['pelicanBicycle', 'emperorBicycle', 'catBomb'],
 ] as const satisfies readonly (readonly SculptureId[])[]
+
 export const HOLD_SECONDS = 7.2
+
 export const MORPH_SECONDS = 2.4
+
 export const SCENE_SECONDS = HOLD_SECONDS + MORPH_SECONDS
 
 export function sequenceAt(chapter: number, seconds: number) {
@@ -59,19 +63,13 @@ export function sequenceAt(chapter: number, seconds: number) {
     ),
   }
 }
-
 // Shared across mobile chapter canvases. Never retain all future additions forever.
 const cache = new Map<SculptureId, Sculpture>()
-let sampledLotus: Sculpture | undefined
+
 export function getSculpture(id: SculptureId): Sculpture {
-  if (id === 'lotus' && sampledLotus) return sampledLotus
   const model = cache.get(id) ?? factories[id]()
   cache.delete(id)
   cache.set(id, model)
   if (cache.size > 10) cache.delete(cache.keys().next().value!)
   return model
-}
-export function replaceLotus(points: Sculpture['points']) {
-  sampledLotus = { ...getSculpture('lotus'), points, view: [0, 0] }
-  cache.delete('lotus')
 }

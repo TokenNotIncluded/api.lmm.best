@@ -170,9 +170,17 @@ export function L0CloudConversation({
           )
           if (!sameAccount()) throw new Error('Account changed')
           setSupportRequired(Boolean(reply.supportRequest))
-          // Tool receipts do not replace authorization. Refresh the account from
-          // the server after the reply; a failed refresh must not lose the reply.
-          void refreshCurrentAccount().catch(() => undefined)
+          // A receipt only triggers a fresh account read; it cannot grant access.
+          // Keep this independent of the completed answer and any older read.
+          if (
+            reply.tools?.some(
+              (trace) =>
+                trace.name === 'grant_l1_access' &&
+                trace.status === 'output-available'
+            )
+          ) {
+            void refreshCurrentAccount()
+          }
           void queryClient.invalidateQueries({
             queryKey: [
               'assistant-registration-state',

@@ -32,6 +32,11 @@ func TestResponsesWebSocketPrivateIdentityAfterFinalOverrides(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&appmodel.AssistantGiftRiskKey{}))
 	appmodel.DB, common.CryptoSecret = db, "synthetic-websocket-key"
+	// Bootstrap is covered by model tests; prepare the durable key outside the
+	// request timeout so this transport test only exercises identity routing.
+	require.NoError(t, db.Create(&appmodel.AssistantGiftRiskKey{
+		Id: "assistant-gift-risk-v1", Secret: common.CryptoSecret, CreatedAt: common.GetTimestamp(),
+	}).Error)
 	settings := setting.DefaultModerationSettings()
 	settings.Enabled, settings.SafetyIdentifierEnabled = true, true
 	settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{"account": {Mode: setting.ModerationModeTolerant}}
@@ -75,6 +80,11 @@ func TestResponsesWebSocketPrivateIdentityUsesCapturedAssistantActor(t *testing.
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&appmodel.AssistantGiftRiskKey{}))
 	appmodel.DB, common.CryptoSecret = db, "synthetic-assistant-websocket-key"
+	// Prepare the shared key before the actor/override assertions enter the
+	// bounded request path, as in the transport fixture above.
+	require.NoError(t, db.Create(&appmodel.AssistantGiftRiskKey{
+		Id: "assistant-gift-risk-v1", Secret: common.CryptoSecret, CreatedAt: common.GetTimestamp(),
+	}).Error)
 	settings := setting.DefaultModerationSettings()
 	settings.AssistantEnabled, settings.SafetyIdentifierEnabled = true, true
 	settings.PolicyScope = setting.ModerationPolicyScopeRequestGroup

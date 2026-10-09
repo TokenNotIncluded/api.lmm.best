@@ -188,3 +188,43 @@ test('retired applications disappear from a previous backend response and unread
     'Preserve page positions while the old backend is deployed'
   )
 })
+
+test('retired items are filtered even without a legacy category summary', async () => {
+  const page: TodoPage = {
+    items: [
+      {
+        id: 'developer_access:1',
+        source_id: 1,
+        category: 'developer_access',
+        type: 'legacy',
+        title: 'legacy',
+        summary: '',
+        read: false,
+        created_at: 1,
+        updated_at: 1,
+      },
+    ],
+    page: 1,
+    page_size: 50,
+    total: 51,
+    category: 'all',
+    unread_count: 2,
+    total_unread_count: 2,
+    unread_by_category: { developer_access: 1, moderation: 1 },
+    categories: [{ key: 'moderation', total: 1, unread: 1 }],
+  }
+  api.get = (async () => ({
+    data: { success: true, data: page },
+  })) as typeof api.get
+  const result = await getTodos('all')
+  assert.deepEqual(result.items, [])
+  assert.deepEqual(result.unread_by_category, { moderation: 1 })
+  assert.equal(result.unread_count, 1)
+  assert.equal(result.total_unread_count, 1)
+  assert.equal(
+    result.total,
+    51,
+    'Do not hide later pages during rolling upgrades'
+  )
+  assert.equal(page.items.length, 1, 'Do not mutate shared API response data')
+})

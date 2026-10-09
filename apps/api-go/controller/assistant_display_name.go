@@ -80,6 +80,9 @@ func executeAssistantPrepareDisplayNameTool(c *gin.Context, actorUserID int, inp
 }
 
 func ConfirmAssistantDisplayName(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "prepare_user_action") {
+		return
+	}
 	if !requireAssistantBrowserSession(c) {
 		return
 	}

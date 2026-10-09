@@ -226,3 +226,48 @@ test('failed or malformed sources stay unknown and explicit refresh recovers', a
   await until(() => container.textContent?.includes('1.00 USD') === true)
   assert.equal(calls, 2)
 })
+
+test('notes start collapsed but the unconfirmed-record count remains visible', async () => {
+  useAuthStore.getState().auth.setUser(user(10))
+  api.get = (async () => ({ data: { success: true, data } })) as typeof api.get
+  const container = await mount()
+  await until(() => container.querySelectorAll('details').length === 2)
+  const disclosures = [...container.querySelectorAll('details')]
+  assert.ok(disclosures.every((details) => !details.open))
+  const warning = disclosures[0].querySelector('summary')
+  assert.match(warning?.textContent ?? '', /部分充值记录无法确认实付/)
+  assert.equal(
+    warning?.querySelector('.overview-warning-count')?.textContent,
+    '2'
+  )
+  assert.match(disclosures[0].textContent ?? '', /缺少可信实付证据：1 笔/)
+  assert.match(disclosures[1].textContent ?? '', /How to read these tables/)
+  assert.equal(container.querySelectorAll('.overview-payment-row').length, 3)
+})
+
+test('empty confirmed payments do not invent totals or show an empty warning', async () => {
+  useAuthStore.getState().auth.setUser(user(10))
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        ...data,
+        recharge: {
+          currencies: [],
+          virtual_units: [],
+          confirmed_orders: 0,
+          unconfirmed_orders: 0,
+          invalid_orders: 0,
+        },
+      },
+    },
+  })) as typeof api.get
+  const container = await mount()
+  await until(
+    () => container.textContent?.includes('暂无已确认的充值付款记录。') === true
+  )
+  assert.equal(container.querySelector('.overview-disclosure-warning'), null)
+  assert.equal(container.querySelectorAll('.overview-payment-row').length, 0)
+  assert.equal(container.querySelectorAll('details').length, 1)
+  assert.doesNotMatch(container.textContent ?? '', /0\.00 USD|0\.00 CNY/)
+})

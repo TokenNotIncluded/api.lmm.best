@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/servicetier"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert/convmeta"
@@ -82,6 +83,9 @@ type TokenCountMeta struct {
 }
 
 type RelayInfo struct {
+	ServiceTierQuote         *servicetier.Quote
+	ServiceTierCreditsPerUSD string
+
 	TokenId               int
 	TokenKey              string
 	TokenGroup            string
@@ -241,6 +245,9 @@ func (info *RelayInfo) CompleteResponseOutcome(apiErr *types.NewAPIError) {
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	info.resetResponseModel()
 	info.ResponsesUsageReported = false
+	if info.ServiceTierQuote != nil {
+		info.ServiceTierQuote.ActualTier = ""
+	}
 	info.SystemOneUsageStatus = ""
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)

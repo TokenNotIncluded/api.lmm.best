@@ -545,6 +545,9 @@ func SetApiRouter(router *gin.Engine) {
 		ratioSyncRoute.Use(middleware.RootAuth())
 		{
 			ratioSyncRoute.GET("/channels", controller.GetSyncableChannels)
+			ratioSyncRoute.GET("/service_tiers", controller.GetServiceTierPricing)
+			ratioSyncRoute.PUT("/service_tiers", controller.UpdateServiceTierPricing)
+			ratioSyncRoute.POST("/service_tiers/sync", controller.SyncServiceTierPricing)
 			ratioSyncRoute.POST("/fetch", controller.FetchUpstreamRatios)
 		}
 		registerChannelRoutes(apiRouter)

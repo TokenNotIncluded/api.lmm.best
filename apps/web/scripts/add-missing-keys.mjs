@@ -73,6 +73,7 @@ import { toolMarketAuthLunaCopy } from './tool-market-auth-luna-copy.mjs'
 import { toolMarketClientRecordsLunaCopy } from './tool-market-client-records-luna-copy.mjs'
 import { toolMarketCopy } from './tool-market-copy.mjs'
 import { toolMarketDeleteLunaCopy } from './tool-market-delete-luna-copy.mjs'
+import { trustLevelResetCopy } from './trust-level-reset-copy.mjs'
 import { typeSafeCopy } from './typesafe-copy.mjs'
 import { upstreamPricingCopy } from './upstream-pricing-copy.mjs'
 import { waitCompanionCopy } from './wait-companion-copy.mjs'
@@ -11783,6 +11784,19 @@ const retiredGameKeys = new Set([
 ])
 
 async function main() {
+  if (process.argv.includes('--only-trust-level-reset')) {
+    for (const [locale, values] of Object.entries(trustLevelResetCopy)) {
+      const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+      const json = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      Object.assign(json.translation, values)
+      json.translation = Object.fromEntries(
+        Object.entries(json.translation).sort(([a], [b]) => a.localeCompare(b))
+      )
+      await fs.writeFile(filePath, stableStringify(json), 'utf8')
+      console.log(`${locale}: automatic trust level translations applied`)
+    }
+    return
+  }
   if (process.argv.includes('--store-analytics-only')) {
     for (const [locale, values] of Object.entries(storeAnalyticsLunaCopy)) {
       const filePath = path.join(LOCALES_DIR, `${locale}.json`)

@@ -65,6 +65,7 @@ const userRoutes = [
   '/playground',
 ]
 const adminRoutes = [
+  '/dashboard/overview',
   '/channels',
   '/models/metadata',
   '/models/deployments',
@@ -99,6 +100,7 @@ for (const category of [
   }
 }
 const mobileRoutes = [
+  '/dashboard/overview',
   '/temporary-activations',
   '/',
   '/profile',

@@ -375,6 +375,9 @@ func PlaygroundImageEdit(c *gin.Context) {
 // enters the same image relay used by the drawing workbench. The server never
 // trusts model, group or prompt values re-sent by the browser.
 func PrepareAssistantDrawing(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "prepare_image_generation") {
+		return
+	}
 	prepared := false
 	defer func() {
 		if !prepared {

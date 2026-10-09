@@ -276,11 +276,17 @@ function safeInteger(rational: Rational | null): number {
 }
 
 function displayRational(
-  quota: number,
+  quota: number | string,
   currency: WalletDisplayCurrency,
   inputConfig = getConfig()
 ): Rational | null {
-  if (!Number.isSafeInteger(quota)) return null
+  if (
+    typeof quota === 'string'
+      ? !/^-?\d{1,512}$/.test(quota)
+      : !Number.isSafeInteger(quota)
+  ) {
+    return null
+  }
   const config = getConfig(inputConfig)
   const raw = { numerator: BigInt(quota), denominator: 1n }
   const denomination = rate(config.creditsPerUsd, config.creditsPerUsdExact)
@@ -530,6 +536,60 @@ export function formatQuotaInCurrency(
         currency,
         options
       )
+}
+
+/** Exact aggregate reads never pass through Number or compact notation. */
+export function formatExactQuotaInCurrency(
+  quota: string,
+  currency: WalletDisplayCurrency,
+  options?: Pick<
+    CurrencyFormatOptions,
+    'locale' | 'creditLabel' | 'showSymbol'
+  >,
+  config = getConfig()
+): string {
+  const value = displayRational(quota, currency, config)
+  if (!value) return '-'
+  const negative = value.numerator < 0n
+  const numerator = negative ? -value.numerator : value.numerator
+  // Fiat totals use cents. Small values retain enough places to stay nonzero.
+  let digits =
+    currency === 'CREDIT' ? 0 : numerator >= value.denominator ? 2 : 6
+  let scale = 10n ** BigInt(digits)
+  while (
+    numerator > 0n &&
+    numerator * scale < value.denominator &&
+    digits < 20
+  ) {
+    digits++
+    scale *= 10n
+  }
+  if (numerator > 0n && numerator * scale < value.denominator) return '-'
+  const rounded =
+    (numerator * scale * 2n + value.denominator) / (2n * value.denominator)
+  const whole = rounded / scale
+  const locale = options?.locale ?? getCurrencyFormattingLocale()
+  const integer = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 })
+  let text = integer.format(negative ? (whole === 0n ? -0 : -whole) : whole)
+  const fraction =
+    digits === 0
+      ? ''
+      : (rounded % scale).toString().padStart(digits, '0').replace(/0+$/, '')
+  if (fraction) {
+    const separator =
+      new Intl.NumberFormat(locale)
+        .formatToParts(1.1)
+        .find((part) => part.type === 'decimal')?.value ?? '.'
+    text +=
+      separator +
+      [...fraction].map((digit) => integer.format(Number(digit))).join('')
+  }
+  if (options?.showSymbol === false) return text
+  const label =
+    currency === 'CREDIT'
+      ? (options?.creditLabel ?? i18n.t('Credits'))
+      : currency
+  return `${text} ${label}`
 }
 
 /** A minimum must round up so the displayed amount can satisfy the ledger threshold. */

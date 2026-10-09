@@ -159,6 +159,7 @@ func assistantCacheKey(settings setting.AssistantSettings, conversation []assist
 		MaxSteps         int                      `json:"max_steps"`
 		TimeoutSeconds   int                      `json:"timeout_seconds"`
 		TTLMinutes       int                      `json:"ttl_minutes"`
+		ToolPolicy       string                   `json:"tool_policy"`
 		UserContext      assistantCacheContext    `json:"user_context"`
 		Conversation     []assistantOpenAIMessage `json:"conversation"`
 	}{
@@ -170,6 +171,7 @@ func assistantCacheKey(settings setting.AssistantSettings, conversation []assist
 		MaxSteps:         settings.MaxSteps,
 		TimeoutSeconds:   settings.TimeoutSeconds,
 		TTLMinutes:       settings.CacheTTLMinutes,
+		ToolPolicy:       settings.ToolPolicy,
 		UserContext:      toAssistantCacheContext(userContext),
 		Conversation:     assistantCacheConversation(conversation),
 	}

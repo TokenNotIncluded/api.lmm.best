@@ -168,6 +168,12 @@ function L0WelcomeStage({
       target.focus({ preventScroll: true })
     })
   }
+  const continueConversation = () => {
+    selectScene('chat', true)
+    requestAnimationFrame(() => {
+      document.getElementById('l0-question')?.focus({ preventScroll: true })
+    })
+  }
   const navigateTabs = (
     event: KeyboardEvent<HTMLButtonElement>,
     index: number
@@ -257,6 +263,11 @@ function L0WelcomeStage({
         <section className='l0-rail' aria-label={t('Account and access')}>
           <div className='l0-rail-body'>
             <p className='l0-rail-headline'>{t('Enable L1 access')}</p>
+            <p className='l0-rail-meta' data-testid='l0-free-access'>
+              {t(
+                'Describe what you need. The assistant can enable L1 without an application letter.'
+              )}
+            </p>
             <p
               className='l0-rail-meta'
               data-testid={progressReady ? 'l0-paid-progress' : undefined}
@@ -276,9 +287,7 @@ function L0WelcomeStage({
                 : access.mode === 'sync'
                   ? copy.syncNote
                   : access.mode === 'review'
-                    ? t(
-                        'Describe what you need. The assistant can enable L1 without an application letter.'
-                      )
+                    ? copy.reviewNote
                     : canTopUp
                       ? copy.eligibility
                       : copy.unknown}
@@ -296,12 +305,7 @@ function L0WelcomeStage({
                 if (access.mode === 'sync' || registration.data === 'active') {
                   check()
                 } else {
-                  selectScene('chat', true)
-                  requestAnimationFrame(() => {
-                    document
-                      .querySelector<HTMLInputElement>('.l0-input-row input')
-                      ?.focus()
-                  })
+                  continueConversation()
                 }
               }}
             >

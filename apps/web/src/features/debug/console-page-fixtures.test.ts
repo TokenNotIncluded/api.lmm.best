@@ -321,3 +321,58 @@ test('usage review windows filter timestamps without duplicating model totals', 
   )
   assert.ok(rows.every((row) => row.model_name && row.quota > 0))
 })
+
+test('overview review data preserves currency separation and admin-only reads', async () => {
+  const { getAdminSiteStatistics } =
+    await import('@/features/dashboard/site-statistics')
+  const { api } = await import('@/lib/api')
+  const previousUser = useAuthStore.getState().auth.user
+  const previousAdapter = api.defaults.adapter
+  api.defaults.adapter = withConsolePageFixtures(async () => {
+    throw new Error('unmocked')
+  })
+  try {
+    for (const role of [1, 2, 11]) {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 9001, username: 'review', role })
+      assert.equal(
+        consolePageFixture(config('/api/finance/site-statistics')),
+        undefined
+      )
+    }
+    for (const role of [10, 100]) {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 9001, username: 'review', role })
+      const data = await getAdminSiteStatistics()
+      assert.deepEqual(
+        data.recharge.currencies.map((row) => row.currency),
+        ['CNY', 'USD']
+      )
+      assert.deepEqual(
+        data.recharge.virtual_units.map((row) => row.currency),
+        ['LDC']
+      )
+      assert.equal(data.recharge.unconfirmed_orders, 4)
+      data.recharge.currencies.length = 0
+      assert.equal(
+        (await getAdminSiteStatistics()).recharge.currencies.length,
+        2
+      )
+    }
+    assert.equal(
+      consolePageFixture(config('/api/finance/site-statistics', 'post')),
+      undefined
+    )
+    assert.equal(
+      consolePageFixture(
+        config('http://user:pass@127.0.0.1:4174/api/finance/site-statistics')
+      ),
+      undefined
+    )
+  } finally {
+    api.defaults.adapter = previousAdapter
+    useAuthStore.getState().auth.setUser(previousUser)
+  }
+})

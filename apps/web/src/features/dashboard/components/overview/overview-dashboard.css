@@ -1,0 +1,335 @@
+/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+.overview-dashboard {
+  container-type: inline-size;
+  max-width: 76rem;
+  margin-inline: auto;
+  width: 100%;
+}
+
+.overview-summary {
+  display: grid;
+  gap: 1.75rem;
+}
+
+.overview-balance {
+  min-width: 0;
+  padding: 1.25rem;
+  background: color-mix(in oklch, var(--muted) 65%, var(--background));
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+}
+
+.overview-balance-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.overview-currency-control {
+  margin-block-start: 1.25rem;
+  min-width: 0;
+}
+
+.overview-currency-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 1rem;
+  background: var(--background);
+}
+
+.overview-currency-switch [data-slot='toggle-group-item'] {
+  min-width: 0;
+  min-height: 44px;
+  height: auto;
+  padding: 0.5rem;
+  border-radius: 0.75rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: var(--muted-foreground);
+}
+
+.overview-currency-switch [data-slot='toggle-group-item'][aria-pressed='true'] {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.overview-currency-switch[aria-busy='true'] {
+  cursor: progress;
+}
+
+.overview-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.overview-balance-value {
+  margin-block: 1.5rem 1.75rem;
+  min-height: 2.75rem;
+  font-size: clamp(1.75rem, 4.5cqi, 3.25rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.overview-unit {
+  display: inline-block;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.overview-balance-value .overview-unit {
+  font-size: 0.95rem;
+}
+
+.overview-balance-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.overview-usage {
+  align-self: center;
+  min-width: 0;
+  padding-inline: 0.25rem;
+}
+
+.overview-metrics {
+  display: grid;
+}
+
+.overview-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  padding-block: 1rem;
+}
+
+.overview-metric + .overview-metric {
+  border-block-start: 1px solid var(--border);
+}
+
+.overview-metric-value {
+  text-align: end;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.overview-site-statistics {
+  border-block-start: 1px solid var(--border);
+  padding-block-start: 1.75rem;
+}
+
+.overview-ledger {
+  display: grid;
+  align-items: start;
+  gap: 2rem;
+}
+
+.overview-payment-groups {
+  display: grid;
+  min-width: 0;
+  gap: 1.5rem;
+}
+
+.overview-exact-credits {
+  margin-block-start: 0.4rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.overview-site-totals {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.overview-site-value {
+  margin-block-start: 0.65rem;
+  font-size: clamp(1.25rem, 3cqi, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.overview-payment-row {
+  display: grid;
+  grid-template-areas: 'currency net' 'gross refund';
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding-block: 1rem;
+}
+
+.overview-payment-row + .overview-payment-row {
+  border-block-start: 1px solid var(--border);
+}
+
+.overview-payment-currency {
+  grid-area: currency;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.overview-payment-currency dd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.25rem;
+  padding: 0.5rem;
+  background: var(--muted);
+  border-radius: 0.6rem;
+}
+
+.overview-payment-gross {
+  grid-area: gross;
+  font-size: 0.875rem;
+}
+
+.overview-payment-refund {
+  grid-area: refund;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  text-align: end;
+}
+
+.overview-payment-net {
+  grid-area: net;
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-align: end;
+}
+
+.overview-payment-net dt {
+  font-weight: 400;
+}
+
+.overview-notes {
+  grid-column: 1 / -1;
+  border-block-start: 1px solid var(--border);
+  padding-block-start: 0.5rem;
+}
+
+.overview-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 44px;
+  padding-block: 0.65rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.overview-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.overview-disclosure > summary:hover {
+  color: var(--foreground);
+}
+
+.overview-disclosure > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: 0.25rem;
+}
+
+.overview-disclosure[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.overview-disclosure > p {
+  max-width: 72ch;
+  padding-block-end: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.8;
+}
+
+.overview-disclosure-warning > summary {
+  color: var(--foreground);
+}
+
+.overview-warning-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.overview-warning-count {
+  border-radius: 0.3rem;
+  padding: 0.1rem 0.45rem;
+  background: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@container (min-width: 32rem) {
+  .overview-site-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+  }
+
+  .overview-payment-row {
+    grid-template-areas: 'currency gross refund net';
+    grid-template-columns: 3.25rem repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .overview-payment-gross {
+    text-align: end;
+  }
+}
+
+@container (min-width: 46rem) {
+  .overview-summary {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    align-items: center;
+    gap: clamp(2rem, 4cqi, 3rem);
+  }
+
+  .overview-balance {
+    padding: 1.75rem;
+  }
+}
+
+@container (min-width: 58rem) {
+  .overview-ledger {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.6fr);
+    gap: 2rem 3rem;
+  }
+
+  .overview-site-totals {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+    padding-inline-end: 2rem;
+    border-inline-end: 1px solid var(--border);
+  }
+}

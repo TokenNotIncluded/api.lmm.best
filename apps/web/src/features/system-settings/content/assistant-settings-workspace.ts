@@ -7,6 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import type { AssistantSettingsFormValues } from './assistant-settings-schema'
+import { mergeAssistantToolPolicy } from './assistant-tool-policy'
 
 export const ASSISTANT_SETTINGS_GROUPS = [
   { id: 'model', label: 'Assistant connection' },
@@ -26,7 +27,7 @@ export function getAssistantSettingsGroup(
   if (/Moderation/.test(field)) return 'moderation'
   if (/Retention/.test(field)) return 'retention'
   if (/Review|Registration|Approval|Gift/.test(field)) return 'review'
-  if (/Search|Skills|SkillFiles/.test(field)) return 'tools'
+  if (/Search|ToolPolicy|Skills|SkillFiles/.test(field)) return 'tools'
   if (/Persona|SystemPrompt|PreConversation/.test(field)) return 'conversation'
   if (/AgentLoop|MaxSteps|Timeout|Cache/.test(field)) return 'runtime'
   return 'model'
@@ -41,6 +42,17 @@ export function rebaseAssistantDraft(
   return Object.fromEntries(
     Object.entries(incoming).map(([name, value]) => {
       const key = name as keyof AssistantSettingsFormValues
+      if (
+        key === 'AssistantToolPolicy' &&
+        typeof previous[key] === 'string' &&
+        typeof draft[key] === 'string' &&
+        typeof value === 'string'
+      ) {
+        return [
+          name,
+          mergeAssistantToolPolicy(previous[key], draft[key], value),
+        ]
+      }
       return [name, draft[key] !== previous[key] ? draft[key] : value]
     })
   ) as AssistantSettingsFormValues

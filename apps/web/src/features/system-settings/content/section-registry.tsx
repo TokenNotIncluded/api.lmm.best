@@ -148,6 +148,7 @@ const CONTENT_SECTIONS = [
           AssistantSearchURL: settings.AssistantSearchURL,
           AssistantSearchAPIKey: settings.AssistantSearchAPIKey,
           AssistantSearchMCPTool: settings.AssistantSearchMCPTool,
+          AssistantToolPolicy: settings.AssistantToolPolicy,
           AssistantSkills: settings.AssistantSkills,
           AssistantSkillFiles: settings.AssistantSkillFiles,
           AssistantRegistrationAutoSuspendEnabled:

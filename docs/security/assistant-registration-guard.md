@@ -10,7 +10,7 @@ live todo queue, including unread counts. Historical records are not deleted.
 ## L0 to L1
 
 An enabled L0 account can describe an ordinary use such as coding, learning or
-chatting. The assistant can call `grant_developer_access` in that same first turn;
+chatting. The assistant can call `grant_l1_access` in that same first turn;
 there is no completed-turn minimum, recommendation letter, client-name, repository
 or work-proof requirement. `minimum_completed_turns` remains zero in the response
 for older clients. Conversation ownership, browser-session identity, current
@@ -36,7 +36,12 @@ read/runtime/aggregate performance endpoints, own notifications and acquisition
 self-report routes match their L0-visible pages; unrelated API, admin and payment
 write boundaries remain unchanged. Deploy the Go and Web changes together (Go
 first during a rolling release). Refresh the real account after a grant; cached
-letter status is never an access decision.
+letter status is never an access decision. A completed grant triggers a separate,
+owner/session-scoped account read that cannot reuse a pre-grant request. Activation
+confirmed by inline chat, payment or a window-focus refresh leaves the L0 page.
+The free assistant path remains visible beside any optional paid activation.
+Old todo category URLs, selected filters and cached letters cannot restore the
+retired application workflow; audit records remain available to administrators.
 
 ## Boundaries
 

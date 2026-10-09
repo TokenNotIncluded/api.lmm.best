@@ -288,6 +288,9 @@ func executeAssistantPrepareAPIKeyActionTool(c *gin.Context, userID int, input m
 }
 
 func ConfirmAssistantAPIKeyAction(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "prepare_api_key_action") {
+		return
+	}
 	if !requireAssistantBrowserSession(c) {
 		return
 	}

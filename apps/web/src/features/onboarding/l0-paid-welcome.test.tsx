@@ -218,8 +218,14 @@ test('L0 keeps top-up reachable from the default chat scene and links it to chec
       'Enable L1 access'
     )
     assert.match(
-      container.querySelector('.l0-rail-meta')?.textContent ?? '',
+      container.querySelector('[data-testid="l0-paid-progress"]')
+        ?.textContent ?? '',
       /Top up 21\.01 CNY for instant approval/
+    )
+    assert.match(
+      container.querySelector('[data-testid="l0-free-access"]')?.textContent ??
+        '',
+      /The assistant can enable L1 without an application letter/
     )
     assert.ok(direct.classList.contains('l0-rail-action--ghost'))
     assert.equal(container.querySelector('.l0-ring'), null)

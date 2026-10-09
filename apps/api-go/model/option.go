@@ -188,6 +188,7 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantSearchMCPToolOptionKey] = assistantSettings.SearchMCPTool
 	common.OptionMap[setting.AssistantSkillsOptionKey] = assistantSettings.Skills
 	common.OptionMap[setting.AssistantSkillFilesOptionKey] = setting.AssistantSkillFilesJSON(assistantSettings.SkillFiles)
+	common.OptionMap[setting.AssistantToolPolicyOptionKey] = assistantSettings.ToolPolicy
 	for key, value := range setting.GetModerationSettings().OptionValues() {
 		common.OptionMap[key] = value
 	}
@@ -315,6 +316,9 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if err := setting.ValidateServiceTierOption(key, value); err != nil {
+		return err
+	}
 	if key == MerchantStoreAnalyticsRetentionOption {
 		_, err := ParseMerchantStoreAnalyticsConfig(value)
 		return err
@@ -829,6 +833,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if err := setting.ValidateServiceTierOption(key, value); err != nil {
+		return err
+	}
 	if key == PublicCreditsPerUSDOptionKey {
 		denomination, parseErr := parsePublicCreditRate(value)
 		if parseErr != nil {
@@ -1098,6 +1105,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantSkills(value)
 	case setting.AssistantSkillFilesOptionKey:
 		err = setting.UpdateAssistantSkillFiles(value)
+	case setting.AssistantToolPolicyOptionKey:
+		err = setting.UpdateAssistantToolPolicy(value)
 	case setting.AssistantActiveRetentionDaysOptionKey:
 		err = setting.UpdateAssistantActiveRetentionDays(value)
 	case setting.AssistantArchivedRetentionDaysOptionKey:

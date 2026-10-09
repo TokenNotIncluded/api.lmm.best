@@ -128,12 +128,21 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 		assistantSupportRouter.POST("/:id/accept", middleware.UserCriticalRateLimit("assistant-support-accept"), controller.AcceptAssistantSupport)
 		assistantSupportRouter.POST("/:id/close", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-support-close"), controller.CloseAssistantSupport)
 	}
+	// Transcript reads and the drawing/assistant capability bootstrap do not
+	// start model work. Keep them authenticated, but leave them available when
+	// CPU admission rejects new chat or image-generation requests.
+	assistantReadRouter := router.Group("/api/assistant")
+	assistantReadRouter.Use(middleware.RouteTag("relay"), middleware.UserAuth(), largeRequestAdmission)
+	{
+		assistantReadRouter.GET("/status", middleware.DisableCache(), controller.GetAssistantStatus)
+		assistantReadRouter.GET("/conversations", middleware.DisableCache(), controller.ListAssistantConversations)
+		assistantReadRouter.GET("/conversations/:id", middleware.DisableCache(), controller.GetAssistantConversationHistory)
+	}
 	assistantRouter := router.Group("/api/assistant")
 	assistantRouter.Use(middleware.RouteTag("relay"))
 	assistantRouter.Use(middleware.SystemPerformanceCheck())
 	assistantRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	{
-		assistantRouter.GET("/status", controller.GetAssistantStatus)
 		assistantRouter.PUT("/profile/display-name", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-display-name"), middleware.DisableCache(), controller.ConfirmAssistantDisplayName)
 		assistantRouter.GET("/registration-check", middleware.DisableCache(), controller.GetAssistantRegistrationState)
 		assistantRouter.GET("/models", middleware.AdminAuth(), controller.GetAssistantModels)
@@ -144,8 +153,6 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 		assistantRouter.GET("/weekly-discount", middleware.DisableCache(), controller.GetAssistantWeeklyDiscount)
 		assistantRouter.POST("/weekly-discount/claim", middleware.UserCriticalRateLimit("assistant-weekly-discount"), middleware.DisableCache(), controller.ClaimAssistantWeeklyDiscount)
 		assistantRouter.POST("/chat", middleware.UserCriticalRateLimit("assistant"), middleware.RequestBodyLimit(assistantRequestMaxBytes), controller.RouteAssistantHumanSupport, controller.PrepareAssistantRequest, middleware.Distribute(), controller.AssistantChat)
-		assistantRouter.GET("/conversations", middleware.DisableCache(), controller.ListAssistantConversations)
-		assistantRouter.GET("/conversations/:id", middleware.DisableCache(), controller.GetAssistantConversationHistory)
 		assistantRouter.POST("/conversations/:id/archive", middleware.DisableCache(), controller.ArchiveAssistantConversation)
 		assistantRouter.POST("/conversations/:id/unarchive", middleware.DisableCache(), controller.UnarchiveAssistantConversation)
 		assistantRouter.GET("/cards/:id/reveal", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RevealAssistantSecureCard)
@@ -172,6 +179,7 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	assistantAdminRouter.Use(middleware.RouteTag("api"))
 	assistantAdminRouter.Use(middleware.AdminAuth())
 	{
+		assistantAdminRouter.GET("/tool-catalog", middleware.RootAuth(), middleware.DisableCache(), controller.AdminGetAssistantToolCatalogue)
 		assistantAdminRouter.POST("/apply", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ApplyAssistantAdminChange)
 		assistantAdminRouter.GET("/registration-events", middleware.DisableCache(), controller.AdminListAssistantRegistrationEvents)
 		assistantAdminRouter.POST("/registration-events/:user_id/release", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AdminReleaseAssistantRegistration)

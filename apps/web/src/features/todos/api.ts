@@ -79,9 +79,12 @@ export function getTodos(
     const retired = page.categories.find(
       (item) => item.key === 'developer_access'
     )
-    if (!retired) return page
-    const { developer_access: _retiredUnread, ...unread } =
+    const { developer_access: retiredUnread, ...unread } =
       page.unread_by_category
+    const retiredUnreadCount = Math.max(
+      0,
+      retired?.unread ?? retiredUnread ?? 0
+    )
     return {
       ...page,
       items: page.items.filter((item) => item.category !== 'developer_access'),
@@ -94,11 +97,11 @@ export function getTodos(
       total: page.total,
       unread_count: Math.max(
         0,
-        page.unread_count - (category === 'all' ? (retired?.unread ?? 0) : 0)
+        page.unread_count - (category === 'all' ? retiredUnreadCount : 0)
       ),
       total_unread_count: Math.max(
         0,
-        page.total_unread_count - (retired?.unread ?? 0)
+        page.total_unread_count - retiredUnreadCount
       ),
     }
   })

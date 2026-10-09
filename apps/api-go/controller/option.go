@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -89,26 +90,32 @@ type OptionUpdateRequest struct {
 }
 
 type OptionValuesRequest struct {
-	Values map[string]string `json:"values"`
+	Values         map[string]string `json:"values"`
+	ExpectedValues map[string]string `json:"expected_values,omitempty"`
 }
 
 func decodeOptionValues(c *gin.Context) (map[string]string, bool) {
+	request, ok := decodeOptionValuesRequest(c)
+	return request.Values, ok
+}
+
+func decodeOptionValuesRequest(c *gin.Context) (OptionValuesRequest, bool) {
 	var request OptionValuesRequest
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil || len(request.Values) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "values must be a non-empty JSON object",
 		})
-		return nil, false
+		return request, false
 	}
 	if len(request.Values) > 128 {
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{
 			"success": false,
 			"message": "too many option values",
 		})
-		return nil, false
+		return request, false
 	}
-	return request.Values, true
+	return request, true
 }
 
 // ValidateOptions runs the same server-side validation used by bulk option
@@ -137,12 +144,30 @@ func ValidateOptions(c *gin.Context) {
 // one database transaction. Values are never included in the management
 // audit record because some option families may contain sensitive material.
 func UpdateOptionsBulk(c *gin.Context) {
-	values, ok := decodeOptionValues(c)
+	request, ok := decodeOptionValuesRequest(c)
 	if !ok {
 		return
 	}
-	result, err := model.UpdateOptionsBulkWithWarnings(values)
+	values := request.Values
+	var expectedPolicy *string
+	if len(request.ExpectedValues) > 0 {
+		expected, exists := request.ExpectedValues[setting.AssistantToolPolicyOptionKey]
+		_, updating := values[setting.AssistantToolPolicyOptionKey]
+		if len(request.ExpectedValues) != 1 || !exists || !updating {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "expected_values only supports an AssistantToolPolicy update"})
+			return
+		}
+		expectedPolicy = &expected
+	}
+	result, err := model.UpdateOptionsBulkWithAssistantToolPolicyExpectation(values, expectedPolicy)
 	if err != nil {
+		if errors.Is(err, model.ErrAssistantToolPolicyConflict) {
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false, "code": "ASSISTANT_TOOL_POLICY_CONFLICT",
+				"message": "Tool settings changed in another session. Refresh and review your draft before saving.",
+			})
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}

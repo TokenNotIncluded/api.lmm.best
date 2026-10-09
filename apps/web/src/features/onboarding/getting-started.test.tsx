@@ -158,7 +158,7 @@ async function renderPage(
     gets.push(url)
     getConfigs.push(config)
     if (url === '/api/user/self') {
-      return { data: { success: true, data: currentUser } }
+      return { data: { success: true, data: { ...currentUser } } }
     }
     if (url === '/api/assistant/registration-check') {
       return {
@@ -224,6 +224,29 @@ const button = (page: Awaited<ReturnType<typeof renderPage>>, text: string) => {
   assert.ok(found, text)
   return found
 }
+async function askInline(page: Awaited<ReturnType<typeof renderPage>>) {
+  const input = page.container.querySelector<HTMLInputElement>('#l0-question')
+  assert.ok(input)
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, 'Help me connect my coding client')
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    await flushEffects()
+  })
+  await act(async () => {
+    input
+      .closest('form')
+      ?.dispatchEvent(
+        new window.Event('submit', { bubbles: true, cancelable: true })
+      )
+    await flushEffects()
+  })
+  await act(flushEffects)
+}
 afterEach(() => {
   consumeQueuedAssistantRequest()
   api.get = originalGet
@@ -238,6 +261,192 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('getting started access boundaries', () => {
+  for (const status of ['pending', 'rejected', 'approved']) {
+    test(`retired ${status} letters never become an upgrade gate or grant`, async () => {
+      const page = await renderPage()
+      page.queryClient.setQueryData(
+        ['assistant-developer-access-request', user.id],
+        {
+          status,
+          reason: 'retired reason',
+          ai_recommendation: 'retired letter',
+        }
+      )
+      try {
+        await act(async () => {
+          button(page, 'Unlock').click()
+          await flushEffects()
+        })
+        assert.doesNotMatch(
+          page.container.textContent ?? '',
+          /retired reason|retired letter|Pending review|Access request rejected/
+        )
+        assert.ok(
+          !page.gets.some((url) => url.includes('developer-access/request'))
+        )
+        assert.equal(
+          useAuthStore.getState().auth.user?.developer_access_granted,
+          false
+        )
+        assert.equal(page.router.state.location.pathname, '/getting-started')
+      } finally {
+        await unmountPage(page)
+      }
+    })
+  }
+  test('a focus refresh leaves L0 after server-confirmed activation', async () => {
+    const page = await renderPage()
+    try {
+      page.currentUser.developer_access_granted = true
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'))
+        await flushEffects()
+      })
+      const deadline = Date.now() + 2000
+      while (
+        Date.now() < deadline &&
+        page.router.state.location.pathname !== '/dashboard'
+      ) {
+        await act(flushEffects)
+      }
+      assert.equal(page.router.state.location.pathname, '/dashboard')
+    } finally {
+      await unmountPage(page)
+    }
+  })
+  for (const history of [
+    null,
+    {
+      id: 9910,
+      status: 'pending',
+      reason: 'Old request',
+      created_at: 1,
+      reviewed_at: 0,
+    },
+  ]) {
+    test(`inline grant refreshes access and leaves L0 with ${history ? 'historical pending' : 'no'} application`, async () => {
+      const page = await renderPage()
+      if (history) {
+        page.queryClient.setQueryData(
+          ['assistant-developer-access-request', user.id],
+          history
+        )
+      }
+      globalThis.fetch = (async () => {
+        page.currentUser.developer_access_granted = true
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'Access verified.' } }],
+            lmm_assistant_tools: [
+              { name: 'grant_l1_access', status: 'output-available' },
+            ],
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        )
+      }) as typeof fetch
+      try {
+        await askInline(page)
+        const deadline = Date.now() + 2_000
+        while (
+          Date.now() < deadline &&
+          page.router.state.location.pathname !== '/dashboard'
+        ) {
+          await act(flushEffects)
+        }
+        assert.equal(page.router.state.location.pathname, '/dashboard')
+        assert.equal(
+          useAuthStore.getState().auth.user?.developer_access_granted,
+          true
+        )
+        assert.equal(
+          page.gets.filter((url) => url === '/api/user/self').length,
+          2
+        )
+      } finally {
+        await unmountPage(page)
+      }
+    })
+  }
+  for (const status of ['output-error', 'approval-requested', undefined]) {
+    test(`a ${status ?? 'missing'} grant trace cannot change access from reply text`, async () => {
+      const page = await renderPage()
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'L1 access is active.' } }],
+            ...(status
+              ? { lmm_assistant_tools: [{ name: 'grant_l1_access', status }] }
+              : {}),
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        )) as typeof fetch
+      try {
+        await askInline(page)
+        assert.equal(page.router.state.location.pathname, '/getting-started')
+        assert.equal(
+          useAuthStore.getState().auth.user?.developer_access_granted,
+          false
+        )
+        assert.equal(
+          page.gets.filter((url) => url === '/api/user/self').length,
+          1
+        )
+      } finally {
+        await unmountPage(page)
+      }
+    })
+  }
+  for (const readFailure of ['unavailable', 'pending']) {
+    test(`completed inline answer remains usable when grant refresh is ${readFailure}`, async () => {
+      const page = await renderPage()
+      const previousGet = api.get
+      let finishRead: (() => void) | undefined
+      api.get = (async (url, config) => {
+        if (url !== '/api/user/self') return previousGet(url, config)
+        if (readFailure === 'unavailable') throw new Error('HTTP 503')
+        await new Promise<void>((resolve) => {
+          finishRead = resolve
+        })
+        return { data: { success: true, data: { ...page.currentUser } } }
+      }) as typeof api.get
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              { message: { content: 'Access verification finished.' } },
+            ],
+            lmm_assistant_tools: [
+              { name: 'grant_l1_access', status: 'output-available' },
+            ],
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        )) as typeof fetch
+      try {
+        await askInline(page)
+        assert.equal(page.router.state.location.pathname, '/getting-started')
+        assert.equal(
+          useAuthStore.getState().auth.user?.developer_access_granted,
+          false
+        )
+        assert.match(
+          page.container.querySelector('.l0-answer')?.textContent ?? '',
+          /Access verification finished/
+        )
+        assert.equal(
+          page.container
+            .querySelector('.l0-composer')
+            ?.getAttribute('data-phase'),
+          'done'
+        )
+      } finally {
+        await act(async () => {
+          finishRead?.()
+          await flushEffects()
+        })
+        await unmountPage(page)
+      }
+    })
+  }
   test('keeps the model square discoverable from the L0 onboarding page', async () => {
     const page = await renderPage()
     assert.match(
@@ -357,7 +566,7 @@ describe('getting started access boundaries', () => {
     const deadline = Date.now() + 2000
     while (
       Date.now() < deadline &&
-      useAuthStore.getState().auth.user?.developer_access_granted !== true
+      page.router.state.location.pathname !== '/dashboard'
     ) {
       await act(flushEffects)
     }

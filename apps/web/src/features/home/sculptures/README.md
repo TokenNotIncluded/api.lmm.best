@@ -1,29 +1,34 @@
 # Homepage sculptures
 
-The five existing chapters, content, controls, scroll layout and point brush remain in place. Each chapter now owns a looping object sequence. Geometry, object motion and the sequence are separate from the page layout.
+The five chapters, page content, native scrolling, controls and point brush stay in place. Each chapter owns a looping object sequence. Geometry and object motion are separate from page layout.
 
-`home-sculptures.ts` defines the typed factory registry and the five sequences. Each object holds for 7.2 seconds, then disperses and reforms for 2.4 seconds. The last object returns to the first. Only visible canvases advance their clocks; pause, reduced motion and data-saving stop them. All canvases share the existing single animation loop.
+`home-sculptures.ts` defines the typed factory registry and sequences. Each object holds for 7.2 seconds, then disperses and reforms for 2.4 seconds. The last object returns to the first. Only visible canvases advance their clocks. Pause, reduced motion and data-saving keep the existing lifecycle behavior. All canvases share the existing animation loop.
 
-| File          | Objects                                                                   |
-| ------------- | ------------------------------------------------------------------------- |
-| `nature.ts`   | Lotus, fish, jellyfish, dandelion, cloud, dragonfly                       |
-| `market.ts`   | Shop, vending machine, market stall                                       |
-| `abstract.ts` | Socket, gyroscope, Möbius strip, trefoil, double helix, wave ribbons      |
-| `cosmos.ts`   | Earth, Moon, Mars, Sun, solar system, galaxy, black hole                  |
-| `future.ts`   | Pelican cycling, emperor riding a polar bear, cat lighting a cartoon fuse |
+| File          | Objects                                                                                |
+| ------------- | -------------------------------------------------------------------------------------- |
+| `nature.ts`   | Lotus, fish, jellyfish, dandelion, cloud, dragonfly, rose                              |
+| `market.ts`   | Shop, vending machine, market stall                                                    |
+| `abstract.ts` | Radial mechanism, gyroscope, Mobius strip, braided trefoil, double helix, wave ribbons |
+| `cosmos.ts`   | Earth, Moon, Mars, Sun, solar system, galaxy, black hole                               |
+| `future.ts`   | Pelican cycling, emperor cycling, cat with a cartoon fuse                              |
+| `bicycle.ts`  | Shared frame, wheels, crank, pedals and fixed-length rider legs                        |
 
 ## Add an object
 
-Export a factory from one of these files. Return a `Sculpture` with immutable sampled `points` and an `animate(seconds)` function. Add its factory name to the appropriate `HOME_SEQUENCES` entry. Unknown names are rejected by TypeScript. A new category module also needs an import and registry entry in `home-sculptures.ts`.
+Export a factory from a category module, returning a `Sculpture` with immutable sampled `points` and `animate(seconds)`. Add its name to `HOME_SEQUENCES`. TypeScript rejects unknown names. Keep helpers private or in a separate module: exported category functions become factories.
 
-Coordinates use x to the right, y up and z towards the viewer. Keep the main silhouette within about 1.3 units of the origin. The shared `Shape` builder provides sampled surfaces, ellipsoids, tubes, rings and boxes. Reuse the shared palette and fine-point renderer; do not introduce a separate SVG, video, CSS animation or canvas loop for an object.
+Coordinates use x to the right, y up and z towards the viewer. Keep the animated silhouette near the origin and within about 1.3 units, including fins, tassels and other moving parts. Check the projected bounds at phone and desktop sizes, not only the source coordinates. A positive view pitch looks up at a surface; the lotus uses a negative pitch to expose its centre.
 
-Use `part` to identify wings, wheels, seeds and other moving parts. `animate` prepares a transform once per frame. Its returned function changes only the supplied scratch vector, never the shared source point. Do not create timers or allocate a new vector for each particle. The shared model cache is bounded to ten entries, excluding the original sampled lotus.
+Use the shared `Shape` surfaces, ellipsoids, tubes, rings and boxes. Do not add a separate animation loop, video, SVG or remote asset for an object. `part` identifies moving wings, wheels, eyes and limbs. Prepare transforms once per frame. Change only the supplied scratch vector, never a shared point. Do not allocate a new vector per particle. The shared model cache is limited to ten entries.
 
-The original packaged lotus image still supplies the normal first scene. The procedural lotus is a fallback for image or canvas decode failure. No new images, fonts, remote assets or runtime dependencies are needed. Continent outlines and astronomical scenes are stylized, not scientific maps or scale models.
+Lotus and rose petals have sampled surface lighting, rims, veins and a shared open/closed pose. The lotus is now procedural in the main renderer, not replaced by image sampling. The existing packaged lotus remains the page's non-canvas fallback. Readiness is reported after the first drawn frame, once, and never after disposal.
 
-## Theme and tests
+Both cyclists use the same crank and foot positions. The upper and lower legs have fixed lengths. Shoes translate with the pedals instead of wobbling independently. Keep their contact tests when changing body proportions. The emperor is a stylized fictional depiction, not a historical reconstruction.
 
-The cinema's `--poster-ground` token in `forge-home.css` is a six-digit hex color. The bitmap, dot coverage and brush trails all use that same ground. Its light/dark values must not be changed separately in the renderer. The root theme observer also refreshes paused scenes and is removed on cleanup.
+## Theme and verification
 
-Run the frontend test and type-check commands from `apps/web`. The sculpture tests check every object's geometry and motion, sequence boundaries, looping, independent clocks, pause, image failure, theme pixels and disposal. Keep the existing motion lifecycle tests. Browser review must cover both themes, phone and desktop widths, the moving objects, page transitions, pointer recovery, hidden/offscreen behavior and reduced motion.
+`--poster-ground` in `forge-home.css` is a six-digit hex colour. Bitmap fill, dot coverage and trails use that same ground. Light mode uses deeper material colours and greater dot coverage, while preserving surface shading. The theme observer in `home-motion.ts` refreshes paused scenes and is removed on cleanup.
+
+Run the existing frontend tests, type check, format check and build from `apps/web`. The sculpture and poster tests cover all 26 models, sequence boundaries, looping, geometry, immutable samples, motion, palette contrast, independent clocks, pause, first-frame readiness and disposal. Additional checks cover feet/pedals, fixed leg lengths, gyroscope tilt and the fish/helix projected bounds. The 3:1 palette assertion concerns solid decorative dots only, not page-wide text accessibility.
+
+Browser review must include light/dark themes, phone/desktop widths, several phases of each motion, transitions, pointer recovery, offscreen behavior and reduced motion. A standalone canvas capture verifies the renderer and sculptures; it does not establish a successful full-app build, real-device performance or production deployment. Continent outlines and astronomical scenes remain stylized, not maps or scale models.
