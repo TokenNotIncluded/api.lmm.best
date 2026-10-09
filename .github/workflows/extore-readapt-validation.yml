@@ -15,8 +15,8 @@ jobs:
     timeout-minutes: 30
     env:
       GOMAXPROCS: '2'
-      TMPDIR: ${{ runner.temp }}
     steps:
+      - run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: codex/extore-readapt-20261009
