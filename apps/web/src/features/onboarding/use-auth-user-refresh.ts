@@ -21,22 +21,34 @@ import { useCallback, useEffect, useRef } from 'react'
 import { getSelf } from '@/lib/api'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
+let latestAccountRefresh:
+  | { userId: number; sessionId: string | undefined }
+  | undefined
+
 export async function refreshCurrentAccount(): Promise<AuthUser | null> {
   const before = useAuthStore.getState().auth
   if (!before.user) return null
+  // The object is this read's generation. A newer read supersedes it even if
+  // the user and session are unchanged (for example, immediately after L1).
+  const request = { userId: before.user.id, sessionId: before.session?.sid }
+  latestAccountRefresh = request
   try {
-    const response = await getSelf()
+    const response = await getSelf({
+      disableDuplicate: true,
+      authScope: { userId: request.userId, sessionId: request.sessionId },
+    })
     const after = useAuthStore.getState().auth
     if (
-      after.user?.id !== before.user.id ||
-      after.session?.sid !== before.session?.sid
+      latestAccountRefresh !== request ||
+      after.user?.id !== request.userId ||
+      after.session?.sid !== request.sessionId
     ) {
       return null
     }
     if (
       response?.success &&
       response.data &&
-      response.data.id === before.user.id
+      response.data.id === request.userId
     ) {
       const user = response.data as AuthUser
       after.setUser(user)

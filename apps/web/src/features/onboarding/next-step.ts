@@ -31,21 +31,14 @@ export type ConnectionMethod = 'oauth' | 'api-key'
 /** Guidance only: authorization remains the server's responsibility. */
 export function getAccountNextStep(
   user: AuthUser | null | undefined,
-  requestStatus: AccessRequestStatus = 'unknown',
+  _requestStatus: AccessRequestStatus = 'unknown',
   method?: ConnectionMethod
 ) {
   if (!user) return { to: '/sign-in', label: 'Sign in to get started' }
   const state = getOnboardingState(user)
   if (!state.activationComplete) {
-    const label =
-      requestStatus === 'pending'
-        ? 'View access request status'
-        : requestStatus === 'rejected'
-          ? 'Revise access request'
-          : requestStatus === 'none'
-            ? 'Request API access'
-            : 'Check API access status'
-    return { to: '/getting-started', label }
+    // Historical recommendation letters never block direct assistant verification.
+    return { to: '/getting-started', label: 'Continue with the assistant' }
   }
   if (state.firstRequestComplete) {
     return { to: '/dashboard', label: 'Open dashboard' }

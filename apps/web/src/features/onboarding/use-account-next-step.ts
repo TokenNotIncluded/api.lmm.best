@@ -36,8 +36,6 @@ export function useAccountNextStep(method?: ConnectionMethod) {
     },
     enabled: !!user && user.developer_access_granted !== true,
     staleTime: 15_000,
-    refetchInterval: (query) =>
-      query.state.data?.status === 'pending' ? 5_000 : false,
     retry: false,
   })
   const status = request.isError
