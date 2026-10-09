@@ -1,5 +1,17 @@
 {
   "translation": {
+    "Configure seller terms before publishing or relisting this product.": "Перед публикацией или повторным размещением настройте условия продавца.",
+    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "Сохраните условия доставки и обслуживания. Покупатель принимает их отдельно при заказе.",
+    "Continue publishing": "Продолжить публикацию",
+    "Temporarily unlist": "Временно снять с продажи",
+    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "Товар скрывается, одобрение сохраняется. Существующие заказы остаются доступны.",
+    "Withdraw from review": "Отозвать с проверки",
+    "Withdraw this product from review?": "Отозвать этот товар с проверки?",
+    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "Одобрение будет отменено. Измените товар и отправьте на проверку перед публикацией. Существующие заказы останутся доступны.",
+    "Specifications and prices": "Варианты и цены",
+    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "Задайте каждому варианту название, цену и содержимое. Все варианты сохраняются вместе с черновиком.",
+    "Enter unique variant names and valid prices.": "Введите уникальные названия вариантов и допустимые цены.",
+    "A product can have at most 200 specifications.": "Товар может иметь не более 200 вариантов.",
     "Adjust settings with WebMCP": "Настроить через WebMCP",
     "Changes are saved only with the Save button.": "Изменения сохраняются только кнопкой «Сохранить».",
     "Collapse all": "Свернуть всё",

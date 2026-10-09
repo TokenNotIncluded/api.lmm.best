@@ -90,25 +90,27 @@ type MerchantStoreProduct struct {
 	BuyerPurchaseRemaining *int64 `json:"buyer_purchase_remaining,omitempty" gorm:"-"`
 }
 type MerchantStoreProductInput struct {
-	CategoryID            *string             `json:"category_id,omitempty"`
-	Title                 string              `json:"title"`
-	Description           string              `json:"description"`
-	ImageURLs             []string            `json:"image_urls"`
-	Contact               string              `json:"contact"`
-	Links                 []MerchantStoreLink `json:"links"`
-	PriceQuota            int                 `json:"price_quota"`
-	TestMode              *bool               `json:"test_mode,omitempty"`
-	Visibility            *string             `json:"visibility,omitempty"`
-	PurchaseLoginRequired *bool               `json:"purchase_login_required,omitempty"`
-	MaxQuantityPerOrder   *int64              `json:"max_quantity_per_order,omitempty"`
-	MaxQuantityPerBuyer   *int64              `json:"max_quantity_per_buyer,omitempty"`
-	Template              string              `json:"template"`
-	FixedContent          *string             `json:"fixed_content,omitempty"`
-	DeliveryStrategy      string              `json:"delivery_strategy"`
-	PaymentMethods        []string            `json:"payment_methods"`
-	PickupLoginRequired   bool                `json:"pickup_login_required"`
-	PickupCodeRequired    bool                `json:"pickup_code_required"`
-	EmailPickupLink       bool                `json:"email_pickup_link"`
+	// Create only. The first entry is the named default specification.
+	Variants              []MerchantStoreVariantInput `json:"variants,omitempty"`
+	CategoryID            *string                     `json:"category_id,omitempty"`
+	Title                 string                      `json:"title"`
+	Description           string                      `json:"description"`
+	ImageURLs             []string                    `json:"image_urls"`
+	Contact               string                      `json:"contact"`
+	Links                 []MerchantStoreLink         `json:"links"`
+	PriceQuota            int                         `json:"price_quota"`
+	TestMode              *bool                       `json:"test_mode,omitempty"`
+	Visibility            *string                     `json:"visibility,omitempty"`
+	PurchaseLoginRequired *bool                       `json:"purchase_login_required,omitempty"`
+	MaxQuantityPerOrder   *int64                      `json:"max_quantity_per_order,omitempty"`
+	MaxQuantityPerBuyer   *int64                      `json:"max_quantity_per_buyer,omitempty"`
+	Template              string                      `json:"template"`
+	FixedContent          *string                     `json:"fixed_content,omitempty"`
+	DeliveryStrategy      string                      `json:"delivery_strategy"`
+	PaymentMethods        []string                    `json:"payment_methods"`
+	PickupLoginRequired   bool                        `json:"pickup_login_required"`
+	PickupCodeRequired    bool                        `json:"pickup_code_required"`
+	EmailPickupLink       bool                        `json:"email_pickup_link"`
 
 	maxQuantityPerOrderPresent bool
 	maxQuantityPerBuyerPresent bool
