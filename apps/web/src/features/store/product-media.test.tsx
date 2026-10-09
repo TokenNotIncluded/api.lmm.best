@@ -81,6 +81,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+// These fixtures start after the root has completed its session bootstrap.
+useAuthStore.getState().auth.setBootstrapState('complete')
 const {
   normalizeStoreImageSource,
   safeStoreMediaUrl,
