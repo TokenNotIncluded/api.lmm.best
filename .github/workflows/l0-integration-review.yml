@@ -2,32 +2,149 @@ name: L0 integration review
 on:
   push:
     branches: [work/l0-l1-integration-20261009]
+    paths: [.github/workflows/l0-integration-review.yml, .review/assemble-l0.py]
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  CI: 'true'
+  GOMAXPROCS: '2'
 jobs:
-  source:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.candidate.outputs.sha }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          fetch-depth: 0
+          path: transport
           persist-credentials: false
-      - name: Export public source and inspect integration conflicts
-        shell: bash
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: da5572f5d1289dc4be21e672acaf1803c7167958
+          path: candidate
+          fetch-depth: 0
+      - name: Resolve only the reviewed integration
+        working-directory: candidate
+        env:
+          L0_REPO: ${{ github.workspace }}/candidate
         run: |
           set -euo pipefail
-          mkdir -p /tmp/l0-source
-          git update-ref refs/heads/review-main "$(git rev-parse HEAD^)"
-          git update-ref refs/heads/review-l0 da5572f5d1289dc4be21e672acaf1803c7167958
-          git bundle create /tmp/l0-source/source.bundle refs/heads/review-main refs/heads/review-l0
-          git rev-parse review-main review-l0 > /tmp/l0-source/commits.txt
-          git checkout --detach review-l0
-          git -c user.name='L0 integration review' -c user.email='review@localhost' merge --no-commit --no-ff review-main > /tmp/l0-source/merge.txt 2>&1 || test -n "$(git diff --name-only --diff-filter=U)"
-          git diff --name-only --diff-filter=U | tee /tmp/l0-source/conflicts.txt
-          git diff --cc > /tmp/l0-source/conflicts.diff
-      - uses: actions/upload-artifact@v4
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git update-ref refs/remotes/origin/review-main 18a92dd49b1a7eda470bd27dd5d649699c45f785
+          git merge --no-commit --no-ff origin/review-main || test -n "$(git diff --name-only --diff-filter=U)"
+          python3 ../transport/.review/assemble-l0.py
+          test -z "$(git diff --name-only --diff-filter=U)"
+          git diff --cached --check
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          name: l0-integration-source
-          path: /tmp/l0-source
-          retention-days: 1
+          bun-version: '1.3.14'
+      - name: Install and format with protected upstream headers
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          cd apps/web
+          bun run format
+      - name: Record isolated candidate, not the product branch
+        id: candidate
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/l0-candidate"
+          git add -u
+          git diff --cached --check
+          test ! -e .review/assemble-l0.py
+          test ! -e .github/workflows/l0-integration-review.yml
+          git commit -m 'fix: integrate direct L0 access and retire stale application gates'
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          git push origin "HEAD:refs/heads/work/l0-l1-candidate-${{ github.run_id }}-${{ github.run_attempt }}"
+          git diff origin/review-main --stat > "$RUNNER_TEMP/l0-candidate/stat.txt"
+          git diff origin/review-main --binary > "$RUNNER_TEMP/l0-candidate/candidate.patch"
+          git show --no-patch --format=fuller HEAD > "$RUNNER_TEMP/l0-candidate/commit.txt"
+          git bundle create "$RUNNER_TEMP/l0-candidate/candidate.bundle" HEAD ^da5572f5d1289dc4be21e672acaf1803c7167958 ^18a92dd49b1a7eda470bd27dd5d649699c45f785
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l0-integrated-candidate
+          path: ${{ runner.temp }}/l0-candidate
+          retention-days: 3
+  web:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Web checks and isolated regression tests
+        working-directory: apps/web
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/l0-web"
+          failures=0
+          for check in format:check typecheck lint copyright:check test build bundle:check; do
+            bun run "$check" 2>&1 | tee "$RUNNER_TEMP/l0-web/${check//:/-}.log" || failures=$((failures+1))
+          done
+          test "$failures" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l0-integrated-web-evidence
+          path: ${{ runner.temp }}/l0-web
+          retention-days: 3
+  go:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: l0_test
+          POSTGRES_PASSWORD: isolated_test_only
+          POSTGRES_DB: l0_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U l0_test'
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Go regressions and isolated PostgreSQL concurrency
+        working-directory: apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://l0_test:isolated_test_only@127.0.0.1:5432/l0_test?sslmode=disable
+          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/l0-go"
+          failures=0
+          bash ../../scripts/check-go-format.sh . 2>&1 | tee "$RUNNER_TEMP/l0-go/format.log" || failures=$((failures+1))
+          go test -p 2 -json ./middleware ./router ./model ./controller -count=1 > "$RUNNER_TEMP/l0-go/tests.jsonl" 2>&1 || failures=$((failures+1))
+          go test -p 2 -race -json ./model ./controller -run 'Test(AssistantDirectL1|ExecuteAssistantDirectL1|UnifiedTodo|PostgresUnifiedTodo)' -count=1 > "$RUNNER_TEMP/l0-go/race.jsonl" 2>&1 || failures=$((failures+1))
+          test "$failures" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l0-integrated-go-evidence
+          path: ${{ runner.temp }}/l0-go
+          retention-days: 3
