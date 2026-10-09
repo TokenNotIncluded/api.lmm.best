@@ -24,7 +24,11 @@ func TestToolMarketCapabilitiesMatchRegisteredHandlers(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success)
-	require.Len(t, body.Data.Capabilities, 3)
+	require.Len(t, body.Data.Capabilities, 4)
+	// This fixture has no OAuth integration. Do not advertise browser login
+	// just because the backend contains its handler implementation.
+	require.Contains(t, body.Data.Capabilities, "mcp_oauth")
+	require.False(t, body.Data.Capabilities["mcp_oauth"])
 	// Inspect the normal central router as well, so omitting a feature router
 	// cannot leave a capability advertised by an otherwise valid config handler.
 	publishedRouter := gin.New()

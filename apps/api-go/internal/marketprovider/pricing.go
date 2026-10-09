@@ -73,12 +73,22 @@ type Quote struct {
 	// subscription invoice or of a completed execution.
 }
 
-func decimal(value string) (*big.Rat, error) {
+// parseDecimal bounds input size and exponent, not the site's ledger scale.
+func parseDecimal(value string) (*big.Rat, error) {
 	if len(value) == 0 || len(value) > 64 || !decimalPattern.MatchString(value) {
 		return nil, ErrPrice
 	}
 	n, ok := new(big.Rat).SetString(value)
-	if !ok || n.Sign() < 0 || n.Cmp(big.NewRat(1_000_000, 1)) > 0 {
+	if !ok || n.Sign() < 0 {
+		return nil, ErrPrice
+	}
+	return n, nil
+}
+
+// Upstream prices retain their own amount limit. Ledger units are not prices.
+func decimal(value string) (*big.Rat, error) {
+	n, err := parseDecimal(value)
+	if err != nil || n.Cmp(big.NewRat(1_000_000, 1)) > 0 {
 		return nil, ErrPrice
 	}
 	return n, nil
@@ -190,7 +200,7 @@ func (q Quote) Quota(multiplier, creditsPerUSD string) (int, error) {
 	if err != nil || m.Cmp(big.NewRat(1, 1)) < 0 || m.Cmp(big.NewRat(100, 1)) > 0 {
 		return 0, ErrPrice
 	}
-	units, err := decimal(creditsPerUSD)
+	units, err := parseDecimal(creditsPerUSD)
 	if err != nil || units.Sign() <= 0 {
 		return 0, ErrPrice
 	}
