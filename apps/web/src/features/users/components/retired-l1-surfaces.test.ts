@@ -38,6 +38,11 @@ test('user management has no L1 application or archive component or client API',
 })
 
 test('L0 and settings copy describe activation, not a letter or review queue', () => {
+  const retiredSettings = new URL(
+    'system-settings/content/assistant-l1-review-settings.tsx',
+    root
+  )
+  assert.equal(existsSync(retiredSettings), false)
   for (const path of [
     'onboarding/l0-welcome.tsx',
     'assistant/assistant-registration-state.ts',
