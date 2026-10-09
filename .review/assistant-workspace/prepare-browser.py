@@ -48,7 +48,7 @@ globalThis.fetch = async (input, init) => {
 entry = source/'apps/web/src/debug-main.tsx'
 text = entry.read_text()
 text = "import { installWorkspaceReviewFixtures, installWorkspaceReviewChat } from './features/debug/workspace-review-fixtures'\n"+text
-needle = "await import('./main')"
+needle = "void import('./main')"
 if text.count(needle) != 1: raise ValueError('Unexpected debug entry')
 text = text.replace(needle, 'installWorkspaceReviewFixtures()\ninstallWorkspaceReviewChat()\n'+needle)
 entry.write_text(text)
