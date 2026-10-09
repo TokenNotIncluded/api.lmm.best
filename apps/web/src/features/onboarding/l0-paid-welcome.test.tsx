@@ -85,7 +85,10 @@ const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const originalConfig = useSystemConfigStore.getState().config
 const { subscribeToAssistantOpen } =
   await import('@/features/assistant/assistant-events')
-const { developerAccessRequestQueryKey } = await import('./api')
+const legacyRequestKey = (userId: number) => [
+  'assistant-developer-access-request',
+  userId,
+]
 const { L0Welcome } = await import('./l0-welcome')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -159,7 +162,7 @@ test('L0 keeps top-up reachable from the default chat scene and links it to chec
     path: '/getting-started',
     component: () => (
       <L0Welcome user={user}>
-        <p>Pending application details</p>
+        <p>Current access details</p>
       </L0Welcome>
     ),
   })
@@ -212,7 +215,7 @@ test('L0 keeps top-up reachable from the default chat scene and links it to chec
     assert.equal(chat.contains(direct), false)
     assert.equal(
       container.querySelector('.l0-rail-headline')?.textContent,
-      'Apply for access'
+      'Enable L1 access'
     )
     assert.match(
       container.querySelector('.l0-rail-meta')?.textContent ?? '',
@@ -279,7 +282,7 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
     path: '/getting-started',
     component: () => (
       <L0Welcome user={user}>
-        <p>Pending application details</p>
+        <p>Current access details</p>
       </L0Welcome>
     ),
   })
@@ -295,7 +298,7 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  queryClient.setQueryData(developerAccessRequestQueryKey(user.id), {
+  queryClient.setQueryData(legacyRequestKey(user.id), {
     status: 'pending',
   })
   const container = document.createElement('div')
@@ -330,7 +333,7 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
     assert.equal(tab('explore').tabIndex, -1)
     assert.equal(
       container.querySelector('.l0-rail-headline')?.textContent,
-      'Awaiting review'
+      'Enable L1 access'
     )
     const composer = container.querySelector('.l0-composer')
     await act(async () => {
@@ -400,20 +403,33 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
     )
     assert.ok(details)
     assert.equal(details.open, true)
-    assert.match(details.querySelector('summary')?.textContent ?? '', /Pending/)
-    assert.match(details.textContent ?? '', /Pending application details/)
+    assert.match(
+      details.querySelector('summary')?.textContent ?? '',
+      /Tell us what you need/
+    )
+    assert.match(details.textContent ?? '', /Current access details/)
     assert.equal(accessReads, 0)
     await act(async () => {
-      queryClient.setQueryData(developerAccessRequestQueryKey(user.id), {
+      queryClient.setQueryData(legacyRequestKey(user.id), {
         status: 'rejected',
       })
       await flush()
     })
     assert.match(
       details.querySelector('summary')?.textContent ?? '',
-      /Access request rejected/
+      /Tell us what you need/
     )
     assert.equal(accessReads, 0)
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /Awaiting review|Access request rejected|Apply for access/
+    )
+    assert.equal(
+      container
+        .querySelector('[data-testid="l0-contact-support"]')
+        ?.getAttribute('href'),
+      '/support'
+    )
     const button = container.querySelector<HTMLButtonElement>(
       '[data-testid="l0-topup-direct"]'
     )

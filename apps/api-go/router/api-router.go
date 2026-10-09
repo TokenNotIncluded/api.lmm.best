@@ -400,8 +400,8 @@ func SetApiRouter(router *gin.Engine) {
 		developerAccessRequestRoute.Use(middleware.AdminAuth())
 		{
 			developerAccessRequestRoute.GET("", controller.ListDeveloperAccessRequests)
-			developerAccessRequestRoute.POST("/:id/approve", middleware.CriticalRateLimit(), controller.ApproveDeveloperAccessRequest)
-			developerAccessRequestRoute.POST("/:id/reject", middleware.CriticalRateLimit(), controller.RejectDeveloperAccessRequest)
+			developerAccessRequestRoute.POST("/:id/approve", middleware.CriticalRateLimit(), controller.RetiredDeveloperAccessRequest)
+			developerAccessRequestRoute.POST("/:id/reject", middleware.CriticalRateLimit(), controller.RetiredDeveloperAccessRequest)
 		}
 
 		accountActionRequestRoute := apiRouter.Group("/account-action-requests")

@@ -41,7 +41,6 @@ export function todoItemHasDestination(item: TodoItem) {
     case 'open_source_bounty_review':
       return positiveId(todoDetailNumber(item, 'project_id'))
     case 'human_support':
-    case 'developer_access':
     case 'account_action':
       return positiveId(item.source_id)
     case 'security_incident':

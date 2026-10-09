@@ -19,19 +19,16 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { ShieldCheck, RefreshCw } from 'lucide-react'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
-import {
-  registrationState,
-  registrationStateCopy,
-} from './assistant-registration-state'
+import { registrationStateCopy } from './assistant-registration-state'
+import { useAssistantRegistrationState } from './use-assistant-registration-state'
 
 export function AssistantRegistrationStatus({
   compact = false,
@@ -44,29 +41,7 @@ export function AssistantRegistrationStatus({
 }) {
   const { t } = useTranslation()
   const userID = useAuthStore((state) => state.auth.user?.id)
-  const query = useQuery({
-    queryKey: ['assistant-registration-state', userID],
-    queryFn: async () => {
-      const { data } = await api.get<{
-        success: boolean
-        data?: { state?: unknown }
-      }>('/api/assistant/registration-check', {
-        disableDuplicate: true,
-        skipBusinessError: true,
-        skipErrorHandler: true,
-      })
-      if (!data.success || !data.data) {
-        throw new Error('Registration status is unavailable')
-      }
-      return registrationState(data.data.state)
-    },
-    enabled: Boolean(userID),
-    retry: false,
-    staleTime: 5_000,
-    refetchInterval: (q) =>
-      q.state.data === 'active' || q.state.error ? false : 15_000,
-    refetchIntervalInBackground: false,
-  })
+  const query = useAssistantRegistrationState()
   useEffect(() => {
     if (userID && query.data === 'active' && !query.isError) {
       onApproved?.()
@@ -99,7 +74,7 @@ export function AssistantRegistrationStatus({
             <p className='text-muted-foreground mt-1 text-xs leading-5'>
               {t(
                 query.isError
-                  ? 'Keep chatting or retry. Access has not been granted by this message.'
+                  ? 'Access could not be checked. Retry or contact support; more messages will not fix a service error.'
                   : copy.detail
               )}
             </p>
@@ -128,6 +103,13 @@ export function AssistantRegistrationStatus({
           </p>
         </details>
       ) : null}
+      {(query.isError ||
+        query.data === 'held' ||
+        query.data === 'suspended') && (
+        <Button variant='outline' size='sm' render={<Link to='/support' />}>
+          {t('Contact support')}
+        </Button>
+      )}
       {query.data === 'active' && onContinueSetup ? (
         <Button type='button' size='sm' onClick={onContinueSetup}>
           {t('Continue setup')}

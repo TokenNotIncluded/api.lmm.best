@@ -75,7 +75,33 @@ export function getTodos(
     api.get(`/api/todos?category=${category}&p=${page}&page_size=50`, {
       signal,
     })
-  )
+  ).then((page) => {
+    const retired = page.categories.find(
+      (item) => item.key === 'developer_access'
+    )
+    if (!retired) return page
+    const { developer_access: _retiredUnread, ...unread } =
+      page.unread_by_category
+    return {
+      ...page,
+      items: page.items.filter((item) => item.category !== 'developer_access'),
+      categories: page.categories.filter(
+        (item) => item.key !== 'developer_access'
+      ),
+      unread_by_category: unread,
+      // Preserve the old backend's page positions during rolling upgrades.
+      // The new backend excludes retired rows before pagination.
+      total: page.total,
+      unread_count: Math.max(
+        0,
+        page.unread_count - (category === 'all' ? (retired?.unread ?? 0) : 0)
+      ),
+      total_unread_count: Math.max(
+        0,
+        page.total_unread_count - (retired?.unread ?? 0)
+      ),
+    }
+  })
 }
 
 export function markTodoRead(item: TodoItem) {

@@ -4213,7 +4213,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Projets liés",
     "footer.defaultCopyright": "Tous droits réservés.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
+    "footer.newapi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "Pour la remise d’un compte. Ajoutez le nom d’utilisateur, le mot de passe, une URL de connexion facultative et les instructions dans un seul élément.",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "Pour les clés d’activation. Importez une clé par ligne ; les acheteurs reçoivent chaque clé telle qu’elle a été fournie.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Pour les canaux ajoutés après le 10 mai 2025, pas besoin de supprimer \".\" des noms de modèles lors du déploiement",
@@ -10492,7 +10492,7 @@
     "Unable to submit unlock request": "Impossible d’envoyer la demande de déverrouillage",
     "Unable to update account balance access": "Impossible de modifier l'accès au solde du compte",
     "Unable to update discount code": "Impossible de modifier le code",
-    "Unable to update human support": "Impossible de mettre à jour le statut de l’assistance du conseiller",
+    "Unable to update human support": "Impossible de contacter l’assistance. Réessayez.",
     "Unable to update payment method": "Impossible de mettre à jour le moyen de paiement",
     "Unable to update the personal MCP token.": "Impossible de mettre à jour le jeton MCP personnel.",
     "Unable to verify account access": "Impossible de vérifier l’accès au compte",
@@ -11447,6 +11447,10 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Preuve fiable de paiement manquante pour {{unconfirmed}} opérations ; anomalie de montant pour {{invalid}} opérations. Ces opérations ne sont pas incluses dans les totaux des paiements.",
     "请刷新重试，当前金额未确认。": "Veuillez actualiser et réessayer. Le montant n’est pas encore confirmé.",
     "退款后净付款": "Paiements nets après remboursements",
-    "部分充值记录无法确认实付": "Le paiement réel de certaines recharges ne peut pas être confirmé"
+    "部分充值记录无法确认实付": "Le paiement réel de certaines recharges ne peut pas être confirmé",
+    "Enable L1 access": "Activer l’accès L1",
+    "Chat to enable L1": "Activer par discussion",
+    "Describe what you need. The assistant can enable L1 without an application letter.": "Décrivez votre besoin. L’assistant peut activer L1 sans lettre de demande.",
+    "Access could not be checked. Retry or contact support; more messages will not fix a service error.": "La vérification est indisponible. Réessayez ou contactez l’assistance ; envoyer plus de messages ne corrige pas cette erreur."
   }
 }

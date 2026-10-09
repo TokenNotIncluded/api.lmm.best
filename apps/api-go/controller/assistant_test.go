@@ -2051,7 +2051,7 @@ func TestAssistantAgentUsesCurrentAccessWithoutReadingRetiredLetter(t *testing.T
 		UserID:               user.Id,
 		Intent:               model.AssistantIntentRecommendation,
 		AccessLevel:          "L0",
-		RecommendationAction: assistantRecommendationActionRevise,
+		RecommendationAction: assistantRecommendationActionNone,
 	})
 
 	turn := 0
@@ -2079,7 +2079,7 @@ func TestAssistantAgentUsesCurrentAccessWithoutReadingRetiredLetter(t *testing.T
 		AgentLoopEnabled: false,
 		MaxSteps:         1,
 		TimeoutSeconds:   45,
-	}, []assistantOpenAIMessage{{Role: "user", Content: "请帮我重写这封推荐信"}})
+	}, []assistantOpenAIMessage{{Role: "user", Content: "请显示我的推荐信"}})
 
 	assert.Equal(t, 1, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)

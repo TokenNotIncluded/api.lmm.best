@@ -40,36 +40,16 @@ func recordAssistantDirectL1Turns(t *testing.T, userID int, conversationID int64
 	}
 }
 
-func TestAssistantDirectL1GrantRequiresThreeCompleteAITurnsAndIsIdempotent(t *testing.T) {
+func TestAssistantDirectL1GrantFirstTurnAndIsIdempotent(t *testing.T) {
 	user, conversation := setupAssistantDirectL1GrantTest(t)
-	recordAssistantDirectL1Turns(t, user.Id, conversation.Id, 2)
-	require.NoError(t, DB.Create(&AssistantHistoryMessage{
-		ConversationId: conversation.Id, Sequence: 5, Role: AssistantHistoryRoleUser,
-		Content: "unfinished third question", CreatedAt: common.GetTimestamp(),
-	}).Error)
-
-	turns, err := CountCompletedAssistantConversationTurns(user.Id, conversation.Id)
-	require.NoError(t, err)
-	assert.Equal(t, 2, turns)
-	_, err = GrantAssistantDeveloperAccess(
-		user.Id, conversation.Id,
-		"I will use LMM for a concrete coding workflow.",
-		"The user described a legitimate coding workflow over three assistant turns.",
-	)
-	assert.ErrorIs(t, err, ErrAssistantDirectGrantTurnsRequired)
-
-	require.NoError(t, DB.Create(&AssistantHistoryMessage{
-		ConversationId: conversation.Id, Sequence: 6, Role: AssistantHistoryRoleAssistant,
-		Content: "completed third response", CreatedAt: common.GetTimestamp(),
-	}).Error)
 	grant, err := GrantAssistantDeveloperAccess(
 		user.Id, conversation.Id,
 		"I will use LMM for a concrete coding workflow.",
-		"The user described a legitimate coding workflow over three assistant turns.",
+		"The user described a legitimate coding workflow.",
 	)
 	require.NoError(t, err)
 	require.True(t, grant.Activated)
-	assert.Equal(t, 3, grant.CompletedTurns)
+	assert.Zero(t, grant.CompletedTurns)
 	assert.Equal(t, DeveloperAccessRequestApproved, grant.Request.Status)
 	assert.Equal(t, DeveloperAccessRequestSourceDirectAI, grant.Request.Source)
 	assert.Contains(t, grant.Request.AdminNote, "conversation")
@@ -105,7 +85,7 @@ func TestAssistantDirectL1GrantCannotOverrideAdministrativeLevelOrConversationOw
 	_, err := GrantAssistantDeveloperAccess(
 		user.Id, conversation.Id,
 		"I will use LMM for a concrete coding workflow.",
-		"The user described a legitimate coding workflow over three assistant turns.",
+		"The user described a legitimate coding workflow.",
 	)
 	assert.ErrorIs(t, err, ErrAssistantDirectGrantNotL0)
 
@@ -114,7 +94,7 @@ func TestAssistantDirectL1GrantCannotOverrideAdministrativeLevelOrConversationOw
 	_, err = GrantAssistantDeveloperAccess(
 		other.Id, conversation.Id,
 		"I will use LMM for a concrete coding workflow.",
-		"The user described a legitimate coding workflow over three assistant turns.",
+		"The user described a legitimate coding workflow.",
 	)
 	assert.True(t, errors.Is(err, ErrAssistantConversationNotFound))
 }
@@ -128,8 +108,11 @@ func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {
 	DB, LOG_DB = db, db
 	usePostgresDatabaseType(t)
 	t.Cleanup(func() { DB, LOG_DB = previousDB, previousLogDB })
-	user := &User{Username: "assistant-direct-race", AffCode: "assistant-direct-race-aff", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+	require.NoError(t, db.AutoMigrate(RegistrationGuardMigrationModels()...))
+	require.NoError(t, db.AutoMigrate(&AssistantNewUserGift{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}))
+	user := &User{Email: "race@example.test", Username: "assistant-direct-race", AffCode: "assistant-direct-race-aff", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(user).Error)
+	require.NoError(t, ObserveAssistantRegistration(user.Id, "198.51.100.12", ""))
 	conversation, err := PrepareAssistantConversation(user.Id, 0, "first")
 	require.NoError(t, err)
 	recordAssistantDirectL1Turns(t, user.Id, conversation.Id, 3)
@@ -144,7 +127,7 @@ func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {
 			grant, callErr := GrantAssistantDeveloperAccess(
 				user.Id, conversation.Id,
 				"I will use LMM for a concrete coding workflow.",
-				"The user described a legitimate coding workflow over three assistant turns.",
+				"The user described a legitimate coding workflow.",
 			)
 			results <- grant
 			errorsFound <- callErr
@@ -175,4 +158,38 @@ func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {
 	require.NoError(t, db.Model(&DeveloperAccessRecommendationArchive{}).Where("user_id = ?", user.Id).Count(&archives).Error)
 	assert.EqualValues(t, 1, requests)
 	assert.EqualValues(t, 1, archives)
+}
+
+func TestAssistantDirectL1GrantRetiredRejectionDoesNotBlockOrChangeHistory(t *testing.T) {
+	user, conversation := setupAssistantDirectL1GrantTest(t)
+	old := DeveloperAccessRequest{UserId: user.Id, Status: DeveloperAccessRequestRejected, Source: DeveloperAccessRequestSourceAI, AdminUserId: 99, AdminNote: "historic decision", Reason: "historic letter"}
+	require.NoError(t, DB.Create(&old).Error)
+	grant, err := GrantAssistantDeveloperAccess(user.Id, conversation.Id, "写代码", "")
+	require.NoError(t, err)
+	require.True(t, grant.Activated)
+	assert.NotEqual(t, old.Id, grant.Request.Id)
+	var retained DeveloperAccessRequest
+	require.NoError(t, DB.First(&retained, old.Id).Error)
+	assert.Equal(t, old, retained)
+}
+
+func TestAssistantDirectL1GrantCannotBypassRiskOrDisabledAccount(t *testing.T) {
+	for _, state := range []string{"stale_risk", "disabled", "restricted_conversation"} {
+		t.Run(state, func(t *testing.T) {
+			user, conversation := setupAssistantDirectL1GrantTest(t)
+			switch state {
+			case "stale_risk":
+				require.NoError(t, DB.Model(&AssistantRegistrationProfile{}).Where("user_id = ?", user.Id).Update("observed_at", 1).Error)
+			case "disabled":
+				require.NoError(t, DB.Model(user).Update("status", common.UserStatusDisabled).Error)
+			case "restricted_conversation":
+				require.NoError(t, DB.Model(conversation).Update("restricted_at", common.GetTimestamp()).Error)
+			}
+			_, err := GrantAssistantDeveloperAccess(user.Id, conversation.Id, "学习", "")
+			require.Error(t, err)
+			var stored User
+			require.NoError(t, DB.First(&stored, user.Id).Error)
+			assert.Zero(t, stored.ConsoleActivatedAt)
+		})
+	}
 }

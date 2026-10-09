@@ -11483,6 +11483,10 @@
     "More filters": "More filters",
     "Product images (optional)": "Product images (optional)",
     "No image is needed. Products without images use a text layout.": "No image is needed. Products without images use a text layout.",
-    "The imported title is too long. Shorten it in Extore first.": "The imported title is too long. Shorten it in Extore first."
+    "The imported title is too long. Shorten it in Extore first.": "The imported title is too long. Shorten it in Extore first.",
+    "Enable L1 access": "Enable L1 access",
+    "Chat to enable L1": "Chat to enable L1",
+    "Describe what you need. The assistant can enable L1 without an application letter.": "Describe what you need. The assistant can enable L1 without an application letter.",
+    "Access could not be checked. Retry or contact support; more messages will not fix a service error.": "Access could not be checked. Retry or contact support; more messages will not fix a service error."
   }
 }

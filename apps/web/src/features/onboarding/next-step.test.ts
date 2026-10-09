@@ -24,22 +24,12 @@ import type { AuthUser } from '@/stores/auth-store'
 import { getAccountNextStep } from './next-step'
 
 const user: AuthUser = { id: 1, username: 'new-user', role: 1 }
-test('guests start with login and pending users never start with payment', () => {
+test('L0 guidance uses the current access decision, not old applications', () => {
   assert.equal(getAccountNextStep(null).to, '/sign-in')
-  assert.equal(
-    getAccountNextStep(user, 'pending').label,
-    'View access request status'
-  )
-  assert.equal(getAccountNextStep(user, 'none').label, 'Request API access')
-  assert.equal(
-    getAccountNextStep(user, 'error').label,
-    'Check API access status'
-  )
-  assert.equal(
-    getAccountNextStep(user, 'unknown').label,
-    'Check API access status'
-  )
-  assert.equal(getAccountNextStep(user, 'approved').to, '/getting-started')
+  assert.deepEqual(getAccountNextStep(user), {
+    to: '/getting-started',
+    label: 'Enable L1 access',
+  })
 })
 test('OAuth and undecided users are not required to create manual keys', () => {
   const approved = {
@@ -53,12 +43,9 @@ test('OAuth and undecided users are not required to create manual keys', () => {
       stage: 'first_request' as const,
     },
   }
-  assert.equal(getAccountNextStep(approved, 'approved', 'oauth').to, '/guide')
-  assert.equal(
-    getAccountNextStep(approved, 'approved').label,
-    'Choose your client'
-  )
-  assert.equal(getAccountNextStep(approved, 'approved', 'api-key').to, '/keys')
+  assert.equal(getAccountNextStep(approved, 'oauth').to, '/guide')
+  assert.equal(getAccountNextStep(approved).label, 'Choose your client')
+  assert.equal(getAccountNextStep(approved, 'api-key').to, '/keys')
   assert.equal(
     getAccountNextStep({
       ...approved,

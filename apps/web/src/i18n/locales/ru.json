@@ -4213,7 +4213,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "Для передачи аккаунта. Добавьте имя пользователя, пароль, необязательную ссылку для входа и инструкции вместе одним элементом.",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "Для ключей активации. Импортируйте по одному ключу в строке; покупатели получат каждый ключ без изменений.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
@@ -10492,7 +10492,7 @@
     "Unable to submit unlock request": "Не удалось отправить запрос на разблокировку",
     "Unable to update account balance access": "Не удалось изменить доступ к балансу аккаунта",
     "Unable to update discount code": "Не удалось обновить код скидки",
-    "Unable to update human support": "Не удалось обновить статус поддержки специалиста",
+    "Unable to update human support": "Не удалось связаться с поддержкой. Повторите попытку.",
     "Unable to update payment method": "Не удалось обновить способ оплаты",
     "Unable to update the personal MCP token.": "Не удалось обновить персональный MCP-токен.",
     "Unable to verify account access": "Не удалось проверить доступ к аккаунту",
@@ -11447,6 +11447,10 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Нет надёжного подтверждения оплаты для записей: {{unconfirmed}}; ошибки в суммах: {{invalid}}. Эти записи не включены в общие суммы платежей.",
     "请刷新重试，当前金额未确认。": "Обновите страницу и попробуйте снова. Сумма пока не подтверждена.",
     "退款后净付款": "Чистые платежи после возвратов",
-    "部分充值记录无法确认实付": "Не удалось подтвердить фактическую оплату по некоторым пополнениям"
+    "部分充值记录无法确认实付": "Не удалось подтвердить фактическую оплату по некоторым пополнениям",
+    "Enable L1 access": "Включить доступ L1",
+    "Chat to enable L1": "Открыть через чат",
+    "Describe what you need. The assistant can enable L1 without an application letter.": "Опишите задачу. Помощник может включить L1 без письма-заявки.",
+    "Access could not be checked. Retry or contact support; more messages will not fix a service error.": "Проверка недоступна. Повторите попытку или обратитесь в поддержку. Дополнительные сообщения не устранят ошибку сервиса."
   }
 }

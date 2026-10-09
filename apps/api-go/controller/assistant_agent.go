@@ -424,11 +424,11 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "grant_l1_access",
-				Description: "Grant the signed-in L0 user L1 access directly after at least three complete server-recorded conversation turns. Use this only when the conversation establishes a legitimate use of the relay and the tool is available. This action needs no user confirmation or administrator approval. The server atomically rechecks the account, owned conversation, completed turns, and any administrator trust override; repeated or concurrent calls cannot grant twice.",
+				Description: "Enable L1 for ONLY the signed-in L0 user as soon as their ordinary use is clear, including the first reply. Coding, learning or chatting is enough; no client choice, repository, proof of expertise, application letter or minimum conversation length is required. Reuse what the user already said. Record their use in user_statement; recommendation is optional internal audit text. No separate confirmation or administrator approval. The server checks the owned conversation, fresh risk, account status and explicit restrictions. This cannot change money, grant higher levels or undo a suspension. Report activated only after a successful receipt; errors require a concrete next step, never more chat to pass a timer.",
 				Parameters: objectSchema(map[string]any{
-					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
-					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
-				}, []string{"user_statement", "recommendation"}),
+					"user_statement": map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
+					"recommendation": map[string]any{"type": "string", "maxLength": 2000},
+				}, []string{"user_statement"}),
 			},
 		},
 
@@ -637,8 +637,7 @@ func keyForTools(context assistantUserContext) toolSetKey {
 
 func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
 	return !context.AdministratorMode && !context.DeveloperAccessGranted &&
-		strings.EqualFold(strings.TrimSpace(context.AccessLevel), "L0") &&
-		context.CompletedAssistantTurns >= model.AssistantDirectGrantMinCompletedTurns
+		strings.EqualFold(strings.TrimSpace(context.AccessLevel), "L0")
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
@@ -2455,22 +2454,22 @@ func executeAssistantAccountDisableRequestTool(c *gin.Context, userID int, input
 }
 
 func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[string]any) map[string]any {
-	if c == nil || userID <= 0 {
+	if c == nil || userID <= 0 || c.GetBool("use_access_token") || strings.TrimSpace(c.GetString("session_id")) == "" {
 		return map[string]any{"ok": false, "status": "context_unavailable", "error": "signed-in account is unavailable"}
 	}
 	conversationID := assistantHistoryConversationID(c)
 	if conversationID <= 0 {
-		return map[string]any{"ok": false, "status": "turns_required", "error": "three completed turns in an existing conversation are required"}
+		return map[string]any{"ok": false, "status": "context_unavailable", "error": "an owned conversation is required; retry or contact support, not extra messages"}
 	}
 	statement := strings.TrimSpace(inputString(input, "user_statement"))
 	recommendation := strings.TrimSpace(inputString(input, "recommendation"))
 	grant, err := model.GrantAssistantDeveloperAccess(userID, conversationID, statement, recommendation)
 	if err != nil {
 		switch {
+		case errors.Is(err, model.ErrAssistantRegistrationHeld):
+			return map[string]any{"ok": false, "status": "access_held", "error": "A current server restriction prevents activation. Offer human support; do not ask for more chat or promise a future automatic pass.", "next_step": "contact_support"}
 		case errors.Is(err, model.ErrAssistantRegistrationCheck):
-			return map[string]any{"ok": false, "status": "verification_required", "error": "registration verification needs more context or human support; no access was granted"}
-		case errors.Is(err, model.ErrAssistantDirectGrantTurnsRequired):
-			return map[string]any{"ok": false, "status": "turns_required", "error": "three completed server-recorded conversation turns are required"}
+			return map[string]any{"ok": false, "status": "verification_unavailable", "error": "Registration could not be verified. No access was granted. Do not ask the user to keep chatting or repeat their use; retry once or offer human support.", "next_step": "contact_support"}
 		case errors.Is(err, model.ErrAssistantDirectGrantNotL0):
 			return map[string]any{"ok": false, "status": "not_eligible", "error": "direct L1 grant is available only to an unrestricted L0 user"}
 		case errors.Is(err, model.ErrDeveloperAccessRequestReasonTooShort), errors.Is(err, model.ErrDeveloperAccessRecommendationTooShort), errors.Is(err, model.ErrDeveloperAccessRequestNoteTooLong):
@@ -3231,7 +3230,7 @@ func executeAssistantSearchTool(c *gin.Context, input map[string]any) map[string
 	}
 }
 
-const assistantL0AccessNextStep = "Continue the user's current task using the details already provided. After enough concrete user-authored context and three server-recorded completed turns, call get_registration_risk, then grant_l1_access only if the server permits. No recommendation letter or administrator approval is required; historical pending letters do not block this flow. Do not bypass a blocked or unavailable server check."
+const assistantL0AccessNextStep = "Use the user's stated purpose, even a short answer such as coding, learning or chatting. If their use is already clear, call get_registration_risk then grant_l1_access now; the first reply is eligible and there is no turn minimum. Do not require a client, repository, task plan, application letter or technical expertise. Old rejected or pending letters do not block activation. Never say keep chatting, collect more turns, your urgency delays access, or payment is the only way. On a failed check explain the actual status and offer human support or one retry, not an endless interview. Never claim activation without the successful server receipt or bypass a current restriction."
 
 func assistantAccountUnavailable(message string) map[string]any {
 	return map[string]any{"ok": false, "status": "unavailable", "error": message, "next_step": "Explain that live account or task progress is unavailable. Do not claim a milestone is pending or completed, and do not ask the user to repeat setup or create another key based on missing data."}

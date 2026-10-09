@@ -6,7 +6,6 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
   type KeyboardEvent,
@@ -18,6 +17,8 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { SourceQuestionnaire } from '@/features/acquisition/source-questionnaire'
+import { registrationStateCopy } from '@/features/assistant/assistant-registration-state'
+import { useAssistantRegistrationState } from '@/features/assistant/use-assistant-registration-state'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import {
@@ -26,10 +27,6 @@ import {
 } from '@/lib/currency'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
-import {
-  developerAccessRequestQueryKey,
-  getDeveloperAccessRequest,
-} from './api'
 import { getL0AccessCopy } from './l0-access-copy'
 import { L0CloudConversation } from './l0-cloud-conversation'
 import { getL0PaidAccess } from './l0-paid-access'
@@ -106,29 +103,19 @@ function L0WelcomeStage({
   const [discovery, setDiscovery] = useState(0)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const cloudRef = useRef<HTMLDivElement>(null)
-  const applicationRef = useRef<HTMLDetailsElement>(null)
+  const accessRef = useRef<HTMLDetailsElement>(null)
   const { state: checkState, check } = useL0AccessCheck(user?.id)
-  const request = useQuery({
-    queryKey: developerAccessRequestQueryKey(user?.id ?? 0),
-    queryFn: getDeveloperAccessRequest,
-    enabled: false,
-  })
+  const registration = useAssistantRegistrationState()
   const language = i18n.resolvedLanguage || i18n.language
   const copy = getL0AccessCopy(language)
   const access = getL0PaidAccess(user)
   const canTopUp = access.mode === 'topup'
   const progressReady = access.thresholdCredits > 0 && access.mode !== 'active'
   const busy = checkState === 'checking'
-  const statusLabel = request.isError
+  const statusLabel = registration.isError
     ? t('Unable to load access status')
-    : request.data?.status === 'pending'
-      ? t('Pending review')
-      : request.data?.status === 'rejected'
-        ? t('Access request rejected')
-        : request.data?.status === 'approved'
-          ? t('Access request approved')
-          : t('Account and access')
-  const status = request.isError ? 'error' : request.data?.status || 'default'
+    : t(registrationStateCopy(registration.data ?? 'context_needed').title)
+  const status = registration.isError ? 'error' : registration.data || 'default'
   const destinations = [
     {
       to: '/pricing',
@@ -166,20 +153,17 @@ function L0WelcomeStage({
   const selectScene = (next: Scene, focus = false) => {
     setScene(next)
     if (focus) tabs.current[SCENES.indexOf(next)]?.focus()
-    if (next === 'access' && applicationRef.current) {
-      applicationRef.current.open = true
+    if (next === 'access' && accessRef.current) {
+      accessRef.current.open = true
     }
   }
-  const openApplication = () => {
+  const openAccessDetails = () => {
     selectScene('access', true)
     requestAnimationFrame(() => {
-      const details = applicationRef.current
+      const details = accessRef.current
       if (!details) return
       details.open = true
-      const target =
-        details.querySelector<HTMLElement>('#access-request-reason') ??
-        details.querySelector<HTMLElement>('summary') ??
-        details
+      const target = details.querySelector<HTMLElement>('summary') ?? details
       target.scrollIntoView({ block: 'center', behavior: 'auto' })
       target.focus({ preventScroll: true })
     })
@@ -243,7 +227,7 @@ function L0WelcomeStage({
             className='l0-account-status'
             data-status={status}
             aria-controls='l0-panel-access'
-            onClick={openApplication}
+            onClick={openAccessDetails}
           >
             <span className='l0-status-dot' aria-hidden='true' />
             <span aria-live='polite'>{statusLabel}</span>
@@ -272,17 +256,7 @@ function L0WelcomeStage({
       <div className='l0-stage'>
         <section className='l0-rail' aria-label={t('Account and access')}>
           <div className='l0-rail-body'>
-            <p className='l0-rail-headline'>
-              {request.isError
-                ? t('Unable to load access status')
-                : request.data?.status === 'pending'
-                  ? t('Awaiting review')
-                  : request.data?.status === 'rejected'
-                    ? t('Access request rejected')
-                    : request.data?.status === 'approved'
-                      ? t('Access request approved')
-                      : copy.apply}
-            </p>
+            <p className='l0-rail-headline'>{t('Enable L1 access')}</p>
             <p
               className='l0-rail-meta'
               data-testid={progressReady ? 'l0-paid-progress' : undefined}
@@ -302,7 +276,9 @@ function L0WelcomeStage({
                 : access.mode === 'sync'
                   ? copy.syncNote
                   : access.mode === 'review'
-                    ? copy.reviewNote
+                    ? t(
+                        'Describe what you need. The assistant can enable L1 without an application letter.'
+                      )
                     : canTopUp
                       ? copy.eligibility
                       : copy.unknown}
@@ -317,27 +293,21 @@ function L0WelcomeStage({
               }
               disabled={busy}
               onClick={() => {
-                if (request.isError) {
-                  void request.refetch()
-                } else if (
-                  request.data?.status === 'approved' ||
-                  access.mode === 'sync'
-                ) {
+                if (access.mode === 'sync' || registration.data === 'active') {
                   check()
                 } else {
-                  openApplication()
+                  selectScene('chat', true)
+                  requestAnimationFrame(() => {
+                    document
+                      .querySelector<HTMLInputElement>('.l0-input-row input')
+                      ?.focus()
+                  })
                 }
               }}
             >
-              {request.isError ||
-              request.data?.status === 'approved' ||
-              access.mode === 'sync'
+              {access.mode === 'sync' || registration.data === 'active'
                 ? t('Reload account status')
-                : request.data?.status === 'pending'
-                  ? t('View application')
-                  : request.data?.status === 'rejected'
-                    ? t('Revise')
-                    : copy.apply}
+                : t('Chat to enable L1')}
               <Arrow />
             </button>
             {access.mode !== 'active' && (
@@ -364,6 +334,14 @@ function L0WelcomeStage({
                 {copy.check}
               </button>
             )}
+            <Link
+              to='/support'
+              className='l0-rail-action l0-rail-action--ghost'
+              data-testid='l0-contact-support'
+            >
+              {copy.support}
+              <Arrow />
+            </Link>
           </div>
           {checkState && (
             <p className='l0-feedback' role='status' aria-live='polite'>
@@ -436,7 +414,7 @@ function L0WelcomeStage({
               aria-controls={`l0-panel-${item}`}
               tabIndex={scene === item ? 0 : -1}
               onClick={() =>
-                item === 'access' ? openApplication() : selectScene(item)
+                item === 'access' ? openAccessDetails() : selectScene(item)
               }
               onKeyDown={(event) => navigateTabs(event, index)}
             >
@@ -457,7 +435,7 @@ function L0WelcomeStage({
             <L0CloudConversation
               cloudRef={cloudRef}
               active={scene === 'chat'}
-              onRequestAccess={openApplication}
+              onRequestAccess={openAccessDetails}
             />
           </div>
 
@@ -545,7 +523,7 @@ function L0WelcomeStage({
             >
               <details
                 className='l0-account'
-                ref={applicationRef}
+                ref={accessRef}
                 data-testid='l0-account-details'
                 onKeyDown={closeDisclosure}
               >

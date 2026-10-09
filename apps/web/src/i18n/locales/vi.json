@@ -4213,7 +4213,7 @@
     "footer.columns.related.links.midjourney": "MjProxy",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For account delivery. Add the username, password, optional login URL, and instructions together as one item.": "Dành cho việc giao tài khoản. Thêm tên người dùng, mật khẩu, URL đăng nhập không bắt buộc và hướng dẫn cùng nhau trong một mục.",
     "For activation keys. Import one key per line; buyers copy each key exactly as supplied.": "Dành cho khóa kích hoạt. Nhập mỗi dòng một khóa; người mua nhận được từng khóa đúng như đã cung cấp.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
@@ -10492,7 +10492,7 @@
     "Unable to submit unlock request": "Không thể gửi yêu cầu mở khóa",
     "Unable to update account balance access": "Không thể cập nhật quyền đọc số dư tài khoản",
     "Unable to update discount code": "Không thể cập nhật mã giảm giá",
-    "Unable to update human support": "Không thể cập nhật trạng thái hỗ trợ từ nhân viên",
+    "Unable to update human support": "Không thể liên hệ hỗ trợ. Vui lòng thử lại.",
     "Unable to update payment method": "Không thể cập nhật phương thức thanh toán",
     "Unable to update the personal MCP token.": "Không thể cập nhật mã thông báo MCP cá nhân.",
     "Unable to verify account access": "Không thể xác minh quyền truy cập tài khoản",
@@ -11447,6 +11447,10 @@
     "缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。": "Thiếu bằng chứng thanh toán đáng tin cậy cho {{unconfirmed}} giao dịch; {{invalid}} giao dịch có số tiền bất thường. Các giao dịch này không được tính vào tổng thanh toán.",
     "请刷新重试，当前金额未确认。": "Vui lòng tải lại trang và thử lại. Số tiền hiện chưa được xác nhận.",
     "退款后净付款": "Khoản thanh toán ròng sau hoàn tiền",
-    "部分充值记录无法确认实付": "Không thể xác nhận khoản thanh toán thực tế cho một số giao dịch nạp tiền"
+    "部分充值记录无法确认实付": "Không thể xác nhận khoản thanh toán thực tế cho một số giao dịch nạp tiền",
+    "Enable L1 access": "Bật quyền truy cập L1",
+    "Chat to enable L1": "Bật qua trò chuyện",
+    "Describe what you need. The assistant can enable L1 without an application letter.": "Mô tả nhu cầu của bạn. Trợ lý có thể bật L1 mà không cần thư đăng ký.",
+    "Access could not be checked. Retry or contact support; more messages will not fix a service error.": "Không thể kiểm tra quyền truy cập. Hãy thử lại hoặc liên hệ hỗ trợ; nhắn thêm không khắc phục được lỗi dịch vụ."
   }
 }

@@ -153,7 +153,6 @@ describe('todo dates and destinations', () => {
   test('does not navigate ordinary users into administrative workflows', () => {
     for (const category of [
       'account_action',
-      'developer_access',
       'security_incident',
       'human_support',
     ] as const) {

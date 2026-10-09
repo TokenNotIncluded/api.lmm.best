@@ -14,7 +14,6 @@ const ITEM_LABELS: Record<string, string> = {
   'open_source_bounty.reward_received': 'Reward received',
   'open_source_bounty.dispute_reward_received': 'Dispute reward received',
   'open_source_bounty.notification': 'Bounty notification',
-  'developer_access.request': 'Developer access request',
   'account_action.request': 'Account action request',
   'assistant.security_incident': 'Assistant safety incident',
   'moderation.warning': 'Safety review warning',
