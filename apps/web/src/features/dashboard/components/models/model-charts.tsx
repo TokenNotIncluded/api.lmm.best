@@ -41,6 +41,8 @@ import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
 
+import { ModelUsageTable } from './model-usage-table'
+
 let themeManagerPromise: Promise<
   (typeof import('@visactor/vchart'))['ThemeManager']
 > | null = null
@@ -144,53 +146,56 @@ export function ModelCharts(props: ModelChartsProps) {
   ].join('-')
 
   return (
-    <Card className='gap-0 py-0'>
-      <CardHeader className='flex w-full flex-col gap-3 border-b px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex items-center gap-2'>
-          <IconBadge tone='chart-4' size='sm'>
-            <PieChartIcon />
-          </IconBadge>
-          <div className='text-sm font-semibold'>
-            {t('Model Call Analytics')}
+    <div className='space-y-4'>
+      <Card className='gap-0 py-0'>
+        <CardHeader className='flex w-full flex-col gap-3 border-b px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between'>
+          <div className='flex items-center gap-2'>
+            <IconBadge tone='chart-4' size='sm'>
+              <PieChartIcon />
+            </IconBadge>
+            <div className='text-sm font-semibold'>
+              {t('Model Call Analytics')}
+            </div>
+            <span className='text-muted-foreground text-xs'>
+              {t('Total:')} {chartData.totalCountDisplay}
+            </span>
           </div>
-          <span className='text-muted-foreground text-xs'>
-            {t('Total:')} {chartData.totalCountDisplay}
-          </span>
-        </div>
 
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) =>
-            setActiveTab(value as ModelAnalyticsChartTab)
-          }
-        >
-          <TabsList className='h-auto min-h-8 w-full max-w-full flex-wrap justify-start sm:h-8 sm:w-auto sm:max-w-none sm:flex-nowrap'>
-            {MODEL_ANALYTICS_CHART_OPTIONS.map((tab) => (
-              <TabsTrigger
-                key={tab.value}
-                value={tab.value}
-                className='shrink-0'
-              >
-                {t(tab.labelKey)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </CardHeader>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) =>
+              setActiveTab(value as ModelAnalyticsChartTab)
+            }
+          >
+            <TabsList className='h-auto min-h-8 w-full max-w-full flex-wrap justify-start sm:h-8 sm:w-auto sm:max-w-none sm:flex-nowrap'>
+              {MODEL_ANALYTICS_CHART_OPTIONS.map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className='shrink-0'
+                >
+                  {t(tab.labelKey)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </CardHeader>
 
-      <CardContent className='h-[300px] p-2 sm:h-96 sm:p-3'>
-        {themeReady && spec && (
-          <VChart
-            key={chartKey}
-            spec={{
-              ...spec,
-              theme: resolvedTheme === 'dark' ? 'dark' : 'light',
-              background: 'transparent',
-            }}
-            option={VCHART_OPTION}
-          />
-        )}
-      </CardContent>
-    </Card>
+        <CardContent className='h-[300px] p-2 sm:h-96 sm:p-3'>
+          {themeReady && spec && (
+            <VChart
+              key={chartKey}
+              spec={{
+                ...spec,
+                theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+                background: 'transparent',
+              }}
+              option={VCHART_OPTION}
+            />
+          )}
+        </CardContent>
+      </Card>
+      <ModelUsageTable data={props.data} loading={props.loading} />
+    </div>
   )
 }
