@@ -107,7 +107,7 @@ func testOAuthMCPBrowserFlow(t *testing.T, callback string, codeOnly, discoveryO
 	// The actual gateway must expose metamcp immediately after OAuth login,
 	// without first buying or installing any published tool.
 	SetToolMarketMCPRouter(h.engine)
-	response = h.request("POST", "/mcp/market?mode=compact", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`, map[string]string{"Authorization": "Bearer " + token.AccessToken, "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28"})
+	response = h.request("POST", "/mcp/market?mode=compact", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}`, map[string]string{"Authorization": "Bearer " + token.AccessToken, "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28"})
 	require.Equal(t, 200, response.Code, response.Body.String())
 	var list struct {
 		Result struct {
@@ -124,7 +124,7 @@ func testOAuthMCPBrowserFlow(t *testing.T, callback string, codeOnly, discoveryO
 			"load":   `{"action":"load","tool_id":"fixture-tool","version_id":"fixture-version"}`,
 			"invoke": `{"action":"invoke","tool_id":"fixture-tool","version_id":"fixture-version","request_id":"fixture-request","arguments":{}}`,
 		} {
-			response = h.request("POST", "/mcp/market?mode=compact", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"metamcp","arguments":`+argument+`}}`, map[string]string{"Authorization": "Bearer " + token.AccessToken, "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28"})
+			response = h.request("POST", "/mcp/market?mode=compact", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}},"name":"metamcp","arguments":`+argument+`}}`, map[string]string{"Authorization": "Bearer " + token.AccessToken, "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28"})
 			require.Equal(t, 403, response.Code, response.Body.String())
 			require.Contains(t, response.Header().Get("WWW-Authenticate"), `, error="insufficient_scope"`)
 			require.Contains(t, response.Header().Get("WWW-Authenticate"), `, scope="`)

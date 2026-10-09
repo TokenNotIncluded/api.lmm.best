@@ -113,8 +113,16 @@ try {
           true
         )
         await capture(`agentkey-${width}-${colorScheme}.png`)
-        await page.getByRole('button', { name: '取消', exact: true }).click()
-        await page.getByRole('tab', { name: '连接与限额', exact: true }).click()
+        const cancel = page.getByRole('button', { name: '取消', exact: true })
+        await cancel.scrollIntoViewIfNeeded()
+        // Mobile scroll headers change available height during their transition.
+        // Wait for finite transitions before clicking the revealed form action.
+        await page.waitForFunction(() => !document.getAnimations().some((animation) =>
+          animation.playState === 'running' && animation.effect?.getComputedTiming().iterations !== Infinity
+        ))
+        await cancel.click()
+        await page.getByRole('heading', { name: 'metamcp', exact: true }).waitFor()
+        await page.getByRole('button', { name: '接入 MCP 客户端', exact: true }).click()
         await page.getByText('浏览器登录（推荐）', { exact: true }).waitFor()
         assert.ok(
           (await page.locator('pre').first().innerText()).includes(
