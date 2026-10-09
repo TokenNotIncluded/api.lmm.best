@@ -1,0 +1,213 @@
+name: Store support feature verification
+on:
+  push:
+    branches: [feat/store-customer-support]
+permissions:
+  contents: write
+concurrency:
+  group: store-support-feature-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CI: 'true'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - uses: oven-sh/setup-bun@v2
+      - name: Install locked Web dependencies
+        working-directory: apps/web
+        run: bun install --frozen-lockfile
+      - name: Integrate additive modules and existing entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/feat/store-customer-support
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          def patch(name, old, new):
+              path = Path(name)
+              text = path.read_text()
+              if new in text:
+                  return
+              assert text.count(old) == 1, (name, 'integration anchor changed', text.count(old))
+              path.write_text(text.replace(old, new, 1))
+          patch('apps/api-go/model/main.go', '\treturn append(models, MerchantStoreModels()...)\n', '\tmodels = append(models, MerchantStoreModels()...)\n\treturn append(models, MerchantStoreSupportModels()...)\n')
+          patch('apps/api-go/model/main.go', '\tfor _, marketModel := range append(toolMarketModels(), MerchantStoreModels()...) {', '\tstoreModels := append(MerchantStoreModels(), MerchantStoreSupportModels()...)\n\tfor _, marketModel := range append(toolMarketModels(), storeModels...) {')
+          patch('apps/api-go/router/merchant_store_router.go', '\tsetMerchantStoreCollectionRoutes(parent)', '\tsetMerchantStoreSupportRoutes(parent)\n\tsetMerchantStoreCollectionRoutes(parent)')
+          patch('apps/web/src/features/store/product-page.tsx', "import { StoreMerchantIdentity } from './merchant-identity'", "import { StoreContactButton } from './support-contact'\nimport { StoreMerchantIdentity } from './merchant-identity'")
+          patch('apps/web/src/features/store/product-page.tsx', '            <StoreProductSocialActions product={product} />', '            <StoreProductSocialActions product={product} />\n            {!ownerPreview && product.seller_id !== user?.id && (\n              <StoreContactButton productId={product.id} />\n            )}')
+          patch('apps/web/src/features/store/orders-page.tsx', "import { StoreRefundPanel } from './refund-panel'", "import { StoreRefundPanel } from './refund-panel'\nimport { StoreContactButton } from './support-contact'")
+          patch('apps/web/src/features/store/orders-page.tsx', '      <StoreError error={error} />\n      {buyer && (', '      <StoreError error={error} />\n      {order.buyer_id > 0 && <StoreContactButton orderId={order.id} buyer={buyer} />}\n      {buyer && (')
+          nav = Path('apps/web/src/features/store/store-navigation.tsx')
+          text = nav.read_text()
+          if "['/store/support', 'Messages']" not in text:
+              assert text.count("          ['/store/favorites', 'Favorites'],\n") == 1
+              text = text.replace("          ['/store/favorites', 'Favorites'],\n", '')
+              text = text.replace("          ['/store/orders', 'My orders'],", "          ['/store/orders', 'My orders'],\n          ['/store/support', 'Messages'],", 1)
+              text = text.replace("            ['/store/manage', 'Seller center'],", "            ['/store/manage', 'Seller center'],\n            ['/store/support?role=seller&tab=customers', 'Customer management'],\n            ['/store/favorites', 'Favorites'],", 1)
+              nav.write_text(text)
+          page = Path('apps/web/src/features/store/support-page.tsx')
+          text = page.read_text()
+          old = 'onDraft={(id, draft) => setDrafts((current) => ({ ...current, [id]: draft }))}'
+          new = "onDraft={(id, update) => setDrafts((current) => ({ ...current, [id]: typeof update === 'function' ? update(current[id] || { text: '' }) : update }))}"
+          if old in text:
+              page.write_text(text.replace(old, new))
+          chat = Path('apps/web/src/features/store/support-chat.tsx')
+          chat.write_text(chat.read_text().replace('{ root: panel.current, threshold: 0.5 }', '{ threshold: 0.5 }'))
+          tests = Path('apps/web/src/features/store/support-interactions.test.tsx')
+          tests.write_text(tests.read_text().replace("new dom.Event('input'", "new Event('input'"))
+          rows = [
+            ['Store messages', '商店消息', '商店訊息', 'Messages de la boutique', 'ストアのメッセージ', 'Сообщения магазина', 'Tin nhắn cửa hàng'],
+            ['Customer management', '客户管理', '客戶管理', 'Gestion des clients', '顧客管理', 'Управление клиентами', 'Quản lý khách hàng'],
+            ['Message seller', '联系卖家', '聯絡賣家', 'Contacter le vendeur', '出品者に連絡', 'Написать продавцу', 'Nhắn người bán'],
+            ['Message buyer', '联系买家', '聯絡買家', 'Contacter l’acheteur', '購入者に連絡', 'Написать покупателю', 'Nhắn người mua'],
+            ['Talk about products and orders. Keep private delivery codes out of messages.', '就商品和订单沟通。请勿在消息中提供私密提货码。', '就商品和訂單溝通。請勿在訊息中提供私密取貨碼。', 'Échangez sur les produits et les commandes. Ne partagez pas de codes de retrait privés.', '商品や注文について相談できます。秘密の受取コードは送らないでください。', 'Обсуждайте товары и заказы. Не отправляйте секретные коды получения.', 'Trao đổi về sản phẩm và đơn hàng. Không gửi mã nhận hàng riêng tư.'],
+            ['Open conversations', '待处理', '待處理', 'En cours', '対応中', 'Открытые', 'Đang xử lý'],
+            ['Resolved conversations', '已解决', '已解決', 'Résolues', '解決済み', 'Решённые', 'Đã giải quyết'],
+            ['Unread only', '只看未读', '只看未讀', 'Non lus uniquement', '未読のみ', 'Только непрочитанные', 'Chỉ tin chưa đọc'],
+            ['No conversations yet. Use Message seller on a product or order.', '暂无对话。可从商品或订单页面联系卖家。', '暫無對話。可從商品或訂單頁面聯絡賣家。', 'Aucune conversation. Contactez le vendeur depuis un produit ou une commande.', '会話はありません。商品または注文のページから出品者に連絡できます。', 'Диалогов пока нет. Напишите продавцу со страницы товара или заказа.', 'Chưa có cuộc trò chuyện. Liên hệ người bán từ trang sản phẩm hoặc đơn hàng.'],
+            ['Select a conversation to read and reply.', '选择一段对话，查看消息并回复。', '選擇一段對話，查看訊息並回覆。', 'Sélectionnez une conversation pour lire et répondre.', '会話を選んでメッセージを読み、返信してください。', 'Выберите диалог, чтобы прочитать сообщения и ответить.', 'Chọn cuộc trò chuyện để đọc và trả lời.'],
+            ['Back to conversations', '返回会话列表', '返回對話列表', 'Retour aux conversations', '会話一覧に戻る', 'К списку диалогов', 'Về danh sách trò chuyện'],
+            ['Mark resolved', '标记为已解决', '標記為已解決', 'Marquer comme résolue', '解決済みにする', 'Отметить решённым', 'Đánh dấu đã giải quyết'],
+            ['Reopen conversation', '重新打开对话', '重新開啟對話', 'Rouvrir la conversation', '会話を再開', 'Открыть диалог снова', 'Mở lại cuộc trò chuyện'],
+            ['Earlier messages', '更早的消息', '更早的訊息', 'Messages précédents', '以前のメッセージ', 'Более ранние сообщения', 'Tin nhắn cũ hơn'],
+            ['Newer messages', '更新的消息', '更新的訊息', 'Messages plus récents', '新しいメッセージ', 'Более новые сообщения', 'Tin nhắn mới hơn'],
+            ['Start with your question. The other party can reply here.', '写下你的问题，对方可以在这里回复。', '寫下你的問題，對方可以在這裡回覆。', 'Posez votre question. L’autre personne peut répondre ici.', '質問を書いてください。相手はここで返信できます。', 'Напишите свой вопрос. Собеседник сможет ответить здесь.', 'Viết câu hỏi của bạn. Đối phương có thể trả lời tại đây.'],
+            ['Write a message. Never share API keys or pickup codes.', '输入消息，请勿提供 API 密钥或提货码。', '輸入訊息，請勿提供 API 金鑰或取貨碼。', 'Écrivez un message. Ne partagez ni clés API ni codes de retrait.', 'メッセージを入力。API キーや受取コードは共有しないでください。', 'Введите сообщение. Не передавайте ключи API и коды получения.', 'Nhập tin nhắn. Không chia sẻ khóa API hoặc mã nhận hàng.'],
+            ['Send message', '发送消息', '傳送訊息', 'Envoyer le message', 'メッセージを送信', 'Отправить сообщение', 'Gửi tin nhắn'],
+            ['Assistant help', '助手帮助', '助手協助', 'Aide de l’assistant', 'アシスタントに相談', 'Помощь ассистента', 'Trợ lý hỗ trợ'],
+            ['Sending a message reopens this conversation.', '发送新消息后，此对话会重新打开。', '傳送新訊息後，此對話會重新開啟。', 'Un nouveau message rouvre cette conversation.', '新しいメッセージを送信すると会話が再開されます。', 'Новое сообщение снова откроет этот диалог.', 'Gửi tin nhắn mới sẽ mở lại cuộc trò chuyện.'],
+            ['Review assistant context', '检查提供给助手的内容', '檢查提供給助手的內容', 'Vérifier le contexte partagé', 'アシスタントに渡す内容を確認', 'Проверить контекст для ассистента', 'Kiểm tra nội dung gửi cho trợ lý'],
+            ['Only the latest ten messages and basic order status are included. Private notes and delivery data are excluded. Check the text before opening the assistant.', '仅包含最近十条消息和基本订单状态，不包含私有备注或提货信息。打开助手前，请检查下方文字。', '僅包含最近十條訊息和基本訂單狀態，不包含私人備註或取貨資訊。開啟助手前，請檢查下方文字。', 'Seuls les dix derniers messages et l’état de la commande sont inclus. Les notes privées et données de livraison sont exclues. Vérifiez le texte avant de continuer.', '直近10件のメッセージと基本的な注文状況のみを含みます。非公開メモや受取情報は含みません。続行前に内容を確認してください。', 'Включены только десять последних сообщений и статус заказа. Личные заметки и данные выдачи исключены. Проверьте текст перед продолжением.', 'Chỉ gồm mười tin nhắn gần nhất và trạng thái đơn hàng cơ bản. Không gồm ghi chú riêng hay dữ liệu nhận hàng. Hãy kiểm tra trước khi tiếp tục.'],
+            ['Draft a reply', '起草回复', '起草回覆', 'Rédiger une réponse', '返信の下書き', 'Черновик ответа', 'Soạn câu trả lời'],
+            ['Summarize conversation', '总结对话', '總結對話', 'Résumer la conversation', '会話を要約', 'Сводка диалога', 'Tóm tắt cuộc trò chuyện'],
+            ['Suggest next steps', '建议处理步骤', '建議處理步驟', 'Proposer les prochaines étapes', '対応手順を提案', 'Предложить следующие шаги', 'Đề xuất bước tiếp theo'],
+            ['Text to share with the assistant', '将提供给助手的文字', '將提供給助手的文字', 'Texte à partager avec l’assistant', 'アシスタントに渡すテキスト', 'Текст для ассистента', 'Nội dung chia sẻ với trợ lý'],
+            ['The assistant does not send a reply to the other party. Review its draft before copying it into your message.', '助手不会直接向对方发送回复。请检查草稿，再复制到消息输入框中发送。', '助手不會直接向對方傳送回覆。請檢查草稿，再複製到訊息輸入框中傳送。', 'L’assistant n’envoie rien à l’autre personne. Vérifiez son brouillon avant de le copier dans votre message.', 'アシスタントが相手に直接返信することはありません。下書きを確認してからメッセージ欄にコピーしてください。', 'Ассистент не отправляет ответ собеседнику. Проверьте черновик перед копированием в сообщение.', 'Trợ lý không tự gửi trả lời cho đối phương. Kiểm tra bản nháp trước khi sao chép vào tin nhắn.'],
+            ['Open in assistant', '放入助手输入框', '放入助手輸入框', 'Ouvrir dans l’assistant', 'アシスタントの入力欄に送る', 'Открыть в ассистенте', 'Mở trong trợ lý'],
+            ['Only your buyers and inquiries appear here. Paid totals are historical gross amounts before refunds, not current revenue.', '这里只显示你的买家和咨询者。已支付总额为退款前的历史金额，不等于当前收入。', '這裡只顯示你的買家和諮詢者。已支付總額為退款前的歷史金額，不等於目前收入。', 'Seuls vos acheteurs et demandeurs apparaissent ici. Les montants payés sont des totaux historiques avant remboursements, pas le revenu actuel.', '自分の購入者と相談者のみを表示します。支払総額は返金前の累計で、現在の収益ではありません。', 'Здесь только ваши покупатели и обратившиеся клиенты. Суммы оплаты указаны до возвратов и не равны текущему доходу.', 'Chỉ hiển thị người mua và người hỏi hàng của bạn. Tổng đã trả là số tiền lịch sử trước hoàn tiền, không phải doanh thu hiện tại.'],
+            ['Search customers', '搜索客户', '搜尋客戶', 'Rechercher des clients', '顧客を検索', 'Поиск клиентов', 'Tìm khách hàng'],
+            ['No customers yet. Customers appear after an order or a product inquiry.', '暂无客户。收到订单或商品咨询后，客户会显示在这里。', '暫無客戶。收到訂單或商品諮詢後，客戶會顯示在這裡。', 'Aucun client. Ils apparaîtront après une commande ou une demande.', '顧客はまだいません。注文や商品への問い合わせ後に表示されます。', 'Клиентов пока нет. Они появятся после заказа или вопроса о товаре.', 'Chưa có khách hàng. Khách sẽ xuất hiện sau khi đặt hàng hoặc hỏi về sản phẩm.'],
+            ['Historical paid total', '历史已支付总额', '歷史已支付總額', 'Total historique payé', '過去の支払総額', 'Всего оплачено ранее', 'Tổng đã thanh toán'],
+            ['Latest order', '最近订单', '最近訂單', 'Dernière commande', '最新の注文', 'Последний заказ', 'Đơn hàng gần nhất'],
+            ['Private notes and tags', '私有备注与标签', '私人備註與標籤', 'Notes privées et étiquettes', '非公開メモとタグ', 'Личные заметки и метки', 'Ghi chú riêng và nhãn'],
+            ['Only you can read these notes. They are not shared with the buyer or the assistant.', '备注仅你可见，不会提供给买家或助手。', '備註僅你可見，不會提供給買家或助手。', 'Ces notes sont visibles uniquement par vous, pas par l’acheteur ni l’assistant.', 'このメモは自分だけが閲覧でき、購入者やアシスタントには共有されません。', 'Заметки видны только вам, не покупателю и не ассистенту.', 'Chỉ bạn xem được ghi chú; chúng không được chia sẻ với người mua hoặc trợ lý.'],
+            ['Private customer note', '客户私有备注', '客戶私人備註', 'Note privée sur le client', '顧客の非公開メモ', 'Личная заметка о клиенте', 'Ghi chú riêng về khách'],
+            ['Tags, separated by commas', '标签，用逗号分隔', '標籤，以逗號分隔', 'Étiquettes séparées par des virgules', 'タグ（カンマ区切り）', 'Метки через запятую', 'Nhãn, phân cách bằng dấu phẩy'],
+            ['Up to ten tags, with 32 characters per tag.', '最多十个标签，每个最多 32 个字符。', '最多十個標籤，每個最多 32 個字元。', 'Dix étiquettes au maximum, de 32 caractères chacune.', 'タグは10個まで、各32文字までです。', 'До десяти меток, до 32 символов в каждой.', 'Tối đa mười nhãn, mỗi nhãn 32 ký tự.'],
+            ['Save customer details', '保存客户资料', '儲存客戶資料', 'Enregistrer la fiche client', '顧客情報を保存', 'Сохранить данные клиента', 'Lưu thông tin khách hàng'],
+            ['Check the message length.', '请检查消息长度。', '請檢查訊息長度。', 'Vérifiez la longueur du message.', 'メッセージの長さを確認してください。', 'Проверьте длину сообщения.', 'Kiểm tra độ dài tin nhắn.'],
+          ]
+          for locale, column in [('en', 0), ('zh', 1), ('zh-TW', 2), ('fr', 3), ('ja', 4), ('ru', 5), ('vi', 6)]:
+              path = Path(f'apps/web/src/i18n/locales/{locale}.json')
+              text = path.read_text()
+              existing = json.loads(text)['translation']
+              additions = {row[0]: row[column] for row in rows if row[0] not in existing}
+              if additions:
+                  marker = '  "translation": {\n'
+                  assert text.count(marker) == 1
+                  lines = ''.join('    ' + json.dumps(key, ensure_ascii=False) + ': ' + json.dumps(value, ensure_ascii=False) + ',\n' for key, value in additions.items())
+                  text = text.replace(marker, marker + lines, 1)
+                  json.loads(text)
+                  path.write_text(text)
+          PY
+          gofmt -w apps/api-go/model/merchant_store_support*.go apps/api-go/model/merchant_store_customers.go apps/api-go/model/main.go apps/api-go/controller/merchant_store_support.go apps/api-go/router/merchant_store_support.go apps/api-go/router/merchant_store_router.go
+          cd apps/web
+          ./node_modules/.bin/oxfmt --write src/features/store/support*.ts src/features/store/support*.tsx src/features/store/store-navigation.tsx src/features/store/orders-page.tsx src/features/store/product-page.tsx src/routes/store/support.tsx
+      - name: Build Web and generate route tree
+        id: build
+        continue-on-error: true
+        working-directory: apps/web
+        shell: bash
+        run: set -o pipefail; bun run build 2>&1 | tee "$RUNNER_TEMP/support-build.log"
+      - name: Record integrated source on this feature branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/feat/store-customer-support
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u apps/api-go apps/web/src
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat(store): integrate support routes, shop entry points and translations'
+            git push origin HEAD:refs/heads/feat/store-customer-support
+          fi
+          git rev-parse HEAD | tee "$RUNNER_TEMP/support-source-sha.txt"
+          echo "Tested source: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Existing Go baseline at the original main revision
+        id: baseline
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/support-baseline" 6777280b2e32f15e8e3793988ee90d57cba33662
+          cd "$RUNNER_TEMP/support-baseline/apps/api-go"
+          go test -p 2 ./model -run '^TestMerchantStoreBalanceTransfersSnapshotsAndReplay$' -count=1 2>&1 | tee "$RUNNER_TEMP/support-baseline.log"
+      - name: Support and customer Go regression tests
+        id: go
+        continue-on-error: true
+        working-directory: apps/api-go
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -race -p 2 ./model ./controller ./router -run 'TestMerchantStoreSupport|TestMerchantStoreCustomers|TestMerchantStoreBalanceTransfersSnapshotsAndReplay' -count=1 -json 2>&1 | tee "$RUNNER_TEMP/support-go.jsonl"
+      - name: Web support and shop navigation tests
+        id: web
+        continue-on-error: true
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tests=(src/features/store/support*.test.ts src/features/store/support*.test.tsx src/features/store/store-navigation*.test.ts src/features/store/store-navigation*.test.tsx src/features/store/categories-interactions.test.tsx)
+          for file in "${tests[@]}"; do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" 2>&1 | tee -a "$RUNNER_TEMP/support-web.log"
+          done
+      - name: Web type check
+        id: types
+        continue-on-error: true
+        working-directory: apps/web
+        shell: bash
+        run: set -o pipefail; bun run typecheck 2>&1 | tee "$RUNNER_TEMP/support-types.log"
+      - name: Changed feature lint
+        id: lint
+        continue-on-error: true
+        working-directory: apps/web
+        shell: bash
+        run: set -o pipefail; ./node_modules/.bin/oxlint -c .oxlintrc.json src/features/store/support*.ts src/features/store/support*.tsx src/routes/store/support.tsx 2>&1 | tee "$RUNNER_TEMP/support-lint.log"
+      - name: Verify tests did not modify source
+        if: always()
+        shell: bash
+        run: git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: store-support-verification
+          path: |
+            ${{ runner.temp }}/support-*.log
+            ${{ runner.temp }}/support-*.jsonl
+            ${{ runner.temp }}/support-source-sha.txt
+          retention-days: 7
+      - name: Require all feature checks
+        if: always()
+        env:
+          BUILD: ${{ steps.build.outcome }}
+          GO: ${{ steps.go.outcome }}
+          WEB: ${{ steps.web.outcome }}
+          TYPES: ${{ steps.types.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+        shell: bash
+        run: |
+          printf 'build=%s go=%s web=%s types=%s lint=%s\n' "$BUILD" "$GO" "$WEB" "$TYPES" "$LINT"
+          test "$BUILD/$GO/$WEB/$TYPES/$LINT" = success/success/success/success/success
