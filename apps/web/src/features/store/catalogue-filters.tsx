@@ -1,14 +1,78 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { LayoutGrid, List, SlidersHorizontal } from 'lucide-react'
+import { ArrowDownUp, LayoutGrid, List, SlidersHorizontal } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { cn } from '@/lib/utils'
 
 import type { StoreCatalogueFilters } from './catalogue-types'
+
+function CatalogueSelect({
+  id,
+  label,
+  value,
+  items,
+  onChange,
+  className,
+  icon,
+}: {
+  id: string
+  label: string
+  value: string
+  items: { value: string; label: string }[]
+  onChange: (value: string) => void
+  className?: string
+  icon?: ReactNode
+}) {
+  return (
+    <Select
+      items={items}
+      value={value}
+      onValueChange={(next) => {
+        if (next !== null) onChange(next)
+      }}
+    >
+      <SelectTrigger
+        id={id}
+        aria-label={label}
+        className={cn(
+          'border-border/70 bg-background text-foreground w-full min-w-0 gap-2 rounded-xl px-3 text-base shadow-xs hover:bg-accent/60 data-popup-open:border-ring/60 data-popup-open:bg-accent/60 data-[size=default]:h-11 dark:bg-background dark:hover:bg-accent/60 sm:text-sm',
+          className
+        )}
+      >
+        {icon}
+        <SelectValue className='min-w-0 truncate' />
+      </SelectTrigger>
+      <SelectContent
+        align='start'
+        alignItemWithTrigger={false}
+        sideOffset={8}
+        className='rounded-2xl p-1.5'
+      >
+        {items.map((item) => (
+          <SelectItem
+            key={item.value}
+            value={item.value}
+            className='data-selected:bg-accent/60 data-highlighted:bg-accent data-highlighted:text-accent-foreground min-h-11 rounded-xl [&_[data-slot=select-item-text]]:min-w-0 [&_[data-slot=select-item-text]]:whitespace-normal'
+          >
+            {item.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
 
 export function StoreCatalogueFiltersPanel({
   value,
@@ -36,31 +100,34 @@ export function StoreCatalogueFiltersPanel({
     Object.entries(value).some(
       ([key, item]) => key !== 'sort' && item !== undefined && item !== ''
     )
-  const selectClass =
-    'bg-background h-11 w-full rounded-xl border px-3 text-base sm:text-sm'
   return (
     <div className='flex flex-col gap-3'>
       <div className='flex items-center gap-1.5 sm:gap-3'>
         {supported && (
           <>
-            <label htmlFor='store-catalogue-sort' className='sr-only'>
-              {t('Sort products')}
-            </label>
-            <select
+            <CatalogueSelect
               id='store-catalogue-sort'
+              label={t('Sort products')}
               value={value.sort ?? 'comprehensive'}
-              className='text-foreground h-11 min-w-0 flex-1 rounded-lg bg-transparent pe-3 text-base sm:max-w-52 sm:text-sm'
-              onChange={(event) =>
+              className='flex-1 sm:max-w-52'
+              icon={
+                <ArrowDownUp
+                  className='text-muted-foreground size-4'
+                  aria-hidden='true'
+                />
+              }
+              items={[
+                { value: 'comprehensive', label: t('Comprehensive order') },
+                { value: 'sales', label: t('Best selling') },
+                { value: 'newest', label: t('Newest products') },
+              ]}
+              onChange={(sort) =>
                 onChange({
                   ...value,
-                  sort: event.target.value as StoreCatalogueFilters['sort'],
+                  sort: sort as StoreCatalogueFilters['sort'],
                 })
               }
-            >
-              <option value='comprehensive'>{t('Comprehensive order')}</option>
-              <option value='sales'>{t('Best selling')}</option>
-              <option value='newest'>{t('Newest products')}</option>
-            </select>
+            />
             <ToggleGroup
               value={[view]}
               onValueChange={(values) => {
@@ -119,25 +186,24 @@ export function StoreCatalogueFiltersPanel({
                   <FieldLabel htmlFor='store-catalogue-stock'>
                     {t('Stock availability')}
                   </FieldLabel>
-                  <select
+                  <CatalogueSelect
                     id='store-catalogue-stock'
+                    label={t('Stock availability')}
                     value={value.stock ?? ''}
-                    className={selectClass}
-                    onChange={(event) =>
+                    items={[
+                      { value: '', label: t('Any stock') },
+                      { value: 'in_stock', label: t('In stock') },
+                      { value: 'out_of_stock', label: t('Out of stock') },
+                    ]}
+                    onChange={(stock) =>
                       onChange({
                         ...value,
-                        stock:
-                          event.target.value === ''
-                            ? undefined
-                            : (event.target
-                                .value as StoreCatalogueFilters['stock']),
+                        stock: stock
+                          ? (stock as StoreCatalogueFilters['stock'])
+                          : undefined,
                       })
                     }
-                  >
-                    <option value=''>{t('Any stock')}</option>
-                    <option value='in_stock'>{t('In stock')}</option>
-                    <option value='out_of_stock'>{t('Out of stock')}</option>
-                  </select>
+                  />
                 </Field>
                 {(
                   [
@@ -150,24 +216,22 @@ export function StoreCatalogueFiltersPanel({
                     <FieldLabel htmlFor={`store-catalogue-${key}`}>
                       {t(label)}
                     </FieldLabel>
-                    <select
+                    <CatalogueSelect
                       id={`store-catalogue-${key}`}
+                      label={t(label)}
                       value={value[key] === undefined ? '' : String(value[key])}
-                      className={selectClass}
-                      onChange={(event) =>
+                      items={[
+                        { value: '', label: t('Any') },
+                        { value: 'true', label: t('Yes') },
+                        { value: 'false', label: t('No') },
+                      ]}
+                      onChange={(next) =>
                         onChange({
                           ...value,
-                          [key]:
-                            event.target.value === ''
-                              ? undefined
-                              : event.target.value === 'true',
+                          [key]: next === '' ? undefined : next === 'true',
                         })
                       }
-                    >
-                      <option value=''>{t('Any')}</option>
-                      <option value='true'>{t('Yes')}</option>
-                      <option value='false'>{t('No')}</option>
-                    </select>
+                    />
                   </Field>
                 ))}
               </FieldGroup>
