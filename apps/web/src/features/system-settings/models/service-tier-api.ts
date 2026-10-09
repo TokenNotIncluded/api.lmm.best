@@ -28,7 +28,14 @@ function unwrap(result: Result) {
   if (!result.success || !result.data) {
     throw new Error(result.message || 'Service-tier pricing is unavailable')
   }
-  return result.data
+  return {
+    ...result.data,
+    policy: {
+      ...result.data.policy,
+      fast_groups: result.data.policy.fast_groups ?? [],
+      ultrafast_groups: result.data.policy.ultrafast_groups ?? [],
+    },
+  }
 }
 export async function getServiceTierPricing(): Promise<ServiceTierState> {
   return unwrap((await api.get<Result>(endpoint)).data)
