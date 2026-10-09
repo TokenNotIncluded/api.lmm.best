@@ -41,7 +41,9 @@ export function trackMobileScroll(
     delta === 0 || Math.sign(delta) === Math.sign(previous.travel)
       ? previous.travel + delta
       : delta
-  if (track.travel >= 24) return { track: { ...track, travel: 0 }, hidden: true }
+  if (track.travel >= 24) {
+    return { track: { ...track, travel: 0 }, hidden: true }
+  }
   if (track.travel <= -12) {
     return { track: { ...track, travel: 0 }, hidden: false }
   }
@@ -64,10 +66,12 @@ function interactionNeedsControls(root: HTMLElement) {
     return true
   }
   return Boolean(
-    root.querySelector('[data-mobile-scroll-chrome] [aria-expanded="true"]') ||
-      document.querySelector(
-        '[aria-modal="true"]:not([hidden]):not([data-closed]), [role="menu"][data-open], [role="listbox"][data-open], [role="menu"][data-state="open"], [role="listbox"][data-state="open"]'
-      )
+    root.querySelector(
+      '[data-mobile-scroll-chrome] [aria-expanded="true"], [data-mobile-scroll-chrome] details[open]'
+    ) ||
+    document.querySelector(
+      '[aria-modal="true"]:not([hidden]):not([data-closed]), [role="menu"][data-open], [role="listbox"][data-open], [role="menu"][data-state="open"], [role="listbox"][data-state="open"]'
+    )
   )
 }
 

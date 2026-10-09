@@ -45,6 +45,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { ProfilePasskeyCapability } = await import('./index')
+const { ReferralOverviewCard } =
+  await import('./components/referral-overview-card')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -200,4 +202,35 @@ describe('profile passkey capability visibility', () => {
     await act(async () => root.unmount())
     container.remove()
   })
+})
+
+test('rewards retain a useful destination without gifts or check-in', async () => {
+  const calls: string[] = []
+  api.get = (async (url: string) => {
+    calls.push(url)
+    throw new Error('A reward overview must not fetch or mutate account data')
+  }) as typeof api.get
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ReferralOverviewCard />
+        </I18nextProvider>
+      )
+    )
+    assert.match(container.textContent ?? '', /Referral Program/)
+    assert.match(container.textContent ?? '', /first real paid top-up/)
+    assert.match(
+      container.textContent ?? '',
+      /purchased balance is not deducted/
+    )
+    assert.equal(container.querySelector('a')?.getAttribute('href'), '/wallet')
+    assert.equal(container.querySelector('a')?.textContent, 'Wallet')
+    assert.deepEqual(calls, [])
+  } finally {
+    await act(async () => root.unmount())
+  }
 })

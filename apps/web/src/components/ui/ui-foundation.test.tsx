@@ -59,6 +59,7 @@ const { I18nextProvider } = await import('react-i18next')
 const { Button } = await import('./button')
 const { Input } = await import('./input')
 const { Textarea } = await import('./textarea')
+const { Tabs, TabsList, TabsTrigger, TabsContent } = await import('./tabs')
 const { InputOTP, InputOTPGroup, InputOTPSlot } = await import('./input-otp')
 const i18n = createInstance()
 await i18n.init({
@@ -265,4 +266,66 @@ test('migration removes legacy runtimes and keeps the preview out of production'
   const drawer = readFileSync(new URL('./drawer.tsx', import.meta.url), 'utf8')
   assert.match(drawer, /@base-ui\/react\/drawer/)
   assert.match(drawer, /VirtualKeyboardProvider/)
+})
+
+test('navigation tabs preserve selection, panel associations and disabled actions', async () => {
+  let changes = 0
+  const view = await mount(
+    <Tabs defaultValue='first' onValueChange={() => changes++}>
+      <TabsList variant='navigation' aria-label='Pages'>
+        <TabsTrigger value='first'>First page</TabsTrigger>
+        <TabsTrigger value='second'>Second page with a long label</TabsTrigger>
+        <TabsTrigger value='disabled' disabled>
+          Unavailable
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value='first'>First content</TabsContent>
+      <TabsContent value='second'>Second content</TabsContent>
+    </Tabs>
+  )
+  try {
+    const list = view.host.querySelector<HTMLElement>('[role="tablist"]')
+    assert.equal(list?.dataset.variant, 'navigation')
+    assert.equal(list?.getAttribute('aria-label'), 'Pages')
+    assert.ok(list?.classList.contains('overflow-x-auto'))
+    const tabs = view.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    assert.equal(tabs[0].getAttribute('aria-selected'), 'true')
+    await act(async () => tabs[1].click())
+    assert.equal(tabs[1].getAttribute('aria-selected'), 'true')
+    assert.equal(
+      document.getElementById(tabs[1].getAttribute('aria-controls')!)
+        ?.textContent,
+      'Second content'
+    )
+    await act(async () => tabs[2].click())
+    assert.equal(tabs[1].getAttribute('aria-selected'), 'true')
+    assert.equal(changes, 1)
+  } finally {
+    await view.cleanup()
+  }
+})
+
+test('the default vertical tab layout remains available', async () => {
+  const view = await mount(
+    <Tabs orientation='vertical' defaultValue='one'>
+      <TabsList aria-label='Sections'>
+        <TabsTrigger value='one'>One</TabsTrigger>
+        <TabsTrigger value='two'>Two</TabsTrigger>
+      </TabsList>
+      <TabsContent value='one'>Content</TabsContent>
+    </Tabs>
+  )
+  try {
+    const list = view.host.querySelector<HTMLElement>('[role="tablist"]')
+    assert.equal(list?.dataset.variant, 'default')
+    assert.equal(list?.getAttribute('aria-orientation'), 'vertical')
+    assert.equal(
+      view.host
+        .querySelector('[data-slot="tabs"]')
+        ?.getAttribute('data-orientation'),
+      'vertical'
+    )
+  } finally {
+    await view.cleanup()
+  }
 })

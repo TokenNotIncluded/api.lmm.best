@@ -61,6 +61,7 @@ import {
   StoreLoading,
 } from './shared'
 import { currentStoreViewer, useStoreViewer } from './store-viewer'
+import { StoreContactButton } from './support-contact'
 import { STORE_TEST_MODE_COPY as testCopy } from './test-mode-copy'
 import { useStoreTrafficPage } from './traffic-page'
 import type {
@@ -167,6 +168,9 @@ export function StoreProductPage({
               sellerId={product.seller_id}
             />
             <StoreProductSocialActions product={product} />
+            {!ownerPreview && product.seller_id !== user?.id && (
+              <StoreContactButton productId={product.id} />
+            )}
           </div>
           {headerImage && (
             <img

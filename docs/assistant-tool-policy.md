@@ -1,6 +1,6 @@
 # 内置 AI 客服工具
 
-内置客服当前注册 67 个工具，按 16 组管理。原有商品和 MCP 目录组只查询目录；新增市场接入组在用户明确授权后可调用远程工具，详见下文。
+内置客服当前注册 69 个工具，按 16 组管理。原有商品和 MCP 目录组只查询目录；新增市场接入组在用户明确授权后可调用远程工具，详见下文。
 
 超级管理员可在「系统设置 → 内置助手 → 工具」搜索工具、开关整组或单个工具，并保存配置。默认继承已有能力和权限；全局开关只能收紧能力，不能让 L0 获得 L1、管理员或超级管理员权限。
 
@@ -8,21 +8,24 @@
 
 | 组 | 工具 | 能力 |
 |---|---|---|
-| 服务帮助（5） | `get_service_facts`, `navigate_to_page`, `get_setup_guide`, `search_web`, `calculate_math` | 查询连接地址、活动、客户端配置；提供站内链接；搜索、计算。 |
+| 服务帮助（7） | `discover_tools`, `end_conversation`, `get_service_facts`, `navigate_to_page`, `get_setup_guide`, `search_web`, `calculate_math` | 按需加载工具、结束本轮；查询连接地址、活动、客户端配置；提供站内链接；搜索、计算。 |
 | 账户与升级（6） | `get_account_access`, `get_user_overview`, `get_user_usage_summary`, `get_usage_summary`, `prepare_user_action`, `grant_l1_access` | 查询账户、余额、进度和用量；准备账户操作表单；服务端验证后升级当前 L0 账户。 |
 | 模型与费用（4） | `get_available_models`, `get_model_pricing`, `calculate_cost`, `get_plan_offers` | 查询真实模型、价格和套餐；按已知价格估算费用。 |
 | API 密钥（3） | `request_create_key`, `list_my_api_keys`, `prepare_api_key_action` | 查询本人密钥元数据，准备创建、停用或删除一个精确密钥的确认卡。密钥内容不交给模型。 |
-| 奖励（5） | `get_invitation_rewards`, `get_new_user_gift_status`, `prepare_new_user_gift`, `get_weekly_discount_status`, `prepare_weekly_discount` | 查询邀请奖励、新人礼及每周折扣；评估奖励资格并记录一次性决策，领取仍需用户确认。 |
+| 奖励（6） | `send_invitation`, `get_invitation_rewards`, `get_new_user_gift_status`, `prepare_new_user_gift`, `get_weekly_discount_status`, `prepare_weekly_discount` | 查询邀请奖励、新人礼及每周折扣；评估奖励资格并记录一次性决策，领取仍需用户确认。 |
 | 开源悬赏（2） | `get_bounty_guide`, `get_bounty_data` | 查询流程、公开悬赏及有权限访问的个人或管理数据；不出资、结算或转账。 |
 | 商品与工具目录（4） | `get_store_products`, `get_store_product`, `get_tool_market_services`, `get_tool_market_service` | 查询商品和 MCP 服务目录、详情及要求。 |
 | 绘图（1） | `prepare_image_generation` | 准备使用可用绘图模型的确认卡；用户确认后的生成可能扣费。 |
 | 人工支持（3） | `get_human_support_status`, `book_technical_support`, `request_human_support` | 查询资格和请求；用户明确预约后提交站内预约；准备人工转交或账户停用审核申请。 |
-| 记忆与个性化（5） | `set_conversation_title`, `recall_memory`, `remember_memory`, `remember_profile_skill`, `forget_profile_skill` | 设置标题，查询、保存本人记忆和回答偏好；按用户明确要求移除 AI 生成的偏好。 |
+| 记忆与个性化（7） | `get_overview_greeting`, `set_overview_greeting`, `set_conversation_title`, `recall_memory`, `remember_memory`, `remember_profile_skill`, `forget_profile_skill` | 设置标题，查询、保存本人记忆和回答偏好；按用户明确要求移除 AI 生成的偏好。 |
 | 注册保护（4） | `get_registration_risk`, `notify_registration_risk`, `end_registration_conversation`, `ban_l0_user` | 检查当前 L0 的服务器证据；依据确定性校验记录警报、暂停验证或封禁当前 L0。 |
 | 管理读取（7） | `get_admin_user_skills`, `get_admin_server_config`, `get_admin_channels`, `get_admin_model_inventory`, `list_admin_operations`, `execute_admin_operation`, `audit_admin_model_pricing` | 有权限的管理员查询用户偏好、配置、渠道、模型和定价；发现控制台操作并执行经过审查的只读操作。 |
 | 管理变更（5） | `prepare_admin_user_skill_change`, `prepare_admin_config_change`, `prepare_admin_channel_change`, `prepare_admin_model_sync`, `prepare_admin_pricing_change` | 准备精确变更预览，管理员在界面确认后才应用。配置、价格和模型同步要求超级管理员。 |
+| 站内改进（3） | `get_site_issues`, `create_site_issue`, `update_site_issue` | 查询、提交及更新有权限访问的站内改进记录。 |
+| 市场接入（3） | `get_connected_market_tools`, `connect_market_tool`, `call_market_tool` | 查询已接入工具、准备接入确认及调用已授权的远程工具。 |
+| 可视化（4） | `show_chart`, `show_statistics`, `show_choices`, `show_flowchart` | 显示图表、指标、选项及流程；展示不会确认数据真实性或执行账户操作。 |
 
-39 个工具只读或展示数据，15 个工具准备确认表单，12 个工具会在服务端规则允许时保存记录、调用远程工具或改变状态，1 个工具生成站内链接。特别是名称带 `prepare` 的新人礼和每周折扣会保存决策、消耗相应机会，并非纯预览。预约、记忆、标题、L1 升级和注册保护也有实际写入，因此单独标为「服务端校验写入」。
+40 个工具只读或展示数据，15 个工具准备确认表单，13 个工具会在服务端规则允许时保存记录、调用远程工具或改变状态，1 个工具生成站内链接。特别是名称带 `prepare` 的新人礼和每周折扣会保存决策、消耗相应机会，并非纯预览。预约、记忆、标题、L1 升级和注册保护也有实际写入，因此单独标为「服务端校验写入」。
 
 ## 开关规则
 
@@ -53,7 +56,7 @@ cd apps/api-go
 go test ./setting ./controller -run TestAssistantToolPolicy -count=1
 ```
 
-测试包括实际注册目录匹配、67 个禁用模拟调用、权限和组继承、目录缓存失效、强制选择、无工具时的模型请求、旧确认卡和管理读取别名。前端测试模拟工具目录接口及开关、搜索、保存、配置错误和重试，没有调用真实账务、删除、预约或发送消息工具。
+测试包括实际注册目录匹配、69 个禁用模拟调用、权限和组继承、目录缓存失效、强制选择、无工具时的模型请求、旧确认卡和管理读取别名。前端测试模拟工具目录接口及开关、搜索、保存、配置错误和重试，没有调用真实账务、删除、预约或发送消息工具。
 
 ## 工具配置中心
 
@@ -71,7 +74,7 @@ go test ./setting ./controller -run TestAssistantToolPolicy -count=1
 
 ## 新增工具
 
-共新增 13 个工具，目录合计 67 个。新增「原生可视化」「站内改进 issue」「工具市场接入」三组。
+此前新增 13 个工具，当时目录合计 67 个。新增「原生可视化」「站内改进 issue」「工具市场接入」三组。
 
 | 用途 | 工具 | 实际行为 |
 | --- | --- | --- |
@@ -92,3 +95,15 @@ issue 类型包括 bug、security、experience、feature。用户可见指「提
 概览图表读取本人实际用量，提供 7/30 天视图以及请求、token、费用指标。加载失败与无数据分别显示，不使用随机数或零值掩盖错误。折线、柱状、环形图附有可展开数据表。统计卡使用固定图标列表；流程图有文字步骤；选择按钮只填入输入框，不自动发送消息或确认付费操作。聊天中助手自行提供的数据有来源提示，不当作服务端验证结果。
 
 新功能包括 Go 数据表迁移，需要配套部署 Go 和 Web。Rust 预览后端尚未实现这些新增接口，不能仅替换前端就认为两个后端均已支持。本分支没有修改生产配置、余额、发送真实邀请或部署。
+
+## 按需加载与主动结束
+
+模型初始只收到常用工具的完整定义，以及当前账号有权限使用的简短工具目录。`discover_tools` 一次加载 1–8 个精确工具名，完整参数只放入后续请求的工具定义，不在工具结果中重复发送。选择仅在当前请求内保留；强制业务流程所需的工具会直接提供，不需要额外发现调用。关闭 `discover_tools` 会恢复原有完整目录，而不是让其他工具不可用。执行时继续检查当前账号、数据库中的工具策略、等级、确认和计费规则。
+
+`end_conversation` 在任务完成、用户要求停止或无法继续时输出结语，并立即停止本轮。不会再请求一次模型来复述结语，也不会执行同一批中位于它之后的工具。`reason` 必须是 `completed`、`user_requested`、`cannot_proceed` 之一；`message` 必须为 1–2000 个字符。无效参数和被关闭的工具不能结束请求。该工具不能跳过强制业务检查，不能撤销已完成操作，也不能代替用户确认或人工转交。
+
+普通结束不等于注册限制：不会封禁账号、归档会话、改变等级或禁止继续发送消息。结语通过原有响应、历史保存和人工接管检查返回。普通文字答复本身也能结束本轮，不必为了结束而额外调用工具。两个新工具均可在现有「内置助手 → 工具 → 服务帮助」中开关及配置等级，不新增重复设置。
+
+同一请求内，成功的相同查询不再执行第二次。发生写入后允许重新查询核实状态；失败仍最多尝试两次，带 `do_not_retry` 的结果不再重试。读写类型改为使用完整目录中的显式标记，而不是根据 `get_` 等名称猜测。绘图表工具只向模型返回展示回执，完整数据仍保留在浏览器工具记录中。输出额度、轮次、计费模型、权限和历史保留设置没有被自动改写。
+
+检查记录和复现命令见 [助手效率检查](assistant-efficiency-audit.md)。

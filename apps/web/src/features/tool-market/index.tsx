@@ -558,8 +558,8 @@ function ToolMarketWorkspace({
               value={tab}
               onValueChange={(value) => chooseTab(String(value))}
             >
-              <div className='max-w-full overflow-x-auto border-b pb-1'>
-                <TabsList variant='line' className='min-h-11'>
+              <div className='min-w-0'>
+                <TabsList variant='navigation' aria-label={t('Tool market')}>
                   <TabsTrigger value='market'>{t('Discover')}</TabsTrigger>
                   <TabsTrigger value='mine'>{t('My publications')}</TabsTrigger>
                   <TabsTrigger value='connections'>

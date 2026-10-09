@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Info } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
@@ -86,7 +87,10 @@ export function AccessRestrictionNotice(props: AccessRestrictionNoticeProps) {
   if (!props.compact) return content
   return (
     <details className='console-service-notice shrink-0'>
-      <summary>{t('Service information')}</summary>
+      <summary>
+        <Info aria-hidden='true' className='console-service-icon' />
+        <span>{t('Service information')}</span>
+      </summary>
       <div className='console-service-notice-content'>
         {content}
         {props.children}

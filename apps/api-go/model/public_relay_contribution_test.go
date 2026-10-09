@@ -25,12 +25,13 @@ func TestPublicRelayChannelConfigPreservesFullConfiguration(t *testing.T) {
 	raw := `{
 		"mode":"single",
 		"channel":{
+			"type":1,
 			"name":"shared relay",
 			"base_url":"",
 			"key":"secret-key",
 			"models":"model-a,model-b",
 			"model_mapping":"{\"model-a\":\"upstream-a\"}",
-			"setting":"{\"proxy\":\"enabled\"}"
+			"setting":"{\"http_protocol\":\"http1\"}"
 		}
 	}`
 
@@ -106,7 +107,7 @@ func TestPublicRelayTipsRemainPendingUntilWithdrawal(t *testing.T) {
 func TestPublicRelayRoutingBoundsPoolAndPreferenceValidation(t *testing.T) {
 	installPublicRelayCreditFixture(t)
 	db := setupConsoleActivationTestDB(t)
-	require.NoError(t, db.AutoMigrate(&PublicRelayContribution{}, &PublicRelayPreference{}))
+	require.NoError(t, db.AutoMigrate(&PublicRelayContribution{}, &PublicRelayPreference{}, &Channel{}, &Ability{}))
 	previousGroup := operation_setting.GetPublicRelaySetting().Group
 	operation_setting.GetPublicRelaySetting().Group = "FREE"
 	t.Cleanup(func() { operation_setting.GetPublicRelaySetting().Group = previousGroup })
@@ -114,6 +115,9 @@ func TestPublicRelayRoutingBoundsPoolAndPreferenceValidation(t *testing.T) {
 	owner := User{Username: "relay-routing-owner", Password: "password", AffCode: "relay-routing-owner-aff"}
 	require.NoError(t, db.Create(&owner).Error)
 	for index := 0; index < publicRelayRoutingMaxItems+25; index++ {
+		channel := Channel{Id: index + 1, Type: 1, Name: "routing fixture", Group: "FREE", Models: "model-a", Status: common.ChannelStatusEnabled}
+		require.NoError(t, db.Create(&channel).Error)
+		require.NoError(t, channel.AddAbilities(db))
 		require.NoError(t, db.Create(&PublicRelayContribution{
 			UserId: owner.Id, ContributorEmail: "owner@example.com", Name: "relay",
 			BaseURL: "https://relay.example.com", Group: "FREE", Status: PublicRelayApproved,
@@ -133,6 +137,22 @@ func TestPublicRelayRoutingBoundsPoolAndPreferenceValidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []int{1}, disabled)
 	assert.Equal(t, []int{2}, ordered)
+	items, _, err = ListPublicRelayRouting(owner.Id)
+	require.NoError(t, err)
+	require.Len(t, items, publicRelayRoutingMaxItems)
+	require.Equal(t, 2, items[0].ChannelId, "saved low-ranked choices survive the catalog limit")
+	foundDisabled := false
+	for _, item := range items {
+		if item.ChannelId == 1 {
+			foundDisabled = item.Disabled
+		}
+	}
+	require.True(t, foundDisabled, "disabled choices must not disappear on refresh")
+	tooMany := make([]int, publicRelayRoutingMaxItems)
+	for i := range tooMany {
+		tooMany[i] = i + 2
+	}
+	require.ErrorIs(t, UpdatePublicRelayRouting(owner.Id, "FREE", []int{1}, tooMany), ErrPublicRelayInvalidInput)
 }
 
 func installPublicRelayCreditFixture(t *testing.T) {

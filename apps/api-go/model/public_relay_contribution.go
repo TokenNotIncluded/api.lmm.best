@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -37,7 +38,7 @@ const (
 )
 
 var (
-	ErrPublicRelayInvalidURL      = errors.New("public relay URL must be an HTTPS or HTTP origin")
+	ErrPublicRelayInvalidURL      = errors.New("public relay URL must be a public HTTPS or HTTP base URL")
 	ErrPublicRelayInvalidInput    = errors.New("invalid public relay contribution")
 	ErrPublicRelayNotFound        = errors.New("public relay contribution not found")
 	ErrPublicRelayAlreadyReviewed = errors.New("public relay contribution has already been reviewed")
@@ -223,18 +224,23 @@ func normalizePublicRelayURL(raw string) (string, error) {
 		return "", nil
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" && parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+	if err != nil || parsed.Scheme != "https" && parsed.Scheme != "http" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" || parsed.ForceQuery || len(raw) > 512 {
 		return "", ErrPublicRelayInvalidURL
 	}
-	host := parsed.Hostname()
-	if strings.EqualFold(host, "localhost") {
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.Contains(host, "%") {
 		return "", ErrPublicRelayInvalidURL
 	}
-	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()) {
+	if ip := net.ParseIP(host); ip != nil && (!(&common.SSRFProtection{}).IsIPAccessAllowed(ip)) {
 		return "", ErrPublicRelayInvalidURL
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return "", ErrPublicRelayInvalidURL
+		}
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
-	parsed.RawQuery = ""
 	return parsed.String(), nil
 }
 
@@ -242,7 +248,7 @@ func normalizePublicRelayInput(name, baseURL, models, description string) (strin
 	name = strings.TrimSpace(name)
 	models = strings.TrimSpace(models)
 	description = strings.TrimSpace(description)
-	if name == "" || len([]rune(name)) > 120 || len([]rune(models)) > 4000 || len([]rune(description)) > 4000 {
+	if name == "" || models == "" || len([]rune(name)) > 120 || len([]rune(models)) > 4000 || len([]rune(description)) > 4000 {
 		return "", "", "", "", ErrPublicRelayInvalidInput
 	}
 	baseURL, err := normalizePublicRelayURL(baseURL)
@@ -276,6 +282,11 @@ func normalizePublicRelayChannelConfig(rawConfig, name, baseURL, models string) 
 	configBaseURL, err := normalizePublicRelayURL(channel.BaseURL)
 	if err != nil || configBaseURL != baseURL {
 		return "", ErrPublicRelayInvalidInput
+	}
+	if _, err := preparePublicRelayChannel(&PublicRelayContribution{
+		Name: name, BaseURL: baseURL, Models: models, ChannelConfig: rawConfig,
+	}); err != nil {
+		return "", err
 	}
 	canonical, err := json.Marshal(envelope)
 	if err != nil {
@@ -316,7 +327,7 @@ func ListApprovedPublicRelays(limit int) ([]PublicRelayView, error) {
 		limit = 50
 	}
 	items := make([]PublicRelayContribution, 0)
-	err := DB.Where(map[string]interface{}{"status": PublicRelayApproved, "group": operation_setting.GetPublicRelayGroup()}).Where("channel_id > 0").
+	err := publicRelayVisibleQuery(DB, operation_setting.GetPublicRelayGroup()).
 		Order("rating_average DESC, rating_count DESC, updated_at DESC, id DESC").Limit(limit).Find(&items).Error
 	if err != nil {
 		return nil, err
@@ -450,9 +461,24 @@ func ListPublicRelayRouting(userID int) ([]PublicRelayRoutingItem, string, error
 	for index, id := range ordered {
 		orderPos[id] = index
 	}
-	var items []PublicRelayContribution
-	if err := DB.Where(map[string]interface{}{"status": PublicRelayApproved, "group": group}).Where("channel_id > 0").Order("rating_average DESC, rating_count DESC, updated_at DESC, id DESC").Limit(publicRelayRoutingMaxItems).Find(&items).Error; err != nil {
-		return nil, group, err
+	pinned := decodePublicRelayIDs(encodePublicRelayIDs(append(append([]int{}, ordered...), disabled...)))
+	items := make([]PublicRelayContribution, 0, publicRelayRoutingMaxItems)
+	query := publicRelayVisibleQuery(DB, group)
+	if len(pinned) > 0 {
+		if err := query.Where("channel_id IN ?", pinned).Order("rating_average DESC, rating_count DESC, updated_at DESC, id DESC").Limit(publicRelayRoutingMaxItems).Find(&items).Error; err != nil {
+			return nil, group, err
+		}
+	}
+	if len(items) < publicRelayRoutingMaxItems {
+		rest := publicRelayVisibleQuery(DB, group)
+		if len(pinned) > 0 {
+			rest = rest.Where("channel_id NOT IN ?", pinned)
+		}
+		var tail []PublicRelayContribution
+		if err := rest.Order("rating_average DESC, rating_count DESC, updated_at DESC, id DESC").Limit(publicRelayRoutingMaxItems - len(items)).Find(&tail).Error; err != nil {
+			return nil, group, err
+		}
+		items = append(items, tail...)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		pi, iok := orderPos[items[i].ChannelId]
@@ -499,6 +525,9 @@ func UpdatePublicRelayRouting(userID int, group string, disabled, ordered []int)
 			}
 		}
 	}
+	if len(candidateIDs) > publicRelayRoutingMaxItems {
+		return ErrPublicRelayInvalidInput
+	}
 	valid := make(map[int]struct{}, len(candidateIDs))
 	if len(candidateIDs) > 0 {
 		var validIDs []int
@@ -537,7 +566,7 @@ func PublicRelayDisabledChannels(userID int, group string) (map[int]struct{}, []
 	return set, ordered, err
 }
 
-func ListUserPublicRelayContributions(userID, limit int) ([]PublicRelayContribution, error) {
+func ListUserPublicRelayContributions(userID, limit int) ([]PublicRelayManagementView, error) {
 	if _, err := common.CreditsPerUSD(); err != nil {
 		return nil, err
 	}
@@ -548,11 +577,13 @@ func ListUserPublicRelayContributions(userID, limit int) ([]PublicRelayContribut
 		limit = 50
 	}
 	items := make([]PublicRelayContribution, 0)
-	err := DB.Where("user_id = ?", userID).Order("created_at DESC, id DESC").Limit(limit).Find(&items).Error
-	return items, err
+	if err := DB.Where("user_id = ?", userID).Order("created_at DESC, id DESC").Limit(limit).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return publicRelayManagementViews(items)
 }
 
-func ListAdminPublicRelayContributions(status string, limit int) ([]PublicRelayContribution, error) {
+func ListAdminPublicRelayContributions(status string, limit int) ([]PublicRelayManagementView, error) {
 	if _, err := common.CreditsPerUSD(); err != nil {
 		return nil, err
 	}
@@ -560,11 +591,17 @@ func ListAdminPublicRelayContributions(status string, limit int) ([]PublicRelayC
 		limit = 100
 	}
 	query := DB.Order("created_at DESC, id DESC").Limit(limit)
-	if status = strings.TrimSpace(strings.ToLower(status)); status != "" {
+	status = strings.TrimSpace(strings.ToLower(status))
+	if status == "reviewable" {
+		query = query.Where("status = ? OR (status = ? AND channel_id = 0)", PublicRelayPending, PublicRelayApproved)
+	} else if status != "" {
 		query = query.Where("status = ?", status)
 	}
 	items := make([]PublicRelayContribution, 0)
-	return items, query.Find(&items).Error
+	if err := query.Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return publicRelayManagementViews(items)
 }
 
 func ReviewPublicRelayContribution(id, adminID int, approve bool, note string) (*PublicRelayContribution, error) {
@@ -580,11 +617,23 @@ func ReviewPublicRelayContribution(id, adminID int, approve bool, note string) (
 		if err := lockForUpdate(tx).First(&item, id).Error; err != nil {
 			return err
 		}
-		if item.Status != PublicRelayPending {
+		// Repair approvals created by older versions which never published a channel.
+		if item.Status != PublicRelayPending && !(item.Status == PublicRelayApproved && item.ChannelId == 0) {
 			return ErrPublicRelayAlreadyReviewed
 		}
 		item.Status = PublicRelayRejected
 		if approve {
+			channel, err := preparePublicRelayChannel(&item)
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(channel).Error; err != nil {
+				return err
+			}
+			if err := channel.AddAbilities(tx); err != nil {
+				return err
+			}
+			item.ChannelId, item.Group = channel.Id, channel.Group
 			item.Status = PublicRelayApproved
 		}
 		item.ReviewNote, item.ReviewedBy, item.ReviewedAt, item.UpdatedAt = note, adminID, common.GetTimestamp(), common.GetTimestamp()
@@ -592,6 +641,10 @@ func ReviewPublicRelayContribution(id, adminID int, approve bool, note string) (
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = ErrPublicRelayNotFound
+	}
+	if err == nil && approve && common.MemoryCacheEnabled {
+		// A committed approval must not be reported as failed and retried.
+		_ = InitChannelCache()
 	}
 	return &item, err
 }
@@ -770,18 +823,26 @@ func CreatePublicRelayReport(contributionID, reporterID int, reason string) (*Pu
 	if contributionID <= 0 || reporterID <= 0 || len([]rune(reason)) < 2 || len([]rune(reason)) > 2000 {
 		return nil, ErrPublicRelayInvalidInput
 	}
-	var item PublicRelayContribution
-	if err := DB.Where("id = ? AND status = ? AND "+commonGroupCol+" = ? AND channel_id > 0", contributionID, PublicRelayApproved, operation_setting.GetPublicRelayGroup()).First(&item).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrPublicRelayNotFound
+	var report PublicRelayReport
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var item PublicRelayContribution
+		if err := lockForUpdate(tx).Where("id = ? AND status = ? AND "+commonGroupCol+" = ? AND channel_id > 0", contributionID, PublicRelayApproved, operation_setting.GetPublicRelayGroup()).First(&item).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrPublicRelayNotFound
+			}
+			return err
 		}
-		return nil, err
-	}
-	report := &PublicRelayReport{ContributionId: contributionID, ReporterUserId: reporterID, Reason: reason, Status: PublicRelayReportOpen, CreatedAt: common.GetTimestamp()}
-	if err := DB.Where("contribution_id = ? AND reporter_user_id = ?", contributionID, reporterID).FirstOrCreate(report).Error; err != nil {
-		return nil, err
-	}
-	return report, nil
+		err := tx.Where("contribution_id = ? AND reporter_user_id = ?", contributionID, reporterID).First(&report).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		report.ContributionId, report.ReporterUserId = contributionID, reporterID
+		report.Reason, report.Status = reason, PublicRelayReportOpen
+		report.ReviewedBy, report.ReviewNote, report.ReviewedAt = 0, "", 0
+		report.CreatedAt = common.GetTimestamp()
+		return tx.Save(&report).Error
+	})
+	return &report, err
 }
 
 func ListAdminPublicRelayReports(status string, limit int) ([]PublicRelayReport, error) {
@@ -801,13 +862,23 @@ func ReviewPublicRelayReport(id, adminID int, closeReport bool, note string) err
 		return gorm.ErrInvalidData
 	}
 	note = strings.TrimSpace(note)
-	return DB.Model(&PublicRelayReport{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status": func() string {
-			if closeReport {
-				return PublicRelayReportClosed
+	if len([]rune(note)) > 2000 {
+		return ErrPublicRelayInvalidInput
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var report PublicRelayReport
+		if err := lockForUpdate(tx).First(&report, id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrPublicRelayNotFound
 			}
-			return PublicRelayReportOpen
-		}(),
-		"reviewed_by": adminID, "review_note": note, "reviewed_at": common.GetTimestamp(),
-	}).Error
+			return err
+		}
+		status := PublicRelayReportOpen
+		if closeReport {
+			status = PublicRelayReportClosed
+		}
+		return tx.Model(&report).Updates(map[string]interface{}{
+			"status": status, "reviewed_by": adminID, "review_note": note, "reviewed_at": common.GetTimestamp(),
+		}).Error
+	})
 }

@@ -48,7 +48,10 @@ export function ApiKeys() {
               setCreationMode(value as ApiKeyCreationMode)
             }
           >
-            <TabsList aria-label={t('API key creation mode')}>
+            <TabsList
+              variant='navigation'
+              aria-label={t('API key creation mode')}
+            >
               <TabsTrigger value='manual'>{t('Manual creation')}</TabsTrigger>
               <TabsTrigger value='automatic'>
                 {t('Automatic creation')}

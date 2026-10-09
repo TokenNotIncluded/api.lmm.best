@@ -565,74 +565,7 @@ func validateTwoFactorAuth(twoFA *model.TwoFA, code string) bool {
 
 // validateChannel 通用的渠道校验函数
 func validateChannel(channel *model.Channel, isAdd bool) error {
-	if channel == nil {
-		return fmt.Errorf("channel cannot be empty")
-	}
-
-	if isAdd && channel.Type == constant.ChannelTypeOpenHuman {
-		return model.ErrRetiredChannelType
-	}
-
-	// 校验 channel settings
-	if err := channel.ValidateSettings(); err != nil {
-		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
-	}
-
-	if channel.Type == constant.ChannelTypeNewAPI && strings.TrimSpace(channel.GetBaseURL()) == "" {
-		return fmt.Errorf("compatible relay channel base URL cannot be empty")
-	}
-
-	// 如果是添加操作，检查 channel 和 key 是否为空
-	if isAdd {
-		if channel.Key == "" {
-			return fmt.Errorf("channel cannot be empty")
-		}
-
-		// 检查模型名称长度是否超过 255
-		for _, m := range channel.GetModels() {
-			if len(m) > 255 {
-				return fmt.Errorf("模型名称过长: %s", m)
-			}
-		}
-	}
-
-	// VertexAI 特殊校验
-	if channel.Type == constant.ChannelTypeVertexAi {
-		if channel.Other == "" {
-			return fmt.Errorf("部署地区不能为空")
-		}
-
-		regionMap, err := common.StrToMap(channel.Other)
-		if err != nil {
-			return fmt.Errorf("部署地区必须是标准的Json格式，例如{\"default\": \"us-central1\", \"region2\": \"us-east1\"}")
-		}
-
-		if regionMap["default"] == nil {
-			return fmt.Errorf("部署地区必须包含default字段")
-		}
-	}
-
-	// Codex OAuth key validation (optional, only when JSON object is provided)
-	if channel.Type == constant.ChannelTypeCodex {
-		trimmedKey := strings.TrimSpace(channel.Key)
-		if isAdd || trimmedKey != "" {
-			if !strings.HasPrefix(trimmedKey, "{") {
-				return fmt.Errorf("Codex key must be a valid JSON object")
-			}
-			var keyMap map[string]any
-			if err := common.Unmarshal([]byte(trimmedKey), &keyMap); err != nil {
-				return fmt.Errorf("Codex key must be a valid JSON object")
-			}
-			if v, ok := keyMap["access_token"]; !ok || v == nil || strings.TrimSpace(fmt.Sprintf("%v", v)) == "" {
-				return fmt.Errorf("Codex key JSON must include access_token")
-			}
-			if v, ok := keyMap["account_id"]; !ok || v == nil || strings.TrimSpace(fmt.Sprintf("%v", v)) == "" {
-				return fmt.Errorf("Codex key JSON must include account_id")
-			}
-		}
-	}
-
-	return nil
+	return model.ValidateChannel(channel, isAdd)
 }
 
 func RefreshCodexChannelCredential(c *gin.Context) {
@@ -667,43 +600,10 @@ func RefreshCodexChannelCredential(c *gin.Context) {
 	})
 }
 
-type AddChannelRequest struct {
-	Mode                      string                `json:"mode"`
-	MultiKeyMode              constant.MultiKeyMode `json:"multi_key_mode"`
-	BatchAddSetKeyPrefix2Name bool                  `json:"batch_add_set_key_prefix_2_name"`
-	Channel                   *model.Channel        `json:"channel"`
-}
+type AddChannelRequest = model.ChannelCreationInput
 
 func getVertexArrayKeys(keys string) ([]string, error) {
-	if keys == "" {
-		return nil, nil
-	}
-	var keyArray []interface{}
-	err := common.Unmarshal([]byte(keys), &keyArray)
-	if err != nil {
-		return nil, fmt.Errorf("批量添加 Vertex AI 必须使用标准的JsonArray格式，例如[{key1}, {key2}...]，请检查输入: %w", err)
-	}
-	cleanKeys := make([]string, 0, len(keyArray))
-	for _, key := range keyArray {
-		var keyStr string
-		switch v := key.(type) {
-		case string:
-			keyStr = strings.TrimSpace(v)
-		default:
-			bytes, err := json.Marshal(v)
-			if err != nil {
-				return nil, fmt.Errorf("Vertex AI key JSON 编码失败: %w", err)
-			}
-			keyStr = string(bytes)
-		}
-		if keyStr != "" {
-			cleanKeys = append(cleanKeys, keyStr)
-		}
-	}
-	if len(cleanKeys) == 0 {
-		return nil, fmt.Errorf("批量添加 Vertex AI 的 keys 不能为空")
-	}
-	return cleanKeys, nil
+	return model.ParseVertexArrayKeys(keys)
 }
 
 func AddChannel(c *gin.Context) {
@@ -714,84 +614,10 @@ func AddChannel(c *gin.Context) {
 		return
 	}
 
-	// 使用统一的校验函数
-	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+	channels, err := model.PrepareChannelCreation(addChannelRequest)
+	if err != nil {
+		common.ApiError(c, err)
 		return
-	}
-
-	addChannelRequest.Channel.CreatedTime = common.GetTimestamp()
-	keys := make([]string, 0)
-	switch addChannelRequest.Mode {
-	case "multi_to_single":
-		addChannelRequest.Channel.ChannelInfo.IsMultiKey = true
-		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = addChannelRequest.MultiKeyMode
-		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
-			array, err := getVertexArrayKeys(addChannelRequest.Channel.Key)
-			if err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
-				return
-			}
-			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(array)
-			addChannelRequest.Channel.Key = strings.Join(array, "\n")
-		} else {
-			cleanKeys := make([]string, 0)
-			for _, key := range strings.Split(addChannelRequest.Channel.Key, "\n") {
-				if key == "" {
-					continue
-				}
-				key = strings.TrimSpace(key)
-				cleanKeys = append(cleanKeys, key)
-			}
-			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(cleanKeys)
-			addChannelRequest.Channel.Key = strings.Join(cleanKeys, "\n")
-		}
-		keys = []string{addChannelRequest.Channel.Key}
-	case "batch":
-		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
-			// multi json
-			keys, err = getVertexArrayKeys(addChannelRequest.Channel.Key)
-			if err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
-				return
-			}
-		} else {
-			keys = strings.Split(addChannelRequest.Channel.Key, "\n")
-		}
-	case "single":
-		keys = []string{addChannelRequest.Channel.Key}
-	default:
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "不支持的添加模式",
-		})
-		return
-	}
-
-	channels := make([]model.Channel, 0, len(keys))
-	for _, key := range keys {
-		if key == "" {
-			continue
-		}
-		localChannel := addChannelRequest.Channel
-		localChannel.Key = key
-		if addChannelRequest.BatchAddSetKeyPrefix2Name && len(keys) > 1 {
-			keyPrefix := localChannel.Key
-			if len(localChannel.Key) > 8 {
-				keyPrefix = localChannel.Key[:8]
-			}
-			localChannel.Name = fmt.Sprintf("%s %s", localChannel.Name, keyPrefix)
-		}
-		channels = append(channels, *localChannel)
 	}
 	err = model.BatchInsertChannels(channels)
 	if err != nil {

@@ -21,8 +21,8 @@ export function StoreNavigation({
         {[
           ['/store', 'Shop'],
           ['/store/cart', 'Shopping cart'],
-          ['/store/favorites', 'Favorites'],
           ['/store/orders', 'My orders'],
+          ['/store/support', 'Messages'],
         ].map(([href, label]) => (
           <a
             key={href}
@@ -49,6 +49,8 @@ export function StoreNavigation({
         <div className='bg-muted/40 grid gap-1 rounded-2xl p-2 sm:grid-cols-3'>
           {[
             ['/store/manage', 'Seller center'],
+            ['/store/support?role=seller&tab=customers', 'Customer management'],
+            ['/store/favorites', 'Favorites'],
             ['/store/settings', 'Settings'],
             ...(canReview ? [['/store/review', 'Review products']] : []),
           ].map(([href, label]) => (
