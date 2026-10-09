@@ -1,5 +1,17 @@
 {
   "translation": {
+    "Configure seller terms before publishing or relisting this product.": "請先設定賣家條款，再發佈或重新上架商品。",
+    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "在這裡儲存交付和售後條款。買家會在下單時另外確認。",
+    "Continue publishing": "繼續上架",
+    "Temporarily unlist": "暫時下架",
+    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "暫時隱藏商品，保留審核結果，可再次上架。已有訂單不受影響。",
+    "Withdraw from review": "撤回審核",
+    "Withdraw this product from review?": "撤回此商品的審核？",
+    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "清除審核結果。編輯並重新提交審核後才能上架。已有訂單不受影響。",
+    "Specifications and prices": "規格與價格",
+    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "每個規格可設定獨立名稱、價格和交付內容，所有規格與商品草稿一起儲存。",
+    "Enter unique variant names and valid prices.": "請填寫不重複的規格名稱和有效價格。",
+    "A product can have at most 200 specifications.": "每個商品最多支援 200 個規格。",
     "Adjust settings with WebMCP": "用 WebMCP 調整設定",
     "Changes are saved only with the Save button.": "只有點擊「儲存」後，變更才會生效。",
     "Collapse all": "收合全部",
