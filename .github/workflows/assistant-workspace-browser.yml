@@ -30,10 +30,12 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           file=Path('source/apps/web/scripts/assistant-workspace-browser-review.mjs')
-          text=file.read_text().replace(", '--strict-port'",'').replace(",'--strict-port'",'').replace('/desktop?','/dashboard/overview?')
+          text=file.read_text().replace(",'--strict-port'",'').replace('/desktop?','/dashboard/overview?')
           before="await page.locator('[data-testid=\"assistant-launcher\"]').click()"
           assert text.count(before)==1
           text=text.replace(before,"await page.keyboard.press('Control+Shift+A')")
+          assert text.count('document.cookie=`theme=')==1
+          text=text.replace('document.cookie=`theme=','document.cookie=`vite-ui-theme=')
           file.write_text(text)
           PY
       - name: Install development dependencies
