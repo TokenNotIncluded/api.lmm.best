@@ -16,32 +16,30 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Apply checked implementation to feature branch only
         id: patch
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/feat/tool-market-provider-presets
           mkdir -p "$RUNNER_TEMP/results"
-          if test -d .github/provider-patch; then
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if test -d .github/provider-patch-v2; then
             python3 - <<'PY'
           import base64, gzip, hashlib, pathlib, subprocess
-          root = pathlib.Path('.github/provider-patch')
-          first = (root / 'part-01.b64').read_text().strip()
-          insert = (root / 'part-01-insert.b64').read_text().strip()
-          first = first[:331] + insert + first[331:]
-          payload = first + ''.join((root / f'part-{i:02}.b64').read_text().strip() for i in (2,3,4))
+          root = pathlib.Path('.github/provider-patch-v2')
+          payload = (root / 'part-01-full.b64').read_text().strip()
+          payload += ''.join((root / f'part-{i:02}.b64').read_text().strip() for i in (2,3,4,5))
           patch = gzip.decompress(base64.b64decode(payload, validate=True))
-          assert hashlib.sha256(patch).hexdigest() == 'c0859f1f93f819bc454f6c262f3a29fa545d567464e75697b0a2a553eed83f97', 'patch checksum mismatch'
-          path = pathlib.Path('/tmp/tool-market-provider.patch')
+          assert hashlib.sha256(patch).hexdigest() == '8259f3d829cdf104453d57144202f6ac823d1c61f14d50254fee553ef8534e89', 'patch checksum mismatch'
+          path = pathlib.Path('/tmp/tool-market-oauth.patch')
           path.write_bytes(patch)
           subprocess.run(['git','apply','--check',str(path)],check=True)
           subprocess.run(['git','apply','--index',str(path)],check=True)
           PY
-            git rm -r .github/provider-patch
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'feat(tool-market): add Monid and AgentKey presets with guarded live pricing'
+            git rm -r .github/provider-patch-v2
+            git commit -m 'feat(tool-market): add native MCP OAuth registration and price-cap display'
             git push origin HEAD:refs/heads/feat/tool-market-provider-presets
           fi
           git rev-parse HEAD | tee "$RUNNER_TEMP/results/commit.txt"
@@ -61,22 +59,37 @@ jobs:
         run: |
           set -o pipefail
           go test -p 2 ./internal/marketprovider ./oauthserver -count=1 -timeout=5m 2>&1 | tee "$RUNNER_TEMP/results/core-tests.txt"
-      - name: Marketplace integration tests
+      - name: Marketplace and OAuth integration tests
         if: always() && steps.patch.outcome == 'success'
         working-directory: apps/api-go
         run: |
           set -o pipefail
-          go test -vet=off -p 2 ./model ./service ./controller ./router -run 'ToolMarket|MarketRemote|MarketProvider|OAuth' -count=1 -timeout=8m 2>&1 | tee "$RUNNER_TEMP/results/integration-tests.txt"
-      - name: Web typecheck and marketplace tests
+          go test -vet=off -p 2 ./model ./service ./controller ./router -run 'ToolMarket|MarketRemote|MarketProvider|OAuth|IdentityStorage' -count=1 -timeout=8m 2>&1 | tee "$RUNNER_TEMP/results/integration-tests.txt"
+      - name: Format changed Web source and record tested commit
+        if: always() && steps.patch.outcome == 'success'
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          git diff --name-only 4f4493066081250e299ea21973319084db9811f9 HEAD -- apps/web/src | xargs bun x --no-install prettier --write
+          git add apps/web/src
+          if ! git diff --cached --quiet; then
+            git commit -m 'style(tool-market): format provider and OAuth controls'
+            git push origin HEAD:refs/heads/feat/tool-market-provider-presets
+          fi
+          git rev-parse HEAD > "$RUNNER_TEMP/results/commit.txt"
+          git diff 416b9780308155d9baf0f146c9b00dd28e93debd HEAD --binary -- apps docs > "$RUNNER_TEMP/results/tested-followup.patch"
+      - name: Web typecheck and all marketplace tests
         if: always() && steps.patch.outcome == 'success'
         run: |
           set -o pipefail
-          bun install --frozen-lockfile
           cd apps/web
           bun run typecheck 2>&1 | tee "$RUNNER_TEMP/results/web-typecheck.txt"
+          result=0
           for test in src/features/tool-market/*.test.ts src/features/tool-market/*.test.tsx; do
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$test" || exit 1
-          done 2>&1 | tee "$RUNNER_TEMP/results/web-tests.txt"
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$test" >> "$RUNNER_TEMP/results/web-tests.txt" 2>&1 || result=1
+          done
+          cat "$RUNNER_TEMP/results/web-tests.txt"
+          exit "$result"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
