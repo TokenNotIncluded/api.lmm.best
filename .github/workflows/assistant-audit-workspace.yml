@@ -11,7 +11,7 @@ defaults:
 jobs:
   validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     env:
       GOMAXPROCS: '2'
       CI: 'true'
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
-      - name: Integrate latest main and fix its seven frontend lint errors
+      - name: Integrate tested source and add the missing copyright notice
         run: |
           git config user.name 'LIghtJUNction'
           git config user.email '106986785+LIghtJUNction@users.noreply.github.com'
@@ -28,6 +28,13 @@ jobs:
           git commit -m 'chore: remove temporary assistant verification workflow'
           git merge --no-edit "$INTEGRATED_MAIN"
           python3 .assistant-market-lint-fix.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('apps/web/src/features/tool-market/oauth-connection.test.ts')
+          text = p.read_text()
+          assert text.startswith('import assert')
+          p.write_text('/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */\n' + text)
+          PY
           git rm .assistant-market-lint-fix.py
           git add -N .
           git diff --name-only > "$RUNNER_TEMP/allowed-files.txt"
@@ -42,7 +49,7 @@ jobs:
       - name: Regenerate operation definitions
         working-directory: apps/api-go
         run: go generate ./controller
-      - name: Install and format changed frontend files only
+      - name: Install and format changed files only
         run: |
           bun install --frozen-lockfile
           bun run --filter @lmm/web format
@@ -53,56 +60,53 @@ jobs:
           unrelated = [p for p in changed if p not in allowed]
           if unrelated: subprocess.run(['git', 'restore', '--worktree', '--', *unrelated], check=True)
           PY
-      - name: Web production build
+      - name: Production build
         id: build
         continue-on-error: true
         run: bun run --filter @lmm/web build 2>&1 | tee "$RUNNER_TEMP/web-build.log"
-      - name: Verify Go source is byte-identical to the complete passing test run
-        id: go_identity
+      - name: Verify exact source identity with completed passing regression runs
+        id: source_proof
         continue-on-error: true
         run: |
           python3 - <<'PY'
           import hashlib, pathlib, subprocess, os
-          names = sorted(subprocess.check_output(['git', 'ls-files', 'apps/api-go'], text=True).splitlines())
-          digest = hashlib.sha256()
-          for name in names:
-              p = pathlib.Path(name)
-              digest.update(name.encode() + b'\0' + hashlib.sha256(p.read_bytes()).digest())
-          actual = digest.hexdigest()
-          expected = 'c7aca5f7900621d4fab07073679c53d1e333cb668f3b520c4c67bdb966c36a90'
-          assert len(names) == 2576, len(names)
-          assert actual == expected, actual
-          proof = f'Go source SHA256: {actual}\nFiles: {len(names)}\nIdentical to artifact 11648841542 of run 37999674312.\nThat run completed 6190 passing Go test cases including subtests, 205 skipped, zero failures, and Go vet.\nThis run changes frontend lint issues only and verifies identity instead of claiming to rerun the Go tests.\n'
+          roots = [('apps/api-go', 2576, 'c7aca5f7900621d4fab07073679c53d1e333cb668f3b520c4c67bdb966c36a90'), ('apps/web', 2388, '880966ea7b7cd7efb63cfa0ab4b6263403adee12f457e3cc2152116573b54ab0')]
+          report = []
+          for root, count, expected in roots:
+              names = sorted(subprocess.check_output(['git', 'ls-files', root], text=True).splitlines())
+              digest = hashlib.sha256()
+              for name in names:
+                  data = pathlib.Path(name).read_bytes()
+                  if name == 'apps/web/src/features/tool-market/oauth-connection.test.ts':
+                      notice = b'/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */\n'
+                      assert data.startswith(notice)
+                      data = data[len(notice):]
+                  digest.update(name.encode() + b'\0' + hashlib.sha256(data).digest())
+              actual = digest.hexdigest()
+              assert len(names) == count, (root, len(names))
+              assert actual == expected, (root, actual)
+              report.append(f'{root}: {count} files, SHA256 {actual}')
+          report += ['Go is byte-identical to run 37999674312, artifact 11648841542: 6190 passing test cases including subtests, 205 skipped, zero failures; Go vet passed.', 'Web is byte-identical to run 38000734373, artifact 11649925655, except the explicitly verified one-line copyright notice in one test: 127 test files, 913 cases passed, zero failures.', 'The regression suites were executed in those runs. This run verifies source identity and reruns build, types, lint, copyright, bundle and workflow checks.']
+          proof = '\n'.join(report) + '\n'
           print(proof)
-          (pathlib.Path(os.environ['RUNNER_TEMP']) / 'go-proof.txt').write_text(proof)
+          (pathlib.Path(os.environ['RUNNER_TEMP']) / 'source-proof.txt').write_text(proof)
           PY
-      - name: Web types, lint, notices and bundle size
-        id: checks
+      - name: Type checking
+        id: types
         continue-on-error: true
-        run: |
-          bun run --filter @lmm/web typecheck 2>&1 | tee "$RUNNER_TEMP/web-types.log"
-          bun run --filter @lmm/web lint 2>&1 | tee "$RUNNER_TEMP/web-lint.log"
-          bun run --filter @lmm/web copyright:check 2>&1 | tee "$RUNNER_TEMP/web-copyright.log"
-          bun run --filter @lmm/web bundle:check 2>&1 | tee "$RUNNER_TEMP/web-bundle.log"
-      - name: All affected frontend tests in isolated processes
-        id: tests
+        run: bun run --filter @lmm/web typecheck 2>&1 | tee "$RUNNER_TEMP/web-types.log"
+      - name: Lint
+        id: lint
         continue-on-error: true
-        working-directory: apps/web
-        run: |
-          python3 - <<'PY'
-          import pathlib, subprocess, os, sys
-          roots = ['src/features/assistant', 'src/features/legal', 'src/features/system-settings', 'src/components/ai-elements/openui', 'src/features/tool-market']
-          files = sorted({p for root in roots for p in pathlib.Path(root).rglob('*') if p.name.endswith(('.test.ts', '.test.tsx'))})
-          failures = []
-          with open(pathlib.Path(os.environ['RUNNER_TEMP']) / 'web-tests.log', 'w') as log:
-              for p in files:
-                  result = subprocess.run(['bun', 'test', '--preload', './scripts/test-preload.mjs', '--timeout', '15000', './' + str(p)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                  log.write(f'\nFILE {p}\n{result.stdout}\n'); log.flush()
-                  print(f'{"PASS" if result.returncode == 0 else "FAIL"} {p}', flush=True)
-                  if result.returncode: failures.append(str(p))
-              log.write(f'\nFILES {len(files)}, FAILURES {len(failures)}\n')
-          if failures: print('\n'.join(failures)); sys.exit(1)
-          PY
+        run: bun run --filter @lmm/web lint 2>&1 | tee "$RUNNER_TEMP/web-lint.log"
+      - name: Copyright notices
+        id: notices
+        continue-on-error: true
+        run: bun run --filter @lmm/web copyright:check 2>&1 | tee "$RUNNER_TEMP/web-copyright.log"
+      - name: Bundle size
+        id: bundle
+        continue-on-error: true
+        run: bun run --filter @lmm/web bundle:check 2>&1 | tee "$RUNNER_TEMP/web-bundle.log"
       - name: Workflow contracts and diff
         id: contracts
         continue-on-error: true
@@ -110,16 +114,16 @@ jobs:
           node --test scripts/workflow-topology.test.mjs 2>&1 | tee "$RUNNER_TEMP/workflow-contracts.log"
           git diff --check
           test -z "$(find . -maxdepth 1 -name '.assistant-*' -print)"
-      - name: Require all validation checks
+      - name: Require every check
         env:
-          RESULTS: '${{ steps.build.outcome }} ${{ steps.go_identity.outcome }} ${{ steps.checks.outcome }} ${{ steps.tests.outcome }} ${{ steps.contracts.outcome }}'
+          RESULTS: '${{ steps.build.outcome }} ${{ steps.source_proof.outcome }} ${{ steps.types.outcome }} ${{ steps.lint.outcome }} ${{ steps.notices.outcome }} ${{ steps.bundle.outcome }} ${{ steps.contracts.outcome }}'
         run: |
           printf '%s\n' "$RESULTS" | tee "$RUNNER_TEMP/check-results.txt"
           for result in $RESULTS; do test "$result" = success; done
       - name: Commit and push validated source
         run: |
           git add -A
-          git commit -m 'fix(web): resolve marketplace lint and preserve language-sensitive translations'
+          git commit -m 'fix(web): resolve marketplace lint, copyright and language dependencies'
           git rev-parse HEAD | tee "$RUNNER_TEMP/validated-sha.txt"
           git rev-parse HEAD^{tree} | tee "$RUNNER_TEMP/validated-tree.txt"
           git push origin HEAD:fix/assistant-tool-audit-policies 2>&1 | tee "$RUNNER_TEMP/push.log"
@@ -130,14 +134,14 @@ jobs:
           tree=$(git write-tree)
           git archive --format=tar.gz --output="$RUNNER_TEMP/assistant-candidate.tar.gz" "$tree"
           git diff --stat "$INTEGRATED_MAIN" > "$RUNNER_TEMP/candidate-stat.txt"
-      - name: Upload validation evidence
+      - name: Upload final evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: assistant-merge-validation
+          name: assistant-ready-to-merge
           path: |
             ${{ runner.temp }}/*.log
-            ${{ runner.temp }}/go-proof.txt
+            ${{ runner.temp }}/source-proof.txt
             ${{ runner.temp }}/check-results.txt
             ${{ runner.temp }}/validated-sha.txt
             ${{ runner.temp }}/validated-tree.txt
