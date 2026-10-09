@@ -1503,6 +1503,90 @@ async fn postgres_corrections_are_append_only_and_reject_stale_concurrent_writes
 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
+async fn postgres_correction_write_rolls_back_audit_and_head_on_failure() {
+    let fixture = PgFixture::new().await;
+    sqlx::raw_sql(
+        "INSERT INTO acquisition_accounts(user_id,registration_source,created_at)\
+            VALUES(7,'community',1700000000);\
+         INSERT INTO acquisition_correction_heads(user_id,revision,source,updated_at)\
+            VALUES(7,0,'',0);\
+         CREATE FUNCTION reject_correction_head_update() RETURNS trigger LANGUAGE plpgsql AS $$\
+            BEGIN RAISE EXCEPTION 'forced correction head failure'; END\
+         $$;\
+         CREATE TRIGGER reject_correction_head_update BEFORE UPDATE \
+            ON acquisition_correction_heads FOR EACH ROW \
+            WHEN (NEW.revision > 0) EXECUTE FUNCTION reject_correction_head_update();",
+    )
+    .execute(&fixture.pg)
+    .await
+    .unwrap();
+
+    let failed = fixture
+        .store
+        .save_correction(
+            7,
+            101,
+            input(json!({
+                "source":"documentation",
+                "reason":"This write must roll back atomically",
+                "expected_revision":0
+            })),
+        )
+        .await;
+    assert!(matches!(failed, Err(Error::Database(_))));
+
+    let audit_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM acquisition_corrections WHERE user_id=7")
+            .fetch_one(&fixture.pg)
+            .await
+            .unwrap();
+    assert_eq!(
+        audit_rows, 0,
+        "a failed head update must roll back its audit row"
+    );
+    let head: (i64, String, i64) = sqlx::query_as(
+        "SELECT revision,source,updated_at FROM acquisition_correction_heads WHERE user_id=7",
+    )
+    .fetch_one(&fixture.pg)
+    .await
+    .unwrap();
+    assert_eq!(head, (0, String::new(), 0));
+
+    sqlx::raw_sql(
+        "DROP TRIGGER reject_correction_head_update ON acquisition_correction_heads;\
+         DROP FUNCTION reject_correction_head_update();",
+    )
+    .execute(&fixture.pg)
+    .await
+    .unwrap();
+    let saved = fixture
+        .store
+        .save_correction(
+            7,
+            101,
+            input(json!({
+                "source":"documentation",
+                "reason":"Retry after the storage fault was removed",
+                "expected_revision":0
+            })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved["previous_revision"], 0);
+    assert_eq!(saved["previous_source"], "community");
+    assert!(
+        saved["created_at"]
+            .as_i64()
+            .is_some_and(|value| value > 0)
+    );
+    let history = fixture.store.corrections(7).await.unwrap();
+    assert_eq!(history["head"]["revision"], saved["id"]);
+    assert_eq!(history["items"].as_array().unwrap().len(), 1);
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL via LMM_TEST_DATABASE_URL"]
 async fn postgres_correction_admin_http_preserves_permission_and_error_contracts() {
     let fixture = PgFixture::new().await;
     sqlx::raw_sql(
