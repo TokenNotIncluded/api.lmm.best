@@ -1574,11 +1574,7 @@ async fn postgres_correction_write_rolls_back_audit_and_head_on_failure() {
         .unwrap();
     assert_eq!(saved["previous_revision"], 0);
     assert_eq!(saved["previous_source"], "community");
-    assert!(
-        saved["created_at"]
-            .as_i64()
-            .is_some_and(|value| value > 0)
-    );
+    assert!(saved["created_at"].as_i64().is_some_and(|value| value > 0));
     let history = fixture.store.corrections(7).await.unwrap();
     assert_eq!(history["head"]["revision"], saved["id"]);
     assert_eq!(history["items"].as_array().unwrap().len(), 1);
