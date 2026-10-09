@@ -8,6 +8,7 @@ import (
 // Store routes deliberately do not use ConsoleAccessGate. Public browsing and
 // authenticated shopping/selling are available before API console activation.
 func setMerchantStoreRouter(parent *assistantRouterGroup) {
+	setMerchantStoreSupportRoutes(parent)
 	setMerchantStoreCollectionRoutes(parent)
 	setMerchantStoreCategoryRoutes(parent)
 	setMerchantStoreSocialRoutes(parent)

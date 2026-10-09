@@ -54,6 +54,7 @@ import { Route as StoreManageRouteImport } from './routes/store/manage'
 import { Route as StoreOrdersRouteImport } from './routes/store/orders'
 import { Route as StoreReviewRouteImport } from './routes/store/review'
 import { Route as StoreSettingsRouteImport } from './routes/store/settings'
+import { Route as StoreSupportRouteImport } from './routes/store/support'
 import { Route as WebmcpIndexRouteImport } from './routes/webmcp/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedAiDirectoryIndexRouteImport } from './routes/_authenticated/ai-directory/index'
@@ -336,6 +337,11 @@ const StoreReviewRoute = StoreReviewRouteImport.update({
 const StoreSettingsRoute = StoreSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreSupportRoute = StoreSupportRouteImport.update({
+  id: '/support',
+  path: '/support',
   getParentRoute: () => StoreRoute,
 } as any)
 const WebmcpIndexRoute = WebmcpIndexRouteImport.update({
@@ -714,6 +720,7 @@ export interface FileRoutesByFullPath {
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
   '/store/settings': typeof StoreSettingsRoute
+  '/store/support': typeof StoreSupportRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
   '/developers/': typeof DevelopersIndexRoute
@@ -816,6 +823,7 @@ export interface FileRoutesByTo {
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
   '/store/settings': typeof StoreSettingsRoute
+  '/store/support': typeof StoreSupportRoute
   '/about': typeof AboutIndexRoute
   '/challenges': typeof ChallengesIndexRoute
   '/developers': typeof DevelopersIndexRoute
@@ -923,6 +931,7 @@ export interface FileRoutesById {
   '/store/orders': typeof StoreOrdersRoute
   '/store/review': typeof StoreReviewRoute
   '/store/settings': typeof StoreSettingsRoute
+  '/store/support': typeof StoreSupportRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
   '/developers/': typeof DevelopersIndexRoute
@@ -1029,6 +1038,7 @@ export interface FileRouteTypes {
     | '/store/orders'
     | '/store/review'
     | '/store/settings'
+    | '/store/support'
     | '/about/'
     | '/challenges/'
     | '/developers/'
@@ -1131,6 +1141,7 @@ export interface FileRouteTypes {
     | '/store/orders'
     | '/store/review'
     | '/store/settings'
+    | '/store/support'
     | '/about'
     | '/challenges'
     | '/developers'
@@ -1237,6 +1248,7 @@ export interface FileRouteTypes {
     | '/store/orders'
     | '/store/review'
     | '/store/settings'
+    | '/store/support'
     | '/about/'
     | '/challenges/'
     | '/developers/'
@@ -1658,6 +1670,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/store/settings'
       preLoaderRoute: typeof StoreSettingsRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/support': {
+      id: '/store/support'
+      path: '/support'
+      fullPath: '/store/support'
+      preLoaderRoute: typeof StoreSupportRouteImport
       parentRoute: typeof StoreRoute
     }
     '/webmcp/': {
@@ -2260,6 +2279,7 @@ interface StoreRouteChildren {
   StoreOrdersRoute: typeof StoreOrdersRoute
   StoreReviewRoute: typeof StoreReviewRoute
   StoreSettingsRoute: typeof StoreSettingsRoute
+  StoreSupportRoute: typeof StoreSupportRoute
   StoreIndexRoute: typeof StoreIndexRoute
   StoreClaimTokenRoute: typeof StoreClaimTokenRoute
   StorePreviewProductIdRoute: typeof StorePreviewProductIdRoute
@@ -2273,6 +2293,7 @@ const StoreRouteChildren: StoreRouteChildren = {
   StoreOrdersRoute: StoreOrdersRoute,
   StoreReviewRoute: StoreReviewRoute,
   StoreSettingsRoute: StoreSettingsRoute,
+  StoreSupportRoute: StoreSupportRoute,
   StoreIndexRoute: StoreIndexRoute,
   StoreClaimTokenRoute: StoreClaimTokenRoute,
   StorePreviewProductIdRoute: StorePreviewProductIdRoute,
