@@ -91,6 +91,10 @@ func SendAffiliateInvitation(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	sendAffiliateInvitationToUser(c, user, recipient)
+}
+
+func sendAffiliateInvitationToUser(c *gin.Context, user *model.User, recipient string) {
 	if recipient == model.NormalizeEmail(user.Email) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,

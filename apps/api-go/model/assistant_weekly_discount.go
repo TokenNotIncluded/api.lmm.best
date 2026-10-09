@@ -25,10 +25,11 @@ const (
 	AssistantWeeklyDiscountOffered    = "offered"
 	AssistantWeeklyDiscountClaimed    = "claimed"
 	AssistantWeeklyDiscountDeclined   = "declined"
-	assistantWeeklyDiscountMaxPercent = 10
+	assistantWeeklyDiscountMaxPercent = 99
 )
 
 var (
+	ErrAssistantWeeklyDiscountLimit       = errors.New("weekly assistant discount exceeds the current level limit")
 	ErrAssistantWeeklyDiscountInvalid     = errors.New("weekly assistant discount decision is invalid")
 	ErrAssistantWeeklyDiscountUnavailable = errors.New("weekly assistant discount is not available")
 )
@@ -143,6 +144,13 @@ func DecideAssistantWeeklyDiscountAt(userID int, conversationID int64, percent i
 		if !errors.Is(findErr, gorm.ErrRecordNotFound) {
 			return findErr
 		}
+		limit, err := assistantWeeklyDiscountLimitDB(tx, userID)
+		if err != nil {
+			return err
+		}
+		if percent > limit || limit == 0 {
+			return ErrAssistantWeeklyDiscountLimit
+		}
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&reward)
 		if result.Error != nil {
 			return result.Error
@@ -203,6 +211,13 @@ func ClaimAssistantWeeklyDiscountAt(userID int, now time.Time) (*AssistantWeekly
 		}
 		if reward.Status != AssistantWeeklyDiscountOffered || reward.DiscountPercent <= 0 || reward.DiscountPercent > assistantWeeklyDiscountMaxPercent {
 			return ErrAssistantWeeklyDiscountUnavailable
+		}
+		limit, err := assistantWeeklyDiscountLimitDB(tx, userID)
+		if err != nil {
+			return err
+		}
+		if reward.DiscountPercent > limit || limit == 0 {
+			return ErrAssistantWeeklyDiscountLimit
 		}
 		codeValue, err := newAssistantWeeklyDiscountCode()
 		if err != nil {

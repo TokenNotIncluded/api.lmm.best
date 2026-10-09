@@ -216,7 +216,10 @@ test('fetches the authoritative catalog only when the tools panel becomes active
       rendered.container.textContent ?? '',
       /Writes after server checks/
     )
-    assert.match(rendered.container.textContent ?? '', /Super administrators/)
+    assert.match(
+      rendered.container.textContent ?? '',
+      /L6 \(Super administrator\)/
+    )
     await rendered.rerender(false)
     assert.equal(rendered.requests, 1)
   } finally {
@@ -296,7 +299,7 @@ test('searches readable labels, identifiers and permissions without changing the
       rendered.container.querySelector('[data-tool-name="request_create_key"]')
     )
     await act(async () => {
-      setInput(search, 'Super administrators')
+      setInput(search, 'L6 (Super administrator)')
       await flush()
     })
     assert.ok(
@@ -421,6 +424,120 @@ test('a failed read can be retried without saving or replacing the current tool 
     )
     assert.match(rendered.container.textContent ?? '', /Enabled 3 of 4 tools/)
     assert.deepEqual(rendered.changes, [])
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+test('configures a disabled tool group without enabling it or saving early', async () => {
+  const rendered = await renderEditor({
+    value: JSON.stringify({
+      version: 1,
+      groups: { api_keys: false },
+      tools: {},
+    }),
+  })
+  try {
+    await click(
+      rendered.container.querySelector(
+        '[aria-label="Configure Create an API key"]'
+      )
+    )
+    const dialog = document.querySelector(
+      '[data-testid="assistant-tool-configuration"]'
+    )
+    assert.ok(dialog)
+    assert.match(dialog.textContent ?? '', /Changes stay in this draft/)
+    const controls = dialog.querySelectorAll('[role="combobox"]')
+    assert.equal(controls.length, 2)
+    assert.equal(controls[0].textContent, 'L1')
+    assert.equal(controls[1].textContent, 'L6 (Super administrator)')
+    await click(controls[0])
+    const options = Array.from(document.querySelectorAll('[role="option"]'))
+    assert.equal(
+      options.some((item) => item.textContent === 'L0'),
+      false
+    )
+    await click(options.find((item) => item.textContent === 'L2') ?? null)
+    const changed = JSON.parse(rendered.changes.at(-1) ?? '{}')
+    assert.deepEqual(changed.rules.request_create_key, {
+      min_level: 2,
+      max_level: 6,
+    })
+    assert.equal(changed.groups.api_keys, false)
+    await click(
+      Array.from(dialog.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Reset tool rules'
+      ) ?? null
+    )
+    const reset = JSON.parse(rendered.changes.at(-1) ?? '{}')
+    assert.equal(reset.rules, undefined)
+    assert.equal(reset.groups.api_keys, false)
+    await click(
+      Array.from(dialog.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Done'
+      ) ?? null
+    )
+    assert.equal(
+      document.querySelector('[data-testid="assistant-tool-configuration"]'),
+      null
+    )
+    assert.equal(rendered.requests, 1)
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+test('weekly discount dialog edits member ceilings but never grants administrator rewards', async () => {
+  const withDiscount = structuredClone(catalog)
+  withDiscount.data.groups[2].tools.push({
+    name: 'prepare_weekly_discount',
+    label: 'Weekly discount',
+    description: 'Evaluate a discount.',
+    effect: 'server_guarded',
+    access: 'user',
+  })
+  const rendered = await renderEditor({ get: () => withDiscount })
+  try {
+    await click(
+      rendered.container.querySelector(
+        '[aria-label="Configure Weekly discount"]'
+      )
+    )
+    const dialog = document.querySelector(
+      '[data-testid="assistant-tool-configuration"]'
+    )
+    assert.ok(dialog)
+    const inputs = dialog.querySelectorAll<HTMLInputElement>(
+      'input[type="number"]'
+    )
+    assert.equal(inputs.length, 7)
+    assert.equal(inputs[1].value, '10')
+    assert.equal(inputs[5].disabled, true)
+    assert.equal(inputs[5].value, '0')
+    assert.equal(inputs[6].disabled, true)
+    await act(async () => {
+      setInput(inputs[1], '25')
+      await flush()
+    })
+    const rule = JSON.parse(rendered.changes.at(-1) ?? '{}').rules
+      .prepare_weekly_discount
+    assert.equal(rule.discount_percent_by_level['1'], 25)
+    const count = rendered.changes.length
+    await act(async () => {
+      setInput(inputs[1], '100')
+      await flush()
+    })
+    assert.equal(rendered.changes.length, count)
+    await act(async () => {
+      setInput(inputs[1], '0')
+      await flush()
+    })
+    assert.equal(
+      JSON.parse(rendered.changes.at(-1) ?? '{}').rules.prepare_weekly_discount
+        .discount_percent_by_level['1'],
+      0
+    )
   } finally {
     await rendered.cleanup()
   }

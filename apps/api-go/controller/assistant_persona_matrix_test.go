@@ -163,7 +163,15 @@ func TestAssistantPersonaMatrix(t *testing.T) {
 				"prepare_user_action",
 				"list_my_api_keys",
 				"prepare_api_key_action",
+				"get_overview_greeting", "set_overview_greeting", "get_site_issues", "create_site_issue",
+				"show_chart", "show_statistics", "show_choices", "show_flowchart",
 			)
+			if context.AdministratorMode || context.DeveloperAccessGranted {
+				expectedAllowed = append(expectedAllowed, "send_invitation", "get_connected_market_tools", "connect_market_tool", "call_market_tool")
+			}
+			if context.AdministratorMode {
+				expectedAllowed = append(expectedAllowed, "update_site_issue")
+			}
 			if assistantWeeklyDiscountToolAllowed(context) {
 				expectedAllowed = append(expectedAllowed, "prepare_weekly_discount")
 			}

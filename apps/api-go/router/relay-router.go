@@ -143,6 +143,10 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	assistantRouter.Use(middleware.SystemPerformanceCheck())
 	assistantRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	{
+		assistantRouter.GET("/workspace/greeting", middleware.DisableCache(), controller.GetAssistantOverviewGreeting)
+		assistantRouter.PUT("/workspace/greeting", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-greeting"), middleware.DisableCache(), controller.UpdateAssistantOverviewGreeting)
+		assistantRouter.POST("/workspace/confirm", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-workspace"), middleware.DisableCache(), controller.ConfirmAssistantWorkspace)
+		assistantRouter.POST("/workspace/invitation/confirm", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("aff-invite-email"), middleware.DisableCache(), controller.ConfirmAssistantInvitation)
 		assistantRouter.PUT("/profile/display-name", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-display-name"), middleware.DisableCache(), controller.ConfirmAssistantDisplayName)
 		assistantRouter.GET("/registration-check", middleware.DisableCache(), controller.GetAssistantRegistrationState)
 		assistantRouter.GET("/models", middleware.AdminAuth(), controller.GetAssistantModels)
