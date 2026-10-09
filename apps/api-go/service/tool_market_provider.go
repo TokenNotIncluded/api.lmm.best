@@ -216,3 +216,4 @@ func marketMonidPublicResult(exact map[string]any) map[string]any {
 	}
 	text, _ := json.Marshal(safe) // all values came from decoded JSON
 	return map[string]any{"structuredContent": safe, "content": []any{map[string]any{"type": "text", "text": string(text)}}}
+}
