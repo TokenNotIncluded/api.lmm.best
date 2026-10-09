@@ -54,10 +54,12 @@ jobs:
           subprocess.run(['git', 'commit', '-m', 'fix(assistant): restore tool configuration and add guarded policy tools'], check=True)
           subprocess.run(['git', 'merge', '--no-commit', '--no-ff', os.environ['INTEGRATED_MAIN']])
           subprocess.run(['python3', '.assistant-audit-resolve.py'], check=True)
+          subprocess.run(['python3', '.assistant-audit-finalize.py'], check=True)
           pathlib.Path('.assistant-audit-resolve.py').unlink()
+          pathlib.Path('.assistant-audit-finalize.py').unlink()
           subprocess.run(['git', 'add', '-A'], check=True)
           assert not subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=U'], text=True).strip()
-          subprocess.run(['git', 'commit', '-m', 'merge main: retain assistant discovery and resolve policy tool contracts'], check=True)
+          subprocess.run(['git', 'commit', '-m', 'merge main: retain assistant discovery and restore repository validation contracts'], check=True)
           changed = subprocess.check_output(['git', 'diff', '--name-only', os.environ['INTEGRATED_MAIN']], text=True).splitlines()
           changed += ['apps/web/src/routeTree.gen.ts', 'apps/api-go/controller/assistant_admin_operation_contracts.json']
           (temp / 'allowed-files.txt').write_text('\n'.join(changed))
@@ -162,8 +164,9 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m 'test(assistant): refresh generated contracts and formatted regression coverage'
           fi
-          git push origin HEAD:fix/assistant-tool-audit-policies
           git rev-parse HEAD | tee "$RUNNER_TEMP/validated-sha.txt"
+          git rev-parse HEAD^{tree} | tee "$RUNNER_TEMP/validated-tree.txt"
+          git push origin HEAD:fix/assistant-tool-audit-policies 2>&1 | tee "$RUNNER_TEMP/push.log"
       - name: Export tracked candidate for inspection
         if: always()
         run: |
@@ -181,6 +184,7 @@ jobs:
             ${{ runner.temp }}/*.jsonl
             ${{ runner.temp }}/check-results.txt
             ${{ runner.temp }}/validated-sha.txt
+            ${{ runner.temp }}/validated-tree.txt
             ${{ runner.temp }}/candidate-stat.txt
             ${{ runner.temp }}/assistant-candidate.tar.gz
           retention-days: 3
