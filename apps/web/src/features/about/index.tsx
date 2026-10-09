@@ -199,7 +199,7 @@ export function About() {
           mode='markdown'
           collapsible
           content={rawContent}
-          className='forge-rich-content prose-neutral dark:prose-invert max-w-none'
+          className='prose-neutral dark:prose-invert max-w-none'
         />
       </main>
     </ForgePublicShell>

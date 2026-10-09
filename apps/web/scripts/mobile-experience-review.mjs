@@ -348,6 +348,20 @@ try {
             assert.ok(
               (await page.locator('[data-reading-section]').count()) >= 3
             )
+            const chapter = await page
+              .locator('[data-reading-section]')
+              .first()
+              .boundingBox()
+            assert.ok(
+              chapter && chapter.height <= 280,
+              'Chapter must not repeat full-page padding'
+            )
+            assert.equal(
+              await page
+                .locator('.document-section-body .forge-rich-content')
+                .count(),
+              0
+            )
           }
           if (persona === 'admin') {
             const handle = page.locator('.settings-scrub-handle')

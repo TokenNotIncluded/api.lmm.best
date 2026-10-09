@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { splitLegalSections } from '@/features/legal/legal-reader'
+import { cn } from '@/lib/utils'
 
 import './document-reader.css'
 
@@ -102,9 +103,11 @@ export function DocumentReader({
     )
   }
   return (
-    <div ref={root} className='document-reader'>
+    <div ref={root} className={cn('document-reader', className)}>
       <div className='document-reader-tools'>
-        <span>{t('{{count}} sections', { count: headings.length })}</span>
+        <span>
+          {t('On this page')} · {headings.length}
+        </span>
         <Button variant='ghost' size='sm' onClick={() => expand(true)}>
           {t('Expand all')}
         </Button>
@@ -128,17 +131,11 @@ export function DocumentReader({
               <ChevronDown aria-hidden='true' className='size-4 shrink-0' />
             </summary>
             <div className='document-section-body'>
-              <Markdown breaks={breaks} className={className}>
-                {section.body}
-              </Markdown>
+              <Markdown breaks={breaks}>{section.body}</Markdown>
             </div>
           </details>
         ) : (
-          <Markdown
-            key={`preamble-${index}`}
-            breaks={breaks}
-            className={className}
-          >
+          <Markdown key={`preamble-${index}`} breaks={breaks}>
             {section.body}
           </Markdown>
         )

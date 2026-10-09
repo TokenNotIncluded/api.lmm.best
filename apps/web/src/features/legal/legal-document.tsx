@@ -215,7 +215,7 @@ export function LegalDocument({
             {title}
           </h1>
           <p className='legal-meta'>
-            {t('{{count}} sections', { count: headings.length })}
+            {t('On this page')} · {headings.length}
           </p>
           <RichContent
             mode={mode}

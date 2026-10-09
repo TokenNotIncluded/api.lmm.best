@@ -25,7 +25,13 @@ mock.module('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 mock.module('@/components/ui/markdown', () => ({
-  Markdown: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Markdown: ({
+    children,
+    className,
+  }: {
+    children: ReactNode
+    className?: string
+  }) => <div className={className}>{children}</div>,
 }))
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const { act } = await import('react')
@@ -105,4 +111,16 @@ test('a direct section link opens the target without opening all other sections'
   assert.ok(target.open)
   assert.ok(scrolled)
   assert.equal(sections()[2].open, false)
+})
+
+test('document layout classes are applied once, not to each chapter body', async () => {
+  await act(async () =>
+    root.render(<DocumentReader content={content} className='reader-layout' />)
+  )
+  assert.equal(host.querySelectorAll('.reader-layout').length, 1)
+  assert.ok(host.querySelector('.document-reader.reader-layout'))
+  assert.equal(
+    host.querySelector('.document-section-body .reader-layout'),
+    null
+  )
 })
