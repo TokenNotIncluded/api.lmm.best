@@ -867,16 +867,38 @@ LATER_PROVIDER_FIELDS = {'format', 'release', 'state_sha256', 'capsule_path', 'c
                          'frontend_asset_sha256', 'frontend_bundle', 'frontend_bundle_sha256',
                          'frontend_version', 'frontend_target', 'boot_id', 'main_pid', 'invocation_id'}
 
+# This exact official source implements merchantStorePortableStart's live
+# ordinary parent check. A later source/provider needs its own reviewed binding.
+# Source: apps/api-go/internal/appcli/deploy_merchant_store_portable_start.go
+ORDINARY_PARENT_STARTUP_ORIGIN = {
+    'release': 'go98-paid-credit-fix-20261009',
+    'state_sha256': 'ef493796a9353e724f4e21975d312b222b6163c6c4bb52387e022953f4e5c93c',
+    'capsule_sha256': '790b47a3abab7a0829fc0238f70796fdc7e574752950c48823ad772bd6c1710f',
+    'released_owner_sha256': '2e80508e615d5a417abc76cd50858610b20e4b1b07a51fca2b6680cbe0aea46a',
+    'source_revision': '9142a5d7bfbd26dc0737923db9c88438739135c6',
+    'startup_source_sha256': '9b24f484010c168715b1899065a2e5a023ab4cc5ca2a9f42379d8798cd223a91',
+    'provider_sha256': 'ba36577b81de6caace84b162ef81cd60f8988dc88b94cb5b1dbf042343a886d9',
+    'contract_sha256': '878c9e6965013f61f624bfb87f3745deafcc6a5d23bcd5e4225c8918672228fd',
+}
+
 
 def later_provider_manifest(raw):
     manifest = history_json(raw)
-    if set(manifest) != LATER_PROVIDER_FIELDS or manifest['format'] != 'lmm-systemd-later-provider-v1':
+    parent_fields = {'startup_mode', 'released_owner_sha256', 'startup_journal_sha256'}
+    parent = manifest.get('startup_mode') == 'ordinary-parent-cas-journal'
+    if set(manifest) != LATER_PROVIDER_FIELDS | (parent_fields if parent else set()) or manifest['format'] != 'lmm-systemd-later-provider-v1':
         raise RuntimeError('unknown later-provider manifest fields or format')
     if not isinstance(manifest['release'], str) or not re.fullmatch(RELEASE_PATTERN, manifest['release']):
         raise RuntimeError('later-provider release ID is invalid')
     for key in ('state_sha256', 'capsule_sha256', 'controller_plan_sha256', 'frontend_asset_sha256', 'frontend_bundle_sha256'):
         if not isinstance(manifest[key], str) or not re.fullmatch('[0-9a-f]{64}', manifest[key]):
             raise RuntimeError('later-provider digest is invalid')
+    if parent:
+        for key in ('released_owner_sha256', 'startup_journal_sha256'):
+            if not isinstance(manifest[key], str) or not re.fullmatch('[0-9a-f]{64}', manifest[key]):
+                raise RuntimeError('ordinary parent startup proof digest is invalid')
+        if any(manifest[key] != ORDINARY_PARENT_STARTUP_ORIGIN[key] for key in ('release', 'state_sha256', 'capsule_sha256', 'released_owner_sha256')):
+            raise RuntimeError('ordinary parent startup origin is not the reviewed confirmed provider')
     if type(manifest['main_pid']) is not int or manifest['main_pid'] <= 1 or not isinstance(manifest['invocation_id'], str) or not re.fullmatch('[0-9a-f]{32}', manifest['invocation_id']):
         raise RuntimeError('later-provider generation is invalid')
     if not isinstance(manifest['boot_id'], str) or not re.fullmatch('[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', manifest['boot_id']):
@@ -968,6 +990,57 @@ def later_signed_archive(asset, bundle, asset_sha, bundle_sha, version, componen
     return {'source_revision': revision, 'tree_sha256': tree.hexdigest(), 'index_sha256': frontend['index.html'], 'files': len(frontend)}
 
 
+def later_parent_startup(manifest):
+    capsule = history_json(guardian.bound_file(Path(manifest['capsule_path']), manifest['capsule_sha256']))
+    origin = ORDINARY_PARENT_STARTUP_ORIGIN
+    if any(manifest.get(key) != origin[key] for key in ('release', 'state_sha256', 'capsule_sha256', 'released_owner_sha256')):
+        raise RuntimeError('ordinary parent startup origin binding changed')
+    if capsule.get('format') != 1 or capsule.get('deployment_id') != origin['release'] or capsule.get('host') != socket.gethostname() or capsule.get('candidate', {}).get('git_revision') != origin['source_revision'] or capsule.get('candidate', {}).get('payload_sha256') != origin['provider_sha256']:
+        raise RuntimeError('ordinary parent startup lacks its officially reviewed source/provider')
+    writer = capsule.get('merchant_store_writer', {})
+    contract_sha = hashlib.sha256(json.dumps(writer, separators=(',', ':')).encode()).hexdigest()
+    if contract_sha != origin['contract_sha256']:
+        raise RuntimeError('ordinary parent startup writer contract changed')
+    directory = Path(capsule['root']) / 'state'
+    raw = guardian.bound_file(directory / 'portable-released-owner.json', manifest['released_owner_sha256'])
+    owner = history_json(raw)
+    expected = {'format': 1, 'state': 'ACTIVE', 'purpose': 'portable-deploy', 'deployment_id': origin['release'],
+                'host': capsule['host'], 'service': SERVICE, 'plan_sha256': manifest['capsule_sha256'],
+                'contract_sha256': contract_sha, 'provider_sha256': origin['provider_sha256'],
+                'holder_unit': 'lmm-merchant-portable-' + origin['release'] + '.service'}
+    expected.update({key: writer[key] for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')})
+    if set(owner) != set(expected) | {'nonce', 'holder_pid', 'holder_invocation_id', 'backend_pid'} or any(owner.get(key) != value for key, value in expected.items()) or type(owner.get('holder_pid')) is not int or owner['holder_pid'] <= 1 or type(owner.get('backend_pid')) is not int or owner['backend_pid'] <= 1 or not re.fullmatch('[0-9a-f]{32}', owner.get('holder_invocation_id', '')) or not re.fullmatch('[0-9a-f]{32}', owner.get('nonce', '')):
+        raise RuntimeError('ordinary parent released owner is not the exact native session')
+    for name in ('portable-owner.json', 'holder.sock'):
+        if (directory / name).exists() or (directory / name).is_symlink():
+            raise RuntimeError('ordinary parent still has live communication evidence')
+    if Path('/proc', str(owner['holder_pid'])).exists():
+        raise RuntimeError('ordinary parent holder process is still present')
+    names = 'LoadState,MainPID,InvocationID,ControlPID,ActiveState,SubState,Result,ControlGroup'
+    result = subprocess.run(['systemctl', 'show', owner['holder_unit'], '--property=' + names], capture_output=True, text=True, timeout=15)
+    if result.returncode:
+        raise RuntimeError('ordinary parent terminal unit inspection failed')
+    held = dict(row.split('=', 1) for row in result.stdout.splitlines())
+    if held.get('ActiveState') != 'inactive' or held.get('SubState') != 'dead' or held.get('MainPID') != '0' or held.get('ControlPID') != '0' or held.get('ControlGroup') or held.get('Result') != 'success' or held.get('LoadState') not in ('not-found', 'loaded') or held.get('InvocationID') not in ('', owner['holder_invocation_id']):
+        raise RuntimeError('ordinary parent holder has not truly terminated')
+    result = subprocess.run(['journalctl', '--no-pager', '-o', 'json', '_SYSTEMD_INVOCATION_ID=' + manifest['invocation_id'],
+                             'MESSAGE=merchant_store_start=qualified'], capture_output=True, timeout=30)
+    if result.returncode:
+        raise RuntimeError('ordinary parent actual startup journal query failed')
+    rows = [history_json(row) for row in result.stdout.splitlines() if row]
+    if len(rows) != 1:
+        raise RuntimeError('ordinary parent requires exactly one native startup journal entry')
+    row = rows[0]
+    if row.get('MESSAGE') != 'merchant_store_start=qualified' or row.get('_SYSTEMD_INVOCATION_ID') != manifest['invocation_id'] or row.get('_SYSTEMD_UNIT') != SERVICE or row.get('_BOOT_ID') != manifest['boot_id'].replace('-', '') or row.get('_UID') != '0' or not isinstance(row.get('_PID'), str) or not row['_PID'].isdecimal() or int(row['_PID']) <= 1 or int(row['_PID']) == manifest['main_pid']:
+        raise RuntimeError('ordinary parent native startup journal identity differs')
+    journal_sha = hashlib.sha256(json.dumps(row, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    if journal_sha != manifest['startup_journal_sha256']:
+        raise RuntimeError('ordinary parent original startup journal bytes changed')
+    return {'mode': manifest['startup_mode'], 'released_owner_sha256': manifest['released_owner_sha256'],
+            'journal_sha256': journal_sha, 'guard_pid': int(row['_PID']), 'holder_final': held,
+            'source_revision': origin['source_revision'], 'startup_source_sha256': origin['startup_source_sha256']}
+
+
 def later_generation(manifest):
     names = 'MainPID,InvocationID,NRestarts,ControlPID,ActiveState,SubState,Result,ExecStartPre,Environment'
     loaded = dict(row.split('=', 1) for row in run('systemctl', 'show', SERVICE, '--property=' + names).splitlines())
@@ -977,7 +1050,12 @@ def later_generation(manifest):
     if Path('/proc/sys/kernel/random/boot_id').read_text().strip() != manifest['boot_id']:
         raise RuntimeError('later-provider boot changed')
     # A real successful typed writer-start must be the loaded startup guard.
-    if 'writer-start' not in loaded.get('ExecStartPre', '') or 'status=0' not in loaded['ExecStartPre'] or 'code=exited' not in loaded['ExecStartPre']:
+    if 'writer-start' not in loaded.get('ExecStartPre', ''):
+        raise RuntimeError('later-provider typed startup guard is not loaded')
+    startup = None
+    if manifest.get('startup_mode') == 'ordinary-parent-cas-journal':
+        startup = later_parent_startup(manifest)
+    elif 'status=0' not in loaded['ExecStartPre'] or 'code=exited' not in loaded['ExecStartPre']:
         raise RuntimeError('later-provider actual startup did not complete successfully')
     process = Path('/proc', str(manifest['main_pid']))
     environment = process.joinpath('environ').read_bytes()
@@ -988,11 +1066,14 @@ def later_generation(manifest):
         path = Path(name.removeprefix('-'))
         cleanup_path(path, private_file=True)
         env_files.append({'path': str(path), 'sha256': digest(path)})
-    return {'boot_id': manifest['boot_id'], 'main_pid': manifest['main_pid'], 'invocation_id': manifest['invocation_id'],
+    result = {'boot_id': manifest['boot_id'], 'main_pid': manifest['main_pid'], 'invocation_id': manifest['invocation_id'],
             'installed_sha256': digest(BINARY), 'running_sha256': digest(process / 'exe'),
             'process_environment_sha256': hashlib.sha256(environment).hexdigest(),
             'loaded_environment_sha256': hashlib.sha256(loaded['Environment'].encode()).hexdigest(),
             'ordered_environment_files': env_files}
+    if startup:
+        result['startup'] = startup
+    return result
 
 
 def later_database_status(manifest, capsule):
@@ -1009,7 +1090,7 @@ def later_database_status(manifest, capsule):
         raise RuntimeError('later-provider actual physical database/owner check failed')
     actual = history_json(result.stdout)
     writer = capsule['merchant_store_writer']
-    if actual.get('reserved_count') != 0 or any(actual.get(key) != writer.get(key) for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')):
+    if type(actual.get('reserved_count')) is not int or actual['reserved_count'] != 0 or any(actual.get(key) != writer.get(key) for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')):
         raise RuntimeError('later-provider physical database differs or has a live durable owner')
     return actual
 
@@ -1100,6 +1181,13 @@ def verify_registered_later_provider(work, binding):
     inputs = {name: guardian.bound_file(work / name, sha) for name, sha in binding['input_sha256'].items()}
     if set(inputs) != {'origin-state.json', 'origin-capsule.json', 'origin-plan.json'} or qualification.get('format') != 'lmm-systemd-later-provider-qualification-v1' or qualification.get('manifest_sha256') != binding['manifest_sha256'] or qualification.get('input_sha256') != binding['input_sha256'] or qualification.get('native_check', {}).get('exit_code') != 0:
         raise RuntimeError('registered later-provider qualification changed')
+    if manifest.get('startup_mode') == 'ordinary-parent-cas-journal':
+        startup = qualification.get('generation', {}).get('startup', {})
+        expected = {'mode': manifest['startup_mode'], 'released_owner_sha256': manifest['released_owner_sha256'],
+                    'journal_sha256': manifest['startup_journal_sha256'],
+                    **{key: ORDINARY_PARENT_STARTUP_ORIGIN[key] for key in ('source_revision', 'startup_source_sha256')}}
+        if any(startup.get(key) != value for key, value in expected.items()):
+            raise RuntimeError('registered ordinary parent startup proof changed')
     later_provider_inputs(manifest, inputs['origin-state.json'], inputs['origin-capsule.json'], inputs['origin-plan.json'])
     # Deliberately historical: a subsequent valid upgrade must not require the
     # formerly current provider, environment or frontend to remain installed.

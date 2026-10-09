@@ -481,6 +481,223 @@ class LaterProviderHistoryTests(unittest.TestCase):
         self.assertTrue((saved / 'origin-plan.json').exists())
         self.assertFalse((saved / 'receipt.json').exists())
 
+    def parent_fixture(self):
+        self.later_fixture()
+        capsule = json.loads(self.cap_path.read_bytes())
+        contract_sha = hashlib.sha256(json.dumps(capsule['merchant_store_writer'], separators=(',', ':')).encode()).hexdigest()
+        self.parent_state = self.local_cap_root / 'state'
+        self.parent_state.mkdir(mode=0o700)
+        self.parent_owner = {'format': 1, 'state': 'ACTIVE', 'purpose': 'portable-deploy',
+                             'deployment_id': 'later', 'host': 'fixture-host', 'service': deploy.SERVICE,
+                             'plan_sha256': self.manifest['capsule_sha256'], 'contract_sha256': contract_sha,
+                             'provider_sha256': self.capsule['candidate']['payload_sha256'],
+                             'holder_unit': 'lmm-merchant-portable-later.service', 'nonce': 'a' * 32,
+                             'holder_pid': 2147483100, 'holder_invocation_id': 'b' * 32, 'backend_pid': 4321,
+                             **{key: capsule['merchant_store_writer'][key]
+                                for key in ('system_identifier', 'database', 'database_oid', 'schema', 'schema_oid', 'role')}}
+        self.parent_owner_path = self.write_json(self.parent_state / 'portable-released-owner.json', self.parent_owner)
+        self.parent_journal_row = {'MESSAGE': 'merchant_store_start=qualified',
+                                   '_SYSTEMD_INVOCATION_ID': self.manifest['invocation_id'],
+                                   '_SYSTEMD_UNIT': deploy.SERVICE, '_BOOT_ID': self.manifest['boot_id'].replace('-', ''),
+                                   '_UID': '0', '_PID': '4322', '__CURSOR': 'fixture-cursor',
+                                   '__REALTIME_TIMESTAMP': '1791489600000000'}
+        self.parent_journal_bytes = json.dumps(self.parent_journal_row).encode() + b'\n'
+        self.manifest.update(startup_mode='ordinary-parent-cas-journal',
+                             released_owner_sha256=deploy.digest(self.parent_owner_path),
+                             startup_journal_sha256=self.journal_sha(self.parent_journal_row))
+        self.parent_origin = {'release': 'later', 'state_sha256': self.manifest['state_sha256'],
+                              'capsule_sha256': self.manifest['capsule_sha256'],
+                              'released_owner_sha256': self.manifest['released_owner_sha256'],
+                              'source_revision': self.capsule['candidate']['git_revision'],
+                              'startup_source_sha256': 'c' * 64, 'provider_sha256': self.capsule['candidate']['payload_sha256'],
+                              'contract_sha256': contract_sha}
+        self.stack.enter_context(patch.object(deploy, 'ORDINARY_PARENT_STARTUP_ORIGIN', self.parent_origin))
+        self.parent_held = {'LoadState': 'loaded', 'MainPID': '0', 'InvocationID': self.parent_owner['holder_invocation_id'],
+                            'ControlPID': '0', 'ActiveState': 'inactive', 'SubState': 'dead',
+                            'Result': 'success', 'ControlGroup': ''}
+        self.parent_holder_exit = self.parent_journal_exit = 0
+        self.parent_commands = []
+        self.stack.enter_context(patch.object(deploy.subprocess, 'run', side_effect=self.parent_command))
+        self.seal_manifest()
+
+    def journal_sha(self, row):
+        return hashlib.sha256(json.dumps(row, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+    def parent_path(self, *args):
+        path = Path(*args)
+        if path.is_relative_to('/proc'):
+            if str(path) == '/proc/sys/kernel/random/boot_id':
+                return self.base / 'fake-proc/boot_id'
+            return self.base / 'fake-proc' / path.relative_to('/proc')
+        return self.local_path(path)
+
+    def parent_command(self, argv, **kwargs):
+        if argv[0] == 'systemctl':
+            self.assertEqual(['systemctl', 'show', self.parent_owner['holder_unit'],
+                              '--property=LoadState,MainPID,InvocationID,ControlPID,ActiveState,SubState,Result,ControlGroup'], argv)
+            self.assertTrue(kwargs['text'])
+            self.parent_commands.append(argv)
+            return deploy.subprocess.CompletedProcess(argv, self.parent_holder_exit,
+                '\n'.join(key + '=' + value for key, value in self.parent_held.items()), '')
+        if argv[0] == 'journalctl':
+            self.assertEqual(['journalctl', '--no-pager', '-o', 'json',
+                              '_SYSTEMD_INVOCATION_ID=' + self.manifest['invocation_id'],
+                              'MESSAGE=merchant_store_start=qualified'], argv)
+            self.parent_commands.append(argv)
+            return deploy.subprocess.CompletedProcess(argv, self.parent_journal_exit, self.parent_journal_bytes, b'')
+        return self.fake_command(argv, **kwargs)
+
+    def parent_startup(self):
+        with patch.object(deploy, 'Path', side_effect=self.parent_path):
+            return deploy.later_parent_startup(self.manifest)
+
+    def reseal_parent_owner(self, raw=None):
+        self.write(self.parent_owner_path, raw if raw is not None else json.dumps(self.parent_owner).encode() + b'\n')
+        self.manifest['released_owner_sha256'] = deploy.digest(self.parent_owner_path)
+        self.parent_origin['released_owner_sha256'] = self.manifest['released_owner_sha256']
+
+    def test_parent_cas_manifest_requires_explicit_exact_reviewed_origin(self):
+        self.parent_fixture()
+        self.assertEqual(self.manifest, deploy.later_provider_manifest(json.dumps(self.manifest).encode()))
+        for key in ('startup_mode', 'released_owner_sha256', 'startup_journal_sha256'):
+            changed = dict(self.manifest)
+            del changed[key]
+            with self.subTest(missing=key), self.assertRaises(RuntimeError):
+                deploy.later_provider_manifest(json.dumps(changed).encode())
+        for key, value in [('startup_mode', 'trust-parent'), ('released_owner_sha256', 'f' * 64),
+                           ('capsule_sha256', 'f' * 64), ('state_sha256', 'f' * 64), ('release', 'another')]:
+            with self.subTest(field=key), self.assertRaises(RuntimeError):
+                deploy.later_provider_manifest(json.dumps(dict(self.manifest, **{key: value})).encode())
+
+    def test_parent_cas_uses_private_owner_bytes_and_exact_full_journal_entry(self):
+        self.parent_fixture()
+        original = self.snapshot(self.base)
+        result = self.parent_startup()
+        self.assertEqual('ordinary-parent-cas-journal', result['mode'])
+        self.assertEqual(self.manifest['released_owner_sha256'], result['released_owner_sha256'])
+        self.assertEqual(self.manifest['startup_journal_sha256'], result['journal_sha256'])
+        self.assertEqual(4322, result['guard_pid'])
+        self.assertEqual(self.parent_held, result['holder_final'])
+        self.assertEqual(original, self.snapshot(self.base))
+        self.assertEqual(['systemctl', 'journalctl'], [argv[0] for argv in self.parent_commands])
+        raw = self.parent_owner_path.read_bytes()
+        self.write(self.parent_owner_path, raw + b' ')
+        with self.assertRaises(RuntimeError):
+            self.parent_startup()
+        self.write(self.parent_owner_path, raw)
+        self.parent_journal_bytes = json.dumps(dict(self.parent_journal_row, __CURSOR='changed')).encode() + b'\n'
+        with self.assertRaisesRegex(RuntimeError, 'journal bytes changed'):
+            self.parent_startup()
+
+    def test_parent_cas_owner_rejects_wrong_session_scope_shape_and_nonce(self):
+        self.parent_fixture()
+        original = dict(self.parent_owner)
+        changes = [('deployment_id', 'other'), ('host', 'other'), ('service', 'other.service'),
+                   ('purpose', 'writer-start'), ('state', 'RELEASED'), ('plan_sha256', 'f' * 64),
+                   ('contract_sha256', 'f' * 64), ('provider_sha256', 'f' * 64), ('database_oid', 99),
+                   ('schema_oid', 99), ('role', 'other'), ('holder_unit', 'foreign.service'),
+                   ('holder_pid', True), ('backend_pid', 1), ('holder_invocation_id', 'not-an-invocation'),
+                   ('nonce', 'a' * 64), ('unknown', 'unproved')]
+        for key, value in changes:
+            self.parent_owner = dict(original, **{key: value})
+            self.reseal_parent_owner()
+            with self.subTest(field=key), self.assertRaisesRegex(RuntimeError, 'exact native session'):
+                self.parent_startup()
+        self.parent_owner = original
+        raw = json.dumps(original).encode()
+        self.reseal_parent_owner(raw[:-1] + b',"nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
+        with self.assertRaisesRegex(RuntimeError, 'duplicate'):
+            self.parent_startup()
+
+    def test_parent_cas_requires_reviewed_source_provider_and_original_writer_contract(self):
+        self.parent_fixture()
+        original = json.loads(self.cap_path.read_bytes())
+        for section, key, value in [(None, 'format', 2), (None, 'host', 'other'),
+                                    ('candidate', 'git_revision', 'f' * 40), ('candidate', 'payload_sha256', 'f' * 64),
+                                    ('merchant_store_writer', 'role', 'other')]:
+            capsule = json.loads(json.dumps(original))
+            (capsule if section is None else capsule[section])[key] = value
+            self.write_json(self.cap_path, capsule)
+            self.manifest['capsule_sha256'] = deploy.digest(self.cap_path)
+            self.parent_origin['capsule_sha256'] = self.manifest['capsule_sha256']
+            with self.subTest(section=section, field=key), self.assertRaisesRegex(RuntimeError, 'reviewed source/provider|writer contract changed'):
+                self.parent_startup()
+
+    def test_parent_cas_rejects_live_holder_owner_socket_and_nonterminal_unit(self):
+        self.parent_fixture()
+        for name in ('portable-owner.json', 'holder.sock'):
+            path = self.write(self.parent_state / name, b'live owner evidence')
+            with self.subTest(file=name), self.assertRaisesRegex(RuntimeError, 'live communication evidence'):
+                self.parent_startup()
+            path.unlink()
+            path.symlink_to('missing-live-evidence')
+            with self.subTest(dangling=name), self.assertRaisesRegex(RuntimeError, 'live communication evidence'):
+                self.parent_startup()
+            path.unlink()
+        process = self.base / 'fake-proc' / str(self.parent_owner['holder_pid'])
+        process.mkdir(mode=0o700, parents=True)
+        with self.assertRaisesRegex(RuntimeError, 'holder process is still present'):
+            self.parent_startup()
+        process.rmdir()
+        original = dict(self.parent_held)
+        for key, value in [('LoadState', 'failed'), ('MainPID', '123'), ('InvocationID', 'f' * 32),
+                           ('ControlPID', '123'), ('ActiveState', 'active'), ('SubState', 'running'),
+                           ('Result', 'exit-code'), ('ControlGroup', '/system.slice/still-live')]:
+            self.parent_held = dict(original, **{key: value})
+            with self.subTest(field=key), self.assertRaisesRegex(RuntimeError, 'not truly terminated'):
+                self.parent_startup()
+        self.parent_held = original
+        self.parent_holder_exit = 1
+        with self.assertRaisesRegex(RuntimeError, 'unit inspection failed'):
+            self.parent_startup()
+
+    def test_parent_cas_journal_rejects_missing_duplicate_partial_and_foreign_identity(self):
+        self.parent_fixture()
+        original = dict(self.parent_journal_row)
+        for raw in (b'', self.parent_journal_bytes * 2,
+                    b'{"MESSAGE":"merchant_store_start=qualified","MESSAGE":"merchant_store_start=qualified"}\n'):
+            self.parent_journal_bytes = raw
+            with self.subTest(raw=raw[:30]), self.assertRaises(RuntimeError):
+                self.parent_startup()
+        for key, value in [('MESSAGE', 'prefix merchant_store_start=qualified suffix'),
+                           ('_SYSTEMD_INVOCATION_ID', 'f' * 32), ('_SYSTEMD_UNIT', 'foreign.service'),
+                           ('_BOOT_ID', 'f' * 32), ('_UID', '1000'), ('_PID', '1'),
+                           ('_PID', str(self.manifest['main_pid'])), ('_PID', 4322), ('_PID', 'unproved')]:
+            row = dict(original, **{key: value})
+            self.parent_journal_bytes = json.dumps(row).encode() + b'\n'
+            self.manifest['startup_journal_sha256'] = self.journal_sha(row)
+            with self.subTest(field=key, value=value), self.assertRaisesRegex(RuntimeError, 'journal identity differs'):
+                self.parent_startup()
+        self.parent_journal_bytes = json.dumps(original).encode() + b'\n'
+        self.manifest['startup_journal_sha256'] = self.journal_sha(original)
+        self.parent_journal_exit = 1
+        with self.assertRaisesRegex(RuntimeError, 'journal query failed'):
+            self.parent_startup()
+
+    def test_null_execstartpre_requires_explicit_parent_closure_and_still_checks_pg_zero(self):
+        self.parent_fixture()
+        self.process_fixture()
+        loaded = {'MainPID': str(self.manifest['main_pid']), 'InvocationID': self.manifest['invocation_id'],
+                  'NRestarts': '0', 'ControlPID': '0', 'ActiveState': 'active', 'SubState': 'running',
+                  'Result': 'success', 'ExecStartPre': 'writer-start code=(null) status=0', 'Environment': 'fixture=true'}
+        rendered = '\n'.join(key + '=' + value for key, value in loaded.items())
+        with patch.object(deploy, 'Path', side_effect=self.parent_path), \
+             patch.object(deploy, 'run', return_value=rendered), \
+             patch.object(deploy, 'service_environment_files', return_value=[str(deploy.ENVIRONMENT)]):
+            ordinary = {key: self.manifest[key] for key in deploy.LATER_PROVIDER_FIELDS}
+            with self.assertRaisesRegex(RuntimeError, 'did not complete successfully'):
+                self.real_generation(ordinary)
+            generation = self.real_generation(self.manifest)
+            self.assertEqual('ordinary-parent-cas-journal', generation['startup']['mode'])
+        self.generation_probe.return_value = generation
+        self.seal_manifest()
+        proof, inputs = self.qualify()
+        self.assertIn('startup', proof['generation'])
+        self.database_probe.assert_called()
+        self.database_probe.return_value = dict(proof['actual_database'], reserved_count=1)
+        with self.assertRaisesRegex(RuntimeError, 'database/owner changed'):
+            deploy.recheck_later_provider(self.manifest_path.read_bytes(), proof, inputs)
+
     def test_original_provider_v1_registration_remains_compatible(self):
         self.proof()
         original = self.snapshot(deploy.ROOT)
