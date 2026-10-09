@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"html"
 	"net/http"
 	"net/url"
@@ -18,20 +19,29 @@ import (
 )
 
 func TestOAuthMCPRegistrationAndBrowserFlow(t *testing.T) {
-	for _, host := range []string{"127.0.0.1", "[::1]"} {
-		t.Run(host, func(t *testing.T) { testOAuthMCPBrowserFlow(t, host) })
+	for _, callback := range []string{"http://127.0.0.1:35679/callback/codex-test", "http://[::1]:35679/callback/codex-test", "http://localhost:35679/callback/codex-test", "https://client.example/callback/mcp"} {
+		for _, codeOnly := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/code_only=%v", callback, codeOnly), func(t *testing.T) { testOAuthMCPBrowserFlow(t, callback, codeOnly, false) })
+		}
 	}
 }
 
-func testOAuthMCPBrowserFlow(t *testing.T, host string) {
+func TestOAuthMCPDiscoveryOnlyLoginCanRequestScopedStepUp(t *testing.T) {
+	testOAuthMCPBrowserFlow(t, "https://client.example/callback/mcp", false, true)
+}
+
+func testOAuthMCPBrowserFlow(t *testing.T, callback string, codeOnly, discoveryOnly bool) {
 	h := setupOAuthHTTP(t)
 	// Dynamic lookup must not acquire a second connection inside core's tx.
 	sqlDB, err := h.db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, h.db.Model(&model.User{}).Where("id = ?", h.user.Id).Update("role", common.RoleCommonUser).Error)
-	callback := "http://" + host + ":35679/callback/codex-test"
-	response := h.request("POST", "/api/oauth2/register", `{"client_name":"Codex","redirect_uris":["`+callback+`"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}`, map[string]string{"Content-Type": "application/json"})
+	grants := `["authorization_code","refresh_token"]`
+	if codeOnly {
+		grants = `["authorization_code"]`
+	}
+	response := h.request("POST", "/api/oauth2/register", `{"client_name":"Codex","redirect_uris":["`+callback+`"],"token_endpoint_auth_method":"none","grant_types":`+grants+`,"response_types":["code"]}`, map[string]string{"Content-Type": "application/json"})
 	require.Equal(t, 201, response.Code, response.Body.String())
 	require.NotContains(t, response.Body.String(), "client_secret")
 	var client service.MCPRegisteredClient
@@ -50,6 +60,9 @@ func testOAuthMCPBrowserFlow(t *testing.T, host string) {
 	query.Set("redirect_uri", callback)
 	query.Del("resource")
 	query.Del("scope")
+	if discoveryOnly {
+		query.Set("scope", service.OAuthMarketDiscoverScope)
+	}
 	h.query = query.Encode()
 	cookie, csrf := h.begin(t)
 	response = h.request("POST", "/api/user/auth/oauth2/continue", url.Values{"csrf": {csrf}}.Encode(), map[string]string{"Origin": oauthTestIssuer, "Content-Type": "application/x-www-form-urlencoded"}, cookie, &http.Cookie{Name: service.RefreshCookieName, Value: h.login.RefreshToken})
@@ -60,9 +73,9 @@ func testOAuthMCPBrowserFlow(t *testing.T, host string) {
 	require.NotEqual(t, cookie.Value, bound.Value)
 	response = h.request("POST", "/api/user/auth/oauth2/consent", url.Values{"csrf": {secret}, "decision": {"allow"}}.Encode(), map[string]string{"Origin": oauthTestIssuer, "Content-Type": "application/x-www-form-urlencoded"}, bound, &http.Cookie{Name: service.RefreshCookieName, Value: h.login.RefreshToken})
 	require.Equal(t, 200, response.Code, response.Body.String())
-	// The older editor fixture matches only IPv4. Inspect both supported
-	// address families, then require the exact registered callback below.
-	match := regexp.MustCompile(`<a[^>]*href="(http://(?:127\.0\.0\.1|\[::1\]):[^"]+)"`).FindStringSubmatch(response.Body.String())
+	// Consent must return only to the exact authorized callback, never an
+	// origin or path alias, for both browser and native clients.
+	match := regexp.MustCompile(`<a[^>]*href="(` + regexp.QuoteMeta(callback) + `\?[^"]+)"`).FindStringSubmatch(response.Body.String())
 	require.Len(t, match, 2)
 	redirect, err := url.Parse(html.UnescapeString(match[1]))
 	require.NoError(t, err)
@@ -77,6 +90,55 @@ func testOAuthMCPBrowserFlow(t *testing.T, host string) {
 	require.Equal(t, 200, response.Code, response.Body.String())
 	var token oauthserver.TokenResponse
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &token))
+	if codeOnly {
+		require.Empty(t, token.RefreshToken)
+		require.NotContains(t, response.Body.String(), "refresh_token")
+		require.Equal(t, []string{"authorization_code"}, client.GrantTypes)
+		var refreshRows int64
+		require.NoError(t, h.db.Model(&model.OAuthServerToken{}).Where("kind = ?", "refresh").Count(&refreshRows).Error)
+		require.Zero(t, refreshRows)
+		attempt := url.Values{"client_id": {client.ClientID}, "grant_type": {"refresh_token"}, "refresh_token": {"not-issued"}, "resource": {h.integration.MarketResource()}}
+		rejected := h.request("POST", "/api/oauth2/token", attempt.Encode(), map[string]string{"Content-Type": "application/x-www-form-urlencoded"})
+		require.Equal(t, 400, rejected.Code)
+		require.Contains(t, rejected.Body.String(), "unauthorized_client")
+	} else {
+		require.NotEmpty(t, token.RefreshToken)
+	}
+	// The actual gateway must expose metamcp immediately after OAuth login,
+	// without first buying or installing any published tool.
+	SetToolMarketMCPRouter(h.engine)
+	response = h.request("POST", "/mcp/market?mode=compact", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`, map[string]string{"Authorization": "Bearer " + token.AccessToken, "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28"})
+	require.Equal(t, 200, response.Code, response.Body.String())
+	var list struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &list))
+	require.Len(t, list.Result.Tools, 1)
+	require.Equal(t, "metamcp", list.Result.Tools[0].Name)
+	if discoveryOnly {
+		for action, argument := range map[string]string{
+			"load":   `{"action":"load","tool_id":"fixture-tool","version_id":"fixture-version"}`,
+			"invoke": `{"action":"invoke","tool_id":"fixture-tool","version_id":"fixture-version","request_id":"fixture-request","arguments":{}}`,
+		} {
+			response = h.request("POST", "/mcp/market?mode=compact", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"metamcp","arguments":`+argument+`}}`, map[string]string{"Authorization": "Bearer " + token.AccessToken, "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28"})
+			require.Equal(t, 403, response.Code, response.Body.String())
+			require.Contains(t, response.Header().Get("WWW-Authenticate"), `, error="insufficient_scope"`)
+			require.Contains(t, response.Header().Get("WWW-Authenticate"), `, scope="`)
+			needed := service.OAuthMarketManageScope
+			if action == "invoke" {
+				needed = service.OAuthMarketInvokeScope
+			}
+			require.Contains(t, response.Header().Get("WWW-Authenticate"), needed)
+		}
+		grant, _, err := h.integration.ValidateMarketResource(context.Background(), token.AccessToken)
+		require.NoError(t, err)
+		require.Equal(t, []string{service.OAuthMarketDiscoverScope}, grant.Scopes, "a challenge must not silently expand access")
+		return
+	}
 	grant, user, err := h.integration.ValidateMarketResource(context.Background(), token.AccessToken, service.OAuthMarketDiscoverScope)
 	require.NoError(t, err)
 	require.Equal(t, h.user.Id, user.Id)
@@ -116,7 +178,7 @@ func TestOAuthMCPRegistrationBoundaries(t *testing.T) {
 	repeated, err := h.integration.RegisterMCPClient(ctx, changedPort)
 	require.NoError(t, err)
 	require.Equal(t, first.ClientID, repeated.ClientID)
-	for _, callback := range []string{"https://attacker.example/callback", "http://localhost:1234/callback", "http://127.0.0.1.evil.example/callback", "http://user@127.0.0.1:1234/callback", "http://127.0.0.1:1234/callback?next=x", "http://127.0.0.1:1234/%2e%2e/x", "http://127.0.0.1:1234/../x", "http://127.0.0.1:01234/callback", "http://127.0.0.1:65536/callback", "http://127.0.0.1:1234/a//b", "http://127.0.0.1:1234/a!b"} {
+	for _, callback := range []string{"http://attacker.example/callback", "https://attacker.example/callback?next=x", "http://127.0.0.1.evil.example/callback", "http://user@127.0.0.1:1234/callback", "http://127.0.0.1:1234/callback?next=x", "http://127.0.0.1:1234/%2e%2e/x", "http://127.0.0.1:1234/../x", "http://127.0.0.1:01234/callback", "http://127.0.0.1:65536/callback", "http://127.0.0.1:1234/a//b", "http://127.0.0.1:1234/a!b"} {
 		input := valid
 		input.RedirectURIs = []string{callback}
 		_, err := h.integration.RegisterMCPClient(ctx, input)
@@ -156,4 +218,58 @@ func TestOAuthMCPRegistrationBoundaries(t *testing.T) {
 	require.Equal(t, 400, response.Code)
 	response = h.request("POST", "/api/oauth2/register", `{} {}`, map[string]string{"Content-Type": "application/json"})
 	require.Equal(t, 400, response.Code)
+}
+
+func TestOAuthMCPRegistrationStrictJSONAndApplicationTypes(t *testing.T) {
+	for index, body := range []string{
+		`{"client_name":"First","client_name":"Second","redirect_uris":["http://127.0.0.1/callback"]}`,
+		`{"client_name":"First","CLIENT_NAME":"Second","redirect_uris":["http://127.0.0.1/callback"]}`,
+		`{"redirect_uris":["http://127.0.0.1/callback"],"grant_types":null}`,
+		`{"redirect_uris":["http://127.0.0.1/callback"],"application_type":"web"}`,
+		`{"redirect_uris":["https://client.example/callback"],"application_type":"native"}`,
+		`{"redirect_uris":["http://127.0.0.1/callback","https://client.example/callback"]}`,
+		`{"redirect_uris":["http://127.0.0.1/callback"],"grant_types":["authorization_code","authorization_code"]}`,
+		`[]`, `null`, `{} {}`,
+	} {
+		t.Run(fmt.Sprintf("invalid-%d", index), func(t *testing.T) {
+			h := setupOAuthHTTP(t)
+			response := h.request("POST", "/api/oauth2/register", body, map[string]string{"Content-Type": "application/json"})
+			require.Equal(t, 400, response.Code, body)
+		})
+	}
+	h := setupOAuthHTTP(t)
+	// Extra standard fields are data only and never trigger outbound requests.
+	response := h.request("POST", "/api/oauth2/register", `{"redirect_uris":["https://client.example/callback"],"application_type":"web","logo_uri":"http://127.0.0.1/private","client_uri":"https://untrusted.example"}`, map[string]string{"Content-Type": "application/json"})
+	require.Equal(t, 201, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), `"application_type":"web"`)
+	require.NotContains(t, response.Body.String(), "logo_uri")
+}
+
+func TestOAuthMCPPublicCORSDoesNotExposeBrowserConsent(t *testing.T) {
+	h := setupOAuthHTTP(t)
+	for _, path := range []string{"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource/mcp/market", "/api/oauth2/register", "/api/oauth2/token", "/api/oauth2/revoke"} {
+		response := h.request("OPTIONS", path, "", map[string]string{"Origin": "https://client.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"})
+		require.Equal(t, 204, response.Code, path)
+		require.Equal(t, "*", response.Header().Get("Access-Control-Allow-Origin"))
+		require.Empty(t, response.Header().Get("Access-Control-Allow-Credentials"))
+	}
+	response := h.request("GET", "/.well-known/oauth-protected-resource/mcp/market", "", map[string]string{"Origin": "https://client.example"})
+	var metadata struct {
+		Scopes []string `json:"scopes_supported"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &metadata))
+	require.Equal(t, service.OAuthMarketScopes(), metadata.Scopes)
+	response = h.request("GET", "/api/oauth2/authorize?"+h.query, "", map[string]string{"Origin": "https://client.example"})
+	require.Empty(t, response.Header().Get("Access-Control-Allow-Origin"))
+	SetToolMarketMCPRouter(h.engine)
+	response = h.request("GET", "/mcp/market", "", nil)
+	require.Equal(t, 401, response.Code)
+	require.Contains(t, response.Header().Get("WWW-Authenticate"), "resource_metadata=")
+	require.Contains(t, response.Header().Get("Access-Control-Expose-Headers"), "WWW-Authenticate")
+	// A valid model-only grant is not an invalid token: request more scope,
+	// but never silently turn it into marketplace access.
+	token, _ := h.approve(t)
+	response = h.request("POST", "/mcp/market?mode=compact", `{}`, map[string]string{"Authorization": "Bearer " + token.AccessToken})
+	require.Equal(t, 403, response.Code, response.Body.String())
+	require.Contains(t, response.Header().Get("WWW-Authenticate"), `error="insufficient_scope"`)
 }

@@ -29,3 +29,26 @@ func TestNativeRedirectTemplatesKeepAddressFamiliesSeparate(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPRedirectPolicyIsExplicitAndExactForWebClients(t *testing.T) {
+	for _, callback := range []string{"https://client.example/callback", "http://localhost:3210/callback"} {
+		client := NativeClient{ID: "public-mcp", Name: "External MCP", RedirectURIs: []string{callback}, Resources: []string{"https://issuer.example/mcp/market"}, Scopes: []string{"market:discover"}, MCPRedirects: true}
+		if validateClient(client) != nil || !validRedirect(callback, client) {
+			t.Fatal("registered MCP callback rejected", callback)
+		}
+		for _, other := range []string{callback + "/", callback + "?next=1", callback + "#fragment", "https://other.example/callback", "https://client.example:443/callback", "http://localhost:3211/callback", "http://127.0.0.1:3210/callback"} {
+			if validRedirect(other, client) {
+				t.Errorf("accepted callback alias %q for %q", other, callback)
+			}
+		}
+		client.MCPRedirects = false
+		if validateClient(client) == nil || validRedirect(callback, client) {
+			t.Fatal("MCP policy leaked into legacy native clients")
+		}
+	}
+	for _, bad := range []string{"https://client.example", "http://client.example/callback", "https://user@client.example/callback", "https://client.example/%2e%2e/callback", "https://client.example/../callback", "https://127.0.0.1/callback", "http://localhost.evil.example/callback", "http://localhost:0/callback", "http://localhost:0123/callback", "http://localhost:65536/callback", "http://localhost:/callback", "http://LOCALHOST:123/callback"} {
+		if _, ok := MCPRedirectTemplate(bad); ok {
+			t.Errorf("accepted unsafe callback %q", bad)
+		}
+	}
+}

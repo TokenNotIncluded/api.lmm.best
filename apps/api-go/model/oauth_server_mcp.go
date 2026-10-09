@@ -1,6 +1,6 @@
 package model
 
-// These are public native-client registrations, not credentials. Client IDs
+// These are public MCP client registrations, not credentials. Client IDs
 // are content-addressed; reconnecting with another loopback port reuses the row.
 type OAuthServerMCPClient struct {
 	ID           string   `gorm:"primaryKey;size:128"`
@@ -9,6 +9,8 @@ type OAuthServerMCPClient struct {
 	RedirectURIs []string `gorm:"serializer:json;type:text;not null"`
 	Scope        string   `gorm:"not null;size:256"`
 	CreatedAtMs  int64    `gorm:"not null"`
+	// Existing registrations keep their refresh support during migration.
+	RefreshDisabled bool `gorm:"not null;default:false"`
 }
 
 func (OAuthServerMCPClient) TableName() string { return "oauth_server_mcp_clients" }

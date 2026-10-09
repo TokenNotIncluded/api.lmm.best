@@ -81,6 +81,10 @@ try {
         )
         await page.getByTestId('persona-debug-trigger').waitFor()
         await page
+          .getByRole('heading', { name: 'metamcp', exact: true })
+          .waitFor()
+        await capture(`metamcp-${width}-${colorScheme}.png`)
+        await page
           .getByRole('button', { name: '发布工具', exact: true })
           .first()
           .click()
@@ -117,7 +121,21 @@ try {
             '/mcp/market'
           )
         )
+        assert.ok(
+          (await page.locator('pre').first().innerText()).includes(
+            '?mode=compact'
+          )
+        )
         await capture(`oauth-${width}-${colorScheme}.png`)
+        await page
+          .getByRole('button', { name: '完整：同时显示独立工具', exact: true })
+          .click()
+        assert.ok(
+          !(await page.locator('pre').first().innerText()).includes(
+            '?mode=compact'
+          )
+        )
+        await capture(`oauth-full-${width}-${colorScheme}.png`)
       } catch (error) {
         await page
           .screenshot({

@@ -88,6 +88,9 @@ func validateClient(client NativeClient) error {
 	}
 	for _, redirect := range client.RedirectURIs {
 		template, ok := NativeRedirectTemplate(redirect)
+		if client.MCPRedirects {
+			template, ok = MCPRedirectTemplate(redirect)
+		}
 		if !ok || template != redirect {
 			return fmt.Errorf("oauth server: registered redirects must be portless loopback templates")
 		}

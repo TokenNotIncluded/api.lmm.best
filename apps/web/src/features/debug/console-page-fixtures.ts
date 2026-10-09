@@ -173,7 +173,28 @@ const reads: Record<string, unknown> = {
     web_client_id: 'console-preview',
     mcp_path: '/mcp/market',
     credits_per_usd: '500000',
-    capabilities: { mcp_oauth: true },
+    capabilities: { mcp_oauth: true, metamcp: true },
+    meta_tool: {
+      name: 'metamcp',
+      title: 'LMM tool management and invocation',
+      description: 'Management is free. Invocation uses target pricing.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            enum: [
+              'status',
+              'search',
+              'details',
+              'load',
+              'authorize',
+              'invoke',
+            ],
+          },
+        },
+        required: ['action'],
+      },
+    },
     provider_presets: [
       {
         id: 'monid',

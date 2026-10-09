@@ -60,6 +60,7 @@ import {
 import { marketErrorKey } from './call-utils'
 import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
+import { MarketMetaToolCard } from './meta-tool-card'
 import { useMarketTranslation as useTranslation } from './provider-i18n'
 import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
@@ -1131,6 +1132,10 @@ function ToolMarketWorkspace({
               ) : (
                 <>
                   <TabsContent value='market' className='space-y-5 pt-4'>
+                    <MarketMetaToolCard
+                      config={config.data}
+                      onConnect={() => chooseTab('connections')}
+                    />
                     <div className='grid items-end gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]'>
                       <form
                         className='min-w-0'

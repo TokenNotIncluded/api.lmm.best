@@ -20,11 +20,18 @@ func TestToolMarketCapabilitiesMatchRegisteredHandlers(t *testing.T) {
 		Success bool `json:"success"`
 		Data    struct {
 			Capabilities map[string]bool `json:"capabilities"`
+			MetaTool     struct {
+				Name   string         `json:"name"`
+				Schema map[string]any `json:"inputSchema"`
+			} `json:"meta_tool"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success)
-	require.Len(t, body.Data.Capabilities, 4)
+	require.Len(t, body.Data.Capabilities, 5)
+	require.True(t, body.Data.Capabilities["metamcp"])
+	require.Equal(t, "metamcp", body.Data.MetaTool.Name)
+	require.NotEmpty(t, body.Data.MetaTool.Schema["oneOf"])
 	// This fixture has no OAuth integration. Do not advertise browser login
 	// just because the backend contains its handler implementation.
 	require.Contains(t, body.Data.Capabilities, "mcp_oauth")

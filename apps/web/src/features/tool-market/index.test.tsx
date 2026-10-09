@@ -1323,3 +1323,68 @@ test('a real failed review keeps its dialog and error available for retry', asyn
     () => attempts === 2 && !button('Approve and publish', container).disabled
   )
 })
+
+test('metamcp is visible without an installation and opens native OAuth connection setup', async () => {
+  stubNavigation([])
+  marketAPI.config = async () => ({
+    ...pausedConfig,
+    capabilities: {
+      ...pausedConfig.capabilities,
+      metamcp: true,
+      mcp_oauth: true,
+    },
+    meta_tool: {
+      name: 'metamcp',
+      description: 'Gateway tool',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: { enum: ['search', 'details', 'load', 'invoke'] },
+        },
+        required: ['action'],
+      },
+    },
+  })
+  const { container } = await mount()
+  await waitFor(
+    () =>
+      container.querySelector('#market-meta-title')?.textContent === 'metamcp'
+  )
+  assert.ok(
+    container.textContent?.includes(
+      'Loading does not grant payment permission.'
+    )
+  )
+  const details = container.querySelector<HTMLDetailsElement>('details')
+  assert.ok(details)
+  assert.equal(details.open, false)
+  await click(button('Connect MCP client', container))
+  await waitFor(
+    () =>
+      container.textContent?.includes('Browser login (recommended)') === true
+  )
+  assert.ok(
+    container.querySelector('pre')?.textContent?.includes('?mode=compact')
+  )
+  await click(button('Full: individual tools too', container))
+  assert.ok(
+    !container.querySelector('pre')?.textContent?.includes('?mode=compact')
+  )
+  await click(button('Compact: metamcp only', container))
+  assert.ok(
+    container.querySelector('pre')?.textContent?.includes('?mode=compact')
+  )
+})
+
+test('a missing or disabled meta capability never advertises a phantom gateway tool', async () => {
+  stubNavigation([])
+  marketAPI.config = async () => ({
+    ...pausedConfig,
+    capabilities: { ...pausedConfig.capabilities, metamcp: false },
+    meta_tool: { name: 'metamcp', description: 'Unavailable', inputSchema: {} },
+  })
+  const { container } = await mount()
+  await waitFor(() => container.querySelector('#market-search') !== null)
+  assert.equal(container.querySelector('#market-meta-title'), null)
+  assert.equal(findButton('Connect MCP client', container), undefined)
+})

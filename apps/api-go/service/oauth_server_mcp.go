@@ -45,6 +45,7 @@ func validMCPScopes(scopes []string) bool {
 
 type MCPClientRegistration struct {
 	ClientName              string   `json:"client_name"`
+	ApplicationType         string   `json:"application_type,omitempty"`
 	RedirectURIs            []string `json:"redirect_uris"`
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 	GrantTypes              []string `json:"grant_types"`
@@ -58,7 +59,7 @@ type MCPRegisteredClient struct {
 	ClientIDIssuedAt int64  `json:"client_id_issued_at"`
 }
 
-// RegisterMCPClient accepts only public native clients, code + PKCE and fixed
+// RegisterMCPClient accepts public MCP clients, code + PKCE and fixed
 // marketplace scopes. It never fetches caller-supplied metadata URLs or keys.
 func (s *OAuthIntegration) RegisterMCPClient(ctx context.Context, in MCPClientRegistration) (*MCPRegisteredClient, error) {
 	if in.TokenEndpointAuthMethod != "" && in.TokenEndpointAuthMethod != "none" || len(in.RedirectURIs) < 1 || len(in.RedirectURIs) > 4 {
@@ -70,9 +71,12 @@ func (s *OAuthIntegration) RegisterMCPClient(ctx context.Context, in MCPClientRe
 	if len(in.GrantTypes) != 0 {
 		grants := slices.Clone(in.GrantTypes)
 		slices.Sort(grants)
-		if !slices.Equal(grants, []string{"authorization_code", "refresh_token"}) {
+		if !slices.Equal(grants, []string{"authorization_code", "refresh_token"}) && !slices.Equal(grants, []string{"authorization_code"}) {
 			return nil, ErrMCPRegistration
 		}
+	}
+	if in.ApplicationType != "" && in.ApplicationType != "native" && in.ApplicationType != "web" {
+		return nil, ErrMCPRegistration
 	}
 	name := strings.TrimSpace(in.ClientName)
 	if name == "" {
@@ -95,19 +99,32 @@ func (s *OAuthIntegration) RegisterMCPClient(ctx context.Context, in MCPClientRe
 	}
 	slices.Sort(scopes)
 	redirects := make([]string, 0, len(in.RedirectURIs))
+	applicationType := ""
 	for _, raw := range in.RedirectURIs {
-		template, ok := oauthserver.NativeRedirectTemplate(raw)
+		template, ok := oauthserver.MCPRedirectTemplate(raw)
 		if !ok {
 			return nil, ErrMCPRegistration
 		}
+		kind := "native"
+		if strings.HasPrefix(template, "https://") {
+			kind = "web"
+		}
+		if (applicationType != "" && applicationType != kind) || (in.ApplicationType != "" && in.ApplicationType != kind) {
+			return nil, ErrMCPRegistration
+		}
+		applicationType = kind
 		if !slices.Contains(redirects, template) {
 			redirects = append(redirects, template)
 		}
 	}
 	slices.Sort(redirects)
 	// Prefix distinguishes an unverified external label from trusted adapters.
-	row := model.OAuthServerMCPClient{Issuer: s.Issuer, Name: "External MCP: " + name, RedirectURIs: redirects, Scope: strings.Join(scopes, " "), CreatedAtMs: time.Now().UnixMilli()}
-	identity, _ := json.Marshal([]any{row.Issuer, row.Name, row.RedirectURIs, row.Scope})
+	row := model.OAuthServerMCPClient{Issuer: s.Issuer, Name: "External MCP: " + name, RedirectURIs: redirects, Scope: strings.Join(scopes, " "), CreatedAtMs: time.Now().UnixMilli(), RefreshDisabled: len(in.GrantTypes) == 1}
+	identityFields := []any{row.Issuer, row.Name, row.RedirectURIs, row.Scope}
+	if row.RefreshDisabled {
+		identityFields = append(identityFields, "authorization_code_only")
+	}
+	identity, _ := json.Marshal(identityFields)
 	digest := sha256.Sum256(identity)
 	row.ID = oauthMCPClientPrefix + hex.EncodeToString(digest[:])
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -138,7 +155,11 @@ func (s *OAuthIntegration) RegisterMCPClient(ctx context.Context, in MCPClientRe
 	if err != nil {
 		return nil, err
 	}
-	return &MCPRegisteredClient{ClientID: row.ID, ClientIDIssuedAt: row.CreatedAtMs / 1000, MCPClientRegistration: MCPClientRegistration{ClientName: row.Name, RedirectURIs: slices.Clone(in.RedirectURIs), TokenEndpointAuthMethod: "none", GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"}, Scope: row.Scope}}, nil
+	grantTypes := []string{"authorization_code", "refresh_token"}
+	if row.RefreshDisabled {
+		grantTypes = []string{"authorization_code"}
+	}
+	return &MCPRegisteredClient{ClientID: row.ID, ClientIDIssuedAt: row.CreatedAtMs / 1000, MCPClientRegistration: MCPClientRegistration{ClientName: row.Name, ApplicationType: applicationType, RedirectURIs: slices.Clone(in.RedirectURIs), TokenEndpointAuthMethod: "none", GrantTypes: grantTypes, ResponseTypes: []string{"code"}, Scope: row.Scope}}, nil
 }
 
 func (s *OAuthIntegration) lookupMCPClient(db *gorm.DB, id string) (oauthserver.NativeClient, bool) {
@@ -153,7 +174,7 @@ func (s *OAuthIntegration) lookupMCPClient(db *gorm.DB, id string) (oauthserver.
 	if !validMCPScopes(scopes) {
 		return oauthserver.NativeClient{}, false
 	}
-	return oauthserver.NativeClient{ID: row.ID, Name: row.Name, RedirectURIs: row.RedirectURIs, Resources: []string{s.MarketResource()}, Scopes: scopes}, true
+	return oauthserver.NativeClient{ID: row.ID, Name: row.Name, RedirectURIs: row.RedirectURIs, Resources: []string{s.MarketResource()}, Scopes: scopes, MCPRedirects: true, RefreshDisabled: row.RefreshDisabled}, true
 }
 
 // Only registered MCP clients get defaults. Explicit resources/scopes are

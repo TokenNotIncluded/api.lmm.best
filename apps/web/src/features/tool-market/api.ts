@@ -17,6 +17,7 @@ export type MarketCapabilities = {
   client_record_cleanup: boolean
   meta_delegation: boolean
   mcp_oauth: boolean
+  metamcp: boolean
 }
 export type ProviderPricing = { provider: string; multiplier: string }
 export type ProviderPreset = {
@@ -29,7 +30,14 @@ export type ProviderPreset = {
   oauth: boolean
   read_tools: string[]
 }
+export type MarketMetaTool = {
+  name: string
+  title?: string
+  description: string
+  inputSchema: Record<string, unknown>
+}
 export type MarketConfig = {
+  meta_tool?: MarketMetaTool
   provider_presets?: ProviderPreset[]
   credits_per_usd?: string
 

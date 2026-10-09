@@ -229,6 +229,9 @@ func loopbackURL(raw string) (*url.URL, bool) {
 
 func validRedirect(raw string, client NativeClient) bool {
 	template, ok := NativeRedirectTemplate(raw)
+	if client.MCPRedirects {
+		template, ok = MCPRedirectTemplate(raw)
+	}
 	return ok && contains(client.RedirectURIs, template)
 }
 
@@ -249,4 +252,32 @@ func NativeRedirectTemplate(raw string) (string, bool) {
 		u.Host = "[::1]"
 	}
 	return u.String(), true
+}
+
+// MCPRedirectTemplate retains exact web and localhost callback URLs. Only
+// loopback IP listeners may change ports. No URL is fetched during validation.
+// Query/fragment callbacks, credentials, encodings, private IPs and ambiguous
+// host/path spellings stay excluded by the common canonical URL checks.
+func MCPRedirectTemplate(raw string) (string, bool) {
+	if template, ok := NativeRedirectTemplate(raw); ok {
+		return template, true
+	}
+	u, ok := strictURL(raw)
+	if !ok || !canonicalPath(u.Path) {
+		return "", false
+	}
+	if validHTTPS(raw) {
+		return raw, true
+	}
+	if u.Scheme != "http" || u.Hostname() != "localhost" {
+		return "", false
+	}
+	if u.Host == "localhost" {
+		return raw, true
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port < 1 || port > 65535 || u.Host != "localhost:"+strconv.Itoa(port) {
+		return "", false
+	}
+	return raw, true
 }
