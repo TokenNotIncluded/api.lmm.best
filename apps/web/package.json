@@ -16,7 +16,7 @@
     "build": "bun run openui:check && node scripts/sync-shader-compositions.mjs --check && VITE_REACT_APP_VERSION=${VITE_REACT_APP_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')} rsbuild build",
     "bundle:check": "node scripts/check-initial-bundle.mjs",
     "build:check": "bun run openui:check && node scripts/sync-shader-compositions.mjs --check && tsgo -b && rsbuild build",
-    "test": "bun run openui:check && bun scripts/test-serial.mjs",
+    "test": "bun run openui:check && node --test scripts/extore-callback.test.mjs && bun scripts/test-serial.mjs",
     "typecheck": "tsgo -b",
     "lint": "oxlint -c .oxlintrc.json .",
     "lint:fix": "oxlint -c .oxlintrc.json . --fix",

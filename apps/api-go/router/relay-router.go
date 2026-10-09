@@ -6,6 +6,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/relay"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
+	"github.com/LIghtJUNction/api.lmm.best/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,6 +29,12 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	} else {
 		largeRequestAdmission = middleware.RelayRequestAdmission()
 	}
+	nativeOAuth := router.Group(service.OAuthOpenAIBasePath)
+	nativeOAuth.Use(middleware.RouteTag("relay"), middleware.SystemPerformanceCheck(), middleware.OAuthOpenAIAuth,
+		largeRequestAdmission, middleware.OAuthOpenAIRequest, middleware.ModelRequestRateLimit(), middleware.Distribute())
+	nativeOAuth.POST("/chat/completions", func(c *gin.Context) {
+		controller.Relay(c, types.RelayFormatOpenAI)
+	})
 	// https://platform.openai.com/docs/api-reference/introduction
 	quotaRouter := router.Group("/v1/usage")
 	quotaRouter.Use(middleware.RouteTag("relay"), middleware.DisableCache(), middleware.QuotaQueryAuth(), middleware.QuotaQueryRateLimit())
@@ -143,6 +150,10 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	assistantRouter.Use(middleware.SystemPerformanceCheck())
 	assistantRouter.Use(middleware.UserAuth(), largeRequestAdmission)
 	{
+		assistantRouter.GET("/workspace/greeting", middleware.DisableCache(), controller.GetAssistantOverviewGreeting)
+		assistantRouter.PUT("/workspace/greeting", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-greeting"), middleware.DisableCache(), controller.UpdateAssistantOverviewGreeting)
+		assistantRouter.POST("/workspace/confirm", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-workspace"), middleware.DisableCache(), controller.ConfirmAssistantWorkspace)
+		assistantRouter.POST("/workspace/invitation/confirm", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("aff-invite-email"), middleware.DisableCache(), controller.ConfirmAssistantInvitation)
 		assistantRouter.PUT("/profile/display-name", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.UserCriticalRateLimit("assistant-display-name"), middleware.DisableCache(), controller.ConfirmAssistantDisplayName)
 		assistantRouter.GET("/registration-check", middleware.DisableCache(), controller.GetAssistantRegistrationState)
 		assistantRouter.GET("/models", middleware.AdminAuth(), controller.GetAssistantModels)
@@ -254,6 +265,11 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 		// alpha search related routes (Codex standalone web search)
 		httpRouter.POST("/alpha/search", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIAlphaSearch)
+		})
+
+		// OpenAI native Decisions uses the normal relay authentication and billing.
+		httpRouter.POST("/decisions", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIDecisions)
 		})
 
 		// TypeSafe's synchronous decision API uses the normal relay owners.

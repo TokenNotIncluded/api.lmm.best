@@ -281,6 +281,11 @@ func marketExecutionConfig(tx *gorm.DB, service ToolMarketService, versionID str
 }
 
 func marketAuthorizeCallDispatch(tx *gorm.DB, call ToolMarketCall) error {
+	if call.ClientID == AssistantToolMarketClient {
+		if err := RequireAssistantMarketAccessDB(tx, call.UserID, call.ServiceID); err != nil {
+			return err
+		}
+	}
 	service, tool, err := marketLiveTool(tx, call.UserID, call.ToolID, call.VersionID)
 	if err != nil {
 		return err

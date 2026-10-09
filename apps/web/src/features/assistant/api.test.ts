@@ -402,7 +402,7 @@ describe('assistant response parsing', () => {
     assert.equal(
       parseAssistantAction({
         type: 'weekly_discount',
-        discount_percent: 11,
+        discount_percent: 100,
         status: 'offered',
         reason: 'Too large.',
       }),
@@ -1508,4 +1508,29 @@ test('accepts canonical credit gifts beyond the old cap and one-credit gifts wit
     }),
     undefined
   )
+})
+
+// The server owns the per-level ceiling. The client validates representation,
+// not the old global 10% cap; a fresh claim still checks the live policy.
+test('renders higher administrator-approved discounts without raising its own authority', () => {
+  assert.equal(
+    parseAssistantAction({
+      type: 'weekly_discount',
+      discount_percent: 25,
+      status: 'offered',
+      reason: 'Configured limit.',
+    })?.type,
+    'weekly_discount'
+  )
+  for (const value of [-1, 100, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(
+      parseAssistantAction({
+        type: 'weekly_discount',
+        discount_percent: value,
+        status: 'offered',
+        reason: 'Invalid.',
+      }),
+      undefined
+    )
+  }
 })

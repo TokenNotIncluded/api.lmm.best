@@ -427,6 +427,10 @@ func getFreshPaidTopUpAggregates(userIDs []int) (map[int]paidTopUpAggregate, err
 }
 
 func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map[int]paidTopUpAggregate, error) {
+	return getFreshPaidTopUpAggregatesDB(DB, ctx, userIDs)
+}
+
+func getFreshPaidTopUpAggregatesDB(db *gorm.DB, ctx context.Context, userIDs []int) (map[int]paidTopUpAggregate, error) {
 	result := make(map[int]paidTopUpAggregate, len(userIDs))
 	uniqueUserIDs := make([]int, 0, len(userIDs))
 	seen := make(map[int]struct{}, len(userIDs))
@@ -443,7 +447,7 @@ func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map
 	if len(uniqueUserIDs) == 0 {
 		return result, nil
 	}
-	if DB == nil {
+	if db == nil {
 		return nil, gorm.ErrInvalidDB
 	}
 
@@ -474,7 +478,7 @@ func getFreshPaidTopUpAggregatesContext(ctx context.Context, userIDs []int) (map
 	for i := 0; i < 4; i++ {
 		selectArgs = append(selectArgs, netArgs...)
 	}
-	query := DB.WithContext(ctx).Model(&TopUp{}).
+	query := db.WithContext(ctx).Model(&TopUp{}).
 		Select(selectClause, selectArgs...).
 		Where("user_id IN ?", uniqueUserIDs).
 		Where("("+creditedQuotaExpression+") > 0", creditedQuotaArgs...).
@@ -683,7 +687,12 @@ func ordinaryDeveloperAccessState(paidActivationComplete bool, consoleActivated 
 // GetFreshUserAccessSnapshot performs at most one bounded aggregate query for
 // an ordinary user and none for administrator or explicit-override access.
 func GetFreshUserAccessSnapshot(user *User) (UserAccessSnapshot, error) {
-	if user == nil {
+	return getFreshUserAccessSnapshotDB(DB, user)
+}
+
+// Use the caller's database transaction when a level controls a financial write.
+func getFreshUserAccessSnapshotDB(db *gorm.DB, user *User) (UserAccessSnapshot, error) {
+	if user == nil || db == nil {
 		return UserAccessSnapshot{}, gorm.ErrInvalidData
 	}
 	policy := CurrentDeveloperAccessPolicy()
@@ -695,10 +704,11 @@ func GetFreshUserAccessSnapshot(user *User) (UserAccessSnapshot, error) {
 			PaidActivationMinCredits: policy.trustConfiguration.Tiers[1].MinPaidCredits,
 		}, nil
 	}
-	aggregate, err := getFreshPaidTopUpAggregate(user.Id)
+	aggregates, err := getFreshPaidTopUpAggregatesDB(db, db.Statement.Context, []int{user.Id})
 	if err != nil {
 		return UserAccessSnapshot{}, err
 	}
+	aggregate := aggregates[user.Id]
 	// One policy snapshot for the whole response keeps the trust level, the
 	// access decision, and the onboarding stage from disagreeing if an
 	// administrator edits the threshold mid-request.

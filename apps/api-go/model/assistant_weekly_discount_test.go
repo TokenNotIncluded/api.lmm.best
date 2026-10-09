@@ -19,8 +19,9 @@ import (
 )
 
 func TestAssistantWeeklyDiscountIsOnePerWeekAndClaimIsIdempotent(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	db := setupConsoleActivationTestDB(t)
-	require.NoError(t, db.AutoMigrate(&DiscountCode{}, &DiscountCodeReservation{}, &AssistantWeeklyDiscount{}))
+	require.NoError(t, db.AutoMigrate(&Option{}, &TopUp{}, &DiscountCode{}, &DiscountCodeReservation{}, &AssistantWeeklyDiscount{}))
 	user := User{Username: "weekly-discount-user", Email: "weekly@example.com", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
 

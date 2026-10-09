@@ -36,6 +36,19 @@ func assistantPolicyForTest(t *testing.T, groups, tools map[string]bool) {
 }
 
 func TestAssistantToolPolicyCatalogueMatchesActualDefinitions(t *testing.T) {
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	AdminGetAssistantToolCatalogue(c)
+	require.Equal(t, http.StatusOK, response.Code)
+	var catalog struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Capabilities map[string]bool `json:"capabilities"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &catalog))
+	require.True(t, catalog.Success)
+	assert.True(t, catalog.Data.Capabilities["policy_rules"])
 	definitions := buildAssistantTools()
 	registered := map[string]bool{}
 	for _, definition := range definitions {
@@ -59,8 +72,8 @@ func TestAssistantToolPolicyCatalogueMatchesActualDefinitions(t *testing.T) {
 		}
 	}
 	assert.Equal(t, registered, metadata, "new tools must be classified before they can be enabled")
-	assert.Len(t, registered, 54)
-	assert.Equal(t, map[string]int{"read_only": 32, "confirmation": 10, "server_guarded": 11, "navigation": 1}, effects)
+	assert.Len(t, registered, 67)
+	assert.Equal(t, map[string]int{"read_only": 39, "confirmation": 15, "server_guarded": 12, "navigation": 1}, effects)
 	assert.NotContains(t, assistantAdminAvailableConfigLabels(), setting.AssistantToolPolicyOptionKey, "the model cannot re-enable its tools")
 }
 

@@ -3,6 +3,7 @@ package controller
 import (
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -47,6 +48,25 @@ func (h *OAuthHTTP) Catalog(c *gin.Context) {
 		return
 	}
 	c.JSON(200, catalog)
+}
+
+func (h *OAuthHTTP) OpenAIModels(c *gin.Context) {
+	grant, user, ok := h.resource(c, service.OAuthCatalogScope)
+	if !ok {
+		return
+	}
+	catalog, err := h.Integration.Catalog(c.Request.Context(), user, grant)
+	if err != nil {
+		oauthProtocolFailure(c, err)
+		return
+	}
+	data := make([]gin.H, 0, len(catalog.Models))
+	for _, entry := range catalog.Models {
+		if slices.Contains(entry.APIs, "openai-completions") {
+			data = append(data, gin.H{"id": entry.ID, "object": "model", "name": entry.Name, "owned_by": "lmm"})
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data})
 }
 
 func (h *OAuthHTTP) Balance(c *gin.Context) {

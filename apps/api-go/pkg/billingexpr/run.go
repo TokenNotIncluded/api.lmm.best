@@ -52,6 +52,10 @@ func RunExprByHashWithRequest(exprStr, hash string, params TokenParams, request 
 }
 
 func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[string]bool, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+	return runProgramAt(prog, requestRules, usedVars, params, request, time.Now())
+}
+
+func runProgramAt(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[string]bool, params TokenParams, request RequestInput, at time.Time) (float64, TraceResult, error) {
 	trace := TraceResult{
 		RequestRules: append([]RequestRuleTrace(nil), requestRules...),
 	}
@@ -133,11 +137,12 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[
 			}
 			return strings.Contains(fmt.Sprint(source), substr)
 		},
-		"hour":    func(tz string) int { return timeInZone(tz).Hour() },
-		"minute":  func(tz string) int { return timeInZone(tz).Minute() },
-		"weekday": func(tz string) int { return int(timeInZone(tz).Weekday()) },
-		"month":   func(tz string) int { return int(timeInZone(tz).Month()) },
-		"day":     func(tz string) int { return timeInZone(tz).Day() },
+		"hour":    func(tz string) int { return timeInZoneAt(at, tz).Hour() },
+		"minute":  func(tz string) int { return timeInZoneAt(at, tz).Minute() },
+		"weekday": func(tz string) int { return int(timeInZoneAt(at, tz).Weekday()) },
+		"month":   func(tz string) int { return int(timeInZoneAt(at, tz).Month()) },
+		"day":     func(tz string) int { return timeInZoneAt(at, tz).Day() },
+		"date":    func(tz string) int { return calendarDate(timeInZoneAt(at, tz)) },
 		"max":     math.Max,
 		"min":     math.Min,
 		"abs":     math.Abs,
@@ -156,6 +161,10 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[
 	return f, trace, nil
 }
 
+func calendarDate(at time.Time) int {
+	return at.Year()*10000 + int(at.Month())*100 + at.Day()
+}
+
 func measuredDimensionValue(value *float64) float64 {
 	if value == nil {
 		return 0 // Only unused dimensions may reach evaluation without a value.
@@ -164,15 +173,19 @@ func measuredDimensionValue(value *float64) float64 {
 }
 
 func timeInZone(tz string) time.Time {
+	return timeInZoneAt(time.Now(), tz)
+}
+
+func timeInZoneAt(at time.Time, tz string) time.Time {
 	tz = strings.TrimSpace(tz)
 	if tz == "" {
-		return time.Now().UTC()
+		return at.UTC()
 	}
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
-		return time.Now().UTC()
+		return at.UTC()
 	}
-	return time.Now().In(loc)
+	return at.In(loc)
 }
 
 func normalizeHeaders(headers map[string]string) map[string]string {

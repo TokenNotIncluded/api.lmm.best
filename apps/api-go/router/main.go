@@ -139,6 +139,13 @@ func newFrontendHandler(configuredRoot string) (http.Handler, error) {
 
 func (handler *frontendHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	requestPath := path.Clean("/" + request.URL.Path)
+	if requestPath == "/store/manage" {
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.Header().Set("Referrer-Policy", "no-referrer")
+		if request.URL.RawQuery != "" {
+			writer.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src 'none'")
+		}
+	}
 	if requestPath != "/" {
 		relativeRequestPath := filepath.FromSlash(strings.TrimPrefix(requestPath, "/"))
 		if filepath.IsLocal(relativeRequestPath) {

@@ -18,6 +18,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
 	"github.com/samber/lo"
@@ -60,6 +61,17 @@ func valuesEqual(a, b interface{}) bool {
 		return nearlyEqual(af, bf)
 	}
 	return a == b
+}
+
+func pricingSyncValuesEqual(field string, a, b any) bool {
+	if field == billing_setting.BillingExprField {
+		left, lok := a.(string)
+		right, rok := b.(string)
+		if lok && rok {
+			return billingexpr.PricingEquivalent(left, right)
+		}
+	}
+	return valuesEqual(a, b)
 }
 
 var pricingSyncFields = []string{
@@ -487,13 +499,20 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 	}
 
 	confidenceMap := make(map[string]map[string]bool)
+	expressionsEquivalent := make(map[string]map[string]bool)
 
 	// Legacy fallback detection was made before currency conversion, so the
 	// sentinel remains untrusted at every target credit anchor.
 	for _, channel := range successfulChannels {
 		confidenceMap[channel.name] = make(map[string]bool)
+		expressionsEquivalent[channel.name] = make(map[string]bool)
 		for name := range allModels {
 			confidenceMap[channel.name][name] = valueMap(channel.data[syncUntrustedModels])[name] != true
+			localExpr, _ := valueMap(localData[billing_setting.BillingExprField])[name].(string)
+			upstreamExpr, _ := valueMap(channel.data[billing_setting.BillingExprField])[name].(string)
+			if strings.TrimSpace(localExpr) != "" && strings.TrimSpace(upstreamExpr) != "" {
+				expressionsEquivalent[channel.name][name] = billingexpr.PricingEquivalent(localExpr, upstreamExpr)
+			}
 		}
 	}
 
@@ -511,21 +530,30 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 
 			for _, channel := range successfulChannels {
 				var upstreamValue interface{} = nil
+				if numericPricingSyncFields[ratioType] && expressionsEquivalent[channel.name][modelName] &&
+					valueMap(localData[billing_setting.BillingModeField])[modelName] == billing_setting.BillingModeTieredExpr &&
+					valueMap(channel.data[billing_setting.BillingModeField])[modelName] == billing_setting.BillingModeTieredExpr {
+					// These fallback ratios/per-call prices are not used by either
+					// model's equivalent authoritative expression.
+					upstreamValues[channel.name] = "same"
+					confidenceValues[channel.name] = confidenceMap[channel.name][modelName]
+					continue
+				}
 
 				pairedExpressionChange := false
 				if ratioType == billing_setting.BillingModeField || ratioType == billing_setting.BillingExprField {
 					mode := valueMap(channel.data[billing_setting.BillingModeField])[modelName]
 					expr, _ := valueMap(channel.data[billing_setting.BillingExprField])[modelName].(string)
 					pairedExpressionChange = mode == billing_setting.BillingModeTieredExpr && strings.TrimSpace(expr) != "" &&
-						(!valuesEqual(valueMap(localData[billing_setting.BillingModeField])[modelName], mode) || !valuesEqual(valueMap(localData[billing_setting.BillingExprField])[modelName], expr))
+						(!valuesEqual(valueMap(localData[billing_setting.BillingModeField])[modelName], mode) || !expressionsEquivalent[channel.name][modelName])
 				}
 				if val, exists := valueMap(channel.data[ratioType])[modelName]; exists {
 					upstreamValue = normalizeSyncValue(ratioType, val)
 					hasUpstreamValue = true
 
-					if pairedExpressionChange || localValue != nil && !valuesEqual(localValue, upstreamValue) {
+					if pairedExpressionChange || localValue != nil && !pricingSyncValuesEqual(ratioType, localValue, upstreamValue) {
 						hasDifference = true
-					} else if valuesEqual(localValue, upstreamValue) {
+					} else if pricingSyncValuesEqual(ratioType, localValue, upstreamValue) {
 						upstreamValue = "same"
 					}
 				}

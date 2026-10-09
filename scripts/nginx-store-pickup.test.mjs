@@ -8,6 +8,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
+import './nginx-extore-callback.test.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const templates = path.join(root, 'packaging/common/lmm-api/edge-policy/nginx')

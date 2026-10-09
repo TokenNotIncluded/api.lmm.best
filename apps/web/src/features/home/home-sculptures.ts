@@ -21,21 +21,56 @@ Copyright (C) 2026 LIghtJUNction
 */
 import * as abstract from './sculptures/abstract'
 import * as cosmos from './sculptures/cosmos'
-import * as future from './sculptures/future'
+import { pelicanBicycle } from './sculptures/future'
 import { smooth, type Sculpture } from './sculptures/geometry'
 import * as market from './sculptures/market'
-import * as nature from './sculptures/nature'
-const factories = { ...nature, ...market, ...abstract, ...cosmos, ...future }
+import { claudeMark, openaiMark } from './sculptures/marks'
+import { moonFarSide } from './sculptures/moon-far-side'
+import { cloud, dandelion, dragonfly, fish, jellyfish } from './sculptures/nature'
+import {
+  atomicExplosion,
+  rotatingChair,
+  spacexRocket,
+} from './sculptures/spectacle'
+import { blueWhale } from './sculptures/whale'
+const factories = {
+  blueWhale,
+  fish,
+  jellyfish,
+  dandelion,
+  cloud,
+  dragonfly,
+  claudeMark,
+  openaiMark,
+  moonFarSide,
+  ...market,
+  ...abstract,
+  ...cosmos,
+  pelicanBicycle,
+  spacexRocket,
+  atomicExplosion,
+  rotatingChair,
+}
 
 export type SculptureId = keyof typeof factories
 /** Add a factory and its ID here; page layout and pointer physics are independent. */
 
 export const HOME_SEQUENCES = [
-  ['lotus', 'fish', 'jellyfish', 'dandelion', 'cloud', 'dragonfly', 'rose'],
+  [
+    'blueWhale',
+    'fish',
+    'jellyfish',
+    'dandelion',
+    'cloud',
+    'dragonfly',
+    'claudeMark',
+    'openaiMark',
+    'moonFarSide',
+  ],
   ['shop', 'vending', 'stall'],
   ['socket', 'gyroscope', 'mobius', 'trefoil', 'helix', 'ribbon'],
   ['earth', 'moon', 'mars', 'sun', 'solarSystem', 'galaxy', 'blackHole'],
-  ['pelicanBicycle', 'emperorBicycle', 'catBomb'],
+  ['pelicanBicycle', 'spacexRocket', 'atomicExplosion', 'rotatingChair'],
 ] as const satisfies readonly (readonly SculptureId[])[]
 
 export const HOLD_SECONDS = 7.2
@@ -58,6 +93,9 @@ export function sequenceAt(chapter: number, seconds: number) {
   return {
     from: list[index],
     to: list[(index + 1) % list.length],
+    // Incoming scenes start at zero, then continue across the slot boundary.
+    age: phase + MORPH_SECONDS,
+    nextAge: Math.max(0, phase - HOLD_SECONDS),
     mix: smooth(
       Math.max(0, Math.min(1, (phase - HOLD_SECONDS) / MORPH_SECONDS))
     ),
