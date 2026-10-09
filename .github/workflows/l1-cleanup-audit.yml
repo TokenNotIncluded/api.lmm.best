@@ -1,0 +1,47 @@
+name: L1 cleanup audit
+on:
+  push:
+    branches: [work/l1-cleanup-audit-20261009]
+    paths: [.github/workflows/l1-cleanup-audit.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export source and inspect merge without changing branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l1-audit
+          main=43be129a2120254eac260f61fe60f22f09995b66
+          head=da5572f5d1289dc4be21e672acaf1803c7167958
+          git cat-file -e "$main^{commit}"
+          git cat-file -e "$head^{commit}"
+          git archive "$main" | gzip > /tmp/l1-audit/main-source.tar.gz
+          git archive "$head" | gzip > /tmp/l1-audit/pr641-source.tar.gz
+          git diff "$main...$head" > /tmp/l1-audit/pr641.diff
+          git ls-tree -r --name-only "$main" | grep -E '(^|/)AGENTS\.md$' > /tmp/l1-audit/instructions-paths.txt || true
+          git grep -n -I -E '推荐信|申请信|developer.?access|DeveloperAccess|recommendation.?letter' "$main" -- apps docs > /tmp/l1-audit/main-residuals.txt || true
+          git grep -n -I -E '推荐信|申请信|developer.?access|DeveloperAccess|recommendation.?letter' "$head" -- apps docs > /tmp/l1-audit/pr641-residuals.txt || true
+          git config user.name 'L1 cleanup audit'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git worktree add --detach /tmp/l1-integration "$head"
+          cd /tmp/l1-integration
+          git merge --no-commit --no-ff "$main" > /tmp/l1-audit/merge.log 2>&1 || true
+          git diff --name-only --diff-filter=U > /tmp/l1-audit/conflicts.txt
+          git diff > /tmp/l1-audit/conflict-diff.txt
+          cat /tmp/l1-audit/merge.log
+          cat /tmp/l1-audit/conflicts.txt
+          git merge --abort || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: l1-cleanup-source-and-audit
+          path: /tmp/l1-audit/
+          retention-days: 3
+          if-no-files-found: error
