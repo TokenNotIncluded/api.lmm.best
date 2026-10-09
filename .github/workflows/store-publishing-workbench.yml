@@ -34,25 +34,40 @@ jobs:
         id: patch
         run: |
           if test -f scripts/store-publishing-workbench.py; then
+            python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/store-publishing-workbench.py')
+          s = p.read_text().replace("import { STORE_ACCESS_COPY as accessCopy } from './access-copy'", "import { STORE_ACCESS_COPY } from './access-copy'", 2)
+          s = s.replace('.includes(issue.code)', ".includes(issue.code ?? '')")
+          p.write_text(s)
+          PY
             python3 scripts/store-publishing-workbench.py
             echo 'applied=true' >> "$GITHUB_OUTPUT"
           fi
+      - name: Frontend typecheck and lint
+        run: |
+          bun run --filter @lmm/web typecheck > /tmp/store-types.log 2>&1 || { tail -n 100 /tmp/store-types.log; exit 1; }
+          bun run --filter @lmm/web lint > /tmp/store-lint.log 2>&1 || { tail -n 100 /tmp/store-lint.log; exit 1; }
+          tail -n 5 /tmp/store-types.log
+          tail -n 5 /tmp/store-lint.log
       - name: Go store regressions
         working-directory: apps/api-go
-        run: go test -p 2 ./model ./controller -run 'MerchantStore|StorePublish' -count=1
+        run: |
+          go test -p 2 ./model ./controller -run 'MerchantStore|StorePublish' -count=1 > /tmp/store-go.log 2>&1 || { grep -A 24 -E -- '--- FAIL|Error:|Error Trace:|build failed|undefined:' /tmp/store-go.log | tail -n 180; tail -n 30 /tmp/store-go.log; exit 1; }
+          tail -n 5 /tmp/store-go.log
       - name: Frontend store regressions
         working-directory: apps/web
         run: |
           for file in src/features/store/*.test.ts src/features/store/*.test.tsx; do
             test -f "$file" || continue
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./$file"
+            echo "Testing $file"
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./$file" > /tmp/store-ui.log 2>&1 || { tail -n 130 /tmp/store-ui.log; exit 1; }
+            tail -n 4 /tmp/store-ui.log
           done
-      - name: Frontend typecheck and lint
-        run: |
-          bun run --filter @lmm/web typecheck
-          bun run --filter @lmm/web lint
       - name: Production web build
-        run: bun run --filter @lmm/web build
+        run: |
+          bun run --filter @lmm/web build > /tmp/store-build.log 2>&1 || { tail -n 100 /tmp/store-build.log; exit 1; }
+          tail -n 8 /tmp/store-build.log
       - name: Commit verified source changes only
         if: steps.patch.outputs.applied == 'true'
         env:
@@ -66,7 +81,7 @@ jobs:
           paths = json.loads(Path('/tmp/store-publishing-paths.json').read_text())
           subprocess.run(['git', 'add', '--', *paths], check=True)
           PY
-          git rm scripts/store-publishing-workbench.py .github/workflows/store-publishing-workbench.yml
+          git rm -f scripts/store-publishing-workbench.py .github/workflows/store-publishing-workbench.yml
           git diff --cached --check
           git commit -m 'fix(store): clarify publishing, configure terms inline, and create variants atomically'
           git push origin "HEAD:refs/heads/$BRANCH"
