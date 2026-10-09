@@ -100,6 +100,7 @@ func TestAssistantDirectL1GrantCannotOverrideAdministrativeLevelOrConversationOw
 }
 
 func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	db := openIsolatedPostgresCacheTestDB(t,
 		&User{}, &Token{}, &TopUp{}, &DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{},
 		&AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSupportRequest{},

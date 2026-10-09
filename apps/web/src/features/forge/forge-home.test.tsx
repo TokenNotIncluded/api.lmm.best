@@ -805,7 +805,7 @@ describe('Primary next step follows account access', () => {
     await unmountHome(rendered)
   })
 
-  test('keeps a pending customer on the access-request path', async () => {
+  test('takes an inactive customer directly to L1 activation', async () => {
     const rendered = await renderHome({
       id: 12,
       username: 'pending',
@@ -816,7 +816,7 @@ describe('Primary next step follows account access', () => {
       '.lmm-intro-actions a'
     )
     assert.ok(purchase)
-    assert.equal(purchase.textContent?.trim(), 'Request access')
+    assert.equal(purchase.textContent?.trim(), 'Enable L1 access')
     await act(async () => {
       purchase.click()
       await flushEffects()

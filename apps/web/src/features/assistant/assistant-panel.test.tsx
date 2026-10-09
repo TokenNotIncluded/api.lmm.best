@@ -2915,7 +2915,7 @@ describe('AssistantPanel', () => {
         waitForCondition(
           () =>
             document.body.textContent?.includes(
-              'No recommendation letter is required.'
+              'The assistant can enable L1 during this conversation.'
             ) === true,
           'Cached recommendation did not fall back to read-only verification'
         )

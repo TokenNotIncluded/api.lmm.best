@@ -1240,6 +1240,16 @@ const debugAdapter: AxiosAdapter = async (config) => {
   if (method === 'GET' && path === '/api/perf-metrics/summary') {
     return response(config, envelope({ models: [] }))
   }
+  if (method === 'GET' && path === '/api/assistant/registration-check') {
+    return response(
+      config,
+      envelope({
+        state: activeUser().developer_access_granted
+          ? 'active'
+          : 'context_needed',
+      })
+    )
+  }
   if (method === 'GET' && path === '/api/assistant/status') {
     const user = activeUser()
     return response(
