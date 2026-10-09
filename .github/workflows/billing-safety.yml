@@ -17,6 +17,22 @@ jobs:
     timeout-minutes: 15
     env:
       GOMAXPROCS: '2'
+      TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/native_accounts_test?sslmode=disable
+      TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: native_accounts_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd 'pg_isready -U postgres -d native_accounts_test'
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: apps/api-go
@@ -34,6 +50,8 @@ jobs:
         run: go test -race -p 2 ./pkg/account ./pkg/accountfunding -count=1 -timeout=1m
       - name: Validate shared team level policy without platform privilege inheritance
         run: go test -race -p 2 ./model -run '^(TestTeamAccountAccess|TestEvaluateTrustLevel)' -count=1 -timeout=5m
+      - name: Validate native account storage, session and HTTP boundaries
+        run: go test -race -p 2 ./model ./controller ./router -run '^TestNativeAccount' -count=1 -timeout=5m
       - name: Run real service-package regressions under the race detector
         run: go test -race -p 2 ./service -run '^(TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption)' -count=1 -timeout=5m
       - name: Validate Claude refusal evidence and default-off policy

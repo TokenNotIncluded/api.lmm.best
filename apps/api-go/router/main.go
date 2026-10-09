@@ -28,6 +28,9 @@ func SetRouter(router *gin.Engine) error {
 		return err
 	}
 	SetApiRouter(router)
+	if err := SetNativeAccountRouter(router); err != nil {
+		return fmt.Errorf("configure native account routes: %w", err)
+	}
 	if err := SetWalletTransferRouter(router); err != nil {
 		return fmt.Errorf("configure wallet transfer routes: %w", err)
 	}
