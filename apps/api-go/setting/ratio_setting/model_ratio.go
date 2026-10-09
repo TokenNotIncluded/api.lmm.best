@@ -389,6 +389,12 @@ func handleThinkingBudgetModel(name, prefix, wildcard string) string {
 	return name
 }
 
+// GetConfiguredModelRatio returns a registered ratio without self-use fallbacks.
+// Native protocol tariffs must never inherit default chat-model prices.
+func GetConfiguredModelRatio(name string) (float64, bool) {
+	return modelRatioMap.Get(FormatMatchingModelName(name))
+}
+
 func GetModelRatio(name string) (float64, bool, string) {
 	name = FormatMatchingModelName(name)
 

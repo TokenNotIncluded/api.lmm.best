@@ -256,6 +256,11 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 			controller.Relay(c, types.RelayFormatOpenAIAlphaSearch)
 		})
 
+		// OpenAI native Decisions uses the normal relay authentication and billing.
+		httpRouter.POST("/decisions", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAIDecisions)
+		})
+
 		// TypeSafe's synchronous decision API uses the normal relay owners.
 		httpRouter.POST("/systemone", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatSystemOne)
