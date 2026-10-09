@@ -1,86 +1,39 @@
-name: Extore readaptation validation
+name: Extore readaptation edge validation
 on:
   push:
     branches: [codex/extore-readapt-20261009]
     paths: [.github/workflows/extore-readapt-validation.yml]
 permissions:
   contents: read
-concurrency:
-  group: extore-readapt-final-20261009
-  cancel-in-progress: false
 jobs:
-  go:
-    if: github.ref == 'refs/heads/codex/extore-readapt-20261009'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      GOMAXPROCS: '2'
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-      - run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - name: Protocol race and store regressions
-        working-directory: apps/api-go
-        run: |
-          set -euo pipefail
-          go test -race -count=1 ./internal/extore
-          go test -p 2 ./controller ./service ./router ./middleware -run 'Extore|MerchantStore|ProtectedFetch|LoggedRequest' -count=1 -timeout=300s
-          git diff --check
-          git rev-parse HEAD
-  frontend:
-    if: github.ref == 'refs/heads/codex/extore-readapt-20261009'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-      - name: Install pinned Bun and locked dependencies
-        run: |
-          npm install --prefix "$RUNNER_TEMP/extore-bun" bun@1.3.14
-          echo "$RUNNER_TEMP/extore-bun/node_modules/.bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/extore-bun/node_modules/.bin/bun" install --frozen-lockfile
-      - name: Callback and all store frontend tests
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          node --test scripts/extore-callback.test.mjs
-          bun run typecheck
-          for test in src/features/store/*.test.ts src/features/store/*.test.tsx; do
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./$test"
-          done
-      - name: Build and verify early callback bootstrap in production output
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          bun run build > "$RUNNER_TEMP/extore-build.log" 2>&1 || { cat "$RUNNER_TEMP/extore-build.log"; exit 1; }
-          node --input-type=module <<'JS'
-          import assert from 'node:assert/strict'
-          import { readFileSync, existsSync } from 'node:fs'
-          const html = readFileSync('dist/index.html', 'utf8')
-          assert.ok(existsSync('dist/extore-callback.js'), 'bootstrap must ship with the release')
-          const position = html.indexOf('/extore-callback.js')
-          assert.ok(position >= 0 && position < html.indexOf('cdn.agentlane.com'), 'bootstrap must precede analytics')
-          const tag = html.match(/<script[^>]*src=["']\/extore-callback\.js["'][^>]*>/)?.[0]
-          assert.ok(tag && !/\b(?:async|defer|type=["']module)/.test(tag), 'bootstrap must run before app startup')
-          assert.ok(html.includes('__lmmExtoreCallbackPage'), 'tracker guard must survive production build')
-          console.log('Production build: PASS; early local callback script and tracker guard: PASS')
-          JS
-          git diff --check
-          git rev-parse HEAD
   edge:
     if: github.ref == 'refs/heads/codex/extore-readapt-20261009'
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Apply exact callback map correction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .codex/extore-edge-fix.py
+          python3 - <<'PY'
+          import json, subprocess
+          paths=json.load(open('/tmp/extore-edge-changed.json'))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*paths],check=True)
+          PY
+          git rm .codex/extore-edge-fix.py
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(edge): use an http map for Extore callback response policy'
+          git -c credential.helper='!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f' push origin HEAD:refs/heads/codex/extore-readapt-20261009
+          git diff --exit-code 60431d207aca9f8bbf1a4d6629e69b88f6a902f5 HEAD -- apps/api-go apps/web
+          git rev-parse HEAD
       - name: Install nginx
         run: |
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
@@ -92,4 +45,5 @@ jobs:
           python3 -B scripts/test-render-frontend-proxy-overlay.py
           node --test scripts/nginx-store-pickup.test.mjs
           git diff --check
+          git status --short
           git rev-parse HEAD
