@@ -1,0 +1,137 @@
+name: OpenUI integration verification
+on:
+  push:
+    branches: [feat/openui-generative-assistant]
+permissions:
+  contents: read
+concurrency:
+  group: openui-integration-bootstrap
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache: false
+      - name: Verify the existing dependency lock
+        run: bun install --frozen-lockfile
+      - name: Pin the current OpenUI renderer and update the workspace lock
+        working-directory: apps/web
+        run: bun add --exact @openuidev/react-lang
+      - name: Prepare only the OpenUI integration files
+        run: node scripts/bootstrap-assistant-openui.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openui-source
+          path: ${{ runner.temp }}/openui-source
+          if-no-files-found: error
+          retention-days: 3
+  commit:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: openui-source
+          path: source
+      - name: Commit the fixed source allowlist without executing artifact code
+        id: commit
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const repo = {owner: context.repo.owner, repo: context.repo.repo};
+            const branch = 'heads/feat/openui-generative-assistant';
+            const current = await github.rest.git.getRef({...repo, ref: branch});
+            if (current.data.object.sha !== context.sha) throw new Error('Branch moved; inspect before retrying.');
+            const parent = await github.rest.git.getCommit({...repo, commit_sha: context.sha});
+            const paths = [
+              'bun.lock', 'apps/web/package.json',
+              'apps/web/src/components/ai-elements/response.tsx',
+              'apps/web/src/components/ai-elements/response-renderer-blocks.tsx',
+              'apps/web/src/features/assistant/assistant-panel.tsx',
+              'apps/web/src/components/ai-elements/openui/policy.ts',
+              'apps/web/src/components/ai-elements/openui/policy.test.ts',
+              'apps/web/src/components/ai-elements/openui/library.tsx',
+              'apps/web/src/components/ai-elements/openui/library.test.tsx',
+              'apps/web/src/components/ai-elements/openui/renderer.tsx',
+              'apps/web/src/components/ai-elements/openui/renderer.test.tsx',
+              'apps/web/src/components/ai-elements/openui/block.tsx',
+              'apps/web/src/components/ai-elements/openui/streaming-context.ts',
+              'apps/web/scripts/generate-assistant-openui.ts',
+              'apps/api-go/controller/assistant.go',
+              'apps/api-go/controller/assistant_openui.go',
+              'apps/api-go/controller/assistant_openui_test.go',
+              'apps/api-go/controller/assistant_openui_prompt.txt',
+              'docs/assistant-openui.md',
+            ];
+            const entries = [];
+            for (const path of paths) {
+              const bytes = fs.readFileSync(`source/${path}`);
+              if (bytes.length > 2_000_000) throw new Error(`Unexpected file size: ${path}`);
+              const blob = await github.rest.git.createBlob({...repo, content: bytes.toString('base64'), encoding: 'base64'});
+              entries.push({path, mode: '100644', type: 'blob', sha: blob.data.sha});
+            }
+            entries.push({path: 'scripts/bootstrap-assistant-openui.mjs', mode: '100644', type: 'blob', sha: null});
+            const tree = await github.rest.git.createTree({...repo, base_tree: parent.data.tree.sha, tree: entries});
+            const commit = await github.rest.git.createCommit({...repo, tree: tree.data.sha, parents: [context.sha], message: 'feat(assistant): integrate pinned OpenUI renderer and shared component prompt'});
+            await github.rest.git.updateRef({...repo, ref: branch, sha: commit.data.sha, force: false});
+            core.setOutput('sha', commit.data.sha);
+            await core.summary.addHeading('OpenUI source prepared').addRaw(`Commit: ${commit.data.sha}. Temporary helper removed. Verification workflow will be removed after inspection. Production was not changed.`).write();
+  verify:
+    needs: commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.commit.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Verify the committed lock
+        id: install
+        run: bun install --frozen-lockfile
+      - name: Verify generated contract and real renderer tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: apps/web
+        run: |
+          bun run openui:check
+          bun test --preload ./scripts/test-preload.mjs src/components/ai-elements/openui/
+      - name: Typecheck the full web app
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: apps/web
+        run: bun run typecheck
+      - name: Lint the new integration
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: apps/web
+        run: bun x --no-install oxlint -c .oxlintrc.json src/components/ai-elements/openui/ scripts/generate-assistant-openui.ts
+      - name: Build the web app
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: apps/web
+        run: bun run build
+      - name: Check Go assistant prompt integration
+        if: ${{ !cancelled() }}
+        working-directory: apps/api-go
+        run: go test ./controller -run TestAssistantOpenUIContract -count=1
