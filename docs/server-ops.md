@@ -40,6 +40,33 @@ and their shared stylesheet. Nginx reads them through
 with the frontend release. Preserve these aliases on manually configured hosts;
 these pages remain available when the backend is down.
 
+A temporary whole-origin proxy can bypass the published frontend: Go resolves
+its frontend directory at process startup, so a later `current` switch can leave
+the public HTML and scripts on the previous release. Check the public
+`/index.html`, a console navigation and their referenced scripts against the
+signed release; a successful symlink switch alone does not prove they are served.
+`/index.html` must return the expected bytes directly with HTTP 200, rather than
+a backend redirect with an empty body.
+
+For a captured proxy whose default location forwards to `@lmm_api_backend`,
+`scripts/render-frontend-proxy-overlay.py` renders a reviewable local candidate
+from that exact configuration, the verified release's generated
+`apps/web/src/routeTree.gen.ts`, and its extracted frontend directory. It keeps
+the backend hop and default fallback, serves only known frontend navigation and
+public files through the publisher's `current`/`assets` paths, and preserves
+non-GET/HEAD requests through the backend. It does not use a general API-to-SPA
+fallback, contact a host, verify signatures, or install the output.
+
+Deploy the reviewed bytes through a single authorized, pinned ingress action:
+preserve the prior file in the controller's Backups root; check exact file and
+service identity; replace atomically; run `nginx -t`; restore the prior bytes if
+validation fails; reload once and check the public hashes and unchanged Go
+generation. Preserve maintenance and Rust probe fragments. An unknown reload
+result requires inspection before any separately authorized recovery. Keep the
+new configuration as the recovery input, so returning to a local backend does
+not also return to the superseded frontend. Do not modify a historical sealed
+maintenance owner or its hash-bound recovery files to perform this repair.
+
 
 - [Native transaction and acceptance](production-release-transaction.md)
 - [Manual systemd deployment](manual-systemd-deployment.md)
