@@ -74,13 +74,13 @@ function fixture() {
   }
 }
 
-test('procedural lotus renders offline and future is not a lotus', () => {
+test('procedural whale renders offline and other chapters keep their own scene', () => {
   const view = fixture()
   try {
     const { element, poster, pixels } = view.canvas()
     poster.draw(0, pointer, 0, true)
     assert.equal(element.dataset.ready, 'true')
-    assert.equal(element.dataset.sculpture, 'lotus')
+    assert.equal(element.dataset.sculpture, 'blueWhale')
     assert.ok(pixels().some((n, i) => i % 4 !== 3 && n !== 7))
     poster.draw(4, pointer, 0, true)
     assert.equal(element.dataset.sculpture, 'pelicanBicycle')
@@ -97,7 +97,7 @@ test('page and mobile canvas clocks are independent and survive pause', () => {
     for (let i = 0; i < 122; i++) first.poster.draw(0, pointer, 0.08)
     assert.equal(first.element.dataset.sculpture, 'fish')
     second.poster.draw(0, pointer, 0, true)
-    assert.equal(second.element.dataset.sculpture, 'lotus')
+    assert.equal(second.element.dataset.sculpture, 'blueWhale')
     for (let i = 0; i < 10; i++) first.poster.draw(0, pointer, 10, true)
     assert.equal(first.element.dataset.sculpture, 'fish')
     first.poster.draw(4, pointer, 0.08)

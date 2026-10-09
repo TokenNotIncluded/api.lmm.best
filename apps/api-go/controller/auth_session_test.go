@@ -107,6 +107,98 @@ func TestWriteAuthSessionErrorMapsSessionGrowthLimits(t *testing.T) {
 	}
 }
 
+func TestRefreshAuthSessionLookupFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, test := range []struct {
+		name           string
+		prepare        func(*testing.T, *gorm.DB, *service.AuthBundle)
+		expectedStatus int
+		expectedCode   string
+		clearCookie    bool
+	}{
+		{
+			name: "missing session",
+			prepare: func(t *testing.T, db *gorm.DB, bundle *service.AuthBundle) {
+				require.NoError(t, db.Where("sid = ?", bundle.Session.SID).Delete(&model.UserSession{}).Error)
+			},
+			expectedStatus: http.StatusUnauthorized,
+			expectedCode:   "AUTH_UNAUTHORIZED",
+			clearCookie:    true,
+		},
+		{
+			name: "revoked session",
+			prepare: func(t *testing.T, db *gorm.DB, bundle *service.AuthBundle) {
+				require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", bundle.Session.SID).
+					Updates(map[string]interface{}{"status": model.UserSessionStatusRevoked, "revoked_at": time.Now().Unix()}).Error)
+			},
+			expectedStatus: http.StatusUnauthorized,
+			expectedCode:   "AUTH_SESSION_REVOKED",
+			clearCookie:    true,
+		},
+		{
+			name: "database unavailable",
+			prepare: func(t *testing.T, db *gorm.DB, _ *service.AuthBundle) {
+				sqlDB, err := db.DB()
+				require.NoError(t, err)
+				require.NoError(t, sqlDB.Close())
+			},
+			expectedStatus: http.StatusInternalServerError,
+			expectedCode:   "AUTH_INTERNAL_ERROR",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			previousDB, previousRedis := model.DB, common.RedisEnabled
+			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
+			model.DB, common.RedisEnabled = db, false
+			t.Cleanup(func() {
+				model.DB, common.RedisEnabled = previousDB, previousRedis
+				_ = sqlDB.Close()
+			})
+			user := &model.User{
+				Username: "refresh-lookup-user", Password: "unused", Role: common.RoleCommonUser,
+				Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
+			}
+			require.NoError(t, db.Create(user).Error)
+			bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "test-agent")
+			require.NoError(t, err)
+			test.prepare(t, db, bundle)
+
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/api/user/auth/refresh", nil)
+			c.Request.Header.Set("X-Auth-Session", bundle.Session.SID)
+			c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: bundle.RefreshToken})
+			RefreshAuth(c)
+
+			assert.Equal(t, test.expectedStatus, recorder.Code)
+			var response struct {
+				Success bool   `json:"success"`
+				Code    string `json:"code"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			assert.False(t, response.Success)
+			assert.Equal(t, test.expectedCode, response.Code)
+			assert.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
+			assert.NotContains(t, recorder.Body.String(), "access_token")
+			assert.NotContains(t, recorder.Body.String(), "database is closed")
+			if test.clearCookie {
+				cookies := recorder.Result().Cookies()
+				require.Len(t, cookies, 1)
+				assert.Equal(t, service.RefreshCookieName, cookies[0].Name)
+				assert.Equal(t, "/api/user/auth", cookies[0].Path)
+				assert.Empty(t, cookies[0].Value)
+				assert.Equal(t, -1, cookies[0].MaxAge)
+			} else {
+				assert.Empty(t, recorder.Header().Values("Set-Cookie"), "a temporary database failure must preserve the refresh cookie")
+			}
+		})
+	}
+}
+
 func TestSessionLimitDoesNotRecordRejectedLoginAsSuccessful(t *testing.T) {
 	previousDB := model.DB
 	previousRedis := common.RedisEnabled

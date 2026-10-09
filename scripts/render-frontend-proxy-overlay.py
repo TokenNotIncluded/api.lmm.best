@@ -89,12 +89,15 @@ location ^~ /legal/ {
     add_header Cache-Control "no-cache, must-revalidate" always;
 }
 '''
-    for name in sorted(set(public_names) - {'index.html', 'AGENTS.md'}):
+    for name in sorted(set(public_names) - {'index.html'}):
         if not re.fullmatch(r'[A-Za-z0-9._-]+', name) or name in ('.', '..'):
             raise ValueError('unsupported public file name')
         if is_backend_path('/' + name) or name == 'scripts':
             raise ValueError('public file overlaps a backend namespace')
-        overlay += 'location = /' + name + ' {\n' + guard + '    try_files $uri =404;\n    add_header Cache-Control "no-cache, must-revalidate" always;\n}\n'
+        content_type = ('    types { }\n    default_type text/plain;\n    charset utf-8;\n'
+                        '    add_header X-Content-Type-Options nosniff always;\n'
+                        if name == 'AGENTS.md' else '')
+        overlay += 'location = /' + name + ' {\n' + guard + content_type + '    try_files $uri =404;\n    add_header Cache-Control "no-cache, must-revalidate" always;\n}\n'
     return original.replace(fallback, overlay.encode() + b'\n' + fallback, 1)
 
 

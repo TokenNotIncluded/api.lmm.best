@@ -172,11 +172,11 @@ export function createHomePoster(
         {
           id: left.from,
           weight: (1 - pageMix) * (1 - left.mix),
-          age: ages[from],
+          age: left.age,
         },
-        { id: left.to, weight: (1 - pageMix) * left.mix, age: ages[from] },
-        { id: right.from, weight: pageMix * (1 - right.mix), age: ages[to] },
-        { id: right.to, weight: pageMix * right.mix, age: ages[to] },
+        { id: left.to, weight: (1 - pageMix) * left.mix, age: left.nextAge },
+        { id: right.from, weight: pageMix * (1 - right.mix), age: right.age },
+        { id: right.to, weight: pageMix * right.mix, age: right.nextAge },
       ]
       const layers = inputs
         .filter((l) => l.weight > 0)
@@ -186,7 +186,7 @@ export function createHomePoster(
           return {
             ...layer,
             model,
-            pose: model.animate(layer.age + 2.6),
+            pose: model.animate(layer.age),
             paint: paintFor(model.points, fringe),
             cy: Math.cos(yaw),
             sy: Math.sin(yaw),

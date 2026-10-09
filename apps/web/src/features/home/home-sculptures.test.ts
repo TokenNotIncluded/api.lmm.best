@@ -20,18 +20,37 @@ import {
 } from './sculptures/bicycle'
 import { palette, Shape, type Vec3 } from './sculptures/geometry'
 
-test('five sequences include the rose and two bicycle riders', () => {
+test('five sequences include the whale, brand marks and new future scenes', () => {
   assert.deepEqual(
     HOME_SEQUENCES.map((list) => list.length),
-    [7, 3, 6, 7, 3]
+    [9, 3, 6, 7, 4]
   )
-  assert.equal(new Set(HOME_SEQUENCES.flat()).size, 26)
-  assert.equal(HOME_SEQUENCES[0].at(-1), 'rose')
+  assert.equal(new Set(HOME_SEQUENCES.flat()).size, 29)
+  assert.equal(HOME_SEQUENCES[0].at(-1), 'moonFarSide')
   assert.deepEqual(HOME_SEQUENCES[4], [
     'pelicanBicycle',
-    'emperorBicycle',
-    'catBomb',
+    'spacexRocket',
+    'atomicExplosion',
+    'rotatingChair',
   ])
+})
+
+test('retired scenes are absent and scene clocks continue across morphs', () => {
+  const ids = new Set<string>(HOME_SEQUENCES.flat())
+  for (const id of ['lotus', 'rose', 'emperorBicycle', 'catBomb']) {
+    assert.equal(ids.has(id), false)
+  }
+  assert.equal(HOME_SEQUENCES[0][0], 'blueWhale')
+  assert.ok(ids.has('claudeMark') && ids.has('openaiMark'))
+  for (const [chapter, list] of HOME_SEQUENCES.entries()) {
+    for (let index = 1; index <= list.length; index++) {
+      const boundary = index * SCENE_SECONDS
+      const before = sequenceAt(chapter, boundary - 1e-6)
+      const after = sequenceAt(chapter, boundary + 1e-6)
+      assert.equal(before.to, after.from)
+      assert.ok(Math.abs(before.nextAge - after.age) < 3e-6)
+    }
+  }
 })
 
 test('every object holds, disperses and loops back to its first object', () => {
