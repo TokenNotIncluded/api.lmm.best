@@ -1,11 +1,11 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import type { Shape } from './geometry'
 import {
   TAU,
   mix,
   palette as C,
   rotate,
   type Deform,
+  type Shape,
   type Vec3,
 } from './geometry'
 
