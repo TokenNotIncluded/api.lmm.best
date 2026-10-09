@@ -3,11 +3,13 @@
 LMM API is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api).
 
 - Upstream Go snapshot: commit `ba2e9287bb7a8002116c03daa4c457a330054871`, dated 2026-08-29
-- Upstream head reviewed: `ac381acf4bf41204b97bb26b4c58c83275877a2e` (later commits through this head were Web/docs/build-only)
+- Upstream head reviewed: `7aa3531ef4c247ad4891c06cc8ed9d0ffb73fecc` (QuantumNous/new-api main as of 2026-10-08)
 - License: GNU Affero General Public License v3.0 (`AGPL-3.0`)
 - Local user-facing brand: `LMM API`
 - Go module identity: `github.com/LIghtJUNction/api.lmm.best`
 - Fork-specific modifications: `Copyright (C) 2026 LIghtJUNction`
+
+Commits `ac381acf..7aa3531e` were reviewed. This batch ports `feefe09f2` (isolate TLS configs; the Waffo Pancake store-ID checks in that commit were not applied), `0f2a2075a` (relay request validation returns HTTP 400), `2506e1b98` (reject non-standard roles on user creation), `789c97019` (preserve Claude `safeguards`), `8c8c4153d` (keep quota when scanning usage rpm/tpm), and `b7017c251` (confirm a system-task lease before treating a no-op state write as lock loss). `1751f43ee` (SQLite WAL, pragma busy timeout, and `_txlock=immediate`) was left out: the Redis-off local runtime still opens `common.SQLitePath`, and `lmm-db-migrate` rejects any source that has `-wal`, `-journal`, or `-shm` sidecars (`docs/postgresql-migration.md`). Turning WAL on by default would make that local database look live to the migrator, and `_txlock=immediate` would change lock timing for every local transaction. The rest of the range was deferred or skipped: the task/JS plugin host (`docs/task-plugin-host-decision.md`), upstream auth/access-token refactors, the model/vendor and pricing rework, web-only changes, and docs/build.
 
 The upstream copyright notices, attribution, `NOTICE`, and
 `THIRD-PARTY-LICENSES.md` are preserved. Modified user interfaces must retain
