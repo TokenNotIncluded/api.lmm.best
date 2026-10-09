@@ -20,7 +20,12 @@ import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 
 import { isRedirect } from '@tanstack/react-router'
+import { AxiosError, AxiosHeaders } from 'axios'
 
+import {
+  bootstrapAuthentication,
+  setDevelopmentAuthRefreshAdapter,
+} from '@/lib/auth-session'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import { Route } from './route'
@@ -59,6 +64,59 @@ async function runBeforeLoad(pathname: string) {
 afterEach(() => useAuthStore.getState().auth.reset('complete'))
 
 describe('authenticated route access', () => {
+  test('keeps a cold profile request retryable when checking the session fails', async () => {
+    for (const status of [0, 500, 503]) {
+      useAuthStore.getState().auth.reset('idle')
+      setDevelopmentAuthRefreshAdapter(async (config) => {
+        throw new AxiosError(
+          'Authentication transport unavailable',
+          status === 0 ? AxiosError.ERR_NETWORK : AxiosError.ERR_BAD_RESPONSE,
+          config,
+          undefined,
+          status === 0
+            ? undefined
+            : {
+                config,
+                data: { success: false },
+                headers: new AxiosHeaders(),
+                status,
+                statusText: 'Unavailable',
+              }
+        )
+      })
+      assert.equal((await bootstrapAuthentication()).kind, 'transient_error')
+      assert.equal(useAuthStore.getState().auth.bootstrapState, 'idle')
+
+      const error = await runBeforeLoad('/profile')
+      assert.ok(error instanceof Error, `status ${status} must offer retry`)
+      assert.equal(isRedirect(error), false)
+      assert.equal(useAuthStore.getState().auth.user, null)
+    }
+  })
+
+  test('does not redirect a pending session check to sign in', async () => {
+    useAuthStore.getState().auth.reset('checking')
+    const error = await runBeforeLoad('/profile')
+    assert.ok(error instanceof Error)
+    assert.equal(isRedirect(error), false)
+  })
+
+  test('still sends an authoritatively unauthenticated profile request to sign in', async () => {
+    useAuthStore.getState().auth.reset('idle')
+    setDevelopmentAuthRefreshAdapter(async (config) => ({
+      config,
+      data: { success: false, code: 'AUTH_UNAUTHORIZED' },
+      headers: new AxiosHeaders(),
+      status: 401,
+      statusText: 'Unauthorized',
+    }))
+    assert.equal((await bootstrapAuthentication()).kind, 'anonymous')
+    assert.equal(useAuthStore.getState().auth.bootstrapState, 'complete')
+    const redirect = await runBeforeLoad('/profile')
+    assert.ok(isRedirect(redirect))
+    assert.equal(redirect.options.to, '/sign-in')
+  })
+
   test('keeps a mobile L0 account on getting started and redirects other console routes there', async () => {
     authenticate({
       id: 7,
