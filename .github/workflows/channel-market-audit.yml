@@ -1,0 +1,25 @@
+name: Channel marketplace audit
+
+on:
+  push:
+    branches: [fix/channel-market-audit]
+    paths: [.github/workflows/channel-market-audit.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Archive tracked public source only
+        run: git archive --format=tar HEAD > "$RUNNER_TEMP/channel-market-source.tar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: channel-market-source
+          path: ${{ runner.temp }}/channel-market-source.tar
+          retention-days: 1
