@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -78,8 +80,12 @@ func getPublicCatalogModelIDs() []string {
 }
 
 func getPublicCatalogModelIDsWithBillingPolicy(acceptUnsetRatioModel bool) []string {
+	return getPublicCatalogModelIDsFromPricing(getPricingCache(), acceptUnsetRatioModel)
+}
+
+func getPublicCatalogModelIDsFromPricing(pricings []model.Pricing, acceptUnsetRatioModel bool) []string {
 	modelIDs := make(map[string]struct{})
-	for _, pricing := range getPricingCache() {
+	for _, pricing := range pricings {
 		if !common.StringsContains(pricing.EnableGroup, "default") &&
 			!common.StringsContains(pricing.EnableGroup, "all") {
 			continue
@@ -108,14 +114,9 @@ func GetStatus(c *gin.Context) {
 		return
 	}
 
-	cs := console_setting.GetConsoleSetting()
-	registrationDisabledMethods := common.GetRegistrationDisabledMethods()
-	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
-	anchor, anchorErr := common.CreditsPerUSD()
-	legacyScale, scaleErr := common.LegacyPricingUnitsPerUSD()
-	fx := operation_setting.USDExchangeRate
-	if anchorErr != nil || scaleErr != nil || fx <= 0 || math.IsNaN(fx) || math.IsInf(fx, 0) {
+	// Fetch the immutable pricing cache before locking its billing configuration.
+	data, assistantSettings, currencyReady := getStatusConfigurationSnapshot(getPricingCache())
+	if !currencyReady {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "ready": false, "message": "currency units are not ready"})
 		return
 	}
@@ -125,121 +126,17 @@ func GetStatus(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "ready": false, "message": "currency units are not ready"})
 		return
 	}
-	passkeySetting := system_setting.GetPasskeySettings()
-	assistantSettings := setting.GetAssistantSettings()
 	assistantGroup, assistantModel, routeErr := assistantConfiguredRouteResolver(assistantSettings)
 	if routeErr != nil {
 		assistantModel = ""
 	}
-	data := gin.H{
-		"version":                      common.Version,
-		"start_time":                   common.StartTime,
-		"email_verification":           common.EmailVerificationEnabled,
-		"github_oauth":                 common.GitHubOAuthEnabled,
-		"github_client_id":             common.GitHubClientId,
-		"discord_oauth":                system_setting.GetDiscordSettings().Enabled,
-		"discord_client_id":            system_setting.GetDiscordSettings().ClientId,
-		"linuxdo_oauth":                common.LinuxDOOAuthEnabled,
-		"linuxdo_client_id":            common.LinuxDOClientId,
-		"linuxdo_minimum_trust_level":  common.LinuxDOMinimumTrustLevel,
-		"telegram_oauth":               common.TelegramOAuthEnabled,
-		"telegram_bot_name":            common.TelegramBotName,
-		"theme":                        "default",
-		"system_name":                  common.SystemName,
-		"logo":                         common.Logo,
-		"footer_html":                  common.Footer,
-		"wechat_qrcode":                common.WeChatAccountQRCodeImageURL,
-		"wechat_login":                 common.WeChatAuthEnabled,
-		"server_address":               system_setting.ServerAddress,
-		"turnstile_check":              common.TurnstileCheckEnabled,
-		"turnstile_site_key":           common.TurnstileSiteKey,
-		"docs_link":                    operation_setting.GetGeneralSetting().DocsLink,
-		"quota_per_unit":               common.QuotaPerUnit,
-		"currency_unit":                "credit",
-		"credits_per_usd":              anchor.InexactFloat64(),
-		"quota_per_usd":                anchor.InexactFloat64(),
-		"cny_per_usd":                  fx,
-		"legacy_pricing_units_per_usd": legacyScale.InexactFloat64(),
-		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
-		"display_in_currency":                 operation_setting.IsCurrencyDisplay(),
-		"quota_display_type":                  operation_setting.GetQuotaDisplayType(),
-		"custom_currency_symbol":              operation_setting.GetGeneralSetting().CustomCurrencySymbol,
-		"custom_currency_code":                operation_setting.GetGeneralSetting().CustomCurrencyCode,
-		"custom_currency_exchange_rate":       operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
-		"enable_batch_update":                 common.BatchUpdateEnabled,
-		"enable_drawing":                      common.DrawingEnabled,
-		"enable_task":                         common.TaskEnabled,
-		"enable_data_export":                  common.DataExportEnabled,
-		"data_export_default_time":            common.DataExportDefaultTime,
-		"default_collapse_sidebar":            common.DefaultCollapseSidebar,
-		"mj_notify_enabled":                   setting.MjNotifyEnabled,
-		"chats":                               setting.Chats,
-		"demo_site_enabled":                   operation_setting.DemoSiteEnabled,
-		"self_use_mode_enabled":               operation_setting.SelfUseModeEnabled.Load(),
-		"register_enabled":                    common.RegisterEnabled,
-		"password_login_enabled":              common.PasswordLoginEnabled,
-		"password_register_enabled":           common.PasswordRegisterEnabled,
-		"oauth_register_enabled":              common.OAuthRegisterEnabled,
-		"oauth_registration_disabled_methods": registrationDisabledMethods,
-		"default_use_auto_group":              setting.DefaultUseAutoGroup,
-		"preview_model_ids":                   getPublicPreviewModelIDs(),
-		"backend_capabilities": gin.H{
-			"bounty_notifications":    true,
-			"bounty_challenge_cancel": true,
-			"bounty_public_read":      true,
-			"self_oauth_unbind":       true,
-			"responses_websocket":     true,
-		},
-		"assistant": gin.H{
-			"enabled":      assistantSettings.Enabled,
-			"group":        assistantGroup,
-			"model":        assistantModel,
-			"funding_mode": "super_administrator",
-		},
-
-		"usd_exchange_rate": operation_setting.USDExchangeRate,
-		// Legacy clients read price as platform units per real USD and
-		// stripe_unit_price as real USD per platform unit.
-		"price":             legacyScale.InexactFloat64(),
-		"stripe_unit_price": 1 / legacyScale.InexactFloat64(),
-
-		// 面板启用开关
-		"api_info_enabled":      cs.ApiInfoEnabled,
-		"uptime_kuma_enabled":   cs.UptimeKumaEnabled,
-		"announcements_enabled": cs.AnnouncementsEnabled,
-		"faq_enabled":           cs.FAQEnabled,
-
-		// 模块管理配置
-		"HeaderNavModules":    common.OptionMap["HeaderNavModules"],
-		"SidebarModulesAdmin": common.OptionMap["SidebarModulesAdmin"],
-
-		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
-		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,
-		"oidc_authorization_endpoint": system_setting.GetOIDCSettings().AuthorizationEndpoint,
-		"oidc_display_name":           system_setting.GetOIDCSettings().GetEffectiveDisplayName(),
-		"passkey_login":               passkeySetting.Enabled,
-		"passkey_display_name":        passkeySetting.RPDisplayName,
-		"passkey_rp_id":               passkeySetting.RPID,
-		"passkey_origins":             passkeySetting.Origins,
-		"passkey_allow_insecure":      passkeySetting.AllowInsecureOrigin,
-		"passkey_user_verification":   passkeySetting.UserVerification,
-		"passkey_attachment":          passkeySetting.AttachmentPreference,
-		"setup":                       constant.IsSetup(),
-		"user_agreement_enabled":      system_setting.UserAgreementPublished(),
-		"privacy_policy_enabled":      system_setting.PrivacyPolicyPublished(),
-		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
+	data["assistant"] = gin.H{
+		"enabled":      assistantSettings.Enabled,
+		"group":        assistantGroup,
+		"model":        assistantModel,
+		"funding_mode": "super_administrator",
 	}
 
-	// 根据启用状态注入可选内容
-	if cs.ApiInfoEnabled {
-		data["api_info"] = console_setting.GetApiInfo()
-	}
-	if cs.AnnouncementsEnabled {
-		data["announcements"] = console_setting.GetAnnouncements()
-	}
-	if cs.FAQEnabled {
-		data["faq"] = console_setting.GetFAQ()
-	}
 	docsAccess := false
 	if dashboardUser, ok := middleware.AuthenticatedDashboardUser(c); ok {
 		trustLevel, err := model.GetTrustLevelInfoForUserBase(dashboardUser)
@@ -299,6 +196,132 @@ func GetStatus(c *gin.Context) {
 		"data":    data,
 	})
 	return
+}
+
+// Capture option-backed fields under one short read lock. Database lookups,
+// external hooks and helpers that acquire this mutex must run after it returns.
+func getStatusConfigurationSnapshot(pricings []model.Pricing) (gin.H, setting.AssistantSettings, bool) {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	cs := console_setting.GetConsoleSetting()
+	registrationDisabledMethods, _ := common.ParseRegistrationDisabledMethods(common.OptionMap[common.RegistrationDisabledMethodsOptionKey])
+	anchor, anchorErr := common.CreditsPerUSD()
+	legacyScale, scaleErr := common.LegacyPricingUnitsPerUSD()
+	fx := operation_setting.USDExchangeRate
+	if anchorErr != nil || scaleErr != nil || fx <= 0 || math.IsNaN(fx) || math.IsInf(fx, 0) {
+		return nil, setting.AssistantSettings{}, false
+	}
+
+	passkeySetting := system_setting.GetPasskeySettings()
+	assistantSettings := setting.GetAssistantSettings()
+	chats := slices.Clone(setting.Chats)
+	for i, chat := range chats {
+		chats[i] = maps.Clone(chat)
+	}
+	data := gin.H{
+		"version":                      common.Version,
+		"start_time":                   common.StartTime,
+		"email_verification":           common.EmailVerificationEnabled,
+		"github_oauth":                 common.GitHubOAuthEnabled,
+		"github_client_id":             common.GitHubClientId,
+		"discord_oauth":                system_setting.GetDiscordSettings().Enabled,
+		"discord_client_id":            system_setting.GetDiscordSettings().ClientId,
+		"linuxdo_oauth":                common.LinuxDOOAuthEnabled,
+		"linuxdo_client_id":            common.LinuxDOClientId,
+		"linuxdo_minimum_trust_level":  common.LinuxDOMinimumTrustLevel,
+		"telegram_oauth":               common.TelegramOAuthEnabled,
+		"telegram_bot_name":            common.TelegramBotName,
+		"theme":                        "default",
+		"system_name":                  common.SystemName,
+		"logo":                         common.Logo,
+		"footer_html":                  common.Footer,
+		"wechat_qrcode":                common.WeChatAccountQRCodeImageURL,
+		"wechat_login":                 common.WeChatAuthEnabled,
+		"server_address":               system_setting.ServerAddress,
+		"turnstile_check":              common.TurnstileCheckEnabled,
+		"turnstile_site_key":           common.TurnstileSiteKey,
+		"docs_link":                    operation_setting.GetGeneralSetting().DocsLink,
+		"quota_per_unit":               common.QuotaPerUnit,
+		"currency_unit":                "credit",
+		"credits_per_usd":              anchor.InexactFloat64(),
+		"quota_per_usd":                anchor.InexactFloat64(),
+		"cny_per_usd":                  fx,
+		"legacy_pricing_units_per_usd": legacyScale.InexactFloat64(),
+		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
+		"display_in_currency":                 operation_setting.IsCurrencyDisplay(),
+		"quota_display_type":                  operation_setting.GetQuotaDisplayType(),
+		"custom_currency_symbol":              operation_setting.GetGeneralSetting().CustomCurrencySymbol,
+		"custom_currency_code":                operation_setting.GetGeneralSetting().CustomCurrencyCode,
+		"custom_currency_exchange_rate":       operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
+		"enable_batch_update":                 common.BatchUpdateEnabled,
+		"enable_drawing":                      common.DrawingEnabled,
+		"enable_task":                         common.TaskEnabled,
+		"enable_data_export":                  common.DataExportEnabled,
+		"data_export_default_time":            common.DataExportDefaultTime,
+		"default_collapse_sidebar":            common.DefaultCollapseSidebar,
+		"mj_notify_enabled":                   setting.MjNotifyEnabled,
+		"chats":                               chats,
+		"demo_site_enabled":                   operation_setting.DemoSiteEnabled,
+		"self_use_mode_enabled":               operation_setting.SelfUseModeEnabled.Load(),
+		"register_enabled":                    common.RegisterEnabled,
+		"password_login_enabled":              common.PasswordLoginEnabled,
+		"password_register_enabled":           common.PasswordRegisterEnabled,
+		"oauth_register_enabled":              common.OAuthRegisterEnabled,
+		"oauth_registration_disabled_methods": registrationDisabledMethods,
+		"default_use_auto_group":              setting.DefaultUseAutoGroup,
+		"preview_model_ids":                   getPublicCatalogModelIDsFromPricing(pricings, false),
+		"backend_capabilities": gin.H{
+			"bounty_notifications":    true,
+			"bounty_challenge_cancel": true,
+			"bounty_public_read":      true,
+			"self_oauth_unbind":       true,
+			"responses_websocket":     true,
+		},
+
+		"usd_exchange_rate": operation_setting.USDExchangeRate,
+		// Legacy clients read price as platform units per real USD and
+		// stripe_unit_price as real USD per platform unit.
+		"price":             legacyScale.InexactFloat64(),
+		"stripe_unit_price": 1 / legacyScale.InexactFloat64(),
+
+		// 面板启用开关
+		"api_info_enabled":      cs.ApiInfoEnabled,
+		"uptime_kuma_enabled":   cs.UptimeKumaEnabled,
+		"announcements_enabled": cs.AnnouncementsEnabled,
+		"faq_enabled":           cs.FAQEnabled,
+
+		// 模块管理配置
+		"HeaderNavModules":    common.OptionMap["HeaderNavModules"],
+		"SidebarModulesAdmin": common.OptionMap["SidebarModulesAdmin"],
+
+		"oidc_enabled":                system_setting.GetOIDCSettings().Enabled,
+		"oidc_client_id":              system_setting.GetOIDCSettings().ClientId,
+		"oidc_authorization_endpoint": system_setting.GetOIDCSettings().AuthorizationEndpoint,
+		"oidc_display_name":           system_setting.GetOIDCSettings().GetEffectiveDisplayName(),
+		"passkey_login":               passkeySetting.Enabled,
+		"passkey_display_name":        passkeySetting.RPDisplayName,
+		"passkey_rp_id":               passkeySetting.RPID,
+		"passkey_origins":             passkeySetting.Origins,
+		"passkey_allow_insecure":      passkeySetting.AllowInsecureOrigin,
+		"passkey_user_verification":   passkeySetting.UserVerification,
+		"passkey_attachment":          passkeySetting.AttachmentPreference,
+		"setup":                       constant.IsSetup(),
+		"user_agreement_enabled":      system_setting.UserAgreementPublished(),
+		"privacy_policy_enabled":      system_setting.PrivacyPolicyPublished(),
+		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
+	}
+
+	// 根据启用状态注入可选内容
+	if cs.ApiInfoEnabled {
+		data["api_info"] = console_setting.GetApiInfo()
+	}
+	if cs.AnnouncementsEnabled {
+		data["announcements"] = console_setting.GetAnnouncements()
+	}
+	if cs.FAQEnabled {
+		data["faq"] = console_setting.GetFAQ()
+	}
+	return data, assistantSettings, true
 }
 
 func GetNotice(c *gin.Context) {
