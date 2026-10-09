@@ -38,9 +38,12 @@ Choose one path:
 - Web-only, compatible with both active Go backends: check installation ownership
   first. Package-owned hosts require the signed installed-package/native path;
   the current archive-only Actions deploy does not update pacman. Use
-  `just release-web` for publication without choosing that incompatible path.
-  `just ship-web` / `just deploy-web TAG` apply only to reviewed archive-managed
-  targets; see the frontend path warning in `docs/deployment-workflow.md`.
+  `just release-web` for publication only until the required native installation
+  is complete. `just ship-web` applies to archive-managed targets. The existing
+  hybrid order is `just release-web`, then native installation/confirmation and
+  external proof, then `just deploy-web TAG`; ship cannot pause for that native
+  step. See the canonical prerequisites in `docs/production-release-transaction.md`
+  and the frontend path warning in `docs/deployment-workflow.md`.
 - Standalone Go/systemd: the Python `systemd` path in the same entrypoint; read
   `docs/manual-systemd-deployment.md`. Do not route package-owned files here.
 - Package-owned Go/Web: installed `/usr/bin/lmm-api-deploy production`; read
@@ -106,7 +109,9 @@ Only after the signed Release succeeds, dispatch `deploy-web-frontend.yml` at
 `main` with `release_tag`; require that exact run's success and public acceptance.
 Review compatibility with both active Go providers first. This is the existing
 archive workflow: it still does not update an Arch Web package or run its keep
-hook. Keep the installed-path limitation above; these commands do not fix it.
+hook. The existing hybrid path's native preinstallation, exact-ID receiver and
+explicit retention prerequisites remain in `docs/production-release-transaction.md`.
+These commands do not perform them or prove external package/full-tree equality.
 
 ## Execute and observe
 

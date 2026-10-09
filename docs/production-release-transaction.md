@@ -250,9 +250,26 @@ publish` for a new release id. Web changes requiring a new Go backend use the
 native combined transaction. The key cannot invoke this wrapper, the backend
 CLI, or any other command.
 This archive publish does not update a package-owned frontend or run its package
-retention hook. Such targets require the installed-package path described in
-[the deployment workflow](deployment-workflow.md#frontend-only-update); do not
-use an archive switch as evidence that the installed rollback package changed.
+retention hook. An archive switch is not evidence that the installed rollback
+package changed. The existing hybrid path has these concrete prerequisites:
+
+- On Arch, complete the Web-only native signed transaction first, installing the
+  candidate package while retaining Go. Require its exact `CONFIRMED` receipt,
+  installed package tuple, active frontend release ID and complete frontend-tree
+  equality with the official signed archive. The subsequent workflow must send
+  that same exact ID to the qualified receiver's `already-active` path, which
+  neither switches nor prunes that active release. The workflow does not perform
+  this native package installation.
+- On Ubuntu, the qualified archive receiver must pass an explicit keep count
+  sufficient for the active and required recovery trees. A plan retaining ten
+  releases requires the receiver's actual `--keep 10`; archive publication does
+  not execute the package hook or inherit its keep count.
+
+Capture the installed/package and full-tree evidence outside the workflow and
+bind the actual receiver behavior before dispatch. A workflow ID, successful
+`already-active` reply or matching `index.html` alone does not prove the complete
+frontend tree or rollback package identity. Continue the normal public and
+functional acceptance in [the deployment workflow](deployment-workflow.md#two-explicit-steps).
 
 ## Local validation
 

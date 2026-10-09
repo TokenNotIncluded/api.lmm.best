@@ -42,9 +42,11 @@ hosts, use the signed installed-package/native transaction in
 [signed upgrades](seamless-upgrades.md), preserving the installed tuple and
 letting its package hook activate the frontend. Automatic frontend callers must
 select that installed path for those hosts; the existing archive-only workflow
-is not that implementation. Until such a caller is qualified, use the installed
-operator path and `just release-web` for publication only. The archive commands
-below apply to reviewed archive-managed targets.
+is not that implementation. The two-step workflow below also applies to the
+existing hybrid path only after its native installation, same-ID receiver and
+retention prerequisites are satisfied; see the single canonical explanation in
+[production transactions](production-release-transaction.md#evidence-and-automation-boundary).
+An archive dispatch does not satisfy those prerequisites by itself.
 
 Check that the new frontend works with **both active Go backends** first. Changes
 that require a newer backend must use the combined signed transaction instead.
@@ -63,6 +65,10 @@ export LMM_LOCAL_TEST_EVIDENCE=/private/web-tests.json
 just ship-web            # next patch version, or: just ship-web web-vX.Y.Z
 just release-web         # same, but stop after the signed release is published
 ```
+
+`just ship-web` is for archive-managed targets. For the existing hybrid path,
+use `just release-web`, complete its canonical native installation/confirmation
+and external proof, then deploy explicitly in step 2; ship cannot pause there.
 
 Choose the local checks appropriate to the change; the record lists what actually
 ran and does not claim every suite passed. To reuse tests already completed, use
@@ -159,7 +165,8 @@ browser's Web build version against the tag suffix and affected user flows.
 confirm both active backends remain compatible. HTTP 200 alone is not acceptance.
 This deploy still publishes an archive: it does not update Arch's installed
 Web package or execute its keep hook. Apply the installation-path warning above;
-the two-step guide does not implement an installed-package automatic caller.
+the two-step guide does not implement an installed-package automatic caller or
+replace the hybrid path's external package/full-tree evidence.
 
 For an already published qualified release, skip step 1 and use
 `just deploy-web TAG`; `just deploy-web-status RUN_ID` and
