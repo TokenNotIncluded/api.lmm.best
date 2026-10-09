@@ -1,0 +1,165 @@
+name: Mobile integration review
+on:
+  push:
+    branches: [codex/mobile-immersive-settings]
+    paths: [.github/workflows/mobile-integration-review.yml]
+permissions:
+  contents: read
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      revision: ${{ steps.commit.outputs.revision }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: codex/mobile-immersive-settings
+          fetch-depth: 0
+      - name: Merge the reviewed main revision with explicit conflict handling
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code 6795afd061708c7399dd6219fa657ff7952f0424 HEAD -- apps/web
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          test "$(git rev-parse 5d7fab5d432025d59d69490501f2a1d57e47fb1c:apps/web/src/components/layout/components/authenticated-layout.tsx)" = ab3f401f9d940aa22caa9ca193cec54178cd4328
+          git merge --no-commit --no-ff 5d7fab5d432025d59d69490501f2a1d57e47fb1c || test -f .git/MERGE_HEAD
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          main = '5d7fab5d432025d59d69490501f2a1d57e47fb1c'
+          base = subprocess.check_output(['git', 'merge-base', 'HEAD', main], text=True).strip()
+          layout = 'apps/web/src/components/layout/components/authenticated-layout.tsx'
+          locales = {f'apps/web/src/i18n/locales/{name}.json' for name in ['en','fr','ja','ru','vi','zh-TW','zh']}
+          conflicts = set(subprocess.check_output(['git','diff','--name-only','--diff-filter=U'],text=True).splitlines())
+          assert conflicts <= locales | {layout}, conflicts
+          def source(ref, path):
+              return subprocess.check_output(['git','show',f'{ref}:{path}'],text=True)
+          text = source(main, layout)
+          changes = [
+              ("import { AssistantLauncher }", "import { SourceConsent } from '@/features/acquisition/consent'\nimport { AssistantLauncher }"),
+              ("import { ConsoleLocation }", "import { ConsoleMobileDock } from './console-mobile-dock'\nimport { ConsoleLocation }"),
+              ("  const assistantPage = pathname === '/getting-started'", "  const settingsPage = pathname.startsWith('/system-settings/')\n  const assistantPage = pathname === '/getting-started'"),
+              ("                  defaultOpen={defaultOpen}", "                  defaultOpen={settingsPage ? false : defaultOpen}\n                  persistState={!settingsPage}"),
+              ("                    <AccessRestrictionNotice className='shrink-0' />", "                    <AccessRestrictionNotice compact>\n                      <SourceConsent />\n                    </AccessRestrictionNotice>"),
+              ("                  <ReleaseNoteDialog />", "                  {consoleActivated && !assistantPage && <ConsoleMobileDock />}\n                  <ReleaseNoteDialog />"),
+          ]
+          for before, after in changes:
+              assert text.count(before) == 1, before
+              text = text.replace(before, after)
+          Path(layout).write_text(text)
+          subprocess.run(['git','add',layout],check=True)
+          missing = object()
+          def merge(b, o, t):
+              if o == b: return t
+              if t == b or o == t: return o
+              if all(isinstance(v, dict) for v in [b,o,t]):
+                  out = {}
+                  for key in dict.fromkeys([*o,*t,*b]):
+                      value = merge(b.get(key,missing),o.get(key,missing),t.get(key,missing))
+                      if value is not missing: out[key] = value
+                  return out
+              raise ValueError('Conflicting translations require manual review')
+          for path in sorted(conflicts & locales):
+              data = merge(json.loads(source(base,path)),json.loads(source('HEAD',path)),json.loads(source(main,path)))
+              Path(path).write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+              subprocess.run(['git','add',path],check=True)
+          assert not subprocess.check_output(['git','ls-files','-u'],text=True).strip()
+          PY
+          git diff --cached --check
+      - name: Commit to feature branch and export text patch
+        id: commit
+        run: |
+          git commit -m 'merge: preserve main mobile scroll chrome alongside immersive settings'
+          git push origin HEAD:refs/heads/codex/mobile-immersive-settings
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/mobile-source"
+          git rev-parse HEAD > "$RUNNER_TEMP/mobile-source/revision.txt"
+          git diff --binary 8e11a315115b386ef365e662567c2ebdf1237940 HEAD -- apps/web > "$RUNNER_TEMP/mobile-source/integrated-web.patch"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mobile-integrated-source
+          path: ${{ runner.temp }}/mobile-source
+          retention-days: 1
+  review:
+    needs: integrate
+    strategy:
+      fail-fast: false
+      matrix:
+        area: [quality, public, console]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.integrate.outputs.revision }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Prepare review evidence
+        run: |
+          mkdir -p "$RUNNER_TEMP/mobile-review"
+          git rev-parse HEAD > "$RUNNER_TEMP/mobile-review/revision.txt"
+      - name: Independent quality checks
+        if: matrix.area == 'quality'
+        shell: bash
+        run: |
+          failed=0
+          for check in copyright:check lint typecheck test format:check; do
+            if bun run --filter @lmm/web "$check" > "$RUNNER_TEMP/mobile-review/${check//:/-}.log" 2>&1; then
+              printf '%s: PASS\n' "$check" | tee -a "$RUNNER_TEMP/mobile-review/quality.txt"
+            else
+              failed=1
+              printf '%s: FAIL\n' "$check" | tee -a "$RUNNER_TEMP/mobile-review/quality.txt"
+              tail -n 30 "$RUNNER_TEMP/mobile-review/${check//:/-}.log"
+            fi
+          done
+          exit "$failed"
+      - name: Prepare isolated browser tooling
+        if: matrix.area != 'quality'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mobile-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/mobile-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Build production public app and check bundle budget
+        if: matrix.area == 'public'
+        run: |
+          bun run --filter @lmm/web build > "$RUNNER_TEMP/mobile-review/build.log" 2>&1
+          bun run --filter @lmm/web bundle:check >> "$RUNNER_TEMP/mobile-review/build.log" 2>&1
+      - name: Run responsive and touch assertions
+        if: matrix.area != 'quality'
+        shell: bash
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/mobile-browser/node_modules/playwright/index.mjs
+          MOBILE_REVIEW_OUTPUT: ${{ runner.temp }}/mobile-review
+          REVIEW_AREA: ${{ matrix.area }}
+        run: |
+          if [ "$REVIEW_AREA" = console ]; then
+            export MOBILE_CONSOLE_ORIGIN=http://127.0.0.1:4174
+            export MOBILE_REVIEW_CASES=console
+            LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$RUNNER_TEMP/mobile-review/server.log" 2>&1 &
+            port=4174
+          else
+            bun run preview --port 4175 > "$RUNNER_TEMP/mobile-review/server.log" 2>&1 &
+            port=4175
+          fi
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 120); do
+            if curl --fail --silent "http://127.0.0.1:$port/" > /dev/null; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          node scripts/mobile-experience-review.mjs > "$RUNNER_TEMP/mobile-review/browser.log" 2>&1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: mobile-integrated-${{ matrix.area }}-review
+          path: ${{ runner.temp }}/mobile-review
+          retention-days: 7
