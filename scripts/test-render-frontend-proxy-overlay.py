@@ -1,6 +1,8 @@
 import hashlib,http.server,json,pathlib,shutil,socket,subprocess,tempfile,threading,time,urllib.error,urllib.request
 import importlib.util
 ROOT=pathlib.Path(__file__).resolve().parent.parent
+MAP_TEXT=(ROOT/'packaging/common/lmm-api/edge-policy/nginx/http-map.conf').read_text()
+CSP_MAP='map $args $lmm_extore_callback_csp {\n'+MAP_TEXT.split('map $args $lmm_extore_callback_csp {\n',1)[1].split('\n}',1)[0]+'\n}\n'
 NGINX=shutil.which('nginx')
 if not NGINX:raise RuntimeError('nginx must be installed to run frontend overlay integration tests')
 spec=importlib.util.spec_from_file_location('frontend_overlay',ROOT/'scripts/render-frontend-proxy-overlay.py')
@@ -34,7 +36,7 @@ try:
   s=socket.socket();s.bind(('127.0.0.1',0));port=s.getsockname()[1];s.close()
   conf=original.decode().replace('include /etc/nginx/snippets/lmm-api-maintenance-display-server.conf;','').replace('include /etc/nginx/lmm-api-mime.types;','include '+str(ROOT/'packaging/common/lmm-api/edge-policy/nginx/mime.types')+';').replace('/srv/lmm-api-frontend/current',str(front)).replace('/srv/lmm-api-frontend/assets',str(assets)).replace('127.0.0.1:3000','127.0.0.1:'+str(backend.server_port)).replace('/var/log/nginx/access.log',str(p/'access.log'))
   dirs=' '.join(f'{kind}_temp_path {p}/{kind};' for kind in ('client_body','proxy','fastcgi','uwsgi','scgi'))
-  top=f'error_log {p}/error.log; pid {p}/nginx.pid; events {{ worker_connections 64; }} http {{ access_log off; '+dirs+f' map $http_upgrade $websocket_upgrade {{ default $http_upgrade; }} map $http_upgrade $connection_upgrade {{ default upgrade; "" close; }} map $request_uri $lmm_access_loggable {{ default 1; }} server {{ listen 127.0.0.1:{port}; '+conf+' } }'
+  top=f'error_log {p}/error.log; pid {p}/nginx.pid; events {{ worker_connections 64; }} http {{ access_log off; '+CSP_MAP+dirs+f' map $http_upgrade $websocket_upgrade {{ default $http_upgrade; }} map $http_upgrade $connection_upgrade {{ default upgrade; "" close; }} map $request_uri $lmm_access_loggable {{ default 1; }} server {{ listen 127.0.0.1:{port}; '+conf+' } }'
   config=p/'nginx.conf';config.write_text(top);t=subprocess.run([NGINX,'-p',str(p),'-c',str(config),'-t'],capture_output=True);assert t.returncode==0,t.stderr.decode()
   proc=subprocess.Popen([NGINX,'-p',str(p),'-c',str(config),'-g','daemon off;'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   class NoRedirect(urllib.request.HTTPRedirectHandler):
