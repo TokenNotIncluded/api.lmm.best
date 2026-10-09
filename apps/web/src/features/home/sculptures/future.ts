@@ -37,7 +37,7 @@ export function pelicanBicycle(): Sculpture {
       0.865 - u * 0.072 - Math.sin(v * Math.PI) * Math.sin((u * 0.8 + 0.17) * Math.PI) * (1 - u) * 0.28,
       (v - 0.5) * (1 - u) * 0.19
     ],
-    (u, v) => tint(C.gold, 0.7 + Math.sin(v * Math.PI) * 0.27),
+    (_u, v) => tint(C.gold, 0.7 + Math.sin(v * Math.PI) * 0.27),
     21
   )
   s.tube((t) => [0.18 + t * 0.88, 0.883 - t * 0.086, 0], 0.014, C.gold, 21, 80, 6)
@@ -192,7 +192,7 @@ export function catBomb(): Sculpture {
           0.5 + u * 0.31,
           0.014 + face * (1 - u) * 0.11
         ],
-        (u, v) => v > 0.24 && v < 0.76 && face > 0 ? tint(C.rose, 0.9) : C.gold
+        (_u, v) => v > 0.24 && v < 0.76 && face > 0 ? tint(C.rose, 0.9) : C.gold
       )
     }
     const x = -0.42 + side * 0.125

@@ -146,7 +146,7 @@ export function rose(): Sculpture {
         -0.09 + Math.sin(Math.PI * u) * 0.07 - q * q * 0.035
       ]
     }
-    s.surface(38, 22, leaf, (u, v) => tint(C.teal, 0.6 + Math.sin(v * Math.PI) * 0.3))
+    s.surface(38, 22, leaf, (_u, v) => tint(C.teal, 0.6 + Math.sin(v * Math.PI) * 0.3))
     s.tube((u) => leaf(u, 0.5), 0.009, tint(C.gold, 0.77), 0, 45, 5)
     for (let rib = 1; rib < 7; rib++) for (const edge of [0, 1]) {
       s.tube(
@@ -483,7 +483,7 @@ export function dragonfly(): Sculpture {
         72,
         24,
         wing,
-        (u, v) => tint([188, 220, 215], 0.72 + Math.sin(v * Math.PI) * 0.2),
+        (_u, v) => tint([188, 220, 215], 0.72 + Math.sin(v * Math.PI) * 0.2),
         part
       )
       for (const v of [0, 0.35, 0.65, 1]) s.tube((u) => wing(u, v), 0.007, C.teal, part, 72, 4)
