@@ -1,0 +1,65 @@
+name: L1 retirement review
+
+on:
+  push:
+    branches: [codex/retire-l1-review-20261009]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export immutable source snapshots
+        run: |
+          mkdir -p "$RUNNER_TEMP/l1-source"
+          base=18a92dd49b1a7eda470bd27dd5d649699c45f785
+          head=da5572f5d1289dc4be21e672acaf1803c7167958
+          git fetch --no-tags origin "$head"
+          ancestor=$(git merge-base "$base" "$head")
+          printf '%s\n' "$base" "$head" "$ancestor" > "$RUNNER_TEMP/l1-source/revisions.txt"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/l1-source/main.tar.gz" "$base"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/l1-source/pr.tar.gz" "$head"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/l1-source/ancestor.tar.gz" "$ancestor"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l1-source
+          path: ${{ runner.temp }}/l1-source
+          retention-days: 3
+          if-no-files-found: error
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Record baseline web checks without editing source
+        run: |
+          mkdir -p "$RUNNER_TEMP/l1-baseline"
+          failed=0
+          for task in format:check copyright:check lint typecheck; do
+            if bun run --filter @lmm/web "$task" > "$RUNNER_TEMP/l1-baseline/${task//:/-}.log" 2>&1; then
+              echo "$task PASS"
+            else
+              echo "$task FAIL"
+              tail -100 "$RUNNER_TEMP/l1-baseline/${task//:/-}.log"
+              failed=1
+            fi
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: l1-baseline
+          path: ${{ runner.temp }}/l1-baseline
+          retention-days: 3
+          if-no-files-found: warn
