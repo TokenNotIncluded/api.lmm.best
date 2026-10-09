@@ -48,9 +48,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/results"
-          # Unrelated logging-format vet failures were reproduced on the baseline.
-          # The standalone provider and OAuth core step keeps vet enabled.
-          go test -json -vet=off -p 2 ./model ./service ./controller ./router -run 'ToolMarket|MarketRemote|MarketProvider|OAuth|IdentityStorage' -count=1 -timeout=8m | tee "$RUNNER_TEMP/results/integration-tests.json"
+          go test -json -p 2 ./model ./service ./controller ./router ./middleware -run 'ToolMarket|MarketRemote|MarketProvider|OAuth|IdentityStorage' -count=1 -timeout=8m | tee "$RUNNER_TEMP/results/integration-tests.json"
       - name: Build all Go packages
         if: always()
         working-directory: apps/api-go
