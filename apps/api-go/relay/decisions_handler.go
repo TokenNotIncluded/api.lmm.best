@@ -38,6 +38,12 @@ func DecisionsHelper(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIE
 	if err := helper.ValidateDecisionsPriceGroup(c, info); err != nil {
 		return decisionsRequestError(err)
 	}
+	if err := helper.RefreshDecisionsChannelPrice(info); err != nil {
+		return decisionsRequestError(err)
+	}
+	if apiErr := service.PrepareTieredBillingForSelectedGroup(c, info); apiErr != nil {
+		return apiErr
+	}
 	original, ok := info.Request.(*dto.DecisionsRequest)
 	if !ok || original == nil {
 		return decisionsRequestError(errors.New("invalid native Decisions request"))

@@ -267,7 +267,7 @@ func (c Client) ReadCatalog(ctx context.Context, flow Flow, code string) (*Catal
 		return nil, ErrProtocol
 	}
 	var catalog Catalog
-	if err := c.request(ctx, http.MethodGet, flow.Origin+catalogPath, token.Access, nil, &catalog, 4<<20); err != nil {
+	if err := c.request(ctx, http.MethodGet, flow.Origin+catalogPath, token.Access, nil, &catalog, 16<<20); err != nil {
 		return nil, err
 	}
 	if err := ValidateCatalog(&catalog, flow.Origin, token.GrantID); err != nil {
@@ -297,7 +297,7 @@ func ValidateCatalog(catalog *Catalog, origin, grantID string) error {
 			Product  json.RawMessage   `json:"product"`
 			Variants []json.RawMessage `json:"variants"`
 		}
-		if json.Unmarshal(raw, &listing) != nil || listing.Schema != "extore.product-listing.v1" || !identityPattern.MatchString(listing.ID) || listing.ShopID != catalog.Shop.ID || !revisionPattern.MatchString(listing.Revision) || seen[listing.ID] || len(listing.Product) < 2 || listing.Product[0] != '{' || len(listing.Variants) < 1 || len(listing.Variants) > 200 {
+		if json.Unmarshal(raw, &listing) != nil || listing.Schema != "extore.product-listing.v1" || !identityPattern.MatchString(listing.ID) || listing.ShopID != catalog.Shop.ID || !revisionPattern.MatchString(listing.Revision) || seen[listing.ID] || len(listing.Product) < 2 || listing.Product[0] != '{' || listing.Variants == nil || len(listing.Variants) > 100 {
 			return ErrProtocol
 		}
 		seen[listing.ID] = true

@@ -43,6 +43,10 @@ import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
 import { ConsoleMobileDock } from './console-mobile-dock'
 import { ConsoleLocation } from './console-navigation'
+import {
+  MobileScrollChrome,
+  MobileScrollChromeProvider,
+} from './mobile-scroll-chrome'
 import { QuickSwitchProvider } from './quick-switch-provider'
 import { ShellBridgeRegistrar } from './shell-bridge-registrar'
 import { ShortcutCheatsheetDialog } from './shortcut-cheatsheet-dialog'
@@ -63,65 +67,73 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   const focusedOnboarding = assistantPage && !consoleActivated
 
   return (
-    <MandatoryAnnouncements>
-      <LayoutProvider>
-        <ModelPlazaProvider>
-          <SearchProvider>
-            <QuickSwitchProvider>
-              <SidebarProvider
-                defaultOpen={settingsPage ? false : defaultOpen}
-                persistState={!settingsPage}
-                className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
-              >
-                <SkipToMain />
-                <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
-                  {focusedOnboarding ? null : <AppSidebar />}
-                  <SidebarInset className='min-h-0 min-w-0 flex-1 overflow-hidden'>
-                    <AppHeader
-                      showTopNav={false}
-                      showSidebarTrigger={!focusedOnboarding}
-                      showBrand={focusedOnboarding}
-                      showLanguageSwitcher={focusedOnboarding}
-                      showConfigDrawer={focusedOnboarding}
-                      showAssistant={!focusedOnboarding}
-                      showMobileAssistant={!assistantPage}
-                      leftContent={
-                        focusedOnboarding ? undefined : <ConsoleLocation />
-                      }
-                    />
-                    <FrontendUpdateNotice />
-                    <div className='flex min-h-0 min-w-0 flex-1'>
-                      <div
-                        className={cn(
-                          '@container/content flex flex-col',
-                          'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
-                          assistantPage
-                            ? 'pb-0'
-                            : 'pb-[env(safe-area-inset-bottom)] xl:pb-0'
+    <MobileScrollChromeProvider resetKey={pathname}>
+      <MandatoryAnnouncements>
+        <LayoutProvider>
+          <ModelPlazaProvider>
+            <SearchProvider>
+              <QuickSwitchProvider>
+                <SidebarProvider
+                  defaultOpen={settingsPage ? false : defaultOpen}
+                  persistState={!settingsPage}
+                  className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
+                >
+                  <SkipToMain />
+                  <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
+                    {focusedOnboarding ? null : <AppSidebar />}
+                    <SidebarInset className='min-h-0 min-w-0 flex-1 overflow-hidden'>
+                      <MobileScrollChrome>
+                        <AppHeader
+                          showTopNav={false}
+                          showSidebarTrigger={!focusedOnboarding}
+                          showBrand={focusedOnboarding}
+                          showLanguageSwitcher={focusedOnboarding}
+                          showConfigDrawer={focusedOnboarding}
+                          showAssistant={!focusedOnboarding}
+                          showMobileAssistant={!assistantPage}
+                          leftContent={
+                            focusedOnboarding ? undefined : (
+                              <ConsoleLocation />
+                            )
+                          }
+                        />
+                      </MobileScrollChrome>
+                      <FrontendUpdateNotice />
+                      <div className='flex min-h-0 min-w-0 flex-1'>
+                        <div
+                          className={cn(
+                            '@container/content flex flex-col',
+                            'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
+                            assistantPage
+                              ? 'pb-0'
+                              : 'pb-[env(safe-area-inset-bottom)] xl:pb-0'
+                          )}
+                        >
+                          {props.children ?? <AnimatedOutlet />}
+                        </div>
+                        {!focusedOnboarding && (
+                          <AssistantLauncher hideMobileLauncher />
                         )}
-                      >
-                        {props.children ?? <AnimatedOutlet />}
                       </div>
-                      {!focusedOnboarding && (
-                        <AssistantLauncher hideMobileLauncher />
-                      )}
-                    </div>
-                  </SidebarInset>
-                </div>
-                <AccessRestrictionNotice compact>
-                  <SourceConsent />
-                </AccessRestrictionNotice>
-                {consoleActivated && !assistantPage && <ConsoleMobileDock />}
-                <ReleaseNoteDialog />
-                <CommandMenu />
-                <ShortcutCheatsheetDialog />
-                <ShellBridgeRegistrar />
-                <ModelPlazaPanel />
-              </SidebarProvider>
-            </QuickSwitchProvider>
-          </SearchProvider>
-        </ModelPlazaProvider>
-      </LayoutProvider>
-    </MandatoryAnnouncements>
+                    </SidebarInset>
+                  </div>
+                  <MobileScrollChrome>
+                    <AccessRestrictionNotice compact>
+                      <SourceConsent />
+                    </AccessRestrictionNotice>
+                  </MobileScrollChrome>
+                  {consoleActivated && !assistantPage && <ConsoleMobileDock />}
+                  <ReleaseNoteDialog />
+                  <CommandMenu />
+                  <ShortcutCheatsheetDialog />
+                  <ShellBridgeRegistrar />
+                  <ModelPlazaPanel />
+                </SidebarProvider>
+              </QuickSwitchProvider>
+            </SearchProvider>
+          </ModelPlazaProvider>
+        </LayoutProvider>
+      </MandatoryAnnouncements>
+    </MobileScrollChromeProvider>
   )
 }

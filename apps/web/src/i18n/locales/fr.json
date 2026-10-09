@@ -11713,6 +11713,8 @@
     "请刷新重试，当前金额未确认。": "Veuillez actualiser et réessayer. Le montant n’est pas encore confirmé.",
     "退款后净付款": "Paiements nets après remboursements",
     "部分充值记录无法确认实付": "Le paiement réel de certaines recharges ne peut pas être confirmé",
-    "Service information": "Service et confidentialité"
+    "Service information": "Service et confidentialité",
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "L’import Extore nécessite une clé de chiffrement persistante sur le serveur. Demandez à un administrateur de la configurer.",
+    "This draft stays private. Review its visibility before publishing.": "Ce brouillon reste privé. Vérifiez sa visibilité avant publication."
   }
 }

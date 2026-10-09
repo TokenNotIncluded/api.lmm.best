@@ -11713,6 +11713,8 @@
     "请刷新重试，当前金额未确认。": "请刷新重试，当前金额尚未确认。",
     "退款后净付款": "退款后净付款",
     "部分充值记录无法确认实付": "部分充值记录无法确认实付金额",
-    "Service information": "服务说明与隐私"
+    "Service information": "服务说明与隐私",
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore 导入需要服务器配置持久加密密钥。请联系管理员检查配置。",
+    "This draft stays private. Review its visibility before publishing.": "此草稿保持私有。发布前请确认可见性。"
   }
 }

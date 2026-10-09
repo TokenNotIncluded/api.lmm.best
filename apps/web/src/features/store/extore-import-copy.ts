@@ -29,7 +29,7 @@ export const EXTORE_COPY = {
   imageWarning:
     'Some source images are not valid HTTPS URLs and will not be copied.',
   privacyWarning:
-    'This is a private Extore product. It stays private in the draft.',
+    'This draft stays private. Review its visibility before publishing.',
   privateUnsupported:
     'Update the backend to support private product visibility before importing this product.',
   noVariants: 'No enabled variants are available.',

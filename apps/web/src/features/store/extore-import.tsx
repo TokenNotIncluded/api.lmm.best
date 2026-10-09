@@ -96,10 +96,10 @@ export function StoreExtoreImport({
 
   const listing = catalog?.products.find((item) => item.id === productId)
   const variant = listing?.variants.find(
-    (item) => item.id === variantId && item.enabled
+    (item) => !!item.id && item.id === variantId && item.enabled === true
   )
   const supportedVisibility =
-    listing?.product.public !== false || accessSupported
+    listing?.product.public === true || accessSupported
   async function connect(event: React.FormEvent) {
     event.preventDefault()
     if (busy) return
@@ -190,7 +190,8 @@ export function StoreExtoreImport({
                     <option value=''>{t('Select')}</option>
                     {catalog.products.map((item) => (
                       <option key={item.id} value={item.id}>
-                        {extoreText(item.product.name, i18n.language)}
+                        {extoreText(item.product.name, i18n.language) ||
+                          item.id}
                       </option>
                     ))}
                   </select>
@@ -208,18 +209,24 @@ export function StoreExtoreImport({
                         onChange={(event) => setVariantId(event.target.value)}
                       >
                         <option value=''>{t('Select')}</option>
-                        {listing.variants.map((item) => (
+                        {listing.variants.map((item, index) => (
                           <option
-                            key={item.id}
-                            value={item.id}
-                            disabled={!item.enabled}
+                            key={item.id ?? `missing-${index}`}
+                            value={item.id ?? ''}
+                            disabled={!item.id || item.enabled !== true}
                           >
-                            {extoreText(item.name, i18n.language)}
-                            {!item.enabled ? ` · ${t('Disabled')}` : ''}
+                            {extoreText(item.name, i18n.language) ||
+                              item.id ||
+                              t('Not provided')}
+                            {!item.id || item.enabled !== true
+                              ? ` · ${t('Disabled')}`
+                              : ''}
                           </option>
                         ))}
                       </select>
-                      {!listing.variants.some((item) => item.enabled) && (
+                      {!listing.variants.some(
+                        (item) => item.id && item.enabled === true
+                      ) && (
                         <p className='text-muted-foreground text-sm'>
                           {t(copy.noVariants)}
                         </p>
@@ -234,11 +241,11 @@ export function StoreExtoreImport({
                         <strong>
                           {variant.price == null
                             ? t(copy.unknownPrice)
-                            : `${variant.price} ${variant.currency}`}
+                            : `${variant.price} ${variant.currency ?? t('Not provided')}`}
                         </strong>
                       </p>
                     )}
-                    {listing.product.public === false && (
+                    {listing.product.public !== true && (
                       <p className='text-sm' role='note'>
                         {t(
                           supportedVisibility

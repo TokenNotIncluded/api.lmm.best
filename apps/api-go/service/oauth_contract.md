@@ -52,3 +52,25 @@ Trust and paid-activation policy retain their existing thresholds in `legacy_pri
 ## Operational gate
 
 Do not describe this as published or production accepted until HTTP security, internal-key isolation, per-request authorization, real authorization/invocation/stream/cancellation/revocation/refresh and billing reconciliation tests, reverse-proxy log redaction, supply-chain review and client interoperability are verified. Proxy must not log OAuth query strings, POST bodies, response bodies or headers. Backend handlers use bounded contexts, independent per-IP budgets and no-store/no-referrer/CSP. Configure TLS termination to strip forwarding headers and forward only to the trusted loopback listener; do not trust arbitrary X-Forwarded-Proto as transport proof.
+
+## Native OpenAI-compatible clients
+
+`GET /api/oauth2/openai/v1/models` returns a standard OpenAI collection from the
+same authorized Catalog v1, filtered to Chat Completions models. IDs retain the
+exact `lmm:<group-id>:<model-id>` binding; names display the group and model.
+Unknown prices and capability limits are omitted, not fabricated as zero.
+
+`POST /api/oauth2/openai/v1/chat/completions` accepts one of those exact IDs with
+the same OAuth bearer. It rejects caller group headers, plain upstream names,
+ambiguous JSON, alternate credentials, query credentials and unauthorized groups.
+Authentication precedes shared large-request admission. The admitted envelope is
+translated internally to the existing `/v1/chat/completions` relay; the original
+OAuth group/model checks and billing session remain authoritative. This is not
+an HTTP proxy, a second token store or a new grant type. Streaming and cancellation
+use the normal relay. Existing Pi/DSH and API-key endpoints are unchanged.
+
+This permits a fixed declarative Codewhale provider: install once, authorize
+inside the host, then choose a group-bound model. No companion login, manifest
+export, shared token file or per-user plugin generation is needed. The native
+Codewhale client keeps its registered four initial scopes; no MCP permission is
+added. Deployment and real browser/inference/billing acceptance remain required.

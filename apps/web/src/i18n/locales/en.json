@@ -11713,6 +11713,8 @@
     "请刷新重试，当前金额未确认。": "Please refresh and try again. The amount is not yet confirmed.",
     "退款后净付款": "Net payments after refunds",
     "部分充值记录无法确认实付": "Actual payments cannot be confirmed for some top-up records",
-    "Service information": "Service information"
+    "Service information": "Service information",
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore import needs a persistent server encryption key. Ask an administrator to configure it.",
+    "This draft stays private. Review its visibility before publishing.": "This draft stays private. Review its visibility before publishing."
   }
 }

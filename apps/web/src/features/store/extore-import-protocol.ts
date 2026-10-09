@@ -23,17 +23,23 @@ const text = (limit: number) =>
   ])
 const variantSchema = z
   .object({
-    id,
-    name: text(200),
-    description: text(10000).optional(),
+    id: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9_-]{0,39}$/)
+      .optional(),
+    name: z.string().max(120).optional(),
+    description: z.string().max(10000).optional(),
     price: z
       .string()
       .regex(/^[0-9]+(?:\.[0-9]{1,6})?$/)
       .max(100)
       .nullable()
       .optional(),
-    currency: z.string().regex(/^[A-Z]{3,5}$/),
-    enabled: z.boolean(),
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3,5}$/)
+      .optional(),
+    enabled: z.boolean().optional(),
     attributes: z.record(
       z.string().max(100),
       z.union([
@@ -60,15 +66,15 @@ const listingSchema = z
     }),
     product: z
       .object({
-        name: text(200),
-        description: text(20000),
-        public: z.boolean(),
+        name: text(120).optional(),
+        description: text(20000).optional(),
+        public: z.boolean().optional(),
         logo: z.string().max(2048).optional(),
         image: z.string().max(2048).optional(),
         support_email: z.string().max(320).optional(),
       })
       .passthrough(),
-    variants: z.array(variantSchema).min(1).max(200),
+    variants: z.array(variantSchema).max(100),
   })
   .passthrough()
 const catalogSchema = z.object({
@@ -143,8 +149,10 @@ export function parseExtoreCatalog(value: unknown): ExtoreCatalog {
         throw new Error()
       }
       seen.add(listing.id)
-      const variants = new Set(listing.variants.map((variant) => variant.id))
-      if (variants.size !== listing.variants.length) throw new Error()
+      const ids = listing.variants.flatMap((variant) =>
+        variant.id ? [variant.id] : []
+      )
+      if (new Set(ids).size !== ids.length) throw new Error()
     }
   } catch {
     throw new Error(EXTORE_INVALID_CATALOG)
@@ -186,16 +194,18 @@ export function extoreProductDraft(
   language: string
 ): ExtoreDraft {
   if (
-    !variant.enabled ||
+    !variant.id ||
+    variant.enabled !== true ||
     !catalog.products.includes(listing) ||
     !listing.variants.includes(variant)
   ) {
     throw new Error('Choose an enabled Extore variant.')
   }
   const name = extoreText(listing.product.name, language).trim()
-  const variantName = extoreText(variant.name, language).trim()
-  if (!name || !variantName) throw new Error(EXTORE_INVALID_CATALOG)
-  const title = listing.variants.length > 1 ? `${name} · ${variantName}` : name
+  const variantName = extoreText(variant.name, language).trim() || variant.id
+  // A missing title stays blank for the seller to supply in the existing editor.
+  const title =
+    name && listing.variants.length > 1 ? `${name} · ${variantName}` : name
   if (new TextEncoder().encode(title).length > 200) {
     throw new Error(
       'The imported title is too long. Shorten it in Extore first.'
@@ -220,7 +230,7 @@ export function extoreProductDraft(
       ],
       template: 'card-key',
       // Public exposure is a separate seller decision, including for private listings.
-      visibility: listing.product.public ? 'public' : 'private',
+      visibility: listing.product.public === true ? 'public' : 'private',
     },
     source: {
       issuer: catalog.issuer,
@@ -230,6 +240,6 @@ export function extoreProductDraft(
       revision: listing.revision,
     },
     referencePrice: variant.price ?? '',
-    referenceCurrency: variant.currency,
+    referenceCurrency: variant.currency ?? '',
   }
 }

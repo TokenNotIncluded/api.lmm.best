@@ -11713,6 +11713,8 @@
     "请刷新重试，当前金额未确认。": "再読み込みしてお試しください。金額はまだ確認されていません。",
     "退款后净付款": "返金後の純支払額",
     "部分充值记录无法确认实付": "一部のチャージ記録は実際の支払額を確認できません",
-    "Service information": "サービスとプライバシー"
+    "Service information": "サービスとプライバシー",
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore のインポートには、サーバーに永続的な暗号化キーを設定する必要があります。管理者に設定の確認を依頼してください。",
+    "This draft stays private. Review its visibility before publishing.": "この下書きは非公開のままです。公開前に表示設定を確認してください。"
   }
 }

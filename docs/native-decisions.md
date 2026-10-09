@@ -46,23 +46,42 @@ The internal price key is `<requested-model>@decisions`, for example
 `gpt-6-luna@decisions`. This is a **price lookup key**, not a model ID to send to
 OpenAI. API keys and channels continue to authorize the requested model ID.
 
-Configure an exact `ModelRatio` entry through the existing administrator settings.
-Do not replace the entire existing map. This implementation deliberately ships no default
-rate, since it does not implement automatic regional/long-context tariff updates.
-The current ratio convention has 1 = $2 per million input tokens; 0.05 therefore
-represents the base $0.10 price only, before the existing group and trust factors.
-This numeric example is not a recommended production selling price.
+Configure this key in the existing model-pricing administrator page with
+`billing_mode = tiered_expr` and an independently maintained expression. For the
+official rates verified on 2026-10-09, the USD expression is:
 
-An absent price rejects the request; ordinary model ratios are not a fallback.
-Per-call and expression prices for this key are not implemented. Input usage is
-settled from the provider's `input_tokens`. Output/cache details remain visible
-but do not add separate charges. Explicit zero is not replaced by estimated
-usage; absent or invalid input usage is rejected before delivery. A retry cannot
-switch to another billing group using the first group's price.
+```text
+(len > 272000 ? tier("long", p * 0.2) : tier("standard", p * 0.1)) * ((header("x-lmm-billing-upstream-host") == "eu.api.openai.com" || header("x-lmm-billing-upstream-host") == "us.api.openai.com") ? 1.1 : 1)
+```
 
-**Before production:** reconcile actual provider usage and invoices, including
-any nonzero cache details, regional requests and long inputs. Do not treat the
-local parser tests as financial integration tests or proof of zero loss.
+These numbers are configuration examples, not runtime defaults. The existing
+currency conversion, group and trust factors still apply. Change or synchronize
+the independent key when the official tariff changes. Synchronizing the chat
+key never changes this price; generic price synchronization supports this key's
+expression and retains its input-length and host conditions. Missing expression
+configuration fails closed. Explicit input-only `ModelRatio` entries remain
+supported for administrator-defined flat tariffs; per-call prices are rejected.
+
+`p` and `len` use the provider's inclusive `usage.input_tokens`. Cache and output
+fields are preserved in the response but add no separate charges. Prepayment
+estimates input only, with no generated-output allowance. The expression and
+currency basis are frozen per request; a configuration change affects new
+requests. Consumption logs include the independent `billing_price_key`, expression
+hash, matched tier, and regional multiplier trace.
+
+`x-lmm-billing-upstream-host` is synthetic billing metadata, derived from the
+selected channel's base URL. Client headers cannot forge it, and it is not sent
+upstream as a routing header. A retry that selects a different host reevaluates
+the frozen expression and raises the reservation before sending. Channels behind
+regional proxies must explicitly include their configured proxy host in the
+expression; the gateway cannot infer an upstream region hidden by a proxy.
+Absent or invalid input usage is rejected before delivery. Explicit zero does
+not become an estimate. A retry cannot reuse another billing group's price.
+
+The configuration and ledger tests cover short/long boundary values, US/EU
+processing, spoofed host headers, live configuration changes, wallet and partial
+subscription funding, token balances, authoritative zero and idempotent settlement.
+They are distinct from real provider execution and invoice reconciliation.
 
 ## Example after application, configuration and validation
 
@@ -97,5 +116,5 @@ parallel requests and confirm that there is no repeated settlement or refund.
 Check mixed-provider groups: both database and cached channel selection filter out incompatible providers before priority selection.
 
 The Rust preview backend, frontend endpoint catalog, generated OpenAPI catalog,
-administrator price UI, automatic regional/long-context pricing and compatible
+and compatible
 non-OpenAI channel selection were not changed. Their support is not claimed.
