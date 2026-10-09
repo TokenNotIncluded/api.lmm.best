@@ -2172,6 +2172,15 @@ func assistantAdminOptionResult(kind string, update model.OptionUpdateResult, ap
 }
 
 func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePayload) (map[string]any, error) {
+	if name := assistantAdminChangeTool(payload.Kind); name != "" {
+		_, policy, err := refreshAssistantToolPolicy(c)
+		if err != nil {
+			return nil, err
+		}
+		if !policy.Enabled(name) {
+			return nil, setting.AssistantToolDisabledError(name)
+		}
+	}
 	result := map[string]any{"ok": true, "kind": payload.Kind, "applied": true, "status": "applied"}
 	switch payload.Kind {
 	case assistantAdminConfigChangeKind:
@@ -2280,6 +2289,21 @@ func ApplyAssistantAdminChange(c *gin.Context) {
 	user, err := assistantAdminUser(c.GetInt("id"))
 	if err != nil {
 		writeAssistantError(c, http.StatusForbidden, "ASSISTANT_ADMIN_REQUIRED", err)
+		return
+	}
+	preview, err := model.GetAuthFlow(input.ConfirmationToken, model.AuthFlowMatch{
+		Purpose: model.AuthFlowPurposeAssistantAdmin, UserId: user.Id, SessionId: sessionID,
+	})
+	if err != nil {
+		writeAssistantError(c, http.StatusUnprocessableEntity, "ASSISTANT_ADMIN_CONFIRMATION_INVALID", errors.New("administrator preview is invalid or expired; ask the assistant to prepare it again"))
+		return
+	}
+	var previewPayload assistantAdminChangePayload
+	if json.Unmarshal([]byte(preview.Payload), &previewPayload) != nil {
+		writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_ADMIN_CHANGE_INVALID", errors.New("administrator preview could not be decoded"))
+		return
+	}
+	if !requireAssistantToolEnabled(c, assistantAdminChangeTool(previewPayload.Kind)) {
 		return
 	}
 	flow, err := model.ConsumeAuthFlow(input.ConfirmationToken, model.AuthFlowMatch{

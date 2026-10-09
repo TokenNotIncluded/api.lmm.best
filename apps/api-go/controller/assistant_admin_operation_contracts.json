@@ -34,6 +34,7 @@
   "AdminGetAssistantFundingSummary": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{"days":{"type":"string"}},"type":"object"}},
   "AdminGetAssistantIntentSummary": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{"days":{"type":"string"}},"type":"object"}},
   "AdminGetAssistantProfileSummary": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{"days":{"type":"string"}},"type":"object"}},
+  "AdminGetAssistantToolCatalogue": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "AdminGetAssistantUserProfile": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},"query_schema":{"properties":{},"type":"object"}},
   "AdminGetGiftClaims": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{"gift_id":{"default":"0","type":"string"},"p":{"default":"1","type":"string"},"page_size":{"default":"20","type":"string"}},"type":"object"}},
   "AdminGetGifts": {"body_schema":null,"contract_status":"derived","path_schema":{"properties":{},"type":"object"},"query_schema":{"properties":{},"type":"object"}},

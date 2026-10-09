@@ -179,6 +179,7 @@ func SetRelayRouter(router *gin.Engine, sharedAdmission ...gin.HandlerFunc) {
 	assistantAdminRouter.Use(middleware.RouteTag("api"))
 	assistantAdminRouter.Use(middleware.AdminAuth())
 	{
+		assistantAdminRouter.GET("/tool-catalog", middleware.RootAuth(), middleware.DisableCache(), controller.AdminGetAssistantToolCatalogue)
 		assistantAdminRouter.POST("/apply", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ApplyAssistantAdminChange)
 		assistantAdminRouter.GET("/registration-events", middleware.DisableCache(), controller.AdminListAssistantRegistrationEvents)
 		assistantAdminRouter.POST("/registration-events/:user_id/release", middleware.RequestBodyLimit(assistantMutationRequestMaxBytes), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.AdminReleaseAssistantRegistration)

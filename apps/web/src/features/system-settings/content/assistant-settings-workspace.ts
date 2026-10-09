@@ -26,7 +26,7 @@ export function getAssistantSettingsGroup(
   if (/Moderation/.test(field)) return 'moderation'
   if (/Retention/.test(field)) return 'retention'
   if (/Review|Registration|Approval|Gift/.test(field)) return 'review'
-  if (/Search|Skills|SkillFiles/.test(field)) return 'tools'
+  if (/Search|ToolPolicy|Skills|SkillFiles/.test(field)) return 'tools'
   if (/Persona|SystemPrompt|PreConversation/.test(field)) return 'conversation'
   if (/AgentLoop|MaxSteps|Timeout|Cache/.test(field)) return 'runtime'
   return 'model'

@@ -29,6 +29,9 @@ func GetAssistantWeeklyDiscount(c *gin.Context) {
 }
 
 func ClaimAssistantWeeklyDiscount(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "prepare_weekly_discount") {
+		return
+	}
 	reward, alreadyClaimed, err := model.ClaimAssistantWeeklyDiscount(c.GetInt("id"))
 	if err != nil {
 		if errors.Is(err, model.ErrAssistantWeeklyDiscountUnavailable) {

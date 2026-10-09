@@ -74,8 +74,6 @@ import {
 import { safeNumberFieldProps } from '../utils/numeric-field'
 import { AssistantL1ReviewSettings } from './assistant-l1-review-settings'
 import { AssistantModerationSettings } from './assistant-moderation-settings'
-
-import './assistant-settings-workspace.css'
 import {
   assistantSettingsSchema,
   type AssistantSettingsFormValues,
@@ -86,6 +84,10 @@ import {
   ASSISTANT_SETTINGS_GROUPS,
   type AssistantSettingsGroup,
 } from './assistant-settings-workspace'
+
+import './assistant-settings-workspace.css'
+import { DEFAULT_ASSISTANT_TOOL_POLICY } from './assistant-tool-policy'
+import { AssistantToolPolicyEditor } from './assistant-tool-policy-editor'
 
 type AssistantSkillFile = {
   path: string
@@ -1238,6 +1240,26 @@ export function AssistantSettingsSection(props: {
                 hidden={panel !== 'tools'}
                 className='assistant-settings-panel'
               >
+                <SettingsDisclosure
+                  title={t('Built-in assistant tools')}
+                  defaultOpen
+                >
+                  <FormField
+                    control={form.control}
+                    name='AssistantToolPolicy'
+                    render={({ field }) => (
+                      <FormItem>
+                        <AssistantToolPolicyEditor
+                          value={field.value ?? DEFAULT_ASSISTANT_TOOL_POLICY}
+                          onChange={field.onChange}
+                          active={panel === 'tools'}
+                          disabled={updateOptions.isPending}
+                        />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </SettingsDisclosure>
                 <SettingsDisclosure title={t('Search & skills')} defaultOpen>
                   <div className='space-y-6'>
                     <div className='space-y-5'>

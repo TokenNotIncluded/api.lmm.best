@@ -22,6 +22,7 @@ import { after, describe, test } from 'node:test'
 import { Window } from 'happy-dom'
 
 import type { AssistantSettingsFormValues } from './assistant-settings-schema'
+import { DEFAULT_ASSISTANT_TOOL_POLICY } from './assistant-tool-policy'
 
 const domWindow = new Window({
   url: 'https://console.example.test/admin/system-settings/content/assistant',
@@ -114,6 +115,7 @@ const baseValues = {
   AssistantSearchURL: '',
   AssistantSearchAPIKey: '',
   AssistantSearchMCPTool: '',
+  AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY,
   AssistantSkills: '',
   AssistantSkillFiles: '[]',
   AssistantRegistrationAutoSuspendEnabled: true,
@@ -311,6 +313,48 @@ describe('assistant search provider settings', () => {
       }).success,
       true
     )
+  })
+
+  test('accepts the default tool policy and the legacy empty value supplied by the settings defaults', () => {
+    const current = assistantSettingsSchema.parse(baseValues)
+    assert.equal(current.AssistantToolPolicy, DEFAULT_ASSISTANT_TOOL_POLICY)
+
+    const legacy = assistantSettingsSchema.parse({
+      ...baseValues,
+      AssistantToolPolicy: '',
+    })
+    assert.equal(legacy.AssistantToolPolicy, '')
+    assert.equal(
+      legacy.AssistantSearchProvider,
+      baseValues.AssistantSearchProvider
+    )
+  })
+
+  test('rejects malformed tool policy at its own field before saving any settings', () => {
+    for (const policy of [
+      '{',
+      '[]',
+      '{"version":2,"groups":{},"tools":{}}',
+      '{"version":1,"groups":[],"tools":{}}',
+      '{"version":1,"groups":{"account":"false"},"tools":{}}',
+      '{"version":1,"groups":{},"tools":{"web_search":0}}',
+      '{"version":1,"groups":{},"tools":{},"unknown":true}',
+      '{"version":1,"version":1,"groups":{},"tools":{}}',
+      ' '.repeat(16385),
+    ]) {
+      const result = assistantSettingsSchema.safeParse({
+        ...baseValues,
+        AssistantToolPolicy: policy,
+      })
+      assert.equal(result.success, false, policy.slice(0, 128))
+      if (!result.success) {
+        assert.ok(
+          result.error.issues.some(
+            (issue) => issue.path[0] === 'AssistantToolPolicy'
+          )
+        )
+      }
+    }
   })
 
   for (const outcome of ['loaded', 'empty', 'error'] as const) {
@@ -731,7 +775,9 @@ describe('assistant settings workspace', () => {
             ? ['default']
             : url === '/api/assistant/models'
               ? [baseValues.AssistantModel]
-              : [],
+              : url === '/api/assistant/admin/tool-catalog'
+                ? { groups: [] }
+                : [],
       },
     })) as typeof api.get
     return () => {
@@ -755,6 +801,157 @@ describe('assistant settings workspace', () => {
       await flushEffects()
     })
   }
+
+  test('saves grouped tool choices in one policy and preserves them across a server refresh', async () => {
+    const originalGet = api.get
+    const originalPost = api.post
+    const requests: string[] = []
+    const updates: Array<{ url: string; values: Record<string, string> }> = []
+    api.get = (async (url: string) => {
+      requests.push(url)
+      if (url === '/api/group/') return { data: { data: ['default'] } }
+      if (url === '/api/assistant/models') {
+        return { data: { data: [baseValues.AssistantModel] } }
+      }
+      assert.equal(url, '/api/assistant/admin/tool-catalog')
+      return {
+        data: {
+          success: true,
+          data: {
+            groups: [
+              {
+                id: 'account',
+                label: 'Account',
+                tools: [
+                  {
+                    name: 'get_account_access',
+                    label: 'Account access',
+                    description: 'Read the current account permissions.',
+                    effect: 'read_only',
+                    access: 'user',
+                  },
+                  {
+                    name: 'request_create_key',
+                    label: 'Create an API key',
+                    description: 'Prepare an API key after user confirmation.',
+                    effect: 'confirmation',
+                    access: 'l1',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }
+    }) as typeof api.get
+    api.post = (async (
+      url: string,
+      body: { values: Record<string, string> }
+    ) => {
+      updates.push({ url, values: body.values })
+      return { data: { success: true } }
+    }) as typeof api.post
+
+    const page = await renderSettings('none', {
+      AssistantToolPolicy:
+        '{"version":1,"groups":{},"tools":{"request_create_key":false}}',
+    })
+    try {
+      assert.equal(
+        requests.includes('/api/assistant/admin/tool-catalog'),
+        false
+      )
+      const toolsTab = page.container.querySelector<HTMLButtonElement>(
+        '[data-settings-tab="tools"]'
+      )
+      assert.ok(toolsTab)
+      await act(async () => {
+        toolsTab.click()
+        await flushEffects()
+      })
+      const deadline = Date.now() + 5000
+      while (
+        !page.container.querySelector(
+          '[data-tool-group="account"] [role="switch"]'
+        ) &&
+        Date.now() < deadline
+      ) {
+        await act(flushEffects)
+      }
+      const group = page.container.querySelector<HTMLElement>(
+        '[data-tool-group="account"] [role="switch"]'
+      )
+      const read = page.container.querySelector<HTMLElement>(
+        '[data-tool-name="get_account_access"] [role="switch"]'
+      )
+      const create = page.container.querySelector<HTMLElement>(
+        '[data-tool-name="request_create_key"] [role="switch"]'
+      )
+      assert.ok(group)
+      assert.ok(read)
+      assert.ok(create)
+      assert.equal(create.getAttribute('aria-checked'), 'false')
+      assert.equal(read.getAttribute('aria-checked'), 'true')
+
+      await act(async () => group.click())
+      assert.equal(group.getAttribute('aria-checked'), 'false')
+      assert.equal(read.getAttribute('aria-checked'), 'false')
+      assert.equal(read.getAttribute('aria-disabled'), 'true')
+      assert.equal(create.getAttribute('aria-disabled'), 'true')
+      await act(async () => group.click())
+      assert.equal(group.getAttribute('aria-checked'), 'true')
+      assert.equal(read.getAttribute('aria-checked'), 'true')
+      assert.equal(create.getAttribute('aria-checked'), 'false')
+      assert.notEqual(create.getAttribute('aria-disabled'), 'true')
+      await act(async () => read.click())
+
+      await page.rerender({
+        AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY,
+        AssistantTimeoutSeconds: 60,
+      })
+      assert.equal(read.getAttribute('aria-checked'), 'false')
+      assert.equal(create.getAttribute('aria-checked'), 'false')
+      assert.equal(
+        page.container.querySelector<HTMLInputElement>(
+          'input[name="AssistantTimeoutSeconds"]'
+        )?.value,
+        '60'
+      )
+      const statusKey = ['assistant-status', 'tool-policy-test']
+      page.queryClient.setQueryData(statusKey, { enabled: true })
+      const form = page.container.querySelector('form')
+      assert.ok(form)
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+
+      assert.equal(updates.length, 1)
+      assert.equal(updates[0].url, '/api/option/bulk')
+      assert.deepEqual(Object.keys(updates[0].values), ['AssistantToolPolicy'])
+      assert.deepEqual(JSON.parse(updates[0].values.AssistantToolPolicy), {
+        version: 1,
+        groups: { account: true },
+        tools: { request_create_key: false, get_account_access: false },
+      })
+      assert.equal(
+        page.queryClient.getQueryState(statusKey)?.isInvalidated,
+        true
+      )
+      assert.equal(
+        requests.filter((url) => url === '/api/assistant/admin/tool-catalog')
+          .length,
+        1
+      )
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await page.cleanup()
+    }
+  })
 
   test('only one group is exposed and keyboard navigation preserves an unsaved draft', async () => {
     const restore = mockReads()

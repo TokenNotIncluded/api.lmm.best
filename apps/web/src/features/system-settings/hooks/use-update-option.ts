@@ -75,6 +75,7 @@ const STATUS_RELATED_KEYS = new Set([
   'AssistantSearchURL',
   'AssistantSearchAPIKey',
   'AssistantSearchMCPTool',
+  'AssistantToolPolicy',
   'AssistantSkills',
   'AssistantSkillFiles',
   'AssistantRetentionEnabled',

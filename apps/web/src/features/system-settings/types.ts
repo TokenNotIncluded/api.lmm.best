@@ -284,6 +284,7 @@ export type ContentSettings = {
   AssistantSearchURL: string
   AssistantSearchAPIKey: string
   AssistantSearchMCPTool: string
+  AssistantToolPolicy: string
   AssistantSkills: string
   AssistantSkillFiles: string
   AssistantRegistrationAutoSuspendEnabled: boolean

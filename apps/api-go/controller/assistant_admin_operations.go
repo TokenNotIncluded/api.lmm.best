@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -125,7 +126,7 @@ func executeAssistantAdminOperationsTool(c *gin.Context, userID int, input map[s
 	state.registry.mu.RLock()
 	operations := make([]assistantAdminOperation, 0, len(state.registry.operations))
 	for _, op := range state.registry.operations {
-		if op.MinRole <= role && (id == "" || id == op.ID) && (query == "" || strings.Contains(strings.ToLower(op.ID+" "+op.Handler), query)) {
+		if op.MinRole <= role && assistantAdminOperationPolicyEnabled(op.Handler) && (id == "" || id == op.ID) && (query == "" || strings.Contains(strings.ToLower(op.ID+" "+op.Handler), query)) {
 			operations = append(operations, op)
 		}
 	}
@@ -216,6 +217,15 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 	}
 	if !op.ReadOnly {
 		return assistantAdminOperationError("confirmation_required", "administrator mutations require explicit UI confirmation and cannot be executed by this tool")
+	}
+	if name := assistantAdminOperationPolicyTool(op.Handler); name != "" {
+		_, policy, err := refreshAssistantToolPolicy(c)
+		if err != nil {
+			return assistantAdminOperationError("tool_policy_unavailable", err.Error())
+		}
+		if !policy.Enabled(name) {
+			return assistantAdminOperationError("tool_disabled", setting.AssistantToolDisabledError(name).Error())
+		}
 	}
 	requestPath, err := assistantOperationPath(op.Path, input["path_params"])
 	if err != nil {

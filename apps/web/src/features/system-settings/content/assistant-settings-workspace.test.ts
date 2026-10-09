@@ -52,6 +52,46 @@ test('save acknowledgement retains edits made during saving and clears acknowled
   })
 })
 
+test('tool policy refresh preserves a local policy edit and updates an untouched policy', () => {
+  const initialPolicy = '{"version":1,"groups":{},"tools":{}}'
+  const savedPolicy = '{"version":1,"groups":{"account":false},"tools":{}}'
+  const localPolicy = '{"version":1,"groups":{},"tools":{"web_search":false}}'
+  const before = values({ AssistantToolPolicy: initialPolicy })
+  const incoming = values({ AssistantToolPolicy: savedPolicy })
+
+  assert.equal(
+    rebaseAssistantDraft(before, before, incoming).AssistantToolPolicy,
+    savedPolicy
+  )
+  assert.equal(
+    rebaseAssistantDraft(
+      before,
+      values({ AssistantToolPolicy: localPolicy }),
+      incoming
+    ).AssistantToolPolicy,
+    localPolicy
+  )
+  assert.equal(before.AssistantToolPolicy, initialPolicy)
+})
+
+test('tool policy acknowledgement keeps a newer edit made while the previous policy was saving', () => {
+  const sent = values({
+    AssistantToolPolicy: '{"version":1,"groups":{"account":false},"tools":{}}',
+    AssistantModel: 'old model',
+  })
+  const pending = {
+    ...sent,
+    AssistantToolPolicy:
+      '{"version":1,"groups":{"account":false},"tools":{"web_search":false}}',
+  }
+  const confirmed = { ...sent, AssistantModel: 'server model' }
+
+  assert.deepEqual(rebaseAssistantDraft(sent, pending, confirmed), {
+    ...confirmed,
+    AssistantToolPolicy: pending.AssistantToolPolicy,
+  })
+})
+
 test('invalid fields reveal the group that owns the input', () => {
   for (const [field, group] of [
     ['AssistantModel', 'model'],
@@ -62,6 +102,7 @@ test('invalid fields reveal the group that owns the input', () => {
     ['AssistantPreConversationPresets', 'conversation'],
     ['AssistantPersona', 'conversation'],
     ['AssistantSearchURL', 'tools'],
+    ['AssistantToolPolicy', 'tools'],
     ['AssistantSkillFiles', 'tools'],
     ['AssistantMaxSteps', 'runtime'],
     ['AssistantCacheTTLMinutes', 'runtime'],
