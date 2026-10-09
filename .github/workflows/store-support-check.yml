@@ -18,6 +18,43 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
+      - name: Preserve current main and merge translation keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/feat/store-customer-support
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          main=1b612cc9b457c22bbe5f415d635d31f808ea1710
+          git cat-file -e "$main^{commit}"
+          if ! git merge-base --is-ancestor "$main" HEAD; then
+            git merge --no-commit --no-ff "$main" || {
+              python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          missing = object()
+          def merge(base, ours, theirs, location):
+              if ours == base: return theirs
+              if theirs == base or ours == theirs: return ours
+              if all(isinstance(value, dict) for value in (base, ours, theirs)):
+                  result = {}
+                  for key in dict.fromkeys([*theirs, *ours, *base]):
+                      value = merge(base.get(key, missing), ours.get(key, missing), theirs.get(key, missing), location + '/' + key)
+                      if value is not missing: result[key] = value
+                  return result
+              raise AssertionError('Different edits to the same value: ' + location)
+          files = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=U'], text=True).splitlines()
+          assert files, 'merge failed without translation conflicts'
+          for name in files:
+              assert name.startswith('apps/web/src/i18n/locales/') and name.endswith('.json'), 'Unreviewed conflict: ' + name
+              versions = [json.loads(subprocess.check_output(['git', 'show', f':{stage}:{name}'], text=True)) for stage in (1, 2, 3)]
+              result = merge(*versions, name)
+              Path(name).write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+              subprocess.run(['git', 'add', '--', name], check=True)
+          PY
+            }
+            test -z "$(git diff --name-only --diff-filter=U)"
+          fi
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
@@ -26,29 +63,10 @@ jobs:
       - name: Install locked Web dependencies
         working-directory: apps/web
         run: bun install --frozen-lockfile
-      - name: Apply reviewed validation fixes
+      - name: Format feature changes
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/feat/store-customer-support
-          python3 - <<'PY'
-          from pathlib import Path
-          def patch(name, old, new):
-              path = Path(name)
-              text = path.read_text()
-              if new in text:
-                  return
-              assert text.count(old) == 1, (name, 'reviewed anchor changed', text.count(old))
-              path.write_text(text.replace(old, new, 1))
-          patch('apps/web/src/features/store/support-helpers.ts',
-                '  makeKey = () => crypto.randomUUID()',
-                '  makeKey: () => string = () => crypto.randomUUID()')
-          patch('apps/api-go/model/merchant_store_support_test.go',
-                '\trequire.NoError(t, UnlistMerchantStoreProduct(f.seller.Id, f.product.ID))',
-                '\t// Retirement uses the existing lifecycle writer gate, independently of support.\n\tstoreWriterGateForTest(t, "3")\n\trequire.NoError(t, UnlistMerchantStoreProduct(f.seller.Id, f.product.ID))')
-          assert 'setMerchantStoreSupportRoutes(parent)' in Path('apps/api-go/router/merchant_store_router.go').read_text()
-          assert 'MerchantStoreSupportModels()' in Path('apps/api-go/model/main.go').read_text()
-          PY
           gofmt -w apps/api-go/model/merchant_store_support*.go apps/api-go/model/merchant_store_customers.go apps/api-go/controller/merchant_store_support.go apps/api-go/router/merchant_store_support*.go apps/api-go/middleware/merchant_store_support_rate_limit.go
           cd apps/web
           bun run oxlint -c .oxlintrc.json --fix src/features/store/support*.ts src/features/store/support*.tsx src/routes/store/support.tsx
@@ -59,17 +77,15 @@ jobs:
         working-directory: apps/web
         shell: bash
         run: set -o pipefail; bun run build 2>&1 | tee "$RUNNER_TEMP/support-build.log"
-      - name: Commit validated source preparation to this feature branch only
+      - name: Commit integration to this feature branch only
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/feat/store-customer-support
           git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -u apps/api-go apps/web/src
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(store): correct support key typing, test setup and lint findings'
+            git commit -m 'merge: preserve current main and validate store customer support'
             git push origin HEAD:refs/heads/feat/store-customer-support
           fi
           git rev-parse HEAD | tee "$RUNNER_TEMP/support-source-sha.txt"
@@ -100,15 +116,6 @@ jobs:
         working-directory: apps/web
         shell: bash
         run: set -o pipefail; bun run oxlint -c .oxlintrc.json src/features/store/support*.ts src/features/store/support*.tsx src/routes/store/support.tsx 2>&1 | tee "$RUNNER_TEMP/support-lint.log"
-      - name: Existing Go baseline at original main revision
-        id: baseline
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          git worktree add --detach "$RUNNER_TEMP/support-baseline" 6777280b2e32f15e8e3793988ee90d57cba33662
-          cd "$RUNNER_TEMP/support-baseline/apps/api-go"
-          go test -p 2 ./model -run '^TestMerchantStoreBalanceTransfersSnapshotsAndReplay$' -count=1 2>&1 | tee "$RUNNER_TEMP/support-baseline.log"
       - name: Support and customer Go regression tests
         id: go
         continue-on-error: true
