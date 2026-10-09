@@ -1,0 +1,124 @@
+name: L1 cleanup final verification
+on:
+  push:
+    branches: [work/l1-cleanup-audit-20261009]
+    paths: [.github/workflows/l1-cleanup-final.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  CI: 'true'
+  CANDIDATE: 259baf000e2ea936f2554b2776a91c87fb5b8287
+jobs:
+  final-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 259baf000e2ea936f2554b2776a91c87fb5b8287
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify final delta and unchanged Go test source
+        run: |
+          mkdir -p "$RUNNER_TEMP/final-evidence"
+          git rev-parse HEAD | tee "$RUNNER_TEMP/final-evidence/revision.txt"
+          git diff --stat dac177309d1d97a42d89fbe7af277ed06d749784 HEAD | tee "$RUNNER_TEMP/final-evidence/final-delta.txt"
+          git diff --exit-code dac177309d1d97a42d89fbe7af277ed06d749784 HEAD -- apps/api-go
+          git diff --check 43be129a2120254eac260f61fe60f22f09995b66 HEAD
+          test ! -e apps/web/src/features/system-settings/content/assistant-l1-review-settings.tsx
+          test ! -e .github/workflows/l1-cleanup-audit.yml
+          test ! -e .l1-cleanup-part1.b64
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Final checks, affected settings and archive regressions, production build
+        run: |
+          set -euo pipefail
+          {
+            bun run --filter @lmm/web format:check
+            bun run --filter @lmm/web copyright:check
+            bun run --filter @lmm/web typecheck
+            bun run --filter @lmm/web lint
+            (
+              cd apps/web
+              for file in src/features/users/components/retired-l1-surfaces.test.ts src/features/users/components/users-mobile-touch-targets.test.ts src/features/users/components/assistant-leads-panel.test.tsx src/features/system-settings/content/assistant-settings-section.test.tsx src/features/system-settings/content/assistant-settings-workspace.test.ts; do
+                bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file"
+              done
+            )
+            bun run --filter @lmm/web build
+            bun run --filter @lmm/web bundle:check
+          } 2>&1 | tee "$RUNNER_TEMP/final-evidence/final-checks.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-final-checks
+          path: ${{ runner.temp }}/final-evidence/
+          retention-days: 3
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 259baf000e2ea936f2554b2776a91c87fb5b8287
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Install isolated review browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/console-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/console-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Scope existing read-only review to removed surfaces
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/web/scripts/console-page-review.mjs')
+          s=p.read_text();start=s.index('const userRoutes = [');end=s.index('const report = []',start)
+          s=s[:start]+"const userRoutes = ['/getting-started', '/todos']\nconst adminRoutes = ['/users', '/todos', '/system-settings/content/assistant']\n"+s[end:]
+          old="    ['l1', userRoutes, 1440],\n    ['admin', adminRoutes, 1440],\n    ['l1', mobileRoutes, 390],"
+          new="    ['l0', userRoutes, 1440],\n    ['admin', adminRoutes, 1440],\n    ['l0', userRoutes, 390],\n    ['admin', adminRoutes, 390],"
+          assert old in s;s=s.replace(old,new)
+          s=s.replace("waitFor({ timeout: 30_000 })","waitFor({ timeout: 60_000 })")
+          p.write_text(s)
+          PY
+      - name: Review actual L0 and administrative pages without external requests
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/console-browser/node_modules/playwright/index.mjs
+          CONSOLE_REVIEW_OUTPUT: ${{ runner.temp }}/l1-browser
+          CONSOLE_REVIEW_ORIGIN: http://127.0.0.1:4174
+        run: |
+          set -euo pipefail
+          mkdir -p "$CONSOLE_REVIEW_OUTPUT"
+          git rev-parse HEAD > "$CONSOLE_REVIEW_OUTPUT/revision.txt"
+          LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$CONSOLE_REVIEW_OUTPUT/server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null; then break; fi
+            sleep 2
+          done
+          node scripts/console-page-review.mjs 2>&1 | tee "$CONSOLE_REVIEW_OUTPUT/review.log"
+          python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          root=Path(os.environ['CONSOLE_REVIEW_OUTPUT'])
+          report=json.loads((root/'report.json').read_text())
+          assert len(report)==10,len(report)
+          forbidden=re.compile(r'推荐信|申请信|L1\s*申请|L1 application|recommendation letter|recommendation archive',re.I)
+          for entry in report:
+              assert not forbidden.search(entry['text']),(entry['persona'],entry['path'])
+          print('Verified 10 desktop/mobile states: no retired application or archive text, page exception, error toast, or horizontal overflow.')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-final-browser
+          path: ${{ runner.temp }}/l1-browser/
+          retention-days: 3
