@@ -20,7 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          fetch-depth: 2
+          fetch-depth: 64
+      - name: Integrate current main before applying the source changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch --no-tags --depth=64 origin main
+          git merge --no-edit origin/main
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
@@ -48,38 +54,32 @@ jobs:
             echo 'applied=true' >> "$GITHUB_OUTPUT"
           fi
       - name: Frontend typecheck and lint
-        id: frontend-checks
         run: |
           bun run --filter @lmm/web typecheck > /tmp/store-types.log 2>&1 || { tail -n 100 /tmp/store-types.log; exit 1; }
           bun run --filter @lmm/web lint > /tmp/store-lint.log 2>&1 || { grep '::error' /tmp/store-lint.log; tail -n 5 /tmp/store-lint.log; exit 1; }
           tail -n 5 /tmp/store-types.log
           tail -n 5 /tmp/store-lint.log
+      - name: Frontend store regressions
+        working-directory: apps/web
+        run: |
+          for file in src/features/store/interactions.test.tsx src/features/store/store-mobile.test.tsx src/features/store/*.test.ts src/features/store/*.test.tsx; do
+            test -f "$file" || continue
+            marker="/tmp/store-tested-$(basename "$file")"
+            test -f "$marker" && continue
+            touch "$marker"
+            echo "Testing $file"
+            if ! bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./$file" > /tmp/store-ui.log 2>&1; then
+              grep -B 15 -A 12 -E 'error:|AssertionError|\(fail\)' /tmp/store-ui.log | tail -n 260
+              exit 1
+            fi
+            tail -n 4 /tmp/store-ui.log
+          done
       - name: Go store regressions
-        id: go-tests
-        if: ${{ !cancelled() && steps.patch.outputs.applied == 'true' }}
         working-directory: apps/api-go
         run: |
           go test -p 2 ./model ./controller -run 'MerchantStore|StorePublish' -count=1 > /tmp/store-go.log 2>&1 || { grep -A 24 -E -- '--- FAIL|Error:|Error Trace:|build failed|undefined:' /tmp/store-go.log | tail -n 180; tail -n 30 /tmp/store-go.log; exit 1; }
           tail -n 5 /tmp/store-go.log
-      - name: Frontend store regressions
-        id: ui-tests
-        if: ${{ !cancelled() && steps.patch.outputs.applied == 'true' }}
-        working-directory: apps/web
-        run: |
-          status=0
-          for file in src/features/store/*.test.ts src/features/store/*.test.tsx; do
-            test -f "$file" || continue
-            echo "Testing $file"
-            if ! bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./$file" > /tmp/store-ui.log 2>&1; then
-              grep -B 15 -A 12 -E 'error:|AssertionError|\(fail\)' /tmp/store-ui.log | tail -n 260
-              status=1
-            fi
-            tail -n 4 /tmp/store-ui.log
-          done
-          exit "$status"
       - name: Production web build
-        id: build
-        if: ${{ !cancelled() && steps.patch.outputs.applied == 'true' }}
         run: |
           bun run --filter @lmm/web build > /tmp/store-build.log 2>&1 || { tail -n 100 /tmp/store-build.log; exit 1; }
           tail -n 8 /tmp/store-build.log
@@ -88,8 +88,6 @@ jobs:
         env:
           BRANCH: fix/store-publishing-variants-20261010
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           python3 - <<'PY'
           import json, subprocess
           from pathlib import Path
