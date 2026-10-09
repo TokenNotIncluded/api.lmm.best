@@ -33,7 +33,10 @@ export async function refreshCurrentAccount(): Promise<AuthUser | null> {
   const request = { userId: before.user.id, sessionId: before.session?.sid }
   latestAccountRefresh = request
   try {
-    const response = await getSelf()
+    const response = await getSelf({
+      disableDuplicate: true,
+      authScope: { userId: request.userId, sessionId: request.sessionId },
+    })
     const after = useAuthStore.getState().auth
     if (
       latestAccountRefresh !== request ||

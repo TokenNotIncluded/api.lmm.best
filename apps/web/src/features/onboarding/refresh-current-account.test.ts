@@ -2,12 +2,15 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 
+import type { AxiosRequestConfig, AxiosResponse } from 'axios'
+
 import { api } from '@/lib/api'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import { refreshCurrentAccount } from './use-auth-user-refresh'
 
 const originalGet = api.get
+const originalAdapter = api.defaults.adapter
 const previousAuth = useAuthStore.getState().auth
 const user = { id: 41, username: 'test', quota: 10 } as AuthUser
 
@@ -50,6 +53,7 @@ function deferredAccountRead() {
 
 afterEach(() => {
   api.get = originalGet
+  api.defaults.adapter = originalAdapter
   useAuthStore.setState({ auth: previousAuth })
 })
 
@@ -151,3 +155,55 @@ for (const order of ['failure-first', 'stale-first']) {
     )
   })
 }
+
+test('a grant refresh sends a fresh identity-scoped GET instead of joining the old HTTP request', async () => {
+  useAuthStore.getState().auth.setBundle(bundle('same-http-session', false))
+  const reads: Array<{
+    config: AxiosRequestConfig
+    finish: (granted: boolean) => void
+  }> = []
+  // Preserve the actual HTTP client's duplicate-request and auth interceptors.
+  // Only its transport adapter is mocked; no network request is sent.
+  api.defaults.adapter = (config) =>
+    new Promise<AxiosResponse>((resolve) => {
+      reads.push({
+        config,
+        finish: (granted) =>
+          resolve({
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            config,
+            data: {
+              success: true,
+              data: { ...user, developer_access_granted: granted },
+            },
+          }),
+      })
+    })
+  const oldRequest = refreshCurrentAccount()
+  const newRequest = refreshCurrentAccount()
+  for (let tick = 0; tick < 20 && reads.length < 2; tick++)
+    await Promise.resolve()
+  assert.equal(
+    reads.length,
+    2,
+    'a completed grant requires a new physical account read'
+  )
+  for (const read of reads) {
+    assert.equal(read.config.url, '/api/user/self')
+    assert.equal(read.config.disableDuplicate, true)
+    assert.deepEqual(read.config.authScope, {
+      userId: user.id,
+      sessionId: 'same-http-session',
+    })
+  }
+  reads[1].finish(true)
+  assert.equal((await newRequest)?.developer_access_granted, true)
+  reads[0].finish(false)
+  assert.equal(await oldRequest, null)
+  assert.equal(
+    useAuthStore.getState().auth.user?.developer_access_granted,
+    true
+  )
+})
