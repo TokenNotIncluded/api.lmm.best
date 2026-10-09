@@ -1,0 +1,53 @@
+diff --git a/apps/web/src/features/assistant/api.test.ts b/apps/web/src/features/assistant/api.test.ts
+index 2fcbfd9c6efe0fcd9b85e25709f3c02eacf2e768..e28353e4c5e5ab91404a0b096d5d5b1ebc2b1345 100644
+--- a/apps/web/src/features/assistant/api.test.ts
++++ b/apps/web/src/features/assistant/api.test.ts
+@@ -405 +405 @@ describe('assistant response parsing', () => {
+-        discount_percent: 11,
++        discount_percent: 100,
+@@ -1511,0 +1512,9 @@ test('accepts canonical credit gifts beyond the old cap and one-credit gifts wit
++
++// The server owns the per-level ceiling. The client validates representation,
++// not the old global 10% cap; a fresh claim still checks the live policy.
++test('renders higher administrator-approved discounts without raising its own authority', () => {
++  assert.equal(parseAssistantAction({type:'weekly_discount',discount_percent:25,status:'offered',reason:'Configured limit.'})?.type, 'weekly_discount')
++  for (const value of [-1, 100, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
++    assert.equal(parseAssistantAction({type:'weekly_discount',discount_percent:value,status:'offered',reason:'Invalid.'}), undefined)
++  }
++})
+diff --git a/apps/web/src/features/assistant/assistant-tool-traces.ts b/apps/web/src/features/assistant/assistant-tool-traces.ts
+index a6376c617dad97dded5fcf576f64de1c8e640f2e..91dd819a7bfe94cb6a3712a7fce05a966aa2ed62 100644
+--- a/apps/web/src/features/assistant/assistant-tool-traces.ts
++++ b/apps/web/src/features/assistant/assistant-tool-traces.ts
+@@ -39 +39,2 @@ export function assistantToolOutcome(
+-    trace.name === 'prepare_api_key_action'
++    trace.name === 'prepare_api_key_action' ||
++    ['set_overview_greeting', 'create_site_issue', 'update_site_issue', 'send_invitation', 'connect_market_tool'].includes(trace.name)
+diff --git a/apps/web/src/features/assistant/assistant-workspace-action.tsx b/apps/web/src/features/assistant/assistant-workspace-action.tsx
+index 694cad665bd8ca0b7592af737acd148fa21c8adf..70f3cda6baa4246bd64d505a4de055260f206ebe 100644
+--- a/apps/web/src/features/assistant/assistant-workspace-action.tsx
++++ b/apps/web/src/features/assistant/assistant-workspace-action.tsx
+@@ -62 +62 @@ export function AssistantWorkspaceActionCard({ action, disabled = false }: { act
+-        <div className='bg-muted/40 space-y-2 rounded-xl p-3'><p>{t('Listed price')}: <strong>{wallet.formatQuota(market.price_quota)}</strong></p><p>{t('Billing mode')}: {market.billing_mode}</p>{market.permissions.length > 0 && <p className='break-words'>{t('Permissions')}: {market.permissions.join(', ')}</p>}</div>
++        <div className='bg-muted/40 space-y-2 rounded-xl p-3'><p>{t(market.billing_mode ? 'Maximum charge per call' : 'Listed price')}: <strong>{wallet.formatQuota(market.price_quota)}</strong></p><p>{t('Billing mode')}: {t(market.billing_mode ? 'Metered usage' : 'Fixed price')}</p>{market.billing_mode && <p className='text-muted-foreground'>{t('The maximum amount is reserved first. Actual usage determines the final charge within this limit.')}</p>}{market.billing_mode === 'input_tokens' && <p>{t('Input token rate')}: {wallet.formatQuota(market.input_token_price_quota ?? 0)} / 1,000,000 · {t('Maximum input tokens')}: {market.max_input_tokens}</p>}{market.billing_rules?.map((rule) => <p key={rule.metric} className='break-words font-mono text-xs'>{rule.metric}: {t('Rate')} {wallet.formatQuota(rule.rate_quota)} / {marketMetricScale(rule.metric).toLocaleString()} · {t('Maximum quantity')}: {rule.max_quantity.toLocaleString()}</p>)}{market.permissions.length > 0 && <p className='break-words'>{t('Permissions')}: {market.permissions.join(', ')}</p>}</div>
+@@ -92,0 +93,4 @@ function issueStatusLabel(status: string) {
++
++function marketMetricScale(metric: string): number {
++  return ({input_tokens: 1000000, output_tokens: 1000000, input_characters: 1000, output_characters: 1000, images: 1, audio_milliseconds: 1000, video_milliseconds: 1000, cpu_core_milliseconds: 1000, memory_mib_seconds: 1024, gpu_milliseconds: 1000, vm_milliseconds: 1000, storage_mib_seconds: 3686400} as Record<string, number>)[metric] ?? 1
++}
+diff --git a/apps/web/src/features/assistant/assistant-workspace-contract.ts b/apps/web/src/features/assistant/assistant-workspace-contract.ts
+index 5dd6922baaf92d7f95e356b7dcd357b5d61e55c7..6cef44b34ef4941c5dfb55313bd902f7c7292573 100644
+--- a/apps/web/src/features/assistant/assistant-workspace-contract.ts
++++ b/apps/web/src/features/assistant/assistant-workspace-contract.ts
+@@ -14 +14 @@ const schema = z.discriminatedUnion('tool', [
+-  z.object({ ...base, tool: z.literal('connect_market_tool'), preview: z.object({ service_id: boundedText(128), tool_id: boundedText(128), version_id: boundedText(128), service_name: boundedText(200), tool_name: boundedText(200), description: boundedText(4000, 0), permissions: z.array(boundedText(300)).max(50), price_quota: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), billing_mode: boundedText(64) }) }),
++  z.object({ ...base, tool: z.literal('connect_market_tool'), preview: z.object({ service_id: boundedText(128), tool_id: boundedText(128), version_id: boundedText(128), service_name: boundedText(200), tool_name: boundedText(200), description: boundedText(4000, 0), permissions: z.array(boundedText(300)).max(50), price_quota: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), billing_mode: z.enum(['', 'input_tokens', 'metered']), input_token_price_quota: z.number().int().nonnegative().optional(), max_input_tokens: z.number().int().nonnegative().optional(), billing_rules: z.array(z.object({ metric: boundedText(64), rate_quota: z.number().int().nonnegative(), max_quantity: z.number().int().positive() })).max(16).nullable().optional() }) }),
+diff --git a/apps/web/src/lib/roles.ts b/apps/web/src/lib/roles.ts
+index 8583eefaf7fc07d835d50b9864df19cc46a29d97..9b7eaac0701ac4e9449ac43221e80f0a70704a5b 100644
+--- a/apps/web/src/lib/roles.ts
++++ b/apps/web/src/lib/roles.ts
+@@ -33,2 +33,2 @@ const ROLE_LABEL_KEYS: Record<RoleValue, string> = {
+-  [ROLE.SUPER_ADMIN]: 'Super Admin',
+-  [ROLE.ADMIN]: 'Admin',
++  [ROLE.SUPER_ADMIN]: 'L6 (Super administrator)',
++  [ROLE.ADMIN]: 'L5 (Administrator)',
