@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Load assistant tools": "按需加载助手工具",
+    "End this turn": "结束本轮对话",
+    "Assistant tools loaded": "已加载所需工具",
+    "This turn has ended. You can send another message.": "本轮对话已结束，你可以继续发送消息。",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "仅为当前请求加载所需工具的参数定义，不执行所选工具。",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "输出最终答复并停止本轮，不限制后续消息，也不改变账号权限。",
     "Adjust settings with WebMCP": "用 WebMCP 调整设置",
     "Changes are saved only with the Save button.": "只有点击“保存”后，更改才会生效。",
     "Collapse all": "收起全部",

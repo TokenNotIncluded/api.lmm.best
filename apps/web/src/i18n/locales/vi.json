@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Load assistant tools": "Tải công cụ cần dùng",
+    "End this turn": "Kết thúc lượt này",
+    "Assistant tools loaded": "Đã tải công cụ cần dùng",
+    "This turn has ended. You can send another message.": "Lượt này đã kết thúc. Bạn có thể gửi tin nhắn tiếp theo.",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "Chỉ tải định nghĩa tham số của công cụ cần cho yêu cầu này, không thực thi công cụ đã chọn.",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "Gửi câu trả lời cuối và dừng lượt này, không chặn tin nhắn sau hoặc thay đổi quyền tài khoản.",
     "Adjust settings with WebMCP": "Điều chỉnh cài đặt bằng WebMCP",
     "Changes are saved only with the Save button.": "Thay đổi chỉ được lưu khi nhấn nút Lưu.",
     "Collapse all": "Thu gọn tất cả",

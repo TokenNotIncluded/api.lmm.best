@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Load assistant tools": "Load assistant tools",
+    "End this turn": "End this turn",
+    "Assistant tools loaded": "Assistant tools loaded",
+    "This turn has ended. You can send another message.": "This turn has ended. You can send another message.",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "Load only the needed tool definitions for this request; never execute the selected tools.",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "Deliver a final answer and stop this run without blocking future messages or changing account access.",
     "Adjust settings with WebMCP": "Adjust settings with WebMCP",
     "Changes are saved only with the Save button.": "Changes are saved only with the Save button.",
     "Collapse all": "Collapse all",

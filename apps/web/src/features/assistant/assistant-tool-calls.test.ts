@@ -42,6 +42,30 @@ await testI18n.use(initReactI18next).init({
 })
 
 describe('assistant tool traces', () => {
+  test('labels discovery and a normal end without implying an account restriction', () => {
+    for (const [name, title, summary] of [
+      ['discover_tools', 'Load assistant tools', 'Assistant tools loaded'],
+      [
+        'end_conversation',
+        'End this turn',
+        'This turn has ended. You can send another message.',
+      ],
+    ]) {
+      const markup = renderToStaticMarkup(
+        createElement(
+          I18nextProvider,
+          { i18n: testI18n },
+          createElement(AssistantToolCalls, {
+            traces: [{ name, status: 'output-available' }],
+          })
+        )
+      )
+      assert.ok(markup.includes(title))
+      assert.ok(markup.includes(summary))
+      assert.doesNotMatch(markup, /suspended|banned|restricted/)
+    }
+  })
+
   test('does not call a prepared key request completed', () => {
     assert.equal(
       assistantToolOutcome({

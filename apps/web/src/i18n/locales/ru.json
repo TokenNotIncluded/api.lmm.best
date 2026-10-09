@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Load assistant tools": "Загрузить нужные инструменты",
+    "End this turn": "Завершить текущий ответ",
+    "Assistant tools loaded": "Нужные инструменты загружены",
+    "This turn has ended. You can send another message.": "Текущий ответ завершён. Можно отправить новое сообщение.",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "Загрузить только определения нужных инструментов для этого запроса, не выполняя их.",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "Выдать итоговый ответ и остановить текущий запуск, не блокируя новые сообщения и не меняя права аккаунта.",
     "Adjust settings with WebMCP": "Настроить через WebMCP",
     "Changes are saved only with the Save button.": "Изменения сохраняются только кнопкой «Сохранить».",
     "Collapse all": "Свернуть всё",

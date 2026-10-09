@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Load assistant tools": "必要なツールを読み込む",
+    "End this turn": "今回の応答を終了",
+    "Assistant tools loaded": "必要なツールを読み込みました",
+    "This turn has ended. You can send another message.": "今回の応答は終了しました。続けてメッセージを送信できます。",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "このリクエストに必要なツールの引数定義のみを読み込みます。選択したツールは実行しません。",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "最終回答を表示して今回の処理を終了します。以降のメッセージやアカウント権限は制限しません。",
     "Adjust settings with WebMCP": "WebMCP で設定を調整",
     "Changes are saved only with the Save button.": "変更は「保存」ボタンを押したときにのみ保存されます。",
     "Collapse all": "すべて折りたたむ",

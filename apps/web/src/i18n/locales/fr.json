@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Load assistant tools": "Charger les outils nécessaires",
+    "End this turn": "Terminer cet échange",
+    "Assistant tools loaded": "Outils nécessaires chargés",
+    "This turn has ended. You can send another message.": "Cet échange est terminé. Vous pouvez envoyer un autre message.",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "Charger uniquement les définitions des outils nécessaires à cette requête, sans les exécuter.",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "Envoyer la réponse finale et arrêter cette exécution sans bloquer les messages suivants ni modifier les accès du compte.",
     "Adjust settings with WebMCP": "Ajuster les paramètres avec WebMCP",
     "Changes are saved only with the Save button.": "Les modifications ne sont enregistrées qu’avec le bouton Enregistrer.",
     "Collapse all": "Tout réduire",
