@@ -23,6 +23,7 @@ jobs:
       - run: |
           python3 .review/assistant-workspace/recover.py
           python3 .review/assistant-workspace/finish.py
+          python3 .review/assistant-workspace/finish-post.py
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
@@ -39,7 +40,7 @@ jobs:
           GOMAXPROCS: '2'
         run: |
           set -o pipefail
-          go test -p 2 ./setting ./model ./controller -run 'TestAssistant|TestWeeklyDiscount|TestNewUserGift|TestToolMarket' -count=1 2>&1 | tee /tmp/go-tests.log
+          go test -json -p 2 ./setting ./model ./controller -run 'TestAssistant|TestWeeklyDiscount|TestNewUserGift|TestToolMarket' -count=1 2>&1 | tee /tmp/go-tests.log
       - name: Export Go source and logs
         if: always()
         run: |
@@ -47,6 +48,7 @@ jobs:
           cp /tmp/go-tests.log /tmp/evidence/ 2>/dev/null || true
           git add -N apps/api-go
           git diff --full-index HEAD -- apps/api-go > /tmp/evidence/go-source.patch
+          sha256sum /tmp/evidence/go-source.patch > /tmp/evidence/go-source.sha256
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -64,6 +66,7 @@ jobs:
       - run: |
           python3 .review/assistant-workspace/recover.py
           python3 .review/assistant-workspace/finish.py
+          python3 .review/assistant-workspace/finish-post.py
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: '1.3.14'
@@ -72,8 +75,14 @@ jobs:
         working-directory: apps/web
         run: |
           set -o pipefail
+          node scripts/add-missing-keys.mjs --assistant-workspace-only
           bun run i18n:sync 2>&1 | tee /tmp/web-i18n.log
           bun run format 2>&1 | tee /tmp/web-format.log
+          mapfile -t changed < <(git diff --name-only --diff-filter=ACM HEAD -- src scripts | sed 's#^apps/web/##' | grep -E '\.(tsx?|mjs)$')
+          if ((${#changed[@]})); then
+            bunx --no-install oxlint -c .oxlintrc.json --fix "${changed[@]}"
+          fi
+          bun run format >> /tmp/web-format.log 2>&1
           bun run copyright:check 2>&1 | tee /tmp/web-copyright.log
           bun run typecheck 2>&1 | tee /tmp/web-typecheck.log
           bun run lint 2>&1 | tee /tmp/web-lint.log
@@ -85,7 +94,7 @@ jobs:
           while IFS= read -r file; do
             bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" >> /tmp/web-tests.log 2>&1 || failed=1
           done < <(find src/features/assistant src/features/system-settings src/features/dashboard -name '*.test.ts' -o -name '*.test.tsx' | sort)
-          tail -n 50 /tmp/web-tests.log
+          tail -n 80 /tmp/web-tests.log
           exit "$failed"
       - name: Production build
         working-directory: apps/web
@@ -97,8 +106,9 @@ jobs:
         run: |
           mkdir -p /tmp/evidence
           cp /tmp/web-*.log /tmp/evidence/ 2>/dev/null || true
-          git add -N apps/web/src docs
-          git diff --full-index HEAD -- apps/web/src docs > /tmp/evidence/web-source.patch
+          git add -N apps/web/src apps/web/scripts docs
+          git diff --full-index HEAD -- apps/web/src apps/web/scripts docs > /tmp/evidence/web-source.patch
+          sha256sum /tmp/evidence/web-source.patch > /tmp/evidence/web-source.sha256
       - uses: actions/upload-artifact@v4
         if: always()
         with:
