@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore のインポートには、サーバーに永続的な暗号化キーを設定する必要があります。管理者に設定の確認を依頼してください。",
+    "This draft stays private. Review its visibility before publishing.": "この下書きは非公開のままです。公開前に表示設定を確認してください。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

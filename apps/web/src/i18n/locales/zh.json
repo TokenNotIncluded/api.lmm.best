@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore 导入需要服务器配置持久加密密钥。请联系管理员检查配置。",
+    "This draft stays private. Review its visibility before publishing.": "此草稿保持私有。发布前请确认可见性。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

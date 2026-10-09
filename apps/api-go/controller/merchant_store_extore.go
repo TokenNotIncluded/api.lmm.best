@@ -17,6 +17,7 @@ import (
 const storeExtorePurpose = service.MerchantStoreExtorePurpose
 
 func storeExtoreError(c *gin.Context, err error) {
+	c.Header("Cache-Control", "no-store")
 	code, message, status := "STORE_EXTORE_UNAVAILABLE", "Extore could not be read. Start authorization again.", http.StatusBadGateway
 	switch {
 	case errors.Is(err, extore.ErrInput):
