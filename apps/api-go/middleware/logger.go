@@ -22,7 +22,7 @@ func loggedRequestPath(param gin.LogFormatterParams) string {
 		if strings.HasPrefix(path, "/store/claim/") {
 			return "/store/claim/[REDACTED]"
 		}
-		if path == "/api/store" || strings.HasPrefix(path, "/api/store/") {
+		if path == "/store/manage" || path == "/api/store" || strings.HasPrefix(path, "/api/store/") {
 			return path
 		}
 	}

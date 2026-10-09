@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script src="/extore-callback.js"></script>
     <link rel="icon" type="image/svg+xml" href="/lmm-cut-mark.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta
@@ -38,11 +39,19 @@
           ?.setAttribute('content', theme === 'dark' ? '#020817' : '#fff')
       })()
     </script>
-    <script
-      async
-      src="https://cdn.agentlane.com/v1/snippet.js"
-      data-domain="dom-plf25ce17li9"
-    ></script>
+    <script>
+      // Also fail closed if the local callback bootstrap could not load.
+      if (
+        !window.__lmmExtoreCallbackPage &&
+        !(location.pathname === '/store/manage' && location.search)
+      ) {
+        const tracker = document.createElement('script')
+        tracker.async = true
+        tracker.src = 'https://cdn.agentlane.com/v1/snippet.js'
+        tracker.dataset.domain = 'dom-plf25ce17li9'
+        document.head.appendChild(tracker)
+      }
+    </script>
     <!--umami-->
     <!--Google Analytics-->
   </head>
