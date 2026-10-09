@@ -92,9 +92,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                           showAssistant={!focusedOnboarding}
                           showMobileAssistant={!assistantPage}
                           leftContent={
-                            focusedOnboarding ? undefined : (
-                              <ConsoleLocation />
-                            )
+                            focusedOnboarding ? undefined : <ConsoleLocation />
                           }
                         />
                       </MobileScrollChrome>
