@@ -302,11 +302,17 @@ try {
                       font: getComputedStyle(node).fontSize,
                     }))
                 )
+              // Touch targets and anti-zoom text sizes are mobile requirements.
+              const minHeight = width < 768 ? 44 : 36
+              const minFont = width < 768 ? 16 : 14
               assert.ok(
-                fields.every(
-                  (field) => field.height >= 44 && parseFloat(field.font) >= 16
-                ),
-                JSON.stringify(fields)
+                fields.length > 0 &&
+                  fields.every(
+                    (field) =>
+                      field.height >= minHeight &&
+                      parseFloat(field.font) >= minFont
+                  ),
+                JSON.stringify({ width, fields })
               )
             }
             assert.deepEqual(errors, [])
