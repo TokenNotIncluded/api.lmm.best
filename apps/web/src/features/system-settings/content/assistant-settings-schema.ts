@@ -56,11 +56,6 @@ export const assistantSettingsSchema = z.object({
   AssistantSkillFiles: z.string().max(400000),
   AssistantRegistrationAutoSuspendEnabled: z.boolean(),
   AssistantRegistrationDailySuspendCap: z.number().int().min(0).max(5),
-  AssistantL1AutoReviewEnabled: z.boolean(),
-  AssistantL1AutoReviewGroup: z.string().trim().max(64),
-  AssistantL1AutoReviewModel: z.string().trim().max(128),
-  AssistantL1AutoReviewPrompt: z.string().trim().max(8000),
-  AssistantL1AutoReviewMinConfidence: z.number().finite().min(0).max(1),
   AssistantL1AutoApprovalUserIDs: z
     .string()
     .trim()

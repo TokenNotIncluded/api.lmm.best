@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AxiosAdapter, InternalAxiosRequestConfig } from 'axios'
 
+import type { AdminSiteStatistics } from '@/features/dashboard/site-statistics'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -314,6 +315,44 @@ const reads: Record<string, unknown> = {
   '/api/ai-directory': { links: null },
 }
 
+// Synthetic amounts for the local-only console gallery, never production data.
+const overviewStatistics = {
+  as_of: stamp,
+  credits_per_usd: 500000,
+  total_used_credits: '896123456',
+  total_balance_credits: '1024567890',
+  recharge: {
+    currencies: [
+      {
+        currency: 'CNY',
+        gross_amount_micros: '1480500000',
+        refunded_amount_micros: '36000000',
+        net_amount_micros: '1444500000',
+        orders: 36,
+      },
+      {
+        currency: 'USD',
+        gross_amount_micros: '283450000',
+        refunded_amount_micros: '8250000',
+        net_amount_micros: '275200000',
+        orders: 12,
+      },
+    ],
+    virtual_units: [
+      {
+        currency: 'LDC',
+        gross_amount_micros: '31250000',
+        refunded_amount_micros: '0',
+        net_amount_micros: '31250000',
+        orders: 3,
+      },
+    ],
+    confirmed_orders: 51,
+    unconfirmed_orders: 4,
+    invalid_orders: 1,
+  },
+} satisfies AdminSiteStatistics
+
 export function consolePageFixture(
   config: InternalAxiosRequestConfig
 ): unknown {
@@ -322,6 +361,44 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (path === '/api/ratio_sync/service_tiers') {
+    if (url.username || url.password || (user?.role ?? 0) < ROLE.SUPER_ADMIN) {
+      return undefined
+    }
+    // An unsynchronized, disabled installation. Never fetch provider prices or
+    // grant accelerated access while reviewing console pages.
+    return {
+      success: true,
+      data: {
+        policy: {
+          enabled: false,
+          fast_markup: 1.2,
+          ultrafast_markup: 1.2,
+          fast_groups: [],
+          ultrafast_groups: [],
+        },
+        catalog: {
+          source: '',
+          fetched_at: '0001-01-01T00:00:00Z',
+          sha256: '',
+          models: {},
+        },
+        fresh: false,
+        max_age_hours: 24,
+        groups: { default: 1 },
+      },
+    }
+  }
+  if (path === '/api/finance/site-statistics') {
+    if (
+      url.username ||
+      url.password ||
+      (user?.role !== ROLE.ADMIN && user?.role !== ROLE.SUPER_ADMIN)
+    ) {
+      return undefined
+    }
+    return { success: true, data: structuredClone(overviewStatistics) }
+  }
   if (Object.hasOwn(storeAndSecurityReads, path)) {
     if (url.username || url.password) return undefined
     // Both security GET routes require AdminAuth on the real router. Falling

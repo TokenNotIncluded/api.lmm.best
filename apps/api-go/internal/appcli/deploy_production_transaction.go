@@ -1509,6 +1509,9 @@ func (runtime *productionRuntime) rollback(ctx context.Context, workspace produc
 		}
 		return status, nil
 	}
+	if status.Phase == "FAILED_PREARM" {
+		return runtime.rollbackFailedPrearm(ctx, workspace, manifest, status, reason)
+	}
 	switch status.Phase {
 	case "MUTATION_PENDING", "MIGRATING", "DEPLOYING", "DEPLOYING_GO", "DEPLOYING_WEB", "OBSERVING", "AWAITING_CONFIRMATION", "CONFIRMING", "ROLLBACK_REQUIRED", "ROLLING_BACK", productionMaintenanceConfirmedPhase:
 	default:

@@ -41,7 +41,7 @@ export function visibleTodoCategories(
     }
   }
   // Keep the active filter reachable when its last item is processed.
-  visible.add(selected)
+  if (Object.hasOwn(TODO_CATEGORY_LABELS, selected)) visible.add(selected)
   return [...visible]
 }
 

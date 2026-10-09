@@ -488,7 +488,7 @@ export function AssistantPlanTool(props: {
           {props.developerAccessGranted
             ? t('Payment is unavailable for this account.')
             : t(
-                'You can compare live plans and discounts now. Checkout and payment remain locked until automatic review approves L1 or human fallback completes.'
+                'You can compare live plans and discounts now. Follow the current account access requirements to continue to checkout.'
               )}
         </AlertDescription>
         {!props.developerAccessGranted ? (

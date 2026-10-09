@@ -662,6 +662,12 @@ func newBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
+	if relayInfo.ServiceTierQuote != nil {
+		if pref == "subscription_only" {
+			return nil, types.NewErrorWithStatusCode(errors.New("accelerated requests require wallet funding; subscription_only is not supported"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		pref = "wallet_only"
+	}
 
 	// 钱包路径需要先检查用户额度
 	tryWallet := func() (*BillingSession, *types.NewAPIError) {

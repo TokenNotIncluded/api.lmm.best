@@ -49,6 +49,11 @@ const RoutingReliabilitySection = lazyNamedSection(
   'RoutingReliabilitySection'
 )
 
+const ServiceTierSettingsCard = lazyNamedSection(
+  () => import('./service-tier-settings-card'),
+  'ServiceTierSettingsCard'
+)
+
 function formatJsonForEditor(value: string, fallback: string) {
   const raw = (value ?? '').toString().trim()
   if (!raw) return fallback
@@ -60,6 +65,11 @@ function formatJsonForEditor(value: string, fallback: string) {
 }
 
 const MODELS_SECTIONS = [
+  {
+    id: 'service-tier-pricing',
+    titleKey: 'Fast and Ultrafast pricing',
+    build: (_settings: ModelSettings) => <ServiceTierSettingsCard />,
+  },
   {
     id: 'global',
     titleKey: 'Global Model Configuration',

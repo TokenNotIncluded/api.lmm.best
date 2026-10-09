@@ -1,16 +1,17 @@
 # Built-in assistant registration guard
 
 L0 admission is performed through the built-in assistant, not a second reviewer
-model or a user-submitted recommendation letter. The public legacy submission
-route returns 410; historical requests and administrator audit/override helpers
-remain readable. Legacy submission and administrative approval/rejection writes
-return 410. Pending and rejected letters no longer appear in onboarding or the
-live todo queue, including unread counts. Historical records are not deleted.
+model or a user-submitted recommendation letter. The legacy application,
+review and archive HTTP endpoints return 410 without reading or changing records.
+Their onboarding, todo, user-management and administrator-assistant entries are
+removed. Historical database records are retained, but do not appear in live
+todo items, categories or unread counts. Old clients receive an explicit retired
+endpoint response instead of creating new applications.
 
 ## L0 to L1
 
 An enabled L0 account can describe an ordinary use such as coding, learning or
-chatting. The assistant can call `grant_developer_access` in that same first turn;
+chatting. The assistant can call `grant_l1_access` in that same first turn;
 there is no completed-turn minimum, recommendation letter, client-name, repository
 or work-proof requirement. `minimum_completed_turns` remains zero in the response
 for older clients. Conversation ownership, browser-session identity, current
@@ -97,7 +98,9 @@ uses the existing restricted configuration capability.
 Regression suites cover weak signals, cross-user ownership, protected roles,
 missing/stale/changed identity, OAuth without email, repeated sanctions, auth
 version changes, restoration and the global cap. Frontend tests cover unknown and
-failed states, recommendation-form removal and the human-support explanation.
+failed states, retired forms and archive entries, stale todo filters and counts,
+and independent human support. Endpoint tests verify that retired requests cannot
+activate an account, expose a stored letter, or change historical records.
 Run Go model/controller tests and web typechecking in a dependency-equipped
 runner. Production traffic, PostgreSQL/MySQL concurrency, Redis outage behavior,
 and browser visual review must be verified before deployment; SQLite unit tests

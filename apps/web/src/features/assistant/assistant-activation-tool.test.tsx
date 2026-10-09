@@ -189,7 +189,7 @@ describe('tool-based admission status', () => {
     try {
       assert.match(
         view.container.textContent ?? '',
-        /No recommendation letter is required/
+        /The assistant can enable L1 during this conversation/
       )
       assert.equal(view.container.querySelector('textarea'), null)
     } finally {

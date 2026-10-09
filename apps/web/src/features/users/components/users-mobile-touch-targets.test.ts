@@ -20,10 +20,6 @@ describe('mobile user actions', () => {
       /className='size-11 sm:size-7'/
     )
     assert.match(
-      source('user-recommendation-archive-dialog.tsx'),
-      /className='size-11 sm:size-7'/
-    )
-    assert.match(
       source('user-assistant-history-dialog.tsx'),
       /className='min-h-11 sm:min-h-7'/
     )

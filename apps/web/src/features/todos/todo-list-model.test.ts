@@ -182,3 +182,7 @@ describe('todo dates and destinations', () => {
     assert.equal(todoItemCanOpen(warning, true), false)
   })
 })
+
+test('a stale selected category cannot restore the retired L1 filter', () => {
+  assert.deepEqual(visibleTodoCategories([], 'developer_access', true), ['all'])
+})

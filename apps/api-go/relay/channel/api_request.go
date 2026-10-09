@@ -539,6 +539,9 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	resetUpstreamCompatibilityMarkers(c)
+	if err := helper.ApplyServiceTierToRequest(c, req, info); err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 	// Enforce trusted private identity after conversion, raw pass-through and
 	// all request/header overrides, immediately before the final transport.
 	helper.ApplyOpenAIPrivateSafetyIdentifierToRequest(req, info)

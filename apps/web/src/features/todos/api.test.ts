@@ -188,3 +188,28 @@ test('retired applications disappear from a previous backend response and unread
     'Preserve page positions while the old backend is deployed'
   )
 })
+
+test('filters retired rows and unread counts even without a category summary', async () => {
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        items: [{ category: 'developer_access', source_id: 1, read: false }],
+        page: 1,
+        page_size: 50,
+        total: 1,
+        category: 'all',
+        unread_count: 3,
+        total_unread_count: 3,
+        unread_by_category: { developer_access: 3 },
+        categories: [],
+      },
+    },
+  })) as typeof api.get
+  const result = await getTodos('all')
+  assert.deepEqual(result.items, [])
+  assert.deepEqual(result.categories, [])
+  assert.deepEqual(result.unread_by_category, {})
+  assert.equal(result.unread_count, 0)
+  assert.equal(result.total_unread_count, 0)
+})

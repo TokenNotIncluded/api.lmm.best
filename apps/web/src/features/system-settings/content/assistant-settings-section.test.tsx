@@ -118,11 +118,6 @@ const baseValues = {
   AssistantSkillFiles: '[]',
   AssistantRegistrationAutoSuspendEnabled: true,
   AssistantRegistrationDailySuspendCap: 5,
-  AssistantL1AutoReviewEnabled: false,
-  AssistantL1AutoReviewGroup: '',
-  AssistantL1AutoReviewModel: '',
-  AssistantL1AutoReviewPrompt: '',
-  AssistantL1AutoReviewMinConfidence: 0.98,
   AssistantL1AutoApprovalUserIDs: '',
   AssistantRetentionEnabled: true,
   AssistantActiveRetentionDays: 90,
@@ -304,13 +299,13 @@ describe('assistant search provider settings', () => {
       }).success,
       true
     )
-    assert.equal(
-      assistantSettingsSchema.safeParse({
-        ...baseValues,
-        AssistantL1AutoReviewEnabled: true,
-      }).success,
-      true
-    )
+    const legacy = assistantSettingsSchema.parse({
+      ...baseValues,
+      AssistantL1AutoReviewEnabled: true,
+      AssistantL1AutoReviewModel: 'retired-model',
+    })
+    assert.equal('AssistantL1AutoReviewEnabled' in legacy, false)
+    assert.equal('AssistantL1AutoReviewModel' in legacy, false)
   })
 
   for (const outcome of ['loaded', 'empty', 'error'] as const) {

@@ -288,11 +288,6 @@ export type ContentSettings = {
   AssistantSkillFiles: string
   AssistantRegistrationAutoSuspendEnabled: boolean
   AssistantRegistrationDailySuspendCap: number
-  AssistantL1AutoReviewEnabled: boolean
-  AssistantL1AutoReviewGroup: string
-  AssistantL1AutoReviewModel: string
-  AssistantL1AutoReviewPrompt: string
-  AssistantL1AutoReviewMinConfidence: number
   AssistantL1AutoApprovalUserIDs: string
   AssistantRetentionEnabled: boolean
   AssistantActiveRetentionDays: number

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { createHomePoster } from './home-poster'
-
 const pointer = {
   x: 32,
   y: 32,
@@ -23,13 +22,7 @@ function fixture() {
     document: {
       documentElement: root,
       createElement() {
-        const image = {
-          onerror: null as (() => void) | null,
-          set src(_value: string) {
-            queueMicrotask(() => image.onerror?.())
-          },
-        }
-        return image
+        throw new Error('The sculpture must not depend on image decoding')
       },
     },
     getComputedStyle: () => ({ getPropertyValue: () => ground }),
@@ -40,7 +33,7 @@ function fixture() {
   }
   const posters: NonNullable<ReturnType<typeof createHomePoster>>[] = []
   return {
-    canvas() {
+    canvas(onReady = () => {}) {
       let pixels = new Uint8ClampedArray()
       const element = {
         clientWidth: 64,
@@ -59,7 +52,10 @@ function fixture() {
           },
         }),
       }
-      const poster = createHomePoster(element as unknown as HTMLCanvasElement)
+      const poster = createHomePoster(
+        element as unknown as HTMLCanvasElement,
+        onReady
+      )
       assert.ok(poster)
       posters.push(poster)
       return { element, poster, pixels: () => pixels }
@@ -78,11 +74,10 @@ function fixture() {
   }
 }
 
-test('failed image loading still produces the lotus and future is not a lotus', async () => {
+test('procedural lotus renders offline and future is not a lotus', () => {
   const view = fixture()
   try {
     const { element, poster, pixels } = view.canvas()
-    await Promise.resolve()
     poster.draw(0, pointer, 0, true)
     assert.equal(element.dataset.ready, 'true')
     assert.equal(element.dataset.sculpture, 'lotus')
@@ -134,6 +129,27 @@ test('pause freezes brush offsets, theme redraws use light pixels, disposal is f
     const disposed = pixels()
     poster.draw(1, brush, 0.08)
     assert.deepEqual(pixels(), disposed)
+  } finally {
+    view.close()
+  }
+})
+
+test('ready fires once after the first real frame, not at construction or after disposal', async () => {
+  const view = fixture()
+  try {
+    let calls = 0
+    const first = view.canvas(() => calls++)
+    await Promise.resolve()
+    assert.equal(calls, 0)
+    first.poster.draw(0, pointer, 0, true)
+    first.poster.draw(0, pointer, 0, true)
+    await Promise.resolve()
+    assert.equal(calls, 1)
+    const second = view.canvas(() => calls++)
+    second.poster.draw(0, pointer, 0, true)
+    second.poster.dispose()
+    await Promise.resolve()
+    assert.equal(calls, 1)
   } finally {
     view.close()
   }

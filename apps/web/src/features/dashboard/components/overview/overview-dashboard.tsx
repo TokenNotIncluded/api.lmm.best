@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import './overview-dashboard.css'
 import { AccountStatus } from '@/features/onboarding/account-status'
 import { LatestRequestCard } from '@/features/onboarding/latest-request-card'
 import { ROLE } from '@/lib/roles'
@@ -48,7 +49,7 @@ export function OverviewDashboard() {
   const showContentPanels = showLeftContentPanels || showUptimePanel
 
   return (
-    <div className='dashboard-editorial flex flex-col gap-10'>
+    <div className='dashboard-editorial overview-dashboard flex flex-col gap-10'>
       {!isAdmin && (
         <>
           <AccountStatus />

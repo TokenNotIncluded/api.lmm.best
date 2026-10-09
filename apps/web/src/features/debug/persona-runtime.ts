@@ -1398,9 +1398,6 @@ const debugAdapter: AxiosAdapter = async (config) => {
       })
     )
   }
-  if (method === 'GET' && path === '/api/user/developer-access/request') {
-    return response(config, envelope(null))
-  }
   if (method === 'GET' && path === '/api/todos') {
     return response(
       config,

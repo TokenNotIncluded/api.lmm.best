@@ -277,7 +277,7 @@ function L0WelcomeStage({
                   ? copy.syncNote
                   : access.mode === 'review'
                     ? t(
-                        'Describe what you need. The assistant can enable L1 without an application letter.'
+                        'Describe what you need. The assistant can enable L1 directly.'
                       )
                     : canTopUp
                       ? copy.eligibility

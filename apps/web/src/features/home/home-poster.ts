@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { getSculpture, replaceLotus, sequenceAt } from './home-sculptures'
+import { getSculpture, sequenceAt } from './home-sculptures'
 import {
   hash,
   mix as lerp,
@@ -23,8 +23,8 @@ const pack = (r: number, g: number, b: number) =>
     (Math.round(g) << 8) |
     Math.round(r)) >>>
   0
+/** Coverage and trails blend with the actual ground, never a black matte. */
 
-/** Coverage and trails must blend with the actual ground, not a black matte. */
 export function posterPalette(background: Vec3) {
   const light = background[0] + background[1] + background[2] > 384
   const coverage = (pixel: number, alpha: number) =>
@@ -34,74 +34,23 @@ export function posterPalette(background: Vec3) {
       lerp(background[2], (pixel >>> 16) & 255, alpha)
     )
   return {
+    light,
     background: pack(...background),
     coverage,
-    ink: (color: Vec3) =>
-      coverage(
-        pack(
-          ...(color.map((c) =>
-            Math.min(255, Math.max(0, c * (light ? 0.72 : 1)))
-          ) as Vec3)
-        ),
-        light ? 0.94 : 0.86
-      ),
+    ink: (color: Vec3) => {
+      // Preserve hue and shading, but give pale materials a printable midtone.
+      const luminance =
+        color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722
+      const tone = light ? 0.62 : 1
+      const rgb = color.map((channel) => {
+        const saturated = light
+          ? luminance + (channel - luminance) * 1.2
+          : channel
+        return Math.min(255, Math.max(0, saturated * tone))
+      }) as Vec3
+      return coverage(pack(...rgb), light ? 1 : 0.96)
+    },
   }
-}
-
-export const homeLotusUrl = new URL('./assets/lotus.webp', import.meta.url).href
-let imageStarted = false,
-  imageSettled = false
-const readyListeners = new Set<() => void>()
-function loadLotus() {
-  if (imageStarted) return
-  imageStarted = true
-  const image = document.createElement('img')
-  const settled = () => {
-    imageSettled = true
-    for (const listener of readyListeners) listener()
-    image.onload = image.onerror = null
-  }
-  image.onerror = settled
-  image.onload = () => {
-    try {
-      const surface = document.createElement('canvas')
-      surface.width = image.naturalWidth
-      surface.height = image.naturalHeight
-      const context = surface.getContext('2d', { willReadFrequently: true })
-      if (!context) return
-      context.drawImage(image, 0, 0)
-      const { data } = context.getImageData(0, 0, surface.width, surface.height)
-      const points: Point[] = []
-      for (let row = 0; row < surface.height; row += 4) {
-        for (let column = 0; column < surface.width; column += 4) {
-          const index = (row * surface.width + column) * 4
-          if (data[index + 3] < 155) continue
-          const x = (column / surface.width - 0.5) * 2.7
-          const y = (0.36 - row / surface.height) * 3.6
-          const red = data[index],
-            green = data[index + 1],
-            blue = data[index + 2]
-          const petal = red > green * 1.15 && row < surface.height * 0.6
-          points.push({
-            x,
-            y,
-            z: 0,
-            part: 0,
-            color: [red, green, blue],
-            closed: petal
-              ? [x * 0.34, y * 0.72 + Math.abs(x) * 0.35 + 0.16, 0]
-              : undefined,
-          })
-        }
-      }
-      if (points.length) replaceLotus(points)
-    } catch {
-      // The procedural lotus is also usable offline or after a decode failure.
-    } finally {
-      settled()
-    }
-  }
-  image.src = homeLotusUrl
 }
 
 type Paint = {
@@ -110,23 +59,16 @@ type Paint = {
   corner: Uint32Array
   trail: Uint32Array
 }
+
 export function createHomePoster(
   canvas: HTMLCanvasElement,
   onReady = () => {}
 ) {
   const context = canvas.getContext('2d', { alpha: false })
   if (!context) return null
-  let alive = true
-  const loaded = () => {
-    if (!alive) return
-    canvas.dataset.ready = 'true'
-    onReady()
-  }
-  readyListeners.add(loaded)
-  if (imageSettled) queueMicrotask(loaded)
-  else loadLotus()
-
-  // Keep the original fine-point lattice, sample budgets and brush springs.
+  let alive = true,
+    ready = false
+  // Keep the fine-point lattice, sample budgets and brush springs.
   const count = canvas.clientWidth < 680 ? 22000 : 60000
   const offsets = new Float32Array(count * 4)
   const scatter = Float32Array.from(
@@ -217,11 +159,8 @@ export function createHomePoster(
       const left = sequenceAt(from, ages[from]),
         right = sequenceAt(to, ages[to])
       canvas.dataset.sculpture = pageMix < 0.5 ? left.from : right.from
-      if (imageSettled || from !== 0 || left.from !== 'lotus') {
-        canvas.dataset.ready = 'true'
-      }
       const grid = w < 680 ? 1.7 : 2.7,
-        diameter = grid * 0.76 * ratio
+        diameter = grid * (palette.light ? 0.96 : 0.83) * ratio
       const fullSize = Math.floor(diameter)
       const fringe = diameter - fullSize > 0.1 ? diameter - fullSize : 0
       const size = Math.max(1, fullSize + (fringe ? 1 : 0))
@@ -265,9 +204,10 @@ export function createHomePoster(
       if (!n || !bitmap || !pixels || !depths) return
       pixels.fill(palette.background)
       depths.fill(-Infinity)
-      const scale = Math.min(w * 0.34, h * 0.35),
+      // Leave room for dispersal in every direction, then return to the resting frame.
+      const scale = Math.min(w * 0.34, h * 0.35) * (1 - spread * 0.3),
         centerX = w / 2,
-        centerY = h * 0.43
+        centerY = h * (0.43 + spread * 0.07)
       const stride = canvas.width,
         rows = canvas.height
       const brushX = pointer.x - pointer.previousX,
@@ -354,7 +294,7 @@ export function createHomePoster(
                 scatter[i * 2 + 1] * (30 + speed * 0.09))
           }
         }
-        // Unchanged closed-form critical damping: return time does not depend on fps.
+        // Closed-form critical damping: return time does not depend on fps.
         const gapX = offsets[index] - fx,
           gapY = offsets[index + 1] - fy
         const springX = offsets[index + 2] + 20 * gapX,
@@ -380,7 +320,6 @@ export function createHomePoster(
             col++
           ) {
             const slot = row * stride + col
-            // Rotating surfaces occlude their rear faces; ordered lotus samples retain ties.
             if (z < depths[slot]) continue
             depths[slot] = z
             pixels[slot] = fringe
@@ -411,10 +350,17 @@ export function createHomePoster(
         }
       }
       context.putImageData(bitmap, 0, 0)
+      // Notify only after a real frame. A microtask avoids re-entering the owner.
+      if (!ready) {
+        ready = true
+        canvas.dataset.ready = 'true'
+        queueMicrotask(() => {
+          if (alive) onReady()
+        })
+      }
     },
     dispose() {
       alive = false
-      readyListeners.delete(loaded)
       delete canvas.dataset.ready
       delete canvas.dataset.sculpture
       canvas.width = 0

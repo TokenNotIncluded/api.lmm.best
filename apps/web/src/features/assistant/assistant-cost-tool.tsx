@@ -125,9 +125,7 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
         <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
         <AlertTitle>{t('Read-only')}</AlertTitle>
         <AlertDescription>
-          {t(
-            'This live estimate is read-only while your L1 request is under review.'
-          )}
+          {t('This estimate is read-only until L1 access is active.')}
         </AlertDescription>
       </Alert>
     )
@@ -344,9 +342,7 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
             />
             <AlertTitle>{t('Read-only')}</AlertTitle>
             <AlertDescription>
-              {t(
-                'This live estimate is read-only while your L1 request is under review.'
-              )}
+              {t('This estimate is read-only until L1 access is active.')}
             </AlertDescription>
           </Alert>
         ) : null}
