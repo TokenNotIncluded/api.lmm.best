@@ -1,0 +1,58 @@
+name: L1 latest main integration audit
+on:
+  push:
+    branches: [work/l1-cleanup-audit-20261009]
+    paths: [.github/workflows/l1-main-sync-audit.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 40c40d44de85b93559c88aace77ee60914fb2bbd
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Inspect merge without updating any source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/integration"
+          mkdir -p "$out"
+          main=ed3cb848c733c7ba16704f6ef964cecd132bf686
+          oldmain=43be129a2120254eac260f61fe60f22f09995b66
+          git archive "$main" | gzip > "$out/latest-main.tar.gz"
+          git diff "$oldmain" "$main" > "$out/new-main.patch"
+          git log --format='%h %s' "$oldmain..$main" > "$out/new-main-commits.txt"
+          git config user.name 'L1 integration audit'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-commit --no-ff "$main" > "$out/merge.log" 2>&1 || true
+          cat "$out/merge.log"
+          git status --porcelain > "$out/status.txt"
+          git diff --name-only --diff-filter=U > "$out/conflicts.txt"
+          git diff > "$out/merge-conflicts.patch"
+          git diff --cached > "$out/automatic-merge.patch"
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'integration'
+          paths=(root/'conflicts.txt').read_text().splitlines()
+          result=[]
+          for path in paths:
+              item={'path':path,'working':Path(path).read_text() if Path(path).is_file() else None}
+              for i,label in [(1,'base'),(2,'ours'),(3,'theirs')]:
+                  r=subprocess.run(['git','show',f':{i}:{path}'],capture_output=True,text=True)
+                  item[label]=r.stdout if not r.returncode else None
+              result.append(item)
+          (root/'conflicts.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          print('Conflicted paths:',*paths,sep='\n')
+          PY
+          git merge --abort
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-main-integration-audit
+          path: ${{ runner.temp }}/integration/
+          retention-days: 3
