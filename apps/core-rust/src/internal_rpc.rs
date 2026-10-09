@@ -363,7 +363,8 @@ impl RpcServer {
             .timeout(DEADLINE)
             .max_concurrent_streams(8)
             .concurrency_limit_per_connection(8)
-            .max_header_list_size(8192)
+            .http2_max_header_list_size(8192)
+            .load_shed(true)
             .initial_stream_window_size(64 * 1024)
             .initial_connection_window_size(256 * 1024)
             .add_service(
