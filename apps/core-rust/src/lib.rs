@@ -9,3 +9,5 @@ pub mod funding;
 pub mod http;
 pub mod identity;
 pub mod identity_http;
+#[cfg(unix)]
+pub mod internal_rpc;
