@@ -8,10 +8,10 @@ import (
 )
 
 func TestResolveOrder(t *testing.T) {
-	personal := Account{Personal, 7}
-	otherPerson := Account{Personal, 8}
-	teamA := Account{Team, 7} // IDs may overlap across kinds.
-	teamB := Account{Team, 8}
+	personal := Account{Kind: Personal, ID: 7}
+	otherPerson := Account{Kind: Personal, ID: 8}
+	teamA := Account{Kind: Team, ID: 7} // IDs may overlap across kinds.
+	teamB := Account{Kind: Team, ID: 8}
 	grants := map[int64]bool{teamA.ID: true, teamB.ID: true}
 
 	tests := []struct {
@@ -32,13 +32,13 @@ func TestResolveOrder(t *testing.T) {
 		{name: "personal empty is not default", owner: personal, order: []Account{}, err: ErrInvalidOrder},
 		{name: "team empty is not default", owner: teamA, order: []Account{}, grants: grants, err: ErrInvalidOrder},
 		{name: "missing owner", err: ErrInvalidOwner},
-		{name: "unknown owner kind", owner: Account{"admin", 7}, err: ErrInvalidOwner},
-		{name: "negative owner ID", owner: Account{Personal, -7}, err: ErrInvalidOwner},
-		{name: "zero owner ID", owner: Account{Team, 0}, err: ErrInvalidOwner},
-		{name: "invalid entry", owner: personal, order: []Account{{"organization", 7}}, grants: grants, err: ErrInvalidOrder},
-		{name: "zero entry ID", owner: personal, order: []Account{{Team, 0}}, grants: grants, err: ErrInvalidOrder},
-		{name: "negative entry ID", owner: personal, order: []Account{{Team, -7}}, grants: grants, err: ErrInvalidOrder},
-		{name: "no implicit normalization", owner: personal, order: []Account{{"Team", 7}}, grants: grants, err: ErrInvalidOrder},
+		{name: "unknown owner kind", owner: Account{Kind: "admin", ID: 7}, err: ErrInvalidOwner},
+		{name: "negative owner ID", owner: Account{Kind: Personal, ID: -7}, err: ErrInvalidOwner},
+		{name: "zero owner ID", owner: Account{Kind: Team, ID: 0}, err: ErrInvalidOwner},
+		{name: "invalid entry", owner: personal, order: []Account{{Kind: "organization", ID: 7}}, grants: grants, err: ErrInvalidOrder},
+		{name: "zero entry ID", owner: personal, order: []Account{{Kind: Team, ID: 0}}, grants: grants, err: ErrInvalidOrder},
+		{name: "negative entry ID", owner: personal, order: []Account{{Kind: Team, ID: -7}}, grants: grants, err: ErrInvalidOrder},
+		{name: "no implicit normalization", owner: personal, order: []Account{{Kind: "Team", ID: 7}}, grants: grants, err: ErrInvalidOrder},
 		{name: "duplicate personal", owner: personal, order: []Account{personal, personal}, err: ErrInvalidOrder},
 		{name: "duplicate team", owner: personal, order: []Account{teamA, personal, teamA}, grants: grants, err: ErrInvalidOrder},
 		{name: "other personal account", owner: personal, order: []Account{otherPerson}, grants: grants, err: ErrAccountNotAuthorized},
@@ -67,7 +67,7 @@ func TestResolveOrder(t *testing.T) {
 }
 
 func TestResolveOrderDoesNotMutateInputs(t *testing.T) {
-	personal, team := Account{Personal, 7}, Account{Team, 8}
+	personal, team := Account{Kind: Personal, ID: 7}, Account{Kind: Team, ID: 8}
 	input := []Account{team, personal}
 	grants := map[int64]bool{8: true}
 	result, err := ResolveOrder(personal, input, grants)
@@ -93,7 +93,7 @@ func TestResolveOrderDoesNotMutateInputs(t *testing.T) {
 }
 
 func TestResolveOrderJSONDefaultAndEmpty(t *testing.T) {
-	owner := Account{Personal, 7}
+	owner := Account{Kind: Personal, ID: 7}
 	for _, raw := range []string{`{}`, `{"order":null}`, `{"order":[]}`} {
 		var input struct {
 			Order []Account `json:"order"`
