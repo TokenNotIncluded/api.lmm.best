@@ -36,7 +36,7 @@ function Card({
       data-size={size}
       data-variant={variant}
       className={cn(
-        'group/card border-border/70 flex flex-col border transition-[color,background-color,border-color,box-shadow,opacity,transform] has-data-[slot=card-footer]:pb-0 data-[size=sm]:has-data-[slot=card-footer]:pb-0 bg-card text-card-foreground ring-foreground/5 dark:ring-foreground/10 gap-(--card-spacing) overflow-hidden rounded-4xl py-(--card-spacing) text-sm shadow-xs ring-1 [--card-spacing:--spacing(6)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] *:[img:first-child]:rounded-t-4xl *:[img:last-child]:rounded-b-4xl motion-reduce:transition-none',
+        'group/card border-border/70 flex flex-col border transition-[color,background-color,border-color,box-shadow,opacity,transform] has-data-[slot=card-footer]:pb-0 data-[size=sm]:has-data-[slot=card-footer]:pb-0 bg-card text-card-foreground ring-foreground/5 dark:ring-foreground/10 gap-(--card-spacing) overflow-hidden rounded-4xl py-(--card-spacing) text-sm shadow-none [--card-spacing:--spacing(4)] sm:[--card-spacing:--spacing(6)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] *:[img:first-child]:rounded-t-4xl *:[img:last-child]:rounded-b-4xl motion-reduce:transition-none',
         variant === 'paper' && 'border-0 ring-0 shadow-none',
         className
       )}

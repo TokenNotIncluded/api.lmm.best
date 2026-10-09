@@ -116,11 +116,15 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                     </SidebarInset>
                   </div>
                   <MobileScrollChrome>
-                    <AccessRestrictionNotice compact>
-                      <SourceConsent />
-                    </AccessRestrictionNotice>
+                    <div className='console-shell-footer'>
+                      {consoleActivated && !assistantPage && (
+                        <ConsoleMobileDock />
+                      )}
+                      <AccessRestrictionNotice compact>
+                        <SourceConsent />
+                      </AccessRestrictionNotice>
+                    </div>
                   </MobileScrollChrome>
-                  {consoleActivated && !assistantPage && <ConsoleMobileDock />}
                   <ReleaseNoteDialog />
                   <CommandMenu />
                   <ShortcutCheatsheetDialog />

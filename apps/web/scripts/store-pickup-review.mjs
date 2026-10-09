@@ -103,6 +103,8 @@ const auth = {
     expires_at: now + 7200,
   },
 }
+// This action clears approval; temporary unlisting is a separate control.
+const withdrawLabel = 'Withdraw from review'
 const results = []
 const browser = await chromium.launch({
   headless: true,
@@ -395,10 +397,10 @@ try {
       timeout: 60000,
     })
     await page
-      .getByRole('button', { name: 'Unlist product', exact: true })
+      .getByRole('button', { name: withdrawLabel, exact: true })
       .waitFor()
     await page
-      .getByRole('button', { name: 'Unlist product', exact: true })
+      .getByRole('button', { name: withdrawLabel, exact: true })
       .click()
     assert.equal(unlistAttempts, 0)
     await page
@@ -407,11 +409,11 @@ try {
       .click()
     await page.getByRole('alertdialog').waitFor({ state: 'hidden' })
     await page
-      .getByRole('button', { name: 'Unlist product', exact: true })
+      .getByRole('button', { name: withdrawLabel, exact: true })
       .click()
     await page
       .getByRole('alertdialog')
-      .getByRole('button', { name: 'Unlist product', exact: true })
+      .getByRole('button', { name: withdrawLabel, exact: true })
       .click()
     await page
       .getByRole('alertdialog')
@@ -420,13 +422,13 @@ try {
     assert.equal(await page.locator('article').count(), 1)
     await page
       .getByRole('alertdialog')
-      .getByRole('button', { name: 'Unlist product', exact: true })
+      .getByRole('button', { name: withdrawLabel, exact: true })
       .click()
     await page.getByRole('alertdialog').waitFor({ state: 'hidden' })
     assert.equal(await page.locator('article').count(), 1)
     assert.equal(
       await page
-        .getByRole('button', { name: 'Unlist product', exact: true })
+        .getByRole('button', { name: withdrawLabel, exact: true })
         .count(),
       0
     )

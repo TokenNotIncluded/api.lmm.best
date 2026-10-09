@@ -63,7 +63,7 @@ export function Subscriptions() {
             value={tab}
             onValueChange={(value) => setTab(value as typeof tab)}
           >
-            <TabsList>
+            <TabsList variant='navigation' aria-label={t('Subscriptions')}>
               <TabsTrigger value='plans'>{t('Plans')}</TabsTrigger>
               <TabsTrigger value='records'>
                 {t('Subscription records')}

@@ -34,7 +34,6 @@ import {
   MoneyLockIcon,
   PauseIcon,
   PlayIcon,
-  PlusSignIcon,
   SourceCodeIcon,
   Upload01Icon,
   UserAdd01Icon,
@@ -150,6 +149,7 @@ import {
   updateBounty,
   withdrawChallenge,
 } from './api'
+import { BountyPageHeader } from './bounty-page-header'
 import {
   getBountyLifecycleSummary,
   type BountyLifecycleSummary,
@@ -183,9 +183,6 @@ const BOUNTY_QUERY_KEYS = [
   ['open-source-bounties', 'accepted'],
   ['open-source-bounties', 'disputes'],
 ] as const
-
-const BOUNTY_VIEW_TAB_CLASS =
-  'h-auto min-h-11 w-full min-w-0 flex-none px-2 py-2 text-center leading-tight whitespace-normal lg:min-h-9 lg:flex-1 lg:px-3'
 
 const BOUNTY_DESCRIPTION_PREVIEW_LINES = 4
 const BOUNTY_DESCRIPTION_COLLAPSE_THRESHOLD = 240
@@ -800,7 +797,7 @@ export function OpenSourceBounties({
     bountyBoardContent = null
   } else if ((bountyQuery.data?.items.length ?? 0) === 0) {
     bountyBoardContent = (
-      <Empty className='min-h-72 border'>
+      <Empty className='bg-muted/20 min-h-56'>
         <EmptyHeader>
           <EmptyMedia variant='icon'>
             <HugeiconsIcon icon={Megaphone01Icon} strokeWidth={2} />
@@ -842,134 +839,46 @@ export function OpenSourceBounties({
 
   return (
     <Main>
-      <div className='min-h-0 flex-1 [scrollbar-gutter:stable] overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-4 sm:py-6'>
+      <div
+        data-mobile-scroll-root=''
+        className='console-bounties min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 sm:px-6 sm:py-7'
+      >
         <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 [overflow-wrap:anywhere] sm:gap-6'>
           <CardStaggerItem>
-            <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
-              <div className='flex items-start gap-3 sm:gap-4'>
-                <div className='bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-none sm:size-12'>
-                  <HugeiconsIcon
-                    icon={Award01Icon}
-                    strokeWidth={1.8}
-                    className='size-5 sm:size-6'
-                  />
-                </div>
-                <div className='min-w-0'>
-                  <h1 className='text-xl font-bold tracking-tight sm:text-2xl'>
-                    {t('Open-source bounties')}
-                  </h1>
-                  <p className='text-muted-foreground mt-1 max-w-3xl text-sm leading-relaxed'>
-                    {t(
-                      'Publish real bug-fix challenges, accept work, verify the fix, and transfer rewards from escrow.'
-                    )}
-                  </p>
-                </div>
-              </div>
-              <div className='flex flex-wrap gap-2'>
-                <Button variant='outline' render={<a href='/tool-market' />}>
-                  MCP · {t('Tool market')}
-                  <HugeiconsIcon
-                    icon={ExternalLinkIcon}
-                    strokeWidth={2}
-                    data-icon='inline-end'
-                  />
-                </Button>
-                <Button onClick={openCreateDialog}>
-                  <HugeiconsIcon
-                    icon={PlusSignIcon}
-                    strokeWidth={2}
-                    data-icon='inline-start'
-                  />
-                  {t('Create bounty')}
-                </Button>
-              </div>
-            </div>
+            <BountyPageHeader
+              onCreate={openCreateDialog}
+              feeRate={configQuery.data?.rate_basis_points}
+              feeError={configQuery.isError}
+              isSuperAdmin={isSuperAdmin}
+            />
           </CardStaggerItem>
 
           <CardStaggerItem>
-            <Alert>
-              <HugeiconsIcon icon={MoneyLockIcon} strokeWidth={2} />
-              <AlertTitle>
-                {t('Every publisher pays from their own balance')}
-              </AlertTitle>
-              <AlertDescription>
-                <div className='flex flex-col gap-3'>
-                  <p>
-                    {t(
-                      'Publishing deducts the gross total from your balance. After the platform fee, the rest is held in escrow for the contributor who fixes it.'
-                    )}
-                  </p>
-                  <details className='text-sm'>
-                    <summary className='text-muted-foreground cursor-pointer'>
-                      {t('How the money moves')}
-                    </summary>
-                    <p className='text-muted-foreground mt-1.5'>
-                      {t(
-                        'The platform fee is credited to the super administrator account and funds AI customer-service token costs. Publishers and contributors settle directly; administrators intervene only in disputes.'
-                      )}
-                    </p>
-                  </details>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <Badge variant='secondary'>
-                      {t('Public platform fee: {{rate}}%', {
-                        rate: (
-                          (configQuery.data?.rate_basis_points ?? 0) / 100
-                        ).toFixed(2),
-                      })}
-                    </Badge>
-                    {isSuperAdmin ? (
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        render={<a href='/system-settings/billing/quota' />}
-                      >
-                        <HugeiconsIcon
-                          icon={FileEditIcon}
-                          strokeWidth={2}
-                          data-icon='inline-start'
-                        />
-                        {t('Fee settings')}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </AlertDescription>
-            </Alert>
-          </CardStaggerItem>
-
-          <CardStaggerItem>
-            <Tabs value={view} onValueChange={setView} className='min-w-0'>
+            <Tabs
+              value={view}
+              onValueChange={setView}
+              className='console-page-tabs min-w-0'
+            >
               <TabsList
                 aria-label={t('Open-source bounties')}
-                className='grid w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:!h-auto sm:grid-cols-3 lg:flex lg:w-full lg:max-w-full lg:flex-nowrap lg:justify-center'
+                variant='navigation'
               >
-                <TabsTrigger value='browse' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('Bounty board')}
-                </TabsTrigger>
-                <TabsTrigger value='owned' className={BOUNTY_VIEW_TAB_CLASS}>
+                <TabsTrigger value='browse'>{t('Bounty board')}</TabsTrigger>
+                <TabsTrigger value='owned'>
                   {t('My bounty projects')}
                   <PendingReviewSuperscript
                     count={pendingReviewCountQuery.data ?? 0}
                     label={t('Pending review')}
                   />
                 </TabsTrigger>
-                <TabsTrigger value='accepted' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('My challenges')}
-                </TabsTrigger>
-                <TabsTrigger value='disputes' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('My disputes')}
-                </TabsTrigger>
+                <TabsTrigger value='accepted'>{t('My challenges')}</TabsTrigger>
+                <TabsTrigger value='disputes'>{t('My disputes')}</TabsTrigger>
                 {isAdmin ? (
-                  <TabsTrigger
-                    value='admin-disputes'
-                    className={BOUNTY_VIEW_TAB_CLASS}
-                  >
+                  <TabsTrigger value='admin-disputes'>
                     {t('Dispute cases')}
                   </TabsTrigger>
                 ) : null}
-                <TabsTrigger value='rules' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('Rules')}
-                </TabsTrigger>
+                <TabsTrigger value='rules'>{t('Rules')}</TabsTrigger>
               </TabsList>
 
               <TabsContent value='browse' className='mt-3 sm:mt-4'>
@@ -1023,7 +932,7 @@ export function OpenSourceBounties({
                 {((showArchivedOwned
                   ? archivedOwnedQuery.data?.length
                   : ownedQuery.data?.length) ?? 0) === 0 ? (
-                  <Empty className='min-h-72 border'>
+                  <Empty className='bg-muted/20 min-h-56'>
                     <EmptyHeader>
                       <EmptyMedia variant='icon'>
                         <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} />
@@ -1118,7 +1027,7 @@ export function OpenSourceBounties({
 
               <TabsContent value='accepted' className='mt-3 sm:mt-4'>
                 {(acceptedQuery.data?.length ?? 0) === 0 ? (
-                  <Empty className='min-h-72 border'>
+                  <Empty className='bg-muted/20 min-h-56'>
                     <EmptyHeader>
                       <EmptyMedia variant='icon'>
                         <HugeiconsIcon icon={Bug01Icon} strokeWidth={2} />
@@ -1603,7 +1512,7 @@ export function BountyCard({
           </Button>
         ) : null}
       </div>
-      <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
+      <div className='grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3'>
         <Metric
           label={t('Reward per fix')}
           value={formatQuota(project.reward_quota)}
@@ -2162,7 +2071,7 @@ function ChallengeCard({
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className='bg-muted/50 min-w-0 rounded-lg border p-3'>
+    <div className='min-w-0 py-1'>
       <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
         {label}
       </p>
