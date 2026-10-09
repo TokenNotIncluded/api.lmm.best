@@ -11715,6 +11715,12 @@
     "部分充值记录无法确认实付": "部分充值记录无法确认实付金额",
     "Service information": "服务说明与隐私",
     "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore 导入需要服务器配置持久加密密钥。请联系管理员检查配置。",
-    "This draft stays private. Review its visibility before publishing.": "此草稿保持私有。发布前请确认可见性。"
+    "This draft stays private. Review its visibility before publishing.": "此草稿保持私有。发布前请确认可见性。",
+    "Upgrade to a full account": "升级为正式用户",
+    "Chat for free or top up to upgrade to a full account.": "通过对话（免费）或充值，升级为正式用户。",
+    "Chat for free to upgrade to a full account.": "通过免费对话，升级为正式用户。",
+    "Chat (free)": "对话（免费）",
+    "Top up to upgrade": "充值升级",
+    "Paid upgrade details": "充值升级说明"
   }
 }

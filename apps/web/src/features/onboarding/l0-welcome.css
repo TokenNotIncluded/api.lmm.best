@@ -6,6 +6,30 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
+.console-editorial .console-page.l0-getting-started .console-section-header {
+  padding-top: 12px;
+  padding-bottom: 8px;
+}
+.console-editorial .l0-getting-started .console-page-heading {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+.console-editorial
+  .l0-getting-started
+  .console-page-heading
+  > .console-page-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+.console-editorial .l0-getting-started .console-page-title {
+  font-size: 16px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.console-editorial .console-page.l0-getting-started .console-section-content {
+  padding-top: 0;
+}
 .l0-welcome {
   --l0-ink: var(--foreground);
   --l0-muted: var(--muted-foreground);
@@ -34,30 +58,33 @@ License, or (at your option) any later version.
 .l0-welcome button:disabled {
   cursor: default;
 }
-.l0-topbar,
-.l0-topbar-actions {
+.l0-utility {
   display: flex;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  width: min(100%, 600px);
+  margin: 24px auto 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--l0-line);
 }
-.l0-topbar {
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 48px;
-}
-.l0-wordmark {
-  font:
-    600 13px/1 ui-monospace,
-    monospace;
-  letter-spacing: 0.08em;
-}
-.l0-wordmark > span {
-  margin-inline-start: 8px;
-  font-weight: 400;
+.l0-text-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
   color: var(--l0-muted);
+  font-size: 12px;
+  text-underline-offset: 4px;
 }
-.l0-topbar-actions {
-  gap: 12px;
-  min-width: 0;
+.l0-text-action:hover:not(:disabled) {
+  color: var(--l0-ink);
+  text-decoration: underline;
+}
+.l0-text-action:disabled {
+  opacity: 0.5;
 }
 .l0-account-status {
   display: flex;
@@ -103,7 +130,7 @@ License, or (at your option) any later version.
 }
 .l0-help-content {
   position: absolute;
-  top: calc(100% + 8px);
+  bottom: calc(100% + 8px);
   inset-inline-end: 0;
   z-index: 10;
   width: min(280px, calc(100vw - 48px));
@@ -135,42 +162,6 @@ License, or (at your option) any later version.
   font-size: 12px;
   line-height: 1.7;
 }
-.l0-topup-compact {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 44px;
-  padding: 0 15px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--l0-ink) 16%, var(--l0-line));
-  color: var(--l0-ink);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition:
-    background 180ms,
-    transform 200ms var(--l0-ease);
-}
-.l0-topup-compact svg {
-  width: 15px;
-  height: 15px;
-  stroke-width: 2;
-}
-.l0-topup-compact:hover {
-  background: var(--l0-soft);
-  transform: translateY(-1px);
-}
-.l0-topup-compact:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .l0-topup-compact,
-  .l0-topup-compact:hover {
-    transition: none;
-    transform: none;
-  }
-}
 .l0-stage {
   display: flex;
   flex-direction: column;
@@ -178,85 +169,101 @@ License, or (at your option) any later version.
 }
 .l0-rail {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
-  width: min(100%, 760px);
-  margin: 4px 0 2px;
-  padding: 12px 14px 12px 16px;
-  border: 1px solid var(--l0-line);
-  border-radius: 20px;
-  background: linear-gradient(
-    to right,
-    color-mix(in srgb, var(--l0-ink) 3%, var(--background)),
-    var(--background) 44%
-  );
+  gap: 20px;
+  width: min(100%, 640px);
+  padding: 28px 0 8px;
+  text-align: center;
 }
 .l0-rail-body {
-  flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 .l0-rail-headline {
   margin: 0;
-  font-size: 16px;
+  font-size: clamp(28px, 3.6vw, 40px);
   font-weight: 550;
-  line-height: 1.35;
-  letter-spacing: -0.02em;
+  line-height: 1.3;
+  letter-spacing: -0.035em;
   text-wrap: balance;
 }
 .l0-rail-meta {
+  max-width: 34em;
   margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
   color: var(--l0-muted);
-  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  line-height: 1.8;
+  text-wrap: pretty;
 }
 .l0-rail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, 420px);
 }
 .l0-rail-action {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-  flex-shrink: 0;
-  min-height: 44px;
-  padding: 0 18px;
-  border-radius: 999px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 16px;
   background: var(--l0-ink);
   color: var(--background);
   font-size: 13px;
   font-weight: 600;
-  white-space: nowrap;
-  box-shadow: 0 10px 24px -14px var(--l0-ink);
+  line-height: 1.5;
   transition:
     transform 200ms var(--l0-ease),
-    box-shadow 200ms var(--l0-ease);
+    background 200ms;
+}
+.l0-rail-action:only-child {
+  grid-column: 1 / -1;
 }
 .l0-rail-action:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 26px -12px var(--l0-ink);
+  transform: translateY(-1px);
 }
 .l0-rail-action:disabled {
   opacity: 0.5;
   cursor: default;
 }
-.l0-rail-action:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 3px;
-}
 .l0-rail-action--ghost {
-  background: transparent;
-  color: var(--l0-ink);
-  border: 1px solid var(--l0-line);
-  box-shadow: none;
-}
-.l0-rail-action--ghost:hover:not(:disabled) {
   background: var(--l0-soft);
-  box-shadow: none;
+  color: var(--l0-ink);
+}
+.l0-rail-action--ghost:hover {
+  background: color-mix(in srgb, var(--l0-ink) 8%, var(--background));
+}
+.l0-rail-notice {
+  max-width: 34em;
+  margin: 0;
+  color: var(--l0-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.l0-payment-info {
+  padding: 16px;
+  margin-bottom: 20px;
+  border-radius: 16px;
+  background: var(--l0-soft);
+  color: var(--l0-muted);
+  font-variant-numeric: tabular-nums;
+}
+.l0-payment-info h3 {
+  margin: 0 0 8px;
+  color: var(--l0-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.l0-payment-info p {
+  margin: 8px 0 0;
 }
 .l0-cloud-wrap {
   position: relative;
@@ -267,7 +274,7 @@ License, or (at your option) any later version.
 .l0-cloud {
   position: relative;
   width: min(100%, 760px);
-  height: clamp(150px, 21svh, 210px);
+  height: clamp(120px, 19svh, 180px);
   isolation: isolate;
   color: var(--l0-ink);
 }
@@ -322,7 +329,7 @@ License, or (at your option) any later version.
 .l0-panels {
   width: 100%;
   max-width: 600px;
-  min-height: 236px;
+  min-height: 204px;
 }
 .l0-panel {
   width: 100%;
@@ -347,8 +354,8 @@ License, or (at your option) any later version.
   padding-top: 4px;
 }
 .l0-composer h2 {
-  margin: 0 0 22px;
-  font-size: clamp(26px, 2.6vw, 34px);
+  margin: 0 0 16px;
+  font-size: clamp(22px, 2.4vw, 28px);
   line-height: 1.4;
   font-weight: 450;
   letter-spacing: -0.055em;
@@ -361,7 +368,7 @@ License, or (at your option) any later version.
   padding: 10px 10px 10px 22px;
   min-height: 68px;
   border: 1px solid var(--l0-line);
-  border-radius: 24px;
+  border-radius: 20px;
   background: var(--background);
   box-shadow: 0 8px 28px color-mix(in srgb, var(--l0-ink) 4%, transparent);
   transition:
@@ -452,10 +459,9 @@ License, or (at your option) any later version.
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: min(100%, 330px);
-  padding: 5px;
-  margin: 8px 0 28px;
-  border: 1px solid var(--l0-line);
-  border-radius: 40px;
+  padding: 4px;
+  margin: 0 0 20px;
+  border-radius: 18px;
   background: var(--l0-soft);
 }
 .l0-scene-tabs > button {
@@ -464,12 +470,12 @@ License, or (at your option) any later version.
   align-items: center;
   justify-content: center;
   gap: 9px;
-  min-height: 46px;
+  min-height: 44px;
   padding: 8px;
   color: var(--l0-muted);
   font-size: 13px;
   transition: color 200ms;
-  border-radius: 30px;
+  border-radius: 14px;
 }
 .l0-scene-tabs > button[aria-selected='true'] {
   color: var(--l0-ink);
@@ -479,11 +485,11 @@ License, or (at your option) any later version.
 }
 .l0-tab-indicator {
   position: absolute;
-  top: 5px;
-  left: 5px;
-  width: calc((100% - 10px) / 3);
-  height: calc(100% - 10px);
-  border-radius: 30px;
+  top: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / 3);
+  height: calc(100% - 8px);
+  border-radius: 14px;
   background: var(--background);
   box-shadow: 0 2px 7px color-mix(in srgb, var(--l0-ink) 7%, transparent);
   transition: transform 420ms var(--l0-ease);
@@ -830,58 +836,38 @@ License, or (at your option) any later version.
 }
 @media (max-width: 640px) {
   .l0-welcome {
-    padding: 0 0 24px;
+    padding: 0 0 calc(24px + env(safe-area-inset-bottom));
   }
-  .l0-topbar-actions {
-    gap: 4px;
+  .l0-rail {
+    gap: 16px;
+    padding-top: 16px;
   }
-  .l0-topbar {
+  .l0-rail-body {
     gap: 8px;
   }
-  .l0-account-status {
-    max-width: 220px;
-    font-size: 11px;
-  }
-  .l0-topup-compact {
-    min-height: 44px;
-    padding-inline: 12px;
-  }
-  /* Review status leads; direct top-up remains a secondary action. */
-  .l0-rail {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px 12px;
-    margin-top: 2px;
-    padding: 12px;
-    border-radius: 18px;
-  }
-  .l0-rail-actions {
-    margin-top: 2px;
-  }
   .l0-rail-action {
-    justify-content: center;
-    min-width: 0;
-    white-space: normal;
+    gap: 6px;
+    padding-inline: 10px;
   }
-  .l0-rail-headline {
-    font-size: 15px;
+  .l0-rail-meta {
+    font-size: 13px;
   }
   .l0-cloud {
-    height: 148px;
+    height: clamp(96px, 16svh, 128px);
   }
   .l0-cloud .l0-cloud-toggle {
     inset-inline-end: 0;
-    bottom: 10px;
+    bottom: 4px;
   }
   .l0-composer h2 {
-    font-size: 27px;
-    margin-bottom: 18px;
+    font-size: 22px;
+    margin-bottom: 12px;
   }
   .l0-input-row {
     padding: 8px 8px 8px 16px;
     gap: 8px;
-    border-radius: 22px;
-    min-height: 64px;
+    border-radius: 18px;
+    min-height: 62px;
   }
   .l0-shortcuts {
     margin-top: 12px;
@@ -891,10 +877,22 @@ License, or (at your option) any later version.
     padding-inline: 10px;
   }
   .l0-panels {
-    min-height: 226px;
+    min-height: 192px;
   }
   .l0-scene-tabs {
-    margin: 4px 0 24px;
+    margin-bottom: 16px;
+  }
+  .l0-scene-tabs > button {
+    gap: 6px;
+    font-size: 12px;
+  }
+  .l0-utility {
+    gap: 0 12px;
+    margin-top: 16px;
+  }
+  .l0-account-status {
+    min-width: 0;
+    max-width: 100%;
   }
   .l0-discover-slide {
     padding: 22px 24px;
@@ -1055,7 +1053,7 @@ License, or (at your option) any later version.
 }
 .l0-welcome:has(.l0-panel:not([hidden]) .l0-composer:not([data-phase='idle']))
   .l0-cloud {
-  height: clamp(105px, 16svh, 155px);
+  height: clamp(96px, 14svh, 140px);
 }
 @media (max-width: 640px) {
   .l0-composer:not([data-phase='idle']) .l0-dialogue {

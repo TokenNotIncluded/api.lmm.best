@@ -200,26 +200,43 @@ test('L0 keeps top-up reachable from the default chat scene and links it to chec
     assert.ok(access)
     assert.equal(chat.hidden, false)
     assert.equal(access.hidden, true)
-    // Both the persistent topbar button and the first-screen rail action exist.
-    const topbar = container.querySelector<HTMLButtonElement>(
-      '[data-testid="l0-topbar-topup"]'
+    // The two upgrade choices stay visible; the duplicate recharge bar is gone.
+    const freeChat = container.querySelector<HTMLButtonElement>(
+      '[data-testid="l0-chat-free"]'
     )
     const direct = container.querySelector<HTMLButtonElement>(
       '[data-testid="l0-topup-direct"]'
     )
-    assert.ok(topbar)
+    assert.ok(freeChat)
+    assert.match(freeChat.textContent ?? '', /Chat \(free\)/)
+    assert.equal(
+      container.querySelector('[data-testid="l0-topbar-topup"]'),
+      null
+    )
     assert.ok(direct)
-    assert.equal(topbar.disabled, false)
+    assert.equal(freeChat.disabled, false)
     assert.equal(direct.disabled, false)
     // The rail lives outside every tabpanel, so it renders in any scene.
     assert.equal(chat.contains(direct), false)
     assert.equal(
       container.querySelector('.l0-rail-headline')?.textContent,
-      'Enable L1 access'
+      'Upgrade to a full account'
     )
     assert.match(
-      container.querySelector('.l0-rail-meta')?.textContent ?? '',
+      container.querySelector('[data-testid="l0-paid-progress"]')
+        ?.textContent ?? '',
       /Top up 21\.01 CNY for instant approval/
+    )
+    assert.equal(
+      container.querySelector('[data-testid="l0-upgrade-description"]')
+        ?.textContent,
+      'Chat for free or top up to upgrade to a full account.'
+    )
+    assert.equal(
+      access.contains(
+        container.querySelector('[data-testid="l0-paid-progress"]')
+      ),
+      true
     )
     assert.ok(direct.classList.contains('l0-rail-action--ghost'))
     assert.equal(container.querySelector('.l0-ring'), null)
@@ -333,7 +350,7 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
     assert.equal(tab('explore').tabIndex, -1)
     assert.equal(
       container.querySelector('.l0-rail-headline')?.textContent,
-      'Enable L1 access'
+      'Upgrade to a full account'
     )
     const composer = container.querySelector('.l0-composer')
     await act(async () => {
