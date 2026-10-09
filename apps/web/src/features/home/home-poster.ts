@@ -160,9 +160,10 @@ export function createHomePoster(canvas: HTMLCanvasElement, onReady = () => { })
       if (!n || !bitmap || !pixels || !depths) return
       pixels.fill(palette.background)
       depths.fill(-Infinity)
-      const scale = Math.min(w * 0.34, h * 0.35),
+      // Leave room for dispersal in every direction, then return to the resting frame.
+      const scale = Math.min(w * 0.34, h * 0.35) * (1 - spread * 0.3),
         centerX = w / 2,
-        centerY = h * 0.43
+        centerY = h * (0.43 + spread * 0.07)
       const stride = canvas.width,
         rows = canvas.height
       const brushX = pointer.x - pointer.previousX,
