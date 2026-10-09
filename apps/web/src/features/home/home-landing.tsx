@@ -26,7 +26,7 @@ import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 
-const homeLotusUrl = new URL('./assets/lotus.webp', import.meta.url).href
+const homeWhaleUrl = new URL('./assets/blue-whale.svg', import.meta.url).href
 
 type HomeLandingProps = {
   rootRef: Ref<HTMLElement>
@@ -135,7 +135,7 @@ export function HomeLanding({
           <div className='lmm-poster-art' aria-hidden='true'>
             <img
               className='lmm-poster-fallback'
-              src={homeLotusUrl}
+              src={homeWhaleUrl}
               alt=''
               decoding='async'
             />
