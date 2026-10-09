@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -21,6 +22,11 @@ export function AdminSiteStatisticsPanel() {
   const user = useAuthStore((state) => state.auth.user)
   const allowed = user?.role === ROLE.ADMIN || user?.role === ROLE.SUPER_ADMIN
   const { t, i18n } = useTranslation()
+  const {
+    formatExactQuota,
+    label: currencyLabel,
+    currency,
+  } = useWalletCurrency()
   const query = useQuery({
     queryKey: ['admin-site-statistics', user?.id],
     queryFn: getAdminSiteStatistics,
@@ -83,7 +89,7 @@ export function AdminSiteStatisticsPanel() {
           <Skeleton className='h-28' />
         </div>
       ) : (
-        <div className='flex flex-col gap-7'>
+        <div className='overview-ledger'>
           <dl className='overview-site-totals'>
             {(
               [
@@ -94,38 +100,48 @@ export function AdminSiteStatisticsPanel() {
               <div key={label} className='min-w-0'>
                 <dt className='text-muted-foreground text-xs'>{t(label)}</dt>
                 <dd className='overview-site-value'>
-                  {formatSiteCredits(value, locale)}{' '}
-                  <span className='overview-unit'>{t('credits')}</span>
+                  {formatExactQuota(value, { showSymbol: false })}{' '}
+                  <span className='overview-unit'>{currencyLabel}</span>
                 </dd>
+                {currency !== 'CREDIT' && (
+                  <dd className='overview-exact-credits'>
+                    {formatSiteCredits(value, locale)} {t('credits')}
+                  </dd>
+                )}
               </div>
             ))}
           </dl>
-          <div aria-labelledby='site-statistics-cash-title'>
-            <h4
-              id='site-statistics-cash-title'
-              className='mb-2 text-sm font-semibold'
-            >
-              {t('用户充值实际现金付款')}
-            </h4>
-            {data.recharge.currencies.length === 0 ? (
-              <p className='text-muted-foreground py-5 text-sm'>
-                {t('暂无已确认的充值付款记录。')}
-              </p>
-            ) : (
-              <PaymentRows rows={data.recharge.currencies} locale={locale} />
-            )}
-          </div>
-          {data.recharge.virtual_units.length > 0 && (
-            <div aria-labelledby='site-statistics-virtual-title'>
+          <div className='overview-payment-groups'>
+            <div aria-labelledby='site-statistics-cash-title'>
               <h4
-                id='site-statistics-virtual-title'
+                id='site-statistics-cash-title'
                 className='mb-2 text-sm font-semibold'
               >
-                {t('用户充值实际非现金点数付款')}
+                {t('用户充值实际现金付款')}
               </h4>
-              <PaymentRows rows={data.recharge.virtual_units} locale={locale} />
+              {data.recharge.currencies.length === 0 ? (
+                <p className='text-muted-foreground py-5 text-sm'>
+                  {t('暂无已确认的充值付款记录。')}
+                </p>
+              ) : (
+                <PaymentRows rows={data.recharge.currencies} locale={locale} />
+              )}
             </div>
-          )}
+            {data.recharge.virtual_units.length > 0 && (
+              <div aria-labelledby='site-statistics-virtual-title'>
+                <h4
+                  id='site-statistics-virtual-title'
+                  className='mb-2 text-sm font-semibold'
+                >
+                  {t('用户充值实际非现金点数付款')}
+                </h4>
+                <PaymentRows
+                  rows={data.recharge.virtual_units}
+                  locale={locale}
+                />
+              </div>
+            )}
+          </div>
           <div className='overview-notes'>
             {(data.recharge.unconfirmed_orders > 0 ||
               data.recharge.invalid_orders > 0) && (

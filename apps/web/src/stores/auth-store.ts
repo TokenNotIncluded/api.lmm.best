@@ -156,6 +156,8 @@ export type AuthBootstrapState = 'idle' | 'checking' | 'complete'
 interface AuthState {
   auth: {
     user: AuthUser | null
+    /** Changes whenever an authoritative account write replaces this state. */
+    accountWriteEpoch: number
     accessToken: string | null
     accessExpiresAt: number | null
     session: LoginSession | null
@@ -172,6 +174,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()((set) => ({
   auth: {
     user: null,
+    accountWriteEpoch: 0,
     accessToken: null,
     accessExpiresAt: null,
     session: null,
@@ -183,6 +186,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
         auth: {
           ...state.auth,
           user: bundle.user,
+          accountWriteEpoch: state.auth.accountWriteEpoch + 1,
           accessToken: bundle.access_token,
           accessExpiresAt: bundle.access_expires_at,
           session: bundle.session,
@@ -193,7 +197,11 @@ export const useAuthStore = create<AuthState>()((set) => ({
     setUser: (user) =>
       set((state) => ({
         ...state,
-        auth: { ...state.auth, user },
+        auth: {
+          ...state.auth,
+          user,
+          accountWriteEpoch: state.auth.accountWriteEpoch + 1,
+        },
       })),
     setPending2FAFlowToken: (pending2FAFlowToken) =>
       set((state) => ({
@@ -211,6 +219,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
         auth: {
           ...state.auth,
           user: null,
+          accountWriteEpoch: state.auth.accountWriteEpoch + 1,
           accessToken: null,
           accessExpiresAt: null,
           session: null,

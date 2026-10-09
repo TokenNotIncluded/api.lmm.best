@@ -8420,6 +8420,8 @@
     "Restart": "Restart",
     "Restart circuit": "Restart circuit",
     "Restore": "Restore",
+    "Restore automatic trust level": "Restore automatic trust level",
+    "Restore automatic trust level for {{username}}? This removes the administrator override and recalculates the level from account activation and eligible paid recharge history. Existing balance and account history are preserved.": "Restore automatic trust level for {{username}}? This removes the administrator override and recalculates the level from account activation and eligible paid recharge history. Existing balance and account history are preserved.",
     "Restore conversation": "Restore conversation",
     "Restore defaults": "Restore defaults",
     "Restore failed": "Restore failed",

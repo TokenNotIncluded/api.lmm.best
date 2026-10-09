@@ -212,10 +212,11 @@ test('L0 keeps top-up reachable from the default chat scene and links it to chec
     assert.equal(chat.contains(direct), false)
     assert.equal(
       container.querySelector('.l0-rail-headline')?.textContent,
-      'Apply for access'
+      'Continue with the assistant'
     )
     assert.match(
-      container.querySelector('.l0-rail-meta')?.textContent ?? '',
+      container.querySelector('[data-testid="l0-paid-progress"]')
+        ?.textContent ?? '',
       /Top up 21\.01 CNY for instant approval/
     )
     assert.ok(direct.classList.contains('l0-rail-action--ghost'))
@@ -330,7 +331,7 @@ test('L0 stage preserves mounted chat, keyboard navigation, disclosures, status 
     assert.equal(tab('explore').tabIndex, -1)
     assert.equal(
       container.querySelector('.l0-rail-headline')?.textContent,
-      'Awaiting review'
+      'Continue with the assistant'
     )
     const composer = container.querySelector('.l0-composer')
     await act(async () => {

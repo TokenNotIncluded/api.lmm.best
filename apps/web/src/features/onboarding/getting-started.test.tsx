@@ -158,7 +158,7 @@ async function renderPage(
     gets.push(url)
     getConfigs.push(config)
     if (url === '/api/user/self') {
-      return { data: { success: true, data: currentUser } }
+      return { data: { success: true, data: { ...currentUser } } }
     }
     if (url === '/api/user/developer-access/request') {
       return { data: { success: true, data: accessRequest } }
@@ -205,7 +205,15 @@ async function renderPage(
     await flushEffects()
   })
   await act(flushEffects)
-  return { container, root, queryClient, router, currentUser, gets, getConfigs }
+  return {
+    container,
+    root,
+    queryClient,
+    router,
+    currentUser,
+    gets,
+    getConfigs,
+  }
 }
 async function unmountPage(page: Awaited<ReturnType<typeof renderPage>>) {
   await act(async () => page.root.unmount())
@@ -218,6 +226,29 @@ const button = (page: Awaited<ReturnType<typeof renderPage>>, text: string) => {
   )
   assert.ok(found, text)
   return found
+}
+async function askInline(page: Awaited<ReturnType<typeof renderPage>>) {
+  const input = page.container.querySelector<HTMLInputElement>('#l0-question')
+  assert.ok(input)
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, 'Help me connect my coding client')
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    await flushEffects()
+  })
+  await act(async () => {
+    input
+      .closest('form')
+      ?.dispatchEvent(
+        new window.Event('submit', { bubbles: true, cancelable: true })
+      )
+    await flushEffects()
+  })
+  await act(flushEffects)
 }
 afterEach(() => {
   consumeQueuedAssistantRequest()
@@ -233,6 +264,133 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('getting started access boundaries', () => {
+  for (const history of [
+    null,
+    {
+      id: 9910,
+      status: 'pending',
+      reason: 'Old request',
+      created_at: 1,
+      reviewed_at: 0,
+    },
+  ]) {
+    test(`inline grant refreshes access and leaves L0 with ${history ? 'historical pending' : 'no'} application`, async () => {
+      const page = await renderPage(false, undefined, history)
+      globalThis.fetch = (async () => {
+        page.currentUser.developer_access_granted = true
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'Access verified.' } }],
+            lmm_assistant_tools: [
+              { name: 'grant_l1_access', status: 'output-available' },
+            ],
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        )
+      }) as typeof fetch
+      try {
+        await askInline(page)
+        const deadline = Date.now() + 2_000
+        while (
+          Date.now() < deadline &&
+          page.router.state.location.pathname !== '/dashboard'
+        ) {
+          await act(flushEffects)
+        }
+        assert.equal(page.router.state.location.pathname, '/dashboard')
+        assert.equal(
+          useAuthStore.getState().auth.user?.developer_access_granted,
+          true
+        )
+        assert.equal(
+          page.gets.filter((url) => url === '/api/user/self').length,
+          2
+        )
+      } finally {
+        await unmountPage(page)
+      }
+    })
+  }
+  for (const status of ['output-error', 'approval-requested', undefined]) {
+    test(`a ${status ?? 'missing'} grant trace cannot change access from reply text`, async () => {
+      const page = await renderPage()
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'L1 access is active.' } }],
+            ...(status
+              ? { lmm_assistant_tools: [{ name: 'grant_l1_access', status }] }
+              : {}),
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        )) as typeof fetch
+      try {
+        await askInline(page)
+        assert.equal(page.router.state.location.pathname, '/getting-started')
+        assert.equal(
+          useAuthStore.getState().auth.user?.developer_access_granted,
+          false
+        )
+        assert.equal(
+          page.gets.filter((url) => url === '/api/user/self').length,
+          1
+        )
+      } finally {
+        await unmountPage(page)
+      }
+    })
+  }
+  for (const readFailure of ['unavailable', 'pending']) {
+    test(`completed inline answer remains usable when grant refresh is ${readFailure}`, async () => {
+      const page = await renderPage()
+      const previousGet = api.get
+      let finishRead: (() => void) | undefined
+      api.get = (async (url, config) => {
+        if (url !== '/api/user/self') return previousGet(url, config)
+        if (readFailure === 'unavailable') throw new Error('HTTP 503')
+        await new Promise<void>((resolve) => {
+          finishRead = resolve
+        })
+        return { data: { success: true, data: { ...page.currentUser } } }
+      }) as typeof api.get
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              { message: { content: 'Access verification finished.' } },
+            ],
+            lmm_assistant_tools: [
+              { name: 'grant_l1_access', status: 'output-available' },
+            ],
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        )) as typeof fetch
+      try {
+        await askInline(page)
+        assert.equal(page.router.state.location.pathname, '/getting-started')
+        assert.equal(
+          useAuthStore.getState().auth.user?.developer_access_granted,
+          false
+        )
+        assert.match(
+          page.container.querySelector('.l0-answer')?.textContent ?? '',
+          /Access verification finished/
+        )
+        assert.equal(
+          page.container
+            .querySelector('.l0-composer')
+            ?.getAttribute('data-phase'),
+          'done'
+        )
+      } finally {
+        await act(async () => {
+          finishRead?.()
+          await flushEffects()
+        })
+        await unmountPage(page)
+      }
+    })
+  }
   test('keeps the model square discoverable from the L0 onboarding page', async () => {
     const page = await renderPage()
     assert.match(
@@ -279,104 +437,57 @@ describe('getting started access boundaries', () => {
     }
     await unmountPage(l1)
   })
-  test('opens the application in the current page without opening the assistant', async () => {
+  test('continues inline verification without posting a retired application or opening a drawer', async () => {
     const opened: Array<string | undefined> = []
-    const messages: Array<string | undefined> = []
-    const unsubscribe = subscribeToAssistantOpen((request) => {
+    const unsubscribe = subscribeToAssistantOpen((request) =>
       opened.push(request.preset)
-      messages.push(request.message)
-    })
+    )
     const page = await renderPage()
-    const applicationReason = page.container.querySelector<HTMLTextAreaElement>(
-      '#access-request-reason'
-    )
-    assert.ok(applicationReason)
-    let scrolledToApplication = false
-    applicationReason.scrollIntoView = () => {
-      scrolledToApplication = true
-    }
-    await act(async () => {
-      button(page, 'Apply for access').click()
-      await flushEffects()
-    })
-    assert.deepEqual(opened, [])
-    assert.deepEqual(messages, [])
-    assert.equal(scrolledToApplication, true)
-    assert.equal(document.activeElement?.id, applicationReason.id)
-    assert.equal(
-      page.container.querySelector<HTMLElement>('#l0-panel-access')?.hidden,
-      false
-    )
-    assert.equal(
-      page.container.querySelector<HTMLDetailsElement>(
-        '[data-testid="l0-account-details"]'
-      )?.open,
-      true
-    )
-    assert.ok(
-      page.container.querySelector('form textarea#access-request-reason')
-    )
-    for (const text of [
-      'What can I do while access is under review?',
-      'Which option is the best value?',
-      'How is request cost calculated?',
-    ]) {
-      assert.ok(!page.container.textContent?.includes(text))
-    }
-    assert.ok(page.container.querySelector('input#l0-question'))
-    await unmountPage(page)
-    unsubscribe()
-  })
-  test('submits the inline application through the existing confirmed API flow', async () => {
-    const page = await renderPage()
-    const posts: unknown[] = []
-    api.post = (async (url, input) => {
-      assert.equal(url, '/api/user/developer-access/request')
-      posts.push(input)
-      return {
-        data: {
-          success: true,
-          data: {
-            id: 33,
-            status: 'pending',
-            reason: 'Build a private API client',
-            ai_recommendation: '',
-            admin_note: '',
-            created_at: 1,
-            reviewed_at: 0,
-          },
-        },
-      }
+    let posts = 0
+    api.post = (async () => {
+      posts++
+      throw new Error('retired endpoint')
     }) as typeof api.post
     try {
-      await act(async () => button(page, 'Apply for access').click())
-      const input = page.container.querySelector<HTMLTextAreaElement>(
-        '#access-request-reason'
-      )
-      assert.ok(input)
-      assert.equal(posts.length, 0)
-      const setValue = Object.getOwnPropertyDescriptor(
-        window.HTMLTextAreaElement.prototype,
-        'value'
-      )?.set
-      assert.ok(setValue)
       await act(async () => {
-        setValue.call(input, 'Build a private API client')
-        input.dispatchEvent(new window.Event('input', { bubbles: true }))
-      })
-      await act(async () => {
-        button(page, 'Confirm and submit application').click()
+        button(page, 'Explore').click()
+        button(page, 'Continue with the assistant').click()
         await flushEffects()
       })
-      await act(flushEffects)
-      assert.deepEqual(posts, [
-        { reason: 'Build a private API client', confirmed: true },
-      ])
       assert.equal(
-        page.container.querySelector('.l0-rail-headline')?.textContent,
-        'Awaiting review'
+        page.container.querySelector<HTMLElement>('#l0-panel-chat')?.hidden,
+        false
       )
-      assert.equal(consumeQueuedAssistantRequest(), undefined)
+      assert.equal(document.activeElement?.id, 'l0-question')
+      assert.equal(
+        page.container.querySelector('textarea#access-request-reason'),
+        null
+      )
+      assert.equal(posts, 0)
+      assert.deepEqual(opened, [])
+      assert.match(
+        page.container.textContent ?? '',
+        /No recommendation letter is required/
+      )
+    } finally {
+      unsubscribe()
+      await unmountPage(page)
+    }
+  })
+  test('contact support returns an L0 user to the inline conversation', async () => {
+    const page = await renderPage()
+    try {
+      await act(async () => {
+        button(page, 'Explore').click()
+        button(page, 'Contact support').click()
+        await flushEffects()
+      })
+      assert.equal(page.router.state.location.pathname, '/getting-started')
+      assert.equal(
+        page.container.querySelector<HTMLElement>('#l0-panel-chat')?.hidden,
+        false
+      )
+      assert.equal(document.activeElement?.id, 'l0-question')
     } finally {
       await unmountPage(page)
     }
@@ -434,7 +545,7 @@ describe('getting started access boundaries', () => {
     assert.equal(page.container.querySelector('[role="progressbar"]'), null)
     await unmountPage(page)
   })
-  test('polls a pending request, refreshes auth after approval, and leaves L0 onboarding', async () => {
+  test('refreshes authoritative access on focus and leaves L0 regardless of historical request status', async () => {
     const request = {
       id: 9905,
       status: 'pending',
@@ -470,20 +581,7 @@ describe('getting started access boundaries', () => {
     assert.ok(page.gets.includes('/api/user/self'))
     await unmountPage(page)
   })
-  test('keeps the direct application form inside the access panel', async () => {
-    const page = await renderPage(false, undefined, null, { id: 9904 })
-    assert.ok(
-      page.container.querySelector('[data-testid="l0-direct-access-request"]')
-    )
-    assert.ok(page.container.querySelector('textarea#access-request-reason'))
-    button(page, 'Apply for access')
-    await unmountPage(page)
-  })
-  test('shows administrator feedback and lets a rejected user revise inline', async () => {
-    const opened: Array<string | undefined> = []
-    const unsubscribe = subscribeToAssistantOpen((request) =>
-      opened.push(request.preset)
-    )
+  test('keeps rejected historical feedback readable without another application form', async () => {
     const page = await renderPage(
       false,
       undefined,
@@ -499,28 +597,23 @@ describe('getting started access boundaries', () => {
       },
       { id: 7003 }
     )
-    assert.match(page.container.textContent ?? '', /Access request rejected/)
-    assert.match(
-      page.container.textContent ?? '',
-      /Please explain which client and models you plan to use\./
-    )
-    await act(async () => {
-      button(page, 'Revise').click()
-      await flushEffects()
-    })
-    assert.deepEqual(opened, [])
-    assert.equal(
-      page.container.querySelector<HTMLElement>('#l0-panel-access')?.hidden,
-      false
-    )
-    assert.equal(
-      page.container.querySelector<HTMLTextAreaElement>(
-        'textarea#access-request-reason'
-      )?.value,
-      'Need access.'
-    )
-    await unmountPage(page)
-    unsubscribe()
+    try {
+      assert.match(page.container.textContent ?? '', /Access request rejected/)
+      assert.match(
+        page.container.textContent ?? '',
+        /Please explain which client and models you plan to use/
+      )
+      assert.equal(
+        page.container.querySelector('textarea#access-request-reason'),
+        null
+      )
+      assert.match(
+        page.container.querySelector('.l0-rail-headline')?.textContent ?? '',
+        /Continue with the assistant/
+      )
+    } finally {
+      await unmountPage(page)
+    }
   })
   test('lets L0 browse and fund the account before approval', async () => {
     const page = await renderPage(true)
@@ -606,7 +699,8 @@ describe('getting started access boundaries', () => {
       assert.doesNotMatch(page.container.textContent ?? '', /NaN|undefined/)
       if (language === 'en') {
         assert.match(
-          page.container.querySelector('.l0-rail-meta')?.textContent ?? '',
+          page.container.querySelector('[data-testid="l0-paid-progress"]')
+            ?.textContent ?? '',
           /Top up 3\.01 USD for instant approval/
         )
       }

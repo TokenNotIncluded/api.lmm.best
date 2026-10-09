@@ -15,6 +15,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { balanceQueryCopy } from './balance-query-copy.mjs'
+import { trustLevelResetCopy } from './trust-level-reset-copy.mjs'
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const locales = ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']
@@ -98,6 +99,11 @@ test('Responses WebSocket scope reproduces only its four keys in every locale', 
   ))
 
 const balanceQueryKeys = Object.keys(balanceQueryCopy.en).sort()
+test('Automatic trust reset scope reproduces only its two keys in every locale', () =>
+  verifyScopedTranslations(
+    '--only-trust-level-reset',
+    Object.keys(trustLevelResetCopy.en).sort()
+  ))
 test('Balance query scope reproduces only its 25 keys in every locale', () => {
   assert.equal(balanceQueryKeys.length, 25)
   return verifyScopedTranslations('--only-balance-query', balanceQueryKeys)

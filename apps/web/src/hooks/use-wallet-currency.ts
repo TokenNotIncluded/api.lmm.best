@@ -37,6 +37,7 @@ import {
 import {
   displayAmountToQuota,
   formatQuotaInCurrency,
+  formatExactQuotaInCurrency,
   formatAmountInCurrency,
   formatUSDInCurrency,
   getCurrencyDisplay,
@@ -83,7 +84,7 @@ export function useWalletCurrency() {
       : anonymousPreference
   )
   const currency = resolveWalletDisplayCurrency(preference, language)
-  const creditLabel = t('Credits')
+  const creditLabel = t(['credits', 'Credits'])
   const label = currency === 'CREDIT' ? creditLabel : currency
   const [pending, setPending] = useState<{
     key: string
@@ -190,6 +191,14 @@ export function useWalletCurrency() {
           creditLabel,
           displayLocale
         ),
+      formatExactQuota: (
+        quota: string,
+        options?: Pick<
+          CurrencyFormatOptions,
+          'locale' | 'creditLabel' | 'showSymbol'
+        >
+      ) =>
+        formatExactQuotaInCurrency(quota, currency, localized(options), config),
       formatQuota: (quota: number, options?: CurrencyFormatOptions) =>
         formatQuotaInCurrency(quota, currency, localized(options), config),
       quotaToAmount: (quota: number) =>

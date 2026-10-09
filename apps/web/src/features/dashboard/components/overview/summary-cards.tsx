@@ -34,6 +34,8 @@ import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { BalanceCurrencySwitch } from './balance-currency-switch'
+
 function getRunwayDays(
   remainQuota: number,
   recentUsage: number
@@ -157,7 +159,7 @@ export function SummaryCards() {
   return (
     <section className='overview-summary' aria-label={t('Usage at a glance')}>
       <div className='overview-balance'>
-        <div className='flex flex-wrap items-center gap-3'>
+        <div className='overview-balance-heading'>
           <h3 className='text-muted-foreground text-sm font-medium'>
             {t('Credit remaining')}
           </h3>
@@ -171,7 +173,12 @@ export function SummaryCards() {
             </span>
           ) : null}
         </div>
-        <div className='overview-balance-value'>
+        <BalanceCurrencySwitch />
+        <div
+          className='overview-balance-value'
+          aria-live='polite'
+          aria-atomic='true'
+        >
           {loading ? (
             <Skeleton className='h-12 w-48 max-w-full' />
           ) : (

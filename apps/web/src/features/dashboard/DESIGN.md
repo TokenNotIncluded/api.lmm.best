@@ -6,6 +6,17 @@ estimate. The three usage measures form aligned rows rather than repeated charts
 The existing usage query, currency preference and error/retry states remain the
 source of these values; no illustrative trend or derived balance history is shown.
 
+A three-way segmented control selects USD, CNY or Credits without a menu. It
+uses the existing account preference writer: save only wallet_display_currency,
+keep the acknowledged unit while saving, and show an error on failure. No local
+optimistic currency state is added. Wallet and header displays share this setting.
+Localized currency names come from Intl.DisplayNames, and the existing lowercase
+credits translation supplies the point label. A selected segment cannot be cleared.
+
+Site totals follow the same display currency. Their integer strings go through
+the existing rational conversion basis, never a floating-point Number. Exact
+credit counts remain visible beneath fiat estimates. Missing conversion metadata
+shows an unknown amount, never zero. Original payment records never convert.
 Site credit totals stay exact, including signed balances and large integers.
 Payment rows show the order currency once visually and retain the currency on
 each amount for assistive technology. Gross payment and recorded refunds support
@@ -19,13 +30,16 @@ never shows cached amounts as confirmed values.
 
 Layout responds to the available content width: balance and usage sit side by
 side on wide panels, while payment rows put currency and net payment first on
-phones. Semantic theme tokens supply both light and dark colors. Wallet,
+phones. On wider content areas the site totals form a narrow column beside the
+payment breakdown, rather than stretching each payment row across the page.
+Semantic theme tokens supply both light and dark colors. Wallet,
 refresh, retry and disclosure targets are at least 44px tall; no new motion or
 page-local palette is introduced.
 
 ## Review
 
-Run the overview data-state and site-statistics tests, the console fixture tests,
+Run the overview data-state, exact-quota-currency and site-statistics tests,
+the console fixture tests,
 and the frontend type, lint and build checks. The local-only persona console has
 an explicit admin statistics fixture, and the route gallery includes the admin
 and mobile overview. Fixtures are synthetic and never authorize real requests.

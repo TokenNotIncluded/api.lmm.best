@@ -8420,6 +8420,8 @@
     "Restart": "重新开始",
     "Restart circuit": "重新开始这局",
     "Restore": "恢复",
+    "Restore automatic trust level": "恢复自动等级",
+    "Restore automatic trust level for {{username}}? This removes the administrator override and recalculates the level from account activation and eligible paid recharge history. Existing balance and account history are preserved.": "恢复 {{username}} 的自动等级？这会移除管理员强制等级，根据账号激活状态和有效的已付充值记录重新判定。现有余额和账号历史将保留。",
     "Restore conversation": "恢复对话",
     "Restore defaults": "恢复默认",
     "Restore failed": "恢复失败",
