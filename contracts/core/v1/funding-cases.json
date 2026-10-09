@@ -1,0 +1,433 @@
+[
+  {
+    "name": "personal-default",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": null,
+    "grants": [],
+    "expected": [
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ]
+  },
+  {
+    "name": "joining-team-does-not-expand-default",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": null,
+    "grants": [
+      42
+    ],
+    "expected": [
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ]
+  },
+  {
+    "name": "explicit-personal-only",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ],
+    "grants": [],
+    "expected": [
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ]
+  },
+  {
+    "name": "empty-is-not-default",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [],
+    "grants": [],
+    "error": "invalid_order"
+  },
+  {
+    "name": "personal-team-personal-team-order",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 42
+      },
+      {
+        "kind": "personal",
+        "id": 7
+      },
+      {
+        "kind": "team",
+        "id": 91
+      }
+    ],
+    "grants": [
+      42,
+      91
+    ],
+    "expected": [
+      {
+        "kind": "team",
+        "id": 42
+      },
+      {
+        "kind": "personal",
+        "id": 7
+      },
+      {
+        "kind": "team",
+        "id": 91
+      }
+    ]
+  },
+  {
+    "name": "personal-may-omit-own-wallet",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 42
+      }
+    ],
+    "grants": [
+      42
+    ],
+    "expected": [
+      {
+        "kind": "team",
+        "id": 42
+      }
+    ]
+  },
+  {
+    "name": "personal-cannot-spend-another-person",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "personal",
+        "id": 8
+      }
+    ],
+    "grants": [],
+    "error": "not_authorized"
+  },
+  {
+    "name": "validate-entire-order-before-charge",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "personal",
+        "id": 7
+      },
+      {
+        "kind": "team",
+        "id": 42
+      }
+    ],
+    "grants": [],
+    "error": "not_authorized"
+  },
+  {
+    "name": "revoked-team-not-silently-removed",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 42
+      },
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ],
+    "grants": [],
+    "error": "not_authorized"
+  },
+  {
+    "name": "duplicate-owner",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "personal",
+        "id": 7
+      },
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ],
+    "grants": [],
+    "error": "invalid_order"
+  },
+  {
+    "name": "duplicate-team",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 42
+      },
+      {
+        "kind": "team",
+        "id": 42
+      }
+    ],
+    "grants": [
+      42
+    ],
+    "error": "invalid_order"
+  },
+  {
+    "name": "same-id-distinct-kinds",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 7
+      },
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ],
+    "grants": [
+      7
+    ],
+    "expected": [
+      {
+        "kind": "team",
+        "id": 7
+      },
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ]
+  },
+  {
+    "name": "team-default-needs-grant",
+    "owner": {
+      "kind": "team",
+      "id": 42
+    },
+    "configured": null,
+    "grants": [],
+    "error": "not_authorized"
+  },
+  {
+    "name": "team-default-authorized",
+    "owner": {
+      "kind": "team",
+      "id": 42
+    },
+    "configured": null,
+    "grants": [
+      42
+    ],
+    "expected": [
+      {
+        "kind": "team",
+        "id": 42
+      }
+    ]
+  },
+  {
+    "name": "team-explicit-owner",
+    "owner": {
+      "kind": "team",
+      "id": 42
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 42
+      }
+    ],
+    "grants": [
+      42
+    ],
+    "expected": [
+      {
+        "kind": "team",
+        "id": 42
+      }
+    ]
+  },
+  {
+    "name": "team-no-founders-wallet",
+    "owner": {
+      "kind": "team",
+      "id": 42
+    },
+    "configured": [
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ],
+    "grants": [
+      42
+    ],
+    "error": "invalid_order"
+  },
+  {
+    "name": "team-no-extra-team",
+    "owner": {
+      "kind": "team",
+      "id": 42
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 42
+      },
+      {
+        "kind": "team",
+        "id": 91
+      }
+    ],
+    "grants": [
+      42,
+      91
+    ],
+    "error": "invalid_order"
+  },
+  {
+    "name": "team-no-other-team-even-with-grant",
+    "owner": {
+      "kind": "team",
+      "id": 42
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 91
+      }
+    ],
+    "grants": [
+      42,
+      91
+    ],
+    "error": "invalid_order"
+  },
+  {
+    "name": "team-no-empty-order",
+    "owner": {
+      "kind": "team",
+      "id": 42
+    },
+    "configured": [],
+    "grants": [
+      42
+    ],
+    "error": "invalid_order"
+  },
+  {
+    "name": "zero-owner",
+    "owner": {
+      "kind": "personal",
+      "id": 0
+    },
+    "configured": null,
+    "grants": [],
+    "error": "invalid_owner"
+  },
+  {
+    "name": "negative-owner",
+    "owner": {
+      "kind": "team",
+      "id": -1
+    },
+    "configured": null,
+    "grants": [],
+    "error": "invalid_owner"
+  },
+  {
+    "name": "invalid-candidate",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "team",
+        "id": 0
+      }
+    ],
+    "grants": [],
+    "error": "invalid_order"
+  },
+  {
+    "name": "invalid-negative-candidate",
+    "owner": {
+      "kind": "personal",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "personal",
+        "id": -1
+      }
+    ],
+    "grants": [],
+    "error": "invalid_order"
+  },
+  {
+    "name": "team-id-not-personal-wallet",
+    "owner": {
+      "kind": "team",
+      "id": 7
+    },
+    "configured": [
+      {
+        "kind": "personal",
+        "id": 7
+      }
+    ],
+    "grants": [
+      7
+    ],
+    "error": "invalid_order"
+  }
+]

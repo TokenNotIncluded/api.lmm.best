@@ -243,3 +243,10 @@ Passkey registration for users without 2FA does not require this header.
 - User-model success limiting has transient mixed-timestamp window during rolling migration.
 - Self-built clients should adopt new AuthBundle, `flow_token`, and Security Proof contract.
 - PAT clients can remove `New-Api-User` usage.
+
+## New core migration
+
+The former Rust backend has been removed. Rust behavior described in older
+implementation notes is not evidence for the replacement. The [new core](core-migration.md)
+is not business-ready; the existing Go paths remain authoritative until parity
+and migration checks pass.

@@ -735,7 +735,6 @@ func (runtime *productionRuntime) verifyCanonicalOperator(ctx context.Context) e
 	provider, err := appcli.VerifyBackendProvider(appcli.BackendPaths{
 		Canonical: runtime.paths.InstalledBinary,
 		Go:        runtime.paths.LegacyGoBinary,
-		Rust:      filepath.Join(filepath.Dir(runtime.paths.InstalledBinary), backendRustName),
 	}, productionBackendOwner{ctx: ctx, runner: runtime.runner}, runtime.requiredOwnerUID)
 	if err != nil {
 		return fmt.Errorf("canonical deployment operator link is invalid: %w", err)

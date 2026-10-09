@@ -4,7 +4,7 @@
 with a latest-1000 array when none of `p`, `page_size`, `ps`, or `size` is
 present. Other filters do not enable pagination. An explicitly present paging
 key, including an empty value, enables a `data` object with `page`, `page_size`,
-`total`, and `items` in both Go and Rust.
+`total`, and `items` in the current Go backend.
 
 The page is at least one. Page size uses the first positive, successfully parsed
 value among `page_size`, `ps`, and `size`, defaults to 10, and is capped at 1000.
@@ -20,7 +20,7 @@ failure returns a successful payload. Empty pages have `items: []`. Display IDs
 start at the page offset plus one. Existing user-log formatting strips
 `admin_info` and `audit_info` and hides channel names; this change does not alter
 diagnostic metadata. Go preserves ClickHouse's `created_at DESC, request_id DESC`
-order and other databases' `id DESC`; Rust PostgreSQL uses `id DESC`.
+order and other databases' `id DESC`.
 
 The 1000-row page bound matches the existing legacy read bound. It limits the
 response, not the cost of an exact count or a deep offset. The small regression
@@ -55,7 +55,7 @@ creates main and audit SQLite files under its own temporary directories and
 sets both database pointers and dialects. `DeleteSelf` / scoped proof consumption
 / `DeleteUserForSession` do not call either paging parser or token-log query.
 These facts identify the failed account-deletion concurrency test as an existing
-unrelated failure. The implementation here is native to the two LMM runtimes;
+unrelated failure. The retained implementation is native to the Go backend;
 the upstream patch was not copied.
 
 ## Regression checks
@@ -80,20 +80,6 @@ Set `TEST_POSTGRES_DSN` to a disposable test database and
 unique schema, restores the global log database/dialect, closes its pool, and
 drops its schema. Do not point the fixture at a production database.
 
-Rust unit checks are selected by `token_log`. Its four PostgreSQL HTTP contract
-tests are ignored in a normal unit run and explicitly selected in the required
-Rust real-integration CI job. They cover the same paging boundaries against the
-production store and real token authorizer, retain self/admin default caps, and
-exercise row-projection and count failures. Run them with a disposable database:
-
-```sh
-cargo test --locked --manifest-path apps/api-rust/Cargo.toml -p lmm-api-rs \
-  --lib token_log
-LMM_TEST_DATABASE_URL="$TEST_POSTGRES_DSN" cargo test --locked \
-  --manifest-path apps/api-rust/Cargo.toml -p lmm-api-rs \
-  --test observability_token_log_pagination -- --ignored --test-threads=1
-```
-
-Local Rust compilation is delegated to the central Rust test owner together with
-the final combined patch. Writing a fixture and checking its formatting does not
-constitute a passing Rust compilation or PostgreSQL test result.
+The old Rust implementation and its tests have been retired. The new core must
+prove these same Go response, authorization and pagination rules before cutover;
+no new-core token-log endpoint exists in this WIP foundation.

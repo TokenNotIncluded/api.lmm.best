@@ -138,7 +138,7 @@ test('manual frontend deployment is restricted to a signed web release on both o
 test('manual CI keeps every diagnostic quality gate and the translation check name', () => {
   const ci = workflow('ci');
   for (const id of ['repository-contracts', 'release-artifact-contract', 'pi-lmm-provider',
-    'web', 'go', 'rust-preview', 'route-coverage-contract', 'rust-real-integration', 'aur-package-matrix', 'quality-gate']) {
+    'web', 'go', 'core', 'route-coverage-contract', 'extensions', 'aur-package-matrix', 'quality-gate']) {
     job(ci, id);
   }
   assert.match(job(ci, 'repository-contracts'), /node --test scripts\/workflow-topology\.test\.mjs/);
@@ -156,7 +156,7 @@ test('manual CI keeps every diagnostic quality gate and the translation check na
   assert.doesNotMatch(ci, /pull_request_target|secrets\./);
 });
 
-test('manual Go/Web diagnostics aggregate every non-Rust CI dependency', () => {
+test('manual Go/Web diagnostics aggregate every current Go/Web CI dependency', () => {
   const ci = workflow('ci');
   const gate = job(ci, 'go-web-release-gate');
   const required = [
@@ -164,21 +164,21 @@ test('manual Go/Web diagnostics aggregate every non-Rust CI dependency', () => {
     'pi-lmm-provider', 'web', 'go', 'route-coverage-contract',
     'aur-package-matrix', 'translations',
   ];
-  const rustOnly = new Set([
-    'rust-preview', 'rust-real-integration', 'root-route-acceptance-lockfile', 'rustsec',
+  const migrationOnly = new Set([
+    'core', 'extensions', 'rustsec',
   ]);
   const allJobs = [...ci.split('\njobs:\n')[1].matchAll(/^  ([\w-]+):\n/gm)]
     .map((match) => match[1]);
   assert.deepEqual(allJobs.filter((id) =>
-    !rustOnly.has(id) && !['quality-gate', 'go-web-release-gate'].includes(id)).sort(),
-  [...required].sort(), 'new non-Rust jobs must join the manual diagnostic gate');
+    !migrationOnly.has(id) && !['quality-gate', 'go-web-release-gate'].includes(id)).sort(),
+  [...required].sort(), 'new current-production jobs must join the manual diagnostic gate');
   assert.deepEqual(jobNeeds(gate).sort(), [...required].sort());
   assert.match(gate, /name: Go\/Web release qualification gate\n/);
   assert.ok(gate.includes("    if: ${{ always() && github.event_name == 'workflow_dispatch' }}\n"));
   assert.ok(gate.includes('CI_GO_WEB_NEEDS: ${{ toJSON(needs) }}'));
   assert.doesNotMatch(gate, /continue-on-error:|CI_SELECTED|secrets\./);
   assert.deepEqual(jobNeeds(job(ci, 'quality-gate')).sort(),
-    [...required, ...rustOnly].sort(), 'full CI must still require every Rust job');
+    [...required, ...migrationOnly].sort(), 'full CI must still require every new-service job');
 
   const script = gate.match(/          python3 -B - <<'PYTHON'\n([\s\S]*?)          PYTHON\n/);
   assert.ok(script, 'manual diagnostic gate must explicitly validate every dependency result');
@@ -294,10 +294,12 @@ test('manual diagnostics retain specialist regression coverage', () => {
   assert.match(job(ci, 'web'), /assistant-handoff-tool.test.tsx/);
   assert.match(job(ci, 'web'), /assistant-handoff-review.test.tsx/);
   assert.match(job(ci, 'web'), /bun test --preload .* --timeout 15000/);
-  assert.match(job(ci, 'root-route-acceptance-lockfile'), /cargo fetch --locked/);
-  assert.match(job(ci, 'root-route-acceptance-lockfile'), /test-root-route-acceptance.sh/);
+  assert.match(job(ci, 'core'), /cargo clippy --locked/);
+  assert.match(job(ci, 'core'), /cargo test --locked --all-targets/);
+  assert.match(job(ci, 'core'), /test-core-docker.py/);
+  assert.match(job(ci, 'extensions'), /go test -race/);
   assert.match(job(ci, 'rustsec'), /rustsec\/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432/);
-  assert.match(job(ci, 'quality-gate'), /- root-route-acceptance-lockfile/);
+  assert.match(job(ci, 'quality-gate'), /- core/);
   assert.match(job(ci, 'quality-gate'), /- rustsec/);
   assert.throws(() => workflow('rust-root-route-acceptance'), /ENOENT/);
 });

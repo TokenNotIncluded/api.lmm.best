@@ -14,13 +14,11 @@ import (
 const (
 	backendCanonicalName = "lmm-api"
 	backendGoName        = "lmm-api-go"
-	backendRustName      = "lmm-api-rs"
 )
 
 type backendPaths struct {
 	Canonical string
 	Go        string
-	Rust      string
 }
 
 type backendOwnershipRunner interface {
@@ -56,7 +54,6 @@ func defaultBackendRuntime() *backendRuntime {
 		paths: backendPaths{
 			Canonical: "/usr/bin/" + backendCanonicalName,
 			Go:        "/usr/bin/" + backendGoName,
-			Rust:      "/usr/bin/" + backendRustName,
 		},
 		owner:       pacmanBackendOwnershipRunner{},
 		effectiveID: os.Geteuid,
@@ -97,7 +94,7 @@ func (runtime *backendRuntime) run(args []string, stdout, stderr io.Writer) int 
 		flags.Usage = func() { writeBackendUsage(stderr) }
 		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 1 {
 			if err == nil {
-				_, _ = fmt.Fprintln(stderr, "backend select: choose exactly one provider: go or rust")
+				_, _ = fmt.Fprintln(stderr, "backend select: choose exactly one provider: go")
 			}
 			return ExitUsage
 		}
@@ -121,7 +118,7 @@ func (runtime *backendRuntime) run(args []string, stdout, stderr io.Writer) int 
 func writeBackendUsage(output io.Writer) {
 	_, _ = fmt.Fprintln(output, `Usage:
   lmm-api backend status
-  lmm-api backend select go|rust
+  lmm-api backend select go
 
 The canonical /usr/bin/lmm-api entry remains a one-hop relative symlink to one
 verified, package-owned provider executable. Selection requires root.`)
@@ -131,10 +128,8 @@ func (runtime *backendRuntime) provider(selection string) (backendProvider, erro
 	switch selection {
 	case "go", backendGoName:
 		return backendProvider{Name: "go", Target: backendGoName, Path: runtime.paths.Go}, nil
-	case "rust", backendRustName:
-		return backendProvider{Name: "rust", Target: backendRustName, Path: runtime.paths.Rust}, nil
 	default:
-		return backendProvider{}, errors.New("provider must be go or rust")
+		return backendProvider{}, errors.New("provider must be go; the retired Rust provider is not supported")
 	}
 }
 
@@ -158,8 +153,7 @@ func (runtime *backendRuntime) validateProvider(provider backendProvider) (backe
 		return backendProvider{}, errors.New("provider package ownership could not be verified")
 	}
 	allowed := map[string][]string{
-		"go":   {"lmm-api-go", "lmm-api-go-bin", "lmm-api-go-git"},
-		"rust": {"lmm-api-rs", "lmm-api-rs-bin", "lmm-api-rs-git"},
+		"go": {"lmm-api-go", "lmm-api-go-bin", "lmm-api-go-git"},
 	}
 	valid := false
 	for _, name := range allowed[provider.Name] {

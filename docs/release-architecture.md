@@ -6,7 +6,7 @@ Production release identities are component-scoped:
 | --- | --- | --- | --- |
 | Go provider | `go-vX.Y.Z` | `release-go.yml` | signed archives containing real `lmm-api-go` plus package contracts |
 | Web frontend | `web-vX.Y.Z` | `release-web.yml` | signed immutable frontend archive |
-| Rust provider candidate | none | CI only | real `lmm-api-rs` test artifacts, never production ownership evidence |
+| Rust core / Go extensions | none yet | WIP checks only | independent Docker build contexts; no production publication or cutover |
 
 The historical root `VERSION`, `prepare-release.yml`, `promote-release.yml`,
 `release.yml`, and `scripts/release.mjs` coupled three independently moving
@@ -65,14 +65,14 @@ frontend-only workflow. Changes requiring a new Go backend use the native
 combined transaction until an explicit paired/independent compatibility gate
 exists.
 
-## Rust boundary
+## New core and extension boundary
 
-Rust remains a loopback-only migration candidate. CI may build and test it, but
-there is no stable Rust tag, prebuilt AUR package, or production publication
-workflow. `lmm-api-rs-git` is source-preview-only and cannot be used as cutover
-evidence. Reintroducing a signed Rust binary requires a dedicated tag namespace,
-immutable asset contract, checksum-pinned AUR recipe, Sigstore identity, and an
-approved route-ownership cutover.
+The former Rust native package and provider-switch deployment have been removed.
+The [new services](core-migration.md) have separate Docker build contexts and
+Compose projects. No new production image publication pipeline exists yet.
+Before publication, add independent version tags, immutable image digests,
+provenance/signature checks and compatibility tests. An extension release must
+not restart the core or mutate its database schema.
 
 ## Rollback
 

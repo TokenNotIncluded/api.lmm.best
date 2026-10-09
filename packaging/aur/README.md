@@ -1,37 +1,32 @@
 # AUR packages
 
 The backend providers are independently versioned real executables. Production
-services enter through a separately managed one-hop provider link. Deployment
-actions use the separately built and signed `/usr/lib/lmm-api-deploy/engine`.
+and operator actions enter through a separately managed one-hop provider link.
 
 | Role | Stable source | Prebuilt release | Build from Git | Installed payload |
 | --- | --- | --- | --- | --- |
 | Go provider | `lmm-api-go` | `lmm-api-go-bin` | `lmm-api-go-git` | real `/usr/bin/lmm-api-go` plus current shared runtime assets |
-| Rust provider | — | — | `lmm-api-rs-git` | real `/usr/bin/lmm-api-rs` |
 | Web frontend | — | `lmm-api-web-bin` | — | `/usr/share/lmm-api-web/frontend-dist` and signed CLI install hook |
 
 `/usr/bin/lmm-api` is not a regular provider payload and is not a reverse alias.
-It is a one-hop relative link to exactly `lmm-api-go` or `lmm-api-rs`, selected
+It is a one-hop relative link to exactly `lmm-api-go`, selected
 atomically by the already verified public CLI. New provider packages do not own
 the link and do not conflict merely because the other provider is installed.
 They provide the virtual `lmm-api-provider` capability for packages that require
 a working backend CLI.
 
-Production services use `/usr/bin/lmm-api`. Deployment and Web package hooks
-use `/usr/bin/lmm-api-deploy`, whose modern signed wrapper runs the separate
-tool. Modern Go bundles carry `lmm-api-deploy-engine`; recipes install it at
-`/usr/lib/lmm-api-deploy/engine` from the same signed bundle. Missing tool bytes
-must not be replaced by a local backend. See
-[tool separation](../../docs/standalone-deployment-tool.md).
+Production services, package hooks, and operator commands invoke only
+`/usr/bin/lmm-api`. Package inspection may name provider files, and a release
+candidate may construct a verified workspace symlink named `lmm-api`, but no
+deployment command directly executes `lmm-api-go`.
 
 ## Legacy migration
 
 The signed `lmm-api-go-bin 0.1.69-1` layout may own a real
 `/usr/bin/lmm-api` and expose `lmm-api-go -> lmm-api`. Accept that exact layout
 only as N-1 migration or rollback evidence. A package at or above 0.2.0 must
-contain the real provider, plus the separate deployment tool when its signed
-release contains one. It must not contain `CLI_TRANSITION_PHASE`, a generic
-provider executable or reverse alias. Old rollback bundles stay unchanged.
+contain only the real provider executable and must not contain
+`CLI_TRANSITION_PHASE`, a generic executable, reverse alias, or deploy-only CLI.
 
 The first 0.2.x upgrade runs from a signed workspace symlink, upgrades the Go
 package, then atomically creates `/usr/bin/lmm-api -> lmm-api-go` before service
@@ -58,7 +53,7 @@ Those releases do not package `frontend-release.sh`, `lmm-api-web-activate`, or
 another shell publisher. The pinned 0.1.51 recipe remains an explicit immutable
 legacy reproduction until 0.1.52 is published; the post-release pin commit then
 replaces its local hook and removes its legacy publishers. Frontend activation
-and explicit rollback otherwise belong to the separate deployment tool with retained transaction contracts.
+and explicit rollback otherwise belong to provider CLIs with shared contracts.
 
 Go production packages must not contain `.INSTALL`. Web releases include
 `lmm-api-web.install` in the signed release and the local AUR hook must match it
@@ -74,9 +69,9 @@ updates only exact `pkgver`, asset/checksum/revision metadata, descriptions, and
 regenerated `.SRCINFO`. Never use `SKIP`, placeholders, mutable URLs, or
 unverified metadata.
 
-Rust remains source-built through `lmm-api-rs-git` until an independent signed
-Rust binary-release workflow and pinned `lmm-api-rs-bin` recipe exist. A Rust
-package or provider link is not production ownership evidence.
+Rust native packages are retired. The new core and Go module host use independent
+Docker projects; see [the migration](../../docs/core-migration.md). They are not
+production-ready and cannot be selected through the native Go operator.
 
 ## Validation
 
@@ -88,7 +83,6 @@ TMPDIR="$TMPDIR" bash packaging/aur/test-verify-go-release-pins.sh
 TMPDIR="$TMPDIR" bash packaging/aur/verify-go-release-pins.sh --pinned
 TMPDIR="$TMPDIR" bash packaging/aur/test-bin-makepkg.sh
 cd apps/api-go && go test ./internal/appcli
-cd apps/api-rust && cargo test --locked
 ```
 
 CI uses `--pinned` to verify the checked-in Go release's signed tag, ancestry,

@@ -103,7 +103,7 @@ class QualityGateTests(unittest.TestCase):
         self.assertIn("CI_NEEDS: ${{ toJSON(needs) }}", gate)
         self.assertIn("run: python3 -B scripts/ci_quality_gate.py", gate)
 
-    def test_manual_go_web_diagnostic_gate_covers_all_non_rust_jobs(self):
+    def test_manual_go_web_diagnostic_gate_covers_current_production_jobs(self):
         jobs_text = WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1]
         gate = jobs_text.split("  go-web-release-gate:\n", 1)[1]
         gate = re.split(r"\n  [a-zA-Z_][a-zA-Z0-9_-]*:", gate, maxsplit=1)[0]
@@ -116,7 +116,7 @@ class QualityGateTests(unittest.TestCase):
         self.assertIsNotNone(needs)
         self.assertCountEqual(re.findall(r"- ([a-zA-Z0-9_-]+)", needs.group(1)), expected)
         self.assertEqual(set(expected), set(REQUIRED_JOBS) - {
-            "rust-preview", "rust-real-integration", "root-route-acceptance-lockfile", "rustsec",
+            "core", "extensions", "rustsec",
         })
         self.assertIn("name: Go/Web release qualification gate\n", gate)
         self.assertIn(
@@ -132,7 +132,7 @@ class QualityGateTests(unittest.TestCase):
             self.assertEqual(value.split("#", 1)[0].strip(), "false")
         self.assertIn("run: bun run --filter @lmm/web format:check", text)
         self.assertIn("run: bun run --filter @lmm/web copyright:check", text)
-        self.assertIn("run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings", text)
+        self.assertIn("cargo clippy --locked --all-targets -- -D warnings", text)
 
     def test_workflow_uses_shell_guards_and_read_only_permissions(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -176,13 +176,13 @@ class QualityGateTests(unittest.TestCase):
 
     def test_cli_failure_writes_evidence_and_returns_nonzero(self):
         needs = successful_jobs()
-        needs["rust-preview"]["result"] = "skipped"
+        needs["core"]["result"] = "skipped"
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "summary.md"
             process = self.run_gate(json.dumps(needs), path)
             self.assertEqual(process.returncode, 1)
-            self.assertIn("::error::rust-preview", process.stdout)
-            self.assertIn("| rust-preview | skipped |", path.read_text(encoding="utf-8"))
+            self.assertIn("::error::core", process.stdout)
+            self.assertIn("| core | skipped |", path.read_text(encoding="utf-8"))
             self.assertIn("**FAIL**", process.stdout)
 
     def test_cli_missing_and_invalid_json_fail(self):

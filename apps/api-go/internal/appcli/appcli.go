@@ -117,7 +117,7 @@ func WriteUsage(output io.Writer) {
   lmm-api request [request options] [URL-or-path]
   lmm-api geoip update
   lmm-api backend status
-  lmm-api backend select go|rust
+  lmm-api backend select go
   lmm-api status [request options]
   lmm-api doctor [request options]
   lmm-api version

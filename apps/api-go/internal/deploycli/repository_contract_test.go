@@ -64,7 +64,6 @@ func TestRepositoryDeploymentBehaviorUsesSeparateTool(t *testing.T) {
 	assertContains(
 		"docs/backend-cli-deployment-contract.md",
 		"/usr/bin/lmm-api-go",
-		"/usr/bin/lmm-api-rs",
 		"/usr/bin/lmm-api -> lmm-api-go",
 		"Manual rollback",
 	)

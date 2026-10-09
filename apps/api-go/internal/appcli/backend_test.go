@@ -28,14 +28,13 @@ func testBackendRuntime(t *testing.T) (*backendRuntime, string) {
 	paths := backendPaths{
 		Canonical: filepath.Join(bin, backendCanonicalName),
 		Go:        filepath.Join(bin, backendGoName),
-		Rust:      filepath.Join(bin, backendRustName),
 	}
-	for _, path := range []string{paths.Go, paths.Rust} {
+	for _, path := range []string{paths.Go} {
 		if err := os.WriteFile(path, []byte("provider"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	owners := fakeBackendOwner{paths.Go: "lmm-api-go-bin", paths.Rust: "lmm-api-rs-git"}
+	owners := fakeBackendOwner{paths.Go: "lmm-api-go-bin"}
 	return &backendRuntime{
 		paths:       paths,
 		owner:       owners,
@@ -55,14 +54,14 @@ func TestBackendSelectAtomicallyCreatesOneHopRelativeLink(t *testing.T) {
 		t.Fatalf("canonical target=%q err=%v", target, err)
 	}
 	stdout.Reset()
-	if code := runtime.run([]string{"select", "rust"}, &stdout, &bytes.Buffer{}); code != ExitOK {
+	if code := runtime.run([]string{"select", "go"}, &stdout, &bytes.Buffer{}); code != ExitOK {
 		t.Fatalf("switch exit=%d", code)
 	}
 	target, err = os.Readlink(runtime.paths.Canonical)
-	if err != nil || target != backendRustName {
+	if err != nil || target != backendGoName {
 		t.Fatalf("switched target=%q err=%v", target, err)
 	}
-	if !strings.Contains(stdout.String(), "provider=rust") || !strings.Contains(stdout.String(), "package=lmm-api-rs-git") {
+	if !strings.Contains(stdout.String(), "provider=go") || !strings.Contains(stdout.String(), "package=lmm-api-go-bin") {
 		t.Fatalf("select output=%q", stdout.String())
 	}
 }
@@ -78,7 +77,7 @@ func TestBackendSelectRejectsNonRootAndUnsafeProviderEvidence(t *testing.T) {
 			if err := os.Remove(runtime.paths.Go); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Symlink(backendRustName, runtime.paths.Go); err != nil {
+			if err := os.Symlink(backendGoName, runtime.paths.Go); err != nil {
 				t.Fatal(err)
 			}
 		}, want: "safe"},
@@ -113,7 +112,7 @@ func TestBackendStatusRejectsWrongAbsoluteAndChainedLinks(t *testing.T) {
 				if err := os.Remove(runtime.paths.Go); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.Symlink(backendRustName, runtime.paths.Go); err != nil {
+				if err := os.Symlink(backendGoName, runtime.paths.Go); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -134,5 +133,21 @@ func TestBackendSelectRefusesUnsafeExistingCanonicalPath(t *testing.T) {
 	}
 	if _, err := runtime.selectProvider("go"); err == nil || !strings.Contains(err.Error(), "not a symlink") {
 		t.Fatalf("unsafe canonical error=%v", err)
+	}
+}
+
+func TestBackendRejectsRetiredRustWithoutChangingGo(t *testing.T) {
+	runtime, _ := testBackendRuntime(t)
+	if _, err := runtime.selectProvider("go"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"rust", "lmm-api-rs"} {
+		if _, err := runtime.selectProvider(name); err == nil {
+			t.Fatalf("accepted retired provider %q", name)
+		}
+		target, err := os.Readlink(runtime.paths.Canonical)
+		if err != nil || target != backendGoName {
+			t.Fatalf("changed Go link: %q %v", target, err)
+		}
 	}
 }
