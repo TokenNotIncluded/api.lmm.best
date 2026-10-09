@@ -57,7 +57,7 @@
     "dompurify": "3.4.16",
     "i18next": "^26.3.4",
     "i18next-browser-languagedetector": "^8.2.1",
-    "katex": "^0.17.0",
+    "katex": "^0.19.0",
     "lucide-react": "^1.23.0",
     "marked": "^18.0.5",
     "motion": "^12.42.2",

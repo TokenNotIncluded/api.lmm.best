@@ -1,19 +1,6 @@
 name: Standalone deployment tests
 
 on:
-  pull_request:
-    paths:
-      - scripts/deploy-systemd.py
-      - scripts/lmm-api-deploy.sh
-      - scripts/test-deploy-systemd*.py
-      - .github/workflows/standalone-deployment-tests.yml
-  push:
-    branches: [main]
-    paths:
-      - scripts/deploy-systemd.py
-      - scripts/lmm-api-deploy.sh
-      - scripts/test-deploy-systemd*.py
-      - .github/workflows/standalone-deployment-tests.yml
   workflow_dispatch:
 
 permissions:
@@ -34,6 +21,8 @@ jobs:
         run: |
           python3 -c 'import sys; assert sys.version_info >= (3, 11)'
           bash -n scripts/lmm-api-deploy.sh
+          python3 -B scripts/test-deploy-entrypoint.py -v
+          python3 -B scripts/test-web-ship.py -v
           python3 -B scripts/test-deploy-systemd.py -v
           python3 -B scripts/test-deploy-systemd-archive-staged.py -v
           python3 -B scripts/test-deploy-systemd-cli.py -v

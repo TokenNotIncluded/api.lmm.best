@@ -26,7 +26,7 @@ type LmmBrandMarkProps = SVGProps<SVGSVGElement> & {
   title?: string
 }
 
-/** Original cut symbol; keep the full viewBox and its open counterforms. */
+/** Shared cut symbol; keep its full viewBox and the open 16-unit gaps. */
 export function LmmBrandMark({
   className,
   title,
@@ -44,7 +44,7 @@ export function LmmBrandMark({
       {...props}
     >
       <path
-        d='M6 10H24V94H32V20H44L52 40L60 20H72V94H82V20H94L102 40L110 20H122V100L110 112H6Z M44 94V52L52 70L60 52V94Z M94 94V52L102 70L110 52V94Z'
+        d='M8 16H24V96H120V104L112 112H8Z M40 80V16H50L56 30L62 16H72V80H62V42L56 56L50 42V80Z M88 80V16H98L104 30L110 16H120V80H110V42L104 56L98 42V80Z'
         fill='currentColor'
         fillRule='evenodd'
       />

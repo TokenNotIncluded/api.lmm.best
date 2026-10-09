@@ -1,9 +1,11 @@
-/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery } from '@tanstack/react-query'
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import { ArrowUpRight, Search } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -76,7 +78,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
     retry: false,
   })
   return (
-    <div className='flex flex-1 flex-col gap-5'>
+    <div className='flex min-w-0 flex-1 flex-col gap-4 sm:gap-7'>
       <StoreAnnouncement
         supported={support.data?.store_merchant_home_supported === true}
       />
@@ -86,9 +88,9 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           supported={support.data?.store_merchant_home_supported === true}
         />
       )}
-      <div className='flex min-h-28 flex-wrap items-end justify-between gap-4 border-b py-5'>
-        <div className='relative z-10 space-y-1'>
-          <h1 className='console-page-title text-xl font-bold'>
+      <div className='flex items-start justify-between gap-4 pt-3 pb-2 sm:items-end sm:pt-8 sm:pb-4'>
+        <div className='relative z-10 flex min-w-0 flex-1 flex-col gap-2'>
+          <h1 className='console-page-title text-3xl font-semibold tracking-tight sm:text-4xl'>
             {query.data?.seller &&
             support.data?.store_merchant_home_supported !== true
               ? t('Shop by {{name}}', {
@@ -98,7 +100,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                 })
               : t('Browse products')}
           </h1>
-          <p className='text-muted-foreground text-sm'>
+          <p className='text-muted-foreground sr-only max-w-md text-sm leading-6 sm:not-sr-only'>
             {t(
               'Explore digital products from the community and official sellers.'
             )}
@@ -117,15 +119,17 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           )}
         </div>
         <Button
-          variant='outline'
-          className='relative z-10'
+          variant='ghost'
+          className='relative z-10 h-11 shrink-0 gap-1 rounded-full px-2 text-xs sm:px-4 sm:text-sm'
           render={<a href='/store/manage' />}
         >
           {t('Sell a product')}
+          <ArrowUpRight className='size-4' aria-hidden='true' />
         </Button>
       </div>
       <form
-        className='grid max-w-2xl grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]'
+        role='search'
+        className='bg-muted/60 focus-within:ring-ring/50 flex min-w-0 items-center gap-2 rounded-2xl py-1.5 ps-4 pe-1.5 focus-within:ring-2'
         onSubmit={(event) => {
           event.preventDefault()
           const value = input.trim()
@@ -142,23 +146,13 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           setPage(1)
         }}
       >
-        <select
-          aria-label={t('Search type')}
-          className='bg-background col-span-2 h-11 rounded-md border px-3 text-sm sm:col-span-1'
-          value={searchType}
-          onChange={(event) => {
-            setSearchType(event.target.value as SearchType)
-            setLookup(null)
-          }}
-        >
-          <option value='auto'>{t('Auto detect')}</option>
-          <option value='products'>{t('Products')}</option>
-          <option value='order'>{t('Order number')}</option>
-          <option value='email'>{t('Email')}</option>
-        </select>
+        <Search
+          className='text-muted-foreground size-5 shrink-0'
+          aria-hidden='true'
+        />
         <Input
           type='search'
-          className='h-11 min-w-0'
+          className='h-11 min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 text-base shadow-none ring-0 focus-visible:ring-0 dark:bg-transparent'
           value={input}
           onChange={(event) => {
             setInput(event.target.value)
@@ -168,40 +162,63 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           placeholder={t('Search products, order number or email')}
           maxLength={254}
         />
-        <Button type='submit' variant='secondary' className='h-11'>
+        <Button type='submit' className='h-11 shrink-0 rounded-xl px-4'>
           {t('Search')}
         </Button>
       </form>
-      {!lookup && categories.data?.supported && (
-        <StoreCategorySelect
-          id='store-category-filter'
-          all
-          value={categoryId}
-          items={categories.data.items}
-          onChange={(value) => {
-            setCategoryId(value)
-            setPage(1)
-          }}
-        />
-      )}
+      <StoreCatalogueFiltersPanel
+        value={filters}
+        onChange={(value) => {
+          setFilters(value)
+          setPage(1)
+        }}
+        view={view}
+        onViewChange={(value) => {
+          setView(value)
+          writeStoreCatalogueView(value)
+        }}
+        supported={!lookup && support.catalogueSupported}
+        extraActive={categoryId !== '' || searchType !== 'auto'}
+      >
+        <FieldGroup className='grid gap-4 sm:grid-cols-2'>
+          <Field>
+            <FieldLabel htmlFor='store-search-type'>
+              {t('Search type')}
+            </FieldLabel>
+            <select
+              id='store-search-type'
+              aria-label={t('Search type')}
+              className='bg-background h-11 w-full rounded-xl border px-3 text-base sm:text-sm'
+              value={searchType}
+              onChange={(event) => {
+                setSearchType(event.target.value as SearchType)
+                setLookup(null)
+              }}
+            >
+              <option value='auto'>{t('Auto detect')}</option>
+              <option value='products'>{t('Products')}</option>
+              <option value='order'>{t('Order number')}</option>
+              <option value='email'>{t('Email')}</option>
+            </select>
+          </Field>
+          {!lookup && categories.data?.supported && (
+            <StoreCategorySelect
+              id='store-category-filter'
+              all
+              value={categoryId}
+              items={categories.data.items}
+              onChange={(value) => {
+                setCategoryId(value)
+                setPage(1)
+              }}
+            />
+          )}
+        </FieldGroup>
+      </StoreCatalogueFiltersPanel>
       {!lookup && (
         <StoreError
           error={categories.error}
           retry={() => void categories.refetch()}
-        />
-      )}
-      {!lookup && support.catalogueSupported && (
-        <StoreCatalogueFiltersPanel
-          value={filters}
-          onChange={(value) => {
-            setFilters(value)
-            setPage(1)
-          }}
-          view={view}
-          onViewChange={(value) => {
-            setView(value)
-            writeStoreCatalogueView(value)
-          }}
         />
       )}
       {lookup ? (
@@ -219,7 +236,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
             query.data && (
               <>
                 {query.data.items.length === 0 ? (
-                  <div className='flex flex-1 flex-col items-center justify-center gap-6 border-t px-4 py-10 text-center'>
+                  <div className='flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center'>
                     <div className='max-w-md space-y-2'>
                       <h2 className='font-semibold'>
                         {t(
@@ -252,8 +269,8 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                 ) : (
                   <div
                     className={cn(
-                      'grid gap-4',
-                      view === 'cards' && 'grid-cols-12 sm:gap-5'
+                      'grid gap-x-4 gap-y-0 [&>article+article]:border-t [&>article+article]:border-border/45 sm:gap-y-8 sm:[&>article+article]:border-t-0',
+                      view === 'cards' && 'grid-cols-12 sm:gap-x-8 lg:gap-x-12'
                     )}
                   >
                     {query.data.items.map((product, index) => (
@@ -270,7 +287,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                 {(query.data.items.length > 0 ||
                   page > 1 ||
                   query.data.has_more) && (
-                  <div className='flex items-center justify-between border-t pt-4 text-sm'>
+                  <div className='flex flex-wrap items-center justify-between gap-3 pt-4 text-sm'>
                     <span className='text-muted-foreground'>
                       {t('Page {{page}}', { page })}
                     </span>
@@ -278,6 +295,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                       <Button
                         variant='outline'
                         size='sm'
+                        className='h-11'
                         disabled={page <= 1}
                         onClick={() => setPage((value) => value - 1)}
                       >
@@ -286,6 +304,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
                       <Button
                         variant='outline'
                         size='sm'
+                        className='h-11'
                         disabled={!query.data.has_more}
                         onClick={() => setPage((value) => value + 1)}
                       >
@@ -299,7 +318,7 @@ export function StorePage({ sellerId }: { sellerId?: number } = {}) {
           )}
         </>
       )}
-      <div className='text-muted-foreground mt-auto border-t pt-4 text-xs'>
+      <div className='text-muted-foreground mt-auto pt-6 pb-2 text-xs leading-5'>
         {t(
           'Official labels identify administrator-owned products. Other products are sold independently by their sellers.'
         )}

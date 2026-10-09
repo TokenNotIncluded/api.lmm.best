@@ -1,16 +1,7 @@
 name: Wallet and red packet review
 
 on:
-  pull_request:
-    paths:
-      - 'apps/web/src/features/wallet/**'
-      - 'apps/web/src/features/red-packets/**'
-      - 'apps/web/src/components/frontend-update-notice.tsx'
-      - 'apps/web/src/lib/frontend-*.ts'
-      - 'apps/web/scripts/visual-review/wallet_red_packet_review.py'
-      - 'apps/api-go/model/red_packet*.go'
-      - 'apps/api-go/controller/topup*.go'
-      - '.github/workflows/wallet-red-packet-review.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

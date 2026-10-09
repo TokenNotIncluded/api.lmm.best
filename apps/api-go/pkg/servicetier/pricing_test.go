@@ -1,6 +1,7 @@
 package servicetier
 
 import (
+	"encoding/json"
 	"math"
 	"math/big"
 	"os"
@@ -151,6 +152,63 @@ func TestQuoteSnapshotDoesNotChangeWithCatalog(t *testing.T) {
 	}
 	if reserve.Cmp(actual) < 0 {
 		t.Fatal("cache overlap exceeded conservative reserve")
+	}
+}
+func TestSerializedQuoteReproducesCostAfterCatalogUpdate(t *testing.T) {
+	c := testCatalog(t)
+	p := testPolicy()
+	q, err := NewQuote(c, p, "gpt-6-astra", "ultrafast", "paid", 2, 1000, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.Observe("priority")
+	originalDigest := c.SHA256
+
+	// A later catalog update must not change the price snapshot written to a log.
+	rates := c.Models[q.Model]
+	rates.Fast.Short.Input = 999
+	*rates.Fast.Short.CachedInput = 999
+	*rates.Fast.Short.CacheWrite = 999
+	rates.Fast.Short.Output = 999
+	rates.Fast.Long.Input = 999
+	*rates.Fast.Long.CachedInput = 999
+	*rates.Fast.Long.CacheWrite = 999
+	rates.Fast.Long.Output = 999
+	c.ShortContextLimit = 300000
+	c.SHA256 = strings.Repeat("f", 64)
+	c.FetchedAt = testNow.Add(time.Hour)
+
+	encoded, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"prices", "context_limit", "actual_tier", "sales_multiplier"} {
+		if _, ok := fields[field]; !ok {
+			t.Fatalf("serialized quote is missing %q: %s", field, encoded)
+		}
+	}
+	var restored Quote
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.ContextLimit != 272000 || restored.ActualTier != "fast" || restored.RequestedTier != "ultrafast" || restored.SalesMultiplier != 2.4 || restored.CatalogSHA256 != originalDigest {
+		t.Fatalf("serialized quote lost original billing context: %+v", restored)
+	}
+	for _, tc := range []struct {
+		name  string
+		input int
+		want  string
+	}{
+		{"short context", 272000, "13.2216"},
+		{"long context", 272001, "26.323296"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertUSD(t, &restored, Usage{Input: tc.input, Cached: 2000, CacheWrite: 1000, Output: 1000}, tc.want)
+		})
 	}
 }
 func TestMissingLongOrCachePricesReject(t *testing.T) {

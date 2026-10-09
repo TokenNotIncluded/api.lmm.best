@@ -23,7 +23,11 @@ const path = '/api/ratio_sync/service_tiers'
 test('service-tier preview is root-only, read-only and disabled without prices', () => {
   const previousUser = useAuthStore.getState().auth.user
   try {
-    useAuthStore.getState().auth.setUser({ id: 9001, role: 100 })
+    useAuthStore.getState().auth.setUser({
+      id: 9001,
+      username: 'service-tier-fixture',
+      role: 100,
+    })
     const first = consolePageFixture(config(path)) as {
       success: boolean
       data: ServiceTierState
@@ -53,7 +57,11 @@ test('service-tier preview is root-only, read-only and disabled without prices',
       undefined
     )
     for (const role of [0, 1, 10]) {
-      useAuthStore.getState().auth.setUser({ id: 9001, role })
+      useAuthStore.getState().auth.setUser({
+        id: 9001,
+        username: 'service-tier-fixture',
+        role,
+      })
       assert.equal(consolePageFixture(config(path)), undefined)
     }
   } finally {

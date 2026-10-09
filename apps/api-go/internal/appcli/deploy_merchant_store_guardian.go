@@ -113,7 +113,13 @@ func (runtime *productionRuntime) requestMerchantStoreFence(ctx context.Context,
 	if err := merchantStoreFencePeer(connection, runtime.requiredOwnerUID, owner.HolderPID); err != nil {
 		return err
 	}
-	_ = connection.SetDeadline(time.Now().Add(90 * time.Second))
+	deadline := time.Now().Add(90 * time.Second)
+	if limit, ok := ctx.Deadline(); ok && limit.Before(deadline) {
+		deadline = limit
+	}
+	_ = connection.SetDeadline(deadline)
+	stopCancellation := context.AfterFunc(ctx, func() { _ = connection.Close() })
+	defer stopCancellation()
 	operation := "check"
 	if release {
 		operation = "release"
@@ -177,10 +183,37 @@ func (runtime *productionRuntime) verifyMerchantStoreFenceTerminal(ctx context.C
 	if err != nil || manifest.SchemaPlanSHA256 != expected.SchemaPlanSHA256 || manifest.MerchantStoreWriter == nil || *manifest.MerchantStoreWriter != *expected.MerchantStoreWriter {
 		return errors.New("merchant deployment holder terminal manifest changed")
 	}
-	if manifest.BillingGate == nil || manifest.BillingGate.AdmissionClosed {
+	// AdmissionClosed records the completed drain; reopening preserves it.
+	rollback := status.Phase == "ROLLED_BACK"
+	if manifest.BillingGate == nil || !manifest.BillingGate.AdmissionReopened {
 		return errors.New("merchant deployment fence release requires reopened admission evidence")
 	}
-	rollback := status.Phase == "ROLLED_BACK"
+	incompleteAdmission := !manifest.BillingGate.AdmissionClosed
+	if incompleteAdmission && (!rollback || status.Reason != productionUnchangedAdmissionRecoveryReason) {
+		return errors.New("merchant deployment fence release requires reopened admission evidence")
+	}
+	if !rollback && manifest.NginxEdgeRestoreSHA256 != "" && !manifest.PreserveEdgePolicy {
+		// Promotion can install its qualified edge policy after reopening.
+		if err := runtime.verifyEdgePolicy(ctx, runtime.paths.EdgeAssetRoot); err != nil {
+			return err
+		}
+	} else {
+		expectedAdmissionSHA256 := manifest.BillingGate.OriginalSHA256
+		if rollback && manifest.NginxEdgeRestoreSHA256 != "" {
+			// Rollback restores the pre-upgrade snapshot after reopening its gate.
+			root := filepath.Join(workspace.configRestore, "nginx-edge")
+			if err := runtime.validateEdgePolicyBackup(root, manifest.NginxEdgeRestoreSHA256); err != nil {
+				return err
+			}
+			expectedAdmissionSHA256, err = sha256File(filepath.Join(root, "locations"))
+			if err != nil {
+				return errors.New("merchant deployment terminal admission restore evidence is unavailable")
+			}
+		}
+		if digest, err := sha256File(filepath.Join(runtime.paths.NginxRoot, "lmm-api-locations.conf")); err != nil || digest != expectedAdmissionSHA256 {
+			return errors.New("merchant deployment terminal admission entry changed after reopening")
+		}
+	}
 	if err := runtime.checkMerchantStoreWriterLifecycle(ctx, workspace, manifest, true, rollback); err != nil {
 		return err
 	}
@@ -195,6 +228,13 @@ func (runtime *productionRuntime) verifyMerchantStoreFenceTerminal(ctx context.C
 	pid, parseErr := strconv.Atoi(unit["MainPID"])
 	if err != nil || parseErr != nil || pid <= 1 || unit["ActiveState"] != "active" || !existingSchemaInvocationPattern.MatchString(unit["InvocationID"]) {
 		return errors.New("merchant deployment terminal writer generation is unavailable")
+	}
+	if incompleteAdmission {
+		// Only the native pre-stop recovery path writes this reason. Recheck its
+		// live unchanged-writer proof, rather than trusting the terminal label.
+		if err := runtime.verifyUnchangedAdmissionWriter(ctx, manifest, unit); err != nil {
+			return err
+		}
 	}
 	if digest, err := sha256File(filepath.Join("/proc", strconv.Itoa(pid), "exe")); err != nil || digest != expectedPayload {
 		return errors.New("merchant deployment terminal running writer is not its qualified target")
@@ -351,7 +391,10 @@ func (runtime *productionRuntime) verifyMerchantStoreWriterProvider(ctx context.
 		return err
 	}
 	_, err = runVerifiedBinary(ctx, runtime.runner, provider, []string{"migrate", "--verify"}, sealedChild, directory, 5*time.Minute, true)
-	return err
+	if err != nil {
+		return fmt.Errorf("merchant writer %s migrate --verify failed: %w", role, err)
+	}
+	return nil
 }
 
 func (runtime *productionRuntime) handleMerchantStoreFenceConnection(ctx context.Context, workspace productionWorkspace, manifest productionManifest, owner productionMerchantStoreFenceOwner, ownerJSON []byte, lease *productionMerchantStoreFence, connection net.Conn) bool {
@@ -401,9 +444,26 @@ func (runtime *productionRuntime) ensureMerchantStoreFence(ctx context.Context, 
 		"--workspace", workspace.root, "--release-plan", plan, "--release-plan-sha256", manifest.SchemaPlanSHA256}, Timeout: 30 * time.Second}); err != nil {
 		return errors.New("merchant deployment durable holder unit could not be started")
 	}
-	for attempt := 0; attempt < 20; attempt++ {
-		if err := runtime.requestMerchantStoreFence(ctx, workspace, manifest, false); err == nil {
+	return runtime.awaitMerchantStoreFence(ctx, func(ctx context.Context) error {
+		return runtime.requestMerchantStoreFence(ctx, workspace, manifest, false)
+	})
+}
+
+// Holder qualification reads both signed providers and the physical database.
+// A slow host must retain its original holder rather than launch a replacement.
+func (runtime *productionRuntime) awaitMerchantStoreFence(ctx context.Context, check func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	deadline := runtime.now().Add(2 * time.Minute)
+	for runtime.now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := check(ctx); err == nil {
 			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		runtime.sleep(500 * time.Millisecond)
 	}

@@ -10,9 +10,11 @@ import type { StoreSeller } from './types'
 export function StoreMerchantIdentity({
   seller,
   sellerId,
+  compact = false,
 }: {
   seller?: StoreSeller | null
   sellerId?: number
+  compact?: boolean
 }) {
   const { t } = useTranslation()
   const id = storeSellerId(seller?.id ?? sellerId)
@@ -20,6 +22,26 @@ export function StoreMerchantIdentity({
   const name = seller?.display_name || seller?.username
   const href = `/store?seller_id=${id}`
   const emailLink = storeSellerMailto(seller?.contact_email)
+  if (compact) {
+    return (
+      <a
+        href={href}
+        aria-label={t('Shop by {{name}}', {
+          name: name || `${t('User ID')}: ${id}`,
+        })}
+        className='text-muted-foreground hover:text-foreground focus-visible:outline-ring flex min-h-11 min-w-0 items-center gap-2 rounded-sm text-xs focus-visible:outline-2'
+      >
+        {name && (
+          <Avatar className='size-5 shrink-0'>
+            <AvatarFallback style={getUserAvatarStyle(name)}>
+              {getUserAvatarFallback(name)}
+            </AvatarFallback>
+          </Avatar>
+        )}
+        <span className='truncate'>{name || `${t('User ID')}: ${id}`}</span>
+      </a>
+    )
+  }
   return (
     <div className='text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm'>
       {name && (

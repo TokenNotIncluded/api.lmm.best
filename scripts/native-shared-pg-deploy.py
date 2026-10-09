@@ -145,9 +145,12 @@ class CapsuleHooks:
                 self.held = True
             return original_execute(args, parser)
 
-        def read_state(*args, **kwargs):
-            state = original_read_state(*args, **kwargs)
-            if state.get('migrate') or state.get('maintenance_handoff'):
+        def read_state(work, allow_incomplete=False):
+            state = original_read_state(work, allow_incomplete=allow_incomplete)
+            # The owner scans other transactions to validate recovery and
+            # released-history receipts. Keep that lifecycle validation intact;
+            # only this capsule's transaction must remain ordinary same-schema.
+            if Path(work) == module.ROOT / self.capsule['deployment_id'] and (state.get('migrate') or state.get('maintenance_handoff')):
                 raise RuntimeError('historical financial owner cannot enter the native ordinary wrapper')
             return state
 

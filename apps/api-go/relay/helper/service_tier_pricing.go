@@ -131,6 +131,11 @@ func modelPriceHelperServiceTier(c *gin.Context, info *relaycommon.RelayInfo, pr
 // ApplyServiceTierToJSON runs after mapping, conversion, field filters and
 // parameter/header overrides at the shared final HTTP/WS body boundary.
 func ApplyServiceTierToJSON(c *gin.Context, info *relaycommon.RelayInfo, target, host string, headers http.Header, body []byte) ([]byte, error) {
+	// A cross-channel retry retains its original quote. Do not let an unsupported
+	// retry channel bypass the destination, model and output-budget checks below.
+	if info != nil && info.ServiceTierQuote != nil && (info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeOpenAI) {
+		return nil, errors.New("accelerated quote requires an official OpenAI channel")
+	}
 	if info == nil || info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeOpenAI {
 		return body, nil
 	}
@@ -234,6 +239,9 @@ func ApplyServiceTierToJSON(c *gin.Context, info *relaycommon.RelayInfo, target,
 	return json.Marshal(fields)
 }
 func ApplyServiceTierToRequest(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
+	if info != nil && info.ServiceTierQuote != nil && (info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeOpenAI) {
+		return errors.New("accelerated quote requires an official OpenAI channel")
+	}
 	if req == nil || req.URL == nil || req.Body == nil || req.Method != http.MethodPost || info == nil || info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeOpenAI {
 		return nil
 	}

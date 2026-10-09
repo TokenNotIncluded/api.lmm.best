@@ -206,8 +206,8 @@ type Quote struct {
 	CatalogSHA256          string     `json:"catalog_sha256"`
 	FetchedAt              time.Time  `json:"fetched_at"`
 	OutputLimit            int        `json:"output_limit"`
-	ContextLimit           int        `json:"-"`
-	Prices                 ModelRates `json:"-"`
+	ContextLimit           int        `json:"context_limit"`
+	Prices                 ModelRates `json:"prices"`
 }
 
 func NewQuote(c Catalog, p Policy, model, tier, group string, groupRatio float64, outputLimit int, now time.Time) (*Quote, error) {

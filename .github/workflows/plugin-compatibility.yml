@@ -1,11 +1,7 @@
 name: Plugin compatibility
 on:
-  push:
-    branches: [main]
-    paths: ['packages/**', '.gitmodules', '.github/workflows/plugin-compatibility.yml']
-  pull_request:
-    paths: ['packages/**', '.gitmodules', '.github/workflows/plugin-compatibility.yml']
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:

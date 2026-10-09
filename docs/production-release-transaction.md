@@ -30,6 +30,26 @@ package integrity, the global deployment lock, billing drain, single-writer
 ownership, migrations, schema compatibility, observation and health gates.
 The wrapper does not restore the database or weaken a native rollback refusal.
 
+If a durable merchant holder becomes ready after promotion fails with
+`FAILED_PREARM`, do not stop it or replay promotion. A verified signed recovery
+provider can close the original target transaction explicitly:
+
+```sh
+sudo /absolute/verified-recovery/lmm-api-go operator production rollback \
+  --workspace /absolute/original/target-workspace --reason late-holder-prearm-recovery
+```
+
+This target-native recovery is separate from the old controller plan's pinned
+candidate. It reacquires only the original workspace's transaction lock and
+requires the unchanged signed N-1 process to predate workspace creation. It
+rechecks packages, startup, environment, schema, frontend, ingress, authenticated
+business probes and the original holder/session/nonce. It records that ingress
+is still open (`admission_closed=false`), then releases the original owner by
+CAS and returns `ROLLED_BACK`; it does not drain, stop, restart or install a
+provider. Missing evidence or drift retains the original failed phase and lock.
+An uncertain CAS response requires read-only reconciliation before any further
+action. Holder readiness is bounded to 120 seconds and honors cancellation.
+
 ## Go upgrades with an unchanged database schema
 
 The native CLI supports an explicitly sealed `verify-existing` schema mode for

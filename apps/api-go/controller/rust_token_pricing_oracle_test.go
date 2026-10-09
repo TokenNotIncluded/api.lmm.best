@@ -46,8 +46,9 @@ func TestRustTokenPricingCurrentGoOracle(t *testing.T) {
 	})
 	options := map[string]string{
 		"QuotaPerUnit":                          "500000",
-		"CreditsPerUSD":                         "3500000",
+		"CreditsPerUSD":                         "500000",
 		"LegacyPricingQuotaPerUnit":             "500000",
+		"PublicCreditsPerUSD":                   "500000",
 		"USDExchangeRate":                       "7",
 		"TopUpPlatformUnitsPerCNY":              "1",
 		"ModelRatio":                            `{"gpt-4o":1.25,"secret":2,"zero":0,"claude-3-5-sonnet":2,"vendor/claude-3-5-sonnet":2,"gpt-4-gizmo-*":1}`,
@@ -63,9 +64,10 @@ func TestRustTokenPricingCurrentGoOracle(t *testing.T) {
 	}
 	common.QuotaPerUnit = 500000
 	operation_setting.USDExchangeRate, operation_setting.TopUpPlatformUnitsPerCNY = 7, 1
-	// One migrated site: initial Q=500000, CNY/USD=7, base recharge ratio=1.
-	// K remains 3500000 even when the live FX or a later recharge bonus changes.
-	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), decimal.NewFromInt(500000)))
+	// Production currency options use the same fixed 500000-credit USD basis.
+	// Fiat FX and recharge promotions do not change wallet or pricing units.
+	fixedBasis := decimal.NewFromInt(common.FixedCreditsPerUSD)
+	require.NoError(t, common.SetCreditCurrencyBasis(fixedBasis, fixedBasis))
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(options["ModelRatio"]))
 	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(options["ModelPrice"]))
 	require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(options["CompletionRatio"]))

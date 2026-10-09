@@ -36,6 +36,7 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { INTERFACE_LANGUAGE_OPTIONS } = await import('@/i18n/languages')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { AdminSiteStatisticsPanel } = await import('./admin-site-statistics')
 const originalGet = api.get
@@ -50,6 +51,7 @@ afterEach(async () => {
   dispose = undefined
   api.get = originalGet
   useAuthStore.getState().auth.setUser(originalUser)
+  await i18n.changeLanguage('en')
   document.body.replaceChildren()
 })
 after(() => dom.close())
@@ -183,6 +185,24 @@ test('admins see exact credits and original-currency discounted payment and refu
   )
 })
 
+for (const { code } of INTERFACE_LANGUAGE_OPTIONS) {
+  test(`administrator statistics render with the ${code} interface language`, async () => {
+    useAuthStore.getState().auth.setUser(user(10))
+    await i18n.changeLanguage(code)
+    api.get = (async () => ({
+      data: { success: true, data },
+    })) as typeof api.get
+    const container = await mount()
+    const locale = code === 'zhCN' ? 'zh-CN' : code === 'zhTW' ? 'zh-TW' : code
+    const total = new Intl.NumberFormat(locale).format(
+      BigInt(data.total_used_credits)
+    )
+    await until(() => container.textContent?.includes(total) === true)
+    assert.doesNotMatch(container.textContent ?? '', /当前金额未确认/)
+    assert.match(container.textContent ?? '', /USD|CNY|LDC/)
+  })
+}
+
 test('failed or malformed sources stay unknown and explicit refresh recovers', async () => {
   useAuthStore.getState().auth.setUser(user(100))
   let calls = 0
@@ -205,4 +225,49 @@ test('failed or malformed sources stay unknown and explicit refresh recovers', a
   await act(async () => refresh.click())
   await until(() => container.textContent?.includes('1.00 USD') === true)
   assert.equal(calls, 2)
+})
+
+test('notes start collapsed but the unconfirmed-record count remains visible', async () => {
+  useAuthStore.getState().auth.setUser(user(10))
+  api.get = (async () => ({ data: { success: true, data } })) as typeof api.get
+  const container = await mount()
+  await until(() => container.querySelectorAll('details').length === 2)
+  const disclosures = [...container.querySelectorAll('details')]
+  assert.ok(disclosures.every((details) => !details.open))
+  const warning = disclosures[0].querySelector('summary')
+  assert.match(warning?.textContent ?? '', /部分充值记录无法确认实付/)
+  assert.equal(
+    warning?.querySelector('.overview-warning-count')?.textContent,
+    '2'
+  )
+  assert.match(disclosures[0].textContent ?? '', /缺少可信实付证据：1 笔/)
+  assert.match(disclosures[1].textContent ?? '', /How to read these tables/)
+  assert.equal(container.querySelectorAll('.overview-payment-row').length, 3)
+})
+
+test('empty confirmed payments do not invent totals or show an empty warning', async () => {
+  useAuthStore.getState().auth.setUser(user(10))
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: {
+        ...data,
+        recharge: {
+          currencies: [],
+          virtual_units: [],
+          confirmed_orders: 0,
+          unconfirmed_orders: 0,
+          invalid_orders: 0,
+        },
+      },
+    },
+  })) as typeof api.get
+  const container = await mount()
+  await until(
+    () => container.textContent?.includes('暂无已确认的充值付款记录。') === true
+  )
+  assert.equal(container.querySelector('.overview-disclosure-warning'), null)
+  assert.equal(container.querySelectorAll('.overview-payment-row').length, 0)
+  assert.equal(container.querySelectorAll('details').length, 1)
+  assert.doesNotMatch(container.textContent ?? '', /0\.00 USD|0\.00 CNY/)
 })

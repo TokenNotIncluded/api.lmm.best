@@ -23,9 +23,9 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { getUserQuotaDates } from '@/features/dashboard/api'
 import { useSummaryCardsConfig } from '@/features/dashboard/hooks/use-dashboard-config'
-import type { QuotaDataItem } from '@/features/dashboard/types'
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { normalizedUserUsage } from '@/lib/cumulative-user-usage'
@@ -33,71 +33,6 @@ import { formatNumber } from '@/lib/format'
 import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
-
-import { StatCard } from '../ui/stat-card'
-
-const SUMMARY_SPARKLINE_BUCKETS = 12
-
-type SummarySparklineKey = 'balance' | 'usage' | 'requests'
-
-function getBucketIndex(
-  timestamp: number,
-  start: number,
-  end: number,
-  bucketCount: number
-): number {
-  if (end <= start) return 0
-  const ratio = (timestamp - start) / (end - start)
-  return Math.min(bucketCount - 1, Math.max(0, Math.floor(ratio * bucketCount)))
-}
-
-function buildSummarySparklines(
-  data: QuotaDataItem[],
-  currentBalance: number,
-  start: number,
-  end: number
-): Record<SummarySparklineKey, number[]> {
-  const usage = Array.from({ length: SUMMARY_SPARKLINE_BUCKETS }, () => 0)
-  const requests = Array.from({ length: SUMMARY_SPARKLINE_BUCKETS }, () => 0)
-
-  for (const item of data) {
-    const timestamp = Number(item.created_at) || start
-    const index = getBucketIndex(
-      timestamp,
-      start,
-      end,
-      SUMMARY_SPARKLINE_BUCKETS
-    )
-    usage[index] += Number(item.quota) || 0
-    requests[index] += Number(item.count) || 0
-  }
-
-  let balance = currentBalance
-  const balanceTrend = Array.from(
-    { length: SUMMARY_SPARKLINE_BUCKETS },
-    () => 0
-  )
-
-  for (let index = SUMMARY_SPARKLINE_BUCKETS - 1; index >= 0; index--) {
-    balanceTrend[index] = Math.max(0, balance)
-    balance += usage[index]
-  }
-
-  return {
-    balance: balanceTrend,
-    usage,
-    requests,
-  }
-}
-
-function getSummarySparkline(
-  key: string,
-  sparklineData: Record<SummarySparklineKey, number[]>
-): number[] | undefined {
-  if (key === 'usage') return sparklineData.usage
-  if (key === 'requests') return sparklineData.requests
-  return undefined
-}
 
 function getRunwayDays(
   remainQuota: number,
@@ -175,22 +110,6 @@ export function SummaryCards() {
     requestCountDisplay: formatNumber(requestCount),
   }
 
-  const sparklineData = useMemo(
-    () =>
-      buildSummarySparklines(
-        usageTrendQuery.data?.data ?? [],
-        remainQuota,
-        summaryTimeRange.start_timestamp,
-        summaryTimeRange.end_timestamp
-      ),
-    [
-      remainQuota,
-      summaryTimeRange.end_timestamp,
-      summaryTimeRange.start_timestamp,
-      usageTrendQuery.data?.data,
-    ]
-  )
-
   const recentUsage = useMemo(
     () =>
       (usageTrendQuery.data?.data ?? []).reduce(
@@ -233,95 +152,41 @@ export function SummaryCards() {
     usedCurrencyLabel:
       normalizedUserUsage(user) === null ? t('Credits') : currencyLabel,
     currencyEnabled: true,
-  }).map((config, index) => {
-    const tones = ['accent-1', 'accent-2', 'accent-3'] as const
-
-    return {
-      key: config.key,
-      title: config.title,
-      value: config.value,
-      desc: config.description,
-      icon: config.icon,
-      tone: tones[index] ?? 'accent-3',
-      sparkline:
-        usageReady && (usageTrendQuery.data?.data.length ?? 0) > 0
-          ? config.key === 'todayUsage'
-            ? sparklineData.usage
-            : getSummarySparkline(config.key, sparklineData)
-          : undefined,
-      sparklineVariant: 'line' as const,
-    }
   })
 
   return (
-    <section
-      className='border-border border-b pb-8'
-      aria-label={t('Usage at a glance')}
-    >
-      <div className='grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]'>
-        <div className='order-2 min-w-0 lg:order-1'>
-          <h3 className='mb-6 text-base font-semibold'>
-            {t('Usage at a glance')}
+    <section className='overview-summary' aria-label={t('Usage at a glance')}>
+      <div className='overview-balance'>
+        <div className='flex flex-wrap items-center gap-3'>
+          <h3 className='text-muted-foreground text-sm font-medium'>
+            {t('Credit remaining')}
           </h3>
-          <div className='grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-8'>
-            {items.map((it) => (
-              <StatCard
-                key={it.key}
-                title={it.title}
-                value={it.value}
-                description={it.desc}
-                icon={it.icon}
-                tone={it.tone}
-                sparkline={it.sparkline}
-                sparklineVariant={it.sparklineVariant}
-                loading={
-                  loading ||
-                  (it.key === 'todayUsage' && usageTrendQuery.isLoading)
-                }
-                error={it.key === 'todayUsage' && usageFailed}
-                plain
+          {usageReady || remainQuota <= 0 ? (
+            <span className='overview-health'>
+              <span
+                className={cn('size-1.5 rounded-full', healthCfg.dotClass)}
+                aria-hidden='true'
               />
-            ))}
-          </div>
-          {usageFailed && (
-            <div
-              role='status'
-              className='text-muted-foreground mt-4 flex flex-wrap items-center gap-2 text-sm'
-            >
-              <span>{t('Failed to load data')}</span>
-              <Button
-                type='button'
-                variant='ghost'
-                size='sm'
-                disabled={usageTrendQuery.isFetching}
-                onClick={() => void usageTrendQuery.refetch()}
-              >
-                {t('Retry')}
-              </Button>
-            </div>
+              {t(healthCfg.labelKey)}
+            </span>
+          ) : null}
+        </div>
+        <div className='overview-balance-value'>
+          {loading ? (
+            <Skeleton className='h-12 w-48 max-w-full' />
+          ) : (
+            <>
+              <span>{formatQuota(remainQuota, { showSymbol: false })}</span>{' '}
+              <span className='overview-unit'>{currencyLabel}</span>
+            </>
           )}
         </div>
-        <div className='order-1 flex min-w-0 flex-col gap-4 lg:order-2'>
-          <div className='flex flex-wrap items-center justify-between gap-2'>
-            <span className='text-sm font-medium'>{t('Credit remaining')}</span>
-            {usageReady || remainQuota <= 0 ? (
-              <span className='text-muted-foreground inline-flex items-center gap-2 text-xs'>
-                <span
-                  className={cn('size-1.5 rounded-full', healthCfg.dotClass)}
-                  aria-hidden='true'
-                />
-                {t(healthCfg.labelKey)}
-              </span>
-            ) : null}
-          </div>
-          <div className='text-2xl font-semibold break-words tabular-nums'>
-            {formatQuota(remainQuota)}
-          </div>
-          <dl className='flex flex-wrap items-baseline justify-between gap-2 text-sm'>
-            <dt className='text-muted-foreground'>{t('Runway')}</dt>
+        <div className='overview-balance-footer'>
+          <dl className='min-w-0 text-sm'>
+            <dt className='text-muted-foreground text-xs'>{t('Runway')}</dt>
             <dd
               className={cn(
-                'tabular-nums',
+                'mt-1 font-medium tabular-nums',
                 healthLevel === 'critical' && 'text-destructive',
                 usageReady && healthLevel === 'caution' && 'text-warning'
               )}
@@ -330,13 +195,49 @@ export function SummaryCards() {
             </dd>
           </dl>
           <Button
-            className='min-h-11 justify-between'
+            className='min-h-11 gap-4 px-5'
             render={<Link to='/wallet' />}
           >
-            <span>{t('Wallet')}</span>
-            <ArrowRight data-icon='inline-end' />
+            {t('Wallet')}
+            <ArrowRight data-icon='inline-end' aria-hidden='true' />
           </Button>
         </div>
+      </div>
+      <div className='overview-usage'>
+        <h3 className='mb-5 text-sm font-semibold'>{t('Usage at a glance')}</h3>
+        <dl className='overview-metrics'>
+          {items.map((item) => (
+            <div className='overview-metric' key={item.key}>
+              <dt className='text-muted-foreground text-xs'>{item.title}</dt>
+              <dd className='overview-metric-value'>
+                {loading ||
+                (item.key === 'todayUsage' && usageTrendQuery.isLoading) ? (
+                  <Skeleton className='h-7 w-28 max-w-full' />
+                ) : (
+                  item.value
+                )}
+              </dd>
+              <dd className='sr-only'>{item.description}</dd>
+            </div>
+          ))}
+        </dl>
+        {usageFailed && (
+          <div
+            role='status'
+            className='text-muted-foreground mt-4 flex flex-wrap items-center gap-2 text-sm'
+          >
+            <span>{t('Failed to load data')}</span>
+            <Button
+              type='button'
+              variant='ghost'
+              className='min-h-11'
+              disabled={usageTrendQuery.isFetching}
+              onClick={() => void usageTrendQuery.refetch()}
+            >
+              {t('Retry')}
+            </Button>
+          </div>
+        )}
       </div>
     </section>
   )

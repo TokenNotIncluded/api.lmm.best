@@ -1,4 +1,5 @@
 {
-  "prompt": "Origin: rasterized with ImageMagick from the original LMM Forge 128-unit filled SVG symbol in .github/assets/logo-geometry.json; white exact symbol path on a black square. No image-generation prompt or external artwork. SVG source .github/assets/lmm-symbol.svg; derived placement only.",
-  "createdAt": "2026-10-02T22:29:50.894Z"
+  "source": ".github/assets/logo-geometry.json#symbol",
+  "method": "Rasterized from the original LMM Forge SVG path; white on black. No generated artwork or remote resources.",
+  "sha256": "6c4cd75b69760fd264b04b354e1c3eff0aecad54077118937fba9229cc31671c"
 }
