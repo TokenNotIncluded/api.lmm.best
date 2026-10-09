@@ -5,6 +5,7 @@ import { STORE_ACCESS_COPY } from './access-copy'
 import type { StoreCatalogueProduct } from './catalogue-types'
 import type { ExtoreAuthorization } from './extore-import-protocol'
 import { storeSocialProductResponse } from './product-social-state'
+import { STORE_PUBLISHING_COPY as publishingCopy } from './publishing-copy'
 import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
 import type {
   StoreCategory,
@@ -50,6 +51,9 @@ type Envelope<T> = {
 function errorMessage(body?: { code?: unknown; message?: unknown }) {
   // Known codes have stable localized copy; arbitrary server messages retain
   // their original meaning instead of being guessed from HTTP status.
+  if (body?.code === 'STORE_SELLER_TERMS_NOT_CONFIGURED') {
+    return publishingCopy.setup
+  }
   if (body?.code === 'STORE_VARIANT_REQUIRED') {
     return 'Choose a variant before ordering.'
   }

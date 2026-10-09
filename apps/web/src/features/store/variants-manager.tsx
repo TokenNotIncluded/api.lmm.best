@@ -39,7 +39,7 @@ export function StoreVariantsManager({
   const [error, setError] = useState<unknown>(null)
   if (!product.variants) return null
   return (
-    <details className='space-y-3 border-t pt-3'>
+    <details open className='bg-muted/25 space-y-3 rounded-2xl p-4'>
       <summary className='focus-visible:outline-ring cursor-pointer text-sm font-semibold'>
         {t('Manage variants')}
       </summary>

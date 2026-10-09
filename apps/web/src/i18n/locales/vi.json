@@ -1,11 +1,5 @@
 {
   "translation": {
-    "Load assistant tools": "Tải công cụ cần dùng",
-    "End this turn": "Kết thúc lượt này",
-    "Assistant tools loaded": "Đã tải công cụ cần dùng",
-    "This turn has ended. You can send another message.": "Lượt này đã kết thúc. Bạn có thể gửi tin nhắn tiếp theo.",
-    "Load only the needed tool definitions for this request; never execute the selected tools.": "Chỉ tải định nghĩa tham số của công cụ cần cho yêu cầu này, không thực thi công cụ đã chọn.",
-    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "Gửi câu trả lời cuối và dừng lượt này, không chặn tin nhắn sau hoặc thay đổi quyền tài khoản.",
     "Adjust settings with WebMCP": "Điều chỉnh cài đặt bằng WebMCP",
     "Changes are saved only with the Save button.": "Thay đổi chỉ được lưu khi nhấn nút Lưu.",
     "Collapse all": "Thu gọn tất cả",
@@ -11727,6 +11721,24 @@
     "Chat for free to upgrade to a full account.": "Trò chuyện miễn phí để nâng cấp thành tài khoản chính thức.",
     "Chat (free)": "Trò chuyện (miễn phí)",
     "Top up to upgrade": "Nạp tiền để nâng cấp",
-    "Paid upgrade details": "Điều kiện nâng cấp bằng nạp tiền"
+    "Paid upgrade details": "Điều kiện nâng cấp bằng nạp tiền",
+    "Load assistant tools": "Tải công cụ cần dùng",
+    "End this turn": "Kết thúc lượt này",
+    "Assistant tools loaded": "Đã tải công cụ cần dùng",
+    "This turn has ended. You can send another message.": "Lượt này đã kết thúc. Bạn có thể gửi tin nhắn tiếp theo.",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "Chỉ tải định nghĩa tham số của công cụ cần cho yêu cầu này, không thực thi công cụ đã chọn.",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "Gửi câu trả lời cuối và dừng lượt này, không chặn tin nhắn sau hoặc thay đổi quyền tài khoản.",
+    "Configure seller terms before publishing or relisting this product.": "Hãy thiết lập điều khoản người bán trước khi đăng hoặc đăng bán lại sản phẩm.",
+    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "Lưu điều khoản giao hàng và hậu mãi tại đây. Người mua sẽ xác nhận riêng khi đặt hàng.",
+    "Continue publishing": "Tiếp tục đăng bán",
+    "Temporarily unlist": "Tạm ngừng niêm yết",
+    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "Ẩn sản phẩm và giữ kết quả duyệt. Các đơn hàng hiện có vẫn truy cập được.",
+    "Withdraw from review": "Rút khỏi xét duyệt",
+    "Withdraw this product from review?": "Rút sản phẩm này khỏi xét duyệt?",
+    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "Xóa kết quả duyệt. Chỉnh sửa và gửi duyệt lại trước khi đăng bán. Các đơn hàng hiện có vẫn truy cập được.",
+    "Specifications and prices": "Biến thể và giá",
+    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "Đặt tên, giá và nội dung giao riêng cho từng biến thể. Tất cả được lưu cùng bản nháp.",
+    "Enter unique variant names and valid prices.": "Nhập tên biến thể không trùng và giá hợp lệ.",
+    "A product can have at most 200 specifications.": "Mỗi sản phẩm có tối đa 200 biến thể."
   }
 }

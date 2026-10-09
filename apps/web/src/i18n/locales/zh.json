@@ -1,11 +1,5 @@
 {
   "translation": {
-    "Load assistant tools": "按需加载助手工具",
-    "End this turn": "结束本轮对话",
-    "Assistant tools loaded": "已加载所需工具",
-    "This turn has ended. You can send another message.": "本轮对话已结束，你可以继续发送消息。",
-    "Load only the needed tool definitions for this request; never execute the selected tools.": "仅为当前请求加载所需工具的参数定义，不执行所选工具。",
-    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "输出最终答复并停止本轮，不限制后续消息，也不改变账号权限。",
     "Adjust settings with WebMCP": "用 WebMCP 调整设置",
     "Changes are saved only with the Save button.": "只有点击“保存”后，更改才会生效。",
     "Collapse all": "收起全部",
@@ -11727,6 +11721,24 @@
     "Chat for free to upgrade to a full account.": "通过免费对话，升级为正式用户。",
     "Chat (free)": "对话（免费）",
     "Top up to upgrade": "充值升级",
-    "Paid upgrade details": "充值升级说明"
+    "Paid upgrade details": "充值升级说明",
+    "Load assistant tools": "按需加载助手工具",
+    "End this turn": "结束本轮对话",
+    "Assistant tools loaded": "已加载所需工具",
+    "This turn has ended. You can send another message.": "本轮对话已结束，你可以继续发送消息。",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "仅为当前请求加载所需工具的参数定义，不执行所选工具。",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "输出最终答复并停止本轮，不限制后续消息，也不改变账号权限。",
+    "Configure seller terms before publishing or relisting this product.": "请先配置卖家条款，再发布或重新上架商品。",
+    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "在这里保存交付和售后条款。买家会在下单时单独确认。",
+    "Continue publishing": "继续上架",
+    "Temporarily unlist": "暂时下架",
+    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "暂时隐藏商品，保留审核结果，可再次上架。已有订单不受影响。",
+    "Withdraw from review": "撤回审核",
+    "Withdraw this product from review?": "撤回此商品的审核？",
+    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "清除审核结果。编辑并重新提交审核后才能上架。已有订单不受影响。",
+    "Specifications and prices": "规格与价格",
+    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "每个规格可设置独立名称、价格和交付内容，所有规格与商品草稿一起保存。",
+    "Enter unique variant names and valid prices.": "请填写不重复的规格名称和有效价格。",
+    "A product can have at most 200 specifications.": "每个商品最多支持 200 个规格。"
   }
 }
