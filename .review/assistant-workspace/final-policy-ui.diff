@@ -1,0 +1,131 @@
+diff --git a/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx b/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx
+index 08633ec79ac038b691d4bafd610fc3cee5ed2613..bbf4437283836a11800d9b9459ffe3f644316e7c 100644
+--- a/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx
++++ b/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx
+@@ -219 +219 @@ test('fetches the authoritative catalog only when the tools panel becomes active
+-    assert.match(rendered.container.textContent ?? '', /Super administrators/)
++    assert.match(rendered.container.textContent ?? '', /L6 \(Super administrator\)/)
+diff --git a/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.tsx b/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.tsx
+index 88b9ddf1b08a6e6967f6d0547d2d05e58a4d1d7a..5adee074e9a9241e0802970284406258e6284e1b 100644
+--- a/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.tsx
++++ b/apps/web/src/features/system-settings/content/assistant-tool-policy-editor.tsx
+@@ -3 +3,2 @@ import { useQuery } from '@tanstack/react-query'
+-import { useState } from 'react'
++import { Settings2 } from 'lucide-react'
++import { useState, type ReactNode } from 'react'
+@@ -10,0 +12,2 @@ import { api } from '@/lib/api'
++import { useAuthStore } from '@/stores/auth-store'
++import { AssistantToolConfiguration } from './assistant-tool-configuration'
+@@ -13,0 +17 @@ import {
++  assistantToolRule,
+@@ -32,3 +36,3 @@ const accessLabels: Record<AssistantToolAccess, string> = {
+-  l1: 'L1 users',
+-  admin: 'Administrators',
+-  root: 'Super administrators',
++  l1: 'Level at least L1',
++  admin: 'L5 (Administrator)',
++  root: 'L6 (Super administrator)',
+@@ -42,0 +47,2 @@ export function AssistantToolPolicyEditor(props: {
++  renderSettings?: (name: string) => ReactNode
++  configurationRequest?: { name: string; id: number }
+@@ -45,0 +52,4 @@ export function AssistantToolPolicyEditor(props: {
++  const [editing, setEditing] = useState<string | null>(null)
++  const [handledRequest, setHandledRequest] = useState<number | null>(null)
++  const userID = useAuthStore((state) => state.auth.user?.id)
++  const sessionID = useAuthStore((state) => state.auth.session?.sid)
+@@ -47 +57 @@ export function AssistantToolPolicyEditor(props: {
+-    queryKey: ['assistant-admin-tool-catalog'],
++    queryKey: ['assistant-admin-tool-catalog', userID, sessionID],
+@@ -64,0 +75,12 @@ export function AssistantToolPolicyEditor(props: {
++  const requested = props.configurationRequest && props.configurationRequest.id !== handledRequest ? props.configurationRequest.name : editing
++  const selectedTool = groups?.flatMap((group) => group.tools).find((tool) => tool.name === requested)
++  const closeConfiguration = () => { setEditing(null); setHandledRequest(props.configurationRequest?.id ?? null) }
++  const accessLabel = (tool: NonNullable<typeof groups>[number]['tools'][number]) => {
++    if (!policy) return t(accessLabels[tool.access])
++    const rule = assistantToolRule(policy, tool)
++    if (rule.min_level === 6) return t('L6 (Super administrator)')
++    if (rule.min_level === 5 && rule.max_level === 6) return t('Level at least L5 (Administrator)')
++    if (rule.max_level === 6) return t('Level at least L{{level}}', { level: rule.min_level })
++    if (rule.min_level === rule.max_level) return `L${rule.min_level}`
++    return t('Levels L{{min}}–L{{max}}', { min: rule.min_level, max: rule.max_level })
++  }
+@@ -77,0 +100 @@ export function AssistantToolPolicyEditor(props: {
++          accessLabel(tool),
+@@ -96 +119,2 @@ export function AssistantToolPolicyEditor(props: {
+-    <div className='space-y-4' data-testid='assistant-tool-policy-editor'>
++    <div className='assistant-tool-center space-y-5' data-testid='assistant-tool-policy-editor'>
++      {props.active && valid && policy && selectedTool && <AssistantToolConfiguration tool={selectedTool} policy={policy} onChange={props.onChange} onClose={closeConfiguration} disabled={props.disabled}>{props.renderSettings?.(selectedTool.name)}</AssistantToolConfiguration>}
+@@ -194 +218 @@ export function AssistantToolPolicyEditor(props: {
+-                  className='min-w-0 rounded-lg border'
++                  className='assistant-tool-group min-w-0 rounded-2xl bg-muted/15'
+@@ -198 +222 @@ export function AssistantToolPolicyEditor(props: {
+-                  <div className='bg-muted/20 flex items-center justify-between gap-4 rounded-t-lg p-3'>
++                  <div className='flex items-center justify-between gap-4 px-4 py-5'>
+@@ -247 +271 @@ export function AssistantToolPolicyEditor(props: {
+-                        className='flex items-start justify-between gap-4 p-3'
++                        className='assistant-tool-row flex items-start justify-between gap-4 p-4'
+@@ -265 +289 @@ export function AssistantToolPolicyEditor(props: {
+-                              {t(accessLabels[tool.access])}
++                              {accessLabel(tool)}
+@@ -282,0 +307,2 @@ export function AssistantToolPolicyEditor(props: {
++                        <div className='assistant-tool-row-actions flex shrink-0 items-center gap-3'>
++                        <Button type='button' variant='ghost' size='sm' disabled={props.disabled || !valid} aria-label={t('Configure {{tool}}', { tool: t(tool.label) })} onClick={() => { setHandledRequest(props.configurationRequest?.id ?? null); setEditing(tool.name) }}><Settings2 className='size-4' /><span>{t('Configure')}</span></Button>
+@@ -311,0 +338 @@ export function AssistantToolPolicyEditor(props: {
++                        </div>
+diff --git a/apps/web/src/features/system-settings/content/assistant-tool-policy.test.ts b/apps/web/src/features/system-settings/content/assistant-tool-policy.test.ts
+index 244fa56e45b0d83d0a013c29e96c9f3e6a51eb3d..4bbf3970e184a365386b876fa4a01f9864ad0e04 100644
+--- a/apps/web/src/features/system-settings/content/assistant-tool-policy.test.ts
++++ b/apps/web/src/features/system-settings/content/assistant-tool-policy.test.ts
+@@ -12,0 +13,5 @@ import {
++  defaultAssistantToolRule,
++  assistantToolRule,
++  updateAssistantToolRule,
++  weeklyDiscountLimit,
++  mergeAssistantToolPolicy,
+@@ -191,0 +197,46 @@ test('requires a successful complete catalog and rejects ambiguous identifiers o
++
++
++test('level defaults express inclusive minimums without granting administrator roles', () => {
++ const group = parseAssistantToolCatalog(catalogPayload)![0]
++ assert.deepEqual(defaultAssistantToolRule(group.tools[0]),{min_level:1,max_level:6})
++ assert.deepEqual(defaultAssistantToolRule({...group.tools[0],access:'admin'}),{min_level:5,max_level:6})
++ assert.deepEqual(defaultAssistantToolRule({...group.tools[0],access:'root'}),{min_level:6,max_level:6})
++ const policy = parseAssistantToolPolicy(DEFAULT_ASSISTANT_TOOL_POLICY)!
++ const configured = parseAssistantToolPolicy(updateAssistantToolRule(policy,'list_my_keys',{min_level:2,max_level:4}))!
++ assert.deepEqual(assistantToolRule(configured,group.tools[0]),{min_level:2,max_level:4})
++ assert.equal(assistantPolicyMatchesCatalog(configured,[group]),true)
++ const tooLow = {...configured,rules:{list_my_keys:{min_level:0,max_level:6}}}
++ assert.equal(assistantPolicyMatchesCatalog(tooLow,[group]),false)
++ assert.deepEqual(parseAssistantToolPolicy(updateAssistantToolRule(configured,'list_my_keys')),policy)
++})
++
++test('discount, market and issue policies reject unsafe values instead of enabling defaults', () => {
++ const make = (name:string,rule:unknown) => JSON.stringify({version:1,rules:{[name]:rule}})
++ const bounds = {min_level:1,max_level:6}
++ assert.equal(weeklyDiscountLimit(bounds,1),10)
++ assert.equal(weeklyDiscountLimit(bounds,5),0)
++ for (const raw of [
++  make('prepare_weekly_discount',{...bounds,discount_percent_by_level:{'1':100}}),
++  make('prepare_weekly_discount',{...bounds,discount_percent_by_level:{'5':1}}),
++  make('calculate_math',{...bounds,discount_percent_by_level:{'1':20}}),
++  make('call_market_tool',{...bounds,market_service_ids:['a','a']}),
++  make('call_market_tool',{...bounds,market_service_ids:null}),
++  make('create_site_issue',{...bounds,default_visibility:'public'}),
++ ]) assert.equal(parseAssistantToolPolicy(raw),null,raw)
++ const raw=make('prepare_weekly_discount',{...bounds,discount_percent_by_level:{'1':25}})
++ assert.equal(weeklyDiscountLimit(parseAssistantToolPolicy(raw)!.rules!.prepare_weekly_discount,1),25)
++})
++
++test('concurrent rule edits intersect access and keep the lower reward cap', () => {
++ const encode=(rules:unknown)=>JSON.stringify({version:1,groups:{},tools:{},rules})
++ const before=encode({prepare_weekly_discount:{min_level:0,max_level:6}})
++ const local=encode({prepare_weekly_discount:{min_level:2,max_level:6,discount_percent_by_level:{'2':25}}})
++ const remote=encode({prepare_weekly_discount:{min_level:0,max_level:4,discount_percent_by_level:{'2':15}}})
++ const merged=parseAssistantToolPolicy(mergeAssistantToolPolicy(before,local,remote))!
++ assert.equal(merged.rules!.prepare_weekly_discount.min_level,2)
++ assert.equal(merged.rules!.prepare_weekly_discount.max_level,4)
++ assert.equal(weeklyDiscountLimit(merged.rules!.prepare_weekly_discount,2),15)
++ const market=(ids:string[])=>encode({call_market_tool:{min_level:1,max_level:6,market_service_ids:ids}})
++ const linked=parseAssistantToolPolicy(mergeAssistantToolPolicy(market(['a']),market(['a','b']),market(['a','c'])))!
++ assert.deepEqual(linked.rules!.call_market_tool.market_service_ids,['a'])
++})
