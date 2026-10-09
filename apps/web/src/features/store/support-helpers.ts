@@ -72,12 +72,10 @@ export function storeSupportAssistantPrompt(
           quantity: context.order.quantity,
         }
       : undefined,
-    messages: context.messages
-      .slice(-10)
-      .map(({ role, text }) => ({
-        role,
-        text: [...text].slice(0, 500).join(''),
-      })),
+    messages: context.messages.slice(-10).map(({ role, text }) => ({
+      role,
+      text: [...text].slice(0, 500).join(''),
+    })),
   }
   const zh = locale.toLowerCase().startsWith('zh')
   const tasks = zh
