@@ -36,6 +36,9 @@ export function buildTestKeyBookmarkFile(
   ].join('\n')
 }
 
-export function testKeyBookmarkDownloadUrl(origin: string, name: string): string {
+export function testKeyBookmarkDownloadUrl(
+  origin: string,
+  name: string
+): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(buildTestKeyBookmarkFile(origin, name))}`
 }

@@ -40,7 +40,9 @@ test('exports one bookmark with the exact popup script, not an ordinary URL', ()
 })
 
 test('imported script requests one isolated popup and does not redirect on null', () => {
-  const script = importedScript(buildTestKeyBookmarkFile('https://api.lmm.best'))
+  const script = importedScript(
+    buildTestKeyBookmarkFile('https://api.lmm.best')
+  )
   const calls: unknown[][] = []
   const result = vm.runInNewContext(script.slice('javascript:'.length), {
     window: {
