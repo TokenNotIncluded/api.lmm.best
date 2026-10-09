@@ -39,3 +39,27 @@ func TestSumUsedQuotaByUserIDSurvivesUsernameChange(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, stat.Quota)
 }
+
+func TestSumUsedQuotaPreservesQuotaOutsideRateWindow(t *testing.T) {
+	previous := LOG_DB
+	db, err := gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	LOG_DB = db
+	t.Cleanup(func() { LOG_DB = previous })
+	require.NoError(t, db.AutoMigrate(&Log{}))
+	now := time.Now()
+	require.NoError(t, db.Create(&Log{
+		CreatedAt: now.Add(-2 * time.Minute).Unix(), UserId: 7, Username: "quota-user", Type: LogTypeConsume,
+		Quota: 400, PromptTokens: 100, CompletionTokens: 20,
+	}).Error)
+	require.NoError(t, db.Create(&Log{
+		CreatedAt: now.Unix(), UserId: 7, Username: "quota-user", Type: LogTypeConsume,
+		Quota: 50, PromptTokens: 4, CompletionTokens: 3,
+	}).Error)
+
+	stat, err := SumUsedQuota(LogTypeUnknown, 0, 0, "", "quota-user", "", 0, "")
+	require.NoError(t, err)
+	require.Equal(t, 450, stat.Quota)
+	require.Equal(t, 1, stat.Rpm)
+	require.Equal(t, 7, stat.Tpm)
+}
