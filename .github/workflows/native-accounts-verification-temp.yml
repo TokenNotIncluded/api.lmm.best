@@ -30,7 +30,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U postgres -d native_accounts_test'
+          --health-cmd "pg_isready -U postgres -d native_accounts_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
@@ -39,7 +39,15 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: 8190dbff59af02e97d329687cc37608a1f698074
+          fetch-depth: 0
           persist-credentials: false
+      - name: Export source for offline code review
+        run: git bundle create "$RUNNER_TEMP/native-accounts-source.bundle" --all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-accounts-source
+          path: ${{ runner.temp }}/native-accounts-source.bundle
+          retention-days: 1
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
@@ -68,6 +76,7 @@ jobs:
         run: go test -race -p 2 ./service -run '^(TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption)' -count=1 -timeout=5m
       - name: Require every executed suite to pass
         if: always()
+        working-directory: ${{ github.workspace }}
         env:
           RULES: ${{ steps.rules.outcome }}
           MODEL: ${{ steps.model.outcome }}
