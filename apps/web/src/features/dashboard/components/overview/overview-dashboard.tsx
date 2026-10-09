@@ -53,12 +53,7 @@ export function OverviewDashboard() {
   return (
     <div className='dashboard-editorial overview-dashboard flex flex-col gap-10'>
       <OverviewGreeting />
-      {!isAdmin && (
-        <>
-          <AccountStatus />
-          <LatestRequestCard />
-        </>
-      )}
+      {!isAdmin && <LatestRequestCard />}
       <SummaryCards />
       <OverviewUsageCharts />
       {isAdmin && <AdminSiteStatisticsPanel />}
@@ -109,6 +104,7 @@ export function OverviewDashboard() {
           )}
         </div>
       )}
+      {!isAdmin && <AccountStatus />}
     </div>
   )
 }
