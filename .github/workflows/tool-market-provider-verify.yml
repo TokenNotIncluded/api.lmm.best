@@ -1,0 +1,26 @@
+name: Tool market provider verification
+on:
+  push:
+    branches: [feat/tool-market-provider-presets]
+    paths: [.github/workflows/tool-market-provider-verify.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export tracked source only
+        run: |
+          mkdir -p "$RUNNER_TEMP/source"
+          git rev-parse HEAD > "$RUNNER_TEMP/source/commit.txt"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/source/source.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tool-market-source
+          path: ${{ runner.temp }}/source
+          retention-days: 1
