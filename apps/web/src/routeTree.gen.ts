@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as authRouteRouteImport } from './routes/(auth)/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
+import { Route as RefundPolicyRouteImport } from './routes/refund-policy'
 import { Route as StoreRouteImport } from './routes/store'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
@@ -131,6 +132,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
   id: '/privacy-policy',
   path: '/privacy-policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RefundPolicyRoute = RefundPolicyRouteImport.update({
+  id: '/refund-policy',
+  path: '/refund-policy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StoreRoute = StoreRouteImport.update({
@@ -690,6 +696,7 @@ const AuthenticatedSystemSettingsSiteSectionRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/refund-policy': typeof RefundPolicyRoute
   '/store': typeof StoreRouteWithChildren
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
@@ -795,6 +802,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/refund-policy': typeof RefundPolicyRoute
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/test-key': typeof TestKeyRoute
@@ -901,6 +909,7 @@ export interface FileRoutesById {
   '/(auth)': typeof authRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/refund-policy': typeof RefundPolicyRoute
   '/store': typeof StoreRouteWithChildren
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
@@ -1008,6 +1017,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/privacy-policy'
+    | '/refund-policy'
     | '/store'
     | '/terms'
     | '/terms-of-service'
@@ -1113,6 +1123,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/privacy-policy'
+    | '/refund-policy'
     | '/terms'
     | '/terms-of-service'
     | '/test-key'
@@ -1218,6 +1229,7 @@ export interface FileRouteTypes {
     | '/(auth)'
     | '/_authenticated'
     | '/privacy-policy'
+    | '/refund-policy'
     | '/store'
     | '/terms'
     | '/terms-of-service'
@@ -1326,6 +1338,7 @@ export interface RootRouteChildren {
   authRouteRoute: typeof authRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
+  RefundPolicyRoute: typeof RefundPolicyRoute
   StoreRoute: typeof StoreRouteWithChildren
   TermsRoute: typeof TermsRoute
   TermsOfServiceRoute: typeof TermsOfServiceRoute
@@ -1383,6 +1396,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy-policy'
       fullPath: '/privacy-policy'
       preLoaderRoute: typeof PrivacyPolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/refund-policy': {
+      id: '/refund-policy'
+      path: '/refund-policy'
+      fullPath: '/refund-policy'
+      preLoaderRoute: typeof RefundPolicyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/store': {
@@ -2307,6 +2327,7 @@ const rootRouteChildren: RootRouteChildren = {
   authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
+  RefundPolicyRoute: RefundPolicyRoute,
   StoreRoute: StoreRouteWithChildren,
   TermsRoute: TermsRoute,
   TermsOfServiceRoute: TermsOfServiceRoute,

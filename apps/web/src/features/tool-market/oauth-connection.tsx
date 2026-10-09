@@ -3,27 +3,8 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 
-import { marketEndpoint } from './connection-utils'
+import { marketOAuthCommand } from './oauth-command'
 import { useMarketTranslation as useTranslation } from './provider-i18n'
-
-export function marketOAuthCommand(endpoint: string): string {
-  const url = new URL(endpoint)
-  const modes = url.searchParams.getAll('mode')
-  if (
-    !/^https?:\/\/[a-zA-Z0-9.:[\]-]+\/[a-zA-Z0-9/_-]+(?:\?mode=(?:compact|full))?$/.test(
-      endpoint
-    ) ||
-    `${url.origin}${url.pathname}` !==
-      marketEndpoint(url.origin, url.pathname) ||
-    (url.search !== '' &&
-      (modes.length !== 1 || !['compact', 'full'].includes(modes[0])))
-  )
-    throw new Error('Invalid MCP endpoint')
-  // Quote query punctuation and IPv6 brackets rather than exposing shell globs.
-  const target =
-    url.search || endpoint.includes('[') ? `'${endpoint}'` : endpoint
-  return `codex mcp add lmm --url ${target}\n# Complete browser authorization. If needed, run:\ncodex mcp login lmm`
-}
 
 export function MarketOAuthConnection({ endpoint }: { endpoint: string }) {
   const { t } = useTranslation()

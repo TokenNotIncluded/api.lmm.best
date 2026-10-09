@@ -2,12 +2,6 @@ name: Sitewide UI review
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'apps/web/**'
-      - 'package.json'
-      - 'bun.lock'
-      - '.github/workflows/sitewide-ui-review.yml'
 
 permissions:
   contents: read

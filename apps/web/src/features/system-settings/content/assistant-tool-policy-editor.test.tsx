@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { after, test } from 'node:test'
 
 import { Window } from 'happy-dom'
@@ -228,7 +229,7 @@ test('fetches the authoritative catalog only when the tools panel becomes active
   }
 })
 
-test('legacy catalogs keep known switches usable while configuration cannot add unsupported rules', async () => {
+test('legacy catalogs open configuration without adding unsupported rules', async () => {
   const rendered = await renderEditor({
     get: () => ({ success: true, data: { groups: catalog.data.groups } }),
   })
@@ -237,21 +238,22 @@ test('legacy catalogs keep known switches usable while configuration cannot add 
       '[aria-label="Configure List API keys"]'
     )
     assert.ok(configure)
-    assert.equal(configure.disabled, true)
+    assert.equal(configure.disabled, false)
     await click(configure)
-    assert.equal(
-      rendered.container.querySelector(
-        '[data-testid="assistant-tool-configuration"]'
-      ),
-      null
+    const dialog = document.querySelector(
+      '[data-testid="assistant-tool-configuration"]'
     )
-    assert.deepEqual(rendered.changes, [])
-    await click(
-      rendered.container.querySelector(
-        '[data-tool-name="list_my_api_keys"] [role="switch"]'
-      )
+    assert.ok(dialog)
+    assert.match(
+      dialog.textContent ?? '',
+      /does not support tool-level rules yet/
     )
-    const changed = JSON.parse(rendered.changes.at(-1)!)
+    const fieldset = dialog.querySelector('fieldset')
+    assert.equal(fieldset?.disabled, true)
+    const baseSwitch = dialog.querySelector('[role="switch"]')
+    assert.ok(baseSwitch)
+    await click(baseSwitch)
+    const changed = JSON.parse(rendered.changes.at(-1) ?? '{}')
     assert.equal(changed.tools.list_my_api_keys, false)
     assert.equal(Object.hasOwn(changed, 'rules'), false)
   } finally {
@@ -574,3 +576,57 @@ test('weekly discount dialog edits member ceilings but never grants administrato
     await rendered.cleanup()
   }
 })
+
+// Read the authoritative Go catalogue so new tools cannot silently miss this test.
+const toolSource = readFileSync(
+  new URL(
+    '../../../../../api-go/setting/assistant_tool_policy.go',
+    import.meta.url
+  ),
+  'utf8'
+)
+const registeredTools = [
+  ...toolSource.matchAll(
+    /^\s*\{("[^"\n]+"), ("[^"\n]+"), ("[^"\n]+"), ("(?:read_only|navigation|confirmation|server_guarded)"), ("[^"\n]+")\},$/gm
+  ),
+].map((match) => {
+  const [name, label, description, effect, access] = match
+    .slice(1)
+    .map((value) => JSON.parse(value) as string)
+  return { name, label, description, effect, access }
+})
+assert.equal(registeredTools.length, 72)
+for (const tool of registeredTools) {
+  test(`configuration opens and saves a switch for ${tool.name}`, async () => {
+    for (const supported of [true, false]) {
+      const rendered = await renderEditor({
+        get: () => ({
+          success: true,
+          data: {
+            capabilities: { policy_rules: supported },
+            groups: [{ id: 'audit', label: 'Audit', tools: [tool] }],
+          },
+        }),
+      })
+      try {
+        const button = rendered.container.querySelector<HTMLButtonElement>(
+          `[data-tool-name="${tool.name}"] button[aria-label^="Configure "]`
+        )
+        assert.ok(button)
+        assert.equal(button.disabled, false)
+        await click(button)
+        const dialog = document.querySelector(
+          '[data-testid="assistant-tool-configuration"]'
+        )
+        assert.ok(dialog)
+        assert.equal(dialog.querySelector('fieldset')?.disabled, !supported)
+        await click(dialog.querySelector('[role="switch"]'))
+        const saved = JSON.parse(rendered.changes.at(-1) ?? '{}')
+        assert.equal(saved.tools[tool.name], false)
+        assert.equal(Object.hasOwn(saved, 'rules'), false)
+      } finally {
+        await rendered.cleanup()
+      }
+    }
+  })
+}

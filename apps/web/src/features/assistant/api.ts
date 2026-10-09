@@ -43,6 +43,10 @@ import { redactAssistantMessageForRequest } from './assistant-message-safety'
 import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
 import type { AssistantSupportRequest } from './assistant-support-api'
 import {
+  parseAssistantToolErrorCode,
+  type AssistantToolErrorCode,
+} from './assistant-tool-errors'
+import {
   parseAssistantVisualization,
   type AssistantVisualization,
 } from './assistant-visualization-data'
@@ -480,7 +484,7 @@ export type AssistantToolTrace = {
   status: 'output-available' | 'output-error' | 'approval-requested'
   input?: Record<string, string | number | boolean>
   result?: number
-  errorCode?: 'missing_math_expression' | 'invalid_math_expression'
+  errorCode?: AssistantToolErrorCode
 }
 
 export type AssistantAction =
@@ -1157,10 +1161,8 @@ export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
           ? trace.result
           : undefined
       const errorCode =
-        name === 'calculate_math' &&
-        (trace.error_code === 'missing_math_expression' ||
-          trace.error_code === 'invalid_math_expression')
-          ? trace.error_code
+        trace.status === 'output-error'
+          ? parseAssistantToolErrorCode(trace.error_code)
           : undefined
       return {
         name,

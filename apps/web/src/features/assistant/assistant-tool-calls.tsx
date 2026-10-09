@@ -30,6 +30,7 @@ import {
 
 import type { AssistantToolTrace } from './api.js'
 import { AssistantSupportReview } from './assistant-support-review'
+import { assistantToolErrorMessages } from './assistant-tool-errors'
 import {
   assistantToolTraceKey,
   assistantToolOutcome,
@@ -43,6 +44,10 @@ const AssistantVisualizationCard = lazy(() =>
 )
 
 const TOOL_TITLE_KEYS = {
+  get_admin_server_config: 'Read server settings',
+  get_site_policy: 'Read site policy',
+  search_site_policies: 'Search site policies',
+  prepare_admin_site_policy_change: 'Prepare site policy changes',
   discover_tools: 'Load assistant tools',
   end_conversation: 'End this turn',
   get_overview_greeting: 'Read overview greeting',
@@ -122,10 +127,7 @@ function toolErrorText(
   errorCode: AssistantToolTrace['errorCode'],
   t: ReturnType<typeof useTranslation>['t']
 ) {
-  if (errorCode === 'missing_math_expression') {
-    return t('A math expression is required.')
-  }
-  return t('The math expression could not be evaluated.')
+  return t(assistantToolErrorMessages[errorCode ?? 'tool_failed'])
 }
 
 function toolLabel(

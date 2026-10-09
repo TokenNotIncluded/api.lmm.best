@@ -410,8 +410,12 @@ export function ServiceEditor({
           })),
       }
       if (!input.tools.length) throw new Error('Select a tool')
-      if (input.tools.some((tool) => tool.provider_pricing) && !validMultiplier)
+      if (
+        input.tools.some((tool) => tool.provider_pricing) &&
+        !validMultiplier
+      ) {
         throw new Error('Invalid multiplier')
+      }
       const fingerprint = JSON.stringify(input)
       const service =
         savedDraft.current?.fingerprint === fingerprint

@@ -22,8 +22,10 @@ import (
 const (
 	assistantAdminOperationsContextKey   = "assistant_admin_operations"
 	assistantAdminOperationBodyLimit     = 16 << 10
-	assistantAdminOperationResponseLimit = 128 << 10
+	assistantAdminOperationResponseLimit = 32 << 10
 )
+
+var errAssistantAdminDispatchUnavailable = errors.New("administrator operation dispatch is unavailable")
 
 type assistantAdminOperation struct {
 	ID       string `json:"operation_id"`
@@ -63,6 +65,19 @@ func (r *AssistantAdminOperationRegistry) Register(method, path, handler string,
 	r.mu.Lock()
 	r.operations[op.ID] = op
 	r.mu.Unlock()
+}
+
+// AssistantChatMiddleware shares this engine's live catalog with the sibling
+// relay chat without capturing credentials for unrelated model relay requests.
+func (r *AssistantAdminOperationRegistry) AssistantChatMiddleware() gin.HandlerFunc {
+	capture := r.Middleware()
+	return func(c *gin.Context) {
+		if c.Request.Method == http.MethodPost && c.FullPath() == "/api/assistant/chat" {
+			capture(c)
+			return
+		}
+		c.Next()
+	}
 }
 
 func (r *AssistantAdminOperationRegistry) Middleware() gin.HandlerFunc {
@@ -106,7 +121,7 @@ func assistantAdminOperationContext(c *gin.Context, userID int) (*assistantAdmin
 	value, exists := c.Get(assistantAdminOperationsContextKey)
 	state, valid := value.(*assistantAdminOperationRequest)
 	if !exists || !valid || state.registry == nil || state.registry.engine == nil {
-		return nil, 0, errors.New("administrator operation dispatch is unavailable")
+		return nil, 0, errAssistantAdminDispatchUnavailable
 	}
 	return state, user.Role, nil
 }
@@ -114,6 +129,9 @@ func assistantAdminOperationContext(c *gin.Context, userID int) (*assistantAdmin
 func executeAssistantAdminOperationsTool(c *gin.Context, userID int, input map[string]any) map[string]any {
 	state, role, err := assistantAdminOperationContext(c, userID)
 	if err != nil {
+		if errors.Is(err, errAssistantAdminDispatchUnavailable) {
+			return assistantAdminOperationError("operation_dispatch_unavailable", err.Error())
+		}
 		return assistantAdminOperationError("forbidden", err.Error())
 	}
 	query := strings.ToLower(strings.TrimSpace(inputString(input, "query")))
@@ -202,6 +220,9 @@ func assistantAdminOperationReadOnly(c *gin.Context, arguments string) bool {
 func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[string]any) map[string]any {
 	state, role, err := assistantAdminOperationContext(c, userID)
 	if err != nil {
+		if errors.Is(err, errAssistantAdminDispatchUnavailable) {
+			return assistantAdminOperationError("operation_dispatch_unavailable", err.Error())
+		}
 		return assistantAdminOperationError("forbidden", err.Error())
 	}
 	for key := range input {

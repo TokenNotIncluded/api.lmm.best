@@ -73,6 +73,8 @@ const SITE_SECTIONS = [
             privacy_policy: settings['legal.privacy_policy'],
             user_agreement_en: settings['legal.user_agreement_en'],
             privacy_policy_en: settings['legal.privacy_policy_en'],
+            refund_policy: settings['legal.refund_policy'],
+            refund_policy_en: settings['legal.refund_policy_en'],
           },
         }}
       />

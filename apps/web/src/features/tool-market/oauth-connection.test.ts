@@ -1,7 +1,8 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { marketOAuthCommand } from './oauth-connection'
+import { marketOAuthCommand } from './oauth-command'
 
 test('market OAuth offers browser authorization without a pasted key', () => {
   const command = marketOAuthCommand('https://api.lmm.best/mcp/market')
@@ -42,6 +43,7 @@ test('compact OAuth connection quotes the URL without changing the resource path
     'https://api.lmm.best/mcp/market?mode=compact;echo',
     'https://api.lmm.best/mcp/market?mode=compact#fragment',
     'https://api.lmm.best/mcp/market?mode=compact\nwhoami',
-  ])
+  ]) {
     assert.throws(() => marketOAuthCommand(endpoint))
+  }
 })

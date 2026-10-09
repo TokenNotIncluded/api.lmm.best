@@ -65,6 +65,8 @@ func requireAssistantToolEnabled(c *gin.Context, name string) bool {
 
 func assistantAdminChangeTool(kind string) string {
 	switch kind {
+	case assistantAdminSitePolicyChangeKind:
+		return "prepare_admin_site_policy_change"
 	case assistantAdminConfigChangeKind:
 		return "prepare_admin_config_change"
 	case assistantAdminPricingChangeKind:

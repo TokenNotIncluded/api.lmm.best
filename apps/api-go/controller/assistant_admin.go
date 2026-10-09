@@ -1218,29 +1218,12 @@ func createAssistantAdminFlow(c *gin.Context, userID int, payload assistantAdmin
 	return token, nil
 }
 
-func executeAssistantAdminConfigTool(c *gin.Context, userID int) map[string]any {
+func executeAssistantAdminConfigTool(c *gin.Context, userID int, input map[string]any) map[string]any {
 	user, err := assistantRootUser(userID)
 	if err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}
+		return map[string]any{"ok": false, "status": "forbidden", "error": err.Error()}
 	}
-	keys := sortedAssistantAdminConfigKeys()
-	current := assistantAdminCurrentOptions(keys)
-	labels := assistantAdminAvailableConfigLabels()
-	settings := make([]map[string]string, 0, len(keys))
-	for _, key := range keys {
-		settings = append(settings, map[string]string{
-			"key":           key,
-			"label":         labels[key],
-			"current_value": current[key],
-		})
-	}
-	return map[string]any{
-		"ok":                         true,
-		"administrator_role":         user.Role,
-		"configurable_settings":      settings,
-		"sensitive_settings_omitted": true,
-		"write_rule":                 "Use prepare_admin_config_change, then wait for explicit UI confirmation.",
-	}
+	return assistantAdminConfigPage(user.Role, input)
 }
 
 func executeAssistantAdminConfigChangeTool(c *gin.Context, userID int, input map[string]any) map[string]any {
@@ -2183,6 +2166,17 @@ func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePaylo
 	}
 	result := map[string]any{"ok": true, "kind": payload.Kind, "applied": true, "status": "applied"}
 	switch payload.Kind {
+	case assistantAdminSitePolicyChangeKind:
+		if err := validateAssistantAdminConfigChanges(payload.ConfigChanges); err != nil {
+			return nil, err
+		}
+		update, err := model.UpdateSitePolicyWithExpectation(payload.ConfigChanges, payload.ConfigExpected)
+		if err != nil {
+			return nil, err
+		}
+		result = assistantAdminOptionResult(payload.Kind, update, true)
+		result["updated_keys"] = sortedAssistantAdminChangeKeys(payload.ConfigChanges)
+		return result, nil
 	case assistantAdminConfigChangeKind:
 		if len(payload.ConfigChanges) == 0 {
 			return nil, errors.New("administrator configuration change is empty")
@@ -2320,7 +2314,7 @@ func ApplyAssistantAdminChange(c *gin.Context) {
 		writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_ADMIN_CHANGE_INVALID", errors.New("administrator preview could not be decoded"))
 		return
 	}
-	if payload.Kind == assistantAdminConfigChangeKind || payload.Kind == assistantAdminPricingChangeKind || payload.Kind == assistantAdminModelSyncChangeKind {
+	if payload.Kind == assistantAdminSitePolicyChangeKind || payload.Kind == assistantAdminConfigChangeKind || payload.Kind == assistantAdminPricingChangeKind || payload.Kind == assistantAdminModelSyncChangeKind {
 		if _, err := assistantRootUser(user.Id); err != nil {
 			writeAssistantError(c, http.StatusForbidden, "ASSISTANT_ROOT_REQUIRED", err)
 			return

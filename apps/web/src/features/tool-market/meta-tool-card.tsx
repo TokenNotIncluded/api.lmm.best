@@ -16,8 +16,9 @@ export function MarketMetaToolCard({
 }) {
   const { t } = useTranslation()
   const tool = config?.meta_tool
-  if (!marketSupports(config, 'metamcp') || tool?.name !== 'metamcp')
+  if (!marketSupports(config, 'metamcp') || tool?.name !== 'metamcp') {
     return null
+  }
   return (
     <section
       aria-labelledby='market-meta-title'

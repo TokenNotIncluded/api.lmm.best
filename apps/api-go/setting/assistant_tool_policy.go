@@ -140,6 +140,11 @@ var assistantToolCatalogue = []AssistantToolGroup{
 		{"show_choices", "Choice buttons", "Offer choices that fill the composer without submitting actions.", "read_only", "user"},
 		{"show_flowchart", "Flow diagram", "Display a process using labelled steps and connections.", "read_only", "user"},
 	}},
+	{"site_policies", "Site policies", []AssistantToolInfo{
+		{"get_site_policy", "Read site policy", "Read the published user agreement, privacy policy or refund policy with language, revision and page cursors.", "read_only", "user"},
+		{"search_site_policies", "Search site policies", "Search the site's configured policy text without fetching external URLs.", "read_only", "user"},
+		{"prepare_admin_site_policy_change", "Prepare site policy changes", "Prepare an exact policy edit; root authority, a fresh revision and explicit browser confirmation are required.", "confirmation", "root"},
+	}},
 }
 
 var assistantToolGroupsByName = func() map[string]string {

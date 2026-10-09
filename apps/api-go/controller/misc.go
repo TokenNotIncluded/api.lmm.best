@@ -346,23 +346,9 @@ func GetAbout(c *gin.Context) {
 	return
 }
 
-func GetUserAgreement(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    system_setting.UserAgreementForLanguage(strings.EqualFold(c.Query("lang"), "en")),
-	})
-	return
-}
+func GetUserAgreement(c *gin.Context) { getSitePolicyDocument(c, "user_agreement") }
 
-func GetPrivacyPolicy(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    system_setting.PrivacyPolicyForLanguage(strings.EqualFold(c.Query("lang"), "en")),
-	})
-	return
-}
+func GetPrivacyPolicy(c *gin.Context) { getSitePolicyDocument(c, "privacy_policy") }
 
 func GetMidjourney(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()

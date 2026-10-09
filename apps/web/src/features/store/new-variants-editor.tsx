@@ -1,5 +1,5 @@
-import { Plus, Trash2 } from 'lucide-react'
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import { Plus, Trash2 } from 'lucide-react'
 import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 
