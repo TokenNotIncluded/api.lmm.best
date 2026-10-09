@@ -27,7 +27,7 @@ jobs:
       - name: Prepare isolated route fixtures
         run: |
           python3 review/.review/assistant-workspace/prepare-browser.py source
-          sed -i "s/,'--strict-port'//" source/apps/web/scripts/assistant-workspace-browser-review.mjs
+          sed -i "s/,'--strict-port'//;s#/desktop?#/dashboard/overview?#g" source/apps/web/scripts/assistant-workspace-browser-review.mjs
       - name: Install development dependencies
         working-directory: source
         run: bun install --frozen-lockfile
