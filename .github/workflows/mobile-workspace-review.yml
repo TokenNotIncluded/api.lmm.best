@@ -22,16 +22,16 @@ jobs:
         with:
           ref: codex/mobile-immersive-settings
           fetch-depth: 0
-      - name: Verify and apply the screenshot review patch
+      - name: Verify and apply the final reader patch
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git diff --exit-code ca92611a35e1b2f607a03ba3f12ef9157418ff3e HEAD -- apps/web
+          git diff --exit-code eef31587538775343db907ac23787da900e800d8 HEAD -- apps/web
           python3 - <<'PY'
           import base64, hashlib, lzma, os
           from pathlib import Path
-          patch = lzma.decompress(base64.b64decode(Path('.review/mobile.fixes').read_text(), validate=True))
-          assert hashlib.sha256(patch).hexdigest() == 'a5ebb04a87b00e28a230a6c6a9d6fb86b4b51f76f011354a1ad1a0c98ab7d751'
+          patch = lzma.decompress(base64.b64decode(Path('.review/reader.fixes').read_text(), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'd387f5ec1ae03e95b3fe2741686c8d261e676c7a0cca15e08830d06f8410dbfa'
           Path(os.environ['RUNNER_TEMP'], 'mobile.patch').write_bytes(patch)
           PY
           git apply --check "$RUNNER_TEMP/mobile.patch"
@@ -45,11 +45,15 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(web): clear mobile overlays and fold console service details'
+          git commit -m 'fix(web): apply document spacing once and verify chapter density'
           git push origin HEAD:refs/heads/codex/mobile-immersive-settings
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-  quality:
+  review:
     needs: apply
+    strategy:
+      fail-fast: false
+      matrix:
+        area: [quality, public, console]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -61,58 +65,37 @@ jobs:
         with:
           bun-version: '1.3.14'
       - run: bun install --frozen-lockfile
-      - name: Independent quality checks
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/mobile-quality"
-          git rev-parse HEAD > "$RUNNER_TEMP/mobile-quality/revision.txt"
-          failed=0
-          for check in copyright:check lint typecheck test format:check; do
-            if bun run --filter @lmm/web "$check" > "$RUNNER_TEMP/mobile-quality/${check//:/-}.log" 2>&1; then
-              printf '%s: PASS\n' "$check" | tee -a "$RUNNER_TEMP/mobile-quality/quality.txt"
-            else
-              failed=1
-              printf '%s: FAIL\n' "$check" | tee -a "$RUNNER_TEMP/mobile-quality/quality.txt"
-              tail -n 30 "$RUNNER_TEMP/mobile-quality/${check//:/-}.log"
-            fi
-          done
-          exit "$failed"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: mobile-quality-review
-          path: ${{ runner.temp }}/mobile-quality
-          retention-days: 7
-  browser:
-    needs: apply
-    strategy:
-      fail-fast: false
-      matrix:
-        area: [public, console]
-    runs-on: ubuntu-latest
-    timeout-minutes: 18
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          ref: ${{ needs.apply.outputs.revision }}
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: '1.3.14'
-      - run: bun install --frozen-lockfile
-      - name: Prepare isolated browser tooling
-        shell: bash
+      - name: Prepare review evidence
         run: |
           mkdir -p "$RUNNER_TEMP/mobile-review"
           git rev-parse HEAD > "$RUNNER_TEMP/mobile-review/revision.txt"
+      - name: Independent quality checks
+        if: matrix.area == 'quality'
+        shell: bash
+        run: |
+          failed=0
+          for check in copyright:check lint typecheck test format:check; do
+            if bun run --filter @lmm/web "$check" > "$RUNNER_TEMP/mobile-review/${check//:/-}.log" 2>&1; then
+              printf '%s: PASS\n' "$check" | tee -a "$RUNNER_TEMP/mobile-review/quality.txt"
+            else
+              failed=1
+              printf '%s: FAIL\n' "$check" | tee -a "$RUNNER_TEMP/mobile-review/quality.txt"
+              tail -n 30 "$RUNNER_TEMP/mobile-review/${check//:/-}.log"
+            fi
+          done
+          exit "$failed"
+      - name: Prepare isolated browser tooling
+        if: matrix.area != 'quality'
+        run: |
           npm install --prefix "$RUNNER_TEMP/mobile-browser" --no-package-lock --ignore-scripts playwright@1.56.1
           node "$RUNNER_TEMP/mobile-browser/node_modules/playwright/cli.js" install --with-deps chromium
-      - name: Build the production public app
+      - name: Build production public app and check bundle budget
         if: matrix.area == 'public'
         run: |
           bun run --filter @lmm/web build > "$RUNNER_TEMP/mobile-review/build.log" 2>&1
           bun run --filter @lmm/web bundle:check >> "$RUNNER_TEMP/mobile-review/build.log" 2>&1
       - name: Run responsive and touch assertions
+        if: matrix.area != 'quality'
         shell: bash
         working-directory: apps/web
         env:
