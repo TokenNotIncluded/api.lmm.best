@@ -6,7 +6,7 @@ tools=$(mktemp -d)
 trap 'rm -rf -- "$tools"' EXIT
 export GOBIN="$tools" GOWORK=off
 command -v protoc >/dev/null
-(cd "$tools" && go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10)
+(cd "$tools" && go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11)
 (cd "$tools" && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1)
 export PATH="$tools:$PATH"
 output="$root/apps/extensions-go"
