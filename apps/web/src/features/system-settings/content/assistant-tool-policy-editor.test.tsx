@@ -450,6 +450,8 @@ test('configures a disabled tool group without enabling it or saving early', asy
     assert.match(dialog.textContent ?? '', /Changes stay in this draft/)
     const controls = dialog.querySelectorAll('[role="combobox"]')
     assert.equal(controls.length, 2)
+    assert.equal(controls[0].textContent, 'L1')
+    assert.equal(controls[1].textContent, 'L6 (Super administrator)')
     await click(controls[0])
     const options = Array.from(document.querySelectorAll('[role="option"]'))
     assert.equal(

@@ -12,6 +12,7 @@ import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { toIntlLocale } from '@/i18n/languages'
 
 import {
   chartDomain,
@@ -127,7 +128,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
   const uid = useId().replaceAll(':', '')
   const labels = visual.labels ?? [],
     series = visual.series ?? []
-  const number = new Intl.NumberFormat(i18n.language, {
+  const number = new Intl.NumberFormat(toIntlLocale(i18n.language), {
     maximumSignificantDigits: 6,
   })
   const [min, max] = chartDomain(series)
@@ -283,7 +284,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
                     textAnchor='end'
                     className='assistant-visual-axis'
                   >
-                    {new Intl.NumberFormat(i18n.language, {
+                    {new Intl.NumberFormat(toIntlLocale(i18n.language), {
                       notation: 'compact',
                       maximumFractionDigits: 1,
                     }).format(value)}

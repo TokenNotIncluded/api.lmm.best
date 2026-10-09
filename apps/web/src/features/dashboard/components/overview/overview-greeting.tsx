@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
@@ -102,7 +103,7 @@ function OverviewGreetingSession({ user }: { user: AuthUser }) {
       typeof user.quota === 'number' ? wallet.formatQuota(user.quota) : '—',
   })
   const defaultTemplate = (locale: string) =>
-    t('HI,$name, it is $time', { lng: locale })
+    t('HI,$name, it is $time', { lng: normalizeInterfaceLanguage(locale) })
   const template =
     preference.data?.templates[language] || defaultTemplate(language)
   const greeting = expandOverviewGreeting(template, valuesFor(language))

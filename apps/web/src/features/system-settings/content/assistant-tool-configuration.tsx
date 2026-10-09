@@ -126,7 +126,7 @@ export function AssistantToolConfiguration({
                       className='w-full'
                       disabled={disabled}
                     >
-                      <SelectValue />
+                      <SelectValue>{levelName(rule[key])}</SelectValue>
                     </SelectTrigger>
                     <SelectContent alignItemWithTrigger={false}>
                       {levels.map((level) => (
@@ -216,7 +216,13 @@ export function AssistantToolConfiguration({
                   className='w-full'
                   disabled={disabled}
                 >
-                  <SelectValue />
+                  <SelectValue>
+                    {t(
+                      rule.default_visibility === 'admin'
+                        ? 'Administrators only'
+                        : 'Reporter and administrators'
+                    )}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent alignItemWithTrigger={false}>
                   <SelectItem value='user'>

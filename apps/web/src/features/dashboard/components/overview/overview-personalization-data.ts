@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import type { QuotaDataItem } from '@/features/dashboard/types'
+import { normalizeInterfaceLanguage, toIntlLocale } from '@/i18n/languages'
 
 export const GREETING_LANGUAGES = [
   'en',
@@ -28,12 +29,12 @@ export type OverviewGreetingPreference = {
 }
 
 export function overviewLanguage(language: string): GreetingLanguage {
-  const normalized = language.replaceAll('_', '-').toLowerCase()
-  if (/^zh-(tw|hk|mo|hant)(-|$)/.test(normalized)) return 'zh-TW'
-  const base = normalized.split('-')[0]
-  return GREETING_LANGUAGES.includes(base as GreetingLanguage)
-    ? (base as GreetingLanguage)
-    : 'en'
+  const normalized = normalizeInterfaceLanguage(language)
+  return normalized === 'zhCN'
+    ? 'zh'
+    : normalized === 'zhTW'
+      ? 'zh-TW'
+      : normalized
 }
 export function validGreetingTemplate(template: string): boolean {
   return (
@@ -119,7 +120,7 @@ export function buildOverviewUsage(
   const days = new Map<string, { label: string; value: number }>()
   const cursor = new Date(start * 1000)
   cursor.setHours(0, 0, 0, 0)
-  const formatter = new Intl.DateTimeFormat(locale, {
+  const formatter = new Intl.DateTimeFormat(toIntlLocale(locale), {
     month: 'short',
     day: 'numeric',
   })
