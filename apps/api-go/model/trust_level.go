@@ -466,7 +466,7 @@ func getFreshPaidTopUpAggregatesDB(db *gorm.DB, ctx context.Context, userIDs []i
 	}
 	// Fixed integer multipliers keep provider fallback and SUM in credit units.
 	creditedQuotaArgs[len(creditedQuotaArgs)-1] = int64(500000)
-	netExpression, netArgs, err := trustPaidCreditSQL(DB.WithContext(ctx))
+	netExpression, netArgs, err := trustPaidCreditSQL(db.WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -709,6 +709,9 @@ func getFreshUserAccessSnapshotDB(db *gorm.DB, user *User) (UserAccessSnapshot, 
 		return UserAccessSnapshot{}, err
 	}
 	aggregate := aggregates[user.Id]
+	if aggregate.ProjectionUnavailable {
+		return UserAccessSnapshot{}, ErrPaidCreditProjectionUnavailable
+	}
 	// One policy snapshot for the whole response keeps the trust level, the
 	// access decision, and the onboarding stage from disagreeing if an
 	// administrator edits the threshold mid-request.
