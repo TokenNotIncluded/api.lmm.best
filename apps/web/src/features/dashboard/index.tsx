@@ -369,7 +369,8 @@ export function Dashboard() {
                         chartPreferences.consumptionDistributionChart
                       }
                       timeGranularity={
-                        modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
+                        modelFilters.time_granularity ||
+                        DEFAULT_TIME_GRANULARITY
                       }
                     />
                   )}
@@ -383,7 +384,8 @@ export function Dashboard() {
                       loading={dataLoading}
                       defaultChartTab={chartPreferences.modelAnalyticsChart}
                       timeGranularity={
-                        modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
+                        modelFilters.time_granularity ||
+                        DEFAULT_TIME_GRANULARITY
                       }
                     />
                   )}
