@@ -1,0 +1,73 @@
+name: Isolated L0 browser review
+on:
+  push:
+    branches: [review/l0-welcome-visual]
+permissions:
+  contents: read
+jobs:
+  browser-review:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/review/l0-welcome-visual'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Install isolated browser tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/l0-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/l0-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Supply exact credits to the existing synthetic L0 fixture
+        run: |
+          mkdir -p "$RUNNER_TEMP/l0-visual"
+          git rev-parse HEAD > "$RUNNER_TEMP/l0-visual/revision.txt"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('apps/web/src/features/debug/persona-runtime.ts')
+          s = p.read_text()
+          old = '    paid_amount: level === 0 ? 0 : 50,'
+          assert s.count(old) == 1
+          s = s.replace(old, old + "\n    paid_credits: level === 0 ? '0' : '25000000',")
+          old = '      paid_activation_min_amount: 1,'
+          assert old in s
+          s = s.replace(old, old + "\n      paid_activation_min_credits: '500000',")
+          p.write_text(s)
+          PY
+          git diff > "$RUNNER_TEMP/l0-visual/synthetic-fixture.patch"
+      - name: Review actual route in eight viewport-theme combinations
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/l0-browser/node_modules/playwright/index.mjs
+          L0_REVIEW_OUTPUT: ${{ runner.temp }}/l0-visual
+        run: |
+          cd apps/web
+          LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$L0_REVIEW_OUTPUT/dev.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          node ../../scripts/l0-visual-review.mjs 2>&1 | tee "$L0_REVIEW_OUTPUT/browser.log"
+      - name: Verify source formatting and translation coverage
+        if: success() || failure()
+        run: |
+          git restore apps/web/src/features/debug/persona-runtime.ts
+          bun run --filter @lmm/web format:check
+          node scripts/check-i18n.mjs --base 4399bb60f22b7f18cc4a95c9c6cb6b4cb3c40873
+      - name: Upload screenshots and assertions
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l0-visual-review
+          path: ${{ runner.temp }}/l0-visual
+          retention-days: 7
+          if-no-files-found: error
