@@ -155,3 +155,49 @@ test('does not reinterpret unknown price and retains long source descriptions', 
   assert.equal(draft.fields.price_quota, undefined)
   assert.equal(draft.fields.description?.length, 20000)
 })
+
+test('optional upstream fields do not invalidate the entire catalog or invent price and visibility', () => {
+  const input = fixture()
+  Reflect.deleteProperty(input.products[0].product, 'description')
+  Reflect.deleteProperty(input.products[0].product, 'public')
+  Reflect.deleteProperty(input.products[0].product, 'name')
+  Reflect.deleteProperty(input.products[0].variants[0], 'name')
+  Reflect.deleteProperty(input.products[0].variants[0], 'currency')
+  const catalog = parseExtoreCatalog(input)
+  const product = catalog.products[0]
+  const draft = extoreProductDraft(catalog, product, product.variants[0], 'en')
+  assert.equal(draft.fields.title, '')
+  assert.equal(draft.fields.description, '')
+  assert.equal(draft.fields.visibility, 'private')
+  assert.equal(draft.referenceCurrency, '')
+  assert.equal(draft.fields.price_quota, undefined)
+})
+
+test('missing variant id or enabled flag is previewable but cannot grant import permission', () => {
+  for (const field of ['id', 'enabled']) {
+    const input = fixture()
+    Reflect.deleteProperty(input.products[0].variants[0], field)
+    const catalog = parseExtoreCatalog(input)
+    assert.throws(() =>
+      extoreProductDraft(
+        catalog,
+        catalog.products[0],
+        catalog.products[0].variants[0],
+        'en'
+      )
+    )
+  }
+})
+
+test('upstream variants boundary permits zero and 100, not 101', () => {
+  for (const count of [0, 100, 101]) {
+    const input = fixture()
+    input.products[0].variants = Array.from({ length: count }, (_, i) => ({
+      ...input.products[0].variants[0],
+      id: `v${i}`,
+    }))
+    if (count <= 100)
+      assert.equal(parseExtoreCatalog(input).products[0].variants.length, count)
+    else assert.throws(() => parseExtoreCatalog(input))
+  }
+})
