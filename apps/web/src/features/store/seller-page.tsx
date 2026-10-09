@@ -38,7 +38,7 @@ import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
 import { StoreProductAccessSettings } from './access-settings'
 import { storeVisibility, storePurchaseLoginRequired } from './access-types'
 import { StoreProductAnalytics } from './analytics'
-import { storeApi } from './api'
+import { storeApi, StoreAPIError } from './api'
 import { StoreCategorySelect, StoreProductCategoryEditor } from './categories'
 import { useStoreCategories } from './category-support'
 import {
@@ -57,16 +57,24 @@ import { StoreInventoryImportPreview } from './inventory-import-preview'
 import { StoreLinkPresetChooser } from './link-presets'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
+import {
+  storeNewVariantInput,
+  storeNewVariantsError,
+  type StoreNewVariantDraft,
+} from './new-variants'
+import { StoreNewVariantsEditor } from './new-variants-editor'
 import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
 import { storeImageEditorText, STORE_SVG_DATA_PREFIX } from './product-media'
 import { StoreProductMediaEditor } from './product-media-editor'
 import { storeProductMediaDraft } from './product-media-fields'
 import { StorePromotionCodes } from './promotion-codes'
+import { STORE_PUBLISHING_COPY as publishingCopy } from './publishing-copy'
 import { storePurchaseLimit } from './purchase-limits'
 import { STORE_PURCHASE_LIMIT_COPY as purchaseCopy } from './purchase-limits-copy'
 import { StoreSalesLimit } from './sales-limit'
 import { STORE_SALES_LIMIT_COPY as salesCopy } from './sales-limit-copy'
 import { SellerCatalogueEditor } from './seller-catalogue-editor'
+import { StoreSellerTermsDialog } from './seller-terms-dialog'
 import {
   StoreAmount,
   StoreAuthGate,
@@ -160,6 +168,10 @@ function StoreSellerCenter() {
     product: StoreProduct
     kind: 'unlist' | 'delete'
   } | null>(null)
+  const [termsSetup, setTermsSetup] = useState<{
+    product?: StoreProduct
+    run?: () => Promise<unknown>
+  } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   async function action(
@@ -167,7 +179,9 @@ function StoreSellerCenter() {
     fn: () => Promise<unknown>,
     onSuccess?: () => void
   ) {
-    if (busy !== null) return
+    if (busy !== null || useAuthStore.getState().auth.user?.id !== user.id) {
+      return
+    }
     setBusy(product.id)
     setError(null)
     try {
@@ -193,7 +207,18 @@ function StoreSellerCenter() {
       if (promoting) promotionKeys.current.delete(promoting.id)
       setPromoting(null)
     } catch (issue) {
-      setError(issue)
+      if (
+        issue instanceof StoreAPIError &&
+        [
+          'STORE_SELLER_TERMS_NOT_CONFIGURED',
+          'STORE_SELLER_TERMS_REQUIRED',
+        ].includes(issue.code ?? '') &&
+        useAuthStore.getState().auth.user?.id === user.id
+      ) {
+        setTermsSetup({ product, run: fn })
+      } else {
+        setError(issue)
+      }
     } finally {
       setBusy(null)
     }
@@ -328,7 +353,7 @@ function StoreSellerCenter() {
                       />
                     )}
                   </div>
-                  <div className='flex flex-wrap gap-2'>
+                  <div className='flex flex-wrap gap-2 [&_button]:min-h-10 [&_button]:rounded-full'>
                     <Button
                       size='sm'
                       variant='outline'
@@ -435,7 +460,7 @@ function StoreSellerCenter() {
                           {t(
                             product.status === 'off_shelf'
                               ? salesCopy.relist
-                              : salesCopy.offShelf
+                              : publishingCopy.offShelf
                           )}
                         </Button>
                       )}
@@ -449,7 +474,7 @@ function StoreSellerCenter() {
                           setLifecycle({ product, kind: 'unlist' })
                         }}
                       >
-                        {t('Unlist product')}
+                        {t(publishingCopy.withdraw)}
                       </Button>
                     )}
                     <Button
@@ -465,6 +490,13 @@ function StoreSellerCenter() {
                     </Button>
                   </div>
                 </div>
+                <details className='text-muted-foreground text-xs leading-5'>
+                  <summary className='cursor-pointer py-1'>
+                    {t(publishingCopy.offShelf)} / {t(publishingCopy.withdraw)}
+                  </summary>
+                  <p className='py-1'>{t(publishingCopy.offShelfHelp)}</p>
+                  <p className='py-1'>{t(publishingCopy.withdrawHelp)}</p>
+                </details>
                 <StoreInventoryTotals product={product} />
                 <StoreVariantsManager
                   product={product}
@@ -569,14 +601,14 @@ function StoreSellerCenter() {
               {t(
                 lifecycle?.kind === 'delete'
                   ? 'Delete product?'
-                  : 'Unlist product?'
+                  : publishingCopy.withdrawTitle
               )}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t(
                 lifecycle?.kind === 'delete'
                   ? 'Remove {{title}} from your products and the store. Existing orders and delivered items remain accessible.'
-                  : 'Remove {{title}} from the store. You can edit and submit it for review again. Existing orders remain accessible.',
+                  : publishingCopy.withdrawHelp,
                 { title: lifecycle?.product.title || '' }
               )}
             </AlertDialogDescription>
@@ -596,7 +628,7 @@ function StoreSellerCenter() {
                   ? 'Saving...'
                   : lifecycle?.kind === 'delete'
                     ? 'Delete product'
-                    : 'Unlist product'
+                    : publishingCopy.withdraw
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -670,6 +702,23 @@ function StoreSellerCenter() {
             </DialogContent>
           </Dialog>
         ))}
+      {termsSetup && (
+        <StoreSellerTermsDialog
+          sellerId={user.id}
+          onClose={() => setTermsSetup(null)}
+          onContinue={
+            termsSetup.product && termsSetup.run
+              ? () => {
+                  const pending = termsSetup
+                  setTermsSetup(null)
+                  if (pending.product && pending.run) {
+                    void action(pending.product, pending.run)
+                  }
+                }
+              : undefined
+          }
+        />
+      )}
       {editing !== null && (
         <StoreProductEditor
           key={editing === 'new' ? 'new' : editing.id}
@@ -685,6 +734,9 @@ function StoreSellerCenter() {
           categoriesSupported={config.data?.store_categories_supported === true}
           svgMediaSupported={config.data?.store_svg_media_supported === true}
           fixedContentSupported={config.data?.fixed_content_supported === true}
+          variantsCreateSupported={
+            config.data?.product_variants_create_supported === true
+          }
           purchaseLimitsSupported={
             config.data?.product_purchase_limits_supported === true
           }
@@ -815,6 +867,7 @@ export function StoreProductEditor({
   svgMediaSupported = false,
   purchaseLimitsSupported = false,
   fixedContentSupported = false,
+  variantsCreateSupported = false,
   onClose,
   onSaved,
 }: {
@@ -829,6 +882,7 @@ export function StoreProductEditor({
   svgMediaSupported?: boolean
   purchaseLimitsSupported?: boolean
   fixedContentSupported?: boolean
+  variantsCreateSupported?: boolean
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
@@ -853,6 +907,10 @@ export function StoreProductEditor({
           },
           money.config
         )
+  const [defaultVariantName, setDefaultVariantName] = useState(
+    t('Default variant')
+  )
+  const [newVariants, setNewVariants] = useState<StoreNewVariantDraft[]>([])
   const initialProduct = product ?? importedDraft?.fields
   const [draft, setDraft] = useState<StoreProductInput>(() => ({
     ...EMPTY,
@@ -964,6 +1022,21 @@ export function StoreProductEditor({
         body.max_quantity_per_order = perOrder
         body.max_quantity_per_buyer = perBuyer
       }
+      if (!product && variantsCreateSupported) {
+        const variants = [
+          storeNewVariantInput({
+            name: defaultVariantName,
+            price_quota: body.price_quota,
+            template: body.template,
+            enabled: true,
+            fixed_content: body.fixed_content,
+          }),
+          ...newVariants.map(storeNewVariantInput),
+        ]
+        const problem = storeNewVariantsError(variants, minimum)
+        if (problem) throw new Error(t(problem))
+        body.variants = variants
+      }
       if (product) await storeApi.updateProduct(product.id, body)
       else await storeApi.createProduct(body)
       await onSaved()
@@ -980,7 +1053,7 @@ export function StoreProductEditor({
         if (!open && !busy) onClose()
       }}
     >
-      <DialogContent className='sm:max-w-3xl'>
+      <DialogContent className='max-h-[90dvh] overflow-y-auto rounded-3xl sm:max-w-3xl'>
         <DialogTitle>{t(product ? 'Edit product' : 'New product')}</DialogTitle>
         <AlertDialog
           open={confirmAccountCollection}
@@ -1091,6 +1164,23 @@ export function StoreProductEditor({
                     'Product price and template edits apply only to the default variant. Other variants are managed separately.'
                   )}
                 </p>
+              )}
+              {!product && variantsCreateSupported && (
+                <div className='space-y-2 pb-2'>
+                  <Label htmlFor='store-default-variant-name'>
+                    {t('Variant name')} · {t('Default variant')}
+                  </Label>
+                  <Input
+                    id='store-default-variant-name'
+                    required
+                    maxLength={200}
+                    value={defaultVariantName}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setDefaultVariantName(event.target.value)
+                    }
+                  />
+                </div>
               )}
               <Label htmlFor='store-price'>
                 {t('Unit price')} ({price.currency})
@@ -1310,6 +1400,14 @@ export function StoreProductEditor({
               disabled={busy}
             />
           )}
+          {!product && variantsCreateSupported && (
+            <StoreNewVariantsEditor
+              variants={newVariants}
+              disabled={busy}
+              fixedContentSupported={fixedContentSupported}
+              onChange={setNewVariants}
+            />
+          )}
           <fieldset className='space-y-2 border-t pt-4'>
             <legend className='font-semibold'>{t('Payment methods')}</legend>
             <p className='text-muted-foreground text-sm'>{t(copy.subset)}</p>
@@ -1524,7 +1622,7 @@ export function StoreProductEditor({
               </p>
             </div>
           )}
-          <div className='flex justify-end gap-2 border-t pt-4'>
+          <div className='bg-background/95 sticky bottom-0 -mx-1 flex justify-end gap-3 px-1 py-4 backdrop-blur-sm'>
             <Button
               type='button'
               variant='outline'

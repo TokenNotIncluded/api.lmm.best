@@ -158,6 +158,15 @@ function PublicRelayLoadError(props: {
   )
 }
 
+function PublicRelayLoading() {
+  const { t } = useTranslation()
+  return (
+    <p role='status' className='text-muted-foreground py-6 text-sm'>
+      {t('Loading...')}
+    </p>
+  )
+}
+
 function PublicRelayEmpty(props: {
   title: string
   description: string
@@ -212,6 +221,7 @@ export function PublicRelay() {
   const [activeTab, setActiveTab] = useState('all')
   const [routingDisabled, setRoutingDisabled] = useState<number[]>([])
   const [routingOrder, setRoutingOrder] = useState<number[]>([])
+  const [routingDirty, setRoutingDirty] = useState(false)
   const { copiedText, copyToClipboard } = useCopyToClipboard({
     notify: false,
     resetAfterMs: 1600,
@@ -253,7 +263,7 @@ export function PublicRelay() {
   })
   const adminQuery = useQuery({
     queryKey: ['public-relays', 'admin'],
-    queryFn: () => listAdminPublicRelays('pending'),
+    queryFn: () => listAdminPublicRelays('reviewable'),
     enabled: isAdmin && activeTab === 'review',
   })
   const reportsQuery = useQuery({
@@ -273,7 +283,7 @@ export function PublicRelay() {
     if (value) setPublicGroup(value)
   }, [systemOptionsQuery.data])
   useEffect(() => {
-    if (!routingQuery.data) return
+    if (!routingQuery.data || routingDirty) return
     setRoutingDisabled(
       routingQuery.data.items
         .filter((item) => item.disabled)
@@ -284,7 +294,7 @@ export function PublicRelay() {
         .sort((a, b) => a.position - b.position)
         .map((item) => item.channel_id)
     )
-  }, [routingQuery.data])
+  }, [routingQuery.data, routingDirty])
   const saveGroupMutation = useMutation({
     mutationFn: (group: string) =>
       updateSystemOption({ key: 'public_relay_setting.group', value: group }),
@@ -382,10 +392,11 @@ export function PublicRelay() {
   })
   const routingMutation = useMutation({
     mutationFn: () => updatePublicRelayRouting(routingDisabled, routingOrder),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
         queryKey: ['public-relays', 'routing'],
       })
+      setRoutingDirty(false)
       toast.success(t('Routing preferences saved'))
     },
     onError: (error) =>
@@ -402,6 +413,8 @@ export function PublicRelay() {
     mutationFn: ({ id, close }: { id: number; close: boolean }) =>
       reviewPublicRelayReport(id, close, ''),
     onSuccess: invalidate,
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : t('Request failed')),
   })
 
   const renderRelay = (item: PublicRelay, mine = false) => (
@@ -416,7 +429,11 @@ export function PublicRelay() {
             <span
               className={`rounded-md border px-1.5 py-0.5 text-xs font-medium ${relayStatusTone[item.status]}`}
             >
-              {t(statusLabels[item.status])}
+              {t(
+                item.status === 'approved' && !item.channel_id
+                  ? 'Not published'
+                  : statusLabels[item.status]
+              )}
             </span>
           ) : null}
           <span className='bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs'>
@@ -454,6 +471,11 @@ export function PublicRelay() {
         <p className='text-muted-foreground text-sm'>
           {item.description || t('No description')}
         </p>
+        {mine && item.review_note ? (
+          <p className='text-muted-foreground text-sm'>
+            {t('Review note')}: {item.review_note}
+          </p>
+        ) : null}
         <div className='text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-2 text-xs'>
           <span className='inline-flex items-center gap-1'>
             <Star className='text-warning size-3.5' />
@@ -575,6 +597,7 @@ export function PublicRelay() {
     if (index < 0 || target < 0 || target >= next.length) return
     ;[next[index], next[target]] = [next[target], next[index]]
     setRoutingOrder(next)
+    setRoutingDirty(true)
   }
 
   const shareReady = Boolean(
@@ -621,6 +644,9 @@ export function PublicRelay() {
                 {t('Reviewed before listing. Contributor email is public.')}
               </span>
             </div>
+            {configQuery.isError ? (
+              <PublicRelayLoadError onRetry={() => configQuery.refetch()} />
+            ) : null}
             {isRoot ? (
               <div className='border-border/70 mb-8 grid gap-3 border-y py-4 sm:grid-cols-[1fr_auto] sm:items-end'>
                 <div className='grid gap-1.5'>
@@ -645,7 +671,7 @@ export function PublicRelay() {
               </div>
             ) : null}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList>
+              <TabsList variant='navigation'>
                 <TabsTrigger value='routing'>
                   {t('Channel routing')}
                 </TabsTrigger>
@@ -664,7 +690,12 @@ export function PublicRelay() {
                   </span>
                   <Button
                     size='sm'
-                    disabled={routingMutation.isPending}
+                    disabled={
+                      routingMutation.isPending ||
+                      !routingDirty ||
+                      routingQuery.isError ||
+                      routingQuery.isPending
+                    }
                     onClick={() => routingMutation.mutate()}
                   >
                     {t('Save routing')}
@@ -674,6 +705,8 @@ export function PublicRelay() {
                   <PublicRelayLoadError
                     onRetry={() => routingQuery.refetch()}
                   />
+                ) : routingQuery.isPending ? (
+                  <PublicRelayLoading />
                 ) : orderedRoutingItems.length ? (
                   orderedRoutingItems.map((item, index) => (
                     <div
@@ -683,13 +716,18 @@ export function PublicRelay() {
                       <button
                         type='button'
                         className='text-muted-foreground hover:text-foreground'
-                        onClick={() =>
+                        disabled={routingMutation.isPending}
+                        aria-pressed={
+                          !routingDisabled.includes(item.channel_id)
+                        }
+                        onClick={() => {
                           setRoutingDisabled((current) =>
                             current.includes(item.channel_id)
                               ? current.filter((id) => id !== item.channel_id)
                               : [...current, item.channel_id]
                           )
-                        }
+                          setRoutingDirty(true)
+                        }}
                       >
                         {routingDisabled.includes(item.channel_id)
                           ? t('Disabled')
@@ -705,7 +743,7 @@ export function PublicRelay() {
                         <Button
                           variant='ghost'
                           size='icon-sm'
-                          disabled={index === 0}
+                          disabled={index === 0 || routingMutation.isPending}
                           onClick={() => moveRoutingItem(item.channel_id, -1)}
                           aria-label={t('Move up')}
                         >
@@ -714,7 +752,10 @@ export function PublicRelay() {
                         <Button
                           variant='ghost'
                           size='icon-sm'
-                          disabled={index === orderedRoutingItems.length - 1}
+                          disabled={
+                            index === orderedRoutingItems.length - 1 ||
+                            routingMutation.isPending
+                          }
                           onClick={() => moveRoutingItem(item.channel_id, 1)}
                           aria-label={t('Move down')}
                         >
@@ -752,6 +793,8 @@ export function PublicRelay() {
                 </div>
                 {allQuery.isError ? (
                   <PublicRelayLoadError onRetry={() => allQuery.refetch()} />
+                ) : allQuery.isPending ? (
+                  <PublicRelayLoading />
                 ) : sortedAllItems.length ? (
                   sortedAllItems.map((item) => renderRelay(item))
                 ) : (
@@ -770,6 +813,8 @@ export function PublicRelay() {
               <TabsContent value='mine' className='mt-3'>
                 {mineQuery.isError ? (
                   <PublicRelayLoadError onRetry={() => mineQuery.refetch()} />
+                ) : mineQuery.isPending ? (
+                  <PublicRelayLoading />
                 ) : mineItems.length ? (
                   mineItems.map((item) => renderRelay(item, true))
                 ) : (
@@ -793,6 +838,17 @@ export function PublicRelay() {
                       count: pendingItems.length,
                     })}
                   </div>
+                  {adminQuery.isError ? (
+                    <PublicRelayLoadError
+                      onRetry={() => adminQuery.refetch()}
+                    />
+                  ) : adminQuery.isPending ? (
+                    <PublicRelayLoading />
+                  ) : pendingItems.length === 0 ? (
+                    <p className='text-muted-foreground text-sm'>
+                      {t('No pending reviews')}
+                    </p>
+                  ) : null}
                   {pendingItems.map((item) => (
                     <div
                       key={item.id}
@@ -808,12 +864,18 @@ export function PublicRelay() {
                               [item.id]: event.target.value,
                             }))
                           }
+                          maxLength={2000}
+                          disabled={reviewMutation.isPending}
                           placeholder={t(
                             'Review note (required when rejecting)'
                           )}
                         />
                         <Button
                           variant='outline'
+                          disabled={
+                            reviewMutation.isPending ||
+                            (reviewNote[item.id] ?? '').trim().length < 2
+                          }
                           onClick={() =>
                             reviewMutation.mutate({
                               id: item.id,
@@ -824,6 +886,7 @@ export function PublicRelay() {
                           {t('Reject')}
                         </Button>
                         <Button
+                          disabled={reviewMutation.isPending}
                           onClick={() =>
                             reviewMutation.mutate({
                               id: item.id,
@@ -836,6 +899,13 @@ export function PublicRelay() {
                       </div>
                     </div>
                   ))}
+                  {reportsQuery.isError ? (
+                    <PublicRelayLoadError
+                      onRetry={() => reportsQuery.refetch()}
+                    />
+                  ) : reportsQuery.isPending ? (
+                    <PublicRelayLoading />
+                  ) : null}
                   {openReports.length ? (
                     <>
                       <Separator className='my-6' />
@@ -849,6 +919,7 @@ export function PublicRelay() {
                           <Button
                             size='sm'
                             variant='outline'
+                            disabled={reportReviewMutation.isPending}
                             onClick={() =>
                               reportReviewMutation.mutate({
                                 id: report.id,
@@ -1041,10 +1112,15 @@ export function PublicRelay() {
               value={reviewComment}
               onChange={(event) => setReviewComment(event.target.value)}
               placeholder={t('Write a comment (optional)')}
+              maxLength={2000}
             />
             <div className='space-y-3'>
               <h4 className='text-sm font-medium'>{t('Recent comments')}</h4>
-              {reviewsQuery.data?.items?.length ? (
+              {reviewsQuery.isError ? (
+                <PublicRelayLoadError onRetry={() => reviewsQuery.refetch()} />
+              ) : reviewsQuery.isPending ? (
+                <PublicRelayLoading />
+              ) : reviewsQuery.data?.items?.length ? (
                 reviewsQuery.data.items.map((review) => (
                   <div
                     key={review.id}
@@ -1148,7 +1224,9 @@ export function PublicRelay() {
                 tipMutation.isPending ||
                 !tipTarget ||
                 !Number.isFinite(Number(tipAmount)) ||
-                Number(tipAmount) <= 0
+                Number(tipAmount) <= 0 ||
+                (configQuery.data?.maximum_tip_usd != null &&
+                  Number(tipAmount) > configQuery.data.maximum_tip_usd)
               }
               onClick={() => {
                 if (!tipTarget) return
@@ -1178,6 +1256,9 @@ export function PublicRelay() {
               )}
             </DialogDescription>
           </DialogHeader>
+          {groupsQuery.isError ? (
+            <PublicRelayLoadError onRetry={() => groupsQuery.refetch()} />
+          ) : null}
           <div className='grid gap-2'>
             <Label>{t('Target group')}</Label>
             <select

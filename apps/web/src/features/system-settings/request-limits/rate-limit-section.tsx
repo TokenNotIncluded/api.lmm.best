@@ -164,7 +164,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                           field.onChange(Number.parseInt(e.target.value) || 0)
                         }
                       />
-                      <span className='text-muted-foreground text-sm'>
+                      <span className='text-muted-foreground shrink-0 text-sm whitespace-nowrap'>
                         {t('minutes')}
                       </span>
                     </div>
@@ -195,7 +195,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                           field.onChange(Number.parseInt(e.target.value) || 0)
                         }
                       />
-                      <span className='text-muted-foreground text-sm'>
+                      <span className='text-muted-foreground shrink-0 text-sm whitespace-nowrap'>
                         {t('times')}
                       </span>
                     </div>
@@ -226,7 +226,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                           field.onChange(Number.parseInt(e.target.value) || 1)
                         }
                       />
-                      <span className='text-muted-foreground text-sm'>
+                      <span className='text-muted-foreground shrink-0 text-sm whitespace-nowrap'>
                         {t('times')}
                       </span>
                     </div>

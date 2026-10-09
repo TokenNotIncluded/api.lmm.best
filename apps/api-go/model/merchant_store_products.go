@@ -11,6 +11,9 @@ import (
 )
 
 func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput) (*MerchantStoreProduct, error) {
+	if e := storePrepareProductVariants(id, &in); e != nil {
+		return nil, e
+	}
 	if e := validateStoreProduct(&in); e != nil {
 		return nil, e
 	}
@@ -130,6 +133,9 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		}
 		defaultVariant.Template = p.Template
 		if e := storeSaveFixedContent(tx, &p, defaultVariant, in.FixedContent); e != nil {
+			return e
+		}
+		if e := storeCreateProductVariants(tx, &p, defaultVariant, in.Variants); e != nil {
 			return e
 		}
 		if e := populateMerchantStoreCategory(tx, &p, false); e != nil {

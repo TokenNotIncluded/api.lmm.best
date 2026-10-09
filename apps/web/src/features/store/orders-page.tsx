@@ -18,6 +18,7 @@ import {
   StoreError,
   StoreLoading,
 } from './shared'
+import { StoreContactButton } from './support-contact'
 import type { StoreOrder, StorePaymentSession } from './types'
 import {
   paymentLabel,
@@ -307,6 +308,9 @@ export function StoreOrderRow({
         </div>
       </div>
       <StoreError error={error} />
+      {order.buyer_id > 0 && (
+        <StoreContactButton orderId={order.id} buyer={buyer} />
+      )}
       {buyer && (
         <div className='flex flex-wrap items-center gap-2'>
           {['paid', 'refund_pending'].includes(order.status) && (

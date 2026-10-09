@@ -33,6 +33,7 @@ import {
 } from '@/components/ai-elements/code-block'
 import { cn } from '@/lib/utils'
 
+import { OpenUIBlock } from './openui/block'
 import { getNodeKey } from './response-content'
 import type { BlockRendererOptions } from './response-types'
 
@@ -144,7 +145,7 @@ export function renderCodeBlock(node: CodeBlockNode, key: string): ReactNode {
   const language = node.language || 'plaintext'
   const lineCount = node.code.split('\n').length
 
-  return (
+  const fallback = (
     <CodeBlock
       collapsedLines={14}
       code={node.code}
@@ -157,6 +158,11 @@ export function renderCodeBlock(node: CodeBlockNode, key: string): ReactNode {
     >
       <CodeBlockCopyButton />
     </CodeBlock>
+  )
+  return language.trim().toLowerCase() === 'openui' ? (
+    <OpenUIBlock key={key} code={node.code} fallback={fallback} />
+  ) : (
+    fallback
   )
 }
 

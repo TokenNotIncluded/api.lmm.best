@@ -823,7 +823,10 @@ export function EmailActivationsPage() {
       value={activationKind}
       onValueChange={(value) => setActivationKind(value as 'sms' | 'email')}
     >
-      <TabsList aria-label={t('Temporary activation type')}>
+      <TabsList
+        variant='navigation'
+        aria-label={t('Temporary activation type')}
+      >
         <TabsTrigger value='sms'>{t('Phone number')}</TabsTrigger>
         <TabsTrigger value='email'>{t('Email address')}</TabsTrigger>
       </TabsList>

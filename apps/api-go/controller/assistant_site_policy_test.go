@@ -192,10 +192,10 @@ func TestAssistantSitePolicyRevocationAndConcurrentEditsFailClosed(t *testing.T)
 
 func TestAssistantSitePolicyRejectsAmbiguousOrUnauthorizedEdits(t *testing.T) {
 	c, user := assistantPolicyContentTestContext(t, common.RoleRootUser)
-	seedAssistantPolicy(t, "legal.privacy_policy", "same same")
+	seedAssistantPolicy(t, "legal.privacy_policy", "same same aaaa")
 	read := executeAssistantGetSitePolicy(c, map[string]any{"document": "privacy_policy"})
 	for _, fields := range []map[string]any{
-		{"old_text": "same", "new_text": "replacement"}, {"old_text": "missing", "new_text": "replacement"}, {"content": "new", "old_text": "same", "new_text": "new"}, {"content": ""}, {"content": true}, {"content": strings.Repeat("a", 12001)},
+		{"old_text": "same", "new_text": "replacement"}, {"old_text": "aaa", "new_text": "b"}, {"old_text": "missing", "new_text": "replacement"}, {"content": "new", "old_text": "same", "new_text": "new"}, {"content": ""}, {"content": true}, {"content": strings.Repeat("a", 12001)},
 	} {
 		input := map[string]any{"document": "privacy_policy", "language": "zh-CN", "revision": read["revision"]}
 		maps.Copy(input, fields)
@@ -204,4 +204,24 @@ func TestAssistantSitePolicyRejectsAmbiguousOrUnauthorizedEdits(t *testing.T) {
 	require.NoError(t, model.DB.Model(&user).Update("role", common.RoleAdminUser).Error)
 	result := executeAssistantPrepareSitePolicy(c, user.Id, map[string]any{"document": "privacy_policy", "language": "zh-CN", "revision": read["revision"], "content": "changed"})
 	assert.Equal(t, "forbidden", result["status"])
+}
+
+func TestAssistantSitePolicyFullChineseContentFitsExecutionBudget(t *testing.T) {
+	c, user := assistantPolicyContentTestContext(t, common.RoleRootUser)
+	c.Set(assistantUserContextKey, assistantUserContext{AdministratorMode: true, AccessLevel: "ROOT"})
+	read := executeAssistantGetSitePolicy(c, map[string]any{"document": "privacy_policy"})
+	content := strings.Repeat("隐私政策", 3000)
+	arguments, err := json.Marshal(map[string]any{"document": "privacy_policy", "language": "zh-CN", "revision": read["revision"], "content": content})
+	require.NoError(t, err)
+	require.Greater(t, len(arguments), assistantToolArgumentsMaxBytes)
+	result := executeAssistantTool(c, assistantOpenAIToolCall{Function: assistantOpenAIToolCallFunction{Name: "prepare_admin_site_policy_change", Arguments: string(arguments)}})
+	require.Equal(t, true, result["ok"], "%v", result)
+	assert.Equal(t, false, result["applied"])
+	action, exists := c.Get(assistantClientActionKey)
+	require.True(t, exists)
+	assert.Equal(t, content, action.(map[string]any)["changes"].([]assistantAdminConfigPreview)[0].NewValue)
+	values, err := model.ReadSitePolicies(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, values["legal.privacy_policy"], "a tool call cannot publish a document")
+	assert.Positive(t, user.Id)
 }

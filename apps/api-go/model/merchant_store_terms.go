@@ -13,6 +13,17 @@ import (
 
 var ErrMerchantStoreSellerTerms = errors.New("current seller terms must be configured and accepted")
 
+// A seller configures terms; a buyer accepts them. Preserve errors.Is for
+// existing moderation callers without presenting a buyer action to a seller.
+var ErrMerchantStoreSellerTermsNotConfigured error = &merchantStoreSellerTermsNotConfigured{}
+
+type merchantStoreSellerTermsNotConfigured struct{}
+
+func (*merchantStoreSellerTermsNotConfigured) Error() string {
+	return "configure seller terms before publishing"
+}
+func (*merchantStoreSellerTermsNotConfigured) Unwrap() error { return ErrMerchantStoreSellerTerms }
+
 type merchantStoreTermsVersionChanged struct{}
 
 func (*merchantStoreTermsVersionChanged) Error() string { return "seller terms version changed" }
@@ -157,11 +168,14 @@ func storeRequireConfiguredSellerTerms(tx *gorm.DB, sellerID int) error {
 		return nil
 	}
 	row, e := storeSellerTerms(tx, sellerID)
+	if errors.Is(e, ErrMerchantStoreSellerTerms) {
+		return ErrMerchantStoreSellerTermsNotConfigured
+	}
 	if e != nil {
 		return e
 	}
 	if row == nil {
-		return ErrMerchantStoreSellerTerms
+		return ErrMerchantStoreSellerTermsNotConfigured
 	}
 	return nil
 }

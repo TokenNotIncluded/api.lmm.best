@@ -47,5 +47,5 @@ func TestAssistantEveryToolConfigurationRoundTrip(t *testing.T) {
 			})
 		}
 	}
-	require.Equal(t, 70, count)
+	require.Equal(t, 72, count)
 }

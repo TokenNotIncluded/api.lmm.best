@@ -174,13 +174,13 @@ test('mobile filters start folded, keep explicit false filters, and expose searc
   await click(toggle)
   assert.equal(panel.hidden, false)
   const guest = required(
-    document.querySelector<HTMLSelectElement>('#store-catalogue-guestPurchase')
+    document.querySelector<HTMLButtonElement>('#store-catalogue-guestPurchase')
   )
-  await act(async () => {
-    guest.value = 'false'
-    guest.dispatchEvent(new Event('change', { bubbles: true }))
-    await flush()
-  })
+  await click(guest)
+  const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+  // The third option is the explicit false choice, after any and true.
+  assert.equal(options.length, 3)
+  await click(required(options[2]))
   assert.equal(
     (
       lastProductRequest(requests).config as {

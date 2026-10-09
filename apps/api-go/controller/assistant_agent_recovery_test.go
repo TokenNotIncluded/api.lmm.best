@@ -84,10 +84,9 @@ func TestAssistantAgentToolResultsMatchRepairedCallIDs(t *testing.T) {
 		turns++
 		if turns == 1 {
 			calls := []assistantOpenAIToolCall{}
-			for _, id := range []string{"", " padded-call "} {
-				calls = append(calls, assistantOpenAIToolCall{
-					ID: id, Type: "function", Function: assistantOpenAIToolCallFunction{Name: "calculate_math", Arguments: `{"expression":"1+1"}`},
-				})
+			for index, id := range []string{"", " padded-call "} {
+				// Distinct work isolates ID repair from duplicate-read protection.
+				calls = append(calls, assistantLoopMathCall(id, index+1))
 			}
 			body, err := json.Marshal(assistantOpenAIResponse{Choices: []assistantOpenAIResponseChoice{{Message: assistantOpenAIResponseMessage{ToolCalls: calls}}}})
 			require.NoError(t, err)

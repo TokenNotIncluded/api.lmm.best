@@ -40,6 +40,8 @@ type AssistantToolGroup struct {
 
 var assistantToolCatalogue = []AssistantToolGroup{
 	{"service_help", "Service help", []AssistantToolInfo{
+		{"discover_tools", "Load assistant tools", "Load only the needed tool definitions for this request; never execute the selected tools.", "read_only", "user"},
+		{"end_conversation", "End this turn", "Deliver a final answer and stop this run without blocking future messages or changing account access.", "server_guarded", "user"},
 		{"get_service_facts", "Service connection and activities", "Read current connection endpoints, console activities and key setup guidance.", "read_only", "user"},
 		{"navigate_to_page", "Open a console page", "Suggest a permitted console page without submitting its forms.", "navigation", "user"},
 		{"get_setup_guide", "Client setup guidance", "Read setup steps for the chosen client, device and live model ID.", "read_only", "user"},
@@ -154,6 +156,20 @@ var assistantToolGroupsByName = func() map[string]string {
 	}
 	return groups
 }()
+
+var assistantToolEffects = func() map[string]string {
+	effects := make(map[string]string)
+	for _, group := range assistantToolCatalogue {
+		for _, tool := range group.Tools {
+			effects[tool.Name] = tool.Effect
+		}
+	}
+	return effects
+}()
+
+// AssistantToolEffect returns an empty string for unknown tools. Callers must
+// treat unknown effects as writes, never infer safety from a function name.
+func AssistantToolEffect(name string) string { return assistantToolEffects[name] }
 
 // Return detached slices: API callers cannot mutate the registered catalogue.
 func AssistantToolCatalogue() []AssistantToolGroup {

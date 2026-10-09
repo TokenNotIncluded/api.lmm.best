@@ -366,7 +366,8 @@ func mainMigrationModels() []interface{} {
 		&ReleaseNote{}, &ReleaseNoteRead{}, &AnnouncementRead{}, &AcquisitionLink{}, &AcquisitionVisitor{}, &AcquisitionVisit{}, &AcquisitionAccount{}, &AcquisitionConfig{}, &AcquisitionAttributionPolicy{}, &AcquisitionFirstPayment{}, &AcquisitionActivity{}, &AcquisitionActivityState{}, &AcquisitionConsent{}, &AcquisitionSelfReport{}, &AcquisitionCost{}, &AcquisitionCorrection{}, &AcquisitionCorrectionHead{}, &AcquisitionActivityGap{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
 		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{}, &AIDirectoryAd{},
 	}, toolMarketModels()...)
-	return append(models, MerchantStoreModels()...)
+	models = append(models, MerchantStoreModels()...)
+	return append(models, MerchantStoreSupportModels()...)
 }
 
 func migrateDB() error {
@@ -615,7 +616,8 @@ func migrateDBFast() error {
 		{&AIDirectoryAd{}, "AIDirectoryAd"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
-	for _, marketModel := range append(toolMarketModels(), MerchantStoreModels()...) {
+	storeModels := append(MerchantStoreModels(), MerchantStoreSupportModels()...)
+	for _, marketModel := range append(toolMarketModels(), storeModels...) {
 		migrations = append(migrations, struct {
 			model interface{}
 			name  string

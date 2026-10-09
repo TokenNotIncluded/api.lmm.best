@@ -228,71 +228,115 @@ try {
     await context.close()
   }
   if (selected('public-pages')) {
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-      locale: 'zh-CN',
-    })
-    await setup(context, origin)
-    for (const path of [
-      '/sign-in',
-      '/sign-up',
-      '/about',
-      '/user-agreement',
-      '/privacy-policy',
-      '/webmcp',
-      '/guide',
-    ]) {
-      const page = await context.newPage()
-      const errors = []
-      page.on('pageerror', (error) => errors.push(error.message))
-      try {
-        await page.goto(origin + path, { waitUntil: 'networkidle' })
-        await page.waitForTimeout(500)
-        const metrics = await snapshot(page, path.slice(1))
-        if (path === '/about') {
-          assert.equal(new URL(page.url()).pathname, '/challenges')
-        }
-        if (['/user-agreement', '/privacy-policy'].includes(path)) {
-          assert.ok((await page.locator('[data-reading-section]').count()) >= 3)
-          await page
-            .getByRole('button', { name: /展开全部|Expand all/ })
-            .click()
-          assert.equal(
-            await page.locator('[data-reading-section]:not([open])').count(),
-            0
-          )
-        }
-        if (path === '/sign-in' || path === '/sign-up') {
-          assert.ok((await page.locator('input').count()) > 0)
-          const fields = await page
-            .locator(
-              '.auth-form-stage input:not([type="hidden"]):not([type="checkbox"])'
+    for (const width of [320, 390, 1440]) {
+      for (const theme of ['light', 'dark']) {
+        const context = await browser.newContext({
+          viewport: { width, height: width < 768 ? 844 : 1000 },
+          isMobile: width < 768,
+          hasTouch: width < 768,
+          locale: 'zh-CN',
+          reducedMotion: 'reduce',
+          serviceWorkers: 'block',
+        })
+        await context.addCookies([
+          { name: 'vite-ui-theme', value: theme, url: origin },
+        ])
+        await setup(context, origin)
+        for (const path of [
+          '/sign-in',
+          '/sign-up',
+          '/forgot-password',
+          '/reset',
+          '/otp',
+          '/401',
+          '/403',
+          '/404',
+          '/500',
+          '/503',
+          '/security',
+          '/terms',
+          '/about',
+          '/user-agreement',
+          '/privacy-policy',
+          '/webmcp',
+          '/guide',
+        ]) {
+          const page = await context.newPage()
+          const errors = []
+          page.on('pageerror', (error) => errors.push(error.message))
+          try {
+            await page.goto(origin + path, { waitUntil: 'networkidle' })
+            await page.waitForTimeout(500)
+            const metrics = await snapshot(
+              page,
+              `${path.slice(1)}-${width}-${theme}`
             )
-            .evaluateAll((nodes) =>
-              nodes
-                .filter((node) => node.getBoundingClientRect().width > 0)
-                .map((node) => ({
-                  height: node.getBoundingClientRect().height,
-                  font: getComputedStyle(node).fontSize,
-                }))
-            )
-          assert.ok(
-            fields.every(
-              (field) => field.height >= 44 && parseFloat(field.font) >= 16
-            ),
-            JSON.stringify(fields)
-          )
+            if (path === '/about') {
+              assert.equal(new URL(page.url()).pathname, '/challenges')
+            }
+            if (['/user-agreement', '/privacy-policy'].includes(path)) {
+              assert.ok(
+                (await page.locator('[data-reading-section]').count()) >= 3
+              )
+              await page
+                .getByRole('button', { name: /展开全部|Expand all/ })
+                .click()
+              assert.equal(
+                await page
+                  .locator('[data-reading-section]:not([open])')
+                  .count(),
+                0
+              )
+            }
+            if (path === '/sign-in' || path === '/sign-up') {
+              assert.ok((await page.locator('input').count()) > 0)
+              const fields = await page
+                .locator(
+                  '.auth-form-stage input:not([type="hidden"]):not([type="checkbox"])'
+                )
+                .evaluateAll((nodes) =>
+                  nodes
+                    .filter((node) => node.getBoundingClientRect().width > 0)
+                    .map((node) => ({
+                      height: node.getBoundingClientRect().height,
+                      font: getComputedStyle(node).fontSize,
+                    }))
+                )
+              // Touch targets and anti-zoom text sizes are mobile requirements.
+              const minHeight = width < 768 ? 44 : 36
+              const minFont = width < 768 ? 16 : 14
+              assert.ok(
+                fields.length > 0 &&
+                  fields.every(
+                    (field) =>
+                      field.height >= minHeight &&
+                      parseFloat(field.font) >= minFont
+                  ),
+                JSON.stringify({ width, fields })
+              )
+            }
+            assert.deepEqual(errors, [])
+            report.push({ name: path, width, theme, ok: true, metrics })
+          } catch (error) {
+            report.push({
+              name: path,
+              width,
+              theme,
+              ok: false,
+              error: String(error),
+              errors,
+            })
+            await page
+              .screenshot({
+                path: `${output}/${path.slice(1)}-${width}-${theme}-failed.png`,
+              })
+              .catch(() => {})
+          }
+          await page.close()
         }
-        assert.deepEqual(errors, [])
-        report.push({ name: path, ok: true, metrics })
-      } catch (error) {
-        report.push({ name: path, ok: false, error: String(error), errors })
+        await context.close()
       }
-      await page.close()
     }
-    await context.close()
   }
   if (consoleOrigin && selected('console')) {
     for (const [persona, width] of [

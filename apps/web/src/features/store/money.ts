@@ -53,6 +53,7 @@ export function useStoreMoneyDraft(initialQuota: number) {
         quota = undefined
       }
       setDraft({ input, key, quota })
+      return quota
     },
   }
 }

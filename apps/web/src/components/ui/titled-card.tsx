@@ -74,8 +74,8 @@ export function TitledCard({
     >
       <CardHeader
         className={cn(
-          'p-4 !pb-3 sm:p-6 sm:!pb-4',
-          appearance === 'outlined' && 'border-b',
+          'p-4 !pb-0 sm:p-6 sm:!pb-0',
+          appearance === 'outlined' && 'border-b !pb-4 sm:!pb-5',
           headerClassName
         )}
       >
@@ -97,7 +97,7 @@ export function TitledCard({
             >
               <CardTitle
                 className={cn(
-                  'text-lg tracking-tight sm:text-xl',
+                  'text-base font-semibold tracking-tight sm:text-lg',
                   titleClassName
                 )}
               >
@@ -105,7 +105,10 @@ export function TitledCard({
               </CardTitle>
               {description != null && (
                 <CardDescription
-                  className={cn('text-xs sm:text-sm', descriptionClassName)}
+                  className={cn(
+                    'mt-1 text-xs leading-relaxed sm:text-sm',
+                    descriptionClassName
+                  )}
                 >
                   {description}
                 </CardDescription>
@@ -124,7 +127,7 @@ export function TitledCard({
           )}
         </div>
       </CardHeader>
-      <CardContent className={cn('p-4 sm:p-6', contentClassName)}>
+      <CardContent className={cn('p-4 pt-3 sm:p-6 sm:pt-4', contentClassName)}>
         {children}
       </CardContent>
     </Card>

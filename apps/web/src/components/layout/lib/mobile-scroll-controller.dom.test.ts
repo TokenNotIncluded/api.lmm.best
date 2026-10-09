@@ -241,3 +241,20 @@ test('a wheel event delivered after compositor scrolling preserves upward travel
     assert.deepEqual(states, [false, true, false])
   })
 })
+
+test('an open service disclosure stays visible while the page scrolls', () => {
+  check(({ root, move, states }) => {
+    const details = document.createElement('details')
+    details.open = true
+    details.innerHTML =
+      '<summary>Service information</summary><p>Privacy controls</p>'
+    root.querySelector('[data-mobile-scroll-chrome]')!.append(details)
+    move(0)
+    move(100)
+    assert.deepEqual(states, [false])
+    details.open = false
+    move(120)
+    move(160)
+    assert.equal(states.at(-1), true)
+  })
+})

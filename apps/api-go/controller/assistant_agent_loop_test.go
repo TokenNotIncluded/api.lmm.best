@@ -90,7 +90,7 @@ func TestAssistantAgentStopsRepeatedBatchesWithOneFinalAnswerTurn(t *testing.T) 
 	original := relayAssistantAgentTurn
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turns++
-		if turns < 4 {
+		if turns < 3 {
 			return http.StatusOK, assistantLoopCallBody(t, []assistantOpenAIToolCall{assistantLoopMathCall("same", 1)}, ""), nil
 		}
 		assert.Empty(t, request.Tools)
@@ -100,7 +100,7 @@ func TestAssistantAgentStopsRepeatedBatchesWithOneFinalAnswerTurn(t *testing.T) 
 	t.Cleanup(func() { relayAssistantAgentTurn = original })
 
 	runAssistantAgent(c, setting.AssistantSettings{AgentLoopEnabled: true, MaxSteps: 10}, []assistantOpenAIMessage{{Role: "user", Content: "Compute"}})
-	assert.Equal(t, 4, turns)
+	assert.Equal(t, 3, turns)
 	assert.Equal(t, http.StatusOK, recorder.Code)
 }
 

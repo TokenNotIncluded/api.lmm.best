@@ -571,6 +571,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 		return tool.Function.Name == assistantInterlocutorAssessmentTool
 	})
 	definitions = append(definitions, assistantSitePolicyToolDefinitions()...)
+	definitions = append(definitions, assistantRunControlTools()...)
 	definitions = append(definitions, assistantRegistrationTools()...)
 	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
 	definitions = append(definitions, assistantAdminPricingAuditTools()...)
@@ -697,7 +698,7 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 }
 
 func assistantToolPermittedForContext(name string, userContext assistantUserContext) bool {
-	if name == "get_site_policy" || name == "search_site_policies" {
+	if name == "get_site_policy" || name == "search_site_policies" || name == "discover_tools" || name == "end_conversation" {
 		return true
 	}
 	if assistantVisualizationKind(name) != "" {
@@ -1867,8 +1868,8 @@ func assistantToolCallReadOnly(c *gin.Context, call assistantOpenAIToolCall) boo
 	if name == "execute_admin_operation" {
 		return assistantAdminOperationReadOnly(c, call.Function.Arguments)
 	}
-	return assistantVisualizationKind(name) != "" || strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
-		strings.HasPrefix(name, "calculate_") || name == "search_web" || name == "search_site_policies" || name == "audit_admin_model_pricing" || name == "recall_memory"
+	effect := setting.AssistantToolEffect(name)
+	return effect == "read_only" || effect == "navigation"
 }
 
 func assistantAdminRetryMutationBlocked(c *gin.Context, call assistantOpenAIToolCall) bool {
@@ -2085,8 +2086,12 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	if arguments == "" {
 		arguments = "{}"
 	}
-	if len(arguments) > assistantToolArgumentsMaxBytes {
-		return map[string]any{"ok": false, "error": "tool arguments are too large"}
+	argumentLimit := assistantToolArgumentsMaxBytes
+	if name == "prepare_admin_site_policy_change" {
+		argumentLimit = assistantSitePolicyArgumentsMaxBytes
+	}
+	if len(arguments) > argumentLimit {
+		return map[string]any{"ok": false, "status": "invalid_arguments", "error": "tool arguments exceed this tool's size limit"}
 	}
 	var input map[string]any
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
@@ -2098,6 +2103,9 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			return executeAssistantConversationTitleTool(c, nil)
 		}
 		return map[string]any{"ok": false, "error": "tool arguments must be valid JSON"}
+	}
+	if name == "discover_tools" || name == "end_conversation" {
+		return executeAssistantRunControl(c, name, input)
 	}
 	if name == forgetProfileTool && (c == nil || !assistantExplicitProfileForgetRequest(c.GetString("assistant_history_latest_message"))) {
 		return map[string]any{

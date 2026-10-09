@@ -31,6 +31,7 @@ import { PasskeyCard } from './components/passkey-card'
 import { ProfileHeader } from './components/profile-header'
 import { ProfileSecurityCard } from './components/profile-security-card'
 import { ProfileSettingsCard } from './components/profile-settings-card'
+import { ReferralOverviewCard } from './components/referral-overview-card'
 import { SettlementCurrencyCard } from './components/settlement-currency-card'
 import { SidebarModulesCard } from './components/sidebar-modules-card'
 import { TwoFACard } from './components/two-fa-card'
@@ -71,7 +72,7 @@ export function Profile() {
           defaultValue='overview'
           className='console-page-tabs mx-auto max-w-6xl'
         >
-          <TabsList aria-label={t('Profile')}>
+          <TabsList variant='navigation' aria-label={t('Profile')}>
             <TabsTrigger value='overview'>{t('Overview')}</TabsTrigger>
             <TabsTrigger value='account'>{t('Account')}</TabsTrigger>
             <TabsTrigger value='security'>{t('Security')}</TabsTrigger>
@@ -127,6 +128,7 @@ export function Profile() {
             className='grid items-start gap-5 lg:grid-cols-2'
           >
             <GiftCard />
+            <ReferralOverviewCard />
             {checkinEnabled && (
               <CheckinCalendarCard
                 checkinEnabled={checkinEnabled}

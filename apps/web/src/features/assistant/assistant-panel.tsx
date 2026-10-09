@@ -423,11 +423,11 @@ function AssistantFlowResponse(props: {
     return () => window.clearTimeout(timer)
   }, [formatted, props.entry.streaming, props.flow])
 
-  if (formatted) {
+  if (formatted || props.entry.content.includes('```openui')) {
     return (
       <Response
         className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
-        final
+        final={!props.entry.streaming}
       >
         {props.entry.content}
       </Response>

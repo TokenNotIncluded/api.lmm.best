@@ -152,7 +152,7 @@ export type StoreProductInput = Omit<
   | 'status'
   | 'trading_paused'
   | 'category'
-> & { fixed_content?: string }
+> & { fixed_content?: string; variants?: StoreVariantInput[] }
 export interface StoreOrder {
   variant_id?: string
   variant_name?: string
@@ -192,6 +192,7 @@ export interface StoreOrder {
   verified_payment_issue_at?: number
 }
 export interface StoreConfig {
+  product_variants_create_supported?: boolean
   extore_import_supported?: boolean
   extore_redirect_uri?: string
   fixed_content_supported?: boolean

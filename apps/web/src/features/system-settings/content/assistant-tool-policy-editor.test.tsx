@@ -576,7 +576,7 @@ const registeredTools = [...toolSource.matchAll(/^\s*\{("[^"\n]+"), ("[^"\n]+"),
   const [name, label, description, effect, access] = match.slice(1).map((value) => JSON.parse(value) as string)
   return { name, label, description, effect, access }
 })
-assert.equal(registeredTools.length, 70)
+assert.equal(registeredTools.length, 72)
 for (const tool of registeredTools) {
   test(`configuration opens and saves a switch for ${tool.name}`, async () => {
     for (const supported of [true, false]) {

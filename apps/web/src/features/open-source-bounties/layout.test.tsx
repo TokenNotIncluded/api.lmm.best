@@ -59,6 +59,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { OpenSourceBounties, OwnerProjectCard } = await import('./index')
+const { BountyPageHeader } = await import('./bounty-page-header')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -209,18 +210,27 @@ describe('open-source bounty layout', () => {
       '[data-slot="tabs-list"]'
     )
     assert.ok(tabsList)
-    assert.match(tabsList.className, /(?:^|\s)grid(?:\s|$)/)
-    assert.match(tabsList.className, /group-data-horizontal\/tabs:!h-auto/)
-    assert.match(tabsList.className, /(?:^|\s)lg:w-full(?:\s|$)/)
-    assert.match(tabsList.className, /(?:^|\s)lg:justify-center(?:\s|$)/)
+    assert.equal(tabsList.dataset.variant, 'navigation')
+    assert.match(tabsList.className, /overflow-x-auto/)
+    assert.doesNotMatch(tabsList.className, /grid-cols|rounded-full/)
 
     const tabs = [...container.querySelectorAll<HTMLElement>('[role="tab"]')]
     assert.equal(tabs.length, 5)
     for (const tab of tabs) {
-      assert.match(tab.className, /(?:^|\s)min-h-11(?:\s|$)/)
-      assert.match(tab.className, /(?:^|\s)whitespace-normal(?:\s|$)/)
-      assert.match(tab.className, /(?:^|\s)lg:flex-1(?:\s|$)/)
+      assert.ok(tab.textContent?.trim())
+      assert.doesNotMatch(tab.className, /whitespace-normal/)
     }
+    const selected = tabsList.querySelector('[aria-selected="true"]')
+    assert.ok(selected?.getAttribute('aria-controls'))
+    const funding = container.querySelector<HTMLDetailsElement>(
+      '.bounty-funding-details'
+    )
+    assert.ok(funding)
+    assert.equal(funding.open, false)
+    assert.match(
+      funding.textContent ?? '',
+      /Every publisher pays from their own balance/
+    )
 
     const titleElement = [
       ...container.querySelectorAll<HTMLElement>('[data-slot="card-title"]'),
@@ -266,4 +276,57 @@ describe('open-source bounty layout', () => {
     await act(async () => root.unmount())
     queryClient.clear()
   })
+})
+
+test('funding details keep real fees and admin settings without implying missing fees are free', async () => {
+  for (const [rate, error, expected] of [
+    [500, false, '5.00%'],
+    [0, false, '0.00%'],
+    [undefined, false, 'Loading'],
+    [undefined, true, 'Unavailable'],
+    [-1, true, 'Unavailable'],
+    [Number.NaN, true, 'Unavailable'],
+  ] as const) {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    let creates = 0
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <BountyPageHeader
+            feeRate={rate}
+            feeError={error}
+            isSuperAdmin={false}
+            onCreate={() => creates++}
+          />
+        </I18nextProvider>
+      )
+    )
+    try {
+      const details = container.querySelector('details')!
+      assert.equal(details.open, false)
+      assert.ok(
+        details.querySelector('summary')?.textContent?.includes(expected)
+      )
+      assert.match(
+        details.textContent ?? '',
+        /Publishing deducts the gross total/
+      )
+      assert.equal(
+        container.querySelector('a[href="/system-settings/billing/quota"]'),
+        null
+      )
+      const create = [...container.querySelectorAll('button')].find((node) =>
+        node.textContent?.includes('Create bounty')
+      )!
+      await act(async () => create.click())
+      assert.equal(creates, 1)
+      details.open = true
+      assert.equal(details.open, true)
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+    }
+  }
 })
