@@ -3068,7 +3068,9 @@ test('checkout does not create a guest or show a sign-in action until session bo
     }
     return result({ required: false })
   }) as typeof api.get
-  await mount(<StoreCheckout product={product} />)
+  await mount(
+    <StoreCheckout product={{ ...product, purchase_login_required: false }} />
+  )
   assert.ok(document.querySelector('[aria-busy="true"]'))
   assert.doesNotMatch(document.body.textContent || '', /Sign in to buy/)
   assert.deepEqual(writes, [])
