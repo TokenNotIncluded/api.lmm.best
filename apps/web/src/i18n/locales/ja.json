@@ -11715,6 +11715,12 @@
     "部分充值记录无法确认实付": "一部のチャージ記録は実際の支払額を確認できません",
     "Service information": "サービスとプライバシー",
     "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore のインポートには、サーバーに永続的な暗号化キーを設定する必要があります。管理者に設定の確認を依頼してください。",
-    "This draft stays private. Review its visibility before publishing.": "この下書きは非公開のままです。公開前に表示設定を確認してください。"
+    "This draft stays private. Review its visibility before publishing.": "この下書きは非公開のままです。公開前に表示設定を確認してください。",
+    "Upgrade to a full account": "正式ユーザーにアップグレード",
+    "Chat for free or top up to upgrade to a full account.": "無料の対話またはチャージで、正式ユーザーにアップグレードできます。",
+    "Chat for free to upgrade to a full account.": "無料の対話で、正式ユーザーにアップグレードできます。",
+    "Chat (free)": "対話（無料）",
+    "Top up to upgrade": "チャージでアップグレード",
+    "Paid upgrade details": "チャージによるアップグレードの条件"
   }
 }
