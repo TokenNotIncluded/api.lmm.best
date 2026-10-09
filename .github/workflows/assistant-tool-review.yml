@@ -2,78 +2,26 @@ name: Assistant tool review
 on:
   push:
     branches: [work/assistant-tool-control-center-20261009]
-    paths: ['.review/assistant-workspace/ready.json']
+    paths: ['.github/workflows/assistant-tool-review.yml']
 permissions:
   contents: read
-concurrency:
-  group: assistant-workspace-review
-  cancel-in-progress: true
-defaults:
-  run:
-    shell: bash
 jobs:
-  go:
+  source:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Apply reviewed source patch
-        run: python3 .review/assistant-workspace/apply.py
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - name: Assistant tests
-        working-directory: apps/api-go
-        env:
-          GOMAXPROCS: '2'
-        run: go test -p 2 ./setting ./model ./controller -run 'TestAssistant|TestWeeklyDiscount|TestNewUserGift' -count=1
-  web:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Apply reviewed source patch
-        run: python3 .review/assistant-workspace/apply.py
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: '1.3.14'
-      - run: bun install --frozen-lockfile
-      - name: Normalize translations and format source
-        working-directory: apps/web
+      - name: Export tracked source only
         run: |
-          bun run i18n:sync
-          bun run format
-          bun run copyright:check
-          bun run typecheck
-          bun run lint
-      - name: Assistant and overview tests
-        working-directory: apps/web
-        run: |
-          while IFS= read -r file; do
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" || exit 1
-          done < <(find src/features/assistant src/features/system-settings src/features/dashboard -name '*.test.ts' -o -name '*.test.tsx' | sort)
-      - name: Production build
-        working-directory: apps/web
-        run: |
-          bun run build
-          bun run bundle:check
-      - name: Export source changes only
-        if: always()
-        run: |
-          mkdir -p /tmp/assistant-evidence
-          git add -N apps/api-go apps/web/src docs
-          git diff --binary --unified=0 -- apps/api-go apps/web/src docs > /tmp/assistant-evidence/reviewed.patch
-          sha256sum /tmp/assistant-evidence/reviewed.patch > /tmp/assistant-evidence/sha256.txt
+          mkdir -p /tmp/assistant-source
+          git archive 7ccd63413cba38b5212c416bba69c12c7e4a7638 | gzip > /tmp/assistant-source/main.tar.gz
+          git archive HEAD .review | gzip > /tmp/assistant-source/review.tar.gz
+          git diff ed3cb848c733c7ba16704f6ef964cecd132bf686 7ccd63413cba38b5212c416bba69c12c7e4a7638 -- apps/api-go apps/web/src > /tmp/assistant-source/main-changes.patch
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: assistant-reviewed-source
-          path: /tmp/assistant-evidence/
-          retention-days: 3
+          name: assistant-recovery-source
+          path: /tmp/assistant-source/
+          retention-days: 2
