@@ -1,7 +1,6 @@
 package model
 
 import (
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,7 +21,7 @@ type ToolMarketOAuthClient struct {
 // families and narrowed token scopes cannot make a client eligible.
 // The caller supplies the configured OAuth writer DB and trusted client policy.
 // This query never creates market access or changes OAuth consent.
-func ListToolMarketOAuthClients(db *gorm.DB, userID int, issuer, resource string, clientIDs, requiredScopes []string, offset, limit int) ([]ToolMarketOAuthClient, error) {
+func ListToolMarketOAuthClients(db *gorm.DB, userID int, issuer, resource string, clientIDs, requiredScopes []string, offset, limit int, mcpResources ...string) ([]ToolMarketOAuthClient, error) {
 	if db == nil || issuer == "" || resource == "" || len(clientIDs) == 0 || len(requiredScopes) == 0 || userID <= 0 || offset < 0 || offset > 10000 || limit < 1 || limit > 100 {
 		return nil, ErrToolMarketInput
 	}
@@ -35,10 +34,15 @@ func ListToolMarketOAuthClients(db *gorm.DB, userID int, issuer, resource string
 		GrantScope string
 		TokenScope string
 	}
+	policy := db.Where("family.resource = ? AND family.client_id IN ?", resource, clientIDs)
+	if len(mcpResources) == 1 && mcpResources[0] != "" {
+		registered := db.Model(&OAuthServerMCPClient{}).Select("id").Where("issuer = ?", issuer)
+		policy = policy.Or("family.resource = ? AND family.client_id IN (?)", mcpResources[0], registered)
+	}
 	err := db.Table("oauth_server_grants AS family").
 		Select("DISTINCT family.client_id, family.scope AS grant_scope, tok.scope AS token_scope").
 		Joins("JOIN oauth_server_tokens AS tok ON tok.family_id = family.id AND tok.issuer = family.issuer").
-		Where("family.user_id = ? AND family.issuer = ? AND family.resource = ? AND family.client_id IN ?", userID, issuer, resource, clientIDs).
+		Where("family.user_id = ? AND family.issuer = ?", userID, issuer).Where(policy).
 		Where("family.revoked_at_ms = 0 AND family.absolute_expires_at_ms > ? AND family.binding_method = '' AND family.binding_thumbprint = ''", now).
 		Where("tok.kind IN ? AND tok.expires_at_ms > ? AND tok.used_at_ms = 0", []string{"access", "refresh"}, now).
 		Scan(&candidates).Error
@@ -47,7 +51,7 @@ func ListToolMarketOAuthClients(db *gorm.DB, userID int, issuer, resource string
 	}
 	eligible := map[string]bool{}
 	for _, candidate := range candidates {
-		allowed := slices.Contains(clientIDs, candidate.ClientID) && marketClientValid("oauth:"+candidate.ClientID)
+		allowed := marketClientValid("oauth:" + candidate.ClientID)
 		for _, scope := range requiredScopes {
 			allowed = allowed && containsOAuthScope(candidate.GrantScope, scope) && containsOAuthScope(candidate.TokenScope, scope)
 		}

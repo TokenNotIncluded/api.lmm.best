@@ -9,6 +9,7 @@ type OAuthServerAuthorization struct {
 	Digest                string `gorm:"primaryKey;size:64"`
 	Issuer                string `gorm:"not null;size:512"`
 	ClientID              string `gorm:"not null;size:128"`
+	ClientName            string `gorm:"not null;default:'';size:256"`
 	RedirectURI           string `gorm:"not null;size:1024"`
 	Resource              string `gorm:"not null;size:1024"`
 	Scope                 string `gorm:"not null;size:2048"`

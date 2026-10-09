@@ -21,21 +21,31 @@ const (
 	DefaultRefreshIdleTTL     = 7 * 24 * time.Hour
 )
 
-// NativeClient is installed through trusted server configuration, not dynamic
-// registration. RedirectURIs are portless http://127.0.0.1/<registered-path>
-// templates. Only the port may vary in an authorization request.
+// NativeClient comes from trusted configuration or a validated client lookup.
+// The lookup must use the supplied writer/transaction handle. RedirectURIs
+// default to portless http://127.0.0.1/<path> or http://[::1]/<path> templates.
+// Only the port may vary; address families and registered paths are not aliases.
+// Explicit MCP registrations may also use exact HTTPS/localhost callbacks.
 type NativeClient struct {
 	ID           string
 	Name         string
 	RedirectURIs []string
 	Resources    []string
 	Scopes       []string
+	// Only validated marketplace registrations opt in to exact HTTPS and
+	// localhost callbacks. Existing native adapters keep their IP-only policy.
+	MCPRedirects bool
+	// The zero value preserves existing code + refresh clients.
+	RefreshDisabled bool
 }
 
 type Config struct {
 	// Issuer is a fixed HTTPS origin, never derived from Host/Forwarded headers.
-	Issuer             string
-	Clients            []NativeClient
+	Issuer  string
+	Clients []NativeClient
+	// ClientLookup is optional and fail-closed. Never acquire another connection
+	// when db is a live transaction, or retain its handle.
+	ClientLookup       func(db *gorm.DB, id string) (NativeClient, bool)
 	RefreshAbsoluteTTL time.Duration
 	RefreshIdleTTL     time.Duration
 }
@@ -111,7 +121,7 @@ type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int64  `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 	Scope        string `json:"scope"`
 }
 

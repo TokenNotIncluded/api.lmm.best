@@ -340,8 +340,19 @@ test('a new service shows pricing guidance before discovery and cannot save undi
   const originalAdapter = api.defaults.adapter
   const requests: string[] = []
   api.defaults.adapter = async (config) => {
+    if (config.method === 'get' && config.url === '/api/tool-market/config') {
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: { success: true, data: { provider_presets: [] } },
+      }
+    }
     requests.push(config.url ?? '')
-    assert.fail('A service without inspected tools must not write a draft')
+    assert.fail(
+      'A service without inspected tools must not write or inspect a draft'
+    )
   }
   const view = await renderEditor()
   try {
@@ -1209,5 +1220,62 @@ test('invalid usage drafts block real form submissions instead of saving the old
   } finally {
     await view.dispose()
     requests.restore()
+  }
+})
+
+test('provider switching clears secrets and locks endpoints without issuing a provider call', async () => {
+  const originalAdapter = api.defaults.adapter
+  const writes: string[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.method !== 'get' || config.url !== '/api/tool-market/config') {
+      writes.push(config.url ?? '')
+      assert.fail(
+        'Selecting a preset must not contact an upstream or save a draft'
+      )
+    }
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: {
+        success: true,
+        data: {
+          provider_presets: [
+            { id: 'monid', name: 'Monid', endpoint: 'https://mcp.monid.ai/v1' },
+            {
+              id: 'agentkey',
+              name: 'AgentKey',
+              endpoint: 'https://api.agentkey.app/v1/mcp',
+            },
+          ],
+        },
+      },
+    }
+  }
+  const view = await renderEditor()
+  try {
+    await view.select('#market-preset', 'monid')
+    const endpoint =
+      view.container.querySelector<HTMLInputElement>('#market-endpoint')!
+    assert.equal(endpoint.value, 'https://mcp.monid.ai/v1')
+    assert.equal(endpoint.disabled, true)
+    await view.input('#market-secret', 'fixture-key-not-real')
+    await view.input('#market-multiplier', '1.5')
+    await view.select('#market-preset', 'agentkey')
+    assert.equal(endpoint.value, 'https://api.agentkey.app/v1/mcp')
+    assert.equal(
+      view.container.querySelector<HTMLInputElement>('#market-secret')!.value,
+      ''
+    )
+    assert.equal(view.button('Save draft').disabled, true)
+    await view.select('#market-preset', '')
+    assert.equal(endpoint.value, '')
+    assert.equal(endpoint.disabled, false)
+    assert.equal(view.container.querySelector('#market-multiplier'), null)
+    assert.deepEqual(writes, [])
+  } finally {
+    await view.dispose()
+    api.defaults.adapter = originalAdapter
   }
 })

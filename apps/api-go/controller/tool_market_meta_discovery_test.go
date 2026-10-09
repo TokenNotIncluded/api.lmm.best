@@ -198,3 +198,52 @@ func TestToolMarketMetaCompactModeDoesNotWidenReadOnlyPermission(t *testing.T) {
 	require.NoError(t, db.Model(&model.ToolMarketCall{}).Count(&calls).Error)
 	require.Zero(t, calls)
 }
+
+func TestToolMarketMetaHTTPRejectsAmbiguousCredentialsAndModes(t *testing.T) {
+	_, user := setupToolMarketBuiltinControllerTest(t)
+	token, _, err := model.CreateToolMarketToken(user.Id, "http-boundaries", false, false, common.GetTimestamp()+3600)
+	require.NoError(t, err)
+	for _, query := range []string{"?mode=compact&mode=full", "?mode=compact&token=ignored", "?access_token=ignored", "?mode=%XX", "?mode=unknown"} {
+		request := httptest.NewRequest(http.MethodPost, "/mcp/market"+query, strings.NewReader(`{}`))
+		request.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		NewToolMarketMCPHandler().ServeHTTP(response, request)
+		require.Equal(t, 400, response.Code, query)
+	}
+	for _, header := range []string{"Cookie", "X-Api-Key", "X-Goog-Api-Key", "New-Api-User"} {
+		request := httptest.NewRequest(http.MethodPost, "/mcp/market?mode=compact", strings.NewReader(`{}`))
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set(header, "ignored")
+		response := httptest.NewRecorder()
+		NewToolMarketMCPHandler().ServeHTTP(response, request)
+		require.Equal(t, 400, response.Code, header)
+	}
+	request := httptest.NewRequest(http.MethodOptions, "/mcp/market", nil)
+	request.Header.Set("Origin", "https://client.example")
+	response := httptest.NewRecorder()
+	NewToolMarketMCPHandler().ServeHTTP(response, request)
+	require.Equal(t, 204, response.Code)
+	require.Empty(t, response.Header().Get("Access-Control-Allow-Credentials"))
+}
+
+func TestToolMarketMetaDescriptorIsSharedWithProtocol(t *testing.T) {
+	implementation, err := newToolMarketMCPServerWithMode(marketMCPIdentity{}, true)
+	require.NoError(t, err)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	ss, err := implementation.Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer ss.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "descriptor-check", Version: "1"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+	list, err := cs.ListTools(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, list.Tools, 1)
+	actual, err := json.Marshal(list.Tools[0])
+	require.NoError(t, err)
+	expected, err := json.Marshal(toolMarketMetaDefinition())
+	require.NoError(t, err)
+	require.JSONEq(t, string(expected), string(actual))
+}

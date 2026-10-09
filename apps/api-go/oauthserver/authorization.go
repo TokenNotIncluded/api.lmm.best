@@ -23,7 +23,7 @@ func (s *Server) BeginAuthorization(ctx context.Context, rawQuery, browserBindin
 	if err != nil {
 		return nil, err
 	}
-	client, exists := s.clients[values.Get("client_id")]
+	client, exists := s.resolveClient(s.db.WithContext(ctx), values.Get("client_id"))
 	if !exists {
 		return nil, protocolError("invalid_client")
 	}
@@ -50,7 +50,7 @@ func (s *Server) BeginAuthorization(ctx context.Context, rawQuery, browserBindin
 	}
 	now := s.now()
 	row := model.OAuthServerAuthorization{
-		Digest: digest(handle), Issuer: s.issuer, ClientID: client.ID, RedirectURI: values.Get("redirect_uri"),
+		Digest: digest(handle), Issuer: s.issuer, ClientID: client.ID, ClientName: client.Name, RedirectURI: values.Get("redirect_uri"),
 		Resource: values.Get("resource"), Scope: strings.Join(scopes, " "), State: state,
 		CodeChallenge: values.Get("code_challenge"), BrowserDigest: browserDigest(browserBinding),
 		CreatedAtMs: now.UnixMilli(), ExpiresAtMs: now.Add(AuthorizationTTL).UnixMilli(),
@@ -77,7 +77,11 @@ func (s *Server) authorizationError(code, redirect, state string) *ProtocolError
 }
 
 func (s *Server) pendingView(row model.OAuthServerAuthorization, handle string) PendingAuthorization {
-	return PendingAuthorization{Transaction: handle, ClientID: row.ClientID, ClientName: s.clients[row.ClientID].Name,
+	name := row.ClientName
+	if name == "" {
+		name = s.clients[row.ClientID].Name
+	}
+	return PendingAuthorization{Transaction: handle, ClientID: row.ClientID, ClientName: name,
 		RedirectURI: row.RedirectURI, Resource: row.Resource, Scopes: strings.Split(row.Scope, " "),
 		State: row.State, CodeChallenge: row.CodeChallenge, UserID: row.UserID,
 		ExpiresAt: time.UnixMilli(row.ExpiresAtMs)}

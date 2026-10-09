@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 
+	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
@@ -56,6 +57,7 @@ func GetToolMarketCredential(c *gin.Context) {
 
 func InspectToolMarketRemoteWithCredentials(c *gin.Context) {
 	var input struct {
+		Preset         string `json:"preset"`
 		Endpoint       string `json:"endpoint"`
 		ServiceID      string `json:"service_id"`
 		VersionID      string `json:"version_id"`
@@ -92,7 +94,17 @@ func InspectToolMarketRemoteWithCredentials(c *gin.Context) {
 			return
 		}
 	}
+	if input.Preset != "" {
+		preset, ok := marketprovider.Find(input.Preset)
+		if !ok || input.Endpoint != preset.Endpoint || credential == nil || credential.Mode != "bearer" {
+			toolMarketRespond(c, nil, model.ErrToolMarketInput)
+			return
+		}
+	}
 	tools, err := service.InspectToolMarketRemoteAuthenticated(c.Request.Context(), input.Endpoint, credential)
+	if err == nil && input.Preset != "" {
+		tools, err = service.ToolMarketPresetTools(input.Preset, tools)
+	}
 	toolMarketRespond(c, toolMarketDiscoveryRows(tools), err)
 }
 

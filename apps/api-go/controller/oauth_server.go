@@ -119,6 +119,7 @@ func (h *OAuthHTTP) Metadata(c *gin.Context) {
 	metadata.AuthorizationEndpoint = h.Integration.Issuer + "/api/oauth2/authorize"
 	metadata.TokenEndpoint = h.Integration.Issuer + "/api/oauth2/token"
 	metadata.RevocationEndpoint = h.Integration.Issuer + "/api/oauth2/revoke"
+	metadata.RegistrationEndpoint = h.Integration.Issuer + "/api/oauth2/register"
 	// Group scopes are consent-generated and can disclose deployment structure.
 	// Public discovery advertises the fixed application and built-in MCP scopes.
 	metadata.ScopesSupported = append(append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope)
@@ -312,6 +313,12 @@ func (h *OAuthHTTP) failed(c *gin.Context, language, clientName string) {
 }
 
 func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
+	normalized, normalizeErr := h.Integration.MCPAuthorizationQuery(c.Request.Context(), raw)
+	if normalizeErr != nil {
+		h.render(c, 400, oauthPageData{Language: language, Mode: "failed"})
+		return
+	}
+	raw = normalized
 	binding, err := oauthRandom()
 	if err != nil {
 		h.failed(c, language, oauthRequestClientName(raw))
@@ -341,7 +348,7 @@ func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
 		h.failed(c, language, oauthRequestClientName(raw))
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: language, Mode: "preflight", CSRF: csrf, Action: oauthBrowserContinue, Resource: h.Integration.Resource, ClientName: pending.ClientName})
+	h.render(c, 200, oauthPageData{Language: language, Mode: "preflight", CSRF: csrf, Action: oauthBrowserContinue, Resource: pending.Resource, ClientName: pending.ClientName})
 }
 
 func (h *OAuthHTTP) Authorize(c *gin.Context) {
@@ -399,7 +406,7 @@ func (h *OAuthHTTP) Continue(c *gin.Context) {
 		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: h.Integration.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups, CanInvoke: slices.Contains(consent.Scopes, service.OAuthInvokeScope), MarketPermissions: marketOAuthPermissionLabels(flow.Language, consent.Scopes)})
+	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: consent.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups, CanInvoke: slices.Contains(consent.Scopes, service.OAuthInvokeScope), MarketPermissions: marketOAuthPermissionLabels(flow.Language, consent.Scopes)})
 }
 
 func (h *OAuthHTTP) Consent(c *gin.Context) {

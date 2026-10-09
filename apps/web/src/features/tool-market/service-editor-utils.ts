@@ -91,6 +91,16 @@ export function refreshToolDefinitions(
     }
     return {
       ...tool,
+      provider_pricing: options.endpointChanged
+        ? tool.provider_pricing
+        : tool.provider_pricing
+          ? {
+              ...tool.provider_pricing,
+              multiplier:
+                existing.provider_pricing?.multiplier ??
+                tool.provider_pricing.multiplier,
+            }
+          : undefined,
       price_quota: existing.price_quota,
       billing_mode: existing.billing_mode,
       input_token_price_quota: existing.input_token_price_quota,
@@ -108,7 +118,10 @@ export function refreshToolDefinitions(
       ? tools.map((tool) => tool.name)
       : previous.selected.filter((name) => discoveredNames.has(name)),
     prices: Object.fromEntries(
-      tools.map((tool) => [tool.name, previous.prices[tool.name] ?? '0'])
+      tools.map((tool) => [
+        tool.name,
+        previous.prices[tool.name] ?? String(tool.price_quota),
+      ])
     ),
     changes,
   }

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -61,6 +62,7 @@ type ToolMarketTool struct {
 }
 
 type ToolMarketToolVersion struct {
+	ProviderPricing          *marketprovider.Pricing `json:"provider_pricing,omitempty" gorm:"serializer:json;type:text"`
 	VersionID                string                  `json:"version_id" gorm:"primaryKey;size:36"`
 	ToolID                   string                  `json:"tool_id" gorm:"primaryKey;size:36"`
 	Name                     string                  `json:"name" gorm:"size:128;not null"`
@@ -152,6 +154,7 @@ func toolMarketModels() []interface{} {
 }
 
 type ToolMarketToolInput struct {
+	ProviderPricing      *marketprovider.Pricing `json:"provider_pricing,omitempty"`
 	Name                 string                  `json:"name"`
 	Description          string                  `json:"description"`
 	InputSchema          json.RawMessage         `json:"input_schema"`
@@ -278,6 +281,9 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 		}
 	}
 	for _, tool := range in.Tools {
+		if (tool.ProviderPricing != nil && in.ExecutionType != "remote") || marketprovider.ValidateTool(in.Endpoint, tool.Name, tool.ProviderPricing) != nil {
+			return nil, ErrToolMarketInput
+		}
 		if tool.BillingMode != "" && !marketDraftMeteringAllowed(serviceID, in.Endpoint, tool) {
 			return nil, ErrToolMarketMetering
 		}
@@ -346,7 +352,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				return err
 			}
 			permissions, _ := json.Marshal(input.Permissions)
-			tv := ToolMarketToolVersion{VersionID: version.ID, ToolID: tool.ID, Name: tool.Name, Description: input.Description, InputSchema: string(input.InputSchema), OutputSchema: string(input.OutputSchema), Permissions: string(permissions), PriceQuota: input.PriceQuota, BillingMode: input.BillingMode, InputTokenPriceQuota: input.InputTokenPriceQuota, MaxInputTokens: input.MaxInputTokens, BillingRules: input.BillingRules}
+			tv := ToolMarketToolVersion{ProviderPricing: input.ProviderPricing, VersionID: version.ID, ToolID: tool.ID, Name: tool.Name, Description: input.Description, InputSchema: string(input.InputSchema), OutputSchema: string(input.OutputSchema), Permissions: string(permissions), PriceQuota: input.PriceQuota, BillingMode: input.BillingMode, InputTokenPriceQuota: input.InputTokenPriceQuota, MaxInputTokens: input.MaxInputTokens, BillingRules: input.BillingRules}
 			if err := tx.Create(&tv).Error; err != nil {
 				return err
 			}

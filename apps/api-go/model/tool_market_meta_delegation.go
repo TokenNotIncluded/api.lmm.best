@@ -349,12 +349,12 @@ func ToolMarketMetaPersonalSubject(userID int, tokenID string) (ToolMarketMetaSu
 
 // OAuth targets are selected only by configured issuer/resource and owner.
 // No caller-selected family, credential scopes or another client's ID is used.
-func ToolMarketMetaOAuthSubjects(userID int, clientID, issuer, resource string) ([]ToolMarketMetaSubject, error) {
+func ToolMarketMetaOAuthSubjects(userID int, clientID, issuer, resource string, additionalResources ...string) ([]ToolMarketMetaSubject, error) {
 	if userID <= 0 || !marketClientValid(clientID) || !strings.HasPrefix(clientID, "oauth:") || issuer == "" || resource == "" {
 		return nil, ErrToolMarketInput
 	}
 	var rows []OAuthServerGrant
-	if err := DB.Where("user_id = ? AND issuer = ? AND resource = ? AND revoked_at_ms = 0 AND absolute_expires_at_ms > ?", userID, issuer, resource, common.GetTimestamp()*1000).
+	if err := DB.Where("user_id = ? AND issuer = ? AND resource IN ? AND revoked_at_ms = 0 AND absolute_expires_at_ms > ?", userID, issuer, append([]string{resource}, additionalResources...), common.GetTimestamp()*1000).
 		Scopes(marketExactTextScope("client_id", strings.TrimPrefix(clientID, "oauth:"))).Limit(101).Find(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -366,7 +366,7 @@ func ToolMarketMetaOAuthSubjects(userID int, clientID, issuer, resource string) 
 		if !containsOAuthScope(row.Scope, "market:discover") || !containsOAuthScope(row.Scope, "market:invoke") || !containsOAuthScope(row.Scope, "market:manage") || row.BindingMethod != "" || row.BindingThumbprint != "" {
 			continue
 		}
-		subjects = append(subjects, ToolMarketMetaSubject{UserID: userID, ClientID: clientID, CredentialKind: "oauth", CredentialID: row.ID, OAuthIssuer: issuer, OAuthResource: resource, CanInvoke: true, CanManage: true})
+		subjects = append(subjects, ToolMarketMetaSubject{UserID: userID, ClientID: clientID, CredentialKind: "oauth", CredentialID: row.ID, OAuthIssuer: issuer, OAuthResource: row.Resource, CanInvoke: true, CanManage: true})
 	}
 	if len(subjects) == 0 {
 		return nil, ErrToolMarketDenied
