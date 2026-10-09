@@ -22,7 +22,7 @@ import { getSelf } from '@/lib/api'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 let latestAccountRefresh:
-  | { userId: number; sessionId: string | undefined }
+  | { userId: number; sessionId: string | undefined; accountWriteEpoch: number }
   | undefined
 
 export async function refreshCurrentAccount(): Promise<AuthUser | null> {
@@ -30,7 +30,11 @@ export async function refreshCurrentAccount(): Promise<AuthUser | null> {
   if (!before.user) return null
   // The object is this read's generation. A newer read supersedes it even if
   // the user and session are unchanged (for example, immediately after L1).
-  const request = { userId: before.user.id, sessionId: before.session?.sid }
+  const request = {
+    userId: before.user.id,
+    sessionId: before.session?.sid,
+    accountWriteEpoch: before.accountWriteEpoch,
+  }
   latestAccountRefresh = request
   try {
     const response = await getSelf({
@@ -40,6 +44,7 @@ export async function refreshCurrentAccount(): Promise<AuthUser | null> {
     const after = useAuthStore.getState().auth
     if (
       latestAccountRefresh !== request ||
+      after.accountWriteEpoch !== request.accountWriteEpoch ||
       after.user?.id !== request.userId ||
       after.session?.sid !== request.sessionId
     ) {
