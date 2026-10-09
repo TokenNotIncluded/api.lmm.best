@@ -1,0 +1,102 @@
+name: Publish validated deployment refactor
+
+# Temporary transport of locally tested files. No tests, release, or server access.
+on:
+  push:
+    branches: [refactor/remove-go-deploy-cli]
+    paths: [.github/workflows/apply-deploy-refactor.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-deployment-refactor-branch
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/refactor/remove-go-deploy-cli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Verify source identity and replay exact tested edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch=refs/heads/refactor/remove-go-deploy-cli
+          [[ $(git ls-remote origin "$branch" | cut -f1) == "$GITHUB_SHA" ]]
+          git diff --quiet b009976199d4441f4e8b465db2c623e9008ba056 HEAD -- . \
+            ':(exclude).github/workflows/deploy-refactor-source-export.yml' \
+            ':(exclude).github/workflows/apply-deploy-refactor.yml' \
+            ':(exclude).github/refactor-payload.part*'
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json, lzma, subprocess
+          from pathlib import Path, PurePosixPath
+          BASE='b009976199d4441f4e8b465db2c623e9008ba056'
+          H=lambda data: hashlib.sha256(data).hexdigest()
+          encoded=''.join(Path(f'.github/refactor-payload.part{i}').read_text().strip() for i in range(3))
+          compressed=base64.b64decode(encoded,validate=True)
+          assert H(compressed)=='3f283862e6e1f4ce25eebcb3eb27af80ad088abb0d41a33fa574a972d8b66117', 'transport hash mismatch'
+          plan=json.loads(lzma.decompress(compressed))
+          assert plan['base']==BASE and len(plan['edits'])==175
+          def safe_path(name):
+              if name is None: return None
+              p=PurePosixPath(name)
+              assert str(p)==name and not p.is_absolute() and not set(p.parts)&{'..','.git'}
+              assert p.parts[0] in {'.agents','.github','apps','docs','scripts','packaging','justfile','package.json'}
+              for ancestor in Path(name).parents:
+                  assert not ancestor.is_symlink(), 'symlink parent'
+              assert not Path(name).is_symlink(), 'symlink target'
+              return Path(name)
+          def original(name):
+              return b'' if name is None else subprocess.check_output(['git','show',BASE+':'+name])
+          manifest=[]; outputs=[]; removals=[]; seen=set()
+          for edit in plan['edits']:
+              old,new=edit['old'],edit['path']
+              safe_path(old); target=safe_path(new)
+              before=original(old)
+              if new is None:
+                  after=b''
+              elif 'gzip_from' in edit:
+                  safe_path(edit['gzip_from'])
+                  after=gzip.compress(original(edit['gzip_from']),mtime=0)
+              else:
+                  lines=before.decode().splitlines(keepends=True)
+                  previous=len(lines)+1
+                  for start,end,text in reversed(edit['edits']):
+                      assert 0<=start<=end<=len(lines) and end<=previous
+                      lines[start:end]=[text]
+                      previous=start
+                  after=''.join(lines).encode()
+              manifest.append([old,new,edit.get('mode'),H(before),H(after)])
+              if old!=new and old is not None: removals.append(Path(old))
+              if target is not None:
+                  assert new not in seen and edit['mode'] in ('100644','100755')
+                  if old!=new: assert not target.exists(), 'new path already exists'
+                  seen.add(new); outputs.append((target,after,int(edit['mode'][-3:],8)))
+          assert H(json.dumps(manifest,separators=(',',':')).encode())==plan['manifest_sha256']=='8b0c878772724f66b288d311e18d05ef850ff8946787ab67c71eedeefb08e10f', 'tested file manifest mismatch'
+          for path in removals: path.unlink()
+          for path,body,mode in outputs:
+              path.parent.mkdir(parents=True,exist_ok=True); path.write_bytes(body); path.chmod(mode)
+          for name in ['.github/workflows/deploy-refactor-source-export.yml','.github/workflows/apply-deploy-refactor.yml',*[f'.github/refactor-payload.part{i}' for i in range(3)]]:
+              Path(name).unlink()
+          subprocess.run(['git','add','-A'],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          actual=set(subprocess.check_output(['git','diff','--cached','--no-renames','--name-only',BASE]).decode().splitlines())
+          expected={n for e in plan['edits'] for n in (e['old'],e['path']) if n is not None}
+          assert actual==expected, 'unexpected changed paths'
+          print('Verified',len(manifest),'edits; local tested-file manifest',plan['manifest_sha256'])
+          PY
+          git diff --cached -M --stat b009976199d4441f4e8b465db2c623e9008ba056
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'refactor(deploy): remove embedded Go operator and ship separate signed deployment tool' \
+            -m 'Move deployment implementation/tests out of API linkage; bind separate backend and tool hashes across scripts, releases, packages and retained recovery. Local Go tests, race/vet, all-package compile, real executable smoke and Python regression checks completed. No release or production deployment. Remove all temporary transport workflows and payloads.'
+          [[ $(git ls-remote origin "$branch" | cut -f1) == "$GITHUB_SHA" ]]
+          git push origin "HEAD:$branch"
+          git log -1 --format='Published commit: %H%nTree: %T'
