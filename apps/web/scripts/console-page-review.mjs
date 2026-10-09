@@ -99,25 +99,6 @@ for (const category of [
     adminRoutes.push(`/system-settings/${category}/${match[1]}`)
   }
 }
-const mobileRoutes = [
-  '/dashboard/overview',
-  '/temporary-activations',
-  '/',
-  '/profile',
-  '/wallet',
-  '/keys',
-  '/company',
-  '/usage-logs/common',
-  '/open-source-bounties',
-  '/public-relay',
-  '/tool-market',
-  '/scripts',
-  '/challenges',
-  '/rankings',
-  '/support',
-  '/todos',
-  '/drawing',
-]
 const report = []
 const browser = await chromium.launch({
   headless: true,
@@ -145,6 +126,21 @@ async function snapshot(page, persona, destination, errors, suffix = '') {
   const dimensions = await page.evaluate(() => ({
     width: innerWidth,
     scroll: document.documentElement.scrollWidth,
+    navigationTabs: [
+      ...document.querySelectorAll(
+        '[role="tablist"][data-variant="navigation"]'
+      ),
+    ]
+      .filter((node) => node.getBoundingClientRect().width > 0)
+      .map((node) => ({
+        height: node.getBoundingClientRect().height,
+        rows: new Set(
+          [...node.querySelectorAll('[role="tab"]')].map((tab) =>
+            Math.round(tab.getBoundingClientRect().top)
+          )
+        ).size,
+        overflowing: node.scrollWidth > node.clientWidth,
+      })),
   }))
   const title = await page.locator('h1:visible,h2:visible').allTextContents()
   const crash =
@@ -195,10 +191,13 @@ try {
   for (const [persona, routes, width] of [
     ['l1', userRoutes, 1440],
     ['admin', adminRoutes, 1440],
-    ['l1', mobileRoutes, 390],
+    ['l1', userRoutes, 390],
+    ['admin', adminRoutes, 390],
   ]) {
     const context = await browser.newContext({
       viewport: { width, height: width === 390 ? 844 : 1000 },
+      hasTouch: width === 390,
+      reducedMotion: 'reduce',
       locale: 'zh-CN',
       serviceWorkers: 'block',
     })
@@ -255,11 +254,23 @@ try {
         }, `${destination}?debug_persona=${persona}&console_review=1`)
         await settle(page)
         await snapshot(page, persona, destination, errors)
+        await page.evaluate(() =>
+          document.documentElement.classList.add('dark')
+        )
+        await snapshot(page, persona, destination, errors, '-dark')
+        await page.evaluate(() =>
+          document.documentElement.classList.remove('dark')
+        )
         if (destination === '/profile') {
           const tabs = page.locator('.console-page-tabs > [role=tablist]')
           const all = tabs.getByRole('tab')
           for (let index = 1; index < (await all.count()); index += 1) {
             await all.nth(index).click()
+            if (index === 4) {
+              await page
+                .locator('[role=tabpanel]:visible a[href="/wallet"]')
+                .waitFor()
+            }
             await snapshot(page, persona, destination, errors, `-tab-${index}`)
           }
         }
@@ -301,24 +312,6 @@ try {
             await button.click()
           }
         }
-        if (
-          width === 1440 &&
-          [
-            '/temporary-activations',
-            '/keys',
-            '/wallet',
-            '/profile',
-            '/channels',
-          ].includes(destination)
-        ) {
-          await page.evaluate(() =>
-            document.documentElement.classList.add('dark')
-          )
-          await snapshot(page, persona, destination, errors, '-dark')
-          await page.evaluate(() =>
-            document.documentElement.classList.remove('dark')
-          )
-        }
       } catch (error) {
         report.push({
           persona,
@@ -347,7 +340,10 @@ const failures = report.filter(
     entry.error ||
     entry.crash ||
     entry.errors.length ||
-    entry.dimensions.scroll > entry.dimensions.width + 1
+    entry.dimensions.scroll > entry.dimensions.width + 1 ||
+    entry.dimensions.navigationTabs.some(
+      (tabs) => tabs.rows > 1 || tabs.height > 56
+    )
 )
 console.log(
   `Captured ${report.length} route/view states; failures: ${failures.length}`

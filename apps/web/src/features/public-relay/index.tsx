@@ -645,7 +645,7 @@ export function PublicRelay() {
               </div>
             ) : null}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList>
+              <TabsList variant='navigation'>
                 <TabsTrigger value='routing'>
                   {t('Channel routing')}
                 </TabsTrigger>

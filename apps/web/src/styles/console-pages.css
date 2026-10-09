@@ -73,14 +73,19 @@ For commercial licensing, please contact support@quantumnous.com
   min-width: 0;
   gap: 1.25rem;
 }
-.console-editorial .console-page-tabs > [data-slot='tabs-list'] {
+.console-editorial
+  .console-page-tabs
+  > [data-slot='tabs-list']:not([data-variant='navigation']) {
   height: auto;
   min-height: 2.75rem;
   justify-content: flex-start;
   overflow-x: auto;
   padding: 0.25rem;
 }
-.console-editorial .console-page-tabs > [data-slot='tabs-list'] > button {
+.console-editorial
+  .console-page-tabs
+  > [data-slot='tabs-list']:not([data-variant='navigation'])
+  > button {
   min-height: 2.25rem;
   padding-inline: 1rem;
 }
@@ -162,7 +167,10 @@ For commercial licensing, please contact support@quantumnous.com
   .console-editorial .console-page-heading {
     align-items: flex-start;
   }
-  .console-editorial .console-page-tabs > [data-slot='tabs-list'] > button {
+  .console-editorial
+    .console-page-tabs
+    > [data-slot='tabs-list']:not([data-variant='navigation'])
+    > button {
     min-height: 2.75rem;
     padding-inline: 0.85rem;
   }
@@ -199,7 +207,10 @@ For commercial licensing, please contact support@quantumnous.com
   justify-content: start;
   overflow-x: auto;
 }
-.console-editorial .console-page [data-slot='tabs-trigger'] {
+.console-editorial
+  .console-page
+  [data-slot='tabs-list']:not([data-variant='navigation'])
+  > [data-slot='tabs-trigger'] {
   padding-inline: 0.75rem;
 }
 
@@ -292,7 +303,7 @@ For commercial licensing, please contact support@quantumnous.com
     max(0.4rem, env(safe-area-inset-bottom))
     max(0.75rem, env(safe-area-inset-left));
   background: var(--background);
-  box-shadow: 0 -8px 24px color-mix(in oklch, var(--foreground) 3%, transparent);
+  box-shadow: none;
 }
 .console-mobile-dock :is(a, button) {
   display: flex;
@@ -350,8 +361,16 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
-.console-service-notice {
+.console-shell-footer {
   position: relative;
+  flex-shrink: 0;
+  background: var(--background);
+}
+.console-service-icon {
+  display: none;
+}
+.console-service-notice {
+  position: static;
   background: var(--background);
   color: var(--muted-foreground);
   text-align: center;
@@ -388,4 +407,58 @@ For commercial licensing, please contact support@quantumnous.com
 .console-service-notice :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
+}
+
+/* A single footer row gives small screens their content height back. Keep the
+ * same service/consent component mounted when the viewport or dock changes. */
+@media (max-width: 767px) {
+  /* Native disclosure content sits above the footer, outside the animated row. */
+  [data-mobile-scroll-chrome][data-hidden='false']
+    > .mobile-scroll-chrome-inner:has(.console-service-notice[open]) {
+    overflow: visible;
+  }
+  .console-shell-footer:has(.console-mobile-dock) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 3rem;
+    align-items: center;
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  }
+  .console-shell-footer .console-mobile-dock {
+    padding-right: 0;
+    padding-bottom: 0.4rem;
+  }
+  .console-shell-footer:has(.console-mobile-dock)
+    .console-service-notice
+    > summary {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.75rem;
+  }
+  .console-shell-footer:has(.console-mobile-dock)
+    .console-service-notice
+    > summary
+    > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .console-shell-footer:has(.console-mobile-dock) .console-service-icon {
+    display: block;
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+}
+
+.console-bounties .bounty-funding-details {
+  border-bottom: 1px solid var(--border);
+}
+.console-bounties .bounty-funding-details > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
 }

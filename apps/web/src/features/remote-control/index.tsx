@@ -21,10 +21,15 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Markdown } from '@/components/ui/markdown'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/lib/api'
 import { formatTimestampToDate } from '@/lib/format'
 
@@ -347,56 +352,70 @@ export function RemoteControl() {
       <SectionPageLayout.Title>{t('Remote control')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-6xl pb-16'>
-          <Tabs defaultValue='pi'>
-            <TabsList aria-label={t('Runtime')}>
-              <TabsTrigger value='pi'>Pi</TabsTrigger>
-            </TabsList>
-            <TabsContent value='pi' className='pt-4'>
-              <div className='grid gap-6 lg:grid-cols-[minmax(16rem,0.36fr)_minmax(0,1fr)]'>
-                <div className='space-y-2'>
-                  {sessionsQuery.isPending ? (
-                    <p className='text-muted-foreground text-sm'>
-                      {t('Loading...')}
-                    </p>
-                  ) : sessionsQuery.isError ? (
-                    <p className='text-destructive text-sm'>
-                      {t('Failed to load')}
-                    </p>
-                  ) : sessions.length === 0 ? (
-                    <p className='text-muted-foreground text-sm'>
-                      {t('No active sessions')}
-                    </p>
-                  ) : (
-                    sessions.map((session) => (
-                      <button
-                        key={session.sessionId}
-                        type='button'
-                        onClick={() => setSelectedId(session.sessionId)}
-                        className={`focus-visible:border-ring focus-visible:ring-ring/50 w-full border p-3 text-left outline-none focus-visible:ring-3 ${selected?.sessionId === session.sessionId ? 'bg-muted' : ''}`}
+          <div className='pt-1'>
+            <div
+              className={`grid gap-6 ${sessions.length > 0 ? 'lg:grid-cols-[minmax(16rem,0.36fr)_minmax(0,1fr)]' : ''}`}
+            >
+              <div className='space-y-2'>
+                {sessionsQuery.isPending ? (
+                  <p className='text-muted-foreground text-sm'>
+                    {t('Loading...')}
+                  </p>
+                ) : sessionsQuery.isError ? (
+                  <p className='text-destructive text-sm'>
+                    {t('Failed to load')}
+                  </p>
+                ) : sessions.length === 0 ? (
+                  <Empty className='bg-muted/30 min-h-56'>
+                    <EmptyHeader>
+                      <EmptyMedia
+                        variant='icon'
+                        className='size-12 rounded-2xl'
                       >
-                        <div className='flex items-center gap-2 text-sm font-medium'>
-                          <MonitorCog className='size-4' aria-hidden='true' />
-                          <span className='truncate'>{session.deviceId}</span>
+                        <MonitorCog className='size-6' aria-hidden='true' />
+                      </EmptyMedia>
+                      <EmptyTitle>{t('No active sessions')}</EmptyTitle>
+                    </EmptyHeader>
+                    <Button
+                      variant='outline'
+                      className='min-h-11'
+                      disabled={sessionsQuery.isFetching}
+                      onClick={() => void sessionsQuery.refetch()}
+                    >
+                      <RefreshCw className='size-4' aria-hidden='true' />
+                      {t('Refresh')}
+                    </Button>
+                  </Empty>
+                ) : (
+                  sessions.map((session) => (
+                    <button
+                      key={session.sessionId}
+                      type='button'
+                      onClick={() => setSelectedId(session.sessionId)}
+                      className={`focus-visible:border-ring focus-visible:ring-ring/50 w-full border p-3 text-left outline-none focus-visible:ring-3 ${selected?.sessionId === session.sessionId ? 'bg-muted' : ''}`}
+                    >
+                      <div className='flex items-center gap-2 text-sm font-medium'>
+                        <MonitorCog className='size-4' aria-hidden='true' />
+                        <span className='truncate'>{session.deviceId}</span>
+                      </div>
+                      <div className='text-muted-foreground mt-2 space-y-1 text-xs'>
+                        <div>
+                          {displayTime(session.updatedAt) || t('Unknown')}
                         </div>
-                        <div className='text-muted-foreground mt-2 space-y-1 text-xs'>
-                          <div>
-                            {displayTime(session.updatedAt) || t('Unknown')}
-                          </div>
-                          <div className='truncate'>{session.sessionId}</div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-                {selected ? (
-                  <SessionWorkspace
-                    key={selected.sessionId}
-                    envelope={selected}
-                  />
-                ) : null}
+                        <div className='truncate'>{session.sessionId}</div>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
-            </TabsContent>
-          </Tabs>
+              {selected ? (
+                <SessionWorkspace
+                  key={selected.sessionId}
+                  envelope={selected}
+                />
+              ) : null}
+            </div>
+          </div>
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>
