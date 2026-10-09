@@ -210,6 +210,28 @@ export function assistantPolicyMatchesCatalog(
   )
 }
 
+/** Rules require an explicit parser capability, independent of tool names. */
+export function supportsAssistantToolPolicyRules(payload: unknown): boolean {
+  const envelope = record(payload)
+  const data = record(envelope?.data)
+  return (
+    envelope?.success === true &&
+    record(data?.capabilities)?.policy_rules === true
+  )
+}
+
+export function assistantPolicyMatchesBackendCatalog(
+  policy: AssistantToolPolicy,
+  payload: unknown
+): boolean {
+  const groups = parseAssistantToolCatalog(payload)
+  return (
+    groups !== null &&
+    assistantPolicyMatchesCatalog(policy, groups) &&
+    (policy.rules === undefined || supportsAssistantToolPolicyRules(payload))
+  )
+}
+
 export function isAssistantToolEnabled(
   policy: AssistantToolPolicy,
   group: string,

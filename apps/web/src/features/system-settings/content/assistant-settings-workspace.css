@@ -74,8 +74,6 @@ License, or (at your option) any later version.
   line-height: 1.7;
 }
 .assistant-settings-footer {
-  position: sticky;
-  bottom: 0;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -83,7 +81,11 @@ License, or (at your option) any later version.
   margin-top: 28px;
   border-top: 1px solid var(--border);
   background: var(--background);
-  z-index: 2;
+}
+/* The inline footer is a standalone fallback, never a second save dock. */
+.settings-workspace:has(.settings-save-target .settings-form-actions)
+  .assistant-settings-footer {
+  display: none;
 }
 @media (max-width: 640px) {
   .assistant-settings-toolbar {

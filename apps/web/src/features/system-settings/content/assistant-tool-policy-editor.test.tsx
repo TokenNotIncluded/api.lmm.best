@@ -53,6 +53,7 @@ await i18n
 const catalog = {
   success: true,
   data: {
+    capabilities: { policy_rules: true },
     groups: [
       {
         id: 'api_keys',
@@ -222,6 +223,37 @@ test('fetches the authoritative catalog only when the tools panel becomes active
     )
     await rendered.rerender(false)
     assert.equal(rendered.requests, 1)
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+test('legacy catalogs keep known switches usable while configuration cannot add unsupported rules', async () => {
+  const rendered = await renderEditor({
+    get: () => ({ success: true, data: { groups: catalog.data.groups } }),
+  })
+  try {
+    const configure = rendered.container.querySelector<HTMLButtonElement>(
+      '[aria-label="Configure List API keys"]'
+    )
+    assert.ok(configure)
+    assert.equal(configure.disabled, true)
+    await click(configure)
+    assert.equal(
+      rendered.container.querySelector(
+        '[data-testid="assistant-tool-configuration"]'
+      ),
+      null
+    )
+    assert.deepEqual(rendered.changes, [])
+    await click(
+      rendered.container.querySelector(
+        '[data-tool-name="list_my_api_keys"] [role="switch"]'
+      )
+    )
+    const changed = JSON.parse(rendered.changes.at(-1)!)
+    assert.equal(changed.tools.list_my_api_keys, false)
+    assert.equal(Object.hasOwn(changed, 'rules'), false)
   } finally {
     await rendered.cleanup()
   }

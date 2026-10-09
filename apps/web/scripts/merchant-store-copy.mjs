@@ -4,6 +4,10 @@ export const merchantStoreRetiredKeys = [
 ]
 export const merchantStoreCopy = {
   en: {
+    'Extore import needs a persistent server encryption key. Ask an administrator to configure it.':
+      'Extore import needs a persistent server encryption key. Ask an administrator to configure it.',
+    'This draft stays private. Review its visibility before publishing.':
+      'This draft stays private. Review its visibility before publishing.',
     'Account email': 'Account email',
     'Activation keys': 'Activation keys',
     'Actual payment': 'Actual payment',
@@ -313,6 +317,10 @@ export const merchantStoreCopy = {
       'Payment confirmed; delivery needs review.',
   },
   zh: {
+    'Extore import needs a persistent server encryption key. Ask an administrator to configure it.':
+      'Extore 导入需要服务器配置持久加密密钥。请联系管理员检查配置。',
+    'This draft stays private. Review its visibility before publishing.':
+      '此草稿保持私有。发布前请确认可见性。',
     'Account email': '账号邮箱',
     'Activation keys': '卡密',
     'Actual payment': '实际支付',

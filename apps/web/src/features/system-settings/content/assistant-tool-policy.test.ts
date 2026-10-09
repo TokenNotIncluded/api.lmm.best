@@ -5,10 +5,12 @@ import { test } from 'node:test'
 import {
   DEFAULT_ASSISTANT_TOOL_POLICY,
   assistantPolicyMatchesCatalog,
+  assistantPolicyMatchesBackendCatalog,
   assistantToolPolicySchema,
   isAssistantToolEnabled,
   parseAssistantToolCatalog,
   parseAssistantToolPolicy,
+  supportsAssistantToolPolicyRules,
   updateAssistantToolPolicy,
   defaultAssistantToolRule,
   assistantToolRule,
@@ -44,6 +46,53 @@ const catalogPayload = {
     ],
   },
 }
+
+test('legacy catalogs retain known toggles but require literal capability for every rules field', () => {
+  const legacy = parseAssistantToolPolicy(
+    '{"version":1,"groups":{"api_keys":false},"tools":{"list_my_keys":false}}'
+  )
+  assert.ok(legacy)
+  assert.equal(
+    assistantPolicyMatchesBackendCatalog(legacy, catalogPayload),
+    true
+  )
+  for (const flag of [undefined, false, 'true', 1]) {
+    const payload = {
+      ...catalogPayload,
+      data: { ...catalogPayload.data, capabilities: { policy_rules: flag } },
+    }
+    assert.equal(supportsAssistantToolPolicyRules(payload), false)
+    assert.equal(
+      assistantPolicyMatchesBackendCatalog({ ...legacy, rules: {} }, payload),
+      false,
+      'even an empty rules object is an unknown top-level field on legacy parsers'
+    )
+  }
+  const supported = {
+    ...catalogPayload,
+    data: { ...catalogPayload.data, capabilities: { policy_rules: true } },
+  }
+  assert.equal(supportsAssistantToolPolicyRules(supported), true)
+  assert.equal(
+    assistantPolicyMatchesBackendCatalog(
+      { ...legacy, rules: { list_my_keys: { min_level: 2, max_level: 6 } } },
+      supported
+    ),
+    true
+  )
+  for (const scope of ['groups', 'tools'] as const) {
+    assert.equal(
+      assistantPolicyMatchesBackendCatalog(
+        {
+          ...legacy,
+          [scope]: { ...legacy[scope], new_server_identifier: false },
+        },
+        supported
+      ),
+      false
+    )
+  }
+})
 
 test('legacy empty policy and missing maps retain the default enabled behavior', () => {
   for (const raw of [

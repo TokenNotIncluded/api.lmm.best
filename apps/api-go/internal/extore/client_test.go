@@ -199,3 +199,28 @@ func TestMachineResponsesAreBounded(t *testing.T) {
 		t.Fatal("unbounded response")
 	}
 }
+
+func TestCatalogAllowsEmptyVariantsButRejectsMissingAndOversizedVariants(t *testing.T) {
+	for _, count := range []int{0, 100, 101} {
+		c := fixture(t)
+		var listing map[string]json.RawMessage
+		if err := json.Unmarshal(c.Products[0], &listing); err != nil {
+			t.Fatal(err)
+		}
+		variants := make([]map[string]any, count)
+		for i := range variants {
+			variants[i] = map[string]any{"price": nil, "attributes": map[string]any{}}
+		}
+		listing["variants"], _ = json.Marshal(variants)
+		c.Products[0], _ = json.Marshal(listing)
+		err := ValidateCatalog(c, c.Issuer, c.GrantID)
+		if (err == nil) != (count <= 100) {
+			t.Fatalf("count %d: %v", count, err)
+		}
+		delete(listing, "variants")
+		c.Products[0], _ = json.Marshal(listing)
+		if !errors.Is(ValidateCatalog(c, c.Issuer, c.GrantID), ErrProtocol) {
+			t.Fatal("accepted missing variants")
+		}
+	}
+}

@@ -46,6 +46,7 @@ import {
   structuredTemplate,
   validateComposedItems,
 } from './delivery-template'
+import { extoreCallbackURL, clearExtoreCallbackURL } from './extore-callback'
 import { StoreExtoreImport } from './extore-import'
 import { EXTORE_COPY as extoreCopy } from './extore-import-copy'
 import type { ExtoreDraft } from './extore-import-protocol'
@@ -138,19 +139,12 @@ function StoreSellerCenter() {
   })
   const promotionKeys = useRef(new Map<string, string>())
   const [editing, setEditing] = useState<StoreProduct | 'new' | null>(null)
-  const [extoreCallback, setExtoreCallback] = useState<string | null>(() => {
-    const query = new URLSearchParams(window.location.search)
-    return query.has('state') &&
-      query.has('iss') &&
-      (query.has('code') || query.has('error'))
-      ? window.location.href
-      : null
-  })
+  const [extoreCallback, setExtoreCallback] = useState(extoreCallbackURL)
   const [importing, setImporting] = useState(!!extoreCallback)
   const [importedDraft, setImportedDraft] = useState<ExtoreDraft | null>(null)
   useEffect(() => {
     if (extoreCallback) {
-      window.history.replaceState(window.history.state, '', '/store/manage')
+      clearExtoreCallbackURL()
     }
   }, [extoreCallback])
   const [catalogueProduct, setCatalogueProduct] = useState<StoreProduct | null>(

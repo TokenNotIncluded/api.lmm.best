@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Extore import needs a persistent server encryption key. Ask an administrator to configure it.": "Extore import needs a persistent server encryption key. Ask an administrator to configure it.",
+    "This draft stays private. Review its visibility before publishing.": "This draft stays private. Review its visibility before publishing.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

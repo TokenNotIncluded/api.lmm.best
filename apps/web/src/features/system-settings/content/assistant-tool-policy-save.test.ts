@@ -81,6 +81,84 @@ afterEach(() => {
   useAuthStore.setState({ auth: previousAuth })
 })
 
+test('every policy write rechecks live catalog capability and rejects unsupported fields without a POST', async () => {
+  useAuthStore
+    .getState()
+    .auth.setBundle(rootBundle(901, 'local-root-a-session'))
+  const scope = captureAssistantSettingsAuthScope()
+  let rulesSupported = false
+  const requests: AxiosRequestConfig[] = []
+  const catalog = {
+    groups: [
+      {
+        id: 'service_help',
+        label: 'Service help',
+        tools: [
+          {
+            name: 'calculate_math',
+            label: 'Calculator',
+            description: 'Arithmetic only.',
+            effect: 'read_only',
+            access: 'user',
+          },
+        ],
+      },
+    ],
+  }
+  api.defaults.adapter = async (config) => {
+    requests.push(config)
+    return {
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+      data:
+        config.method === 'get'
+          ? {
+              success: true,
+              data: {
+                ...catalog,
+                capabilities: { policy_rules: rulesSupported },
+              },
+            }
+          : { success: true },
+    }
+  }
+  const write = (policy: string) =>
+    updateAssistantSystemOptions(
+      {
+        values: { AssistantToolPolicy: policy },
+        expectedValues: { AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY },
+        authScope: scope,
+      },
+      { silent: true }
+    )
+  const legacy = '{"version":1,"groups":{},"tools":{"calculate_math":false}}'
+  assert.equal((await write(legacy)).success, true)
+  assert.equal(requests.filter((r) => r.method === 'post').length, 1)
+  const rules =
+    '{"version":1,"groups":{},"tools":{},"rules":{"calculate_math":{"min_level":1,"max_level":6}}}'
+  for (const policy of [
+    rules,
+    '{"version":1,"groups":{},"tools":{},"rules":{}}',
+    '{"version":1,"groups":{"new_server_group":false},"tools":{}}',
+    '{"version":1,"groups":{},"tools":{"new_server_tool":false}}',
+  ]) {
+    await assert.rejects(write(policy), /Your draft was kept/)
+    assert.equal(requests.filter((r) => r.method === 'post').length, 1)
+  }
+  rulesSupported = true
+  assert.equal((await write(rules)).success, true)
+  rulesSupported = false
+  await assert.rejects(write(rules), /Your draft was kept/)
+  assert.equal(requests.filter((r) => r.method === 'post').length, 2)
+  for (const request of requests.filter((r) => r.method === 'get')) {
+    assert.equal(request.url, '/api/assistant/admin/tool-catalog')
+    assert.equal(request.disableDuplicate, true)
+    assert.deepEqual(request.authScope, scope)
+  }
+})
+
 test('a policy preflight dispatches a fresh scoped read instead of joining an older deduplicated option read', async () => {
   useAuthStore
     .getState()

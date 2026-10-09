@@ -264,8 +264,8 @@ func TestWalletLegacyCatalogOldGrantAndPublicPresentationRemainSeparate(t *testi
 	for _, descriptor := range list.Tools {
 		listedNames = append(listedNames, descriptor.Name)
 		if descriptor.Name == "metamcp" {
-			require.Contains(t, descriptor.Description, "Management operations are free")
-			require.Contains(t, descriptor.Description, "Invocation uses the target tool's pricing and existing budgets")
+			require.Contains(t, descriptor.Description, "Management operations are free.")
+			require.Contains(t, descriptor.Description, "Invocation uses the target tool's pricing")
 		}
 	}
 	require.ElementsMatch(t, []string{

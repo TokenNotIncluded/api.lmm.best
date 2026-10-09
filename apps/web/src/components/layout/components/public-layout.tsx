@@ -16,10 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useRouterState } from '@tanstack/react-router'
+
 import { AccessRestrictionNotice } from '@/components/access-restriction-notice'
 import { cn } from '@/lib/utils'
 
 import type { TopNavLink } from '../types'
+import {
+  MobileScrollChrome,
+  MobileScrollChromeProvider,
+} from './mobile-scroll-chrome'
 import { PublicHeader, type PublicHeaderProps } from './public-header'
 
 type PublicLayoutProps = {
@@ -38,38 +44,45 @@ type PublicLayoutProps = {
 }
 
 export function PublicLayout(props: PublicLayoutProps) {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
   return (
-    <div
-      className={cn(
-        'bg-background text-foreground relative min-h-svh overflow-x-clip pt-[env(safe-area-inset-top)]',
-        props.className
-      )}
-    >
-      <PublicHeader
-        navContent={props.navContent}
-        navLinks={props.navLinks}
-        showThemeSwitch={props.showThemeSwitch}
-        showAuthButtons={props.showAuthButtons}
-        showNotifications={props.showNotifications}
-        logo={props.logo}
-        siteName={props.siteName}
-        {...props.headerProps}
-      />
+    <MobileScrollChromeProvider resetKey={pathname} documentScroll>
+      <div
+        className={cn(
+          'bg-background text-foreground relative min-h-svh overflow-x-clip pt-[env(safe-area-inset-top)]',
+          props.className
+        )}
+      >
+        <MobileScrollChrome overlay>
+          <PublicHeader
+            navContent={props.navContent}
+            navLinks={props.navLinks}
+            showThemeSwitch={props.showThemeSwitch}
+            showAuthButtons={props.showAuthButtons}
+            showNotifications={props.showNotifications}
+            logo={props.logo}
+            siteName={props.siteName}
+            {...props.headerProps}
+          />
+        </MobileScrollChrome>
 
-      {props.showMainContainer !== false ? (
-        <main
-          className={cn(
-            'container mx-auto px-5 pt-24 pb-12 sm:px-8 sm:pt-28 sm:pb-16 lg:px-12',
-            props.mainClassName
-          )}
-        >
-          {props.children}
-        </main>
-      ) : (
-        props.children
-      )}
+        {props.showMainContainer !== false ? (
+          <main
+            className={cn(
+              'container mx-auto px-5 pt-24 pb-12 sm:px-8 sm:pt-28 sm:pb-16 lg:px-12',
+              props.mainClassName
+            )}
+          >
+            {props.children}
+          </main>
+        ) : (
+          props.children
+        )}
 
-      <AccessRestrictionNotice />
-    </div>
+        <AccessRestrictionNotice />
+      </div>
+    </MobileScrollChromeProvider>
   )
 }
