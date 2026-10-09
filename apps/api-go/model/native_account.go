@@ -399,16 +399,62 @@ func (s *NativeAccountStore) Invite(ctx context.Context, actor NativeAccountActo
 	return &result, nil
 }
 
-func (s *NativeAccountStore) ListInvitations(ctx context.Context, actor NativeAccountActor, after string) ([]NativeAccountInvitation, error) {
+// NativeAccountInvitationView adds only the team name needed before joining.
+// Sensitive invitation fields keep their existing json:"-" tags.
+type NativeAccountInvitationView struct {
+	NativeAccountInvitation
+	TeamDisplayName string `json:"team_display_name"`
+}
+
+func nativeInvitationViews(query *gorm.DB) ([]NativeAccountInvitationView, error) {
+	rows := []NativeAccountInvitationView{}
+	err := query.Model(&NativeAccountInvitation{}).
+		Select("account_invitations.*, accounts.display_name AS team_display_name").
+		Joins("JOIN accounts ON accounts.kind = account_invitations.account_kind AND accounts.id = account_invitations.account_id").
+		Order("account_invitations.id ASC").Limit(50).Find(&rows).Error
+	return rows, err
+}
+
+func (s *NativeAccountStore) ListInvitations(ctx context.Context, actor NativeAccountActor, after string) ([]NativeAccountInvitationView, error) {
 	if after != "" && !nativeInvitationIDValid(after) {
 		return nil, ErrNativeAccountInput
 	}
-	result := []NativeAccountInvitation{}
+	var result []NativeAccountInvitationView
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if _, err := nativeUsersAndSession(tx, actor); err != nil {
 			return err
 		}
-		return tx.Where("recipient_user_id = ? AND status = ? AND expires_at > ? AND id > ?", actor.UserID, "pending", time.Now().Unix(), after).Order("id ASC").Limit(50).Find(&result).Error
+		var err error
+		result, err = nativeInvitationViews(tx.Where("recipient_user_id = ? AND status = ? AND expires_at > ? AND account_invitations.id > ? AND accounts.enabled = ?", actor.UserID, "pending", time.Now().Unix(), after, true))
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListSentInvitations lets an owner manage all offers, while an administrator
+// sees only their own member offers. Ordinary members cannot inspect this feed.
+func (s *NativeAccountStore) ListSentInvitations(ctx context.Context, actor NativeAccountActor, teamID int64, after string) ([]NativeAccountInvitationView, error) {
+	if after != "" && !nativeInvitationIDValid(after) {
+		return nil, ErrNativeAccountInput
+	}
+	var result []NativeAccountInvitationView
+	err := s.teamTx(ctx, actor, teamID, nil, func(tx *gorm.DB, a NativeAccountRecord, users map[int]User) error {
+		scope, _, err := nativeMemberScope(tx, a, users[actor.UserID])
+		if err != nil {
+			return err
+		}
+		if !scope.CanManageTeam() {
+			return ErrNativeAccountDenied
+		}
+		query := tx.Where("account_kind = ? AND account_id = ? AND account_invitations.id > ?", a.Kind, a.ID, after)
+		if scope.TeamRole() != account.Owner {
+			query = query.Where("inviter_user_id = ? AND role = ?", actor.UserID, account.Member)
+		}
+		result, err = nativeInvitationViews(query)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -424,18 +470,26 @@ func nativeInvitationIDValid(id string) bool {
 	return err == nil
 }
 
-func (s *NativeAccountStore) AcceptInvitation(ctx context.Context, actor NativeAccountActor, id string) (*NativeAccountSummary, error) {
-	if !nativeInvitationIDValid(id) {
-		return nil, ErrNativeAccountInput
-	}
-	// Only immutable routing metadata is read here. The entire invitation is
-	// re-read after locking its team and both users in the common lock order.
+// recipientInvitationRoute reads only routing metadata. Every mutation reads
+// the invitation again after the team and session locks, never trusting this as
+// an authorization snapshot.
+func (s *NativeAccountStore) recipientInvitationRoute(ctx context.Context, actor NativeAccountActor, id string) (NativeAccountInvitation, error) {
 	var route NativeAccountInvitation
-	if err := s.db.WithContext(ctx).Select("id", "account_id", "inviter_user_id").Where("id = ? AND recipient_user_id = ?", id, actor.UserID).Take(&route).Error; err != nil {
-		return nil, nativeLookupError(err)
+	if !nativeInvitationIDValid(id) {
+		return route, ErrNativeAccountInput
+	}
+	err := s.db.WithContext(ctx).Select("id", "account_id", "inviter_user_id").
+		Where("id = ? AND recipient_user_id = ? AND account_kind = ?", id, actor.UserID, account.Team).Take(&route).Error
+	return route, nativeLookupError(err)
+}
+
+func (s *NativeAccountStore) AcceptInvitation(ctx context.Context, actor NativeAccountActor, id string) (*NativeAccountSummary, error) {
+	route, err := s.recipientInvitationRoute(ctx, actor, id)
+	if err != nil {
+		return nil, err
 	}
 	var result NativeAccountSummary
-	err := s.teamTx(ctx, actor, route.AccountID, []int{route.InviterUserID}, func(tx *gorm.DB, a NativeAccountRecord, users map[int]User) error {
+	err = s.teamTx(ctx, actor, route.AccountID, []int{route.InviterUserID}, func(tx *gorm.DB, a NativeAccountRecord, users map[int]User) error {
 		var invite NativeAccountInvitation
 		if err := lockForUpdate(tx).Where("id = ? AND account_kind = ? AND account_id = ? AND recipient_user_id = ?", id, account.Team, a.ID, actor.UserID).Take(&invite).Error; err != nil {
 			return nativeLookupError(err)
@@ -571,15 +625,36 @@ func (s *NativeAccountStore) RevokeInvitation(ctx context.Context, actor NativeA
 		if scope.TeamRole() != account.Owner && !(scope.TeamRole() == account.Admin && invite.InviterUserID == actor.UserID && invite.Role == account.Member) {
 			return ErrNativeAccountDenied
 		}
-		if invite.Status == "revoked" {
-			return nil
-		}
-		if invite.Status != "pending" {
-			return ErrNativeInvitationUnavailable
-		}
-		if err := tx.Model(&invite).Update("status", "revoked").Error; err != nil {
-			return err
-		}
-		return nativeAccountAudit(tx, a, actor.UserID, invite.RecipientUserID, "invite.revoke", invite.Role)
+		return closeNativeInvitation(tx, a, invite, actor.UserID, "invite.revoke")
 	})
+}
+
+// DeclineInvitation uses the same revoked state as sender cancellation. The
+// atomic audit event distinguishes the recipient action without a new status
+// enum or migration. A retry cannot restore membership or append another event.
+func (s *NativeAccountStore) DeclineInvitation(ctx context.Context, actor NativeAccountActor, id string) error {
+	route, err := s.recipientInvitationRoute(ctx, actor, id)
+	if err != nil {
+		return err
+	}
+	return s.teamTx(ctx, actor, route.AccountID, nil, func(tx *gorm.DB, a NativeAccountRecord, _ map[int]User) error {
+		var invite NativeAccountInvitation
+		if err := lockForUpdate(tx).Where("id = ? AND account_kind = ? AND account_id = ? AND recipient_user_id = ?", id, a.Kind, a.ID, actor.UserID).Take(&invite).Error; err != nil {
+			return nativeLookupError(err)
+		}
+		return closeNativeInvitation(tx, a, invite, actor.UserID, "invite.decline")
+	})
+}
+
+func closeNativeInvitation(tx *gorm.DB, a NativeAccountRecord, invite NativeAccountInvitation, actorID int, action string) error {
+	if invite.Status == "revoked" {
+		return nil
+	}
+	if invite.Status != "pending" {
+		return ErrNativeInvitationUnavailable
+	}
+	if err := tx.Model(&invite).Update("status", "revoked").Error; err != nil {
+		return err
+	}
+	return nativeAccountAudit(tx, a, actorID, invite.RecipientUserID, action, invite.Role)
 }
