@@ -6,7 +6,7 @@ import {
   Tick02Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Outlet, useRouterState } from '@tanstack/react-router'
+import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -18,14 +18,17 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { bootstrapAuthentication } from '@/lib/auth-session'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { StoreNavigation } from './store-navigation'
+import { handleStoreNavigationClick } from './store-navigation-click'
 import type { StoreProduct } from './types'
 
 export function StoreShell() {
   const user = useAuthStore((state) => state.auth.user)
+  const navigate = useNavigate()
   const path = useRouterState({ select: (state) => state.location.pathname })
   if (path.startsWith('/store/claim/')) {
     return (
@@ -42,6 +45,7 @@ export function StoreShell() {
       mainClassName={path === '/store' ? 'flex flex-1 flex-col' : undefined}
     >
       <div
+        onClick={(event) => handleStoreNavigationClick(event, navigate)}
         className={cn(
           'mx-auto flex w-full max-w-6xl flex-col gap-5 sm:gap-7',
           path === '/store' && 'flex flex-1 flex-col'
@@ -56,7 +60,9 @@ export function StoreShell() {
 export function StoreAuthGate({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
+  const bootstrapState = useAuthStore((state) => state.auth.bootstrapState)
   if (user) return <Fragment key={user.id}>{children}</Fragment>
+  if (bootstrapState !== 'complete') return <StoreAuthenticationLoading />
   const redirect = `${window.location.pathname}${window.location.search}`
   return (
     <div className='space-y-4 py-10'>
@@ -73,6 +79,23 @@ export function StoreAuthGate({ children }: { children: ReactNode }) {
       >
         {t('Sign in')}
       </Button>
+    </div>
+  )
+}
+export function StoreAuthenticationLoading() {
+  const { t } = useTranslation()
+  const bootstrapState = useAuthStore((state) => state.auth.bootstrapState)
+  return (
+    <div aria-busy='true'>
+      <StoreLoading />
+      {bootstrapState === 'idle' && (
+        <Button
+          variant='outline'
+          onClick={() => void bootstrapAuthentication()}
+        >
+          {t('Retry')}
+        </Button>
+      )}
     </div>
   )
 }

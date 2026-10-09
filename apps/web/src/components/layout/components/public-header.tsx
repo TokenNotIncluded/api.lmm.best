@@ -172,6 +172,7 @@ export function PublicHeader(props: PublicHeaderProps) {
   const user = auth.user
   const editorialHeader = props.className?.includes('forge-public-header')
   const isAuthenticated = !!user
+  const authenticationPending = !user && auth.bootstrapState !== 'complete'
   const usesDefaultBrand = !customLogo && systemLogo === DEFAULT_LOGO
   const displaySiteName = getDisplaySiteName(
     customSiteName,
@@ -320,7 +321,7 @@ export function PublicHeader(props: PublicHeaderProps) {
   }
 
   let desktopAuthContent = <ProfileDropdown />
-  if (loading) {
+  if (loading || authenticationPending) {
     desktopAuthContent = <Skeleton className='h-8 w-20 rounded-lg' />
   } else if (!isAuthenticated) {
     desktopAuthContent = (
@@ -590,24 +591,28 @@ export function PublicHeader(props: PublicHeaderProps) {
             )}
             style={{ transitionDelay: mobileOpen ? '250ms' : '0ms' }}
           >
-            {showAuthButtons && (
-              <Link
-                to={
-                  isAuthenticated
-                    ? getAuthenticatedLandingRoute(user)
-                    : '/sign-in'
-                }
-                onClick={closeMobileMenu}
-                className={cn(
-                  'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none touch-manipulation inline-flex min-h-11 h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80',
-                  editorialHeader
-                    ? 'forge-public-mobile-action'
-                    : 'bg-foreground text-background'
-                )}
-                tabIndex={mobileOpen ? undefined : -1}
-              >
-                {isAuthenticated ? t('Open workspace') : t('Sign in')}
-              </Link>
+            {showAuthButtons && authenticationPending ? (
+              <Skeleton className='h-10 w-full rounded-lg' />
+            ) : (
+              showAuthButtons && (
+                <Link
+                  to={
+                    isAuthenticated
+                      ? getAuthenticatedLandingRoute(user)
+                      : '/sign-in'
+                  }
+                  onClick={closeMobileMenu}
+                  className={cn(
+                    'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none touch-manipulation inline-flex min-h-11 h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80',
+                    editorialHeader
+                      ? 'forge-public-mobile-action'
+                      : 'bg-foreground text-background'
+                  )}
+                  tabIndex={mobileOpen ? undefined : -1}
+                >
+                  {isAuthenticated ? t('Open workspace') : t('Sign in')}
+                </Link>
+              )
             )}
           </div>
         </div>

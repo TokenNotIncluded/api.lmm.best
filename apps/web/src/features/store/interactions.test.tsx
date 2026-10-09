@@ -69,6 +69,8 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { useAuthStore } = await import('@/stores/auth-store')
+// These fixtures start after the root has completed its session bootstrap.
+useAuthStore.getState().auth.setBootstrapState('complete')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const { useWalletCurrencyPreferenceStore } =
   await import('@/stores/wallet-currency-preference-store')
@@ -83,7 +85,7 @@ const { MerchantStoreSettingsSection } =
   await import('@/features/system-settings/integrations/merchant-store-settings-section')
 const { StoreOrderRow, StoreOrdersPage } = await import('./orders-page')
 const { createStoreCheckoutIntentJournal } = await import('./checkout-intent')
-const { StoreAmount } = await import('./shared')
+const { StoreAmount, StoreAuthGate } = await import('./shared')
 const { StoreDeliveryEmail } = await import('./delivery-email')
 const { StoreProductEditor } = await import('./seller-page')
 const { StoreInventoryImport } = await import('./seller-page')
@@ -155,6 +157,7 @@ function spec(id: string, changes: Partial<StoreVariant> = {}): StoreVariant {
   }
 }
 function owner(id: number | null) {
+  useAuthStore.getState().auth.setBootstrapState('complete')
   useAuthStore
     .getState()
     .auth.setUser(
@@ -3020,3 +3023,65 @@ for (const state of ['pending', 'sent', 'awaiting_verification']) {
     )
   })
 }
+
+test('store auth gate waits for session recovery, then shows the resolved account or anonymous state', async () => {
+  owner(null)
+  useAuthStore.getState().auth.setBootstrapState('checking')
+  await mount(
+    <StoreAuthGate>
+      <p>Private seller controls</p>
+    </StoreAuthGate>
+  )
+  assert.ok(document.querySelector('[aria-busy="true"]'))
+  assert.doesNotMatch(document.body.textContent || '', /Sign in/)
+  assert.doesNotMatch(
+    document.body.textContent || '',
+    /Private seller controls/
+  )
+  await act(async () => {
+    owner(2)
+    await flush()
+  })
+  assert.match(document.body.textContent || '', /Private seller controls/)
+  await act(async () => {
+    owner(null)
+    await flush()
+  })
+  assert.match(document.body.textContent || '', /Sign in to continue/)
+  assert.doesNotMatch(
+    document.body.textContent || '',
+    /Private seller controls/
+  )
+})
+
+test('checkout does not create a guest or show a sign-in action until session bootstrap resolves', async () => {
+  owner(null)
+  useAuthStore.getState().auth.setBootstrapState('checking')
+  const writes: string[] = []
+  api.post = (async (url: string) => {
+    writes.push(url)
+    throw new Error('No guest session may be created during recovery')
+  }) as typeof api.post
+  api.get = (async (url: string) => {
+    if (url === '/api/store/config') {
+      return result({ store_access_supported: true })
+    }
+    return result({ required: false })
+  }) as typeof api.get
+  await mount(<StoreCheckout product={product} />)
+  assert.ok(document.querySelector('[aria-busy="true"]'))
+  assert.doesNotMatch(document.body.textContent || '', /Sign in to buy/)
+  assert.deepEqual(writes, [])
+  await act(async () => {
+    useAuthStore.getState().auth.setBootstrapState('idle')
+    await flush()
+  })
+  assert.match(document.body.textContent || '', /Retry/)
+  assert.doesNotMatch(document.body.textContent || '', /Sign in to buy/)
+  assert.deepEqual(writes, [])
+  await act(async () => {
+    useAuthStore.getState().auth.setBootstrapState('complete')
+    await flush()
+  })
+  assert.deepEqual(writes, ['/api/store/guest/session'])
+})
