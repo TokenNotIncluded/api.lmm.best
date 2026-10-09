@@ -20,12 +20,12 @@ import {
 } from './sculptures/bicycle'
 import { palette, Shape, type Vec3 } from './sculptures/geometry'
 
-test('five sequences include the whale, brand marks and new future scenes', () => {
+test('five sequences include the reference portrait and preserve the existing scenes', () => {
   assert.deepEqual(
     HOME_SEQUENCES.map((list) => list.length),
-    [9, 3, 6, 7, 4]
+    [10, 3, 6, 7, 4]
   )
-  assert.equal(new Set(HOME_SEQUENCES.flat()).size, 29)
+  assert.equal(new Set(HOME_SEQUENCES.flat()).size, 30)
   assert.equal(HOME_SEQUENCES[0].at(-1), 'moonFarSide')
   assert.deepEqual(HOME_SEQUENCES[4], [
     'pelicanBicycle',
@@ -40,7 +40,8 @@ test('retired scenes are absent and scene clocks continue across morphs', () => 
   for (const id of ['lotus', 'rose', 'emperorBicycle', 'catBomb']) {
     assert.equal(ids.has(id), false)
   }
-  assert.equal(HOME_SEQUENCES[0][0], 'blueWhale')
+  assert.equal(HOME_SEQUENCES[0][0], 'smilingPortrait')
+  assert.equal(HOME_SEQUENCES[0][1], 'blueWhale')
   assert.ok(ids.has('claudeMark') && ids.has('openaiMark'))
   for (const [chapter, list] of HOME_SEQUENCES.entries()) {
     for (let index = 1; index <= list.length; index++) {

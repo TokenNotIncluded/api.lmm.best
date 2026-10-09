@@ -1,0 +1,4 @@
+interface:
+  display_name: "首页参考图粒子建模"
+  short_description: "根据图片、视频或文字制作同款首页粒子动画"
+  default_prompt: "Use $home-sculpture to inspect the reference and build a matching homepage sculpture with tested motion."
