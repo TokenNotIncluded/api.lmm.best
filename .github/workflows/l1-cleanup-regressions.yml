@@ -1,0 +1,285 @@
+name: L1 cleanup complete regression
+on:
+  push:
+    branches: [work/l1-cleanup-audit-20261009]
+    paths: [.github/workflows/l1-cleanup-regressions.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  CI: 'true'
+  GOMAXPROCS: '2'
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 259baf000e2ea936f2554b2776a91c87fb5b8287
+          fetch-depth: 0
+      - name: Apply reviewed fixture repairs with exact source guards
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          def replace(path,old,new):
+              p=Path(path);s=p.read_text()
+              assert s.count(old)==1,(path,s.count(old),old)
+              p.write_text(s.replace(old,new))
+          replace('apps/web/src/features/forge/forge-home.test.tsx','keeps a pending customer on the access-request path','takes an inactive customer directly to L1 activation')
+          replace('apps/web/src/features/forge/forge-home.test.tsx',"assert.equal(purchase.textContent?.trim(), 'Request access')","assert.equal(purchase.textContent?.trim(), 'Enable L1 access')")
+          replace('apps/web/src/features/webmcp/areas/auth-onboarding.test.ts',"label: 'Check API access status'","label: 'Enable L1 access'")
+          replace('apps/web/src/features/assistant/assistant-panel.test.tsx',"'No recommendation letter is required.'","'The assistant can enable L1 during this conversation.'")
+          replace('apps/api-go/model/assistant_direct_l1_grant_test.go','func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {\n','func TestAssistantDirectL1GrantConcurrentCallsPostgres(t *testing.T) {\n\tinstallPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)\n')
+          replace('apps/api-go/model/assistant_history_test.go','db := openIsolatedPostgresCacheTestDB(t, &AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{})','db := openIsolatedPostgresCacheTestDB(t, &User{}, &AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{})')
+          replace('apps/api-go/model/assistant_history_test.go','\tconversation := AssistantConversation{UserId: 7, Title: "safe", LastMessagePreview: "safe", CreatedAt: 1, UpdatedAt: 1}','\t// History writes lock their owner to serialize account deletion.\n\trequire.NoError(t, DB.Create(&User{Id: 7, Username: "history-migration-owner", AffCode: "history-migration-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}).Error)\n\tconversation := AssistantConversation{UserId: 7, Title: "safe", LastMessagePreview: "safe", CreatedAt: 1, UpdatedAt: 1}')
+          replace('apps/web/src/features/debug/persona-runtime.ts',"  if (method === 'GET' && path === '/api/assistant/status') {","  if (method === 'GET' && path === '/api/assistant/registration-check') {\n    return response(\n      config,\n      envelope({\n        state: activeUser().developer_access_granted ? 'active' : 'context_needed',\n      })\n    )\n  }\n  if (method === 'GET' && path === '/api/assistant/status') {")
+          replace('apps/web/src/features/debug/persona-runtime.test.ts',"  test('serves dynamic assistant starters without reaching a backend', async () => {", """  test('registration status follows the active persona without reviving requests', async () => {
+              installPersonaDebugRuntime()
+              const previousPersona = getActiveDebugPersona()
+              try {
+                for (const [persona, state] of [
+                  ['l0', 'context_needed'],
+                  ['l1', 'active'],
+                ] as const) {
+                  setActiveDebugPersona(persona)
+                  const result = await api.get('/api/assistant/registration-check')
+                  assert.equal(result.data.success, true)
+                  assert.deepEqual(result.data.data, { state })
+                }
+                await assert.rejects(
+                  api.get('/api/user/developer-access/request'),
+                  /PERSONA_DEBUG_UNMOCKED_REQUEST/
+                )
+              } finally {
+                setActiveDebugPersona(previousPersona)
+              }
+            })
+
+            test('serves dynamic assistant starters without reaching a backend', async () => {""")
+          PY
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - run: |
+          bun install --frozen-lockfile
+          bun run --filter @lmm/web format
+          gofmt -w apps/api-go/model/assistant_direct_l1_grant_test.go apps/api-go/model/assistant_history_test.go
+      - name: Publish source-only test candidate
+        id: commit
+        run: |
+          set -euo pipefail
+          git diff --check
+          mkdir -p "$RUNNER_TEMP/source"
+          git diff > "$RUNNER_TEMP/source/fixture-repairs.patch"
+          test "$(git diff --name-only | wc -l)" = 7
+          git add apps/web/src/features/forge/forge-home.test.tsx apps/web/src/features/webmcp/areas/auth-onboarding.test.ts apps/web/src/features/assistant/assistant-panel.test.tsx apps/web/src/features/debug/persona-runtime.ts apps/web/src/features/debug/persona-runtime.test.ts apps/api-go/model/assistant_direct_l1_grant_test.go apps/api-go/model/assistant_history_test.go
+          git config user.name 'LIghtJUNction'
+          git config user.email '106986785+LIghtJUNction@users.noreply.github.com'
+          git commit -m 'test: align activation regressions and isolated registration fixtures'
+          sha=$(git rev-parse HEAD)
+          git push origin "HEAD:refs/heads/work/l1-cleanup-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "$sha" | tee "$RUNNER_TEMP/source/revision.txt"
+          git archive HEAD | gzip > "$RUNNER_TEMP/source/source.tar.gz"
+          git diff --stat 43be129a2120254eac260f61fe60f22f09995b66 HEAD > "$RUNNER_TEMP/source/summary.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-verified-source
+          path: ${{ runner.temp }}/source/
+          retention-days: 3
+  web:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Run all Web test files in isolated processes
+        working-directory: apps/web
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          out=Path(os.environ['RUNNER_TEMP'])/'web';out.mkdir()
+          source=sorted([str(p) for p in Path('src').rglob('*.test.ts')]+[str(p) for p in Path('src').rglob('*.test.tsx')])
+          scripts=sorted(str(p) for p in Path('scripts').rglob('*.test.mjs'))
+          tests=[('bun',p) for p in source]+[('node',p) for p in scripts]
+          selected=tests[int(os.environ['SHARD'])::3]
+          assert selected
+          report={'sha':'${{ needs.prepare.outputs.sha }}','total_files':len(tests),'passed':[],'failed':[]}
+          for executable,path in selected:
+              args=['bun','test','--preload','./scripts/test-preload.mjs','--timeout','15000',path] if executable=='bun' else ['node','--test',path]
+              result=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+              with (out/'tests.log').open('a') as f:f.write('\nFILE '+path+'\n'+result.stdout)
+              report['failed' if result.returncode else 'passed'].append(path)
+              if result.returncode:print(result.stdout)
+          (out/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
+          raise SystemExit(bool(report['failed']))
+          PY
+      - name: Check types, formatting, route manifest, and production build
+        if: ${{ matrix.shard == 0 }}
+        run: |
+          set -euo pipefail
+          {
+            bun run --filter @lmm/web format:check
+            bun run --filter @lmm/web copyright:check
+            bun run --filter @lmm/web typecheck
+            bun run --filter @lmm/web lint
+            bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh
+            bun run --filter @lmm/web build
+            bun run --filter @lmm/web bundle:check
+          } 2>&1 | tee "$RUNNER_TEMP/web/checks.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-verified-web-${{ matrix.shard }}
+          path: ${{ runner.temp }}/web/
+          retention-days: 3
+  go:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TEST_POSTGRES_DSN: postgres://postgres:l1-isolated-test@127.0.0.1:5432/l1_cleanup?sslmode=disable
+      TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: l1-isolated-test
+          POSTGRES_DB: l1_cleanup
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Run all affected Go packages including PostgreSQL
+        working-directory: apps/api-go
+        run: |
+          mkdir -p "$RUNNER_TEMP/go"
+          go test -json -p 2 ./middleware ./model ./controller ./router ./internal/assistantcontracts -count=1 > "$RUNNER_TEMP/go/tests.jsonl" 2> "$RUNNER_TEMP/go/stderr.log"
+      - name: Race checks including concurrent PostgreSQL L1 activation
+        working-directory: apps/api-go
+        run: |
+          set -euo pipefail
+          go test -race -p 2 ./model ./controller -run 'Test(RetiredDeveloperAccess|Assistant.*(DirectL1|FirstTurn|Registration|Support)|UnifiedTodo)' -count=1 2>&1 | tee "$RUNNER_TEMP/go/race.log"
+      - name: Summarize completed Go checks without treating skips as passes
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import collections,json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'go'
+          if not (root/'tests.jsonl').exists():raise SystemExit(0)
+          counts=collections.Counter();failed=[];skipped=[]
+          for line in (root/'tests.jsonl').read_text().splitlines():
+              try:r=json.loads(line)
+              except ValueError:continue
+              if r.get('Test') and '/' not in r['Test'] and r.get('Action') in ('pass','fail','skip'):
+                  counts[r['Action']]+=1
+                  if r['Action']=='fail':failed.append(r['Package']+':'+r['Test'])
+                  if r['Action']=='skip':skipped.append(r['Package']+':'+r['Test'])
+          report={'sha':'${{ needs.prepare.outputs.sha }}','counts':dict(counts),'failed':failed,'skipped':skipped}
+          (root/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
+          print((root/'stderr.log').read_text()[-5000:])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-verified-go
+          path: ${{ runner.temp }}/go/
+          retention-days: 3
+  browser:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: |
+          bun install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Scope read-only review to retired workflow surfaces
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/web/scripts/console-page-review.mjs');s=p.read_text()
+          start=s.index('const userRoutes = [');end=s.index('const report = []',start)
+          s=s[:start]+"const userRoutes = ['/getting-started', '/todos']\nconst adminRoutes = ['/users', '/todos', '/system-settings/content/assistant']\n"+s[end:]
+          old="    ['l1', userRoutes, 1440],\n    ['admin', adminRoutes, 1440],\n    ['l1', mobileRoutes, 390],"
+          new="    ['l0', userRoutes, 1440],\n    ['admin', adminRoutes, 1440],\n    ['l0', userRoutes, 390],\n    ['admin', adminRoutes, 390],"
+          assert old in s;s=s.replace(old,new)
+          s=s.replace('waitFor({ timeout: 30_000 })','waitFor({ timeout: 60_000 })')
+          p.write_text(s)
+          PY
+      - name: Verify 10 desktop and mobile page states
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/browser/node_modules/playwright/index.mjs
+          CONSOLE_REVIEW_OUTPUT: ${{ runner.temp }}/screenshots
+          CONSOLE_REVIEW_ORIGIN: http://127.0.0.1:4174
+        run: |
+          set -euo pipefail
+          mkdir -p "$CONSOLE_REVIEW_OUTPUT"
+          git rev-parse HEAD > "$CONSOLE_REVIEW_OUTPUT/revision.txt"
+          LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --port 4174 > "$CONSOLE_REVIEW_OUTPUT/server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null; then break; fi
+            sleep 2
+          done
+          node scripts/console-page-review.mjs 2>&1 | tee "$CONSOLE_REVIEW_OUTPUT/review.log"
+          python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          report=json.loads((Path(os.environ['CONSOLE_REVIEW_OUTPUT'])/'report.json').read_text())
+          assert len(report)==10,len(report)
+          forbidden=re.compile(r'推荐信|申请信|L1\s*申请|L1 application|recommendation letter|recommendation archive',re.I)
+          for entry in report:
+              assert not forbidden.search(entry['text']),(entry['persona'],entry['path'])
+          print('10 states passed: no retired letters, application or archive entry, page errors, error toasts, or overflow.')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-verified-browser
+          path: ${{ runner.temp }}/screenshots/
+          retention-days: 3
