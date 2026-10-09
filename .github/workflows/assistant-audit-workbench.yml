@@ -38,7 +38,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/assistant-results"
           cd apps/api-go
           go test -p 2 ./internal/agent ./setting ./controller -run 'Test(AssistantToolPolicy|AssistantAgentRepeated|LoopGuard|NormalizeCalls)' -count=1 2>&1 | tee "$RUNNER_TEMP/assistant-results/baseline.log"
-      - name: Verify and apply isolated patch
+      - name: Verify and apply isolated patch and reviewed fixtures
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -50,6 +50,7 @@ jobs:
           PY
           git apply --check /tmp/assistant-efficiency.patch
           git apply /tmp/assistant-efficiency.patch
+          python3 .assistant-audit-review.py
           git diff --check
           changed_go=$(git diff --name-only -- '*.go')
           if [ -n "$changed_go" ]; then test -z "$(gofmt -l $changed_go)"; fi
@@ -58,7 +59,8 @@ jobs:
         continue-on-error: true
         run: |
           cd apps/api-go
-          go test -p 2 ./internal/agent ./setting ./controller -run 'Test(Assistant|SuccessfulRead|FailedRead|LoopGuard|NormalizeCalls)' -count=1 2>&1 | tee "$RUNNER_TEMP/assistant-results/go-tests.log"
+          go test -p 2 ./internal/agent ./setting -count=1 2>&1 | tee "$RUNNER_TEMP/assistant-results/go-unit.log"
+          go test -p 2 ./controller -run '^TestAssistant' -count=1 2>&1 | tee "$RUNNER_TEMP/assistant-results/go-tests.log"
       - name: Measure initial tool definition bytes
         id: measurement
         continue-on-error: true
@@ -113,9 +115,9 @@ jobs:
           for result in "$GO_TESTS" "$MEASUREMENT" "$VET" "$WEB_TESTS" "$WEB_CHECKS"; do test "$result" = success; done
       - name: Publish tested source and remove temporary workbench
         run: |
-          rm .assistant-audit-part-{1,2,3,4,5} .github/workflows/assistant-audit-workbench.yml
-          git add CHANGELOG.md apps/api-go/controller/assistant*.go apps/api-go/internal/agent/loop.go apps/api-go/internal/agent/efficiency_test.go apps/api-go/setting/assistant_tool_policy.go apps/web/src/features/assistant/assistant-tool-calls.tsx apps/web/src/features/assistant/assistant-tool-calls.test.ts apps/web/src/i18n/locales/*.json docs/assistant-efficiency-audit.md docs/assistant-tool-policy.md
-          git add -u -- .assistant-audit-part-1 .assistant-audit-part-2 .assistant-audit-part-3 .assistant-audit-part-4 .assistant-audit-part-5 .github/workflows/assistant-audit-workbench.yml
+          rm .assistant-audit-part-{1,2,3,4,5} .assistant-audit-review.py .github/workflows/assistant-audit-workbench.yml
+          git add CHANGELOG.md apps/api-go/controller/assistant*.go apps/api-go/internal/agent/loop.go apps/api-go/internal/agent/efficiency_test.go apps/api-go/setting/assistant_tool_policy*.go apps/web/src/features/assistant/assistant-tool-calls.tsx apps/web/src/features/assistant/assistant-tool-calls.test.ts apps/web/src/i18n/locales/*.json docs/assistant-efficiency-audit.md docs/assistant-tool-policy.md
+          git add -u -- .assistant-audit-part-1 .assistant-audit-part-2 .assistant-audit-part-3 .assistant-audit-part-4 .assistant-audit-part-5 .assistant-audit-review.py .github/workflows/assistant-audit-workbench.yml
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
