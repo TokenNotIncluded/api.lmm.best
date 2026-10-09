@@ -1,0 +1,24 @@
+name: lmm-core
+services:
+  core:
+    image: lmm-core:${LMM_CORE_IMAGE_TAG:-dev}
+    build:
+      context: ../..
+      dockerfile: deployment/docker/core.Dockerfile
+    ports:
+      - "127.0.0.1:${LMM_CORE_PORT:-18080}:8080"
+    environment:
+      LMM_CORE_LISTEN: "0.0.0.0:8080"
+    restart: unless-stopped
+    stop_grace_period: 30m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 384m
+    mem_reservation: 128m
+    cpu_shares: 2048
+    pids_limit: 128
+    networks: [core]
+networks:
+  core:
+    name: lmm-core-runtime

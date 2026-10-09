@@ -69,9 +69,8 @@ external ID 绑定本地订单；订阅事件只有 `WAFFO_PANCAKE_SUB-*` 订单
 仅部署代码不会开启商户后台的事件投递；未勾选时，新续费的周期信息无法到达。
 首次付款不会触发 `subscription.renewed`。
 
-使用 PostgreSQL 独立迁移流程的部署，需要先应用 contract 8 的
-`apps/api-rust/migrations/0008_waffo_subscription_webhooks.sql`，再启动新版 API。
-该迁移新增付款与周期凭据表及幂等索引；Go 的迁移与 `verify` 模式也要求这两张表。
+当前 Go 部署应通过既有迁移与 `verify` 流程检查付款、周期凭据表及幂等索引。
+旧 Rust 独立迁移已删除；新核心不得绕过这些凭据和幂等要求，支付迁移仍待验收。
 
 后端持久化已经验签并绑定本地订单的付款凭据和生命周期周期记录，使用 `orderId`
 关联订阅，并使用付款的 `paymentDate` 匹配对应周期。回调可以乱序到达；缺少配对

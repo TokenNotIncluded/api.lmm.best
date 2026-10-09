@@ -11,7 +11,6 @@ readonly PACKAGES=(
   lmm-api-go
   lmm-api-go-bin
   lmm-api-go-git
-  lmm-api-rs-git
   lmm-api-web-bin
 )
 
@@ -32,7 +31,7 @@ contains_srcinfo_prefix() {
     die "$package .SRCINFO is missing: $expected"
 }
 
-for removed in lmm-api-bin lmm-api-git lmm-api-deploy-bin lmm-api-rs-bin; do
+for removed in lmm-api-bin lmm-api-git lmm-api-deploy-bin lmm-api-rs-bin lmm-api-rs-git; do
   [[ ! -e $HERE/$removed ]] || die "retired package remains tracked: $removed"
 done
 for removed in backend.conf lmm-api.install lmm-api-go.service lmm-api.env lmm-api-launcher; do
@@ -107,15 +106,6 @@ declare -a conflicts replaces provides
   ((${#replaces[@]} == 0)) || die 'Go provider unexpectedly replaces another package'
 )
 
-contains_srcinfo_prefix lmm-api-rs-git $'\tprovides = lmm-api-rs'
-contains_srcinfo lmm-api-rs-git $'\tprovides = lmm-api-provider'
-# Keep the historical package conflict until the remote AUR package has been
-# separately retired; otherwise an existing binary package can overwrite the
-# same preview executable during the repository-side compatibility window.
-contains_srcinfo lmm-api-rs-git $'\tconflicts = lmm-api-rs-bin'
-if grep -Eq $'^\t(provides|conflicts|replaces) = lmm-api($|=)' "$HERE/lmm-api-rs-git/.SRCINFO"; then
-  die 'Rust provider package claims the generic lmm-api identity'
-fi
 
 
 pkgbuild="$HERE/lmm-api-go-bin/PKGBUILD"
@@ -241,7 +231,6 @@ if "$HERE/check-candidate-version.sh" lmm-api-go "$go_release_version" \
 fi
 grep -Fqx '_source_pkgver_epoch=0.1.20' "$HERE/lmm-api-go-git/PKGBUILD" ||
   die 'Git Go package lost the monotonic source-version epoch'
-contains_srcinfo lmm-api-rs-git $'\tmakedepends = cargo'
 
 grep -Fqx 'ExecStart=/usr/bin/lmm-api serve' "$SHARED/lmm-api.service" ||
   die 'Go systemd service does not execute the backend directly'
@@ -288,4 +277,4 @@ for pkgbuild in "$HERE/lmm-api-go/PKGBUILD" "$HERE/lmm-api-go-git/PKGBUILD" "$HE
   if grep -Fq 'CLI_TRANSITION_PHASE' "$pkgbuild"; then die "Go package retains CLI phase metadata: $pkgbuild"; fi
 done
 
-printf '%s\n' 'single-CLI Go, source-built Rust preview, and Web AUR matrix verified'
+printf '%s\n' 'single-CLI Go and Web AUR matrix verified'

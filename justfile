@@ -56,17 +56,6 @@ dev-go:
 dev-web:
     bun run dev:web
 
-# Start the isolated Rust preview profile and shared web frontend without Go.
-dev-rust:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -f docker-compose.dev.yml ]]; then \
-      echo "error: docker-compose.dev.yml is not present in this branch; dev-rust requires the preview compose stack." >&2; \
-      exit 1; \
-    fi
-    docker compose -f docker-compose.dev.yml --profile rust-preview up -d postgres valkey lmm-api-rs-preview
-    exec bun run dev:web
-
 # Build and run the default Go provider through the public symlink.
 run: build
     exec apps/api-go/out/lmm-api serve
@@ -76,10 +65,6 @@ run-go:
     @test -x apps/api-go/out/lmm-api-go || { echo "error: apps/api-go/out/lmm-api-go is missing; run 'just build'" >&2; exit 1; }
     @test -L apps/api-go/out/lmm-api && test "$(readlink apps/api-go/out/lmm-api)" = lmm-api-go || { echo "error: apps/api-go/out/lmm-api is not the provider symlink" >&2; exit 1; }
     exec apps/api-go/out/lmm-api serve
-
-# Run the explicit Rust backend with standardized infrastructure.
-run-rust: infra-up
-    bun run dev:rust
 
 # Build the frontend and default Go backend as independent artifacts.
 build: build-web build-go
@@ -97,11 +82,11 @@ build-go:
     @test -L apps/api-go/out/lmm-api && test "$(readlink apps/api-go/out/lmm-api)" = lmm-api-go || { echo "error: public Go provider symlink was not produced" >&2; exit 1; }
 
 # Build the explicit Rust backend.
-build-rust:
-    bun run build:rust
+build-core:
+    bun run build:core
 
-# Build the default Go production artifact and the optional Rust backend.
-build-all: build build-rust
+# Build the default Go production artifact and the WIP Rust core and Go module host.
+build-all: build build-core build-extensions
 
 # Test the default Go backend and shared web frontend.
 test: test-go test-web
@@ -112,11 +97,11 @@ test-go:
 test-web:
     bun run test:web
 
-test-rust:
-    bun run test:rust
+test-core:
+    bun run test:core
 
 # Test both backend implementations and the frontend.
-test-all: test test-rust
+test-all: test test-core test-extensions
 
 # Run default Go and web quality gates.
 check: format-check lint typecheck test check-deploy
@@ -133,8 +118,8 @@ format-go:
 format-web:
     bun run format:web
 
-format-rust:
-    bun run format:rust
+format-core:
+    bun run format:core
 
 format-check: format-check-go format-check-web
 
@@ -144,8 +129,8 @@ format-check-go:
 format-check-web:
     bun run format-check:web
 
-format-check-rust:
-    bun run format-check:rust
+format-check-core:
+    bun run format-check:core
 
 lint: lint-go lint-web
 
@@ -155,8 +140,8 @@ lint-go:
 lint-web:
     bun run lint:web
 
-lint-rust:
-    bun run lint:rust
+lint-core:
+    bun run lint:core
 
 typecheck: typecheck-go typecheck-web
 
@@ -166,31 +151,33 @@ typecheck-go:
 typecheck-web:
     bun run typecheck:web
 
-typecheck-rust:
-    bun run typecheck:rust
+typecheck-core:
+    bun run typecheck:core
 
 # Remove generated build and task-runner output only.
 clean-generated:
-    rm -rf .turbo apps/web/.turbo apps/api-go/out apps/api-rust/target apps/web/dist
+    rm -rf .turbo apps/web/.turbo apps/api-go/out apps/core-rust/target apps/extensions-go/out apps/web/dist
 
-# Build the default Go image from a local Dockerfile (if present).
-docker: docker-go
+# Build the two WIP microservice images independently. See deployment/docker/README.md.
+docker: docker-core docker-extensions
 
-docker-go:
-    @if [[ ! -f Dockerfile ]]; then \
-      echo "error: Dockerfile is not present in this branch; Docker build is unavailable." >&2; \
-      echo "Use local build commands instead (for example: just build-go / just build-rust)." >&2; \
-      exit 1; \
-    fi
-    docker build -f Dockerfile -t "lmm-api-go:${LMM_IMAGE_TAG:-local}" .
+docker-core:
+    docker compose -f deployment/docker/compose.core.yml build core
 
-docker-rust:
-    @if [[ ! -f Dockerfile.rust ]]; then \
-      echo "error: Dockerfile.rust is not present in this branch; Rust Docker build is unavailable." >&2; \
-      echo "Use bun run build:rust if you need a local Rust preview artifact." >&2; \
-      exit 1; \
-    fi
-    docker build -f Dockerfile.rust -t "lmm-api-rs-preview:${LMM_IMAGE_TAG:-local}" .
+docker-extensions:
+    docker compose -f deployment/docker/compose.extensions.yml build extensions
+
+dev-core:
+    bun run dev:core
+
+dev-extensions:
+    bun run dev:extensions
+
+build-extensions:
+    bun run build:extensions
+
+test-extensions:
+    bun run test:extensions
 
 # Build the default Go production package.
 package: package-go

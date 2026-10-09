@@ -16,7 +16,7 @@
 
 LMM Forge 是一个开源的 AI 服务控制台。它将模型调用、Remote MCP 工具市场和开源悬赏协作放在同一个账户与额度体系中。用户可以接入自己的客户端，发布收费工具，也可以通过完成开源任务获得平台余额。
 
-本项目基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 持续开发。Go 是默认后端，前端使用 React 与 TypeScript；Rust 后端和独立 CLI 仍为预览版。
+本项目基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 持续开发。Go 仍是当前生产后端，前端使用 React 与 TypeScript。新分支正迁移为 Rust 核心与 Go 扩展服务，尚不可接入生产流量；独立 CLI 仍为预览版。
 
 ## 核心能力
 
@@ -60,7 +60,7 @@ just dev-go
 bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 ```
 
-打开 <http://localhost:5173>，完成初始化。完整配置、测试命令和 Rust 预览说明见[本地开发指南](docs/development.md)。仓库不附带开发 Compose 文件或 Dockerfile，不能直接将 `just dev` 或 Docker 构建命令当作开箱即用的入口。
+打开 <http://localhost:5173>，完成初始化。完整配置、测试命令和新核心开发说明见[本地开发指南](docs/development.md)。现有 Go 开发流程的 `docker-compose.dev.yml` 仍需自行提供。新的 [Docker 开发栈](deployment/docker/README.md) 仅用于 Rust 核心与 Go 扩展迁移，不能替换当前生产后端。
 
 ## 部署与升级
 
@@ -79,7 +79,7 @@ Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布
 
 - **使用与协作：**[工具发布](docs/tool-market-guide.md)、[连接与授权](docs/tool-market-connections.md)、[悬赏与结算](docs/open-source-bounties.md)。
 - **开发与接口：**[本地开发](docs/development.md)、[贡献指南](CONTRIBUTING.md)、[管理 API](docs/openapi/api.json)、[模型转发 API](docs/openapi/relay.json)。
-- **发布与维护：**[发布架构](docs/release-architecture.md)、[认证与会话](docs/authentication.md)、[Rust 预览](docs/rust-blue-green.md)。
+- **发布与维护：**[发布架构](docs/release-architecture.md)、[认证与会话](docs/authentication.md)、[核心与扩展迁移](docs/core-migration.md)。
 
 ## 贡献与安全
 

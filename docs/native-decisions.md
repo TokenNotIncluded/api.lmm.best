@@ -118,3 +118,10 @@ Check mixed-provider groups: both database and cached channel selection filter o
 The Rust preview backend, frontend endpoint catalog, generated OpenAPI catalog,
 and compatible
 non-OpenAI channel selection were not changed. Their support is not claimed.
+
+## New core migration
+
+The former Rust backend has been removed. Rust behavior described in older
+implementation notes is not evidence for the replacement. The [new core](core-migration.md)
+is not business-ready; the existing Go paths remain authoritative until parity
+and migration checks pass.

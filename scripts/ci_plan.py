@@ -13,10 +13,8 @@ PR_BASE = {"changes", "repository-contracts"}
 COMPONENTS = {
     "apps/web/": {"web", "translations", "route-coverage-contract"},
     "apps/api-go/": {"go", "release-artifact-contract", "route-coverage-contract"},
-    "apps/api-rust/": {
-        "rust-preview", "rust-real-integration", "root-route-acceptance-lockfile",
-        "route-coverage-contract", "rustsec", "web",
-    },
+    "apps/core-rust/": {"core", "route-coverage-contract", "rustsec"},
+    "apps/extensions-go/": {"extensions", "route-coverage-contract"},
     "packages/pi-lmm-provider/": {"pi-lmm-provider"},
 }
 DOC_FILES = {"README.md", "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md"}
@@ -34,11 +32,6 @@ def select_jobs(event: str, paths: list[str] | None = None) -> list[str]:
             if (not isinstance(path, str) or not path or path.startswith("/")
                     or "\\" in path or ".." in PurePosixPath(path).parts):
                 return list(REQUIRED_JOBS)
-            # This Go-owned data file is embedded by both backend builds.
-            if path == "apps/api-go/common/auth_version.txt":
-                selected.update(COMPONENTS["apps/api-go/"])
-                selected.update(COMPONENTS["apps/api-rust/"])
-                continue
             # Documentation below a component can affect its fixtures: classify
             # component roots before allowing repository documentation omissions.
             for prefix, jobs in COMPONENTS.items():
