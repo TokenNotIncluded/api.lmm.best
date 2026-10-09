@@ -1,12 +1,43 @@
 package appcli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 )
+
+const productionUnchangedAdmissionRecoveryReason = "admission-unchanged-writer-restored"
+
+// Admission can fail before completing its drain or recording a stopped
+// writer. Recovery and holder release must reprove the same live N-1.
+func (runtime *productionRuntime) verifyUnchangedAdmissionWriter(ctx context.Context, manifest productionManifest, state map[string]string) error {
+	gate := manifest.BillingGate
+	if gate == nil || gate.AdmissionClosed || gate.StopVerified || gate.GoPID != 0 || gate.GoInvocationID != "" || !gate.StopStartedUTC.IsZero() || gate.StartedUTC.IsZero() || !manifest.ObservationStartedUTC.IsZero() || manifest.MaintenanceHandoff != nil {
+		return errors.New("pre-stop admission recovery has writer mutation evidence")
+	}
+	started, err := runtime.runner.Run(ctx, productionCommand{Name: commandSystemctl,
+		Args: []string{"show", runtime.paths.Service, "--property=ExecMainStartTimestamp", "--value"},
+		Env:  []string{"LC_ALL=C", "TZ=UTC"}})
+	startTime, parseErr := time.Parse("Mon 2006-01-02 15:04:05 MST", strings.TrimSpace(string(started)))
+	pid, pidErr := strconv.Atoi(state["MainPID"])
+	if err != nil || parseErr != nil || pidErr != nil || pid <= 1 || state["ActiveState"] != "active" || !existingSchemaInvocationPattern.MatchString(state["InvocationID"]) || !startTime.Before(gate.StartedUTC.Truncate(time.Second)) {
+		return errors.New("cannot prove unchanged writer before incomplete admission")
+	}
+	if err := runtime.verifyServiceRestartBaseline(ctx, manifest); err != nil {
+		return err
+	}
+	current, err := runtime.billingUnitState(ctx, runtime.paths.Service)
+	if err != nil || current["ActiveState"] != "active" || current["MainPID"] != state["MainPID"] || current["InvocationID"] != state["InvocationID"] {
+		return errors.New("pre-stop admission writer changed during recovery proof")
+	}
+	return nil
+}
 
 // The admission barrier is the only live edge mutation allowed before the
 // writer stops. Verify all other package-managed edge files against the

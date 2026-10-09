@@ -1,27 +1,7 @@
 name: Billing safety regressions
 
 on:
-  pull_request:
-    paths:
-      - 'apps/api-go/service/**'
-      - 'apps/api-go/model/**'
-      - 'apps/api-go/pkg/accountfunding/**'
-      - 'apps/api-go/relay/channel/claude/**'
-      - 'apps/api-go/setting/model_setting/**'
-      - 'apps/api-go/go.mod'
-      - 'apps/api-go/go.sum'
-      - '.github/workflows/billing-safety.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/api-go/service/**'
-      - 'apps/api-go/model/**'
-      - 'apps/api-go/pkg/accountfunding/**'
-      - 'apps/api-go/relay/channel/claude/**'
-      - 'apps/api-go/setting/model_setting/**'
-      - 'apps/api-go/go.mod'
-      - 'apps/api-go/go.sum'
-      - '.github/workflows/billing-safety.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -1,27 +1,42 @@
-# LMM Forge brand assets
+# LMM Forge logo assets
 
-Original black-and-white vector lettering for the repository README. The public web console keeps its own visual system; these files do not change application icons.
+[Project overview](../../README.md) · [Design record](../../DESIGN.md)
 
-## Assets
+The identity keeps the original black-and-white cut lettering. The compact mark now separates the two M forms from the L foundation. Wider gaps make its parts easier to distinguish in small placements.
 
-| File | Use |
+## Choose an asset
+
+| Asset | Use |
 | --- | --- |
-| [lmm-symbol.svg](lmm-symbol.svg) | Compact, transparent 128 × 128 symbol. Black ink in light mode, white ink in dark mode. |
-| [lmm-wordmark.svg](lmm-wordmark.svg) | Complete, transparent LMM Forge wordmark. Same automatic ink switch. |
-| [readme-cover-light.svg](readme-cover-light.svg) / [dark](readme-cover-dark.svg) | 1440 × 600 stepped desktop composition. |
-| [readme-cover-mobile-light.svg](readme-cover-mobile-light.svg) / [dark](readme-cover-mobile-dark.svg) | 720 × 480 stacked composition, selected at a viewport width of 640px or less. |
-| [logo-geometry.json](logo-geometry.json) | Exact master paths, letter positions, proportions, and provenance. |
+| [lmm-logo.svg](lmm-logo.svg) | README cover mark: white symbol on a black, corner-cut tile. Fixed colors work on light and dark pages. |
+| [lmm-symbol.svg](lmm-symbol.svg) | Transparent 128 × 128 symbol. Black by default; white in dark mode. |
+| [lmm-wordmark.svg](lmm-wordmark.svg) | Full LMM Forge lettering, unchanged. Use when there is enough horizontal space. |
+| [logo-geometry.json](logo-geometry.json) | Master geometry and asset provenance. |
 
-## Form
+The website uses the same symbol in `LmmBrandMark` and `apps/web/public/lmm-cut-mark.svg`. The component inherits `currentColor`, so the application's selected theme controls the ink. Tenant-defined logos are not replaced.
 
-The symbol joins a thick L spine and base to two open M shapes. A single 45-degree terminal cut gives the base its finish. The wordmark carries the same broad strokes, clear counterforms, and cut terminals through original uppercase glyphs.
+## Size and spacing
 
-Use the symbol from 16px. Use the full wordmark at a cap height of at least 20px so the R counter and G aperture stay distinct. Keep the symbol's full viewBox in small icon slots. At larger sizes, allow clear space equal to one symbol spine or one wordmark stem around the artwork.
+Keep the full 128-unit symbol viewBox. The mark uses a 16-unit L spine and 16-unit gaps between the main parts and above the base. Inspect at 16, 24, and 32 CSS pixels before using it in a small slot. Do not add padding inside a 16px favicon; use the transparent symbol rather than shrinking the README tile into it.
 
-Scale proportionally and retain the open counters. For fixed light or dark backgrounds, set the SVG `.ink` fill explicitly to black or white instead of its media query. The cover files already have explicit backgrounds and ink.
+Use the full wordmark at a cap height of at least 20px. Allow at least one wordmark stem of clear space. Scale all artwork proportionally. Keep the open gaps and 45-degree terminal cut.
+
+## Existing covers
+
+The [desktop light](readme-cover-light.svg) / [dark](readme-cover-dark.svg) and [mobile light](readme-cover-mobile-light.svg) / [dark](readme-cover-mobile-dark.svg) covers remain available for existing links. They use the unchanged full lettering. The README now uses the compact tile instead of an oversized wordmark cover.
+
+## Edit and verify
+
+Update `symbol.path` in `logo-geometry.json`, the transparent SVG, the tile, the website SVG, and `LmmBrandMark` together. Recreate the Apple touch icon and ICO from that same path. Their JSON sidecars record their source, not an image-generation prompt.
+
+```bash
+python3 scripts/check-docs-brand.py
+```
+
+Run this from the repository root. The check detects different symbol paths, unsafe SVG content, broken local entry-document links, and mismatched README badge sets. Also inspect the logo on light and dark surfaces; a source check cannot judge visual quality.
 
 ## Source and license
 
-All shipping artwork is original, precisely authored SVG geometry. No font outlines, generated raster, stock artwork, remote fonts, scripts, or external resources are embedded. Every cover reuses the exact word paths from `logo-geometry.json`; the LMM and FORGE groups can be arranged separately without changing their internal spacing.
+The logo uses original SVG coordinates, not a font or stock artwork. No scripts, external fonts, or remote resources are embedded. Raster app icons are derived from the same SVG path. The assets remain under the repository's [AGPL-3.0 license](../../LICENSE).
 
-These assets are covered by this repository's [AGPL-3.0 license](../../LICENSE). Inspection screenshots are derived verification artifacts and are not shipping brand assets.
+TokenRouter inspired the README information order, not this logo. Do not use the reference project's logo, screenshots, license, or feature claims as LMM Forge assets.

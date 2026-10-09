@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 
 import { STORE_ACCESS_COPY } from './access-copy'
 import type { StoreCatalogueProduct } from './catalogue-types'
+import type { ExtoreAuthorization } from './extore-import-protocol'
 import { storeSocialProductResponse } from './product-social-state'
 import { STORE_PURCHASE_LIMIT_COPY } from './purchase-limits-copy'
 import type {
@@ -151,6 +152,14 @@ async function allStoreCategories(admin = false): Promise<StoreCategoryList> {
   }
 }
 export const storeApi = {
+  extoreAuthorize: (base_url: string, client_id: string) =>
+    unwrap<ExtoreAuthorization>(
+      api.post(`${root}/extore/authorize`, { base_url, client_id }, options)
+    ),
+  extoreCatalog: (callback_url: string) =>
+    unwrap<unknown>(
+      api.post(`${root}/extore/catalog`, { callback_url }, options)
+    ),
   merchantHome: (id: number, signal?: AbortSignal) =>
     unwrap<StoreMerchantHome>(
       api.get(`${root}/merchants/${id}`, { ...options, signal })

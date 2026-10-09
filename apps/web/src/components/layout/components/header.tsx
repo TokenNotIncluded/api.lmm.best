@@ -39,9 +39,9 @@ export function Header({
       )}
       {...props}
     >
-      <div className='flex h-full items-center gap-1.5 px-2 sm:gap-2 sm:px-3'>
+      <div className='flex h-full min-w-0 items-center gap-1.5 px-2 md:gap-2 md:px-3'>
         {showSidebarTrigger ? (
-          <SidebarTrigger variant='ghost' className='size-11 sm:size-8' />
+          <SidebarTrigger variant='ghost' className='size-11 md:size-8' />
         ) : null}
         {children}
       </div>

@@ -192,6 +192,8 @@ export interface StoreOrder {
   verified_payment_issue_at?: number
 }
 export interface StoreConfig {
+  extore_import_supported?: boolean
+  extore_redirect_uri?: string
   fixed_content_supported?: boolean
   fee_bps: number
   promotion_quota: number

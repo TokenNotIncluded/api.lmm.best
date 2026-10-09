@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
+import { ErrorArtwork } from './error-artwork'
+
 import './error-page-frame.css'
 
 type ErrorPageFrameProps = {
@@ -32,15 +34,15 @@ type ErrorPageFrameProps = {
 export function ErrorPageFrame(props: ErrorPageFrameProps) {
   const { systemName } = useSystemConfig()
   return (
-    <main className='error-editorial min-h-svh'>
+    <main className='error-editorial min-h-svh' data-status={props.status}>
       <div className='error-editorial-shell'>
+        <a href='/' className='error-editorial-brand'>
+          <LmmBrandMark className='size-7' title={systemName} />
+          <span>{systemName}</span>
+        </a>
         <div className='error-editorial-layout'>
           <section className='error-editorial-copy'>
-            <div className='error-editorial-brand'>
-              <LmmBrandMark className='size-7' title={systemName} />
-              <span>{systemName}</span>
-            </div>
-            {props.showStatus !== false && (
+            {props.showStatus !== false && props.status != null && (
               <p
                 className='error-editorial-status'
                 aria-label={String(props.status)}
@@ -50,12 +52,13 @@ export function ErrorPageFrame(props: ErrorPageFrameProps) {
             )}
             <h1 className='error-editorial-title'>{props.title}</h1>
             <p className='error-editorial-description'>{props.description}</p>
-            {props.note && <p className='error-editorial-note'>{props.note}</p>}
             {props.actions && (
               <div className='error-editorial-actions'>{props.actions}</div>
             )}
+            {props.note && (
+              <div className='error-editorial-note'>{props.note}</div>
+            )}
           </section>
-
           <aside className='error-editorial-art-column' aria-hidden='true'>
             {props.artSrc ? (
               <img
@@ -64,29 +67,8 @@ export function ErrorPageFrame(props: ErrorPageFrameProps) {
                 alt=''
               />
             ) : (
-              <svg
-                className='error-editorial-art'
-                viewBox='0 0 520 420'
-                preserveAspectRatio='xMidYMid meet'
-                focusable='false'
-                xmlns='http://www.w3.org/2000/svg'
-              >
-                <path
-                  className='error-art-carrier'
-                  d='M 112 76 C 166 38 242 63 302 56 C 375 48 432 85 426 151 C 420 213 462 263 425 323 C 389 382 310 374 251 356 C 191 338 126 361 92 310 C 59 259 83 213 73 166 C 66 126 78 98 112 76 Z'
-                />
-                <path
-                  className='error-art-gesture'
-                  d='M -24 286 C 46 266 93 230 150 194 C 201 161 249 147 286 164 C 310 175 321 195 312 211 C 302 227 278 224 255 215 C 227 205 199 218 166 243 C 118 280 77 320 25 335 C -4 343 -21 331 -24 316 Z'
-                />
-                <path
-                  className='error-art-contour'
-                  d='M 162 278 C 202 252 234 237 265 239 C 286 240 303 248 319 261 M 347 146 C 374 153 395 167 409 185'
-                />
-                <circle className='error-art-clay' cx='350' cy='294' r='13' />
-              </svg>
+              <ErrorArtwork status={props.status} />
             )}
-            <div className='error-editorial-rule' />
           </aside>
         </div>
       </div>

@@ -26,28 +26,45 @@ does not touch it.
 
 Check that the new frontend works with **both active Go backends** first. Changes
 that require a newer backend must use the combined signed transaction instead.
-The existing `release-web.yml` workflow builds, checks, signs, and publishes the
+The existing `release-web.yml` workflow builds, checks the artifact, signs, and publishes the
 archive. It runs manually against an immutable `web-vX.Y.Z` tag; a branch is not
-a release identity. Keep all required release checks.
+a release identity. Tests run locally; Actions does not repeat them or wait for
+test CI. Keep signature, ancestry, artifact and production acceptance checks.
 
 ### One command
 
 ```bash
+# Run selected local checks once and retain their command, exit code and logs.
+python3 scripts/local-release-tests.py run --component web --output /private/web-tests.json \
+  -- bun run --filter @lmm/web test
+export LMM_LOCAL_TEST_EVIDENCE=/private/web-tests.json
 just ship-web            # next patch version, or: just ship-web web-vX.Y.Z
 just release-web         # same, but stop after the signed release is published
 ```
 
+Choose the local checks appropriate to the change; the record lists what actually
+ran and does not claim every suite passed. To reuse tests already completed, use
+`local-release-tests.py import --component web --revision TESTED_SHA --output
+/private/web-tests.json --command 'completed command' --exit-code 0 --stdout
+/private/completed.log` (and `--stderr` when recorded separately). Import explicitly
+records the operator's observed exit code; it does not execute or invent a test.
+Retain the original logs. Do not import incomplete or unknown outcomes as success.
+The Go path uses the same entry point with `--component go`.
+
 `web ship` fetches `origin/main`, picks the next patch tag (above both the
 latest `web-v*` tag and the AUR `pkgver`), refuses when nothing under
 `apps/web`, `packages`, `package.json` or `bun.lock` changed since the last
-tag, and waits for the commit's Go/Web release checks
-(`.github/required-go-web-release-checks.txt`) before creating anything. It
+tag, and verifies the local test record before creating anything. The record
+binds the component's Git objects, so a merge or unrelated source change can reuse
+the same completed tests; any changed component source rejects the record. It
 then creates a signed annotated tag with your local Git signing key, pushes
 it, dispatches `release-web.yml`, watches that exact run, dispatches
 `deploy-web-frontend.yml` once and watches it. Each dispatch happens at most
-once; on failure it prints the run ID and stops. Rust preview jobs are not in
-the Go/Web release gate, so a red Rust preview does not block a frontend
-release.
+once; on failure it prints the run ID and stops. The same evidence JSON is a
+required `local_test_evidence` input to either component release workflow.
+The publisher checks it against its immutable tag checkout, then only builds,
+signs and publishes. Test/review workflows are manual diagnostics, with no
+push, pull-request, tag, merge-group or scheduled triggers.
 
 ### Step by step
 

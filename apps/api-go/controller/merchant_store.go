@@ -218,6 +218,8 @@ func GetMerchantStoreConfig(c *gin.Context) {
 		"store_categories_supported":        model.MerchantStoreCategoriesSupported(),
 		"store_likes_supported":             model.MerchantStoreLikesSupported(),
 		"store_svg_media_supported":         true,
+		"extore_import_supported":           true,
+		"extore_redirect_uri":               service.MerchantStoreExtoreRedirectURI(),
 		"store_merchant_home_supported":     true,
 		"store_access_supported":            model.MerchantStoreAccessSupported(),
 		"product_purchase_limits_supported": model.MerchantStorePurchaseLimitsSupported(),

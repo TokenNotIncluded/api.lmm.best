@@ -25,7 +25,13 @@ export function StoreProductMediaEditor({
 }) {
   const { t } = useTranslation()
   return (
-    <div className='space-y-3 sm:col-span-2'>
+    <details className='space-y-3 sm:col-span-2'>
+      <summary className='cursor-pointer py-2 text-sm font-medium'>
+        {t('Product images (optional)')}
+      </summary>
+      <p className='text-muted-foreground text-xs'>
+        {t('No image is needed. Products without images use a text layout.')}
+      </p>
       <div className='grid gap-3 sm:grid-cols-2'>
         {[
           {
@@ -78,6 +84,6 @@ export function StoreProductMediaEditor({
           placeholder={t('One URL per line')}
         />
       </div>
-    </div>
+    </details>
   )
 }

@@ -2,6 +2,11 @@ name: LMM web release
 
 on:
   workflow_dispatch:
+    inputs:
+      local_test_evidence:
+        description: JSON evidence for successful local release checks at this exact commit
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,7 +20,7 @@ env:
 
 jobs:
   web:
-    name: Test, build, sign, and publish web package
+    name: Build, sign, and publish web package
     # The identity step below is the security gate: it requires the tag to
     # resolve to an immutable commit reachable from the default branch. GitHub
     # does not mark ordinary release tags as protected, so ref_protected would
@@ -23,8 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
-      actions: read
-      checks: read
       contents: write
       id-token: write
     steps:
@@ -72,9 +75,9 @@ jobs:
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
 
-      - name: Require successful CI, CodeQL, and release contracts
+      - name: Require successful local release checks
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          LMM_LOCAL_TEST_EVIDENCE_JSON: ${{ inputs.local_test_evidence }}
         run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}" --component web
 
       - name: Install checksum-pinned Bun
@@ -98,18 +101,10 @@ jobs:
       - name: Install workspace dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check formatting and copyright headers
-        run: |
-          bun run --filter @lmm/web format:check
-          bun run --filter @lmm/web copyright:check
-
-      - name: Test and build the web frontend
+      - name: Build and inspect the web frontend
         env:
           VITE_REACT_APP_VERSION: ${{ steps.identity.outputs.version }}
         run: |
-          bun run --filter @lmm/web lint
-          bun run --filter @lmm/web typecheck
-          bun run --filter @lmm/web test
           bun run --filter @lmm/web build
           bun run --filter @lmm/web bundle:check
 

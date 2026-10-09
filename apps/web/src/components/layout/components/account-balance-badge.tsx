@@ -36,23 +36,26 @@ export function AccountBalanceBadge({
       {compactMobile && (
         <Link
           to='/wallet'
-          className='border-border/70 bg-muted/40 hover:bg-accent focus-visible:ring-ring/50 inline-flex h-11 max-w-20 min-w-11 shrink-0 items-center justify-center rounded-lg border px-2 text-sm font-medium tabular-nums outline-none focus-visible:ring-[3px] sm:hidden'
-          aria-label={`${t('Balance')}: ${formatQuota(quota)} · ${t('Top up')}`}
-          title={`${t('Balance')}: ${formatQuota(quota)} · ${t('Top up')}`}
+          className='border-border/70 bg-muted/40 hover:bg-accent focus-visible:ring-ring/50 inline-flex h-11 max-w-20 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border px-2 text-sm font-medium tabular-nums outline-none focus-visible:ring-[3px] md:hidden'
+          aria-label={`${t('Balance')}: ${balance} · ${t('Top up')}`}
+          title={`${t('Balance')}: ${balance} · ${t('Top up')}`}
           data-testid='mobile-account-balance'
         >
           <span className='min-w-0 truncate'>{balance}</span>
+          <span aria-hidden='true' className='text-muted-foreground shrink-0'>
+            +
+          </span>
         </Link>
       )}
       <div
         className={cn(
-          'border-border/70 bg-muted/40 inline-flex h-11 min-w-0 shrink-0 items-center rounded-lg border text-xs font-medium sm:h-8',
-          compactMobile && 'hidden sm:inline-flex',
+          'border-border/70 bg-muted/40 inline-flex h-11 min-w-0 shrink-0 items-center rounded-lg border text-xs font-medium md:h-8',
+          compactMobile && 'hidden md:inline-flex',
           className
         )}
         data-testid='account-balance-badge'
       >
-        <span className='text-muted-foreground ps-2 sm:ps-2.5'>
+        <span className='text-muted-foreground ps-2 md:ps-2.5'>
           {t('Balance')}
         </span>
         <Tooltip>
@@ -82,7 +85,7 @@ export function AccountBalanceBadge({
         </Link>
         <Link
           to='/wallet'
-          className='border-border hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring/50 inline-flex h-full shrink-0 items-center border-s px-2 font-semibold outline-none focus-visible:ring-[3px] sm:px-2.5'
+          className='border-border hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring/50 inline-flex h-full shrink-0 items-center border-s px-2 font-semibold outline-none focus-visible:ring-[3px] md:px-2.5'
           aria-label={t('Top up')}
         >
           {t('Top up')}

@@ -40,7 +40,7 @@ listing = "--list" in args
 if os.environ.get("LMM_SUITE_GUARD_CARGO_MODE") == "omit-model-diagnostics" and target == "relay_openai_settlement_pg":
     names = [name for name in names if not name.startswith("provider_response_model_diagnostics_")]
 if os.environ.get("LMM_SUITE_GUARD_CARGO_MODE") == "omit-public-denomination":
-    names = [name for name in names if not name.startswith(("public_credit_denomination_change_", "public_denomination_refreshes_"))]
+    names = [name for name in names if not name.startswith(("public_credit_denomination_change_", "fixed_credit_options_refresh_"))]
 oracles = {key:value for key,value in os.environ.items() if key.endswith("_GO_ORACLE_OUTPUT") or key in ("LMM_RELAY_FUNDING_GO_VECTORS", "LMM_RELAY_PRICE_GO_VECTORS")}
 with open(os.environ["LMM_SUITE_GUARD_TRACE"], "a") as trace:
     trace.write(json.dumps({"command":"cargo", "target":target, "listing":listing, "names":names,
@@ -105,6 +105,8 @@ for test, env, fixture in [
             del data[inputs[0]["name"]]; data["unexpected-fixture"] = {}
         elif "cases" in data: data["cases"][0]["name"] = "unexpected-fixture"
         else: data = {}
+    if mode == "wrong-token-basis" and test == "TestRustTokenPricingCurrentGoOracle":
+        data["options"]["CreditsPerUSD"] = "3500000"
     Path(os.environ[env]).write_text(json.dumps(data))
 assert selected
 print("ok synthetic Go command guard")
@@ -165,7 +167,7 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
                         self.assertTrue(required.issubset(command["names"]))
                 if suite == "token-queries":
                     for command in commands:
-                        self.assertIn("public_denomination_refreshes_both_node_caches_without_repricing_or_ledger_writes", command["names"])
+                        self.assertIn("fixed_credit_options_refresh_both_node_caches_without_repricing_or_ledger_writes", command["names"])
                 if suite == "stripe":
                     self.assertEqual(len(commands[0]["names"]), 13)
                     self.assertTrue(all(name.startswith("stripe_wallet::") for name in commands[0]["names"]))
@@ -186,6 +188,12 @@ class NewIntegrationSuiteGuards(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, result.stdout+result.stderr)
                 self.assertIn("required integration test count mismatch", result.stderr)
                 self.assertFalse(any(event["command"] == "cargo" and not event["listing"] for event in self.events()))
+
+    def test_token_pricing_rejects_an_old_currency_basis_before_execution(self):
+        result = self.run_suite("token-queries", LMM_SUITE_GUARD_GO_MODE="wrong-token-basis")
+        self.assertNotEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertIn("must use the fixed 500000 credit basis", result.stderr)
+        self.assertFalse(any(event["command"] == "cargo" and not event["listing"] for event in self.events()))
 
     def test_fresh_current_go_exports_replace_all_inherited_oracle_paths(self):
         for suite in ("epay", "stripe", "catalog", "token-queries", "relay-settlement"):

@@ -2,7 +2,26 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { INTERFACE_LANGUAGE_OPTIONS } from '@/i18n/languages'
+
 import { formatSiteCredits, formatSitePaymentMicros } from './site-statistics'
+
+for (const { code } of INTERFACE_LANGUAGE_OPTIONS) {
+  const locale = code === 'zhCN' ? 'zh-CN' : code === 'zhTW' ? 'zh-TW' : code
+  test(`site statistics preserve the ${code} interface language`, () => {
+    assert.equal(
+      formatSiteCredits('1234567', code),
+      new Intl.NumberFormat(locale).format(1234567n)
+    )
+    assert.equal(
+      formatSitePaymentMicros('1234560000', code),
+      new Intl.NumberFormat(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(1234.56)
+    )
+  })
+}
 
 test('site credit totals remain exact above the browser and SQL integer ranges', () => {
   assert.equal(

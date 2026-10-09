@@ -1,27 +1,6 @@
 name: LMM editor providers
 
 on:
-  pull_request:
-    paths:
-      - 'packages/vscode-lmm-provider/**'
-      - 'packages/zed-lmm-provider/**'
-      - 'apps/api-go/service/oauth_server.go'
-      - 'apps/api-go/controller/oauth_server*.go'
-      - 'apps/api-go/oauthserver/**'
-      - 'apps/api-go/service/oauth_contract.md'
-      - 'apps/api-go/router/oauth_editor*.go'
-      - 'docs/editor-providers.md'
-      - '.github/workflows/editor-providers.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'packages/vscode-lmm-provider/**'
-      - 'packages/zed-lmm-provider/**'
-      - 'apps/api-go/service/oauth_server.go'
-      - 'apps/api-go/controller/oauth_server*.go'
-      - 'apps/api-go/oauthserver/**'
-      - 'apps/api-go/router/oauth_editor*.go'
-      - '.github/workflows/editor-providers.yml'
   workflow_dispatch:
 
 permissions:

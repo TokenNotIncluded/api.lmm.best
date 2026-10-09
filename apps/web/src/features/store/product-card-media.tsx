@@ -1,6 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { Image01Icon } from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
+import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -12,50 +11,64 @@ export function StoreProductCardMedia({
   title,
   list,
   featured = false,
+  href,
 }: {
   images: readonly string[]
   title: string
   list: boolean
   featured?: boolean
+  href?: string
 }) {
   const header = storeProductHeaderImage(images)
   const logo = safeStoreMediaUrl(images[0])
   const hasHeader = safeStoreMediaUrl(images[1]) !== undefined
-  return (
+  const [failedHeader, setFailedHeader] = useState<string>()
+  const [failedLogo, setFailedLogo] = useState<string>()
+  // An absent or failed image must not leave an empty frame or focusable link.
+  if (!header || header === failedHeader) return null
+  const media = (
     <div
       className={cn(
-        'bg-muted relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden',
+        'bg-muted/40 relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden rounded-xl',
         featured && 'aspect-[16/10]',
         list && 'sm:w-44 sm:shrink-0 sm:self-start'
       )}
     >
-      {header ? (
-        <img
-          src={header}
-          alt={title}
-          className={cn(
-            'size-full object-cover',
-            !hasHeader && 'object-contain p-6'
-          )}
-          loading='lazy'
-          referrerPolicy='no-referrer'
-        />
-      ) : (
-        <HugeiconsIcon
-          icon={Image01Icon}
-          className='text-muted-foreground size-8'
-          aria-hidden='true'
-        />
-      )}
-      {logo && logo !== header && (
+      <img
+        src={header}
+        alt={title}
+        className={cn(
+          'size-full object-cover',
+          !hasHeader && 'object-contain p-6'
+        )}
+        loading='lazy'
+        referrerPolicy='no-referrer'
+        onError={() => setFailedHeader(header)}
+      />
+      {logo && logo !== header && logo !== failedLogo && (
         <img
           src={logo}
           alt=''
-          className='bg-card absolute bottom-3 left-3 size-12 rounded-lg border object-contain p-1 shadow-sm'
+          className='bg-card absolute bottom-3 left-3 size-12 rounded-lg object-contain p-1'
           loading='lazy'
           referrerPolicy='no-referrer'
+          onError={() => setFailedLogo(logo)}
         />
       )}
     </div>
+  )
+  return href ? (
+    <a
+      href={href}
+      aria-label={title}
+      className={cn(
+        'focus-visible:outline-ring block rounded-xl focus-visible:outline-2',
+        list && 'sm:w-44 sm:shrink-0 sm:self-start'
+      )}
+    >
+      {media}
+    </a>
+  ) : (
+    media
   )
 }

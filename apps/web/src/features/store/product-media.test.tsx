@@ -446,3 +446,37 @@ test('guest product detail renders the SVG and original gallery as images', asyn
   assert.equal(images[0].getAttribute('data-store-media-role'), 'header')
   assert.ok(images[1].src.startsWith(STORE_SVG_DATA_PREFIX))
 })
+
+test('missing card images render neither a placeholder nor an empty image link', async () => {
+  const { StoreProductCardMedia } = await import('./product-card-media')
+  await mount(
+    <StoreProductCardMedia
+      images={[]}
+      title='No image product'
+      list={false}
+      href='/store/products/no-image'
+    />
+  )
+  assert.equal(document.querySelector('img'), null)
+  assert.equal(
+    document.querySelector('a[href="/store/products/no-image"]'),
+    null
+  )
+})
+
+test('a failed card image removes its frame and image link', async () => {
+  const { StoreProductCardMedia } = await import('./product-card-media')
+  await mount(
+    <StoreProductCardMedia
+      images={['', 'https://images.example/broken.jpg']}
+      title='Broken image product'
+      list={false}
+      href='/store/products/broken'
+    />
+  )
+  const image = document.querySelector('img')
+  assert.ok(image)
+  await act(async () => image.dispatchEvent(new Event('error')))
+  assert.equal(document.querySelector('img'), null)
+  assert.equal(document.querySelector('a[href="/store/products/broken"]'), null)
+})
