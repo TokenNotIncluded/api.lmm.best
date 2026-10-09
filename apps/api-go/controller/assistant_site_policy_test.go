@@ -24,9 +24,12 @@ func assistantPolicyContentTestContext(t *testing.T, role int) (*gin.Context, mo
 	c, user, _ := assistantAutomationTestContext(t, db, role)
 	require.NoError(t, db.AutoMigrate(&model.AuthFlow{}))
 	legal := *system_setting.GetLegalSettings()
-	common.OptionMapRWMutex.RLock()
+	common.OptionMapRWMutex.Lock()
 	options := maps.Clone(common.OptionMap)
-	common.OptionMapRWMutex.RUnlock()
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	common.OptionMapRWMutex.Unlock()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -38,6 +41,23 @@ func assistantPolicyContentTestContext(t *testing.T, role int) (*gin.Context, mo
 	})
 	assistantPolicyForTest(t, nil, nil)
 	return c, user
+}
+
+func TestAssistantSitePolicyFixtureInitializesUnsetOptionMap(t *testing.T) {
+	common.OptionMapRWMutex.Lock()
+	previousOptions := common.OptionMap
+	common.OptionMap = nil
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
+	})
+	assistantPolicyContentTestContext(t, common.RoleRootUser)
+	common.OptionMapRWMutex.RLock()
+	initialized := common.OptionMap != nil
+	common.OptionMapRWMutex.RUnlock()
+	require.True(t, initialized, "site-policy fixture must initialize its own option map")
 }
 
 func seedAssistantPolicy(t *testing.T, key, value string) {
