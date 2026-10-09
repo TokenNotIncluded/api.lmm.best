@@ -208,3 +208,75 @@ test('a grant refresh sends a fresh identity-scoped GET instead of joining the o
     true
   )
 })
+
+for (const scenario of [
+  {
+    name: 'a same-session bundle confirms L1',
+    write: () =>
+      useAuthStore
+        .getState()
+        .auth.setBundle(bundle('same-write-session', true)),
+    staleGranted: false,
+    expectedGranted: true,
+  },
+  {
+    name: 'a same-account user write confirms L1',
+    write: () =>
+      useAuthStore.getState().auth.setUser({
+        ...user,
+        developer_access_granted: true,
+      }),
+    staleGranted: false,
+    expectedGranted: true,
+  },
+  {
+    name: 'reset restores the same account and session as L0',
+    write: () => {
+      useAuthStore.getState().auth.reset()
+      useAuthStore
+        .getState()
+        .auth.setBundle(bundle('same-write-session', false))
+    },
+    staleGranted: true,
+    expectedGranted: false,
+  },
+]) {
+  test(`a late physical self response is ignored after ${scenario.name}`, async () => {
+    useAuthStore.getState().auth.setBundle(bundle('same-write-session', false))
+    let dispatched = false
+    let finish: (granted: boolean) => void = () => undefined
+    // Keep the real HTTP client so a same-ID/SID response passes its scope check.
+    api.defaults.adapter = (config) =>
+      new Promise<AxiosResponse>((resolve) => {
+        dispatched = true
+        finish = (granted) =>
+          resolve({
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            config,
+            data: {
+              success: true,
+              data: { ...user, developer_access_granted: granted },
+            },
+          })
+      })
+    const oldRequest = refreshCurrentAccount()
+    for (let tick = 0; tick < 20 && !dispatched; tick++) {
+      await Promise.resolve()
+    }
+    assert.equal(dispatched, true)
+    scenario.write()
+    finish(scenario.staleGranted)
+    assert.equal(await oldRequest, null)
+    assert.equal(useAuthStore.getState().auth.user?.id, user.id)
+    assert.equal(
+      useAuthStore.getState().auth.session?.sid,
+      'same-write-session'
+    )
+    assert.equal(
+      useAuthStore.getState().auth.user?.developer_access_granted,
+      scenario.expectedGranted
+    )
+  })
+}
