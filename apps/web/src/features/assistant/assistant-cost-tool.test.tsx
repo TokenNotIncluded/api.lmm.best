@@ -177,7 +177,7 @@ describe('AssistantCostTool', () => {
     assert.equal(calls, 0)
     assert.match(
       rendered.container.textContent ?? '',
-      /read-only while your L1 request is under review/
+      /read-only until L1 access is active/
     )
     assert.doesNotMatch(rendered.container.textContent ?? '', /\$0\.3600/)
     await unmount(rendered)

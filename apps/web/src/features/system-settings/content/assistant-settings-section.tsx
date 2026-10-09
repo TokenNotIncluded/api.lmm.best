@@ -72,8 +72,8 @@ import {
   type AssistantSearchProvider,
 } from '../types'
 import { safeNumberFieldProps } from '../utils/numeric-field'
-import { AssistantL1ReviewSettings } from './assistant-l1-review-settings'
 import { AssistantModerationSettings } from './assistant-moderation-settings'
+import { AssistantRegistrationGuardSettings } from './assistant-registration-guard-settings'
 import {
   assistantSettingsSchema,
   type AssistantSettingsFormValues,
@@ -607,6 +607,10 @@ export function AssistantSettingsSection(props: {
   const { t } = useTranslation()
   const updateOptions = useUpdateAssistantOptions()
   const [panel, setPanel] = useState<AssistantSettingsGroup>('model')
+  const [configurationRequest, setConfigurationRequest] = useState<{
+    name: string
+    id: number
+  }>()
   const [refreshingToolPolicy, setRefreshingToolPolicy] = useState(false)
   const [toolPolicyNotice, setToolPolicyNotice] = useState<{
     message: string
@@ -648,6 +652,17 @@ export function AssistantSettingsSection(props: {
       | undefined
     if (!field) return
     setPanel(getAssistantSettingsGroup(field))
+    const tool = field.startsWith('AssistantSearch')
+      ? 'search_web'
+      : field === 'AssistantNewUserGiftMaxCredits'
+        ? 'prepare_new_user_gift'
+        : undefined
+    if (tool) {
+      setConfigurationRequest((previous) => ({
+        name: tool,
+        id: (previous?.id ?? 0) + 1,
+      }))
+    }
     // Focus after the hidden panel has become visible.
     requestAnimationFrame(() => form.setFocus(field))
   }
@@ -695,6 +710,26 @@ export function AssistantSettingsSection(props: {
         submitted = rebaseAssistantDraft(beforeRefresh, values, fresh.incoming)
         expectedValues = {
           AssistantToolPolicy: fresh.incoming.AssistantToolPolicy,
+        }
+        if (
+          JSON.stringify(
+            JSON.parse(
+              beforeRefresh.AssistantToolPolicy || DEFAULT_ASSISTANT_TOOL_POLICY
+            ).rules ?? {}
+          ) !==
+          JSON.stringify(
+            JSON.parse(
+              fresh.incoming.AssistantToolPolicy ||
+                DEFAULT_ASSISTANT_TOOL_POLICY
+            ).rules ?? {}
+          )
+        ) {
+          setPanel('tools')
+          setToolPolicyNotice({
+            message:
+              'Tool conditions changed in another session. Review the merged limits and save again.',
+          })
+          return
         }
       } catch {
         setPanel('tools')
@@ -862,6 +897,218 @@ export function AssistantSettingsSection(props: {
     mcp_streamable_http: t(
       'Connect to an MCP server over Streamable HTTP from the server.'
     ),
+  }
+
+  const toolSpecificSettings = (name: string) => {
+    if (name === 'search_web') {
+      return (
+        <section className='space-y-5'>
+          <FormField
+            control={form.control}
+            name='AssistantSearchProvider'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Search provider')}</FormLabel>
+                <Select
+                  value={field.value}
+                  onValueChange={(value) => {
+                    if (
+                      typeof value === 'string' &&
+                      (
+                        ASSISTANT_SEARCH_PROVIDERS as readonly string[]
+                      ).includes(value)
+                    ) {
+                      field.onChange(value)
+                    }
+                  }}
+                >
+                  <FormControl>
+                    <SelectTrigger className='w-full' disabled={!enabled}>
+                      <SelectValue
+                        placeholder={t('Select a search provider')}
+                      />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value='none'>{t('Disabled')}</SelectItem>
+                      <SelectItem value='exa'>Exa</SelectItem>
+                      <SelectItem value='tavily'>Tavily</SelectItem>
+                      <SelectItem value='brave'>Brave Search</SelectItem>
+                      <SelectItem value='generic_http'>
+                        {t('Custom HTTP')}
+                      </SelectItem>
+                      <SelectItem value='mcp_streamable_http'>
+                        {t('MCP (Streamable HTTP)')}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  {searchProviderDescription[searchProvider]}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {searchProvider === 'generic_http' && (
+            <FormField
+              control={form.control}
+              name='AssistantSearchURL'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Search tool API URL')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      disabled={!enabled}
+                      placeholder='https://search.example/api/search'
+                      autoComplete='off'
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'The assistant sends a GET request with the query parameter q.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
+          {searchProvider === 'mcp_streamable_http' && (
+            <>
+              <FormField
+                control={form.control}
+                name='AssistantSearchURL'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('MCP Streamable HTTP endpoint')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={!enabled}
+                        placeholder='https://search.example/mcp'
+                        autoComplete='off'
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'The endpoint and credentials are used only by the server.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='AssistantSearchMCPTool'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Optional MCP search tool name')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={!enabled}
+                        placeholder='web_search'
+                        autoComplete='off'
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Leave empty to automatically find a search tool.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </>
+          )}
+
+          <FormField
+            control={form.control}
+            name='AssistantSearchAPIKey'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Search tool API key')}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    type='password'
+                    disabled={!enabled}
+                    placeholder={t('Leave blank to keep the existing key')}
+                    autoComplete='new-password'
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'The key is stored server-side and is never shown in the options response.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </section>
+      )
+    }
+    if (name === 'prepare_new_user_gift') {
+      return (
+        <section className='space-y-5'>
+          <FormField
+            control={form.control}
+            name='AssistantNewUserGiftMaxCredits'
+            render={({ field }) => (
+              <FormItem>
+                <div className='flex items-center justify-between gap-3'>
+                  <FormLabel>
+                    {t('Welcome-gift maximum ({{currency}})', {
+                      currency: walletCurrency.label,
+                    })}
+                  </FormLabel>
+                  <Select
+                    value={walletCurrency.currency}
+                    onValueChange={(value) =>
+                      void walletCurrency.setPreference(
+                        value as 'USD' | 'CNY' | 'CREDIT'
+                      )
+                    }
+                  >
+                    <SelectTrigger className='w-28' aria-label={t('Currency')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='USD'>USD</SelectItem>
+                      <SelectItem value='CNY'>CNY</SelectItem>
+                      <SelectItem value='CREDIT'>{t('Credits')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <FormControl>
+                  <CreditAmountInput
+                    name={field.name}
+                    ref={field.ref}
+                    onBlur={field.onBlur}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Maximum for one welcome gift. Set to 0 to disable issuing and claiming gifts; already claimed balances stay unchanged.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </section>
+      )
+    }
+    return null
   }
 
   return (
@@ -1373,180 +1620,20 @@ export function AssistantSettingsSection(props: {
                           onChange={field.onChange}
                           active={panel === 'tools'}
                           disabled={isSaving}
+                          renderSettings={toolSpecificSettings}
+                          configurationRequest={configurationRequest}
                         />
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </SettingsDisclosure>
-                <SettingsDisclosure title={t('Search & skills')} defaultOpen>
+                <SettingsDisclosure
+                  title={t('Skills and playbooks')}
+                  defaultOpen
+                >
                   <div className='space-y-6'>
                     <div className='space-y-5'>
-                      <FormField
-                        control={form.control}
-                        name='AssistantSearchProvider'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Search provider')}</FormLabel>
-                            <Select
-                              value={field.value}
-                              onValueChange={(value) => {
-                                if (
-                                  typeof value === 'string' &&
-                                  (
-                                    ASSISTANT_SEARCH_PROVIDERS as readonly string[]
-                                  ).includes(value)
-                                ) {
-                                  field.onChange(value)
-                                }
-                              }}
-                            >
-                              <FormControl>
-                                <SelectTrigger
-                                  className='w-full'
-                                  disabled={!enabled}
-                                >
-                                  <SelectValue
-                                    placeholder={t('Select a search provider')}
-                                  />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent alignItemWithTrigger={false}>
-                                <SelectGroup>
-                                  <SelectItem value='none'>
-                                    {t('Disabled')}
-                                  </SelectItem>
-                                  <SelectItem value='exa'>Exa</SelectItem>
-                                  <SelectItem value='tavily'>Tavily</SelectItem>
-                                  <SelectItem value='brave'>
-                                    Brave Search
-                                  </SelectItem>
-                                  <SelectItem value='generic_http'>
-                                    {t('Custom HTTP')}
-                                  </SelectItem>
-                                  <SelectItem value='mcp_streamable_http'>
-                                    {t('MCP (Streamable HTTP)')}
-                                  </SelectItem>
-                                </SelectGroup>
-                              </SelectContent>
-                            </Select>
-                            <FormDescription>
-                              {searchProviderDescription[searchProvider]}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      {searchProvider === 'generic_http' && (
-                        <FormField
-                          control={form.control}
-                          name='AssistantSearchURL'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('Search tool API URL')}</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  disabled={!enabled}
-                                  placeholder='https://search.example/api/search'
-                                  autoComplete='off'
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                {t(
-                                  'The assistant sends a GET request with the query parameter q.'
-                                )}
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )}
-
-                      {searchProvider === 'mcp_streamable_http' && (
-                        <>
-                          <FormField
-                            control={form.control}
-                            name='AssistantSearchURL'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>
-                                  {t('MCP Streamable HTTP endpoint')}
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    {...field}
-                                    disabled={!enabled}
-                                    placeholder='https://search.example/mcp'
-                                    autoComplete='off'
-                                  />
-                                </FormControl>
-                                <FormDescription>
-                                  {t(
-                                    'The endpoint and credentials are used only by the server.'
-                                  )}
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name='AssistantSearchMCPTool'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>
-                                  {t('Optional MCP search tool name')}
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    {...field}
-                                    disabled={!enabled}
-                                    placeholder='web_search'
-                                    autoComplete='off'
-                                  />
-                                </FormControl>
-                                <FormDescription>
-                                  {t(
-                                    'Leave empty to automatically find a search tool.'
-                                  )}
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </>
-                      )}
-
-                      <FormField
-                        control={form.control}
-                        name='AssistantSearchAPIKey'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t('Search tool API key')}</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                type='password'
-                                disabled={!enabled}
-                                placeholder={t(
-                                  'Leave blank to keep the existing key'
-                                )}
-                                autoComplete='new-password'
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              {t(
-                                'The key is stored server-side and is never shown in the options response.'
-                              )}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
                       <FormField
                         control={form.control}
                         name='AssistantSkills'
@@ -1761,67 +1848,9 @@ export function AssistantSettingsSection(props: {
                 hidden={panel !== 'review'}
                 className='assistant-settings-panel'
               >
-                <SettingsDisclosure title={t('New-user gift')} defaultOpen>
-                  <FormField
-                    control={form.control}
-                    name='AssistantNewUserGiftMaxCredits'
-                    render={({ field }) => (
-                      <FormItem>
-                        <div className='flex items-center justify-between gap-3'>
-                          <FormLabel>
-                            {t('Welcome-gift maximum ({{currency}})', {
-                              currency: walletCurrency.label,
-                            })}
-                          </FormLabel>
-                          <Select
-                            value={walletCurrency.currency}
-                            onValueChange={(value) =>
-                              void walletCurrency.setPreference(
-                                value as 'USD' | 'CNY' | 'CREDIT'
-                              )
-                            }
-                          >
-                            <SelectTrigger
-                              className='w-28'
-                              aria-label={t('Currency')}
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='USD'>USD</SelectItem>
-                              <SelectItem value='CNY'>CNY</SelectItem>
-                              <SelectItem value='CREDIT'>
-                                {t('Credits')}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <FormControl>
-                          <CreditAmountInput
-                            name={field.name}
-                            ref={field.ref}
-                            onBlur={field.onBlur}
-                            value={field.value}
-                            onValueChange={field.onChange}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t(
-                            'Maximum for one welcome gift. Set to 0 to disable issuing and claiming gifts; already claimed balances stay unchanged.'
-                          )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </SettingsDisclosure>
                 <SettingsDisclosure title={t('Access & safety')} defaultOpen>
                   <div className='space-y-6'>
-                    <AssistantL1ReviewSettings
-                      groups={assistantGroups}
-                      groupsLoading={groupsQuery.isLoading}
-                      getModels={getEnabledAssistantModelIDs}
-                    />
+                    <AssistantRegistrationGuardSettings />
                   </div>
                 </SettingsDisclosure>
               </section>

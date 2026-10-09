@@ -72,7 +72,7 @@ describe('unified todo destinations', () => {
     )
     // The request ID is enough for an administrator to open the review panel;
     // resolving a user profile first would hide the actionable approve/reject UI.
-    assert.equal(todoItemHasDestination(item('developer_access')), true)
+    assert.equal(todoItemHasDestination(item('developer_access')), false)
     assert.equal(todoItemHasDestination(item('account_action')), true)
     assert.equal(todoItemHasDestination(item('human_support')), true)
     assert.equal(

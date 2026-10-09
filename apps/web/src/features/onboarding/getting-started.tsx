@@ -9,18 +9,18 @@ License, or (at your option) any later version.
 import { DashboardSquare01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
+import { AssistantRegistrationStatus } from '@/features/assistant/assistant-registration-status'
 import {
   getAuthenticatedLandingRoute,
   getOnboardingState,
 } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { AccessRequestDetails } from './access-request-details'
 import { L0Welcome } from './l0-welcome'
 import { SetupWorkspace } from './setup-workspace'
 import { useAuthUserRefresh } from './use-auth-user-refresh'
@@ -28,11 +28,10 @@ import { useAuthUserRefresh } from './use-auth-user-refresh'
 export function GettingStarted() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  useAuthUserRefresh()
+  const { refreshUser } = useAuthUserRefresh()
   const user = useAuthStore((state) => state.auth.user)
   const onboarding = getOnboardingState(user)
   const wasActivated = useRef(onboarding.activationComplete)
-
   useEffect(() => {
     const justActivated = !wasActivated.current && onboarding.activationComplete
     wasActivated.current = onboarding.activationComplete
@@ -40,6 +39,11 @@ export function GettingStarted() {
       void navigate({ to: getAuthenticatedLandingRoute(user) })
     }
   }, [navigate, onboarding.activationComplete, user])
+  const continueAfterActivation = useCallback(async () => {
+    const refreshedUser = await refreshUser()
+    if (refreshedUser?.developer_access_granted !== true) return
+    await navigate({ to: getAuthenticatedLandingRoute(refreshedUser) })
+  }, [refreshUser, navigate])
 
   if (!onboarding.activationComplete) {
     return (
@@ -60,7 +64,10 @@ export function GettingStarted() {
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <L0Welcome user={user}>
-            <AccessRequestDetails inline />
+            <AssistantRegistrationStatus
+              onApproved={continueAfterActivation}
+              onContinueSetup={continueAfterActivation}
+            />
           </L0Welcome>
         </SectionPageLayout.Content>
       </SectionPageLayout>

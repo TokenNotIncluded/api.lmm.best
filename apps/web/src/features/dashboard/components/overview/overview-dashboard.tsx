@@ -31,6 +31,8 @@ import { AdminSiteStatisticsPanel } from './admin-site-statistics'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
+import { OverviewGreeting } from './overview-greeting'
+import { OverviewUsageCharts } from './overview-usage-charts'
 import { PerformanceHealthPanel } from './performance-health-panel'
 import { SummaryCards } from './summary-cards'
 import { UptimePanel } from './uptime-panel'
@@ -50,13 +52,10 @@ export function OverviewDashboard() {
 
   return (
     <div className='dashboard-editorial overview-dashboard flex flex-col gap-10'>
-      {!isAdmin && (
-        <>
-          <AccountStatus />
-          <LatestRequestCard />
-        </>
-      )}
+      <OverviewGreeting />
+      {!isAdmin && <LatestRequestCard />}
       <SummaryCards />
+      <OverviewUsageCharts />
       {isAdmin && <AdminSiteStatisticsPanel />}
 
       {showContentPanels && (
@@ -105,6 +104,7 @@ export function OverviewDashboard() {
           )}
         </div>
       )}
+      {!isAdmin && <AccountStatus />}
     </div>
   )
 }

@@ -334,7 +334,7 @@ describe('AssistantLeadsPanel', () => {
     )
     assert.match(container.textContent ?? '', /6 profile signals in 30 days/)
     assert.match(container.textContent ?? '', /Math calculation: 3/)
-    assert.match(container.textContent ?? '', /Recommendation letter: 5/)
+    assert.match(container.textContent ?? '', /Onboarding and L1: 5/)
     assert.match(container.textContent ?? '', /Usage: 6/)
     assert.match(container.textContent ?? '', /Models: 7/)
     assert.match(container.textContent ?? '', /Invitation rewards: 8/)

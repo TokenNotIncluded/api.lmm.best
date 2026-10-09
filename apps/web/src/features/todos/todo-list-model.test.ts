@@ -153,7 +153,6 @@ describe('todo dates and destinations', () => {
   test('does not navigate ordinary users into administrative workflows', () => {
     for (const category of [
       'account_action',
-      'developer_access',
       'security_incident',
       'human_support',
     ] as const) {
@@ -182,4 +181,8 @@ describe('todo dates and destinations', () => {
     assert.equal(todoItemCanOpen(warning, false), false)
     assert.equal(todoItemCanOpen(warning, true), false)
   })
+})
+
+test('a stale selected category cannot restore the retired L1 filter', () => {
+  assert.deepEqual(visibleTodoCategories([], 'developer_access', true), ['all'])
 })

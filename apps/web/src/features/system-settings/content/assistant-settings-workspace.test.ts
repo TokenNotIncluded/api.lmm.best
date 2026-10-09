@@ -206,7 +206,6 @@ test('invalid fields reveal the group that owns the input', () => {
     ['AssistantSkillFiles', 'tools'],
     ['AssistantMaxSteps', 'runtime'],
     ['AssistantCacheTTLMinutes', 'runtime'],
-    ['AssistantL1AutoReviewModel', 'review'],
     ['AssistantRegistrationDailySuspendCap', 'review'],
     ['AssistantActiveRetentionDays', 'retention'],
     ['AssistantSecurityRetentionDays', 'retention'],

@@ -16,32 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-
 import { useAuthStore } from '@/stores/auth-store'
 
-import {
-  developerAccessRequestQueryKey,
-  getDeveloperAccessRequest,
-} from './api'
 import { getAccountNextStep, type ConnectionMethod } from './next-step'
 
 export function useAccountNextStep(method?: ConnectionMethod) {
   const user = useAuthStore((state) => state.auth.user)
-  const request = useQuery({
-    queryKey: developerAccessRequestQueryKey(user?.id ?? 0),
-    queryFn: async () => {
-      const value = await getDeveloperAccessRequest()
-      return value ? { ...value } : null
-    },
-    enabled: !!user && user.developer_access_granted !== true,
-    staleTime: 15_000,
-    retry: false,
-  })
-  const status = request.isError
-    ? 'error'
-    : request.isSuccess
-      ? (request.data?.status ?? 'none')
-      : 'unknown'
-  return { user, request, nextStep: getAccountNextStep(user, status, method) }
+  return { user, nextStep: getAccountNextStep(user, method) }
 }

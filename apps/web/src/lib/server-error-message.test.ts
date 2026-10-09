@@ -120,14 +120,16 @@ describe('server error message mapping', () => {
     )
   })
 
-  test('maps an expired AI recommendation to a recoverable edit path', () => {
-    assert.match(
-      getServerErrorMessageKey({
-        response: {
-          data: { code: 'DEVELOPER_ACCESS_AI_CONFIRMATION_INVALID' },
-        },
-      }) ?? '',
-      /continue editing it yourself/
-    )
+  test('retired L1 errors point to current activation, never letter editing', () => {
+    for (const code of [
+      'DEVELOPER_ACCESS_LETTER_RETIRED',
+      'DEVELOPER_ACCESS_AI_CONFIRMATION_INVALID',
+      'DEVELOPER_ACCESS_AI_CONFIRMATION_MISMATCH',
+    ]) {
+      assert.equal(
+        getServerErrorMessageKey({ response: { data: { code } } }),
+        'Describe what you need. The assistant can enable L1 directly.'
+      )
+    }
   })
 })

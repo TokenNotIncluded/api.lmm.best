@@ -141,6 +141,28 @@ describe('persona debug runtime', () => {
     assert.equal(status.data.data.is_root, true)
   })
 
+  test('registration status follows the active persona without reviving requests', async () => {
+    installPersonaDebugRuntime()
+    const previousPersona = getActiveDebugPersona()
+    try {
+      for (const [persona, state] of [
+        ['l0', 'context_needed'],
+        ['l1', 'active'],
+      ] as const) {
+        setActiveDebugPersona(persona)
+        const result = await api.get('/api/assistant/registration-check')
+        assert.equal(result.data.success, true)
+        assert.deepEqual(result.data.data, { state })
+      }
+      await assert.rejects(
+        api.get('/api/user/developer-access/request'),
+        /PERSONA_DEBUG_UNMOCKED_REQUEST/
+      )
+    } finally {
+      setActiveDebugPersona(previousPersona)
+    }
+  })
+
   test('serves dynamic assistant starters without reaching a backend', async () => {
     installPersonaDebugRuntime()
 

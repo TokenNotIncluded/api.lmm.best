@@ -1,4 +1,26 @@
 /*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+/*
 Copyright (C) 2026 LIghtJUNction
 
 This program is free software: you can redistribute it and/or modify
@@ -6,7 +28,7 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { Copy, Check, ArrowDown, RotateCcw } from 'lucide-react'
 import {
   memo,
@@ -69,6 +91,7 @@ export function L0CloudConversation({
   cloudRef: RefObject<HTMLDivElement | null>
 }) {
   const { t, i18n } = useTranslation()
+  const queryClient = useQueryClient()
   const copy = getL0AccessCopy(i18n.resolvedLanguage || i18n.language)
   const user = useAuthStore((state) => state.auth.user)
   const sessionId = useAuthStore((state) => state.auth.session?.sid)
@@ -97,6 +120,7 @@ export function L0CloudConversation({
     retry: false,
   })
   const [prompt, setPrompt] = useState('')
+  const [supportRequired, setSupportRequired] = useState(false)
   const [away, setAway] = useState(false)
   const [copyState, setCopyState] = useState<'copied' | 'copyFailed' | null>(
     null
@@ -145,19 +169,17 @@ export function L0CloudConversation({
             turnId
           )
           if (!sameAccount()) throw new Error('Account changed')
-          // The assistant may have granted L1 on this completed turn. Read the
-          // authoritative account, never derive permission from response text.
-          if (
-            reply.tools?.some(
-              (trace) =>
-                trace.name === 'grant_l1_access' &&
-                trace.status === 'output-available'
-            )
-          ) {
-            // A slow account read must not hold the completed answer open.
-            // The refresh helper checks both account and session before commit.
-            void refreshCurrentAccount()
-          }
+          setSupportRequired(Boolean(reply.supportRequest))
+          // Tool receipts do not replace authorization. Refresh the account from
+          // the server after the reply; a failed refresh must not lose the reply.
+          void refreshCurrentAccount().catch(() => undefined)
+          void queryClient.invalidateQueries({
+            queryKey: [
+              'assistant-registration-state',
+              auth.user.id,
+              auth.session?.sid,
+            ],
+          })
           return {
             ...reply,
             needsAction: Boolean(reply.action || reply.supportRequest),
@@ -165,7 +187,7 @@ export function L0CloudConversation({
         },
         (text) => redactAssistantMessageForRequest(text).content
       ),
-    []
+    [queryClient]
   )
   const [state, setState] = useState(session.snapshot)
   const [formatted, setFormatted] = useState(false)
@@ -406,15 +428,20 @@ export function L0CloudConversation({
                   <RotateCcw aria-hidden='true' /> {copy.retry}
                 </button>
               )}
-            {state.needsAction && (
-              <button
-                className='l0-next-action'
-                type='button'
-                onClick={onRequestAccess}
-              >
-                {copy.conditions}
-              </button>
-            )}
+            {state.needsAction &&
+              (supportRequired ? (
+                <Link className='l0-next-action' to='/support'>
+                  {t('Contact support')}
+                </Link>
+              ) : (
+                <button
+                  className='l0-next-action'
+                  type='button'
+                  onClick={onRequestAccess}
+                >
+                  {t('Account and access')}
+                </button>
+              ))}
           </article>
         </section>
       )}

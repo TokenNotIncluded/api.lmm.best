@@ -22,9 +22,9 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { SourceQuestionnaire } from '@/features/acquisition/source-questionnaire'
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import { AssistantRegistrationStatus } from '@/features/assistant/assistant-registration-status'
 import { formatQuota } from '@/lib/format'
 
-import { AccessRequestDetails } from './access-request-details'
 import { useAccountNextStep } from './use-account-next-step'
 
 export function AccountStatus({
@@ -33,22 +33,10 @@ export function AccountStatus({
   showRequestDetails?: boolean
 }) {
   const { t } = useTranslation()
-  const { user, request, nextStep } = useAccountNextStep()
+  const { user, nextStep } = useAccountNextStep()
   if (!user) return null
   const granted = user.developer_access_granted === true
-  const access = granted
-    ? 'API access enabled'
-    : request.isError
-      ? 'Unable to load access status'
-      : !request.isSuccess
-        ? 'Loading'
-        : request.data?.status === 'pending'
-          ? 'Pending review'
-          : request.data?.status === 'rejected'
-            ? 'Access request rejected'
-            : request.data?.status === 'approved'
-              ? 'Refresh account status'
-              : 'Not requested'
+  const access = granted ? 'API access enabled' : 'Enable L1 access'
   const details =
     user.onboarding?.details_available === false ? undefined : user.onboarding
   const keyCreated = details?.api_key_created
@@ -94,16 +82,8 @@ export function AccountStatus({
           </div>
         ))}
       </dl>
-      {showRequestDetails && <AccessRequestDetails key={user.id} />}
-      {request.isError && !granted ? (
-        <Button
-          variant='outline'
-          onClick={() => void request.refetch()}
-          disabled={request.isFetching}
-        >
-          {t('Reload account status')}
-        </Button>
-      ) : showRequestDetails && !granted ? (
+      {showRequestDetails && <AssistantRegistrationStatus key={user.id} />}
+      {showRequestDetails && !granted ? (
         <Button onClick={() => requestAssistantOpen('onboarding')}>
           {t('Start with AI assistant')}
         </Button>

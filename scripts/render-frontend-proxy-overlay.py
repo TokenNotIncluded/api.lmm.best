@@ -76,6 +76,7 @@ location ^~ /static/ {
     return 418;
 }
 '''
+    overlay += 'location = /store/manage {\n    error_page 418 = @lmm_api_backend;\n    if ($request_method !~ "^(GET|HEAD)$") { return 418; }\n    access_log off;\n    try_files /index.html =404;\n    add_header Cache-Control "no-store" always;\n    add_header Referrer-Policy "no-referrer" always;\n    add_header Content-Security-Policy $lmm_extore_callback_csp always;\n}\n'
     for selector in ('= /index.html', '= /', '~ "' + simple + '"', '~ "' + dynamic + '"'):
         overlay += 'location ' + selector + ' {\n' + entry + '}\n'
     overlay += 'location ~ "^/store/claim/[A-Za-z0-9_-]{43}/?$" {\n' + guard + '''    access_log off;
@@ -89,12 +90,15 @@ location ^~ /legal/ {
     add_header Cache-Control "no-cache, must-revalidate" always;
 }
 '''
-    for name in sorted(set(public_names) - {'index.html', 'AGENTS.md'}):
+    for name in sorted(set(public_names) - {'index.html'}):
         if not re.fullmatch(r'[A-Za-z0-9._-]+', name) or name in ('.', '..'):
             raise ValueError('unsupported public file name')
         if is_backend_path('/' + name) or name == 'scripts':
             raise ValueError('public file overlaps a backend namespace')
-        overlay += 'location = /' + name + ' {\n' + guard + '    try_files $uri =404;\n    add_header Cache-Control "no-cache, must-revalidate" always;\n}\n'
+        content_type = ('    types { }\n    default_type text/plain;\n    charset utf-8;\n'
+                        '    add_header X-Content-Type-Options nosniff always;\n'
+                        if name == 'AGENTS.md' else '')
+        overlay += 'location = /' + name + ' {\n' + guard + content_type + '    try_files $uri =404;\n    add_header Cache-Control "no-cache, must-revalidate" always;\n}\n'
     return original.replace(fallback, overlay.encode() + b'\n' + fallback, 1)
 
 

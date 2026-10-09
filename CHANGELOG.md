@@ -13,6 +13,12 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- L0 users can enable L1 through the built-in assistant without application letters
+  or a minimum conversation length. Old application todos, review and archive
+  screens, and unused review settings are removed from the Go/Web console.
+  Legacy application and archive endpoints return 410; stored history and normal
+  invitation rewards remain intact. Human support is available before activation.
+
 - The in-memory model success limiter reserves capacity while requests are in
   flight and releases failed requests. HTTP stream and Responses WebSocket
   outcomes determine success independently from whether a request is billable.

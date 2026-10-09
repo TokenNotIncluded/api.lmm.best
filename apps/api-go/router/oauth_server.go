@@ -42,6 +42,7 @@ func MountOAuthServerRoutes(router *gin.Engine, integration *service.OAuthIntegr
 	router.POST("/api/oauth2/token", tokens, h.Token)
 	router.POST("/api/oauth2/revoke", tokens, h.Revoke)
 	router.GET("/api/oauth2/catalog", resources, h.Catalog)
+	router.GET(service.OAuthOpenAIBasePath+"/models", resources, h.OpenAIModels)
 	router.GET("/api/oauth2/balance", resources, h.Balance)
 	router.GET("/api/oauth2/usage/activity", activity, h.Activity)
 }

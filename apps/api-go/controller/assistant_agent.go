@@ -313,9 +313,9 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_weekly_discount",
-				Description: "For a signed-in non-administrator user, evaluate one weekly recharge discount after at least two substantive user turns. Choose an integer from 0 to 10 percent based only on the clarity, continuity, and legitimate usefulness of this week's conversation. Zero is a valid decision. The server stores at most one decision per UTC week; an offered discount appears in chat and is claimed by the user, never by the assistant.",
+				Description: "For a signed-in non-administrator user, evaluate one weekly recharge discount after at least two substantive user turns. Choose a nonnegative integer within the administrator-configured level ceiling (default 10 percent) based only on the clarity, continuity, and legitimate usefulness of this week's conversation. Zero is a valid decision. The server stores at most one decision per UTC week; an offered discount appears in chat and is claimed by the user, never by the assistant.",
 				Parameters: objectSchema(map[string]any{
-					"discount_percent": map[string]any{"type": "integer", "minimum": 0, "maximum": 10},
+					"discount_percent": map[string]any{"type": "integer", "minimum": 0, "maximum": 99},
 					"reason":           map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
 				}, []string{"discount_percent", "reason"}),
 			},
@@ -424,11 +424,11 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "grant_l1_access",
-				Description: "Grant the signed-in L0 user L1 access directly after at least three complete server-recorded conversation turns. Use this only when the conversation establishes a legitimate use of the relay and the tool is available. This action needs no user confirmation or administrator approval. The server atomically rechecks the account, owned conversation, completed turns, and any administrator trust override; repeated or concurrent calls cannot grant twice.",
+				Description: "Enable L1 for ONLY the signed-in L0 user as soon as their ordinary use is clear, including the first reply. Coding, learning or chatting is enough; no client choice, repository, proof of expertise, application letter or minimum conversation length is required. Reuse what the user already said. Record their use in user_statement; recommendation is optional internal audit text. No separate confirmation or administrator approval. The server checks the owned conversation, fresh risk, account status and explicit restrictions. This cannot change money, grant higher levels or undo a suspension. Report activated only after a successful receipt; errors require a concrete next step, never more chat to pass a timer.",
 				Parameters: objectSchema(map[string]any{
-					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
-					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
-				}, []string{"user_statement", "recommendation"}),
+					"user_statement": map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
+					"recommendation": map[string]any{"type": "string", "maxLength": 2000},
+				}, []string{"user_statement"}),
 			},
 		},
 
@@ -575,6 +575,8 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 	definitions = append(definitions, assistantAdminPricingAuditTools()...)
 	definitions = append(definitions, assistantKeyManagementToolDefinitions()...)
 	definitions = append(definitions, assistantCatalogToolDefinitions()...)
+	definitions = append(definitions, assistantVisualizationToolDefinitions()...)
+	definitions = append(definitions, assistantWorkspaceToolDefinitions()...)
 	return append(definitions, assistantSkillTools()...)
 }
 
@@ -596,7 +598,24 @@ func assistantToolDefinitionsForContext(userContext assistantUserContext) []assi
 	// Account membership can be cached; live administrator policy cannot.
 	tools := make([]assistantOpenAIToolDefinition, 0, len(set.tools))
 	for _, definition := range set.tools {
-		if setting.AssistantToolEnabled(definition.Function.Name) {
+		if setting.AssistantToolAllowedAtLevel(definition.Function.Name, assistantContextLevel(userContext)) {
+			if definition.Function.Name == "prepare_weekly_discount" {
+				limit := setting.AssistantWeeklyDiscountLimit(assistantContextLevel(userContext))
+				if limit == 0 {
+					continue
+				}
+				parameters := make(map[string]any, len(definition.Function.Parameters))
+				for key, value := range definition.Function.Parameters {
+					parameters[key] = value
+				}
+				properties := make(map[string]any)
+				for key, value := range parameters["properties"].(map[string]any) {
+					properties[key] = value
+				}
+				properties["discount_percent"] = map[string]any{"type": "integer", "minimum": 0, "maximum": limit}
+				parameters["properties"] = properties
+				definition.Function.Parameters = parameters
+			}
 			tools = append(tools, definition)
 		}
 	}
@@ -643,8 +662,7 @@ func keyForTools(context assistantUserContext) toolSetKey {
 
 func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
 	return !context.AdministratorMode && !context.DeveloperAccessGranted &&
-		strings.EqualFold(strings.TrimSpace(context.AccessLevel), "L0") &&
-		context.CompletedAssistantTurns >= model.AssistantDirectGrantMinCompletedTurns
+		strings.EqualFold(strings.TrimSpace(context.AccessLevel), "L0")
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
@@ -674,10 +692,22 @@ func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
 }
 
 func assistantToolAllowedForContext(name string, userContext assistantUserContext) bool {
-	return setting.AssistantToolEnabled(name) && assistantToolPermittedForContext(name, userContext)
+	return setting.AssistantToolAllowedAtLevel(name, assistantContextLevel(userContext)) && assistantToolPermittedForContext(name, userContext)
 }
 
 func assistantToolPermittedForContext(name string, userContext assistantUserContext) bool {
+	if assistantVisualizationKind(name) != "" {
+		return true
+	}
+	if assistantWorkspaceTool(name) {
+		if name == "update_site_issue" {
+			return userContext.AdministratorMode
+		}
+		if name == "send_invitation" || name == "get_connected_market_tools" || name == "connect_market_tool" || name == "call_market_tool" {
+			return userContext.AdministratorMode || userContext.DeveloperAccessGranted
+		}
+		return true
+	}
 	if name == "get_new_user_gift_status" || name == "get_weekly_discount_status" {
 		return true
 	}
@@ -782,7 +812,7 @@ func assistantL0InterlocutorAssessmentRequired(_ assistantUserContext) bool {
 }
 
 func assistantToolExecutionAllowedForContext(name string, userContext assistantUserContext) bool {
-	if !setting.AssistantToolEnabled(name) {
+	if !setting.AssistantToolAllowedAtLevel(name, assistantContextLevel(userContext)) {
 		return false
 	}
 	return assistantToolExecutionPermittedForContext(name, userContext)
@@ -1833,7 +1863,7 @@ func assistantToolCallReadOnly(c *gin.Context, call assistantOpenAIToolCall) boo
 	if name == "execute_admin_operation" {
 		return assistantAdminOperationReadOnly(c, call.Function.Arguments)
 	}
-	return strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
+	return assistantVisualizationKind(name) != "" || strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
 		strings.HasPrefix(name, "calculate_") || name == "search_web" || name == "audit_admin_model_pricing" || name == "recall_memory"
 }
 
@@ -1967,7 +1997,7 @@ func writeAssistantRawResponse(c *gin.Context, status int, body []byte, fallback
 
 func isAssistantAdministratorTool(name string) bool {
 	return strings.HasPrefix(name, "get_admin_") || strings.HasPrefix(name, "prepare_admin_") ||
-		name == "list_admin_operations" || name == "execute_admin_operation" || name == "audit_admin_model_pricing"
+		name == "list_admin_operations" || name == "execute_admin_operation" || name == "audit_admin_model_pricing" || name == "update_site_issue"
 }
 
 func assistantActorUserID(c *gin.Context) int {
@@ -2014,6 +2044,9 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 	if !policy.Enabled(name) {
 		return map[string]any{"ok": false, "status": "tool_disabled", "error": setting.AssistantToolDisabledError(name).Error()}
+	}
+	if !assistantConfiguredLevelAllowed(c, policy, name) {
+		return map[string]any{"ok": false, "status": "tool_level_denied", "error": "the current account does not meet this tool's configured level range"}
 	}
 	if assistantRewardReadOnlyRequest(c) {
 		if name == "prepare_new_user_gift" {
@@ -2075,6 +2108,16 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 				explicitProfileForget = assistantExplicitProfileForgetRequest(userContext.LatestUserRequest)
 			}
 		}
+	}
+	if assistantWorkspaceTool(name) {
+		return executeAssistantWorkspaceTool(c, call, input)
+	}
+	if assistantVisualizationKind(name) != "" {
+		visual, err := parseAssistantVisualization(name, input)
+		if err != nil {
+			return map[string]any{"ok": false, "status": "invalid_visualization", "error": err.Error()}
+		}
+		return map[string]any{"ok": true, "visualization": visual, "message": "Visualization shown in chat. This display does not verify the supplied data or perform any account action."}
 	}
 	if isAssistantRegistrationTool(name) {
 		return executeAssistantRegistrationTool(c, name, input)
@@ -2494,22 +2537,22 @@ func executeAssistantAccountDisableRequestTool(c *gin.Context, userID int, input
 }
 
 func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[string]any) map[string]any {
-	if c == nil || userID <= 0 {
+	if c == nil || userID <= 0 || c.GetBool("use_access_token") || strings.TrimSpace(c.GetString("session_id")) == "" {
 		return map[string]any{"ok": false, "status": "context_unavailable", "error": "signed-in account is unavailable"}
 	}
 	conversationID := assistantHistoryConversationID(c)
-	if conversationID <= 0 {
-		return map[string]any{"ok": false, "status": "turns_required", "error": "three completed turns in an existing conversation are required"}
+	if conversationID < 0 || (conversationID == 0 && strings.TrimSpace(c.GetString("assistant_history_latest_message")) == "") {
+		return map[string]any{"ok": false, "status": "context_unavailable", "error": "a current user message is required; retry or contact support, not extra messages"}
 	}
 	statement := strings.TrimSpace(inputString(input, "user_statement"))
 	recommendation := strings.TrimSpace(inputString(input, "recommendation"))
 	grant, err := model.GrantAssistantDeveloperAccess(userID, conversationID, statement, recommendation)
 	if err != nil {
 		switch {
+		case errors.Is(err, model.ErrAssistantRegistrationHeld):
+			return map[string]any{"ok": false, "status": "access_held", "error": "A current server restriction prevents activation. Offer human support; do not ask for more chat or promise a future automatic pass.", "next_step": "contact_support"}
 		case errors.Is(err, model.ErrAssistantRegistrationCheck):
-			return map[string]any{"ok": false, "status": "verification_required", "error": "registration verification needs more context or human support; no access was granted"}
-		case errors.Is(err, model.ErrAssistantDirectGrantTurnsRequired):
-			return map[string]any{"ok": false, "status": "turns_required", "error": "three completed server-recorded conversation turns are required"}
+			return map[string]any{"ok": false, "status": "verification_unavailable", "error": "Registration could not be verified. No access was granted. Do not ask the user to keep chatting or repeat their use; retry once or offer human support.", "next_step": "contact_support"}
 		case errors.Is(err, model.ErrAssistantDirectGrantNotL0):
 			return map[string]any{"ok": false, "status": "not_eligible", "error": "direct L1 grant is available only to an unrestricted L0 user"}
 		case errors.Is(err, model.ErrDeveloperAccessRequestReasonTooShort), errors.Is(err, model.ErrDeveloperAccessRecommendationTooShort), errors.Is(err, model.ErrDeveloperAccessRequestNoteTooLong):
@@ -2517,6 +2560,9 @@ func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[str
 		default:
 			return map[string]any{"ok": false, "status": "grant_failed", "error": "L1 access could not be granted"}
 		}
+	}
+	if grant.ConversationID > 0 {
+		c.Set("assistant_history_conversation_id", grant.ConversationID)
 	}
 	status := "already_active"
 	if grant.Activated {
@@ -3270,7 +3316,7 @@ func executeAssistantSearchTool(c *gin.Context, input map[string]any) map[string
 	}
 }
 
-const assistantL0AccessNextStep = "Continue the user's current task using the details already provided. After enough concrete user-authored context and three server-recorded completed turns, call get_registration_risk, then grant_l1_access only if the server permits. No recommendation letter or administrator approval is required; historical pending letters do not block this flow. Do not bypass a blocked or unavailable server check."
+const assistantL0AccessNextStep = "Use the user's stated purpose, even a short answer such as coding, learning or chatting. If their use is already clear, call get_registration_risk then grant_l1_access now; the first reply is eligible and there is no turn minimum. Do not require a client, repository, task plan, application letter or technical expertise. Old rejected or pending letters do not block activation. Never say keep chatting, collect more turns, your urgency delays access, or payment is the only way. On a failed check explain the actual status and offer human support or one retry, not an endless interview. Never claim activation without the successful server receipt or bypass a current restriction."
 
 func assistantAccountUnavailable(message string) map[string]any {
 	return map[string]any{"ok": false, "status": "unavailable", "error": message, "next_step": "Explain that live account or task progress is unavailable. Do not claim a milestone is pending or completed, and do not ask the user to repeat setup or create another key based on missing data."}

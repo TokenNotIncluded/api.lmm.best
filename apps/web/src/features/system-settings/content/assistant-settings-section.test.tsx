@@ -120,11 +120,6 @@ const baseValues = {
   AssistantSkillFiles: '[]',
   AssistantRegistrationAutoSuspendEnabled: true,
   AssistantRegistrationDailySuspendCap: 5,
-  AssistantL1AutoReviewEnabled: false,
-  AssistantL1AutoReviewGroup: '',
-  AssistantL1AutoReviewModel: '',
-  AssistantL1AutoReviewPrompt: '',
-  AssistantL1AutoReviewMinConfidence: 0.98,
   AssistantL1AutoApprovalUserIDs: '',
   AssistantRetentionEnabled: true,
   AssistantActiveRetentionDays: 90,
@@ -306,13 +301,13 @@ describe('assistant search provider settings', () => {
       }).success,
       true
     )
-    assert.equal(
-      assistantSettingsSchema.safeParse({
-        ...baseValues,
-        AssistantL1AutoReviewEnabled: true,
-      }).success,
-      true
-    )
+    const legacy = assistantSettingsSchema.parse({
+      ...baseValues,
+      AssistantL1AutoReviewEnabled: true,
+      AssistantL1AutoReviewModel: 'retired-model',
+    })
+    assert.equal('AssistantL1AutoReviewEnabled' in legacy, false)
+    assert.equal('AssistantL1AutoReviewModel' in legacy, false)
   })
 
   test('accepts the default tool policy and the legacy empty value supplied by the settings defaults', () => {
@@ -572,7 +567,9 @@ describe('assistant search provider settings', () => {
   })
 
   test('shows only the custom URL for generic HTTP search', async () => {
-    const { container, cleanup } = await renderSettings('generic_http')
+    const rendered = await renderSettings('generic_http')
+    const container = await openToolConfiguration(rendered, 'search_web')
+    const cleanup = rendered.cleanup
     assert.ok(
       container.querySelector('input[name="AssistantSearchURL"]'),
       'custom HTTP URL should be visible'
@@ -586,7 +583,9 @@ describe('assistant search provider settings', () => {
   })
 
   test('shows the MCP endpoint and optional tool name for MCP search', async () => {
-    const { container, cleanup } = await renderSettings('mcp_streamable_http')
+    const rendered = await renderSettings('mcp_streamable_http')
+    const container = await openToolConfiguration(rendered, 'search_web')
+    const cleanup = rendered.cleanup
     assert.ok(container.querySelector('input[name="AssistantSearchURL"]'))
     assert.ok(container.querySelector('input[name="AssistantSearchMCPTool"]'))
     assert.match(container.textContent ?? '', /Streamable HTTP/)
@@ -594,7 +593,9 @@ describe('assistant search provider settings', () => {
   })
 
   test('shows the official provider description without a custom URL', async () => {
-    const { container, cleanup } = await renderSettings('exa')
+    const rendered = await renderSettings('exa')
+    const container = await openToolConfiguration(rendered, 'search_web')
+    const cleanup = rendered.cleanup
     assert.equal(
       container.querySelector('input[name="AssistantSearchURL"]'),
       null
@@ -990,7 +991,7 @@ describe('assistant settings workspace', () => {
       assert.equal(
         requests.filter((url) => url === '/api/assistant/admin/tool-catalog')
           .length,
-        1
+        2
       )
     } finally {
       api.get = originalGet
@@ -1450,7 +1451,11 @@ describe('administrator welcome-gift cap', () => {
     }) as typeof api.post
     const rendered = await renderSettings('none')
     try {
-      const input = rendered.container.querySelector<HTMLInputElement>(
+      const configuration = await openToolConfiguration(
+        rendered,
+        'prepare_new_user_gift'
+      )
+      const input = configuration.querySelector<HTMLInputElement>(
         'input[name="AssistantNewUserGiftMaxCredits"]'
       )
       const form = rendered.container.querySelector('form')
@@ -1494,3 +1499,88 @@ describe('administrator welcome-gift cap', () => {
     }
   })
 })
+
+async function openToolConfiguration(
+  rendered: Awaited<ReturnType<typeof renderSettings>>,
+  name: string
+) {
+  const originalGet = api.get
+  api.get = (async (url: string, ...args: unknown[]) => {
+    if (url === '/api/assistant/admin/tool-catalog') {
+      return {
+        data: {
+          success: true,
+          data: {
+            capabilities: { policy_rules: true },
+            groups: [
+              {
+                id: 'review_tools',
+                label: 'Review tools',
+                tools: [
+                  {
+                    name: 'search_web',
+                    label: 'Search the web',
+                    description: 'Search with the chosen provider.',
+                    effect: 'read_only',
+                    access: 'user',
+                  },
+                  {
+                    name: 'prepare_new_user_gift',
+                    label: 'Welcome gift',
+                    description: 'Evaluate a welcome gift.',
+                    effect: 'server_guarded',
+                    access: 'user',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }
+    }
+    return Reflect.apply(originalGet, api, [url, ...args])
+  }) as typeof api.get
+  try {
+    const tab = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    ).find((button) => button.textContent === 'Assistant tools')
+    assert.ok(tab)
+    await act(async () => {
+      tab.click()
+      await flushEffects()
+    })
+    await act(flushEffects)
+    const row =
+      rendered.container.querySelector(`[data-tool="${name}"]`) ??
+      Array.from(rendered.container.querySelectorAll('[data-testid]')).find(
+        (item) => item.getAttribute('data-testid') === `assistant-tool-${name}`
+      )
+    const label =
+      name === 'search_web'
+        ? 'Configure Search the web'
+        : 'Configure Welcome gift'
+    const button = rendered.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`
+    )
+    assert.ok(
+      button,
+      `Missing Configure button for ${name}; row=${Boolean(row)}`
+    )
+    await act(async () => {
+      button.click()
+      await flushEffects()
+    })
+    const dialog = document.querySelector(
+      '[data-testid="assistant-tool-configuration"]'
+    )
+    assert.ok(dialog)
+    assert.equal(
+      rendered.container.querySelector('input[name="AssistantSearchURL"]'),
+      null,
+      'Search settings must not remain in their former location'
+    )
+    return dialog
+  } finally {
+    api.get = originalGet
+  }
+}

@@ -64,7 +64,7 @@ function CatalogueSelect({
           <SelectItem
             key={item.value}
             value={item.value}
-            className='min-h-11 rounded-xl data-selected:bg-accent/60 data-highlighted:bg-accent data-highlighted:text-accent-foreground [&_[data-slot=select-item-text]]:min-w-0 [&_[data-slot=select-item-text]]:whitespace-normal'
+            className='data-selected:bg-accent/60 data-highlighted:bg-accent data-highlighted:text-accent-foreground min-h-11 rounded-xl [&_[data-slot=select-item-text]]:min-w-0 [&_[data-slot=select-item-text]]:whitespace-normal'
           >
             {item.label}
           </SelectItem>

@@ -96,10 +96,7 @@ function UnifiedTodoListContent() {
   }, [categoryKey])
 
   const navigateToItem = async (item: TodoItem) => {
-    if (
-      item.category === 'developer_access' ||
-      item.category === 'account_action'
-    ) {
+    if (item.category === 'account_action') {
       await navigate({
         to: '/todos',
         search: { todo: item.category, request: item.source_id },
@@ -224,7 +221,7 @@ function UnifiedTodoListContent() {
                 )}
                 onClick={() => feed.selectCategory(key)}
               >
-                {t(TODO_CATEGORY_LABELS[key])}
+                {t(TODO_CATEGORY_LABELS[key] ?? 'Notification')}
                 {unread ? (
                   <span className='bg-muted text-foreground rounded-md px-1.5 py-0.5 text-xs tabular-nums'>
                     <span className='sr-only'>{t('Unread')} </span>
@@ -240,7 +237,7 @@ function UnifiedTodoListContent() {
       <div className='mb-4 flex flex-wrap items-center justify-between gap-3'>
         <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
           <h3 className='text-sm font-semibold'>
-            {t(TODO_CATEGORY_LABELS[view.category])}
+            {t(TODO_CATEGORY_LABELS[view.category] ?? 'Notification')}
           </h3>
           <span className='text-muted-foreground text-xs tabular-nums'>
             {t('Total')}: {total ?? '—'}

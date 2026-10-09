@@ -8,11 +8,10 @@ License, or (at your option) any later version.
 */
 import type { TodoCategory, TodoCategorySummary } from './api'
 
-export const TODO_CATEGORY_LABELS: Record<TodoCategory, string> = {
+export const TODO_CATEGORY_LABELS: Partial<Record<TodoCategory, string>> = {
   all: 'All',
   open_source_bounty_review: 'Challenge reviews',
   open_source_bounty: 'Bounty notifications',
-  developer_access: 'Developer access',
   account_action: 'Account actions',
   security_incident: 'Security incidents',
   moderation: 'Moderation notifications',
@@ -20,7 +19,6 @@ export const TODO_CATEGORY_LABELS: Record<TodoCategory, string> = {
 }
 
 const ADMIN_CATEGORIES = new Set<TodoCategory>([
-  'developer_access',
   'account_action',
   'security_incident',
   'human_support',
@@ -43,7 +41,7 @@ export function visibleTodoCategories(
     }
   }
   // Keep the active filter reachable when its last item is processed.
-  visible.add(selected)
+  if (Object.hasOwn(TODO_CATEGORY_LABELS, selected)) visible.add(selected)
   return [...visible]
 }
 

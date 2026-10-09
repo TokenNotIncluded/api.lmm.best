@@ -15,6 +15,14 @@ Ubuntu is the first live-validated target for the original granular workflow;
 other systemd distributions must meet these prerequisites. The composed
 workflow is covered by isolated tests, not a new live-host qualification.
 
+Capture installed/active component identities, native owner status and the real
+input file profiles once for the frozen batch; reuse qualified unchanged Web
+files and successful local checks. See
+[artifact reuse](production-release-transaction.md#prepare-once-reuse-exact-artifacts).
+Shared-PostgreSQL hosts additionally require their qualified native owner/
+capsule path. The ordinary `scripts/native-shared-pg-deploy.py` wrapper is
+same-schema only: it does not authorize migrations or financial maintenance.
+
 Run these commands on the target, from the reviewed repository checkout:
 
 ```sh
@@ -67,6 +75,16 @@ rollback watchdog, or database restoration. Those package-transaction features
 must not be assumed to apply here.
 
 ## Schema changes
+
+Review each candidate for new tables, migrations and required seed changes
+before selecting this path. A previous same-schema upgrade is not evidence
+that the next candidate needs no schema change. Use the existing reviewed
+maintenance path for shared-PG changes; do not pass `--migrate` through its
+ordinary native capsule wrapper.
+For a provider with a sealed per-start capsule, also review its restart/recovery
+compatibility: additive tables still change the catalog digest. Maintenance does
+not automatically rebind the old capsule; follow the
+[restart contract review](production-release-transaction.md#go-upgrades-with-an-unchanged-database-schema).
 
 The default requires an already-compatible PostgreSQL schema. For a reviewed,
 backward-compatible schema change, add `--migrate` to `upgrade`. First run

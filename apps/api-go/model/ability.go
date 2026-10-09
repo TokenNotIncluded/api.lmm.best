@@ -180,7 +180,7 @@ func GetChannelExcluding(group string, model string, retry int, requestPath stri
 	var abilities []Ability
 
 	var err error
-	if len(excluded) == 0 && !isSystemOneRequestPath(requestPath) && !isNativeVoiceRequestPath(requestPath) {
+	if len(excluded) == 0 && !isSystemOneRequestPath(requestPath) && !isNativeVoiceRequestPath(requestPath) && !isDecisionsRequestPath(requestPath) {
 		channelQuery, queryErr := getChannelQuery(group, model, retry)
 		if queryErr != nil {
 			return nil, queryErr
@@ -201,7 +201,7 @@ func GetChannelExcluding(group string, model string, retry int, requestPath stri
 	if err != nil {
 		return nil, err
 	}
-	filterBeforePriority := len(excluded) > 0 || isSystemOneRequestPath(requestPath) || isNativeVoiceRequestPath(requestPath)
+	filterBeforePriority := len(excluded) > 0 || isSystemOneRequestPath(requestPath) || isNativeVoiceRequestPath(requestPath) || isDecisionsRequestPath(requestPath)
 	var requiresPriorityRefilter bool
 	abilities, requiresPriorityRefilter = filterAbilitiesByRequestPathAndModelWithPriorityFilter(abilities, requestPath, model)
 	if !filterBeforePriority && requiresPriorityRefilter {
@@ -307,7 +307,7 @@ func filterAbilitiesByRequestPathAndModelWithPriorityFilter(abilities []Ability,
 
 	var channels []*Channel
 	if err := DB.Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
-		if isSystemOneRequestPath(requestPath) || isNativeVoiceRequestPath(requestPath) {
+		if isSystemOneRequestPath(requestPath) || isNativeVoiceRequestPath(requestPath) || isDecisionsRequestPath(requestPath) {
 			return nil, false
 		}
 		// Preserve the legacy fallback for other protocols.
@@ -341,6 +341,12 @@ func filterAbilitiesByRequestPathAndModelWithPriorityFilter(abilities []Ability,
 			}
 			continue
 		}
+		if isDecisionsRequestPath(requestPath) {
+			if found && channelType == constant.ChannelTypeOpenAI {
+				filtered = append(filtered, ability)
+			}
+			continue
+		}
 		if isSystemOneRequestPath(requestPath) {
 			if found && (channelType == constant.ChannelTypeTypeSafe || channelType == constant.ChannelTypeNewAPI) {
 				filtered = append(filtered, ability)
@@ -364,6 +370,10 @@ func filterAbilitiesByRequestPathAndModelWithPriorityFilter(abilities []Ability,
 
 func isSystemOneRequestPath(requestPath string) bool {
 	return requestPath == "/v1/systemone" || requestPath == "/typesafe/v1/systemone"
+}
+
+func isDecisionsRequestPath(requestPath string) bool {
+	return requestPath == "/v1/decisions"
 }
 
 func isNativeVoiceRequestPath(requestPath string) bool {

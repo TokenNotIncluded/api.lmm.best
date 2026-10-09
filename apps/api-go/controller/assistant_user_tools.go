@@ -18,12 +18,13 @@ import (
 // The browser needs to show what happened, but the conversation must never
 // receive raw account data, passwords, OAuth subject IDs, or request content.
 type assistantToolTrace struct {
-	CallID    string         `json:"call_id,omitempty"`
-	Name      string         `json:"name"`
-	Status    string         `json:"status"`
-	Input     map[string]any `json:"input,omitempty"`
-	Result    *float64       `json:"result,omitempty"`
-	ErrorCode string         `json:"error_code,omitempty"`
+	Visualization *assistantVisualization `json:"visualization,omitempty"`
+	CallID        string                  `json:"call_id,omitempty"`
+	Name          string                  `json:"name"`
+	Status        string                  `json:"status"`
+	Input         map[string]any          `json:"input,omitempty"`
+	Result        *float64                `json:"result,omitempty"`
+	ErrorCode     string                  `json:"error_code,omitempty"`
 }
 
 func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any) assistantToolTrace {
@@ -32,7 +33,7 @@ func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any
 		Status: "output-available",
 		Input:  assistantSafeToolInput(call.Function.Arguments),
 	}
-	if isAssistantAdministratorTool(trace.Name) {
+	if isAssistantAdministratorTool(trace.Name) || assistantVisualizationKind(trace.Name) != "" {
 		callID := sha256.Sum256([]byte(call.ID))
 		trace.CallID = hex.EncodeToString(callID[:12])
 	}
@@ -51,6 +52,9 @@ func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any
 		} else if value, ok := result["result"].(float64); ok && !math.IsNaN(value) && !math.IsInf(value, 0) {
 			trace.Result = &value
 		}
+	}
+	if trace.Status == "output-available" && assistantVisualizationKind(trace.Name) != "" {
+		trace.Visualization, _ = result["visualization"].(*assistantVisualization)
 	}
 	return trace
 }

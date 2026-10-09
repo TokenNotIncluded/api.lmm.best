@@ -637,10 +637,17 @@ func protectPricingSyncShapes(local, upstream map[string]any) {
 		if valueMap(upstream[billing_setting.BillingModeField])[name] == billing_setting.BillingModeTieredExpr && strings.TrimSpace(nextExpr) != "" {
 			reason = ""
 			before, after := billingexpr.UsedVars(oldExpr), billingexpr.UsedVars(nextExpr)
-			for _, dimension := range []string{"len", "cr", "cc", "cc1h", "img", "ai", "ao", "cr_text", "cr_img", "cr_audio", "audio_s"} {
+			for _, dimension := range []string{"p", "c", "len", "cr", "cc", "cc1h", "img", "img_o", "ai", "ao", "cr_text", "cr_img", "cr_audio", "audio_s"} {
 				if before[dimension] && !after[dimension] {
 					reason = "upstream expression omits existing billing dimension " + dimension
 					break
+				}
+			}
+			if reason == "" && !billingexpr.PricingEquivalent(oldExpr, nextExpr) {
+				beforeConditions, beforeOK := billingexpr.BillingConditions(oldExpr)
+				afterConditions, afterOK := billingexpr.BillingConditions(nextExpr)
+				if !beforeOK || !afterOK || (beforeConditions != "[]" && beforeConditions != afterConditions) {
+					reason = "upstream expression changes existing billing conditions"
 				}
 			}
 		}

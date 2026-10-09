@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -16,7 +18,7 @@ var assistantToolPolicyReader = model.ReadAssistantToolPolicy
 // Direct helper calls without an authenticated HTTP actor use the supplied
 // local settings. Authenticated production requests always read the database.
 func refreshAssistantToolPolicy(c *gin.Context) (string, setting.AssistantToolPolicy, error) {
-	if c == nil || c.Request == nil || assistantActorUserID(c) <= 0 {
+	if c == nil || c.Request == nil || assistantActorUserID(c) <= 0 || model.DB == nil {
 		return setting.NormalizeAssistantToolPolicy(setting.GetAssistantSettings().ToolPolicy)
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
@@ -38,7 +40,10 @@ func AdminGetAssistantToolCatalogue(c *gin.Context) {
 	if !requireAssistantBrowserSession(c) {
 		return
 	}
-	common.ApiSuccess(c, gin.H{"groups": setting.AssistantToolCatalogue()})
+	common.ApiSuccess(c, gin.H{
+		"groups":       setting.AssistantToolCatalogue(),
+		"capabilities": gin.H{"policy_rules": true},
+	})
 }
 
 // Check before consuming a preview or starting work. Disabling a tool also
@@ -50,7 +55,7 @@ func requireAssistantToolEnabled(c *gin.Context, name string) bool {
 		c.Abort()
 		return false
 	}
-	if policy.Enabled(name) {
+	if policy.Enabled(name) && assistantConfiguredLevelAllowed(c, policy, name) {
 		return true
 	}
 	writeAssistantError(c, http.StatusForbidden, "ASSISTANT_TOOL_DISABLED", setting.AssistantToolDisabledError(name))
@@ -92,7 +97,42 @@ func assistantAdminOperationPolicyTool(handler string) string {
 	}
 }
 
-func assistantAdminOperationPolicyEnabled(handler string) bool {
+func assistantAdminOperationPolicyEnabled(handler string, role int) bool {
 	name := assistantAdminOperationPolicyTool(handler)
-	return name == "" || setting.AssistantToolEnabled(name)
+	level := 5
+	if role >= common.RoleRootUser {
+		level = 6
+	}
+	return name == "" || setting.AssistantToolAllowedAtLevel(name, level)
+}
+
+func assistantContextLevel(state assistantUserContext) int {
+	if state.AdministratorMode {
+		if state.AccessLevel == "ROOT" || state.AccessLevel == "L6" {
+			return 6
+		}
+		return 5
+	}
+	if len(state.AccessLevel) == 2 && strings.HasPrefix(state.AccessLevel, "L") {
+		if level, err := strconv.Atoi(state.AccessLevel[1:]); err == nil && level >= 0 && level <= 4 {
+			return level
+		}
+	}
+	if state.DeveloperAccessGranted {
+		return 1
+	}
+	return 0
+}
+
+func assistantConfiguredLevelAllowed(c *gin.Context, policy setting.AssistantToolPolicy, name string) bool {
+	// The existing business checks already implement the default floor. Only
+	// explicit, additional restrictions need this extra authoritative read.
+	if _, configured := policy.Rules[name]; !configured {
+		return true
+	}
+	if c == nil || c.Request == nil || assistantActorUserID(c) <= 0 || model.DB == nil {
+		return false
+	}
+	level, err := model.AssistantToolLevelDB(model.DB.WithContext(c.Request.Context()), assistantActorUserID(c))
+	return err == nil && policy.AllowedAtLevel(name, level)
 }
