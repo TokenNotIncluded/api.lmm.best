@@ -38,7 +38,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
-          go-version: '1.25.1'
+          go-version: '1.27.2'
           cache: false
       - name: Install compilers
         run: |
@@ -46,22 +46,11 @@ jobs:
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes protobuf-compiler
-      - name: Apply checked transport API correction
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('apps/core-rust/src/internal_rpc.rs')
-          s = p.read_text()
-          old = '.max_header_list_size(8192)'
-          if old in s:
-              assert s.count(old) == 1
-              p.write_text(s.replace(old, '.http2_max_header_list_size(8192)\n            .load_shed(true)'))
-          PY
-      - name: Generate protobuf bindings and normalize source
+      - name: Generate bindings and update patched dependency locks
         run: |
           bash scripts/generate-core-protocol.sh
           (cd apps/extensions-go && go mod tidy && gofmt -w .)
-          (cd apps/core-rust && cargo fmt --all && cargo check --locked --all-targets)
+          (cd apps/core-rust && cargo fmt --all && cargo check --all-targets)
       - name: Rust locked checks and real database tests
         working-directory: apps/core-rust
         run: |
@@ -75,7 +64,7 @@ jobs:
           go mod verify
           go vet ./...
           go test -race ./... -count=1
-          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+          CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
       - name: Generated contract is unchanged
         run: bash scripts/generate-core-protocol.sh --check
       - name: Existing Docker isolation and persistence
@@ -103,7 +92,7 @@ jobs:
           if git diff --cached --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(core): validate bounded protobuf transport and generated sources'
+          git commit -m 'chore(core): lock patched protobuf transports and generated bindings'
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/wip/rust-core-go-extensions
           git rev-parse HEAD
