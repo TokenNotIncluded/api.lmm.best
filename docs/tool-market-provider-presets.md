@@ -53,9 +53,12 @@ silently. This is a quoted-cost check, not a promise about a merchant's final
 invoice, subscription discounts, failed-call charges or currency movements.
 
 **Current limits:** Monid `PER_RESULT` prices are recognized but execution is
-blocked because there is no verified maximum result count/settlement receipt.
+blocked because no provider-enforced maximum charge is available before
+execution. A final cost receipt does not impose an advance spending bound.
 Other variable-price forms and AgentKey descriptions without a USD price are
-also blocked, not treated as free. Monid asynchronous per-call runs now retain their run ID and operation target
+also blocked, not treated as free.
+
+Monid asynchronous per-call runs retain their run ID and operation target
 in the database. Recovery reads only that run, using the publication-bound
 merchant credential. Workers claim a 15-second poll lease and never repeat
 execution. A completed 2xx response uses the same result validation and
@@ -67,7 +70,8 @@ verified by then, existing recovery releases the reservation and retains an
 unknown execution state. A late result never retroactively debits the buyer.
 This is not upstream cancellation: merchants may still incur an upstream
 cost on an unresolvable run. Shared caller/workspace metadata and echoed input
-are not returned to buyers.
+are not returned to buyers. Protocol errors and malformed result bodies use a
+generic error instead of forwarding unfiltered merchant data.
 A completed provider HTTP error is not reported as a successful tool result.
 
 Other MCP services retain the custom-service editor and existing pricing

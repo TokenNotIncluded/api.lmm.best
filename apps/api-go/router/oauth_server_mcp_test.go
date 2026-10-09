@@ -6,6 +6,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -59,10 +60,15 @@ func testOAuthMCPBrowserFlow(t *testing.T, host string) {
 	require.NotEqual(t, cookie.Value, bound.Value)
 	response = h.request("POST", "/api/user/auth/oauth2/consent", url.Values{"csrf": {secret}, "decision": {"allow"}}.Encode(), map[string]string{"Origin": oauthTestIssuer, "Content-Type": "application/x-www-form-urlencoded"}, bound, &http.Cookie{Name: service.RefreshCookieName, Value: h.login.RefreshToken})
 	require.Equal(t, 200, response.Code, response.Body.String())
-	match := oauthRedirectFixture.FindStringSubmatch(response.Body.String())
+	// The older editor fixture matches only IPv4. Inspect both supported
+	// address families, then require the exact registered callback below.
+	match := regexp.MustCompile(`<a[^>]*href="(http://(?:127\.0\.0\.1|\[::1\]):[^"]+)"`).FindStringSubmatch(response.Body.String())
 	require.Len(t, match, 2)
 	redirect, err := url.Parse(html.UnescapeString(match[1]))
 	require.NoError(t, err)
+	target := *redirect
+	target.RawQuery = ""
+	require.Equal(t, callback, target.String())
 	require.Equal(t, oauthTestIssuer, redirect.Query().Get("iss"))
 	require.Equal(t, query.Get("state"), redirect.Query().Get("state"))
 	require.NotEmpty(t, redirect.Query().Get("code"))

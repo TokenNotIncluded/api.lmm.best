@@ -195,7 +195,9 @@ func marketProviderAccountBoundary(endpoint, name string, args map[string]any) e
 func marketMonidPublicResult(exact map[string]any) map[string]any {
 	data, err := marketProviderPayload(exact)
 	if err != nil {
-		return exact
+		// Protocol errors and malformed bodies may contain merchant metadata in
+		// prose. Never fall back to forwarding the original unfiltered response.
+		return map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "The provider returned an invalid or failed result."}}}
 	}
 	safe := make(map[string]any)
 	for _, key := range []string{"runId", "provider", "providerName", "endpoint", "status", "output", "price", "billing", "resultCount", "cost", "createdAt", "startedAt", "completedAt"} {
@@ -214,4 +216,3 @@ func marketMonidPublicResult(exact map[string]any) map[string]any {
 	}
 	text, _ := json.Marshal(safe) // all values came from decoded JSON
 	return map[string]any{"structuredContent": safe, "content": []any{map[string]any{"type": "text", "text": string(text)}}}
-}
