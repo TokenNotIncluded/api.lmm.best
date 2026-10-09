@@ -631,7 +631,16 @@ func runProductionMerchantStoreCapsule(args []string, stdout, stderr io.Writer) 
 	output := flags.String("output", "", "new root-private output file; never overwrite")
 	startupPath := flags.String("startup-capsule-path", "", "read-only capture: exact future typed hook capsule path")
 	startupDigest := flags.String("startup-capsule-sha256", "", "read-only capture: literal hook digest, including a preparation placeholder")
+	abortState := flags.String("state-sha256", "", "pre-apply abort: original STAGED bytes")
+	abortOwner := flags.String("owner-sha256", "", "pre-apply abort: original live owner bytes")
+	abortPID := flags.Int("old-pid", 0, "pre-apply abort: originally captured rollback PID")
+	abortInvocation := flags.String("old-invocation", "", "pre-apply abort: originally captured rollback InvocationID")
+	abortBoot := flags.String("old-boot-id", "", "pre-apply abort: originally captured boot ID")
+	abortConfirm := flags.String("confirm", "", "pre-apply abort: explicit target api.lmm.best")
 	if flags.Parse(args[1:]) != nil || flags.NArg() != 0 {
+		return ExitUsage
+	}
+	if args[0] != "pre-apply-abort" && (*abortState != "" || *abortOwner != "" || *abortPID != 0 || *abortInvocation != "" || *abortBoot != "" || *abortConfirm != "") {
 		return ExitUsage
 	}
 	runtime := defaultProductionRuntime()
@@ -705,6 +714,19 @@ func runProductionMerchantStoreCapsule(args []string, stdout, stderr io.Writer) 
 		c, err = runtime.loadMerchantStoreCapsule(*path, *digest)
 		if err == nil {
 			err = runtime.qualifyMerchantStoreCapsule(ctx, c, *digest, "", true)
+		}
+	} else if args[0] == "pre-apply-abort" {
+		if *path == "" || *digest == "" || *planPath != "" || *planSHA != "" || *schemaPath != "" || *schemaSHA != "" || *writerPath != "" || *writerSHA != "" || *host != "" || *output != "" || *abortConfirm != "api.lmm.best" {
+			return ExitUsage
+		}
+		var c productionMerchantStoreCapsule
+		c, err = runtime.loadMerchantStoreCapsule(*path, *digest)
+		if err == nil {
+			var receipt string
+			receipt, err = runtime.abortMerchantStorePortablePreApply(ctx, c, *digest, merchantStorePortableAbortOptions{StateSHA256: *abortState, OwnerSHA256: *abortOwner, OldPID: *abortPID, OldInvocation: *abortInvocation, OldBootID: *abortBoot})
+			if err == nil {
+				_, _ = fmt.Fprintf(stdout, "portable_pre_apply_abort=ROLLED_BACK receipt_sha256=%s owner_release=pending\n", receipt)
+			}
 		}
 	} else if args[0] == "hold" || args[0] == "ensure" || args[0] == "check-held" || args[0] == "release" {
 		if *path == "" || *digest == "" || *planPath != "" || *planSHA != "" || *schemaPath != "" || *schemaSHA != "" || *writerPath != "" || *writerSHA != "" || *host != "" || *output != "" {

@@ -354,6 +354,7 @@ type productionRuntime struct {
 	merchantStoreLastWriterCheck  productionMerchantStoreWriterTarget
 	merchantStoreAuthority        productionMerchantStoreAuthority
 	merchantStoreSocketDirectory  string                 // Test-only path injection; production always uses the fixed /run directory.
+	portableWorkRoot              string                 // Test-only path injection; production uses the fixed standalone transaction root.
 	startupMonotonicUS            func() (uint64, error) // Test clock; production uses CLOCK_MONOTONIC.
 	startupWait                   func(context.Context, time.Duration) error
 	cleanupProcessReferences      func(string) (bool, error)
