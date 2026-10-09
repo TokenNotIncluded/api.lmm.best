@@ -2,28 +2,28 @@
 Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from "@/components/ui/dialog";
 import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
-import { useAuthStore } from '@/stores/auth-store'
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { useWalletCurrency } from "@/hooks/use-wallet-currency";
+import { useAuthStore } from "@/stores/auth-store";
 
 import {
   MarketAPIError,
@@ -34,39 +34,42 @@ import {
   type Installation,
   type MarketConfig,
   type MarketToken,
-} from './api'
-import { marketClientProfiles, type MarketClientProfile } from './client-config'
+} from "./api";
+import {
+  marketClientProfiles,
+  type MarketClientProfile,
+} from "./client-config";
 import {
   marketConnectionNamespace,
   registerMarketConnectionTranslations,
   type MarketConnectionCopyKey,
-} from './connection-i18n'
+} from "./connection-i18n";
 import {
   buildMarketClientConfig,
   connectionStatus,
   defaultConnectionPermissions,
   isPersonalMarketClient,
   marketEndpoint,
-} from './connection-utils'
+} from "./connection-utils";
 import {
   MetaDelegationSettings,
   MetaDelegationSetupFields,
-} from './meta-delegation'
-import { metaDelegationAPI, metaDelegationQuota } from './meta-delegation-api'
-import { MarketOAuthConnection } from './oauth-connection'
-import { metaDelegationCopy } from './meta-delegation-copy'
+} from "./meta-delegation";
+import { metaDelegationAPI, metaDelegationQuota } from "./meta-delegation-api";
+import { MarketOAuthConnection } from "./oauth-connection";
+import { metaDelegationCopy } from "./meta-delegation-copy";
 import {
   configureIssuedMetaDelegation,
   defaultMetaDelegationSetup,
-} from './meta-delegation-setup'
-import { useMarketMoneyDraft } from './money'
+} from "./meta-delegation-setup";
+import { useMarketMoneyDraft } from "./money";
 
-type IssuedToken = { token: string; record: MarketToken }
+type IssuedToken = { token: string; record: MarketToken };
 type ClientAccess = {
-  tokens: MarketToken[]
-  grants: Grant[]
-  installations: Installation[]
-}
+  tokens: MarketToken[];
+  grants: Grant[];
+  installations: Installation[];
+};
 
 // Remount all local state on account changes; a one-time secret must never survive
 // logout/login or become visible to the next account in the same browser session.
@@ -74,10 +77,10 @@ export function MarketConnections({
   config,
   onChooseClient,
 }: {
-  config: MarketConfig
-  onChooseClient?: (clientID: string) => void
+  config: MarketConfig;
+  onChooseClient?: (clientID: string) => void;
 }) {
-  const userID = useAuthStore((state) => state.auth.user?.id)
+  const userID = useAuthStore((state) => state.auth.user?.id);
   return userID ? (
     <ConnectionWorkspace
       key={userID}
@@ -85,7 +88,7 @@ export function MarketConnections({
       config={config}
       onChooseClient={onChooseClient}
     />
-  ) : null
+  ) : null;
 }
 
 function ConnectionWorkspace({
@@ -93,155 +96,155 @@ function ConnectionWorkspace({
   config,
   onChooseClient,
 }: {
-  userID: number
-  config: MarketConfig
-  onChooseClient?: (clientID: string) => void
+  userID: number;
+  config: MarketConfig;
+  onChooseClient?: (clientID: string) => void;
 }) {
-  const { t, i18n } = useTranslation()
-  const { formatQuota: formatRawQuota, label, step } = useWalletCurrency()
+  const { t, i18n } = useTranslation();
+  const { formatQuota: formatRawQuota, label, step } = useWalletCurrency();
   const formatQuota = (quota: number) =>
-    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
-  registerMarketConnectionTranslations(i18n)
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 });
+  registerMarketConnectionTranslations(i18n);
   const m = (
     key: MarketConnectionCopyKey,
-    values?: Record<string, string | number>
-  ) => String(t(key, { ...values, ns: marketConnectionNamespace }))
-  const cache = useQueryClient()
-  const metaSupported = marketSupports(config, 'meta_delegation')
-  const oauthEnabled = marketSupports(config, 'mcp_oauth')
-  const cleanupSupported = marketSupports(config, 'client_record_cleanup')
+    values?: Record<string, string | number>,
+  ) => String(t(key, { ...values, ns: marketConnectionNamespace }));
+  const cache = useQueryClient();
+  const metaSupported = marketSupports(config, "meta_delegation");
+  const oauthEnabled = marketSupports(config, "mcp_oauth");
+  const cleanupSupported = marketSupports(config, "client_record_cleanup");
   const tokens = useQuery({
-    queryKey: ['tool-market', userID, 'tokens'],
-    queryFn: ({ signal }) => marketAPI.mine<MarketToken>('tokens', signal),
-  })
+    queryKey: ["tool-market", userID, "tokens"],
+    queryFn: ({ signal }) => marketAPI.mine<MarketToken>("tokens", signal),
+  });
   const grants = useQuery({
-    queryKey: ['tool-market', userID, 'grants'],
-    queryFn: ({ signal }) => marketAPI.mine<Grant>('grants', signal),
-  })
+    queryKey: ["tool-market", userID, "grants"],
+    queryFn: ({ signal }) => marketAPI.mine<Grant>("grants", signal),
+  });
   const installations = useQuery({
-    queryKey: ['tool-market', userID, 'installations'],
+    queryKey: ["tool-market", userID, "installations"],
     queryFn: ({ signal }) =>
-      marketAPI.mine<Installation>('installations', signal),
-  })
+      marketAPI.mine<Installation>("installations", signal),
+  });
   const budgets = useQuery({
-    queryKey: ['tool-market', userID, 'budgets'],
-    queryFn: ({ signal }) => marketAPI.mine<Budget>('budgets', signal),
-  })
+    queryKey: ["tool-market", userID, "budgets"],
+    queryFn: ({ signal }) => marketAPI.mine<Budget>("budgets", signal),
+  });
   const metaOAuthClients = useQuery({
-    queryKey: ['tool-market', userID, 'meta-oauth-clients'],
+    queryKey: ["tool-market", userID, "meta-oauth-clients"],
     queryFn: ({ signal }) => metaDelegationAPI.oauthClients(signal),
     enabled: metaSupported,
-  })
+  });
   const [metaSetup, setMetaSetup] = useState(() => ({
     ...defaultMetaDelegationSetup,
     enabled: metaSupported && defaultMetaDelegationSetup.enabled,
-  }))
-  const [metaMessage, setMetaMessage] = useState<string>()
-  const [client, setClient] = useState('my-agent')
-  const [profile, setProfile] = useState<MarketClientProfile>('codex')
-  const [permissions, setPermissions] = useState(defaultConnectionPermissions)
-  const metaPermitted = permissions.can_invoke && permissions.can_manage
-  const [issued, setIssued] = useState<IssuedToken | null>(null)
-  const [copyStatus, setCopyStatus] = useState<'copied' | 'copyFailed' | null>(
-    null
-  )
-  const [disconnect, setDisconnect] = useState<string | null>(null)
-  const [scope, setScope] = useState('account')
-  const [scopeID, setScopeID] = useState('')
-  const limit = useMarketMoneyDraft(0)
-  const [now, setNow] = useState(Date.now)
+  }));
+  const [metaMessage, setMetaMessage] = useState<string>();
+  const [client, setClient] = useState("my-agent");
+  const [profile, setProfile] = useState<MarketClientProfile>("codex");
+  const [permissions, setPermissions] = useState(defaultConnectionPermissions);
+  const metaPermitted = permissions.can_invoke && permissions.can_manage;
+  const [issued, setIssued] = useState<IssuedToken | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"copied" | "copyFailed" | null>(
+    null,
+  );
+  const [disconnect, setDisconnect] = useState<string | null>(null);
+  const [scope, setScope] = useState("account");
+  const [scopeID, setScopeID] = useState("");
+  const limit = useMarketMoneyDraft(0);
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30000)
-    return () => window.clearInterval(timer)
-  }, [])
+    const timer = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
-    if (!issued) return
-    const timer = window.setTimeout(() => setIssued(null), 5 * 60 * 1000)
-    return () => window.clearTimeout(timer)
-  }, [issued])
+    if (!issued) return;
+    const timer = window.setTimeout(() => setIssued(null), 5 * 60 * 1000);
+    return () => window.clearTimeout(timer);
+  }, [issued]);
   useEffect(() => {
-    if (!issued) return
-    const latest = tokens.data?.find((token) => token.id === issued.record.id)
-    if (connectionStatus(latest ?? issued.record, now) !== 'active') {
-      setIssued(null)
+    if (!issued) return;
+    const latest = tokens.data?.find((token) => token.id === issued.record.id);
+    if (connectionStatus(latest ?? issued.record, now) !== "active") {
+      setIssued(null);
     }
-  }, [issued, tokens.data, now])
+  }, [issued, tokens.data, now]);
 
   const action = useMutation({
     retry: false,
     mutationFn: (operation: () => Promise<void>) => operation(),
     onSuccess: async () => {
-      await cache.invalidateQueries({ queryKey: ['tool-market', userID] })
+      await cache.invalidateQueries({ queryKey: ["tool-market", userID] });
     },
-  })
+  });
   const copy = async (text: string) => {
-    setCopyStatus(null)
+    setCopyStatus(null);
     try {
-      await navigator.clipboard.writeText(text)
-      setCopyStatus('copied')
+      await navigator.clipboard.writeText(text);
+      setCopyStatus("copied");
     } catch {
-      setCopyStatus('copyFailed')
+      setCopyStatus("copyFailed");
     }
-  }
-  let endpoint = ''
+  };
+  let endpoint = "";
   try {
-    endpoint = marketEndpoint(window.location.origin, config.mcp_path)
+    endpoint = marketEndpoint(window.location.origin, config.mcp_path);
   } catch {
     // No token may be copied into an invalid or cross-origin configuration.
   }
-  const validClient = isPersonalMarketClient(client.trim())
-  const previewClient = issued?.record.client_id ?? client.trim()
+  const validClient = isPersonalMarketClient(client.trim());
+  const previewClient = issued?.record.client_id ?? client.trim();
   const preview =
     endpoint && isPersonalMarketClient(previewClient)
       ? buildMarketClientConfig(endpoint, previewClient, undefined, profile)
-      : ''
+      : "";
   const profileLabels: Record<MarketClientProfile, string> = {
-    codex: 'Codex',
-    'claude-code': 'Claude Code',
-    cursor: 'Cursor',
-    http: m('genericHTTP'),
-  }
+    codex: "Codex",
+    "claude-code": "Claude Code",
+    cursor: "Cursor",
+    http: m("genericHTTP"),
+  };
   const profileHelp: Record<MarketClientProfile, MarketConnectionCopyKey> = {
-    codex: 'codexSetup',
-    'claude-code': 'claudeSetup',
-    cursor: 'cursorSetup',
-    http: 'httpSetup',
-  }
-  const budgetQuota = limit.quota
+    codex: "codexSetup",
+    "claude-code": "claudeSetup",
+    cursor: "cursorSetup",
+    http: "httpSetup",
+  };
+  const budgetQuota = limit.quota;
   const readError =
     tokens.isError ||
     grants.isError ||
     installations.isError ||
     budgets.isError ||
-    (metaSupported && metaOAuthClients.isError)
+    (metaSupported && metaOAuthClients.isError);
   const accessReady =
-    tokens.isSuccess && grants.isSuccess && installations.isSuccess
+    tokens.isSuccess && grants.isSuccess && installations.isSuccess;
   const savedGroups = useMemo(() => {
-    const rows = new Map<string, ClientAccess>()
+    const rows = new Map<string, ClientAccess>();
     const ensure = (id: string) => {
-      let row = rows.get(id)
+      let row = rows.get(id);
       if (!row) {
-        row = { tokens: [], grants: [], installations: [] }
-        rows.set(id, row)
+        row = { tokens: [], grants: [], installations: [] };
+        rows.set(id, row);
       }
-      return row
-    }
-    for (const row of tokens.data ?? []) ensure(row.client_id).tokens.push(row)
-    for (const row of grants.data ?? []) ensure(row.client_id).grants.push(row)
+      return row;
+    };
+    for (const row of tokens.data ?? []) ensure(row.client_id).tokens.push(row);
+    for (const row of grants.data ?? []) ensure(row.client_id).grants.push(row);
     for (const row of installations.data ?? []) {
-      ensure(row.client_id).installations.push(row)
+      ensure(row.client_id).installations.push(row);
     }
     if (metaSupported) {
-      for (const row of metaOAuthClients.data ?? []) ensure(row.client_id)
+      for (const row of metaOAuthClients.data ?? []) ensure(row.client_id);
     }
-    return [...rows].sort(([a], [b]) => a.localeCompare(b))
+    return [...rows].sort(([a], [b]) => a.localeCompare(b));
   }, [
     tokens.data,
     grants.data,
     installations.data,
     metaOAuthClients.data,
     metaSupported,
-  ])
+  ]);
   const groups = savedGroups
     .map(([id, group]): [string, ClientAccess] => [
       id,
@@ -256,8 +259,8 @@ function ConnectionWorkspace({
         group.tokens.length + group.grants.length + group.installations.length >
           0 ||
         (metaSupported &&
-          metaOAuthClients.data?.some((row) => row.client_id === id))
-    )
+          metaOAuthClients.data?.some((row) => row.client_id === id)),
+    );
   const revokedGroups = savedGroups
     .map(([id, group]): [string, ClientAccess] => [
       id,
@@ -267,77 +270,77 @@ function ConnectionWorkspace({
         installations: [],
       },
     ])
-    .filter(([, group]) => group.tokens.length + group.grants.length > 0)
+    .filter(([, group]) => group.tokens.length + group.grants.length > 0);
   const errorKeys: Record<string, MarketConnectionCopyKey> = {
-    TOOL_MARKET_BUDGET: 'budgetError',
-    TOOL_MARKET_BALANCE: 'balanceError',
-    TOOL_MARKET_DENIED: 'deniedError',
-    TOOL_MARKET_NOT_FOUND: 'deniedError',
-    TOOL_MARKET_BUSY: 'busyError',
-    TOOL_MARKET_CONFLICT: 'conflictError',
-    TOOL_MARKET_REMOTE_CHANGED: 'conflictError',
-  }
+    TOOL_MARKET_BUDGET: "budgetError",
+    TOOL_MARKET_BALANCE: "balanceError",
+    TOOL_MARKET_DENIED: "deniedError",
+    TOOL_MARKET_NOT_FOUND: "deniedError",
+    TOOL_MARKET_BUSY: "busyError",
+    TOOL_MARKET_CONFLICT: "conflictError",
+    TOOL_MARKET_REMOTE_CHANGED: "conflictError",
+  };
   const actionError =
     action.error instanceof MarketAPIError
-      ? (errorKeys[action.error.code] ?? 'operationFailed')
-      : 'operationFailed'
+      ? (errorKeys[action.error.code] ?? "operationFailed")
+      : "operationFailed";
   const editBudget = (budget: Budget) => {
-    setScope(budget.scope)
-    setScopeID(budget.scope_id)
-    limit.setQuota(budget.limit_quota)
-    action.reset()
-    document.getElementById('budget-limit')?.focus()
-  }
+    setScope(budget.scope);
+    setScopeID(budget.scope_id);
+    limit.setQuota(budget.limit_quota);
+    action.reset();
+    document.getElementById("budget-limit")?.focus();
+  };
 
   const renderClientGroups = (rows: typeof groups, history = false) =>
     rows.map(([id, group]) => {
       const saved =
-        savedGroups.find(([clientID]) => clientID === id)?.[1] ?? group
+        savedGroups.find(([clientID]) => clientID === id)?.[1] ?? group;
       const allRevoked =
         saved.tokens.every((row) => !!row.revoked_at) &&
-        saved.grants.every((row) => !!row.revoked_at)
+        saved.grants.every((row) => !!row.revoked_at);
       const hasAccess =
         group.tokens.some((row) => !row.revoked_at) ||
         group.grants.some((row) => !row.revoked_at) ||
-        group.installations.length > 0
+        group.installations.length > 0;
       return (
         <article
           key={id}
-          className='bg-card min-w-0 space-y-4 rounded-xl border p-4 sm:p-5'
+          className="bg-card min-w-0 space-y-4 rounded-xl border p-4 sm:p-5"
         >
-          <div className='flex flex-wrap items-start justify-between gap-3'>
-            <h4 className='min-w-0 flex-1 basis-40 font-semibold break-all'>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h4 className="min-w-0 flex-1 basis-40 font-semibold break-all">
               {id}
             </h4>
             {onChooseClient && (
-              <Button variant='outline' onClick={() => onChooseClient(id)}>
-                {history ? t('Set up again') : m('chooseTools')}
+              <Button variant="outline" onClick={() => onChooseClient(id)}>
+                {history ? t("Set up again") : m("chooseTools")}
               </Button>
             )}
             {!history && isPersonalMarketClient(id) && hasAccess && (
               <Button
-                variant='outline'
+                variant="outline"
                 disabled={action.isPending || !accessReady}
                 onClick={() => {
-                  action.reset()
-                  setDisconnect(id)
+                  action.reset();
+                  setDisconnect(id);
                 }}
               >
-                {m('disconnect')}
+                {m("disconnect")}
               </Button>
             )}
             {cleanupSupported && isPersonalMarketClient(id) && allRevoked && (
               <Button
-                variant='ghost'
+                variant="ghost"
                 disabled={action.isPending || !accessReady}
                 onClick={() =>
                   action.mutate(async () => {
-                    await marketAPI.removeClient(id)
-                    if (issued?.record.client_id === id) setIssued(null)
+                    await marketAPI.removeClient(id);
+                    if (issued?.record.client_id === id) setIssued(null);
                   })
                 }
               >
-                {t('Delete client')}
+                {t("Delete client")}
               </Button>
             )}
           </div>
@@ -345,144 +348,144 @@ function ConnectionWorkspace({
             !history &&
             metaOAuthClients.data?.some((row) => row.client_id === id) && (
               <MetaDelegationSettings
-                target={{ kind: 'oauth', id }}
+                target={{ kind: "oauth", id }}
                 permitted
               />
             )}
           {group.tokens.map((token) => (
             <div
               key={token.id}
-              className='flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm'
+              className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm"
             >
-              <div className='min-w-0 space-y-2'>
-                <div className='flex flex-wrap gap-2'>
+              <div className="min-w-0 space-y-2">
+                <div className="flex flex-wrap gap-2">
                   <Badge
                     variant={
-                      connectionStatus(token, now) === 'active'
-                        ? 'secondary'
-                        : 'outline'
+                      connectionStatus(token, now) === "active"
+                        ? "secondary"
+                        : "outline"
                     }
                   >
                     {m(connectionStatus(token, now))}
                   </Badge>
                   {token.can_invoke && (
-                    <Badge variant='outline'>{m('invoke')}</Badge>
+                    <Badge variant="outline">{m("invoke")}</Badge>
                   )}
                   {token.can_manage && (
-                    <Badge variant='outline'>{m('manage')}</Badge>
+                    <Badge variant="outline">{m("manage")}</Badge>
                   )}
                   {!token.can_invoke && !token.can_manage && (
-                    <Badge variant='outline'>{m('readOnly')}</Badge>
+                    <Badge variant="outline">{m("readOnly")}</Badge>
                   )}
                 </div>
                 <time
-                  className='text-muted-foreground text-xs'
+                  className="text-muted-foreground text-xs"
                   dateTime={new Date(token.expires_at * 1000).toISOString()}
                 >
                   {new Date(token.expires_at * 1000).toLocaleString()}
                 </time>
               </div>
               {metaSupported &&
-                connectionStatus(token, now) === 'active' &&
+                connectionStatus(token, now) === "active" &&
                 token.can_invoke &&
                 token.can_manage && (
                   <MetaDelegationSettings
-                    target={{ kind: 'personal', id: token.id }}
+                    target={{ kind: "personal", id: token.id }}
                     permitted
                   />
                 )}
               {(!token.revoked_at || cleanupSupported) && (
                 <Button
-                  variant='ghost'
+                  variant="ghost"
                   disabled={action.isPending || !accessReady}
                   onClick={() =>
                     action.mutate(async () => {
                       if (token.revoked_at) {
-                        await marketAPI.removeTokenRecord(token.id)
+                        await marketAPI.removeTokenRecord(token.id);
                       } else {
-                        await marketAPI.revokeToken(token.id)
+                        await marketAPI.revokeToken(token.id);
                       }
-                      if (issued?.record.id === token.id) setIssued(null)
+                      if (issued?.record.id === token.id) setIssued(null);
                     })
                   }
                 >
                   {token.revoked_at
-                    ? t('Delete connection token')
-                    : t('Revoke')}
+                    ? t("Delete connection token")
+                    : t("Revoke")}
                 </Button>
               )}
             </div>
           ))}
           {(group.installations.length > 0 || group.grants.length > 0) && (
-            <details className='border-t pt-3 text-sm'>
-              <summary className='focus-visible:ring-ring cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
-                {t('Loaded tools and authorizations')}
+            <details className="border-t pt-3 text-sm">
+              <summary className="focus-visible:ring-ring cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2">
+                {t("Loaded tools and authorizations")}
               </summary>
-              <div className='mt-3 space-y-4'>
+              <div className="mt-3 space-y-4">
                 {group.installations.map((item) => (
                   <div
                     key={`${item.tool_id}:${item.version_id}`}
-                    className='flex flex-wrap items-center justify-between gap-3'
+                    className="flex flex-wrap items-center justify-between gap-3"
                   >
-                    <code className='text-muted-foreground min-w-0 text-xs break-all'>
+                    <code className="text-muted-foreground min-w-0 text-xs break-all">
                       {item.tool_id}
                     </code>
                     <Button
-                      variant='outline'
+                      variant="outline"
                       disabled={action.isPending || !accessReady}
                       onClick={() =>
                         action.mutate(async () => {
-                          await marketAPI.install(item, false)
+                          await marketAPI.install(item, false);
                         })
                       }
                     >
-                      {t('Unload')}
+                      {t("Unload")}
                     </Button>
                   </div>
                 ))}
                 {group.grants.map((grant) => (
-                  <div key={grant.id} className='space-y-2 border-t pt-3'>
-                    <code className='text-muted-foreground block text-xs break-all'>
+                  <div key={grant.id} className="space-y-2 border-t pt-3">
+                    <code className="text-muted-foreground block text-xs break-all">
                       {grant.tool_id}
                     </code>
-                    <div className='flex flex-wrap items-center justify-between gap-3'>
-                      <div className='space-y-1'>
-                        <Badge variant='outline'>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <Badge variant="outline">
                           {m(connectionStatus(grant, now))}
                         </Badge>
-                        <p className='tabular-nums'>
+                        <p className="tabular-nums">
                           {formatQuota(
-                            grant.spent_quota + grant.reserved_quota
-                          )}{' '}
+                            grant.spent_quota + grant.reserved_quota,
+                          )}{" "}
                           / {formatQuota(grant.max_total_quota)}
                         </p>
-                        <p className='text-muted-foreground text-xs'>
-                          {t('Remaining successful calls')}:{' '}
+                        <p className="text-muted-foreground text-xs">
+                          {t("Remaining successful calls")}:{" "}
                           {Math.max(
                             0,
                             grant.max_calls -
                               grant.successful_calls -
-                              grant.reserved_calls
+                              grant.reserved_calls,
                           )}
                         </p>
                       </div>
                       {(!grant.revoked_at || cleanupSupported) && (
                         <Button
-                          variant='ghost'
+                          variant="ghost"
                           disabled={action.isPending || !accessReady}
                           onClick={() =>
                             action.mutate(async () => {
                               if (grant.revoked_at) {
-                                await marketAPI.removeGrantRecord(grant.id)
+                                await marketAPI.removeGrantRecord(grant.id);
                               } else {
-                                await marketAPI.revokeGrant(grant.id)
+                                await marketAPI.revokeGrant(grant.id);
                               }
                             })
                           }
                         >
                           {grant.revoked_at
-                            ? t('Delete authorization')
-                            : t('Revoke authorization')}
+                            ? t("Delete authorization")
+                            : t("Revoke authorization")}
                         </Button>
                       )}
                     </div>
@@ -492,20 +495,20 @@ function ConnectionWorkspace({
             </details>
           )}
         </article>
-      )
-    })
+      );
+    });
 
   return (
-    <div className='space-y-8'>
+    <div className="space-y-8">
       {(action.isError || readError) && (
         <div
-          role='alert'
-          className='border-destructive/30 bg-destructive/5 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 text-sm'
+          role="alert"
+          className="border-destructive/30 bg-destructive/5 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 text-sm"
         >
-          <p>{m(action.isError ? actionError : 'operationFailed')}</p>
+          <p>{m(action.isError ? actionError : "operationFailed")}</p>
           {readError && (
             <Button
-              variant='outline'
+              variant="outline"
               onClick={() =>
                 void Promise.allSettled([
                   tokens.refetch(),
@@ -516,358 +519,363 @@ function ConnectionWorkspace({
                 ])
               }
             >
-              {t('Retry')}
+              {t("Retry")}
             </Button>
           )}
         </div>
       )}
       {action.isSuccess && (
-        <p role='status' className='text-muted-foreground text-sm'>
-          {m('saved')}
+        <p role="status" className="text-muted-foreground text-sm">
+          {m("saved")}
         </p>
       )}
-      <div className='grid items-start gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]'>
-        <section className='bg-card min-w-0 space-y-5 rounded-xl border p-4 sm:p-6'>
-          <div className='space-y-2'>
-            <h3 className='text-lg font-semibold'>
-              {t('Connect your MCP client')}
+      <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <section className="bg-card min-w-0 space-y-5 rounded-xl border p-4 sm:p-6">
+          <div className="space-y-2">
+            <h3 className="text-lg font-semibold">
+              {t("Connect your MCP client")}
             </h3>
-            <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
-              {m('summary')}
+            <p className="text-muted-foreground max-w-[70ch] text-sm leading-6">
+              {m("summary")}
             </p>
           </div>
-          {oauthEnabled && endpoint && <MarketOAuthConnection endpoint={endpoint} />}
-          <details open={!oauthEnabled} className='space-y-5'>
-          <summary className='cursor-pointer py-2 text-sm font-medium'>{t('Manual connection token')}</summary>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              const setup = {
-                ...metaSetup,
-                enabled: metaSupported && metaSetup.enabled && metaPermitted,
-              }
-              if (
-                !validClient ||
-                !endpoint ||
-                action.isPending ||
-                (setup.enabled &&
-                  metaDelegationQuota(setup.quota) === undefined)
-              ) {
-                return
-              }
-              const requestedClient = client.trim()
-              const requestedPermissions = { ...permissions }
-              setIssued(null)
-              setCopyStatus(null)
-              setMetaMessage(undefined)
-              action.mutate(async () => {
-                const data = await marketAPI.token(
-                  requestedClient,
-                  requestedPermissions
-                )
-                if (useAuthStore.getState().auth.user?.id !== userID) return
-                setIssued(data)
-                try {
-                  const saved = await configureIssuedMetaDelegation(
-                    { kind: 'personal', id: data.record.id },
-                    setup,
-                    requestedPermissions.can_invoke &&
-                      requestedPermissions.can_manage &&
-                      data.record.can_invoke &&
-                      data.record.can_manage,
-                    data.record.expires_at
-                  )
-                  if (useAuthStore.getState().auth.user?.id !== userID) return
-                  if (saved) {
-                    setMetaMessage(
-                      saved.max_total_quota === Number(setup.quota)
-                        ? t(metaDelegationCopy.saved)
-                        : t(metaDelegationCopy.tighter, {
-                            limit: saved.max_total_quota,
-                          })
-                    )
-                  }
-                } catch {
-                  if (useAuthStore.getState().auth.user?.id === userID) {
-                    setMetaMessage(t(metaDelegationCopy.failed))
-                  }
-                }
-                // Delegation failure retains the once-only token and still refreshes
-                // records. Never return the bearer secret into the mutation cache.
-              })
-            }}
-          >
-            <FieldGroup className='[&_input:not([type=checkbox])]:min-h-11'>
-              <Field>
-                <FieldLabel htmlFor='mcp-client-profile'>
-                  {m('clientProfile')}
-                </FieldLabel>
-                <select
-                  id='mcp-client-profile'
-                  className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
-                  value={profile}
-                  onChange={(event) => {
-                    setProfile(event.target.value as MarketClientProfile)
-                    setCopyStatus(null)
-                  }}
-                >
-                  {marketClientProfiles.map((value) => (
-                    <option key={value} value={value}>
-                      {profileLabels[value]}
-                    </option>
-                  ))}
-                </select>
-                <FieldDescription>{m(profileHelp[profile])}</FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor='mcp-client'>{t('Client ID')}</FieldLabel>
-                <Input
-                  id='mcp-client'
-                  value={client}
-                  maxLength={128}
-                  disabled={action.isPending}
-                  aria-invalid={!validClient}
-                  aria-describedby='mcp-client-help'
-                  onChange={(event) => setClient(event.target.value)}
-                />
-                <FieldDescription id='mcp-client-help'>
-                  {validClient
-                    ? t(
-                        'Use this same client ID when loading and authorizing tools.'
-                      )
-                    : m('invalidClient')}
-                </FieldDescription>
-              </Field>
-              <fieldset className='space-y-3' disabled={action.isPending}>
-                <legend className='mb-3 text-sm font-medium'>
-                  {m('permissions')}
-                </legend>
-                <label className='focus-within:ring-ring flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm focus-within:ring-2'>
-                  <input
-                    type='checkbox'
-                    className='accent-foreground size-4'
-                    checked={permissions.can_invoke}
-                    onChange={(event) =>
-                      setPermissions({
-                        ...permissions,
-                        can_invoke: event.target.checked,
-                      })
-                    }
-                  />
-                  {m('invoke')}
-                </label>
-                <label className='focus-within:ring-ring flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm focus-within:ring-2'>
-                  <input
-                    type='checkbox'
-                    className='accent-foreground size-4'
-                    checked={permissions.can_manage}
-                    onChange={(event) =>
-                      setPermissions({
-                        ...permissions,
-                        can_manage: event.target.checked,
-                      })
-                    }
-                  />
-                  {m('manage')}
-                </label>
-                {!permissions.can_invoke && !permissions.can_manage && (
-                  <Badge variant='outline'>{m('readOnly')}</Badge>
-                )}
-              </fieldset>
-              {metaSupported && (
-                <MetaDelegationSetupFields
-                  value={metaSetup}
-                  onChange={setMetaSetup}
-                  permitted={metaPermitted}
-                  disabled={action.isPending}
-                />
-              )}
-              <Field>
-                <FieldLabel htmlFor='mcp-expiry'>{m('expiry')}</FieldLabel>
-                <select
-                  id='mcp-expiry'
-                  className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
-                  value={permissions.expires_in_days}
-                  disabled={action.isPending}
-                  onChange={(event) =>
-                    setPermissions({
-                      ...permissions,
-                      expires_in_days: Number(event.target.value),
-                    })
-                  }
-                >
-                  {[1, 7, 30, 90].map((days) => (
-                    <option key={days} value={days}>
-                      {m('days', { count: days })}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {!endpoint && (
-                <p role='alert' className='text-destructive text-sm'>
-                  {m('invalidEndpoint')}
-                </p>
-              )}
-              <Button
-                type='submit'
-                className='min-h-11'
-                disabled={
-                  action.isPending ||
+          {oauthEnabled && endpoint && (
+            <MarketOAuthConnection endpoint={endpoint} />
+          )}
+          <details open={!oauthEnabled} className="space-y-5">
+            <summary className="cursor-pointer py-2 text-sm font-medium">
+              {t("Manual connection token")}
+            </summary>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                const setup = {
+                  ...metaSetup,
+                  enabled: metaSupported && metaSetup.enabled && metaPermitted,
+                };
+                if (
                   !validClient ||
                   !endpoint ||
-                  (metaSupported &&
-                    metaSetup.enabled &&
-                    metaPermitted &&
-                    metaDelegationQuota(metaSetup.quota) === undefined)
+                  action.isPending ||
+                  (setup.enabled &&
+                    metaDelegationQuota(setup.quota) === undefined)
+                ) {
+                  return;
                 }
-              >
-                {action.isPending
-                  ? t('Loading…')
-                  : t('Create connection token')}
-              </Button>
-            </FieldGroup>
-          </form>
-          <Field>
-            <FieldLabel htmlFor='mcp-url'>{t('MCP endpoint')}</FieldLabel>
-            <Input
-              id='mcp-url'
-              readOnly
-              value={endpoint}
-              className='min-h-11 font-mono text-sm'
-            />
-          </Field>
-          {metaMessage && (
-            <p role='status' className='text-sm'>
-              {metaMessage}
-            </p>
-          )}
-          {issued && (
-            <div className='bg-muted/40 space-y-3 rounded-lg border p-4'>
-              <Field>
-                <FieldLabel htmlFor='mcp-secret'>
-                  {t('Connection token — shown once')}
-                </FieldLabel>
-                <Input
-                  id='mcp-secret'
-                  type='password'
-                  autoComplete='off'
-                  readOnly
-                  value={issued.token}
-                />
-                <FieldDescription>
-                  {m('tokenClient', { client: issued.record.client_id })}
-                </FieldDescription>
-                <FieldDescription>
-                  {t(
-                    'Add this as a Bearer token in your client. Do not paste it into an Agent conversation.'
+                const requestedClient = client.trim();
+                const requestedPermissions = { ...permissions };
+                setIssued(null);
+                setCopyStatus(null);
+                setMetaMessage(undefined);
+                action.mutate(async () => {
+                  const data = await marketAPI.token(
+                    requestedClient,
+                    requestedPermissions,
+                  );
+                  if (useAuthStore.getState().auth.user?.id !== userID) return;
+                  setIssued(data);
+                  try {
+                    const saved = await configureIssuedMetaDelegation(
+                      { kind: "personal", id: data.record.id },
+                      setup,
+                      requestedPermissions.can_invoke &&
+                        requestedPermissions.can_manage &&
+                        data.record.can_invoke &&
+                        data.record.can_manage,
+                      data.record.expires_at,
+                    );
+                    if (useAuthStore.getState().auth.user?.id !== userID)
+                      return;
+                    if (saved) {
+                      setMetaMessage(
+                        saved.max_total_quota === Number(setup.quota)
+                          ? t(metaDelegationCopy.saved)
+                          : t(metaDelegationCopy.tighter, {
+                              limit: saved.max_total_quota,
+                            }),
+                      );
+                    }
+                  } catch {
+                    if (useAuthStore.getState().auth.user?.id === userID) {
+                      setMetaMessage(t(metaDelegationCopy.failed));
+                    }
+                  }
+                  // Delegation failure retains the once-only token and still refreshes
+                  // records. Never return the bearer secret into the mutation cache.
+                });
+              }}
+            >
+              <FieldGroup className="[&_input:not([type=checkbox])]:min-h-11">
+                <Field>
+                  <FieldLabel htmlFor="mcp-client-profile">
+                    {m("clientProfile")}
+                  </FieldLabel>
+                  <select
+                    id="mcp-client-profile"
+                    className="border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm"
+                    value={profile}
+                    onChange={(event) => {
+                      setProfile(event.target.value as MarketClientProfile);
+                      setCopyStatus(null);
+                    }}
+                  >
+                    {marketClientProfiles.map((value) => (
+                      <option key={value} value={value}>
+                        {profileLabels[value]}
+                      </option>
+                    ))}
+                  </select>
+                  <FieldDescription>{m(profileHelp[profile])}</FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="mcp-client">{t("Client ID")}</FieldLabel>
+                  <Input
+                    id="mcp-client"
+                    value={client}
+                    maxLength={128}
+                    disabled={action.isPending}
+                    aria-invalid={!validClient}
+                    aria-describedby="mcp-client-help"
+                    onChange={(event) => setClient(event.target.value)}
+                  />
+                  <FieldDescription id="mcp-client-help">
+                    {validClient
+                      ? t(
+                          "Use this same client ID when loading and authorizing tools.",
+                        )
+                      : m("invalidClient")}
+                  </FieldDescription>
+                </Field>
+                <fieldset className="space-y-3" disabled={action.isPending}>
+                  <legend className="mb-3 text-sm font-medium">
+                    {m("permissions")}
+                  </legend>
+                  <label className="focus-within:ring-ring flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm focus-within:ring-2">
+                    <input
+                      type="checkbox"
+                      className="accent-foreground size-4"
+                      checked={permissions.can_invoke}
+                      onChange={(event) =>
+                        setPermissions({
+                          ...permissions,
+                          can_invoke: event.target.checked,
+                        })
+                      }
+                    />
+                    {m("invoke")}
+                  </label>
+                  <label className="focus-within:ring-ring flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm focus-within:ring-2">
+                    <input
+                      type="checkbox"
+                      className="accent-foreground size-4"
+                      checked={permissions.can_manage}
+                      onChange={(event) =>
+                        setPermissions({
+                          ...permissions,
+                          can_manage: event.target.checked,
+                        })
+                      }
+                    />
+                    {m("manage")}
+                  </label>
+                  {!permissions.can_invoke && !permissions.can_manage && (
+                    <Badge variant="outline">{m("readOnly")}</Badge>
                   )}
-                </FieldDescription>
-              </Field>
-              <div className='flex flex-wrap gap-2'>
+                </fieldset>
+                {metaSupported && (
+                  <MetaDelegationSetupFields
+                    value={metaSetup}
+                    onChange={setMetaSetup}
+                    permitted={metaPermitted}
+                    disabled={action.isPending}
+                  />
+                )}
+                <Field>
+                  <FieldLabel htmlFor="mcp-expiry">{m("expiry")}</FieldLabel>
+                  <select
+                    id="mcp-expiry"
+                    className="border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm"
+                    value={permissions.expires_in_days}
+                    disabled={action.isPending}
+                    onChange={(event) =>
+                      setPermissions({
+                        ...permissions,
+                        expires_in_days: Number(event.target.value),
+                      })
+                    }
+                  >
+                    {[1, 7, 30, 90].map((days) => (
+                      <option key={days} value={days}>
+                        {m("days", { count: days })}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {!endpoint && (
+                  <p role="alert" className="text-destructive text-sm">
+                    {m("invalidEndpoint")}
+                  </p>
+                )}
                 <Button
-                  variant='outline'
-                  onClick={() => void copy(issued.token)}
-                >
-                  {t('Copy token')}
-                </Button>
-                <Button
-                  variant='outline'
-                  disabled={!endpoint}
-                  onClick={() =>
-                    void copy(
-                      buildMarketClientConfig(
-                        endpoint,
-                        issued.record.client_id,
-                        issued.token,
-                        profile
-                      )
-                    )
+                  type="submit"
+                  className="min-h-11"
+                  disabled={
+                    action.isPending ||
+                    !validClient ||
+                    !endpoint ||
+                    (metaSupported &&
+                      metaSetup.enabled &&
+                      metaPermitted &&
+                      metaDelegationQuota(metaSetup.quota) === undefined)
                   }
                 >
-                  {m('copyConfig')}
+                  {action.isPending
+                    ? t("Loading…")
+                    : t("Create connection token")}
                 </Button>
-                <Button
-                  variant='ghost'
-                  onClick={() => {
-                    setIssued(null)
-                    setCopyStatus(null)
-                  }}
-                >
-                  {t('Hide token')}
-                </Button>
-              </div>
-              {onChooseClient && (
-                <div className='space-y-2 border-t pt-3'>
-                  <p className='text-muted-foreground text-sm'>
-                    {m('chooseToolsHint')}
-                  </p>
+              </FieldGroup>
+            </form>
+            <Field>
+              <FieldLabel htmlFor="mcp-url">{t("MCP endpoint")}</FieldLabel>
+              <Input
+                id="mcp-url"
+                readOnly
+                value={endpoint}
+                className="min-h-11 font-mono text-sm"
+              />
+            </Field>
+            {metaMessage && (
+              <p role="status" className="text-sm">
+                {metaMessage}
+              </p>
+            )}
+            {issued && (
+              <div className="bg-muted/40 space-y-3 rounded-lg border p-4">
+                <Field>
+                  <FieldLabel htmlFor="mcp-secret">
+                    {t("Connection token — shown once")}
+                  </FieldLabel>
+                  <Input
+                    id="mcp-secret"
+                    type="password"
+                    autoComplete="off"
+                    readOnly
+                    value={issued.token}
+                  />
+                  <FieldDescription>
+                    {m("tokenClient", { client: issued.record.client_id })}
+                  </FieldDescription>
+                  <FieldDescription>
+                    {t(
+                      "Add this as a Bearer token in your client. Do not paste it into an Agent conversation.",
+                    )}
+                  </FieldDescription>
+                </Field>
+                <div className="flex flex-wrap gap-2">
                   <Button
-                    onClick={() => onChooseClient(issued.record.client_id)}
+                    variant="outline"
+                    onClick={() => void copy(issued.token)}
                   >
-                    {m('chooseTools')}
+                    {t("Copy token")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={!endpoint}
+                    onClick={() =>
+                      void copy(
+                        buildMarketClientConfig(
+                          endpoint,
+                          issued.record.client_id,
+                          issued.token,
+                          profile,
+                        ),
+                      )
+                    }
+                  >
+                    {m("copyConfig")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setIssued(null);
+                      setCopyStatus(null);
+                    }}
+                  >
+                    {t("Hide token")}
                   </Button>
                 </div>
-              )}
-            </div>
-          )}
-          {copyStatus && (
-            <p
-              role={copyStatus === 'copyFailed' ? 'alert' : 'status'}
-              className='text-muted-foreground text-sm'
-            >
-              {m(copyStatus)}
-            </p>
-          )}
-          {preview && (
-            <details className='text-sm'>
-              <summary className='focus-visible:ring-ring w-fit cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
-                {m('preview')}
-              </summary>
-              <pre
-                className='bg-muted mt-3 overflow-x-auto rounded-lg p-4 text-xs leading-5'
-                tabIndex={0}
-                aria-label={m('preview')}
+                {onChooseClient && (
+                  <div className="space-y-2 border-t pt-3">
+                    <p className="text-muted-foreground text-sm">
+                      {m("chooseToolsHint")}
+                    </p>
+                    <Button
+                      onClick={() => onChooseClient(issued.record.client_id)}
+                    >
+                      {m("chooseTools")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            {copyStatus && (
+              <p
+                role={copyStatus === "copyFailed" ? "alert" : "status"}
+                className="text-muted-foreground text-sm"
               >
-                {preview}
-              </pre>
-            </details>
-          )}
-          <p className='text-muted-foreground text-xs'>{m('oauthHelp')}</p>
+                {m(copyStatus)}
+              </p>
+            )}
+            {preview && (
+              <details className="text-sm">
+                <summary className="focus-visible:ring-ring w-fit cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2">
+                  {m("preview")}
+                </summary>
+                <pre
+                  className="bg-muted mt-3 overflow-x-auto rounded-lg p-4 text-xs leading-5"
+                  tabIndex={0}
+                  aria-label={m("preview")}
+                >
+                  {preview}
+                </pre>
+              </details>
+            )}
+            <p className="text-muted-foreground text-xs">{m("oauthHelp")}</p>
           </details>
         </section>
 
-        <section className='min-w-0 space-y-4'>
-          <div className='flex items-center justify-between gap-3'>
-            <h3 className='text-lg font-semibold'>{m('clients')}</h3>
-            {accessReady && <Badge variant='outline'>{groups.length}</Badge>}
+        <section className="min-w-0 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold">{m("clients")}</h3>
+            {accessReady && <Badge variant="outline">{groups.length}</Badge>}
           </div>
           {(tokens.isPending ||
             grants.isPending ||
             installations.isPending) && (
-            <p role='status' className='text-muted-foreground py-6 text-sm'>
-              {t('Loading…')}
+            <p role="status" className="text-muted-foreground py-6 text-sm">
+              {t("Loading…")}
             </p>
           )}
           {accessReady && !groups.length && (
-            <div className='rounded-xl border border-dashed px-6 py-12 text-center'>
-              <h4 className='font-medium'>{m('empty')}</h4>
-              <p className='text-muted-foreground mx-auto mt-2 max-w-sm text-sm'>
+            <div className="rounded-xl border border-dashed px-6 py-12 text-center">
+              <h4 className="font-medium">{m("empty")}</h4>
+              <p className="text-muted-foreground mx-auto mt-2 max-w-sm text-sm">
                 {t(
-                  'Load a tool from the market, then authorize its client and spending limits.'
+                  "Load a tool from the market, then authorize its client and spending limits.",
                 )}
               </p>
             </div>
           )}
-          <div data-testid='market-client-list' className='space-y-4'>
+          <div data-testid="market-client-list" className="space-y-4">
             {renderClientGroups(groups)}
           </div>
           {accessReady && revokedGroups.length > 0 && (
             <details
-              data-testid='market-revoked-records'
-              className='space-y-4 border-t pt-3'
+              data-testid="market-revoked-records"
+              className="space-y-4 border-t pt-3"
             >
-              <summary className='focus-visible:ring-ring cursor-pointer rounded-sm py-2 text-sm font-medium outline-none focus-visible:ring-2'>
-                {t('Revoked records')}
+              <summary className="focus-visible:ring-ring cursor-pointer rounded-sm py-2 text-sm font-medium outline-none focus-visible:ring-2">
+                {t("Revoked records")}
               </summary>
               {renderClientGroups(revokedGroups, true)}
             </details>
@@ -875,59 +883,59 @@ function ConnectionWorkspace({
         </section>
       </div>
 
-      <section className='min-w-0 space-y-5 border-t pt-6'>
-        <div className='space-y-2'>
-          <h3 className='text-lg font-semibold'>{t('Spending budgets')}</h3>
-          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
+      <section className="min-w-0 space-y-5 border-t pt-6">
+        <div className="space-y-2">
+          <h3 className="text-lg font-semibold">{t("Spending budgets")}</h3>
+          <p className="text-muted-foreground max-w-[70ch] text-sm leading-6">
             {t(
-              'Budgets include reserved and spent credits. These are cumulative limits; changing them does not reset usage.'
+              "Budgets include reserved and spent credits. These are cumulative limits; changing them does not reset usage.",
             )}
           </p>
         </div>
         <form
-          className='grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-4 [&_input]:min-h-11'
+          className="grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-4 [&_input]:min-h-11"
           onSubmit={(event) => {
-            event.preventDefault()
+            event.preventDefault();
             if (
               budgetQuota === undefined ||
               !budgets.isSuccess ||
               action.isPending
             ) {
-              return
+              return;
             }
-            const amount = budgetQuota
+            const amount = budgetQuota;
             action.mutate(async () => {
               await marketAPI.budget({
                 scope,
-                scope_id: scope === 'account' ? '' : scopeID.trim(),
+                scope_id: scope === "account" ? "" : scopeID.trim(),
                 limit_quota: amount,
-              })
-            })
+              });
+            });
           }}
         >
           <Field>
-            <FieldLabel htmlFor='budget-scope'>{t('Budget scope')}</FieldLabel>
+            <FieldLabel htmlFor="budget-scope">{t("Budget scope")}</FieldLabel>
             <select
-              id='budget-scope'
-              className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
+              id="budget-scope"
+              className="border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm"
               value={scope}
               onChange={(event) => {
-                setScope(event.target.value)
-                setScopeID('')
+                setScope(event.target.value);
+                setScopeID("");
               }}
             >
-              <option value='account'>{t('Account')}</option>
-              <option value='client'>{t('Client')}</option>
-              <option value='tool'>{t('Tool')}</option>
+              <option value="account">{t("Account")}</option>
+              <option value="client">{t("Client")}</option>
+              <option value="tool">{t("Tool")}</option>
             </select>
           </Field>
-          {scope !== 'account' && (
+          {scope !== "account" && (
             <Field>
-              <FieldLabel htmlFor='budget-id'>
-                {scope === 'client' ? t('Client ID') : t('Tool ID')}
+              <FieldLabel htmlFor="budget-id">
+                {scope === "client" ? t("Client ID") : t("Tool ID")}
               </FieldLabel>
               <Input
-                id='budget-id'
+                id="budget-id"
                 required
                 value={scopeID}
                 maxLength={128}
@@ -936,12 +944,12 @@ function ConnectionWorkspace({
             </Field>
           )}
           <Field>
-            <FieldLabel htmlFor='budget-limit'>
-              {t('Total spending limit')} ({label})
+            <FieldLabel htmlFor="budget-limit">
+              {t("Total spending limit")} ({label})
             </FieldLabel>
             <Input
-              id='budget-limit'
-              inputMode='decimal'
+              id="budget-limit"
+              inputMode="decimal"
               min={0}
               step={step}
               required
@@ -951,62 +959,62 @@ function ConnectionWorkspace({
             />
           </Field>
           <Button
-            type='submit'
-            className='min-h-11'
+            type="submit"
+            className="min-h-11"
             disabled={
               action.isPending ||
               !budgets.isSuccess ||
               budgetQuota === undefined ||
-              (scope !== 'account' && !scopeID.trim())
+              (scope !== "account" && !scopeID.trim())
             }
           >
-            {t('Save budget')}
+            {t("Save budget")}
           </Button>
         </form>
-        <p className='text-muted-foreground text-xs'>
-          {budgetQuota === undefined ? m('invalidBudget') : m('zeroBudget')}
+        <p className="text-muted-foreground text-xs">
+          {budgetQuota === undefined ? m("invalidBudget") : m("zeroBudget")}
         </p>
         {budgets.isPending && (
-          <p role='status' className='text-muted-foreground text-sm'>
-            {t('Loading…')}
+          <p role="status" className="text-muted-foreground text-sm">
+            {t("Loading…")}
           </p>
         )}
-        <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {(budgets.data ?? []).map((budget) => {
-            const used = budget.spent_quota + budget.reserved_quota
+            const used = budget.spent_quota + budget.reserved_quota;
             return (
               <div
                 key={`${budget.scope}:${budget.scope_id}`}
-                className='bg-muted/40 min-w-0 space-y-3 rounded-lg p-4 text-sm'
+                className="bg-muted/40 min-w-0 space-y-3 rounded-lg p-4 text-sm"
               >
-                <div className='flex items-start justify-between gap-3'>
-                  <p className='min-w-0 font-medium break-all'>
-                    {budget.scope === 'account'
-                      ? t('Account')
-                      : budget.scope === 'client'
-                        ? t('Client')
-                        : t('Tool')}
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 font-medium break-all">
+                    {budget.scope === "account"
+                      ? t("Account")
+                      : budget.scope === "client"
+                        ? t("Client")
+                        : t("Tool")}
                     {budget.scope_id && ` · ${budget.scope_id}`}
                   </p>
                   <Button
-                    variant='ghost'
+                    variant="ghost"
                     disabled={action.isPending || !budgets.isSuccess}
                     onClick={() => editBudget(budget)}
                   >
-                    {m('editBudget')}
+                    {m("editBudget")}
                   </Button>
                 </div>
-                <p className='tabular-nums'>
+                <p className="tabular-nums">
                   {formatQuota(used)} / {formatQuota(budget.limit_quota)}
                 </p>
                 <progress
-                  aria-label={t('Total spending limit')}
-                  className='accent-foreground h-1.5 w-full'
+                  aria-label={t("Total spending limit")}
+                  className="accent-foreground h-1.5 w-full"
                   value={Math.min(used, Math.max(1, budget.limit_quota))}
                   max={Math.max(1, budget.limit_quota)}
                 />
               </div>
-            )
+            );
           })}
         </div>
       </section>
@@ -1014,47 +1022,47 @@ function ConnectionWorkspace({
       <Dialog
         open={disconnect !== null}
         onOpenChange={(open) => {
-          if (!open && !action.isPending) setDisconnect(null)
+          if (!open && !action.isPending) setDisconnect(null);
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {m('disconnectTitle', { client: disconnect ?? '' })}
+              {m("disconnectTitle", { client: disconnect ?? "" })}
             </DialogTitle>
-            <DialogDescription>{m('disconnectWarning')}</DialogDescription>
+            <DialogDescription>{m("disconnectWarning")}</DialogDescription>
           </DialogHeader>
           {action.isError && (
-            <p role='alert' className='text-destructive text-sm'>
+            <p role="alert" className="text-destructive text-sm">
               {m(actionError)}
             </p>
           )}
-          <div className='flex justify-end gap-2'>
+          <div className="flex justify-end gap-2">
             <Button
-              variant='outline'
+              variant="outline"
               disabled={action.isPending}
               onClick={() => setDisconnect(null)}
             >
-              {t('Cancel')}
+              {t("Cancel")}
             </Button>
             <Button
-              variant='destructive'
+              variant="destructive"
               disabled={action.isPending || !disconnect || !accessReady}
               onClick={() => {
-                if (!disconnect) return
-                const clientID = disconnect
+                if (!disconnect) return;
+                const clientID = disconnect;
                 action.mutate(async () => {
-                  await marketAPI.disconnectClient(clientID)
-                  if (issued?.record.client_id === clientID) setIssued(null)
-                  setDisconnect(null)
-                })
+                  await marketAPI.disconnectClient(clientID);
+                  if (issued?.record.client_id === clientID) setIssued(null);
+                  setDisconnect(null);
+                });
               }}
             >
-              {m('disconnect')}
+              {m("disconnect")}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }
