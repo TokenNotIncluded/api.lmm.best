@@ -10,6 +10,11 @@ import {
   parseAssistantToolCatalog,
   parseAssistantToolPolicy,
   updateAssistantToolPolicy,
+  defaultAssistantToolRule,
+  assistantToolRule,
+  updateAssistantToolRule,
+  weeklyDiscountLimit,
+  mergeAssistantToolPolicy,
 } from './assistant-tool-policy'
 
 const catalogPayload = {
@@ -188,4 +193,124 @@ test('requires a successful complete catalog and rejects ambiguous identifiers o
     ),
     false
   )
+})
+
+test('level defaults express inclusive minimums without granting administrator roles', () => {
+  const group = parseAssistantToolCatalog(catalogPayload)![0]
+  assert.deepEqual(defaultAssistantToolRule(group.tools[0]), {
+    min_level: 1,
+    max_level: 6,
+  })
+  assert.deepEqual(
+    defaultAssistantToolRule({ ...group.tools[0], access: 'admin' }),
+    { min_level: 5, max_level: 6 }
+  )
+  assert.deepEqual(
+    defaultAssistantToolRule({ ...group.tools[0], access: 'root' }),
+    { min_level: 6, max_level: 6 }
+  )
+  const policy = parseAssistantToolPolicy(DEFAULT_ASSISTANT_TOOL_POLICY)!
+  const configured = parseAssistantToolPolicy(
+    updateAssistantToolRule(policy, 'list_my_keys', {
+      min_level: 2,
+      max_level: 4,
+    })
+  )!
+  assert.deepEqual(assistantToolRule(configured, group.tools[0]), {
+    min_level: 2,
+    max_level: 4,
+  })
+  assert.equal(assistantPolicyMatchesCatalog(configured, [group]), true)
+  const tooLow = {
+    ...configured,
+    rules: { list_my_keys: { min_level: 0, max_level: 6 } },
+  }
+  assert.equal(assistantPolicyMatchesCatalog(tooLow, [group]), false)
+  assert.deepEqual(
+    parseAssistantToolPolicy(
+      updateAssistantToolRule(configured, 'list_my_keys')
+    ),
+    policy
+  )
+})
+
+test('discount, market and issue policies reject unsafe values instead of enabling defaults', () => {
+  const make = (name: string, rule: unknown) =>
+    JSON.stringify({ version: 1, rules: { [name]: rule } })
+  const bounds = { min_level: 1, max_level: 6 }
+  assert.equal(weeklyDiscountLimit(bounds, 1), 10)
+  assert.equal(weeklyDiscountLimit(bounds, 5), 0)
+  for (const raw of [
+    make('prepare_weekly_discount', {
+      ...bounds,
+      discount_percent_by_level: { '1': 100 },
+    }),
+    make('prepare_weekly_discount', {
+      ...bounds,
+      discount_percent_by_level: { '5': 1 },
+    }),
+    make('calculate_math', {
+      ...bounds,
+      discount_percent_by_level: { '1': 20 },
+    }),
+    make('call_market_tool', { ...bounds, market_service_ids: ['a', 'a'] }),
+    make('call_market_tool', { ...bounds, market_service_ids: null }),
+    make('create_site_issue', { ...bounds, default_visibility: 'public' }),
+  ]) {
+    assert.equal(parseAssistantToolPolicy(raw), null, raw)
+  }
+  const raw = make('prepare_weekly_discount', {
+    ...bounds,
+    discount_percent_by_level: { '1': 25 },
+  })
+  assert.equal(
+    weeklyDiscountLimit(
+      parseAssistantToolPolicy(raw)!.rules!.prepare_weekly_discount,
+      1
+    ),
+    25
+  )
+})
+
+test('concurrent rule edits intersect access and keep the lower reward cap', () => {
+  const encode = (rules: unknown) =>
+    JSON.stringify({ version: 1, groups: {}, tools: {}, rules })
+  const before = encode({
+    prepare_weekly_discount: { min_level: 0, max_level: 6 },
+  })
+  const local = encode({
+    prepare_weekly_discount: {
+      min_level: 2,
+      max_level: 6,
+      discount_percent_by_level: { '2': 25 },
+    },
+  })
+  const remote = encode({
+    prepare_weekly_discount: {
+      min_level: 0,
+      max_level: 4,
+      discount_percent_by_level: { '2': 15 },
+    },
+  })
+  const merged = parseAssistantToolPolicy(
+    mergeAssistantToolPolicy(before, local, remote)
+  )!
+  assert.equal(merged.rules!.prepare_weekly_discount.min_level, 2)
+  assert.equal(merged.rules!.prepare_weekly_discount.max_level, 4)
+  assert.equal(
+    weeklyDiscountLimit(merged.rules!.prepare_weekly_discount, 2),
+    15
+  )
+  const market = (ids: string[]) =>
+    encode({
+      call_market_tool: { min_level: 1, max_level: 6, market_service_ids: ids },
+    })
+  const linked = parseAssistantToolPolicy(
+    mergeAssistantToolPolicy(
+      market(['a']),
+      market(['a', 'b']),
+      market(['a', 'c'])
+    )
+  )!
+  assert.deepEqual(linked.rules!.call_market_tool.market_service_ids, ['a'])
 })

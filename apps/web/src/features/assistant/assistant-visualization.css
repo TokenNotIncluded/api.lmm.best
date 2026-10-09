@@ -1,0 +1,212 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+.assistant-visual {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 5px 24px color-mix(in oklab, var(--foreground) 3%, transparent);
+  margin-block: 1rem;
+}
+.assistant-visual-heading {
+  padding: 1.25rem 1.4rem 0.5rem;
+}
+.assistant-visual-eyebrow {
+  display: block;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted-foreground);
+  margin-bottom: 0.5rem;
+}
+.assistant-visual-heading h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.assistant-visual-plot {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 0.4rem 0.7rem 0;
+}
+.assistant-visual-axis {
+  fill: var(--muted-foreground);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.assistant-visual-total {
+  fill: var(--foreground);
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -1px;
+}
+.assistant-visual-node {
+  fill: var(--foreground);
+  font-size: 11px;
+}
+.assistant-visual-series {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem 1.25rem;
+  padding: 0.25rem 1.2rem 1rem;
+  font-size: 0.75rem;
+}
+.assistant-visual-series li,
+.assistant-visual-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.assistant-visual-series i,
+.assistant-visual-legend i {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.assistant-visual-donut {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  padding: 0.5rem 1.4rem 1rem;
+  gap: 1rem;
+}
+.assistant-visual-donut svg {
+  width: 100%;
+  max-width: 260px;
+  margin: auto;
+}
+.assistant-visual-legend {
+  font-size: 0.75rem;
+  display: grid;
+  gap: 0.7rem;
+  max-height: 220px;
+  overflow: auto;
+}
+.assistant-visual-legend span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.assistant-visual-legend strong {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.assistant-visual-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 1rem 1.4rem;
+}
+.assistant-visual-stats > div {
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--muted) 55%, var(--card));
+}
+.assistant-visual-stats svg {
+  color: var(--chart-1);
+  margin-bottom: 0.8rem;
+}
+.assistant-visual-stats dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.assistant-visual-stats dd {
+  margin-top: 0.3rem;
+  font-size: clamp(1.3rem, 3vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  overflow-wrap: anywhere;
+}
+.assistant-visual-stats p {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  margin-top: 0.3rem;
+  overflow-wrap: anywhere;
+}
+.assistant-visual-choices {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem 1.4rem;
+}
+.assistant-visual-choices button[aria-pressed='true'] {
+  border-color: var(--chart-1);
+  background: color-mix(in oklab, var(--chart-1) 8%, var(--card));
+}
+.assistant-visual-flow {
+  overflow-x: auto;
+  padding: 0.5rem;
+}
+.assistant-visual-table {
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  margin: 0 1.4rem;
+  padding: 0.7rem 0;
+}
+.assistant-visual-table summary {
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.assistant-visual-table table {
+  width: 100%;
+  margin-top: 0.75rem;
+  border-collapse: collapse;
+}
+.assistant-visual-table td,
+.assistant-visual-table th {
+  padding: 0.5rem;
+  text-align: start;
+  border-bottom: 1px solid var(--border);
+  font-weight: 400;
+}
+.assistant-visual-table td {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.assistant-visual-table ol {
+  padding: 1rem 1rem 0;
+  list-style: decimal;
+}
+.assistant-visual-table li {
+  margin-bottom: 0.5rem;
+}
+.assistant-visual-source {
+  padding: 0.7rem 1.4rem;
+  font-size: 0.65rem;
+  color: var(--muted-foreground);
+  background: color-mix(in oklab, var(--muted) 30%, var(--card));
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .assistant-visual-donut {
+    grid-template-columns: 1fr;
+  }
+  .assistant-visual-donut svg {
+    max-width: 200px;
+  }
+  .assistant-visual-heading,
+  .assistant-visual-choices,
+  .assistant-visual-stats {
+    padding-inline: 1rem;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-visual {
+    animation: assistant-visual-enter 0.22s ease-out;
+  }
+  @keyframes assistant-visual-enter {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

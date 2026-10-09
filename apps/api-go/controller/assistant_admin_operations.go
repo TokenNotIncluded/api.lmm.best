@@ -126,7 +126,7 @@ func executeAssistantAdminOperationsTool(c *gin.Context, userID int, input map[s
 	state.registry.mu.RLock()
 	operations := make([]assistantAdminOperation, 0, len(state.registry.operations))
 	for _, op := range state.registry.operations {
-		if op.MinRole <= role && assistantAdminOperationPolicyEnabled(op.Handler) && (id == "" || id == op.ID) && (query == "" || strings.Contains(strings.ToLower(op.ID+" "+op.Handler), query)) {
+		if op.MinRole <= role && assistantAdminOperationPolicyEnabled(op.Handler, role) && (id == "" || id == op.ID) && (query == "" || strings.Contains(strings.ToLower(op.ID+" "+op.Handler), query)) {
 			operations = append(operations, op)
 		}
 	}
@@ -222,8 +222,12 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 	if err != nil {
 		return assistantAdminOperationError("tool_policy_unavailable", err.Error())
 	}
+	level := 5
+	if role >= common.RoleRootUser {
+		level = 6
+	}
 	if name := assistantAdminOperationPolicyTool(op.Handler); name != "" {
-		if !policy.Enabled(name) {
+		if !policy.AllowedAtLevel(name, level) {
 			return assistantAdminOperationError("tool_disabled", setting.AssistantToolDisabledError(name).Error())
 		}
 	}
@@ -294,7 +298,7 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 	}
 	result["ok"] = success
 	response = assistantRedactOperationResponse(response, op.Handler)
-	if !policy.Enabled("get_admin_user_skills") {
+	if !policy.AllowedAtLevel("get_admin_user_skills", level) {
 		omitAssistantOperationProfiles(response)
 	}
 	result["response"] = response

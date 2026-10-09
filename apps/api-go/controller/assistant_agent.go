@@ -313,9 +313,9 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_weekly_discount",
-				Description: "For a signed-in non-administrator user, evaluate one weekly recharge discount after at least two substantive user turns. Choose an integer from 0 to 10 percent based only on the clarity, continuity, and legitimate usefulness of this week's conversation. Zero is a valid decision. The server stores at most one decision per UTC week; an offered discount appears in chat and is claimed by the user, never by the assistant.",
+				Description: "For a signed-in non-administrator user, evaluate one weekly recharge discount after at least two substantive user turns. Choose a nonnegative integer within the administrator-configured level ceiling (default 10 percent) based only on the clarity, continuity, and legitimate usefulness of this week's conversation. Zero is a valid decision. The server stores at most one decision per UTC week; an offered discount appears in chat and is claimed by the user, never by the assistant.",
 				Parameters: objectSchema(map[string]any{
-					"discount_percent": map[string]any{"type": "integer", "minimum": 0, "maximum": 10},
+					"discount_percent": map[string]any{"type": "integer", "minimum": 0, "maximum": 99},
 					"reason":           map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
 				}, []string{"discount_percent", "reason"}),
 			},
@@ -575,6 +575,8 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 	definitions = append(definitions, assistantAdminPricingAuditTools()...)
 	definitions = append(definitions, assistantKeyManagementToolDefinitions()...)
 	definitions = append(definitions, assistantCatalogToolDefinitions()...)
+	definitions = append(definitions, assistantVisualizationToolDefinitions()...)
+	definitions = append(definitions, assistantWorkspaceToolDefinitions()...)
 	return append(definitions, assistantSkillTools()...)
 }
 
@@ -596,7 +598,24 @@ func assistantToolDefinitionsForContext(userContext assistantUserContext) []assi
 	// Account membership can be cached; live administrator policy cannot.
 	tools := make([]assistantOpenAIToolDefinition, 0, len(set.tools))
 	for _, definition := range set.tools {
-		if setting.AssistantToolEnabled(definition.Function.Name) {
+		if setting.AssistantToolAllowedAtLevel(definition.Function.Name, assistantContextLevel(userContext)) {
+			if definition.Function.Name == "prepare_weekly_discount" {
+				limit := setting.AssistantWeeklyDiscountLimit(assistantContextLevel(userContext))
+				if limit == 0 {
+					continue
+				}
+				parameters := make(map[string]any, len(definition.Function.Parameters))
+				for key, value := range definition.Function.Parameters {
+					parameters[key] = value
+				}
+				properties := make(map[string]any)
+				for key, value := range parameters["properties"].(map[string]any) {
+					properties[key] = value
+				}
+				properties["discount_percent"] = map[string]any{"type": "integer", "minimum": 0, "maximum": limit}
+				parameters["properties"] = properties
+				definition.Function.Parameters = parameters
+			}
 			tools = append(tools, definition)
 		}
 	}
@@ -673,10 +692,22 @@ func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
 }
 
 func assistantToolAllowedForContext(name string, userContext assistantUserContext) bool {
-	return setting.AssistantToolEnabled(name) && assistantToolPermittedForContext(name, userContext)
+	return setting.AssistantToolAllowedAtLevel(name, assistantContextLevel(userContext)) && assistantToolPermittedForContext(name, userContext)
 }
 
 func assistantToolPermittedForContext(name string, userContext assistantUserContext) bool {
+	if assistantVisualizationKind(name) != "" {
+		return true
+	}
+	if assistantWorkspaceTool(name) {
+		if name == "update_site_issue" {
+			return userContext.AdministratorMode
+		}
+		if name == "send_invitation" || name == "get_connected_market_tools" || name == "connect_market_tool" || name == "call_market_tool" {
+			return userContext.AdministratorMode || userContext.DeveloperAccessGranted
+		}
+		return true
+	}
 	if name == "get_new_user_gift_status" || name == "get_weekly_discount_status" {
 		return true
 	}
@@ -781,7 +812,7 @@ func assistantL0InterlocutorAssessmentRequired(_ assistantUserContext) bool {
 }
 
 func assistantToolExecutionAllowedForContext(name string, userContext assistantUserContext) bool {
-	if !setting.AssistantToolEnabled(name) {
+	if !setting.AssistantToolAllowedAtLevel(name, assistantContextLevel(userContext)) {
 		return false
 	}
 	return assistantToolExecutionPermittedForContext(name, userContext)
@@ -1832,7 +1863,7 @@ func assistantToolCallReadOnly(c *gin.Context, call assistantOpenAIToolCall) boo
 	if name == "execute_admin_operation" {
 		return assistantAdminOperationReadOnly(c, call.Function.Arguments)
 	}
-	return strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
+	return assistantVisualizationKind(name) != "" || strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
 		strings.HasPrefix(name, "calculate_") || name == "search_web" || name == "audit_admin_model_pricing" || name == "recall_memory"
 }
 
@@ -1966,7 +1997,7 @@ func writeAssistantRawResponse(c *gin.Context, status int, body []byte, fallback
 
 func isAssistantAdministratorTool(name string) bool {
 	return strings.HasPrefix(name, "get_admin_") || strings.HasPrefix(name, "prepare_admin_") ||
-		name == "list_admin_operations" || name == "execute_admin_operation" || name == "audit_admin_model_pricing"
+		name == "list_admin_operations" || name == "execute_admin_operation" || name == "audit_admin_model_pricing" || name == "update_site_issue"
 }
 
 func assistantActorUserID(c *gin.Context) int {
@@ -2013,6 +2044,9 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 	if !policy.Enabled(name) {
 		return map[string]any{"ok": false, "status": "tool_disabled", "error": setting.AssistantToolDisabledError(name).Error()}
+	}
+	if !assistantConfiguredLevelAllowed(c, policy, name) {
+		return map[string]any{"ok": false, "status": "tool_level_denied", "error": "the current account does not meet this tool's configured level range"}
 	}
 	if assistantRewardReadOnlyRequest(c) {
 		if name == "prepare_new_user_gift" {
@@ -2074,6 +2108,16 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 				explicitProfileForget = assistantExplicitProfileForgetRequest(userContext.LatestUserRequest)
 			}
 		}
+	}
+	if assistantWorkspaceTool(name) {
+		return executeAssistantWorkspaceTool(c, call, input)
+	}
+	if assistantVisualizationKind(name) != "" {
+		visual, err := parseAssistantVisualization(name, input)
+		if err != nil {
+			return map[string]any{"ok": false, "status": "invalid_visualization", "error": err.Error()}
+		}
+		return map[string]any{"ok": true, "visualization": visual, "message": "Visualization shown in chat. This display does not verify the supplied data or perform any account action."}
 	}
 	if isAssistantRegistrationTool(name) {
 		return executeAssistantRegistrationTool(c, name, input)

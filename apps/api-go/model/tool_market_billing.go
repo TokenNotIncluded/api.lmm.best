@@ -127,6 +127,11 @@ func ReserveToolMarketCall(in ToolMarketReserveInput) (*ToolMarketCall, bool, er
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		if in.ClientID == AssistantToolMarketClient {
+			if err := RequireAssistantMarketAccessDB(tx, in.UserID, service.ID); err != nil {
+				return err
+			}
+		}
 		now := common.GetTimestamp()
 		if in.ResolveBy <= now || in.ResolveBy > now+86400 {
 			return ErrToolMarketInput

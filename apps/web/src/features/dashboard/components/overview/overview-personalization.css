@@ -1,0 +1,109 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+.overview-greeting {
+  position: relative;
+  min-width: 0;
+  padding: clamp(1.1rem, 3cqi, 2.2rem);
+  border: 1px solid var(--border);
+  border-radius: 1.75rem;
+  background:
+    radial-gradient(
+      ellipse at 100% 0,
+      color-mix(in oklch, var(--chart-1) 9%, transparent),
+      transparent 65%
+    ),
+    var(--card);
+}
+.overview-greeting-meta,
+.overview-greeting-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.overview-greeting-quote {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: clamp(0.25rem, 1.4cqi, 1rem);
+  padding: clamp(1.25rem, 3.5cqi, 3rem) 0;
+}
+.overview-greeting-mark {
+  align-self: start;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(5rem, 12cqi, 10rem);
+  line-height: 0.78;
+  color: color-mix(in oklch, var(--foreground) 45%, var(--background));
+  user-select: none;
+}
+.overview-greeting-mark-end {
+  align-self: end;
+  transform: translateY(0.35em);
+}
+.overview-greeting-message {
+  min-width: 0;
+  margin: 0;
+  font-size: clamp(1.7rem, 4.3cqi, 3.9rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  text-wrap: balance;
+}
+.overview-greeting-footer {
+  border-top: 1px solid var(--border);
+  padding-top: 1.15rem;
+}
+.overview-usage-charts {
+  min-width: 0;
+}
+.overview-chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.overview-chart-eyebrow {
+  margin-bottom: 0.4rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+}
+.overview-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+.overview-chart-empty {
+  display: flex;
+  min-height: 14rem;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+@container (max-width: 760px) {
+  .overview-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .overview-greeting-quote {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .overview-greeting-mark-end {
+    grid-column: 2;
+    justify-self: end;
+    height: 0.15em;
+    transform: none;
+  }
+}

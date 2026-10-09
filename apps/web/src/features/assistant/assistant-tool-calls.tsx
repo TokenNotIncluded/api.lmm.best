@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ToolUIPart } from 'ai'
+import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -35,7 +36,26 @@ import {
   collapseAssistantToolTraces,
 } from './assistant-tool-traces.js'
 
+const AssistantVisualizationCard = lazy(() =>
+  import('./assistant-visualization').then((module) => ({
+    default: module.AssistantVisualizationCard,
+  }))
+)
+
 const TOOL_TITLE_KEYS = {
+  get_overview_greeting: 'Read overview greeting',
+  set_overview_greeting: 'Edit overview greeting',
+  get_site_issues: 'Read issue status',
+  create_site_issue: 'Create an improvement issue',
+  update_site_issue: 'Update issue status',
+  send_invitation: 'Send an invitation',
+  get_connected_market_tools: 'Read connected market tools',
+  connect_market_tool: 'Authorize a market tool',
+  call_market_tool: 'Use a connected market tool',
+  show_chart: 'Statistical chart',
+  show_statistics: 'Statistic cards',
+  show_choices: 'Choice buttons',
+  show_flowchart: 'Flow diagram',
   list_admin_operations: 'Discover management operations',
   execute_admin_operation: 'Run management operation',
   audit_admin_model_pricing: 'Audit model pricing',
@@ -155,7 +175,10 @@ function toolSummary({
   return completedSummary
 }
 
-export function AssistantToolCalls(props: { traces: AssistantToolTrace[] }) {
+export function AssistantToolCalls(props: {
+  traces: AssistantToolTrace[]
+  onChoose?: (text: string) => void
+}) {
   const { t } = useTranslation()
   const traces = collapseAssistantToolTraces(props.traces)
   if (traces.length === 0) return null
@@ -163,6 +186,19 @@ export function AssistantToolCalls(props: { traces: AssistantToolTrace[] }) {
   return (
     <div className='w-full space-y-1' data-testid='assistant-tool-calls'>
       {traces.map((trace, index) => {
+        if (trace.visualization && trace.status === 'output-available') {
+          return (
+            <Suspense
+              key={assistantToolTraceKey(trace)}
+              fallback={<p role='status'>{t('Loading visualization...')}</p>}
+            >
+              <AssistantVisualizationCard
+                visual={trace.visualization}
+                onChoose={props.onChoose}
+              />
+            </Suspense>
+          )
+        }
         const isError = trace.status === 'output-error'
         const isApproval = trace.status === 'approval-requested'
         const canReviewSupport =

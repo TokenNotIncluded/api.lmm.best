@@ -190,6 +190,8 @@ import { AssistantToolCalls } from './assistant-tool-calls'
 import { AssistantUsageTool } from './assistant-usage-tool'
 import { AssistantUserActionTool } from './assistant-user-action-tool'
 import { AssistantWeeklyDiscount } from './assistant-weekly-discount'
+import { AssistantWorkspaceActionCard } from './assistant-workspace-action'
+import type { AssistantWorkspaceAction } from './assistant-workspace-contract'
 import { useAssistantSupport } from './use-assistant-support'
 
 type AssistantActionPath =
@@ -230,6 +232,7 @@ type ConversationEntry = {
   content: string
   tools?: AssistantToolTrace[]
   action?: AssistantAction
+  workspaceAction?: AssistantWorkspaceAction
   adminChange?: AssistantAdminChangeAction
   imageAction?: AssistantImageGenerationAction
   error?: boolean
@@ -1230,6 +1233,10 @@ export function AssistantPanel(props: AssistantPanelProps) {
 }
 
 function AssistantPanelSession(props: AssistantPanelProps) {
+  const [choiceDraft, setChoiceDraft] = useState<{
+    text: string
+    revision: number
+  } | null>(null)
   const { t, i18n } = useTranslation()
   const { systemName } = useSystemConfig()
   const navigate = useNavigate()
@@ -1459,9 +1466,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     clearToolState()
     setEntries((current) =>
       current.map((entry) =>
-        entry.action || entry.adminChange || entry.imageAction
+        entry.action ||
+        entry.adminChange ||
+        entry.imageAction ||
+        entry.workspaceAction
           ? {
               ...entry,
+              workspaceAction: undefined,
               action: undefined,
               adminChange: undefined,
               imageAction: undefined,
@@ -1921,6 +1932,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         tools: reply.tools,
         action: suggestedAction,
         adminChange,
+        workspaceAction:
+          reply.action?.type === 'workspace_action' ? reply.action : undefined,
         imageAction,
       }
       setEntries((current) => {
@@ -2404,8 +2417,30 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           </p>
                         ) : null}
                         {entry.tools?.length ? (
-                          <AssistantToolCalls traces={entry.tools} />
+                          <AssistantToolCalls
+                            traces={entry.tools}
+                            onChoose={
+                              !sending &&
+                              !support.aiPaused &&
+                              !conversationRestricted
+                                ? (text) =>
+                                    setChoiceDraft((previous) => ({
+                                      text,
+                                      revision: (previous?.revision ?? 0) + 1,
+                                    }))
+                                : undefined
+                            }
+                          />
                         ) : null}
+                        {!support.aiPaused &&
+                          entry.workspaceAction &&
+                          !entry.interrupted && (
+                            <AssistantWorkspaceActionCard
+                              key={entry.workspaceAction.confirmation_token}
+                              action={entry.workspaceAction}
+                              disabled={sending || conversationRestricted}
+                            />
+                          )}
                         {!support.aiPaused && entry.imageAction ? (
                           <AssistantImageTool action={entry.imageAction} />
                         ) : null}
@@ -2706,6 +2741,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 key={conversationResetRevision}
                 initialInput={props.initialMessage}
               >
+                <AssistantPromptInputSync
+                  initialMessage={choiceDraft?.text}
+                  initialMessageRevision={choiceDraft?.revision}
+                />
                 {accountAccessConfirmed && entries.length > 0 ? (
                   <div className='mb-2 flex flex-wrap items-center gap-1'>
                     <Button

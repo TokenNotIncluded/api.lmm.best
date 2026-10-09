@@ -34,7 +34,7 @@ func ClaimAssistantWeeklyDiscount(c *gin.Context) {
 	}
 	reward, alreadyClaimed, err := model.ClaimAssistantWeeklyDiscount(c.GetInt("id"))
 	if err != nil {
-		if errors.Is(err, model.ErrAssistantWeeklyDiscountUnavailable) {
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountUnavailable) || errors.Is(err, model.ErrAssistantWeeklyDiscountLimit) {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
 				"success": false,
 				"code":    "ASSISTANT_WEEKLY_DISCOUNT_UNAVAILABLE",
@@ -56,8 +56,8 @@ func executeAssistantWeeklyDiscountTool(c *gin.Context, userID int, input map[st
 		return assistantWeeklyDiscountReadOnlyRequestResult()
 	}
 	percent, ok := inputNumber(input, "discount_percent")
-	if !ok || math.IsNaN(percent) || math.IsInf(percent, 0) || math.Trunc(percent) != percent || percent < 0 || percent > 10 {
-		return map[string]any{"ok": false, "status": "invalid_decision", "error": "discount_percent must be an integer from 0 to 10"}
+	if !ok || math.IsNaN(percent) || math.IsInf(percent, 0) || math.Trunc(percent) != percent || percent < 0 || percent > 99 {
+		return map[string]any{"ok": false, "status": "invalid_decision", "error": "discount_percent must be an integer from 0 to 99 within the configured user-level limit"}
 	}
 	turns, runes := assistantConversationEvidence(c)
 	reward, created, err := model.DecideAssistantWeeklyDiscount(
@@ -69,6 +69,9 @@ func executeAssistantWeeklyDiscountTool(c *gin.Context, userID int, input map[st
 		runes,
 	)
 	if err != nil {
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountLimit) {
+			return map[string]any{"ok": false, "status": "discount_limit_exceeded", "error": "the discount exceeds this account's current limit; no reward decision was recorded"}
+		}
 		if errors.Is(err, model.ErrAssistantWeeklyDiscountInvalid) {
 			return map[string]any{
 				"ok":     false,

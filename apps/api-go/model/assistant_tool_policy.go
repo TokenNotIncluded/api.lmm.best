@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -53,9 +54,16 @@ func ReadAssistantToolPolicy(ctx context.Context) (string, setting.AssistantTool
 	if DB == nil {
 		return "", setting.AssistantToolPolicy{}, errors.New("assistant tool policy database is unavailable")
 	}
+	return ReadAssistantToolPolicyDB(DB.WithContext(ctx))
+}
+
+// A reward transaction retains the same policy row until it commits.
+func ReadAssistantToolPolicyDB(db *gorm.DB) (string, setting.AssistantToolPolicy, error) {
+	if db == nil {
+		return "", setting.AssistantToolPolicy{}, errors.New("assistant tool policy database is unavailable")
+	}
 	var option Option
-	err := DB.WithContext(ctx).Select("value").Where("key = ?", setting.AssistantToolPolicyOptionKey).Limit(1).Find(&option).Error
-	if err != nil {
+	if err := lockForShare(db).Select("value").Where("key = ?", setting.AssistantToolPolicyOptionKey).Limit(1).Find(&option).Error; err != nil {
 		return "", setting.AssistantToolPolicy{}, errors.New("assistant tool policy could not be loaded")
 	}
 	canonical, policy, err := setting.NormalizeAssistantToolPolicy(option.Value)
@@ -63,4 +71,37 @@ func ReadAssistantToolPolicy(ctx context.Context) (string, setting.AssistantTool
 		return "", setting.AssistantToolPolicy{}, errors.New("assistant tool policy is invalid")
 	}
 	return canonical, policy, nil
+}
+
+func AssistantToolLevelDB(db *gorm.DB, userID int) (int, error) {
+	if db == nil || userID <= 0 {
+		return 0, gorm.ErrInvalidData
+	}
+	var user User
+	if err := db.Select("id", "status", "role", "trust_level_override", "created_at", "last_api_activity_at", "console_activated_at").First(&user, userID).Error; err != nil {
+		return 0, err
+	}
+	if user.Status != common.UserStatusEnabled {
+		return 0, errors.New("account is not active")
+	}
+	snapshot, err := getFreshUserAccessSnapshotDB(db, &user)
+	if err != nil {
+		return 0, err
+	}
+	return snapshot.TrustLevel.Level, nil
+}
+
+func assistantWeeklyDiscountLimitDB(db *gorm.DB, userID int) (int, error) {
+	_, policy, err := ReadAssistantToolPolicyDB(db)
+	if err != nil {
+		return 0, err
+	}
+	level, err := AssistantToolLevelDB(db, userID)
+	if err != nil {
+		return 0, err
+	}
+	if !policy.AllowedAtLevel("prepare_weekly_discount", level) || level >= 5 {
+		return 0, nil
+	}
+	return policy.WeeklyDiscountLimit(level), nil
 }

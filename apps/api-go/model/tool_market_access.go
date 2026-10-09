@@ -93,10 +93,13 @@ func marketClientValid(id string) bool {
 }
 
 func SetToolMarketInstallation(userID int, clientID, toolID, versionID string, loaded bool) error {
+	return setToolMarketInstallationDB(DB, userID, clientID, toolID, versionID, loaded)
+}
+func setToolMarketInstallationDB(db *gorm.DB, userID int, clientID, toolID, versionID string, loaded bool) error {
 	if !marketClientValid(clientID) || toolID == "" {
 		return ErrToolMarketInput
 	}
-	return marketTransaction(DB, func(tx *gorm.DB) error {
+	return marketTransaction(db, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}
@@ -135,12 +138,15 @@ func SetToolMarketInstallation(userID int, clientID, toolID, versionID string, l
 // Grants are explicit bounded authorizations; loading alone never creates one.
 // Reauthorization creates a new row so in-flight calls retain their old limits.
 func CreateToolMarketGrant(userID int, input ToolMarketGrant) (*ToolMarketGrant, error) {
+	return createToolMarketGrantDB(DB, userID, input)
+}
+func createToolMarketGrantDB(db *gorm.DB, userID int, input ToolMarketGrant) (*ToolMarketGrant, error) {
 	if !marketClientValid(input.ClientID) || !marketQuotaValid(input.MaxPriceQuota) || !marketQuotaValid(input.MaxTotalQuota) || input.MaxCalls <= 0 || input.MaxCalls > 1000000 || input.ExpiresAt <= common.GetTimestamp() {
 		return nil, ErrToolMarketInput
 	}
 	grant := ToolMarketGrant{ID: uuid.NewString(), UserID: userID, ClientID: input.ClientID, ToolID: input.ToolID, VersionID: input.VersionID,
 		MaxPriceQuota: input.MaxPriceQuota, MaxTotalQuota: input.MaxTotalQuota, MaxCalls: input.MaxCalls, ExpiresAt: input.ExpiresAt, CreatedAt: common.GetTimestamp()}
-	err := marketTransaction(DB, func(tx *gorm.DB) error {
+	err := marketTransaction(db, func(tx *gorm.DB) error {
 		if err := marketLockUsers(tx, userID); err != nil {
 			return err
 		}

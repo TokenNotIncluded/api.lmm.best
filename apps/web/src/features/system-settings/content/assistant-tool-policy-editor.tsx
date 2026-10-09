@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { Settings2 } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -8,9 +9,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
+import { AssistantToolConfiguration } from './assistant-tool-configuration'
 import {
   DEFAULT_ASSISTANT_TOOL_POLICY,
+  assistantToolRule,
   assistantPolicyMatchesCatalog,
   isAssistantToolEnabled,
   parseAssistantToolCatalog,
@@ -29,9 +33,9 @@ const effectLabels: Record<AssistantToolEffect, string> = {
 const accessLabels: Record<AssistantToolAccess, string> = {
   user: 'Signed-in users',
   l0: 'L0 users',
-  l1: 'L1 users',
-  admin: 'Administrators',
-  root: 'Super administrators',
+  l1: 'Level at least L1',
+  admin: 'L5 (Administrator)',
+  root: 'L6 (Super administrator)',
   mixed: 'Depends on the action',
 }
 
@@ -40,11 +44,17 @@ export function AssistantToolPolicyEditor(props: {
   onChange: (value: string) => void
   active: boolean
   disabled?: boolean
+  renderSettings?: (name: string) => ReactNode
+  configurationRequest?: { name: string; id: number }
 }) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
+  const [editing, setEditing] = useState<string | null>(null)
+  const [handledRequest, setHandledRequest] = useState<number | null>(null)
+  const userID = useAuthStore((state) => state.auth.user?.id)
+  const sessionID = useAuthStore((state) => state.auth.session?.sid)
   const catalog = useQuery({
-    queryKey: ['assistant-admin-tool-catalog'],
+    queryKey: ['assistant-admin-tool-catalog', userID, sessionID],
     queryFn: async () => {
       const response = await api.get<unknown>(
         '/api/assistant/admin/tool-catalog'
@@ -62,6 +72,36 @@ export function AssistantToolPolicyEditor(props: {
   const valid =
     policy !== null &&
     (!groups || assistantPolicyMatchesCatalog(policy, groups))
+  const requested =
+    props.configurationRequest &&
+    props.configurationRequest.id !== handledRequest
+      ? props.configurationRequest.name
+      : editing
+  const selectedTool = groups
+    ?.flatMap((group) => group.tools)
+    .find((tool) => tool.name === requested)
+  const closeConfiguration = () => {
+    setEditing(null)
+    setHandledRequest(props.configurationRequest?.id ?? null)
+  }
+  const accessLabel = (
+    tool: NonNullable<typeof groups>[number]['tools'][number]
+  ) => {
+    if (!policy) return t(accessLabels[tool.access])
+    const rule = assistantToolRule(policy, tool)
+    if (rule.min_level === 6) return t('L6 (Super administrator)')
+    if (rule.min_level === 5 && rule.max_level === 6) {
+      return t('Level at least L5 (Administrator)')
+    }
+    if (rule.max_level === 6) {
+      return t('Level at least L{{level}}', { level: rule.min_level })
+    }
+    if (rule.min_level === rule.max_level) return `L${rule.min_level}`
+    return t('Levels L{{min}}–L{{max}}', {
+      min: rule.min_level,
+      max: rule.max_level,
+    })
+  }
   const query = search.trim().toLocaleLowerCase()
   const filteredGroups = groups
     ?.map((group) => ({
@@ -75,6 +115,7 @@ export function AssistantToolPolicyEditor(props: {
           t(tool.description),
           t(effectLabels[tool.effect]),
           t(accessLabels[tool.access]),
+          accessLabel(tool),
         ].some((text) => text.toLocaleLowerCase().includes(query))
       ),
     }))
@@ -93,7 +134,21 @@ export function AssistantToolPolicyEditor(props: {
     )
 
   return (
-    <div className='space-y-4' data-testid='assistant-tool-policy-editor'>
+    <div
+      className='assistant-tool-center space-y-5'
+      data-testid='assistant-tool-policy-editor'
+    >
+      {props.active && valid && policy && selectedTool && (
+        <AssistantToolConfiguration
+          tool={selectedTool}
+          policy={policy}
+          onChange={props.onChange}
+          onClose={closeConfiguration}
+          disabled={props.disabled}
+        >
+          {props.renderSettings?.(selectedTool.name)}
+        </AssistantToolConfiguration>
+      )}
       <div className='space-y-1'>
         <h3 className='text-sm font-medium'>{t('Built-in assistant tools')}</h3>
         <p className='text-muted-foreground text-sm'>
@@ -191,11 +246,11 @@ export function AssistantToolPolicyEditor(props: {
               return (
                 <fieldset
                   key={group.id}
-                  className='min-w-0 rounded-lg border'
+                  className='assistant-tool-group bg-muted/15 min-w-0 rounded-2xl'
                   data-tool-group={group.id}
                 >
                   <legend className='sr-only'>{t(group.label)}</legend>
-                  <div className='bg-muted/20 flex items-center justify-between gap-4 rounded-t-lg p-3'>
+                  <div className='flex items-center justify-between gap-4 px-4 py-5'>
                     <div className='min-w-0 space-y-1'>
                       <label
                         className='text-sm font-medium'
@@ -244,7 +299,7 @@ export function AssistantToolPolicyEditor(props: {
                     {group.visibleTools.map((tool) => (
                       <div
                         key={tool.name}
-                        className='flex items-start justify-between gap-4 p-3'
+                        className='assistant-tool-row flex items-start justify-between gap-4 p-4'
                         data-tool-name={tool.name}
                       >
                         <div className='min-w-0 space-y-1.5'>
@@ -261,9 +316,7 @@ export function AssistantToolPolicyEditor(props: {
                             <Badge variant='secondary'>
                               {t(effectLabels[tool.effect])}
                             </Badge>
-                            <Badge variant='outline'>
-                              {t(accessLabels[tool.access])}
-                            </Badge>
+                            <Badge variant='outline'>{accessLabel(tool)}</Badge>
                             <span className='text-muted-foreground font-mono text-xs break-all'>
                               {tool.name}
                             </span>
@@ -280,35 +333,55 @@ export function AssistantToolPolicyEditor(props: {
                             </p>
                           )}
                         </div>
-                        <Switch
-                          id={`assistant-tool-${tool.name}`}
-                          className='mt-0.5'
-                          checked={
-                            valid && policy
-                              ? isAssistantToolEnabled(
-                                  policy,
-                                  group.id,
-                                  tool.name
-                                )
-                              : false
-                          }
-                          disabled={props.disabled || !valid || !groupEnabled}
-                          aria-label={t('Enable tool {{tool}}', {
-                            tool: t(tool.label),
-                          })}
-                          onCheckedChange={(checked) => {
-                            if (valid && policy && groupEnabled) {
-                              props.onChange(
-                                updateAssistantToolPolicy(
-                                  policy,
-                                  'tools',
-                                  tool.name,
-                                  checked
-                                )
+                        <div className='assistant-tool-row-actions flex shrink-0 items-center gap-3'>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            disabled={props.disabled || !valid}
+                            aria-label={t('Configure {{tool}}', {
+                              tool: t(tool.label),
+                            })}
+                            onClick={() => {
+                              setHandledRequest(
+                                props.configurationRequest?.id ?? null
                               )
+                              setEditing(tool.name)
+                            }}
+                          >
+                            <Settings2 className='size-4' />
+                            <span>{t('Configure')}</span>
+                          </Button>
+                          <Switch
+                            id={`assistant-tool-${tool.name}`}
+                            className='mt-0.5'
+                            checked={
+                              valid && policy
+                                ? isAssistantToolEnabled(
+                                    policy,
+                                    group.id,
+                                    tool.name
+                                  )
+                                : false
                             }
-                          }}
-                        />
+                            disabled={props.disabled || !valid || !groupEnabled}
+                            aria-label={t('Enable tool {{tool}}', {
+                              tool: t(tool.label),
+                            })}
+                            onCheckedChange={(checked) => {
+                              if (valid && policy && groupEnabled) {
+                                props.onChange(
+                                  updateAssistantToolPolicy(
+                                    policy,
+                                    'tools',
+                                    tool.name,
+                                    checked
+                                  )
+                                )
+                              }
+                            }}
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
