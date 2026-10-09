@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -49,7 +50,7 @@ func marketMCPAuthenticate(ctx context.Context, raw string) (marketMCPIdentity, 
 func marketMCPOutput(value any, err error) (*mcp.CallToolResult, error) {
 	if err != nil {
 		message := "Tool market operation could not be completed. Check access, grant, budget and tool status in LMM."
-		for _, safe := range []error{model.ErrToolMarketInput, model.ErrToolMarketDenied, model.ErrToolMarketConflict, model.ErrToolMarketBudget, model.ErrToolMarketBalance, service.ErrMarketRemoteConnection, service.ErrMarketRemoteAuth, service.ErrMarketRemoteSchema, service.ErrMarketRemoteChanged, service.ErrMarketRemoteInput, service.ErrMarketRemoteBusy, service.ErrMarketRemoteNetwork} {
+		for _, safe := range []error{marketprovider.ErrPrice, marketprovider.ErrVariablePrice, model.ErrToolMarketInput, model.ErrToolMarketDenied, model.ErrToolMarketConflict, model.ErrToolMarketBudget, model.ErrToolMarketBalance, service.ErrMarketRemoteConnection, service.ErrMarketRemoteAuth, service.ErrMarketRemoteSchema, service.ErrMarketRemoteChanged, service.ErrMarketRemoteInput, service.ErrMarketRemoteBusy, service.ErrMarketRemoteNetwork} {
 			if errors.Is(err, safe) {
 				message = safe.Error()
 				break
@@ -253,6 +254,13 @@ func newToolMarketMCPServerWithMode(identity marketMCPIdentity, compact bool) (*
 			outputSchema = json.RawMessage(execution.Tool.OutputSchema)
 		}
 		pricing := map[string]any{"price_quota": execution.Tool.PriceQuota, "billing_mode": execution.Tool.BillingMode, "input_token_price_quota": execution.Tool.InputTokenPriceQuota, "max_input_tokens": execution.Tool.MaxInputTokens, "billing_rules": execution.Tool.BillingRules}
+		if execution.Tool.ProviderPricing != nil {
+			pricing["billing_mode"] = "provider_quote"
+			pricing["provider_pricing"] = execution.Tool.ProviderPricing
+			pricing["maximum_price_quota"] = execution.Tool.PriceQuota
+			pricing["price_quota"] = nil
+			pricing["usage_policy"] = "fresh_upstream_usd_quote"
+		}
 		if execution.Tool.BillingMode != "" {
 			pricing["usage_policy"] = model.ToolMarketUsageReported
 		}

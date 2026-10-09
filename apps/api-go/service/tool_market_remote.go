@@ -578,6 +578,18 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	if !matched {
 		return nil, ErrMarketRemoteChanged
 	}
+	if err := marketProviderAccountBoundary(execution.Version.Endpoint, execution.Tool.Name, arguments); err != nil {
+		return nil, err
+	}
+	if execution.Tool.ProviderPricing != nil {
+		if execution.Tool.ProviderPricing.Validate(execution.Version.Endpoint, execution.Tool.Name) != nil {
+			return nil, ErrMarketRemoteSchema
+		}
+		in.ProviderQuote, err = marketProviderQuote(ctx, session, capture, *execution.Tool.ProviderPricing, arguments, credential)
+		if err != nil {
+			return nil, err
+		}
+	}
 	in.GrantID = execution.Grant.ID
 	in.ResolveBy = common.GetTimestamp() + 120
 	call, created, err := model.ReserveToolMarketCall(in)
@@ -658,6 +670,20 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	}
 	success := !result.IsError
 	errorCode := ""
+	if success {
+		pending, valid := marketProviderResult(execution.Tool.ProviderPricing, exactResult)
+		if pending {
+			_ = model.MarkToolMarketCallUnknown(call.ID)
+			response, err := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
+			if response != nil {
+				response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
+			}
+			return response, err
+		}
+		if !valid {
+			success, errorCode = false, "TOOL_MARKET_INVALID_RESULT"
+		}
+	}
 	if success && execution.Tool.OutputSchema != "" {
 		output, err := marketSchema([]byte(execution.Tool.OutputSchema))
 		if err != nil || output.Validate(result.StructuredContent) != nil {

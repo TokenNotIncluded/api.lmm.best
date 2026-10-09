@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
@@ -70,6 +71,7 @@ func GetToolMarketConfig(c *gin.Context) {
 	// API capabilities follow the handlers shipped by this server. They are not
 	// saved settings; older servers omit them and clients must default to false.
 	data["capabilities"] = gin.H{"service_deletion": true, "client_record_cleanup": true, "meta_delegation": true}
+	data["provider_presets"] = marketprovider.Presets()
 	basis.addMetadata(data)
 	toolMarketRespond(c, data, nil)
 }
