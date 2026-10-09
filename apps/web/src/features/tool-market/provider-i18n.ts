@@ -254,10 +254,12 @@ export function registerProviderTranslations(instance: i18n): void {
 // also avoids marking an asynchronously loaded global locale as already loaded.
 export function useMarketTranslation() {
   const translation = useTranslation()
-  registerProviderTranslations(translation.i18n)
+  const { i18n } = translation
+  registerProviderTranslations(i18n)
+  const language = i18n.resolvedLanguage || i18n.language
   const t = useMemo(
-    () => translation.i18n.getFixedT(null, [providerNamespace, 'translation']),
-    [translation.i18n, translation.t]
+    () => i18n.getFixedT(language, [providerNamespace, 'translation']),
+    [i18n, language]
   )
   return { ...translation, t }
 }

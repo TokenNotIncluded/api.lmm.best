@@ -30,7 +30,7 @@ try {
       await context.route('**/*', async (route) => {
         const url = new URL(route.request().url())
         if (url.origin !== origin) return route.abort('blockedbyclient')
-        if (url.pathname === '/api/status')
+        if (url.pathname === '/api/status') {
           return route.fulfill({
             json: {
               success: true,
@@ -41,6 +41,7 @@ try {
               },
             },
           })
+        }
         if (url.pathname.startsWith('/api/')) {
           errors.push(`Unexpected backend request: ${url.pathname}`)
           return route.abort('blockedbyclient')
@@ -117,12 +118,23 @@ try {
         await cancel.scrollIntoViewIfNeeded()
         // Mobile scroll headers change available height during their transition.
         // Wait for finite transitions before clicking the revealed form action.
-        await page.waitForFunction(() => !document.getAnimations().some((animation) =>
-          animation.playState === 'running' && animation.effect?.getComputedTiming().iterations !== Infinity
-        ))
+        await page.waitForFunction(
+          () =>
+            !document
+              .getAnimations()
+              .some(
+                (animation) =>
+                  animation.playState === 'running' &&
+                  animation.effect?.getComputedTiming().iterations !== Infinity
+              )
+        )
         await cancel.click()
-        await page.getByRole('heading', { name: 'metamcp', exact: true }).waitFor()
-        await page.getByRole('button', { name: '接入 MCP 客户端', exact: true }).click()
+        await page
+          .getByRole('heading', { name: 'metamcp', exact: true })
+          .waitFor()
+        await page
+          .getByRole('button', { name: '接入 MCP 客户端', exact: true })
+          .click()
         await page.getByText('浏览器登录（推荐）', { exact: true }).waitFor()
         assert.ok(
           (await page.locator('pre').first().innerText()).includes(
