@@ -1,0 +1,33 @@
+name: L0 integration review
+on:
+  push:
+    branches: [work/l0-l1-integration-20261009]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export public source and inspect integration conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l0-source
+          git update-ref refs/heads/review-main "$(git rev-parse HEAD^)"
+          git update-ref refs/heads/review-l0 da5572f5d1289dc4be21e672acaf1803c7167958
+          git bundle create /tmp/l0-source/source.bundle refs/heads/review-main refs/heads/review-l0
+          git rev-parse review-main review-l0 > /tmp/l0-source/commits.txt
+          git checkout --detach review-l0
+          git -c user.name='L0 integration review' -c user.email='review@localhost' merge --no-commit --no-ff review-main > /tmp/l0-source/merge.txt 2>&1 || test -n "$(git diff --name-only --diff-filter=U)"
+          git diff --name-only --diff-filter=U | tee /tmp/l0-source/conflicts.txt
+          git diff --cc > /tmp/l0-source/conflicts.diff
+      - uses: actions/upload-artifact@v4
+        with:
+          name: l0-integration-source
+          path: /tmp/l0-source
+          retention-days: 1
