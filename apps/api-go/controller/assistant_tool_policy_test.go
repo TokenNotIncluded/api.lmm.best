@@ -72,8 +72,8 @@ func TestAssistantToolPolicyCatalogueMatchesActualDefinitions(t *testing.T) {
 		}
 	}
 	assert.Equal(t, registered, metadata, "new tools must be classified before they can be enabled")
-	assert.Len(t, registered, 67)
-	assert.Equal(t, map[string]int{"read_only": 39, "confirmation": 15, "server_guarded": 12, "navigation": 1}, effects)
+	assert.Len(t, registered, 69)
+	assert.Equal(t, map[string]int{"read_only": 40, "confirmation": 15, "server_guarded": 13, "navigation": 1}, effects)
 	assert.NotContains(t, assistantAdminAvailableConfigLabels(), setting.AssistantToolPolicyOptionKey, "the model cannot re-enable its tools")
 }
 
@@ -314,6 +314,10 @@ func TestAssistantToolPolicyRevokedDuringModelCallDoesNotWriteMemory(t *testing.
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turns++
 		if turns == 1 {
+			assert.False(t, assistantPolicyTestContainsTool(request.Tools, "remember_memory"))
+			return http.StatusOK, assistantLoopCallBody(t, []assistantOpenAIToolCall{assistantControlCall("discover_tools", `{"names":["remember_memory"]}`)}, ""), nil
+		}
+		if turns == 2 {
 			require.True(t, assistantPolicyTestContainsTool(request.Tools, "remember_memory"))
 			require.NoError(t, db.Create(&model.Option{Key: setting.AssistantToolPolicyOptionKey, Value: `{"version":1,"tools":{"remember_memory":false}}`}).Error)
 			call := assistantOpenAIToolCall{ID: "revoked-mid-turn", Type: "function", Function: assistantOpenAIToolCallFunction{Name: "remember_memory", Arguments: `{"title":"Project preference","content":"Use short answers for this project"}`}}
@@ -324,7 +328,7 @@ func TestAssistantToolPolicyRevokedDuringModelCallDoesNotWriteMemory(t *testing.
 		return http.StatusOK, assistantLoopCallBody(t, nil, "Memory storage was disabled before execution."), nil
 	}
 	runAssistantAgent(c, setting.AssistantSettings{AgentLoopEnabled: true, MaxSteps: 4}, []assistantOpenAIMessage{{Role: "user", Content: "Remember my project preference"}})
-	assert.Equal(t, 2, turns)
+	assert.Equal(t, 3, turns)
 	var count int64
 	require.NoError(t, db.Model(&model.AssistantMemory{}).Count(&count).Error)
 	assert.Zero(t, count, "a model response generated before revocation cannot commit a later memory")

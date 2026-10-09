@@ -1,17 +1,5 @@
 {
   "translation": {
-    "Configure seller terms before publishing or relisting this product.": "公開または再出品する前に販売者の規約を設定してください。",
-    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "配送と購入後の対応に関する規約を保存します。購入者は注文時に別途同意します。",
-    "Continue publishing": "公開を続ける",
-    "Temporarily unlist": "一時的に出品を停止",
-    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "商品を非表示にし、承認は保持します。既存の注文には影響しません。",
-    "Withdraw from review": "審査を取り下げる",
-    "Withdraw this product from review?": "この商品の審査を取り下げますか？",
-    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "承認を取り消します。編集して再審査を申請してから公開してください。既存の注文には影響しません。",
-    "Specifications and prices": "仕様と価格",
-    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "仕様ごとに名前、価格、納品内容を設定します。すべて下書きと一緒に保存されます。",
-    "Enter unique variant names and valid prices.": "重複しない仕様名と有効な価格を入力してください。",
-    "A product can have at most 200 specifications.": "商品には最大200の仕様を設定できます。",
     "Adjust settings with WebMCP": "WebMCP で設定を調整",
     "Changes are saved only with the Save button.": "変更は「保存」ボタンを押したときにのみ保存されます。",
     "Collapse all": "すべて折りたたむ",
@@ -11733,6 +11721,24 @@
     "Chat for free to upgrade to a full account.": "無料の対話で、正式ユーザーにアップグレードできます。",
     "Chat (free)": "対話（無料）",
     "Top up to upgrade": "チャージでアップグレード",
-    "Paid upgrade details": "チャージによるアップグレードの条件"
+    "Paid upgrade details": "チャージによるアップグレードの条件",
+    "Load assistant tools": "必要なツールを読み込む",
+    "End this turn": "今回の応答を終了",
+    "Assistant tools loaded": "必要なツールを読み込みました",
+    "This turn has ended. You can send another message.": "今回の応答は終了しました。続けてメッセージを送信できます。",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "このリクエストに必要なツールの引数定義のみを読み込みます。選択したツールは実行しません。",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "最終回答を表示して今回の処理を終了します。以降のメッセージやアカウント権限は制限しません。",
+    "Configure seller terms before publishing or relisting this product.": "公開または再出品する前に販売者の規約を設定してください。",
+    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "配送と購入後の対応に関する規約を保存します。購入者は注文時に別途同意します。",
+    "Continue publishing": "公開を続ける",
+    "Temporarily unlist": "一時的に出品を停止",
+    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "商品を非表示にし、承認は保持します。既存の注文には影響しません。",
+    "Withdraw from review": "審査を取り下げる",
+    "Withdraw this product from review?": "この商品の審査を取り下げますか？",
+    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "承認を取り消します。編集して再審査を申請してから公開してください。既存の注文には影響しません。",
+    "Specifications and prices": "仕様と価格",
+    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "仕様ごとに名前、価格、納品内容を設定します。すべて下書きと一緒に保存されます。",
+    "Enter unique variant names and valid prices.": "重複しない仕様名と有効な価格を入力してください。",
+    "A product can have at most 200 specifications.": "商品には最大200の仕様を設定できます。"
   }
 }

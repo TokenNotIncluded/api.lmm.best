@@ -1,17 +1,5 @@
 {
   "translation": {
-    "Configure seller terms before publishing or relisting this product.": "Перед публикацией или повторным размещением настройте условия продавца.",
-    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "Сохраните условия доставки и обслуживания. Покупатель принимает их отдельно при заказе.",
-    "Continue publishing": "Продолжить публикацию",
-    "Temporarily unlist": "Временно снять с продажи",
-    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "Товар скрывается, одобрение сохраняется. Существующие заказы остаются доступны.",
-    "Withdraw from review": "Отозвать с проверки",
-    "Withdraw this product from review?": "Отозвать этот товар с проверки?",
-    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "Одобрение будет отменено. Измените товар и отправьте на проверку перед публикацией. Существующие заказы останутся доступны.",
-    "Specifications and prices": "Варианты и цены",
-    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "Задайте каждому варианту название, цену и содержимое. Все варианты сохраняются вместе с черновиком.",
-    "Enter unique variant names and valid prices.": "Введите уникальные названия вариантов и допустимые цены.",
-    "A product can have at most 200 specifications.": "Товар может иметь не более 200 вариантов.",
     "Adjust settings with WebMCP": "Настроить через WebMCP",
     "Changes are saved only with the Save button.": "Изменения сохраняются только кнопкой «Сохранить».",
     "Collapse all": "Свернуть всё",
@@ -11733,6 +11721,24 @@
     "Chat for free to upgrade to a full account.": "Бесплатно пообщайтесь с помощником, чтобы активировать аккаунт.",
     "Chat (free)": "Чат (бесплатно)",
     "Top up to upgrade": "Пополнить и активировать",
-    "Paid upgrade details": "Условия платной активации"
+    "Paid upgrade details": "Условия платной активации",
+    "Load assistant tools": "Загрузить нужные инструменты",
+    "End this turn": "Завершить текущий ответ",
+    "Assistant tools loaded": "Нужные инструменты загружены",
+    "This turn has ended. You can send another message.": "Текущий ответ завершён. Можно отправить новое сообщение.",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "Загрузить только определения нужных инструментов для этого запроса, не выполняя их.",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "Выдать итоговый ответ и остановить текущий запуск, не блокируя новые сообщения и не меняя права аккаунта.",
+    "Configure seller terms before publishing or relisting this product.": "Перед публикацией или повторным размещением настройте условия продавца.",
+    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "Сохраните условия доставки и обслуживания. Покупатель принимает их отдельно при заказе.",
+    "Continue publishing": "Продолжить публикацию",
+    "Temporarily unlist": "Временно снять с продажи",
+    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "Товар скрывается, одобрение сохраняется. Существующие заказы остаются доступны.",
+    "Withdraw from review": "Отозвать с проверки",
+    "Withdraw this product from review?": "Отозвать этот товар с проверки?",
+    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "Одобрение будет отменено. Измените товар и отправьте на проверку перед публикацией. Существующие заказы останутся доступны.",
+    "Specifications and prices": "Варианты и цены",
+    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "Задайте каждому варианту название, цену и содержимое. Все варианты сохраняются вместе с черновиком.",
+    "Enter unique variant names and valid prices.": "Введите уникальные названия вариантов и допустимые цены.",
+    "A product can have at most 200 specifications.": "Товар может иметь не более 200 вариантов."
   }
 }

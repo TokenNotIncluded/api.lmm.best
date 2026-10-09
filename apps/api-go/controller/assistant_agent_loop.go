@@ -56,6 +56,9 @@ func assistantToolMadeProgress(name string, result map[string]any) bool {
 	}
 	// Empty catalog searches are a common stalled plan: changing the search
 	// string makes every call fingerprint unique but supplies no new evidence.
+	if name == "discover_tools" {
+		return assistantOperationInt(result["loaded_count"], 0) > 0
+	}
 	if name == "list_admin_operations" {
 		return assistantOperationInt(result["total"], 0) > 0
 	}
@@ -274,8 +277,13 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			tools = assistantToolDefinitionsForContext(userContext)
 		}
 		if agentEnabled && len(tools) > 0 && step < maxSteps-1 && !finalAnswerOnly {
-			request.Tools = tools
 			request.ToolChoice = assistantToolChoiceForAgentStep(userContext, calledTools, successfulTools)
+			var directory string
+			request.Tools, directory = assistantToolsForAgentStep(c, tools, assistantNamedToolChoiceName(request.ToolChoice))
+			if directory != "" {
+				request.Messages = append([]assistantOpenAIMessage(nil), messages...)
+				request.Messages[0].Content = directory + request.Messages[0].Content
+			}
 		}
 
 		plannedRead, serverRead := assistantPlannedReadCall(request, userContext, calledTools, step)
@@ -377,66 +385,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 			}
 		}
 		if len(message.ToolCalls) == 0 {
-			normalizedBody, normalizeErr := normalizeAssistantClientResponse(c, body)
-			if normalizeErr != nil {
-				writeAssistantUpstreamError(c, "ASSISTANT_EMPTY_UPSTREAM_RESPONSE", "AI assistant upstream returned no usable answer")
-				return
-			}
-			if !assistantOutputLengthLimited(response) && !usedCacheSensitiveTool && cacheKey != "" {
-				storeAssistantCachedResponse(settings, cacheKey, status, normalizedBody, c.GetString(assistantConversationTitleDraftKey))
-				c.Header("X-LMM-Assistant-Cache", "STORE")
-			}
-			if streamSession != nil {
-				if assistantOutputLengthLimited(response) {
-					// Replace the tentative partial stream with the same explicit
-					// incomplete answer returned to non-streaming clients.
-					normalized, parseErr := parseAssistantResponse(normalizedBody)
-					if parseErr != nil || len(normalized.Choices) == 0 {
-						writeAssistantUpstreamError(c, "ASSISTANT_INVALID_UPSTREAM_RESPONSE", "AI assistant upstream returned an invalid response")
-						return
-					}
-					if err := streamSession.resetContent(); err != nil {
-						return
-					}
-					if err := streamSession.appendContent(assistantResponseContent(normalized.Choices[0].Message.Content)); err != nil {
-						return
-					}
-					streamTurn = true
-				}
-				enrichedBody := assistantHistoryResponseBody(c, status, normalizedBody)
-				if c.GetBool("assistant_turn_unavailable") {
-					writeAssistantError(c, http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", errors.New("saved turn cannot be reused; send a new message"))
-					return
-				}
-				if canonical, exists := c.Get("assistant_history_canonical_content"); exists && c.GetBool("assistant_history_canonical_changed") {
-					if text, ok := canonical.(string); ok && text != streamSession.safeContent() {
-						if err := streamSession.resetContent(); err != nil {
-							return
-						}
-						if err := streamSession.appendContent(text); err != nil {
-							return
-						}
-						streamTurn = true
-					}
-				}
-				if c.GetBool("assistant_support_response_replaced") {
-					writeAssistantSupportCompletion(c, enrichedBody)
-					return
-				}
-				if !streamTurn {
-					finalResponse, parseErr := parseAssistantResponse(normalizedBody)
-					if parseErr == nil && len(finalResponse.Choices) > 0 {
-						_ = streamSession.appendContent(assistantResponseContent(finalResponse.Choices[0].Message.Content))
-					}
-				}
-				streamBody := sanitizeAssistantStreamResponseBody(enrichedBody, streamSession.safeContent())
-				c.Set(assistantFinalResponseBodyKey, streamBody)
-				if err := streamSession.finish(enrichedBody); err != nil {
-					writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
-				}
-				return
-			}
-			c.Data(status, "application/json; charset=utf-8", normalizedBody)
+			finishAssistantAgentAnswer(c, settings, cacheKey, usedCacheSensitiveTool, status, body, response, streamTurn)
 			return
 		}
 		if (!settings.AgentLoopEnabled && !forceL0Assessment && !forceTaskWorkflow && !forceRecommendationWorkflow && !forceCreateKeyWorkflow && !forceImageGenerationWorkflow && !forcePublicActivityWorkflow && !forceNewUserGiftWorkflow && !forceWeeklyDiscountWorkflow && !forceHumanSupportWorkflow && !forceReadChain) || step >= maxSteps-1 || finalAnswerOnly {
@@ -491,7 +440,8 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 				result = executeAssistantAgentTool(c, call)
 				ok, _ := result["ok"].(bool)
 				attempted, _ := result["mutation_attempted"].(bool)
-				loopGuard.Complete(call, readOnly, ok || attempted)
+				doNotRetry, _ := result["do_not_retry"].(bool)
+				loopGuard.Complete(call, readOnly, ok || attempted || doNotRetry)
 				if isAssistantAdministratorTool(toolName) && !readOnly && (attempted || (ok && c.GetBool(assistantAdminAutomationContextKey))) {
 					c.Set("assistant_admin_mutation_attempted", true)
 				}
@@ -500,7 +450,7 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 				return
 			}
 			madeProgress = madeProgress || assistantToolMadeProgress(toolName, result)
-			resultJSON := assistantAgentToolResultJSON(result)
+			resultJSON := assistantModelToolResultJSON(toolName, result)
 			if ok, _ := result["ok"].(bool); ok {
 				successfulTools[toolName] = true
 			}
@@ -518,6 +468,9 @@ func runAssistantAgent(c *gin.Context, settings setting.AssistantSettings, conve
 				Content:    string(resultJSON),
 				ToolCallID: call.ID,
 			})
+			if finishAssistantConversationEnd(c, settings) {
+				return
+			}
 		}
 		// An entirely repeated batch gets one final answer turn, so stalled
 		// plans cannot spend the remaining budget repeating identical calls.
@@ -550,4 +503,71 @@ func assistantPlannedReadCall(request assistantOpenAIRequest, userContext assist
 		}
 	}
 	return assistantOpenAIToolCall{}, false
+}
+
+// Reuse the same normalization, history and stream boundary for ordinary and
+// tool-initiated final answers. Neither path invokes a further model turn.
+func finishAssistantAgentAnswer(c *gin.Context, settings setting.AssistantSettings, cacheKey string, usedCacheSensitiveTool bool, status int, body []byte, response assistantOpenAIResponse, streamTurn bool) {
+	streamSession := assistantStreamSessionFrom(c)
+	normalizedBody, normalizeErr := normalizeAssistantClientResponse(c, body)
+	if normalizeErr != nil {
+		writeAssistantUpstreamError(c, "ASSISTANT_EMPTY_UPSTREAM_RESPONSE", "AI assistant upstream returned no usable answer")
+		return
+	}
+	if !assistantOutputLengthLimited(response) && !usedCacheSensitiveTool && cacheKey != "" {
+		storeAssistantCachedResponse(settings, cacheKey, status, normalizedBody, c.GetString(assistantConversationTitleDraftKey))
+		c.Header("X-LMM-Assistant-Cache", "STORE")
+	}
+	if streamSession != nil {
+		if assistantOutputLengthLimited(response) {
+			// Replace the tentative partial stream with the same explicit
+			// incomplete answer returned to non-streaming clients.
+			normalized, parseErr := parseAssistantResponse(normalizedBody)
+			if parseErr != nil || len(normalized.Choices) == 0 {
+				writeAssistantUpstreamError(c, "ASSISTANT_INVALID_UPSTREAM_RESPONSE", "AI assistant upstream returned an invalid response")
+				return
+			}
+			if err := streamSession.resetContent(); err != nil {
+				return
+			}
+			if err := streamSession.appendContent(assistantResponseContent(normalized.Choices[0].Message.Content)); err != nil {
+				return
+			}
+			streamTurn = true
+		}
+		enrichedBody := assistantHistoryResponseBody(c, status, normalizedBody)
+		if c.GetBool("assistant_turn_unavailable") {
+			writeAssistantError(c, http.StatusConflict, "ASSISTANT_TURN_UNAVAILABLE", errors.New("saved turn cannot be reused; send a new message"))
+			return
+		}
+		if canonical, exists := c.Get("assistant_history_canonical_content"); exists && c.GetBool("assistant_history_canonical_changed") {
+			if text, ok := canonical.(string); ok && text != streamSession.safeContent() {
+				if err := streamSession.resetContent(); err != nil {
+					return
+				}
+				if err := streamSession.appendContent(text); err != nil {
+					return
+				}
+				streamTurn = true
+			}
+		}
+		if c.GetBool("assistant_support_response_replaced") {
+			writeAssistantSupportCompletion(c, enrichedBody)
+			return
+		}
+		if !streamTurn {
+			finalResponse, parseErr := parseAssistantResponse(normalizedBody)
+			if parseErr == nil && len(finalResponse.Choices) > 0 {
+				_ = streamSession.appendContent(assistantResponseContent(finalResponse.Choices[0].Message.Content))
+			}
+		}
+		streamBody := sanitizeAssistantStreamResponseBody(enrichedBody, streamSession.safeContent())
+		c.Set(assistantFinalResponseBodyKey, streamBody)
+		if err := streamSession.finish(enrichedBody); err != nil {
+			writeAssistantError(c, http.StatusBadGateway, "ASSISTANT_STREAM_WRITE_FAILED", errors.New("assistant stream output failed"))
+		}
+		return
+	}
+	c.Data(status, "application/json; charset=utf-8", normalizedBody)
+	return
 }

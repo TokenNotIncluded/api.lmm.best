@@ -13,6 +13,12 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- The built-in assistant loads tool definitions on demand, avoids repeated
+  successful reads and duplicate chart data, and can end a run with a final
+  message without another model request. Users can continue the conversation;
+  account access, confirmations, billing and registration restrictions are
+  unchanged. Both new tools use the existing assistant policy settings.
+
 - L0 users can enable L1 through the built-in assistant without application letters
   or a minimum conversation length. Old application todos, review and archive
   screens, and unused review settings are removed from the Go/Web console.

@@ -1,17 +1,5 @@
 {
   "translation": {
-    "Configure seller terms before publishing or relisting this product.": "請先設定賣家條款，再發佈或重新上架商品。",
-    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "在這裡儲存交付和售後條款。買家會在下單時另外確認。",
-    "Continue publishing": "繼續上架",
-    "Temporarily unlist": "暫時下架",
-    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "暫時隱藏商品，保留審核結果，可再次上架。已有訂單不受影響。",
-    "Withdraw from review": "撤回審核",
-    "Withdraw this product from review?": "撤回此商品的審核？",
-    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "清除審核結果。編輯並重新提交審核後才能上架。已有訂單不受影響。",
-    "Specifications and prices": "規格與價格",
-    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "每個規格可設定獨立名稱、價格和交付內容，所有規格與商品草稿一起儲存。",
-    "Enter unique variant names and valid prices.": "請填寫不重複的規格名稱和有效價格。",
-    "A product can have at most 200 specifications.": "每個商品最多支援 200 個規格。",
     "Adjust settings with WebMCP": "用 WebMCP 調整設定",
     "Changes are saved only with the Save button.": "只有點擊「儲存」後，變更才會生效。",
     "Collapse all": "收合全部",
@@ -11733,6 +11721,24 @@
     "Chat for free to upgrade to a full account.": "透過免費對話，升級為正式使用者。",
     "Chat (free)": "對話（免費）",
     "Top up to upgrade": "儲值升級",
-    "Paid upgrade details": "儲值升級說明"
+    "Paid upgrade details": "儲值升級說明",
+    "Load assistant tools": "按需載入助手工具",
+    "End this turn": "結束本輪對話",
+    "Assistant tools loaded": "已載入所需工具",
+    "This turn has ended. You can send another message.": "本輪對話已結束，你可以繼續傳送訊息。",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "僅為目前請求載入所需工具的參數定義，不執行所選工具。",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "輸出最終答覆並停止本輪，不限制後續訊息，也不變更帳號權限。",
+    "Configure seller terms before publishing or relisting this product.": "請先設定賣家條款，再發佈或重新上架商品。",
+    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "在這裡儲存交付和售後條款。買家會在下單時另外確認。",
+    "Continue publishing": "繼續上架",
+    "Temporarily unlist": "暫時下架",
+    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "暫時隱藏商品，保留審核結果，可再次上架。已有訂單不受影響。",
+    "Withdraw from review": "撤回審核",
+    "Withdraw this product from review?": "撤回此商品的審核？",
+    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "清除審核結果。編輯並重新提交審核後才能上架。已有訂單不受影響。",
+    "Specifications and prices": "規格與價格",
+    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "每個規格可設定獨立名稱、價格和交付內容，所有規格與商品草稿一起儲存。",
+    "Enter unique variant names and valid prices.": "請填寫不重複的規格名稱和有效價格。",
+    "A product can have at most 200 specifications.": "每個商品最多支援 200 個規格。"
   }
 }

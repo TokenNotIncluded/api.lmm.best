@@ -43,6 +43,8 @@ const AssistantVisualizationCard = lazy(() =>
 )
 
 const TOOL_TITLE_KEYS = {
+  discover_tools: 'Load assistant tools',
+  end_conversation: 'End this turn',
   get_overview_greeting: 'Read overview greeting',
   set_overview_greeting: 'Edit overview greeting',
   get_site_issues: 'Read issue status',
@@ -86,6 +88,8 @@ const TOOL_TITLE_KEYS = {
 } satisfies Record<string, string>
 
 const TOOL_SUMMARY_KEYS = {
+  discover_tools: 'Assistant tools loaded',
+  end_conversation: 'This turn has ended. You can send another message.',
   list_admin_operations: 'Management operations loaded',
   execute_admin_operation: 'Management operation completed',
   audit_admin_model_pricing: 'Pricing audit completed',

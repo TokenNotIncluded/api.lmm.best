@@ -64,9 +64,10 @@ func TestAssistantToolPolicyUpdateIsAtomicAndCatalogueDetached(t *testing.T) {
 		t.Fatal("failed update must preserve prior settings")
 	}
 	groups := AssistantToolCatalogue()
+	firstTool := groups[0].Tools[0].Name
 	groups[0].ID = "corrupt"
 	groups[0].Tools[0].Name = "corrupt"
-	if AssistantToolCatalogue()[0].ID != "service_help" || AssistantToolCatalogue()[0].Tools[0].Name != "get_service_facts" {
+	if AssistantToolCatalogue()[0].ID != "service_help" || AssistantToolCatalogue()[0].Tools[0].Name != firstTool {
 		t.Fatal("catalogue caller changed the registered definitions")
 	}
 }

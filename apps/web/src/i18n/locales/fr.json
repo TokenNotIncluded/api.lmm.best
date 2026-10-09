@@ -1,17 +1,5 @@
 {
   "translation": {
-    "Configure seller terms before publishing or relisting this product.": "Configurez les conditions du vendeur avant de publier ou remettre ce produit en vente.",
-    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "Enregistrez ici vos conditions de livraison et de service après-vente. Les acheteurs les acceptent lors de la commande.",
-    "Continue publishing": "Continuer la publication",
-    "Temporarily unlist": "Retirer temporairement",
-    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "Le produit est masqué et son approbation est conservée. Les commandes existantes restent accessibles.",
-    "Withdraw from review": "Retirer de la validation",
-    "Withdraw this product from review?": "Retirer ce produit de la validation ?",
-    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "L’approbation est annulée. Modifiez le produit et soumettez-le à nouveau avant publication. Les commandes existantes restent accessibles.",
-    "Specifications and prices": "Variantes et prix",
-    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "Définissez un nom, un prix et un contenu par variante. Toutes les variantes sont enregistrées avec ce brouillon.",
-    "Enter unique variant names and valid prices.": "Saisissez des noms de variantes distincts et des prix valides.",
-    "A product can have at most 200 specifications.": "Un produit peut avoir au maximum 200 variantes.",
     "Adjust settings with WebMCP": "Ajuster les paramètres avec WebMCP",
     "Changes are saved only with the Save button.": "Les modifications ne sont enregistrées qu’avec le bouton Enregistrer.",
     "Collapse all": "Tout réduire",
@@ -11733,6 +11721,24 @@
     "Chat for free to upgrade to a full account.": "Discutez gratuitement pour activer votre compte.",
     "Chat (free)": "Discuter (gratuit)",
     "Top up to upgrade": "Recharger et activer",
-    "Paid upgrade details": "Conditions de recharge"
+    "Paid upgrade details": "Conditions de recharge",
+    "Load assistant tools": "Charger les outils nécessaires",
+    "End this turn": "Terminer cet échange",
+    "Assistant tools loaded": "Outils nécessaires chargés",
+    "This turn has ended. You can send another message.": "Cet échange est terminé. Vous pouvez envoyer un autre message.",
+    "Load only the needed tool definitions for this request; never execute the selected tools.": "Charger uniquement les définitions des outils nécessaires à cette requête, sans les exécuter.",
+    "Deliver a final answer and stop this run without blocking future messages or changing account access.": "Envoyer la réponse finale et arrêter cette exécution sans bloquer les messages suivants ni modifier les accès du compte.",
+    "Configure seller terms before publishing or relisting this product.": "Configurez les conditions du vendeur avant de publier ou remettre ce produit en vente.",
+    "Save your delivery and after-sales terms here. Buyers accept them separately when ordering.": "Enregistrez ici vos conditions de livraison et de service après-vente. Les acheteurs les acceptent lors de la commande.",
+    "Continue publishing": "Continuer la publication",
+    "Temporarily unlist": "Retirer temporairement",
+    "Temporarily unlisting hides the product and keeps its approval. Existing orders remain available.": "Le produit est masqué et son approbation est conservée. Les commandes existantes restent accessibles.",
+    "Withdraw from review": "Retirer de la validation",
+    "Withdraw this product from review?": "Retirer ce produit de la validation ?",
+    "This clears the approval. Edit and submit the product again before publishing. Existing orders remain available.": "L’approbation est annulée. Modifiez le produit et soumettez-le à nouveau avant publication. Les commandes existantes restent accessibles.",
+    "Specifications and prices": "Variantes et prix",
+    "Give each specification its own name, price and delivery content. All specifications are saved with this draft.": "Définissez un nom, un prix et un contenu par variante. Toutes les variantes sont enregistrées avec ce brouillon.",
+    "Enter unique variant names and valid prices.": "Saisissez des noms de variantes distincts et des prix valides.",
+    "A product can have at most 200 specifications.": "Un produit peut avoir au maximum 200 variantes."
   }
 }
