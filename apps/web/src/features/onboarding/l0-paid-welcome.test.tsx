@@ -220,7 +220,7 @@ test('L0 keeps top-up reachable from the default chat scene and links it to chec
     assert.match(
       container.querySelector('[data-testid="l0-paid-progress"]')
         ?.textContent ?? '',
-      /Top up 21\.01 CNY for instant approval/
+      /Top up 21\.01 CNY to enable L1 immediately/
     )
     assert.match(
       container.querySelector('[data-testid="l0-free-access"]')?.textContent ??

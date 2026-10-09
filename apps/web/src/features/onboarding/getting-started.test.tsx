@@ -665,7 +665,7 @@ describe('getting started access boundaries', () => {
       if (language === 'en') {
         assert.match(
           page.container.querySelector('.l0-rail-meta')?.textContent ?? '',
-          /Top up 3\.01 USD for instant approval/
+          /Top up 3\.01 USD to enable L1 immediately/
         )
       }
       await unmountPage(page)

@@ -273,7 +273,7 @@ function L0WelcomeStage({
               data-testid={progressReady ? 'l0-paid-progress' : undefined}
             >
               {canTopUp && progressReady
-                ? t('Top up {{amount}} for instant approval.', {
+                ? t('Top up {{amount}} to enable L1 immediately.', {
                     amount: formatMinimumQuotaInCurrency(
                       access.remainingCredits,
                       currency.currency,

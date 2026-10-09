@@ -102,7 +102,8 @@ export const dashboardUsageTranslations = {
     tokens: 'Jetons',
     quota: 'Coût',
     share: 'Part du coût',
-    shareNote: 'Part du coût de tous les modèles sur la période sélectionnée.',
+    shareNote:
+      'Part du coût de tous les modèles sur la période sélectionnée.',
     unknown: 'Modèle inconnu',
     empty: 'Aucune utilisation sur cette période.',
     noResults: 'Aucun modèle correspondant.',
@@ -121,8 +122,7 @@ export const dashboardUsageTranslations = {
   },
   ja: {
     title: 'モデル別の使用量',
-    description:
-      '選択期間のデータです。検索は明細とエクスポートのみに適用されます。',
+    description: '選択期間のデータです。検索は明細とエクスポートのみに適用されます。',
     search: 'モデル名を検索',
     export: '結果をエクスポート',
     model: 'モデル',
@@ -149,7 +149,8 @@ export const dashboardUsageTranslations = {
   },
   ru: {
     title: 'Использование по моделям',
-    description: 'Выбранный период. Поиск влияет только на таблицу и экспорт.',
+    description:
+      'Выбранный период. Поиск влияет только на таблицу и экспорт.',
     search: 'Поиск по названию модели',
     export: 'Экспорт результатов',
     model: 'Модель',
@@ -212,9 +213,7 @@ export type DashboardUsageText = (
 ) => string
 
 export function registerDashboardUsageTranslations(instance: i18n) {
-  for (const [language, resources] of Object.entries(
-    dashboardUsageTranslations
-  )) {
+  for (const [language, resources] of Object.entries(dashboardUsageTranslations)) {
     if (!instance.hasResourceBundle(language, 'dashboardUsage')) {
       instance.addResourceBundle(language, 'dashboardUsage', resources)
     }
