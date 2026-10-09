@@ -147,3 +147,24 @@ License, or (at your option) any later version.
 .legal-section h3 {
   margin-top: 2rem;
 }
+
+.legal-layout {
+  padding-top: 3rem;
+  align-items: start;
+}
+.legal-toc {
+  border: 0;
+}
+.legal-toc a {
+  min-height: 2.75rem;
+  padding-block: 0.55rem;
+}
+@media (max-width: 1023px) {
+  .legal-layout {
+    padding-block: 2.5rem 4rem;
+    gap: 1.5rem;
+  }
+  .legal-title {
+    line-height: 1.2;
+  }
+}

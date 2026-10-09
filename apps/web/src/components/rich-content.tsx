@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { DocumentReader } from '@/components/document-reader'
 import { HtmlContent, type HtmlContentVariant } from '@/components/html-content'
 import { Markdown } from '@/components/ui/markdown'
 
@@ -27,6 +28,7 @@ interface RichContentProps {
   breaks?: boolean
   className?: string
   htmlVariant?: HtmlContentVariant
+  collapsible?: boolean
 }
 
 export function RichContent(props: RichContentProps) {
@@ -36,6 +38,16 @@ export function RichContent(props: RichContentProps) {
         content={props.content}
         className={props.className}
         variant={props.htmlVariant}
+      />
+    )
+  }
+
+  if (props.collapsible) {
+    return (
+      <DocumentReader
+        content={props.content}
+        breaks={props.breaks}
+        className={props.className}
       />
     )
   }

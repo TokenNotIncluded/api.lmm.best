@@ -256,7 +256,7 @@
 .lmm-chapter-film {
   display: none;
 }
-@media (min-width: 901px) and (min-height: 601px) and (prefers-reduced-motion: no-preference) {
+@media (prefers-reduced-motion: no-preference) {
   .lmm-home[data-motion='playing'] .lmm-cinema,
   .lmm-home[data-motion='paused'] .lmm-cinema {
     height: 420svh;
@@ -1056,11 +1056,6 @@
   }
 }
 @media (max-width: 680px) {
-  /* Leave the shared fixed feedback action its own lane on compact screens. */
-  .lmm-intro-actions,
-  .lmm-intro-description {
-    padding-inline-end: 7.5rem;
-  }
   .lmm-cinema .lmm-intro-actions [data-slot='button'] {
     max-width: 100%;
     height: auto;
@@ -1176,5 +1171,127 @@
   }
   .lmm-motion-toggle {
     display: none !important;
+  }
+}
+
+/* One scroll-driven stage on every screen. No wheel/touch scroll lock. */
+.lmm-home[data-cinema-layout='immersive'] .lmm-chapter-film {
+  display: none;
+}
+.lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel {
+  border: 0;
+}
+@media (max-width: 900px) and (min-height: 601px) {
+  .lmm-home[data-cinema-layout='immersive'] .lmm-cinema {
+    height: 460svh;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-cinema-inner {
+    top: 4rem;
+    height: calc(100svh - 4rem);
+    min-height: 0;
+    max-height: none;
+    padding: 0;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-poster-brand {
+    top: 1rem;
+    right: 4.5rem;
+    font-size: clamp(2.6rem, 9vw, 4.4rem);
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-poster-art {
+    inset: 4.5rem -12% 40%;
+    height: auto;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel {
+    inset: auto 0 6.5rem;
+    width: 100%;
+    max-width: none;
+    max-height: 52%;
+    overflow-y: auto;
+    padding: 1rem var(--home-gutter) 0.5rem;
+    justify-content: flex-start;
+    background: linear-gradient(transparent, var(--poster-ground) 1.5rem);
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel :is(h1, h2) {
+    font-size: clamp(1.65rem, 6.5vw, 2.7rem);
+    max-width: 32rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel p {
+    margin-top: 0.7rem;
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-intro-actions {
+    margin-top: 1rem;
+    gap: 0.5rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-core-steps {
+    position: absolute;
+    inset: auto var(--home-gutter) 3.3rem;
+    padding: 0;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-core-steps button {
+    font-size: 0.75rem;
+    min-height: 2.75rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-core-continue {
+    position: absolute;
+    bottom: max(0.4rem, env(safe-area-inset-bottom));
+    margin: 0;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-motion-toggle {
+    top: 1.2rem;
+    bottom: auto;
+  }
+}
+@media (max-height: 600px) and (prefers-reduced-motion: no-preference) {
+  .lmm-home[data-cinema-layout='immersive'] .lmm-cinema-inner {
+    top: 4rem;
+    height: calc(100svh - 4rem);
+    min-height: 17rem;
+    padding: 0;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-poster-brand {
+    top: 0.75rem;
+    font-size: 2.2rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-poster-art {
+    inset: 2rem 0 2rem 42%;
+    height: auto;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel {
+    inset: 3.6rem auto 3.4rem 0;
+    width: 52%;
+    padding: 0.5rem var(--home-gutter);
+    overflow-y: auto;
+    justify-content: flex-start;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel :is(h1, h2) {
+    font-size: 1.5rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel p {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-intro-actions {
+    margin-top: 0.7rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-core-steps {
+    inset: auto 4.5rem 0.25rem 45%;
+    flex-wrap: nowrap;
+    padding: 0;
+    gap: 0.5rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-core-continue {
+    position: absolute;
+    bottom: 0.25rem;
+    margin: 0;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-motion-toggle {
+    top: 0.5rem;
+    bottom: auto;
   }
 }

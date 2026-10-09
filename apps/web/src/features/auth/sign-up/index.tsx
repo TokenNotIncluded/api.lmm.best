@@ -55,7 +55,7 @@ export function SignUp() {
   if (!localPreview && error) {
     return (
       <AuthLayout>
-        <div className='w-full space-y-4 text-center sm:text-left'>
+        <div className='w-full space-y-4 text-left'>
           <h2 className='text-2xl font-semibold tracking-tight'>
             {t('Unable to load registration settings')}
           </h2>
@@ -95,7 +95,7 @@ export function SignUp() {
   if (!registrationEnabled || !hasAvailableMethod) {
     return (
       <AuthLayout>
-        <div className='w-full space-y-4 text-center sm:text-left'>
+        <div className='w-full space-y-4 text-left'>
           <h2 className='text-2xl font-semibold tracking-tight'>
             {t('Registration is currently unavailable')}
           </h2>

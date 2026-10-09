@@ -26,9 +26,13 @@ import {
 } from 'react-hook-form'
 import { toast } from 'sonner'
 
+import type { SettingsAgentField } from '../utils/settings-agent-bridge'
+import { useSettingsAgentForm } from './use-settings-agent-form'
+
 type SettingsFormOptions<T extends FieldValues> = UseFormProps<T> & {
   onSubmit: (data: T, changedFields: Record<string, unknown>) => Promise<void>
   compareValues?: (a: unknown, b: unknown) => boolean
+  agentFields?: readonly SettingsAgentField[]
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -189,6 +193,7 @@ export function useSettingsForm<T extends FieldValues>({
   onSubmit,
   compareValues,
   defaultValues,
+  agentFields = [],
   ...formOptions
 }: SettingsFormOptions<T>) {
   const expandedDefaults = useMemo(
@@ -197,6 +202,7 @@ export function useSettingsForm<T extends FieldValues>({
   )
 
   const form = useForm<T>({ ...formOptions, defaultValues: expandedDefaults })
+  useSettingsAgentForm(form, agentFields)
 
   const defaultValuesRef = useRef<T>((expandedDefaults ?? ({} as T)) as T)
   const baselineRef = useRef<Record<string, unknown>>(

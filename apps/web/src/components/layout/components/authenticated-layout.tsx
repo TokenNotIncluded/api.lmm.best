@@ -40,6 +40,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
+import { ConsoleMobileDock } from './console-mobile-dock'
 import { ConsoleLocation } from './console-navigation'
 import { QuickSwitchProvider } from './quick-switch-provider'
 import { ShellBridgeRegistrar } from './shell-bridge-registrar'
@@ -56,6 +57,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
+  const settingsPage = pathname.startsWith('/system-settings/')
   const assistantPage = pathname === '/getting-started'
   const focusedOnboarding = assistantPage && !consoleActivated
 
@@ -66,7 +68,8 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
           <SearchProvider>
             <QuickSwitchProvider>
               <SidebarProvider
-                defaultOpen={defaultOpen}
+                defaultOpen={settingsPage ? false : defaultOpen}
+                persistState={!settingsPage}
                 className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
               >
                 <SkipToMain />
@@ -104,6 +107,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                     </div>
                   </SidebarInset>
                 </div>
+                {consoleActivated && !assistantPage && <ConsoleMobileDock />}
                 <AccessRestrictionNotice className='shrink-0' />
                 <ReleaseNoteDialog />
                 <CommandMenu />

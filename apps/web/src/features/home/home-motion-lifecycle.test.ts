@@ -90,6 +90,14 @@ function fixture({ graphics = true, observers = true } = {}) {
       frames.delete(id)
     },
   }
+  const scrollOffsets: number[] = []
+  Object.defineProperty(view, 'scrollBy', {
+    value: (options: ScrollToOptions) => {
+      scrollOffsets.push(options.top ?? 0)
+      sectionTop -= options.top ?? 0
+      view.document.dispatchEvent(new view.Event('scroll'))
+    },
+  })
   const previous = new Map<string, PropertyDescriptor | undefined>()
   for (const [key, value] of Object.entries(globals)) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
@@ -171,6 +179,7 @@ function fixture({ graphics = true, observers = true } = {}) {
   resize(1440, 900)
   return {
     root,
+    scrollOffsets,
     view,
     inner,
     canvases,
@@ -360,7 +369,7 @@ test('all five manual chapters are keyboard accessible and native scrolling take
         panels(page.root).map((panel) => panel.inert),
         Array.from({ length: 5 }, (_, index) => index !== chapter)
       )
-      assert.equal(page.view.scrollY, 0)
+      assert.ok(page.scrollOffsets.length > 0)
     }
     for (const chapter of [1, 2, 3, 4, 0]) {
       page.scroll(chapter)
@@ -377,27 +386,36 @@ for (const [width, height] of [
   [900, 900],
   [844, 390],
 ]) {
-  test(`the ${width} by ${height} reading flow keeps all chapter actions accessible`, () => {
+  test(`the ${width} by ${height} scroll stage exposes the selected chapter and preserves all navigation`, () => {
     const page = fixture()
     try {
       page.resize(width, height)
       page.mount()
       page.tick()
-      assert.ok(
-        panels(page.root).every(
-          (panel) =>
-            !panel.inert && panel.getAttribute('aria-hidden') === 'false'
-        )
-      )
-      page.resize(1440, 900)
-      page.tick()
+      assert.equal(page.root.dataset.cinemaLayout, 'immersive')
       assert.deepEqual(
         panels(page.root).map((panel) => panel.inert),
         [false, true, true, true, true]
       )
+      for (const chapter of [1, 2, 3, 4, 0]) {
+        page.scroll(chapter)
+        page.settle()
+        assert.equal(page.inner.dataset.chapter, String(chapter))
+        assert.equal(
+          panels(page.root).filter((panel) => !panel.inert).length,
+          1
+        )
+      }
+      page.resize(1440, 900)
+      page.tick()
       page.resize(width, height)
       page.tick()
-      assert.ok(panels(page.root).every((panel) => !panel.inert))
+      assert.equal(page.root.dataset.cinemaLayout, 'immersive')
+      assert.equal(
+        page.paints.size,
+        1,
+        'only the shared stage is rendered on mobile'
+      )
     } finally {
       page.close()
     }
@@ -440,9 +458,9 @@ test('cleanup releases every canvas, observer, frame and preference listener', (
     assert.equal(page.disconnected, 2)
     assert.equal(page.preferenceListeners, 0)
     assert.equal(page.root.dataset.motion, undefined)
-    assert.ok(
-      page.canvases.every((canvas) => canvas.width === 0 && canvas.height === 0)
-    )
+    assert.equal(page.canvases[0].width, 0)
+    assert.equal(page.canvases[0].height, 0)
+    assert.equal(page.root.dataset.cinemaLayout, undefined)
     assert.ok(
       panels(page.root).every(
         (panel) => !panel.inert && !panel.hasAttribute('aria-hidden')

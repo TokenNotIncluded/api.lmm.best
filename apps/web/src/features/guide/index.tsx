@@ -497,7 +497,7 @@ curl ${rootUrl}/v1/chat/completions \
 
           <details
             id='guide-overview'
-            className='group border-border/70 mt-5 border-y sm:hidden'
+            className='group bg-muted/35 mt-5 rounded-xl px-4 sm:hidden'
           >
             <summary className='focus-visible:outline-ring flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-sm py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
               {copy.sectionsTitle}
@@ -581,7 +581,7 @@ curl ${rootUrl}/v1/chat/completions \
                 <p className='text-muted-foreground mt-3 text-sm leading-7'>
                   {copy.firstBody}
                 </p>
-                <blockquote className='bg-background mt-5 rounded-xl border px-5 py-5 text-sm leading-7'>
+                <blockquote className='bg-muted/35 mt-5 rounded-2xl px-5 py-5 text-sm leading-7'>
                   {copy.firstMessage}
                 </blockquote>
                 <div className='mt-4 flex flex-wrap gap-x-5 gap-y-3'>
@@ -622,7 +622,7 @@ curl ${rootUrl}/v1/chat/completions \
                   {copy.troubles.map((trouble) => (
                     <details
                       key={trouble.code}
-                      className='group bg-background rounded-xl border'
+                      className='group bg-muted/30 rounded-2xl'
                     >
                       <summary className='focus-visible:outline-ring flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
                         <span className='text-muted-foreground shrink-0 font-mono text-xs'>
@@ -693,7 +693,7 @@ curl ${rootUrl}/v1/chat/completions \
 
             <aside className='space-y-7 lg:sticky lg:top-24'>
               <GuideContents copy={copy} />
-              <section className='bg-background rounded-2xl border p-6'>
+              <section className='bg-muted/25 rounded-2xl p-6'>
                 <h2 className='text-base font-semibold'>{copy.accountTitle}</h2>
                 <p className='text-muted-foreground mt-3 text-sm leading-7'>
                   {oauth

@@ -40,11 +40,12 @@ afterEach(() => {
   useAuthStore.getState().auth.setUser(null)
 })
 
-test('settings and system tools retain root-only access and remain read-only', async () => {
+test('settings and system tools retain root-only access and distinguish draft mutation', async () => {
   assert.equal(new Set(tools.map((item) => item.name)).size, tools.length)
   for (const item of tools) {
-    assert.equal(item.annotations?.readOnlyHint, true)
-    assert.equal(item.annotations?.consequentialHint, undefined)
+    const draft = item.name === 'lmm_settings_preview'
+    assert.equal(item.annotations?.readOnlyHint, !draft)
+    assert.equal(item.annotations?.consequentialHint, draft ? true : undefined)
     await assert.rejects(
       item.execute({}, { signal: signal() }),
       /Sign in first/
