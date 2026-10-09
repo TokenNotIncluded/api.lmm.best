@@ -42,17 +42,33 @@ For commercial licensing, please contact support@quantumnous.com
   --forge-model-19: color-mix(in oklch, var(--warning) 78%, var(--foreground));
   --forge-model-20: color-mix(in oklch, var(--info) 78%, var(--foreground));
   --forge-model-21: color-mix(in oklch, var(--accent) 78%, var(--foreground));
-  --forge-model-22: color-mix(in oklch, var(--destructive) 78%, var(--foreground));
+  --forge-model-22: color-mix(
+    in oklch,
+    var(--destructive) 78%,
+    var(--foreground)
+  );
   --forge-model-23: color-mix(in oklch, var(--primary) 78%, var(--foreground));
-  --forge-model-24: color-mix(in oklch, var(--secondary) 78%, var(--foreground));
+  --forge-model-24: color-mix(
+    in oklch,
+    var(--secondary) 78%,
+    var(--foreground)
+  );
   --forge-chart-hover: var(--foreground);
-  --forge-chart-text: color-mix(in oklch, var(--foreground) 76%, var(--background));
+  --forge-chart-text: color-mix(
+    in oklch,
+    var(--foreground) 76%,
+    var(--background)
+  );
   --forge-chart-grid: color-mix(in oklch, var(--foreground) 16%, transparent);
   --dashboard-clay: var(--primary);
   --dashboard-wash: color-mix(in oklch, var(--accent) 32%, var(--background));
   --dashboard-mark-paper: var(--background);
   --dashboard-mark-ink: var(--foreground);
-  --dashboard-mark-muted: color-mix(in oklch, var(--foreground) 58%, transparent);
+  --dashboard-mark-muted: color-mix(
+    in oklch,
+    var(--foreground) 58%,
+    transparent
+  );
   background: var(--background);
   color: var(--foreground);
 }
@@ -378,7 +394,9 @@ For commercial licensing, please contact support@quantumnous.com
   .dashboard-usage__search input {
     width: 100%;
   }
-  .dashboard-usage__actions button, .dashboard-stats__refresh button, .dashboard-usage__footer button {
+  .dashboard-usage__actions button,
+  .dashboard-stats__refresh button,
+  .dashboard-usage__footer button {
     min-height: 2.75rem;
   }
   .dashboard-usage__mobile-sort {
