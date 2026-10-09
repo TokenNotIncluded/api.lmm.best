@@ -2,6 +2,7 @@ name: L0 candidate acceptance
 on:
   push:
     branches: [work/l0-l1-retirement-20261009]
+    paths: [.github/workflows/l0-l1-candidate-check.yml]
 concurrency:
   group: l0-candidate-acceptance
   cancel-in-progress: true
@@ -32,7 +33,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: 60b9e6500084dc6ae4c4f734ffa353d7f4d13e6c
+          ref: 9633ad6bb0f019c39b005f0433f4ae08d6dcc965
           path: candidate
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -42,26 +43,13 @@ jobs:
         with:
           go-version: '1.25.1'
           cache-dependency-path: candidate/apps/api-go/go.sum
-      - name: Verify and prepare candidate source
+      - name: Prepare regression repairs
         id: source
         run: |
           mkdir -p "$RUNNER_TEMP/l0-result"
-          python3 workbench/.workbench/apply-l0.py candidate
-          python3 workbench/.workbench/followup-l0.py candidate
-          cp workbench/.workbench/support-conversation.test.tsx candidate/apps/web/src/features/support-ticket/support-conversation.test.tsx
-          python3 workbench/.workbench/corrections-l0.py candidate
-          git -C candidate add apps/web/src/features/support-ticket/support-conversation.test.tsx
-          (cd candidate/apps/api-go && go generate ./controller)
-          git -C candidate diff --cached --check
-          python3 - <<'PY'
-          import json, subprocess
-          from pathlib import Path
-          p=Path('l0-paths.json')
-          changed=subprocess.check_output(['git','diff','HEAD','--name-only'],cwd='candidate',text=True).splitlines()
-          assert all(x.startswith(('apps/api-go/','apps/web/src/','docs/security/')) for x in changed)
-          p.write_text(json.dumps(sorted(changed)))
-          PY
-      - name: Install locked dependencies
+          python3 workbench/.workbench/final-review.py candidate
+          git -C candidate diff --name-only > "$RUNNER_TEMP/l0-result/changed-paths.txt"
+      - name: Locked dependencies
         id: dependencies
         working-directory: candidate
         run: bun install --frozen-lockfile
@@ -72,17 +60,16 @@ jobs:
           bun run format > "$RUNNER_TEMP/l0-result/format.log" 2>&1
           node scripts/add-copyright.mjs >> "$RUNNER_TEMP/l0-result/format.log" 2>&1
           python3 - <<'PY'
-          import json, pathlib, subprocess
+          import os, pathlib, subprocess
           root=pathlib.Path('../..').resolve()
-          allowed=set(json.loads((root.parent/'l0-paths.json').read_text()))
+          allowed=set((pathlib.Path(os.environ['RUNNER_TEMP'])/'l0-result/changed-paths.txt').read_text().splitlines())
           for path in subprocess.check_output(['git','diff','--name-only'],cwd=root,text=True).splitlines():
               if path not in allowed:
-                  subprocess.run(['git','restore','--worktree','--',path],cwd=root,check=True)
-          changed=[p for p in allowed if p.endswith('.go') and (root/p).exists()]
-          subprocess.run(['gofmt','-w',*changed],cwd=root,check=True)
+                  subprocess.run(['git','restore','--',path],cwd=root,check=True)
+          subprocess.run(['gofmt','-w',*[p for p in allowed if p.endswith('.go')]],cwd=root,check=True)
           PY
           bun run format:check >> "$RUNNER_TEMP/l0-result/format.log" 2>&1
-      - name: Frontend static checks
+      - name: Web static checks
         id: static
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         working-directory: candidate/apps/web
@@ -93,7 +80,7 @@ jobs:
             if ! bun run "$command" > "$RUNNER_TEMP/l0-result/$file.log" 2>&1; then cat "$RUNNER_TEMP/l0-result/$file.log"; failed=1; fi
           done
           exit "$failed"
-      - name: Frontend regression
+      - name: Web regression
         id: webtests
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         working-directory: candidate/apps/web
@@ -104,73 +91,87 @@ jobs:
             if ! bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" >> "$RUNNER_TEMP/l0-result/web-tests.log" 2>&1; then failed=1; fi
           done
           if grep -Eq '^# fail [1-9]|^not ok |^[[:space:]]*[1-9][0-9]* fail' "$RUNNER_TEMP/l0-result/web-tests.log"; then failed=1; fi
-          grep -B 8 -A 20 -E '^not ok |^\(fail\)|error:|AssertionError' "$RUNNER_TEMP/l0-result/web-tests.log" || true
+          grep -E '^\(fail\)|^not ok |^ *[0-9]+ (pass|fail)' "$RUNNER_TEMP/l0-result/web-tests.log" || true
           exit "$failed"
-      - name: Baseline Go regressions
-        id: baseline
-        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
-        working-directory: workbench/apps/api-go
-        env:
-          TEST_POSTGRES_DSN: postgres://test:isolated-test-only@127.0.0.1:5432/l0_test?sslmode=disable
-        run: |
-          set +e
-          go test -p 2 ./middleware ./router ./model ./controller -run 'Test(.*Assistant.*|.*Registration.*|.*DeveloperAccess.*|.*UnifiedTodo.*|.*ConsoleAccess.*|.*PreActivation.*|.*Paid.*)' -count=1 -timeout=10m > "$RUNNER_TEMP/l0-result/go-baseline.log" 2>&1
-          result=$?
-          echo "$result" > "$RUNNER_TEMP/l0-result/go-baseline-exit.txt"
-          grep -A 10 '^--- FAIL:' "$RUNNER_TEMP/l0-result/go-baseline.log" || true
-      - name: Candidate Go regressions
+      - name: Go regression
         id: gotests
         if: ${{ !cancelled() && steps.source.outcome == 'success' }}
         working-directory: candidate/apps/api-go
         env:
           TEST_POSTGRES_DSN: postgres://test:isolated-test-only@127.0.0.1:5432/l0_test?sslmode=disable
         run: |
-          set +e
-          go test -p 2 ./middleware ./router ./model ./controller -run 'Test(.*Assistant.*|.*Registration.*|.*DeveloperAccess.*|.*UnifiedTodo.*|.*ConsoleAccess.*|.*PreActivation.*|.*Paid.*)' -count=1 -timeout=10m > "$RUNNER_TEMP/l0-result/go-tests.log" 2>&1
-          result=$?
-          grep -A 10 '^--- FAIL:' "$RUNNER_TEMP/l0-result/go-tests.log" || true
-          exit "$result"
-      - name: Production web build
+          go test -json -p 2 ./middleware ./router ./model ./controller -run 'Test(.*Assistant.*|.*Registration.*|.*DeveloperAccess.*|.*UnifiedTodo.*|.*ConsoleAccess.*|.*PreActivation.*|.*Paid.*)' -count=1 -timeout=10m > "$RUNNER_TEMP/l0-result/go-tests.jsonl"
+      - name: Admission and support race checks
+        id: race
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        working-directory: candidate/apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://test:isolated-test-only@127.0.0.1:5432/l0_test?sslmode=disable
+        run: |
+          go test -race -p 2 ./model ./controller -run 'Test(.*DirectL1Grant.*|.*UnifiedTodo.*|.*RegistrationPublicState.*|.*AssistantSupport.*)' -count=1 -timeout=8m > "$RUNNER_TEMP/l0-result/go-race.log" 2>&1
+      - name: Production build
         id: build
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         working-directory: candidate/apps/web
         run: |
           bun run build > "$RUNNER_TEMP/l0-result/build.log" 2>&1
           bun run bundle:check >> "$RUNNER_TEMP/l0-result/build.log" 2>&1
-      - name: Export clean candidate branch for review only
+      - name: Browser acceptance with synthetic accounts only
+        id: browser
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          L0_BROWSER_OUTPUT: ${{ runner.temp }}/l0-result/browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/l0-browser" playwright@1.51.1 > "$RUNNER_TEMP/l0-result/browser-install.log" 2>&1
+          "$RUNNER_TEMP/l0-browser/node_modules/.bin/playwright" install --with-deps chromium >> "$RUNNER_TEMP/l0-result/browser-install.log" 2>&1
+          fixture=candidate/apps/web/src/features/debug/console-page-fixtures.ts
+          cp "$fixture" "$RUNNER_TEMP/l0-fixture.ts"
+          trap 'cp "$RUNNER_TEMP/l0-fixture.ts" "$fixture"; kill "$server" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('candidate/apps/web/src/features/debug/console-page-fixtures.ts')
+          s=p.read_text()
+          s=s.replace("  '/api/assistant/support/self': [],", "  '/api/assistant/support/self': { request: null },\n  '/api/assistant/registration-check': { state: 'ready' },")
+          p.write_text(s)
+          PY
+          (cd candidate/apps/web && LMM_ENABLE_PERSONA_DEBUG=1 bun run dev --host 127.0.0.1 --port 4174 --strict-port) > "$RUNNER_TEMP/l0-result/vite.log" 2>&1 &
+          server=$!
+          for n in $(seq 1 60); do curl --fail --silent http://127.0.0.1:4174/ >/dev/null && break; sleep 1; done
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/l0-browser/node_modules/playwright/index.mjs" node workbench/.workbench/l0-browser.mjs > "$RUNNER_TEMP/l0-result/browser.log" 2>&1
+      - name: Update clean review branch
         id: publish
-        if: ${{ !cancelled() && steps.format.outcome == 'success' && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.format.outcome == 'success' && steps.static.outcome == 'success' && steps.webtests.outcome == 'success' && steps.gotests.outcome == 'success' && steps.race.outcome == 'success' && steps.build.outcome == 'success' }}
         working-directory: candidate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          git diff --check
           python3 - <<'PY'
           import subprocess
-          paths=subprocess.check_output(['git','diff','HEAD','--name-only'],text=True).splitlines()
-          assert paths and all(p.startswith(('apps/api-go/','apps/web/src/','docs/security/')) for p in paths)
+          paths=subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()
+          assert len(paths)==7 and all(p.startswith(('apps/api-go/controller/','apps/web/src/')) for p in paths)
           PY
-          git diff HEAD --check
-          git add -A -- apps/api-go apps/web/src docs/security
-          git -c user.name='ChatGPT' -c user.email='chatgpt@users.noreply.github.com' commit -m 'fix: simplify L0 activation and restore support access'
+          git add --update
+          git -c user.name='ChatGPT' -c user.email='chatgpt@users.noreply.github.com' commit -m 'test: cover first-turn activation, retired todos and support navigation'
           askpass="$RUNNER_TEMP/l0-askpass.sh"
           printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) echo x-access-token;; *) printf "%s\n" "$GH_TOKEN";; esac' > "$askpass"
           chmod 700 "$askpass"
           GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git push origin HEAD:refs/heads/fix/l0-first-turn-and-support-20261009
           rm -f "$askpass"
           git rev-parse HEAD > "$RUNNER_TEMP/l0-result/published-commit.txt"
-      - name: Save candidate and diagnostics
+      - name: Export exact source and evidence
         if: ${{ always() && steps.source.outcome == 'success' }}
         working-directory: candidate
         run: |
           git diff 60b9e6500084dc6ae4c4f734ffa353d7f4d13e6c --binary > "$RUNNER_TEMP/l0-result/candidate.patch"
           git diff 60b9e6500084dc6ae4c4f734ffa353d7f4d13e6c --stat > "$RUNNER_TEMP/l0-result/diff-stat.txt"
-          git add -A -- apps/api-go apps/web/src docs/security
+          git add --update
           if ! git diff --cached --quiet; then git -c user.name='L0 review' -c user.email='review@example.invalid' commit -m 'isolated candidate snapshot'; fi
           git archive --format=tar.gz HEAD -o "$RUNNER_TEMP/l0-result/candidate.tar.gz"
           git rev-parse HEAD > "$RUNNER_TEMP/l0-result/source-commit.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: l0-candidate-evidence
+          name: l0-final-evidence
           path: ${{ runner.temp }}/l0-result/
           retention-days: 4
