@@ -69,3 +69,21 @@ func TestMerchantStorePublishingKeepsDisabledSpecificationsDisabled(t *testing.T
     require.False(t, first.Enabled)
 }
 ''')
+
+# These focused creation fixtures deliberately omit exchange-rate configuration.
+# Select integral Credits so they test the requested behavior, not missing rates.
+p = store + 'interactions.test.tsx'
+s = Path(p).read_text()
+a = s.index("test('initial specification validation blocks duplicate names")
+b = s.index("test('seller terms recovery saves configuration", a)
+part = s[a:b]
+anchor = "  await input(document.querySelector<HTMLInputElement>('#store-price')!, '2')"
+assert part.count(anchor) == 2
+part = part.replace(anchor, '''  await storePublishingSelect(document.querySelector<HTMLSelectElement>('select[aria-label="Price currency"]')!, 'CREDIT')
+''' + anchor)
+anchor = "  await input(row.querySelector<HTMLInputElement>('[data-variant-price]')!, '5')"
+assert part.count(anchor) == 1
+part = part.replace(anchor, '''  await storePublishingSelect(row.querySelector<HTMLSelectElement>('select[aria-label="Price currency"]')!, 'CREDIT')
+''' + anchor)
+part = part.replace("  await click(button('Save draft'))", "  assert.equal(button('Save draft').disabled, false)\n  await click(button('Save draft'))")
+write(p, s[:a] + part + s[b:])
