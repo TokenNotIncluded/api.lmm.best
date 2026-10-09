@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -59,33 +58,6 @@ type MCPRegisteredClient struct {
 	ClientIDIssuedAt int64  `json:"client_id_issued_at"`
 }
 
-func mcpLoopbackTemplate(raw string) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil || len(raw) > 1024 || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.ForceQuery || u.RawPath != "" || u.Opaque != "" || u.String() != raw || !strings.HasPrefix(u.Path, "/") || strings.Contains(u.Path, "//") || strings.ContainsAny(u.Path, "\\\r\n") {
-		return "", ErrMCPRegistration
-	}
-	if u.Port() != "" {
-		port, err := strconv.Atoi(u.Port())
-		if err != nil || port < 1 || port > 65535 || strconv.Itoa(port) != u.Port() || u.Host != "127.0.0.1:"+u.Port() {
-			return "", ErrMCPRegistration
-		}
-	} else if u.Host != "127.0.0.1" {
-		return "", ErrMCPRegistration
-	}
-	for _, segment := range strings.Split(u.Path, "/") {
-		for _, ch := range []byte(segment) {
-			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || strings.ContainsRune("-._~", rune(ch))) {
-				return "", ErrMCPRegistration
-			}
-		}
-		if segment == "." || segment == ".." {
-			return "", ErrMCPRegistration
-		}
-	}
-	u.Host = "127.0.0.1"
-	return u.String(), nil
-}
-
 // RegisterMCPClient accepts only public native clients, code + PKCE and fixed
 // marketplace scopes. It never fetches caller-supplied metadata URLs or keys.
 func (s *OAuthIntegration) RegisterMCPClient(ctx context.Context, in MCPClientRegistration) (*MCPRegisteredClient, error) {
@@ -124,9 +96,9 @@ func (s *OAuthIntegration) RegisterMCPClient(ctx context.Context, in MCPClientRe
 	slices.Sort(scopes)
 	redirects := make([]string, 0, len(in.RedirectURIs))
 	for _, raw := range in.RedirectURIs {
-		template, err := mcpLoopbackTemplate(raw)
-		if err != nil {
-			return nil, err
+		template, ok := oauthserver.NativeRedirectTemplate(raw)
+		if !ok {
+			return nil, ErrMCPRegistration
 		}
 		if !slices.Contains(redirects, template) {
 			redirects = append(redirects, template)

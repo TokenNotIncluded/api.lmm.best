@@ -22,8 +22,9 @@ const (
 )
 
 // NativeClient comes from trusted configuration or a validated client lookup.
-// The lookup must use the supplied writer/transaction handle. RedirectURIs are portless http://127.0.0.1/<registered-path>
-// templates. Only the port may vary in an authorization request.
+// The lookup must use the supplied writer/transaction handle. RedirectURIs
+// are portless http://127.0.0.1/<path> or http://[::1]/<path> templates. Only
+// the port may vary; address families and registered paths are not aliases.
 type NativeClient struct {
 	ID           string
 	Name         string

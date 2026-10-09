@@ -12,6 +12,8 @@ import (
 )
 
 type ToolMarketCall struct {
+	ProviderRunID        string                  `json:"-" gorm:"size:64;not null;default:''"`
+	ProviderNextPollAt   int64                   `json:"-" gorm:"not null;default:0;index"`
 	ProviderQuote        *marketprovider.Quote   `json:"provider_quote,omitempty" gorm:"serializer:json;type:text"`
 	PriceMultiplier      string                  `json:"price_multiplier,omitempty" gorm:"size:64"`
 	ID                   string                  `json:"id" gorm:"primaryKey;size:64"`

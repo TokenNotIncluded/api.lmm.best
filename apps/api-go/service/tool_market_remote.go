@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -578,6 +579,9 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	if !matched {
 		return nil, ErrMarketRemoteChanged
 	}
+	if err := marketprovider.ValidateTool(execution.Version.Endpoint, execution.Tool.Name, execution.Tool.ProviderPricing); err != nil {
+		return nil, err
+	}
 	if err := marketProviderAccountBoundary(execution.Version.Endpoint, execution.Tool.Name, arguments); err != nil {
 		return nil, err
 	}
@@ -592,6 +596,9 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	}
 	in.GrantID = execution.Grant.ID
 	in.ResolveBy = common.GetTimestamp() + 120
+	if in.ProviderQuote != nil && in.ProviderQuote.Provider == "monid" {
+		in.ResolveBy = common.GetTimestamp() + 900
+	}
 	call, created, err := model.ReserveToolMarketCall(in)
 	if err != nil {
 		return nil, err
@@ -664,6 +671,12 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		}
 		return response, err
 	}
+	return finishMarketRemoteResult(call, execution.Tool, result, exactResult)
+}
+
+// Both direct execution and read-only recovery use the same output validation
+// and idempotent settlement; a polling path must not weaken those rules.
+func finishMarketRemoteResult(call *model.ToolMarketCall, tool model.ToolMarketToolVersion, result *mcp.CallToolResult, exactResult map[string]any) (*ToolMarketExecutionResponse, error) {
 	result.StructuredContent = exactResult["structuredContent"]
 	if metadata, ok := exactResult["_meta"].(map[string]any); ok {
 		result.Meta = metadata
@@ -671,21 +684,33 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 	success := !result.IsError
 	errorCode := ""
 	if success {
-		pending, valid := marketProviderResult(execution.Tool.ProviderPricing, exactResult)
+		pending, valid := marketProviderResult(tool.ProviderPricing, exactResult)
 		if pending {
+			data, dataErr := marketProviderPayload(exactResult)
+			runID, _ := data["runId"].(string)
+			if dataErr == nil && call.ProviderQuote != nil && data["provider"] == call.ProviderQuote.TargetProvider && data["endpoint"] == call.ProviderQuote.TargetEndpoint && marketprovider.ValidRunID(runID) {
+				if err := model.BindToolMarketProviderRun(call.ID, runID); err != nil {
+					return nil, err
+				}
+				return GetToolMarketExecutionResponse(call.UserID, call.ClientID, call.ID)
+			}
 			_ = model.MarkToolMarketCallUnknown(call.ID)
-			response, err := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
+			response, err := GetToolMarketExecutionResponse(call.UserID, call.ClientID, call.ID)
 			if response != nil {
 				response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
 			}
 			return response, err
 		}
+		if valid && call.ProviderQuote != nil && call.ProviderQuote.Provider == "monid" {
+			data, err := marketProviderPayload(exactResult)
+			valid = err == nil && data["provider"] == call.ProviderQuote.TargetProvider && data["endpoint"] == call.ProviderQuote.TargetEndpoint
+		}
 		if !valid {
 			success, errorCode = false, "TOOL_MARKET_INVALID_RESULT"
 		}
 	}
-	if success && execution.Tool.OutputSchema != "" {
-		output, err := marketSchema([]byte(execution.Tool.OutputSchema))
+	if success && tool.OutputSchema != "" {
+		output, err := marketSchema([]byte(tool.OutputSchema))
 		if err != nil || output.Validate(result.StructuredContent) != nil {
 			success = false
 			errorCode = "TOOL_MARKET_INVALID_RESULT"
@@ -704,7 +729,7 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 			switch strings.ToLower(state) {
 			case "pending", "queued", "accepted", "running", "in_progress", "processing":
 				_ = model.MarkToolMarketCallUnknown(call.ID)
-				response, err := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
+				response, err := GetToolMarketExecutionResponse(call.UserID, call.ClientID, call.ID)
 				if response != nil {
 					response.ErrorCode = "TOOL_MARKET_RESULT_UNKNOWN"
 				}
@@ -713,6 +738,9 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 				success = false
 			}
 		}
+	}
+	if tool.ProviderPricing != nil && tool.ProviderPricing.Provider == "monid" {
+		exactResult = marketMonidPublicResult(exactResult)
 	}
 	data, err := json.Marshal(exactResult)
 	if err != nil || len(data) > 2<<20 {
@@ -730,13 +758,13 @@ func (r *ToolMarketRemote) execute(ctx context.Context, in model.ToolMarketReser
 		return nil, err
 	}
 	if err := model.FinishToolMarketCall(call.ID, success); err != nil {
-		response, readErr := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
+		response, readErr := GetToolMarketExecutionResponse(call.UserID, call.ClientID, call.ID)
 		if response != nil && response.Call.SettlementStatus == "held" {
 			response.ErrorCode = "TOOL_MARKET_SETTLEMENT_PENDING"
 		}
 		return response, readErr
 	}
-	response, err := GetToolMarketExecutionResponse(in.UserID, in.ClientID, call.ID)
+	response, err := GetToolMarketExecutionResponse(call.UserID, call.ClientID, call.ID)
 	if response != nil {
 		response.ErrorCode = errorCode
 	}

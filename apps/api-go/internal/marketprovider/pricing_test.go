@@ -10,6 +10,7 @@ func TestMonidPriceFormats(t *testing.T) {
 	for _, raw := range []string{
 		`{"type":"PER_CALL","amount":{"value":0.006,"currency":"USD"}}`,
 		`{"type":"PER_CALL","amount":0.006,"currency":"USD"}`,
+		`{"type":"PER_CALL","amount":0.006,"currency":"USD","flatFee":null}`,
 	} {
 		q, err := MonidQuote(json.RawMessage(raw))
 		if err != nil {
@@ -29,7 +30,6 @@ func TestPriceRejectsMissingAndUnsupported(t *testing.T) {
 		`{"type":"PER_CALL","amount":{"value":1,"currency":"EUR"}}`,
 		`{"type":"PER_CALL","amount":{"value":1,"currency":"USD"},"currency":"EUR"}`,
 		`{"type":"DYNAMIC","amount":1,"currency":"USD"}`,
-		`{"type":"PER_CALL","amount":1,"currency":"USD","flatFee":null}`,
 	} {
 		if _, err := MonidQuote(json.RawMessage(raw)); err == nil {
 			t.Errorf("accepted %s", raw)

@@ -23,6 +23,9 @@ Monid exposes discovery, inspection and execution. AgentKey exposes tool
 search, listing, description and execution. Account, key, balance and history
 tools are excluded. The `agentkey_account` execution sentinel is also denied;
 merely hiding its tool-list entry would not protect the merchant account.
+The model and execution paths enforce the same allowlist even when a caller
+submits a custom draft directly. An execution gateway without provider pricing
+is rejected. Provider host aliases cannot bypass that rule.
 
 ## Price and settlement rules
 
@@ -52,9 +55,19 @@ invoice, subscription discounts, failed-call charges or currency movements.
 **Current limits:** Monid `PER_RESULT` prices are recognized but execution is
 blocked because there is no verified maximum result count/settlement receipt.
 Other variable-price forms and AgentKey descriptions without a USD price are
-also blocked, not treated as free. An unexpected Monid asynchronous result
-remains unknown with its reservation held under the existing recovery rules;
-this change does not implement polling and asynchronous final settlement.
+also blocked, not treated as free. Monid asynchronous per-call runs now retain their run ID and operation target
+in the database. Recovery reads only that run, using the publication-bound
+merchant credential. Workers claim a 15-second poll lease and never repeat
+execution. A completed 2xx response uses the same result validation and
+idempotent settlement as synchronous execution; a provider error releases
+the hold. Restarting the service does not lose the run association.
+
+The reservation has a fixed 15-minute deadline. If the result cannot be
+verified by then, existing recovery releases the reservation and retains an
+unknown execution state. A late result never retroactively debits the buyer.
+This is not upstream cancellation: merchants may still incur an upstream
+cost on an unresolvable run. Shared caller/workspace metadata and echoed input
+are not returned to buyers.
 A completed provider HTTP error is not reported as a successful tool result.
 
 Other MCP services retain the custom-service editor and existing pricing
@@ -90,8 +103,10 @@ scopes are limited to `market:discover`, `market:invoke`, `market:manage`.
 They cannot acquire model, account, group or relay permissions. Existing
 trusted Pi/DSH clients retain their old resource and permission checks.
 
-The registration endpoint accepts only canonical HTTP `127.0.0.1` native
-callbacks. It does not yet accept HTTPS web IDE, `localhost` or IPv6 callbacks.
+The registration endpoint accepts canonical HTTP `127.0.0.1` and `[::1]`
+native callbacks. IPv4 and IPv6 templates remain separate; a registration
+for one does not authorize the other. It does not accept arbitrary HTTPS web
+IDE callbacks or DNS aliases such as `localhost`.
 It never retrieves caller-supplied metadata URLs. Registration is rate and
 size limited; deterministic IDs reuse registrations across callback ports.
 A writer-locked, per-issuer cap limits storage to 4096 registrations. At
@@ -120,7 +135,26 @@ Provider documentation used during implementation:
 
 - https://docs.monid.ai/api/inspect.html
 - https://docs.monid.ai/api/run.html
+- https://docs.monid.ai/api/runs.html
 - https://docs.agentkey.app/api-reference/describe-tool
 - https://docs.agentkey.app/api-reference/execute-tool
 - https://docs.agentkey.app/connect/manual
 - https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+
+## Release acceptance
+
+Automated fixtures cover both providers' publication, quote and settlement
+paths; Monid asynchronous success, provider errors, unrelated run rejection,
+restart, replay and reservation expiry; IPv4 and IPv6 browser OAuth flows;
+and provider switching without credential reuse. The browser review renders
+the actual development UI at desktop and mobile widths in both themes, with
+external requests blocked. Its data and keys are synthetic. None of these
+checks claims to validate a production merchant account or a paid provider
+request.
+
+`PER_RESULT` remains an explicit unsupported billing mode, not a free fallback.
+The documented run API does not provide a common enforced monetary ceiling.
+A provider-specific `maxItems` parameter is not a safe general billing bound.
+Do not enable this mode by inferring charge counts from arbitrary output arrays.
+User-bound upstream OAuth requires separately registered provider applications;
+it is not needed for the supported merchant-key/customer-LMM-OAuth flow.

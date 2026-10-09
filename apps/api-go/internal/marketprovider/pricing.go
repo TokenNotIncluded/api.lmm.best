@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -65,10 +67,12 @@ func (p Pricing) Validate(endpoint, tool string) error {
 }
 
 type Quote struct {
-	Provider   string `json:"provider"`
-	Unit       string `json:"unit"`
-	AmountUSD  string `json:"amount_usd"`
-	FlatFeeUSD string `json:"flat_fee_usd,omitempty"`
+	TargetProvider string `json:"target_provider,omitempty"`
+	TargetEndpoint string `json:"target_endpoint,omitempty"`
+	Provider       string `json:"provider"`
+	Unit           string `json:"unit"`
+	AmountUSD      string `json:"amount_usd"`
+	FlatFeeUSD     string `json:"flat_fee_usd,omitempty"`
 	// A quote is the provider's published tariff, not proof of the merchant's
 	// subscription invoice or of a completed execution.
 }
@@ -153,7 +157,7 @@ func MonidQuote(raw json.RawMessage) (Quote, error) {
 	if err != nil {
 		return q, err
 	}
-	if len(price.FlatFee) > 0 {
+	if len(price.FlatFee) > 0 && string(price.FlatFee) != "null" {
 		// A nested USD amount already establishes the currency of a numeric fee.
 		q.FlatFeeUSD, err = money(price.FlatFee, "USD")
 		if err != nil {
@@ -246,4 +250,50 @@ func QuoteArguments(provider string, arguments map[string]any) (map[string]any, 
 	default:
 		return nil, ErrPrice
 	}
+}
+
+// ValidateTool also applies to manually submitted drafts and old publications.
+// A known provider cannot bypass its pricing or account boundary by deselecting
+// the preset, adding :443, changing case, or choosing another path on its host.
+func ValidateTool(endpoint, name string, pricing *Pricing) error {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return ErrPrice
+	}
+	for _, preset := range Presets() {
+		official, _ := url.Parse(preset.Endpoint)
+		if !strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), official.Hostname()) {
+			continue
+		}
+		if endpoint != preset.Endpoint {
+			return ErrPrice
+		}
+		if name == preset.ExecuteTool {
+			if pricing == nil {
+				return ErrPrice
+			}
+			return pricing.Validate(endpoint, name)
+		}
+		if pricing != nil || !slices.Contains(preset.ReadTools, name) {
+			return ErrPrice
+		}
+		return nil
+	}
+	if pricing != nil {
+		return pricing.Validate(endpoint, name)
+	}
+	return nil
+}
+
+// Run IDs are opaque path segments, never URLs or caller-provided paths.
+func ValidRunID(id string) bool {
+	if len(id) == 0 || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }

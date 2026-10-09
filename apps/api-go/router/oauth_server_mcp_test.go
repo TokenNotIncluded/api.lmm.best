@@ -17,13 +17,19 @@ import (
 )
 
 func TestOAuthMCPRegistrationAndBrowserFlow(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "[::1]"} {
+		t.Run(host, func(t *testing.T) { testOAuthMCPBrowserFlow(t, host) })
+	}
+}
+
+func testOAuthMCPBrowserFlow(t *testing.T, host string) {
 	h := setupOAuthHTTP(t)
 	// Dynamic lookup must not acquire a second connection inside core's tx.
 	sqlDB, err := h.db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, h.db.Model(&model.User{}).Where("id = ?", h.user.Id).Update("role", common.RoleCommonUser).Error)
-	callback := "http://127.0.0.1:35679/callback/codex-test"
+	callback := "http://" + host + ":35679/callback/codex-test"
 	response := h.request("POST", "/api/oauth2/register", `{"client_name":"Codex","redirect_uris":["`+callback+`"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}`, map[string]string{"Content-Type": "application/json"})
 	require.Equal(t, 201, response.Code, response.Body.String())
 	require.NotContains(t, response.Body.String(), "client_secret")

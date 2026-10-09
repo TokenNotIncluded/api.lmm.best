@@ -118,7 +118,14 @@ func marketProviderQuote(ctx context.Context, session *mcp.ClientSession, captur
 		raw, _ := json.Marshal(data["price"])
 		q, err = marketprovider.MonidQuote(raw)
 		schemas, _ := data["schema"].(map[string]any)
-		schema, input = schemas["input"], args["input"]
+		schema, input = data["inputSchema"], args["input"]
+		if nested := schemas["input"]; nested != nil {
+			if schema != nil && marketCanonical(schema) != marketCanonical(nested) {
+				return nil, marketprovider.ErrPrice
+			}
+			schema = nested
+		}
+		q.TargetProvider, q.TargetEndpoint = query["provider"].(string), query["endpoint"].(string)
 	}
 	if err != nil {
 		return nil, err
@@ -157,7 +164,7 @@ func marketProviderResult(pricing *marketprovider.Pricing, exact map[string]any)
 	}
 	state, _ := data["status"].(string)
 	switch strings.ToUpper(state) {
-	case "RUNNING", "PENDING", "QUEUED", "PROCESSING":
+	case "READY", "RUNNING", "PENDING", "QUEUED", "PROCESSING":
 		return true, false
 	case "COMPLETED":
 		provider, _ := data["providerResponse"].(map[string]any)
@@ -180,4 +187,31 @@ func marketProviderAccountBoundary(endpoint, name string, args map[string]any) e
 		}
 	}
 	return nil
+}
+
+// Keep the provider's business output, not the shared merchant's identity or
+// workspace metadata. Rebuild both MCP representations so text cannot retain
+// fields removed from structuredContent.
+func marketMonidPublicResult(exact map[string]any) map[string]any {
+	data, err := marketProviderPayload(exact)
+	if err != nil {
+		return exact
+	}
+	safe := make(map[string]any)
+	for _, key := range []string{"runId", "provider", "providerName", "endpoint", "status", "output", "price", "billing", "resultCount", "cost", "createdAt", "startedAt", "completedAt"} {
+		if value, ok := data[key]; ok {
+			safe[key] = value
+		}
+	}
+	if response, ok := data["providerResponse"].(map[string]any); ok {
+		filtered := make(map[string]any)
+		for _, key := range []string{"httpStatus", "error"} {
+			if value, ok := response[key]; ok {
+				filtered[key] = value
+			}
+		}
+		safe["providerResponse"] = filtered
+	}
+	text, _ := json.Marshal(safe) // all values came from decoded JSON
+	return map[string]any{"structuredContent": safe, "content": []any{map[string]any{"type": "text", "text": string(text)}}}
 }

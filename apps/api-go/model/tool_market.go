@@ -281,7 +281,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 		}
 	}
 	for _, tool := range in.Tools {
-		if tool.ProviderPricing != nil && (in.ExecutionType != "remote" || tool.ProviderPricing.Validate(in.Endpoint, tool.Name) != nil) {
+		if (tool.ProviderPricing != nil && in.ExecutionType != "remote") || marketprovider.ValidateTool(in.Endpoint, tool.Name, tool.ProviderPricing) != nil {
 			return nil, ErrToolMarketInput
 		}
 		if tool.BillingMode != "" && !marketDraftMeteringAllowed(serviceID, in.Endpoint, tool) {

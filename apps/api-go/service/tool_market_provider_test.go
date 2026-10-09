@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -54,6 +55,10 @@ func TestToolMarketProviderQuoteAndSettlement(t *testing.T) {
 			variable := false
 			pending := false
 			providerStatus := 200
+			runID := "01HXYZ1234567890ABCDEF"
+			schemaKey := "schema"
+			wrongRun := false
+			var polls atomic.Int32
 			generic := map[string]any{"type": "object"}
 			operationSchema := map[string]any{"type": "object", "properties": map[string]any{"url": map[string]any{"type": "string"}}, "required": []string{"url"}}
 			server := mcp.NewServer(&mcp.Implementation{Name: "provider-fixture", Version: "1"}, nil)
@@ -70,7 +75,10 @@ func TestToolMarketProviderQuoteAndSettlement(t *testing.T) {
 					if variable {
 						unit = "PER_RESULT"
 					}
-					value = map[string]any{"provider": "surf", "endpoint": "/search/web", "price": map[string]any{"type": unit, "amount": map[string]any{"value": json.Number(price), "currency": "USD"}}, "schema": map[string]any{"input": operationSchema}}
+					value = map[string]any{"provider": "surf", "endpoint": "/search/web", "price": map[string]any{"type": unit, "amount": map[string]any{"value": json.Number(price), "currency": "USD"}}, schemaKey: map[string]any{"input": operationSchema}}
+				}
+				if schemaKey == "inputSchema" {
+					value[schemaKey] = operationSchema
 				}
 				return &mcp.CallToolResult{StructuredContent: value}, nil
 			})
@@ -83,12 +91,30 @@ func TestToolMarketProviderQuoteAndSettlement(t *testing.T) {
 				if pending {
 					state = "RUNNING"
 				}
-				return &mcp.CallToolResult{StructuredContent: map[string]any{"status": state, "providerResponse": map[string]any{"httpStatus": providerStatus}, "output": "fixture"}}, nil
+				return &mcp.CallToolResult{StructuredContent: map[string]any{"runId": runID, "provider": "surf", "endpoint": "/search/web", "status": state, "providerResponse": map[string]any{"httpStatus": providerStatus}, "output": "fixture", "caller": "private-merchant-identity"}}, nil
 			})
 			handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 			remoteHTTP := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "Bearer fixture-merchant-key" {
 					http.Error(w, "bad credential", 401)
+					return
+				}
+				if strings.HasPrefix(r.URL.Path, "/v1/runs/") {
+					polls.Add(1)
+					if r.Method != "GET" || r.URL.Path != "/v1/runs/"+runID {
+						http.Error(w, "wrong request", 400)
+						return
+					}
+					id := runID
+					if wrongRun {
+						id = "another-run"
+					}
+					state := "COMPLETED"
+					if pending {
+						state = "RUNNING"
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]any{"runId": id, "provider": "surf", "endpoint": "/search/web", "status": state, "output": "fixture", "providerResponse": map[string]any{"httpStatus": providerStatus}, "caller": "private-merchant-identity"})
 					return
 				}
 				handler.ServeHTTP(w, r)
@@ -134,6 +160,7 @@ func TestToolMarketProviderQuoteAndSettlement(t *testing.T) {
 			response, err := remote.execute(ctx, request)
 			require.NoError(t, err)
 			require.Equal(t, "settled", response.Call.SettlementStatus)
+			require.NotContains(t, string(response.Result), "private-merchant-identity")
 			units, err := common.LedgerQuotaPerUSD()
 			require.NoError(t, err)
 			expected, err := (marketprovider.Quote{Provider: preset.ID, Unit: "call", AmountUSD: price}).Quota("1.2", units.String())
@@ -163,12 +190,81 @@ func TestToolMarketProviderQuoteAndSettlement(t *testing.T) {
 				response, err = remote.execute(ctx, request)
 				require.NoError(t, err)
 				require.Equal(t, "released", response.Call.SettlementStatus)
+				schemaKey = "inputSchema" // documented API shape, not only the MCP variant
+				providerStatus = 200
 				pending = true
 				request.RequestKey = "pending-job"
 				response, err = remote.execute(ctx, request)
 				require.NoError(t, err)
-				require.Equal(t, "unknown", response.Call.ExecutionStatus)
+				require.Equal(t, "running", response.Call.ExecutionStatus)
 				require.Equal(t, "held", response.Call.SettlementStatus)
+				require.Equal(t, runID, response.Call.ProviderRunID)
+				public, err := json.Marshal(response)
+				require.NoError(t, err)
+				require.NotContains(t, string(public), runID)
+				// A fresh adapter, with no in-memory operation state, recovers it.
+				restored := &ToolMarketRemote{client: remote.client, slots: make(chan struct{}, 2)}
+				_, err = restored.recoverProviderCalls(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, 1, polls.Load())
+				_, err = restored.recoverProviderCalls(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, 1, polls.Load(), "lease suppresses duplicate polls")
+				require.NoError(t, db.Model(&model.ToolMarketCall{}).Where("id = ?", response.Call.ID).Update("provider_next_poll_at", 0).Error)
+				pending, wrongRun = false, true
+				_, err = restored.recoverProviderCalls(ctx)
+				require.Error(t, err)
+				current, err := model.GetToolMarketCall(users[0].Id, "client", response.Call.ID)
+				require.NoError(t, err)
+				require.Equal(t, "held", current.SettlementStatus, "unrelated run cannot settle this call")
+				require.Error(t, model.BindToolMarketProviderRun(current.ID, "another-run"))
+				require.NoError(t, db.Model(&model.ToolMarketCall{}).Where("id = ?", current.ID).Update("provider_next_poll_at", 0).Error)
+				wrongRun = false
+				before := executions.Load()
+				_, err = restored.recoverProviderCalls(ctx)
+				require.NoError(t, err)
+				final, err := GetToolMarketExecutionResponse(users[0].Id, "client", current.ID)
+				require.NoError(t, err)
+				require.Equal(t, "settled", final.Call.SettlementStatus)
+				require.Equal(t, "succeeded", final.Call.ExecutionStatus)
+				require.NotContains(t, string(final.Result), "private-merchant-identity")
+				_, err = restored.recoverProviderCalls(ctx)
+				require.NoError(t, err)
+				require.Equal(t, before, executions.Load(), "recovery never repeats execution")
+				replay, err = remote.execute(ctx, request)
+				require.NoError(t, err)
+				require.Equal(t, final.Call.ID, replay.Call.ID)
+				var transfers int64
+				require.NoError(t, db.Model(&model.ToolMarketTransfer{}).Where("call_id = ?", current.ID).Count(&transfers).Error)
+				require.EqualValues(t, 2, transfers, "one author transfer and one platform transfer")
+				// A completed provider error must release, not charge, the hold.
+				pending, runID = true, "FAILED-RUN"
+				request.RequestKey = "failed-run"
+				failed, err := remote.execute(ctx, request)
+				require.NoError(t, err)
+				pending, providerStatus = false, 500
+				_, err = restored.recoverProviderCalls(ctx)
+				require.NoError(t, err)
+				failed, err = GetToolMarketExecutionResponse(users[0].Id, "client", failed.Call.ID)
+				require.NoError(t, err)
+				require.Equal(t, "released", failed.Call.SettlementStatus)
+				require.Equal(t, "failed", failed.Call.ExecutionStatus)
+				providerStatus = 200
+				// Expiry frees the hold without dispatching again or charging late.
+				pending = true
+				runID = "EXPIRED-RUN"
+				request.RequestKey = "expired-run"
+				expiring, err := remote.execute(ctx, request)
+				require.NoError(t, err)
+				require.NoError(t, db.Model(&model.ToolMarketCall{}).Where("id = ?", expiring.Call.ID).Update("resolve_by", common.GetTimestamp()-1).Error)
+				_, err = model.RecoverToolMarketCalls(ctx)
+				require.NoError(t, err)
+				expired, err := GetToolMarketExecutionResponse(users[0].Id, "client", expiring.Call.ID)
+				require.NoError(t, err)
+				require.Equal(t, "released", expired.Call.SettlementStatus)
+				require.Equal(t, "unknown", expired.Call.ExecutionStatus)
+				_, err = model.GetToolMarketCall(users[1].Id, "client", expired.Call.ID)
+				require.Error(t, err, "another user cannot retrieve this run")
 			}
 		})
 	}

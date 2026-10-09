@@ -87,8 +87,8 @@ func validateClient(client NativeClient) error {
 		return fmt.Errorf("oauth server: incomplete native client registration")
 	}
 	for _, redirect := range client.RedirectURIs {
-		u, ok := loopbackURL(redirect)
-		if !ok || u.Host != "127.0.0.1" {
+		template, ok := NativeRedirectTemplate(redirect)
+		if !ok || template != redirect {
 			return fmt.Errorf("oauth server: registered redirects must be portless loopback templates")
 		}
 	}
