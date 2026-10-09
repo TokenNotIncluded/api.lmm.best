@@ -1,15 +1,5 @@
 name: Tool market provider verification
 on:
-  push:
-    branches: [feat/tool-market-provider-presets]
-  pull_request:
-    paths:
-      - 'apps/api-go/**'
-      - 'apps/web/src/features/tool-market/**'
-      - 'apps/web/src/features/auth/oauth/**'
-      - 'apps/web/src/features/debug/console-page-fixtures.ts'
-      - 'apps/web/scripts/tool-market-provider-review.mjs'
-      - '.github/workflows/tool-market-provider-verify.yml'
   workflow_dispatch:
 permissions:
   contents: read
