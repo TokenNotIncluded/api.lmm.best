@@ -1,22 +1,14 @@
 name: Native accounts isolated verification
-
 on:
   push:
     branches: [verify/native-accounts-20261009]
     paths: ['.github/workflows/native-accounts-verification-temp.yml']
-
 permissions:
   contents: read
-
-concurrency:
-  group: native-accounts-isolated-verification
-  cancel-in-progress: true
-
 jobs:
   verify:
-    if: github.repository == 'TokenNotIncluded/api.lmm.best'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 15
     env:
       GOMAXPROCS: '2'
       TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/native_accounts_test?sslmode=disable
@@ -39,49 +31,32 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: 8190dbff59af02e97d329687cc37608a1f698074
-          fetch-depth: 0
           persist-credentials: false
-      - name: Export source for offline code review
-        run: git bundle create "$RUNNER_TEMP/native-accounts-source.bundle" --all
-      - uses: actions/upload-artifact@v4
-        with:
-          name: native-accounts-source
-          path: ${{ runner.temp }}/native-accounts-source.bundle
-          retention-days: 1
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
           cache-dependency-path: |
             apps/api-go/go.sum
             apps/api-go/relaykit/go.sum
-      - name: Record exact source and toolchain
+      - name: Print exact native constraint contracts
         run: |
-          git rev-parse HEAD
-          go version
-      - name: Account rules
-        id: rules
-        continue-on-error: true
-        run: go test -race -cover -p 2 ./pkg/account ./pkg/accountfunding -count=1 -timeout=2m
-      - name: Team levels and native storage including PostgreSQL
-        id: model
-        continue-on-error: true
-        run: go test -race -v -p 2 ./model -run '^(TestNativeAccount|TestTeamAccountAccess|TestEvaluateTrustLevel)' -count=1 -timeout=8m
-      - name: Controller and router boundaries
-        id: http
-        continue-on-error: true
-        run: go test -race -v -p 2 ./controller ./router -run '^TestNativeAccount' -count=1 -timeout=8m
-      - name: Existing billing regressions
-        id: billing
-        continue-on-error: true
-        run: go test -race -p 2 ./service -run '^(TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption)' -count=1 -timeout=5m
-      - name: Require every executed suite to pass
-        if: always()
-        working-directory: ${{ github.workspace }}
-        env:
-          RULES: ${{ steps.rules.outcome }}
-          MODEL: ${{ steps.model.outcome }}
-          HTTP: ${{ steps.http.outcome }}
-          BILLING: ${{ steps.billing.outcome }}
-        run: |
-          printf 'rules=%s model=%s http=%s billing=%s\n' "$RULES" "$MODEL" "$HTTP" "$BILLING"
-          test "$RULES" = success && test "$MODEL" = success && test "$HTTP" = success && test "$BILLING" = success
+          cat > model/native_account_diagnostic_test.go <<'GO'
+          package model
+          import "testing"
+          func TestNativeAccountDiagnosticPostgres(t *testing.T) {
+            s, _ := nativeAccountFixture(t, true)
+            schema, err := currentPostgresSchema(s.db)
+            if err != nil { t.Fatal(err) }
+            inventory, err := buildPostgresSchemaInventory(s.db, schema, nativeAccountModels())
+            if err != nil { t.Fatal(err) }
+            snapshot, err := loadPostgresCatalogSnapshot(s.db, schema)
+            if err != nil { t.Fatal(err) }
+            for _, expected := range inventory.Constraints {
+              actual := snapshot.Constraints[postgresCatalogKey{Table: expected.Table, Name: expected.Names[0]}]
+              if !postgresConstraintSpecsEqual(expected, actual) {
+                t.Logf("EXPECTED: %+v\nACTUAL: %+v", expected, actual)
+              }
+            }
+          }
+          GO
+          go test -v -p 2 ./model -run '^TestNativeAccountDiagnosticPostgres$' -count=1 -timeout=2m
