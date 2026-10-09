@@ -21,6 +21,17 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: python3 .review/assistant-workspace/recover.py
+      - name: Record exact recovered source
+        run: |
+          mkdir -p /tmp/assistant-evidence
+          git diff --cached --full-index > /tmp/assistant-evidence/recovered.patch
+          git diff --cached --name-only --diff-filter=ACM | xargs sha256sum > /tmp/assistant-evidence/source.sha256
+          git archive $(git write-tree) | gzip > /tmp/assistant-evidence/source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assistant-exact-source
+          path: /tmp/assistant-evidence/
+          retention-days: 2
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
@@ -32,4 +43,39 @@ jobs:
         working-directory: apps/api-go
         env:
           GOMAXPROCS: '2'
-        run: go test -p 2 ./setting ./model ./controller -run 'TestAssistant|TestWeeklyDiscount|TestNewUserGift' -count=1
+        run: |
+          set -o pipefail
+          go test -p 2 ./setting ./model ./controller -run 'TestAssistant|TestWeeklyDiscount|TestNewUserGift' -count=1 2>&1 | tee /tmp/go-tests.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: assistant-go-tests
+          path: /tmp/go-tests.log
+          retention-days: 2
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: python3 .review/assistant-workspace/recover.py
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Frontend checks
+        working-directory: apps/web
+        run: |
+          set -o pipefail
+          bun run typecheck 2>&1 | tee /tmp/web-typecheck.log
+          while IFS= read -r file; do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" || exit 1
+          done < <(find src/features/assistant src/features/system-settings src/features/dashboard -name '*.test.ts' -o -name '*.test.tsx' | sort) 2>&1 | tee /tmp/web-tests.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: assistant-web-tests
+          path: /tmp/web-*.log
+          retention-days: 2
