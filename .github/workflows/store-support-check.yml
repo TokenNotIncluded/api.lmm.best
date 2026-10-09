@@ -18,43 +18,6 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
-      - name: Preserve current main and merge translation keys
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/feat/store-customer-support
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          main=1b612cc9b457c22bbe5f415d635d31f808ea1710
-          git cat-file -e "$main^{commit}"
-          if ! git merge-base --is-ancestor "$main" HEAD; then
-            git merge --no-commit --no-ff "$main" || {
-              python3 - <<'PY'
-          import json, subprocess
-          from pathlib import Path
-          missing = object()
-          def merge(base, ours, theirs, location):
-              if ours == base: return theirs
-              if theirs == base or ours == theirs: return ours
-              if all(isinstance(value, dict) for value in (base, ours, theirs)):
-                  result = {}
-                  for key in dict.fromkeys([*theirs, *ours, *base]):
-                      value = merge(base.get(key, missing), ours.get(key, missing), theirs.get(key, missing), location + '/' + key)
-                      if value is not missing: result[key] = value
-                  return result
-              raise AssertionError('Different edits to the same value: ' + location)
-          files = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=U'], text=True).splitlines()
-          assert files, 'merge failed without translation conflicts'
-          for name in files:
-              assert name.startswith('apps/web/src/i18n/locales/') and name.endswith('.json'), 'Unreviewed conflict: ' + name
-              versions = [json.loads(subprocess.check_output(['git', 'show', f':{stage}:{name}'], text=True)) for stage in (1, 2, 3)]
-              result = merge(*versions, name)
-              Path(name).write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
-              subprocess.run(['git', 'add', '--', name], check=True)
-          PY
-            }
-            test -z "$(git diff --name-only --diff-filter=U)"
-          fi
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod
@@ -63,29 +26,41 @@ jobs:
       - name: Install locked Web dependencies
         working-directory: apps/web
         run: bun install --frozen-lockfile
-      - name: Format feature changes
+      - name: Apply the reviewed history cursor correction
         shell: bash
         run: |
           set -euo pipefail
-          gofmt -w apps/api-go/model/merchant_store_support*.go apps/api-go/model/merchant_store_customers.go apps/api-go/controller/merchant_store_support.go apps/api-go/router/merchant_store_support*.go apps/api-go/middleware/merchant_store_support_rate_limit.go
+          test "$GITHUB_REF" = refs/heads/feat/store-customer-support
+          git merge-base --is-ancestor 1b612cc9b457c22bbe5f415d635d31f808ea1710 HEAD
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/web/src/features/store/support-chat.tsx')
+          text = path.read_text()
+          old = '  const before = cursors.at(-1)\n'
+          new = '  const before = cursors.at(-1) ?? 0\n'
+          if new not in text:
+              assert text.count(old) == 1, 'history cursor anchor changed'
+              path.write_text(text.replace(old, new, 1))
+          PY
           cd apps/web
-          bun run oxlint -c .oxlintrc.json --fix src/features/store/support*.ts src/features/store/support*.tsx src/routes/store/support.tsx
-          bun run oxfmt --write src/features/store/support*.ts src/features/store/support*.tsx src/routes/store/support.tsx
+          bun run oxfmt --write src/features/store/support-chat.tsx
       - name: Build Web and generate route tree
         id: build
         continue-on-error: true
         working-directory: apps/web
         shell: bash
         run: set -o pipefail; bun run build 2>&1 | tee "$RUNNER_TEMP/support-build.log"
-      - name: Commit integration to this feature branch only
+      - name: Commit the corrected source to this feature branch only
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/feat/store-customer-support
           git diff --check
-          git add -u apps/api-go apps/web/src
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u apps/web/src
           if ! git diff --cached --quiet; then
-            git commit -m 'merge: preserve current main and validate store customer support'
+            git commit -m 'fix(store): default an empty history cursor to the latest page'
             git push origin HEAD:refs/heads/feat/store-customer-support
           fi
           git rev-parse HEAD | tee "$RUNNER_TEMP/support-source-sha.txt"
@@ -156,5 +131,6 @@ jobs:
           CONCURRENT: ${{ steps.concurrent.outcome }}
         shell: bash
         run: |
+          cat "$RUNNER_TEMP/support-types.log" || true
           printf 'build=%s go=%s web=%s types=%s lint=%s concurrent=%s\n' "$BUILD" "$GO" "$WEB" "$TYPES" "$LINT" "$CONCURRENT"
           test "$BUILD/$GO/$WEB/$TYPES/$LINT/$CONCURRENT" = success/success/success/success/success/success
