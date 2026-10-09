@@ -52,3 +52,85 @@ test('tier sync is one catalog request and never writes model prices or enables 
     Object.assign(api, original)
   }
 })
+
+test('null service-tier group lists are empty without changing policy or state', async () => {
+  const originalGet = api.get
+  try {
+    for (const lists of [
+      { fast_groups: null, ultrafast_groups: null },
+      { fast_groups: ['default'], ultrafast_groups: null },
+      { fast_groups: null, ultrafast_groups: ['vip'] },
+    ]) {
+      const state = {
+        policy: {
+          enabled: false,
+          fast_markup: 1.3,
+          ultrafast_markup: 1.9,
+          ...lists,
+        },
+        catalog: {
+          source: '',
+          fetched_at: '0001-01-01T00:00:00Z',
+          sha256: '',
+          models: null,
+        },
+        fresh: false,
+        max_age_hours: 24,
+        groups: { default: 1, vip: 2 },
+      }
+      const before = JSON.stringify(state)
+      api.get = (async () => ({
+        data: { success: true, data: state },
+      })) as typeof api.get
+      const result = await getServiceTierPricing()
+      assert.deepEqual(result, {
+        ...state,
+        policy: {
+          ...state.policy,
+          fast_groups: lists.fast_groups ?? [],
+          ultrafast_groups: lists.ultrafast_groups ?? [],
+        },
+      })
+      assert.equal(result.catalog, state.catalog)
+      assert.equal(result.groups, state.groups)
+      assert.equal(JSON.stringify(state), before)
+    }
+  } finally {
+    api.get = originalGet
+  }
+})
+
+test('omitted service-tier group lists are empty for valid policy responses', async () => {
+  const originalGet = api.get
+  const state = {
+    policy: {
+      enabled: false,
+      fast_markup: 1.3,
+      ultrafast_markup: 1.9,
+    },
+    catalog: {
+      source: '',
+      fetched_at: '0001-01-01T00:00:00Z',
+      sha256: '',
+      models: null,
+    },
+    fresh: false,
+    max_age_hours: 24,
+    groups: { default: 1 },
+  }
+  api.get = (async () => ({
+    data: { success: true, data: state },
+  })) as typeof api.get
+  try {
+    const result = await getServiceTierPricing()
+    assert.deepEqual(result.policy, {
+      ...state.policy,
+      fast_groups: [],
+      ultrafast_groups: [],
+    })
+    assert.equal(Object.hasOwn(state.policy, 'fast_groups'), false)
+    assert.equal(Object.hasOwn(state.policy, 'ultrafast_groups'), false)
+  } finally {
+    api.get = originalGet
+  }
+})
