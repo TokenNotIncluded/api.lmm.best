@@ -11,13 +11,16 @@ billing logic and particle renderer. It does not deploy the application.
   motion uses the complete stacked reading layout instead.
 - The console uses the authorized navigation registry for its mobile bottom
   shortcuts. The shortcuts occupy layout space and hide during text entry.
+  Service and privacy details share an expandable footer instead of displacing
+  the controls. Expanding it still exposes the existing consent controls.
 - Settings use a floating directory with search and grouped sections. Hold the
   handle for 280 ms, move 32 px per section, and release to navigate. Moving
   before the hold, cancelling the pointer, or losing focus does not navigate.
   Existing unsaved-form navigation guards remain responsible for confirmation.
 - Long Markdown documents have a shared section reader. All original text stays
   mounted; section links open their target, and printing temporarily expands all
-  sections. Configured HTML continues through the existing sanitized renderer.
+  sections. Document layout classes apply once, never to every chapter body.
+  Configured HTML continues through the existing sanitized renderer.
 - Existing real dashboard statistics and charts remain the data source. The
   WebMCP page's distribution strip is computed from its tool registry, not sample
   percentages or invented activity.
@@ -51,3 +54,34 @@ it verifies tool/form integration, not support in a particular released browser.
 Screenshots and `report.json` record the observed results. Device emulation does
 not replace a physical Android/iOS check for browser chrome, thermal behaviour,
 keyboard resizing or platform-specific zoom gestures.
+
+## Review record
+
+The final source review uses commit
+`1277e8f43fc5a070bee8047957430ec855aaee59` in GitHub Actions run
+[37971896615](https://github.com/TokenNotIncluded/api.lmm.best/actions/runs/37971896615).
+The artifact revision files identify the exact source for each result. The
+source-export and patch-transport workflow is temporary and is not part of the
+feature diff. The permanent browser script remains under `scripts/`.
+
+The browser matrix includes 15 public cases and 17 authenticated console cases.
+Public cases include 320 px narrow screens, short portrait, landscape, tablet,
+desktop, light/dark themes and reduced motion. Console cases cover overview,
+models, keys, wallet, profile, usage logs, authenticated About and five settings
+sections at 390 px and 1440 px. These are selected representative routes, not a
+claim that every route or physical device was individually inspected.
+
+Baseline formatting differences exist in six unchanged files:
+
+- `src/features/home/home-sculptures.ts`
+- `src/features/home/sculptures/marks.ts`
+- `src/features/home/sculptures/moon-far-side.ts`
+- `src/features/home/sculptures/showcase.test.ts`
+- `src/features/home/sculptures/spectacle.ts`
+- `src/features/home/sculptures/whale.ts`
+
+The full format check still reports these files. Do not interpret the workflow
+as entirely green or confuse this baseline failure with a successful full
+format check. Runtime, build, lint, type, test and format results are retained
+separately in the review artifacts. Changed files were formatted without
+rewriting the upstream copyright headers.
