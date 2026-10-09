@@ -111,7 +111,8 @@ test('the early callback survives repeated initialization and retains duplicate 
   }
 })
 ''')
-add('scripts/nginx-extore-callback.test.mjs','''import assert from 'node:assert/strict'
+add('scripts/nginx-extore-callback.test.mjs','''/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import assert from 'node:assert/strict'
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -176,6 +177,6 @@ test('Extore callback headers and request/referrer log exclusions work in nginx'
   }
 })
 ''')
-edit('.github/workflows/ci.yml','node --test scripts/nginx-service-errors.test.mjs','node --test scripts/nginx-service-errors.test.mjs scripts/nginx-extore-callback.test.mjs')
+edit('scripts/nginx-store-pickup.test.mjs',"import { test } from 'node:test'\n","import { test } from 'node:test'\nimport './nginx-extore-callback.test.mjs'\n")
 Path('/tmp/extore-changed.json').write_text(json.dumps(sorted(set(changed))))
 print('\n'.join(sorted(set(changed))))
