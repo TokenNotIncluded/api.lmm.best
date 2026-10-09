@@ -38,7 +38,7 @@ export function StoreSupportChat({
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const [cursors, setCursors] = useState([0])
-  const before = cursors[cursors.length - 1]
+  const before = cursors.at(-1)
   const [busy, setBusy] = useState(false)
   const sending = useRef(false)
   const [error, setError] = useState<unknown>(null)
@@ -96,8 +96,9 @@ export function StoreSupportChat({
       !through ||
       through <= Math.max(ownRead, acknowledged.current) ||
       typeof IntersectionObserver === 'undefined'
-    )
+    ) {
       return
+    }
     let visible = false
     const mark = () => {
       if (
@@ -106,8 +107,9 @@ export function StoreSupportChat({
         marking.current ||
         through <= acknowledged.current ||
         useAuthStore.getState().auth.user?.id !== userId
-      )
+      ) {
         return
+      }
       marking.current = true
       void supportApi
         .markRead(id, through)
@@ -150,8 +152,9 @@ export function StoreSupportChat({
     ])
   }
   async function send() {
-    if (sending.current || useAuthStore.getState().auth.user?.id !== userId)
+    if (sending.current || useAuthStore.getState().auth.user?.id !== userId) {
       return
+    }
     sending.current = true
     setBusy(true)
     setError(null)
@@ -206,8 +209,9 @@ export function StoreSupportChat({
         !alive.current ||
         abort.signal.aborted ||
         useAuthStore.getState().auth.user?.id !== userId
-      )
+      ) {
         return
+      }
       setAssistant(context)
       setTask('reply')
       setPreview(storeSupportAssistantPrompt(context, 'reply', i18n.language))
@@ -304,12 +308,13 @@ export function StoreSupportChat({
               aria-relevant='additions'
               className='h-[40dvh] min-h-56 space-y-4 overflow-y-auto overscroll-contain px-1 py-2'
               onScroll={() => {
-                if (panel.current)
+                if (panel.current) {
                   nearBottom.current =
                     panel.current.scrollHeight -
                       panel.current.scrollTop -
                       panel.current.clientHeight <
                     100
+                }
               }}
             >
               {query.data.items.length === 0 && (

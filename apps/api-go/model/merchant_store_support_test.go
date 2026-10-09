@@ -119,6 +119,8 @@ func TestMerchantStoreSupportOrderOwnershipAndInput(t *testing.T) {
 	require.Equal(t, thread.ID, fromBuyer.ID)
 	_, err = OpenMerchantStoreSupport(ctx, f.root.Id, "", order.ID)
 	require.ErrorIs(t, err, ErrMerchantStoreDenied)
+	// Retirement uses the existing lifecycle writer gate, independently of support.
+	storeWriterGateForTest(t, "3")
 	require.NoError(t, UnlistMerchantStoreProduct(f.seller.Id, f.product.ID))
 	_, err = OpenMerchantStoreSupport(ctx, f.buyer.Id, "", order.ID)
 	require.NoError(t, err)

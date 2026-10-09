@@ -67,8 +67,9 @@ function StoreSupportWorkspace({ search }: { search: SupportSearch }) {
         if (
           abort.signal.aborted ||
           useAuthStore.getState().auth.user?.id !== user.id
-        )
+        ) {
           return
+        }
         setTab('messages')
         setRole(conversation.seller_id === user.id ? 'seller' : 'buyer')
         setSelected(conversation.id)

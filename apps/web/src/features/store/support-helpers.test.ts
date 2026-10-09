@@ -89,8 +89,9 @@ test('assistant preview uses a fresh allowlist, bounded context and key redactio
     'message-0 ',
     'message-1 ',
     'x'.repeat(501),
-  ])
+  ]) {
     assert.equal(prompt.includes(hidden), false, hidden)
+  }
   assert.ok(prompt.includes('供我检查的草稿'))
   assert.ok(prompt.includes('不要发送消息'))
   assert.ok(prompt.includes('paid'))

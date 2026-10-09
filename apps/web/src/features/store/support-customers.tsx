@@ -124,8 +124,9 @@ function CustomerCard({
   const [error, setError] = useState<unknown>(null)
   const [saved, setSaved] = useState(false)
   async function action(operation: () => Promise<void>) {
-    if (pending.current || useAuthStore.getState().auth.user?.id !== userId)
+    if (pending.current || useAuthStore.getState().auth.user?.id !== userId) {
       return
+    }
     pending.current = true
     setBusy(true)
     setError(null)
@@ -158,8 +159,9 @@ function CustomerCard({
               const id =
                 customer.conversation_id ||
                 (await supportApi.open({ order_id: customer.last_order_id })).id
-              if (useAuthStore.getState().auth.user?.id === userId)
+              if (useAuthStore.getState().auth.user?.id === userId) {
                 onConversation(id)
+              }
             })
           }
         >

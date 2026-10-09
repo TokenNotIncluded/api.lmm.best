@@ -46,11 +46,12 @@ export interface SupportDraft {
 // Retain the key after a lost response. A changed message gets a new key.
 export function supportMessageAttempt(
   draft: SupportDraft,
-  makeKey = () => crypto.randomUUID()
+  makeKey: () => string = () => crypto.randomUUID()
 ) {
   const body = draft.text.trim()
-  if (!body || [...body].length > 4000)
+  if (!body || [...body].length > 4000) {
     throw new Error('Check the message length.')
+  }
   return draft.attempt?.body === body ? draft.attempt : { body, key: makeKey() }
 }
 
