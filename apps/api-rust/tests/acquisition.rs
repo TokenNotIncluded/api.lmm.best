@@ -1507,11 +1507,11 @@ async fn postgres_correction_write_rolls_back_audit_and_head_on_failure() {
     let fixture = PgFixture::new().await;
     sqlx::raw_sql(
         "INSERT INTO acquisition_accounts(user_id,registration_source,created_at)\
-            VALUES(7,'community',1700000000);\
+            VALUES(7,'community',EXTRACT(EPOCH FROM NOW())::BIGINT);\
          INSERT INTO acquisition_correction_heads(user_id,revision,source,updated_at)\
             VALUES(7,0,'',0);\
          CREATE FUNCTION reject_correction_head_update() RETURNS trigger LANGUAGE plpgsql AS $$\
-            BEGIN RAISE EXCEPTION 'forced correction head failure'; END\
+            BEGIN RAISE EXCEPTION 'forced correction head failure'; END;\
          $$;\
          CREATE TRIGGER reject_correction_head_update BEFORE UPDATE \
             ON acquisition_correction_heads FOR EACH ROW \
