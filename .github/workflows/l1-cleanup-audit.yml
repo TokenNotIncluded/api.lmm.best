@@ -1,47 +1,247 @@
-name: L1 cleanup audit
+name: L1 cleanup verification
 on:
   push:
     branches: [work/l1-cleanup-audit-20261009]
     paths: [.github/workflows/l1-cleanup-audit.yml]
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  CI: 'true'
+  GOMAXPROCS: '2'
 jobs:
-  inspect:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.candidate.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
-          persist-credentials: false
-      - name: Export source and inspect merge without changing branches
-        shell: bash
+      - name: Verify transport and reconstruct reviewed source
+        run: |
+          mkdir -p "$RUNNER_TEMP/l1-evidence"
+          cp .l1-cleanup-part*.b64 "$RUNNER_TEMP/l1-evidence/"
+          python3 - <<'PY'
+          import base64,gzip,hashlib,json,os,subprocess
+          from pathlib import Path
+          evidence=Path(os.environ['RUNNER_TEMP'])/'l1-evidence'
+          encoded=''.join((evidence/f'.l1-cleanup-part{i}.b64').read_text().strip() for i in (1,2,3))
+          # Repair transport transcription only; hashes bind every source byte.
+          for old,new in [('qcyuravavL','qcyuravL'),('B6J6JY','B6JY'),('C4l7sE5l7sE/','C4l7sE/'),('tGbpDYp6pDYp2','tGbpDYp2'),('ONMTADLyNlyNg','ONMTADLyNg'),('YeBuBuBuqQ','YeBuqQ'),('W1PozH3H2DtAaPNDaAa4dZum','W1PozH2DtAa8dZum')]:
+              encoded=encoded.replace(old,new)
+          (evidence/'received.b64').write_text(encoded)
+          digest=lambda b:hashlib.sha256(b).hexdigest()
+          assert digest(encoded.encode())=='9fc75c810f27a6d2e2c7373709e319887aca1f9b566445447131650d2911d95b', 'transport hash mismatch'
+          raw=gzip.decompress(base64.b64decode(encoded,validate=True))
+          assert digest(raw)=='496a5e08b99ae0cbd48ef8e7b9226984dbf59858729329ff04142a7e35768396'
+          doc=json.loads(raw)
+          subprocess.run(['git','checkout','--detach',doc['main']],check=True)
+          for item in doc['files']:
+              path=Path(item['path'])
+              assert not path.is_absolute() and '..' not in path.parts
+              assert str(path).startswith(('apps/api-go/','apps/web/','docs/security/')) or str(path)=='CHANGELOG.md'
+              if item.get('delete'):
+                  path.unlink();continue
+              if 'content' in item:
+                  result=item['content'].encode()
+              else:
+                  base=subprocess.check_output(['git','show',doc[item['ref']]+':'+item['source']])
+                  assert digest(base)==item['base_sha256'],str(path)
+                  lines=base.decode().splitlines(keepends=True)
+                  for start,end,replacement in reversed(item['changes']):
+                      lines[start:end]=[replacement]
+                  result=''.join(lines).encode()
+              assert digest(result)==item['sha256'],str(path)
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_bytes(result)
+          print('Verified and reconstructed',len(doc['files']),'reviewed files')
+          PY
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Install dependencies and apply repository formatters
+        run: |
+          bun install --frozen-lockfile
+          bun run --filter @lmm/web format
+          cd apps/api-go
+          go run ./cmd/assistant-contracts -root .
+      - name: Publish isolated candidate with both original parents
+        id: candidate
         run: |
           set -euo pipefail
-          mkdir -p /tmp/l1-audit
-          main=43be129a2120254eac260f61fe60f22f09995b66
-          head=da5572f5d1289dc4be21e672acaf1803c7167958
-          git cat-file -e "$main^{commit}"
-          git cat-file -e "$head^{commit}"
-          git archive "$main" | gzip > /tmp/l1-audit/main-source.tar.gz
-          git archive "$head" | gzip > /tmp/l1-audit/pr641-source.tar.gz
-          git diff "$main...$head" > /tmp/l1-audit/pr641.diff
-          git ls-tree -r --name-only "$main" | grep -E '(^|/)AGENTS\.md$' > /tmp/l1-audit/instructions-paths.txt || true
-          git grep -n -I -E '推荐信|申请信|developer.?access|DeveloperAccess|recommendation.?letter' "$main" -- apps docs > /tmp/l1-audit/main-residuals.txt || true
-          git grep -n -I -E '推荐信|申请信|developer.?access|DeveloperAccess|recommendation.?letter' "$head" -- apps docs > /tmp/l1-audit/pr641-residuals.txt || true
-          git config user.name 'L1 cleanup audit'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git worktree add --detach /tmp/l1-integration "$head"
-          cd /tmp/l1-integration
-          git merge --no-commit --no-ff "$main" > /tmp/l1-audit/merge.log 2>&1 || true
-          git diff --name-only --diff-filter=U > /tmp/l1-audit/conflicts.txt
-          git diff > /tmp/l1-audit/conflict-diff.txt
-          cat /tmp/l1-audit/merge.log
-          cat /tmp/l1-audit/conflicts.txt
-          git merge --abort || true
+          git diff --check
+          git add apps/api-go apps/web docs/security/assistant-registration-guard.md CHANGELOG.md
+          git diff --cached --stat | tee "$RUNNER_TEMP/l1-evidence/changes.txt"
+          git diff --cached --binary > "$RUNNER_TEMP/l1-evidence/candidate.patch"
+          git config user.name 'LIghtJUNction'
+          git config user.email '106986785+LIghtJUNction@users.noreply.github.com'
+          tree=$(git write-tree)
+          sha=$(printf '%s\n' 'fix: remove retired L1 applications and recommendation archives; integrate current main' | git commit-tree "$tree" -p da5572f5d1289dc4be21e672acaf1803c7167958 -p 43be129a2120254eac260f61fe60f22f09995b66)
+          git push origin "$sha:refs/heads/work/l1-cleanup-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "$sha" | tee "$RUNNER_TEMP/l1-evidence/candidate-sha.txt"
+          git archive "$sha" | gzip > "$RUNNER_TEMP/l1-evidence/candidate-source.tar.gz"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: l1-cleanup-source-and-audit
-          path: /tmp/l1-audit/
+          name: l1-candidate-source
+          path: ${{ runner.temp }}/l1-evidence/
+          include-hidden-files: true
           retention-days: 3
-          if-no-files-found: error
+  web-checks:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Web formatting, license, type and lint checks
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/l1-web"
+          {
+            bun run --filter @lmm/web format:check
+            bun run --filter @lmm/web copyright:check
+            bun run --filter @lmm/web typecheck
+            bun run --filter @lmm/web lint
+            bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh
+            node --test scripts/service-unavailable.test.mjs
+            bun run --filter @lmm/web build
+            bun run --filter @lmm/web bundle:check
+          } 2>&1 | tee "$RUNNER_TEMP/l1-web/checks.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-web-checks
+          path: ${{ runner.temp }}/l1-web/
+          retention-days: 3
+  web-tests:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - name: Full Web suite with existing per-file process isolation
+        working-directory: apps/web
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/l1-tests"
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          source=sorted([str(p) for p in Path('src').rglob('*.test.ts')]+[str(p) for p in Path('src').rglob('*.test.tsx')])
+          scripts=sorted(str(p) for p in Path('scripts').rglob('*.test.mjs'))
+          all_tests=[('bun',p) for p in source]+[('node',p) for p in scripts]
+          selected=all_tests[int(os.environ['SHARD'])::3]
+          assert selected
+          report={'sha':'${{ needs.prepare.outputs.sha }}','total_files':len(all_tests),'selected_files':len(selected),'passed':[],'failed':[]}
+          out=Path(os.environ['RUNNER_TEMP'])/'l1-tests'
+          for executable,path in selected:
+              args=['bun','test','--preload','./scripts/test-preload.mjs','--timeout','15000',path] if executable=='bun' else ['node','--test',path]
+              result=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+              with (out/'tests.log').open('a') as log:log.write('\nFILE '+path+'\n'+result.stdout)
+              report['failed' if result.returncode else 'passed'].append(path)
+              if result.returncode:print(result.stdout)
+          (out/'report.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          raise SystemExit(bool(report['failed']))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-web-tests-${{ matrix.shard }}
+          path: ${{ runner.temp }}/l1-tests/
+          retention-days: 3
+  go-tests:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: l1-isolated-test
+          POSTGRES_DB: l1_cleanup
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Full affected Go packages with isolated PostgreSQL schemas
+        working-directory: apps/api-go
+        env:
+          TEST_POSTGRES_DSN: postgres://postgres:l1-isolated-test@127.0.0.1:5432/l1_cleanup?sslmode=disable
+          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/l1-go"
+          go test -json -p 2 ./middleware ./model ./controller ./router ./internal/assistantcontracts -count=1 > "$RUNNER_TEMP/l1-go/tests.jsonl" 2> "$RUNNER_TEMP/l1-go/stderr.log"
+      - name: Registration and todo race regressions
+        working-directory: apps/api-go
+        run: |
+          set -euo pipefail
+          go test -race -p 2 ./model ./controller -run 'Test(RetiredDeveloperAccess|Assistant.*(DirectL1|FirstTurn|Registration|Support)|UnifiedTodo)' -count=1 2>&1 | tee "$RUNNER_TEMP/l1-go/race.log"
+      - name: Summarize Go results
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os,collections
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'l1-go'
+          if not root.exists():raise SystemExit(0)
+          counts=collections.Counter();failed=[];skipped=[]
+          for line in (root/'tests.jsonl').read_text().splitlines():
+              try:r=json.loads(line)
+              except ValueError:continue
+              if r.get('Test') and '/' not in r['Test'] and r.get('Action') in ('pass','fail','skip'):
+                  counts[r['Action']]+=1
+                  if r['Action']=='fail':failed.append(r['Package']+':'+r['Test'])
+                  if r['Action']=='skip':skipped.append(r['Package']+':'+r['Test'])
+          report={'sha':'${{ needs.prepare.outputs.sha }}','counts':dict(counts),'failed':failed,'skipped':skipped}
+          (root/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
+          print((root/'stderr.log').read_text()[-5000:])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: l1-go-tests
+          path: ${{ runner.temp }}/l1-go/
+          retention-days: 3
