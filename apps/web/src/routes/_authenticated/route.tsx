@@ -59,6 +59,9 @@ export const Route = createFileRoute('/_authenticated')({
     const { auth } = useAuthStore.getState()
 
     if (!auth.user || !auth.accessToken) {
+      if (auth.bootstrapState !== 'complete') {
+        throw new Error('Authentication could not be checked. Please retry.')
+      }
       throw redirect({
         to: '/sign-in',
         search: { redirect: location.href },
