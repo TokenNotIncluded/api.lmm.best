@@ -1,0 +1,456 @@
+diff --git a/apps/api-go/controller/native_account_test.go b/apps/api-go/controller/native_account_test.go
+index 1b0bc556..b6d4ea74 100644
+--- a/apps/api-go/controller/native_account_test.go
++++ b/apps/api-go/controller/native_account_test.go
+@@ -37,7 +37,7 @@ func TestNativeAccountStrictBody(t *testing.T) {
+ }
+ 
+ func TestNativeAccountSessionRequired(t *testing.T) {
+-	for _, handler := range []gin.HandlerFunc{ListNativeAccounts, CreateNativeTeam, GetNativeTeam, ListNativeTeamMembers, InviteNativeTeamMember, ListNativeTeamInvitations, AcceptNativeTeamInvitation, UpdateNativeTeamMember, RemoveNativeTeamMember, RevokeNativeTeamInvitation} {
++	for _, handler := range []gin.HandlerFunc{ListNativeAccounts, CreateNativeTeam, GetNativeTeam, ListNativeTeamMembers, InviteNativeTeamMember, ListNativeTeamInvitations, AcceptNativeTeamInvitation, UpdateNativeTeamMember, RemoveNativeTeamMember, RevokeNativeTeamInvitation, ListNativeTeamSentInvitations, DeclineNativeTeamInvitation} {
+ 		recorder := httptest.NewRecorder()
+ 		c, _ := gin.CreateTestContext(recorder)
+ 		c.Request = httptest.NewRequest(http.MethodPost, "/api/accounts/teams", strings.NewReader(`{}`))
+diff --git a/apps/api-go/model/native_account_invitation_test.go b/apps/api-go/model/native_account_invitation_test.go
+new file mode 100644
+index 00000000..0b768257
+--- /dev/null
++++ b/apps/api-go/model/native_account_invitation_test.go
+@@ -0,0 +1,188 @@
++package model
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"sync"
++	"testing"
++
++	"github.com/LIghtJUNction/api.lmm.best/pkg/account"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++)
++
++func TestNativeAccountInvitationManagement(t *testing.T) {
++	for _, pg := range []bool{false, true} {
++		t.Run(fmt.Sprintf("postgres=%t", pg), func(t *testing.T) {
++			s, a := nativeAccountFixture(t, pg)
++			ctx := context.Background()
++			id := nativeTeam(t, s, a[0])
++			nativeJoin(t, s, a[0], a[1], id, account.Admin)
++			nativeJoin(t, s, a[0], a[2], id, account.Admin)
++			nativeJoin(t, s, a[0], a[3], id, account.Member)
++			first, err := s.Invite(ctx, a[1], id, a[4].UserID, account.Member, "first-member-offer-001")
++			require.NoError(t, err)
++			second, err := s.Invite(ctx, a[0], id, a[4].UserID, account.Member, "second-member-offer-001")
++			require.NoError(t, err)
++			_, err = s.Invite(ctx, a[2], id, a[5].UserID, account.Member, "other-admin-offer-001")
++			require.NoError(t, err)
++
++			own, err := s.ListSentInvitations(ctx, a[1], id, "")
++			require.NoError(t, err)
++			require.Len(t, own, 1, "admin must not see owner or peer invitations")
++			require.Equal(t, first.ID, own[0].ID)
++			require.Equal(t, "Example team", own[0].TeamDisplayName)
++			all, err := s.ListSentInvitations(ctx, a[0], id, "")
++			require.NoError(t, err)
++			require.Len(t, all, 6)
++			for _, denied := range []NativeAccountActor{a[3], a[4], a[5]} {
++				_, err := s.ListSentInvitations(ctx, denied, id, "")
++				require.Error(t, err, "members, outsiders and platform root need management membership")
++			}
++			_, err = s.ListSentInvitations(ctx, a[0], id, "invalid")
++			require.ErrorIs(t, err, ErrNativeAccountInput)
++
++			received, err := s.ListInvitations(ctx, a[4], "")
++			require.NoError(t, err)
++			require.Len(t, received, 2)
++			require.Equal(t, "Example team", received[0].TeamDisplayName)
++			require.Error(t, s.DeclineInvitation(ctx, a[5], first.ID), "root cannot decline for the recipient")
++			require.NoError(t, s.DeclineInvitation(ctx, a[4], first.ID))
++			require.NoError(t, s.DeclineInvitation(ctx, a[4], first.ID), "retry is harmless")
++			_, err = s.AcceptInvitation(ctx, a[4], first.ID)
++			require.ErrorIs(t, err, ErrNativeInvitationUnavailable)
++			var count int64
++			require.NoError(t, s.db.Model(&NativeAccountEvent{}).Where("action = ? AND target_user_id = ?", "invite.decline", a[4].UserID).Count(&count).Error)
++			require.EqualValues(t, 1, count)
++			received, err = s.ListInvitations(ctx, a[4], "")
++			require.NoError(t, err)
++			require.Len(t, received, 1)
++			require.Equal(t, second.ID, received[0].ID)
++			_, err = s.AcceptInvitation(ctx, a[4], second.ID)
++			require.NoError(t, err)
++			require.ErrorIs(t, s.DeclineInvitation(ctx, a[4], second.ID), ErrNativeInvitationUnavailable, "declining cannot remove accepted membership")
++			_, err = s.GetTeam(ctx, a[4], id)
++			require.NoError(t, err)
++			require.NoError(t, s.db.Model(&NativeAccountRecord{}).Where("kind = ? AND id = ?", account.Team, id).Update("enabled", false).Error)
++			received, err = s.ListInvitations(ctx, a[5], "")
++			require.NoError(t, err)
++			require.Empty(t, received, "frozen teams cannot advertise an actionable invitation")
++		})
++	}
++}
++
++func TestNativeAccountInvitationFeedPagination(t *testing.T) {
++	s, a := nativeAccountFixture(t, false)
++	ctx := context.Background()
++	id := nativeTeam(t, s, a[0])
++	for i := 0; i < 51; i++ {
++		_, err := s.Invite(ctx, a[0], id, a[1].UserID, account.Member, fmt.Sprintf("page-invitation-%04d", i))
++		require.NoError(t, err)
++	}
++	first, err := s.ListInvitations(ctx, a[1], "")
++	require.NoError(t, err)
++	require.Len(t, first, 50)
++	last, err := s.ListInvitations(ctx, a[1], first[49].ID)
++	require.NoError(t, err)
++	require.Len(t, last, 1)
++	require.Greater(t, last[0].ID, first[49].ID)
++	sent, err := s.ListSentInvitations(ctx, a[0], id, first[49].ID)
++	require.NoError(t, err)
++	require.Len(t, sent, 1)
++	require.Equal(t, last[0].ID, sent[0].ID)
++	_, err = s.ListInvitations(ctx, a[1], "invalid")
++	require.ErrorIs(t, err, ErrNativeAccountInput)
++}
++
++func TestNativeAccountDeclineAuditFailureRollsBack(t *testing.T) {
++	s, a := nativeAccountFixture(t, false)
++	ctx := context.Background()
++	id := nativeTeam(t, s, a[0])
++	invite, err := s.Invite(ctx, a[0], id, a[1].UserID, account.Member, "decline-rollback-001")
++	require.NoError(t, err)
++	failure := errors.New("isolated audit failure")
++	require.NoError(t, s.db.Callback().Create().Before("gorm:create").Register("native_decline_failure", func(tx *gorm.DB) {
++		if tx.Statement.Table == "account_events" {
++			tx.AddError(failure)
++		}
++	}))
++	t.Cleanup(func() { _ = s.db.Callback().Create().Remove("native_decline_failure") })
++	require.ErrorIs(t, s.DeclineInvitation(ctx, a[1], invite.ID), failure)
++	var row NativeAccountInvitation
++	require.NoError(t, s.db.Take(&row, "id = ?", invite.ID).Error)
++	require.Equal(t, "pending", row.Status)
++}
++
++func TestNativeAccountConcurrentAcceptAndDeclinePostgres(t *testing.T) {
++	s, a := nativeAccountFixture(t, true)
++	ctx := context.Background()
++	id := nativeTeam(t, s, a[0])
++	invite, err := s.Invite(ctx, a[0], id, a[1].UserID, account.Member, "concurrent-decline-001")
++	require.NoError(t, err)
++	var wg sync.WaitGroup
++	results := make(chan error, 2)
++	start := make(chan struct{})
++	wg.Add(2)
++	go func() {
++		defer wg.Done()
++		<-start
++		_, err := s.AcceptInvitation(ctx, a[1], invite.ID)
++		results <- err
++	}()
++	go func() {
++		defer wg.Done()
++		<-start
++		results <- s.DeclineInvitation(ctx, a[1], invite.ID)
++	}()
++	close(start)
++	wg.Wait()
++	close(results)
++	succeeded := 0
++	for err := range results {
++		if err == nil {
++			succeeded++
++		} else {
++			require.ErrorIs(t, err, ErrNativeInvitationUnavailable)
++		}
++	}
++	require.Equal(t, 1, succeeded)
++	var row NativeAccountInvitation
++	require.NoError(t, s.db.Take(&row, "id = ?", invite.ID).Error)
++	var members, events int64
++	require.NoError(t, s.db.Model(&NativeAccountMember{}).Where("account_kind = ? AND account_id = ? AND user_id = ? AND active = ?", account.Team, id, a[1].UserID, true).Count(&members).Error)
++	require.NoError(t, s.db.Model(&NativeAccountEvent{}).Where("action IN ?", []string{"member.accept", "invite.decline"}).Count(&events).Error)
++	require.EqualValues(t, 1, events)
++	if row.Status == "accepted" {
++		require.EqualValues(t, 1, members)
++	} else {
++		require.Equal(t, "revoked", row.Status)
++		require.Zero(t, members)
++	}
++}
++
++func TestNativeAccountSchemaRejectsWeakenedChecksPostgres(t *testing.T) {
++	s, _ := nativeAccountFixture(t, true)
++	t.Setenv("NATIVE_ACCOUNTS_ENABLED", "true")
++	require.NoError(t, EnsureNativeAccountSchemaAtStartup(s.db))
++	for _, tc := range []struct{ table, name, weakened string }{
++		{"accounts", "ck_accounts_identity", "id > 0"},
++		{"accounts", "ck_accounts_kind", "kind IN ('personal','team','root')"},
++		{"account_members", "ck_account_members_role", "role IN ('admin','member','owner')"},
++		{"account_invitations", "ck_account_invites_status", "status IN ('pending','accepted','revoked','other')"},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			rollback := errors.New("rollback deliberate schema corruption")
++			err := s.db.Transaction(func(tx *gorm.DB) error {
++				// These identifiers and expressions are compile-time test cases,
++				// never request data. Roll back every deliberately weaker check.
++				require.NoError(t, tx.Exec("ALTER TABLE "+tc.table+" DROP CONSTRAINT "+tc.name).Error)
++				require.NoError(t, tx.Exec("ALTER TABLE "+tc.table+" ADD CONSTRAINT "+tc.name+" CHECK ("+tc.weakened+")").Error)
++				require.ErrorContains(t, EnsureNativeAccountSchemaAtStartup(tx), "incompatible semantics")
++				return rollback
++			})
++			require.ErrorIs(t, err, rollback)
++			require.NoError(t, EnsureNativeAccountSchemaAtStartup(s.db))
++		})
++	}
++}
+diff --git a/apps/api-go/model/postgres_catalog_test.go b/apps/api-go/model/postgres_catalog_test.go
+index b5b03695..de9c0b21 100644
+--- a/apps/api-go/model/postgres_catalog_test.go
++++ b/apps/api-go/model/postgres_catalog_test.go
+@@ -280,3 +280,51 @@ func findPostgresConstraint(t *testing.T, inventory postgresSchemaInventory, kin
+ 	t.Fatalf("required %s constraint was not derived", kind)
+ 	return postgresConstraintSpec{}
+ }
++
++// Portable DDL and the PostgreSQL rendering may differ, but both remain exact
++// contracts. Declared forms must not silently outlive a model tag change.
++type postgresCheckCatalogTestModel struct {
++	ID      int64 `gorm:"primaryKey;autoIncrement:false;check:ck_catalog_pair,id > 0 AND id = owner_id"`
++	OwnerID int64
++	Forms   map[string]postgresCheckCatalogForm `gorm:"-"`
++}
++
++func (m postgresCheckCatalogTestModel) postgresCheckCatalogForms() map[string]postgresCheckCatalogForm {
++	return m.Forms
++}
++
++func TestPostgresCatalogExplicitCheckFormsRemainStrict(t *testing.T) {
++	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
++	require.NoError(t, err)
++	form := postgresCheckCatalogForm{
++		Source: "id > 0 AND id = owner_id", Expression: "id > 0 AND id = owner_id",
++		Columns: []string{"id", "owner_id"},
++	}
++	m := &postgresCheckCatalogTestModel{Forms: map[string]postgresCheckCatalogForm{"ck_catalog_pair": form}}
++	inventory, err := buildPostgresSchemaInventory(db, "public", []interface{}{m})
++	require.NoError(t, err)
++	check := findPostgresConstraint(t, inventory, postgresCheckConstraint)
++	require.Equal(t, form.Columns, check.Columns)
++	require.Equal(t, form.Expression, check.Check)
++	form.Columns[0] = "changed_after_build"
++	require.Equal(t, "id", check.Columns[0], "inventory must not retain a mutable alias")
++	snapshot := catalogSnapshotForInventory(inventory)
++	key := postgresCatalogKey{Table: check.Table, Name: check.Names[0]}
++	actual := snapshot.Constraints[key]
++	actual.Check = "id > 0"
++	snapshot.Constraints[key] = actual
++	require.ErrorContains(t, verifyPostgresCatalogSnapshot(inventory, snapshot), "incompatible semantics")
++	for _, invalid := range []postgresCheckCatalogForm{
++		{Source: "id > 1", Expression: "id > 1", Columns: []string{"id"}},
++		{Source: form.Source, Expression: form.Expression},
++		{Source: form.Source, Columns: []string{"id"}},
++		{Source: form.Source, Expression: form.Expression, Columns: []string{"missing"}},
++	} {
++		m.Forms["ck_catalog_pair"] = invalid
++		_, err := buildPostgresSchemaInventory(db, "public", []interface{}{m})
++		require.Error(t, err)
++	}
++	m.Forms = map[string]postgresCheckCatalogForm{"missing_check": {Source: "id > 0", Expression: "id > 0", Columns: []string{"id"}}}
++	_, err = buildPostgresSchemaInventory(db, "public", []interface{}{m})
++	require.Error(t, err)
++}
+diff --git a/apps/api-go/router/native_account_http_test.go b/apps/api-go/router/native_account_http_test.go
+new file mode 100644
+index 00000000..741ba3f3
+--- /dev/null
++++ b/apps/api-go/router/native_account_http_test.go
+@@ -0,0 +1,187 @@
++package router
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"os"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/LIghtJUNction/api.lmm.best/common"
++	"github.com/LIghtJUNction/api.lmm.best/model"
++	"github.com/LIghtJUNction/api.lmm.best/service"
++	"github.com/gin-gonic/gin"
++	"github.com/jackc/pgx/v5"
++	"github.com/stretchr/testify/require"
++	"gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++// This fixture uses the real PostgreSQL schema gate, real session issuance,
++// and the production router/middleware. No context identity is manufactured.
++func nativeAccountHTTPFixture(t *testing.T) (*gorm.DB, *gin.Engine, []*service.AuthBundle) {
++	t.Helper()
++	dsn := strings.TrimSpace(os.Getenv("TEST_POSTGRES_DSN"))
++	if dsn == "" || os.Getenv("TEST_POSTGRES_ISOLATED_SCHEMA") != "1" {
++		t.Skip("requires a dedicated TEST_POSTGRES_DSN and TEST_POSTGRES_ISOLATED_SCHEMA=1")
++	}
++	base, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	baseSQL, err := base.DB()
++	require.NoError(t, err)
++	schema := fmt.Sprintf("lmm_native_http_%d_%d", os.Getpid(), time.Now().UnixNano())
++	quoted := pgx.Identifier{schema}.Sanitize()
++	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
++	defer cancel()
++	require.NoError(t, base.WithContext(ctx).Exec("CREATE SCHEMA "+quoted).Error)
++	t.Cleanup(func() {
++		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++		defer cancel()
++		require.NoError(t, base.WithContext(ctx).Exec("DROP SCHEMA "+quoted+" CASCADE").Error)
++		_ = baseSQL.Close()
++	})
++	parsed, err := url.Parse(dsn)
++	if err == nil && (parsed.Scheme == "postgres" || parsed.Scheme == "postgresql") {
++		query := parsed.Query()
++		query.Set("search_path", schema)
++		parsed.RawQuery = query.Encode()
++		dsn = parsed.String()
++	} else {
++		dsn += " search_path=" + schema
++	}
++	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	sqlDB, err := db.DB()
++	require.NoError(t, err)
++	t.Cleanup(func() { _ = sqlDB.Close() })
++	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.NativeAccountRecord{}, &model.NativeAccountMember{}, &model.NativeAccountInvitation{}, &model.NativeAccountEvent{}))
++	previousDB, previousLogDB := model.DB, model.LOG_DB
++	previousType, previousRedis := common.MainDatabaseType(), common.RedisEnabled
++	previousSecret, previousSecure := common.SessionSecret, common.SessionCookieSecure
++	previousAPI, previousCritical := common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable
++	previousOrigins := common.SessionCookieTrustedURLs
++	model.DB, model.LOG_DB = db, db
++	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
++	common.RedisEnabled, common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable = false, false, false
++	common.SessionSecret, common.SessionCookieSecure = "isolated-native-http-test-secret", true
++	common.SessionCookieTrustedURLs = nil
++	t.Cleanup(func() {
++		model.DB, model.LOG_DB = previousDB, previousLogDB
++		common.SetMainDatabaseType(previousType)
++		common.RedisEnabled, common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable = previousRedis, previousAPI, previousCritical
++		common.SessionSecret, common.SessionCookieSecure = previousSecret, previousSecure
++		common.SessionCookieTrustedURLs = previousOrigins
++	})
++	logins := make([]*service.AuthBundle, 4)
++	for i := range logins {
++		id := i + 1
++		role := common.RoleCommonUser
++		if id == 4 {
++			role = common.RoleRootUser
++		}
++		pat := fmt.Sprintf("native-http-pat-%d", id)
++		u := model.User{Id: id, Username: fmt.Sprintf("native-http-%d", id), AffCode: fmt.Sprintf("native-http-%d", id), Status: common.UserStatusEnabled, Role: role, AuthVersion: 1, Group: "default", Quota: 12345, AccessToken: &pat}
++		require.NoError(t, db.Create(&u).Error)
++		logins[i], err = service.CreateLoginSession(id, "password", "192.0.2.1", "native-http-test")
++		require.NoError(t, err)
++	}
++	t.Setenv("NATIVE_ACCOUNTS_ENABLED", "true")
++	engine := gin.New()
++	require.NoError(t, SetNativeAccountRouter(engine))
++	require.Len(t, engine.Routes(), 12)
++	return db, engine, logins
++}
++
++func nativeAccountHTTPRequest(engine *gin.Engine, token, method, path, body string) *httptest.ResponseRecorder {
++	req := httptest.NewRequest(method, "https://accounts.example.test"+path, strings.NewReader(body))
++	req.Header.Set("Origin", "https://accounts.example.test")
++	req.Header.Set("Content-Type", "application/json")
++	req.Header.Set("X-LMM-Credit-Unit", strconv.FormatInt(common.FixedCreditsPerUSD, 10))
++	if token != "" {
++		req.Header.Set("Authorization", "Bearer "+token)
++	}
++	w := httptest.NewRecorder()
++	engine.ServeHTTP(w, req)
++	return w
++}
++
++func nativeAccountHTTPData[T any](t *testing.T, w *httptest.ResponseRecorder) T {
++	t.Helper()
++	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
++	require.Contains(t, w.Header().Get("Cache-Control"), "no-store")
++	var response struct {
++		Success bool `json:"success"`
++		Data    T    `json:"data"`
++	}
++	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
++	require.True(t, response.Success)
++	return response.Data
++}
++
++func TestNativeAccountHTTPRealSessionLifecyclePostgres(t *testing.T) {
++	db, engine, logins := nativeAccountHTTPFixture(t)
++	request := func(user int, method, path, body string) *httptest.ResponseRecorder {
++		return nativeAccountHTTPRequest(engine, logins[user-1].AccessToken, method, path, body)
++	}
++	team := nativeAccountHTTPData[model.NativeAccountSummary](t, request(1, "POST", "/api/accounts/teams", `{"display_name":"研发团队","request_key":"native-http-create-001"}`))
++	require.False(t, team.TeamBillingAvailable)
++	path := fmt.Sprintf("/api/accounts/teams/%d", team.Account.ID)
++	admin := nativeAccountHTTPData[model.NativeAccountInvitation](t, request(1, "POST", path+"/invitations", `{"user_id":2,"role":"admin","request_key":"native-http-admin-001"}`))
++	nativeAccountHTTPData[model.NativeAccountSummary](t, request(2, "POST", "/api/accounts/invitations/"+admin.ID+"/accept", ""))
++	invite := nativeAccountHTTPData[model.NativeAccountInvitation](t, request(2, "POST", path+"/invitations", `{"user_id":3,"role":"member","request_key":"native-http-member-001"}`))
++	inbox := nativeAccountHTTPData[[]model.NativeAccountInvitationView](t, request(3, "GET", "/api/accounts/invitations", ""))
++	require.Len(t, inbox, 1)
++	require.Equal(t, "研发团队", inbox[0].TeamDisplayName)
++	sent := nativeAccountHTTPData[[]model.NativeAccountInvitationView](t, request(2, "GET", path+"/invitations", ""))
++	require.Len(t, sent, 1)
++	require.Equal(t, invite.ID, sent[0].ID)
++	require.Equal(t, 403, request(3, "GET", path+"/invitations", "").Code)
++	require.Equal(t, 403, request(4, "GET", path, "").Code, "platform root is not a member")
++	nativeAccountHTTPData[any](t, request(3, "POST", "/api/accounts/invitations/"+invite.ID+"/decline", ""))
++	nativeAccountHTTPData[any](t, request(3, "POST", "/api/accounts/invitations/"+invite.ID+"/decline", ""))
++	require.Equal(t, 409, request(3, "POST", "/api/accounts/invitations/"+invite.ID+"/accept", "").Code)
++	invite = nativeAccountHTTPData[model.NativeAccountInvitation](t, request(2, "POST", path+"/invitations", `{"user_id":3,"role":"member","request_key":"native-http-member-002"}`))
++	nativeAccountHTTPData[model.NativeAccountSummary](t, request(3, "POST", "/api/accounts/invitations/"+invite.ID+"/accept", ""))
++	require.Equal(t, 403, request(3, "PATCH", path+"/members/3", `{"role":"admin"}`).Code)
++	nativeAccountHTTPData[any](t, request(3, "DELETE", path+"/members/3", ""))
++	require.Equal(t, 409, request(3, "POST", "/api/accounts/invitations/"+invite.ID+"/accept", "").Code)
++	var users []model.User
++	require.NoError(t, db.Order("id").Find(&users).Error)
++	for _, user := range users {
++		require.Zero(t, user.ConsoleActivatedAt, "team identity never activates the personal account")
++		require.Equal(t, 12345, user.Quota)
++	}
++}
++
++func TestNativeAccountHTTPAuthenticationAndRevocationPostgres(t *testing.T) {
++	db, engine, logins := nativeAccountHTTPFixture(t)
++	token := logins[0].AccessToken
++	require.Equal(t, 401, nativeAccountHTTPRequest(engine, "", "GET", "/api/accounts", "").Code)
++	require.Equal(t, 401, nativeAccountHTTPRequest(engine, "native-http-pat-1", "GET", "/api/accounts", "").Code)
++	require.Equal(t, 400, nativeAccountHTTPRequest(engine, token, "POST", "/api/accounts/teams", `{"display_name":"Team","owner_user_id":4}`).Code)
++	req := httptest.NewRequest("GET", "https://accounts.example.test/api/accounts", nil)
++	req.Header.Set("Authorization", "Bearer "+token)
++	req.Header.Set("Origin", "https://other.example.test")
++	w := httptest.NewRecorder()
++	engine.ServeHTTP(w, req)
++	require.Equal(t, 403, w.Code)
++	require.Contains(t, w.Body.String(), "AUTH_ORIGIN_FORBIDDEN")
++	req = httptest.NewRequest("GET", "https://accounts.example.test/api/accounts", nil)
++	req.Header.Set("Origin", "https://accounts.example.test")
++	req.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: logins[0].RefreshToken})
++	w = httptest.NewRecorder()
++	engine.ServeHTTP(w, req)
++	require.Equal(t, 401, w.Code, "a refresh cookie alone cannot authorize the account API")
++	nativeAccountHTTPData[model.NativeAccountList](t, nativeAccountHTTPRequest(engine, token, "GET", "/api/accounts", ""))
++	require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", logins[0].Session.SID).Update("status", model.UserSessionStatusRevoked).Error)
++	w = nativeAccountHTTPRequest(engine, token, "GET", "/api/accounts", "")
++	require.True(t, w.Code == 401 || w.Code == 403, w.Body.String())
++	require.NotContains(t, w.Body.String(), token)
++}
