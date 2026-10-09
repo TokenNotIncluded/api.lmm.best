@@ -115,7 +115,7 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	MountOAuthServerRoutes(engine, integration)
 	// Exercise production OAuth authentication/model boundary and actual billing,
 	// but never contact an upstream model or make a paid network call.
-	engine.POST("/v1/chat/completions", middleware.TokenAuth(), func(c *gin.Context) {
+	relay := func(c *gin.Context) {
 		var body struct {
 			Model string `json:"model"`
 		}
@@ -150,7 +150,9 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 			}
 		}
 		c.JSON(200, gin.H{"id": info.UserId, "token_id": info.TokenId, "group": info.UsingGroup, "cross_group_retry": common.GetContextKeyBool(c, constant.ContextKeyTokenCrossGroupRetry)})
-	})
+	}
+	engine.POST("/v1/chat/completions", middleware.TokenAuth(), relay)
+	engine.POST(service.OAuthOpenAIBasePath+"/chat/completions", middleware.OAuthOpenAIAuth, middleware.RelayRequestAdmission(), middleware.OAuthOpenAIRequest, relay)
 	engine.GET("/read-only", middleware.TokenAuthReadOnly(), func(c *gin.Context) { c.Status(200) })
 	verifier := strings.Repeat("v", 64)
 	sum := sha256.Sum256([]byte(verifier))

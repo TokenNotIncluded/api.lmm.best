@@ -26,7 +26,7 @@ func TestOAuthNativeOpenAIUsesOneCodewhaleGrantAndExistingBilling(t *testing.T) 
 	require.Contains(t, list.Header().Get("Cache-Control"), "no-store")
 	var catalog struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"data"`
 	}
