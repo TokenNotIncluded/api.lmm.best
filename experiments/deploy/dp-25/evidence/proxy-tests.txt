@@ -1,0 +1,12 @@
+=== RUN   TestDropsOnlyCommitAcknowledgement
+--- PASS: TestDropsOnlyCommitAcknowledgement (0.00s)
+=== RUN   TestOrdinaryCommandCompleteIsForwarded
+--- PASS: TestOrdinaryCommandCompleteIsForwarded (0.00s)
+=== RUN   TestRejectsMalformedFrame
+--- PASS: TestRejectsMalformedFrame (0.00s)
+=== RUN   TestTruncatedPayloadIsNotACommit
+--- PASS: TestTruncatedPayloadIsNotACommit (0.00s)
+=== RUN   TestForwardFailureIsReturned
+--- PASS: TestForwardFailureIsReturned (0.00s)
+PASS
+ok  	_/mnt/data/dp25-delivery/tree/experiments/deploy/dp-25/proxy	1.010s
