@@ -263,7 +263,7 @@ func executeAssistantNewUserGiftStatusTool(c *gin.Context, userID int) map[strin
 	for key, value := range map[string]any{
 		"ok": true, "read_only": true, "status": "none",
 		"one_time_decision_used": false, "claim_available": result["claim_available"],
-		"next_step": "No gift decision is stored. This does not establish eligibility. Explain the one-time rules if asked; an evaluation requires a separate explicit application and sufficient conversation detail.",
+		"next_step": "No gift decision is stored. This does not establish eligibility. Answer pure status questions without a write. When the user wants the gift, use the existing conversation and the configured gift tool; no fixed application phrase or minimum message length is required.",
 	} {
 		result[key] = value
 	}

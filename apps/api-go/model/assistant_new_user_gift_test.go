@@ -92,11 +92,8 @@ func TestAssistantNewUserGiftIsOneTimeAndClaimIsIdempotent(t *testing.T) {
 func TestAssistantGiftDetailedFirstMessageDoesNotRequireFollowUp(t *testing.T) {
 	db := setupAssistantGiftTestDB(t)
 	user := newAssistantGiftUser(t, db, "gift-first-detail", "first-detail@example.com")
-	_, created, err := DecideAssistantNewUserGift(user.Id, 17, 100, "I will use the relay to review Go changes and explain failed tests.", 1, 23, "198.51.100.75")
-	require.ErrorIs(t, err, ErrAssistantGiftInvalid)
-	require.False(t, created)
-	require.Equal(t, "insufficient_conversation", AssistantGiftErrorCode(err))
-	gift, created, err := DecideAssistantNewUserGift(user.Id, 17, 100, "I will use the relay to review Go changes and explain failed tests.", 1, 75, "198.51.100.75")
+	// A short ordinary purpose is sufficient. No turn or rune threshold.
+	gift, created, err := DecideAssistantNewUserGift(user.Id, 17, 100, "写项目", 0, 0, "198.51.100.75")
 	require.NoError(t, err)
 	require.True(t, created)
 	require.Equal(t, AssistantGiftOffered, gift.Status)
