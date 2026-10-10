@@ -1,0 +1,241 @@
+{
+  "baseline": "2f4164978cf27f6e0e605b0589fbe631aef2c441",
+  "scope": "admission_component_not_main",
+  "full_application_acceptance": "NOT_RUN",
+  "component_result": "PASS",
+  "actual_requests": 10,
+  "actual_peak_client_connections": 3,
+  "reserved_wire_bytes": 8389947,
+  "elapsed_seconds": 2.349687,
+  "sampled_peak_rss_bytes": 16035840,
+  "sampled_peak_fd_count": 10,
+  "limits": {
+    "wall_seconds": 12,
+    "cpu_seconds_hard": 10,
+    "cpu_affinity_count": 1,
+    "address_space_bytes_hard": 2147483648,
+    "open_files_hard": 64,
+    "rss_bytes_safety_stop": 134217728,
+    "sample_seconds": 0.05,
+    "requests_max": 16,
+    "simultaneous_client_connections_max": 4,
+    "request_wire_bytes_total_max": 16777216,
+    "body_bytes_per_request_max": 4194304,
+    "socket_deadline_seconds": 3,
+    "output_file_bytes_hard": 1048576
+  },
+  "source_blob": "042c060436fd7192fb458824829a79dd1f1ea598",
+  "test_sha256": "5054a389867d23cd94055764c9d39b30477c86c540160cf0cb4b132d20bd40dd",
+  "runner_sha256": "14ca7e0e0505950c4385ea026b5aee759a1ffdd567f26585040b4552ce36de89",
+  "frozen_funds_delta": null,
+  "frozen_funds_status": "not_measured_no_database",
+  "application_queue": null,
+  "authenticated_account_fairness": "NOT_RUN",
+  "started_utc": "2026-10-10T14:12:39.891997+00:00",
+  "go_version": "go1.23.2 linux/amd64",
+  "snapshot_columns": [
+    "phase",
+    "test_ms",
+    "ms_after_clients_closed",
+    "admission_active",
+    "server_connections",
+    "goroutines",
+    "heap_alloc_bytes"
+  ],
+  "snapshots": [
+    [
+      "baseline",
+      3.22,
+      -555.669,
+      0,
+      0,
+      3,
+      262728
+    ],
+    [
+      "A_holds_two_slots",
+      8.809,
+      -550.08,
+      2,
+      2,
+      5,
+      357312
+    ],
+    [
+      "holding",
+      111.299,
+      -447.59,
+      2,
+      2,
+      5,
+      573296
+    ],
+    [
+      "holding",
+      211.591,
+      -347.298,
+      2,
+      2,
+      5,
+      578328
+    ],
+    [
+      "holding",
+      356.406,
+      -202.483,
+      2,
+      2,
+      5,
+      583360
+    ],
+    [
+      "holding",
+      458.233,
+      -100.656,
+      2,
+      2,
+      5,
+      588392
+    ],
+    [
+      "holding",
+      558.815,
+      -0.074,
+      2,
+      2,
+      5,
+      593424
+    ],
+    [
+      "recovery",
+      558.979,
+      0.09,
+      2,
+      2,
+      5,
+      600808
+    ],
+    [
+      "recovery",
+      658.978,
+      100.089,
+      0,
+      0,
+      3,
+      607712
+    ],
+    [
+      "recovery",
+      859.839,
+      300.95,
+      0,
+      0,
+      3,
+      612776
+    ],
+    [
+      "recovery",
+      1259.903,
+      701.014,
+      0,
+      0,
+      3,
+      617840
+    ],
+    [
+      "recovery",
+      2060.089,
+      1501.2,
+      0,
+      0,
+      3,
+      622904
+    ],
+    [
+      "final_before_server_shutdown",
+      2307.428,
+      1748.539,
+      0,
+      0,
+      3,
+      12768528
+    ]
+  ],
+  "request_columns": [
+    "client",
+    "status",
+    "latency_ms",
+    "body_bytes",
+    "declared_bytes",
+    "intentional_pause_ms"
+  ],
+  "requests": [
+    [
+      "B-baseline",
+      200,
+      0.428,
+      6,
+      6,
+      0
+    ],
+    [
+      "B-small-during-A",
+      200,
+      0.221,
+      6,
+      6,
+      0
+    ],
+    [
+      "B-small-during-A",
+      200,
+      0.105,
+      6,
+      6,
+      0
+    ],
+    [
+      "B-small-during-A",
+      200,
+      1.503,
+      6,
+      6,
+      0
+    ],
+    [
+      "B-small-during-A",
+      200,
+      0.094,
+      6,
+      6,
+      0
+    ],
+    [
+      "B-large-during-A",
+      429,
+      0.05,
+      0,
+      4194304,
+      0
+    ],
+    [
+      "B-large-after-recovery",
+      200,
+      18.311,
+      4194304,
+      4194304,
+      0
+    ],
+    [
+      "normal-slow-large",
+      200,
+      221.968,
+      4194304,
+      4194304,
+      200
+    ]
+  ],
+  "automatic_timeout_tested": false,
+  "forced_gc": false,
+  "server_shutdown_before_recovery": false
+}
