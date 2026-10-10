@@ -19,6 +19,8 @@ import (
 )
 
 type SubscriptionWaffoPancakePayRequest struct {
+	// Required when the plan offers both purchase modes. Never accept a product ID from the buyer.
+	ProductType string `json:"product_type"`
 	PlanId           int    `json:"plan_id"`
 	CheckoutRegion   string `json:"checkout_region"`
 	CheckoutLanguage string `json:"checkout_language"`
@@ -38,7 +40,9 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		common.ApiErrorMsg(c, "参数错误")
 		return
 	}
-	plan, err := model.GetSubscriptionPlanById(req.PlanId)
+	// A checkout must see a just-disabled option, not a cached catalog entry.
+	plan := &model.SubscriptionPlan{}
+	err := model.DB.Where("id = ? AND archived_at = 0", req.PlanId).First(plan).Error
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -50,10 +54,12 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	if !requireSubscriptionPaymentMethodAvailable(c, plan, model.PaymentMethodWaffoPancake) {
 		return
 	}
-	if strings.TrimSpace(plan.WaffoPancakeProductId) == "" {
-		common.ApiErrorMsg(c, "该套餐未配置 WaffoPancakeProductId")
+	selectedPlan, err := plan.WaffoPancakePurchasePlan(req.ProductType)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
 		return
 	}
+	plan = selectedPlan
 	// Plan targets its own Pancake product, so we only require credentials
 	// here — not the gateway-level WaffoPancakeProductID.
 	merchantID, privateKey := service.WaffoPancakeCredentials()
@@ -196,6 +202,8 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 		"data": gin.H{
+			"product_type":        productType,
+			"auto_renew":          productType == model.WaffoPancakeProductTypeSubscription,
 			"checkout_url":        session.CheckoutURL,
 			"session_id":          session.SessionID,
 			"expires_at":          session.ExpiresAt,
