@@ -48,22 +48,30 @@ struct StateData {
 struct Inner {
     state: Mutex<StateData>,
     idle: Notify,
+    max_active: usize,
 }
 
 #[derive(Clone)]
 pub struct Lifecycle(Arc<Inner>);
 impl Default for Lifecycle {
     fn default() -> Self {
+        Self::with_capacity(16)
+    }
+}
+impl Lifecycle {
+    /// Cap admitted request bodies and completion work, including slow streams.
+    pub fn with_capacity(max_active: usize) -> Self {
+        assert!((1..=64).contains(&max_active));
         Self(Arc::new(Inner {
             state: Mutex::new(StateData {
                 phase: Phase::Preparing,
                 active: 0,
             }),
             idle: Notify::new(),
+            max_active,
         }))
     }
-}
-impl Lifecycle {
+
     /// Call only after the enabled native routes' startup checks and binds.
     /// This does NOT change `/health/ready` or enable model forwarding.
     pub fn mark_ready(&self) -> bool {
@@ -87,7 +95,7 @@ impl Lifecycle {
 
     pub fn try_accept(&self) -> Option<WorkLease> {
         let mut state = self.0.state.lock().expect("lifecycle state");
-        if state.phase != Phase::Ready {
+        if state.phase != Phase::Ready || state.active >= self.0.max_active {
             return None;
         }
         state.active = state.active.checked_add(1)?;
@@ -230,6 +238,26 @@ mod tests {
         assert!(!lifecycle.mark_ready());
         assert_eq!(lifecycle.snapshot(), (Phase::Draining, 1));
         drop(lease);
+        lifecycle.wait_idle().await;
+    }
+
+    #[tokio::test]
+    async fn admission_rejects_excess_work_until_a_lease_is_released() {
+        let lifecycle = Lifecycle::with_capacity(2);
+        assert!(lifecycle.mark_ready());
+        let first = lifecycle.try_accept().unwrap();
+        let second = lifecycle.try_accept().unwrap();
+        let completion = second.retain_for_completion();
+        assert!(lifecycle.try_accept().is_none());
+        drop(first);
+        let third = lifecycle.try_accept().unwrap();
+        assert!(lifecycle.try_accept().is_none());
+        drop(second);
+        assert!(lifecycle.try_accept().is_none()); // completion still owns that slot
+        drop(completion);
+        assert!(lifecycle.try_accept().is_some());
+        lifecycle.begin_drain();
+        drop(third);
         lifecycle.wait_idle().await;
     }
 

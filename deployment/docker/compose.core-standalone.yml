@@ -1,0 +1,19 @@
+# Optional standalone core: remote PostgreSQL, no Go and no local DB service.
+# Combine with compose.core.yml. This is a fresh-install WIP, not production billing.
+name: lmm-core-standalone
+services:
+  core:
+    environment:
+      LMM_CORE_DATABASE_URL_FILE: /run/secrets/core_database_url
+      LMM_CORE_WORKER_THREADS: "1"
+      LMM_CORE_DB_CONNECTIONS: "2"
+      LMM_CORE_PASSWORD_SLOTS: "1"
+      LMM_CORE_MAX_INFLIGHT: "16"
+    secrets: [core_database_url]
+    mem_limit: 256m
+    mem_reservation: 96m
+    cpus: 1.0
+    pids_limit: 64
+secrets:
+  core_database_url:
+    file: ${LMM_CORE_DATABASE_URL_SECRET_FILE:?Set an absolute private PostgreSQL URL file}

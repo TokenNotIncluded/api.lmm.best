@@ -1,18 +1,31 @@
 use lmm_core::{config, identity::IdentityStore, lifecycle::{Admission, Lifecycle, ingress::IngressAcks}};
 use std::{env, error::Error, net::SocketAddr};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
+    // One worker and a bounded blocking pool are sufficient for the 1-core
+    // profile. Password hashing remains on a separate bounded blocking worker.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(config::worker_threads()?)
+        .max_blocking_threads(4)
+        .enable_all()
+        .build()?;
+    runtime.block_on(run_core())
+}
+
+async fn run_core() -> Result<(), Box<dyn Error>> {
     let address: SocketAddr = env::var("LMM_CORE_LISTEN")
         .unwrap_or_else(|_| "0.0.0.0:8080".to_owned())
         .parse()?;
     let database_url = config::database_url()?;
-    let lifecycle = Lifecycle::default();
+    let lifecycle = Lifecycle::with_capacity(config::max_inflight()?);
     let ingress = IngressAcks::from_env()?;
     let mut identity_keepalive = None;
     let mut app = lmm_core::http::router();
     if let Some(url) = database_url.as_deref() {
-        let store = IdentityStore::connect(url).await?.with_auth_from_env()?;
+        let store = IdentityStore::connect_with_max_connections(url, config::database_connections()?)
+            .await?
+            .with_auth_from_env()?
+            .with_password_slots(config::password_slots()?)?;
         store.check_schema().await?;
         identity_keepalive = Some(store.clone());
         app = app.merge(lmm_core::identity_http::router(store));

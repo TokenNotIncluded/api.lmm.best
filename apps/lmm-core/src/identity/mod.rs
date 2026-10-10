@@ -302,8 +302,17 @@ impl IdentityStore {
         }
     }
     pub async fn connect(url: &str) -> Result<Self> {
+        Self::connect_with_max_connections(url, 8).await
+    }
+    /// The HTTP host uses a smaller pool; offline tools retain the existing limit.
+    pub async fn connect_with_max_connections(url: &str, maximum: u32) -> Result<Self> {
+        if !(1..=8).contains(&maximum) {
+            return Err(IdentityError::Invalid);
+        }
         let pool = PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(maximum)
+            .min_connections(0)
+            .idle_timeout(Some(Duration::from_secs(30)))
             .acquire_timeout(Duration::from_secs(3))
             .after_connect(|c, _| {
                 Box::pin(async move {
@@ -366,6 +375,18 @@ impl IdentityStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn invalid_connection_limit_is_rejected_without_connecting() {
+        assert!(matches!(
+            IdentityStore::connect_with_max_connections("unused", 0).await,
+            Err(IdentityError::Invalid)
+        ));
+        assert!(matches!(
+            IdentityStore::connect_with_max_connections("unused", 9).await,
+            Err(IdentityError::Invalid)
+        ));
+    }
     #[test]
     fn secrets_are_random_bounded_and_not_normalized() {
         let first = new_secret("lmmk_").unwrap();
