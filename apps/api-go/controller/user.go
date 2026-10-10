@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -208,6 +209,10 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		writeAuthSessionError(c, err)
 		return
 	}
+	writeLoginBundle(user, currentUser, bundle, c)
+}
+
+func writeLoginBundle(user, currentUser *model.User, bundle *service.AuthBundle, c *gin.Context) {
 	model.UpdateUserLastLoginAt(user.Id)
 	service.WriteRefreshCookie(c, bundle.RefreshToken)
 	setAuthNoStore(c)
@@ -349,7 +354,11 @@ func Register(c *gin.Context) {
 
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
+	sortOptions, err := parseUserListOptions(c)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
 	onlyL0 := c.Query("trust_level") == strconv.Itoa(model.TrustLevelMinUser)
 	users, total, err := model.GetAllUsersContext(c.Request.Context(), pageInfo, onlyL0, sortOptions)
 	if err != nil {
@@ -369,13 +378,22 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.PopulateUserWalletRiskContext(c.Request.Context(), users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.PopulateAssistantReviewViolationCountsForViewerContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(users)
+	publicUsers, err := buildPublicUserCreditResponses(users)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetItems(publicUsers)
 
 	common.ApiSuccess(c, pageInfo)
 	return
@@ -397,7 +415,11 @@ func SearchUsers(c *gin.Context) {
 		}
 	}
 	pageInfo := common.GetPageQuery(c)
-	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
+	sortOptions, err := parseUserListOptions(c)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
 	onlyL0 := c.Query("trust_level") == strconv.Itoa(model.TrustLevelMinUser)
 	users, total, err := model.SearchUsersContext(c.Request.Context(), keyword, group, role, status, onlyL0, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
@@ -417,13 +439,22 @@ func SearchUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.PopulateUserWalletRiskContext(c.Request.Context(), users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.PopulateAssistantReviewViolationCountsForViewerContext(c.Request.Context(), users, c.GetInt("id"), c.GetInt("role")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(users)
+	publicUsers, err := buildPublicUserCreditResponses(users)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetItems(publicUsers)
 	common.ApiSuccess(c, pageInfo)
 	return
 }
@@ -464,10 +495,15 @@ func GetUser(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	publicUser, err := buildPublicUserCreditResponse(user)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    user,
+		"data":    publicUser,
 	})
 	return
 }
@@ -575,7 +611,16 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	if err != nil {
 		common.SysError(fmt.Sprintf("failed to calculate access state for user %d: %s", user.Id, err.Error()))
 		fallbackTrustLevel := model.EvaluateTrustLevel(user.Role, user.TrustLevelOverride, 0, user.CreatedAt, common.GetTimestamp())
-		accessSnapshot = model.UserAccessSnapshot{TrustLevel: fallbackTrustLevel}
+		fallbackTrustLevel.PaidCreditProjectionAvailable = false
+		fallbackTrustLevel.PaidCredits = nil
+		fallbackTrustLevel.NextLevelPaidCredits = nil
+		fallbackTrustLevel.CreditsToNextLevel = nil
+		config := model.GetTrustLevelConfiguration()
+		accessSnapshot = model.UserAccessSnapshot{
+			TrustLevel:               fallbackTrustLevel,
+			PaidActivationEnabled:    config.PaidActivationEnabled,
+			PaidActivationMinCredits: config.Tiers[1].MinPaidCredits,
+		}
 	}
 	onboarding, err := model.GetOnboardingStateForUserSnapshot(user, accessSnapshot)
 	if err != nil {
@@ -588,8 +633,15 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 	permissions["console_activated_at"] = consoleActivatedAt
 	docsAccess := onboarding.ActivationComplete
 	permissions["docs_access"] = docsAccess
-	developerAccess := operation_setting.GetDeveloperAccessSetting()
-	return map[string]interface{}{
+	paidActivationMinAmount := float64(accessSnapshot.PaidActivationMinCredits) / float64(common.FixedCreditsPerUSD)
+	var paidActivationMinAmountUSD *float64
+	if usd, projectionErr := common.CreditsToUSD(accessSnapshot.PaidActivationMinCredits); projectionErr == nil {
+		value := usd.InexactFloat64()
+		if !math.IsNaN(value) && !math.IsInf(value, 0) {
+			paidActivationMinAmountUSD = &value
+		}
+	}
+	data := map[string]interface{}{
 		"id":                       user.Id,
 		"developer_access_granted": onboarding.ActivationComplete,
 		"username":                 user.Username,
@@ -617,6 +669,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"stripe_customer":          user.StripeCustomer,
 		"trust_level_info":         accessSnapshot.TrustLevel,
 		"trust_level_tiers":        model.GetTrustLevelTierViews(accessSnapshot.TrustLevel.Level),
+		"trust_level_role_tiers":   model.GetTrustLevelRoleTiers(),
 		"onboarding": gin.H{
 			"details_available":        err == nil,
 			"activation_complete":      onboarding.ActivationComplete,
@@ -624,16 +677,41 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 			// The client shows how far a recharge still has to go before it
 			// unlocks the console on its own, so it needs the same threshold
 			// the server judges against rather than a hardcoded copy.
-			"paid_activation_enabled":    developerAccess.PaidActivationEnabled,
-			"paid_activation_min_amount": developerAccess.PaidActivationMinAmount,
-			"credential_complete":        onboarding.CredentialComplete,
-			"api_key_created":            onboarding.APIKeyCreated,
-			"first_request_complete":     onboarding.FirstRequestComplete,
-			"stage":                      onboarding.Stage,
+			"paid_activation_enabled":             accessSnapshot.PaidActivationEnabled,
+			"paid_activation_min_credits":         strconv.FormatInt(accessSnapshot.PaidActivationMinCredits, 10),
+			"paid_activation_min_amount":          paidActivationMinAmount,
+			"paid_activation_min_amount_currency": model.LegacyPaidPolicyCurrency,
+			"paid_activation_min_amount_usd":      paidActivationMinAmountUSD,
+			"credential_complete":                 onboarding.CredentialComplete,
+			"api_key_created":                     onboarding.APIKeyCreated,
+			"first_request_complete":              onboarding.FirstRequestComplete,
+			"stage":                               onboarding.Stage,
 		},
 		"sidebar_modules": userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":     permissions,
 	}
+	snapshot := loadUsageSnapshot([]*model.User{user}, nil)
+	current, projector := snapshot.user(user)
+	usage := projectUserUsage(projector, current)
+	data["quota"] = current.Quota
+	data["used_quota"] = current.UsedQuota
+	data["usage_projection_available"] = usage.UsageProjectionAvailable
+	if usage.NormalizedUsedQuota != nil {
+		data["normalized_used_quota"] = *usage.NormalizedUsedQuota
+	}
+	creditFields, creditErr := publicUserCreditFields(current.Quota, usage.NormalizedUsedQuota)
+	if creditErr == nil {
+		for key, value := range creditFields {
+			data[key] = value
+		}
+	} else {
+		// Authentication still succeeds when a display projection is unavailable.
+		// Never manufacture a public amount or label raw quota as CREDIT.
+		data["quota_unit"] = common.LedgerQuotaUnit
+		data["public_credit_unit"] = common.PublicCreditUnit
+		data["public_credit_status"] = "unavailable"
+	}
+	return data
 }
 
 // 计算用户权限的辅助函数
@@ -1164,6 +1242,12 @@ func CreateUser(c *gin.Context) {
 	}
 	if err := common.Validate.Struct(&user); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
+		return
+	}
+	// Only guest, common, admin, and root are roles. Reject anything else
+	// before the hierarchy check, casbin permission write, or user insert.
+	if !common.IsValidateRole(user.Role) {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	if user.DisplayName == "" {

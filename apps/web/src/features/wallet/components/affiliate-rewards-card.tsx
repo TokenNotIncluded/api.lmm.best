@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuota } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import type { UserWalletData } from '../types'
 import { AffiliateInviteDialog } from './affiliate-invite-dialog'
@@ -45,6 +45,7 @@ export function AffiliateRewardsCard({
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   if (loading) {
     return (
       <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -75,7 +76,7 @@ export function AffiliateRewardsCard({
             </h3>
             <p className='text-muted-foreground text-xs'>
               {t(
-                'Earn a reward after an invited user completes their first real paid top-up. Rewards may be revoked for confirmed abuse or a full refund.'
+                'Registration advance and first-payment tail are separate rewards. Available rewards can be transferred to balance. Lifetime earnings are not the current balance.'
               )}
             </p>
           </div>
@@ -84,7 +85,9 @@ export function AffiliateRewardsCard({
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
             [
-              (user?.aff_debt ?? 0) > 0 ? t('Reward debt') : t('Pending'),
+              (user?.aff_debt ?? 0) > 0
+                ? t('Reward debt')
+                : t('Available Rewards'),
               formatQuota(
                 (user?.aff_debt ?? 0) > 0
                   ? (user?.aff_debt ?? 0)

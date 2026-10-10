@@ -2,7 +2,7 @@
 .settings-workspace {
   --settings-width: 66rem;
   font-family: var(--font-sans);
-  background: color-mix(in oklch, var(--muted) 32%, var(--background));
+  background: var(--background);
 }
 .settings-workspace .console-section-header,
 .settings-workspace .console-section-content,
@@ -38,10 +38,9 @@
 }
 .settings-sheet {
   min-width: 0;
-  border: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
-  border-radius: 1.25rem;
-  background: var(--card);
-  padding: clamp(1.25rem, 3cqi, 2.5rem);
+  border: 0;
+  background: transparent;
+  padding: 1rem 0 2.5rem;
 }
 .settings-save-dock {
   display: flex;
@@ -105,15 +104,18 @@
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 16%, transparent);
 }
 .settings-workspace .settings-switch-row {
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
-  padding-block: 1rem;
+  border-bottom: 0;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--muted) 35%, transparent);
 }
 .settings-workspace .settings-switch-row:last-child {
   border-bottom: 0;
 }
 .settings-disclosure {
   min-width: 0;
-  border-top: 1px solid var(--border);
+  border-top: 0;
+  padding-block: 0.4rem;
 }
 .settings-disclosure:first-child {
   border-top: 0;
@@ -272,5 +274,49 @@
   }
   .settings-workspace :is(input, button, textarea) {
     transition: none;
+  }
+}
+
+.settings-workspace .settings-section {
+  gap: 2rem;
+}
+.settings-workspace .settings-disclosure-summary {
+  background: color-mix(in oklch, var(--muted) 36%, transparent);
+  padding-inline: 1rem;
+}
+.settings-workspace .settings-disclosure-content {
+  padding: 1.5rem 0.5rem;
+}
+.settings-workspace .settings-search-trigger {
+  border: 0;
+  background: var(--muted);
+  min-height: 2.75rem;
+}
+.settings-workspace .settings-form-actions button {
+  min-height: 2.75rem;
+}
+@media (max-width: 767px) {
+  .console-editorial .console-page.settings-workspace .console-section-header {
+    padding-top: 4rem;
+  }
+  .settings-workspace .console-section-header :is(h1, h2) {
+    font-size: 1.6rem;
+  }
+  .settings-workspace .console-section-header .truncate {
+    white-space: normal;
+  }
+  .settings-workspace .settings-sheet {
+    border: 0;
+    border-radius: 0;
+    padding: 0.5rem 0 1.5rem;
+  }
+  .settings-workspace :is(input, textarea, select) {
+    font-size: 1rem;
+  }
+  .settings-workspace .console-section-footer {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  .settings-workspace .settings-section {
+    gap: 1.5rem;
   }
 }

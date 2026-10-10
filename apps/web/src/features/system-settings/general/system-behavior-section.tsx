@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
@@ -30,6 +29,8 @@ import {
 } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
 
+import { FormDirtyIndicator } from '../components/form-dirty-indicator'
+import { FormNavigationGuard } from '../components/form-navigation-guard'
 import {
   SettingsForm,
   SettingsSwitchContent,
@@ -37,7 +38,7 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useResetForm } from '../hooks/use-reset-form'
+import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 const behaviorSchema = z.object({
@@ -58,30 +59,30 @@ export function SystemBehaviorSection({
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
 
-  const form = useForm({
-    resolver: zodResolver(behaviorSchema),
-    defaultValues,
-  })
-
-  useResetForm(form, defaultValues)
-
-  const onSubmit = async (data: BehaviorFormValues) => {
-    const updates = Object.entries(data).filter(
-      ([key, value]) => value !== defaultValues[key as keyof BehaviorFormValues]
-    )
-
-    for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value })
-    }
-  }
+  const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
+    useSettingsForm<BehaviorFormValues>({
+      resolver: zodResolver(behaviorSchema),
+      defaultValues,
+      agentFields: ['DefaultCollapseSidebar'],
+      onSubmit: async (_values, changed) => {
+        for (const [key, value] of Object.entries(changed)) {
+          await updateOption.mutateAsync({ key, value: value as boolean })
+        }
+      },
+    })
 
   return (
     <SettingsSection title={t('System Behavior')}>
+      <FormNavigationGuard when={isDirty} />
+      <FormDirtyIndicator isDirty={isDirty} />
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm onSubmit={handleSubmit}>
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
+            onSave={handleSubmit}
+            isSaving={isSubmitting || updateOption.isPending}
+            isSaveDisabled={!isDirty}
+            isResetDisabled={!isDirty}
+            onReset={handleReset}
           />
           <FormField
             control={form.control}

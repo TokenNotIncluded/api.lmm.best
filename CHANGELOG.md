@@ -13,10 +13,65 @@ authenticated users then see it once after their next login.
 
 <!-- Add user-facing or operational changes here before the next release. -->
 
+- The built-in assistant loads tool definitions on demand, avoids repeated
+  successful reads and duplicate chart data, and can end a run with a final
+  message without another model request. Users can continue the conversation;
+  account access, confirmations, billing and registration restrictions are
+  unchanged. Both new tools use the existing assistant policy settings.
+
+- L0 users can enable L1 through the built-in assistant without application letters
+  or a minimum conversation length. Old application todos, review and archive
+  screens, and unused review settings are removed from the Go/Web console.
+  Legacy application and archive endpoints return 410; stored history and normal
+  invitation rewards remain intact. Human support is available before activation.
+
+- The in-memory model success limiter reserves capacity while requests are in
+  flight and releases failed requests. HTTP stream and Responses WebSocket
+  outcomes determine success independently from whether a request is billable.
+- An optional, default-off Claude setting refunds eligible pre-output refusals
+  with explicit zero-output usage, retaining Anthropic's billed-category
+  exceptions. Ratio, fixed-price, tiered and tool billing share this exemption;
+  measured usage remains available in consume logs.
+- Native Seedance and Wan task adaptors use model-specific capability profiles
+  for request validation and billing, rejecting unsupported resolutions locally.
+- Responses WebSocket events preserve per-turn `stream_id` and distinguish
+  pending control errors from active response failures in Go and Rust.
+- Ollama channels can opt into OpenAI-compatible chat transport. Go retains
+  native defaults and non-chat endpoint behavior; Rust rejects unsupported
+  native chat/generate before quota reservation.
+- Tool schemas remove `required: null` across supported request protocols while
+  preserving literal schema data and retry isolation. Raw JSON request paths
+  and parameter overrides retain large JSON integers during normalization.
+
+- Go and Rust share one embedded dashboard Auth-Version marker, with CI checking
+  both backends when it changes. Existing authentication behavior is preserved.
+
+- Usage-log statistics now honor `request_id` and `upstream_request_id` filters,
+  keeping aggregate totals aligned with the filtered log list.
+
+- Usage logs hide the historical quota trend and skip its bucket queries while
+  amounts are masked, rather than plotting live RPM as historical traffic.
+  The live RPM and TPM badges remain available.
+
+- Gemini tool conversion preserves full JSON Schema constraints through
+  `parametersJsonSchema` when the legacy subset would discard them, including
+  tuple items, constrained empty objects and deep schemas. Compatible schemas
+  retain the existing normalized `parameters` representation.
+
+- The homepage now follows the selected interface language, including saved
+  Chinese preferences and runtime language changes, instead of forcing English.
+- Pricing cards and table rows show complete model names with wrapping instead
+  of ellipses. Card actions sit below the name so they no longer squeeze it.
+
 - Chat-to-Responses streams create a new reasoning or ordinary-message output
   item when content resumes after a closed segment, preserving each segment's
   ID, position, text, and closing status in the final response. Aggregate usage
   text and upstream usage accounting remain unchanged.
+
+- Chat-to-Responses streams report interrupted upstream responses as failures
+  instead of fabricated completions, preserving partial output and existing
+  usage accounting. Clean EOF after a recognized finish reason remains valid;
+  cancellation and downstream write failures do not append terminal events.
 
 - The bounty board now shows a recoverable query error instead of an empty
   project list when loading fails. Retry refreshes only the list, while cached
@@ -35,6 +90,10 @@ authenticated users then see it once after their next login.
 
 - Ollama model discovery, pull, streaming pull, deletion, and version checks now
   honor the channel's configured proxy and HTTP transport settings.
+- Scheduled Ollama model discovery now cancels a channel's fetch after 120
+  seconds by default, including responses that stall after headers.
+  Set `CHANNEL_UPSTREAM_MODEL_UPDATE_FETCH_TIMEOUT_SECONDS` to a positive number
+  to adjust the deadline. Interactive checks still follow their request context.
 
 - OpenRouter price previews omit the entire model when the derived output
   ratio overflows, avoiding a partial input-only quote.

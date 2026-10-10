@@ -17,32 +17,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { getStatus } from '@/lib/api'
+import {
+  cloneHeaderNavDefaults,
+  isHeaderNavAccessModule,
+  parseHeaderNavAccess,
+  parseHeaderNavBoolean,
+  type HeaderNavModule,
+  type HeaderNavModules,
+  type ModuleAccess,
+} from '@/lib/header-nav-config'
 import { isSidebarModuleEnabledByModules } from '@/lib/sidebar-preferences'
 
-export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
+export { parseHeaderNavBoolean } from '@/lib/header-nav-config'
+export type {
+  HeaderNavModule,
+  HeaderNavModules,
+  ModuleAccess,
+} from '@/lib/header-nav-config'
 
-export type HeaderNavModule = 'rankings' | 'pricing' | 'security'
-
-export type HeaderNavModules = {
-  home: boolean
-  console: boolean
-  pricing: ModuleAccess
-  rankings: ModuleAccess
-  security: ModuleAccess
-  docs: boolean
-  about: boolean
-  [key: string]: boolean | ModuleAccess
-}
-
-const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
-  home: true,
-  console: true,
-  pricing: { enabled: true, requireAuth: false },
-  rankings: { enabled: true, requireAuth: false },
-  security: { enabled: true, requireAuth: false },
-  docs: true,
-  about: true,
-}
+const DEFAULT_HEADER_NAV_MODULES = cloneHeaderNavDefaults()
 
 const DEFAULTS: Record<HeaderNavModule, ModuleAccess> = {
   pricing: DEFAULT_HEADER_NAV_MODULES.pricing,
@@ -50,55 +43,8 @@ const DEFAULTS: Record<HeaderNavModule, ModuleAccess> = {
   security: DEFAULT_HEADER_NAV_MODULES.security,
 }
 
-function cloneHeaderNavDefaults(): HeaderNavModules {
-  return {
-    ...DEFAULT_HEADER_NAV_MODULES,
-    pricing: { ...DEFAULT_HEADER_NAV_MODULES.pricing },
-    rankings: { ...DEFAULT_HEADER_NAV_MODULES.rankings },
-    security: { ...DEFAULT_HEADER_NAV_MODULES.security },
-  }
-}
-
-export function parseHeaderNavBoolean(
-  raw: unknown,
-  fallback: boolean
-): boolean {
-  if (typeof raw === 'boolean') return raw
-  if (typeof raw === 'number') {
-    if (raw === 1) return true
-    if (raw === 0) return false
-    return fallback
-  }
-  if (typeof raw === 'string') {
-    const normalized = raw.trim().toLowerCase()
-    if (normalized === 'true' || normalized === '1') return true
-    if (normalized === 'false' || normalized === '0') return false
-  }
-  return fallback
-}
-
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function parseAccess(raw: unknown, fallback: ModuleAccess): ModuleAccess {
-  if (
-    typeof raw === 'boolean' ||
-    typeof raw === 'number' ||
-    typeof raw === 'string'
-  ) {
-    return {
-      enabled: parseHeaderNavBoolean(raw, fallback.enabled),
-      requireAuth: fallback.requireAuth,
-    }
-  }
-  if (isUnknownRecord(raw)) {
-    return {
-      enabled: parseHeaderNavBoolean(raw.enabled, fallback.enabled),
-      requireAuth: parseHeaderNavBoolean(raw.requireAuth, fallback.requireAuth),
-    }
-  }
-  return { ...fallback }
 }
 
 function parseHeaderNavRecord(raw: unknown): Record<string, unknown> | null {
@@ -119,16 +65,12 @@ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
   if (!parsed) return result
 
   Object.entries(parsed).forEach(([key, value]) => {
-    if (key === 'pricing') {
-      result.pricing = parseAccess(value, result.pricing)
-      return
-    }
-    if (key === 'rankings') {
-      result.rankings = parseAccess(value, result.rankings)
-      return
-    }
-    if (key === 'security') {
-      result.security = parseAccess(value, result.security)
+    if (isHeaderNavAccessModule(key)) {
+      // Runtime status treats arrays as invalid access objects.
+      result[key] = parseHeaderNavAccess(
+        Array.isArray(value) ? undefined : value,
+        result[key]
+      )
       return
     }
 

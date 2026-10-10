@@ -33,11 +33,16 @@ export interface TrustLevelInfo {
   automatic_level: number
   override_level: number | null
   paid_amount: number
+  paid_credits?: string | null
+  paid_credit_projection_available?: boolean
   discount_ratio: number
   discount_percent: number
   next_level?: number | null
   next_level_paid_amount?: number | null
   amount_to_next_level?: number | null
+  next_level_paid_credits?: string | null
+  credits_to_next_level?: string | null
+  level_source?: 'role' | 'override' | 'automatic'
   next_decay_at?: number | null
   inactivity_decay_steps: number
   decay_period_days: number
@@ -47,11 +52,21 @@ export interface TrustLevelInfo {
 export interface TrustLevelTier {
   level: number
   min_paid_amount: number
+  min_paid_credits?: string
   discount_percent: number
   benefits?: string[]
   benefit_count?: number
   benefits_hidden?: boolean
   discount_hidden?: boolean
+}
+
+export interface TrustLevelRoleTier {
+  level: 5 | 6
+  role: 10 | 100
+  role_only: true
+  discount_ratio: number
+  discount_percent: number
+  benefits: string[]
 }
 
 export type OnboardingStage =
@@ -62,6 +77,7 @@ export type OnboardingStage =
 
 export interface OnboardingState {
   paid_activation_enabled?: boolean
+  paid_activation_min_credits?: string
   paid_activation_min_amount?: number
   paid_activation_complete?: boolean
   details_available?: boolean
@@ -82,6 +98,8 @@ export interface AuthUser {
   group?: string
   quota?: number
   used_quota?: number
+  normalized_used_quota?: number | null
+  usage_projection_available?: boolean
   request_count?: number
   aff_code?: string
   aff_count?: number
@@ -104,6 +122,7 @@ export interface AuthUser {
   developer_access_granted?: boolean
   trust_level_info?: TrustLevelInfo
   trust_level_tiers?: TrustLevelTier[]
+  trust_level_role_tiers?: TrustLevelRoleTier[]
   // The nested state is the current API contract. Flat fields remain optional
   // while locally running binaries transition to the nested response shape.
   onboarding?: OnboardingState
@@ -137,6 +156,8 @@ export type AuthBootstrapState = 'idle' | 'checking' | 'complete'
 interface AuthState {
   auth: {
     user: AuthUser | null
+    /** Changes whenever an authoritative account write replaces this state. */
+    accountWriteEpoch: number
     accessToken: string | null
     accessExpiresAt: number | null
     session: LoginSession | null
@@ -153,6 +174,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()((set) => ({
   auth: {
     user: null,
+    accountWriteEpoch: 0,
     accessToken: null,
     accessExpiresAt: null,
     session: null,
@@ -164,6 +186,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
         auth: {
           ...state.auth,
           user: bundle.user,
+          accountWriteEpoch: state.auth.accountWriteEpoch + 1,
           accessToken: bundle.access_token,
           accessExpiresAt: bundle.access_expires_at,
           session: bundle.session,
@@ -174,7 +197,11 @@ export const useAuthStore = create<AuthState>()((set) => ({
     setUser: (user) =>
       set((state) => ({
         ...state,
-        auth: { ...state.auth, user },
+        auth: {
+          ...state.auth,
+          user,
+          accountWriteEpoch: state.auth.accountWriteEpoch + 1,
+        },
       })),
     setPending2FAFlowToken: (pending2FAFlowToken) =>
       set((state) => ({
@@ -192,6 +219,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
         auth: {
           ...state.auth,
           user: null,
+          accountWriteEpoch: state.auth.accountWriteEpoch + 1,
           accessToken: null,
           accessExpiresAt: null,
           session: null,

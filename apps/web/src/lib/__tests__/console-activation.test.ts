@@ -80,7 +80,7 @@ describe('console activation boundary', () => {
     })
 
     assert.equal(isConsoleActivated(account), false)
-    assert.equal(getAuthenticatedLandingRoute(account), '/getting-started')
+    assert.equal(getAuthenticatedLandingRoute(account), '/wallet')
   })
 
   test('keeps activation distinct from onboarding completion', () => {
@@ -178,7 +178,7 @@ describe('console activation boundary', () => {
     )
     assert.equal(
       getAuthenticatedLandingRoute(user({ role: 10 })),
-      '/getting-started'
+      '/wallet'
     )
     assert.equal(
       getAuthenticatedLandingRoute(
@@ -204,7 +204,7 @@ describe('console activation boundary', () => {
     })
 
     assert.equal(isConsoleActivated(overridden), false)
-    assert.equal(getAuthenticatedLandingRoute(overridden), '/getting-started')
+    assert.equal(getAuthenticatedLandingRoute(overridden), '/wallet')
     assert.equal(
       isConsoleActivated(
         user({ permissions: { console_activated_at: 1720000000 } })
@@ -229,15 +229,15 @@ describe('console activation boundary', () => {
     assert.equal(isConsoleActivated(contradictory), false)
     assert.equal(
       getAuthenticatedLandingRoute(contradictory),
-      '/getting-started'
+      '/wallet'
     )
     assert.equal(isConsoleActivated(malformed), false)
-    assert.equal(getAuthenticatedLandingRoute(malformed), '/getting-started')
+    assert.equal(getAuthenticatedLandingRoute(malformed), '/wallet')
   })
 
   test('fails closed for unknown activation state', () => {
     assert.equal(isConsoleActivated(user()), false)
-    assert.equal(getAuthenticatedLandingRoute(user()), '/getting-started')
+    assert.equal(getAuthenticatedLandingRoute(user()), '/wallet')
     assert.equal(
       isConsoleActivated(
         user({
@@ -255,15 +255,20 @@ describe('console activation boundary', () => {
   })
 
   test('allows onboarding, tools and checkout before activation', () => {
-    assert.equal(isContributorRoute('/getting-started'), true)
-    assert.equal(isContributorRoute('/getting-started/request'), true)
+    assert.equal(isContributorRoute('/getting-started'), false)
+    assert.equal(isContributorRoute('/getting-started/request'), false)
     assert.equal(isContributorRoute('/wallet'), true)
     assert.equal(isContributorRoute('/wallet/'), true)
     assert.equal(isContributorRoute('/wallet/admin'), false)
     assert.equal(isContributorRoute('/tool-market'), true)
     assert.equal(isContributorRoute('/open-source-bounties'), false)
     assert.equal(isContributorRoute('/profile/security'), false)
-    assert.equal(isContributorRoute('/support'), false)
+    assert.equal(isContributorRoute('/support'), true)
+    assert.equal(isContributorRoute('/support/'), true)
+    assert.equal(isContributorRoute('/support/admin'), false)
+    assert.equal(isContributorRoute('/todos'), true)
+    assert.equal(isContributorRoute('/todos/'), true)
+    assert.equal(isContributorRoute('/todos/admin'), false)
     assert.equal(isContributorRoute('/workspace'), false)
     assert.equal(isContributorRoute('/challenges/42'), false)
     assert.equal(isContributorRoute('/models'), false)

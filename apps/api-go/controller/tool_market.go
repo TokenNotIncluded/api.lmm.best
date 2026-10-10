@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,8 @@ func toolMarketRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusNotFound, "TOOL_MARKET_NOT_FOUND", "tool market resource not found"
 	case errors.Is(err, model.ErrToolMarketInput):
 		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_INVALID_INPUT", err.Error()
+	case errors.Is(err, model.ErrToolMarketMetering):
+		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_INVALID_USAGE", err.Error()
 	case errors.Is(err, model.ErrToolMarketDenied):
 		status, code, message = http.StatusForbidden, "TOOL_MARKET_DENIED", err.Error()
 	case errors.Is(err, model.ErrToolMarketConflict):
@@ -31,7 +34,16 @@ func toolMarketRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusConflict, "TOOL_MARKET_BUDGET", err.Error()
 	case errors.Is(err, model.ErrToolMarketBalance):
 		status, code, message = http.StatusConflict, "TOOL_MARKET_BALANCE", err.Error()
-	case errors.Is(err, service.ErrMarketRemoteConnection), errors.Is(err, service.ErrMarketRemoteAuth), errors.Is(err, service.ErrMarketRemoteNetwork):
+	case errors.Is(err, model.ErrToolMarketCredentialUnavailable):
+		status, code, message = http.StatusServiceUnavailable, "TOOL_MARKET_CREDENTIALS_UNAVAILABLE", "secure tool market credential storage is unavailable"
+	case errors.Is(err, marketprovider.ErrVariablePrice):
+		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_VARIABLE_PRICE", err.Error()
+	case errors.Is(err, marketprovider.ErrPrice):
+		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_PROVIDER_PRICE", "upstream USD pricing is unavailable, unsupported, or does not cover the platform fee"
+	case errors.Is(err, service.ErrMarketRemoteAuth):
+		// An upstream 401 does not mean the caller's LMM session expired.
+		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_REMOTE_AUTH", "the remote MCP service rejected its configured credential"
+	case errors.Is(err, service.ErrMarketRemoteConnection), errors.Is(err, service.ErrMarketRemoteNetwork):
 		status, code, message = http.StatusUnprocessableEntity, "TOOL_MARKET_REMOTE_CONNECTION", err.Error()
 	case errors.Is(err, service.ErrMarketRemoteSchema), errors.Is(err, service.ErrMarketRemoteChanged):
 		status, code, message = http.StatusConflict, "TOOL_MARKET_REMOTE_CHANGED", err.Error()
@@ -69,6 +81,9 @@ func ListToolMarket(c *gin.Context) {
 
 func GetToolMarket(c *gin.Context) {
 	detail, err := model.GetToolMarketDetail(c.GetInt("id"), c.Param("id"), false)
+	if err == nil {
+		detail, err = walletCurrentCatalogPresentation(c.Request.Context(), detail)
+	}
 	toolMarketRespond(c, detail, err)
 }
 
@@ -85,6 +100,10 @@ func SaveToolMarketDraft(c *gin.Context) {
 	}
 	service, err := model.SaveToolMarketDraft(c.GetInt("id"), c.Param("id"), input)
 	toolMarketRespond(c, service, err)
+}
+
+func DeleteToolMarketService(c *gin.Context) {
+	toolMarketRespond(c, nil, model.DeleteToolMarketService(c.GetInt("id"), c.Param("id")))
 }
 
 func SubmitToolMarketDraft(c *gin.Context) {
@@ -109,6 +128,8 @@ func ReviewToolMarketDraft(c *gin.Context) {
 		return
 	}
 	if input.Approve {
+		// Approval always revalidates the remote snapshot, including when an
+		// administrator or root user is also the publisher.
 		if err := service.ValidateToolMarketRemote(c.Request.Context(), c.GetInt("id"), c.Param("id"), true); err != nil {
 			toolMarketRespond(c, nil, err)
 			return
@@ -196,11 +217,33 @@ func SetToolMarketConfig(c *gin.Context) {
 	toolMarketRespond(c, nil, model.SetToolMarketConfig(c.GetInt("id"), input))
 }
 
-func ListToolMarketAccountResources(c *gin.Context) {
+func ReportToolMarketCall(c *gin.Context) {
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	if c.ShouldBindJSON(&input) != nil {
+		toolMarketRespond(c, nil, model.ErrToolMarketInput)
+		return
+	}
+	report, err := model.ReportToolMarketCall(c.GetInt("id"), c.Param("id"), input.Reason)
+	toolMarketRespond(c, report, err)
+}
+func ListToolMarketReports(c *gin.Context) {
 	offset, limit, ok := toolMarketPage(c)
 	if !ok {
 		return
 	}
-	rows, err := model.ListToolMarketAccountResources(c.GetInt("id"), c.Param("kind"), offset, limit)
+	rows, err := model.ListToolMarketReports(c.GetInt("id"), offset, limit)
 	toolMarketRespond(c, rows, err)
+}
+func ReviewToolMarketReport(c *gin.Context) {
+	var input struct {
+		Confirmed *bool  `json:"confirmed"`
+		Note      string `json:"note"`
+	}
+	if c.ShouldBindJSON(&input) != nil || input.Confirmed == nil {
+		toolMarketRespond(c, nil, model.ErrToolMarketInput)
+		return
+	}
+	toolMarketRespond(c, nil, model.ReviewToolMarketReport(c.GetInt("id"), c.Param("id"), *input.Confirmed, input.Note))
 }

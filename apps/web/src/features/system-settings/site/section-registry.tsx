@@ -42,6 +42,18 @@ const SidebarModulesSection = lazyNamedSection(
   () => import('../maintenance/sidebar-modules-section'),
   'SidebarModulesSection'
 )
+const AIDirectorySection = lazyNamedSection(
+  () => import('./ai-directory-section'),
+  'AIDirectorySection'
+)
+const RSSFeedsSection = lazyNamedSection(
+  () => import('./rss-feeds-section'),
+  'RSSFeedsSection'
+)
+const AIDirectoryAdsSection = lazyNamedSection(
+  () => import('./ai-directory-ads-section'),
+  'AIDirectoryAdsSection'
+)
 
 const SITE_SECTIONS = [
   {
@@ -61,6 +73,8 @@ const SITE_SECTIONS = [
             privacy_policy: settings['legal.privacy_policy'],
             user_agreement_en: settings['legal.user_agreement_en'],
             privacy_policy_en: settings['legal.privacy_policy_en'],
+            refund_policy: settings['legal.refund_policy'],
+            refund_policy_en: settings['legal.refund_policy_en'],
           },
         }}
       />
@@ -102,6 +116,25 @@ const SITE_SECTIONS = [
         />
       )
     },
+  },
+  {
+    id: 'ai-directory',
+    titleKey: 'AI directory',
+    build: (settings: SiteSettings) => (
+      <AIDirectorySection initialValue={settings.AIDirectoryLinks} />
+    ),
+  },
+  {
+    id: 'rss',
+    titleKey: 'RSS',
+    build: (settings: SiteSettings) => (
+      <RSSFeedsSection initialValue={settings.RSSFeeds} />
+    ),
+  },
+  {
+    id: 'ai-directory-ads',
+    titleKey: 'Advertisement moderation',
+    build: () => <AIDirectoryAdsSection />,
   },
 ] as const
 

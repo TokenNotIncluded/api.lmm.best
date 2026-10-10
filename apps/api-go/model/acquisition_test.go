@@ -49,11 +49,6 @@ func TestAcquisitionRegistrationIsIdempotentAndDoesNotTransferAccounts(t *testin
 	db := acquisitionDB(t)
 	ctx := context.Background()
 	visitor := AcquisitionVisitorHash("visitor")
-	now := time.Now().Unix()
-	first := User{Username: "one", AffCode: "one", CreatedAt: now}
-	second := User{Username: "two", AffCode: "two", CreatedAt: now}
-	require.NoError(t, db.Create(&first).Error)
-	require.NoError(t, db.Create(&second).Error)
 	link, err := SaveAcquisitionLink(ctx, AcquisitionLink{Name: "Readme", Source: "github", Campaign: "launch", Target: "/guide"})
 	require.NoError(t, err)
 	input := AcquisitionInput{Consent: true, Nonce: strings.Repeat("b", 32), Landing: "/guide", LinkID: link.ID, Referrer: "https://forum.example/post/5"}
@@ -62,6 +57,12 @@ func TestAcquisitionRegistrationIsIdempotentAndDoesNotTransferAccounts(t *testin
 	b, err := ObserveAcquisition(ctx, visitor, 0, input, nil)
 	require.NoError(t, err)
 	require.Equal(t, a.ID, b.ID)
+	// Anonymous arrival precedes registration. Use its timestamp explicitly so
+	// crossing a wall-clock second during setup cannot make it a later visit.
+	first := User{Username: "one", AffCode: "one", CreatedAt: a.CreatedAt}
+	second := User{Username: "two", AffCode: "two", CreatedAt: a.CreatedAt}
+	require.NoError(t, db.Create(&first).Error)
+	require.NoError(t, db.Create(&second).Error)
 	require.NoError(t, AttributeAcquisitionRegistration(ctx, first.Id, visitor))
 	require.NoError(t, AttributeAcquisitionRegistration(ctx, first.Id, visitor))
 	var account AcquisitionAccount
@@ -81,6 +82,41 @@ func TestAcquisitionRegistrationIsIdempotentAndDoesNotTransferAccounts(t *testin
 	require.NoError(t, err)
 	require.Equal(t, "github", saved.Source)
 }
+
+func TestAcquisitionRegistrationUsesOnlyVisitsThroughRegistration(t *testing.T) {
+	const registeredAt int64 = 1791154497
+	for _, test := range []struct {
+		name   string
+		delta  int64
+		source string
+	}{
+		{"before registration", -1, "github"},
+		{"at registration", 0, "github"},
+		{"after registration", 1, "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := acquisitionDB(t)
+			visitor := AcquisitionVisitor{ID: AcquisitionVisitorHash(test.name), CreatedAt: registeredAt - 1}
+			require.NoError(t, db.Create(&visitor).Error)
+			visit := AcquisitionVisit{VisitorID: visitor.ID, Nonce: strings.Repeat("f", 32), Source: "github", Evidence: "promotion_link", Landing: "/guide", CreatedAt: registeredAt + test.delta}
+			require.NoError(t, db.Create(&visit).Error)
+			user := User{Username: "boundary", AffCode: "boundary", CreatedAt: registeredAt}
+			require.NoError(t, db.Create(&user).Error)
+			require.NoError(t, AttributeAcquisitionRegistration(context.Background(), user.Id, visitor.ID))
+			var account AcquisitionAccount
+			require.NoError(t, db.First(&account, user.Id).Error)
+			require.Equal(t, test.source, account.RegistrationSource)
+			if test.source == "github" {
+				require.Equal(t, visit.ID, account.RegistrationVisitID)
+				require.Equal(t, "promotion_link", account.RegistrationEvidence)
+			} else {
+				require.Zero(t, account.RegistrationVisitID)
+				require.Zero(t, account.FirstVisitID)
+			}
+		})
+	}
+}
+
 func TestAcquisitionReportSeparatesCurrenciesAndExcludesGifts(t *testing.T) {
 	db := acquisitionDB(t)
 	now := time.Now().Unix()

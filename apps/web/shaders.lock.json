@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "shaders": {
+    "4740184": {
+      "title": "Forge Ambient",
+      "component": "ForgeAmbient",
+      "file": "src/components/shaders/generated/ForgeAmbient.tsx",
+      "framework": "react",
+      "hash": "sha256:82fd256a4ada08cb0c3602f9de4fed80291e070ad58e6cb614e889a6ddec021c",
+      "updatedAt": "2026-10-06T18:55:25.136914+00:00",
+      "installedAt": "2026-10-06T18:59:57.130Z"
+    }
+  }
+}

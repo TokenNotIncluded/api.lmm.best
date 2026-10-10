@@ -23,7 +23,12 @@ const origin = 'http://127.0.0.1:4174'
 const output = process.env.CONSOLE_REVIEW_OUTPUT
 if (!output) throw new Error('CONSOLE_REVIEW_OUTPUT is required')
 await mkdir(output, { recursive: true })
-const browser = await chromium.launch({ headless: true })
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.env.PLAYWRIGHT_CHROME_EXECUTABLE
+    ? { executablePath: process.env.PLAYWRIGHT_CHROME_EXECUTABLE }
+    : {}),
+})
 const report = []
 
 async function capture(page, route, name, errors) {

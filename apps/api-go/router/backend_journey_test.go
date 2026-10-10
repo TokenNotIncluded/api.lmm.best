@@ -18,11 +18,11 @@ import (
 // Uses real registered handlers, a real dashboard session and an isolated DB.
 // Payment evidence is synthetic: no provider, SMTP or model request is sent.
 func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
+	installRouterCurrencyFixture(t)
 	db := setupOpenSourceBountyAccessRouterTest(t)
 	require.NoError(t, db.AutoMigrate(&model.UserSession{}, &model.TopUp{}, &model.Token{}, &model.Checkin{}, &model.Log{}))
 	oldLogDB, oldSecret := model.LOG_DB, common.SessionSecret
 	oldGlobal, oldCritical, oldTurnstile := common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.TurnstileCheckEnabled
-	oldQuota := common.QuotaPerUnit
 	oldLocal := model.LocalAcceptanceDeveloperAccessEnabled()
 	access := operation_setting.GetDeveloperAccessSetting()
 	oldAccess := *access
@@ -32,7 +32,6 @@ func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
 	oldPayment := *payment
 	model.LOG_DB, common.SessionSecret = db, "isolated-backend-journey-session-test"
 	common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.TurnstileCheckEnabled = false, false, false
-	common.QuotaPerUnit = 500000
 	model.SetLocalAcceptanceDeveloperAccess(false)
 	access.PaidActivationEnabled, access.PaidActivationMinAmount = true, 1
 	payment.ComplianceConfirmed = false
@@ -40,7 +39,6 @@ func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
 	t.Cleanup(func() {
 		model.LOG_DB, common.SessionSecret = oldLogDB, oldSecret
 		common.GlobalApiRateLimitEnable, common.CriticalRateLimitEnable, common.TurnstileCheckEnabled = oldGlobal, oldCritical, oldTurnstile
-		common.QuotaPerUnit = oldQuota
 		model.SetLocalAcceptanceDeveloperAccess(oldLocal)
 		*access, *checkin, *payment = oldAccess, oldCheckin, oldPayment
 	})
@@ -52,8 +50,18 @@ func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
 	require.NoError(t, err)
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
+	var observedUserID int
+	var observedPaymentUser *model.User
+	engine.Use(func(c *gin.Context) {
+		c.Next()
+		observedUserID = c.GetInt("id")
+		if value, ok := c.Get("payment_user"); ok {
+			observedPaymentUser, _ = value.(*model.User)
+		}
+	})
 	SetApiRouter(engine)
 	request := func(method, path, body string, authenticated bool) *httptest.ResponseRecorder {
+		observedUserID, observedPaymentUser = 0, nil
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		if authenticated {
@@ -83,6 +91,50 @@ func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
 		assert.Equal(t, http.StatusRequestEntityTooLarge, res.Code, path+": "+res.Body.String())
 		assert.Equal(t, http.StatusUnauthorized, request(http.MethodPost, path, `{}`, false).Code, path)
 	}
+	// Discover the real assembled routes so new currency checkout registrations
+	// cannot silently drift away from the pre-activation access boundary.
+	var currencyPaths []string
+	for _, route := range engine.Routes() {
+		if strings.HasPrefix(route.Path, "/api/user/topup/currency/") {
+			require.Equal(t, http.MethodPost, route.Method, route.Path)
+			currencyPaths = append(currencyPaths, route.Path)
+		}
+	}
+	require.Len(t, currencyPaths, 18)
+	for _, path := range currencyPaths {
+		t.Run("L0 currency checkout "+path, func(t *testing.T) {
+			// An invalid denomination is rejected by the registered credit parser,
+			// after the console gate, UserAuth and the payment audience load.
+			res := request(http.MethodPost, path, `{}`, true)
+			require.Equal(t, http.StatusBadRequest, res.Code, res.Body.String())
+			require.Equal(t, user.Id, observedUserID)
+			if strings.HasSuffix(path, "/discount-code/validate") {
+				assert.Nil(t, observedPaymentUser, "discount validation remains user-scoped")
+			} else {
+				require.NotNil(t, observedPaymentUser, "the real payment gate must still run")
+				assert.Equal(t, user.Id, observedPaymentUser.Id)
+			}
+			oversized := `{"padding":"` + strings.Repeat("x", topUpMutationRequestMaxBytes) + `"}`
+			assert.Equal(t, http.StatusRequestEntityTooLarge, request(http.MethodPost, path, oversized, true).Code)
+			assert.Equal(t, http.StatusUnauthorized, request(http.MethodPost, path, `{}`, false).Code)
+			assert.Zero(t, observedUserID)
+			assert.Nil(t, observedPaymentUser, "anonymous requests must not reach payment access")
+			for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+				assert.Equal(t, http.StatusNotFound, request(method, path, "", true).Code, method)
+				assert.Zero(t, observedUserID)
+				assert.Nil(t, observedPaymentUser)
+			}
+		})
+	}
+	for _, path := range []string{
+		"/api/user/topup", "/api/user/topup/currency", "/api/user/topup/currency/v2",
+		"/api/user/topup/currency/amount/extra", "/api/user/topup/currency/v2/pay/extra",
+		"/api/user/topup/currency/v3/amount", "/api/user/topup/currency/v2/topup/complete",
+	} {
+		assert.Equal(t, http.StatusNotFound, request(http.MethodPost, path, `{}`, true).Code, path)
+		assert.Zero(t, observedUserID)
+		assert.Nil(t, observedPaymentUser)
+	}
 	email := request(http.MethodPost, "/api/verify/email", "{}", true)
 	assert.Equal(t, http.StatusUnprocessableEntity, email.Code, email.Body.String())
 	assert.Equal(t, "SECURITY_EMAIL_REQUIRED", decode(email)["code"])
@@ -106,7 +158,7 @@ func TestBackendJourneyL0CheckoutSettlementKeyAndDailyCheckin(t *testing.T) {
 	info = request(http.MethodGet, "/api/user/topup/info", "", true)
 	require.Equal(t, http.StatusOK, info.Code, info.Body.String())
 	assert.Contains(t, info.Body.String(), `"developer_access_granted":true`)
-	key := request(http.MethodPost, "/api/token/", `{"name":"journey-first-key","expired_time":-1,"unlimited_quota":true,"group":"","one_time_reveal":true}`, true)
+	key := request(http.MethodPost, "/api/token/", `{"name":"journey-first-key","expired_time":-1,"unlimited_quota":true,"group":"default","one_time_reveal":true}`, true)
 	require.Equal(t, http.StatusOK, key.Code, key.Body.String())
 	require.Equal(t, true, decode(key)["success"], key.Body.String())
 	var tokenCount int64

@@ -20,7 +20,11 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AccountStatus } from '@/features/onboarding/account-status'
+import { isConsoleActivated } from '@/lib/console-activation'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ApiBaseUrl } from './components/api-base-url'
 import { ApiKeysDialogs } from './components/api-keys-dialogs'
@@ -32,10 +36,27 @@ import type { ApiKeyCreationMode } from './types'
 
 export function ApiKeys() {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
   const [creationMode, setCreationMode] = useState<ApiKeyCreationMode>('manual')
+  // Keep this explanation reachable without mounting key queries or actions.
+  // A balance, role or local onboarding flag must not grant API access.
+  if (!isConsoleActivated(user)) {
+    return (
+      <SectionPageLayout>
+        <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
+        <SectionPageLayout.Content>
+          <AccountStatus showRequestDetails />
+          <Button variant='outline' render={<a href='/wallet' />}>
+            {t('Wallet')}
+          </Button>
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+    )
+  }
+
   return (
     <ApiKeysProvider>
-      <SectionPageLayout fixedContent>
+      <SectionPageLayout>
         <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           {creationMode === 'manual' ? <ApiKeysPrimaryButtons /> : null}
@@ -48,15 +69,22 @@ export function ApiKeys() {
               setCreationMode(value as ApiKeyCreationMode)
             }
           >
-            <TabsList aria-label={t('API key creation mode')}>
+            <TabsList
+              variant='navigation'
+              aria-label={t('API key creation mode')}
+            >
               <TabsTrigger value='manual'>{t('Manual creation')}</TabsTrigger>
               <TabsTrigger value='automatic'>
                 {t('Automatic creation')}
               </TabsTrigger>
             </TabsList>
             <TabsContent value={creationMode} className='pt-3'>
-              {creationMode === 'automatic' ? <AutomaticApiKeyActions /> : null}
               <ApiKeysTable creationMode={creationMode} />
+              {creationMode === 'automatic' ? (
+                <div className='mt-5'>
+                  <AutomaticApiKeyActions />
+                </div>
+              ) : null}
             </TabsContent>
           </Tabs>
         </SectionPageLayout.Content>

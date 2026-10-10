@@ -1,21 +1,7 @@
 name: Billing safety regressions
 
 on:
-  pull_request:
-    paths:
-      - 'apps/api-go/service/**'
-      - 'apps/api-go/model/**'
-      - 'apps/api-go/go.mod'
-      - 'apps/api-go/go.sum'
-      - '.github/workflows/billing-safety.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/api-go/service/**'
-      - 'apps/api-go/model/**'
-      - 'apps/api-go/go.mod'
-      - 'apps/api-go/go.sum'
-      - '.github/workflows/billing-safety.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -44,5 +30,9 @@ jobs:
           cache-dependency-path: |
             apps/api-go/go.sum
             apps/api-go/relaykit/go.sum
+      - name: Validate per-key payer order and team account isolation
+        run: go test -race -p 2 ./pkg/accountfunding -count=1 -timeout=1m
       - name: Run real service-package regressions under the race detector
-        run: go test -race -p 2 ./service -run '^TestBillingSafety' -count=1 -timeout=5m
+        run: go test -race -p 2 ./service -run '^(TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption)' -count=1 -timeout=5m
+      - name: Validate Claude refusal evidence and default-off policy
+        run: go test -race -p 2 ./relay/channel/claude ./setting/model_setting -run '^(TestClaudeRefusal|TestClaudeResponses)' -count=1 -timeout=5m

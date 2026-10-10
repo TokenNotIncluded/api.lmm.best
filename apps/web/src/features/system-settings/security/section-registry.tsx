@@ -49,7 +49,39 @@ const IPAccessRoutingSection = lazyNamedSection(
   'IPAccessRoutingSection'
 )
 
+const ModerationSettingsSection = lazyNamedSection(
+  () => import('./moderation-settings-section'),
+  'ModerationSettingsSection'
+)
+
+const MarketAIReviewSettingsSection = lazyNamedSection(
+  () => import('@/features/market-ai-review/settings'),
+  'MarketAIReviewSettingsSection'
+)
+
 const SECURITY_SECTIONS = [
+  {
+    id: 'market-ai-review',
+    titleKey: 'Market AI first review',
+    build: () => <MarketAIReviewSettingsSection />,
+  },
+  {
+    id: 'moderation',
+    titleKey: 'Content safety review',
+    build: (settings: SecuritySettings) => (
+      <ModerationSettingsSection
+        defaultValues={{
+          ModerationEnabled: settings.ModerationEnabled,
+          ModerationPolicyScope: settings.ModerationPolicyScope,
+          ModerationSafetyIdentifierEnabled:
+            settings.ModerationSafetyIdentifierEnabled,
+          ModerationGroup: settings.ModerationGroup,
+          ModerationModel: settings.ModerationModel,
+          ModerationGroupPolicies: settings.ModerationGroupPolicies,
+        }}
+      />
+    ),
+  },
   {
     id: 'rate-limit',
     titleKey: 'Rate Limiting',
@@ -82,18 +114,8 @@ const SECURITY_SECTIONS = [
   },
   {
     id: 'advanced-security',
-    titleKey: 'Advanced Security',
-    build: (settings: SecuritySettings) => (
-      <AdvancedSecuritySection
-        defaultValues={{
-          AdvancedSecurityEnabled: settings.AdvancedSecurityEnabled,
-          AdvancedSecurityOnPromptEnabled:
-            settings.AdvancedSecurityOnPromptEnabled,
-          AdvancedSecurityAction: settings.AdvancedSecurityAction,
-          AdvancedSecurityRules: settings.AdvancedSecurityRules,
-        }}
-      />
-    ),
+    titleKey: 'Safety audit and business overview',
+    build: () => <AdvancedSecuritySection />,
   },
   {
     id: 'ip-access-routing',

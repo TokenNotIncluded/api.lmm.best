@@ -16,20 +16,52 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import {
+  createFileRoute,
+  Outlet,
+  redirect,
+  useRouterState,
+} from '@tanstack/react-router'
 
 import { AuthenticatedLayout } from '@/components/layout'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import {
   isConsoleActivated,
   isContributorRoute,
 } from '@/lib/console-activation'
+import { isPublicDirectoryPath } from '@/lib/public-directory-route'
 import { useAuthStore } from '@/stores/auth-store'
+
+function DirectoryAwareLayout() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
+
+  if (isPublicDirectoryPath(pathname)) {
+    return (
+      <ForgePublicShell>
+        <div className='mx-auto w-full max-w-7xl py-6 sm:py-10'>
+          <Outlet />
+        </div>
+      </ForgePublicShell>
+    )
+  }
+
+  return <AuthenticatedLayout />
+}
 
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: ({ location }) => {
+    // Keep the existing route ID, but expose only the directory itself.
+    // All other routes and directory descendants retain the original guards.
+    if (isPublicDirectoryPath(location.pathname)) return
+
     const { auth } = useAuthStore.getState()
 
     if (!auth.user || !auth.accessToken) {
+      if (auth.bootstrapState !== 'complete') {
+        throw new Error('Authentication could not be checked. Please retry.')
+      }
       throw redirect({
         to: '/sign-in',
         search: { redirect: location.href },
@@ -40,8 +72,8 @@ export const Route = createFileRoute('/_authenticated')({
       !isConsoleActivated(auth.user) &&
       !isContributorRoute(location.pathname)
     ) {
-      throw redirect({ to: '/getting-started' })
+      throw redirect({ to: '/wallet', replace: true })
     }
   },
-  component: AuthenticatedLayout,
+  component: DirectoryAwareLayout,
 })

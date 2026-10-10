@@ -136,6 +136,7 @@ impl State {
                 | "response.failed"
                 | "response.cancelled"
                 | "response.canceled"
+                | "error"
         );
         if terminal
             && (matches!(
@@ -144,6 +145,7 @@ impl State {
                     | "response.failed"
                     | "response.cancelled"
                     | "response.canceled"
+                    | "error"
             ) || value
                 .pointer("/response/status")
                 .and_then(Value::as_str)

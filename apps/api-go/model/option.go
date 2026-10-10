@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
@@ -18,6 +20,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/system_setting"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Option struct {
@@ -37,7 +40,13 @@ func isRetiredIPAccessOptionKey(key string) bool {
 	return retired
 }
 
-func isRetiredDynamicPricingOption(key string) bool {
+func isRetiredConfigurationOption(key string) bool {
+	switch key {
+	case "AdvancedSecurityEnabled", "AdvancedSecurityOnPromptEnabled", "AdvancedSecurityAction", "AdvancedSecurityRules", "violation_fee.enabled", "violation_fee.policies":
+		return true
+	case "AssistantReviewEnabled", "AssistantReviewWindowDays", "AssistantReviewIntervalHours", "AssistantReviewProbability", "AssistantReviewGroup", "AssistantReviewModel", "AssistantReviewReasoningEffort", "AssistantReviewGroupPolicies":
+		return true
+	}
 	return key == "dynamic_pricing_setting" || strings.HasPrefix(key, "dynamic_pricing_setting.")
 }
 
@@ -47,7 +56,7 @@ func AllOption() ([]*Option, error) {
 	err = DB.Find(&options).Error
 	active := options[:0]
 	for _, option := range options {
-		if !isRetiredDynamicPricingOption(option.Key) {
+		if !isRetiredConfigurationOption(option.Key) {
 			active = append(active, option)
 		}
 	}
@@ -55,6 +64,8 @@ func AllOption() ([]*Option, error) {
 }
 
 func InitOptionMap() {
+	optionUpdateMutex.Lock()
+	defer optionUpdateMutex.Unlock()
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
 	common.OptionMap[AssistantRegistrationAutoSuspendOption] = "true"
@@ -161,6 +172,7 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantStreamEnabledOptionKey] = strconv.FormatBool(assistantSettings.StreamEnabled)
 	common.OptionMap[setting.AssistantTemperatureOptionKey] = strconv.FormatFloat(assistantSettings.Temperature, 'f', -1, 64)
 	common.OptionMap[setting.AssistantMaxTokensOptionKey] = strconv.Itoa(assistantSettings.MaxTokens)
+	common.OptionMap[setting.AssistantNewUserGiftMaxCreditsOptionKey] = assistantSettings.NewUserGiftMaxCredits
 	common.OptionMap[setting.AssistantWeeklyCreditUSDOptionKey] = "0"
 	common.OptionMap[setting.AssistantAgentLoopEnabledOptionKey] = strconv.FormatBool(assistantSettings.AgentLoopEnabled)
 	common.OptionMap[setting.AssistantMaxStepsOptionKey] = strconv.Itoa(assistantSettings.MaxSteps)
@@ -176,14 +188,10 @@ func InitOptionMap() {
 	common.OptionMap[setting.AssistantSearchMCPToolOptionKey] = assistantSettings.SearchMCPTool
 	common.OptionMap[setting.AssistantSkillsOptionKey] = assistantSettings.Skills
 	common.OptionMap[setting.AssistantSkillFilesOptionKey] = setting.AssistantSkillFilesJSON(assistantSettings.SkillFiles)
-	common.OptionMap[setting.AssistantReviewEnabledOptionKey] = strconv.FormatBool(assistantSettings.ReviewEnabled)
-	common.OptionMap[setting.AssistantReviewWindowDaysOptionKey] = strconv.Itoa(assistantSettings.ReviewWindowDays)
-	common.OptionMap[setting.AssistantReviewIntervalHoursOptionKey] = strconv.Itoa(assistantSettings.ReviewIntervalHours)
-	common.OptionMap[setting.AssistantReviewProbabilityOptionKey] = strconv.FormatFloat(assistantSettings.ReviewProbability, 'f', -1, 64)
-	common.OptionMap[setting.AssistantReviewGroupOptionKey] = assistantSettings.ReviewGroup
-	common.OptionMap[setting.AssistantReviewModelOptionKey] = assistantSettings.ReviewModel
-	common.OptionMap[setting.AssistantReviewReasoningEffortOptionKey] = assistantSettings.ReviewReasoningEffort
-	common.OptionMap[setting.AssistantReviewGroupPoliciesOptionKey] = setting.AssistantReviewGroupPoliciesJSON(assistantSettings.ReviewGroupPolicies)
+	common.OptionMap[setting.AssistantToolPolicyOptionKey] = assistantSettings.ToolPolicy
+	for key, value := range setting.GetModerationSettings().OptionValues() {
+		common.OptionMap[key] = value
+	}
 	common.OptionMap[setting.AssistantRetentionEnabledOptionKey] = strconv.FormatBool(assistantSettings.RetentionEnabled)
 	common.OptionMap[setting.AssistantActiveRetentionDaysOptionKey] = strconv.Itoa(assistantSettings.ActiveRetentionDays)
 	common.OptionMap[setting.AssistantArchivedRetentionDaysOptionKey] = strconv.Itoa(assistantSettings.ArchivedRetentionDays)
@@ -247,11 +255,6 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
-	advancedSecuritySettings := setting.GetAdvancedSecuritySettings()
-	common.OptionMap[setting.AdvancedSecurityEnabledOptionKey] = strconv.FormatBool(advancedSecuritySettings.Enabled)
-	common.OptionMap[setting.AdvancedSecurityOnPromptOptionKey] = strconv.FormatBool(advancedSecuritySettings.OnPrompt)
-	common.OptionMap[setting.AdvancedSecurityActionOptionKey] = advancedSecuritySettings.Action
-	common.OptionMap[setting.AdvancedSecurityRulesOptionKey] = setting.AdvancedSecurityRulesToJSONString()
 	antiRelaySettings := setting.GetAntiRelaySettings()
 	common.OptionMap[setting.AntiRelayEnabledOptionKey] = strconv.FormatBool(antiRelaySettings.Enabled)
 	common.OptionMap[setting.AntiRelayRejectProxyHeadersOptionKey] = strconv.FormatBool(antiRelaySettings.RejectProxyHeaders)
@@ -265,36 +268,27 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	common.OptionMap["ExposeRatioEnabled"] = strconv.FormatBool(ratio_setting.IsExposeRatioEnabled())
 
+	common.OptionMap[TrustLevelBenefitsOptionKey] = ""
+
 	// 自动添加所有注册的模型配置
 	modelConfigs := config.GlobalConfig.ExportAllConfigs()
 	for k, v := range modelConfigs {
 		common.OptionMap[k] = v
 	}
 
+	optionDefaultValues = make(map[string]string, len(common.OptionMap))
+	for key, value := range common.OptionMap {
+		optionDefaultValues[key] = value
+	}
 	common.OptionMapRWMutex.Unlock()
-	loadOptionsFromDatabase()
+	if _, err := refreshOptionsSnapshotLocked(context.Background()); err != nil {
+		common.SysLog("failed to load option map: " + err.Error())
+	}
 }
 
 func loadOptionsFromDatabase() {
-	optionUpdateMutex.Lock()
-	defer optionUpdateMutex.Unlock()
-	options, err := AllOption()
-	if err != nil {
+	if _, err := RefreshOptionsSnapshot(context.Background()); err != nil {
 		common.SysLog("failed to load option map: " + err.Error())
-		return
-	}
-	l1Values := setting.DefaultAssistantL1AutoReviewSettings().OptionValues()
-	for _, option := range options {
-		if setting.IsAssistantL1AutoReviewOption(option.Key) {
-			l1Values[option.Key] = option.Value
-			continue
-		}
-		if err := updateOptionMap(option.Key, option.Value); err != nil {
-			common.SysLog("failed to update option map: " + err.Error())
-		}
-	}
-	if err := applyAssistantL1AutoReviewOptionMap(l1Values); err != nil {
-		common.SysLog("failed to update L1 automatic review settings: " + err.Error())
 	}
 }
 
@@ -314,12 +308,61 @@ func SyncOptionsContext(ctx context.Context, frequency int) {
 			return
 		case <-ticker.C:
 			common.SysLog("syncing options from database")
-			loadOptionsFromDatabase()
+			if _, err := RefreshOptionsSnapshot(ctx); err != nil && ctx.Err() == nil {
+				common.SysLog("failed to sync option map: " + err.Error())
+			}
 		}
 	}
 }
 
 func validateOptionValue(key string, value string) error {
+	if err := setting.ValidateServiceTierOption(key, value); err != nil {
+		return err
+	}
+	if key == MerchantStoreAnalyticsRetentionOption {
+		_, err := ParseMerchantStoreAnalyticsConfig(value)
+		return err
+	}
+	if storeReservedWriterOptionKey(key) {
+		return ErrMerchantStoreWriterGateReserved
+	}
+	if key == MerchantStoreProductLinkPresetsOption {
+		_, err := parseStoreLinkPresets(value)
+		return err
+	}
+	if key == TrustLevelBenefitsOptionKey {
+		_, err := ParseTrustLevelConfiguration(value)
+		return err
+	}
+	if key == "payment_setting.amount_options" || key == "payment_setting.amount_discount" {
+		return operation_setting.ValidatePaymentCatalogJSON(key, value, operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens)
+	}
+	if setting.IsMarketAIReviewOption(key) {
+		return setting.ValidateMarketAIReviewMode(value)
+	}
+	if key == operation_setting.InviteRegistrationEnabledOptionKey && value != "true" && value != "false" {
+		return errors.New("invite registration activation must be true or false")
+	}
+	if key == "QuotaPerUnit" {
+		_, err := parseFixedCreditRate(key, value)
+		return err
+	}
+	if key == PublicCreditsPerUSDOptionKey {
+		_, err := parsePublicCreditRate(value)
+		return err
+	}
+	if key == CreditsPerUSDOptionKey || key == LegacyPricingQuotaPerUnitOptionKey {
+		return errors.New("credit/USD conversion is immutable: 1 USD = 500000 credits")
+	}
+	if setting.IsModerationOption(key) {
+		return validateModerationOptionValues(DB, map[string]string{key: value})
+	}
+	if key == AIDirectoryLinksOptionKey {
+		return ValidateAIDirectoryLinks(value)
+	}
+	if key == RSSFeedsOptionKey {
+		return ValidateRSSFeeds(value)
+	}
 	if err := validateReferralOption(key, value); err != nil {
 		return err
 	}
@@ -342,8 +385,8 @@ func validateOptionValue(key string, value string) error {
 	if key == "general_setting.custom_currency_code" {
 		return operation_setting.ValidateCustomCurrencyCode(value)
 	}
-	if isRetiredDynamicPricingOption(key) {
-		return errors.New("dynamic pricing has been removed; use fixed group ratios")
+	if isRetiredConfigurationOption(key) {
+		return errors.New("this configuration option has been removed")
 	}
 	if err := setting.ValidateAssistantOption(key, value); err != nil {
 		return err
@@ -359,21 +402,6 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == setting.AssistantGroupOptionKey && !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
 		return errors.New("assistant routing group must be an existing group")
-	}
-	if key == setting.AssistantReviewModelOptionKey {
-		group := strings.TrimSpace(setting.GetAssistantSettings().ReviewGroup)
-		if group == "" {
-			group = setting.DefaultAssistantReviewGroup
-		}
-		if !IsModelEnabledForGroup(group, strings.TrimSpace(value)) {
-			return fmt.Errorf("assistant review model is not enabled in the %s group; choose a live model from the model list", group)
-		}
-	}
-	if key == setting.AssistantReviewGroupOptionKey && !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
-		return errors.New("assistant review routing group must be an existing group")
-	}
-	if err := setting.ValidateAdvancedSecurityOption(key, value); err != nil {
-		return err
 	}
 	if err := setting.ValidateAntiRelayOption(key, value); err != nil {
 		return err
@@ -407,9 +435,6 @@ func validateOptionValue(key string, value string) error {
 	if key == "GroupGroupRatio" {
 		return ratio_setting.CheckGroupGroupRatio(value)
 	}
-	if key == operation_setting.ViolationFeeOptionKey+".policies" {
-		return operation_setting.ValidateViolationFeeSettingsJSON(`{"enabled":true,"policies":` + value + `}`)
-	}
 	if err := validateAbsoluteHTTPURLOption(key, value); err != nil {
 		return err
 	}
@@ -430,6 +455,262 @@ func validateAbsoluteHTTPURLOption(key string, value string) error {
 	parsed, err := url.ParseRequestURI(value)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
 		return errors.New("must be an absolute HTTP or HTTPS URL without embedded credentials")
+	}
+	return nil
+}
+
+// IsOfficialModerationChannel validates metadata only. Reviewers use a fixed
+// official endpoint and never apply model, parameter or header overrides.
+func IsOfficialModerationChannel(channel *Channel) bool {
+	if channel == nil || channel.Type != constant.ChannelTypeOpenAI || channel.Status != common.ChannelStatusEnabled {
+		return false
+	}
+	baseURL := ""
+	if channel.BaseURL != nil {
+		baseURL = strings.TrimRight(strings.TrimSpace(*channel.BaseURL), "/")
+	}
+	if baseURL != "" && baseURL != "https://api.openai.com" && baseURL != "https://api.openai.com/v1" {
+		return false
+	}
+	if !emptyModerationOverride(channel.ModelMapping) || !emptyModerationOverride(channel.ParamOverride) || !emptyModerationOverride(channel.HeaderOverride) {
+		return false
+	}
+	if channel.Setting != nil && strings.TrimSpace(*channel.Setting) != "" {
+		var settings struct {
+			Proxy string `json:"proxy"`
+		}
+		if err := json.Unmarshal([]byte(*channel.Setting), &settings); err != nil || strings.TrimSpace(settings.Proxy) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func emptyModerationOverride(value *string) bool {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return true
+	}
+	var object map[string]any
+	return json.Unmarshal([]byte(*value), &object) == nil && object != nil && len(object) == 0
+}
+
+// ListOfficialModerationChannels deliberately excludes Key and credential
+// metadata. The worker fetches a selected channel's key only when dispatching.
+func ListOfficialModerationChannels(ctx context.Context, group, model string) ([]Channel, error) {
+	if DB == nil {
+		return nil, errors.New("moderation database is unavailable")
+	}
+	return listOfficialModerationChannels(DB.WithContext(ctx), group, model)
+}
+
+func listOfficialModerationChannels(db *gorm.DB, group, model string) ([]Channel, error) {
+	if !setting.IsModerationModel(model) || group == "" || group == "*" {
+		return nil, errors.New("a moderation model and explicit routing group are required")
+	}
+	if db == nil {
+		return nil, errors.New("moderation database is unavailable")
+	}
+	groupColumn := commonGroupCol
+	if groupColumn == "" {
+		groupColumn = `"group"`
+	}
+	var channels []Channel
+	err := db.Table("channels").
+		Select("channels.id, channels.type, channels.status, channels.name, channels.base_url, channels.model_mapping, channels.setting, channels.param_override, channels.header_override, channels.priority, channels.weight").
+		Joins("JOIN abilities ON abilities.channel_id = channels.id").
+		Where("abilities."+groupColumn+" = ? AND abilities.model = ? AND abilities.enabled = ? AND channels.status = ?", group, model, true, common.ChannelStatusEnabled).
+		Order("channels.priority DESC, channels.weight DESC, channels.id ASC").
+		Find(&channels).Error
+	if err != nil {
+		return nil, err
+	}
+	eligible := make([]Channel, 0, len(channels))
+	for _, channel := range channels {
+		if IsOfficialModerationChannel(&channel) {
+			eligible = append(eligible, channel)
+		}
+	}
+	return eligible, nil
+}
+
+func ValidateModerationRoute(group, model string) error {
+	return validateModerationRoute(DB, group, model)
+}
+
+func validateModerationRoute(db *gorm.DB, group, model string) error {
+	channels, err := listOfficialModerationChannels(db, group, model)
+	if err != nil {
+		return err
+	}
+	if len(channels) == 0 {
+		return errors.New("moderation requires an enabled official OpenAI channel without proxy or overrides in the selected group")
+	}
+	return nil
+}
+
+func validateModerationSettings(db *gorm.DB, candidate setting.ModerationSettings, values map[string]string) error {
+	// Turning reviewers off must remain possible after a group/channel has
+	// disappeared. A newly supplied policy still requires existing target groups.
+	if _, changed := values[setting.ModerationGroupPoliciesOptionKey]; changed {
+		for group := range candidate.GroupPolicies {
+			if !ratio_setting.ContainsGroupRatio(group) {
+				return fmt.Errorf("moderation target group %s must be an existing group", group)
+			}
+		}
+	}
+	for _, route := range []struct {
+		enabled    bool
+		group      string
+		model      string
+		key        string
+		enabledKey string
+		modelKey   string
+	}{
+		{candidate.Enabled, candidate.Group, candidate.Model, setting.ModerationGroupOptionKey, setting.ModerationEnabledOptionKey, setting.ModerationModelOptionKey},
+		{candidate.AssistantEnabled, candidate.AssistantGroup, candidate.AssistantModel, setting.AssistantModerationGroupOptionKey, setting.AssistantModerationEnabledOptionKey, setting.AssistantModerationModelOptionKey},
+	} {
+		_, routeGroupChanged := values[route.key]
+		_, enabledChanged := values[route.enabledKey]
+		_, modelChanged := values[route.modelKey]
+		routeChanged := routeGroupChanged || enabledChanged || modelChanged
+		if ((route.enabled && routeChanged) || routeGroupChanged) && !ratio_setting.ContainsGroupRatio(route.group) {
+			return errors.New("moderation routing group must be an existing group")
+		}
+		if route.enabled && routeChanged {
+			if err := validateModerationRoute(db, route.group, route.model); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateModerationOptionValues(db *gorm.DB, values map[string]string) error {
+	candidate, err := setting.ParseModerationSettings(setting.GetModerationSettings(), values)
+	if err != nil {
+		return err
+	}
+	return validateModerationSettings(db, candidate, values)
+}
+
+var errInvalidStoredModerationSettings = errors.New("invalid stored moderation settings")
+
+func readModerationSettings(db *gorm.DB) (setting.ModerationSettings, error) {
+	defaults := setting.DefaultModerationSettings()
+	if db == nil {
+		return defaults, errors.New("moderation database is unavailable")
+	}
+	values := defaults.OptionValues()
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	var rows []Option
+	if err := db.Where("key IN ?", keys).Find(&rows).Error; err != nil {
+		return defaults, err
+	}
+	for _, row := range rows {
+		values[row.Key] = row.Value
+	}
+	settings, err := setting.ParseModerationSettings(defaults, values)
+	if err != nil {
+		return defaults, fmt.Errorf("%w: %v", errInvalidStoredModerationSettings, err)
+	}
+	return settings, nil
+}
+
+// ReadModerationSettingsContext reads the complete moderation option set.
+// It is used before HTTP dispatch so a stale node cannot submit newly disabled
+// content, and holds no database lock during the upstream request.
+func ReadModerationSettingsContext(ctx context.Context) (setting.ModerationSettings, error) {
+	if DB == nil {
+		return setting.DefaultModerationSettings(), errors.New("moderation database is unavailable")
+	}
+	return readModerationSettings(DB.WithContext(ctx))
+}
+
+// LockModerationSettings fences effects against every configuration writer
+// across Go nodes. Acquire this lock before job or account-row locks.
+func LockModerationSettings(tx *gorm.DB) (setting.ModerationSettings, error) {
+	defaults := setting.DefaultModerationSettings()
+	if tx == nil {
+		return defaults, errors.New("moderation transaction is required")
+	}
+	policy := Option{Key: setting.ModerationEnabledOptionKey, Value: "false"}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&policy).Error; err != nil {
+		return defaults, err
+	}
+	if err := lockForUpdate(tx).Where("key = ?", policy.Key).First(&policy).Error; err != nil {
+		return defaults, err
+	}
+	return readModerationSettings(tx)
+}
+
+func lockModerationOptions(tx *gorm.DB, values map[string]string) error {
+	changed := false
+	for key := range values {
+		if setting.IsModerationOption(key) {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return nil
+	}
+	stored, err := LockModerationSettings(tx)
+	if err != nil {
+		// A malformed stored policy must not prevent an explicit complete repair.
+		complete := true
+		for key := range setting.DefaultModerationSettings().OptionValues() {
+			if _, ok := values[key]; !ok {
+				complete = false
+			}
+		}
+		if !complete || !errors.Is(err, errInvalidStoredModerationSettings) {
+			return err
+		}
+		stored = setting.DefaultModerationSettings()
+	}
+	candidate, err := setting.ParseModerationSettings(stored, values)
+	if err != nil {
+		return err
+	}
+	if err := validateModerationSettings(tx, candidate, values); err != nil {
+		return err
+	}
+	// Publish what was committed under the shared row lock, rather than merging
+	// the write with a potentially stale local settings cache after commit.
+	for key, value := range candidate.OptionValues() {
+		values[key] = value
+	}
+	return nil
+}
+
+func applyModerationOptionMap(values map[string]string) error {
+	updates := make(map[string]string)
+	for key, value := range values {
+		if setting.IsModerationOption(key) {
+			updates[key] = value
+		}
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	common.OptionMapRWMutex.Lock()
+	defer common.OptionMapRWMutex.Unlock()
+	if err := setting.UpdateModerationSettings(updates); err != nil {
+		if common.OptionMap == nil {
+			common.OptionMap = make(map[string]string)
+		}
+		common.OptionMap[setting.ModerationEnabledOptionKey] = "false"
+		common.OptionMap[setting.AssistantModerationEnabledOptionKey] = "false"
+		return err
+	}
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	for key, value := range setting.GetModerationSettings().OptionValues() {
+		common.OptionMap[key] = value
 	}
 	return nil
 }
@@ -464,9 +745,13 @@ func validateOptionValues(values map[string]string) error {
 		return errors.New("at least one option is required")
 	}
 	assistantRouteChanged := false
-	assistantReviewRouteChanged := false
 	l1AutoReviewValues := make(map[string]string)
+	moderationValues := make(map[string]string)
 	for key, value := range values {
+		if setting.IsModerationOption(key) {
+			moderationValues[key] = value
+			continue
+		}
 		if setting.IsAssistantL1AutoReviewOption(key) {
 			l1AutoReviewValues[key] = value
 			continue
@@ -474,9 +759,6 @@ func validateOptionValues(values map[string]string) error {
 		switch key {
 		case setting.AssistantGroupOptionKey, setting.AssistantModelOptionKey:
 			assistantRouteChanged = true
-			continue
-		case setting.AssistantReviewGroupOptionKey, setting.AssistantReviewModelOptionKey:
-			assistantReviewRouteChanged = true
 			continue
 		}
 		if err := validateOptionValue(key, value); err != nil {
@@ -501,26 +783,13 @@ func validateOptionValues(values map[string]string) error {
 			return err
 		}
 	}
-	if assistantReviewRouteChanged {
-		if value, ok := values[setting.AssistantReviewGroupOptionKey]; ok {
-			if err := setting.ValidateAssistantOption(setting.AssistantReviewGroupOptionKey, value); err != nil {
-				return err
-			}
-			if !ratio_setting.ContainsGroupRatio(strings.TrimSpace(value)) {
-				return errors.New("assistant review routing group must be an existing group")
-			}
-		}
-		if value, ok := values[setting.AssistantReviewModelOptionKey]; ok {
-			if err := setting.ValidateAssistantOption(setting.AssistantReviewModelOptionKey, value); err != nil {
-				return err
-			}
-		}
-		if err := validateAssistantReviewRouteValues(values); err != nil {
+	if len(l1AutoReviewValues) > 0 {
+		if err := validateAssistantL1AutoReviewValues(l1AutoReviewValues); err != nil {
 			return err
 		}
 	}
-	if len(l1AutoReviewValues) > 0 {
-		if err := validateAssistantL1AutoReviewValues(l1AutoReviewValues); err != nil {
+	if len(moderationValues) > 0 {
+		if err := validateModerationOptionValues(DB, moderationValues); err != nil {
 			return err
 		}
 	}
@@ -553,29 +822,6 @@ func validateAssistantRouteValues(values map[string]string) error {
 	return nil
 }
 
-func validateAssistantReviewRouteValues(values map[string]string) error {
-	settings := setting.GetAssistantSettings()
-	group := strings.TrimSpace(settings.ReviewGroup)
-	if value, ok := values[setting.AssistantReviewGroupOptionKey]; ok {
-		group = strings.TrimSpace(value)
-	}
-	if group == "" {
-		group = setting.DefaultAssistantReviewGroup
-	}
-	if !ratio_setting.ContainsGroupRatio(group) {
-		return errors.New("assistant review routing group must be an existing group")
-	}
-
-	modelID := strings.TrimSpace(settings.ReviewModel)
-	if value, ok := values[setting.AssistantReviewModelOptionKey]; ok {
-		modelID = strings.TrimSpace(value)
-	}
-	if modelID == "" || !IsModelEnabledForGroup(group, modelID) {
-		return fmt.Errorf("assistant review model is not enabled in the %s group; choose a live model from the model list", group)
-	}
-	return nil
-}
-
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
 // transaction, then dispatches them through updateOptionMap in one pass. If
 // any DB write fails the whole transaction rolls back and no in-memory state
@@ -586,62 +832,32 @@ func UpdateOptionsBulk(values map[string]string) error {
 	return err
 }
 
-// UpdateAdvancedSecurityOptions persists and applies the four guardrail
-// settings as a unit. Database readers see one transaction, while request
-// handlers see one runtime settings swap instead of four intermediate states.
-func UpdateAdvancedSecurityOptions(enabled, onPrompt bool, action, rules string) error {
-	values := map[string]string{
-		setting.AdvancedSecurityEnabledOptionKey:  strconv.FormatBool(enabled),
-		setting.AdvancedSecurityOnPromptOptionKey: strconv.FormatBool(onPrompt),
-		setting.AdvancedSecurityActionOptionKey:   action,
-		setting.AdvancedSecurityRulesOptionKey:    rules,
+func updateOptionMap(key string, value string) (err error) {
+	if err := setting.ValidateServiceTierOption(key, value); err != nil {
+		return err
 	}
-	keys := []string{
-		setting.AdvancedSecurityRulesOptionKey,
-		setting.AdvancedSecurityActionOptionKey,
-		setting.AdvancedSecurityOnPromptOptionKey,
-		setting.AdvancedSecurityEnabledOptionKey,
-	}
-	for _, key := range keys {
-		if err := validateOptionValue(key, values[key]); err != nil {
+	if key == PublicCreditsPerUSDOptionKey {
+		denomination, parseErr := parsePublicCreditRate(value)
+		if parseErr != nil {
+			return parseErr
+		}
+		if err := common.SetPublicCreditsPerUSD(denomination); err != nil {
 			return err
 		}
 	}
-
-	if err := DB.Transaction(func(tx *gorm.DB) error {
-		for _, key := range keys {
-			option := Option{Key: key}
-			if err := tx.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
-				return err
-			}
-			option.Value = values[key]
-			if err := tx.Save(&option).Error; err != nil {
-				return err
-			}
+	if key == "QuotaPerUnit" {
+		candidate, parseErr := parseFixedCreditRate("QuotaPerUnit", value)
+		if parseErr != nil {
+			return parseErr
 		}
-		return nil
-	}); err != nil {
-		return err
+		if baseline, basisErr := common.LegacyPricingQuotaPerUnit(); basisErr == nil && !candidate.Equal(baseline) {
+			return errors.New("refusing legacy QuotaPerUnit drift from immutable credit currency basis")
+		}
 	}
-
-	// Validation above makes this deterministic after the transaction. Keeping
-	// the setter defensive prevents future validation/runtime drift.
-	if err := setting.ApplyAdvancedSecuritySettings(enabled, onPrompt, action, rules); err != nil {
-		return err
+	if setting.IsModerationOption(key) {
+		return applyModerationOptionMap(map[string]string{key: value})
 	}
-	common.OptionMapRWMutex.Lock()
-	if common.OptionMap == nil {
-		common.OptionMap = make(map[string]string)
-	}
-	for _, key := range keys {
-		common.OptionMap[key] = values[key]
-	}
-	common.OptionMapRWMutex.Unlock()
-	return nil
-}
-
-func updateOptionMap(key string, value string) (err error) {
-	if isRetiredDynamicPricingOption(key) {
+	if isRetiredConfigurationOption(key) {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()
@@ -795,10 +1011,6 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.ModelRequestRateLimitEnabled = boolValue
 		case "StopOnSensitiveEnabled":
 			setting.StopOnSensitiveEnabled = boolValue
-		case setting.AdvancedSecurityEnabledOptionKey:
-			setting.SetAdvancedSecurityEnabled(boolValue)
-		case setting.AdvancedSecurityOnPromptOptionKey:
-			setting.SetAdvancedSecurityOnPrompt(boolValue)
 		case setting.AntiRelayEnabledOptionKey:
 			setting.SetAntiRelayEnabled(boolValue)
 		case setting.AntiRelayRejectProxyHeadersOptionKey:
@@ -827,8 +1039,6 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.SetAssistantStreamEnabled(boolValue)
 		case setting.AssistantCacheEnabledOptionKey:
 			setting.SetAssistantCacheEnabled(boolValue)
-		case setting.AssistantReviewEnabledOptionKey:
-			setting.SetAssistantReviewEnabled(boolValue)
 		case setting.AssistantRetentionEnabledOptionKey:
 			setting.SetAssistantRetentionEnabled(boolValue)
 		}
@@ -869,6 +1079,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantTemperature(value)
 	case setting.AssistantMaxTokensOptionKey:
 		err = setting.UpdateAssistantMaxTokens(value)
+	case setting.AssistantNewUserGiftMaxCreditsOptionKey:
+		err = setting.UpdateAssistantNewUserGiftMaxCredits(value)
 	case setting.AssistantMaxStepsOptionKey:
 		err = setting.UpdateAssistantMaxSteps(value)
 	case setting.AssistantTimeoutSecondsOptionKey:
@@ -893,20 +1105,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateAssistantSkills(value)
 	case setting.AssistantSkillFilesOptionKey:
 		err = setting.UpdateAssistantSkillFiles(value)
-	case setting.AssistantReviewWindowDaysOptionKey:
-		err = setting.UpdateAssistantReviewWindowDays(value)
-	case setting.AssistantReviewIntervalHoursOptionKey:
-		err = setting.UpdateAssistantReviewIntervalHours(value)
-	case setting.AssistantReviewProbabilityOptionKey:
-		err = setting.UpdateAssistantReviewProbability(value)
-	case setting.AssistantReviewGroupOptionKey:
-		err = setting.UpdateAssistantReviewGroup(value)
-	case setting.AssistantReviewModelOptionKey:
-		err = setting.UpdateAssistantReviewModel(value)
-	case setting.AssistantReviewReasoningEffortOptionKey:
-		err = setting.UpdateAssistantReviewReasoningEffort(value)
-	case setting.AssistantReviewGroupPoliciesOptionKey:
-		err = setting.UpdateAssistantReviewGroupPolicies(value)
+	case setting.AssistantToolPolicyOptionKey:
+		err = setting.UpdateAssistantToolPolicy(value)
 	case setting.AssistantActiveRetentionDaysOptionKey:
 		err = setting.UpdateAssistantActiveRetentionDays(value)
 	case setting.AssistantArchivedRetentionDaysOptionKey:
@@ -1086,13 +1286,13 @@ func updateOptionMap(key string, value string) (err error) {
 	case "ChannelDisableThreshold":
 		common.ChannelDisableThreshold, _ = strconv.ParseFloat(value, 64)
 	case "QuotaPerUnit":
-		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
+		// Once initialized, refreshes and idempotent saves keep the published
+		// calibration untouched, including avoiding concurrent scalar writes.
+		if _, basisErr := common.LegacyPricingQuotaPerUnit(); basisErr != nil {
+			common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
+		}
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
-	case setting.AdvancedSecurityActionOptionKey:
-		err = setting.UpdateAdvancedSecurityAction(value)
-	case setting.AdvancedSecurityRulesOptionKey:
-		err = setting.UpdateAdvancedSecurityRules(value)
 	case setting.AntiRelayBlockedCIDRsOptionKey:
 		err = setting.UpdateAntiRelayBlockedCIDRs(value)
 	case setting.AntiRelayTrustedProxyCIDRsOptionKey:

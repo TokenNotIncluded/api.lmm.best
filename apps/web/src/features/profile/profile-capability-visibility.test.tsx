@@ -45,6 +45,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { ProfilePasskeyCapability } = await import('./index')
+const { ReferralOverviewCard } =
+  await import('./components/referral-overview-card')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -132,4 +134,103 @@ describe('profile passkey capability visibility', () => {
     await act(async () => root.unmount())
     container.remove()
   })
+
+  test('lists each Passkey and offers another registration', async () => {
+    api.get = (async (url) => {
+      if (url !== '/api/user/passkey') {
+        throw new Error(`Unexpected request: ${url}`)
+      }
+      return {
+        data: {
+          success: true,
+          data: {
+            enabled: true,
+            last_used_at: null,
+            credentials: [
+              {
+                id: 11,
+                name: 'Laptop',
+                created_at: '2026-09-22T10:00:00Z',
+                last_used_at: null,
+                backup_eligible: false,
+                backup_state: false,
+              },
+              {
+                id: 12,
+                name: 'Phone',
+                created_at: '2026-09-23T10:00:00Z',
+                last_used_at: null,
+                backup_eligible: true,
+                backup_state: true,
+              },
+            ],
+          },
+        },
+      }
+    }) as typeof api.get
+
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ProfilePasskeyCapability
+            capabilitiesReady
+            passkeyLogin
+            loading={false}
+          />
+        </I18nextProvider>
+      )
+      await flushEffects()
+    })
+
+    assert.match(container.textContent ?? '', /Add Passkey/)
+    assert.match(container.textContent ?? '', /Laptop/)
+    assert.match(container.textContent ?? '', /Phone/)
+    assert.ok(container.querySelector('button[aria-label="Remove Laptop"]'))
+    const removePhone = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove Phone"]'
+    )
+    assert.ok(removePhone)
+    await act(async () => removePhone.click())
+    assert.match(
+      document.body.textContent ?? '',
+      /Phone: This Passkey will stop working for sign-in/
+    )
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+})
+
+test('rewards retain a useful destination without gifts or check-in', async () => {
+  const calls: string[] = []
+  api.get = (async (url: string) => {
+    calls.push(url)
+    throw new Error('A reward overview must not fetch or mutate account data')
+  }) as typeof api.get
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ReferralOverviewCard />
+        </I18nextProvider>
+      )
+    )
+    assert.match(container.textContent ?? '', /Referral Program/)
+    assert.match(container.textContent ?? '', /qualifying first cash payment/)
+    assert.match(
+      container.textContent ?? '',
+      /Reward debt never deducts purchased balance/
+    )
+    assert.equal(container.querySelector('a')?.getAttribute('href'), '/wallet')
+    assert.equal(container.querySelector('a')?.textContent, 'Wallet')
+    assert.deepEqual(calls, [])
+  } finally {
+    await act(async () => root.unmount())
+  }
 })

@@ -30,9 +30,8 @@ import {
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { PublicLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
-import { getAssistantAvailableModels } from '@/features/assistant/api'
+import { getAssistantSetupModels } from '@/features/assistant/api'
 import {
   requestAssistantOpen,
   type AssistantPresetId,
@@ -41,6 +40,7 @@ import {
   AssistantSetupTool,
   type ClientTab,
 } from '@/features/assistant/assistant-setup-tool'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
 import { readSetupPreferences } from '@/features/onboarding/setup-preferences'
 import { useStatus } from '@/hooks/use-status'
 import {
@@ -53,20 +53,18 @@ const COPY = {
   zh: {
     eyebrow: '新手指南',
     title: '第一次使用，从这里开始。',
-    intro:
-      '选好设备和软件，跟着步骤完成连接。下载安装可以先看；需要账号帮助时，让 AI 助手陪你继续。',
+    intro: '选设备，跟步骤，连上就能用。',
     start: '选择我的客户端',
     assistant: '让 AI 一步步带我配置',
-    manualIntro:
-      '选好设备和软件，跟着步骤完成连接。下载安装可以先看，账号和访问权限问题也可以联系支持。',
+    manualIntro: '选设备，跟步骤，连上就能用。卡住了找支持。',
+    sectionsTitle: '本页内容',
+    sections: ['选择客户端', '发第一条消息', '常见报错', '账号与支持'],
     contactSupport: '联系支持',
     requestManualAccess: '联系支持申请访问',
     supportTitle: '需要人工帮助？',
-    supportBody:
-      '访问申请或配置遇到问题时，可通过下方邮箱联系支持。说明账号、设备与具体问题，记得隐藏密钥。',
+    supportBody: '带上账号、设备和问题描述，发邮件即可。记得隐藏密钥。',
     supportTicket: '提交支持工单',
-    manualTroubleBody:
-      '保留错误码、客户端名称和请求 ID。点开相应问题查看处理方法；仍未解决时，可以联系支持。',
+    manualTroubleBody: '点开对应错误码查看处理方式，仍不解决就联系支持。',
     guestAssistant: '登录，让 AI 带我配置',
     stages: [
       '选择软件',
@@ -76,11 +74,9 @@ const COPY = {
       '开始第一次对话',
     ],
     setupTitle: '从你正在使用的设备开始',
-    setupBody:
-      '选择下面的设备和软件，查看官方安装入口与配置步骤。已有软件的用户可以直接查看连接配置。',
+    setupBody: '选出设备和软件，拿到官方下载入口与配置步骤。',
     accountTitle: '准备好你的账号',
-    accountBody:
-      '访问权限通过后，就可以创建专用密钥，把 LMM 连接到自己的软件。',
+    accountBody: '访问权限通过后，创建专用密钥即可连接 LMM。',
     accountSteps: ['获得 API 访问权限', '创建一把 API 密钥', '完成第一次请求'],
     complete: '已完成',
     pending: '待完成',
@@ -94,20 +90,16 @@ const COPY = {
     setupQuestion:
       '我第一次使用 LMM。请先问我使用的设备、软件和用途，再带我从官方下载、安装、申请访问、创建密钥、配置地址与模型，到发出第一条消息。每一步请说明点击哪里以及成功的标志。',
     securityTitle: '密钥只填进你信任的客户端',
-    securityBody:
-      '聊天、截图和问题反馈中请遮住 API Key。若已泄露，到密钥页面撤销并重新创建；排查问题时提供请求 ID 即可。',
-    modelsError:
-      '暂时无法加载可用模型。你可以继续查看安装步骤，配置前请重试获取准确的模型 ID。',
+    securityBody: '泄露了？到密钥页面撤销重建，排查时只需给请求 ID。',
+    modelsError: '模型列表暂时加载不了，先看安装步骤，配置前重试一次。',
     retry: '重新加载模型',
     firstTitle: '发一条消息，确认连接成功',
-    firstBody:
-      '保存配置后，新建对话，选择当前账号可用的模型，发送下面这句话。收到回复后，可到用量记录确认请求与消耗。',
+    firstBody: '保存配置，新建对话，发送下面这句话，等一个回复。',
     firstMessage: '你好，请用一句话介绍你能帮助我做什么。',
     usage: '查看用量记录',
     modelList: '查看模型与价格',
     troubleTitle: '卡在某一步？先看这里。',
-    troubleBody:
-      '保留错误码、客户端名称和请求 ID。点开相应问题，或把具体情况交给助手继续排查。',
+    troubleBody: '点开对应错误码，或把详情交给助手继续排查。',
     troubles: [
       {
         code: '401',
@@ -143,20 +135,26 @@ const COPY = {
   en: {
     eyebrow: 'Getting started',
     title: 'Your first connection starts here.',
-    intro:
-      'Choose your device and app, then follow the steps to connect. Browse installation instructions now, and continue with the AI assistant whenever you need help.',
+    intro: 'Pick a device, follow the steps, and you are connected.',
     start: 'Choose my client',
     assistant: 'Guide me with AI',
     manualIntro:
-      'Choose your device and app, then follow the setup steps. Browse installation instructions now, and contact support for help with your account or access.',
+      'Pick a device, follow the steps, and you are connected. Stuck? Contact support.',
+    sectionsTitle: 'On this page',
+    sections: [
+      'Choose a client',
+      'Send your first message',
+      'Common errors',
+      'Account and support',
+    ],
     contactSupport: 'Contact support',
     requestManualAccess: 'Contact support for access',
     supportTitle: 'Need help from a person?',
     supportBody:
-      'For access requests or setup issues, contact the support email below. Include your account, device and issue, with your API key hidden.',
+      'Email support with your account, device and issue. Hide your API key.',
     supportTicket: 'Open a support ticket',
     manualTroubleBody:
-      'Keep the error code, app name and request ID handy. Open the matching issue below for steps, or contact support if you are still stuck.',
+      'Open the matching error code below, or contact support if still stuck.',
     guestAssistant: 'Sign in for AI guidance',
     stages: [
       'Choose an app',
@@ -167,10 +165,10 @@ const COPY = {
     ],
     setupTitle: 'Start with the device you use',
     setupBody:
-      'Choose your device and app below for official downloads and setup instructions. Already installed? Continue to the connection settings.',
+      'Pick your device and app for official downloads and setup steps.',
     accountTitle: 'Prepare your account',
     accountBody:
-      'Once API access is approved, create a dedicated key to connect LMM to your app.',
+      'Once access is approved, create a key to connect LMM to your app.',
     accountSteps: [
       'Get API access',
       'Create an API key',
@@ -189,19 +187,19 @@ const COPY = {
       'I am new to LMM. First ask which device and app I use and what I want to do, then guide me through the official download, installation, access request, key creation, base URL and model configuration, and my first message. Explain where to click and how to verify each step.',
     securityTitle: 'Enter keys only in trusted clients',
     securityBody:
-      'Hide API keys in chats, screenshots and support requests. Revoke and replace a leaked key from API Keys. Share the request ID when troubleshooting.',
+      'Leaked a key? Revoke it in API Keys. Share the request ID, never the key.',
     modelsError:
-      'Available models could not be loaded. You can keep reading installation steps; retry before configuring an exact model ID.',
+      'Models did not load. Keep reading the steps, then retry before configuring.',
     retry: 'Reload models',
     firstTitle: 'Send a message to check your connection',
     firstBody:
-      'Save your settings, start a new conversation, select an available model for your account, and send the message below. After receiving a reply, check Usage Logs for the request and its cost.',
+      'Save your settings, start a new conversation, and send the message below.',
     firstMessage: 'Hello! Tell me in one sentence what you can help me with.',
     usage: 'Open usage logs',
     modelList: 'Explore models and pricing',
     troubleTitle: 'Stuck on a step? Start here.',
     troubleBody:
-      'Keep the error code, app name and request ID handy. Open the matching issue below, or continue troubleshooting with the assistant.',
+      'Open the matching error code, or hand the details to the assistant.',
     troubles: [
       {
         code: '401',
@@ -236,6 +234,62 @@ const COPY = {
   },
 }
 
+/**
+ * Jump targets for the sticky contents list, in reading order. Kept next to
+ * COPY so a renamed section cannot drift out of sync with its anchor.
+ */
+const GUIDE_SECTION_IDS = [
+  'client-setup',
+  'guide-first-message',
+  'guide-troubleshooting',
+  'guide-support',
+] as const
+
+function GuideContents({
+  copy,
+  compact = false,
+  disclosure = false,
+}: {
+  copy: (typeof COPY)['en']
+  compact?: boolean
+  disclosure?: boolean
+}) {
+  return (
+    <nav
+      aria-label={copy.sectionsTitle}
+      className={
+        disclosure
+          ? 'border-border/70 border-t py-3'
+          : compact
+            ? 'border-border/70 mt-8 hidden border-b pb-5 sm:block lg:hidden'
+            : 'border-border/70 hidden border-t pt-5 lg:block'
+      }
+    >
+      {!disclosure && (
+        <h2 className='text-sm font-semibold'>{copy.sectionsTitle}</h2>
+      )}
+      <ol
+        className={
+          compact || disclosure
+            ? 'mt-2 grid grid-cols-2 gap-x-4'
+            : 'mt-2 space-y-1'
+        }
+      >
+        {GUIDE_SECTION_IDS.map((id, index) => (
+          <li key={id}>
+            <a
+              href={`#${id}`}
+              className='hover:bg-muted focus-visible:outline-ring -mx-2 flex min-h-11 items-center rounded-lg px-2 py-2 text-sm leading-6 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2'
+            >
+              {copy.sections[index]}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  )
+}
+
 function GuideCode({
   label,
   value,
@@ -256,13 +310,14 @@ function GuideCode({
   }
 
   return (
-    <div className='bg-muted/35 overflow-hidden rounded-xl border'>
+    <div className='bg-muted/35 min-w-0 overflow-hidden rounded-xl border'>
       <div className='border-border/70 flex items-center justify-between gap-3 border-b px-4 py-2 text-xs'>
-        <span className='text-muted-foreground'>{label}</span>
+        <span className='text-muted-foreground min-w-0 leading-5'>{label}</span>
         <Button
           type='button'
           variant='ghost'
-          className='min-h-10'
+          className='min-h-11 shrink-0'
+          aria-label={`${copy.copy}: ${label}`}
           onClick={() => void copyValue()}
         >
           {status === 'copied' ? (
@@ -274,7 +329,7 @@ function GuideCode({
         </Button>
       </div>
       <pre
-        className='overflow-x-auto p-4 text-sm leading-7'
+        className='focus-visible:outline-ring overflow-x-auto p-4 text-xs leading-7 focus-visible:outline-2 focus-visible:-outline-offset-2 sm:text-sm'
         tabIndex={0}
         aria-label={label}
       >
@@ -305,7 +360,10 @@ export function Guide() {
   const [selectedClient, setSelectedClient] = useState<ClientTab>(
     () => readSetupPreferences()?.client ?? 'cherry-studio'
   )
-  const oauth = selectedClient === 'pi'
+  const oauth =
+    selectedClient === 'pi' ||
+    selectedClient === 'dsh' ||
+    selectedClient === 'codewhale'
   const completedSteps = oauth
     ? [onboarding.activationComplete, onboarding.firstRequestComplete]
     : [
@@ -320,7 +378,11 @@ export function Guide() {
   const stages = oauth
     ? [
         t('Choose your client'),
-        t('Install Pi'),
+        selectedClient === 'pi'
+          ? t('Install Pi')
+          : selectedClient === 'dsh'
+            ? t('Install DSH plugin')
+            : t('Install Codewhale adapter'),
         t('Sign in with OAuth'),
         t('Choose a model'),
         t('Send first request'),
@@ -332,7 +394,7 @@ export function Guide() {
       : window.location.origin
   const modelsQuery = useQuery({
     queryKey: ['guide-available-models', user?.id],
-    queryFn: getAssistantAvailableModels,
+    queryFn: getAssistantSetupModels,
     enabled: developerAccessGranted,
     staleTime: 60_000,
     retry: false,
@@ -356,11 +418,11 @@ export function Guide() {
     }
     requestAssistantOpen(preset, message)
     if (user) {
-      void navigate({ to: '/getting-started' })
+      void navigate({ to: isConsoleActivated(user) ? '/dashboard' : '/wallet' })
     } else {
       void navigate({
         to: '/sign-in',
-        search: { redirect: '/getting-started' },
+        search: { redirect: '/dashboard' },
       })
     }
   }
@@ -383,24 +445,32 @@ curl ${rootUrl}/v1/chat/completions \
   -H "Authorization: Bearer $LMM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"your-model-id","messages":[{"role":"user","content":"Hello"}]}'`
+  const stageItems = stages.map((stage, index) => (
+    <li key={stage} className='flex items-baseline gap-3 text-sm leading-6'>
+      <span
+        className='text-muted-foreground font-mono text-xs'
+        aria-hidden='true'
+      >
+        {String(index + 1).padStart(2, '0')}
+      </span>
+      <span className='font-medium'>{stage}</span>
+    </li>
+  ))
 
   return (
-    <PublicLayout showMainContainer={false}>
-      <main className='dark:bg-background bg-[#faf9f6]'>
-        <div className='mx-auto max-w-6xl px-5 pt-16 pb-20 sm:px-8 sm:pt-24 lg:px-10 lg:pb-28'>
+    <ForgePublicShell>
+      <main>
+        <div className='mx-auto max-w-6xl px-4 pt-6 pb-12 sm:px-8 sm:pt-16 sm:pb-20 lg:px-10 lg:pb-28'>
           <header className='max-w-3xl'>
-            <p className='text-muted-foreground text-xs font-semibold tracking-[0.18em]'>
-              {copy.eyebrow}
-            </p>
-            <h1 className='mt-5 text-4xl leading-[1.2] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl'>
+            <h1 className='font-serif text-3xl leading-[1.12] font-normal tracking-tight text-balance sm:text-5xl lg:text-6xl'>
               {copy.title}
             </h1>
-            <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-8'>
+            <p className='text-muted-foreground mt-3 max-w-2xl text-base leading-7 sm:mt-6 sm:leading-8'>
               {assistantAvailable ? copy.intro : copy.manualIntro}
             </p>
-            <div className='mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap'>
+            <div className='mt-5 flex flex-col gap-2 sm:mt-8 sm:flex-row sm:flex-wrap sm:gap-3'>
               <Button
-                className='min-h-12 px-5'
+                className='min-h-11 px-5 sm:min-h-12'
                 render={<a href='#client-setup' />}
               >
                 {copy.start}
@@ -408,7 +478,7 @@ curl ${rootUrl}/v1/chat/completions \
               </Button>
               <Button
                 variant='outline'
-                className='min-h-12 px-5 whitespace-normal'
+                className='min-h-11 px-5 whitespace-normal sm:min-h-12'
                 onClick={
                   assistantAvailable
                     ? () => askAssistant(copy.setupQuestion)
@@ -425,25 +495,29 @@ curl ${rootUrl}/v1/chat/completions \
             </div>
           </header>
 
-          <ol className='border-border/70 mt-12 grid gap-x-6 gap-y-5 border-y py-7 sm:grid-cols-3 lg:mt-16 lg:grid-cols-5'>
-            {stages.map((stage, index) => (
-              <li
-                key={stage}
-                className='flex items-baseline gap-3 text-sm leading-6'
-              >
-                <span
-                  className='text-muted-foreground font-mono text-xs'
-                  aria-hidden='true'
-                >
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <span className='font-medium'>{stage}</span>
-              </li>
-            ))}
+          <details
+            id='guide-overview'
+            className='group bg-muted/35 mt-5 rounded-xl px-4 sm:hidden'
+          >
+            <summary className='focus-visible:outline-ring flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-sm py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
+              {copy.sectionsTitle}
+              <ChevronDown
+                className='text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none'
+                aria-hidden='true'
+              />
+            </summary>
+            <ol className='grid gap-2 py-3'>{stageItems}</ol>
+            <GuideContents copy={copy} disclosure />
+          </details>
+
+          <ol className='border-border/70 mt-12 hidden gap-x-6 gap-y-5 border-y py-7 sm:grid sm:grid-cols-3 lg:mt-16 lg:grid-cols-5'>
+            {stageItems}
           </ol>
 
-          <div className='mt-12 grid items-start gap-10 lg:mt-16 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-12'>
-            <div className='min-w-0 space-y-12'>
+          <GuideContents copy={copy} compact />
+
+          <div className='mt-6 grid items-start gap-8 sm:mt-12 sm:gap-10 lg:mt-16 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-12'>
+            <div className='min-w-0 space-y-10 sm:space-y-12'>
               <section
                 id='client-setup'
                 className='scroll-mt-24'
@@ -451,14 +525,14 @@ curl ${rootUrl}/v1/chat/completions \
               >
                 <h2
                   id='client-setup-title'
-                  className='text-2xl font-semibold tracking-tight'
+                  className='text-xl font-semibold tracking-tight sm:text-2xl'
                 >
                   {copy.setupTitle}
                 </h2>
-                <p className='text-muted-foreground mt-3 text-sm leading-7'>
+                <p className='text-muted-foreground mt-2 text-sm leading-6 sm:mt-3 sm:leading-7'>
                   {copy.setupBody}
                 </p>
-                <div className='mt-6'>
+                <div className='mt-4 sm:mt-6'>
                   <AssistantSetupTool
                     publicGuide
                     onClientChange={setSelectedClient}
@@ -493,7 +567,11 @@ curl ${rootUrl}/v1/chat/completions \
                 ) : null}
               </section>
 
-              <section aria-labelledby='first-message-title'>
+              <section
+                id='guide-first-message'
+                className='scroll-mt-24'
+                aria-labelledby='first-message-title'
+              >
                 <h2
                   id='first-message-title'
                   className='text-2xl font-semibold tracking-tight'
@@ -503,7 +581,7 @@ curl ${rootUrl}/v1/chat/completions \
                 <p className='text-muted-foreground mt-3 text-sm leading-7'>
                   {copy.firstBody}
                 </p>
-                <blockquote className='bg-background mt-5 rounded-xl border px-5 py-5 text-sm leading-7'>
+                <blockquote className='bg-muted/35 mt-5 rounded-2xl px-5 py-5 text-sm leading-7'>
                   {copy.firstMessage}
                 </blockquote>
                 <div className='mt-4 flex flex-wrap gap-x-5 gap-y-3'>
@@ -524,7 +602,11 @@ curl ${rootUrl}/v1/chat/completions \
                 </div>
               </section>
 
-              <section aria-labelledby='troubleshooting-title'>
+              <section
+                id='guide-troubleshooting'
+                className='scroll-mt-24'
+                aria-labelledby='troubleshooting-title'
+              >
                 <h2
                   id='troubleshooting-title'
                   className='text-2xl font-semibold tracking-tight'
@@ -540,7 +622,7 @@ curl ${rootUrl}/v1/chat/completions \
                   {copy.troubles.map((trouble) => (
                     <details
                       key={trouble.code}
-                      className='group bg-background rounded-xl border'
+                      className='group bg-muted/30 rounded-2xl'
                     >
                       <summary className='focus-visible:outline-ring flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'>
                         <span className='text-muted-foreground shrink-0 font-mono text-xs'>
@@ -610,7 +692,8 @@ curl ${rootUrl}/v1/chat/completions \
             </div>
 
             <aside className='space-y-7 lg:sticky lg:top-24'>
-              <section className='bg-background rounded-2xl border p-6'>
+              <GuideContents copy={copy} />
+              <section className='bg-muted/25 rounded-2xl p-6'>
                 <h2 className='text-base font-semibold'>{copy.accountTitle}</h2>
                 <p className='text-muted-foreground mt-3 text-sm leading-7'>
                   {oauth
@@ -716,6 +799,6 @@ curl ${rootUrl}/v1/chat/completions \
           </div>
         </div>
       </main>
-    </PublicLayout>
+    </ForgePublicShell>
   )
 }

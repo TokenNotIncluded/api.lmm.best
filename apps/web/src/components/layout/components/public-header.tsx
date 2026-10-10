@@ -22,7 +22,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { LanguageSwitcher } from '@/components/language-switcher'
-import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
+import { LMM_BRAND_NAME, LmmBrandMark } from '@/components/lmm-brand-mark'
+import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -62,7 +63,7 @@ function getDisplaySiteName(
 
 function getPublicNavClassName(editorialHeader: boolean | undefined) {
   return cn(
-    'flex h-16 items-center justify-between border-b px-2',
+    'flex h-16 items-center justify-between gap-3 border-b px-2',
     editorialHeader && 'forge-public-nav'
   )
 }
@@ -171,12 +172,15 @@ export function PublicHeader(props: PublicHeaderProps) {
   const user = auth.user
   const editorialHeader = props.className?.includes('forge-public-header')
   const isAuthenticated = !!user
+  const authenticationPending = !user && auth.bootstrapState !== 'complete'
   const usesDefaultBrand = !customLogo && systemLogo === DEFAULT_LOGO
   const displaySiteName = getDisplaySiteName(
     customSiteName,
     usesDefaultBrand,
     systemName
   )
+  const showsDefaultWordmark =
+    usesDefaultBrand && !customSiteName && systemName === DEFAULT_SYSTEM_NAME
   const links =
     useDynamicNavLinks && dynamicLinks.length > 0 ? dynamicLinks : navLinks
   const mobileNavigationLinks = props.mobileLinks ?? links
@@ -186,6 +190,15 @@ export function PublicHeader(props: PublicHeaderProps) {
   const toggleMobileMenu = useCallback(() => {
     setMobileMenuPath(mobileOpen ? null : pathname)
   }, [mobileOpen, pathname])
+
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1360px)')
+    const closeAtDesktop = () => {
+      if (desktop.matches) closeMobileMenu()
+    }
+    desktop.addEventListener('change', closeAtDesktop)
+    return () => desktop.removeEventListener('change', closeAtDesktop)
+  }, [closeMobileMenu])
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -308,7 +321,7 @@ export function PublicHeader(props: PublicHeaderProps) {
   }
 
   let desktopAuthContent = <ProfileDropdown />
-  if (loading) {
+  if (loading || authenticationPending) {
     desktopAuthContent = <Skeleton className='h-8 w-20 rounded-lg' />
   } else if (!isAuthenticated) {
     desktopAuthContent = (
@@ -343,18 +356,40 @@ export function PublicHeader(props: PublicHeaderProps) {
             <Link
               to={homeUrl}
               aria-label={displaySiteName}
-              className='group focus-visible:ring-ring flex shrink-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
+              className={cn(
+                'group focus-visible:ring-ring flex min-h-11 min-w-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none min-[1360px]:shrink-0',
+                showsDefaultWordmark && 'min-w-11'
+              )}
             >
-              <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
-                {logoContent}
-              </div>
-              <span className='text-sm font-semibold tracking-tight'>
-                {loading ? <Skeleton className='h-4 w-16' /> : displaySiteName}
-              </span>
+              {showsDefaultWordmark && !loading ? (
+                <>
+                  <LmmBrandMark
+                    className='size-7 min-[480px]:hidden'
+                    aria-hidden='true'
+                  />
+                  <LmmBrandWordmark
+                    className='hidden h-[21px] w-auto min-[480px]:block'
+                    aria-hidden='true'
+                  />
+                </>
+              ) : (
+                <>
+                  <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
+                    {logoContent}
+                  </div>
+                  <span className='truncate text-sm font-semibold tracking-tight'>
+                    {loading ? (
+                      <Skeleton className='h-4 w-16' />
+                    ) : (
+                      displaySiteName
+                    )}
+                  </span>
+                </>
+              )}
             </Link>
 
             {/* Desktop nav */}
-            <div className='hidden items-center gap-0.5 sm:flex'>
+            <div className='hidden items-center gap-0.5 min-[1360px]:flex'>
               {links.map((link) => {
                 const isActive = pathname === link.href
                 if (link.external) {
@@ -432,7 +467,7 @@ export function PublicHeader(props: PublicHeaderProps) {
             </div>
 
             {/* Mobile: compact actions + hamburger */}
-            <div className='public-header-mobile-actions flex items-center gap-2 sm:hidden'>
+            <div className='public-header-mobile-actions flex shrink-0 items-center gap-2 min-[1360px]:hidden'>
               {showThemeSwitch && <ThemeSwitch />}
               {showAuthButtons && !loading && isAuthenticated && (
                 <ProfileDropdown />
@@ -478,7 +513,7 @@ export function PublicHeader(props: PublicHeaderProps) {
       {/* Mobile full-screen overlay */}
       <div
         className={cn(
-          'fixed inset-0 z-40 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] sm:pointer-events-none sm:hidden',
+          'fixed inset-x-0 top-0 z-40 h-dvh overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] min-[1360px]:pointer-events-none min-[1360px]:hidden',
           editorialHeader
             ? 'forge-public-mobile-overlay'
             : 'bg-background text-foreground',
@@ -494,11 +529,11 @@ export function PublicHeader(props: PublicHeaderProps) {
           aria-modal='true'
           aria-label={t('Header navigation')}
           aria-hidden={!mobileOpen}
-          className='public-mobile-navigation flex h-full flex-col justify-between px-8 pt-[calc(5rem+env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]'
+          className='public-mobile-navigation flex h-full min-h-0 flex-col justify-between gap-5 overflow-y-auto overscroll-contain px-5 pt-[calc(4.5rem+env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:gap-8 sm:px-8 sm:pt-[calc(5rem+env(safe-area-inset-top))] sm:pb-[max(2.5rem,env(safe-area-inset-bottom))]'
         >
           <nav
             aria-label={t('Header navigation')}
-            className='flex flex-col gap-1'
+            className='flex shrink-0 flex-col gap-1'
           >
             {mobileNavigationLinks.map((link, i) => {
               const isActive = pathname === link.href
@@ -549,31 +584,35 @@ export function PublicHeader(props: PublicHeaderProps) {
 
           <div
             className={cn(
-              'flex flex-col gap-3 transition-all duration-500',
+              'flex shrink-0 flex-col gap-3 transition-all duration-500',
               mobileOpen
                 ? 'translate-y-0 opacity-100'
                 : 'translate-y-4 opacity-0'
             )}
             style={{ transitionDelay: mobileOpen ? '250ms' : '0ms' }}
           >
-            {showAuthButtons && (
-              <Link
-                to={
-                  isAuthenticated
-                    ? getAuthenticatedLandingRoute(user)
-                    : '/sign-in'
-                }
-                onClick={closeMobileMenu}
-                className={cn(
-                  'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none touch-manipulation inline-flex min-h-11 h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80',
-                  editorialHeader
-                    ? 'forge-public-mobile-action'
-                    : 'bg-foreground text-background'
-                )}
-                tabIndex={mobileOpen ? undefined : -1}
-              >
-                {isAuthenticated ? t('Open workspace') : t('Sign in')}
-              </Link>
+            {showAuthButtons && authenticationPending ? (
+              <Skeleton className='h-10 w-full rounded-lg' />
+            ) : (
+              showAuthButtons && (
+                <Link
+                  to={
+                    isAuthenticated
+                      ? getAuthenticatedLandingRoute(user)
+                      : '/sign-in'
+                  }
+                  onClick={closeMobileMenu}
+                  className={cn(
+                    'focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none touch-manipulation inline-flex min-h-11 h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80',
+                    editorialHeader
+                      ? 'forge-public-mobile-action'
+                      : 'bg-foreground text-background'
+                  )}
+                  tabIndex={mobileOpen ? undefined : -1}
+                >
+                  {isAuthenticated ? t('Open workspace') : t('Sign in')}
+                </Link>
+              )
             )}
           </div>
         </div>

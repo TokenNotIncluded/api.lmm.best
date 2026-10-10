@@ -40,6 +40,8 @@ import type {
   ProcessedUserChartData,
   UserChartsFilters,
 } from '@/features/dashboard/types'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
 
@@ -72,7 +74,24 @@ interface UserChartsProps {
 }
 
 export function UserCharts(props: UserChartsProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const {
+    currency: unit,
+    formatQuota,
+    quotaToAmount,
+    formatAmount,
+  } = useWalletCurrency()
+  const locale = getCurrencyFormattingLocale(
+    i18n.resolvedLanguage || i18n.language
+  )
+  const currency = useMemo(
+    () => ({
+      formatQuota,
+      quotaToAmount,
+      formatAmount,
+    }),
+    [formatQuota, quotaToAmount, formatAmount]
+  )
   const { resolvedTheme } = useTheme()
   const [themeReady, setThemeReady] = useState(false)
   const themeManagerRef = useRef<
@@ -149,9 +168,10 @@ export function UserCharts(props: UserChartsProps) {
         isLoading ? [] : (userData ?? []),
         timeGranularity,
         t,
-        topUserLimit
+        topUserLimit,
+        currency
       ),
-    [userData, isLoading, timeGranularity, t, topUserLimit]
+    [userData, isLoading, timeGranularity, t, topUserLimit, currency]
   )
 
   return (
@@ -244,7 +264,7 @@ export function UserCharts(props: UserChartsProps) {
                   themeReady &&
                   spec && (
                     <VChart
-                      key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}`}
+                      key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}-${unit}-${locale}-${quotaToAmount(1)}`}
                       spec={{
                         ...spec,
                         theme: resolvedTheme === 'dark' ? 'dark' : 'light',

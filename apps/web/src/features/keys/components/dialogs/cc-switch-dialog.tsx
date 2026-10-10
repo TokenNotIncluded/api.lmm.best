@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, useId, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -27,12 +27,12 @@ import { ComboboxInput } from '@/components/ui/combobox-input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Switch } from '@/components/ui/switch'
-import { getUserModels } from '@/lib/api'
 import { buildCCSwitchProviderURL } from '@/lib/cc-switch-deep-link'
 import { openExternalUrl } from '@/lib/external-navigation'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import { getApiKey, setAccountBalanceAccess } from '../../api'
+import { getKeyModels } from '../../lib/key-models'
 
 const APP_CONFIGS = {
   claude: {
@@ -80,7 +80,34 @@ interface Props {
 }
 
 export function CCSwitchDialog(props: Props) {
+  // A changed secret (even for the same token ID) starts a fresh component and selection.
+  // The credential remains local; only a nonsecret useId enters the catalogue query key.
+  const [credential, setCredential] = useState({
+    tokenKey: props.tokenKey,
+    tokenId: props.tokenId,
+    revision: 0,
+  })
+  if (
+    credential.tokenKey !== props.tokenKey ||
+    credential.tokenId !== props.tokenId
+  ) {
+    setCredential({
+      tokenKey: props.tokenKey,
+      tokenId: props.tokenId,
+      revision: credential.revision + 1,
+    })
+    return null
+  }
+  return props.open ? (
+    <CCSwitchForm key={credential.revision} {...props} />
+  ) : null
+}
+
+function CCSwitchForm(props: Props) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const catalogueId = useId()
+  const catalogueQueryKey = ['user-models-ccswitch', catalogueId]
   const [app, setApp] = useState<AppType>('claude')
   const [name, setName] = useState<string>(APP_CONFIGS.claude.defaultName)
   const [models, setModels] = useState<Record<string, string>>({})
@@ -109,28 +136,26 @@ export function CCSwitchDialog(props: Props) {
     }
   }
 
-  const { data: modelsData } = useQuery({
-    queryKey: ['user-models-ccswitch'],
-    queryFn: getUserModels,
-    enabled: props.open,
-    staleTime: 5 * 60 * 1000,
+  const catalogue = useQuery({
+    queryKey: catalogueQueryKey,
+    queryFn: ({ signal }) => getKeyModels(props.tokenKey, signal),
+    enabled: Boolean(props.tokenKey),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
   })
+  const catalogueReady = catalogue.isSuccess && !catalogue.isFetching
 
   const modelOptions = useMemo(() => {
-    const items = modelsData?.data ?? []
+    const items = catalogueReady ? (catalogue.data ?? []) : []
     return items.map((m) => ({ value: m, label: m }))
-  }, [modelsData?.data])
-
-  useEffect(() => {
-    if (props.open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setModels({})
-
-      setApp('claude')
-
-      setName(APP_CONFIGS.claude.defaultName)
-    }
-  }, [props.open])
+  }, [catalogueReady, catalogue.data])
+  const selectedModels = Object.fromEntries(
+    Object.entries(models).filter(([, id]) =>
+      modelOptions.some((option) => option.value === id)
+    )
+  )
+  const canExport = catalogueReady && Boolean(selectedModels.model)
 
   const currentConfig = APP_CONFIGS[app]
 
@@ -142,7 +167,18 @@ export function CCSwitchDialog(props: Props) {
   }
 
   const handleSubmit = async () => {
-    if (!models.model) {
+    // Invalidation changes query state before React's batched notification renders.
+    // Recheck that state on click so a stale visible selection cannot slip through.
+    const currentCatalogue =
+      queryClient.getQueryState<string[]>(catalogueQueryKey)
+    if (
+      !canExport ||
+      currentCatalogue?.status !== 'success' ||
+      currentCatalogue.fetchStatus !== 'idle' ||
+      Object.values(selectedModels).some(
+        (id) => !currentCatalogue.data?.includes(id)
+      )
+    ) {
       toast.warning(t('Please select a primary model'))
       return
     }
@@ -157,7 +193,7 @@ export function CCSwitchDialog(props: Props) {
         name,
         endpoint,
         apiKey: key,
-        models,
+        models: selectedModels,
         homepage: serverAddress,
         enabled: true,
         accountBalanceURL: canReadBalance
@@ -203,7 +239,9 @@ export function CCSwitchDialog(props: Props) {
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={savingBalanceAccess || balanceAccess.isFetching}
+            disabled={
+              !canExport || savingBalanceAccess || balanceAccess.isFetching
+            }
           >
             {t('Open CC Switch')}
           </Button>
@@ -270,6 +308,28 @@ export function CCSwitchDialog(props: Props) {
           />
         </div>
 
+        {!props.tokenKey || catalogue.isError ? (
+          <div className='space-y-2' role='alert'>
+            <p className='text-sm'>{t('Failed to fetch models')}</p>
+            {props.tokenKey && (
+              <Button
+                type='button'
+                variant='outline'
+                onClick={() => void catalogue.refetch()}
+              >
+                {t('Retry')}
+              </Button>
+            )}
+          </div>
+        ) : catalogue.isPending || catalogue.isFetching ? (
+          <p className='text-muted-foreground text-sm' role='status'>
+            {t('Loading')}
+          </p>
+        ) : modelOptions.length === 0 ? (
+          <p className='text-muted-foreground text-sm'>
+            {t('No models found')}
+          </p>
+        ) : null}
         {currentConfig.modelFields.map((field) => (
           <div key={field.key} className='space-y-2'>
             <Label>
@@ -280,7 +340,7 @@ export function CCSwitchDialog(props: Props) {
             </Label>
             <ComboboxInput
               options={modelOptions}
-              value={models[field.key] || ''}
+              value={selectedModels[field.key] || ''}
               onValueChange={(v) =>
                 setModels((prev) => ({ ...prev, [field.key]: v }))
               }

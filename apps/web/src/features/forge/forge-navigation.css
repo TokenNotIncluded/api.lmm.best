@@ -1,0 +1,60 @@
+/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+.public-header.forge-public-header {
+  background: color-mix(in oklch, var(--forge-header-paper) 90%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.forge-public-header .forge-public-nav {
+  min-width: 0;
+  min-height: 4rem;
+  padding-inline: 0;
+  border-color: color-mix(in oklch, var(--forge-header-ink) 10%, transparent);
+}
+
+.forge-public-header .forge-public-nav-link,
+.forge-public-header .forge-public-nav-link-active {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.forge-public-header .forge-public-nav-link:hover {
+  background: color-mix(in oklch, var(--forge-header-ink) 5%, transparent);
+}
+
+.forge-public-header .forge-public-nav-link-active {
+  background: color-mix(in oklch, var(--forge-header-ink) 9%, transparent);
+}
+
+.forge-public-header .public-header-mobile-actions {
+  gap: 0.25rem;
+}
+
+.forge-public-header .public-header-mobile-actions > button {
+  border-radius: 50%;
+}
+
+.forge-public-mobile-overlay .forge-public-mobile-link,
+.forge-public-mobile-overlay .forge-public-mobile-link-active {
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  font-size: clamp(1rem, 3vw, 1.35rem);
+}
+
+.forge-public-mobile-overlay .forge-public-mobile-link-active {
+  background: color-mix(in oklch, var(--forge-header-ink) 8%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forge-public-header a,
+  .forge-public-mobile-overlay,
+  .forge-public-mobile-overlay a {
+    transition: none;
+  }
+}

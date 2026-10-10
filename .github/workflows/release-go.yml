@@ -2,10 +2,13 @@ name: LMM Go backend release
 
 on:
   workflow_dispatch:
+    inputs:
+      local_test_evidence:
+        description: JSON evidence for successful local release checks at this exact commit
+        required: true
+        type: string
 
 permissions:
-  actions: read
-  checks: read
   contents: read
 
 concurrency:
@@ -23,6 +26,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       contract_revision: ${{ steps.identity.outputs.contract_revision }}
+      merchant_writer_capability: ${{ steps.identity.outputs.merchant_writer_capability }}
       revision: ${{ steps.identity.outputs.revision }}
       version: ${{ steps.identity.outputs.version }}
     steps:
@@ -75,96 +79,25 @@ jobs:
           [[ $(readlink "$contract_cli_dir/lmm-api") == lmm-api-go ]]
           [[ $(sha256sum "$contract_cli_dir/lmm-api" | cut -d' ' -f1) == \
              $(sha256sum "$contract_cli_dir/lmm-api-go" | cut -d' ' -f1) ]]
-          contract_revision=$("$contract_cli_dir/lmm-api" operator contract route print)
+          (cd apps/api-go && go build -p 2 -trimpath -o "$contract_cli_dir/lmm-api-deploy-engine" ./cmd/lmm-api-deploy)
+          contract_revision=$("$contract_cli_dir/lmm-api-deploy-engine" contract route print)
+          merchant_writer_capability=$("$contract_cli_dir/lmm-api" merchant-store-writer-gate capability)
+          [[ "$merchant_writer_capability" =~ ^[1-9]$ ]]
           {
             echo "contract_revision=$contract_revision"
+            echo "merchant_writer_capability=$merchant_writer_capability"
             echo "version=$version"
             echo "revision=$revision"
           } >>"$GITHUB_OUTPUT"
 
-      - name: Require successful CI, CodeQL, and release contracts
+      - name: Require successful local release checks
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}"
-
-  test:
-    name: Test Go backend
-    needs: prepare
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout immutable release revision
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          ref: ${{ needs.prepare.outputs.revision }}
-
-      - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache: false
-
-      - name: Install archive inspection tool
-        run: |
-          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
-          sudo apt-get update && sudo apt-get install --yes libarchive-tools
-
-      - name: Check and test default Go module
-        working-directory: apps/api-go
-        run: |
-          test -z "$(gofmt -l .)"
-          go vet ./...
-          go test -p 2 ./...
-
-      - name: Check independent relaykit module
-        working-directory: apps/api-go/relaykit
-        env:
-          GOWORK: "off"
-        run: |
-          go vet ./...
-          go test -p 2 ./...
-          go build -p 2 ./...
-
-  package-contract:
-    name: Verify Go AUR and deployment contracts
-    needs: prepare
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    container: archlinux:base-devel
-    steps:
-      - name: Install package contract tools
-        run: |
-          pacman --sync --refresh --noconfirm git jq libarchive shellcheck
-          useradd --create-home package-builder
-          install -d -o package-builder -g package-builder /home/package-builder/lmm-ci-tmp
-
-      - name: Checkout immutable release revision
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ needs.prepare.outputs.revision }}
-
-      - name: Validate split package and release metadata
-        run: |
-          set -euo pipefail
-          chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
-          shellcheck \
-            packaging/aur/export-go-package-base.sh \
-            packaging/aur/test-bin-makepkg.sh \
-            packaging/aur/test-export-go-package-base.sh \
-            packaging/aur/test-matrix.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp \
-            bash packaging/aur/test-matrix.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp \
-            bash packaging/aur/test-bin-makepkg.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp \
-            bash packaging/aur/test-export-go-package-base.sh
+          LMM_LOCAL_TEST_EVIDENCE_JSON: ${{ inputs.local_test_evidence }}
+        run: bash scripts/verify-release-commit-checks.sh "${GITHUB_SHA}" --component go
 
   build:
     name: Build and sign Go linux/${{ matrix.arch }}
-    needs: [prepare, test, package-contract]
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -193,6 +126,7 @@ jobs:
           GOOS: linux
           CGO_ENABLED: "0"
           EXPECTED_CONTRACT_REVISION: ${{ needs.prepare.outputs.contract_revision }}
+          MERCHANT_WRITER_CAPABILITY: ${{ needs.prepare.outputs.merchant_writer_capability }}
           RELEASE_REVISION: ${{ needs.prepare.outputs.revision }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -205,12 +139,15 @@ jobs:
             go build -p 2 -trimpath \
               -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=${RELEASE_VERSION}" \
               -o "../../${bundle}/lmm-api-go" .
+            go build -p 2 -trimpath -ldflags="-s -w -X main.version=${RELEASE_VERSION}" \
+              -o "../../${bundle}/lmm-api-deploy-engine" ./cmd/lmm-api-deploy
           )
           file "$bundle/lmm-api-go"
           if ldd "$bundle/lmm-api-go" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
             echo 'Go release binary is dynamically linked' >&2
             exit 1
           fi
+          bash scripts/check-static-go-binary.sh "$bundle/lmm-api-deploy-engine"
           cp packaging/common/lmm-api/lmm-api-deploy "$bundle/"
           cp packaging/common/lmm-api/lmm-api.service "$bundle/"
           cp packaging/common/lmm-api/lmm-api-go.env "$bundle/"
@@ -231,6 +168,11 @@ jobs:
             "$bundle/edge-policy/"
           cp LICENSE NOTICE THIRD-PARTY-LICENSES.md "$bundle/"
           printf '%s\n' "$RELEASE_REVISION" >"$bundle/REVISION"
+          [[ "$MERCHANT_WRITER_CAPABILITY" =~ ^[1-9]$ ]]
+          # One compiled source getter supplies both architectures. This is
+          # metadata, not evidence of runtime compatibility or activation.
+          printf '%s\n' "$MERCHANT_WRITER_CAPABILITY" > \
+            "$bundle/MERCHANT_STORE_WRITER_CAPABILITY"
           provider_sha256=$(sha256sum "$bundle/lmm-api-go" | cut -d' ' -f1)
           ln -s lmm-api-go "$bundle/lmm-api"
           [[ $(readlink "$bundle/lmm-api") == lmm-api-go ]]
@@ -290,7 +232,7 @@ jobs:
 
   publish:
     name: Publish signed Go release
-    needs: [prepare, test, package-contract, build]
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write

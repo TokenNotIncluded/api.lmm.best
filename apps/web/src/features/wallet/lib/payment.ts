@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { legacyPlatformAmountToQuota } from '@/lib/currency'
 import type { WaffoPancakeCheckoutOptions } from '@/lib/waffo-pancake-checkout'
 
 import {
@@ -31,6 +32,10 @@ import type {
   TopupRecord,
   WaffoPayMethod,
 } from '../types'
+import {
+  getPaymentMinTopupQuota,
+  getDedicatedPaymentLimits,
+} from './payment-unit'
 import { parseSettlementQuote } from './settlement-quote'
 
 // ============================================================================
@@ -390,12 +395,28 @@ export function getDefaultPaymentType(
 /**
  * Get minimum topup amount from topup info
  */
-export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
+export function getMinTopupAmount(
+  topupInfo: TopupInfo | null,
+  selectedType?: string | null
+): number {
   if (!topupInfo) {
     return DEFAULT_MIN_TOPUP
   }
 
-  const paymentType = getTopupAvailability(topupInfo).defaultQuotedType
+  const availability = getTopupAvailability(topupInfo)
+  const paymentType = selectedType ?? availability.defaultQuotedType
+  if (topupInfo.amount_unit === 'CREDIT') {
+    if (paymentType === PAYMENT_TYPES.WAFFO) {
+      return (
+        getDedicatedPaymentLimits(topupInfo, PAYMENT_TYPES.WAFFO)?.minimum ??
+        Number.POSITIVE_INFINITY
+      )
+    }
+    const method = availability.standardMethods.find(
+      (item) => item.type === paymentType
+    )
+    return method ? Math.max(1, getPaymentMinTopupQuota(method)) : 1
+  }
 
   if (paymentType === PAYMENT_TYPES.STRIPE) {
     return topupInfo.stripe_min_topup
@@ -423,13 +444,26 @@ export function getTopupRecordPlatformAmount(
     : record.amount
 }
 
+/** Immutable credited quota wins over a historical legacy batch projection. */
+export function getTopupRecordQuota(
+  record: Pick<
+    TopupRecord,
+    'credited_quota' | 'amount' | 'platform_amount_micros'
+  >
+): number {
+  return Number.isSafeInteger(record.credited_quota) &&
+    Number(record.credited_quota) > 0
+    ? Number(record.credited_quota)
+    : legacyPlatformAmountToQuota(getTopupRecordPlatformAmount(record))
+}
+
 /**
  * Generate preset amounts based on minimum topup
  */
 export function generatePresetAmounts(minAmount: number): PresetAmount[] {
   return DEFAULT_PRESET_MULTIPLIERS.map((multiplier) => ({
     value: minAmount * multiplier,
-  }))
+  })).filter((preset) => Number.isSafeInteger(preset.value) && preset.value > 0)
 }
 
 /**

@@ -49,6 +49,8 @@ import {
   isRestrictedPublicRoute,
 } from '@/lib/console-activation'
 import { resolveLegacyRoute } from '@/lib/legacy-route'
+import { isPublicDirectoryPath } from '@/lib/public-directory-route'
+import { bootstrapPublicEntry } from '@/lib/public-entry-bootstrap'
 import { useAuthStore } from '@/stores/auth-store'
 
 const PersonaDebugPanel = __LMM_PERSONA_DEBUG__
@@ -65,6 +67,11 @@ function RootComponent() {
     select: (state) => state.location.pathname,
   })
   const isHomeIntroSurface = isHomeIntroPath(pathname)
+  const hasConsoleLayout = useRouterState({
+    select: (state) =>
+      state.matches.some((match) => match.routeId === '/_authenticated') &&
+      !isPublicDirectoryPath(state.location.pathname),
+  })
 
   // Load system configuration (logo, system name, etc.) from backend
   useSystemConfig({ autoLoad: true })
@@ -101,7 +108,7 @@ function RootComponent() {
     <ThemeCustomizationProvider>
       <NavigationProgress />
       <Outlet />
-      <SourceConsent />
+      {!hasConsoleLayout && <SourceConsent />}
       {isHomeIntroSurface && <Footer />}
       {isHomeIntroSurface && <FeedbackRewardButton />}
       <Toaster closeButton duration={5000} position='top-center' richColors />
@@ -160,7 +167,9 @@ let setupStatusChecked = getSetupStatusFromCache()
 
 const NON_BLOCKING_PUBLIC_PATHS = [
   '/',
+  '/ai-directory',
   '/challenges',
+  '/store',
   '/pricing',
   '/developers',
   '/status',
@@ -214,6 +223,7 @@ export const Route = createRootRouteWithContext<{
     }
 
     const pathname = location?.pathname || ''
+    if (bootstrapPublicEntry(pathname, bootstrapAuthentication)) return
     const needsSetupCheck =
       !setupStatusChecked && !pathname.startsWith('/setup')
     const nonBlockingPublicPath = isNonBlockingPublicPath(pathname)

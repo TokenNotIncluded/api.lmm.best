@@ -118,3 +118,17 @@ func BenchmarkCopyRequestForRelay(b *testing.B) {
 		}
 	}
 }
+
+func TestCopyRequestForRelaySanitizesToolsWithoutChangingRetryOrPassthrough(t *testing.T) {
+	original := &dto.OpenAIResponsesRequest{Tools: json.RawMessage(`[{"type":"function","name":"lookup","parameters":{"required":null,"default":{"required":null}}}]`), Input: json.RawMessage(`{"required":null}`)}
+	before := append([]byte(nil), original.Tools...)
+	converted, err := copyRequestForRelay(original, false)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[{"type":"function","name":"lookup","parameters":{"default":{"required":null}}}]`, string(converted.Tools))
+	assert.Equal(t, before, []byte(original.Tools))
+	assert.Equal(t, original.Input, converted.Input)
+	passthrough, err := copyRequestForRelay(original, true)
+	require.NoError(t, err)
+	assert.Equal(t, before, []byte(passthrough.Tools))
+	assert.Same(t, &original.Tools[0], &passthrough.Tools[0])
+}

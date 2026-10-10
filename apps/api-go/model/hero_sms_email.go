@@ -96,6 +96,7 @@ type HeroSMSSettingsUpdate struct {
 }
 
 type HeroSMSEmailProduct struct {
+	HeroSMSPricingMetadata
 	ID               string `json:"id"`
 	Site             string `json:"site"`
 	Domain           string `json:"domain"`
@@ -118,6 +119,7 @@ type HeroSMSEmailPurchaseRequest struct {
 }
 
 type HeroSMSEmailOrderView struct {
+	HeroSMSPricingMetadata
 	ID               string                       `json:"id"`
 	Operation        string                       `json:"operation"`
 	Status           string                       `json:"status"`
@@ -219,14 +221,15 @@ type HeroSMSProviderPurchaseLease struct {
 }
 
 type HeroSMSEmailQuotaLedger struct {
-	ID             int64  `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserID         int    `json:"user_id" gorm:"index;not null"`
-	OrderID        string `json:"order_id" gorm:"size:64;index;not null"`
-	ActivationID   string `json:"activation_id" gorm:"size:64;index"`
-	EntryType      string `json:"entry_type" gorm:"size:32;index;not null"`
-	AmountQuota    int    `json:"amount_quota" gorm:"not null"`
-	IdempotencyKey string `json:"idempotency_key" gorm:"size:128;uniqueIndex;not null"`
-	CreatedAt      int64  `json:"created_at" gorm:"index"`
+	ID                  int64  `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID              int    `json:"user_id" gorm:"index;not null"`
+	OrderID             string `json:"order_id" gorm:"size:64;index;not null"`
+	ActivationID        string `json:"activation_id" gorm:"size:64;index"`
+	EntryType           string `json:"entry_type" gorm:"size:32;index;not null"`
+	AmountQuota         int    `json:"amount_quota" gorm:"not null"`
+	OriginalAmountQuota *int   `json:"original_amount_quota,omitempty"`
+	IdempotencyKey      string `json:"idempotency_key" gorm:"size:128;uniqueIndex;not null"`
+	CreatedAt           int64  `json:"created_at" gorm:"index"`
 }
 
 func (o *HeroSMSEmailOrder) BeforeCreate(_ *gorm.DB) error {
@@ -576,15 +579,17 @@ func ListHeroSMSEmailProducts(ctx context.Context, page int, size int, site stri
 		if tokenErr != nil {
 			return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
 		}
+		priceUSD, pricing := heroSMSPriceProjection(chargeQuota, 1)
 		// pi-lens-ignore: ast-grep:gorm-n-plus-one
 		allProducts = append(allProducts, HeroSMSEmailProduct{
-			ID:               productID,
-			Site:             normalizedSite,
-			Domain:           domain,
-			Count:            item.Count,
-			Available:        item.Count > 0,
-			CustomerPriceUSD: customerPrice.String(),
-			ChargeQuota:      chargeQuota,
+			ID:                     productID,
+			Site:                   normalizedSite,
+			Domain:                 domain,
+			Count:                  item.Count,
+			Available:              item.Count > 0,
+			HeroSMSPricingMetadata: pricing,
+			CustomerPriceUSD:       priceUSD,
+			ChargeQuota:            chargeQuota,
 		})
 	}
 	start := (page - 1) * size
@@ -1219,57 +1224,11 @@ func failHeroSMSEmailOrder(order *HeroSMSEmailOrder, cause error) error {
 }
 
 func heroSMSRefundOrderTx(tx *gorm.DB, order *HeroSMSEmailOrder, quota int, refundKey string) error {
-	if quota <= 0 {
-		return nil
-	}
-	ledger := HeroSMSEmailQuotaLedger{UserID: order.UserID, OrderID: order.ID, EntryType: HeroSMSEmailLedgerRefund, AmountQuota: quota, IdempotencyKey: "hero_sms:refund:" + order.ID + ":" + refundKey}
-	insert := tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "idempotency_key"}},
-		DoNothing: true,
-	}).Create(&ledger)
-	if insert.Error != nil {
-		return insert.Error
-	}
-	if insert.RowsAffected == 0 {
-		return nil
-	}
-	orderUpdate := tx.Model(&HeroSMSEmailOrder{}).
-		Where("id = ? AND refunded_quota + ? <= charge_quota", order.ID, quota).
-		UpdateColumn("refunded_quota", gorm.Expr("refunded_quota + ?", quota))
-	if orderUpdate.Error != nil {
-		return orderUpdate.Error
-	}
-	if orderUpdate.RowsAffected != 1 {
-		return errors.New("HeroSMS refund exceeds reserved quota")
-	}
-	return ApplyWalletQuotaDelta(tx, order.UserID, quota)
+	return heroSMSRefundQuotaTx(tx, order, "", quota, "hero_sms:refund:"+order.ID+":"+refundKey)
 }
 
 func heroSMSRefundActivationTx(tx *gorm.DB, order *HeroSMSEmailOrder, activation *HeroSMSEmailActivation, quota int, refundKey string) error {
-	if quota <= 0 {
-		return nil
-	}
-	ledger := HeroSMSEmailQuotaLedger{UserID: order.UserID, OrderID: order.ID, ActivationID: activation.ID, EntryType: HeroSMSEmailLedgerRefund, AmountQuota: quota, IdempotencyKey: "hero_sms:refund:" + activation.ID + ":" + refundKey}
-	insert := tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "idempotency_key"}},
-		DoNothing: true,
-	}).Create(&ledger)
-	if insert.Error != nil {
-		return insert.Error
-	}
-	if insert.RowsAffected == 0 {
-		return nil
-	}
-	orderUpdate := tx.Model(&HeroSMSEmailOrder{}).
-		Where("id = ? AND refunded_quota + ? <= charge_quota", order.ID, quota).
-		UpdateColumn("refunded_quota", gorm.Expr("refunded_quota + ?", quota))
-	if orderUpdate.Error != nil {
-		return orderUpdate.Error
-	}
-	if orderUpdate.RowsAffected != 1 {
-		return errors.New("HeroSMS refund exceeds reserved quota")
-	}
-	return ApplyWalletQuotaDelta(tx, order.UserID, quota)
+	return heroSMSRefundQuotaTx(tx, order, activation.ID, quota, "hero_sms:refund:"+activation.ID+":"+refundKey)
 }
 
 func markHeroSMSEmailOrderStatus(orderID string, status string, errorCode string, errorMessage string, activationStatus string) error {
@@ -1952,6 +1911,7 @@ func getHeroSMSEmailOrder(userID int, orderID string) (*HeroSMSEmailOrder, error
 }
 
 func heroSMSEmailOrderView(order *HeroSMSEmailOrder) (*HeroSMSEmailOrderView, error) {
+	priceUSD, pricing := heroSMSPriceProjection(order.ChargeQuota, order.Quantity)
 	views := make([]HeroSMSEmailActivationView, 0, len(order.Activations))
 	for i := range order.Activations {
 		view, err := heroSMSEmailActivationView(&order.Activations[i])
@@ -1961,19 +1921,20 @@ func heroSMSEmailOrderView(order *HeroSMSEmailOrder) (*HeroSMSEmailOrderView, er
 		views = append(views, *view)
 	}
 	return &HeroSMSEmailOrderView{
-		ID:               order.ID,
-		Operation:        order.Operation,
-		Status:           order.Status,
-		DomainID:         order.DomainID,
-		Site:             order.Site,
-		Domain:           order.Domain,
-		Quantity:         order.Quantity,
-		CustomerPriceUSD: microsToDecimal(order.CustomerUnitPriceMicros).StringFixed(6),
-		ChargeQuota:      order.ChargeQuota,
-		RefundedQuota:    order.RefundedQuota,
-		CreatedAt:        order.CreatedAt,
-		UpdatedAt:        order.UpdatedAt,
-		Activations:      views,
+		ID:                     order.ID,
+		Operation:              order.Operation,
+		Status:                 order.Status,
+		DomainID:               order.DomainID,
+		Site:                   order.Site,
+		Domain:                 order.Domain,
+		Quantity:               order.Quantity,
+		HeroSMSPricingMetadata: pricing,
+		CustomerPriceUSD:       priceUSD,
+		ChargeQuota:            order.ChargeQuota,
+		RefundedQuota:          order.RefundedQuota,
+		CreatedAt:              order.CreatedAt,
+		UpdatedAt:              order.UpdatedAt,
+		Activations:            views,
 	}, nil
 }
 

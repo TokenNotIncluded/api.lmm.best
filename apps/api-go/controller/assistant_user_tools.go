@@ -18,12 +18,13 @@ import (
 // The browser needs to show what happened, but the conversation must never
 // receive raw account data, passwords, OAuth subject IDs, or request content.
 type assistantToolTrace struct {
-	CallID    string         `json:"call_id,omitempty"`
-	Name      string         `json:"name"`
-	Status    string         `json:"status"`
-	Input     map[string]any `json:"input,omitempty"`
-	Result    *float64       `json:"result,omitempty"`
-	ErrorCode string         `json:"error_code,omitempty"`
+	Visualization *assistantVisualization `json:"visualization,omitempty"`
+	CallID        string                  `json:"call_id,omitempty"`
+	Name          string                  `json:"name"`
+	Status        string                  `json:"status"`
+	Input         map[string]any          `json:"input,omitempty"`
+	Result        *float64                `json:"result,omitempty"`
+	ErrorCode     string                  `json:"error_code,omitempty"`
 }
 
 func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any) assistantToolTrace {
@@ -32,12 +33,13 @@ func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any
 		Status: "output-available",
 		Input:  assistantSafeToolInput(call.Function.Arguments),
 	}
-	if isAssistantAdministratorTool(trace.Name) {
+	if isAssistantAdministratorTool(trace.Name) || assistantVisualizationKind(trace.Name) != "" {
 		callID := sha256.Sum256([]byte(call.ID))
 		trace.CallID = hex.EncodeToString(callID[:12])
 	}
 	if ok, exists := result["ok"].(bool); exists && !ok {
 		trace.Status = "output-error"
+		trace.ErrorCode = assistantPublicToolErrorCode(result)
 	}
 	if status, _ := result["status"].(string); status == "confirmation_required" || status == "navigation_ready" {
 		trace.Status = "approval-requested"
@@ -52,6 +54,9 @@ func buildAssistantToolTrace(call assistantOpenAIToolCall, result map[string]any
 			trace.Result = &value
 		}
 	}
+	if trace.Status == "output-available" && assistantVisualizationKind(trace.Name) != "" {
+		trace.Visualization, _ = result["visualization"].(*assistantVisualization)
+	}
 	return trace
 }
 
@@ -64,6 +69,7 @@ func assistantSafeToolInput(arguments string) map[string]any {
 		"action": {}, "days": {}, "group": {}, "identifier": {}, "model_id": {},
 		"expression": {}, "page": {}, "platform": {}, "provider": {}, "query": {}, "section": {},
 		"target_user_id": {}, "title": {}, "topic": {}, "operation_id": {},
+		"token_id": {}, "document": {}, "language": {}, "key": {},
 	}
 	result := make(map[string]any)
 	for key, value := range input {
@@ -260,7 +266,6 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 	page := strings.TrimSpace(inputString(input, "page"))
 	paths := map[string]string{
 		"home":                 "/",
-		"getting-started":      "/getting-started",
 		"pricing":              "/pricing",
 		"wallet":               "/wallet",
 		"keys":                 "/keys",
@@ -269,8 +274,34 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 		"profile":              "/profile",
 		"support":              "/support",
 		"open-source-bounties": "/open-source-bounties",
+		"store":                "/store",
+		"tool-market":          "/tool-market",
 	}
 	path, ok := paths[page]
+	query := map[string]any{}
+	if page == "store-product" || page == "tool-market-service" {
+		id := strings.TrimSpace(inputString(input, "identifier"))
+		if !assistantCatalogID(id) {
+			return assistantCatalogError("input_invalid")
+		}
+		if page == "store-product" {
+			product, err := model.GetMerchantStoreProductForViewer(actorUserID, id)
+			if err != nil {
+				return assistantCatalogError("item_unavailable")
+			}
+			path = "/store/products/" + id
+			if product.TestMode {
+				query["owner_preview"] = true
+			}
+		} else {
+			if _, err := model.GetToolMarketDetail(actorUserID, id, false); err != nil {
+				return assistantCatalogError("item_unavailable")
+			}
+			path = "/tool-market"
+			query["service_id"] = id
+		}
+		ok = true
+	}
 	if page == "users" {
 		actor, err := model.GetUserById(actorUserID, false)
 		if err != nil || actor.Role < common.RoleAdminUser {
@@ -281,8 +312,13 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 	}
 	if page == "models" {
 		actor, err := model.GetUserById(actorUserID, false)
-		if err != nil || actor.Role < common.RoleAdminUser {
-			return map[string]any{"ok": false, "status": "target_forbidden", "error": "the models page is available only to administrators"}
+		if err != nil {
+			return map[string]any{"ok": false, "status": "context_unavailable", "error": "account access could not be loaded"}
+		}
+		if actor.Role < common.RoleAdminUser {
+			// /models manages server model metadata. The user-facing catalogue
+			// is /pricing and remains available without administrator privileges.
+			path = "/pricing"
 		}
 		ok = true
 	}
@@ -309,7 +345,6 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 		return map[string]any{"ok": false, "status": "page_invalid", "error": "this page is not available through assistant navigation"}
 	}
 
-	query := map[string]any{}
 	identifier := strings.TrimSpace(inputString(input, "identifier"))
 	if identifier == "" {
 		identifier = strings.TrimSpace(inputString(input, "query"))
@@ -342,10 +377,16 @@ func executeAssistantUserOverviewTool(c *gin.Context, actorUserID int, input map
 	if targetError != nil {
 		return targetError
 	}
+	overview := assistantSafeUserOverview(target.User)
+	if target.Self {
+		for key, value := range assistantWalletBalanceFields(target.User.Quota) {
+			overview[key] = value
+		}
+	}
 	return map[string]any{
 		"ok":     true,
 		"scope":  map[bool]string{true: "self", false: "administrator_target"}[target.Self],
-		"user":   assistantSafeUserOverview(target.User),
+		"user":   overview,
 		"notice": "Passwords, access tokens, OAuth subject IDs, session data, and raw request content are omitted.",
 	}
 }
@@ -381,6 +422,9 @@ func executeAssistantUserUsageTool(c *gin.Context, actorUserID int, input map[st
 
 func executeAssistantPrepareUserActionTool(c *gin.Context, actorUserID int, input map[string]any) map[string]any {
 	actionName := strings.TrimSpace(inputString(input, "action"))
+	if actionName == "change_display_name" {
+		return executeAssistantPrepareDisplayNameTool(c, actorUserID, input)
+	}
 	target, targetError := resolveAssistantUserTarget(c, actorUserID, input, true)
 	if targetError != nil {
 		return targetError

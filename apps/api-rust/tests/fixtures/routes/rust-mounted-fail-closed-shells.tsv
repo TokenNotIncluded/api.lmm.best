@@ -1,7 +1,6 @@
 # Mounted compatibility shells preserve route shape/auth rejection only; they are not runtime-capable Rust implementations and confer no route ownership credit.
 # method	path	Rust handler	ordinary-listener mount evidence	production blocker adapter	promotion gate
 POST	/api/creem/webhook	lmm_api_rs::routes::billing_payments::billing_provider_payments_router	apps/api-rust/src/main.rs:billing_provider_payments	DisabledStripeWebhookVerifier	requires-real-adapter-and-capability-test
-POST	/api/stripe/webhook	lmm_api_rs::routes::billing_payments::billing_provider_payments_router	apps/api-rust/src/main.rs:billing_provider_payments	DisabledStripeWebhookVerifier	requires-real-adapter-and-capability-test
 POST	/api/subscription/creem/pay	lmm_api_rs::routes::billing_payments::billing_provider_payments_router	apps/api-rust/src/main.rs:billing_provider_payments	DisabledCheckoutProvider	requires-real-adapter-and-capability-test
 GET	/api/subscription/epay/notify	lmm_api_rs::routes::billing_payments::billing_provider_payments_router	apps/api-rust/src/main.rs:billing_provider_payments	DisabledEpayVerifier	requires-real-adapter-and-capability-test
 POST	/api/subscription/epay/notify	lmm_api_rs::routes::billing_payments::billing_provider_payments_router	apps/api-rust/src/main.rs:billing_provider_payments	DisabledEpayVerifier	requires-real-adapter-and-capability-test
@@ -11,10 +10,6 @@ POST	/api/subscription/epay/return	lmm_api_rs::routes::billing_payments::billing
 POST	/api/subscription/stripe/pay	lmm_api_rs::routes::billing_payments::billing_provider_payments_router	apps/api-rust/src/main.rs:billing_provider_payments	DisabledCheckoutProvider	requires-real-adapter-and-capability-test
 POST	/api/subscription/waffo-pancake/pay	lmm_api_rs::routes::billing_payments::billing_provider_payments_router	apps/api-rust/src/main.rs:billing_provider_payments	DisabledCheckoutProvider	requires-real-adapter-and-capability-test
 POST	/api/user/creem/pay	lmm_api_rs::routes::stripe_creem::pay_router	apps/api-rust/src/main.rs:stripe_pay	DisabledStripeCreemGateway	requires-real-adapter-and-capability-test
-GET	/api/user/epay/notify	lmm_api_rs::routes::epay::router	apps/api-rust/src/main.rs:epay	DisabledTopupRepository+DisabledEpayGateway	requires-real-adapter-and-capability-test
-POST	/api/user/epay/notify	lmm_api_rs::routes::epay::router	apps/api-rust/src/main.rs:epay	DisabledTopupRepository+DisabledEpayGateway	requires-real-adapter-and-capability-test
-POST	/api/user/pay	lmm_api_rs::routes::epay::router	apps/api-rust/src/main.rs:epay	DisabledTopupRepository+DisabledEpayGateway	requires-real-adapter-and-capability-test
-POST	/api/user/stripe/pay	lmm_api_rs::routes::stripe_creem::pay_router	apps/api-rust/src/main.rs:stripe_pay	DisabledStripeCreemGateway	requires-real-adapter-and-capability-test
 POST	/api/user/waffo-pancake/pay	lmm_api_rs::routes::waffo::router	apps/api-rust/src/main.rs:waffo	DisabledTopUpGateway	requires-real-adapter-and-capability-test
 POST	/api/user/waffo/pay	lmm_api_rs::routes::waffo::router	apps/api-rust/src/main.rs:waffo	DisabledTopUpGateway	requires-real-adapter-and-capability-test
 POST	/api/waffo-pancake/webhook/:env	lmm_api_rs::routes::waffo_webhooks::waffo_webhooks_router	apps/api-rust/src/main.rs:waffo_webhooks	DisabledWaffoWebhookAvailability+DisabledPancakeWebhookVerifier+DisabledWaffoWebhookProcessor	requires-real-adapter-and-capability-test

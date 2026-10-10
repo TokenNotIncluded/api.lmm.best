@@ -7,6 +7,8 @@ import (
 )
 
 type LegalSettings struct {
+	RefundPolicy    string `json:"refund_policy"`
+	RefundPolicyEn  string `json:"refund_policy_en"`
 	UserAgreement   string `json:"user_agreement"`
 	PrivacyPolicy   string `json:"privacy_policy"`
 	UserAgreementEn string `json:"user_agreement_en"`
@@ -52,4 +54,15 @@ func PrivacyPolicyForLanguage(english bool) string {
 		return defaultLegalSettings.PrivacyPolicyEn
 	}
 	return defaultLegalSettings.PrivacyPolicy
+}
+
+func RefundPolicyPublished() bool {
+	return strings.TrimSpace(defaultLegalSettings.RefundPolicy) != ""
+}
+
+func RefundPolicyForLanguage(english bool) string {
+	if english && strings.TrimSpace(defaultLegalSettings.RefundPolicyEn) != "" {
+		return defaultLegalSettings.RefundPolicyEn
+	}
+	return defaultLegalSettings.RefundPolicy
 }

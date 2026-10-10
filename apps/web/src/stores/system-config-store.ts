@@ -24,11 +24,28 @@ import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 export type CurrencyDisplayType = 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
 
 export interface CurrencyConfig {
+  /** Internal ledger denomination. Unknown rates must never imply 1:1 fiat. */
+  currencyUnit?: 'credit' | 'unknown'
+  /** Compatibility alias for ledgerQuotaPerUsd, never the public credit face value. */
+  creditsPerUsd?: number
+  ledgerQuotaPerUsd?: number
+  ledgerQuotaPerUsdExact?: string
+  publicCreditsPerUsd?: number
+  publicCreditsPerUsdExact?: string
+  creditUnitSchemaVersion?: number
+  quotaUnit?: string
+  publicCreditUnit?: string
+  legacyCreditUnit?: string
+  cnyPerUsd?: number
+  legacyPricingUnitsPerUsd?: number
+  creditsPerUsdExact?: string
+  cnyPerUsdExact?: string
+
   /** Whether to render quota values as currency instead of raw units */
   displayInCurrency: boolean
   /** Currency presentation strategy configured by the admin */
   quotaDisplayType: CurrencyDisplayType
-  /** Number of quota units that equal one USD */
+  /** Historical quota units per legacy pricing batch, only for explicit bridges. */
   quotaPerUnit: number
   /** Exchange rate from USD to the configured local currency */
   usdExchangeRate: number
@@ -50,6 +67,12 @@ export interface SystemConfig {
 }
 
 export const DEFAULT_CURRENCY_CONFIG: CurrencyConfig = {
+  currencyUnit: 'unknown',
+  creditsPerUsd: 0,
+  cnyPerUsd: 0,
+  legacyPricingUnitsPerUsd: 0,
+  creditsPerUsdExact: '',
+  cnyPerUsdExact: '',
   displayInCurrency: true,
   quotaDisplayType: 'USD',
   quotaPerUnit: 500000,

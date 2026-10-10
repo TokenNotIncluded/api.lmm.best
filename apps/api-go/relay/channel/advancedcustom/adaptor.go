@@ -201,6 +201,32 @@ func (a *Adaptor) BuildBalanceRequest(info *relaycommon.RelayInfo) (string, http
 	return a.buildManagementRequest(info, dto.AdvancedCustomBalancePath)
 }
 
+// BalanceQuery is a declarative request for the configured balance endpoint.
+// It does not change inference routing or the models discovery request.
+type BalanceQuery struct {
+	URL    string
+	Header http.Header
+	Method string
+	Body   []byte
+	Config *dto.AdvancedCustomBalanceConfig
+}
+
+func (a *Adaptor) BuildBalanceQuery(info *relaycommon.RelayInfo) (BalanceQuery, error) {
+	requestURL, header, err := a.BuildBalanceRequest(info)
+	if err != nil {
+		return BalanceQuery{}, err
+	}
+	route, _ := info.ChannelOtherSettings.AdvancedCustom.BalanceRoute()
+	body, err := route.Balance.RenderBody(info.ApiKey)
+	if err != nil {
+		return BalanceQuery{}, err
+	}
+	if body != nil {
+		header.Set("Content-Type", "application/json")
+	}
+	return BalanceQuery{URL: requestURL, Header: header, Method: route.Balance.RequestMethod(), Body: body, Config: route.Balance}, nil
+}
+
 func (a *Adaptor) buildManagementRequest(info *relaycommon.RelayInfo, managementPath string) (string, http.Header, error) {
 	if info == nil {
 		return "", nil, errors.New("missing relay info")

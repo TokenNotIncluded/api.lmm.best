@@ -39,3 +39,24 @@ func TestGetPageQueryCapsPositivePageSize(t *testing.T) {
 	page := pageInfoForQuery(t, "page_size=1000")
 	require.Equal(t, 100, page.PageSize)
 }
+
+func TestGetPageQueryEndpointCapDoesNotChangeDefault(t *testing.T) {
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest("GET", "/api/log/token?page_size=1001", nil)
+	require.Equal(t, 1000, GetPageQuery(context, 1000).PageSize)
+	require.Equal(t, 100, GetPageQuery(context).PageSize)
+	require.Equal(t, 1, GetPageQuery(context, 0).PageSize)
+	require.Equal(t, 1, GetPageQuery(context, -1).PageSize)
+}
+
+func TestGetPageQueryDoesNotAcceptAtoiRangeErrorValues(t *testing.T) {
+	for _, query := range []string{
+		"p=92233720368547758080",
+		"ps=92233720368547758080",
+		"size=92233720368547758080",
+	} {
+		page := pageInfoForQuery(t, query)
+		require.Equal(t, 1, page.Page)
+		require.Equal(t, ItemsPerPage, page.PageSize)
+	}
+}

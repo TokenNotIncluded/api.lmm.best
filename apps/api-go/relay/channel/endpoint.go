@@ -14,6 +14,7 @@ type Endpoint string
 const (
 	EndpointClaudeMessages Endpoint = "claude_messages"
 	EndpointRerank         Endpoint = "rerank"
+	EndpointSystemOne      Endpoint = "systemone"
 )
 
 // UnsupportedEndpointError is returned by an adaptor when it cannot safely
@@ -55,6 +56,13 @@ func SupportsEndpoint(adaptor Adaptor, endpoint Endpoint) bool {
 	if adaptor == nil {
 		return false
 	}
+	// System One is an opt-in native protocol. Legacy adaptors' permissive
+	// EndpointSupporter defaults must never advertise Jev support.
+	if endpoint == EndpointSystemOne {
+		if _, ok := adaptor.(SystemOneConverter); !ok {
+			return false
+		}
+	}
 	supporter, ok := adaptor.(EndpointSupporter)
 	return !ok || supporter.SupportsEndpoint(endpoint)
 }
@@ -65,6 +73,8 @@ func EndpointForRequestPath(path string) (Endpoint, bool) {
 		return EndpointClaudeMessages, true
 	case strings.HasSuffix(path, "/v1/rerank"):
 		return EndpointRerank, true
+	case strings.HasSuffix(path, "/v1/systemone"):
+		return EndpointSystemOne, true
 	default:
 		return "", false
 	}
@@ -76,6 +86,8 @@ func EndpointForRelayFormat(format types.RelayFormat) (Endpoint, bool) {
 		return EndpointClaudeMessages, true
 	case types.RelayFormatRerank:
 		return EndpointRerank, true
+	case types.RelayFormatSystemOne:
+		return EndpointSystemOne, true
 	default:
 		return "", false
 	}

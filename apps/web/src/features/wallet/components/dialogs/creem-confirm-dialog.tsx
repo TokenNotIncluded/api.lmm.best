@@ -21,9 +21,9 @@ import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
-import { formatNumber } from '@/lib/format'
 
-import { formatCreemPrice } from '../../lib/format'
+import { usePaymentCurrency } from '../../hooks/use-payment-currency'
+import { formatCreemPrice, isFiatPaymentCurrency } from '../../lib/format'
 import type { CreemProduct } from '../../types'
 
 interface CreemConfirmDialogProps {
@@ -44,6 +44,7 @@ export function CreemConfirmDialog({
   neutralMode = false,
 }: CreemConfirmDialogProps) {
   const { t } = useTranslation()
+  const { formatQuota } = usePaymentCurrency()
 
   if (!product) return null
 
@@ -66,7 +67,10 @@ export function CreemConfirmDialog({
           >
             {t('Cancel')}
           </Button>
-          <Button onClick={onConfirm} disabled={processing}>
+          <Button
+            onClick={onConfirm}
+            disabled={processing || !isFiatPaymentCurrency(product.currency)}
+          >
             {processing && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {t('Confirm Payment')}
           </Button>
@@ -83,13 +87,15 @@ export function CreemConfirmDialog({
         <div className='flex items-center justify-between'>
           <span className='text-muted-foreground'>{t('Price')}</span>
           <span className='text-primary font-medium'>
-            {formatCreemPrice(product.price, product.currency)}
+            {isFiatPaymentCurrency(product.currency)
+              ? formatCreemPrice(product.price, product.currency)
+              : t('Payment unavailable')}
           </span>
         </div>
         {!neutralMode ? (
           <div className='flex items-center justify-between'>
             <span className='text-muted-foreground'>{t('Quota')}</span>
-            <span className='font-medium'>{formatNumber(product.quota)}</span>
+            <span className='font-medium'>{formatQuota(product.quota)}</span>
           </div>
         ) : null}
       </div>

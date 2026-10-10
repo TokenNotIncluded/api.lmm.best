@@ -20,7 +20,12 @@ function Label() {
   return <span>{useTranslation().t('Home')}</span>
 }
 
-test('homepage footer and route share English without changing the next page language', async () => {
+test('homepage footer and route honor the selected language across navigation', async () => {
+  if (!appI18n.isInitialized) {
+    await new Promise<void>((resolve) =>
+      appI18n.on('initialized', () => resolve())
+    )
+  }
   await appI18n.changeLanguage('zhCN')
   const root = createRootRoute({
     component: () => (
@@ -50,8 +55,14 @@ test('homepage footer and route share English without changing the next page lan
   })
   await router.load()
   const first = renderToStaticMarkup(<RouterProvider router={router} />)
-  assert.match(first, /<footer><span>Home<\/span><\/footer>/)
+  assert.match(first, /<footer><span>主页<\/span><\/footer>/)
   assert.equal(appI18n.language, 'zhCN')
+  for (const language of ['en', 'zhTW', 'fr', 'ru', 'ja', 'vi', 'zhCN']) {
+    await appI18n.changeLanguage(language)
+    const switched = renderToStaticMarkup(<RouterProvider router={router} />)
+    assert.ok(switched.includes(appI18n.t('Home')), language)
+    assert.equal(appI18n.language, language)
+  }
   router.history.push('/other')
   await router.load()
   const second = renderToStaticMarkup(<RouterProvider router={router} />)

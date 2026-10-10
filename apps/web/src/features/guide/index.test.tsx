@@ -144,7 +144,7 @@ async function renderGuide(user: AuthUser | null) {
   })
   const destinations = [
     '/sign-in',
-    '/getting-started',
+    '/wallet',
     '/keys',
     '/support',
     '/pricing',
@@ -209,6 +209,38 @@ afterEach(async () => {
 after(() => domWindow.close())
 
 describe('Guide when the AI assistant is disabled', () => {
+  test('keeps setup directly available and the compact contents expandable with working section targets', async () => {
+    const { container } = await renderGuide(null)
+    const overview =
+      container.querySelector<HTMLDetailsElement>('#guide-overview')
+    assert.ok(overview)
+    assert.equal(overview.open, false)
+    assert.equal(
+      overview.querySelector('summary')?.textContent?.trim(),
+      'On this page'
+    )
+    const setupLink = container.querySelector<HTMLAnchorElement>(
+      'header a[href="#client-setup"]'
+    )
+    assert.ok(setupLink)
+    assert.ok(container.querySelector('#client-setup button'))
+
+    await act(async () => {
+      overview.querySelector('summary')?.click()
+      await flushEffects()
+    })
+    assert.equal(overview.open, true)
+    assert.equal(overview.querySelectorAll(':scope > ol > li').length, 5)
+    const contents = overview.querySelector('nav')
+    assert.ok(contents)
+    const links = [...contents.querySelectorAll<HTMLAnchorElement>('a')]
+    assert.equal(links.length, 4)
+    for (const link of links) {
+      assert.ok(container.querySelector(link.hash), link.textContent ?? '')
+    }
+    assert.equal(consumeQueuedAssistantRequest(), undefined)
+  })
+
   test('keeps public installation available and returns visitors to the guide after sign-in', async () => {
     const { container, router } = await renderGuide(null)
     assert.doesNotMatch(
@@ -228,7 +260,7 @@ describe('Guide when the AI assistant is disabled', () => {
 
     assert.match(
       container.textContent ?? '',
-      /pi install git:github.com\/TokenNotIncluded\/pi-lmm-provider/
+      /lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@latest/
     )
     assert.ok(
       container.querySelector(
@@ -236,11 +268,50 @@ describe('Guide when the AI assistant is disabled', () => {
       )
     )
 
+    await click(findButton(container, 'DSH Desktop (OAuth)'))
+    assert.ok(container.querySelector('#dsh-oauth'))
+    assert.match(
+      container.textContent ?? '',
+      /@tokennotincluded\/dsh-lmm-provider@latest/
+    )
+    assert.match(
+      container.textContent ?? '',
+      /dsh plugin --profile web add "\$\(npm view @tokennotincluded\/dsh-lmm-provider@latest dist\.tarball --prefer-online\)"/
+    )
+    assert.match(
+      container.textContent ?? '',
+      /npm pack @tokennotincluded\/dsh-lmm-provider@latest/
+    )
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /Create a key and import|Create an API key/
+    )
+
+    await click(findButton(container, 'Codewhale (OAuth)'))
+    assert.ok(container.querySelector('#codewhale-oauth'))
+    assert.match(
+      container.textContent ?? '',
+      /git clone https:\/\/github\.com\/TokenNotIncluded\/codewhale-lmm-provider\.git/
+    )
+    assert.match(container.textContent ?? '', /codewhale-lmm login/)
+    assert.match(container.textContent ?? '', /codewhale-lmm models/)
+    assert.match(
+      container.textContent ?? '',
+      /codewhale-lmm run --model '<FULL_MODEL_ID>'/
+    )
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /Create a key and import|Create an API key/
+    )
+
     await click(findButton(container, 'Cherry Studio'))
     await click(findButton(container, 'Continue to account setup'))
 
     assert.equal(router.state.location.pathname, '/sign-in')
-    assert.deepEqual(router.state.location.search, { redirect: '/guide' })
+    assert.deepEqual(
+      { ...router.state.location.search },
+      { redirect: '/guide' }
+    )
     assert.equal(consumeQueuedAssistantRequest(), undefined)
   })
 
@@ -274,8 +345,9 @@ describe('Guide when the AI assistant is disabled', () => {
     assert.equal(router.state.location.pathname, '/guide')
     assert.equal(document.activeElement, support)
 
-    const troubleshooting =
-      container.querySelector<HTMLDetailsElement>('details')
+    const troubleshooting = container.querySelector<HTMLDetailsElement>(
+      '#guide-troubleshooting details'
+    )
     assert.ok(troubleshooting)
     await act(async () => {
       troubleshooting.querySelector('summary')?.click()

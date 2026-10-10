@@ -46,8 +46,8 @@ export function UserTrustLevelCell({ user }: { user: User }) {
   const [pendingLevel, setPendingLevel] = useState<number | null>(null)
   const info = user.trust_level_info
   let level = info?.level ?? MIN_USER_TRUST_LEVEL
-  if (!info?.level && user.role >= USER_ROLE.ROOT) level = 6
-  else if (!info?.level && user.role >= USER_ROLE.ADMIN) level = 5
+  if (user.role >= USER_ROLE.ROOT) level = 6
+  else if (user.role >= USER_ROLE.ADMIN) level = 5
 
   let badgeVariant: 'info' | 'success' | 'neutral' = 'neutral'
   if (level >= 5) badgeVariant = 'info'
@@ -136,7 +136,11 @@ export function UserTrustLevelCell({ user }: { user: User }) {
         />
         <TooltipContent>
           <p className='text-xs'>
-            {overridden ? t('Administrator override') : t('Automatic level')}
+            {user.role >= USER_ROLE.ADMIN
+              ? t('Role-assigned access')
+              : overridden
+                ? t('Administrator override')
+                : t('Automatic recharge level')}
             {info?.discount_percent
               ? ` · ${info.discount_percent}% ${t('discount')}`
               : ''}

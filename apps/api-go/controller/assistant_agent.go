@@ -31,27 +31,24 @@ import (
 )
 
 const (
-	assistantToolArgumentsMaxBytes        = 16 * 1024
-	assistantToolCallsPerTurn             = 4
-	assistantToolCallsPerResponse         = 32
-	assistantAgentMaxSteps                = 32
-	assistantAgentDefaultTimeout          = 45 * time.Second
-	assistantUpstreamMaxAttempts          = 3
-	assistantUpstreamRetryBaseDelay       = 200 * time.Millisecond
-	assistantRecommendationTTL            = 30 * time.Minute
-	minDeveloperAccessReasonRunes         = 5
-	minDeveloperAccessRecommendationRunes = 20
-	maxDeveloperAccessDraftRunes          = 2000
-	assistantInterlocutorAssessmentTool   = "assess_l0_interlocutor"
-	assistantMathExpressionMaxBytes       = 512
-	assistantMathVariablesMax             = 32
-	assistantConversationTitleMaxRunes    = 60
-	assistantUpstreamRequestMaxBytes      = 768 << 10
-	assistantUpstreamResponseMaxBytes     = 256 << 10
-	assistantToolResultMaxBytes           = 64 << 10
-	assistantAgentContextMaxBytes         = 512 << 10
-	assistantAgentContextTargetBytes      = 384 << 10
-	assistantAgentMaxConcurrent           = 16
+	assistantToolArgumentsMaxBytes      = 16 * 1024
+	assistantToolCallsPerTurn           = 4
+	assistantToolCallsPerResponse       = 32
+	assistantAgentMaxSteps              = 32
+	assistantAgentDefaultTimeout        = 45 * time.Second
+	assistantUpstreamMaxAttempts        = 3
+	assistantUpstreamRetryBaseDelay     = 200 * time.Millisecond
+	assistantActionDraftTTL             = 30 * time.Minute
+	assistantInterlocutorAssessmentTool = "assess_l0_interlocutor"
+	assistantMathExpressionMaxBytes     = 512
+	assistantMathVariablesMax           = 32
+	assistantConversationTitleMaxRunes  = 60
+	assistantUpstreamRequestMaxBytes    = 768 << 10
+	assistantUpstreamResponseMaxBytes   = 256 << 10
+	assistantToolResultMaxBytes         = 64 << 10
+	assistantAgentContextMaxBytes       = 512 << 10
+	assistantAgentContextTargetBytes    = 384 << 10
+	assistantAgentMaxConcurrent         = 16
 	// Structural, content-free diagnostics for a stopped assistant run.
 	assistantRunStepKey      = "assistant_run_step"
 	assistantRunMaxStepsKey  = "assistant_run_max_steps"
@@ -81,14 +78,6 @@ var (
 	assistantAgentLimiter                 = syncx.NewLimiter(assistantAgentMaxConcurrent)
 	assistantTools                        = sync.OnceValue(buildAssistantTools)
 )
-
-type assistantL1RecommendationDraft struct {
-	UserStatement    string `json:"user_statement"`
-	Recommendation   string `json:"recommendation"`
-	PresetId         string `json:"preset_id,omitempty"`
-	PresetGeneration int64  `json:"preset_generation,omitempty"`
-	PresetVersion    string `json:"preset_version,omitempty"`
-}
 
 type assistantOpenAIToolDefinition = agent.Tool
 type assistantOpenAIToolFunction = agent.Function
@@ -120,7 +109,21 @@ var assistantToolSets [1 << 11]struct {
 }
 
 func assistantToolDefinitions() []assistantOpenAIToolDefinition {
-	return assistantTools()
+	return assistantRefreshGiftToolDefinition(assistantTools())
+}
+
+func assistantRefreshGiftToolDefinition(catalogue []assistantOpenAIToolDefinition) []assistantOpenAIToolDefinition {
+	cap, err := assistantCurrentGiftMaxCredits()
+	if err != nil {
+		cap = 0
+	}
+	tools := append([]assistantOpenAIToolDefinition(nil), catalogue...)
+	for index, definition := range tools {
+		if definition.Function.Name == "prepare_new_user_gift" {
+			tools[index] = assistantNewUserGiftToolDefinitionWithCap(cap)
+		}
+	}
+	return assistantConfiguredToolDefinitions(tools, cap)
 }
 
 // buildAssistantTools creates one immutable catalogue. Request handling only
@@ -226,18 +229,11 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_account_access",
-				Description: "Read the signed-in user's non-secret access state, such as trust level and whether developer features are unlocked.",
+				Description: "Read the signed-in user's live non-secret access, USD wallet balance, and task progress, including credentials, API activity, and separately recorded client installation/configuration proofs. Call this before explaining a stuck main task or wallet balance; do not infer client proof from an API call or balance from usage totals.",
 				Parameters:  emptyObjectSchema(),
 			},
 		},
-		{
-			Type: "function",
-			Function: assistantOpenAIToolFunction{
-				Name:        "get_l1_recommendation",
-				Description: "Read the signed-in user's one current L1 access recommendation letter and review status. Call this before discussing, drafting, polishing, replacing, or removing the in-console recommendation. This is the authoritative shared letter visible to the user and administrators.",
-				Parameters:  emptyObjectSchema(),
-			},
-		},
+
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -302,21 +298,27 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
-				Name:        "prepare_new_user_gift",
-				Description: "For an eligible signed-in user who has not used their one lifetime welcome-gift opportunity, make the decision only after the conversation contains a concrete legitimate workflow, the work they plan to do, and enough user-authored detail to evaluate it. A category label and client name alone are insufficient. This includes users who have already reached L1; access level does not erase an unused opportunity. Judge demonstrated clarity, coherent follow-up, specificity, and constructive engagement from the complete conversation. Choose an integer 0-1000 US cents. Zero is a valid final decision and consumes the opportunity. Do not reward demands for money, self-reported expertise alone, promotions, referrals, multiple accounts, automation, or unsafe behavior. The server enforces eligibility and one-time issuance; never promise an amount before this tool succeeds.",
-				Parameters: objectSchema(map[string]any{
-					"amount_cents": map[string]any{"type": "integer", "minimum": 0, "maximum": 1000},
-					"reason":       map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
-				}, []string{"amount_cents", "reason"}),
+				Name:        "get_new_user_gift_status",
+				Description: "Read only the signed-in user's stored welcome-gift status, Credit grant and actual USD value. amount_cents is a legacy bridge, not US cents. Use for status, rules, eligibility questions, and whether a gift was already claimed. This never evaluates eligibility, creates a decision, consumes the opportunity, or claims a gift. An existing offer reopens its claim card. No stored decision does not establish eligibility; claimed and declined decisions cannot be reset by changing conversations.",
+				Parameters:  emptyObjectSchema(),
+			},
+		},
+		assistantNewUserGiftToolDefinition(),
+		{
+			Type: "function",
+			Function: assistantOpenAIToolFunction{
+				Name:        "get_weekly_discount_status",
+				Description: "Read only the signed-in user's stored discount decision for the current UTC week. Use for discount rules, conditions, status, and whether an offered discount was already claimed. This never evaluates, creates or consumes a decision, or claims a code; it never returns a private discount code or internal evaluation. No stored decision does not prove eligibility.",
+				Parameters:  emptyObjectSchema(),
 			},
 		},
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_weekly_discount",
-				Description: "For a signed-in non-administrator user, evaluate one weekly recharge discount after at least two substantive user turns. Choose an integer from 0 to 10 percent based only on the clarity, continuity, and legitimate usefulness of this week's conversation. Zero is a valid decision. The server stores at most one decision per UTC week; an offered discount appears in chat and is claimed by the user, never by the assistant.",
+				Description: "For a signed-in non-administrator user, evaluate one weekly recharge discount after at least two substantive user turns. Choose a nonnegative integer within the administrator-configured level ceiling (default 10 percent) based only on the clarity, continuity, and legitimate usefulness of this week's conversation. Zero is a valid decision. The server stores at most one decision per UTC week; an offered discount appears in chat and is claimed by the user, never by the assistant.",
 				Parameters: objectSchema(map[string]any{
-					"discount_percent": map[string]any{"type": "integer", "minimum": 0, "maximum": 10},
+					"discount_percent": map[string]any{"type": "integer", "minimum": 0, "maximum": 99},
 					"reason":           map[string]any{"type": "string", "minLength": 2, "maxLength": 240},
 				}, []string{"discount_percent", "reason"}),
 			},
@@ -335,11 +337,11 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "navigate_to_page",
-				Description: "Navigate the signed-in user to one allowlisted page inside this LMM console. Use this when the user asks to open, jump to, or locate something. For the users or usage-log page, identifier may be a username, email, or numeric user ID; regular users may only target themselves and administrators may only target users in their permitted scope.",
+				Description: "Prepare an internal page link when the user asks to open, jump to, or locate something. For store-product or tool-market-service, identifier must be the exact ID returned by the read-only catalogue tools; the server rechecks visibility. For users or usage-logs, identifier may be a username, email, or numeric user ID and existing account permissions apply. This never purchases a product or authorizes a tool.",
 				Parameters: objectSchema(map[string]any{
 					"page": map[string]any{
 						"type": "string",
-						"enum": []string{"home", "getting-started", "pricing", "wallet", "usage-logs", "keys", "drawing", "models", "profile", "support", "open-source-bounties", "users"},
+						"enum": []string{"home", "pricing", "wallet", "usage-logs", "keys", "drawing", "models", "profile", "support", "open-source-bounties", "users", "store", "store-product", "tool-market", "tool-market-service"},
 					},
 					"identifier": map[string]any{"type": "string", "maxLength": 200},
 					"query":      map[string]any{"type": "string", "maxLength": 200},
@@ -366,7 +368,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_user_overview",
-				Description: "Read a sanitized account overview. With no target, read the signed-in user's own account. An administrator may provide a username, email, or numeric ID for a permitted lower-role user. Never returns passwords, access tokens, OAuth subject IDs, or raw request content.",
+				Description: "Read a sanitized account overview. With no target, read the signed-in user's own account, including explicit USD wallet balance separate from usage and subscription quota. An administrator may provide a username, email, or numeric ID for a permitted lower-role user. Never returns passwords, access tokens, OAuth subject IDs, or raw request content.",
 				Parameters: objectSchema(map[string]any{
 					"user_id":    map[string]any{"type": "integer", "minimum": 1},
 					"identifier": map[string]any{"type": "string", "maxLength": 200},
@@ -389,12 +391,13 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_user_action",
-				Description: "Prepare a confirmation card for a safe user-account action. Supported actions are change_password, bind_oauth, unbind_oauth, disable, and delete. Never pass a password or secret to this tool. Regular users can act only on themselves; administrators can act only on permitted lower-role targets. OAuth binding is interactive and must be completed by the target user in their own session.",
+				Description: "Prepare a confirmation card for a safe user-account action. Supported actions are change_display_name, change_password, bind_oauth, unbind_oauth, disable, and delete. change_display_name changes only the signed-in user's nickname, is available at L0 and above, and opens an editable form even if no new nickname was supplied. Never pass a password or secret to this tool. Regular users can act only on themselves; administrators can act only on permitted lower-role targets. OAuth binding is interactive and must be completed by the target user in their own session.",
 				Parameters: objectSchema(map[string]any{
-					"action":     map[string]any{"type": "string", "enum": []string{"change_password", "bind_oauth", "unbind_oauth", "disable", "delete"}},
-					"user_id":    map[string]any{"type": "integer", "minimum": 1},
-					"identifier": map[string]any{"type": "string", "maxLength": 200},
-					"provider":   map[string]any{"type": "string", "maxLength": 120},
+					"action":       map[string]any{"type": "string", "enum": []string{"change_display_name", "change_password", "bind_oauth", "unbind_oauth", "disable", "delete"}},
+					"display_name": map[string]any{"type": "string", "minLength": 1, "maxLength": 20},
+					"user_id":      map[string]any{"type": "integer", "minimum": 1},
+					"identifier":   map[string]any{"type": "string", "maxLength": 200},
+					"provider":     map[string]any{"type": "string", "maxLength": 120},
 				}, []string{"action"}),
 			},
 		},
@@ -424,24 +427,14 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "grant_l1_access",
-				Description: "Grant the signed-in L0 user L1 access directly after at least three complete server-recorded conversation turns. Use this only when the conversation establishes a legitimate use of the relay and the tool is available. This action needs no user confirmation or administrator approval. The server atomically rechecks the account, owned conversation, completed turns, and any administrator trust override; repeated or concurrent calls cannot grant twice.",
+				Description: "Enable L1 for ONLY the signed-in L0 user as soon as their ordinary use is clear, including the first reply. Coding, learning or chatting is enough; no client choice, repository, proof of expertise, application letter or minimum conversation length is required. Reuse what the user already said. Record their use in user_statement; recommendation is optional internal audit text. No separate confirmation or administrator approval. The server checks the owned conversation, fresh risk, account status and explicit restrictions. This cannot change money, grant higher levels or undo a suspension. Report activated only after a successful receipt; errors require a concrete next step, never more chat to pass a timer.",
 				Parameters: objectSchema(map[string]any{
-					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
-					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
-				}, []string{"user_statement", "recommendation"}),
+					"user_statement": map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
+					"recommendation": map[string]any{"type": "string", "maxLength": 2000},
+				}, []string{"user_statement"}),
 			},
 		},
-		{
-			Type: "function",
-			Function: assistantOpenAIToolFunction{
-				Name:        "prepare_l1_recommendation",
-				Description: "Before the direct L1 grant tool becomes available, prepare a new or revised draft of the signed-in L0 user's one shared administrator recommendation after a substantive conversation. For an edit, use the current letter returned by get_l1_recommendation and the full conversation. Never use this tool to remove a letter. This does not submit, update, delete, or approve anything; the user must explicitly confirm the draft in the UI.",
-				Parameters: objectSchema(map[string]any{
-					"user_statement": map[string]any{"type": "string", "minLength": 5, "maxLength": 2000},
-					"recommendation": map[string]any{"type": "string", "minLength": 20, "maxLength": 2000},
-				}, []string{"user_statement", "recommendation"}),
-			},
-		},
+
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -466,14 +459,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 				}, []string{"message"}),
 			},
 		},
-		{
-			Type: "function",
-			Function: assistantOpenAIToolFunction{
-				Name:        "get_admin_assistant_review",
-				Description: "For an administrator only, read the latest privacy-minimized automatic assistant review. It contains bounded aggregate intent, profile, preset-conversion, chat-to-purchase conversion, order, and refund signals plus support-queue and security follow-ups; it never contains transcripts, user identities, or per-user memory. Use it before proposing changes to AssistantSkills.",
-				Parameters:  emptyObjectSchema(),
-			},
-		},
+
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
@@ -488,7 +474,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_user_skill_change",
-				Description: "For an administrator only, prepare a confirmation-gated edit to one permitted lower-role user's assistant memory or profile skill. Use get_admin_user_skills first. In an authenticated administrator agent session, this validates and applies the exact change immediately; otherwise it prepares a confirmation preview. Memory deletes require memory_id. Never store credentials, payment data, protected traits, or security labels.",
+				Description: "For an administrator only, prepare a confirmation-gated edit to one permitted lower-role user's assistant memory or profile skill. Use get_admin_user_skills first. The exact preview requires explicit browser confirmation and never applies from a model tool call. Memory deletes require memory_id. Never store credentials, payment data, protected traits, or security labels.",
 				Parameters: objectSchema(map[string]any{
 					"target_user_id": map[string]any{"type": "integer", "minimum": 1},
 					"kind":           map[string]any{"type": "string", "enum": []string{"memory", "profile"}},
@@ -507,15 +493,15 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "get_admin_server_config",
-				Description: "For an administrator only, read the current non-secret server configuration that the assistant can safely manage. Credentials, provider keys, payment secrets, session secrets, and arbitrary shell or database access are always omitted.",
-				Parameters:  emptyObjectSchema(),
+				Description: "For a root administrator only, search non-secret server settings by key or label and paginate bounded value previews. To read a complete value, supply its exact key and follow next_value_offset until value_truncated is false. A page is not the entire configuration. Credentials and assistant tool policy are omitted.",
+				Parameters:  assistantAdminConfigReadSchema(),
 			},
 		},
 		{
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_config_change",
-				Description: "For an administrator only, prepare an exact preview of one or more allowlisted non-secret server settings. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview.",
+				Description: "For a root administrator only, prepare an exact preview of one or more allowlisted non-secret server settings. The exact preview requires explicit browser confirmation and never applies from a model tool call. Assistant tool policy itself can only be changed in the settings console.",
 				Parameters: objectSchema(map[string]any{
 					"changes": map[string]any{
 						"type":                 "object",
@@ -536,7 +522,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_channel_change",
-				Description: "For an administrator only, prepare an exact preview for safe channel routing metadata or enable/disable status. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview. Never request keys, provider settings, headers, proxies, or upstream URLs through this tool.",
+				Description: "For an administrator only, prepare an exact preview for safe channel routing metadata or enable/disable status. The exact preview requires explicit browser confirmation and never applies from a model tool call. Never request keys, provider settings, headers, proxies, or upstream URLs through this tool.",
 				Parameters: objectSchema(map[string]any{
 					"channel_id": map[string]any{"type": "integer", "minimum": 1},
 					"changes": map[string]any{
@@ -558,7 +544,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_model_sync",
-				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. In an authenticated root administrator agent session, this imports the validated metadata immediately and returns the imported and skipped IDs; otherwise it prepares a confirmation preview.",
+				Description: "For a root administrator only, verify selected locally-missing model IDs against the live upstream catalog and prepare a confirmation-gated import for the IDs found there. Call get_admin_model_inventory first; do not claim an ID is available upstream until this tool returns its preview. The exact preview requires explicit browser confirmation and never imports from a model tool call.",
 				Parameters: objectSchema(map[string]any{
 					"model_ids": map[string]any{"type": "array", "maxItems": assistantAdminMaxModelSyncItems, "items": map[string]any{"type": "string", "maxLength": assistantAdminMaxModelNameRunes}},
 					"locale":    map[string]any{"type": "string", "enum": []string{"en", "zh-CN", "zh-TW", "ja"}},
@@ -569,7 +555,7 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 			Type: "function",
 			Function: assistantOpenAIToolFunction{
 				Name:        "prepare_admin_pricing_change",
-				Description: "For an administrator only, prepare an exact preview for one enabled model's pricing. Use ratio for token pricing or fixed_request for a per-request price; optional completion, cache, image, and audio ratios update the same exact model. In an authenticated administrator agent session, this validates and applies the change immediately and returns the result; otherwise it prepares a confirmation preview.",
+				Description: "For a root administrator only, prepare an exact preview for one enabled model's pricing. Use ratio for token pricing or fixed_request for a per-request price; optional completion, cache, image, and audio ratios update the same exact model. The exact preview requires explicit browser confirmation and never applies from a model tool call.",
 				Parameters: objectSchema(map[string]any{
 					"model_id":               map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
 					"mode":                   map[string]any{"type": "string", "enum": []string{"ratio", "fixed_request"}},
@@ -585,11 +571,17 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 		},
 	}
 	definitions = slices.DeleteFunc(definitions, func(tool assistantOpenAIToolDefinition) bool {
-		return tool.Function.Name == "prepare_l1_recommendation" || tool.Function.Name == assistantInterlocutorAssessmentTool
+		return tool.Function.Name == assistantInterlocutorAssessmentTool
 	})
+	definitions = append(definitions, assistantSitePolicyToolDefinitions()...)
+	definitions = append(definitions, assistantRunControlTools()...)
 	definitions = append(definitions, assistantRegistrationTools()...)
 	definitions = append(definitions, assistantAdminOperationToolDefinitions()...)
 	definitions = append(definitions, assistantAdminPricingAuditTools()...)
+	definitions = append(definitions, assistantKeyManagementToolDefinitions()...)
+	definitions = append(definitions, assistantCatalogToolDefinitions()...)
+	definitions = append(definitions, assistantVisualizationToolDefinitions()...)
+	definitions = append(definitions, assistantWorkspaceToolDefinitions()...)
 	return append(definitions, assistantSkillTools()...)
 }
 
@@ -600,15 +592,40 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 func assistantToolDefinitionsForContext(userContext assistantUserContext) []assistantOpenAIToolDefinition {
 	set := &assistantToolSets[keyForTools(userContext)]
 	set.once.Do(func() {
-		all := assistantToolDefinitions()
+		// Cache raw definitions. Apply operator text after filtering.
+		all := assistantTools()
 		set.tools = make([]assistantOpenAIToolDefinition, 0, len(all))
 		for _, definition := range all {
-			if assistantToolAllowedForContext(definition.Function.Name, userContext) {
+			if assistantToolPermittedForContext(definition.Function.Name, userContext) {
 				set.tools = append(set.tools, definition)
 			}
 		}
 	})
-	return set.tools
+	// Account membership can be cached; live administrator policy cannot.
+	tools := make([]assistantOpenAIToolDefinition, 0, len(set.tools))
+	for _, definition := range set.tools {
+		if setting.AssistantToolAllowedAtLevel(definition.Function.Name, assistantContextLevel(userContext)) {
+			if definition.Function.Name == "prepare_weekly_discount" {
+				limit := setting.AssistantWeeklyDiscountLimit(assistantContextLevel(userContext))
+				if limit == 0 {
+					continue
+				}
+				parameters := make(map[string]any, len(definition.Function.Parameters))
+				for key, value := range definition.Function.Parameters {
+					parameters[key] = value
+				}
+				properties := make(map[string]any)
+				for key, value := range parameters["properties"].(map[string]any) {
+					properties[key] = value
+				}
+				properties["discount_percent"] = map[string]any{"type": "integer", "minimum": 0, "maximum": limit}
+				parameters["properties"] = properties
+				definition.Function.Parameters = parameters
+			}
+			tools = append(tools, definition)
+		}
+	}
+	return assistantRefreshGiftToolDefinition(tools)
 }
 
 func keyForTools(context assistantUserContext) toolSetKey {
@@ -625,7 +642,7 @@ func keyForTools(context assistantUserContext) toolSetKey {
 	if context.AdministratorMode {
 		key |= toolAdmin
 	}
-	if context.AccessLevel == "ROOT" {
+	if context.AdministratorMode && assistantContextLevel(context) == 6 {
 		key |= toolRoot
 	}
 	if context.DeveloperAccessGranted {
@@ -651,23 +668,25 @@ func keyForTools(context assistantUserContext) toolSetKey {
 
 func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
 	return !context.AdministratorMode && !context.DeveloperAccessGranted &&
-		strings.EqualFold(strings.TrimSpace(context.AccessLevel), "L0") &&
-		context.CompletedAssistantTurns >= model.AssistantDirectGrantMinCompletedTurns
+		strings.EqualFold(strings.TrimSpace(context.AccessLevel), "L0")
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
-	// An unused opportunity survives L0 -> L1 upgrades. Deterministic server
-	// checks still reject disabled/disposable/abusive accounts and the unique
-	// gift row makes the decision one-time. Keep the existing high-risk and
-	// promotion guard at the tool boundary so the assistant does not invite a
-	// known-abusive conversation into a reward flow.
-	if context.AdministratorMode || context.GiftRewardBlocked {
-		return false
-	}
-	return context.CustomerProfile != assistantProfilePromotion && context.CustomerProfile != assistantProfileSecurityRisk
+	// Existing conversation details can authorize an ordinary gift request,
+	// but status-only requests, farming signals, and security risks stay blocked.
+	// The storage layer still checks verified registration and one-time credit.
+	return !context.AdministratorMode && !context.GiftRewardBlocked &&
+		context.CustomerProfile != assistantProfilePromotion &&
+		context.CustomerProfile != assistantProfileSecurityRisk &&
+		context.RewardTopic != "weekly_discount" && context.RewardTopic != "other" &&
+		!assistantNewUserGiftStatusWorkflowRequired(context) &&
+		!assistantWeeklyDiscountStatusWorkflowRequired(context)
 }
 
 func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
+	if context.RewardTopic == "gift" || context.RewardTopic == "other" || assistantNewUserGiftStatusWorkflowRequired(context) || assistantWeeklyDiscountStatusWorkflowRequired(context) {
+		return false
+	}
 	// The weekly reward is deliberately separate from the one-time welcome
 	// gift: a normal promotion question is not itself abuse. Keep the hard
 	// security boundary and administrator separation, while letting the model
@@ -676,7 +695,29 @@ func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
 }
 
 func assistantToolAllowedForContext(name string, userContext assistantUserContext) bool {
-	if name == "prepare_l1_recommendation" {
+	return setting.AssistantToolAllowedAtLevel(name, assistantContextLevel(userContext)) && assistantToolPermittedForContext(name, userContext)
+}
+
+func assistantToolPermittedForContext(name string, userContext assistantUserContext) bool {
+	if name == "get_site_policy" || name == "search_site_policies" || name == "discover_tools" || name == "end_conversation" {
+		return true
+	}
+	if assistantVisualizationKind(name) != "" {
+		return true
+	}
+	if assistantWorkspaceTool(name) {
+		if name == "update_site_issue" {
+			return userContext.AdministratorMode
+		}
+		if name == "send_invitation" || name == "get_connected_market_tools" || name == "connect_market_tool" || name == "call_market_tool" {
+			return userContext.AdministratorMode || userContext.DeveloperAccessGranted
+		}
+		return true
+	}
+	if name == "get_new_user_gift_status" || name == "get_weekly_discount_status" {
+		return true
+	}
+	if name == "prepare_l1_recommendation" || name == "get_l1_recommendation" {
 		return false
 	}
 	if isAssistantRegistrationTool(name) {
@@ -710,17 +751,16 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		return false
 	}
 	if userContext.AdministratorMode {
-		if userContext.AccessLevel != "ROOT" {
+		if assistantContextLevel(userContext) != 6 {
 			switch name {
-			case "get_admin_server_config", "prepare_admin_config_change", "prepare_admin_pricing_change", "prepare_admin_model_sync":
+			case "get_admin_server_config", "prepare_admin_config_change", "prepare_admin_pricing_change", "prepare_admin_model_sync", "prepare_admin_site_policy_change":
 				return false
 			}
 		}
 		return true
 	}
 	if userContext.DeveloperAccessGranted {
-		return name != "get_admin_assistant_review" &&
-			name != "get_admin_server_config" &&
+		return name != "get_admin_server_config" &&
 			name != "prepare_admin_config_change" &&
 			name != "get_admin_model_inventory" &&
 			name != "prepare_admin_model_sync" &&
@@ -740,18 +780,22 @@ func assistantToolAllowedForContext(name string, userContext assistantUserContex
 		"calculate_math",
 		"calculate_cost",
 		"get_account_access",
-		"get_l1_recommendation",
 		"get_available_models",
 		"get_model_pricing",
 		"navigate_to_page",
 		"get_user_overview",
 		"get_user_usage_summary",
 		"prepare_user_action",
+		"list_my_api_keys",
+		"prepare_api_key_action",
 		"get_bounty_guide",
 		"get_bounty_data",
+		"get_store_products",
+		"get_store_product",
+		"get_tool_market_services",
+		"get_tool_market_service",
 		"search_web",
 		"get_setup_guide",
-		"prepare_l1_recommendation",
 		"request_human_support":
 		return true
 	case "get_plan_offers":
@@ -774,33 +818,48 @@ func assistantL0InterlocutorAssessmentRequired(_ assistantUserContext) bool {
 }
 
 func assistantToolExecutionAllowedForContext(name string, userContext assistantUserContext) bool {
+	if !setting.AssistantToolAllowedAtLevel(name, assistantContextLevel(userContext)) {
+		return false
+	}
+	return assistantToolExecutionPermittedForContext(name, userContext)
+}
+
+func assistantToolExecutionPermittedForContext(name string, userContext assistantUserContext) bool {
 	if name == "get_plan_offers" && !userContext.AdministratorMode && !userContext.DeveloperAccessGranted {
 		// Let the read-only plan tool return the deterministic payment-intent or
 		// restriction result. It does not expose offers or checkout unless its own
 		// policy gate reaches ready.
 		return true
 	}
-	return assistantToolAllowedForContext(name, userContext)
+	return assistantToolPermittedForContext(name, userContext)
 }
 
 func assistantToolChoiceForContext(userContext assistantUserContext) any {
 	name := ""
-	if userContext.ConversationTitleNeeded {
+	if userContext.ConversationTitleNeeded && setting.AssistantToolEnabled("set_conversation_title") {
 		name = "set_conversation_title"
 	} else if assistantPlanOfferWorkflowRequired(userContext) {
 		// A ready, explicit purchase request must read the live offers before
 		// the model can answer from stale plan context or invent a price.
 		name = "get_plan_offers"
+	} else if assistantKeyManagementWorkflowRequired(userContext) {
+		name = "list_my_api_keys"
 	} else if assistantSupportBookingDecision(userContext.LatestUserRequest) > 0 {
 		name = "get_human_support_status"
 	} else if assistantHumanSupportRequest(userContext.LatestUserRequest) {
 		name = "request_human_support"
 	} else if assistantPublicActivityQuestion(userContext.LatestUserRequest) {
 		name = "get_service_facts"
+	} else if assistantNewUserGiftStatusWorkflowRequired(userContext) {
+		name = "get_new_user_gift_status"
 	} else if assistantNewUserGiftRequest(userContext.LatestUserRequest) {
 		name = "prepare_new_user_gift"
+	} else if assistantWeeklyDiscountStatusWorkflowRequired(userContext) {
+		name = "get_weekly_discount_status"
 	} else if assistantWeeklyDiscountRequest(userContext.LatestUserRequest) {
 		name = "prepare_weekly_discount"
+	} else if assistantAccountProgressRequest(userContext.LatestUserRequest) || assistantWalletBalanceRequest(userContext.LatestUserRequest) {
+		name = "get_account_access"
 	} else {
 		switch userContext.Intent {
 		case model.AssistantIntentCost, model.AssistantIntentModels:
@@ -812,7 +871,7 @@ func assistantToolChoiceForContext(userContext assistantUserContext) any {
 		case model.AssistantIntentOnboarding:
 			name = "get_account_access"
 		case model.AssistantIntentRecommendation:
-			name = "get_l1_recommendation"
+			name = "get_account_access"
 		case model.AssistantIntentUsage:
 			name = "get_usage_summary"
 		case model.AssistantIntentInvitation:
@@ -948,9 +1007,15 @@ func assistantGiftPromotionConflict(text string) bool {
 }
 
 func assistantNewUserGiftRequest(text string) bool {
+	if assistantNewUserGiftStatusRequest(text) {
+		return false
+	}
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	if assistantActionDeclined(normalized, assistantGiftActionRule) {
 		return false
+	}
+	if strings.Contains(normalized, "礼包") && assistantExplicitGiftDecisionRequest(normalized) {
+		return true
 	}
 	if assistantTextContainsAny(normalized,
 		"新用户礼包", "新用户福利", "新手礼包", "新手奖励", "新用户奖励", "新人礼包", "新人福利", "新手福利",
@@ -971,13 +1036,16 @@ func assistantNewUserGiftRequest(text string) bool {
 }
 
 func assistantWeeklyDiscountRequest(text string) bool {
+	if assistantWeeklyDiscountStatusRequest(text) {
+		return false
+	}
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	if assistantActionDeclined(normalized, assistantDiscountActionRule) {
 		return false
 	}
 	return assistantTextContainsAny(normalized,
-		"优惠码", "折扣码", "充值折扣", "每周优惠", "每周折扣", "本周优惠", "本周折扣",
-		"weekly discount", "weekly coupon", "recharge discount", "discount code",
+		"优惠券", "有券就申请", "优惠码", "折扣码", "充值折扣", "每周优惠", "每周折扣", "本周优惠", "本周折扣",
+		"weekly discount", "weekly coupon", "recharge discount", "discount code", "coupon",
 	)
 }
 
@@ -991,26 +1059,35 @@ func assistantReadChain(userContext assistantUserContext) []string {
 		return nil
 	}
 	tools := make([]string, 0, 3)
+	if assistantKeyManagementWorkflowRequired(userContext) {
+		tools = append(tools, "list_my_api_keys")
+	}
 	hasModelReference := assistantHasModelReference(text)
 	if assistantPlanOfferWorkflowRequired(userContext) {
 		// Keep this first: plan offers are a live, read-only fact source and
 		// must be loaded before the final answer for an explicit ready purchase.
 		tools = append(tools, "get_plan_offers")
 	}
+	if assistantAccountProgressRequest(text) || assistantWalletBalanceRequest(text) {
+		// Checklist proofs and wallet balance are account facts. Usage totals
+		// alone cannot answer either, even when the agent loop is disabled.
+		tools = append(tools, "get_account_access")
+	}
 	if userContext.Intent == model.AssistantIntentRecommendation {
-		// Recommendation is a single shared, user-visible document. Read the
-		// authoritative current row before answering even for a plain “show my
-		// recommendation” request; otherwise a disabled agent loop could make
-		// the model answer from stale context and miss the existing letter.
-		tools = append(tools, "get_l1_recommendation")
+		// Access requests use current registration facts, never historical letters.
+		tools = append(tools, "get_account_access")
 	}
 	if assistantPublicActivityQuestion(text) {
 		tools = append(tools, "get_service_facts")
 	}
-	if assistantNewUserGiftWorkflowRequired(userContext) {
+	if assistantNewUserGiftStatusWorkflowRequired(userContext) {
+		tools = append(tools, "get_new_user_gift_status")
+	} else if assistantNewUserGiftWorkflowRequired(userContext) {
 		tools = append(tools, "prepare_new_user_gift")
 	}
-	if assistantWeeklyDiscountWorkflowRequired(userContext) {
+	if assistantWeeklyDiscountStatusWorkflowRequired(userContext) {
+		tools = append(tools, "get_weekly_discount_status")
+	} else if assistantWeeklyDiscountWorkflowRequired(userContext) {
 		tools = append(tools, "prepare_weekly_discount")
 	}
 	if assistantTextContainsAny(text,
@@ -1035,6 +1112,19 @@ func assistantReadChain(userContext assistantUserContext) []string {
 		tools = append(tools, "get_bounty_data")
 	}
 	return tools
+}
+
+func assistantAccountProgressRequest(text string) bool {
+	return assistantTextContainsAny(strings.ToLower(text), "主线任务", "主线进度", "安装证明", "配置证明", "main task", "onboarding progress", "onboarding checklist", "installation proof", "configuration proof")
+}
+
+func assistantWalletBalanceRequest(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "余额" || text == "balance" || assistantTextContainsAny(text, "我还有多少钱", "wallet balance", "my balance", "my account balance") {
+		return true
+	}
+	return assistantTextContainsAny(text, "余额", "balance") &&
+		assistantTextContainsAny(text, "我", "账户", "钱包", "查", "多少", "my", "wallet", "account", "how much", "check")
 }
 
 func assistantNextRead(userContext assistantUserContext, calledTools, successfulTools map[string]bool) (string, bool) {
@@ -1072,13 +1162,21 @@ func assistantPublicActivityWorkflowRequired(userContext assistantUserContext) b
 }
 
 func assistantNewUserGiftWorkflowRequired(userContext assistantUserContext) bool {
-	return !assistantActionDeclined(userContext.LatestUserRequest, assistantGiftActionRule) &&
+	return userContext.RewardTopic != "weekly_discount" && userContext.RewardTopic != "other" &&
+		!assistantExplicitWeeklyDiscountTopic(userContext.LatestUserRequest) &&
+		!assistantNewUserGiftStatusWorkflowRequired(userContext) &&
+		!assistantWeeklyDiscountStatusWorkflowRequired(userContext) &&
+		!assistantActionDeclined(userContext.LatestUserRequest, assistantGiftActionRule) &&
 		(assistantNewUserGiftRequest(userContext.LatestUserRequest) || userContext.NewUserGiftRequested) &&
 		assistantNewUserGiftToolAllowed(userContext)
 }
 
 func assistantWeeklyDiscountWorkflowRequired(userContext assistantUserContext) bool {
-	return !assistantActionDeclined(userContext.LatestUserRequest, assistantDiscountActionRule) &&
+	return userContext.RewardTopic != "gift" && userContext.RewardTopic != "other" &&
+		!assistantExplicitNewUserGiftTopic(userContext.LatestUserRequest) &&
+		!assistantNewUserGiftStatusWorkflowRequired(userContext) &&
+		!assistantWeeklyDiscountStatusWorkflowRequired(userContext) &&
+		!assistantActionDeclined(userContext.LatestUserRequest, assistantDiscountActionRule) &&
 		(assistantWeeklyDiscountRequest(userContext.LatestUserRequest) || userContext.WeeklyDiscountRequested) &&
 		assistantWeeklyDiscountToolAllowed(userContext)
 }
@@ -1107,10 +1205,10 @@ func assistantLiveActivityWorkflowMinSteps(userContext assistantUserContext) int
 	if assistantPublicActivityWorkflowRequired(userContext) {
 		steps++
 	}
-	if assistantNewUserGiftWorkflowRequired(userContext) {
+	if assistantNewUserGiftStatusWorkflowRequired(userContext) || assistantNewUserGiftWorkflowRequired(userContext) {
 		steps++
 	}
-	if assistantWeeklyDiscountWorkflowRequired(userContext) {
+	if assistantWeeklyDiscountStatusWorkflowRequired(userContext) || assistantWeeklyDiscountWorkflowRequired(userContext) {
 		steps++
 	}
 	if steps == 1 {
@@ -1150,7 +1248,7 @@ func assistantRecommendationWorkflowMinSteps(userContext assistantUserContext) i
 	if !assistantRecommendationWorkflowRequired(userContext) {
 		return 0
 	}
-	steps := 2 // read the current letter, then produce a final answer
+	steps := 2 // read current access, then produce a final answer
 	if userContext.RecommendationAction == assistantRecommendationActionRevise && assistantDirectL1GrantAllowed(userContext) {
 		steps += 2 // read registration evidence, grant access, then answer
 	}
@@ -1175,9 +1273,30 @@ func assistantCreateKeyWorkflowMinSteps(userContext assistantUserContext) int {
 }
 
 func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledTools map[string]bool, successfulTools map[string]bool) any {
+	// A disabled metadata title must not hide the actual requested workflow.
+	if !setting.AssistantToolEnabled("set_conversation_title") {
+		userContext.ConversationTitleNeeded = false
+	}
+	choice := assistantToolChoiceForAgentStepUnfiltered(userContext, calledTools, successfulTools)
+	if name := assistantNamedToolChoiceName(choice); name != "" && !assistantToolAllowedForContext(name, userContext) {
+		return "none"
+	}
+	return choice
+}
+
+func assistantToolChoiceForAgentStepUnfiltered(userContext assistantUserContext, calledTools map[string]bool, successfulTools map[string]bool) any {
 	choice := assistantToolChoiceForContext(userContext)
 	if userContext.ConversationTitleNeeded {
 		return choice
+	}
+	if assistantKeyManagementWorkflowRequired(userContext) {
+		if !calledTools["list_my_api_keys"] {
+			return assistantNamedToolChoice("list_my_api_keys")
+		}
+		if !successfulTools["list_my_api_keys"] || calledTools["prepare_api_key_action"] {
+			return "none"
+		}
+		return "auto" // ask for a precise target, or prepare its confirmation
 	}
 	if assistantCreateKeyWorkflowRequired(userContext) {
 		if userContext.CreateKeyAction == assistantCreateKeyActionRequest && !calledTools["get_service_facts"] {
@@ -1248,10 +1367,10 @@ func assistantToolChoiceForAgentStep(userContext assistantUserContext, calledToo
 		return choice
 	}
 
-	if !calledTools["get_l1_recommendation"] {
-		return assistantNamedToolChoice("get_l1_recommendation")
+	if !calledTools["get_account_access"] {
+		return assistantNamedToolChoice("get_account_access")
 	}
-	if !successfulTools["get_l1_recommendation"] {
+	if !successfulTools["get_account_access"] {
 		return "none"
 	}
 	if userContext.RecommendationAction == assistantRecommendationActionRemove {
@@ -1373,7 +1492,7 @@ func assistantNamedToolChoiceUnsupported(body []byte) bool {
 
 func assistantServerReadFallbackAllowed(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "get_l1_recommendation", "get_account_access", "get_service_facts", "get_available_models":
+	case "get_account_access", "get_service_facts", "get_available_models", "list_my_api_keys", "get_new_user_gift_status", "get_weekly_discount_status":
 		return true
 	default:
 		return false
@@ -1625,7 +1744,7 @@ func relayAssistantTurnWithRetryUsing(c *gin.Context, request assistantOpenAIReq
 			response, parseErr := parseAssistantResponse(body)
 			if parseErr == nil && len(response.Choices) > 0 {
 				message := response.Choices[0].Message
-				if len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) != "" {
+				if assistantOutputLengthLimited(response) || len(message.ToolCalls) > 0 || strings.TrimSpace(assistantResponseContent(message.Content)) != "" {
 					return status, body, nil
 				}
 			}
@@ -1750,8 +1869,8 @@ func assistantToolCallReadOnly(c *gin.Context, call assistantOpenAIToolCall) boo
 	if name == "execute_admin_operation" {
 		return assistantAdminOperationReadOnly(c, call.Function.Arguments)
 	}
-	return strings.HasPrefix(name, "get_") || strings.HasPrefix(name, "list_") ||
-		strings.HasPrefix(name, "calculate_") || name == "search_web" || name == "audit_admin_model_pricing" || name == "recall_memory"
+	effect := setting.AssistantToolEffect(name)
+	return effect == "read_only" || effect == "navigation"
 }
 
 func assistantAdminRetryMutationBlocked(c *gin.Context, call assistantOpenAIToolCall) bool {
@@ -1809,13 +1928,24 @@ func normalizeAssistantClientResponse(c *gin.Context, body []byte) ([]byte, erro
 		return nil, errors.New("assistant upstream returned an invalid response")
 	}
 	content := strings.TrimSpace(assistantResponseContent(response.Choices[0].Message.Content))
+	lengthLimited := assistantOutputLengthLimited(response)
+	if lengthLimited {
+		content = assistantIncompleteOutputContent(c, content)
+	}
 	if content == "" {
 		return nil, errors.New("assistant upstream returned no usable text")
 	}
-	payload := map[string]any{
-		"choices": []any{map[string]any{
-			"message": map[string]any{"role": "assistant", "content": content},
-		}},
+	choice := map[string]any{"message": map[string]any{"role": "assistant", "content": content}}
+	if reason := response.Choices[0].FinishReason; reason == "stop" || reason == "length" || reason == "tool_calls" || reason == "function_call" || reason == "content_filter" {
+		choice["finish_reason"] = reason
+	}
+	payload := map[string]any{"choices": []any{choice}}
+	if lengthLimited {
+		payload["lmm_assistant_completion"] = map[string]any{
+			"status": "incomplete", "code": assistantOutputIncompleteCode,
+			"retryable": false, "finish_reason": "length",
+			"next_action": "ask_for_remaining_text",
+		}
 	}
 	if c != nil {
 		if requestID := strings.TrimSpace(c.GetString(common.RequestIdKey)); requestID != "" {
@@ -1835,7 +1965,14 @@ func normalizeAssistantClientResponse(c *gin.Context, body []byte) ([]byte, erro
 	// "\\u003c"). Keep the provider-to-browser boundary within the same
 	// retained-byte budget instead of allowing an expanded response to escape
 	// the relay limit.
-	return common.MarshalLimit(payload, assistantUpstreamResponseMaxBytes)
+	encoded, encodeErr := common.MarshalLimit(payload, assistantUpstreamResponseMaxBytes)
+	if encodeErr != nil && lengthLimited {
+		// The notice itself must still reach the user when a large partial
+		// answer cannot fit after normalization/JSON escaping.
+		choice["message"] = map[string]any{"role": "assistant", "content": assistantIncompleteOutputContent(c, "")}
+		return common.MarshalLimit(payload, assistantUpstreamResponseMaxBytes)
+	}
+	return encoded, encodeErr
 }
 
 func writeAssistantUpstreamError(c *gin.Context, code, message string) {
@@ -1866,7 +2003,7 @@ func writeAssistantRawResponse(c *gin.Context, status int, body []byte, fallback
 
 func isAssistantAdministratorTool(name string) bool {
 	return strings.HasPrefix(name, "get_admin_") || strings.HasPrefix(name, "prepare_admin_") ||
-		name == "list_admin_operations" || name == "execute_admin_operation" || name == "audit_admin_model_pricing"
+		name == "list_admin_operations" || name == "execute_admin_operation" || name == "audit_admin_model_pricing" || name == "update_site_issue"
 }
 
 func assistantActorUserID(c *gin.Context) int {
@@ -1885,14 +2022,14 @@ func assistantDeveloperCapabilityRequired(userID int, capability string) (map[st
 	}
 	_, granted, err := getAssistantDeveloperAccess(userID)
 	if err != nil {
-		return map[string]any{"ok": false, "error": "account access could not be loaded"}, true
+		return assistantAccountUnavailable("account access could not be loaded"), true
 	}
 	if !granted {
 		return map[string]any{
 			"ok":        false,
 			"status":    "l1_required",
 			"error":     "L1 access is required for " + capability,
-			"next_step": "Ask the user to continue the L1 onboarding conversation and submit an administrator recommendation.",
+			"next_step": assistantL0AccessNextStep,
 		}, true
 	}
 	return nil, false
@@ -1904,9 +2041,30 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	}
 	actorUserID := assistantActorUserID(c)
 	name := strings.TrimSpace(call.Function.Name)
+	if !setting.AssistantToolKnown(name) {
+		return map[string]any{"ok": false, "status": "tool_not_allowed", "error": "this assistant action is not registered"}
+	}
+	_, policy, policyErr := refreshAssistantToolPolicy(c)
+	if policyErr != nil {
+		return map[string]any{"ok": false, "status": "tool_policy_unavailable", "error": policyErr.Error()}
+	}
+	if !policy.Enabled(name) {
+		return map[string]any{"ok": false, "status": "tool_disabled", "error": setting.AssistantToolDisabledError(name).Error()}
+	}
+	if !assistantConfiguredLevelAllowed(c, policy, name) {
+		return map[string]any{"ok": false, "status": "tool_level_denied", "error": "the current account does not meet this tool's configured level range"}
+	}
+	if assistantRewardReadOnlyRequest(c) {
+		if name == "prepare_new_user_gift" {
+			return assistantGiftReadOnlyRequestResult()
+		}
+		if name == "prepare_weekly_discount" {
+			return assistantWeeklyDiscountReadOnlyRequestResult()
+		}
+	}
 	if c != nil {
 		if rawContext, exists := c.Get(assistantUserContextKey); exists {
-			if userContext, ok := rawContext.(assistantUserContext); ok && !assistantToolExecutionAllowedForContext(name, userContext) {
+			if userContext, ok := rawContext.(assistantUserContext); ok && !assistantToolExecutionPermittedForContext(name, userContext) {
 				return map[string]any{
 					"ok":     false,
 					"status": "tool_not_allowed",
@@ -1929,8 +2087,12 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	if arguments == "" {
 		arguments = "{}"
 	}
-	if len(arguments) > assistantToolArgumentsMaxBytes {
-		return map[string]any{"ok": false, "error": "tool arguments are too large"}
+	argumentLimit := assistantToolArgumentsMaxBytes
+	if name == "prepare_admin_site_policy_change" {
+		argumentLimit = assistantSitePolicyArgumentsMaxBytes
+	}
+	if len(arguments) > argumentLimit {
+		return map[string]any{"ok": false, "status": "invalid_arguments", "error": "tool arguments exceed this tool's size limit"}
 	}
 	var input map[string]any
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
@@ -1942,6 +2104,9 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 			return executeAssistantConversationTitleTool(c, nil)
 		}
 		return map[string]any{"ok": false, "error": "tool arguments must be valid JSON"}
+	}
+	if name == "discover_tools" || name == "end_conversation" {
+		return executeAssistantRunControl(c, name, input)
 	}
 	if name == forgetProfileTool && (c == nil || !assistantExplicitProfileForgetRequest(c.GetString("assistant_history_latest_message"))) {
 		return map[string]any{
@@ -1956,6 +2121,16 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 				explicitProfileForget = assistantExplicitProfileForgetRequest(userContext.LatestUserRequest)
 			}
 		}
+	}
+	if assistantWorkspaceTool(name) {
+		return executeAssistantWorkspaceTool(c, call, input)
+	}
+	if assistantVisualizationKind(name) != "" {
+		visual, err := parseAssistantVisualization(name, input)
+		if err != nil {
+			return map[string]any{"ok": false, "status": "invalid_visualization", "error": err.Error()}
+		}
+		return map[string]any{"ok": true, "visualization": visual, "message": "Visualization shown in chat. This display does not verify the supplied data or perform any account action."}
 	}
 	if isAssistantRegistrationTool(name) {
 		return executeAssistantRegistrationTool(c, name, input)
@@ -2038,14 +2213,20 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantCostTool(input)
 	case "get_account_access":
 		return executeAssistantAccountTool(actorUserID)
-	case "get_l1_recommendation":
-		return executeAssistantL1RecommendationStateTool(c, actorUserID)
 	case "navigate_to_page":
 		return executeAssistantNavigateTool(c, actorUserID, input)
+	case "get_store_products", "get_store_product":
+		return executeAssistantStoreCatalogTool(actorUserID, input, name == "get_store_product")
+	case "get_tool_market_services", "get_tool_market_service":
+		return executeAssistantMarketCatalogTool(c, actorUserID, input, name == "get_tool_market_service")
 	case "get_user_overview":
 		return executeAssistantUserOverviewTool(c, actorUserID, input)
 	case "get_user_usage_summary":
 		return executeAssistantUserUsageTool(c, actorUserID, input)
+	case "list_my_api_keys":
+		return executeAssistantListMyAPIKeysTool(c, actorUserID, input)
+	case "prepare_api_key_action":
+		return executeAssistantPrepareAPIKeyActionTool(c, actorUserID, input)
 	case "prepare_user_action":
 		return executeAssistantPrepareUserActionTool(c, actorUserID, input)
 	case "get_available_models":
@@ -2091,8 +2272,12 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantBountyTool()
 	case "get_bounty_data":
 		return executeAssistantBountyDataTool(actorUserID, input)
+	case "get_new_user_gift_status":
+		return executeAssistantNewUserGiftStatusTool(c, actorUserID)
 	case "prepare_new_user_gift":
 		return executeAssistantNewUserGiftTool(c, actorUserID, input)
+	case "get_weekly_discount_status":
+		return executeAssistantWeeklyDiscountStatusTool(c, actorUserID)
 	case "prepare_weekly_discount":
 		return executeAssistantWeeklyDiscountTool(c, actorUserID, input)
 	case "prepare_image_generation":
@@ -2106,16 +2291,7 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantSearchTool(c, input)
 	case "get_setup_guide":
 		return executeAssistantSetupTool(actorUserID, input)
-	case "prepare_l1_recommendation":
-		if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-			return map[string]any{
-				"ok":      false,
-				"status":  "removal_requires_user_ui",
-				"error":   "AI cannot remove or replace a recommendation for a removal request",
-				"message": "Tell the user to clear the visible Recommendation letter field and choose Save changes in the existing UI.",
-			}
-		}
-		return executeAssistantL1RecommendationTool(c, actorUserID, input)
+
 	case "grant_l1_access":
 		return executeAssistantDirectL1GrantTool(c, actorUserID, input)
 	case "request_create_key":
@@ -2180,14 +2356,18 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 		return executeAssistantAdminOperationTool(c, actorUserID, input)
 	case "audit_admin_model_pricing":
 		return executeAssistantAdminPricingAuditTool(actorUserID, input)
+	case "get_site_policy":
+		return executeAssistantGetSitePolicy(c, input)
+	case "search_site_policies":
+		return executeAssistantSearchSitePolicies(c, input)
+	case "prepare_admin_site_policy_change":
+		return executeAssistantPrepareSitePolicy(c, actorUserID, input)
 	case "get_admin_server_config":
-		return executeAssistantAdminConfigTool(c, actorUserID)
+		return executeAssistantAdminConfigTool(c, actorUserID, input)
 	case "get_admin_model_inventory":
 		return executeAssistantAdminModelInventoryTool(actorUserID)
 	case "prepare_admin_model_sync":
 		return executeAssistantAdminModelSyncTool(c, actorUserID, input)
-	case "get_admin_assistant_review":
-		return executeAssistantReviewTool(actorUserID)
 	case "get_admin_user_skills":
 		return executeAssistantAdminUserSkillsTool(actorUserID, input)
 	case "prepare_admin_config_change":
@@ -2226,43 +2406,6 @@ func executeAssistantConversationTitleTool(c *gin.Context, input map[string]any)
 	userContext.ConversationTitleNeeded = false
 	c.Set(assistantUserContextKey, userContext)
 	return map[string]any{"ok": true, "title": title}
-}
-
-func executeAssistantL1RecommendationStateTool(c *gin.Context, userID int) map[string]any {
-	if userID <= 0 {
-		return map[string]any{"ok": false, "error": "signed-in account is unavailable"}
-	}
-	request, err := model.GetDeveloperAccessRequest(userID)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "the current recommendation could not be loaded"}
-	}
-	if request == nil {
-		result := map[string]any{
-			"ok":             true,
-			"status":         "none",
-			"recommendation": "",
-			"next_step":      "Recommendation submission has been retired. Continue tool-based registration verification; never direct the user to a recommendation form.",
-		}
-		if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-			result["next_step"] = "Tell the user there is no recommendation letter to remove. Do not call prepare_l1_recommendation."
-		}
-		return result
-	}
-	result := map[string]any{
-		"ok":                      true,
-		"status":                  request.Status,
-		"source":                  request.Source,
-		"user_statement":          request.Reason,
-		"recommendation":          request.AIRecommendation,
-		"administrator_note":      request.AdminNote,
-		"is_single_shared_letter": true,
-		"next_step":               "This is read-only historical data. Recommendation editing and submission are retired. Continue tool-based registration verification without preparing a letter.",
-	}
-	if assistantUserContextFromGin(c).RecommendationAction == assistantRecommendationActionRemove {
-		result["next_step"] = "Do not call prepare_l1_recommendation. The recommendation form is retired; do not promise deletion or direct the user to that form. Explain that this historical record remains unchanged and offer human support for a record-removal request."
-		result["historical_read_only"] = true
-	}
-	return result
 }
 
 func executeAssistantInterlocutorAssessmentTool(c *gin.Context, input map[string]any) map[string]any {
@@ -2388,7 +2531,7 @@ func executeAssistantAccountDisableRequestTool(c *gin.Context, userID int, input
 		UserId:    actor.Id,
 		SessionId: sessionID,
 		Payload:   string(payload),
-		ExpiresAt: time.Now().Add(assistantRecommendationTTL),
+		ExpiresAt: time.Now().Add(assistantActionDraftTTL),
 	})
 	if err != nil {
 		return map[string]any{"ok": false, "error": "账号安全申请确认无法创建"}
@@ -2412,88 +2555,23 @@ func executeAssistantAccountDisableRequestTool(c *gin.Context, userID int, input
 	}
 }
 
-func executeAssistantL1RecommendationTool(c *gin.Context, userID int, input map[string]any) map[string]any {
-	if c == nil || userID <= 0 {
-		return map[string]any{"ok": false, "error": "signed-in account is unavailable"}
-	}
-	user, err := model.GetUserCache(userID)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "account access could not be loaded"}
-	}
-	access, err := model.GetDeveloperAccessStateForUserBase(user)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "developer access could not be loaded"}
-	}
-	if access.Granted {
-		return map[string]any{"ok": false, "status": "already_active", "error": "L1 access is already active"}
-	}
-	sessionID := strings.TrimSpace(c.GetString("session_id"))
-	if sessionID == "" {
-		return map[string]any{"ok": false, "error": "a browser login session is required to prepare an L1 recommendation"}
-	}
-	statement := strings.TrimSpace(inputString(input, "user_statement"))
-	recommendation := strings.TrimSpace(inputString(input, "recommendation"))
-	if len([]rune(statement)) < minDeveloperAccessReasonRunes || len([]rune(statement)) > maxDeveloperAccessDraftRunes {
-		return map[string]any{"ok": false, "status": "statement_invalid", "error": "user statement must contain 5 to 2000 characters"}
-	}
-	if len([]rune(recommendation)) < minDeveloperAccessRecommendationRunes || len([]rune(recommendation)) > maxDeveloperAccessDraftRunes {
-		return map[string]any{"ok": false, "status": "recommendation_invalid", "error": "AI recommendation must contain 20 to 2000 characters"}
-	}
-	draft := assistantL1RecommendationDraft{
-		UserStatement:  statement,
-		Recommendation: recommendation,
-	}
-	if attribution, ok := promptPresetRef(c); ok {
-		draft.PresetId = attribution.PresetId
-		draft.PresetGeneration = attribution.Generation
-		draft.PresetVersion = attribution.Version
-	}
-	payload, err := json.Marshal(draft)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "AI recommendation could not be prepared"}
-	}
-	confirmationToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose:   model.AuthFlowPurposeAssistantL1,
-		UserId:    userID,
-		SessionId: sessionID,
-		Payload:   string(payload),
-		ExpiresAt: time.Now().Add(assistantRecommendationTTL),
-	})
-	if err != nil {
-		return map[string]any{"ok": false, "error": "AI recommendation confirmation could not be created"}
-	}
-	action := map[string]any{
-		"type":               "l1_recommendation",
-		"user_statement":     statement,
-		"recommendation":     recommendation,
-		"confirmation_token": confirmationToken,
-	}
-	c.Set(assistantClientActionKey, action)
-	return map[string]any{
-		"ok":      true,
-		"status":  "confirmation_required",
-		"action":  "l1_recommendation",
-		"message": "Explain that this recommendation is only a draft. Ask the user to review and explicitly confirm it in the UI; administrator approval is still required.",
-	}
-}
-
 func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[string]any) map[string]any {
-	if c == nil || userID <= 0 {
+	if c == nil || userID <= 0 || c.GetBool("use_access_token") || strings.TrimSpace(c.GetString("session_id")) == "" {
 		return map[string]any{"ok": false, "status": "context_unavailable", "error": "signed-in account is unavailable"}
 	}
 	conversationID := assistantHistoryConversationID(c)
-	if conversationID <= 0 {
-		return map[string]any{"ok": false, "status": "turns_required", "error": "three completed turns in an existing conversation are required"}
+	if conversationID < 0 || (conversationID == 0 && strings.TrimSpace(c.GetString("assistant_history_latest_message")) == "") {
+		return map[string]any{"ok": false, "status": "context_unavailable", "error": "a current user message is required; retry or contact support, not extra messages"}
 	}
 	statement := strings.TrimSpace(inputString(input, "user_statement"))
 	recommendation := strings.TrimSpace(inputString(input, "recommendation"))
 	grant, err := model.GrantAssistantDeveloperAccess(userID, conversationID, statement, recommendation)
 	if err != nil {
 		switch {
+		case errors.Is(err, model.ErrAssistantRegistrationHeld):
+			return map[string]any{"ok": false, "status": "access_held", "error": "A current server restriction prevents activation. Offer human support; do not ask for more chat or promise a future automatic pass.", "next_step": "contact_support"}
 		case errors.Is(err, model.ErrAssistantRegistrationCheck):
-			return map[string]any{"ok": false, "status": "verification_required", "error": "registration verification needs more context or human support; no access was granted"}
-		case errors.Is(err, model.ErrAssistantDirectGrantTurnsRequired):
-			return map[string]any{"ok": false, "status": "turns_required", "error": "three completed server-recorded conversation turns are required"}
+			return map[string]any{"ok": false, "status": "verification_unavailable", "error": "Registration could not be verified. No access was granted. Do not ask the user to keep chatting or repeat their use; retry once or offer human support.", "next_step": "contact_support"}
 		case errors.Is(err, model.ErrAssistantDirectGrantNotL0):
 			return map[string]any{"ok": false, "status": "not_eligible", "error": "direct L1 grant is available only to an unrestricted L0 user"}
 		case errors.Is(err, model.ErrDeveloperAccessRequestReasonTooShort), errors.Is(err, model.ErrDeveloperAccessRecommendationTooShort), errors.Is(err, model.ErrDeveloperAccessRequestNoteTooLong):
@@ -2501,6 +2579,9 @@ func executeAssistantDirectL1GrantTool(c *gin.Context, userID int, input map[str
 		default:
 			return map[string]any{"ok": false, "status": "grant_failed", "error": "L1 access could not be granted"}
 		}
+	}
+	if grant.ConversationID > 0 {
+		c.Set("assistant_history_conversation_id", grant.ConversationID)
 	}
 	status := "already_active"
 	if grant.Activated {
@@ -2531,12 +2612,13 @@ func executeAssistantCostTool(input map[string]any) map[string]any {
 	inputCost := inputTokens / 1_000_000 * inputPrice
 	outputCost := outputTokens / 1_000_000 * outputPrice
 	return map[string]any{
-		"ok":              true,
-		"input_cost_usd":  inputCost * ratio,
-		"output_cost_usd": outputCost * ratio,
-		"total_cost_usd":  (inputCost + outputCost) * ratio,
-		"group_ratio":     ratio,
-		"formula":         "(input_tokens / 1,000,000 × input price + output_tokens / 1,000,000 × output price) × group ratio",
+		"ok":               true,
+		"input_cost_usd":   inputCost * ratio,
+		"output_cost_usd":  outputCost * ratio,
+		"total_cost_usd":   (inputCost + outputCost) * ratio,
+		"pricing_currency": "USD", "pricing_schema_version": 2,
+		"group_ratio": ratio,
+		"formula":     "(input_tokens / 1,000,000 × input price + output_tokens / 1,000,000 × output price) × group ratio",
 	}
 }
 
@@ -2717,7 +2799,10 @@ func executeAssistantModelsTool(userID int) map[string]any {
 		"ok":                        true,
 		"groups":                    groupNames,
 		"model_ids":                 models,
-		"model_list_path":           "/models",
+		"model_list_path":           "/pricing",
+		"model_list_purpose":        "catalog_and_pricing_not_a_chat_workbench",
+		"availability_scope":        "enabled_catalog_union_of_usable_groups_not_a_live_health_check",
+		"group_membership_note":     "The model list is a union across these groups; it does not prove that every model is enabled in every group.",
 		"selection_required":        true,
 		"assistant_model_is_client": false,
 	}
@@ -2845,7 +2930,10 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 			"group_ratio":          groupRatio,
 		}
 		if selected.QuotaType == 0 && selected.BillingMode != "tiered_expr" {
-			inputRate := selected.ModelRatio * 2 * groupRatio
+			inputRate, err := model.ModelRatioUSDPerMillion(selected.ModelRatio * groupRatio)
+			if err != nil {
+				return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+			}
 			entry["input_usd_per_million"] = inputRate
 			entry["output_usd_per_million"] = inputRate * selected.CompletionRatio
 			if selected.CacheRatio != nil {
@@ -2855,7 +2943,11 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 				entry["cache_write_usd_per_million"] = inputRate * *selected.CreateCacheRatio
 			}
 		} else if selected.QuotaType == 1 {
-			entry["request_usd"] = selected.ModelPrice * groupRatio
+			price, err := model.LegacyPricingAmountUSD(selected.ModelPrice * groupRatio)
+			if err != nil {
+				return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+			}
+			entry["request_usd"] = price
 		}
 		prices = append(prices, entry)
 	}
@@ -2869,14 +2961,19 @@ func executeAssistantModelPricingTool(userID int, input map[string]any) map[stri
 		calculationInstruction = "The returned USD reference prices include the public default-group ratio and no account-specific discount. Pass group_ratio=1 to calculate_cost and explain that L1 access is still required to use the model."
 	}
 
+	usdExpression, err := model.USDExpression(selected.BillingExpr)
+	if err != nil {
+		return map[string]any{"ok": false, "error": "pricing currency units are unavailable"}
+	}
 	return map[string]any{
+		"pricing_currency": "USD", "pricing_schema_version": 2,
 		"ok":                          true,
 		"model_id":                    selected.ModelName,
 		"trust_level":                 trustLevel,
 		"trust_discount_ratio":        trustDiscountRatio,
 		"quota_type":                  selected.QuotaType,
 		"billing_mode":                selected.BillingMode,
-		"billing_expression":          selected.BillingExpr,
+		"billing_expression":          usdExpression,
 		"prices":                      prices,
 		"supported_endpoint_types":    selected.SupportedEndpointTypes,
 		"administrator_scope":         isAdministrator,
@@ -2908,7 +3005,7 @@ func executeAssistantPlanOffersTool(userID int) map[string]any {
 		"checkout_available":           checkoutAvailable,
 		"payment_hidden":               paymentHidden,
 		"plans":                        []SubscriptionPlanDTO{},
-		"topup_discounts":              map[int]float64{},
+		"topup_discounts":              map[string]float64{},
 		"payment_compliance_confirmed": complianceConfirmed,
 	}
 	if paymentHidden {
@@ -2931,7 +3028,7 @@ func executeAssistantPlanOffersTool(userID int) map[string]any {
 		plan.NormalizeDefaults()
 		planValues = append(planValues, SubscriptionPlanDTO{Plan: plan})
 	}
-	discountValues := make(map[int]float64, len(operation_setting.GetPaymentSetting().AmountDiscount))
+	discountValues := make(map[string]float64, len(operation_setting.GetPaymentSetting().AmountDiscount))
 	if !paymentHidden {
 		for amount, multiplier := range operation_setting.GetPaymentSetting().AmountDiscount {
 			discountValues[amount] = multiplier
@@ -2953,21 +3050,86 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 	if err != nil {
 		return map[string]any{"ok": false, "error": "invitation information could not be loaded"}
 	}
+	policy := model.GetReferralPolicy()
+	amounts := []int{max(0, user.AffQuota), user.AffHistoryQuota, policy.RewardQuota, 0}
+	usd := make([]any, len(amounts))
+	projectionUnavailable := false
+	for i, amount := range amounts {
+		converted, _, err := assistantFiatProjection(int64(amount))
+		if errors.Is(err, errAssistantCurrencyProjectionUnavailable) {
+			projectionUnavailable = true
+			continue // Preserve the ledger rewards; an unrepresentable USD field is null.
+		}
+		if err != nil {
+			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+		}
+		usd[i] = converted
+	}
 	result := map[string]any{
 		"ok":                           true,
 		"affiliate_code_available":     strings.TrimSpace(user.AffCode) != "",
 		"affiliate_code_path":          "/aff",
 		"invited_count":                user.AffCount,
-		"pending_reward_usd":           float64(user.AffQuota) / common.QuotaPerUnit,
-		"total_reward_usd":             float64(user.AffHistoryQuota) / common.QuotaPerUnit,
-		"reward_per_inviter_usd":       float64(common.QuotaForInviter) / common.QuotaPerUnit,
-		"reward_per_invitee_usd":       float64(common.QuotaForInvitee) / common.QuotaPerUnit,
+		"currency_unit":                "credit",
+		"pending_reward_credit":        max(0, user.AffQuota),
+		"available_reward_credit":      max(0, user.AffQuota),
+		"reward_debt_credit":           max(0, -user.AffQuota),
+		"wallet_balance_credit":        user.Quota,
+		"registration_reward_credit":   policy.RegistrationRewardQuota,
+		"referral_policy":              policy,
+		"accounting_note":              "Available referral rewards are earned and transferable, not unpaid invitee rewards. Lifetime total is gross historical earnings, not current wallet balance. pending_reward_* is a legacy alias for available rewards. Do not divide total earnings by today’s reward to invent a paid-invitee count. Do not infer an invitee’s payment status from these balances.",
+		"total_reward_credit":          user.AffHistoryQuota,
+		"reward_per_inviter_credit":    policy.RewardQuota,
+		"reward_per_invitee_credit":    0,
+		"pending_reward_usd":           usd[0],
+		"total_reward_usd":             usd[1],
+		"reward_per_inviter_usd":       usd[2],
+		"reward_per_invitee_usd":       usd[3],
 		"promotional_rewards_eligible": !model.IsDisposableEmail(user.Email),
 		"payment_compliance_confirmed": operation_setting.IsPaymentComplianceConfirmed(),
-		"next_step":                    "Open the invitation page to generate or copy the current invitation code.",
+		"next_step":                    "Explain the configured registration advance separately from the first-payment tail. The tail needs the first verified cash payment to meet the configured floor in its settlement currency. Gift, manual, transfer and later top-up credits do not qualify. Available rewards must be transferred to wallet before spending; a lifetime total is not lost balance. Open the invitation page for rules and history.",
+	}
+	result["legacy_reward_credit_unit"] = common.LedgerQuotaUnit
+	if projectionUnavailable {
+		result["public_credit_status"] = "unavailable"
+		return result
+	}
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+	}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		result[key] = value
+	}
+	result["legacy_reward_credit_unit"] = common.LedgerQuotaUnit
+	for _, field := range []struct {
+		name  string
+		quota int
+	}{
+		{"available_reward", max(0, user.AffQuota)}, {"reward_debt", max(0, -user.AffQuota)},
+		{"wallet_balance", user.Quota}, {"registration_reward", policy.RegistrationRewardQuota},
+	} {
+		amount, err := units.ProjectLedgerQuota(int64(field.quota))
+		if err != nil {
+			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+		}
+		result[field.name+"_public_credits"] = amount.String()
+		usdAmount, _, projectionErr := assistantFiatProjection(int64(field.quota))
+		if projectionErr == nil {
+			result[field.name+"_usd"] = usdAmount
+		} else {
+			result[field.name+"_usd"] = nil
+		}
+	}
+	for i, key := range []string{"pending_reward_public_credits", "total_reward_public_credits", "reward_per_inviter_public_credits", "reward_per_invitee_public_credits"} {
+		amount, err := units.ProjectLedgerQuota(int64(amounts[i]))
+		if err != nil {
+			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+		}
+		result[key] = amount.String()
 	}
 	if model.IsDisposableEmail(user.Email) {
-		result["message"] = "Known disposable email domains are not eligible for new-account or invitation promotional credits. Use a durable email for legitimate referrals; ordinary account access and administrator review remain available."
+		result["message"] = "Known disposable email domains are not eligible for new-account or invitation promotional credits. Use a durable email for legitimate referrals; ordinary account support and tool-based registration verification remain available."
 	}
 	if !operation_setting.IsPaymentComplianceConfirmed() {
 		result["message"] = "Reward configuration is shown for explanation only; payment-related rewards remain subject to the platform compliance setting."
@@ -2979,6 +3141,10 @@ func executeAssistantBountyTool() map[string]any {
 	fee := model.GetOpenSourceBountyFeeConfig()
 	return map[string]any{
 		"ok": true,
+		"eligible_deliverables": []string{
+			"Code changes, bug fixes, and tests tied to an open-source repository.",
+			"Documentation, translation, and design contributions tied to an open-source repository, with concrete reviewable acceptance criteria.",
+		},
 		"steps": []string{
 			"Open the open-source bounties page and choose create project.",
 			"Provide the repository, issue or pull request, acceptance criteria, gross reward, and number of fixes.",
@@ -3195,60 +3361,83 @@ func executeAssistantSearchTool(c *gin.Context, input map[string]any) map[string
 	}
 }
 
+const assistantL0AccessNextStep = "Use the user's stated purpose, even a short answer such as coding, learning or chatting. If their use is already clear, call get_registration_risk then grant_l1_access now; the first reply is eligible and there is no turn minimum. Do not require a client, repository, task plan, application letter or technical expertise. Old rejected or pending letters do not block activation. Never say keep chatting, collect more turns, your urgency delays access, or payment is the only way. On a failed check explain the actual status and offer human support or one retry, not an endless interview. Never claim activation without the successful server receipt or bypass a current restriction."
+
+func assistantAccountUnavailable(message string) map[string]any {
+	return map[string]any{"ok": false, "status": "unavailable", "error": message, "next_step": "Explain that live account or task progress is unavailable. Do not claim a milestone is pending or completed, and do not ask the user to repeat setup or create another key based on missing data."}
+}
+
 func executeAssistantAccountTool(userID int) map[string]any {
-	if userID <= 0 {
-		return map[string]any{"ok": false, "error": "signed-in account is unavailable"}
+	if userID <= 0 || model.DB == nil {
+		return assistantAccountUnavailable("signed-in account is unavailable")
 	}
-	user, err := model.GetUserCache(userID)
+	// Use the same fresh account facts for access and setup. A cached user can
+	// otherwise report L0 immediately after a server-validated L1 grant.
+	user, err := model.GetUserById(userID, false)
 	if err != nil {
-		return map[string]any{"ok": false, "error": "account access could not be loaded"}
+		return assistantAccountUnavailable("account access could not be loaded")
 	}
-	access, err := model.GetDeveloperAccessStateForUserBase(user)
+	snapshot, err := model.GetFreshUserAccessSnapshot(user)
 	if err != nil {
-		return map[string]any{"ok": false, "error": "developer access could not be loaded"}
+		return assistantAccountUnavailable("account access could not be loaded")
 	}
-	trust, err := model.GetTrustLevelInfoForUserBase(user)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "trust level could not be loaded"}
-	}
+	access, trust := snapshot.DeveloperAccess, snapshot.TrustLevel
 	result := map[string]any{
 		"ok":                       true,
+		"scope":                    "self",
+		"access_level":             trustLevelLabel(trust.Level),
 		"trust_level":              trust.Level,
 		"developer_access_granted": access.Granted,
 		"paid_activation_complete": access.PaidActivationComplete,
 		"console_activated":        user.ConsoleActivatedAt > 0,
+		"registration_workflow": map[string]any{
+			"review_mode": "built_in_tools", "recommendation_required": false,
+			"minimum_completed_turns": model.AssistantDirectGrantMinCompletedTurns,
+		},
 	}
-	request, requestErr := model.GetDeveloperAccessRequest(userID)
-	if requestErr != nil {
-		return map[string]any{"ok": false, "error": "L1 recommendation status could not be loaded"}
-	}
-	if request != nil {
-		result["l1_request"] = map[string]any{
-			"status":            request.Status,
-			"source":            request.Source,
-			"user_statement":    request.Reason,
-			"ai_recommendation": request.AIRecommendation,
-			"admin_note":        request.AdminNote,
-			"created_at":        request.CreatedAt,
-			"reviewed_at":       request.ReviewedAt,
-		}
+	for key, value := range assistantWalletBalanceFields(user.Quota) {
+		result[key] = value
 	}
 	if access.Granted {
-		fullUser, err := model.GetUserById(userID, false)
+		onboarding, err := model.GetOnboardingStateForUserSnapshot(user, snapshot)
 		if err != nil {
-			return map[string]any{"ok": false, "error": "account setup status could not be loaded"}
+			return assistantAccountUnavailable("account setup status could not be loaded")
 		}
-		onboarding, err := model.GetOnboardingStateForUser(fullUser)
+		todo, err := model.GetL1OnboardingTodo(userID)
 		if err != nil {
-			return map[string]any{"ok": false, "error": "account setup status could not be loaded"}
+			return assistantAccountUnavailable("client onboarding proofs could not be loaded")
+		}
+		journey, err := model.GetAssistantJourney(userID)
+		if err != nil {
+			return assistantAccountUnavailable("main task status could not be loaded")
+		}
+		main := make([]map[string]any, 0, len(journey.Main))
+		for _, step := range journey.Main {
+			// get_recommendation is the compatibility ID for the actual L1
+			// access milestone, independent of retired historical letter records.
+			main = append(main, map[string]any{"id": step.Id, "status": step.Status})
 		}
 		result["onboarding"] = onboarding
-		result["wallet_quota"] = fullUser.Quota
-		result["next_step"] = assistantAccountSetupNextStep(onboarding)
-	} else if request != nil && request.Status == model.DeveloperAccessRequestPending {
-		result["next_step"] = "Tell the user the recommendation is pending administrator review."
+		result["onboarding_todo"] = todo
+		result["main_task"] = main
+		result["last_api_activity_at"] = user.LastAPIActivityAt
+		result["onboarding_evidence_note"] = "The legacy first_request_complete/first_successful_response milestones are derived from last_api_activity_at, which can include billed failed requests. Their status is the server checklist's state, not independent proof that a client received a successful response. Verify the actual response before claiming success."
+		result["client_proof"] = map[string]any{
+			"install_client": map[string]any{
+				"proof_type": model.L1OnboardingProofInstallClient, "request_step": model.L1OnboardingStepInstallClient,
+				"required_fields": []string{"step", "client"},
+			},
+			"configure_client": map[string]any{
+				"proof_type": model.L1OnboardingProofConfigureClient, "request_step": model.L1OnboardingStepConfigureClient,
+				"required_fields": []string{"step", "client", "base_url", "group"},
+			},
+			"method": "POST", "path": "/api/onboarding/todo/proof", "authentication": "existing_api_key",
+			"note": "Use request_step as the HTTP body step, not proof_type. Client milestones require separate API-key-authenticated proof reports; an API call alone does not complete them. Reports record received proof, not an independent device inspection. Never ask the user to paste a key into chat.",
+		}
+		result["wallet_quota"] = user.Quota
+		result["next_step"] = assistantAccountProgressNextStep(onboarding, todo)
 	} else {
-		result["next_step"] = "Continue the onboarding conversation and prepare an L1 recommendation only after collecting a concrete use case."
+		result["next_step"] = assistantL0AccessNextStep
 	}
 	return result
 }
@@ -3257,12 +3446,31 @@ func executeAssistantAccountTool(userID int) map[string]any {
 // second manual API key; wallet quota alone does not determine subscription access.
 func assistantAccountSetupNextStep(state model.OnboardingState) string {
 	if state.FirstRequestComplete {
-		return "Setup is complete. Offer usage records or help with the user's next task; do not create another key unless requested."
+		return "The account has recorded API activity. This does not establish client installation/configuration proof or a successful client response; check onboarding_todo and the actual response before claiming completion. Offer usage records or help with the user's next task; do not create another key unless requested."
 	}
 	if state.CredentialComplete {
 		return "A credential already exists. Help configure the selected client and test its first request. OAuth clients do not need a manual API key."
 	}
 	return "Ask which client the user wants to use. For an OAuth client guide authorization; otherwise prepare an API key and request explicit confirmation before creating it. Check available funding before a paid test request."
+}
+
+func assistantAccountProgressNextStep(state model.OnboardingState, todo *model.L1OnboardingTodoView) string {
+	if todo == nil || todo.Status == "unavailable" {
+		return "The main task's client proof status is unavailable. Do not claim its steps are completed or require another key; use the separately observed account connection state."
+	}
+	if todo.Status == model.L1OnboardingStatusCompleted {
+		return "The server checklist marks all required client proofs and post-configuration API activity as complete. Explain this live checklist state; verify the actual client response before claiming it succeeded. Offer usage records or help with the user's next task; do not create another key unless requested."
+	}
+	switch todo.CurrentStep {
+	case model.L1OnboardingStepInstallClient:
+		return "The main task is waiting for a client_heartbeat installation proof. A successful API call alone cannot complete install_client. Explain the missing proof using the live steps, reuse the existing credential, and help the client report its onboarding proof; do not ask the user to reinstall or create another key merely because this milestone is pending."
+	case model.L1OnboardingStepConfigureClient:
+		return "Installation proof is recorded; the main task is waiting for client_configuration proof. Reuse the existing credential and client settings when helping report this proof. A successful API call alone cannot complete configure_client; do not create another key."
+	case model.L1OnboardingStepFirstSuccessfulResponse:
+		return "Installation and configuration proofs are recorded. The server checklist needs API activity at or after the configuration proof timestamp; an earlier call does not complete it. Reuse the existing credential for a short test and verify the actual successful response; do not create another key."
+	default:
+		return assistantAccountSetupNextStep(state)
+	}
 }
 
 // quotePOSIXShellLiteral returns a single shell word without leaving any part of

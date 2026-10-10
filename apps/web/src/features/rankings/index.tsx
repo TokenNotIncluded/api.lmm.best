@@ -20,9 +20,11 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { PublicLayout } from '@/components/layout'
+import { SectionPageLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EcosystemRouteShell } from '@/features/forge/ecosystem-route-shell'
 
 import {
   MarketShareSection,
@@ -63,70 +65,72 @@ export function Rankings() {
     })
   }
 
-  return (
-    <PublicLayout showMainContainer={false}>
-      <div className='relative'>
-        {/* Colorful top glow, gpt.ge-style: three soft radial ellipses
-         * masked to fade out before mid-page. Pure decoration, pointer-safe. */}
-        <div
-          aria-hidden
-          className='pointer-events-none absolute inset-x-0 top-0 h-[600px] opacity-20 dark:opacity-[0.10]'
-          style={{
-            background: [
-              'radial-gradient(ellipse 60% 50% at 20% 20%, oklch(0.72 0.18 250 / 80%) 0%, transparent 70%)',
-              'radial-gradient(ellipse 50% 40% at 80% 15%, oklch(0.65 0.15 200 / 60%) 0%, transparent 70%)',
-              'radial-gradient(ellipse 40% 35% at 50% 70%, oklch(0.70 0.12 280 / 40%) 0%, transparent 70%)',
-            ].join(', '),
-            maskImage:
-              'linear-gradient(to bottom, black 40%, transparent 100%)',
-            WebkitMaskImage:
-              'linear-gradient(to bottom, black 40%, transparent 100%)',
-          }}
-        />
-        <PageTransition className='relative mx-auto w-full max-w-[1280px] space-y-8 px-3 pt-16 pb-10 sm:px-6 sm:pt-20 sm:pb-12 xl:px-8'>
-          <RankingsHero period={period} onPeriodChange={handlePeriodChange} />
+  const content = (compact: boolean) => (
+    <PageTransition className={compact ? 'space-y-6' : 'space-y-10'}>
+      <RankingsHero
+        period={period}
+        onPeriodChange={handlePeriodChange}
+        compact={compact}
+      />
 
-          <UserUsageLeaderboard
-            data={userUsageRankingsQuery.data?.data}
-            isLoading={userUsageRankingsQuery.isLoading}
-            error={userUsageRankingsQuery.error}
-            open={userLeaderboardOpen}
-            onOpenChange={setUserLeaderboardOpen}
+      <UserUsageLeaderboard
+        data={userUsageRankingsQuery.data?.data}
+        isLoading={userUsageRankingsQuery.isLoading}
+        error={userUsageRankingsQuery.error}
+        open={userLeaderboardOpen}
+        onOpenChange={setUserLeaderboardOpen}
+      />
+
+      {rankingsQuery.isLoading ? (
+        <RankingsLoading />
+      ) : !snapshot ? (
+        <RankingsError
+          message={
+            rankingsQuery.error instanceof Error
+              ? rankingsQuery.error.message
+              : t('Unable to load rankings data')
+          }
+          onRetry={() => void rankingsQuery.refetch()}
+        />
+      ) : (
+        <>
+          <ModelsSection
+            history={snapshot.models_history}
+            rows={snapshot.models}
+            period={period}
           />
 
-          {rankingsQuery.isLoading ? (
-            <RankingsLoading />
-          ) : !snapshot ? (
-            <RankingsError
-              message={
-                rankingsQuery.error instanceof Error
-                  ? rankingsQuery.error.message
-                  : t('Unable to load rankings data')
-              }
-            />
-          ) : (
-            <>
-              <ModelsSection
-                history={snapshot.models_history}
-                rows={snapshot.models}
-                period={period}
-              />
+          <MarketShareSection
+            history={snapshot.vendor_share_history}
+            rows={snapshot.vendors}
+            period={period}
+          />
 
-              <MarketShareSection
-                history={snapshot.vendor_share_history}
-                rows={snapshot.vendors}
-                period={period}
-              />
+          <PulseSection
+            movers={snapshot.top_movers}
+            droppers={snapshot.top_droppers}
+          />
+        </>
+      )}
+    </PageTransition>
+  )
 
-              <PulseSection
-                movers={snapshot.top_movers}
-                droppers={snapshot.top_droppers}
-              />
-            </>
-          )}
-        </PageTransition>
-      </div>
-    </PublicLayout>
+  return (
+    <EcosystemRouteShell
+      console={
+        <SectionPageLayout>
+          <SectionPageLayout.Title>{t('Rankings')}</SectionPageLayout.Title>
+          <SectionPageLayout.Content>
+            <div className='mx-auto w-full max-w-6xl'>{content(true)}</div>
+          </SectionPageLayout.Content>
+        </SectionPageLayout>
+      }
+      public={
+        <main className='mx-auto w-full max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+          {content(false)}
+        </main>
+      }
+    />
   )
 }
 
@@ -140,16 +144,19 @@ function RankingsLoading() {
   )
 }
 
-function RankingsError(props: { message: string }) {
+function RankingsError(props: { message: string; onRetry: () => void }) {
   const { t } = useTranslation()
   return (
-    <div className='bg-card rounded-xl border border-dashed px-6 py-12 text-center'>
+    <div className='border-foreground/20 border-y px-6 py-12 text-center'>
       <h2 className='text-foreground text-base font-semibold'>
         {t('Unable to load rankings')}
       </h2>
       <p className='text-muted-foreground mx-auto mt-2 max-w-md text-sm'>
         {props.message}
       </p>
+      <Button className='mt-5' variant='outline' onClick={props.onRetry}>
+        {t('Retry')}
+      </Button>
     </div>
   )
 }

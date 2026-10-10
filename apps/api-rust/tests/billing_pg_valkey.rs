@@ -355,7 +355,7 @@ async fn reset_schema(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("plans schema");
-    sqlx::query("CREATE TABLE user_subscriptions (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, amount_total BIGINT NOT NULL, amount_used BIGINT NOT NULL, start_time BIGINT NOT NULL, end_time BIGINT NOT NULL, status TEXT NOT NULL, source TEXT NOT NULL, last_reset_time BIGINT NOT NULL, next_reset_time BIGINT NOT NULL, upgrade_group TEXT NOT NULL, prev_user_group TEXT NOT NULL, downgrade_group TEXT NOT NULL, allow_wallet_overflow BOOLEAN NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
+    sqlx::query("CREATE TABLE user_subscriptions (id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, plan_id BIGINT NOT NULL, amount_total BIGINT NOT NULL, reset_amount BIGINT, renewal_amount BIGINT, amount_used BIGINT NOT NULL, start_time BIGINT NOT NULL, end_time BIGINT NOT NULL, status TEXT NOT NULL, source TEXT NOT NULL, last_reset_time BIGINT NOT NULL, next_reset_time BIGINT NOT NULL, upgrade_group TEXT NOT NULL, prev_user_group TEXT NOT NULL, downgrade_group TEXT NOT NULL, allow_wallet_overflow BOOLEAN NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)")
         .execute(pool)
         .await
         .expect("subscriptions schema");

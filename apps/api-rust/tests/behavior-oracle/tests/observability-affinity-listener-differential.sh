@@ -145,6 +145,10 @@ done
 kill "$go_pid" 2>/dev/null || true; wait "$go_pid" 2>/dev/null || true; go_pid=''
 
 pg_dump -h 127.0.0.1 -p "$pg_port" -U postgres -d "$go_database" --schema-only --no-owner --no-privileges >"$runtime/go-schema.sql"
+# Expand the imported Rust schema without changing the Go listener's schema.
+sed 's/__LMM_APP_SCHEMA__/public/g' \
+  "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+  >>"$runtime/go-schema.sql"
 psql -h 127.0.0.1 -p "$pg_port" -U postgres -d "$rust_database" -v ON_ERROR_STOP=1 -f "$runtime/go-schema.sql" >/dev/null
 sed 's/__LMM_APP_SCHEMA__/public/g' "$repo_root/apps/api-rust/migrations/0002_open_source_bounty_schema.sql" >"$runtime/bounty.sql"
 for database in "$go_database" "$rust_database"; do

@@ -23,74 +23,68 @@ import { summarizeAssistantUsage } from './usage-summary'
 
 describe('summarizeAssistantUsage', () => {
   test('aggregates totals and ranks duplicate model rows by spend', () => {
-    const summary = summarizeAssistantUsage(
-      [
-        {
-          created_at: 1,
-          model_name: 'model-a',
-          count: 2,
-          token_used: 50,
-          quota: 2_000_000,
-        },
-        {
-          created_at: 2,
-          model_name: 'model-b',
-          count: 4,
-          token_used: 100,
-          quota: 5_000_000,
-        },
-        {
-          created_at: 3,
-          model_name: 'model-a',
-          count: 1,
-          token_used: 25,
-          quota: 1_000_000,
-        },
-      ],
-      1_000_000
-    )
+    const summary = summarizeAssistantUsage([
+      {
+        created_at: 1,
+        model_name: 'model-a',
+        count: 2,
+        token_used: 50,
+        quota: 2_000_000,
+      },
+      {
+        created_at: 2,
+        model_name: 'model-b',
+        count: 4,
+        token_used: 100,
+        quota: 5_000_000,
+      },
+      {
+        created_at: 3,
+        model_name: 'model-a',
+        count: 1,
+        token_used: 25,
+        quota: 1_000_000,
+      },
+    ])
 
     assert.equal(summary.requests, 7)
     assert.equal(summary.tokens, 175)
-    assert.equal(summary.creditUSD, 8)
+    assert.equal(summary.credits, 8_000_000)
     assert.deepEqual(
       summary.models.map((model) => ({
         model: model.model,
         requests: model.requests,
-        creditUSD: model.creditUSD,
+        credits: model.credits,
       })),
       [
-        { model: 'model-b', requests: 4, creditUSD: 5 },
-        { model: 'model-a', requests: 3, creditUSD: 3 },
+        { model: 'model-b', requests: 4, credits: 5_000_000 },
+        { model: 'model-a', requests: 3, credits: 3_000_000 },
       ]
     )
     assert.equal(summary.models[0]?.sharePercent, 62.5)
   })
 
   test('ignores invalid negative counters and falls back to token share', () => {
-    const summary = summarizeAssistantUsage(
-      [
-        {
-          created_at: 1,
-          model_name: 'model-a',
-          count: -1,
-          token_used: 30,
-          quota: Number.NaN,
-        },
-        {
-          created_at: 2,
-          model_name: 'model-b',
-          count: 2,
-          token_used: 70,
-          quota: -10,
-        },
-      ],
-      0
-    )
+    const summary = summarizeAssistantUsage([
+      {
+        created_at: 1,
+        model_name: 'model-a',
+        count: -1,
+        token_used: 30,
+        quota: Number.NaN,
+      },
+      {
+        created_at: 2,
+        model_name: 'model-b',
+        count: 2,
+        token_used: 70,
+        quota: -10,
+      },
+    ])
 
     assert.equal(summary.requests, 2)
     assert.equal(summary.tokens, 100)
-    assert.equal(summary.creditUSD, 0)
+    assert.equal(summary.credits, 0)
     assert.equal(summary.models[0]?.model, 'model-b')
     assert.equal(summary.models[0]?.sharePercent, 70)
   })

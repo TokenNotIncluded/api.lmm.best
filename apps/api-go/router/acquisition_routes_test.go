@@ -16,6 +16,7 @@ func TestAcquisitionPrivateRoutesRejectAnonymousRequests(t *testing.T) {
 	SetApiRouter(engine)
 	for _, request := range []struct{ method, path string }{
 		{http.MethodGet, "/api/admin/acquisition/links/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/preview"},
+		{http.MethodDelete, "/api/admin/acquisition/links/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		{http.MethodGet, "/api/admin/acquisition/cost"},
 		{http.MethodPut, "/api/admin/acquisition/cost"},
 		{http.MethodPost, "/api/acquisition/consent"},

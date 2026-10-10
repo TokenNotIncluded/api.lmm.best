@@ -185,7 +185,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 		header.Set("api-key", info.ApiKey)
 		return nil
 	}
-	if (info.ChannelType == constant.ChannelTypeOpenAI || info.ChannelType == constant.ChannelTypeOpenHuman) && "" != info.Organization {
+	if (info.ChannelType == constant.ChannelTypeOpenAI) && "" != info.Organization {
 		header.Set("OpenAI-Organization", info.Organization)
 	}
 	// 检查 Header Override 是否已设置 Authorization，如果已设置则跳过默认设置
@@ -250,7 +250,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if effectiveEffort == "" {
 		effectiveEffort = info.GetReasoningEffort()
 	}
-	if info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeOpenHuman && info.ChannelType != constant.ChannelTypeAzure {
+	if info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeAzure {
 		request.StreamOptions = nil
 	}
 	if info.ChannelType == constant.ChannelTypeOpenRouter {
@@ -620,6 +620,8 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	switch info.RelayMode {
+	case relayconstant.RelayModeModerations:
+		usage, err = OpenaiModerationHandler(c, info, resp)
 	case relayconstant.RelayModeRealtime:
 		err, usage = OpenaiRealtimeHandler(c, info)
 	case relayconstant.RelayModeAudioSpeech:

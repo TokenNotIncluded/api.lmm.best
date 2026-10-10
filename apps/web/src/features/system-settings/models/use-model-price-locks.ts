@@ -26,11 +26,11 @@ import { toast } from 'sonner'
 
 import { getSystemOptions, updateSystemOption } from '../api'
 import { useSystemOptions } from '../hooks/use-system-options'
-import type { SystemOptionsResponse } from '../types'
 import {
-  mergePriceLockSnapshot,
-  resolvePriceLockSnapshot,
-} from './model-price-lock-snapshot'
+  getModelPricingConfig,
+  MODEL_PRICING_QUERY_KEY,
+  useModelPricingConfig,
+} from './model-pricing-api'
 import { buildModelSnapshots } from './model-pricing-snapshots'
 
 export function parseModelPriceLocks(value?: string): Record<string, boolean> {
@@ -50,23 +50,27 @@ export function parseModelPriceLocks(value?: string): Record<string, boolean> {
 export function useModelPriceLocks() {
   const { t } = useTranslation()
   const query = useSystemOptions()
+  const pricingQuery = useModelPricingConfig()
   const queryClient = useQueryClient()
   const [pending, setPending] = useState(false)
   const pendingRef = useRef(false)
-  const options = query.data
-  const locks = useMemo(
+  const options = pricingQuery.data
+  const canonicalOptions = useMemo(
     () =>
-      parseModelPriceLocks(
-        options?.data?.find(({ key }) => key === 'ModelPriceLock')?.value
-      ),
+      options
+        ? Object.entries(options.values).map(([key, value]) => ({ key, value }))
+        : undefined,
+    [options]
+  )
+  const locks = useMemo(
+    () => parseModelPriceLocks(options?.values.ModelPriceLock),
     [options]
   )
   const snapshots = useMemo(() => {
-    if (!options?.success) return undefined
-    const values = Object.fromEntries(
-      options.data.map(({ key, value }) => [key, value])
-    )
+    if (!options) return undefined
+    const values = options.values
     return buildModelSnapshots({
+      creditsPerUsd: options.credits_per_usd,
       modelPrice: values.ModelPrice || '{}',
       modelRatio: values.ModelRatio || '{}',
       cacheRatio: values.CacheRatio || '{}',
@@ -101,7 +105,8 @@ export function useModelPriceLocks() {
           )
           return
         }
-        await queryClient.cancelQueries({ queryKey: ['system-options'] })
+        await getModelPricingConfig()
+        await queryClient.cancelQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
         writeAttempted = true
         const response = await updateSystemOption({
           key: 'ModelPriceLock',
@@ -111,31 +116,36 @@ export function useModelPriceLocks() {
         if (!response.success) {
           throw new Error(response.message || t('Failed to update price lock'))
         }
-        const { pricing, legacyOptions } = await resolvePriceLockSnapshot(
-          response,
-          name,
-          locked,
-          getSystemOptions
-        )
-        // Cancel reads started during the write before publishing its receipt.
-        await queryClient.cancelQueries({ queryKey: ['system-options'] })
-        const previous = queryClient.getQueryData<SystemOptionsResponse>([
-          'system-options',
-        ])
-        const accepted = mergePriceLockSnapshot(
-          legacyOptions || (previous?.success ? previous : current),
-          pricing
-        )
-        queryClient.setQueryData(['system-options'], accepted)
+        // The legacy receipt contains storage-unit prices. Never merge it into
+        // the USD editor: only a canonical post-write read can refresh it.
+        const accepted = await getModelPricingConfig()
+        if (
+          (parseModelPriceLocks(accepted.values.ModelPriceLock)[name] ===
+            true) !==
+          locked
+        ) {
+          throw new Error(t('Failed to update price lock'))
+        }
+        await queryClient.cancelQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
+        queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, accepted)
+        void queryClient.invalidateQueries({ queryKey: ['system-options'] })
         if (response.warnings?.length) {
           response.warnings.forEach((warning) => toast.warning(warning))
         }
-        return { locked, options: accepted.data }
+        return {
+          locked,
+          options: Object.entries(accepted.values).map(([key, value]) => ({
+            key,
+            value,
+          })),
+        }
       } catch (error) {
         if (writeAttempted) {
           // A transport/refresh failure does not prove the write was rejected.
           // Mark cached locks stale so a later successful read can reconcile.
-          void queryClient.invalidateQueries({ queryKey: ['system-options'] })
+          void queryClient.invalidateQueries({
+            queryKey: MODEL_PRICING_QUERY_KEY,
+          })
         }
         toast.error(
           error instanceof Error
@@ -153,8 +163,12 @@ export function useModelPriceLocks() {
   return {
     locks,
     snapshots,
-    options: options?.data,
-    pending: pending || query.isLoading,
+    options: canonicalOptions,
+    pending:
+      pending ||
+      query.isLoading ||
+      pricingQuery.isLoading ||
+      pricingQuery.isError,
     toggle,
   }
 }

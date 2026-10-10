@@ -20,12 +20,13 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
-import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
+import { formatQuota } from '@/lib/format'
+import { isCreditAmount } from '@/lib/quota-input'
 import { cn } from '@/lib/utils'
 
 import { adjustUserQuota } from '../api'
@@ -39,39 +40,22 @@ interface UserQuotaDialogProps {
   onSuccess: () => void
 }
 
-function getAmountValidation(amount: string, mode: QuotaAdjustMode) {
-  const trimmedAmount = amount.trim()
-  const parsedAmount = trimmedAmount === '' ? null : Number(trimmedAmount)
-  const amountValue =
-    parsedAmount !== null && Number.isFinite(parsedAmount) ? parsedAmount : 0
-  const quotaValue = parseQuotaFromDollars(Math.abs(amountValue))
-
-  return {
-    amountValue,
-    quotaValue,
-    isValid:
-      parsedAmount !== null &&
-      Number.isFinite(parsedAmount) &&
-      Number.isFinite(quotaValue) &&
-      (mode === 'override' || quotaValue > 0),
-  }
-}
-
 export function UserQuotaDialog(props: UserQuotaDialogProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<QuotaAdjustMode>('add')
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount] = useState<number>(Number.NaN)
   const [loading, setLoading] = useState(false)
 
-  const { meta: currencyMeta } = getCurrencyDisplay()
-  const currencyLabel = getCurrencyLabel()
-  const tokensOnly = currencyMeta.kind === 'tokens'
-
-  const {
-    amountValue,
-    quotaValue,
-    isValid: isAmountValid,
-  } = getAmountValidation(amount, mode)
+  const { label: currencyLabel } = useCreditInputDisplay()
+  const quotaValue = isCreditAmount(amount, mode === 'override') ? amount : 0
+  const resultQuota =
+    mode === 'override'
+      ? amount
+      : props.currentQuota + (mode === 'add' ? amount : -amount)
+  const isAmountValid =
+    isCreditAmount(amount, mode === 'override') &&
+    (mode === 'override' || amount > 0) &&
+    isCreditAmount(resultQuota, true)
 
   const getPreviewText = () => {
     const current = props.currentQuota
@@ -82,7 +66,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
       case 'subtract':
         return `${t('Current quota')}: ${formatQuota(current)}  -${formatQuota(val)} = ${formatQuota(current - val)}`
       case 'override': {
-        const overrideQuota = parseQuotaFromDollars(amountValue)
+        const overrideQuota = quotaValue
         return `${t('Current quota')}: ${formatQuota(current)} → ${formatQuota(overrideQuota)}`
       }
       default:
@@ -91,19 +75,11 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleConfirm = async () => {
-    const {
-      amountValue: submittedAmountValue,
-      quotaValue: submittedQuotaValue,
-      isValid,
-    } = getAmountValidation(amount, mode)
-    if (!isValid) return
+    if (!isAmountValid) return
 
     setLoading(true)
     try {
-      const value =
-        mode === 'override'
-          ? parseQuotaFromDollars(submittedAmountValue)
-          : submittedQuotaValue
+      const value = amount
       const result = await adjustUserQuota({
         id: props.userId,
         action: 'add_quota',
@@ -112,7 +88,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
       })
       if (result.success) {
         toast.success(t('Quota adjusted successfully'))
-        setAmount('')
+        setAmount(Number.NaN)
         setMode('add')
         props.onOpenChange(false)
         props.onSuccess()
@@ -127,14 +103,14 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
   }
 
   const handleCancel = () => {
-    setAmount('')
+    setAmount(Number.NaN)
     setMode('add')
     props.onOpenChange(false)
   }
 
-  const placeholder = tokensOnly
-    ? t('Enter amount in tokens')
-    : t('Enter amount in {{currency}}', { currency: currencyLabel })
+  const placeholder = t('Enter amount in {{currency}}', {
+    currency: currencyLabel,
+  })
 
   return (
     <Dialog
@@ -173,7 +149,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                 )}
                 onClick={() => {
                   setMode(m)
-                  setAmount('')
+                  setAmount(Number.NaN)
                 }}
               >
                 {m === 'add'
@@ -190,14 +166,12 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           <Label htmlFor='user-quota-amount'>
             {t('Amount')} ({currencyLabel})
           </Label>
-          <Input
+          <CreditAmountInput
             id='user-quota-amount'
-            type='number'
-            step={tokensOnly ? 1 : 0.000001}
-            min={mode === 'override' ? undefined : 0}
+            allowNegative={mode === 'override'}
             placeholder={placeholder}
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onValueChange={setAmount}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleConfirm()
             }}

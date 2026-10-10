@@ -15,10 +15,11 @@ import (
 )
 
 func TestQuotaQueryScopeAndReadOnly(t *testing.T) {
+	installControllerCreditAnchor(t, 500000)
 	db := setupManageUserTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Token{}))
 	oldUnit, oldLogs := common.QuotaPerUnit, common.LogConsumeEnabled
-	common.QuotaPerUnit, common.LogConsumeEnabled = 100, true
+	common.QuotaPerUnit, common.LogConsumeEnabled = 500000, true
 	t.Cleanup(func() { common.QuotaPerUnit, common.LogConsumeEnabled = oldUnit, oldLogs })
 	user := model.User{Username: "quota-reader", Status: common.UserStatusEnabled, Quota: 999999}
 	require.NoError(t, db.Create(&user).Error)
@@ -48,10 +49,10 @@ func TestQuotaQueryScopeAndReadOnly(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "USD", body["currency"])
 	require.Equal(t, "token", body["scope"])
-	require.Equal(t, 88.5, body["remaining"])
-	require.Equal(t, 120.8, body["used_total"])
-	require.Equal(t, 209.3, body["total_quota"])
-	require.Equal(t, 2.3, body["used_today"])
+	require.Equal(t, 0.0177, body["remaining"])
+	require.Equal(t, 0.02416, body["used_total"])
+	require.Equal(t, 0.04186, body["total_quota"])
+	require.Equal(t, 0.00046, body["used_today"])
 	var after model.Token
 	require.NoError(t, db.First(&after, token.Id).Error)
 	require.Equal(t, token, after)

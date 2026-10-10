@@ -15,6 +15,10 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	router.SetApiRouter(engine)
+	if err := router.SetWalletTransferRouter(engine); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := router.SetRedPacketRouter(engine); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "configure red packet routes: %v\n", err)
 		os.Exit(1)

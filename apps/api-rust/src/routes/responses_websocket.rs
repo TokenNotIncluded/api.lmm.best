@@ -8,11 +8,12 @@
 //! settlement remain one fail-closed service boundary; this module owns frame
 //! ordering, bidirectional transport, error events and close semantics.
 //!
-//! No production service adapter is exported here. The route must remain
-//! unmounted until the shared relay core can supply complete advanced-security,
-//! subscription/tiered/tool/image billing, affinity and channel-policy hooks.
+//! No production service adapter is exported here. The listener mounts this
+//! route with the fail-closed unconfigured service until the shared relay core
+//! supplies complete advanced-security, subscription/tiered/tool/image billing,
+//! affinity and channel-policy hooks.
 
-use std::{net::IpAddr, sync::Arc, time::Duration};
+use std::{collections::VecDeque, net::IpAddr, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use axum::{
@@ -39,6 +40,8 @@ use tokio_tungstenite::{
 use crate::RequestContext;
 
 const UPSTREAM_QUEUE_DEPTH: usize = 32;
+const CONTROL_CORRELATION_DEPTH: usize = UPSTREAM_QUEUE_DEPTH;
+const CONTROL_CORRELATION_BYTES: usize = 64 * 1024;
 const UPSTREAM_IO_TIMEOUT: Duration = Duration::from_secs(30);
 const RESPONSES_SUBPROTOCOL: &str = "responses";
 const REALTIME_SUBPROTOCOL: &str = "realtime";
@@ -134,6 +137,8 @@ pub struct ResponsesTurnAuthorization {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResponsesCreate {
     pub event_id: String,
+    /// Client correlation identity; never part of the HTTP request object.
+    pub stream_id: String,
     pub model: String,
     /// Request object after removing WebSocket-only transport fields.
     pub request: Value,
@@ -390,7 +395,7 @@ impl ResponsesWebSocketState {
     }
 }
 
-/// Builds the unmounted candidate GET half of `/v1/responses`.
+/// Builds the GET half of `/v1/responses`; production uses the fail-closed service.
 pub fn router(state: ResponsesWebSocketState) -> Router {
     Router::new()
         .route("/v1/responses", get(responses_websocket))
@@ -429,6 +434,49 @@ struct ActiveSession {
     upstream: Option<Arc<ResponsesUpstream>>,
     incoming: Option<mpsc::Receiver<Result<ResponsesFrame, ResponsesUpstreamFailure>>>,
     current: Option<ResponsesTurn>,
+    current_stream_id: String,
+    current_event_id: String,
+    current_turn_id: Option<String>,
+    current_response_id: String,
+    resolved_response_ids: VecDeque<String>,
+    completed_creates: VecDeque<CompletedCreate>,
+    pending_controls: VecDeque<PendingControl>,
+    resolved_controls: VecDeque<PendingControl>,
+}
+
+struct CompletedCreate {
+    event_id: String,
+    stream_id: String,
+}
+
+impl CompletedCreate {
+    fn identity_bytes(&self) -> usize {
+        self.event_id.len() + self.stream_id.len()
+    }
+}
+
+struct PendingControl {
+    event_id: String,
+    stream_id: String,
+    response_id: String,
+    cancel: bool,
+    owner_turn_id: Option<String>,
+}
+
+impl PendingControl {
+    fn identity_bytes(&self) -> usize {
+        self.event_id.len() + self.stream_id.len() + self.response_id.len()
+    }
+
+    fn can_correlate(&self) -> bool {
+        !self.event_id.is_empty() || !self.response_id.is_empty() || self.cancel
+    }
+}
+
+enum ControlMatch {
+    None,
+    Unique(usize),
+    Ambiguous,
 }
 
 impl ActiveSession {
@@ -440,6 +488,14 @@ impl ActiveSession {
             upstream: None,
             incoming: None,
             current: None,
+            current_stream_id: String::new(),
+            current_event_id: String::new(),
+            current_turn_id: None,
+            current_response_id: String::new(),
+            resolved_response_ids: VecDeque::new(),
+            completed_creates: VecDeque::new(),
+            pending_controls: VecDeque::new(),
+            resolved_controls: VecDeque::new(),
         }
     }
 }
@@ -533,10 +589,20 @@ async fn handle_client_data(
     frame: ResponsesFrame,
 ) -> bool {
     let payload = frame.payload();
-    let (event_type, event_id) = match event_metadata(payload) {
+    // Recover valid envelope identities even if another metadata field is malformed.
+    let envelope: Value = serde_json::from_slice(payload).unwrap_or_default();
+    let event_id = envelope
+        .get("event_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let stream_id = envelope
+        .get("stream_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let (event_type, _) = match event_metadata(payload) {
         Ok(metadata) => metadata,
         Err(failure) => {
-            send_error(client, "", &failure).await;
+            send_error(client, event_id, stream_id, &failure).await;
             return true;
         }
     };
@@ -545,7 +611,7 @@ async fn handle_client_data(
             let create = match normalize_create(payload) {
                 Ok(create) => create,
                 Err(failure) => {
-                    send_error(client, &event_id, &failure).await;
+                    send_error(client, event_id, stream_id, &failure).await;
                     return true;
                 }
             };
@@ -553,6 +619,7 @@ async fn handle_client_data(
                 send_error(
                     client,
                     &create.event_id,
+                    &create.stream_id,
                     &ResponsesWebSocketFailure::invalid_request("model is required"),
                 )
                 .await;
@@ -570,7 +637,7 @@ async fn handle_client_data(
             {
                 Ok(refreshed) => refreshed,
                 Err(failure) => {
-                    send_error(client, &create.event_id, &failure).await;
+                    send_error(client, &create.event_id, &create.stream_id, &failure).await;
                     return true;
                 }
             };
@@ -584,6 +651,7 @@ async fn handle_client_data(
                 send_error(
                         client,
                         &create.event_id,
+                        &create.stream_id,
                         &ResponsesWebSocketFailure::invalid_request(format!(
                             "responses websocket connection is locked to model {locked_model:?}; got {:?}",
                             create.model
@@ -596,6 +664,7 @@ async fn handle_client_data(
                 send_error(
                     client,
                     &create.event_id,
+                    &create.stream_id,
                     &ResponsesWebSocketFailure::new(
                         StatusCode::CONFLICT,
                         "invalid_request",
@@ -605,10 +674,48 @@ async fn handle_client_data(
                 .await;
                 return true;
             }
+            if !create.event_id.is_empty()
+                && (session
+                    .pending_controls
+                    .iter()
+                    .chain(&session.resolved_controls)
+                    .any(|control| control.event_id == create.event_id)
+                    || session
+                        .completed_creates
+                        .iter()
+                        .any(|completed| completed.event_id == create.event_id))
+            {
+                send_error(
+                    client,
+                    &create.event_id,
+                    &create.stream_id,
+                    &ResponsesWebSocketFailure::invalid_request(
+                        "event_id belongs to a retained create or control",
+                    ),
+                )
+                .await;
+                return true;
+            }
+            if !create.event_id.is_empty()
+                && create.event_id.len().saturating_add(create.stream_id.len())
+                    > CONTROL_CORRELATION_BYTES
+            {
+                send_error(
+                    client,
+                    &create.event_id,
+                    &create.stream_id,
+                    &ResponsesWebSocketFailure::invalid_request(
+                        "response create correlation identity is too large",
+                    ),
+                )
+                .await;
+                return true;
+            }
             if session.locked_channel.is_some() && session.upstream.is_none() {
                 send_error(
                     client,
                     &create.event_id,
+                    &create.stream_id,
                     &ResponsesWebSocketFailure::bad_response(
                         "locked responses websocket upstream is unavailable",
                     ),
@@ -629,7 +736,7 @@ async fn handle_client_data(
             {
                 Ok(started) => started,
                 Err(failure) => {
-                    send_error(client, &create.event_id, &failure).await;
+                    send_error(client, &create.event_id, &create.stream_id, &failure).await;
                     return true;
                 }
             };
@@ -646,6 +753,7 @@ async fn handle_client_data(
                 send_error(
                     client,
                     &create.event_id,
+                    &create.stream_id,
                     &ResponsesWebSocketFailure::new(
                         StatusCode::FORBIDDEN,
                         "get_channel_failed",
@@ -667,6 +775,7 @@ async fn handle_client_data(
                     send_error(
                         client,
                         &create.event_id,
+                        &create.stream_id,
                         &ResponsesWebSocketFailure::new(
                             StatusCode::FORBIDDEN,
                             "get_channel_failed",
@@ -689,6 +798,7 @@ async fn handle_client_data(
                     send_error(
                         client,
                         &create.event_id,
+                        &create.stream_id,
                         &ResponsesWebSocketFailure::bad_response(
                             "responses websocket upstream is unavailable",
                         ),
@@ -701,6 +811,15 @@ async fn handle_client_data(
             }
             session.locked_model.get_or_insert(create.model);
             session.locked_channel.get_or_insert(started.channel);
+            session.current_stream_id = create.stream_id;
+            session.current_event_id = create.event_id;
+            session.current_response_id.clear();
+            session.current_turn_id = Some(started.turn.id.clone());
+            for control in &mut session.pending_controls {
+                if control.owner_turn_id.is_none() {
+                    control.owner_turn_id = Some(started.turn.id.clone());
+                }
+            }
             session.current = Some(started.turn);
             true
         }
@@ -708,19 +827,33 @@ async fn handle_client_data(
             if session.current.is_none() || session.upstream.is_none() {
                 send_error(
                     client,
-                    &event_id,
+                    event_id,
+                    stream_id,
                     &ResponsesWebSocketFailure::invalid_request("no response is active to cancel"),
                 )
                 .await;
                 return true;
             }
-            forward_control(client, state, session, frame).await
+            if !stream_id.is_empty() && stream_id != session.current_stream_id {
+                send_error(
+                    client,
+                    event_id,
+                    stream_id,
+                    &ResponsesWebSocketFailure::invalid_request(
+                        "stream_id does not match the active response",
+                    ),
+                )
+                .await;
+                return true;
+            }
+            forward_control(client, state, session, frame, event_id, stream_id).await
         }
         _ => {
             if session.upstream.is_none() {
                 send_error(
                     client,
-                    &event_id,
+                    event_id,
+                    stream_id,
                     &ResponsesWebSocketFailure::invalid_request(
                         "first responses websocket event must be response.create",
                     ),
@@ -728,7 +861,7 @@ async fn handle_client_data(
                 .await;
                 return true;
             }
-            forward_control(client, state, session, frame).await
+            forward_control(client, state, session, frame, event_id, stream_id).await
         }
     }
 }
@@ -738,18 +871,79 @@ async fn forward_control(
     state: &ResponsesWebSocketState,
     session: &mut ActiveSession,
     frame: ResponsesFrame,
+    event_id: &str,
+    stream_id: &str,
 ) -> bool {
     let Some(upstream) = session.upstream.as_ref() else {
         return true;
     };
+    if !event_id.is_empty()
+        && (event_id == session.current_event_id
+            || session
+                .completed_creates
+                .iter()
+                .any(|completed| completed.event_id == event_id)
+            || session
+                .pending_controls
+                .iter()
+                .chain(&session.resolved_controls)
+                .any(|control| control.event_id == event_id))
+    {
+        send_error(
+            client,
+            event_id,
+            stream_id,
+            &ResponsesWebSocketFailure::invalid_request(
+                "event_id belongs to an active or retained create or control",
+            ),
+        )
+        .await;
+        return true;
+    }
+    let envelope: Value = serde_json::from_slice(frame.payload()).unwrap_or_default();
+    let control = PendingControl {
+        event_id: event_id.to_owned(),
+        stream_id: stream_id.to_owned(),
+        response_id: envelope
+            .get("response_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        cancel: envelope.get("type").and_then(Value::as_str) == Some("response.cancel"),
+        owner_turn_id: session.current.as_ref().map(|turn| turn.id.clone()),
+    };
+    let pending_bytes = session
+        .pending_controls
+        .iter()
+        .map(PendingControl::identity_bytes)
+        .sum::<usize>();
+    if control.can_correlate()
+        && (session.pending_controls.len() == CONTROL_CORRELATION_DEPTH
+            || control.identity_bytes().saturating_add(pending_bytes) > CONTROL_CORRELATION_BYTES)
+    {
+        send_error(
+            client,
+            event_id,
+            stream_id,
+            &ResponsesWebSocketFailure::invalid_request(
+                "response control correlation capacity is exhausted",
+            ),
+        )
+        .await;
+        return true;
+    }
     if upstream.send(frame).await.is_ok() {
+        if control.can_correlate() {
+            session.pending_controls.push_back(control);
+        }
         return true;
     }
     finish_current(state, session, ResponsesTurnFinish::UpstreamWriteFailed).await;
     close_upstream(session).await;
     send_error(
         client,
-        "",
+        event_id,
+        stream_id,
         &ResponsesWebSocketFailure::bad_response("responses websocket upstream write failed"),
     )
     .await;
@@ -762,7 +956,8 @@ async fn handle_upstream_frame(
     session: &mut ActiveSession,
     frame: ResponsesFrame,
 ) -> bool {
-    if let Some(turn) = session.current.as_ref() {
+    let (stream_id, observe) = upstream_attribution(session, &frame);
+    if let Some(turn) = session.current.as_ref().filter(|_| observe) {
         match state.service.observe_upstream(turn, &frame).await {
             Ok(ResponsesTurnObservation::Continue) => {}
             Ok(ResponsesTurnObservation::Terminal {
@@ -773,6 +968,7 @@ async fn handle_upstream_frame(
                     send_error(
                         client,
                         "",
+                        &stream_id,
                         &ResponsesWebSocketFailure::bad_response(
                             "responses websocket turn state is unavailable",
                         ),
@@ -793,19 +989,23 @@ async fn handle_upstream_frame(
                     .await
                 {
                     session.current = Some(turn);
-                    send_error(client, "", &failure).await;
+                    send_error(client, "", &stream_id, &failure).await;
                     close_upstream(session).await;
                     return false;
                 }
             }
             Err(failure) => {
                 finish_current(state, session, ResponsesTurnFinish::UpstreamClosed).await;
-                send_error(client, "", &failure).await;
+                send_error(client, "", &stream_id, &failure).await;
                 close_upstream(session).await;
                 return false;
             }
         }
     }
+    if session.current.is_none() {
+        clear_current_identity(session);
+    }
+    let frame = correlate_upstream_frame(frame, &stream_id);
     if let Some(message) = frame.into_axum()
         && client.send(message).await.is_err()
     {
@@ -830,6 +1030,301 @@ async fn finish_current(
     {
         session.current = Some(turn);
     }
+    if session.current.is_none() {
+        clear_current_identity(session);
+    }
+}
+
+fn clear_current_identity(session: &mut ActiveSession) {
+    let completed = CompletedCreate {
+        event_id: std::mem::take(&mut session.current_event_id),
+        stream_id: std::mem::take(&mut session.current_stream_id),
+    };
+    if !completed.event_id.is_empty() {
+        while session.completed_creates.len() == CONTROL_CORRELATION_DEPTH
+            || session
+                .completed_creates
+                .iter()
+                .map(CompletedCreate::identity_bytes)
+                .sum::<usize>()
+                .saturating_add(completed.identity_bytes())
+                > CONTROL_CORRELATION_BYTES
+        {
+            session.completed_creates.pop_front();
+        }
+        session.completed_creates.push_back(completed);
+    }
+    if !session.current_response_id.is_empty() {
+        let response_id = std::mem::take(&mut session.current_response_id);
+        if response_id.len() <= CONTROL_CORRELATION_BYTES {
+            while session.resolved_response_ids.len() == CONTROL_CORRELATION_DEPTH
+                || session
+                    .resolved_response_ids
+                    .iter()
+                    .map(String::len)
+                    .sum::<usize>()
+                    .saturating_add(response_id.len())
+                    > CONTROL_CORRELATION_BYTES
+            {
+                session.resolved_response_ids.pop_front();
+            }
+            session.resolved_response_ids.push_back(response_id);
+        }
+    }
+    if let Some(turn_id) = session.current_turn_id.take() {
+        let mut pending = std::mem::take(&mut session.pending_controls);
+        while let Some(control) = pending.pop_front() {
+            if control.owner_turn_id.as_deref() == Some(turn_id.as_str()) {
+                retain_resolved_control(session, control);
+            } else {
+                session.pending_controls.push_back(control);
+            }
+        }
+    }
+}
+
+fn retain_resolved_control(session: &mut ActiveSession, mut control: PendingControl) {
+    control.owner_turn_id = None;
+    while session.resolved_controls.len() == CONTROL_CORRELATION_DEPTH
+        || session
+            .resolved_controls
+            .iter()
+            .map(PendingControl::identity_bytes)
+            .sum::<usize>()
+            .saturating_add(control.identity_bytes())
+            > CONTROL_CORRELATION_BYTES
+    {
+        session.resolved_controls.pop_front();
+    }
+    session.resolved_controls.push_back(control);
+}
+
+fn upstream_response_id(value: &Value) -> &str {
+    value
+        .get("response_id")
+        .and_then(Value::as_str)
+        .filter(|identity| !identity.is_empty())
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|response| response.get("id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or_default()
+}
+
+fn upstream_attribution(session: &mut ActiveSession, frame: &ResponsesFrame) -> (String, bool) {
+    let value: Value = serde_json::from_slice(frame.payload()).unwrap_or_default();
+    let kind = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if (kind == "error" || kind.starts_with("response."))
+        && value
+            .get("stream_id")
+            .is_some_and(|identity| !identity.is_null() && !identity.is_string())
+    {
+        return (String::new(), false);
+    }
+    let stream_id = value
+        .get("stream_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let response_id = upstream_response_id(&value);
+    let foreign_response = !response_id.is_empty()
+        && (session
+            .resolved_response_ids
+            .iter()
+            .any(|known| known == response_id)
+            || !session.current_response_id.is_empty()
+                && response_id != session.current_response_id);
+    if kind == "error" {
+        let event_id = value
+            .get("event_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let reference = value
+            .get("error")
+            .and_then(|error| error.get("event_id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let completed = session
+            .completed_creates
+            .iter()
+            .find(|completed| completed.event_id == event_id);
+        let create_collision = reference.is_empty() && completed.is_some();
+        if let Some(completed) = completed.filter(|_| create_collision) {
+            // A provider output ID can collide with a completed client create.
+            // Only a current response ID or a distinct current stream proves
+            // the error belongs to this turn rather than the retained create.
+            let current_response = !session.current_response_id.is_empty()
+                && response_id == session.current_response_id;
+            let distinct_current_stream = !stream_id.is_empty()
+                && stream_id == session.current_stream_id
+                && stream_id != completed.stream_id;
+            if !current_response && !distinct_current_stream {
+                return (String::new(), false);
+            }
+        }
+        let control_match = if create_collision {
+            ControlMatch::None
+        } else {
+            matched_control(
+                &session.pending_controls,
+                &session.resolved_controls,
+                &value,
+                &session.current_event_id,
+                &session.current_response_id,
+                session.current.is_some(),
+                foreign_response,
+            )
+        };
+        match control_match {
+            ControlMatch::Unique(index) => {
+                if index >= session.pending_controls.len() {
+                    return (
+                        session.resolved_controls[index - session.pending_controls.len()]
+                            .stream_id
+                            .clone(),
+                        false,
+                    );
+                }
+                if let Some(control) = session.pending_controls.remove(index) {
+                    let identity = control.stream_id.clone();
+                    retain_resolved_control(session, control);
+                    return (identity, false);
+                }
+            }
+            ControlMatch::Ambiguous => return (String::new(), false),
+            ControlMatch::None => {}
+        }
+        // A nested error reference names the rejected client event. The top-level
+        // event_id may instead name the provider's own output event.
+        if !reference.is_empty() && reference != session.current_event_id {
+            return (String::new(), false);
+        }
+    }
+    if kind == "error" || kind.starts_with("response.") {
+        if !session.current_stream_id.is_empty()
+            && !stream_id.is_empty()
+            && stream_id != session.current_stream_id
+            || foreign_response
+        {
+            return (String::new(), false);
+        }
+        if session.current.is_some() && kind.starts_with("response.") && !response_id.is_empty() {
+            session.current_response_id = response_id.to_owned();
+        }
+    }
+    (session.current_stream_id.clone(), true)
+}
+
+fn matched_control(
+    pending: &VecDeque<PendingControl>,
+    resolved: &VecDeque<PendingControl>,
+    value: &Value,
+    active_event_id: &str,
+    active_response_id: &str,
+    has_active_turn: bool,
+    foreign_response: bool,
+) -> ControlMatch {
+    let event_id = value
+        .get("event_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let reference = value
+        .get("error")
+        .and_then(|error| error.get("event_id"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let response_id = upstream_response_id(value);
+    let stream_id = value
+        .get("stream_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let cancel_rejection = value
+        .get("error")
+        .and_then(|error| error.get("type"))
+        .and_then(Value::as_str)
+        == Some("invalid_request_error")
+        && matches!(
+            value
+                .get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str),
+            Some("response_not_found" | "response_not_active" | "response_already_completed")
+        );
+    let controls = || pending.iter().chain(resolved).enumerate();
+    let top_level = find_control(controls(), |control| {
+        !control.event_id.is_empty() && control.event_id == event_id
+    });
+    if !reference.is_empty() {
+        // The nested reference names the client operation. An unknown reference
+        // cannot consume an unrelated control named by the provider's event ID.
+        if reference == active_event_id {
+            return if matches!(top_level, ControlMatch::None) {
+                ControlMatch::None
+            } else {
+                ControlMatch::Ambiguous
+            };
+        }
+        let nested = find_control(controls(), |control| {
+            !control.event_id.is_empty() && control.event_id == reference
+        });
+        return match (top_level, nested) {
+            (ControlMatch::None, ControlMatch::Unique(index))
+                if active_event_id.is_empty() || event_id != active_event_id =>
+            {
+                ControlMatch::Unique(index)
+            }
+            (ControlMatch::Unique(top), ControlMatch::Unique(nested)) if top == nested => {
+                ControlMatch::Unique(nested)
+            }
+            _ => ControlMatch::Ambiguous,
+        };
+    }
+    if !matches!(top_level, ControlMatch::None) {
+        return top_level;
+    }
+    if !active_event_id.is_empty() && event_id == active_event_id {
+        // A create rejection remains a turn failure even if its code also
+        // resembles a pending cancellation rejection.
+        return ControlMatch::None;
+    }
+    let target = find_control(controls(), |control| {
+        (!has_active_turn || !active_response_id.is_empty())
+            && !response_id.is_empty()
+            && response_id != active_response_id
+            && control.response_id == response_id
+            && (stream_id.is_empty() || stream_id == control.stream_id)
+    });
+    if !matches!(target, ControlMatch::None) {
+        return target;
+    }
+    find_control(pending.iter().enumerate(), |control| {
+        cancel_rejection
+            && control.cancel
+            && (stream_id.is_empty() || stream_id == control.stream_id)
+            && (response_id.is_empty()
+                || response_id == control.response_id
+                || control.response_id.is_empty() && !foreign_response)
+    })
+}
+
+fn find_control<'control>(
+    controls: impl Iterator<Item = (usize, &'control PendingControl)>,
+    matches: impl Fn(&PendingControl) -> bool,
+) -> ControlMatch {
+    let mut found = ControlMatch::None;
+    for (index, control) in controls {
+        if matches(control) {
+            if !matches!(found, ControlMatch::None) {
+                return ControlMatch::Ambiguous;
+            }
+            found = ControlMatch::Unique(index);
+        }
+    }
+    found
 }
 
 async fn finish_detached(
@@ -865,6 +1360,7 @@ fn event_metadata(payload: &[u8]) -> Result<(String, String), ResponsesWebSocket
     let object = value.as_object().ok_or_else(|| {
         ResponsesWebSocketFailure::invalid_request("invalid websocket event json: expected object")
     })?;
+    optional_string_field(object, "stream_id")?;
     let event_id = optional_string_field(object, "event_id")?.unwrap_or_default();
     let event_type = optional_string_field(object, "type")?.unwrap_or_default();
     if event_type.trim().is_empty() {
@@ -900,6 +1396,7 @@ fn normalize_create(payload: &[u8]) -> Result<ResponsesCreate, ResponsesWebSocke
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
+    let stream_id = optional_string_field(root, "stream_id")?.unwrap_or_default();
     let top_generate = root.get("generate").cloned();
     let mut request = match root.get("response") {
         Some(Value::Object(response)) => response.clone(),
@@ -914,6 +1411,7 @@ fn normalize_create(payload: &[u8]) -> Result<ResponsesCreate, ResponsesWebSocke
     let generate = top_generate.or_else(|| request.get("generate").cloned());
     request.remove("type");
     request.remove("event_id");
+    request.remove("stream_id");
     request.remove("background");
     request.remove("generate");
     request.remove("stream");
@@ -932,15 +1430,49 @@ fn normalize_create(payload: &[u8]) -> Result<ResponsesCreate, ResponsesWebSocke
         "type".to_owned(),
         Value::String("response.create".to_owned()),
     );
+    if !stream_id.is_empty() {
+        outbound.insert("stream_id".to_owned(), Value::String(stream_id.clone()));
+    }
     if let Some(generate) = generate {
         outbound.insert("generate".to_owned(), generate);
     }
     Ok(ResponsesCreate {
         event_id,
+        stream_id,
         model,
         request: Value::Object(request),
         outbound_event: Value::Object(outbound),
     })
+}
+
+fn correlate_upstream_frame(frame: ResponsesFrame, stream_id: &str) -> ResponsesFrame {
+    if stream_id.is_empty() || !matches!(frame, ResponsesFrame::Text(_) | ResponsesFrame::Binary(_))
+    {
+        return frame;
+    }
+    let Ok(mut value) = serde_json::from_slice::<Value>(frame.payload()) else {
+        return frame;
+    };
+    let Some(object) = value.as_object_mut() else {
+        return frame;
+    };
+    if !object
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind == "error" || kind.starts_with("response."))
+    {
+        return frame;
+    }
+    // An explicit provider identity can refer to an earlier turn or control.
+    // Never relabel that evidence as the currently active response.
+    object
+        .entry("stream_id")
+        .or_insert_with(|| Value::String(stream_id.to_owned()));
+    match frame {
+        ResponsesFrame::Text(_) => ResponsesFrame::Text(value.to_string()),
+        ResponsesFrame::Binary(_) => ResponsesFrame::Binary(value.to_string().into_bytes()),
+        _ => unreachable!(),
+    }
 }
 
 #[derive(Serialize)]
@@ -950,6 +1482,8 @@ struct ErrorEvent<'error> {
     status: u16,
     #[serde(skip_serializing_if = "str::is_empty")]
     event_id: &'error str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    stream_id: &'error str,
     error: OpenAiError<'error>,
 }
 
@@ -962,11 +1496,17 @@ struct OpenAiError<'error> {
     code: &'error str,
 }
 
-async fn send_error(client: &mut WebSocket, event_id: &str, failure: &ResponsesWebSocketFailure) {
+async fn send_error(
+    client: &mut WebSocket,
+    event_id: &str,
+    stream_id: &str,
+    failure: &ResponsesWebSocketFailure,
+) {
     let event = ErrorEvent {
         event_type: "error",
         status: failure.status.as_u16(),
         event_id,
+        stream_id,
         error: OpenAiError {
             message: &failure.message,
             kind: &failure.kind,

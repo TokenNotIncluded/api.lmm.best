@@ -116,13 +116,15 @@ type SubscriptionResetOperation struct {
 func (SubscriptionResetOperation) TableName() string { return "subscription_reset_operations" }
 
 type SubscriptionResetPreviewSubscription struct {
-	Id         int    `json:"id"`
-	UserId     int    `json:"user_id"`
-	PlanId     int    `json:"plan_id"`
-	AmountUsed int64  `json:"amount_used"`
-	Status     string `json:"status"`
-	EndTime    int64  `json:"end_time"`
-	UpdatedAt  int64  `json:"updated_at"`
+	AmountTotal int64  `json:"amount_total"`
+	ResetAmount *int64 `json:"reset_amount,omitempty"`
+	Id          int    `json:"id"`
+	UserId      int    `json:"user_id"`
+	PlanId      int    `json:"plan_id"`
+	AmountUsed  int64  `json:"amount_used"`
+	Status      string `json:"status"`
+	EndTime     int64  `json:"end_time"`
+	UpdatedAt   int64  `json:"updated_at"`
 }
 
 type SubscriptionResetPreviewTarget struct {
@@ -400,6 +402,7 @@ func loadSubscriptionResetTargetSummaries(targets []SubscriptionResetTarget, now
 		PlanTitle      string
 		PlanArchivedAt int64
 		AmountTotal    int64
+		ResetAmount    *int64
 		AmountUsed     int64
 		NextResetTime  int64
 		Status         string
@@ -423,7 +426,7 @@ func loadSubscriptionResetTargetSummaries(targets []SubscriptionResetTarget, now
 		err := DB.Table("user_subscriptions AS us").
 			Select(`us.id, us.user_id, users.username, COALESCE(users.email, '') AS email,
 				us.plan_id, plans.title AS plan_title, plans.archived_at AS plan_archived_at,
-				us.amount_total, us.amount_used, us.next_reset_time, us.status, us.end_time, us.updated_at`).
+				us.amount_total, us.amount_used, us.reset_amount, us.next_reset_time, us.status, us.end_time, us.updated_at`).
 			Joins("JOIN users ON users.id = us.user_id AND users.deleted_at IS NULL").
 			Joins("JOIN subscription_plans AS plans ON plans.id = us.plan_id").
 			Where("us.status = ? AND us.end_time > ?", "active", now).
@@ -471,6 +474,7 @@ func loadSubscriptionResetTargetSummaries(targets []SubscriptionResetTarget, now
 		}
 		frozen[key].Subscriptions = append(frozen[key].Subscriptions, SubscriptionResetPreviewSubscription{
 			Id: row.Id, UserId: row.UserId, PlanId: row.PlanId, AmountUsed: row.AmountUsed,
+			AmountTotal: row.AmountTotal, ResetAmount: row.ResetAmount,
 			Status: row.Status, EndTime: row.EndTime, UpdatedAt: row.UpdatedAt,
 		})
 	}
@@ -617,9 +621,14 @@ func AdminPreviewSubscriptionsReset(input AdminSubscriptionResetBatchInput) (*Ad
 		users[item.UserId] = struct{}{}
 		plans[item.PlanId] = struct{}{}
 		result.ActiveSubscriptions += int(item.ActiveSubscriptionCount)
-		result.QuotaToRestore, err = checkedSubscriptionResetAdd(result.QuotaToRestore, item.AmountUsed)
-		if err != nil {
-			return nil, err
+	}
+	for _, target := range frozenTargets {
+		for _, frozen := range target.Subscriptions {
+			quota := (&UserSubscription{AmountTotal: frozen.AmountTotal, AmountUsed: frozen.AmountUsed, ResetAmount: frozen.ResetAmount}).resetRestoredQuota()
+			result.QuotaToRestore, err = checkedSubscriptionResetAdd(result.QuotaToRestore, quota)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	result.UserCount = len(users)
@@ -857,7 +866,7 @@ func verifySubscriptionResetPreviewTx(tx *gorm.DB, targets []SubscriptionResetPr
 			frozen, ok := expected[current.Id]
 			if !ok || current.UserId != frozen.UserId || current.PlanId != frozen.PlanId ||
 				current.Status != frozen.Status || current.EndTime != frozen.EndTime || current.AmountUsed != frozen.AmountUsed ||
-				current.UpdatedAt != frozen.UpdatedAt {
+				current.UpdatedAt != frozen.UpdatedAt || current.AmountTotal != frozen.AmountTotal || !sameSubscriptionResetAmount(current.ResetAmount, frozen.ResetAmount) {
 				return ErrSubscriptionResetPreviewStale
 			}
 			seen[current.Id] = struct{}{}
@@ -897,7 +906,11 @@ func resetFrozenSubscriptionTargetTx(tx *gorm.DB, target SubscriptionResetPrevie
 			"id = ? AND user_id = ? AND plan_id = ? AND status = ? AND end_time = ? AND end_time > ? AND amount_used = ? AND updated_at = ?",
 			frozen.Id, frozen.UserId, frozen.PlanId, frozen.Status, frozen.EndTime, now, frozen.AmountUsed, frozen.UpdatedAt,
 		)
-		updated := query.UpdateColumns(map[string]interface{}{"amount_used": 0, "quota_version": gorm.Expr("quota_version + 1")})
+		updates := map[string]interface{}{"amount_used": 0, "quota_version": gorm.Expr("quota_version + 1")}
+		if frozen.ResetAmount != nil {
+			updates["amount_total"] = *frozen.ResetAmount
+		}
+		updated := query.UpdateColumns(updates)
 		if updated.Error != nil {
 			return 0, 0, updated.Error
 		}
@@ -915,7 +928,7 @@ func resetFrozenSubscriptionTargetTx(tx *gorm.DB, target SubscriptionResetPrevie
 		}
 		resetCount++
 		var addErr error
-		restoredQuota, addErr = checkedSubscriptionResetAdd(restoredQuota, frozen.AmountUsed)
+		restoredQuota, addErr = checkedSubscriptionResetAdd(restoredQuota, (&UserSubscription{AmountTotal: frozen.AmountTotal, AmountUsed: frozen.AmountUsed, ResetAmount: frozen.ResetAmount}).resetRestoredQuota())
 		if addErr != nil {
 			return 0, 0, addErr
 		}

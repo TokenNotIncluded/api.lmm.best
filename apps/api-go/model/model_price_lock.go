@@ -14,6 +14,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/billing_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/config"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -27,7 +28,7 @@ var optionUpdateMutex sync.Mutex
 var modelPriceOptionKeys = []string{
 	"ModelRatio", "CompletionRatio", "ModelPrice", "CacheRatio", "CreateCacheRatio",
 	"ImageRatio", "AudioRatio", "AudioCompletionRatio",
-	"billing_setting.billing_mode", "billing_setting.billing_expr",
+	"billing_setting.billing_mode", "billing_setting.billing_expr", operation_setting.ToolPriceOptionKey,
 }
 
 type OptionUpdateResult struct {
@@ -76,17 +77,18 @@ func IsModelPriceLocked(model string) bool { return GetModelPriceLocksCopy()[mod
 
 func priceOptionSnapshot() map[string]string {
 	values := map[string]string{
-		ModelPriceLocksOptionKey:       "{}",
-		"ModelRatio":                   ratio_setting.ModelRatio2JSONString(),
-		"CompletionRatio":              ratio_setting.CompletionRatio2JSONString(),
-		"ModelPrice":                   ratio_setting.ModelPrice2JSONString(),
-		"CacheRatio":                   ratio_setting.CacheRatio2JSONString(),
-		"CreateCacheRatio":             ratio_setting.CreateCacheRatio2JSONString(),
-		"ImageRatio":                   ratio_setting.ImageRatio2JSONString(),
-		"AudioRatio":                   ratio_setting.AudioRatio2JSONString(),
-		"AudioCompletionRatio":         ratio_setting.AudioCompletionRatio2JSONString(),
-		"billing_setting.billing_mode": "{}",
-		"billing_setting.billing_expr": "{}",
+		ModelPriceLocksOptionKey:             "{}",
+		"ModelRatio":                         ratio_setting.ModelRatio2JSONString(),
+		"CompletionRatio":                    ratio_setting.CompletionRatio2JSONString(),
+		"ModelPrice":                         ratio_setting.ModelPrice2JSONString(),
+		"CacheRatio":                         ratio_setting.CacheRatio2JSONString(),
+		"CreateCacheRatio":                   ratio_setting.CreateCacheRatio2JSONString(),
+		"ImageRatio":                         ratio_setting.ImageRatio2JSONString(),
+		"AudioRatio":                         ratio_setting.AudioRatio2JSONString(),
+		"AudioCompletionRatio":               ratio_setting.AudioCompletionRatio2JSONString(),
+		"billing_setting.billing_mode":       "{}",
+		"billing_setting.billing_expr":       "{}",
+		operation_setting.ToolPriceOptionKey: "{}",
 	}
 	for key, value := range config.GlobalConfig.ExportAllConfigs() {
 		if isModelPriceOption(key) {
@@ -222,6 +224,11 @@ func FilterLockedModelPriceChanges(values map[string]string) (map[string]string,
 
 func validateModelPriceValues(values map[string]string) error {
 	for key, value := range values {
+		if key == operation_setting.ToolPriceOptionKey {
+			if err := operation_setting.ValidateToolPricesJSON(value); err != nil {
+				return err
+			}
+		}
 		if key == ModelPriceLocksOptionKey {
 			if _, err := parseModelPriceLocks(value); err != nil {
 				return err
@@ -287,6 +294,12 @@ func UpdateOptionsBulkWithWarnings(values map[string]string) (OptionUpdateResult
 	return updateOptionsWithPriceLocks(values, "", false)
 }
 
+// A browser baseline is checked under the same policy-row lock used by every
+// policy writer, including legacy single-option writes on another Go node.
+func UpdateOptionsBulkWithAssistantToolPolicyExpectation(values map[string]string, expected *string) (OptionUpdateResult, error) {
+	return updateOptionsWithPriceLocksUSDAndPolicy(values, "", false, nil, expected)
+}
+
 // UpdateModelPriceLock changes one model against the authoritative stored map,
 // so stale tabs and concurrent administrators cannot drop each other's locks.
 func UpdateModelPriceLock(model string, locked bool) (OptionUpdateResult, error) {
@@ -297,7 +310,24 @@ func UpdateModelPriceLock(model string, locked bool) (OptionUpdateResult, error)
 }
 
 func updateOptionsWithPriceLocks(values map[string]string, lockModel string, locked bool) (OptionUpdateResult, error) {
+	return updateOptionsWithPriceLocksUSD(values, lockModel, locked, nil)
+}
+
+func updateOptionsWithPriceLocksUSD(values map[string]string, lockModel string, locked bool, usd *USDPriceUpdate) (OptionUpdateResult, error) {
+	return updateOptionsWithPriceLocksUSDAndPolicy(values, lockModel, locked, usd, nil)
+}
+
+func updateOptionsWithPriceLocksUSDAndPolicy(values map[string]string, lockModel string, locked bool, usd *USDPriceUpdate, expectedPolicy *string) (OptionUpdateResult, error) {
+	return updateOptionsWithPriceLocksAndExpectations(values, lockModel, locked, usd, expectedPolicy, nil)
+}
+
+func updateOptionsWithPriceLocksAndExpectations(values map[string]string, lockModel string, locked bool, usd *USDPriceUpdate, expectedPolicy *string, expectedSitePolicies map[string]string) (OptionUpdateResult, error) {
 	result := OptionUpdateResult{}
+	for key := range values {
+		if storeReservedWriterOptionKey(key) {
+			return result, ErrMerchantStoreWriterGateReserved
+		}
+	}
 	if len(values) == 0 {
 		return result, nil
 	}
@@ -324,13 +354,33 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	var pricingSnapshot map[string]string
 	var keys []string
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockSitePolicyUpdate(tx, values, expectedSitePolicies); err != nil {
+			return err
+		}
+		if err := lockAssistantToolPolicyUpdate(tx, values, expectedPolicy); err != nil {
+			return err
+		}
+		if err := lockCreditUnitOptionChanges(tx, values); err != nil {
+			return err
+		}
+		if usd != nil {
+			if err := validateAuthoritativePricingUnits(tx); err != nil {
+				return err
+			}
+		}
+		if err := lockModerationOptions(tx, values); err != nil {
+			return err
+		}
+		if err := lockMarketAIReviewOptions(tx, values); err != nil {
+			return err
+		}
 		if err := lockAssistantL1AutoReviewOptions(tx, values); err != nil {
 			return err
 		}
 		accepted = values
 		_, groupRatioChanged := values["GroupRatio"]
 		_, groupOverrideChanged := values["GroupGroupRatio"]
-		if hasModelPriceOptions(values) || groupRatioChanged || groupOverrideChanged {
+		if hasModelPriceOptions(values) || groupRatioChanged || groupOverrideChanged || usd != nil {
 			// Every price/lock writer locks the same existing policy row, providing
 			// database-wide ordering as well as the in-process mutex above.
 			policy := Option{Key: ModelPriceLocksOptionKey, Value: "{}"}
@@ -343,6 +393,12 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 			current, err := loadPriceOptionSnapshot(tx)
 			if err != nil {
 				return err
+			}
+			if usd != nil {
+				values, err = convertUSDPriceValues(*usd, current)
+				if err != nil {
+					return err
+				}
 			}
 			if lockModel != "" {
 				locks, err := parseModelPriceLocks(policy.Value)
@@ -367,12 +423,12 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 			if err := validateModelPriceValues(accepted); err != nil {
 				return err
 			}
-			if lockModel != "" {
+			if lockModel != "" || usd != nil {
 				// Capture stored pricing under the policy-row lock. A later GET
 				// may hit another node with a stale cache or fail after commit.
 				// This map contains only the pricing allowlist, never secrets.
 				pricingSnapshot = maps.Clone(current)
-				pricingSnapshot[ModelPriceLocksOptionKey] = accepted[ModelPriceLocksOptionKey]
+				maps.Copy(pricingSnapshot, accepted)
 			}
 		}
 		if err := recordRatioNotification(tx, accepted); err != nil {
@@ -380,6 +436,9 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 		}
 		keys = sortedOptionUpdateKeys(accepted)
 		for _, key := range keys {
+			if err := storeRejectReservedOptionAlias(tx, key); err != nil {
+				return err
+			}
 			option := Option{Key: key, Value: accepted[key]}
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"value"})}).Create(&option).Error; err != nil {
 				return err
@@ -390,11 +449,14 @@ func updateOptionsWithPriceLocks(values map[string]string, lockModel string, loc
 	if err != nil {
 		return result, err
 	}
+	if err := applyModerationOptionMap(accepted); err != nil {
+		return result, err
+	}
 	if err := applyAssistantL1AutoReviewOptionMap(accepted); err != nil {
 		return result, err
 	}
 	for _, key := range keys {
-		if setting.IsAssistantL1AutoReviewOption(key) {
+		if setting.IsAssistantL1AutoReviewOption(key) || setting.IsModerationOption(key) {
 			continue
 		}
 		if err := updateOptionMap(key, accepted[key]); err != nil {

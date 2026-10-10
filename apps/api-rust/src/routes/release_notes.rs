@@ -29,7 +29,7 @@ use crate::{
 };
 
 const ADMIN_ROLE: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const BODY_LIMIT_BYTES: usize = 128 * 1024 * 1024;
 const DEFAULT_LIST_LIMIT: i64 = 50;
 const MAX_LIST_LIMIT: i64 = 100;
@@ -472,7 +472,7 @@ async fn parse_publish_input(request: Request) -> Result<PublishInput, Response>
         .await
         .map_err(|_| invalid_publish_request())?;
     deserialize_one_nullable::<PublishInput>(&body)
-        .map(|input| input.map_or_else(PublishInput::default, std::convert::identity))
+        .map(|input| input.unwrap_or_default())
         .map_err(|_| invalid_publish_request())
 }
 
@@ -488,8 +488,7 @@ fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<String, D::Err
 where
     D: serde::Deserializer<'de>,
 {
-    Option::<String>::deserialize(deserializer)
-        .map(|value| value.map_or_else(String::new, std::convert::identity))
+    Option::<String>::deserialize(deserializer).map(|value| value.unwrap_or_default())
 }
 
 fn normalize_release_note(version: &str, content: &str) -> Result<(String, String), &'static str> {

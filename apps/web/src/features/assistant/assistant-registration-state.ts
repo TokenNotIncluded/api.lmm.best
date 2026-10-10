@@ -48,8 +48,7 @@ export function registrationStateCopy(state: RegistrationState) {
     case 'ready':
       return {
         title: 'Continue with the assistant',
-        detail:
-          'The assistant can complete access verification during this conversation. No recommendation letter is required.',
+        detail: 'The assistant can enable L1 during this conversation.',
       }
     case 'held':
       return {
@@ -66,8 +65,7 @@ export function registrationStateCopy(state: RegistrationState) {
     default:
       return {
         title: 'Tell us what you need',
-        detail:
-          'A brief description in your own words is enough to start. There is no difficult puzzle or application letter.',
+        detail: 'Briefly describe what you need to enable L1.',
       }
   }
 }

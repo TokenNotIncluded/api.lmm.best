@@ -11,6 +11,7 @@ import (
 )
 
 func TestTokenPricingUsesLiveRatesAndPermissionBoundary(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	oldUnit := common.QuotaPerUnit
 	oldModels, oldPrices := ratio_setting.ModelRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-4o":1.25}`))
@@ -48,6 +49,7 @@ func TestTokenPricingUsesLiveRatesAndPermissionBoundary(t *testing.T) {
 }
 
 func TestTokenPricingReportsExpressionInsteadOfFixedQuote(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	saved := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
 	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
@@ -60,7 +62,7 @@ func TestTokenPricingReportsExpressionInsteadOfFixedQuote(t *testing.T) {
 	rows := tokenPricingEntries([]model.Pricing{{ModelName: "tiered-query", EnableGroup: []string{"default"}}}, modelListGroups{userGroup: "vip", ownerGroups: []string{"default"}}, false, nil, 0.97, "tiered-query")
 	require.Len(t, rows, 1)
 	require.Equal(t, "expression", rows[0].Unit)
-	require.Equal(t, "p * 2 + c * 4", rows[0].Expression)
+	require.Equal(t, "(p * 2 + c * 4) / (1)", rows[0].Expression)
 	require.InDelta(t, 0.485, rows[0].GroupRatio, 1e-10)
 	require.Nil(t, rows[0].InputPrice)
 	require.Nil(t, rows[0].OutputPrice)

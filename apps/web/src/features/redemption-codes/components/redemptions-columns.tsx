@@ -30,7 +30,11 @@ import {
 } from '@/components/ui/tooltip'
 import { formatQuota, formatTimestampToDate } from '@/lib/format'
 
-import { REDEMPTION_FILTER_EXPIRED, REDEMPTION_STATUSES } from '../constants'
+import {
+  REDEMPTION_EXPIRED_STATUS_ICON,
+  REDEMPTION_FILTER_EXPIRED,
+  REDEMPTION_STATUSES,
+} from '../constants'
 import { isRedemptionExpired, isTimestampExpired } from '../lib'
 import type { Redemption } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
@@ -95,6 +99,7 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
             <StatusBadge
               label={t('Expired')}
               variant='warning'
+              icon={REDEMPTION_EXPIRED_STATUS_ICON}
               copyable={false}
               className='-ml-1.5'
             />
@@ -111,6 +116,7 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
           <StatusBadge
             label={t(statusConfig.labelKey)}
             variant={statusConfig.variant}
+            icon={statusConfig.icon}
             copyable={false}
             className='-ml-1.5'
           />

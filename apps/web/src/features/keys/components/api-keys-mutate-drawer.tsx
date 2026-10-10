@@ -24,6 +24,7 @@ import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { DateTimePicker } from '@/components/datetime-picker'
 import {
   SideDrawerSection,
@@ -73,9 +74,9 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { readSetupPreferences } from '@/features/onboarding/setup-preferences'
+import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
 import {
@@ -287,7 +288,7 @@ export function ApiKeysMutateDrawer({
   const formTarget =
     isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
   const isFormInitialized = initializedTarget === formTarget
-  const selectedGroup = form.watch('group')
+  const selectedGroup = form.watch('group')?.trim() || ''
   const selectedGroupWarning = groups.find(
     (item) =>
       item.value.toLowerCase() === (selectedGroup || '').trim().toLowerCase()
@@ -304,18 +305,19 @@ export function ApiKeysMutateDrawer({
     if (groups.length === 0) return
     const currentGroup = selectedGroup
     if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
-      const fallback =
-        groups.find((g) => g.value === 'default')?.value ??
-        groups[0]?.value ??
-        ''
-      form.setValue('group', fallback)
+      const fallback = isUpdate
+        ? (groups.find((g) => g.value === 'default')?.value ??
+          groups[0]?.value ??
+          '')
+        : ''
+      form.setValue('group', fallback, { shouldValidate: true })
       if (currentGroup === 'auto') {
         form.setValue('auto_groups', [])
         form.setValue('auto_groups_mode', 'inherit')
         form.setValue('cross_group_retry', false)
       }
     }
-  }, [groups, form, selectedGroup])
+  }, [groups, form, isUpdate, selectedGroup])
 
   useEffect(() => {
     setWarningConfirmations(0)
@@ -419,7 +421,11 @@ export function ApiKeysMutateDrawer({
     await saveApiKey(data, warningConfirmations)
   }
 
-  const onInvalid: SubmitErrorHandler<ApiKeyFormValues> = () => {
+  const onInvalid: SubmitErrorHandler<ApiKeyFormValues> = (errors) => {
+    if (errors.group) {
+      toast.error(t('Select a group'))
+      return
+    }
     toast.error(t('Please fix the highlighted fields before saving'))
   }
 
@@ -446,13 +452,11 @@ export function ApiKeysMutateDrawer({
     form.setValue('expired_time', now)
   }
 
-  const { meta: currencyMeta } = getCurrencyDisplay()
-  const currencyLabel = getCurrencyLabel()
-  const tokensOnly = currencyMeta.kind === 'tokens'
+  const { label: currencyLabel } = useCreditInputDisplay()
   const quotaLabel = t('Quota ({{currency}})', { currency: currencyLabel })
-  const quotaPlaceholder = tokensOnly
-    ? t('Enter quota in tokens')
-    : t('Enter quota in {{currency}}', { currency: currencyLabel })
+  const quotaPlaceholder = t('Enter quota in {{currency}}', {
+    currency: currencyLabel,
+  })
   const autoGroupsMode = form.watch('auto_groups_mode')
   const unlimitedQuota = form.watch('unlimited_quota')
 
@@ -538,11 +542,35 @@ export function ApiKeysMutateDrawer({
                 )}
               />
 
-              <details className='space-y-3' open={isUpdate}>
-                <summary className='cursor-pointer text-sm font-medium'>
-                  {t('Group')}: {selectedGroup || t('Select a group')}
-                </summary>
-                <div className='space-y-4 pt-2'>
+              <div
+                className={cn(
+                  'space-y-4 rounded-xl border p-4',
+                  !isUpdate && !selectedGroup
+                    ? 'border-destructive/70 bg-destructive/10 ring-destructive/15 ring-4'
+                    : 'border-border/70 bg-muted/20'
+                )}
+              >
+                <div
+                  className={cn(
+                    'flex items-center justify-between gap-3 text-sm font-medium',
+                    !isUpdate &&
+                      !selectedGroup &&
+                      'text-destructive font-semibold'
+                  )}
+                >
+                  <span>{t('Group')}</span>
+                  <span>{selectedGroup || t('Select a group')}</span>
+                </div>
+                {!isUpdate && !selectedGroup && (
+                  <p
+                    role='alert'
+                    aria-live='assertive'
+                    className='text-destructive text-base font-semibold'
+                  >
+                    {t('Select a group')}
+                  </p>
+                )}
+                <div className='space-y-4'>
                   <FormField
                     control={form.control}
                     name='group'
@@ -678,7 +706,7 @@ export function ApiKeysMutateDrawer({
                     />
                   )}
                 </div>
-              </details>
+              </div>
 
               <FormField
                 control={form.control}
@@ -781,29 +809,21 @@ export function ApiKeysMutateDrawer({
               {!unlimitedQuota && (
                 <FormField
                   control={form.control}
-                  name='remain_quota_dollars'
+                  name='remain_quota_credits'
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{quotaLabel}</FormLabel>
                       <FormControl>
-                        <Input
+                        <CreditAmountInput
                           {...field}
-                          type='number'
-                          step={tokensOnly ? 1 : 0.01}
                           placeholder={quotaPlaceholder}
-                          onChange={(e) =>
-                            field.onChange(
-                              Number.parseFloat(e.target.value) || 0
-                            )
-                          }
+                          onValueChange={field.onChange}
                         />
                       </FormControl>
                       <FormDescription>
-                        {tokensOnly
-                          ? t('Enter the quota amount in tokens')
-                          : t('Enter the quota amount in {{currency}}', {
-                              currency: currencyLabel,
-                            })}
+                        {t('Enter the quota amount in {{currency}}', {
+                          currency: currencyLabel,
+                        })}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -929,10 +949,21 @@ export function ApiKeysMutateDrawer({
           <Button
             type='button'
             onClick={form.handleSubmit(onSubmit, onInvalid)}
-            disabled={!isFormInitialized || isSubmitting || creationUncertain}
+            disabled={
+              !isFormInitialized ||
+              isSubmitting ||
+              creationUncertain ||
+              (!isUpdate && !selectedGroup)
+            }
             className='w-full sm:w-auto'
           >
-            {isSubmitting ? t('Saving...') : t('Save changes')}
+            {isSubmitting
+              ? t('Saving...')
+              : !isUpdate && !selectedGroup
+                ? t('Select a group')
+                : isUpdate
+                  ? t('Save changes')
+                  : t('Create API Key')}
           </Button>
         </SheetFooter>
         <AlertDialog

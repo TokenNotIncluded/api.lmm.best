@@ -30,6 +30,7 @@ export type HeroSmsBatchFailureCode =
 export interface HeroSmsBatchPurchaseResult {
   requested: number
   orders: HeroSmsSmsOrder[]
+  completedCount?: number
   failure?: {
     code: HeroSmsBatchFailureCode
     item: number
@@ -47,7 +48,9 @@ interface HeroSmsBatchPurchaseDependencies {
   getFreshOffer: () => Promise<HeroSmsSmsOffer>
   createOrder: (
     offerId: string,
-    idempotencyKey: string
+    idempotencyKey: string,
+    item: number,
+    requested: number
   ) => Promise<{ order: HeroSmsSmsOrder; quota: number }>
   isAmbiguousNetworkError: (error: unknown) => boolean
   onProgress?: (completed: number, total: number) => void
@@ -65,11 +68,14 @@ export function selectHeroSmsPriceTier(
           inventory: offer.inventory,
           customer_price_usd: offer.customer_price_usd,
           charge_quota: offer.charge_quota,
+          price_tier_key: offer.price_tier_key,
         },
       ]
   const tier = customerPriceUSD
     ? tiers.find(
-        (candidate) => candidate.customer_price_usd === customerPriceUSD
+        (candidate) =>
+          (candidate.price_tier_key ?? candidate.customer_price_usd) ===
+          customerPriceUSD
       )
     : tiers[0]
   if (!tier) return undefined
@@ -79,6 +85,7 @@ export function selectHeroSmsPriceTier(
     inventory: tier.inventory,
     customer_price_usd: tier.customer_price_usd,
     charge_quota: tier.charge_quota,
+    price_tier_key: tier.price_tier_key,
     bid: false,
   }
 }
@@ -120,14 +127,26 @@ function isAmbiguousHeroSmsPurchaseError(
 async function createOrderWithOneSafeRetry(
   dependencies: HeroSmsBatchPurchaseDependencies,
   offerId: string,
-  idempotencyKey: string
+  idempotencyKey: string,
+  item: number,
+  requested: number
 ) {
   try {
-    return await dependencies.createOrder(offerId, idempotencyKey)
+    return await dependencies.createOrder(
+      offerId,
+      idempotencyKey,
+      item,
+      requested
+    )
   } catch (error) {
     if (!dependencies.isAmbiguousNetworkError(error)) throw error
     try {
-      return await dependencies.createOrder(offerId, idempotencyKey)
+      return await dependencies.createOrder(
+        offerId,
+        idempotencyKey,
+        item,
+        requested
+      )
     } catch (retryError) {
       // The first request may still have succeeded. A later HTTP error cannot
       // make that unknown outcome definitive; preserve the exact offer/key so
@@ -161,6 +180,19 @@ export async function purchaseHeroSmsBatch(
       }
     }
 
+    if (
+      offer.pricing_schema_version !== undefined &&
+      offer.pricing_schema_version >= 2 &&
+      (offer.pricing_schema_version !== 2 ||
+        offer.pricing_currency !== 'USD' ||
+        offer.pricing_available !== true)
+    ) {
+      return {
+        requested,
+        orders,
+        failure: { code: 'PRICE_CHANGED', item: index + 1 },
+      }
+    }
     if (!isSamePurchaseQuote(dependencies.initialOffer, offer)) {
       return {
         requested,
@@ -181,7 +213,9 @@ export async function purchaseHeroSmsBatch(
       const result = await createOrderWithOneSafeRetry(
         dependencies,
         offer.id,
-        itemIdempotencyKey
+        itemIdempotencyKey,
+        index + 1,
+        requested
       )
       orders.push(result.order)
       dependencies.onProgress?.(orders.length, requested)

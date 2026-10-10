@@ -15,14 +15,17 @@ import (
 	"unicode"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 )
 
 const (
 	assistantAdminOperationsContextKey   = "assistant_admin_operations"
 	assistantAdminOperationBodyLimit     = 16 << 10
-	assistantAdminOperationResponseLimit = 128 << 10
+	assistantAdminOperationResponseLimit = 32 << 10
 )
+
+var errAssistantAdminDispatchUnavailable = errors.New("administrator operation dispatch is unavailable")
 
 type assistantAdminOperation struct {
 	ID       string `json:"operation_id"`
@@ -62,6 +65,19 @@ func (r *AssistantAdminOperationRegistry) Register(method, path, handler string,
 	r.mu.Lock()
 	r.operations[op.ID] = op
 	r.mu.Unlock()
+}
+
+// AssistantChatMiddleware shares this engine's live catalog with the sibling
+// relay chat without capturing credentials for unrelated model relay requests.
+func (r *AssistantAdminOperationRegistry) AssistantChatMiddleware() gin.HandlerFunc {
+	capture := r.Middleware()
+	return func(c *gin.Context) {
+		if c.Request.Method == http.MethodPost && c.FullPath() == "/api/assistant/chat" {
+			capture(c)
+			return
+		}
+		c.Next()
+	}
 }
 
 func (r *AssistantAdminOperationRegistry) Middleware() gin.HandlerFunc {
@@ -105,7 +121,7 @@ func assistantAdminOperationContext(c *gin.Context, userID int) (*assistantAdmin
 	value, exists := c.Get(assistantAdminOperationsContextKey)
 	state, valid := value.(*assistantAdminOperationRequest)
 	if !exists || !valid || state.registry == nil || state.registry.engine == nil {
-		return nil, 0, errors.New("administrator operation dispatch is unavailable")
+		return nil, 0, errAssistantAdminDispatchUnavailable
 	}
 	return state, user.Role, nil
 }
@@ -113,6 +129,9 @@ func assistantAdminOperationContext(c *gin.Context, userID int) (*assistantAdmin
 func executeAssistantAdminOperationsTool(c *gin.Context, userID int, input map[string]any) map[string]any {
 	state, role, err := assistantAdminOperationContext(c, userID)
 	if err != nil {
+		if errors.Is(err, errAssistantAdminDispatchUnavailable) {
+			return assistantAdminOperationError("operation_dispatch_unavailable", err.Error())
+		}
 		return assistantAdminOperationError("forbidden", err.Error())
 	}
 	query := strings.ToLower(strings.TrimSpace(inputString(input, "query")))
@@ -125,7 +144,7 @@ func executeAssistantAdminOperationsTool(c *gin.Context, userID int, input map[s
 	state.registry.mu.RLock()
 	operations := make([]assistantAdminOperation, 0, len(state.registry.operations))
 	for _, op := range state.registry.operations {
-		if op.MinRole <= role && (id == "" || id == op.ID) && (query == "" || strings.Contains(strings.ToLower(op.ID+" "+op.Handler), query)) {
+		if op.MinRole <= role && assistantAdminOperationPolicyEnabled(op.Handler, role) && (id == "" || id == op.ID) && (query == "" || strings.Contains(strings.ToLower(op.ID+" "+op.Handler), query)) {
 			operations = append(operations, op)
 		}
 	}
@@ -201,6 +220,9 @@ func assistantAdminOperationReadOnly(c *gin.Context, arguments string) bool {
 func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[string]any) map[string]any {
 	state, role, err := assistantAdminOperationContext(c, userID)
 	if err != nil {
+		if errors.Is(err, errAssistantAdminDispatchUnavailable) {
+			return assistantAdminOperationError("operation_dispatch_unavailable", err.Error())
+		}
 		return assistantAdminOperationError("forbidden", err.Error())
 	}
 	for key := range input {
@@ -216,6 +238,19 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 	}
 	if !op.ReadOnly {
 		return assistantAdminOperationError("confirmation_required", "administrator mutations require explicit UI confirmation and cannot be executed by this tool")
+	}
+	_, policy, err := refreshAssistantToolPolicy(c)
+	if err != nil {
+		return assistantAdminOperationError("tool_policy_unavailable", err.Error())
+	}
+	level := 5
+	if role >= common.RoleRootUser {
+		level = 6
+	}
+	if name := assistantAdminOperationPolicyTool(op.Handler); name != "" {
+		if !policy.AllowedAtLevel(name, level) {
+			return assistantAdminOperationError("tool_disabled", setting.AssistantToolDisabledError(name).Error())
+		}
 	}
 	requestPath, err := assistantOperationPath(op.Path, input["path_params"])
 	if err != nil {
@@ -283,11 +318,32 @@ func executeAssistantAdminOperationTool(c *gin.Context, userID int, input map[st
 		}
 	}
 	result["ok"] = success
-	result["response"] = assistantRedactOperationResponse(response, op.Handler)
+	response = assistantRedactOperationResponse(response, op.Handler)
+	if !policy.AllowedAtLevel("get_admin_user_skills", level) {
+		omitAssistantOperationProfiles(response)
+	}
+	result["response"] = response
 	if !success {
 		result["status"] = "operation_rejected"
 	}
 	return result
+}
+
+// Mixed user reads can contain assistant profiles alongside ordinary account
+// data. Apply the captured policy to their decoded result rather than blocking
+// user lookup or changing profile visibility in the normal administrator API.
+func omitAssistantOperationProfiles(value any) {
+	switch node := value.(type) {
+	case map[string]any:
+		delete(node, "assistant_profile")
+		for _, child := range node {
+			omitAssistantOperationProfiles(child)
+		}
+	case []any:
+		for _, child := range node {
+			omitAssistantOperationProfiles(child)
+		}
+	}
 }
 
 func assistantAdminOperationError(status, message string) map[string]any {
@@ -401,7 +457,7 @@ func assistantAdminHandlerReadOnly(method, handler string) bool {
 		"GetAllChannels", "SearchChannels", "ChannelListModels", "EnabledListModels",
 		"GetChannelOps", "GetChannel", "GetTagModels", "GetCodexChannelUsage",
 		"GetCodexChannelRateLimitResetCredits", "OllamaVersion", "GetAllUsers", "SearchUsers",
-		"GetUser", "GetAllTopUps", "GetUserOAuthBindingsByAdmin", "ListUserDeveloperAccessRecommendationArchives",
+		"GetUser", "GetAllTopUps", "GetUserOAuthBindingsByAdmin",
 		"AdminGetAssistantUserProfile", "AdminListMemories", "Admin2FAStats", "GetAllLogs",
 		"GetLogsStat", "GetChannelAffinityUsageCacheStats", "GetAllQuotaDates",
 		"GetQuotaDatesByUser", "GetAllFlowQuotaDates", "GetPermissionCatalog", "GetAllVendors",
@@ -409,10 +465,9 @@ func assistantAdminHandlerReadOnly(method, handler string) bool {
 		"SearchModelsMeta", "GetMissingModels", "SyncUpstreamPreview", "GetGroups",
 		"GetPrefillGroups", "GetAllRedemptions", "GetRedemption", "SearchRedemptions",
 		"GetAllDiscountCodes", "GetDiscountCode", "SearchDiscountCodes", "AdminGetGifts",
-		"AdminGetGiftClaims", "ListDeveloperAccessRequests", "ListAccountActionRequests", "AdminListSubscriptionPlans",
+		"AdminGetGiftClaims", "ListAccountActionRequests", "AdminListSubscriptionPlans",
 		"AdminListSubscriptionRecords", "AdminListUserSubscriptions", "RootListSubscriptionResetEligible", "GetAdminSecurityPolicy",
-		"GetAdminSecurityStats", "ListAdminSecurityEvents", "ListAdminAssistantSecurityReviews", "ListAdminAssistantReviewTasks",
-		"PreviewAdminAssistantReviewTaskCleanup", "GetAdminAssistantReviewTask", "ListAdminViolationFeeAppeals", "ListAdminReleaseNotes",
+		"ListAdminViolationFeeAppeals", "ListAdminReleaseNotes",
 		"ListAdminOpenSourceBountyDisputes", "ListAdminPublicRelayContributions", "ListAdminPublicRelayReports", "GetFinanceOverview",
 		"GetFinanceUsers", "GetFinanceUser", "ListFinanceEntries", "ListFinancePaymentMethods",
 		"ExportFinancialData", "ListSystemTasks", "GetCurrentSystemTask", "GetSystemTask",

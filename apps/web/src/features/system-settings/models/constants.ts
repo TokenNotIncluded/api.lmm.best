@@ -40,7 +40,8 @@ export const OFFICIAL_CHANNEL_ENDPOINT =
 export const MODELS_DEV_PRESET_ID = -101
 export const MODELS_DEV_PRESET_NAME = 'models.dev 价格预设'
 export const MODELS_DEV_PRESET_BASE_URL = 'https://models.dev'
-export const MODELS_DEV_PRESET_ENDPOINT = 'https://models.dev/api.json'
+export const MODELS_DEV_PRESET_ENDPOINT =
+  'https://models.dev/api.json?provider=openai'
 
 export const OPENROUTER_ENDPOINT = 'openrouter'
 

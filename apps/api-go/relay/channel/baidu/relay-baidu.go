@@ -138,6 +138,11 @@ func baiduStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 			usage.PromptTokens = baiduResponse.Usage.PromptTokens
 			usage.CompletionTokens = baiduResponse.Usage.TotalTokens - baiduResponse.Usage.PromptTokens
 		}
+		if baiduResponse.ErrorCode != 0 || baiduResponse.ErrorMsg != "" {
+			// Preserve the adaptor's output and measured usage while reporting
+			// provider errors to success-only request accounting.
+			info.ResponseFailed = true
+		}
 		response := streamResponseBaidu2OpenAI(&baiduResponse)
 		if err := helper.ObjectData(c, response); err != nil {
 			common.SysLog("error sending stream response: " + err.Error())
@@ -169,7 +174,7 @@ func baiduHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(jsonResponse)
+	_, _ = service.WriteResponseBytes(c, jsonResponse)
 	return nil, &fullTextResponse.Usage
 }
 
@@ -194,7 +199,7 @@ func baiduEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(jsonResponse)
+	_, _ = service.WriteResponseBytes(c, jsonResponse)
 	return nil, &fullTextResponse.Usage
 }
 

@@ -198,6 +198,10 @@ stop_owned_process go_pid
 # PostgreSQL schema rather than a hand-written subset.
 pg_dump -h 127.0.0.1 -p "$pg_port" -U postgres -d "$go_database" \
   --schema-only --no-owner --no-privileges >"$runtime/go-schema.sql"
+# Expand the imported Rust schema without changing the Go listener's schema.
+sed 's/__LMM_APP_SCHEMA__/public/g' \
+  "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+  >>"$runtime/go-schema.sql"
 psql -h 127.0.0.1 -p "$pg_port" -U postgres -d "$rust_database" \
   -v ON_ERROR_STOP=1 -f "$runtime/go-schema.sql" >/dev/null
 # The immutable Go oracle predates the current Rust-owned readiness contract's

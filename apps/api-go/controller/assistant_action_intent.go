@@ -21,7 +21,7 @@ var (
 	assistantProfileActionRule        = newAssistantActionRule("删除", "删掉", "移除", "清除", "清空", "忘记", "重置", "delete", "remove", "erase", "clear", "forget", "reset")
 	assistantRecommendationActionRule = newAssistantActionRule("删除", "删掉", "移除", "清空", "清除", "撤回", "润色", "修改", "改写", "重写", "编辑", "优化", "更新", "替换", "精简", "缩短", "扩写", "delete", "remove", "clear", "discard", "polish", "edit", "revise", "rewrite", "update", "improve", "replace", "shorten", "expand")
 	assistantGiftActionRule           = newAssistantActionRule("领取", "申请", "赠送", "免费额度", "赠送额度", "新用户礼包", "新用户福利", "新手礼包", "礼包", "claim", "give", "free credit", "welcome gift", "welcome bonus", "new user gift", "new-user gift")
-	assistantDiscountActionRule       = newAssistantActionRule("领取", "申请", "优惠码", "折扣码", "每周折扣", "每周优惠", "本周优惠", "充值折扣", "claim", "give", "weekly discount", "weekly coupon", "discount code", "coupon")
+	assistantDiscountActionRule       = newAssistantActionRule("领取", "申请", "优惠券", "发券", "求券", "优惠码", "折扣码", "每周折扣", "每周优惠", "本周优惠", "充值折扣", "claim", "give", "weekly discount", "weekly coupon", "discount code", "coupon")
 	assistantSupportActionRule        = newAssistantActionRule("提交", "转人工", "联系", "预约", "转交", "人工核查", "工单", "submit", "contact", "send", "transfer", "book", "request human support", "human review", "support ticket")
 )
 

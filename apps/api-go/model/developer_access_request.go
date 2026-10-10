@@ -19,7 +19,7 @@ const (
 	DeveloperAccessRequestSourceAssistant = "assistant_request"
 	DeveloperAccessRequestSourceDirectAI  = "assistant_direct_grant"
 	DeveloperAccessRequestSourceOld       = "legacy"
-	AssistantDirectGrantMinCompletedTurns = 3
+	AssistantDirectGrantMinCompletedTurns = 0
 	minDeveloperAccessRequestReason       = 5
 	minDeveloperAccessReviewNote          = 2
 	minDeveloperAccessRecommendation      = 20
@@ -36,12 +36,12 @@ var (
 	ErrDeveloperAccessReviewNoteTooShort      = errors.New("管理员意见至少需要 2 个字符")
 	ErrDeveloperAccessRequestNoteTooLong      = errors.New("解锁申请说明不能超过 2000 个字符")
 	ErrDeveloperAccessRequestQueueUnavailable = errors.New("解锁申请队列暂时不可用")
-	ErrAssistantDirectGrantTurnsRequired      = errors.New("assistant direct L1 grant requires three completed conversation turns")
 	ErrAssistantDirectGrantNotL0              = errors.New("assistant direct L1 grant requires an unrestricted L0 user")
 )
 
 type AssistantDeveloperAccessGrant struct {
 	Request        *DeveloperAccessRequest
+	ConversationID int64
 	CompletedTurns int
 	Activated      bool
 }
@@ -249,18 +249,24 @@ func SubmitConfirmedAssistantDeveloperAccessRecommendation(token string, match A
 }
 
 // GrantAssistantDeveloperAccess performs the narrowly scoped L0 -> L1 action
-// available to the customer assistant after three completed turns. The user
+// available to the customer assistant as soon as the current use is understood. The user
 // row serializes this action with submissions, reviews, resets, and concurrent
 // tool calls. The approved request row is the durable audit record.
 func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason string, recommendation string) (*AssistantDeveloperAccessGrant, error) {
-	if userID <= 0 || conversationID <= 0 {
+	if userID <= 0 || conversationID < 0 {
 		return nil, gorm.ErrInvalidData
 	}
-	normalizedReason, err := normalizeDeveloperAccessRequestReason(reason)
+	normalizedReason, err := normalizeDeveloperAccessRequestText(reason)
 	if err != nil {
 		return nil, err
 	}
-	normalizedRecommendation, err := normalizeDeveloperAccessRecommendation(recommendation)
+	if normalizedReason == "" {
+		return nil, ErrDeveloperAccessRequestReasonTooShort
+	}
+	if strings.TrimSpace(recommendation) == "" {
+		recommendation = "Assistant enabled L1 for the current user's stated use. No application letter required."
+	}
+	normalizedRecommendation, err := normalizeDeveloperAccessRequestText(recommendation)
 	if err != nil {
 		return nil, err
 	}
@@ -271,14 +277,16 @@ func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason stri
 		if err := lockForUpdate(tx).Where("id = ?", userID).First(&user).Error; err != nil {
 			return err
 		}
-		completedTurns, err := countCompletedAssistantConversationTurnsWithTx(tx, userID, conversationID, true)
-		if err != nil {
-			return err
+		completedTurns := 0
+		if conversationID > 0 {
+			var err error
+			completedTurns, err = countCompletedAssistantConversationTurnsWithTx(tx, userID, conversationID, true)
+			if err != nil {
+				return err
+			}
 		}
+		result.ConversationID = conversationID
 		result.CompletedTurns = completedTurns
-		if completedTurns < AssistantDirectGrantMinCompletedTurns {
-			return ErrAssistantDirectGrantTurnsRequired
-		}
 		if user.Status != common.UserStatusEnabled || user.Role != common.RoleCommonUser || user.TrustLevelOverride != nil {
 			return ErrAssistantDirectGrantNotL0
 		}
@@ -303,37 +311,31 @@ func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason stri
 		if err := checkAssistantRegistrationTx(tx, userID); err != nil {
 			return err
 		}
-		if findErr == nil && latest.AdminUserId > 0 && latest.Status == DeveloperAccessRequestRejected {
-			return ErrAssistantDirectGrantNotL0
-		}
 		now := common.GetTimestamp()
+		if conversationID == 0 {
+			// A successful first-turn action needs an owned conversation before
+			// the answer is written. Create it in this transaction so a failed
+			// risk check or audit write never leaves an empty conversation.
+			conversation := AssistantConversation{
+				UserId: userID, Title: assistantConversationTitle(normalizedReason),
+				LastMessagePreview: assistantConversationTitle(normalizedReason),
+				CreatedAt:          now, UpdatedAt: now,
+			}
+			if err := tx.Create(&conversation).Error; err != nil {
+				return err
+			}
+			conversationID = conversation.Id
+			result.ConversationID = conversationID
+		}
 		auditNote := fmt.Sprintf("AI assistant granted L1 after %d completed turns in conversation %d", completedTurns, conversationID)
-		if errors.Is(findErr, gorm.ErrRecordNotFound) {
-			latest = DeveloperAccessRequest{
-				UserId: userID, Status: DeveloperAccessRequestApproved,
-				Source: DeveloperAccessRequestSourceDirectAI, Reason: redactAssistantHandoffMessage(normalizedReason),
-				AIRecommendation: normalizedRecommendation, AdminNote: auditNote,
-				CreatedAt: now, ReviewedAt: now,
-			}
-			if err := tx.Create(&latest).Error; err != nil {
-				return err
-			}
-		} else {
-			latest.Revision++
-			latest.Status = DeveloperAccessRequestApproved
-			latest.Source = DeveloperAccessRequestSourceDirectAI
-			latest.Reason = redactAssistantHandoffMessage(normalizedReason)
-			latest.AIRecommendation = normalizedRecommendation
-			latest.AdminUserId = 0
-			latest.AdminNote = auditNote
-			latest.ReviewedAt = now
-			if err := tx.Model(&latest).Updates(map[string]any{
-				"revision": latest.Revision, "status": latest.Status, "source": latest.Source,
-				"reason": latest.Reason, "ai_recommendation": latest.AIRecommendation,
-				"admin_user_id": 0, "admin_note": latest.AdminNote, "reviewed_at": now,
-			}).Error; err != nil {
-				return err
-			}
+		latest = DeveloperAccessRequest{
+			UserId: userID, Status: DeveloperAccessRequestApproved,
+			Source: DeveloperAccessRequestSourceDirectAI, Reason: redactAssistantHandoffMessage(normalizedReason),
+			AIRecommendation: redactAssistantHandoffMessage(normalizedRecommendation), AdminNote: auditNote,
+			CreatedAt: now, ReviewedAt: now,
+		}
+		if err := tx.Create(&latest).Error; err != nil {
+			return err
 		}
 		if err := tx.Model(&user).Update("console_activated_at", now).Error; err != nil {
 			return err

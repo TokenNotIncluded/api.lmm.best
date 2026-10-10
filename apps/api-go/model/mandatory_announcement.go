@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LIghtJUNction/api.lmm.best/setting/console_setting"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -55,9 +54,26 @@ func announcementRevision(item MandatoryAnnouncement) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func currentMandatoryAnnouncements(now time.Time) ([]MandatoryAnnouncement, error) {
+func currentMandatoryAnnouncements(db *gorm.DB, now time.Time) ([]MandatoryAnnouncement, error) {
 	result := []MandatoryAnnouncement{}
-	raw := console_setting.GetConsoleSetting().Announcements
+	// The read receipt and its acknowledgement must use shared persisted content,
+	// even while another node's console settings cache is waiting to refresh.
+	var options []Option
+	if err := db.Select("key", "value").Where(map[string]any{"key": []string{"console_setting.announcements", "Announcements"}}).Find(&options).Error; err != nil {
+		return nil, err
+	}
+	raw := ""
+	for _, option := range options {
+		if option.Key == "Announcements" {
+			raw = option.Value
+		}
+	}
+	for _, option := range options {
+		if option.Key == "console_setting.announcements" {
+			raw = option.Value
+			break
+		}
+	}
 	if raw == "" {
 		return result, nil
 	}
@@ -92,7 +108,7 @@ func currentMandatoryAnnouncements(now time.Time) ([]MandatoryAnnouncement, erro
 }
 
 func announcementStatus(db *gorm.DB, userID int, now time.Time) ([]MandatoryAnnouncement, error) {
-	items, err := currentMandatoryAnnouncements(now)
+	items, err := currentMandatoryAnnouncements(db, now)
 	if err != nil || len(items) == 0 {
 		return items, err
 	}
@@ -122,10 +138,18 @@ func GetAnnouncementStatus(userID int) ([]MandatoryAnnouncement, error) {
 }
 
 func AcknowledgeAnnouncement(userID int, id int64, revision string) error {
+	_, err := AcknowledgeAnnouncementStatus(userID, id, revision)
+	return err
+}
+
+// AcknowledgeAnnouncementStatus returns the status captured by the successful
+// transaction. A later status read cannot turn a committed receipt into failure.
+func AcknowledgeAnnouncementStatus(userID int, id int64, revision string) ([]MandatoryAnnouncement, error) {
 	if userID <= 0 || id <= 0 || len(revision) != 64 || DB == nil {
-		return gorm.ErrInvalidData
+		return nil, gorm.ErrInvalidData
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	var snapshot []MandatoryAnnouncement
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		// Serialize requests for the same account; unique key keeps retries safe.
 		var user User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&user, userID).Error; err != nil {
@@ -137,18 +161,35 @@ func AcknowledgeAnnouncement(userID int, id int64, revision string) error {
 		}
 		for _, item := range items {
 			if item.ID == id && item.Revision == revision && item.ReadAt > 0 {
+				snapshot = items
 				return nil
 			}
 		}
-		for _, item := range items {
+		for i, item := range items {
 			if item.ReadAt > 0 {
 				continue
 			}
 			if item.ID != id || item.Revision != revision {
 				return ErrAnnouncementOrder
 			}
-			return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&AnnouncementRead{UserID: userID, AnnouncementID: id, Revision: revision, ReadAt: time.Now().Unix()}).Error
+			read := AnnouncementRead{UserID: userID, AnnouncementID: id, Revision: revision, ReadAt: time.Now().Unix()}
+			created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&read)
+			if created.Error != nil {
+				return created.Error
+			}
+			if created.RowsAffected == 0 {
+				if err := tx.Where("user_id = ? AND announcement_id = ? AND revision = ?", userID, id, revision).First(&read).Error; err != nil {
+					return err
+				}
+			}
+			items[i].ReadAt = read.ReadAt
+			snapshot = items
+			return nil
 		}
 		return ErrAnnouncementOrder
 	})
+	if err != nil {
+		return nil, err
+	}
+	return snapshot, nil
 }

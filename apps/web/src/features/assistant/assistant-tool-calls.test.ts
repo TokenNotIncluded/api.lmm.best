@@ -30,6 +30,10 @@ import { I18nextProvider, initReactI18next } from 'react-i18next'
 import { parseAssistantToolTraces } from './api.js'
 import { AssistantToolCalls } from './assistant-tool-calls.js'
 import {
+  assistantToolErrorMessages,
+  parseAssistantToolErrorCode,
+} from './assistant-tool-errors'
+import {
   assistantToolOutcome,
   collapseAssistantToolTraces,
 } from './assistant-tool-traces.js'
@@ -42,6 +46,30 @@ await testI18n.use(initReactI18next).init({
 })
 
 describe('assistant tool traces', () => {
+  test('labels discovery and a normal end without implying an account restriction', () => {
+    for (const [name, title, summary] of [
+      ['discover_tools', 'Load assistant tools', 'Assistant tools loaded'],
+      [
+        'end_conversation',
+        'End this turn',
+        'This turn has ended. You can send another message.',
+      ],
+    ]) {
+      const markup = renderToStaticMarkup(
+        createElement(
+          I18nextProvider,
+          { i18n: testI18n },
+          createElement(AssistantToolCalls, {
+            traces: [{ name, status: 'output-available' }],
+          })
+        )
+      )
+      assert.ok(markup.includes(title))
+      assert.ok(markup.includes(summary))
+      assert.doesNotMatch(markup, /suspended|banned|restricted/)
+    }
+  })
+
   test('does not call a prepared key request completed', () => {
     assert.equal(
       assistantToolOutcome({
@@ -91,6 +119,55 @@ describe('assistant tool traces', () => {
     )
     assert.match(markup, /Prepared; confirmation required/)
     assert.doesNotMatch(markup, /Tool completed/)
+  })
+
+  test('key deletion or disabling preparation never implies the mutation completed', () => {
+    for (const [status, outcome] of [
+      ['output-available', 'prepared'],
+      ['approval-requested', 'waiting'],
+      ['output-error', 'failed'],
+    ] as const) {
+      assert.equal(
+        assistantToolOutcome({ name: 'prepare_api_key_action', status }),
+        outcome
+      )
+    }
+    const markup = renderToStaticMarkup(
+      createElement(
+        I18nextProvider,
+        { i18n: testI18n },
+        createElement(AssistantToolCalls, {
+          traces: [
+            {
+              name: 'prepare_api_key_action',
+              status: 'output-available',
+              input: { action: 'delete', token_id: 7 },
+            },
+          ],
+        })
+      )
+    )
+    assert.match(markup, /Prepare API key deletion or disabling/)
+    assert.match(markup, /Prepared; confirmation required/)
+    assert.doesNotMatch(
+      markup,
+      /Tool completed|API key deleted|API key disabled/
+    )
+  })
+
+  test('reading your API key list has a readable completed summary', () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        I18nextProvider,
+        { i18n: testI18n },
+        createElement(AssistantToolCalls, {
+          traces: [{ name: 'list_my_api_keys', status: 'output-available' }],
+        })
+      )
+    )
+    assert.match(markup, /Read your API keys/)
+    assert.match(markup, /Your API key list loaded/)
+    assert.doesNotMatch(markup, /API key deleted|API key disabled/)
   })
 
   test('collapses duplicate failures and hides failures recovered by success', () => {
@@ -186,4 +263,38 @@ test('keeps every bounded administrator action and its failed outcome', () => {
   assert.equal(traces.length, 24)
   assert.equal(traces[0]?.status, 'output-error')
   assert.equal(traces[23]?.callId, 'admin-23')
+})
+
+for (const [code, message] of Object.entries(assistantToolErrorMessages)) {
+  test(`shows a safe, specific tool error: ${code}`, () => {
+    assert.equal(parseAssistantToolErrorCode(code), code)
+    const traces = parseAssistantToolTraces([
+      {
+        name: 'get_admin_server_config',
+        status: 'output-error',
+        error_code: code,
+      },
+    ])
+    assert.equal(traces[0]?.errorCode, code)
+    const markup = renderToStaticMarkup(
+      createElement(
+        I18nextProvider,
+        { i18n: testI18n },
+        createElement(AssistantToolCalls, { traces })
+      )
+    )
+    assert.ok(markup.includes(message), markup)
+  })
+}
+test('unreviewed provider errors never become public error codes', () => {
+  for (const value of [
+    'sk-example-secret',
+    '__proto__',
+    'constructor',
+    500,
+    null,
+    {},
+  ]) {
+    assert.equal(parseAssistantToolErrorCode(value), undefined)
+  }
 })

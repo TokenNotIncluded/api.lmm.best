@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -48,17 +50,70 @@ func (h *OAuthHTTP) Catalog(c *gin.Context) {
 	c.JSON(200, catalog)
 }
 
+func (h *OAuthHTTP) OpenAIModels(c *gin.Context) {
+	grant, user, ok := h.resource(c, service.OAuthCatalogScope)
+	if !ok {
+		return
+	}
+	catalog, err := h.Integration.Catalog(c.Request.Context(), user, grant)
+	if err != nil {
+		oauthProtocolFailure(c, err)
+		return
+	}
+	data := make([]gin.H, 0, len(catalog.Models))
+	for _, entry := range catalog.Models {
+		if slices.Contains(entry.APIs, "openai-completions") {
+			data = append(data, gin.H{"id": entry.ID, "object": "model", "name": entry.Name, "owned_by": "lmm"})
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data})
+}
+
 func (h *OAuthHTTP) Balance(c *gin.Context) {
 	_, user, ok := h.resource(c, service.OAuthBalanceScope)
 	if !ok {
 		return
 	}
-	var balance *float64
-	if common.QuotaPerUnit > 0 {
-		value := float64(user.Quota) / common.QuotaPerUnit
-		balance = &value
+	payload, err := oauthBalancePayload(user.Quota)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "temporarily_unavailable"})
+		return
 	}
-	c.JSON(200, gin.H{"schema_version": 1, "currency": "platform_credit", "balance": balance, "quota": user.Quota, "quota_per_unit": common.QuotaPerUnit, "updated_at": time.Now().Unix(), "authorization_limit": nil})
+	c.JSON(http.StatusOK, payload)
+}
+
+func oauthBalancePayload(quota int) (gin.H, error) {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		return nil, err
+	}
+	quotaPerUSD := anchor.InexactFloat64()
+	if math.IsNaN(quotaPerUSD) || math.IsInf(quotaPerUSD, 0) || quotaPerUSD <= 0 {
+		return nil, common.ErrCreditUnitsUnavailable
+	}
+	usd, err := common.CreditsToUSD(int64(quota))
+	if err != nil {
+		return nil, err
+	}
+	value := usd.InexactFloat64()
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return nil, common.ErrCreditUnitsUnavailable
+	}
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	credits, err := units.ProjectLedgerQuota(int64(quota))
+	if err != nil {
+		return nil, err
+	}
+	payload := gin.H{"schema_version": 2, "currency": "USD", "balance": value, "quota": quota,
+		"public_credit_balance": credits.String(), "credit_unit": 1, "credits_per_usd": anchor.String(), "quota_per_unit": quotaPerUSD,
+		"updated_at": time.Now().Unix(), "authorization_limit": nil}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		payload[key] = value
+	}
+	return payload, nil
 }
 
 func (h *OAuthHTTP) Activity(c *gin.Context) {

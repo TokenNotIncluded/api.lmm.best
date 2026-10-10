@@ -131,7 +131,7 @@ func userSessionCacheDeadline() time.Time {
 }
 
 func CreateUserSession(session *UserSession) error {
-	return createUserSession(session, 0, 0, 0, false)
+	return createUserSession(session, 0, 0, 0, false, nil)
 }
 
 // CreateUserSessionWithLimits performs the session quota check and insert in
@@ -140,10 +140,17 @@ func CreateUserSession(session *UserSession) error {
 // instances) from all observing the same remaining slot and exceeding the
 // active/issuance limits.
 func CreateUserSessionWithLimits(session *UserSession, activeLimit, issuanceLimit, issuanceAfter int64) error {
-	return createUserSession(session, activeLimit, issuanceLimit, issuanceAfter, true)
+	return createUserSession(session, activeLimit, issuanceLimit, issuanceAfter, true, nil)
 }
 
-func createUserSession(session *UserSession, activeLimit, issuanceLimit, issuanceAfter int64, verifyUser bool) error {
+// CreateUserSessionWithLimitsAndAction commits an authentication ceremony's
+// state change and session issuance together, under the authoritative user lock.
+// The action must only use tx for database access and must not publish tokens.
+func CreateUserSessionWithLimitsAndAction(session *UserSession, activeLimit, issuanceLimit, issuanceAfter int64, action func(*gorm.DB) error) error {
+	return createUserSession(session, activeLimit, issuanceLimit, issuanceAfter, true, action)
+}
+
+func createUserSession(session *UserSession, activeLimit, issuanceLimit, issuanceAfter int64, verifyUser bool, action func(*gorm.DB) error) error {
 	now := time.Now().Unix()
 	if session == nil || session.SID == "" || session.UserID <= 0 || session.UserAuthVersion <= 0 || session.RefreshHash == "" || session.ExpiresAt <= now {
 		return ErrUserSessionInvalid
@@ -197,6 +204,11 @@ func createUserSession(session *UserSession, activeLimit, issuanceLimit, issuanc
 			}
 			if issuanceCount >= issuanceLimit {
 				return ErrUserSessionIssuanceLimit
+			}
+		}
+		if action != nil {
+			if err := action(tx); err != nil {
+				return err
 			}
 		}
 		return tx.Create(session).Error

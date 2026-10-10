@@ -16,9 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  displayAmountToQuota,
+  quotaToLegacyPlatformAmount,
+} from '@/lib/currency'
 import { usesDedicatedPaymentPricing } from '@/lib/payment-pricing'
 
-import type { PaymentMethod } from '../types'
+import type { PaymentMethod, TopupInfo } from '../types'
 
 const SETTLEMENT_UNIT_PATTERN = /^[A-Za-z0-9._-]{1,16}$/
 const POSITIVE_DECIMAL_PATTERN = /^[0-9]+(?:\.[0-9]+)?$/
@@ -75,7 +79,88 @@ export function getPaymentMaxTopup(
 export function getPaymentMaxTopupAmount(
   paymentMethod?: PaymentMethod
 ): number | null {
-  return parsePositiveDecimal(paymentMethod?.max_topup_amount)
+  if (paymentMethod?.legacy_max_topup_amount !== undefined) {
+    return parsePositiveDecimal(paymentMethod.legacy_max_topup_amount)
+  }
+  const maximum = parsePositiveDecimal(paymentMethod?.max_topup_amount)
+  if (maximum !== null && paymentMethod?.max_topup_amount_unit === 'CREDIT') {
+    return parsePositiveDecimal(quotaToLegacyPlatformAmount(maximum))
+  }
+  return maximum
+}
+
+/** Minimum in legacy batch units, matching the server's checkout policy. */
+export function getPaymentMinTopupAmount(
+  paymentMethod?: PaymentMethod
+): number {
+  if (paymentMethod?.legacy_min_topup !== undefined) {
+    const minimum = Number(paymentMethod.legacy_min_topup)
+    return Number.isFinite(minimum) && minimum >= 0
+      ? minimum
+      : Number.POSITIVE_INFINITY
+  }
+  const minimum = paymentMethod?.min_topup ?? 0
+  if (!Number.isFinite(minimum) || minimum < 0) return Number.POSITIVE_INFINITY
+  if (minimum > 0 && paymentMethod?.min_topup_unit === 'USD') {
+    const converted = quotaToLegacyPlatformAmount(
+      displayAmountToQuota(minimum, 'USD')
+    )
+    return Number.isFinite(converted) ? converted : Number.POSITIVE_INFINITY
+  }
+  return minimum
+}
+
+function safeQuotaMetadata(value: unknown): number | null {
+  if (typeof value === 'string' && !/^\d+$/.test(value)) return null
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const quota = Number(value)
+  return Number.isSafeInteger(quota) && quota >= 0 ? quota : null
+}
+
+/** The new wallet compares integer limits without a legacy float bridge. */
+export function getPaymentMinTopupQuota(method?: PaymentMethod): number {
+  if (!method) return 0
+  return safeQuotaMetadata(method.min_topup_credit) ?? Number.POSITIVE_INFINITY
+}
+
+export function getPaymentMaxTopupQuota(method?: PaymentMethod): number | null {
+  if (method?.max_topup_credit === undefined) return null
+  return safeQuotaMetadata(method.max_topup_credit) ?? 0
+}
+
+/** Dedicated providers publish complete limits separately from visible gateway rows. */
+export function getDedicatedPaymentLimits(
+  info: TopupInfo | null | undefined,
+  type: string
+): { minimum: number; maximum: number | null } | null {
+  const keys = {
+    stripe: ['stripe_credit_min_topup', 'stripe_credit_max_topup'],
+    waffo: ['waffo_credit_min_topup', 'waffo_credit_max_topup'],
+    waffo_pancake: ['pancake_credit_min_topup', 'pancake_credit_max_topup'],
+  } as const
+  if (!info || !Object.hasOwn(keys, type)) return null
+  const [minKey, maxKey] = keys[type as keyof typeof keys]
+  const minimum = info[minKey]
+  const maximum = info[maxKey]
+  // Stripe always has its server-owned default cap, even without a configured cap.
+  if (type === 'stripe' && maximum === null) return null
+  if (
+    typeof minimum !== 'number' ||
+    !Number.isSafeInteger(minimum) ||
+    minimum < 0 ||
+    !Object.hasOwn(info, maxKey)
+  ) {
+    return null
+  }
+  if (
+    maximum !== null &&
+    (typeof maximum !== 'number' ||
+      !Number.isSafeInteger(maximum) ||
+      maximum < Math.max(1, minimum))
+  ) {
+    return null
+  }
+  return { minimum: Math.max(1, minimum), maximum }
 }
 
 /**
@@ -222,11 +307,25 @@ export function getPaymentSettlementUnit(
 export function formatPaymentSettlementRate(
   paymentMethod?: PaymentMethod,
   platformCurrencyLabel = 'USD',
-  includeDedicated = false
+  includeDedicated = false,
+  formatCreditAmount?: (legacyBatch: number) => string
 ): string | null {
   const metadata = getPaymentSettlementMetadata(paymentMethod, includeDedicated)
   if (!metadata) return null
 
+  if (formatCreditAmount) {
+    const denominator =
+      metadata.source === 'explicit-usd-rates'
+        ? metadata.platformUnitsPerUsd
+        : 1
+    const settlementRate = formatRate(
+      metadata.source === 'explicit-usd-rates'
+        ? paymentMethod?.settlement_units_per_usd
+        : paymentMethod?.unit_price,
+      metadata.settlementUnitsPerUsd
+    )
+    return `${settlementRate} ${metadata.currencyCode} / ${formatCreditAmount(denominator)}`
+  }
   if (metadata.source !== 'explicit-usd-rates') {
     return `${formatRate(paymentMethod?.unit_price, metadata.settlementUnitsPerUsd)} ${metadata.currencyCode} / ${platformCurrencyLabel}`
   }

@@ -70,6 +70,7 @@ function fixtureFetch({
   quotaGrantFailure = false,
   timeoutStage = null,
   bodyTimeoutStage = null,
+  onTimeoutRequest = () => {},
   oversizedBodyStage = null,
   cleanupFailure = false,
   backendRevision = BINDINGS.backend_revision,
@@ -104,6 +105,7 @@ function fixtureFetch({
           () => reject(new DOMException('aborted', 'AbortError')),
           { once: true }
         )
+        onTimeoutRequest(init.signal)
       })
     }
     if (bodyTimeoutStage && parsed.pathname === bodyTimeoutStage) {
@@ -111,6 +113,9 @@ function fixtureFetch({
         new ReadableStream({
           start(controller) {
             controller.enqueue(new TextEncoder().encode('{"object":"list"'))
+          },
+          pull() {
+            onTimeoutRequest(init.signal)
           },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
@@ -516,10 +521,16 @@ test('quota grant failure propagates after one exact attempt and user cleanup', 
   assert.equal(summary.cleanup.user_deleted, true)
 })
 
-test('requests are bounded and timeout failures are reported', async () => {
-  const fixture = fixtureFetch({ timeoutStage: '/v1/models' })
+test('requests are bounded and timeout failures are reported', async (t) => {
+  // Exercise the actual deadline without depending on shared-runner scheduling.
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() })
+  let onTimeoutRequest
+  const requestStarted = new Promise((resolve) => {
+    onTimeoutRequest = resolve
+  })
+  const fixture = fixtureFetch({ timeoutStage: '/v1/models', onTimeoutRequest })
   const started = Date.now()
-  const summary = await runProductionAcceptance({
+  const pendingSummary = runProductionAcceptance({
     credentials: {
       username: 'root-admin',
       password: ROOT_PASSWORD,
@@ -528,6 +539,12 @@ test('requests are bounded and timeout failures are reported', async () => {
     fetchImpl: fixture.fetchImpl,
     timeoutMs: 15,
   })
+  const signal = await requestStarted
+  t.mock.timers.tick(14)
+  assert.equal(signal.aborted, false, 'the request must not abort early')
+  t.mock.timers.tick(1)
+  assert.equal(signal.aborted, true, 'the configured 15ms deadline must abort')
+  const summary = await pendingSummary
   assert.equal(summary.success, false)
   assert.equal(
     summary.failures.some((failure) => failure.code === 'REQUEST_TIMEOUT'),
@@ -537,10 +554,18 @@ test('requests are bounded and timeout failures are reported', async () => {
   assert.equal(summary.cleanup.user_deleted, true)
 })
 
-test('deadline covers a never-ending chunked response body after headers', async () => {
-  const fixture = fixtureFetch({ bodyTimeoutStage: '/v1/models' })
+test('deadline covers a never-ending chunked response body after headers', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() })
+  let onTimeoutRequest
+  const requestStarted = new Promise((resolve) => {
+    onTimeoutRequest = resolve
+  })
+  const fixture = fixtureFetch({
+    bodyTimeoutStage: '/v1/models',
+    onTimeoutRequest,
+  })
   const started = Date.now()
-  const summary = await runProductionAcceptance({
+  const pendingSummary = runProductionAcceptance({
     credentials: {
       username: 'root-admin',
       password: ROOT_PASSWORD,
@@ -549,6 +574,14 @@ test('deadline covers a never-ending chunked response body after headers', async
     fetchImpl: fixture.fetchImpl,
     timeoutMs: 15,
   })
+  // The fixture signals readiness from pull(), after the actual body reader
+  // consumes its first chunk; a deadline cleared at headers cannot pass.
+  const signal = await requestStarted
+  t.mock.timers.tick(14)
+  assert.equal(signal.aborted, false, 'the body must not abort early')
+  t.mock.timers.tick(1)
+  assert.equal(signal.aborted, true, 'the deadline must also bound body reads')
+  const summary = await pendingSummary
   assert.equal(summary.success, false)
   assert.equal(
     summary.failures.some((failure) => failure.code === 'REQUEST_TIMEOUT'),

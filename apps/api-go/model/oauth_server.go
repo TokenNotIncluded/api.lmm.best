@@ -1,10 +1,6 @@
 package model
 
-import (
-	"fmt"
-
-	"gorm.io/gorm"
-)
+import "gorm.io/gorm"
 
 // OAuthServerAuthorization is a short-lived, browser-bound consent transaction.
 // All bearer capabilities (including the browser binding) are stored as digests.
@@ -13,6 +9,7 @@ type OAuthServerAuthorization struct {
 	Digest                string `gorm:"primaryKey;size:64"`
 	Issuer                string `gorm:"not null;size:512"`
 	ClientID              string `gorm:"not null;size:128"`
+	ClientName            string `gorm:"not null;default:'';size:256"`
 	RedirectURI           string `gorm:"not null;size:1024"`
 	Resource              string `gorm:"not null;size:1024"`
 	Scope                 string `gorm:"not null;size:2048"`
@@ -57,10 +54,16 @@ func (OAuthServerGrant) TableName() string { return "oauth_server_grants" }
 
 // OAuthServerCode retains its used tombstone until the family can be purged.
 // Retaining it permits a correctly bound replay to revoke issued credentials.
+// Consent bindings are immutable per code even when a later login reuses its
+// family. Empty migration defaults identify legacy codes that must be rejected.
 type OAuthServerCode struct {
 	Digest        string `gorm:"primaryKey;size:64"`
 	Issuer        string `gorm:"not null;size:512"`
 	FamilyID      string `gorm:"not null;size:43;index"`
+	ClientID      string `gorm:"not null;default:'';size:128"`
+	RedirectURI   string `gorm:"not null;default:'';size:1024"`
+	Resource      string `gorm:"not null;default:'';size:1024"`
+	Scope         string `gorm:"not null;default:'';size:2048"`
 	CodeChallenge string `gorm:"not null;size:43"`
 	CreatedAtMs   int64  `gorm:"not null"`
 	ExpiresAtMs   int64  `gorm:"not null;index"`
@@ -84,16 +87,11 @@ type OAuthServerToken struct {
 
 func (OAuthServerToken) TableName() string { return "oauth_server_tokens" }
 
-// MigrateOAuthServer is explicitly opt-in. It is NOT registered with the main
-// migration path. Pass the authoritative writer DB, never a read replica.
+// MigrateOAuthServer is an explicit opt-in for isolated storage users. Normal
+// startup includes it when OAuth is enabled. Use the authoritative writer DB.
 func MigrateOAuthServer(db *gorm.DB) error {
-	if db == nil {
-		return fmt.Errorf("oauth server migration: nil database")
+	if err := validateOAuthStorageDialect(db); err != nil {
+		return err
 	}
-	switch db.Dialector.Name() {
-	case "sqlite", "postgres":
-		return db.AutoMigrate(&OAuthServerAuthorization{}, &OAuthServerGrant{}, &OAuthServerCode{}, &OAuthServerToken{})
-	default:
-		return fmt.Errorf("oauth server migration: unsupported dialect %q", db.Dialector.Name())
-	}
+	return db.AutoMigrate(oauthServerMigrationModels()...)
 }

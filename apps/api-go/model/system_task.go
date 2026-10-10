@@ -27,7 +27,7 @@ const (
 	SystemTaskTypeAsyncTaskPoll      = "async_task_poll"
 	SystemTaskTypeAssistantRetention = "assistant_retention"
 	SystemTaskTypeAssistantPresets   = "assistant_pre_conversation_presets"
-	SystemTaskTypeAssistantReview    = "assistant_review"
+	SystemTaskTypeWaffoTopUpExpiry   = "waffo_topup_expiry"
 )
 
 var (
@@ -163,20 +163,6 @@ func GetSystemTaskByTaskID(taskID string) (*SystemTask, error) {
 	return &task, nil
 }
 
-// GetAssistantReviewTaskByTaskID keeps the AdminAuth review detail endpoint
-// scoped to assistant review runs, rather than turning it into a generic task
-// lookup.
-func GetAssistantReviewTaskByTaskID(taskID string) (*SystemTask, error) {
-	var task SystemTask
-	if err := DB.Where("task_id = ? AND type = ?", taskID, SystemTaskTypeAssistantReview).First(&task).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &task, nil
-}
-
 func GetActiveSystemTask(taskType string) (*SystemTask, error) {
 	var task SystemTask
 	err := DB.Where("type = ? AND status IN ?", taskType, activeSystemTaskStatuses()).
@@ -247,24 +233,6 @@ func ListSystemTaskSummaries(limit int) ([]*SystemTask, error) {
 	}
 	var tasks []*SystemTask
 	err := DB.Select("id, task_id, type, status, active_key, CASE WHEN LENGTH(state) <= ? THEN state ELSE '' END AS state, error, locked_by, created_at, updated_at", systemTaskSummaryStateMaxBytes).
-		Order("id desc").Limit(limit).Find(&tasks).Error
-	return tasks, err
-}
-
-// ListAssistantReviewTaskSummaries exposes only the bounded history needed by
-// the Advanced Security page. Keeping this separate from the root task
-// history prevents an AdminAuth caller from enumerating unrelated system
-// tasks or their progress payloads.
-func ListAssistantReviewTaskSummaries(limit int) ([]*SystemTask, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	var tasks []*SystemTask
-	err := DB.Select("id, task_id, type, status, active_key, CASE WHEN LENGTH(state) <= ? THEN state ELSE '' END AS state, error, locked_by, created_at, updated_at", systemTaskSummaryStateMaxBytes).
-		Where("type = ?", SystemTaskTypeAssistantReview).
 		Order("id desc").Limit(limit).Find(&tasks).Error
 	return tasks, err
 }
@@ -513,7 +481,23 @@ func UpdateSystemTaskState(taskID string, lockedBy string, state any) error {
 	if result.Error != nil {
 		return result.Error
 	}
-	if result.RowsAffected == 0 {
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	// MySQL counts changed rows, not matched rows. A no-op persist of the same
+	// state in the same second therefore returns RowsAffected == 0 even while
+	// the lease is still held. Confirm the lock before treating this as loss.
+	// Reuse `now` from the UPDATE so a clock tick cannot reintroduce false
+	// lock-loss; a lease that expires during the write is caught by the next heartbeat.
+	var held int64
+	err = DB.Model(&SystemTask{}).
+		Where("task_id = ? AND status = ? AND locked_by = ?", taskID, SystemTaskStatusRunning, lockedBy).
+		Where("EXISTS (SELECT 1 FROM system_task_locks WHERE system_task_locks.task_id = system_tasks.task_id AND system_task_locks.locked_by = ? AND system_task_locks.locked_until >= ?)", lockedBy, now).
+		Count(&held).Error
+	if err != nil {
+		return err
+	}
+	if held == 0 {
 		return ErrSystemTaskLockLost
 	}
 	return nil

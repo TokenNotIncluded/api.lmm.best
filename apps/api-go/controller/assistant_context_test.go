@@ -57,7 +57,7 @@ func TestAssistantAgentForcesTaskToolsBeforeAnswering(t *testing.T) {
 		Intent:      model.AssistantIntentMath,
 		AccessLevel: "L0",
 	})))
-	assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(assistantToolChoiceForContext(assistantUserContext{
+	assert.Equal(t, "get_account_access", assistantNamedToolChoiceName(assistantToolChoiceForContext(assistantUserContext{
 		Intent:      model.AssistantIntentRecommendation,
 		AccessLevel: "L0",
 	})))
@@ -292,48 +292,48 @@ func TestAssistantRecommendationEditWorkflowToolChoices(t *testing.T) {
 		AccessLevel:          "L0",
 		RecommendationAction: assistantRecommendationActionRevise,
 	}
-	assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
-	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
+	assert.Equal(t, "get_account_access", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
+	assert.Equal(t, "get_registration_risk", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
 		revise,
-		map[string]bool{"get_l1_recommendation": true},
-		map[string]bool{"get_l1_recommendation": true},
-	))
+		map[string]bool{"get_account_access": true},
+		map[string]bool{"get_account_access": true},
+	)))
 	assert.False(t, assistantToolAllowedForContext("prepare_l1_recommendation", revise))
 	eligible := revise
 	eligible.CompletedAssistantTurns = model.AssistantDirectGrantMinCompletedTurns
 	assert.Equal(t, "get_registration_risk", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
-		eligible, map[string]bool{"get_l1_recommendation": true}, map[string]bool{"get_l1_recommendation": true},
+		eligible, map[string]bool{"get_account_access": true}, map[string]bool{"get_account_access": true},
 	)))
 	assert.Equal(t, "grant_l1_access", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
-		eligible, map[string]bool{"get_l1_recommendation": true, "get_registration_risk": true}, map[string]bool{"get_l1_recommendation": true, "get_registration_risk": true},
+		eligible, map[string]bool{"get_account_access": true, "get_registration_risk": true}, map[string]bool{"get_account_access": true, "get_registration_risk": true},
 	)))
 	assert.Equal(t, 4, assistantRecommendationWorkflowMinSteps(eligible))
-	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
+	assert.Equal(t, "get_registration_risk", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(
 		revise,
-		map[string]bool{"get_l1_recommendation": true, "prepare_l1_recommendation": true},
-		map[string]bool{"get_l1_recommendation": true, "prepare_l1_recommendation": true},
-	))
-	assert.Equal(t, 2, assistantRecommendationWorkflowMinSteps(revise))
+		map[string]bool{"get_account_access": true, "prepare_l1_recommendation": true},
+		map[string]bool{"get_account_access": true, "prepare_l1_recommendation": true},
+	)))
+	assert.Equal(t, 4, assistantRecommendationWorkflowMinSteps(revise))
 
 	remove := revise
 	remove.RecommendationAction = assistantRecommendationActionRemove
 	assert.Equal(t, "none", assistantToolChoiceForAgentStep(
 		remove,
-		map[string]bool{"get_l1_recommendation": true},
-		map[string]bool{"get_l1_recommendation": true},
+		map[string]bool{"get_account_access": true},
+		map[string]bool{"get_account_access": true},
 	))
 	assert.Equal(t, 2, assistantRecommendationWorkflowMinSteps(remove))
 
 	revise.ConversationTitleNeeded = true
 	assert.Equal(t, "set_conversation_title", assistantNamedToolChoiceName(assistantToolChoiceForAgentStep(revise, nil, nil)))
-	assert.Equal(t, 3, assistantRecommendationWorkflowMinSteps(revise))
+	assert.Equal(t, 5, assistantRecommendationWorkflowMinSteps(revise))
 
 	encoded, err := json.Marshal(revise)
 	require.NoError(t, err)
 	assert.NotContains(t, string(encoded), "revise")
 }
 
-func TestAssistantRecommendationQuestionsAlwaysReadTheSharedLetter(t *testing.T) {
+func TestAssistantAccessQuestionsReadCurrentAccount(t *testing.T) {
 	context := assistantUserContext{
 		Intent:               model.AssistantIntentRecommendation,
 		AccessLevel:          "L0",
@@ -341,10 +341,10 @@ func TestAssistantRecommendationQuestionsAlwaysReadTheSharedLetter(t *testing.T)
 		RecommendationAction: assistantRecommendationActionNone,
 	}
 
-	assert.Equal(t, []string{"get_l1_recommendation"}, assistantReadChain(context))
+	assert.Equal(t, []string{"get_account_access"}, assistantReadChain(context))
 	assert.True(t, assistantLiveReadRequired(context))
 	assert.Equal(t, 2, assistantReadChainSteps(context))
-	assert.Equal(t, "get_l1_recommendation", assistantNamedToolChoiceName(
+	assert.Equal(t, "get_account_access", assistantNamedToolChoiceName(
 		assistantToolChoiceForAgentStep(context, nil, nil),
 	))
 }
@@ -871,7 +871,7 @@ func TestAssistantLegitimateGiftRequestKeepsGiftWorkflowAvailable(t *testing.T) 
 		"申请新人福利",
 		"我想领取新手福利",
 		"我想申请新用户福利",
-		"How do I claim the new user gift?",
+		"I want to claim the new user gift",
 	} {
 		context := assistantUserContextForRequest(0, message)
 		assert.NotEqual(t, assistantProfilePromotion, context.CustomerProfile, message)
@@ -1029,4 +1029,11 @@ func TestAssistantCacheIsUserScopedAndNormalizesWhitespace(t *testing.T) {
 	// The cache fingerprint must contain the actor identity even when the
 	// account-visible fields happen to be identical.
 	assert.True(t, strings.TrimSpace(firstKey) != strings.TrimSpace(secondKey))
+}
+
+func TestAssistantL1RulesDoNotRetainTheRetiredTurnThreshold(t *testing.T) {
+	assert.Contains(t, assistantSystemRules, "grant_l1_access immediately, including in the first reply")
+	assert.NotContains(t, assistantSystemRules, "after the completed-turn threshold")
+	assert.Contains(t, assistantSystemRules, "never tell them to keep chatting")
+	assert.Contains(t, assistantSystemRules, "offer human support or one retry")
 }

@@ -30,6 +30,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useMediaQuery } from '@/hooks'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
 import { getUserGroups } from '@/lib/api'
 import dayjs from '@/lib/dayjs'
@@ -37,7 +38,8 @@ import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { API_KEY_STATUSES } from '../constants'
-import { buildApiKeyGroupOptions } from '../lib'
+import { buildApiKeyGroupOptions, isAssistantRuntimeKey } from '../lib'
+import { getQuotaProgressColor, getQuotaUsage } from '../lib/quota-usage'
 import type { ApiKey, ApiKeyCreationMode } from '../types'
 import { ApiKeyCreationSourceBadge } from './api-key-creation-source'
 import type { ApiKeyGroupOption } from './api-key-group-combobox'
@@ -51,12 +53,6 @@ import {
   UnlimitedQuotaBadge,
 } from './api-keys-cells'
 import { DataTableRowActions } from './data-table-row-actions'
-
-function getQuotaProgressColor(percentage: number): string {
-  if (percentage <= 10) return 'console-status-progress-danger'
-  if (percentage <= 30) return 'console-status-progress-warning'
-  return 'console-status-progress-success'
-}
 
 function useGroupOptions(): {
   options: ApiKeyGroupOption[]
@@ -78,6 +74,7 @@ export function useApiKeysColumns(
   creationMode: ApiKeyCreationMode
 ): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
+  const { formatUserUsage } = useWalletCurrency()
   const { options: groupOptions, isLoading: groupOptionsLoading } =
     useGroupOptions()
   const groupRatios = useMemo(() => {
@@ -112,6 +109,7 @@ export function useApiKeysColumns(
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
+          disabled={!row.getCanSelect()}
           aria-label={t('Select row')}
           className='translate-y-[2px]'
         />
@@ -175,14 +173,18 @@ export function useApiKeysColumns(
       header: t('Quota'),
       cell: ({ row }) => {
         const apiKey = row.original
+        if (isAssistantRuntimeKey(apiKey)) {
+          return (
+            <span className='text-muted-foreground text-xs'>
+              {t('Billed to super administrator wallet')}
+            </span>
+          )
+        }
         if (apiKey.unlimited_quota) {
-          return <UnlimitedQuotaBadge used={apiKey.used_quota} />
+          return <UnlimitedQuotaBadge apiKey={apiKey} />
         }
 
-        const used = apiKey.used_quota
-        const remaining = apiKey.remain_quota
-        const total = used + remaining
-        const percentage = total > 0 ? (remaining / total) * 100 : 0
+        const { remaining, total, remainingPercent } = getQuotaUsage(apiKey)
 
         return (
           <Tooltip>
@@ -192,25 +194,33 @@ export function useApiKeysColumns(
                   {formatQuota(remaining)}
                 </span>
                 <span className='text-muted-foreground tabular-nums'>
-                  {formatQuota(total)}
+                  {total === null ? t('Unavailable') : formatQuota(total)}
                 </span>
               </div>
-              <Progress
-                value={percentage}
-                className={cn('h-1.5', getQuotaProgressColor(percentage))}
-              />
+              {remainingPercent === null ? null : (
+                <Progress
+                  value={remainingPercent}
+                  className={cn(
+                    'h-1.5',
+                    getQuotaProgressColor(remainingPercent)
+                  )}
+                />
+              )}
             </TooltipTrigger>
             <TooltipContent>
               <div className='space-y-1 text-xs'>
                 <div>
-                  {t('Used:')} {formatQuota(used)}
+                  {t('Used:')} {formatUserUsage(apiKey)}
                 </div>
                 <div>
-                  {t('Remaining:')} {formatQuota(remaining)} (
-                  {percentage.toFixed(1)}%)
+                  {t('Remaining:')} {formatQuota(remaining)}
+                  {remainingPercent === null
+                    ? ''
+                    : ` (${remainingPercent.toFixed(1)}%)`}
                 </div>
                 <div>
-                  {t('Total:')} {formatQuota(total)}
+                  {t('Total:')}{' '}
+                  {total === null ? t('Unavailable') : formatQuota(total)}
                 </div>
               </div>
             </TooltipContent>
@@ -223,7 +233,14 @@ export function useApiKeysColumns(
       id: 'used_quota',
       accessorKey: 'used_quota',
       header: t('Used quota'),
-      cell: ({ row }) => <ApiKeyUsedQuota used={row.original.used_quota} />,
+      cell: ({ row }) =>
+        isAssistantRuntimeKey(row.original) ? (
+          <span className='text-muted-foreground text-xs'>
+            {t('Tracked in assistant funding')}
+          </span>
+        ) : (
+          <ApiKeyUsedQuota apiKey={row.original} />
+        ),
       size: 140,
     },
     {
@@ -333,7 +350,10 @@ export function useApiKeysColumns(
     {
       id: 'actions',
       header: () => t('Actions'),
-      cell: ({ row }) => <DataTableRowActions row={row} />,
+      cell: ({ row }) =>
+        isAssistantRuntimeKey(row.original) ? null : (
+          <DataTableRowActions row={row} />
+        ),
       meta: { pinned: 'right' as const },
     },
   ]

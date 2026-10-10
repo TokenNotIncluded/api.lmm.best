@@ -189,7 +189,7 @@ func bountyMCPDraft(input bountyMCPDraftInput) model.OpenSourceBountyDraftInput 
 }
 
 func registerOpenSourceBountyMCPTools(server *mcp.Server) {
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.accept", "Accept an open-source bounty", "Reserve one funded slot for the authenticated user and record their GitHub handle.", false, false, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.accept", "Accept an open-source bounty", "Reserve one funded slot for the authenticated user and record their GitHub handle.", false, false, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPAcceptInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -199,7 +199,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty accepted.", Data: challenge}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.approve", "Approve, rate, and pay a submission", "Approve a genuine fix, publish a 1-5 contributor rating, and transfer the escrowed reward. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.approve", "Approve, rate, and pay a submission", "Approve a genuine fix, publish a 1-5 contributor rating, and transfer the escrowed reward. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPReviewInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -232,7 +232,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Submission approved, rated, and paid.", Data: map[string]any{"challenge": updated, "transferred_quota": transferred}}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.close", "Close and refund a bounty", "Close a published or paused bounty and refund only unused escrow. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.close", "Close and refund a bounty", "Close a published or paused bounty and refund only unused escrow. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPProjectInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -259,7 +259,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty closed and unused escrow refunded.", Data: map[string]any{"project": updated, "refunded_quota": refunded}, RemainingQuota: bountyMCPRemainingQuota(userId)}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.cancel", "Cancel an unsubmitted challenge", "Cancel a publisher-owned challenge that has no submitted work and release its reward slot. Requires explicit user confirmation.", false, true, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.cancel", "Cancel an unsubmitted challenge", "Cancel a publisher-owned challenge that has no submitted work and release its reward slot. Requires explicit user confirmation.", false, true, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPChallengeInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -295,7 +295,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Unsubmitted challenge cancelled and its reward slot released.", Data: challenge}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.create_draft", "Create a bounty draft", "Create an unpublished bounty draft. Draft creation does not spend balance.", false, false, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.create_draft", "Create a bounty draft", "Create an unpublished bounty draft. Draft creation does not spend balance.", false, false, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPDraftInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -305,7 +305,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty draft created.", Data: project}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.delete_draft", "Delete a bounty draft", "Permanently delete an unpublished bounty draft. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.delete_draft", "Delete a bounty draft", "Permanently delete an unpublished bounty draft. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPProjectInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -328,7 +328,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty draft deleted."}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.get", "Get bounty details", "Get a bounty, its viewer state, mutual ratings, and owner-only participant and ledger details.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.get", "Get bounty details", "Get a bounty, its viewer state, mutual ratings, and owner-only participant and ledger details.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPProjectInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -338,7 +338,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty detail loaded.", Data: detail}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.list", "List public bounties", "List the public bounty board in deterministic publication order. The board may be empty and has no default projects.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.list", "List public bounties", "List the public bounty board in deterministic publication order. The board may be empty and has no default projects.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPListInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -348,7 +348,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty board loaded.", Data: map[string]any{"items": items, "total": total}}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.list_accepted", "List my accepted challenges", "List challenges accepted by the authenticated user, including mutual ratings and reputation aggregates.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.list_accepted", "List my accepted challenges", "List challenges accepted by the authenticated user, including mutual ratings and reputation aggregates.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -358,7 +358,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Accepted challenges loaded.", Data: items}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.list_owned", "List my bounty projects", "List all bounty drafts and published projects owned by the authenticated user.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.list_owned", "List my bounty projects", "List all bounty drafts and published projects owned by the authenticated user.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -368,7 +368,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Owned bounty projects loaded.", Data: items}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.list_disputes", "List bounty disputes", "List disputes involving the authenticated user. Administrators can list all disputes for third-party review.", true, false, true),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.list_disputes", "List bounty disputes", "List disputes involving the authenticated user. Administrators can list all disputes for third-party review.", true, false, true),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPDisputeListInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -378,7 +378,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty disputes loaded.", Data: items}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.open_dispute", "Open a bounty dispute", "Escalate a bounty disagreement with an evidence snapshot for third-party administrator review. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.open_dispute", "Open a bounty dispute", "Escalate a bounty disagreement with an evidence snapshot for third-party administrator review. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPOpenDisputeInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -410,7 +410,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty dispute opened for third-party review.", Data: dispute}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.pause", "Pause bounty intake", "Pause a published bounty so it stops accepting new contributors.", false, false, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.pause", "Pause bounty intake", "Pause a published bounty so it stops accepting new contributors.", false, false, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPProjectInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -420,7 +420,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty paused.", Data: project}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.publish", "Publish and fund a bounty", "Deduct the gross listed price from the authenticated publisher, retain the public platform task fee, and escrow the net contributor rewards. Daily check-in rewards in the same balance can fund the listing. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.publish", "Publish and fund a bounty", "Deduct the gross listed price from the authenticated publisher, retain the public platform task fee, and escrow the net contributor rewards. Daily check-in rewards in the same balance can fund the listing. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPProjectInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -474,7 +474,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty published and fully funded.", Data: map[string]any{"project": updated, "charged_quota": charged}, RemainingQuota: bountyMCPRemainingQuota(userId)}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.rate_owner", "Rate the publisher and verifier", "After approval or rejection, publish a 1-5 rating of the bounty publisher/verifier. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.rate_owner", "Rate the publisher and verifier", "After approval or rejection, publish a 1-5 rating of the bounty publisher/verifier. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPRateOwnerInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -506,7 +506,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Publisher/verifier rating saved.", Data: challenge}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.reject", "Reject and rate a submission", "Reject a submission, publish a 1-5 contributor rating, and release its reward slot. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.reject", "Reject and rate a submission", "Reject a submission, publish a 1-5 contributor rating, and release its reward slot. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPReviewInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -539,7 +539,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Submission rejected and contributor rating saved.", Data: challenge}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.resume", "Resume bounty intake", "Resume a paused bounty so it accepts contributors again.", false, false, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.resume", "Resume bounty intake", "Resume a paused bounty so it accepts contributors again.", false, false, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPProjectInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -549,7 +549,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty resumed.", Data: project}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.resolve_dispute", "Resolve a bounty dispute", "Administrator-only third-party resolution. Can deny a claim or force the escrowed reward payment when evidence proves the work met the bounty requirements. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.resolve_dispute", "Resolve a bounty dispute", "Administrator-only third-party resolution. Can deny a claim or force the escrowed reward payment when evidence proves the work met the bounty requirements. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPResolveDisputeInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -586,7 +586,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty dispute resolved.", Data: map[string]any{"dispute": dispute, "transferred_quota": transferred}}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.submit", "Submit completion evidence", "Submit at least one matching GitHub Issue or pull request URL, optionally both, for direct review by the bounty publisher.", false, false, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.submit", "Submit completion evidence", "Submit at least one matching GitHub Issue or pull request URL, optionally both, for direct review by the bounty publisher.", false, false, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPSubmitInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -596,7 +596,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty evidence submitted for review.", Data: challenge}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.tip", "Tip a contributor", "Transfer a discretionary, non-refundable tip from the publisher's own balance to a contributor without reducing escrow. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.tip", "Tip a contributor", "Transfer a discretionary, non-refundable tip from the publisher's own balance to a contributor without reducing escrow. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPTipInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -630,7 +630,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Contributor tip transferred.", Data: map[string]any{"challenge": challenge, "transferred_quota": transferred}, RemainingQuota: bountyMCPRemainingQuota(userId)}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.update_draft", "Update a bounty draft", "Update an unpublished bounty draft. No balance is spent until publication.", false, false, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.update_draft", "Update a bounty draft", "Update an unpublished bounty draft. No balance is spent until publication.", false, false, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPUpdateDraftInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {
@@ -640,7 +640,7 @@ func registerOpenSourceBountyMCPTools(server *mcp.Server) {
 			return nil, bountyMCPOutput{Message: "Bounty draft updated.", Data: project}, bountyMCPError(err)
 		})
 
-	mcp.AddTool(server, bountyMCPTool("open_source_bounties.withdraw", "Withdraw from a challenge", "Withdraw the authenticated contributor from an accepted or submitted challenge. Requires explicit user confirmation.", false, true, false),
+	addToolMarketBuiltinMCPTool(server, bountyMCPTool("open_source_bounties.withdraw", "Withdraw from a challenge", "Withdraw the authenticated contributor from an accepted or submitted challenge. Requires explicit user confirmation.", false, true, false),
 		func(ctx context.Context, request *mcp.CallToolRequest, input bountyMCPChallengeInput) (*mcp.CallToolResult, bountyMCPOutput, error) {
 			userId, err := bountyMCPUserId(request)
 			if err != nil {

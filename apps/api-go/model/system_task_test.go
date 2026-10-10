@@ -384,32 +384,32 @@ func TestTaskHistoryPrune(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, DB.Create(&SystemTask{
 			TaskID: taskID,
-			Type:   SystemTaskTypeAssistantReview,
+			Type:   SystemTaskTypeAssistantRetention,
 			Status: SystemTaskStatusSucceeded,
 		}).Error)
 	}
-	active := createLegacyPendingSystemTask(t, SystemTaskTypeAssistantReview)
+	active := createLegacyPendingSystemTask(t, SystemTaskTypeAssistantRetention)
 	other := createLegacyPendingSystemTask(t, SystemTaskTypeLogCleanup)
 	require.NoError(t, DB.Model(other).Updates(map[string]any{
 		"status": SystemTaskStatusSucceeded,
 	}).Error)
 
-	eligible, err := PreviewTaskHistoryCleanup(SystemTaskTypeAssistantReview, 30)
+	eligible, err := PreviewTaskHistoryCleanup(SystemTaskTypeAssistantRetention, 30)
 	require.NoError(t, err)
 	assert.EqualValues(t, 5, eligible)
 
-	deleted, err := CleanupTaskHistory(SystemTaskTypeAssistantReview, 30)
+	deleted, err := CleanupTaskHistory(SystemTaskTypeAssistantRetention, 30)
 	require.NoError(t, err)
 	assert.EqualValues(t, 5, deleted)
 
-	eligible, err = PreviewTaskHistoryCleanup(SystemTaskTypeAssistantReview, 30)
+	eligible, err = PreviewTaskHistoryCleanup(SystemTaskTypeAssistantRetention, 30)
 	require.NoError(t, err)
 	assert.Zero(t, eligible)
-	require.NoError(t, PruneTaskHistory(SystemTaskTypeAssistantReview, 30))
+	require.NoError(t, PruneTaskHistory(SystemTaskTypeAssistantRetention, 30))
 
 	var terminalCount int64
 	require.NoError(t, DB.Model(&SystemTask{}).
-		Where("type = ? AND status IN ?", SystemTaskTypeAssistantReview, []SystemTaskStatus{SystemTaskStatusSucceeded, SystemTaskStatusFailed}).
+		Where("type = ? AND status IN ?", SystemTaskTypeAssistantRetention, []SystemTaskStatus{SystemTaskStatusSucceeded, SystemTaskStatusFailed}).
 		Count(&terminalCount).Error)
 	assert.EqualValues(t, 30, terminalCount)
 	reloaded, err := GetSystemTaskByTaskID(active.TaskID)
@@ -427,7 +427,7 @@ func TestListSystemTaskSummariesOmitsLargePayloadAndResult(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, DB.Create(&SystemTask{
 		TaskID:  taskID,
-		Type:    SystemTaskTypeAssistantReview,
+		Type:    SystemTaskTypeAssistantRetention,
 		Status:  SystemTaskStatusSucceeded,
 		Payload: large,
 		State:   `{"progress":42,"detail":"not returned by the list"}`,
@@ -455,7 +455,7 @@ func TestListSystemTaskSummariesDoesNotSelectOversizedState(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, DB.Create(&SystemTask{
 		TaskID: taskID,
-		Type:   SystemTaskTypeAssistantReview,
+		Type:   SystemTaskTypeAssistantRetention,
 		Status: SystemTaskStatusSucceeded,
 		State:  `{"progress":42,"detail":"` + strings.Repeat("x", systemTaskSummaryStateMaxBytes) + `"}`,
 	}).Error)
@@ -464,4 +464,35 @@ func TestListSystemTaskSummariesDoesNotSelectOversizedState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	assert.Empty(t, tasks[0].State)
+}
+
+func TestUpdateSystemTaskStateIdenticalPayloadDoesNotLoseLock(t *testing.T) {
+	// SQLite reports matched rows for unchanged UPDATEs, so this case passed
+	// even before the fix. The MySQL regression is a no-op UPDATE whose
+	// RowsAffected is 0 while the lease row is still held.
+	truncateTables(t)
+	runUpdateSystemTaskStateIdenticalPayloadKeepsLock(t, SystemTaskTypeLogCleanup)
+}
+
+func runUpdateSystemTaskStateIdenticalPayloadKeepsLock(t *testing.T, taskType string) {
+	t.Helper()
+	// Two persists in the same second so MySQL's unchanged-row UPDATE returns 0.
+
+	task, err := CreateSystemTask(taskType, nil, nil)
+	require.NoError(t, err)
+
+	runnerID := "runner-a"
+	_, claimed, err := ClaimSystemTask(task.ID, taskType, runnerID, common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	state := testSystemTaskState{Total: 10, Processed: 10, Progress: 100, Remaining: 0}
+	require.NoError(t, UpdateSystemTaskState(task.TaskID, runnerID, state))
+	require.NoError(t, UpdateSystemTaskState(task.TaskID, runnerID, state), "identical state persist must not be treated as lock loss")
+
+	require.NoError(t, FinishSystemTask(task.TaskID, runnerID, SystemTaskStatusSucceeded, map[string]int64{"deleted_count": 10}, ""))
+	finished, err := GetSystemTaskByTaskID(task.TaskID)
+	require.NoError(t, err)
+	require.NotNil(t, finished)
+	assert.Equal(t, SystemTaskStatusSucceeded, finished.Status)
 }

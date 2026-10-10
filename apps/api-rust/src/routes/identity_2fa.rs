@@ -531,7 +531,7 @@ async fn status_read(State(state): State<Identity2FAReadState>, headers: HeaderM
     let mut response = status_for_user(&state.pool, user.id).await;
     response.headers_mut().insert(
         "auth-version",
-        HeaderValue::from_static("864b7076dbcd0a3c01b5520316720ebf"),
+        HeaderValue::from_static(crate::auth_version::AUTH_VERSION),
     );
     response
 }

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import './overview-dashboard.css'
 import { AccountStatus } from '@/features/onboarding/account-status'
 import { LatestRequestCard } from '@/features/onboarding/latest-request-card'
 import { ROLE } from '@/lib/roles'
@@ -26,9 +27,12 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useDashboardContentVisibility } from '../../hooks/use-status-data'
+import { AdminSiteStatisticsPanel } from './admin-site-statistics'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
+import { OverviewGreeting } from './overview-greeting'
+import { OverviewUsageCharts } from './overview-usage-charts'
 import { PerformanceHealthPanel } from './performance-health-panel'
 import { SummaryCards } from './summary-cards'
 import { UptimePanel } from './uptime-panel'
@@ -47,14 +51,12 @@ export function OverviewDashboard() {
   const showContentPanels = showLeftContentPanels || showUptimePanel
 
   return (
-    <div className='dashboard-editorial flex flex-col gap-10'>
-      {!isAdmin && (
-        <>
-          <AccountStatus />
-          <LatestRequestCard />
-        </>
-      )}
+    <div className='dashboard-editorial overview-dashboard flex flex-col gap-10'>
+      <OverviewGreeting />
+      {!isAdmin && <LatestRequestCard />}
       <SummaryCards />
+      <OverviewUsageCharts />
+      {isAdmin && <AdminSiteStatisticsPanel />}
 
       {showContentPanels && (
         <div
@@ -102,6 +104,7 @@ export function OverviewDashboard() {
           )}
         </div>
       )}
+      {!isAdmin && <AccountStatus />}
     </div>
   )
 }

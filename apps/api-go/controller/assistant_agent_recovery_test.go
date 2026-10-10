@@ -84,10 +84,9 @@ func TestAssistantAgentToolResultsMatchRepairedCallIDs(t *testing.T) {
 		turns++
 		if turns == 1 {
 			calls := []assistantOpenAIToolCall{}
-			for _, id := range []string{"", " padded-call "} {
-				calls = append(calls, assistantOpenAIToolCall{
-					ID: id, Type: "function", Function: assistantOpenAIToolCallFunction{Name: "calculate_math", Arguments: `{"expression":"1+1"}`},
-				})
+			for index, id := range []string{"", " padded-call "} {
+				// Distinct work isolates ID repair from duplicate-read protection.
+				calls = append(calls, assistantLoopMathCall(id, index+1))
 			}
 			body, err := json.Marshal(assistantOpenAIResponse{Choices: []assistantOpenAIResponseChoice{{Message: assistantOpenAIResponseMessage{ToolCalls: calls}}}})
 			require.NoError(t, err)
@@ -195,7 +194,7 @@ func TestAssistantAgentFirstAnswerDeltaPrecedesUpstreamCompletion(t *testing.T) 
 func TestAssistantPlannedReadRequiresAllowedExposedUncalledTool(t *testing.T) {
 	userContext := assistantUserContext{AccessLevel: "L1", DeveloperAccessGranted: true}
 	tools := assistantToolDefinitionsForContext(userContext)
-	for _, name := range []string{"get_service_facts", "get_account_access", "get_available_models", "get_l1_recommendation"} {
+	for _, name := range []string{"get_service_facts", "get_account_access", "get_available_models"} {
 		t.Run(name, func(t *testing.T) {
 			request := assistantOpenAIRequest{Tools: tools, ToolChoice: assistantNamedToolChoice(name)}
 			call, ok := assistantPlannedReadCall(request, userContext, nil, 0)

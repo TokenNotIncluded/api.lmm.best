@@ -292,9 +292,31 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 	requestContext := c.Request.Context()
 	ctx, cancel := newAwsInvokeContext(requestContext)
 	defer cancel()
+	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
+	status := info.RateLimitStreamStatus
+	initialWriterErrors := len(c.Errors)
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			reason := relaycommon.StreamEndReasonTimeout
+			if requestContext.Err() != nil {
+				reason = relaycommon.StreamEndReasonClientGone
+			}
+			status.SetEndReason(reason, err)
+			status.RecordError("AWS stream canceled or timed out")
+		}
+		if len(c.Errors) > initialWriterErrors {
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Errors.Last().Err)
+			status.RecordError("downstream AWS stream write failed")
+		}
+		status.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	}()
 
 	awsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))
 	if err != nil {
+		status.RecordError("AWS stream invocation failed")
+		if ctx.Err() == nil {
+			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+		}
 		return newAwsInvokeError(requestContext, err, "InvokeModelWithResponseStream"), nil
 	}
 	stream := awsResp.GetStream()
@@ -327,18 +349,30 @@ streamLoop:
 				info.SetFirstResponseTime()
 				respErr := claude.HandleStreamResponseData(c, info, claudeInfo, string(v.Value.Bytes))
 				if respErr != nil {
+					status.RecordError("invalid AWS stream response")
+					status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, respErr)
 					return respErr, nil
 				}
 			case *bedrockruntimeTypes.UnknownUnionMember:
 				fmt.Println("unknown tag:", v.Tag)
+				status.RecordError("unknown AWS stream response type")
+				status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, nil)
 				return types.NewError(errors.New("unknown response type"), types.ErrorCodeInvalidRequest), nil
 			default:
 				fmt.Println("union is nil or unknown type")
+				status.RecordError("unknown AWS stream response type")
+				status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, nil)
 				return types.NewError(errors.New("nil or unknown response type"), types.ErrorCodeInvalidRequest), nil
 			}
 		}
 	}
 
+	if err := stream.Err(); err != nil {
+		status.RecordError("error reading AWS stream")
+		if ctx.Err() == nil {
+			status.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+		}
+	}
 	_ = stream.Close()
 	claude.HandleStreamFinalResponse(c, info, claudeInfo)
 	return nil, claudeInfo.Usage

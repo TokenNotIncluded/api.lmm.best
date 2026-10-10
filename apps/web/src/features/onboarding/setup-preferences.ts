@@ -20,6 +20,8 @@ const STORAGE_KEY = 'lmm:setup-preferences:v1'
 const PLATFORMS = ['windows', 'macos', 'linux', 'android', 'ios'] as const
 const CLIENTS = [
   'pi',
+  'dsh',
+  'codewhale',
   'astrbot',
   'openai-sdk',
   'anthropic-sdk',
@@ -50,8 +52,14 @@ export function readSetupPreferences(): SetupPreferences | null {
       return null
     }
     if (
-      ['android', 'ios'].includes(value.platform) &&
+      value.platform === 'ios' &&
       !['chatbox', 'chatgpt'].includes(value.client)
+    ) {
+      return null
+    }
+    if (
+      value.platform === 'android' &&
+      !['codewhale', 'chatbox', 'chatgpt'].includes(value.client)
     ) {
       return null
     }

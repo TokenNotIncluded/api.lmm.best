@@ -82,3 +82,50 @@ describe('preferred secure verification methods', () => {
     assert.equal(result.hasPasskey, false)
   })
 })
+
+describe('channel key verification alternatives', () => {
+  const methods = {
+    hasEmail: true,
+    has2FA: true,
+    hasPasskey: true,
+    passkeySupported: true,
+    availability: 'complete' as const,
+  }
+
+  test('offers both bound email and supported Passkey for channel key reads', () => {
+    const result = getPreferredVerificationMethods(methods, 'channel.key.read')
+    assert.equal(result.hasEmail, true)
+    assert.equal(result.hasPasskey, true)
+    assert.equal(result.has2FA, false)
+  })
+
+  test('keeps email available when the browser cannot use Passkey', () => {
+    const result = getPreferredVerificationMethods(
+      { ...methods, passkeySupported: false },
+      'channel.key.read'
+    )
+    assert.equal(result.hasEmail, true)
+    assert.equal(result.hasPasskey, false)
+  })
+
+  test('does not expose an unregistered Passkey', () => {
+    const result = getPreferredVerificationMethods(
+      { ...methods, hasPasskey: false },
+      'channel.key.read'
+    )
+    assert.equal(result.hasEmail, true)
+    assert.equal(result.hasPasskey, false)
+  })
+
+  test('keeps other sensitive scopes on the existing primary method', () => {
+    for (const scope of [
+      'passkey.register',
+      'passkey.delete',
+      'security.review_runs.delete',
+    ] as const) {
+      const result = getPreferredVerificationMethods(methods, scope)
+      assert.equal(result.hasEmail, true)
+      assert.equal(result.hasPasskey, false)
+    }
+  })
+})

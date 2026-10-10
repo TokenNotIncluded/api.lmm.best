@@ -126,10 +126,15 @@ const CONTENT_SECTIONS = [
           AssistantEnabled: settings.AssistantEnabled,
           AssistantGroup: settings.AssistantGroup,
           AssistantModel: settings.AssistantModel,
+          AssistantModerationEnabled: settings.AssistantModerationEnabled,
+          AssistantModerationGroup: settings.AssistantModerationGroup,
+          AssistantModerationModel: settings.AssistantModerationModel,
           AssistantReasoningEffort: settings.AssistantReasoningEffort,
           AssistantStreamEnabled: settings.AssistantStreamEnabled,
           AssistantTemperature: settings.AssistantTemperature,
           AssistantMaxTokens: settings.AssistantMaxTokens,
+          AssistantNewUserGiftMaxCredits:
+            settings.AssistantNewUserGiftMaxCredits,
           AssistantAgentLoopEnabled: settings.AssistantAgentLoopEnabled,
           AssistantMaxSteps: settings.AssistantMaxSteps,
           AssistantTimeoutSeconds: settings.AssistantTimeoutSeconds,
@@ -143,29 +148,16 @@ const CONTENT_SECTIONS = [
           AssistantSearchURL: settings.AssistantSearchURL,
           AssistantSearchAPIKey: settings.AssistantSearchAPIKey,
           AssistantSearchMCPTool: settings.AssistantSearchMCPTool,
+          AssistantToolPolicy: settings.AssistantToolPolicy,
           AssistantSkills: settings.AssistantSkills,
           AssistantSkillFiles: settings.AssistantSkillFiles,
           AssistantRegistrationAutoSuspendEnabled:
             settings.AssistantRegistrationAutoSuspendEnabled,
           AssistantRegistrationDailySuspendCap:
             settings.AssistantRegistrationDailySuspendCap,
-          AssistantL1AutoReviewEnabled: settings.AssistantL1AutoReviewEnabled,
-          AssistantL1AutoReviewGroup: settings.AssistantL1AutoReviewGroup,
-          AssistantL1AutoReviewModel: settings.AssistantL1AutoReviewModel,
-          AssistantL1AutoReviewPrompt: settings.AssistantL1AutoReviewPrompt,
-          AssistantL1AutoReviewMinConfidence:
-            settings.AssistantL1AutoReviewMinConfidence,
+
           AssistantL1AutoApprovalUserIDs:
             settings.AssistantL1AutoApprovalUserIDs,
-          AssistantReviewEnabled: settings.AssistantReviewEnabled,
-          AssistantReviewWindowDays: settings.AssistantReviewWindowDays,
-          AssistantReviewIntervalHours: settings.AssistantReviewIntervalHours,
-          AssistantReviewProbability: settings.AssistantReviewProbability,
-          AssistantReviewGroup: settings.AssistantReviewGroup,
-          AssistantReviewModel: settings.AssistantReviewModel,
-          AssistantReviewReasoningEffort:
-            settings.AssistantReviewReasoningEffort,
-          AssistantReviewGroupPolicies: settings.AssistantReviewGroupPolicies,
           AssistantRetentionEnabled: settings.AssistantRetentionEnabled,
           AssistantActiveRetentionDays: settings.AssistantActiveRetentionDays,
           AssistantArchivedRetentionDays:

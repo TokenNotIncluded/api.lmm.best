@@ -35,77 +35,6 @@ import type {
   AssistantRequestReviewListData,
 } from './types'
 
-export type DeveloperAccessRequestAdmin = {
-  id: number
-  user_id: number
-  status: 'pending' | 'approved' | 'rejected'
-  reason: string
-  source:
-    | 'assistant_recommendation'
-    | 'user_edited'
-    | 'assistant_request'
-    | 'assistant_direct_grant'
-    | 'legacy'
-  ai_recommendation: string
-  admin_user_id: number
-  admin_note: string
-  created_at: number
-  reviewed_at: number
-  username: string
-  email: string
-}
-
-export type DeveloperAccessRecommendationArchive = {
-  id: number
-  user_id: number
-  request_id: number
-  source:
-    | 'assistant_recommendation'
-    | 'user_edited'
-    | 'assistant_request'
-    | 'assistant_direct_grant'
-    | 'legacy'
-  reason: string
-  recommendation: string
-  admin_user_id: number
-  admin_note: string
-  approved_at: number
-  created_at: number
-}
-
-type DeveloperAccessRequestListResponse = ApiResponse<
-  DeveloperAccessRequestAdmin[]
->
-
-export async function listDeveloperAccessRequests(
-  status: 'pending' | 'approved' | 'rejected' = 'pending'
-): Promise<DeveloperAccessRequestListResponse> {
-  const res = await api.get('/api/developer-access/requests', {
-    params: { status },
-  })
-  return res.data
-}
-
-export async function reviewDeveloperAccessRequest(
-  id: number,
-  action: 'approve' | 'reject',
-  note = ''
-): Promise<ApiResponse<DeveloperAccessRequestAdmin>> {
-  const res = await api.post(`/api/developer-access/requests/${id}/${action}`, {
-    note,
-  })
-  return res.data
-}
-
-export async function listDeveloperAccessRecommendationArchives(
-  userId: number
-): Promise<ApiResponse<DeveloperAccessRecommendationArchive[]>> {
-  const res = await api.get(`/api/user/${userId}/developer-access/archives`, {
-    params: { limit: 50 },
-  })
-  return res.data
-}
-
 export async function listAccountActionRequests(
   status: AccountActionRequestStatus = 'pending'
 ): Promise<ApiResponse<AccountActionRequestAdmin[]>> {
@@ -136,14 +65,12 @@ export async function reviewAccountActionRequest(
 export async function getUsers(
   params: GetUsersParams = {}
 ): Promise<GetUsersResponse> {
-  const { p = 1, page_size = 10, trust_level, sort_by, sort_order } = params
+  const { p = 1, page_size = 10, ...filters } = params
   const res = await api.get('/api/user/', {
     params: {
       p,
       page_size,
-      trust_level,
-      sort_by,
-      sort_order,
+      ...filters,
     },
   })
   return res.data
@@ -165,6 +92,12 @@ export async function searchUsers(
     page_size = 10,
     sort_by,
     sort_order,
+    risk_min,
+    risk_max,
+    transfers,
+    usage,
+    funding,
+    checkin,
   } = params
   const queryParams = new URLSearchParams()
   queryParams.set('keyword', keyword)
@@ -178,6 +111,16 @@ export async function searchUsers(
   queryParams.set('page_size', String(page_size))
   if (sort_by) queryParams.set('sort_by', sort_by)
   if (sort_order) queryParams.set('sort_order', sort_order)
+  for (const [key, value] of Object.entries({
+    risk_min,
+    risk_max,
+    transfers,
+    usage,
+    funding,
+    checkin,
+  })) {
+    if (value !== undefined) queryParams.set(key, String(value))
+  }
   const res = await api.get(`/api/user/search?${queryParams.toString()}`)
   return res.data
 }

@@ -29,12 +29,10 @@ import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
+import { getTaskAudioClips, getTaskResultUrl } from '../../lib/async-task-logs'
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import type { TaskLog } from '../../types'
-import {
-  AudioPreviewDialog,
-  type AudioClip,
-} from '../dialogs/audio-preview-dialog'
+import { AudioPreviewDialog } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import {
@@ -43,29 +41,10 @@ import {
   createProgressColumn,
 } from './column-helpers'
 
-function parseTaskData(data: unknown): unknown[] {
-  if (Array.isArray(data)) return data
-  if (typeof data === 'string') {
-    try {
-      const parsed = JSON.parse(data)
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
-  }
-  return []
-}
-
 function AudioPreviewCell({ log }: { log: TaskLog }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const clips = useMemo(() => {
-    const data = parseTaskData(log.data)
-    return data.filter(
-      (c) =>
-        c && typeof c === 'object' && (c as Record<string, unknown>).audio_url
-    )
-  }, [log.data])
+  const clips = useMemo(() => getTaskAudioClips(log.data), [log.data])
 
   if (clips.length === 0) return null
 
@@ -81,11 +60,7 @@ function AudioPreviewCell({ log }: { log: TaskLog }) {
           {t('Click to preview audio')}
         </span>
       </button>
-      <AudioPreviewDialog
-        open={open}
-        onOpenChange={setOpen}
-        clips={clips as AudioClip[]}
-      />
+      <AudioPreviewDialog open={open} onOpenChange={setOpen} clips={clips} />
     </>
   )
 }
@@ -224,18 +199,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
 
         const isSunoSuccess =
           log.platform === 'suno' && status === TASK_STATUS.SUCCESS
-        if (isSunoSuccess) {
-          const data = parseTaskData(log.data)
-          if (
-            data.some(
-              (c) =>
-                c &&
-                typeof c === 'object' &&
-                (c as Record<string, unknown>).audio_url
-            )
-          ) {
-            return <AudioPreviewCell log={log} />
-          }
+        if (isSunoSuccess && getTaskAudioClips(log.data).length > 0) {
+          return <AudioPreviewCell log={log} />
         }
 
         const isVideoTask =
@@ -244,19 +209,17 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           log.action === TASK_ACTIONS.FIRST_TAIL_GENERATE ||
           log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
           log.action === TASK_ACTIONS.REMIX_GENERATE
-        const isSuccess = status === TASK_STATUS.SUCCESS
-        const isUrl = failReason?.startsWith('http')
+        const resultUrl = getTaskResultUrl(log)
 
-        if (isSuccess && isVideoTask && isUrl) {
-          const videoUrl = `/v1/videos/${log.task_id}/content`
+        if (resultUrl) {
           return (
             <a
-              href={videoUrl}
+              href={resultUrl}
               target='_blank'
               rel='noopener noreferrer'
               className='text-foreground text-xs hover:underline'
             >
-              {t('Click to preview video')}
+              {isVideoTask ? t('Click to preview video') : t('View')}
             </a>
           )
         }

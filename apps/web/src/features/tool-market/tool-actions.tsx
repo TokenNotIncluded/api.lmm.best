@@ -3,10 +3,11 @@ Copyright (C) 2026 LIghtJUNction
 SPDX-License-Identifier: AGPL-3.0-or-later
 */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -14,46 +15,66 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 import {
   marketAPI,
-  marketQuota,
+  MarketAPIError,
   type CallResponse,
   type Grant,
   type MarketTool,
 } from './api'
+import {
+  callCanBeEdited,
+  callConfirmation,
+  canStartAnotherCall,
+  marketErrorKey,
+} from './call-utils'
 import { marketStatus, marketPermissionList } from './copy'
-import { creditAmount } from './money'
+import { useMarketMoneyDraft } from './money'
+import { ReportCallButton } from './reports'
+import {
+  drawingResultImages,
+  resultImage,
+  type ResultImage,
+} from './result-images'
+import { ToolArgumentsForm } from './schema-form'
+import {
+  argumentIssue,
+  initialArguments,
+  schemaObject,
+} from './schema-form-utils'
+import {
+  usagePriceLabel,
+  usageQuantityLabel,
+  usageSourceLabel,
+} from './usage-pricing'
 
 export function GrantDialog({
   tool,
   endpoint,
   clientID,
-  units,
   onClose,
 }: {
   tool: MarketTool
   endpoint: string
   clientID: string
-  units: number
+  units?: number
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const { formatQuota: formatRawQuota, label, step } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
   const cache = useQueryClient()
-  const [total, setTotal] = useState(String(tool.price_quota / units))
+  const total = useMarketMoneyDraft(tool.price_quota)
   const [count, setCount] = useState('1')
   const [hours, setHours] = useState('1')
   const grant = useMutation({
     retry: false,
-    mutationFn: () => {
+    mutationFn: async () => {
       const calls = Number(count),
         duration = Number(hours)
       if (
@@ -62,24 +83,40 @@ export function GrantDialog({
         calls > 1000000 ||
         !Number.isSafeInteger(duration) ||
         duration < 1 ||
-        duration > 720
+        duration > 720 ||
+        total.quota === undefined
       ) {
         throw new Error('Invalid limit')
       }
-      return marketAPI.grant({
+      const authorization = await marketAPI.grant({
         client_id: clientID,
         tool_id: tool.tool_id,
         version_id: tool.version_id,
         max_price_quota: tool.price_quota,
-        max_total_quota: marketQuota(total, units),
+        max_total_quota: total.quota,
         max_calls: calls,
         expires_at: Math.floor(Date.now() / 1000) + duration * 3600,
       })
+      try {
+        await marketAPI.install(
+          {
+            client_id: clientID,
+            tool_id: tool.tool_id,
+            version_id: tool.version_id,
+          },
+          true
+        )
+      } catch {
+        throw new MarketAPIError('TOOL_MARKET_LOAD_INCOMPLETE')
+      }
+      return authorization
     },
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: ['tool-market'] })
       onClose()
     },
+    onSettled: () =>
+      void cache.invalidateQueries({ queryKey: ['tool-market'] }),
   })
   return (
     <Dialog
@@ -90,10 +127,10 @@ export function GrantDialog({
     >
       <DialogContent className='max-h-[90dvh] overflow-auto sm:max-w-lg'>
         <DialogHeader>
-          <DialogTitle>{t('Authorize tool calls')}</DialogTitle>
+          <DialogTitle>{t('Add and authorize tool')}</DialogTitle>
           <DialogDescription>
             {t(
-              'This grants the selected client permission to use this exact tool version within these limits.'
+              'This loads the tool for the selected client and authorizes this exact version within the limits below.'
             )}
           </DialogDescription>
         </DialogHeader>
@@ -108,7 +145,7 @@ export function GrantDialog({
           </div>
           <div>
             <dt className='text-muted-foreground'>{t('Data recipient')}</dt>
-            <dd className='break-all'>{endpoint}</dd>
+            <dd className='break-all'>{endpoint || t('Platform builtin')}</dd>
           </div>
           <div>
             <dt className='text-muted-foreground'>
@@ -120,13 +157,26 @@ export function GrantDialog({
           </div>
           <div>
             <dt className='text-muted-foreground'>{t('Single-call limit')}</dt>
-            <dd>
-              {t('{{amount}} credits', {
-                amount: creditAmount(tool.price_quota, units),
-              })}
-            </dd>
+            <dd>{formatQuota(tool.price_quota)}</dd>
           </div>
         </dl>
+        {tool.billing_mode === 'metered' && (
+          <p className='text-sm'>{usagePriceLabel(tool, formatQuota, t)}</p>
+        )}
+        {tool.billing_mode === 'input_tokens' && (
+          <p className='text-sm'>
+            {t('{{amount}} per million input tokens', {
+              amount: formatQuota(tool.input_token_price_quota ?? 0),
+            })}
+          </p>
+        )}
+        {tool.billing_mode && (
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Usage is reported by the tool provider. You can report a disputed bill.'
+            )}
+          </p>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -136,13 +186,16 @@ export function GrantDialog({
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor='grant-total'>
-                {t('Total spending limit')}
+                {t('Total spending limit')} ({label})
               </FieldLabel>
               <Input
                 id='grant-total'
                 inputMode='decimal'
-                value={total}
-                onChange={(e) => setTotal(e.target.value)}
+                min={0}
+                step={step}
+                value={total.input}
+                aria-invalid={total.quota === undefined}
+                onChange={(e) => total.setInput(e.target.value)}
                 required
               />
             </Field>
@@ -176,13 +229,23 @@ export function GrantDialog({
             </Field>
             {grant.isError && (
               <p role='alert' className='text-destructive text-sm'>
-                {t(
-                  'Authorization failed. Check the limits and refresh the tool version.'
-                )}
+                {grant.error instanceof MarketAPIError &&
+                grant.error.code === 'TOOL_MARKET_LOAD_INCOMPLETE'
+                  ? t(
+                      'Authorization was saved, but loading failed. Refresh access and load this tool.'
+                    )
+                  : grant.error instanceof MarketAPIError
+                    ? t(marketErrorKey(grant.error))
+                    : t(
+                        'Authorization failed. Check the limits and refresh the tool version.'
+                      )}
               </p>
             )}
-            <Button type='submit' disabled={grant.isPending}>
-              {t('Confirm authorization')}
+            <Button
+              type='submit'
+              disabled={grant.isPending || total.quota === undefined}
+            >
+              {t('Add and authorize tool')}
             </Button>
           </FieldGroup>
         </form>
@@ -193,14 +256,16 @@ export function GrantDialog({
 
 export function CallResult({
   response,
-  units,
 }: {
   response: CallResponse
-  units: number
+  units?: number
 }) {
   const { t } = useTranslation()
+  const { formatQuota: formatRawQuota } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
   return (
-    <div className='space-y-3 text-sm' aria-live='polite'>
+    <div className='min-w-0 space-y-3 text-sm' aria-live='polite'>
       <dl className='grid grid-cols-2 gap-3'>
         <div>
           <dt className='text-muted-foreground'>{t('Execution status')}</dt>
@@ -217,14 +282,11 @@ export function CallResult({
               : t('Amount')}
           </dt>
           <dd>
-            {t('{{amount}} credits', {
-              amount: creditAmount(
-                response.call.settlement_status === 'released'
-                  ? 0
-                  : response.call.price_quota,
-                units
-              ),
-            })}
+            {formatQuota(
+              response.call.settlement_status === 'released'
+                ? 0
+                : response.call.price_quota
+            )}
           </dd>
         </div>
         <div>
@@ -235,13 +297,24 @@ export function CallResult({
           <dt className='text-muted-foreground'>{t('Request ID')}</dt>
           <dd className='font-mono text-xs break-all'>{response.call.id}</dd>
         </div>
+        {response.call.usage_quantities && (
+          <div className='col-span-2'>
+            <dt className='text-muted-foreground'>
+              {t(usageSourceLabel(response.call.usage_source))}
+            </dt>
+            <dd>{usageQuantityLabel(response.call.usage_quantities, t)}</dd>
+          </div>
+        )}
       </dl>
+      {['settled', 'released'].includes(response.call.settlement_status) && (
+        <ReportCallButton callID={response.call.id} />
+      )}
       {response.call.settlement_status === 'held' && (
         <p>
           {t(
-            'The result is not settled. {{amount}} credits remain reserved until {{time}}. Check this request instead of starting it again.',
+            'The result is not settled. {{amount}} remain reserved until {{time}}. Check this request instead of starting it again.',
             {
-              amount: creditAmount(response.call.price_quota, units),
+              amount: formatQuota(response.call.price_quota),
               time: new Date(response.call.resolve_by * 1000).toLocaleString(),
             }
           )}
@@ -254,11 +327,152 @@ export function CallResult({
           )}
         </p>
       )}
+      {response.error_code && (
+        <p role='status'>
+          {response.error_code === 'TOOL_MARKET_RESULT_UNKNOWN'
+            ? t(
+                'The result is unknown. Check this call instead of starting it again.'
+              )
+            : response.error_code === 'TOOL_MARKET_SETTLEMENT_PENDING'
+              ? t(
+                  'The result was received. Settlement is still being confirmed.'
+                )
+              : t('The tool returned an invalid or unsuccessful result.')}
+        </p>
+      )}
       {response.result !== undefined && (
-        <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs break-all whitespace-pre-wrap'>
-          {JSON.stringify(response.result, null, 2)}
+        <MCPResultView value={response.result} />
+      )}
+    </div>
+  )
+}
+
+function ImageResult({ image }: { image: ResultImage }) {
+  const { t } = useTranslation()
+  const [url, setURL] = useState('')
+  useEffect(() => {
+    let blobURL = ''
+    try {
+      const decoded = atob(image.data)
+      const bytes = new Uint8Array(decoded.length)
+      for (let index = 0; index < decoded.length; index++) {
+        bytes[index] = decoded.charCodeAt(index)
+      }
+      blobURL = URL.createObjectURL(new Blob([bytes], { type: image.mimeType }))
+      setURL(blobURL)
+    } catch {
+      setURL('')
+    }
+    return () => {
+      if (blobURL) URL.revokeObjectURL(blobURL)
+    }
+  }, [image.data, image.mimeType])
+  if (!url) return null
+  return (
+    <div className='space-y-2'>
+      <img
+        src={url}
+        alt={t('Image result')}
+        className='max-h-96 max-w-full rounded-md'
+      />
+      <a
+        href={url}
+        download={`image.${image.mimeType.split('/')[1]}`}
+        className='text-primary underline'
+      >
+        {t('Download')}
+      </a>
+    </div>
+  )
+}
+
+function MCPResultView({ value }: { value: unknown }) {
+  const { t } = useTranslation()
+  if (!schemaObject(value)) {
+    return (
+      <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    )
+  }
+  const content = Array.isArray(value.content) ? value.content : []
+  const drawing = drawingResultImages(
+    value.structuredContent,
+    t('Image result')
+  )
+  return (
+    <div className='min-w-0 space-y-3'>
+      {content.map((item: unknown, index: number) => {
+        if (!schemaObject(item)) return null
+        if (item.type === 'text' && typeof item.text === 'string') {
+          return (
+            <p
+              key={index}
+              className='[overflow-wrap:anywhere] whitespace-pre-wrap'
+            >
+              {item.text}
+            </p>
+          )
+        }
+        if (item.type === 'image') {
+          const image = resultImage(item.data, item.mimeType)
+          return image ? <ImageResult key={index} image={image} /> : null
+        }
+        if (
+          item.type === 'audio' &&
+          typeof item.data === 'string' &&
+          item.data.length <= 3 * 1024 * 1024 &&
+          /^[A-Za-z0-9+/=\r\n]+$/.test(item.data) &&
+          typeof item.mimeType === 'string' &&
+          /^audio\/(wav|mpeg|ogg|webm|flac)$/.test(item.mimeType)
+        ) {
+          return (
+            <audio
+              key={index}
+              controls
+              aria-label={t('Audio result')}
+              src={`data:${item.mimeType};base64,${item.data}`}
+            />
+          )
+        }
+        if (
+          item.type === 'resource' &&
+          schemaObject(item.resource) &&
+          typeof item.resource.text === 'string'
+        ) {
+          return (
+            <pre
+              key={index}
+              className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'
+            >
+              {item.resource.text}
+            </pre>
+          )
+        }
+        return (
+          <pre
+            key={index}
+            className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'
+          >
+            {JSON.stringify(item, null, 2)}
+          </pre>
+        )
+      })}
+      {drawing.images.map((image, index) => (
+        <ImageResult key={`drawing-${index}`} image={image} />
+      ))}
+      {value.structuredContent !== undefined && (
+        <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>
+          {JSON.stringify(drawing.metadata, null, 2)}
         </pre>
       )}
+      {!content.length &&
+        value.structuredContent === undefined &&
+        !value.inputRequests && (
+          <pre className='bg-muted max-h-64 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>
+            {JSON.stringify(value, null, 2)}
+          </pre>
+        )}
     </div>
   )
 }
@@ -267,28 +481,38 @@ export function CallDialog({
   tool,
   grant,
   endpoint,
-  units,
   onClose,
 }: {
   tool: MarketTool
   grant: Grant
   endpoint: string
-  units: number
+  units?: number
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const { formatQuota: formatRawQuota } = useWalletCurrency()
+  const formatQuota = (quota: number) =>
+    formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
   const cache = useQueryClient()
-  const [args, setArgs] = useState('{}')
-  const [requestID] = useState(() => crypto.randomUUID())
+  const [args, setArgs] = useState(() => initialArguments(tool.input_schema))
+  const [requestID, setRequestID] = useState(() => crypto.randomUUID())
   const [submitted, setSubmitted] = useState<string | null>(null)
   const [response, setResponse] = useState<CallResponse | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const [validation, setValidation] = useState<string | null>(null)
+  const confirmation = callConfirmation(response)
   const run = useMutation({
     retry: false,
-    mutationFn: async () => {
+    mutationFn: async (action?: 'accept' | 'cancel') => {
       const raw = submitted ?? args
-      const parsed = JSON.parse(raw) as unknown
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Arguments must be an object')
+      const issue = argumentIssue(raw, tool.input_schema)
+      if (issue) {
+        setValidation(issue)
+        throw new MarketAPIError('TOOL_MARKET_ARGUMENTS')
+      }
+      setValidation(null)
+      if (action && !confirmation) {
+        throw new MarketAPIError('TOOL_MARKET_INVALID_INPUT')
       }
       setSubmitted(raw)
       return marketAPI.invoke({
@@ -296,12 +520,35 @@ export function CallDialog({
         version_id: tool.version_id,
         grant_id: grant.id,
         request_id: requestID,
-        arguments: parsed,
+        arguments: JSON.parse(raw) as unknown,
+        arguments_json: raw,
+        ...(action && confirmation
+          ? {
+              request_state: confirmation.requestState,
+              input_responses: {
+                confirmation: {
+                  action,
+                  ...(action === 'accept'
+                    ? { content: { confirmed: true as const } }
+                    : {}),
+                },
+              },
+            }
+          : {}),
       })
     },
     onSuccess: (result) => {
       setResponse(result)
+      setConfirmed(false)
       void cache.invalidateQueries({ queryKey: ['tool-market'] })
+    },
+    onError: (error) => {
+      // Only definite pre-execution rejections make the original input editable.
+      // A network/server error retains its immutable payload and request ID.
+      if (!response && callCanBeEdited(error)) {
+        setSubmitted(null)
+        setRequestID(crypto.randomUUID())
+      }
     },
   })
   const refresh = useMutation({
@@ -309,13 +556,42 @@ export function CallDialog({
       if (!response) throw new Error('Missing call')
       return marketAPI.result(response.call.id)
     },
-    onSuccess: setResponse,
+    onSuccess: (result) => {
+      setResponse(result)
+      setConfirmed(false)
+    },
   })
+  const newCall = () => {
+    if (!canStartAnotherCall(response)) return
+    setSubmitted(null)
+    setResponse(null)
+    setRequestID(crypto.randomUUID())
+    setConfirmed(false)
+    setValidation(null)
+    run.reset()
+    refresh.reset()
+  }
+  const inputError =
+    validation?.startsWith('Missing parameter: ') ||
+    validation?.startsWith('Invalid parameter: ')
+      ? t('Check parameter {{name}}.', {
+          name: validation.slice(validation.indexOf(': ') + 2),
+        })
+      : validation
+        ? t(validation)
+        : null
+  const uncertainRequest =
+    submitted !== null &&
+    !response &&
+    run.isError &&
+    !callCanBeEdited(run.error)
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !run.isPending) onClose()
+        if (!open && !run.isPending && !confirmation && !uncertainRequest) {
+          onClose()
+        }
       }}
     >
       <DialogContent className='max-h-[90dvh] overflow-auto sm:max-w-xl'>
@@ -327,7 +603,9 @@ export function CallDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <p className='text-muted-foreground text-sm break-all'>{endpoint}</p>
+        <p className='text-muted-foreground text-sm break-all'>
+          {endpoint || t('Platform builtin')}
+        </p>
         {!response && (
           <dl className='grid grid-cols-2 gap-3 text-sm'>
             <div className='col-span-2'>
@@ -338,28 +616,21 @@ export function CallDialog({
               <dt className='text-muted-foreground'>
                 {t('Single-call limit')}
               </dt>
-              <dd>
-                {t('{{amount}} credits', {
-                  amount: creditAmount(grant.max_price_quota, units),
-                })}
-              </dd>
+              <dd>{formatQuota(grant.max_price_quota)}</dd>
             </div>
             <div>
               <dt className='text-muted-foreground'>
                 {t('Remaining spending limit')}
               </dt>
               <dd>
-                {t('{{amount}} credits', {
-                  amount: creditAmount(
-                    Math.max(
-                      0,
-                      grant.max_total_quota -
-                        grant.spent_quota -
-                        grant.reserved_quota
-                    ),
-                    units
-                  ),
-                })}
+                {formatQuota(
+                  Math.max(
+                    0,
+                    grant.max_total_quota -
+                      grant.spent_quota -
+                      grant.reserved_quota
+                  )
+                )}
               </dd>
             </div>
             <div>
@@ -381,55 +652,94 @@ export function CallDialog({
             </div>
           </dl>
         )}
-        <details className='text-sm'>
-          <summary className='cursor-pointer'>{t('Parameter schema')}</summary>
-          <pre className='bg-muted mt-2 max-h-40 overflow-auto p-3 text-xs'>
-            {JSON.stringify(JSON.parse(tool.input_schema), null, 2)}
-          </pre>
-        </details>
-        <Field>
-          <FieldLabel htmlFor='call-args'>{t('Arguments (JSON)')}</FieldLabel>
-          <Textarea
-            id='call-args'
-            className='min-h-32 font-mono text-xs'
-            value={args}
-            disabled={submitted !== null || run.isPending}
-            onChange={(e) => setArgs(e.target.value)}
-          />
-          <FieldDescription>
-            {t(
-              'Successful calls are charged once. Repeated delivery of this request does not charge again.'
-            )}
-          </FieldDescription>
-        </Field>
+        <ToolArgumentsForm
+          schema={tool.input_schema}
+          value={args}
+          onChange={(value) => {
+            setArgs(value)
+            setValidation(null)
+            run.reset()
+          }}
+          disabled={submitted !== null || run.isPending}
+        />
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Successful calls are charged once. Repeated delivery of this request does not charge again.'
+          )}
+        </p>
         {run.isError && (
           <p role='alert' className='text-destructive text-sm'>
-            {t(
-              'The call could not be completed. Check your grant, budget, balance and arguments. A retry uses the same request ID.'
-            )}
+            {inputError || t(marketErrorKey(run.error))}
           </p>
         )}
         {!response && (
-          <Button disabled={run.isPending} onClick={() => run.mutate()}>
+          <Button
+            disabled={run.isPending}
+            onClick={() => run.mutate(undefined)}
+          >
             {run.isPending
               ? t('Running…')
               : submitted
                 ? t('Retry same request')
-                : t('Run for up to {{amount}} credits', {
-                    amount: creditAmount(tool.price_quota, units),
-                  })}
+                : tool.price_quota === 0
+                  ? t('Run free tool')
+                  : t('Run for up to {{amount}}', {
+                      amount: formatQuota(tool.price_quota),
+                    })}
           </Button>
         )}
         {response && (
           <>
-            <CallResult response={response} units={units} />
-            <Button
-              variant='outline'
-              disabled={refresh.isPending}
-              onClick={() => refresh.mutate()}
-            >
-              {t('Refresh result')}
-            </Button>
+            <CallResult response={response} />
+            {confirmation && (
+              <section className='space-y-3 rounded-lg border p-4'>
+                <h4 className='font-medium'>{t('Confirm tool action')}</h4>
+                <p className='text-sm whitespace-pre-wrap'>
+                  {confirmation.message}
+                </p>
+                <label className='flex items-start gap-3 text-sm'>
+                  <Checkbox
+                    checked={confirmed}
+                    disabled={run.isPending}
+                    onCheckedChange={(value) => setConfirmed(value === true)}
+                  />
+                  {t('I reviewed this action and its charges.')}
+                </label>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    disabled={!confirmed || run.isPending}
+                    onClick={() => run.mutate('accept')}
+                  >
+                    {t('Confirm and continue')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    disabled={run.isPending}
+                    onClick={() => run.mutate('cancel')}
+                  >
+                    {t('Cancel action')}
+                  </Button>
+                </div>
+              </section>
+            )}
+            <div className='flex flex-wrap gap-2'>
+              <Button
+                variant='outline'
+                disabled={refresh.isPending || run.isPending}
+                onClick={() => refresh.mutate()}
+              >
+                {t('Refresh result')}
+              </Button>
+              {canStartAnotherCall(response) && (
+                <Button
+                  variant='outline'
+                  disabled={run.isPending}
+                  onClick={newCall}
+                >
+                  {t('Start another call')}
+                </Button>
+              )}
+            </div>
           </>
         )}
         {refresh.isError && (

@@ -24,11 +24,6 @@ const apiSource = readFileSync(
   new URL('./model-details-api.tsx', import.meta.url),
   'utf8'
 )
-const statsSource = readFileSync(
-  new URL('../lib/mock-stats.ts', import.meta.url),
-  'utf8'
-)
-
 describe('public model API details', () => {
   test('does not present inferred parameters or seeded limits as authoritative', () => {
     for (const misleadingSymbol of [
@@ -39,7 +34,6 @@ describe('public model API details', () => {
       'formatRateLimit',
     ]) {
       assert.equal(apiSource.includes(misleadingSymbol), false)
-      assert.equal(statsSource.includes(misleadingSymbol), false)
     }
     assert.equal(apiSource.includes("t('Supported parameters')"), false)
     assert.equal(apiSource.includes("t('Rate limits')"), false)

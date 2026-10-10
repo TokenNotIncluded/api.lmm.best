@@ -3,259 +3,46 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func setupDeveloperAccessRequestControllerTest(t *testing.T) (*model.User, *gin.Engine) {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
+func TestRetiredDeveloperAccessEndpointsPreserveHistoryAndNeverActivate(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.DeveloperAccessRecommendationArchive{}, &model.AuthFlow{}))
-	user := &model.User{
-		Username: "developer-access-controller-user",
-		Password: "password",
-		Role:     common.RoleCommonUser,
-		Status:   common.UserStatusEnabled,
-		Group:    "default",
+	require.NoError(t, db.AutoMigrate(&model.DeveloperAccessRequest{}, &model.DeveloperAccessRecommendationArchive{}, &model.AuthFlow{}))
+	user := model.User{Username: "retired-l1", AffCode: "retired-l1", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+	stored := model.DeveloperAccessRequest{UserId: user.Id, Status: "pending", Reason: "private legacy reason", AIRecommendation: "private legacy letter"}
+	require.NoError(t, db.Create(&stored).Error)
+	archive := model.DeveloperAccessRecommendationArchive{UserId: user.Id, RequestId: stored.Id, Recommendation: "private archived letter"}
+	require.NoError(t, db.Create(&archive).Error)
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		for _, body := range []string{"", `{"confirmed":true,"reason":"create access","ai_recommendation":"old recommendation","confirmation_token":"old-token"}`, "invalid-json"} {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(method, "/retired", strings.NewReader(body))
+			c.Set("id", user.Id)
+			RetiredDeveloperAccessRequest(c)
+			require.Equal(t, http.StatusGone, w.Code)
+			require.Contains(t, w.Body.String(), "DEVELOPER_ACCESS_LETTER_RETIRED")
+			require.NotContains(t, w.Body.String(), "private")
+		}
 	}
-	require.NoError(t, db.Create(user).Error)
-	engine := gin.New()
-	engine.POST("/request", func(c *gin.Context) {
-		c.Set("id", user.Id)
-		c.Set("session_id", "developer-access-test-session")
-		SubmitDeveloperAccessRequest(c)
-	})
-	return user, engine
-}
-
-func TestListUserDeveloperAccessRecommendationArchivesEnforcesRoleBoundary(t *testing.T) {
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.DeveloperAccessRequest{}, &model.DeveloperAccessRecommendationArchive{}))
-	viewer := &model.User{Username: "archive-admin", AffCode: "archive-admin", Password: "password", Role: common.RoleAdminUser, Status: common.UserStatusEnabled}
-	target := &model.User{Username: "archive-target", AffCode: "archive-target", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
-	peer := &model.User{Username: "archive-peer", AffCode: "archive-peer", Password: "password", Role: common.RoleAdminUser, Status: common.UserStatusEnabled}
-	require.NoError(t, db.Create(viewer).Error)
-	require.NoError(t, db.Create(target).Error)
-	require.NoError(t, db.Create(peer).Error)
-	require.NoError(t, db.Create(&model.DeveloperAccessRecommendationArchive{
-		UserId: target.Id, RequestId: 4, Source: model.DeveloperAccessRequestSourceAI,
-		Reason: "concrete integration", Recommendation: "Approved for a concrete integration.",
-		AdminUserId: viewer.Id, AdminNote: "approved", ApprovedAt: 20, CreatedAt: 20,
-	}).Error)
-
-	engine := gin.New()
-	engine.GET("/:id/developer-access/archives", func(c *gin.Context) {
-		c.Set("id", viewer.Id)
-		c.Set("role", viewer.Role)
-		ListUserDeveloperAccessRecommendationArchives(c)
-	})
-
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/"+strconv.Itoa(target.Id)+"/developer-access/archives", nil))
-	assert.Equal(t, http.StatusOK, response.Code)
-	assert.Contains(t, response.Body.String(), "Approved for a concrete integration.")
-
-	response = httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/"+strconv.Itoa(peer.Id)+"/developer-access/archives", nil))
-	assert.Equal(t, http.StatusForbidden, response.Code)
-}
-
-func TestSubmitDeveloperAccessRequestRequiresConfirmedAIRecommendation(t *testing.T) {
-	user, engine := setupDeveloperAccessRequestControllerTest(t)
-
-	request := httptest.NewRequest(http.MethodPost, "/request", strings.NewReader(`{
-		"reason":"I want to connect Claude Code for a Go project.",
-		"ai_recommendation":"The user gave a concrete development use case and compatible client.",
-		"confirmed":false
-	}`))
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
-	assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
-	assert.Contains(t, response.Body.String(), "DEVELOPER_ACCESS_CONFIRMATION_REQUIRED")
-	stored, err := model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	assert.Nil(t, stored)
-	request = httptest.NewRequest(http.MethodPost, "/request", strings.NewReader(`{
-		"reason":"I want to connect Claude Code for a Go project.",
-		"ai_recommendation":"The user gave a concrete development use case and compatible client.",
-		"confirmed":true
-	}`))
-	request.Header.Set("Content-Type", "application/json")
-	response = httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
-	assert.Equal(t, http.StatusOK, response.Code)
-	assert.Contains(t, response.Body.String(), model.DeveloperAccessRequestSourceUser)
-	stored, err = model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	assert.Equal(t, "The user gave a concrete development use case and compatible client.", stored.AIRecommendation)
-	assert.Equal(t, model.DeveloperAccessRequestSourceUser, stored.Source)
-
-	payload, err := common.Marshal(assistantL1RecommendationDraft{
-		UserStatement:  "I want to connect Claude Code for a Go project.",
-		Recommendation: "The user gave a concrete development use case and compatible client.",
-	})
-	require.NoError(t, err)
-	confirmationToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose:   model.AuthFlowPurposeAssistantL1,
-		UserId:    user.Id,
-		SessionId: "developer-access-test-session",
-		Payload:   string(payload),
-		ExpiresAt: time.Now().Add(time.Minute),
-	})
-	require.NoError(t, err)
-
-	request = httptest.NewRequest(http.MethodPost, "/request", strings.NewReader(`{
-		"reason":"I want to connect Claude Code for a Go project.",
-		"ai_recommendation":"The user gave a concrete development use case and compatible client.",
-		"confirmation_token":"`+confirmationToken+`",
-		"confirmed":true
-	}`))
-	request.Header.Set("Content-Type", "application/json")
-	response = httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
-	assert.Equal(t, http.StatusOK, response.Code)
-	assert.Contains(t, response.Body.String(), model.DeveloperAccessRequestSourceAI)
-	assert.Contains(t, response.Body.String(), "ai_recommendation")
-}
-
-func TestSubmitPreparedL1RecommendationCommitsExactlyOnceAfterConfirmation(t *testing.T) {
-	user, engine := setupDeveloperAccessRequestControllerTest(t)
-	originalRecommendation := "The AI drafted a concrete recommendation for the user's integration workflow."
-	editedRecommendation := "The user edited this concrete recommendation before explicitly confirming it."
-	payload, err := common.Marshal(assistantL1RecommendationDraft{
-		UserStatement:  "I need L1 access for a concrete integration workflow.",
-		Recommendation: originalRecommendation,
-	})
-	require.NoError(t, err)
-	confirmationToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose:   model.AuthFlowPurposeAssistantL1,
-		UserId:    user.Id,
-		SessionId: "developer-access-test-session",
-		Payload:   string(payload),
-		ExpiresAt: time.Now().Add(time.Minute),
-	})
-	require.NoError(t, err)
-
-	stored, err := model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	assert.Nil(t, stored)
-
-	body := `{
-		"reason":"` + editedRecommendation + `",
-		"ai_recommendation":"` + editedRecommendation + `",
-		"confirmation_token":"` + confirmationToken + `",
-		"confirmed":true
-	}`
-	request := httptest.NewRequest(http.MethodPost, "/request", strings.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
-	assert.Equal(t, http.StatusOK, response.Code)
-
-	stored, err = model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	assert.Equal(t, editedRecommendation, stored.Reason)
-	assert.Equal(t, editedRecommendation, stored.AIRecommendation)
-	assert.Equal(t, model.DeveloperAccessRequestSourceAI, stored.Source)
-	requestID := stored.Id
-	_, err = model.GetAuthFlow(confirmationToken, model.AuthFlowMatch{
-		Purpose:   model.AuthFlowPurposeAssistantL1,
-		UserId:    user.Id,
-		SessionId: "developer-access-test-session",
-	})
-	assert.ErrorIs(t, err, model.ErrAuthFlowConsumed)
-
-	request = httptest.NewRequest(http.MethodPost, "/request", strings.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
-	response = httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
-	assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
-	assert.Contains(t, response.Body.String(), "DEVELOPER_ACCESS_AI_CONFIRMATION_INVALID")
-
-	var requestCount int64
-	require.NoError(t, model.DB.Model(&model.DeveloperAccessRequest{}).Where("user_id = ?", user.Id).Count(&requestCount).Error)
-	assert.EqualValues(t, 1, requestCount)
-	stored, err = model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	assert.Equal(t, requestID, stored.Id)
-	assert.Equal(t, editedRecommendation, stored.AIRecommendation)
-}
-
-func TestPresetRecommendationAndApprovalUseAggregateCohort(t *testing.T) {
-	user, engine := setupDeveloperAccessRequestControllerTest(t)
-	require.NoError(t, model.DB.AutoMigrate(
-		&model.Log{},
-		&model.PromptPresetRow{},
-		&model.PromptPresetStat{},
-		&model.PromptConversionRef{},
-	))
-	set, err := model.GetPromptPresets()
-	require.NoError(t, err)
-	require.NotEmpty(t, set.Presets)
-	payload, err := common.Marshal(assistantL1RecommendationDraft{
-		UserStatement:    "I need L1 access for a concrete integration workflow.",
-		Recommendation:   "The user described a concrete integration workflow suitable for administrator review.",
-		PresetId:         set.Presets[0].Id,
-		PresetGeneration: set.Generation,
-		PresetVersion:    set.Version,
-	})
-	require.NoError(t, err)
-	confirmationToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose:   model.AuthFlowPurposeAssistantL1,
-		UserId:    user.Id,
-		SessionId: "developer-access-test-session",
-		Payload:   string(payload),
-		ExpiresAt: time.Now().Add(time.Minute),
-	})
-	require.NoError(t, err)
-
-	body := `{
-		"reason":"I need L1 access for a concrete integration workflow.",
-		"ai_recommendation":"The user described a concrete integration workflow suitable for administrator review.",
-		"confirmation_token":"` + confirmationToken + `",
-		"confirmed":true
-	}`
-	request := httptest.NewRequest(http.MethodPost, "/request", strings.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
-	require.Equal(t, http.StatusOK, response.Code)
-	stored, err := model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	var requestID int
-	require.NoError(t, model.DB.Table("developer_access_requests").Select("id").Where("user_id = ?", user.Id).Scan(&requestID).Error)
-	require.Positive(t, requestID)
-
-	reviewEngine := gin.New()
-	reviewEngine.POST("/approve/:id", func(c *gin.Context) {
-		c.Set("id", 99)
-		ApproveDeveloperAccessRequest(c)
-	})
-	approve := httptest.NewRequest(http.MethodPost, "/approve/"+strconv.Itoa(requestID), strings.NewReader(`{"note":"approved for verified L1 use"}`))
-	approve.Header.Set("Content-Type", "application/json")
-	approved := httptest.NewRecorder()
-	reviewEngine.ServeHTTP(approved, approve)
-	require.Equal(t, http.StatusOK, approved.Code, approved.Body.String())
-
-	var stat model.PromptPresetStat
-	require.NoError(t, model.DB.Where("preset_id = ?", set.Presets[0].Id).First(&stat).Error)
-	assert.EqualValues(t, 1, stat.RecommendationCount)
-	assert.EqualValues(t, 1, stat.ApprovalCount)
-	var cohortRows int64
-	require.NoError(t, model.DB.Model(&model.PromptConversionRef{}).Count(&cohortRows).Error)
-	assert.Zero(t, cohortRows)
+	var actual model.User
+	require.NoError(t, db.First(&actual, user.Id).Error)
+	require.Zero(t, actual.ConsoleActivatedAt)
+	var request model.DeveloperAccessRequest
+	require.NoError(t, db.First(&request, stored.Id).Error)
+	require.Equal(t, stored, request)
+	var actualArchive model.DeveloperAccessRecommendationArchive
+	require.NoError(t, db.First(&actualArchive, archive.Id).Error)
+	require.Equal(t, archive, actualArchive)
+	var flows int64
+	require.NoError(t, db.Model(&model.AuthFlow{}).Count(&flows).Error)
+	require.Zero(t, flows)
 }

@@ -18,7 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
 import type { Table } from '@tanstack/react-table'
-import { Power, PowerOff, Tag, Trash2 } from 'lucide-react'
+import {
+  CircleAlert,
+  CircleCheck,
+  Power,
+  PowerOff,
+  Tag,
+  Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -52,6 +59,9 @@ interface DataTableBulkActionsProps<TData> {
   table: Table<TData>
 }
 
+/** Which bulk action is awaiting its second confirmation. */
+type PendingBulkAction = 'enable' | 'disable' | null
+
 export function DataTableBulkActions<TData>({
   table,
 }: DataTableBulkActionsProps<TData>) {
@@ -59,6 +69,7 @@ export function DataTableBulkActions<TData>({
   const queryClient = useQueryClient()
   const [showTagDialog, setShowTagDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [pendingAction, setPendingAction] = useState<PendingBulkAction>(null)
   const [tagValue, setTagValue] = useState('')
   const currentUser = useAuthStore((s) => s.auth.user)
   const canEditSensitive = hasPermission(
@@ -82,12 +93,20 @@ export function DataTableBulkActions<TData>({
     table.resetRowSelection()
   }
 
+  // Both bulk status flips change live traffic routing, so they are gated
+  // behind an explicit confirmation naming the exact channel count.
   const handleEnableAll = () => {
-    handleBatchEnable(selectedIds, queryClient, handleClearSelection)
+    handleBatchEnable(selectedIds, queryClient, () => {
+      setPendingAction(null)
+      handleClearSelection()
+    })
   }
 
   const handleDisableAll = () => {
-    handleBatchDisable(selectedIds, queryClient, handleClearSelection)
+    handleBatchDisable(selectedIds, queryClient, () => {
+      setPendingAction(null)
+      handleClearSelection()
+    })
   }
 
   const handleDeleteAll = () => {
@@ -106,87 +125,72 @@ export function DataTableBulkActions<TData>({
     })
   }
 
+  const confirmPendingAction = () => {
+    if (pendingAction === 'enable') {
+      handleEnableAll()
+    } else if (pendingAction === 'disable') {
+      handleDisableAll()
+    }
+  }
+
   return (
     <>
       <BulkActionsToolbar table={table} entityName='channel'>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant='outline'
-                size='icon'
-                onClick={handleEnableAll}
-                className='size-8'
-                aria-label={t('Enable selected channels')}
-                title={t('Enable selected channels')}
-              />
-            }
-          >
-            <Power />
-            <span className='sr-only'>{t('Enable selected channels')}</span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{t('Enable selected channels')}</p>
-          </TooltipContent>
-        </Tooltip>
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => setPendingAction('enable')}
+          aria-label={t('Enable selected channels')}
+          className='h-8 gap-1.5 px-2.5 max-lg:h-11 max-lg:px-3.5'
+          title={t('Enable selected channels')}
+        >
+          <Power data-icon='inline-start' />
+          <span className='max-lg:text-sm'>
+            {t('Enable selected channels')}
+          </span>
+        </Button>
 
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant='outline'
-                size='icon'
-                onClick={handleDisableAll}
-                className='size-8'
-                aria-label={t('Disable selected channels')}
-                title={t('Disable selected channels')}
-              />
-            }
-          >
-            <PowerOff />
-            <span className='sr-only'>{t('Disable selected channels')}</span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{t('Disable selected channels')}</p>
-          </TooltipContent>
-        </Tooltip>
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => setPendingAction('disable')}
+          aria-label={t('Disable selected channels')}
+          className='h-8 gap-1.5 px-2.5 max-lg:h-11 max-lg:px-3.5'
+          title={t('Disable selected channels')}
+        >
+          <PowerOff data-icon='inline-start' />
+          <span className='max-lg:text-sm'>
+            {t('Disable selected channels')}
+          </span>
+        </Button>
 
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant='outline'
-                size='icon'
-                onClick={() => setShowTagDialog(true)}
-                className='size-8'
-                aria-label={t('Set tag for selected channels')}
-                title={t('Set tag for selected channels')}
-              />
-            }
-          >
-            <Tag />
-            <span className='sr-only'>
-              {t('Set tag for selected channels')}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{t('Set tag for selected channels')}</p>
-          </TooltipContent>
-        </Tooltip>
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => setShowTagDialog(true)}
+          aria-label={t('Set tag for selected channels')}
+          className='h-8 gap-1.5 px-2.5 max-lg:h-11 max-lg:px-3.5'
+          title={t('Set tag for selected channels')}
+        >
+          <Tag data-icon='inline-start' />
+          <span className='max-lg:text-sm'>
+            {t('Set tag for selected channels')}
+          </span>
+        </Button>
 
         <Tooltip>
           <TooltipTrigger
             render={
               <Button
                 variant='destructive'
-                size='icon'
+                size='sm'
                 onClick={() => {
                   if (!canEditSensitive) return
                   setShowDeleteConfirm(true)
                 }}
                 aria-disabled={!canEditSensitive}
                 className={cn(
-                  'size-8',
+                  'h-8 gap-1.5 px-2.5 max-lg:h-11 max-lg:px-3.5',
                   !canEditSensitive && 'cursor-not-allowed opacity-50'
                 )}
                 aria-label={t('Delete selected channels')}
@@ -198,8 +202,10 @@ export function DataTableBulkActions<TData>({
               />
             }
           >
-            <Trash2 />
-            <span className='sr-only'>{t('Delete selected channels')}</span>
+            <Trash2 data-icon='inline-start' />
+            <span className='max-lg:text-sm'>
+              {t('Delete selected channels')}
+            </span>
           </TooltipTrigger>
           <TooltipContent>
             <p>
@@ -210,6 +216,59 @@ export function DataTableBulkActions<TData>({
           </TooltipContent>
         </Tooltip>
       </BulkActionsToolbar>
+
+      {/* Bulk status change confirmation */}
+      <Dialog
+        open={pendingAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingAction(null)
+        }}
+        title={
+          pendingAction === 'enable'
+            ? t('Enable selected channels?')
+            : t('Disable selected channels?')
+        }
+        description={
+          <>
+            {pendingAction === 'enable'
+              ? t('Are you sure you want to enable')
+              : t('Are you sure you want to disable')}
+            {selectedIds.length}{' '}
+            {pendingAction === 'enable'
+              ? t('channel(s)? New traffic can be routed to them immediately.')
+              : t(
+                  'channel(s)? Requests will stop being routed to them immediately.'
+                )}
+          </>
+        }
+        contentHeight='auto'
+        footer={
+          <>
+            <Button variant='outline' onClick={() => setPendingAction(null)}>
+              {t('Cancel')}
+            </Button>
+            <Button
+              variant={pendingAction === 'enable' ? 'default' : 'destructive'}
+              onClick={confirmPendingAction}
+            >
+              {pendingAction === 'enable' ? t('Enable') : t('Disable')}
+            </Button>
+          </>
+        }
+      >
+        <div className='text-muted-foreground flex items-center gap-2 text-sm'>
+          {pendingAction === 'enable' ? (
+            <CircleCheck className='size-4 shrink-0' />
+          ) : (
+            <CircleAlert className='size-4 shrink-0' />
+          )}
+          <span>
+            {pendingAction === 'enable'
+              ? t('Enabled channels accept requests as soon as saved.')
+              : t('Disabled channels reject new requests until re-enabled.')}
+          </span>
+        </div>
+      </Dialog>
 
       {/* Set Tag Dialog */}
       <Dialog

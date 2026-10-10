@@ -177,25 +177,6 @@ func (assistantRetentionHandler) Run(ctx context.Context, task *model.SystemTask
 			failSystemTask(task, runnerID, err)
 			return
 		}
-		deleted, err := model.PurgeAdvancedSecurityEventsBefore(ctx, payload.RestrictedBefore, payload.BatchSize)
-		if err != nil {
-			failSystemTask(task, runnerID, err)
-			return
-		}
-		if deleted == 0 {
-			break
-		}
-		state.SecurityEvents += deleted
-		if err := model.UpdateSystemTaskState(task.TaskID, runnerID, state); err != nil {
-			logSystemTaskLockError(ctx, task, err)
-			return
-		}
-	}
-	for {
-		if err := ctx.Err(); err != nil {
-			failSystemTask(task, runnerID, err)
-			return
-		}
 		deleted, err := model.PurgeAssistantGiftNetworkRiskBefore(ctx, payload.RestrictedBefore, payload.BatchSize)
 		if err != nil {
 			failSystemTask(task, runnerID, err)

@@ -287,6 +287,10 @@ pg_ctl -D "$runtime/pg" -l "$runtime/postgres.log" \
 createuser -h 127.0.0.1 -p "$pg_port" "$rust_role"
 createdb -h 127.0.0.1 -p "$pg_port" -O "$rust_role" "$rust_database"
 sed "s/public\\./$rust_schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$runtime/baseline.sql"
+# Expand only the disposable Rust schema after the frozen baseline.
+sed "s/__LMM_APP_SCHEMA__/$rust_schema/g" \
+  "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+  >>"$runtime/baseline.sql"
 psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$rust_database" -v ON_ERROR_STOP=1 <<SQL >/dev/null
 CREATE SCHEMA $rust_schema AUTHORIZATION $rust_role;
 SET search_path TO $rust_schema;

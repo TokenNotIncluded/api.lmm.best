@@ -55,7 +55,7 @@ func ResolveDrawingToken(userID int, group string, groupAllowed func(string, str
 		if !groupAllowed(user.Group, group) {
 			return ErrDrawingTokenGroupUnavailable
 		}
-		err = tx.Where("user_id = ? AND "+commonGroupCol+" = ? AND oauth_managed = ?", userID, group, false).Order("id ASC").First(&token).Error
+		err = tx.Where("user_id = ? AND "+commonGroupCol+" = ? AND oauth_managed = ? AND (creation_source IS NULL OR creation_source <> ?)", userID, group, false, TokenCreationSourceAssistantRuntime).Order("id ASC").First(&token).Error
 		if err == nil {
 			if token.CreationSource != TokenCreationSourceDrawingMCP {
 				if err := tx.Model(&Token{}).Where("id = ?", token.Id).Update("creation_source", TokenCreationSourceDrawingMCP).Error; err != nil {
@@ -77,7 +77,7 @@ func ResolveDrawingToken(userID int, group string, groupAllowed func(string, str
 			return ErrDrawingTokenWarningRequired
 		}
 		var count int64
-		if err := tx.Model(&Token{}).Where("user_id = ? AND oauth_managed = ?", userID, false).Count(&count).Error; err != nil {
+		if err := tx.Model(&Token{}).Where("user_id = ? AND oauth_managed = ? AND (creation_source IS NULL OR creation_source <> ?)", userID, false, TokenCreationSourceAssistantRuntime).Count(&count).Error; err != nil {
 			return err
 		}
 		if count >= int64(operation_setting.GetMaxUserTokens()) {
@@ -122,6 +122,9 @@ func ResolveDrawingTokenByID(userID, tokenID int, group string) (*Token, error) 
 	}
 	var token Token
 	if err := DB.Where("id = ? AND user_id = ? AND oauth_managed = ?", tokenID, userID, false).First(&token).Error; err != nil {
+		return nil, ErrDrawingTokenRequired
+	}
+	if token.CreationSource == TokenCreationSourceAssistantRuntime {
 		return nil, ErrDrawingTokenRequired
 	}
 	if token.Status != common.TokenStatusEnabled || (token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp()) || (!token.UnlimitedQuota && token.RemainQuota <= 0) {

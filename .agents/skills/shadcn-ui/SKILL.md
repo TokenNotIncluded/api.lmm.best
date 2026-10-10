@@ -1,105 +1,62 @@
 ---
 name: shadcn-ui
 description: >-
-  Give the assistant project-aware shadcn/ui context: components.json,
-  composition patterns, CLI, registries, theming, and MCP. Use when working on
-  web UI, shadcn components, or presets. Overview aligns with
-  https://ui.shadcn.com/docs/skills.md; full upstream skill text is vendored
-  under vendor/shadcn/.
+  Build or review this project's React UI, shadcn components, forms, themes,
+  responsive layouts, and component presets. Read apps/web configuration first
+  and use the installed CLI and project conventions before upstream references.
 ---
 
-<!-- Canonical overview: https://ui.shadcn.com/docs/skills.md -->
+# Project UI workflow
 
-# Skills (shadcn/ui)
+## Establish project context
 
-Skills give AI assistants project-aware context about shadcn/ui. When used, the assistant knows how to find, install, compose, and customize components using the correct APIs and patterns for your project.
+Read [components.json](../../../apps/web/components.json),
+[package.json](../../../apps/web/package.json), and
+[frontend design](../../../docs/frontend-design.md) before changing components.
+The app is in `apps/web`. Do not assume Next.js, a particular component base,
+icon library, or import alias from a generic example.
 
-For example, you can ask:
-
-- _"Add a login form with email and password fields."_
-- _"Create a settings page with a form for updating profile information."_
-- _"Build a dashboard with a sidebar, stats cards, and a data table."_
-- _"Switch to --preset [CODE]"_
-- _"Can you add a hero from @tailark?"_
-
-The skill reads your project's `components.json` and provides your framework, aliases, installed components, icon library, and base library so it can generate correct code on the first try.
-
----
-
-## Install (ecosystem vs this repo)
-
-Official install from [Skills — shadcn/ui](https://ui.shadcn.com/docs/skills.md):
+Install locked dependencies with `just setup` from the repository root when
+needed. Use the installed CLI, not an unreviewed `@latest` version:
 
 ```bash
-npx skills add shadcn/ui
+cd apps/web
+bun run shadcn info --json
 ```
 
-That installs the skill where the `skills` CLI is available. **This repository** keeps the same intent under `.agents/skills/shadcn-ui/` (overview here + **vendored** upstream docs in [`vendor/shadcn/`](./vendor/shadcn/)) and runs the shadcn CLI from the frontend app root:
+Read its output together with the checked-in configuration. Inspect nearby
+components before adding a dependency, registry, preset, or replacement widget.
+A skill update is not permission to reinstall skills or change the UI foundation.
 
-```bash
-cd web && bunx shadcn@latest info --json
-```
+## Implement and check
 
-Learn more about skills at [skills.sh](https://skills.sh).
+1. Reuse the project's components and tokens. Follow the current base library's
+   composition APIs, not a copied example from another library.
+2. For new UI copy, also load the
+   [translation skill](../i18n-translate/SKILL.md).
+3. Check keyboard focus, accessible labels, loading, empty and error states,
+   light/dark themes, and mobile layout. Do not generate a mock screenshot and
+   present it as a browser test.
+4. Run relevant tests and `bun run typecheck` from `apps/web`. For bundle changes,
+   also run `bun run build` and `bun run bundle:check`. Record actual browser
+   checks and any missing visual evidence separately.
 
----
+## Load only the needed reference
 
-## What's included (and where)
+The upstream snapshot and its attribution remain in
+[UPSTREAM.txt](vendor/shadcn/UPSTREAM.txt). Project paths and installed versions
+come from this entry point and the repository, not the snapshot.
 
-### Project context
-
-Run **`shadcn info --json`** (here: `cd web && bunx shadcn@latest info --json`) for framework, Tailwind version, aliases, base (`radix` | `base`), icon library, installed components, and resolved paths.
-
-### CLI commands
-
-Full command reference (vendored): [`vendor/shadcn/cli.md`](./vendor/shadcn/cli.md).
-
-### Theming and customization
-
-Vendored: [`vendor/shadcn/customization.md`](./vendor/shadcn/customization.md). Live docs: [Theming](https://ui.shadcn.com/docs/theming).
-
-### Registry authoring
-
-Not duplicated as a single file in the vendor tree; see [Registry](https://ui.shadcn.com/docs/registry) and `build` in [`vendor/shadcn/cli.md`](./vendor/shadcn/cli.md).
-
-### MCP server
-
-Vendored: [`vendor/shadcn/mcp.md`](./vendor/shadcn/mcp.md). Live docs: [MCP Server](https://ui.shadcn.com/docs/mcp).
-
----
-
-## How it works
-
-1. **Project detection** — Applies when `components.json` exists (here: `web/components.json`).
-2. **Context injection** — Use `shadcn info --json` as ground truth for imports and APIs.
-3. **Pattern enforcement** — Use [`vendor/shadcn/rules/`](./vendor/shadcn/rules/) for concrete markup checks; the complete official workflow reference is listed below for deeper CLI, registry, and preset questions.
-4. **Component discovery** — `shadcn docs`, `shadcn search`, MCP, or registries — see the official workflow reference and MCP doc when deeper context is needed.
-
----
-
-## Learn more (web)
-
-- [CLI](https://ui.shadcn.com/docs/cli) — complements [`vendor/shadcn/cli.md`](./vendor/shadcn/cli.md)
-- [Theming](https://ui.shadcn.com/docs/theming)
-- [Registry](https://ui.shadcn.com/docs/registry)
-- [skills.sh](https://skills.sh)
-
----
-
-## Vendored upstream bundle (deep rules)
-
-Snapshot from [shadcn-ui/ui `skills/shadcn`](https://github.com/shadcn-ui/ui/tree/main/skills/shadcn); revision note in [`vendor/shadcn/UPSTREAM.txt`](./vendor/shadcn/UPSTREAM.txt). The upstream workflow is stored as a reference file, with its original skill frontmatter removed, so the vendored copy is not discovered as a second local skill.
-
-| Doc | Path |
+| Topic | Reference |
 | --- | --- |
-| Official shadcn/ui workflow reference | [`vendor/shadcn/official-shadcn-ui-workflow.md`](./vendor/shadcn/official-shadcn-ui-workflow.md) |
-| CLI reference | [`vendor/shadcn/cli.md`](./vendor/shadcn/cli.md) |
-| Theming / customization | [`vendor/shadcn/customization.md`](./vendor/shadcn/customization.md) |
-| MCP | [`vendor/shadcn/mcp.md`](./vendor/shadcn/mcp.md) |
-| Forms | [`vendor/shadcn/rules/forms.md`](./vendor/shadcn/rules/forms.md) |
-| Composition | [`vendor/shadcn/rules/composition.md`](./vendor/shadcn/rules/composition.md) |
-| Icons | [`vendor/shadcn/rules/icons.md`](./vendor/shadcn/rules/icons.md) |
-| Styling | [`vendor/shadcn/rules/styling.md`](./vendor/shadcn/rules/styling.md) |
-| Base vs Radix | [`vendor/shadcn/rules/base-vs-radix.md`](./vendor/shadcn/rules/base-vs-radix.md) |
+| Full upstream workflow | [Workflow](vendor/shadcn/official-shadcn-ui-workflow.md) |
+| CLI and registries | [CLI](vendor/shadcn/cli.md) |
+| Themes | [Customization](vendor/shadcn/customization.md) |
+| MCP | [MCP](vendor/shadcn/mcp.md) |
+| Forms and composition | [Forms](vendor/shadcn/rules/forms.md), [composition](vendor/shadcn/rules/composition.md) |
+| Styling and icons | [Styling](vendor/shadcn/rules/styling.md), [icons](vendor/shadcn/rules/icons.md) |
+| Component base | [Base vs Radix](vendor/shadcn/rules/base-vs-radix.md) |
 
-**Workflow:** Prefer this **root** `SKILL.md` for repo paths (`web`, Bun). Read **`vendor/shadcn/official-shadcn-ui-workflow.md`** only when you need the complete official component, registry, or preset workflow. Use **`vendor/shadcn/rules/*.md`** when validating concrete markup.
+Read the full upstream workflow only for a task that needs it. Confirm external
+API changes against the relevant official documentation before upgrading a tool.
+Do not overwrite the vendored reference to fix a project path.

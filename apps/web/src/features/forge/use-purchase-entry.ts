@@ -21,7 +21,7 @@ export function usePurchaseEntry() {
     return { to: '/wallet', label: 'Add Funds' } as const
   }
   if (user) {
-    return { to: '/getting-started', label: 'Check access status' } as const
+    return { to: '/wallet', label: 'Check access status' } as const
   }
   if (canOfferRegistration(status, capabilitiesReady, isLocalPreview())) {
     return { to: '/sign-up', label: 'Create account' } as const

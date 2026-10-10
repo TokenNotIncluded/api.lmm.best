@@ -4,6 +4,9 @@
 //! persistence, and provider I/O are injected boundaries: an incomplete
 //! listener therefore fails closed and cannot accidentally create a checkout.
 
+pub mod stripe_provider;
+pub mod stripe_wallet;
+
 use std::{
     collections::BTreeMap,
     sync::Arc,
@@ -594,6 +597,7 @@ pub struct StripeCreemState {
     store: Arc<dyn StripeCreemStore>,
     authorizer: Arc<dyn StripeCreemAuthorizer>,
     gateway: Arc<dyn StripeCreemGateway>,
+    native_stripe: Option<stripe_wallet::StripeWalletState>,
 }
 impl StripeCreemState {
     #[must_use]
@@ -606,7 +610,14 @@ impl StripeCreemState {
             store,
             authorizer,
             gateway,
+            native_stripe: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_native_stripe(mut self, state: stripe_wallet::StripeWalletState) -> Self {
+        self.native_stripe = Some(state);
+        self
     }
 }
 
@@ -636,6 +647,7 @@ fn amount_routes() -> Router<StripeCreemState> {
 }
 
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StripePayRequest {
     #[serde(default, deserialize_with = "null_i64_is_zero")]
     amount: i64,
@@ -647,6 +659,7 @@ struct StripePayRequest {
     cancel_url: String,
 }
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreemPayRequest {
     #[serde(default, deserialize_with = "null_string_is_empty")]
     product_id: String,
@@ -714,6 +727,9 @@ async fn stripe_amount(State(state): State<StripeCreemState>, request: Request) 
         Ok(actor) => actor,
         Err(response) => return response,
     };
+    if let Some(native) = &state.native_stripe {
+        return native.quote(actor.user_id, request).await;
+    }
     let request: StripePayRequest = match legacy_json(request).await {
         Ok(request) => request,
         Err(LegacyJsonError::Read) | Err(LegacyJsonError::Invalid) => {
@@ -747,6 +763,15 @@ async fn stripe_pay(State(state): State<StripeCreemState>, request: Request) -> 
         Ok(actor) => actor,
         Err(response) => return response,
     };
+    if let Some(native) = &state.native_stripe {
+        let settings = match state.store.stripe_settings().await {
+            Ok(settings) => settings,
+            Err(_) => return legacy("error", "拉起支付失败"),
+        };
+        return native
+            .pay(actor.user_id, request, &settings.trusted_redirect_domains)
+            .await;
+    }
     let request: StripePayRequest = match legacy_json(request).await {
         Ok(request) => request,
         Err(LegacyJsonError::Read) | Err(LegacyJsonError::Invalid) => {
@@ -811,7 +836,7 @@ async fn stripe_pay(State(state): State<StripeCreemState>, request: Request) -> 
         _ => return legacy("error", "拉起支付失败"),
     };
     let order = PendingTopup {
-        trade_no,
+        trade_no: trade_no.clone(),
         user_id: actor.user_id,
         amount: request.amount,
         money: money_f64,
@@ -821,7 +846,7 @@ async fn stripe_pay(State(state): State<StripeCreemState>, request: Request) -> 
     if state.store.create_pending(order).await.is_err() {
         return legacy("error", "创建订单失败");
     }
-    legacy("success", json!({"pay_link":link}))
+    legacy("success", json!({"pay_link":link,"trade_no":trade_no}))
 }
 
 async fn creem_pay(State(state): State<StripeCreemState>, request: Request) -> Response {
@@ -1085,6 +1110,34 @@ mod tests {
     use tower::ServiceExt;
 
     type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+    #[test]
+    fn versioned_credit_input_is_rejected_by_legacy_provider_routes() {
+        for body in [
+            r#"{"amount":1,"schema_version":2,"unit":"CREDIT"}"#,
+            r#"{"amount":1,"schema_version":null}"#,
+            r#"{"amount":1,"unit":"LEDGER_QUOTA"}"#,
+            r#"{"amount":1,"expected_public_credits_per_usd_exact":"100000"}"#,
+        ] {
+            assert!(serde_json::from_str::<StripePayRequest>(body).is_err());
+        }
+        assert!(
+            serde_json::from_str::<StripePayRequest>(r#"{"amount":1,"payment_method":"stripe"}"#)
+                .is_ok()
+        );
+        assert!(
+            serde_json::from_str::<CreemPayRequest>(
+                r#"{"product_id":"fixture","schema_version":2,"unit":"CREDIT"}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<CreemPayRequest>(
+                r#"{"product_id":"fixture","payment_method":"creem"}"#
+            )
+            .is_ok()
+        );
+    }
 
     fn test_error(message: &'static str) -> Box<dyn Error> {
         Box::new(io::Error::other(message))

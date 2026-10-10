@@ -34,6 +34,10 @@ const languageSwitcherSource = readFileSync(
   new URL('../../language-switcher.tsx', import.meta.url),
   'utf8'
 )
+const balanceBadgeSource = readFileSync(
+  new URL('./account-balance-badge.tsx', import.meta.url),
+  'utf8'
+)
 
 describe('authenticated header responsive navigation', () => {
   test('keeps the dynamic navigation available below the desktop breakpoint', () => {
@@ -49,9 +53,27 @@ describe('authenticated header responsive navigation', () => {
   })
 
   test('keeps the mobile navigation and language controls reachable', () => {
-    assert.match(headerSource, /className='size-11 sm:size-8'/)
+    assert.match(headerSource, /className='size-11 md:size-8'/)
     assert.match(topNavSource, /className='size-11 lg:size-8'/)
     assert.match(languageSwitcherSource, /className='h-11 w-11[\s\S]*sm:h-8/)
     assert.match(languageSwitcherSource, /className='min-h-11 sm:min-h-8'/)
+  })
+  test('keeps the selected balance unit visible with accessible credit-ledger help', () => {
+    assert.match(balanceBadgeSource, /\{t\('Balance'\)\}/)
+    assert.match(
+      balanceBadgeSource,
+      /const \{ formatQuota \} = useWalletCurrency\(\)/
+    )
+    assert.match(balanceBadgeSource, /const balance = formatQuota\(quota\)/)
+    assert.match(balanceBadgeSource, /aria-label=\{t\('Wallet balance'\)\}/)
+    assert.match(balanceBadgeSource, /<sup aria-hidden='true'>\?<\/sup>/)
+    assert.match(
+      balanceBadgeSource,
+      /Your balance is stored in credits\. Display currency does not change the amount charged at checkout\./
+    )
+    assert.doesNotMatch(
+      balanceBadgeSource,
+      /visiblePlatformCredit|\(Platform\)|TOKENS/
+    )
   })
 })

@@ -71,11 +71,23 @@ func waffoPancakeCompanyBillingFailureReason(err error) model.PaymentOrderFailur
 	return model.PaymentOrderFailureCompanyBillingRules
 }
 
-// A locally failed/expired checkout is terminal. Signed provider events are
-// acknowledged but cannot recover it, so wallet credit and subscription
-// activation remain consistent and idempotent.
+// Company-billing failures and expired subscription checkouts are terminal.
+// A timed-out wallet checkout is handled separately so a genuinely late paid
+// webhook can still credit the wallet exactly once.
 func waffoPancakeRejectsLateSettlement(status string) bool {
 	return status != common.TopUpStatusPending && status != common.TopUpStatusSuccess
+}
+
+func waffoPancakeWalletRejectsLateSettlement(topUp *model.TopUp) bool {
+	if topUp == nil {
+		return true
+	}
+	if topUp.PaymentProvider == model.PaymentProviderWaffoPancake &&
+		topUp.Status == common.TopUpStatusFailed &&
+		topUp.FailureReasonCode == string(model.PaymentOrderFailureCheckoutTimeout) {
+		return false
+	}
+	return waffoPancakeRejectsLateSettlement(topUp.Status)
 }
 
 func waffoPancakeBillingDetailFromProfile(profile *model.CompanyBillingProfile) *service.WaffoPancakeBillingDetail {

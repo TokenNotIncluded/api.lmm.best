@@ -67,6 +67,7 @@ import {
   buildSupportTicketText,
   SUPPORT_EMAIL,
 } from './lib'
+import { SupportConversation } from './support-conversation'
 import type {
   BountyDisputeReason,
   SupportTicketCategory,
@@ -338,6 +339,9 @@ export function SupportTicket({
             </div>
           </CardStaggerItem>
 
+          <CardStaggerItem>
+            <SupportConversation />
+          </CardStaggerItem>
           <CardStaggerItem>
             <div className='grid gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start'>
               <form onSubmit={handleFormSubmit} noValidate>

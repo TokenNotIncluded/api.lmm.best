@@ -153,11 +153,27 @@ func TestAssistantPersonaMatrix(t *testing.T) {
 			}
 			expectedAllowed := append([]string{}, fixture.Expected.Tools.Allowed...)
 			expectedAllowed = append(expectedAllowed,
-				"navigate_to_page",
+				"discover_tools", "end_conversation",
+				"navigate_to_page", "get_site_policy", "search_site_policies",
+				"get_store_products",
+				"get_store_product",
+				"get_tool_market_services",
+				"get_tool_market_service",
 				"get_user_overview",
 				"get_user_usage_summary",
 				"prepare_user_action",
+				"list_my_api_keys",
+				"prepare_api_key_action",
+				"get_overview_greeting", "set_overview_greeting", "get_site_issues", "create_site_issue",
+				"get_ui_preference_options", "set_ui_preferences", "restore_ui_preferences",
+				"show_chart", "show_statistics", "show_choices", "show_flowchart",
 			)
+			if context.AdministratorMode || context.DeveloperAccessGranted {
+				expectedAllowed = append(expectedAllowed, "send_invitation", "get_connected_market_tools", "connect_market_tool", "call_market_tool")
+			}
+			if context.AdministratorMode {
+				expectedAllowed = append(expectedAllowed, "update_site_issue")
+			}
 			if assistantWeeklyDiscountToolAllowed(context) {
 				expectedAllowed = append(expectedAllowed, "prepare_weekly_discount")
 			}

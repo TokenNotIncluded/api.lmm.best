@@ -26,7 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatQuotaWithCurrency } from '@/lib/currency'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import dayjs from '@/lib/dayjs'
 
 import { claimGift, getAvailableGifts } from '../api'
@@ -125,6 +125,7 @@ function GiftRow({
   onClaim: () => void
 }) {
   const { t } = useTranslation()
+  const currency = useWalletCurrency()
   const expired = gift.end_at * 1000 <= Date.now()
 
   return (
@@ -135,7 +136,7 @@ function GiftRow({
             {gift.title}
           </span>
           <Badge variant='secondary' className='text-xs'>
-            {formatQuotaWithCurrency(gift.quota)}
+            {currency.formatQuota(gift.quota)}
           </Badge>
           {gift.claimed && (
             <Badge variant='outline' className='text-xs'>

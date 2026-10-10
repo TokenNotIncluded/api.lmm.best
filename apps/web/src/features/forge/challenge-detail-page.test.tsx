@@ -157,7 +157,7 @@ function makeRouter() {
     path: '/challenges/$challengeId',
     component: () => <ChallengeDetailPage challengeId={41} />,
   })
-  const emptyRoutes = ['/', '/challenges', '/getting-started', '/security'].map(
+  const emptyRoutes = ['/', '/challenges', '/wallet', '/security'].map(
     (path) =>
       createRoute({
         getParentRoute: () => rootRoute,
@@ -238,7 +238,7 @@ describe('L0 challenge contribution entry', () => {
     )
     const onboardingLink = [...rendered.container.querySelectorAll('a')].find(
       (link) =>
-        link.getAttribute('href') === '/getting-started' &&
+        link.getAttribute('href') === '/wallet' &&
         link.textContent?.includes('Start with AI assistant')
     )
     assert.ok(onboardingLink)

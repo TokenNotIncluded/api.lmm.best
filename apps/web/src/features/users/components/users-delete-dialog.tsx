@@ -56,12 +56,17 @@ export function UsersDeleteDialog() {
     <ConfirmDialog
       open={open === 'delete'}
       onOpenChange={(open) => !open && setOpen(null)}
-      title={t('Are you sure?')}
+      title={t('Delete this user permanently?')}
       desc={
         <>
-          {t('This will permanently delete user')}{' '}
           <span className='font-semibold'>{currentRow?.username}</span>
-          {t('. This action cannot be undone.')}
+          <br />
+          {t(
+            'This permanently deletes the account, its API keys, and its login credentials.'
+          )}{' '}
+          {t('Billing and usage history are kept for audit.')}
+          <br />
+          {t('This action cannot be undone.')}
         </>
       }
       confirmText={isDeleting ? t('Deleting...') : t('Delete')}

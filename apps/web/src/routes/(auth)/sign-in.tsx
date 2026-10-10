@@ -17,25 +17,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { z } from 'zod'
 
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
+import { signInSearchSchema } from '@/features/auth/lib/sign-in-search'
 import { SignIn } from '@/features/auth/sign-in'
 import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
-const searchSchema = z.object({
-  redirect: z.string().optional(),
-})
-
 export const Route = createFileRoute('/(auth)/sign-in')({
   component: SignIn,
-  validateSearch: searchSchema,
+  validateSearch: signInSearchSchema,
   beforeLoad: async ({ search }) => {
     const { auth } = useAuthStore.getState()
 
     // 如果已经有用户信息，说明已登录
-    if (auth.user) {
+    if (auth.user && search.reauth !== '1') {
       const target =
         sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
         getAuthenticatedLandingRoute(auth.user)

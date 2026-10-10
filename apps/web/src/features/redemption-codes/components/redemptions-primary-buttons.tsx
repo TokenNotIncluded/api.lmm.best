@@ -59,17 +59,25 @@ export function RedemptionsPrimaryButtons() {
   return (
     <>
       <div className='flex flex-wrap gap-2'>
+        {/* Create is the page's primary action, so it leads visually; the bulk
+            cleanup stays an outlined destructive secondary that always opens a
+            scope-stating confirmation first. */}
+        <Button
+          size='sm'
+          className='h-11 gap-2 sm:h-7'
+          onClick={() => setOpen('create')}
+        >
+          <Plus className='h-4 w-4' />
+          {t('Create Code')}
+        </Button>
         <Button
           size='sm'
           variant='outline'
+          className='h-11 gap-2 sm:h-7'
           onClick={() => setShowDeleteInvalidConfirm(true)}
         >
           <Trash2 className='text-destructive h-4 w-4' />
           {t('Delete Invalid')}
-        </Button>
-        <Button size='sm' onClick={() => setOpen('create')}>
-          <Plus className='h-4 w-4' />
-          {t('Create Code')}
         </Button>
       </div>
 

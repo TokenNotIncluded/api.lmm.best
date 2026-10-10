@@ -150,17 +150,7 @@ func requestedTopUpUSDDecimal(amount decimal.Decimal) (decimal.Decimal, error) {
 	return rates.FiatForPlatformUnits(platformAmount, paymentpricing.CurrencyUSD)
 }
 
-func creditedQuotaUSD(quota int64) (decimal.Decimal, error) {
-	if !validQuotaPerUnit() {
-		return decimal.Zero, fmt.Errorf("quota per unit must be positive")
-	}
-	platformAmount := decimal.NewFromInt(quota).Div(decimal.NewFromFloat(common.QuotaPerUnit))
-	rates, err := paymentpricing.CurrentRates()
-	if err != nil {
-		return decimal.Zero, err
-	}
-	return rates.FiatForPlatformUnits(platformAmount, paymentpricing.CurrencyUSD)
-}
+func creditedQuotaUSD(quota int64) (decimal.Decimal, error) { return common.CreditsToUSD(quota) }
 
 func requirePaymentMethodTopUpWithinLimit(c *gin.Context, paymentType string, amount int64) bool {
 	return requirePaymentMethodTopUpDecimalWithinLimit(c, paymentType, decimal.NewFromInt(amount))
@@ -176,12 +166,33 @@ func requirePaymentMethodTopUpDecimalWithinLimit(c *gin.Context, paymentType str
 }
 
 func requirePaymentMethodCreditedQuotaWithinLimit(c *gin.Context, paymentType string, quota int64) bool {
-	amountUSD, err := creditedQuotaUSD(quota)
+	anchor, err := common.CreditsPerUSD()
 	if err != nil {
 		common.ApiErrorMsg(c, "充值汇率配置无效")
 		return false
 	}
-	return requirePaymentMethodUSDWithinLimit(c, paymentType, amountUSD)
+	// Compare integer Credits to converted policy limits. Dividing q/K into
+	// a rounded USD decimal first can reject one Credit at an exact minimum.
+	amount := decimal.NewFromInt(quota)
+	minimum, configured, err := configuredPaymentMethodMinTopUp(paymentType)
+	if err != nil {
+		common.ApiErrorMsg(c, "支付方式配置无效")
+		return false
+	}
+	if configured && amount.LessThan(minimum.Mul(anchor).Ceil()) {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("该支付方式单笔最少充值 %s 美元到账余额", minimum.String())})
+		return false
+	}
+	maximum, configured, err := configuredPaymentMethodMaxTopUp(paymentType)
+	if err != nil {
+		common.ApiErrorMsg(c, "支付方式配置无效")
+		return false
+	}
+	if configured && amount.GreaterThan(maximum.Mul(anchor).Floor()) {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("该支付方式单笔最多充值 %s 美元到账余额", maximum.String())})
+		return false
+	}
+	return true
 }
 
 // requireTopUpCreditCapacity rejects a checkout before contacting a payment

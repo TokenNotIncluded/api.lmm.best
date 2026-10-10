@@ -19,7 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: 'Public Sans', sans-serif;
+  /* Public Sans carries Latin; the CJK stack keeps Chinese, Japanese and
+   * Korean glyphs on a deterministic grotesque instead of the platform's
+   * generic fallback, so mixed-script headings share one silhouette. */
+  --font-sans:
+    'Public Sans Variable', 'Public Sans', 'PingFang SC', 'Hiragino Sans GB',
+    'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Microsoft YaHei',
+    'Noto Sans JP', 'Noto Sans KR', sans-serif;
   /* Editorial serif token — the body face used by the `serif` font axis
    * and by presets that opt in (currently Anthropic). Lora carries only
    * Latin glyphs, so the stack walks through CJK serifs (Noto / Source Han
@@ -94,7 +100,11 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 :root {
-  --radius: 1rem;
+  /* Cut system: tighter corners echo the logo's squared bowls and 45° base
+   * cut. Presets and the user's radius axis still override this value. */
+  --radius: 0.5rem;
+  /* Signature 45° corner cut used by brand marks and key surfaces. */
+  --cut-size: 0.625rem;
   --app-header-height: 3rem;
   /* Static build-channel fallback consumed when JS hasn't booted yet. */
   --app-rev: '2k6e8r7p';
@@ -127,8 +137,8 @@ For commercial licensing, please contact support@quantumnous.com
   --info-foreground: oklch(0.985 0 0);
   --neutral: oklch(0.708 0 0);
   --neutral-foreground: oklch(0.145 0 0);
-  --border: oklch(0.93 0 0);
-  --input: oklch(0.93 0 0);
+  --border: oklch(0.905 0.004 95);
+  --input: oklch(0.89 0.004 95);
   --ring: var(--forge-ink-light);
   --chart-1: oklch(0.72 0.18 250);
   --chart-2: oklch(0.65 0.15 200);
@@ -144,7 +154,7 @@ For commercial licensing, please contact support@quantumnous.com
   --sidebar-primary-foreground: oklch(1 0 0);
   --sidebar-accent: color-mix(in oklch, var(--primary) 12%, var(--background));
   --sidebar-accent-foreground: var(--forge-ink-light);
-  --sidebar-border: oklch(0.93 0 0);
+  --sidebar-border: oklch(0.905 0.004 95);
   --sidebar-ring: var(--forge-ink-light);
   --skeleton-base: oklch(0.97 0 0);
   --skeleton-highlight: oklch(0.985 0 0);

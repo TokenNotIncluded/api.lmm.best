@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LIghtJUNction/api.lmm.best/internal/appcli"
+	appcli "github.com/LIghtJUNction/api.lmm.best/internal/deploycli"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"

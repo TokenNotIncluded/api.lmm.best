@@ -47,11 +47,21 @@ export interface VerificationMethods {
 
 /**
  * Sensitive dashboard actions use the strongest available independent proof
- * in a stable order: email, 2FA, then an existing Passkey.
+ * in a stable order: email, 2FA, then an existing Passkey. Channel key
+ * disclosure also permits an existing Passkey alongside the primary method.
  */
 export function getPreferredVerificationMethods(
-  methods: VerificationMethods
+  methods: VerificationMethods,
+  scope?: SecurityProofScope
 ): VerificationMethods {
+  if (scope === 'channel.key.read') {
+    return {
+      ...methods,
+      has2FA: !methods.hasEmail && methods.has2FA,
+      hasPasskey: methods.hasPasskey && methods.passkeySupported,
+    }
+  }
+
   if (methods.hasEmail) {
     return {
       ...methods,

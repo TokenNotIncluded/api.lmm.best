@@ -19,9 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import { splitBillingExprAndRequestRules } from '@/features/pricing/lib/billing-expr'
 
 import { safeJsonParse } from '../utils/json-parser'
+import { ratioToUsdPerMillion } from './model-pricing-units'
 import { formatPricingNumber } from './pricing-format'
 
 export type ModelPricingSnapshotInput = {
+  creditsPerUsd?: number
   modelPrice: string
   modelRatio: string
   cacheRatio: string
@@ -36,6 +38,7 @@ export type ModelPricingSnapshotInput = {
 
 export type ModelPricingSnapshot = {
   name: string
+  creditsPerUsd?: number
   price?: string
   ratio?: string
   cacheRatio?: string
@@ -73,10 +76,18 @@ const toNumberOrNull = (value?: string) => {
   return Number.isFinite(num) ? num : null
 }
 
-const ratioToPrice = (ratio?: string, denominator?: string) => {
+const ratioToPrice = (
+  ratio?: string,
+  denominator?: string,
+  creditsPerUsd = Number.NaN
+) => {
   const ratioNumber = toNumberOrNull(ratio)
-  const denominatorNumber = denominator ? toNumberOrNull(denominator) : 2
-  if (ratioNumber === null || denominatorNumber === null) return ''
+  if (ratioNumber === null) return ''
+  if (denominator === undefined) {
+    return formatPricingNumber(ratioToUsdPerMillion(ratioNumber, creditsPerUsd))
+  }
+  const denominatorNumber = toNumberOrNull(denominator)
+  if (denominatorNumber === null) return ''
   return formatPricingNumber(ratioNumber * denominatorNumber)
 }
 
@@ -113,10 +124,12 @@ export const getPriceSummary = (
     return getExpressionSummary(row, t)
   }
   if (row.billingMode === 'per-request') {
-    return row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
+    return hasPricingValue(row.price)
+      ? `USD ${row.price} / ${t('request')}`
+      : t('Unset price')
   }
 
-  const inputPrice = ratioToPrice(row.ratio)
+  const inputPrice = ratioToPrice(row.ratio, undefined, row.creditsPerUsd)
   if (!inputPrice) return t('Unset price')
 
   const extraCount = [
@@ -129,8 +142,8 @@ export const getPriceSummary = (
   ].filter(hasPricingValue).length
 
   return extraCount > 0
-    ? `${t('Input')} $${inputPrice} · ${extraCount} ${t('extras')}`
-    : `${t('Input')} $${inputPrice}`
+    ? `${t('Input')} USD ${inputPrice} · ${extraCount} ${t('extras')}`
+    : `${t('Input')} USD ${inputPrice}`
 }
 
 export const getPriceDetail = (
@@ -146,16 +159,16 @@ export const getPriceDetail = (
     return t('Fixed request price')
   }
 
-  const inputPrice = ratioToPrice(row.ratio)
+  const inputPrice = ratioToPrice(row.ratio, undefined, row.creditsPerUsd)
   if (!inputPrice) return t('No base input price')
 
   const details = [
     row.completionRatio &&
-      `${t('Output')} $${ratioToPrice(row.completionRatio, inputPrice)}`,
+      `${t('Output')} USD ${ratioToPrice(row.completionRatio, inputPrice)}`,
     row.cacheRatio &&
-      `${t('Cache')} $${ratioToPrice(row.cacheRatio, inputPrice)}`,
+      `${t('Cache')} USD ${ratioToPrice(row.cacheRatio, inputPrice)}`,
     row.createCacheRatio &&
-      `${t('Cache write')} $${ratioToPrice(row.createCacheRatio, inputPrice)}`,
+      `${t('Cache write')} USD ${ratioToPrice(row.createCacheRatio, inputPrice)}`,
   ]
     .filter(Boolean)
     .slice(0, 2)
@@ -164,6 +177,7 @@ export const getPriceDetail = (
 }
 
 export const buildModelSnapshots = ({
+  creditsPerUsd = Number.NaN,
   modelPrice,
   modelRatio,
   cacheRatio,
@@ -246,6 +260,7 @@ export const buildModelSnapshots = ({
         splitBillingExprAndRequestRules(fullExpr)
       return {
         name,
+        creditsPerUsd,
         billingMode: 'tiered_expr',
         billingExpr: pureExpr,
         requestRuleExpr,
@@ -263,6 +278,7 @@ export const buildModelSnapshots = ({
 
     return {
       name,
+      creditsPerUsd,
       price,
       ratio,
       cacheRatio: cache,

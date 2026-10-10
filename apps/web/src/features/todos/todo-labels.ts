@@ -14,10 +14,9 @@ const ITEM_LABELS: Record<string, string> = {
   'open_source_bounty.reward_received': 'Reward received',
   'open_source_bounty.dispute_reward_received': 'Dispute reward received',
   'open_source_bounty.notification': 'Bounty notification',
-  'developer_access.request': 'Developer access request',
   'account_action.request': 'Account action request',
   'assistant.security_incident': 'Assistant safety incident',
-  'assistant.security_review': 'assistant.security_review',
+  'moderation.warning': 'Safety review warning',
 }
 
 export function todoItemTitleKey(title: string) {

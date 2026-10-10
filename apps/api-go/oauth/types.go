@@ -23,6 +23,9 @@ type OAuthUser struct {
 	// EmailVerified is true only when the provider explicitly attests that the
 	// email belongs to the authenticated account.
 	EmailVerified bool
+	// VerifiedEmails contains addresses whose ownership the provider attested.
+	// A public profile address alone is never account-migration evidence.
+	VerifiedEmails []string
 	// Extra contains any additional provider-specific data
 	Extra map[string]any
 }

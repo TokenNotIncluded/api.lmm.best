@@ -16,21 +16,22 @@ import (
 )
 
 type tokenPricingEntry struct {
-	Model            string   `json:"model"`
-	Group            string   `json:"group"`
-	Currency         string   `json:"currency"`
-	BillingMode      string   `json:"billing_mode"`
-	Unit             string   `json:"unit"`
-	GroupRatio       float64  `json:"group_ratio"`
-	TrustDiscount    float64  `json:"trust_discount_ratio"`
-	ModelRatio       float64  `json:"model_ratio,omitempty"`
-	CompletionRatio  float64  `json:"completion_ratio,omitempty"`
-	CacheRatio       float64  `json:"cache_ratio,omitempty"`
-	CreateCacheRatio float64  `json:"create_cache_ratio,omitempty"`
-	InputPrice       *float64 `json:"input_price,omitempty"`
-	OutputPrice      *float64 `json:"output_price,omitempty"`
-	RequestPrice     *float64 `json:"request_price,omitempty"`
-	Expression       string   `json:"billing_expression,omitempty"`
+	PricingSchemaVersion int      `json:"pricing_schema_version"`
+	Model                string   `json:"model"`
+	Group                string   `json:"group"`
+	Currency             string   `json:"currency"`
+	BillingMode          string   `json:"billing_mode"`
+	Unit                 string   `json:"unit"`
+	GroupRatio           float64  `json:"group_ratio"`
+	TrustDiscount        float64  `json:"trust_discount_ratio"`
+	ModelRatio           float64  `json:"model_ratio,omitempty"`
+	CompletionRatio      float64  `json:"completion_ratio,omitempty"`
+	CacheRatio           float64  `json:"cache_ratio,omitempty"`
+	CreateCacheRatio     float64  `json:"create_cache_ratio,omitempty"`
+	InputPrice           *float64 `json:"input_price,omitempty"`
+	OutputPrice          *float64 `json:"output_price,omitempty"`
+	RequestPrice         *float64 `json:"request_price,omitempty"`
+	Expression           string   `json:"billing_expression,omitempty"`
 }
 
 // Only disclose prices for the same token group/model boundary as /v1/models.
@@ -60,16 +61,28 @@ func tokenPricingEntries(catalog []model.Pricing, groups modelListGroups, limite
 				ratio = ratio_setting.GetGroupRatio(group)
 			}
 			ratio *= discount
-			entry := tokenPricingEntry{Model: name, Group: group, Currency: "USD", GroupRatio: ratio, TrustDiscount: discount}
+			entry := tokenPricingEntry{PricingSchemaVersion: model.PricingSchemaUSD, Model: name, Group: group, Currency: "USD", GroupRatio: ratio, TrustDiscount: discount}
 			if billing_setting.GetBillingMode(name) == billing_setting.BillingModeTieredExpr {
 				entry.BillingMode, entry.Unit = "tiered_expr", "expression"
 				entry.Expression, ok = billing_setting.GetBillingExpr(name)
 				if !ok {
 					continue
 				}
+				usdExpr, err := model.USDExpression(entry.Expression)
+				if err != nil {
+					continue
+				}
+				entry.Expression = usdExpr
 			} else if price, configured := ratio_setting.GetModelPrice(name, false); configured {
 				entry.BillingMode, entry.Unit = "per_request", "request"
-				cost := price * ratio
+				amount, err := model.USDPriceProduct(price, ratio)
+				if err != nil {
+					continue
+				}
+				cost, err := model.LegacyPricingAmountUSD(amount)
+				if err != nil {
+					continue
+				}
 				entry.RequestPrice = &cost
 			} else {
 				entry.ModelRatio, ok, _ = ratio_setting.GetModelRatio(name)
@@ -80,8 +93,18 @@ func tokenPricingEntries(catalog []model.Pricing, groups modelListGroups, limite
 				entry.CompletionRatio = ratio_setting.GetCompletionRatio(name)
 				entry.CacheRatio, _ = ratio_setting.GetCacheRatio(name)
 				entry.CreateCacheRatio, _ = ratio_setting.GetCreateCacheRatio(name)
-				input := entry.ModelRatio * ratio * 1_000_000 / common.QuotaPerUnit
-				output := input * entry.CompletionRatio
+				amount, err := model.USDPriceProduct(entry.ModelRatio, ratio)
+				if err != nil {
+					continue
+				}
+				input, err := model.ModelRatioUSDPerMillion(amount)
+				if err != nil {
+					continue
+				}
+				output, err := model.USDPriceProduct(input, entry.CompletionRatio)
+				if err != nil {
+					continue
+				}
 				entry.InputPrice, entry.OutputPrice = &input, &output
 			}
 			result = append(result, entry)
@@ -107,6 +130,10 @@ func GetTokenPricing(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing context unavailable"})
 		return
 	}
+	if _, err := common.CreditsPerUSD(); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing currency units unavailable"})
+		return
+	}
 	catalog := getPricingCache()
 	if catalog == nil || common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "pricing unavailable"})
@@ -121,5 +148,5 @@ func GetTokenPricing(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "model not available"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": entries, "updated_at": time.Now().Unix(), "scope": "token", "price_basis": "configured_base_rates", "final_cost_depends_on_usage": true})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": entries, "updated_at": time.Now().Unix(), "scope": "token", "pricing_schema_version": 2, "pricing_currency": "USD", "price_basis": "configured_base_rates", "final_cost_depends_on_usage": true})
 }

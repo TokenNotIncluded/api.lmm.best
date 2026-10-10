@@ -26,6 +26,12 @@ import {
 } from './section-registry.tsx'
 
 const defaultSecuritySettings: SecuritySettings = {
+  ModerationEnabled: false,
+  ModerationPolicyScope: 'account_group',
+  ModerationSafetyIdentifierEnabled: false,
+  ModerationGroup: 'default',
+  ModerationModel: 'omni-moderation-latest',
+  ModerationGroupPolicies: '{}',
   ModelRequestRateLimitEnabled: false,
   ModelRequestRateLimitCount: 0,
   ModelRequestRateLimitSuccessCount: 1000,
@@ -34,10 +40,6 @@ const defaultSecuritySettings: SecuritySettings = {
   CheckSensitiveEnabled: false,
   CheckSensitiveOnPromptEnabled: false,
   SensitiveWords: '',
-  AdvancedSecurityEnabled: false,
-  AdvancedSecurityOnPromptEnabled: true,
-  AdvancedSecurityAction: 'block',
-  AdvancedSecurityRules: '{\n  "version": 1,\n  "rules": []\n}',
   AntiRelayEnabled: false,
   AntiRelayRejectProxyHeadersEnabled: true,
   AntiRelayHTTPSOnlyEnabled: false,

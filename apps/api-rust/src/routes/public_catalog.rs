@@ -31,7 +31,7 @@ use crate::auth::{
 use crate::{ClientIpKey, RequestContext, legacy_empty_response};
 
 const ADMIN_ROLE: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const GROUP_PATH: &str = "/api/group/";
 const RATIO_CONFIG_PATH: &str = "/api/ratio_config";
 
@@ -889,14 +889,23 @@ async fn pricing(State(state): State<PublicCatalogState>, headers: HeaderMap) ->
     let access = state.header_nav("pricing").await;
     let actor = match nav_actor(&state, &headers, access, "pricing").await {
         Ok(actor) => actor,
-        Err(response) => return response,
+        Err(mut response) => {
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            return response;
+        }
     };
     let response = legacy_json(state.pricing(actor).await);
-    if actor.is_some() {
+    let mut response = if actor.is_some() {
         with_auth_version(response)
     } else {
         response
-    }
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn rankings(

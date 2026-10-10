@@ -177,17 +177,34 @@ func TestAccessPolicyErrorPageRequiresCapturedDenial(t *testing.T) {
 		"X-LMM-CN-Source":        "1",
 		"X-LMM-Edge-Country":     "CN",
 		"User-Agent":             "Mozilla/5.0 TestBrowser",
+		common.RequestIdKey:      "region-review-203",
+		"Authorization":          "Bearer must-not-leak",
+		"Cookie":                 "session=must-not-leak",
 	}
 	status, response := request("127.0.0.1:42000", validHeaders)
 	require.Equal(t, http.StatusUnavailableForLegalReasons, status)
 	assert.Contains(t, response.Header().Get("Content-Type"), "text/html")
 	body := response.Body.String()
-	assert.Contains(t, body, "当前网络请求已被拒绝")
-	assert.Contains(t, body, "疑难解答")
-	assert.Contains(t, body, "203.0.113.42")
-	assert.Contains(t, body, "IPv4")
-	assert.Contains(t, body, "route_reject")
-	assert.NotContains(t, body, "符合条件的账号")
+	assert.Contains(t, body, "地区访问限制")
+	assert.Contains(t, body, "并非暂时断网或服务器故障")
+	assert.Contains(t, body, "region-review-203")
+	assert.Contains(t, body, "返回上一页")
+	for _, privateDetail := range []string{"203.0.113.42", "IPv4", "route_reject", "TestBrowser", "must-not-leak", "符合条件的账号"} {
+		assert.NotContains(t, body, privateDetail)
+	}
+
+	englishHeaders := make(map[string]string, len(validHeaders)+1)
+	for name, value := range validHeaders {
+		englishHeaders[name] = value
+	}
+	englishHeaders["Accept-Language"] = "en-US"
+	englishHeaders[common.RequestIdKey] = "<script>alert(1)</script>"
+	status, response = request("127.0.0.1:42000", englishHeaders)
+	require.Equal(t, http.StatusUnavailableForLegalReasons, status)
+	assert.Contains(t, response.Body.String(), "Regional Access Restriction")
+	assert.Contains(t, response.Body.String(), "not a temporary network outage or server failure")
+	assert.Contains(t, response.Body.String(), "&lt;script&gt;alert(1)&lt;/script&gt;")
+	assert.NotContains(t, response.Body.String(), "<script>alert(1)</script>")
 
 	jsonHeaders := make(map[string]string, len(validHeaders)+4)
 	for name, value := range validHeaders {

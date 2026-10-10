@@ -130,6 +130,8 @@ impl PgControlTaskStore {
             .then(|| filter_i64(&call.query.filters, "channel_id"))
             .flatten();
         let mj_id = filter(&call.query.filters, "mj_id");
+        let status = filter(&call.query.filters, "status");
+        let action = filter(&call.query.filters, "action");
         let start = filter_i64(&call.query.filters, "start_timestamp");
         let end = filter_i64(&call.query.filters, "end_timestamp");
         let rows = sqlx::query(
@@ -151,13 +153,16 @@ impl PgControlTaskStore {
                AND ($3 = '' OR mj_id = $3) \
                AND ($4::bigint IS NULL OR submit_time >= $4) \
                AND ($5::bigint IS NULL OR submit_time <= $5) \
-             ORDER BY id DESC LIMIT $6 OFFSET $7",
+               AND ($6 = '' OR status = $6) AND ($7 = '' OR action = $7) \
+             ORDER BY id DESC LIMIT $8 OFFSET $9",
         )
         .bind(self_user)
         .bind(channel_id)
         .bind(mj_id)
         .bind(start)
         .bind(end)
+        .bind(status)
+        .bind(action)
         .bind(call.query.page_size)
         .bind(offset)
         .fetch_all(&self.pg)
@@ -172,13 +177,16 @@ impl PgControlTaskStore {
                AND ($2::bigint IS NULL OR channel_id = $2) \
                AND ($3 = '' OR mj_id = $3) \
                AND ($4::bigint IS NULL OR submit_time >= $4) \
-               AND ($5::bigint IS NULL OR submit_time <= $5)",
+               AND ($5::bigint IS NULL OR submit_time <= $5) \
+               AND ($6 = '' OR status = $6) AND ($7 = '' OR action = $7)",
         )
         .bind(self_user)
         .bind(channel_id)
         .bind(mj_id)
         .bind(start)
         .bind(end)
+        .bind(status)
+        .bind(action)
         .fetch_one(&self.pg)
         .await
         .map_err(|error| {
@@ -208,6 +216,7 @@ impl PgControlTaskStore {
                 'platform', COALESCE(platform, ''), 'user_id', COALESCE(user_id, 0),\
                 'group', COALESCE(\"group\", ''), 'quota', COALESCE(quota, 0),\
                 'action', COALESCE(action, ''), 'status', COALESCE(status, ''),\
+                'result_url', COALESCE(NULLIF(private_data->>'result_url', ''), fail_reason, ''),\
                 'fail_reason', COALESCE(fail_reason, ''), 'submit_time', COALESCE(submit_time, 0),\
                 'start_time', COALESCE(start_time, 0), 'finish_time', COALESCE(finish_time, 0),\
                 'progress', COALESCE(progress, ''), 'properties', properties, 'data', data\

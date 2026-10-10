@@ -16,10 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useMemo, useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { ArrowRight, Wallet } from 'lucide-react'
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { PublicLayout } from '@/components/layout'
+import { Button } from '@/components/ui/button'
+import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { usePurchaseEntry } from '@/features/forge/use-purchase-entry'
+import { cn } from '@/lib/utils'
 
 import {
   EmptyState,
@@ -28,27 +33,35 @@ import {
   PricingToolbar,
   SearchBar,
   ModelDetailsDrawer,
+  VendorIconWall,
   VendorModelSections,
 } from './components'
+import { ModelCompareTray } from './components/model-compare-tray'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
 import { usePerfMap } from './hooks/use-perf-map'
 import { usePricingData } from './hooks/use-pricing-data'
+import { MAX_COMPARE_MODELS, toggleCompareSelection } from './lib/model-compare'
 
 /** Models revealed per "Load more" click on the vendor grid. */
 const PAGE_SIZE = 48
 
-/**
- * Model Square, following the gpt.ge models-page structure: a centered page
- * title, a sticky translucent filter bar under the fixed header, and the
- * catalog grouped by vendor with soft card grids.
- */
+const LazyModelCompareDialog = lazy(() =>
+  import('./components/model-compare-dialog').then((m) => ({
+    default: m.ModelCompareDialog,
+  }))
+)
+
+/** A searchable model catalog, grouped by vendor for price comparison. */
 export function Pricing() {
   const { t } = useTranslation()
+  const funding = usePurchaseEntry()
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
     null
   )
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [compareNames, setCompareNames] = useState<string[]>([])
+  const [compareOpen, setCompareOpen] = useState(false)
 
   const {
     models,
@@ -60,8 +73,9 @@ export function Pricing() {
     isLoading,
     error,
     refetch,
-    priceRate,
-    usdExchangeRate,
+    displayCurrency,
+    setDisplayCurrency,
+    displayCurrencyError,
   } = usePricingData()
 
   const {
@@ -74,7 +88,6 @@ export function Pricing() {
     tagFilter,
     tokenUnit,
     viewMode,
-    showRechargePrice,
     setSearchInput,
     setSortBy,
     setVendorFilter,
@@ -84,7 +97,6 @@ export function Pricing() {
     setTagFilter,
     setTokenUnit,
     setViewMode,
-    setShowRechargePrice,
     filteredModels,
     hasActiveFilters,
     activeFilterCount,
@@ -108,6 +120,17 @@ export function Pricing() {
         : null,
     [models, selectedModelName]
   )
+
+  const handleToggleCompare = useCallback((modelName: string) => {
+    setCompareNames((current) => toggleCompareSelection(current, modelName))
+  }, [])
+
+  const compareModels = useMemo(() => {
+    const byName = new Map(
+      (models || []).map((model) => [model.model_name, model])
+    )
+    return compareNames.flatMap((name) => byName.get(name) ?? [])
+  }, [compareNames, models])
 
   const availableGroups = useMemo(
     () =>
@@ -148,19 +171,20 @@ export function Pricing() {
           <VendorModelSections
             models={visibleModels}
             onModelClick={handleModelClick}
-            priceRate={priceRate}
-            usdExchangeRate={usdExchangeRate}
             tokenUnit={tokenUnit}
-            showRechargePrice={showRechargePrice}
+            displayCurrency={displayCurrency}
             selectedGroup={groupFilter}
             perfMap={perfMap}
+            compareSelection={compareNames}
+            compareFull={compareNames.length >= MAX_COMPARE_MODELS}
+            onToggleCompare={handleToggleCompare}
           />
           {hasMore ? (
             <div className='mt-10 flex justify-center'>
               <button
                 type='button'
                 onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-                className='border-border/60 bg-card/50 hover:bg-muted/70 h-11 rounded-full border px-8 text-sm font-medium transition-colors'
+                className='border-foreground/25 hover:bg-muted/70 focus-visible:ring-ring/50 h-11 rounded-none border px-8 text-sm font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none'
               >
                 {t('Load more')}
               </button>
@@ -173,10 +197,8 @@ export function Pricing() {
     return (
       <PricingTable
         models={filteredModels}
-        priceRate={priceRate}
-        usdExchangeRate={usdExchangeRate}
         tokenUnit={tokenUnit}
-        showRechargePrice={showRechargePrice}
+        displayCurrency={displayCurrency}
         selectedGroup={groupFilter}
         perfMap={perfMap}
         onModelClick={handleModelClick}
@@ -186,35 +208,61 @@ export function Pricing() {
 
   if (isLoading) {
     return (
-      <PublicLayout showMainContainer={false}>
-        <div className='min-h-svh pt-16'>
-          <div className='mx-auto w-full max-w-[110rem] px-4 pb-10 sm:px-6 xl:px-8'>
+      <ForgePublicShell>
+        <div className='min-h-svh'>
+          <div className='mx-auto w-full max-w-7xl px-5 pt-12 pb-10 md:px-10'>
             <LoadingSkeleton viewMode={viewMode} />
           </div>
         </div>
-      </PublicLayout>
+      </ForgePublicShell>
     )
   }
 
   return (
-    <PublicLayout showMainContainer={false}>
-      <div className='min-h-svh pt-16'>
-        <div className='mx-auto w-full max-w-[110rem] px-4 pb-16 sm:px-6 xl:px-8'>
-          {/* Centered page title, gpt.ge-style. */}
-          <div className='mb-3 pt-10 text-center sm:pt-14'>
-            <h1 className='text-foreground text-3xl font-bold sm:text-4xl'>
-              {t('Models and pricing')}
-            </h1>
-            <p className='text-muted-foreground mt-3 text-sm sm:text-base'>
-              {t('This site currently has {{count}} models enabled', {
-                count: models?.length || 0,
-              })}
-            </p>
+    <ForgePublicShell>
+      <div className='min-h-svh'>
+        <div
+          className={cn(
+            'mx-auto w-full max-w-7xl px-5 md:px-10',
+            compareModels.length > 0 ? 'pb-32' : 'pb-20'
+          )}
+        >
+          <div className='border-foreground/20 mb-5 border-b pt-7 pb-5 sm:mb-8 sm:pt-14 sm:pb-8'>
+            <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6'>
+              <div className='min-w-0'>
+                <h1 className='font-serif text-3xl leading-[1.1] font-normal tracking-tight text-balance sm:text-5xl lg:text-6xl'>
+                  {t('Models and pricing')}
+                </h1>
+                <p className='text-muted-foreground mt-3 max-w-2xl text-base leading-6 sm:mt-4 sm:leading-7'>
+                  {t('This site currently has {{count}} models enabled', {
+                    count: models?.length || 0,
+                  })}
+                </p>
+              </div>
+              {/* The single most-asked question on this page: how do I pay? */}
+              <Button
+                size='lg'
+                className='h-auto min-h-11 w-full shrink-0 px-6 py-3 text-base sm:min-h-12 sm:w-auto'
+                render={
+                  <Link
+                    to={funding.to}
+                    search={
+                      funding.to === '/sign-in'
+                        ? { redirect: '/wallet' }
+                        : undefined
+                    }
+                  />
+                }
+              >
+                <Wallet className='size-4' aria-hidden='true' />
+                {t(funding.label)}
+                <ArrowRight className='size-4' aria-hidden='true' />
+              </Button>
+            </div>
           </div>
 
-          {/* Sticky translucent filter bar: search + compact toolbar. */}
-          <div className='bg-background/80 sticky top-16 z-40 -mx-4 mb-8 border-y py-2 backdrop-blur-2xl sm:-mx-6 xl:-mx-8'>
-            <div className='flex flex-col gap-2 px-4 sm:px-6 xl:px-8'>
+          <div className='bg-background border-foreground/20 sticky top-16 z-40 -mx-5 mb-4 border-b py-3 sm:mb-8 sm:py-4 md:-mx-10'>
+            <div className='flex min-w-0 flex-col gap-2 px-5 sm:gap-3 md:px-10'>
               <SearchBar
                 value={searchInput}
                 onChange={setSearchInput}
@@ -222,7 +270,7 @@ export function Pricing() {
                 placeholder={t(
                   'Search model name, provider, endpoint, or tag...'
                 )}
-                className='mx-auto w-full max-w-2xl'
+                className='w-full'
               />
               <PricingToolbar
                 filteredCount={filteredModels.length}
@@ -231,8 +279,10 @@ export function Pricing() {
                 onSortChange={setSortBy}
                 tokenUnit={tokenUnit}
                 onTokenUnitChange={setTokenUnit}
-                showRechargePrice={showRechargePrice}
-                onRechargePriceChange={setShowRechargePrice}
+                displayCurrency={displayCurrency}
+                onDisplayCurrencyChange={(currency) => {
+                  void setDisplayCurrency(currency)
+                }}
                 viewMode={viewMode}
                 onViewModeChange={(next) => {
                   setViewMode(next)
@@ -260,8 +310,44 @@ export function Pricing() {
                   setVisibleCount(PAGE_SIZE)
                 }}
               />
+              {displayCurrencyError && (
+                <p role='alert' className='text-destructive text-xs'>
+                  {t(displayCurrencyError)}
+                </p>
+              )}
             </div>
           </div>
+
+          <div className='mb-5 flex flex-col gap-2 sm:hidden'>
+            <div className='text-muted-foreground flex items-baseline gap-1 text-sm'>
+              <span className='text-foreground font-semibold tabular-nums'>
+                {filteredModels.length.toLocaleString()}
+              </span>
+              <span>
+                {filteredModels.length === 1 ? t('model') : t('models')}
+              </span>
+              {hasActiveFilters && models?.length ? (
+                <span className='text-xs'>
+                  / {models.length.toLocaleString()}
+                </span>
+              ) : null}
+            </div>
+            <p role='note' className='text-muted-foreground text-xs leading-5'>
+              {t(
+                'Groups filter model availability only. Prices always use the base price (1×).'
+              )}
+            </p>
+          </div>
+
+          <VendorIconWall
+            vendors={vendors || []}
+            models={models || []}
+            activeVendor={vendorFilter}
+            onVendorChange={(next) => {
+              setVendorFilter(next)
+              setVisibleCount(PAGE_SIZE)
+            }}
+          />
 
           <main className='min-w-0'>{renderPricingContent()}</main>
         </div>
@@ -282,13 +368,38 @@ export function Pricing() {
               >) || {}
             }
             autoGroups={autoGroups || []}
-            priceRate={priceRate ?? 1}
-            usdExchangeRate={usdExchangeRate ?? 1}
             tokenUnit={tokenUnit}
-            showRechargePrice={showRechargePrice}
+            displayCurrency={displayCurrency}
           />
         )}
+
+        {!compareOpen && !selectedModel && (
+          <ModelCompareTray
+            models={compareModels}
+            onRemove={handleToggleCompare}
+            onClear={() => setCompareNames([])}
+            onCompare={() => setCompareOpen(true)}
+          />
+        )}
+        {compareOpen && compareModels.length >= 2 && (
+          <Suspense fallback={null}>
+            <LazyModelCompareDialog
+              open
+              onOpenChange={setCompareOpen}
+              models={compareModels}
+              tokenUnit={tokenUnit}
+              displayCurrency={displayCurrency}
+              selectedGroup={groupFilter}
+              perfMap={perfMap}
+              onRemove={handleToggleCompare}
+              onViewDetails={(modelName) => {
+                setCompareOpen(false)
+                setSelectedModelName(modelName)
+              }}
+            />
+          </Suspense>
+        )}
       </div>
-    </PublicLayout>
+    </ForgePublicShell>
   )
 }

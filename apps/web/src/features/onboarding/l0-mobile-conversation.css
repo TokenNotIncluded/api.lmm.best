@@ -1,0 +1,104 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+@media (max-width: 767px) {
+  /* Enter once on input focus, not on keyboard open/close. Only the transcript
+     scrolls in chat mode; the other tabs retain the normal page scroll. */
+  .console-page:has(
+      .l0-welcome[data-scene='chat'] .l0-composer[data-engaged='true']
+    )
+    > [data-mobile-scroll-chrome]:has(.console-section-header) {
+    display: none;
+  }
+  .console-section-content:has(
+    .l0-welcome[data-scene='chat'] .l0-composer[data-engaged='true']
+  ) {
+    overflow: hidden;
+    padding: 4px 12px max(8px, env(safe-area-inset-bottom));
+  }
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true']) {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+  }
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true'])
+    > :not(.l0-stage),
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true'])
+    :is(.l0-rail, .l0-cloud-wrap) {
+    display: none;
+  }
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true'])
+    :is(.l0-stage, .l0-panels, #l0-panel-chat, .l0-composer) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true'])
+    #l0-panel-chat {
+    animation: none;
+  }
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true'])
+    .l0-scene-tabs {
+    flex-shrink: 0;
+    margin: 0 0 4px;
+    padding: 3px;
+  }
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true'])
+    .l0-scene-tabs
+    > button {
+    min-height: 44px;
+  }
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true'])
+    .l0-tab-indicator {
+    top: 3px;
+    left: 3px;
+    width: calc((100% - 6px) / 3);
+    height: calc(100% - 6px);
+  }
+  .l0-composer[data-engaged='true'] .l0-chat-toolbar {
+    flex-shrink: 0;
+    margin-bottom: 4px;
+  }
+  .l0-welcome[data-scene='chat']:has(.l0-composer[data-engaged='true'])
+    .l0-dialogue {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    padding: 4px 4px 12px;
+  }
+  .l0-composer[data-engaged='true'] .l0-composer-dock {
+    flex-shrink: 0;
+    margin-top: auto;
+    padding-top: 6px;
+  }
+  .l0-composer[data-engaged='true'] .l0-input-row {
+    min-height: 56px;
+    padding: 5px 5px 5px 14px;
+    border-radius: 20px;
+  }
+  .l0-composer[data-engaged='true']:not([data-phase='idle']) .l0-shortcuts {
+    display: none;
+  }
+  .l0-composer[data-engaged='true'][data-phase='idle'] h2 {
+    margin: auto 0 16px;
+    font-size: 24px;
+  }
+  .l0-composer[data-engaged='true'] .l0-shortcuts {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    margin-top: 4px;
+  }
+  .l0-composer[data-engaged='true'] .l0-shortcuts button {
+    flex-shrink: 0;
+    max-width: 85%;
+  }
+}

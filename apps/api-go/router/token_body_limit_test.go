@@ -138,19 +138,6 @@ func TestSelfAccountActionMutationsRejectOversizedJSONBeforeAuthentication(t *te
 	}
 }
 
-func TestAdvancedSecuritySettingsRejectOversizedPolicyBeforeAuthentication(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	SetApiRouter(engine)
-	body := `{"rules":"` + strings.Repeat("x", rawOptionMutationRequestMaxBytes) + `"}`
-	request := httptest.NewRequest(http.MethodPut, "/api/security/admin/settings", strings.NewReader(body))
-	response := httptest.NewRecorder()
-
-	engine.ServeHTTP(response, request)
-
-	require.Equal(t, http.StatusRequestEntityTooLarge, response.Code)
-}
-
 func TestL1OnboardingProofRejectsOversizedJSONBeforeAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

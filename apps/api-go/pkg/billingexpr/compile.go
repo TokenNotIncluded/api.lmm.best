@@ -102,7 +102,7 @@ func usesRequestProbe(node ast.Node) bool {
 			return false
 		}
 		switch identifier.Value {
-		case "param", "header", "hour", "minute", "weekday", "month", "day":
+		case "param", "header", "hour", "minute", "weekday", "month", "day", "date":
 			return true
 		default:
 			return false
@@ -128,12 +128,16 @@ var compileEnvPrototypeV1 = map[string]interface{}{
 	"c":          float64(0),
 	"len":        float64(0),
 	"cr":         float64(0),
+	"cr_text":    float64(0),
+	"cr_img":     float64(0),
+	"cr_audio":   float64(0),
 	"cc":         float64(0),
 	"cc1h":       float64(0),
 	"img":        float64(0),
 	"img_o":      float64(0),
 	"ai":         float64(0),
 	"ao":         float64(0),
+	"audio_s":    float64(0),
 	"tier":       func(string, float64) float64 { return 0 },
 	"_trace":     func(int, bool, float64) float64 { return 1 },
 	"_trace_int": func(int, bool, int) int { return 1 },
@@ -145,6 +149,7 @@ var compileEnvPrototypeV1 = map[string]interface{}{
 	"weekday":    func(string) int { return 0 },
 	"month":      func(string) int { return 0 },
 	"day":        func(string) int { return 0 },
+	"date":       func(string) int { return 0 },
 	"max":        math.Max,
 	"min":        math.Min,
 	"abs":        math.Abs,

@@ -32,6 +32,7 @@ const PERIODS: { id: RankingPeriod; labelKey: string }[] = [
 type RankingsHeroProps = {
   period: RankingPeriod
   onPeriodChange: (period: RankingPeriod) => void
+  compact?: boolean
 }
 
 /**
@@ -44,10 +45,17 @@ export function RankingsHero(props: RankingsHeroProps) {
   return (
     <section className='space-y-5'>
       <div className='space-y-2'>
-        <h1 className='text-[clamp(1.75rem,4vw,2.5rem)] leading-[1.15] font-bold tracking-tight'>
-          {t('Rankings')}
-        </h1>
-        <p className='text-muted-foreground/80 max-w-2xl text-sm'>
+        {!props.compact && (
+          <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+            {t('Rankings')}
+          </h1>
+        )}
+        <p
+          className={cn(
+            'text-muted-foreground max-w-2xl leading-7',
+            props.compact ? 'text-sm' : 'text-base'
+          )}
+        >
           {t(
             'Discover the most-used models and rising vendors on the platform, updated from live usage data.'
           )}

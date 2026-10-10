@@ -10,6 +10,7 @@ plan=${DRAFT_PLAN_PATH:-"$repo_root/apps/api-rust/tests/fixtures/routes/route-pl
 expected_baseline_count=${DRAFT_EXPECT_BASELINE_COUNT:-353}
 report_missing=${DRAFT_REPORT_MISSING:-0}
 require_complete=${DRAFT_REQUIRE_COMPLETE:-0}
+source_inventory=${DRAFT_SOURCE_INVENTORY_PATH:-}
 outside_allowlist=${DRAFT_OUTSIDE_BASELINE_ALLOWLIST-"$repo_root/apps/api-rust/tests/fixtures/routes/draft-route-completion-allowlist.tsv"}
 
 [[ -d $router_root ]] || {
@@ -59,11 +60,12 @@ mapfile -t router_files < <(rg --files -g '*.rs' "$router_root" | LC_ALL=C sort)
     exit 1
 }
 
-perl - "$repo_root" "$baseline" "$gate" "$plan" "$outside_allowlist" "$expected_baseline_count" "$report_missing" "$require_complete" "${router_files[@]}" <<'PERL'
+perl - "$repo_root" "$baseline" "$gate" "$plan" "$outside_allowlist" "$expected_baseline_count" "$report_missing" "$require_complete" "$source_inventory" "${router_files[@]}" <<'PERL'
 use strict;
 use warnings;
+use JSON::PP qw(encode_json);
 
-my ($repo_root, $baseline_path, $gate_path, $plan_path, $outside_allowlist_path, $expected_baseline_count, $report_missing, $require_complete, @source_files) = @ARGV;
+my ($repo_root, $baseline_path, $gate_path, $plan_path, $outside_allowlist_path, $expected_baseline_count, $report_missing, $require_complete, $source_inventory_path, @source_files) = @ARGV;
 my @methods = qw(get post put delete patch head options trace connect);
 my $method_pattern = join '|', @methods;
 my $hard_placeholder_pattern = qr{
@@ -546,6 +548,22 @@ for my $file (@source_files) {
         $failed |= fail("$file: unterminated comment or string");
         next;
     }
+    # Mock Axum routers inside cfg(test) modules are not listener routes. Mask
+    # their bodies while preserving newlines so source locations stay accurate.
+    pos($clean) = 0;
+    while ($clean =~ /^[ \t]*#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]\s*mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{/mg) {
+        my $start = $-[0];
+        my $opening = $+[0] - 1;
+        my $closing = matching_delimiter($clean, $opening, '{', '}');
+        if (!defined $closing) {
+            $failed |= fail("$file: unterminated cfg(test) module");
+            last;
+        }
+        my $body = substr($clean, $start, $closing - $start + 1);
+        $body =~ s/[^\n]/ /g;
+        substr($clean, $start, $closing - $start + 1) = $body;
+        pos($clean) = $closing + 1;
+    }
     pos($clean) = 0;
     while ($clean =~ /\.route\s*\(/g) {
         my $route_start = $-[0];
@@ -747,6 +765,27 @@ for my $key (sort keys %outside_allowlist) {
         if !$entry->{seen};
 }
 exit 1 if $failed;
+
+if ($source_inventory_path ne '') {
+    open my $inventory, '>', $source_inventory_path
+        or die "cannot write source inventory $source_inventory_path: $!\n";
+    for my $key (sort keys %candidates) {
+        my ($method, $path) = split /\t/, $key, 2;
+        print {$inventory} encode_json({
+            method => $method,
+            path => $path,
+            source => $candidates{$key},
+            handler => $candidate_metadata{$key}->{handler},
+            category => $outside_allowlist{$key}->{category} // 'frozen',
+            placeholder => $placeholders{$key} ? JSON::PP::true : JSON::PP::false,
+            frozen_legacy_stub => !$hard_placeholders{$key}
+                && $not_implemented{$key}
+                && ($baseline_handler{$key} // '') =~ /(?:^|\.)RelayNotImplemented$/
+                    ? JSON::PP::true : JSON::PP::false,
+        }), "\n";
+    }
+    close $inventory or die "cannot finish source inventory $source_inventory_path: $!\n";
+}
 
 for my $entry (@outside) {
     my ($method, $path, $source, $reason) = split /\t/, $entry, 4;

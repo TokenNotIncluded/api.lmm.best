@@ -19,7 +19,6 @@ import (
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/service"
-	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -275,26 +274,12 @@ func taskSubmitQuotaWithRatios(info *relaycommon.RelayInfo, modelName string) (i
 // request types). It runs after validation, but before pricing, pre-charge, or
 // any upstream request. Adaptors without a textual prompt are left untouched.
 func checkAdvancedSecurityTaskPrompt(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
-	if !setting.ShouldCheckAdvancedSecurityPrompt() {
-		return nil
-	}
-
 	prompt, ok := taskPromptFromContext(c)
 	if !ok || strings.TrimSpace(prompt) == "" {
 		return nil
 	}
-	evaluation := service.EvaluateAdvancedSecurityText(c, info, prompt)
-	if len(evaluation.Matches) == 0 {
-		return nil
-	}
-	if !evaluation.Blocked() {
-		return nil
-	}
-	return service.TaskErrorWrapperLocal(
-		errors.New(common.MessageWithRequestId(service.AdvancedSecurityBlockedMessage, c.GetString(common.RequestIdKey))),
-		"advanced_security_guardrail",
-		http.StatusBadRequest,
-	)
+	service.EvaluateAdvancedSecurityText(c, info, prompt)
+	return nil
 }
 
 func taskPromptFromContext(c *gin.Context) (string, bool) {

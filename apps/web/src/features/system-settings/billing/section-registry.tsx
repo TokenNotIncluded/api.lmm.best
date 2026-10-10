@@ -34,6 +34,10 @@ const QuotaSettingsSection = lazyNamedSection(
   () => import('../general/quota-settings-section'),
   'QuotaSettingsSection'
 )
+const TrustLevelBenefitsSection = lazyNamedSection(
+  () => import('./trust-level-benefits-section'),
+  'TrustLevelBenefitsSection'
+)
 const PaymentSettingsSection = lazyNamedSection(
   () => import('../integrations/payment-settings-section'),
   'PaymentSettingsSection'
@@ -72,6 +76,13 @@ const getGroupDefaults = (settings: BillingSettings) => ({
 
 const BILLING_SECTIONS = [
   {
+    id: 'levels-benefits',
+    titleKey: 'Levels & Benefits',
+    build: (settings: BillingSettings) => (
+      <TrustLevelBenefitsSection value={settings.TrustLevelBenefits} />
+    ),
+  },
+  {
     id: 'quota',
     titleKey: 'Quota Settings',
     build: (settings: BillingSettings) => (
@@ -80,6 +91,10 @@ const BILLING_SECTIONS = [
           QuotaForNewUser: settings.QuotaForNewUser,
           PreConsumedQuota: settings.PreConsumedQuota,
           QuotaForInviter: settings.QuotaForInviter,
+          ReferralRegistrationRewardQuota:
+            settings.ReferralRegistrationRewardQuota ?? 0,
+          ReferralMinTopUpAmounts:
+            settings.ReferralMinTopUpAmounts ?? '{"USD":"10","CNY":"70"}',
           ReferralMinTopUpQuota: settings.ReferralMinTopUpQuota,
           ReferralMaxRewardQuota: settings.ReferralMaxRewardQuota,
           ReferralPenaltyPercent: settings.ReferralPenaltyPercent,
@@ -94,12 +109,10 @@ const BILLING_SECTIONS = [
               settings['quota_setting.enable_free_model_pre_consume'],
           },
           developer_access_setting: {
-            paid_activation_enabled:
-              settings['developer_access_setting.paid_activation_enabled'] ??
-              true,
-            paid_activation_min_amount:
-              settings['developer_access_setting.paid_activation_min_amount'] ??
-              1,
+            invite_registration_enabled:
+              settings[
+                'developer_access_setting.invite_registration_enabled'
+              ] ?? false,
           },
         }}
         complianceConfirmed={

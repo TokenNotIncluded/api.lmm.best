@@ -58,6 +58,29 @@ pub struct PackageTransition {
     pub rollback_contract_revision: String,
     #[serde(default)]
     pub rollback_oauth_managed_token_isolation: bool,
+    #[serde(default)]
+    pub rollback_managed_billing_settlement_isolation: bool,
+}
+
+/// Evidence emitted by the current Go controller's billing admission/drain
+/// barrier. Deserializing signed evidence does not authorize Rust to execute
+/// that controller protocol; recovery retains an explicit unsupported guard.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductionBillingGate {
+    pub started_utc: DateTime<Utc>,
+    pub stop_started_utc: DateTime<Utc>,
+    pub sequence: i64,
+    pub original_sha256: String,
+    pub admission_closed: bool,
+    pub go_pid: i64,
+    pub go_invocation_id: String,
+    pub stop_verified: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shutdown_journal_sha256: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub invocation_journal_sha256: String,
+    pub admission_reopened: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -72,6 +95,8 @@ pub struct FrontendTransition {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProductionManifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub billing_gate: Option<ProductionBillingGate>,
     pub format: u32,
     pub deployment_id: String,
     pub operator_user: String,
@@ -955,6 +980,13 @@ fn validate_manifest_schema(
     workspace: &Workspace,
     manifest: &ProductionManifest,
 ) -> Result<(), DeploymentError> {
+    if manifest.billing_gate.is_some() || manifest.go.rollback_managed_billing_settlement_isolation
+    {
+        return Err(DeploymentError::InvalidEvidence(
+            "current Go billing-drain recovery is not implemented by the Rust controller"
+                .to_owned(),
+        ));
+    }
     if manifest.format != MANIFEST_FORMAT
         || manifest.deployment_id != workspace.id
         || manifest.operator_user != "lmm-api-deploy"
@@ -1783,6 +1815,7 @@ mod tests {
                 sha256_file(&environment, false).expect("hash environment restore fixture");
             let contract = "a".repeat(64);
             ProductionManifest {
+                billing_gate: None,
                 format: MANIFEST_FORMAT,
                 deployment_id: "cleaned-terminal".to_owned(),
                 operator_user: "lmm-api-deploy".to_owned(),
@@ -1801,6 +1834,7 @@ mod tests {
                     candidate_contract_revision: contract.clone(),
                     rollback_contract_revision: contract.clone(),
                     rollback_oauth_managed_token_isolation: false,
+                    rollback_managed_billing_settlement_isolation: false,
                 },
                 web: PackageTransition {
                     candidate_package_name: "lmm-api-web-bin".to_owned(),
@@ -1817,6 +1851,7 @@ mod tests {
                     candidate_contract_revision: contract.clone(),
                     rollback_contract_revision: contract,
                     rollback_oauth_managed_token_isolation: false,
+                    rollback_managed_billing_settlement_isolation: false,
                 },
                 frontend: FrontendTransition {
                     old_target: "releases/0.1.57-1.g333333333333".to_owned(),
@@ -1920,8 +1955,10 @@ mod tests {
                 candidate_contract_revision: String::new(),
                 rollback_contract_revision: String::new(),
                 rollback_oauth_managed_token_isolation: false,
+                rollback_managed_billing_settlement_isolation: false,
             };
             ProductionManifest {
+                billing_gate: None,
                 format: MANIFEST_FORMAT,
                 deployment_id: "cleaned-terminal".to_owned(),
                 operator_user: String::new(),
@@ -2237,5 +2274,29 @@ mod tests {
         let decoded: ProductionManifest =
             serde_json::from_value(value).expect("decode Go manifest fixture");
         assert!(decoded.go.rollback_oauth_managed_token_isolation);
+    }
+
+    #[test]
+    fn current_go_billing_evidence_is_readable_without_enabling_unsupported_recovery() {
+        let fixture = TestWorkspace::new();
+        let mut value = serde_json::to_value(fixture.go_rollback_manifest()).unwrap();
+        value["go"]["rollback_managed_billing_settlement_isolation"] = serde_json::json!(true);
+        value["billing_gate"] = serde_json::json!({
+            "started_utc":"2026-09-24T00:00:00Z", "stop_started_utc":"2026-09-24T00:00:01Z",
+            "sequence":1, "original_sha256":"a".repeat(64), "admission_closed":true,
+            "go_pid":1234, "go_invocation_id":"fixture", "stop_verified":true,
+            "shutdown_journal_sha256":"b".repeat(64), "invocation_journal_sha256":"c".repeat(64),
+            "admission_reopened":false
+        });
+        let decoded: ProductionManifest = serde_json::from_value(value.clone()).unwrap();
+        assert!(decoded.go.rollback_managed_billing_settlement_isolation);
+        assert_eq!(decoded.billing_gate.as_ref().unwrap().go_pid, 1234);
+        let workspace =
+            Workspace::open_under(&fixture.workspace, &fixture.work_root, false, false).unwrap();
+        assert!(
+            matches!(validate_manifest_schema(&workspace, &decoded), Err(DeploymentError::InvalidEvidence(message)) if message.contains("billing-drain"))
+        );
+        value["billing_gate"]["unrecognized_admission_bypass"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<ProductionManifest>(value).is_err());
     }
 }

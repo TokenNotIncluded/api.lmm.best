@@ -46,6 +46,16 @@ export type ModelRuntimeState = {
 }
 
 export type PricingModel = {
+  pricing_schema_version?: number
+  pricing_currency?: string
+  /** Canonical real USD per 1M usage tokens; ratios remain billing metadata. */
+  input_price?: number | null
+  output_price?: number | null
+  cache_read_price?: number | null
+  cache_write_price?: number | null
+  image_price?: number | null
+  audio_input_price?: number | null
+  audio_output_price?: number | null
   runtime_state?: ModelRuntimeState
   id: number
   model_name: string
@@ -108,6 +118,10 @@ export type ModelCapability =
   | 'embeddings'
 
 export type PricingData = {
+  pricing_schema_version?: number
+  pricing_currency?: string
+  credits_per_usd?: number
+  legacy_pricing_units_per_usd?: number
   success: boolean
   message?: string
   data: PricingModel[]
@@ -118,6 +132,7 @@ export type PricingData = {
   auto_groups: string[]
 }
 
+export type PriceDisplayCurrency = 'USD' | 'CNY' | 'CREDIT'
 export type TokenUnit = 'M' | 'K'
 export type PriceType =
   | 'input'

@@ -22,8 +22,12 @@ func (s *Server) Exchange(ctx context.Context, rawBody string, binding SenderBin
 	if err != nil {
 		return nil, err
 	}
-	if _, exists := s.clients[values.Get("client_id")]; !exists {
+	client, exists := s.resolveClient(s.db.WithContext(ctx), values.Get("client_id"))
+	if !exists {
 		return nil, protocolError("invalid_client")
+	}
+	if client.RefreshDisabled && values.Get("grant_type") == "refresh_token" {
+		return nil, protocolError("unauthorized_client")
 	}
 	switch values.Get("grant_type") {
 	case "authorization_code":
@@ -51,12 +55,21 @@ func (s *Server) exchangeCode(ctx context.Context, values url.Values) (*TokenRes
 		if err != nil {
 			return nil, err
 		}
-		if family == nil || family.ClientID != values.Get("client_id") || family.RedirectURI != values.Get("redirect_uri") || family.Resource != values.Get("resource") {
+		if family == nil || family.ClientID != values.Get("client_id") || family.Resource != values.Get("resource") {
 			return protocolError("invalid_grant"), nil
 		}
 		var code model.OAuthServerCode
 		if err := tx.Where("digest = ? AND issuer = ?", digest(values.Get("code")), s.issuer).Take(&code).Error; err != nil {
 			return nil, err
+		}
+		// A family can be reused by later consent with a different redirect or
+		// scope. Code bindings must remain those originally shown to the user.
+		// Legacy rows have empty snapshot defaults: reject rather than infer
+		// their original consent from the family's mutable latest state.
+		if code.ClientID == "" || code.RedirectURI == "" || code.Resource == "" || code.Scope == "" ||
+			code.ClientID != family.ClientID || code.Resource != family.Resource ||
+			code.ClientID != values.Get("client_id") || code.RedirectURI != values.Get("redirect_uri") || code.Resource != values.Get("resource") {
+			return protocolError("invalid_grant"), nil
 		}
 		if !matchesChallenge(values.Get("code_verifier"), code.CodeChallenge) {
 			return protocolError("invalid_grant"), nil
@@ -65,7 +78,9 @@ func (s *Server) exchangeCode(ctx context.Context, values url.Values) (*TokenRes
 		if code.UsedAtMs != 0 {
 			return protocolError("invalid_grant"), revokeFamily(tx, family, now.UnixMilli(), "authorization_code_reuse")
 		}
-		if code.ExpiresAtMs <= now.UnixMilli() || !familyLive(family, now) || !s.grantPermitted(tx, *family, family.Scope) {
+		consentedGrant := *family
+		consentedGrant.RedirectURI = code.RedirectURI
+		if code.ExpiresAtMs <= now.UnixMilli() || !familyLive(family, now) || !s.grantPermitted(tx, consentedGrant, code.Scope) {
 			return protocolError("invalid_grant"), nil
 		}
 		// A slow policy/permission lookup must not extend the code lifetime.
@@ -76,7 +91,7 @@ func (s *Server) exchangeCode(ctx context.Context, values url.Values) (*TokenRes
 		if err := tx.Model(&code).Update("used_at_ms", now.UnixMilli()).Error; err != nil {
 			return nil, err
 		}
-		response, err = s.issuePair(tx, family, family.Scope, now)
+		response, err = s.issuePair(tx, family, code.Scope, now)
 		return nil, err
 	})
 	if err != nil {
@@ -157,15 +172,24 @@ func (s *Server) issuePair(tx *gorm.DB, family *model.OAuthServerGrant, scope st
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := newSecret(refreshPrefix)
-	if err != nil {
-		return nil, err
+	client, exists := s.resolveClient(tx, family.ClientID)
+	if !exists {
+		return nil, protocolError("invalid_client")
+	}
+	refresh := ""
+	if !client.RefreshDisabled {
+		refresh, err = newSecret(refreshPrefix)
+		if err != nil {
+			return nil, err
+		}
 	}
 	accessExpiry := min(now.Add(AccessTTL).UnixMilli(), family.AbsoluteExpiresAtMs)
 	refreshExpiry := min(now.Add(s.idleTTL).UnixMilli(), family.AbsoluteExpiresAtMs)
 	rows := []model.OAuthServerToken{
 		{Digest: digest(access), Issuer: s.issuer, FamilyID: family.ID, Kind: "access", Scope: scope, CreatedAtMs: now.UnixMilli(), ExpiresAtMs: accessExpiry},
-		{Digest: digest(refresh), Issuer: s.issuer, FamilyID: family.ID, Kind: "refresh", Scope: scope, CreatedAtMs: now.UnixMilli(), ExpiresAtMs: refreshExpiry},
+	}
+	if refresh != "" {
+		rows = append(rows, model.OAuthServerToken{Digest: digest(refresh), Issuer: s.issuer, FamilyID: family.ID, Kind: "refresh", Scope: scope, CreatedAtMs: now.UnixMilli(), ExpiresAtMs: refreshExpiry})
 	}
 	if err := tx.Create(&rows).Error; err != nil {
 		return nil, err
@@ -182,7 +206,7 @@ func (s *Server) Revoke(ctx context.Context, rawBody string) error {
 	if err != nil {
 		return err
 	}
-	if _, exists := s.clients[values.Get("client_id")]; !exists {
+	if _, exists := s.resolveClient(s.db.WithContext(ctx), values.Get("client_id")); !exists {
 		return protocolError("invalid_client")
 	}
 	token := values.Get("token")

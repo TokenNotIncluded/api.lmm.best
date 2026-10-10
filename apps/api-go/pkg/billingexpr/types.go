@@ -13,8 +13,9 @@ type RequestInput struct {
 }
 
 // TokenParams holds all token dimensions passed into an Expr evaluation.
-// Fields beyond P and C are optional — when absent they default to 0,
-// which means cache-unaware expressions keep working unchanged.
+// Legacy scalar fields default to zero so existing expressions keep working.
+// New measurement pointers preserve absence and must be available when an
+// expression references their dimension.
 type TokenParams struct {
 	P    float64 // prompt tokens (text) — auto-excludes sub-categories priced separately
 	C    float64 // completion tokens (text) — auto-excludes sub-categories priced separately
@@ -26,6 +27,18 @@ type TokenParams struct {
 	ImgO float64 // image output tokens
 	AI   float64 // audio input tokens
 	AO   float64 // audio output tokens
+	// Cache modality counts and audio duration are optional measurements.
+	// A nil pointer means unavailable, while a pointer to zero is a valid zero.
+	CRText       *float64 // measured text cache-read tokens
+	CRImg        *float64 // measured image cache-read tokens
+	CRAudio      *float64 // measured audio cache-read tokens
+	AudioSeconds *float64 // measured billable audio/session seconds
+	// This status describes the upstream classification, even when a measured
+	// aggregate cache total of zero proves the optional modality costs are zero.
+	CacheClassificationStatus string
+	// Invalid measured normalization must propagate to the settlement caller,
+	// rather than creating a negative remainder or treating invalid data as zero.
+	MeasurementError string
 }
 
 // RequestRuleTrace describes one request-dependent multiplier detected at

@@ -21,6 +21,8 @@ type ClaudeSettings struct {
 	DefaultMaxTokens                      map[string]int                 `json:"default_max_tokens"`
 	ThinkingAdapterEnabled                bool                           `json:"thinking_adapter_enabled"`
 	ThinkingAdapterBudgetTokensPercentage float64                        `json:"thinking_adapter_budget_tokens_percentage"`
+	// Explicit opt-in: Claude-compatible third-party providers may bill refusals.
+	RefusalNoOutputNoChargeEnabled bool `json:"refusal_no_output_no_charge_enabled"`
 }
 
 // 默认配置

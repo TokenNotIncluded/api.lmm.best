@@ -25,6 +25,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -43,8 +44,28 @@ type oauthHTTPTest struct {
 	query       string
 }
 
+func installRouterCurrencyFixture(t *testing.T) {
+	t.Helper()
+	oldK, oldBasisErr := common.CreditsPerUSD()
+	oldLegacyQ, _ := common.LegacyPricingQuotaPerUnit()
+	oldRuntimeQ := common.QuotaPerUnit
+	// Initialize the fixed credit/USD contract without changing any raw
+	// wallet, payment-snapshot or access-policy fixture.
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
+	t.Cleanup(func() {
+		common.QuotaPerUnit = oldRuntimeQ
+		if oldBasisErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(oldK, oldLegacyQ))
+		}
+	})
+}
+
 func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	t.Helper()
+	installRouterCurrencyFixture(t)
 	oldDB, oldLogDB, oldRedis, oldSecret, oldType := model.DB, model.LOG_DB, common.RedisEnabled, common.SessionSecret, common.MainDatabaseType()
 	oldGroups, oldRatios := setting.UserUsableGroups2JSONString(), ratio_setting.GroupRatio2JSONString()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "oauth.db")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
@@ -53,6 +74,14 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(8)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Token{}, &model.Channel{}, &model.Ability{}, &model.Log{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	ledger, err := common.LedgerQuotaPerUSD()
+	require.NoError(t, err)
+	legacy, err := common.LegacyPricingQuotaPerUnit()
+	require.NoError(t, err)
+	public, err := common.PublicCreditsPerUSD()
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&[]model.Option{{Key: model.CreditsPerUSDOptionKey, Value: ledger.String()}, {Key: model.LegacyPricingQuotaPerUnitOptionKey, Value: legacy.String()}, {Key: "QuotaPerUnit", Value: legacy.String()}, {Key: model.PublicCreditsPerUSDOptionKey, Value: public.String()}}).Error)
 	model.DB, model.LOG_DB, common.RedisEnabled, common.SessionSecret = db, db, false, "isolated-oauth-http-session-test"
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
@@ -73,6 +102,7 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	require.NoError(t, err)
 	otherLogin, err := service.CreateLoginSession(other.Id, "password", "192.0.2.1", "oauth-test")
 	require.NoError(t, err)
+	require.NoError(t, model.MigrateOAuthBilling(db))
 	integration, err := service.ConfigureOAuthIntegration(db, service.OAuthServerConfig{Enabled: true, Issuer: oauthTestIssuer, Groups: []string{"default", "vip", "future"}})
 	require.NoError(t, err)
 	channel := model.Channel{Id: 300, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "offline-fixture", Key: "not-a-network-key", Models: "gpt-4o", Group: "default,vip,future"}
@@ -85,7 +115,7 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 	MountOAuthServerRoutes(engine, integration)
 	// Exercise production OAuth authentication/model boundary and actual billing,
 	// but never contact an upstream model or make a paid network call.
-	engine.POST("/v1/chat/completions", middleware.TokenAuth(), func(c *gin.Context) {
+	relay := func(c *gin.Context) {
 		var body struct {
 			Model string `json:"model"`
 		}
@@ -120,7 +150,9 @@ func setupOAuthHTTP(t *testing.T) *oauthHTTPTest {
 			}
 		}
 		c.JSON(200, gin.H{"id": info.UserId, "token_id": info.TokenId, "group": info.UsingGroup, "cross_group_retry": common.GetContextKeyBool(c, constant.ContextKeyTokenCrossGroupRetry)})
-	})
+	}
+	engine.POST("/v1/chat/completions", middleware.TokenAuth(), relay)
+	engine.POST(service.OAuthOpenAIBasePath+"/chat/completions", middleware.OAuthOpenAIAuth, middleware.RelayRequestAdmission(), middleware.OAuthOpenAIRequest, relay)
 	engine.GET("/read-only", middleware.TokenAuthReadOnly(), func(c *gin.Context) { c.Status(200) })
 	verifier := strings.Repeat("v", 64)
 	sum := sha256.Sum256([]byte(verifier))
@@ -210,7 +242,7 @@ func TestOAuthHTTPDiscoveryAndDisabled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &metadata))
 	require.Equal(t, oauthTestIssuer+"/api/oauth2/authorize", metadata.AuthorizationEndpoint)
 	require.Equal(t, []string{"S256"}, metadata.CodeChallengeMethodsSupported)
-	require.ElementsMatch(t, []string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope, service.OAuthMCPBountiesScope, service.OAuthMCPDrawingScope, service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope}, metadata.ScopesSupported)
+	require.ElementsMatch(t, []string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope, service.OAuthMCPBountiesScope, service.OAuthMCPDrawingScope, service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope, service.OAuthRemoteControlScope}, metadata.ScopesSupported)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	disabled := gin.New()
 	MountOAuthServerRoutes(disabled, nil)

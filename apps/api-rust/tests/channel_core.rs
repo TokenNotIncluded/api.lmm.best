@@ -139,7 +139,7 @@ async fn channel_auth_version_is_emitted_only_after_authorization() {
     assert_eq!(authorized.status(), StatusCode::OK);
     assert_eq!(
         authorized.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
 
     let unauthorized = router(ChannelCoreState {

@@ -77,7 +77,7 @@ func ListDrawingMCPAPIKeys(userId int) ([]DrawingMCPAPIKey, error) {
 		return nil, ErrDrawingMCPForbidden
 	}
 	var tokens []Token
-	if err := DB.Where("user_id = ? AND oauth_managed = ?", userId, false).Order("id ASC").Find(&tokens).Error; err != nil {
+	if err := DB.Where("user_id = ? AND oauth_managed = ? AND (creation_source IS NULL OR creation_source <> ?)", userId, false, TokenCreationSourceAssistantRuntime).Order("id ASC").Find(&tokens).Error; err != nil {
 		return nil, err
 	}
 	keys := make([]DrawingMCPAPIKey, 0, len(tokens))
@@ -106,7 +106,7 @@ func validateDrawingMCPKey(tx *gorm.DB, userId, apiKeyId int) (*Token, error) {
 	}
 	var token Token
 	err := tx.Where("id = ? AND user_id = ? AND oauth_managed = ?", apiKeyId, userId, false).First(&token).Error
-	if err != nil || token.Status != common.TokenStatusEnabled {
+	if err != nil || token.Status != common.TokenStatusEnabled || token.CreationSource == TokenCreationSourceAssistantRuntime {
 		return nil, ErrDrawingMCPKeyInvalid
 	}
 	if token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp() {

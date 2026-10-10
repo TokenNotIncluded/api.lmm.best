@@ -2,8 +2,8 @@ package zhipu
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -162,13 +162,25 @@ func streamMetaResponseZhipu2OpenAI(zhipuResponse *ZhipuStreamMetaResponse) (*dt
 
 func zhipuStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
-	ctx := c.Request.Context()
+	if err := helper.ValidateEventStreamResponse(resp); err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeBadResponse, http.StatusBadGateway)
+	}
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	info.RateLimitStreamStatus = relaycommon.NewStreamStatus()
+	streamStatus := info.RateLimitStreamStatus
 	var usage *dto.Usage
+	sawMeta := false
+	if err := helper.CommitEventStreamResponseHeaders(c, resp); err != nil {
+		streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		streamStatus.RecordError("downstream header commit failed")
+		return nil, types.NewError(err, types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
+	}
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
 	dataChan := make(chan string)
 	metaChan := make(chan string)
-	stopChan := make(chan bool)
+	stopChan := make(chan error, 1)
 	go func() {
 		for scanner.Scan() {
 			data := scanner.Text()
@@ -193,44 +205,90 @@ func zhipuStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 				}
 			}
 		}
-		if err := scanner.Err(); err != nil {
+		err := scanner.Err()
+		if err != nil {
 			common.SysLog("error reading stream: " + err.Error())
 		}
-		helper.SendCtx(ctx, stopChan, true)
+		stopChan <- err
 	}()
-	helper.SetEventStreamHeaders(c)
-	c.Stream(func(w io.Writer) bool {
+	writeFailed := false
+	writeEvent := func(data string) {
+		// Keep reading after a write failure so upstream usage is still collected.
+		if writeFailed {
+			return
+		}
+		if err := helper.StringData(c, data); err != nil {
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			writeFailed = true
+			streamStatus.RecordError("downstream_write_error")
+			streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+		}
+	}
+	disconnected := false
+	clientGone := c.Writer.CloseNotify()
+streamLoop:
+	for {
 		select {
+		case <-clientGone:
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			disconnected = true
+			break streamLoop
+		case <-ctx.Done():
+			helper.MarkHTTPStreamDownstreamFailure(c)
+			streamStatus.RecordError("client_cancelled")
+			streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
+			break streamLoop
 		case data := <-dataChan:
 			response := streamResponseZhipu2OpenAI(data)
 			jsonResponse, err := json.Marshal(response)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
-				return true
+				streamStatus.RecordError("stream_encode_error")
+				continue
 			}
-			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonResponse)})
-			return true
+			writeEvent(string(jsonResponse))
 		case data := <-metaChan:
 			var zhipuResponse ZhipuStreamMetaResponse
 			err := json.Unmarshal([]byte(data), &zhipuResponse)
 			if err != nil {
 				common.SysLog("error unmarshalling stream response: " + err.Error())
-				return true
+				streamStatus.RecordError("stream_decode_error")
+				continue
 			}
 			response, zhipuUsage := streamMetaResponseZhipu2OpenAI(&zhipuResponse)
 			jsonResponse, err := json.Marshal(response)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
-				return true
+				streamStatus.RecordError("stream_encode_error")
+				continue
 			}
 			usage = zhipuUsage
-			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonResponse)})
-			return true
-		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
-			return false
+			sawMeta = true
+			writeEvent(string(jsonResponse))
+		case err := <-stopChan:
+			if err != nil {
+				streamStatus.RecordError("stream_scanner_error")
+				streamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
+			}
+			writeEvent("[DONE]")
+			break streamLoop
 		}
-	})
+	}
+	if disconnected || ctx.Err() != nil {
+		helper.MarkHTTPStreamDownstreamFailure(c)
+		if streamStatus.EndReason != relaycommon.StreamEndReasonClientGone {
+			streamStatus.RecordError("client_cancelled")
+		}
+		err := ctx.Err()
+		if err == nil {
+			err = context.Canceled
+		}
+		streamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+	} else if sawMeta {
+		streamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+	} else {
+		streamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	}
 	return usage, nil
 }
 
@@ -258,6 +316,6 @@ func zhipuHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respon
 	}
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(jsonResponse)
+	_, _ = service.WriteResponseBytes(c, jsonResponse)
 	return &fullTextResponse.Usage, nil
 }

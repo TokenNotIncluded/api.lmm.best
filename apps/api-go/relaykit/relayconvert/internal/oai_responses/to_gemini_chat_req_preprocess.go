@@ -39,7 +39,7 @@ func filterGeminiResponsesTools(raw []byte) ([]byte, error) {
 	}
 
 	var tools []map[string]any
-	if err := kitutil.Unmarshal(raw, &tools); err != nil {
+	if err := kitutil.UnmarshalWithNumber(raw, &tools); err != nil {
 		return nil, err
 	}
 

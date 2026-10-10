@@ -460,7 +460,9 @@ impl PgRelayMiscService {
                       u.trust_level_override::BIGINT AS trust_level_override
                  FROM tokens t
                  JOIN users u ON u.id=t.user_id
-                WHERE t.key=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL"#,
+                WHERE t.key=$1 AND t.deleted_at IS NULL AND u.deleted_at IS NULL
+                  AND NOT COALESCE((to_jsonb(t)->>'oauth_managed')::BOOLEAN,FALSE)
+                  AND COALESCE(to_jsonb(t)->>'creation_source','')<>'assistant_runtime'"#,
         )
         .bind(&credential.key)
         .fetch_optional(&self.pg)
@@ -654,6 +656,7 @@ impl PgRelayMiscService {
                 "GroupGroupRatio",
                 "ModelPrice",
                 "QuotaPerUnit",
+                "quota_setting.enable_free_model_pre_consume",
             ],
         )
         .await
@@ -1533,7 +1536,12 @@ fn fixed_price(
         .and_then(|value| value.parse::<f64>().ok())
         .unwrap_or(DEFAULT_QUOTA_PER_UNIT);
     let raw_quota = model_price * quota_per_unit * group_ratio;
-    let preconsume_quota = quota_from_float_strict(raw_quota)?;
+    let free = !super::relay_openai::billing::free_model_preconsume(
+        options
+            .get("quota_setting.enable_free_model_pre_consume")
+            .map(String::as_str),
+    ) && (model_price == 0.0 || group_ratio == 0.0);
+    let preconsume_quota = quota_from_float_strict(raw_quota)?.max(i64::from(!free));
     let settlement_quota = quota_round_strict(raw_quota)?;
     Ok(FixedPrice {
         model_price,
@@ -1545,132 +1553,53 @@ fn fixed_price(
 }
 
 async fn trust_discount_ratio(pg: &PgPool, principal: &RelayPrincipal) -> f64 {
-    if principal.role >= 10 || principal.trust_level_override.is_some() {
-        return trust_discount_from_facts(TrustFacts {
-            role: principal.role,
-            override_level: principal.trust_level_override,
-            paid_amount_micros: 0,
-            activation_complete: false,
-            created_at: principal.created_at,
-            last_api_activity_at: principal.last_api_activity_at,
-            last_paid_complete_at: 0,
-            now: unix_now(),
-        });
-    }
-    let aggregate = sqlx::query(
-        r#"SELECT
-             COALESCE(SUM(CASE WHEN COALESCE(settled_amount_micros,0)>0
-                               THEN settled_amount_micros ELSE 0 END),0)::BIGINT
-               AS settled_amount_micros,
-             COALESCE(SUM(CASE WHEN COALESCE(settled_amount_micros,0)=0
-                               THEN COALESCE(money,0) ELSE 0 END),0)::DOUBLE PRECISION
-               AS legacy_paid_amount,
-             COALESCE(MAX(CASE WHEN COALESCE(complete_time,0)>0
-                               THEN complete_time ELSE COALESCE(create_time,0) END),0)::BIGINT
-               AS last_paid_complete_at,
-             COUNT(*)::BIGINT AS activation_complete_rows
-           FROM top_ups
-          WHERE user_id=$1 AND status='success'
-            AND (COALESCE(settled_amount_micros,0)>0
-                 OR (COALESCE(settled_amount_micros,0)=0 AND COALESCE(money,0)>0))
-            AND COALESCE(payment_method,'')<>'balance'
-            AND COALESCE(payment_provider,'')<>'balance'
-            AND (
-              COALESCE(credited_quota,0)>0
-              OR (
-                COALESCE(amount,0)>0 AND (
-                  COALESCE(payment_provider,'') IN
-                    ('epay','stripe','creem','waffo','waffo_pancake')
-                  OR (
-                    COALESCE(payment_provider,'')=''
-                    AND COALESCE(payment_method,'') IN
-                      ('stripe','creem','waffo','waffo_pancake','alipay','wxpay')
-                  )
-                )
-              )
-            )"#,
+    trust_discount_for_relay(
+        pg,
+        principal.user_id,
+        principal.role,
+        principal.trust_level_override,
+        principal.created_at,
+        principal.last_api_activity_at,
     )
-    .bind(principal.user_id)
-    .fetch_one(pg)
-    .await;
-    let Ok(aggregate) = aggregate else {
-        // Current Go logs trust lookup failures and continues without a
-        // discount instead of rejecting an otherwise valid relay request.
-        return 1.0;
-    };
-    let settled_amount_micros = aggregate
-        .try_get::<i64, _>("settled_amount_micros")
-        .unwrap_or(0);
-    let legacy_paid_amount = aggregate
-        .try_get::<f64, _>("legacy_paid_amount")
-        .unwrap_or(0.0);
-    let legacy_amount_micros = if legacy_paid_amount.is_finite() {
-        (legacy_paid_amount * 1_000_000.0).round() as i64
-    } else {
-        0
-    };
-    trust_discount_from_facts(TrustFacts {
-        role: principal.role,
-        override_level: None,
-        paid_amount_micros: settled_amount_micros.saturating_add(legacy_amount_micros),
-        activation_complete: aggregate
-            .try_get::<i64, _>("activation_complete_rows")
-            .is_ok_and(|rows| rows > 0),
-        created_at: principal.created_at,
-        last_api_activity_at: principal.last_api_activity_at,
-        last_paid_complete_at: aggregate
-            .try_get::<i64, _>("last_paid_complete_at")
-            .unwrap_or(0),
-        now: unix_now(),
-    })
+    .await
 }
 
-#[derive(Clone, Copy)]
-struct TrustFacts {
+/// The same current-Go paid-credit facts drive dashboard trust, public
+/// pricing and both relay executors. Call this before acquiring quota locks.
+pub(crate) async fn trust_discount_for_relay(
+    pg: &PgPool,
+    user_id: i64,
     role: i64,
-    override_level: Option<i64>,
-    paid_amount_micros: i64,
-    activation_complete: bool,
+    trust_level_override: Option<i64>,
     created_at: i64,
     last_api_activity_at: i64,
-    last_paid_complete_at: i64,
-    now: i64,
-}
-
-fn trust_discount_from_facts(facts: TrustFacts) -> f64 {
-    const DISCOUNTS: [f64; 5] = [1.0, 1.0, 0.97, 0.94, 0.90];
-    const DECAY_PERIOD_SECONDS: i64 = 90 * 24 * 60 * 60;
-    if facts.role >= 10 {
-        return DISCOUNTS[4];
-    }
-    if let Some(level) = facts.override_level {
-        return usize::try_from(level)
-            .ok()
-            .and_then(|level| DISCOUNTS.get(level))
-            .copied()
-            .unwrap_or(DISCOUNTS[0]);
-    }
-    let automatic_level = if !facts.activation_complete {
-        0
-    } else if facts.paid_amount_micros >= 2_000_000_000 {
-        4
-    } else if facts.paid_amount_micros >= 500_000_000 {
-        3
-    } else if facts.paid_amount_micros >= 100_000_000 {
-        2
-    } else {
-        1
+) -> f64 {
+    use crate::auth::{DashboardSelfUserFacts, evaluate_trust_level};
+    let mut facts = DashboardSelfUserFacts {
+        trust_level_override,
+        activity_anchor: created_at.max(last_api_activity_at),
+        last_api_activity_at,
+        now: unix_now(),
+        ..Default::default()
     };
-    let activity_anchor = facts
-        .created_at
-        .max(facts.last_api_activity_at)
-        .max(facts.last_paid_complete_at);
-    let decay_steps = if automatic_level > 0 && activity_anchor > 0 && facts.now > activity_anchor {
-        ((facts.now - activity_anchor) / DECAY_PERIOD_SECONDS).min(automatic_level - 1)
-    } else {
-        0
+    if role >= 10 || trust_level_override.is_some() {
+        return evaluate_trust_level(role, facts).discount_ratio;
+    }
+    let snapshot = async {
+        let mut connection = pg.acquire().await?;
+        let options = crate::auth::payment_options(&mut connection).await?;
+        crate::auth::payment_snapshot(&mut connection, user_id, &options).await
+    }
+    .await;
+    let Ok(snapshot) = snapshot else {
+        // Go continues with no trust discount when this lookup fails.
+        return 1.0;
     };
-    DISCOUNTS[usize::try_from(automatic_level - decay_steps).unwrap_or(0)]
+    facts.paid_amount = snapshot.paid_amount;
+    facts.paid_activation_complete = snapshot.paid_activation_complete;
+    facts.console_activated = snapshot.console_activated;
+    facts.activity_anchor = facts.activity_anchor.max(snapshot.last_paid_complete_at);
+    evaluate_trust_level(role, facts).discount_ratio
 }
 
 fn quota_from_float_strict(value: f64) -> Result<i64, &'static str> {
@@ -1817,6 +1746,8 @@ async fn lock_and_revalidate(
              JOIN channels c ON c.id=$3
             WHERE t.id=$1 AND t.user_id=$2 AND t.key=$4
               AND t.deleted_at IS NULL AND u.deleted_at IS NULL
+              AND NOT COALESCE((to_jsonb(t)->>'oauth_managed')::BOOLEAN,FALSE)
+              AND COALESCE(to_jsonb(t)->>'creation_source','')<>'assistant_runtime'
             FOR UPDATE OF t,u,c"#,
     )
     .bind(principal.token_id)
@@ -2424,7 +2355,7 @@ mod tests {
         ]);
         let price = fixed_price("gpt-test", "default", "default", 0.9, &options)
             .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
-        assert_eq!(price.preconsume_quota, 0);
+        assert_eq!(price.preconsume_quota, 1);
         assert_eq!(price.settlement_quota, 1);
         assert_eq!(price.model_price, 0.000002);
         assert_eq!(price.group_ratio, 0.9);
@@ -2436,16 +2367,18 @@ mod tests {
     fn trust_discount_matches_go_overrides_thresholds_and_decay() {
         let period = 90 * 24 * 60 * 60;
         let discount = |role, override_level, paid_amount_micros, activation_complete, now| {
-            trust_discount_from_facts(TrustFacts {
+            crate::auth::evaluate_trust_level(
                 role,
-                override_level,
-                paid_amount_micros,
-                activation_complete,
-                created_at: 1,
-                last_api_activity_at: 0,
-                last_paid_complete_at: 0,
-                now,
-            })
+                crate::auth::DashboardSelfUserFacts {
+                    trust_level_override: override_level,
+                    paid_amount: paid_amount_micros as f64 / 1_000_000.0,
+                    paid_activation_complete: activation_complete,
+                    activity_anchor: 1,
+                    now,
+                    ..Default::default()
+                },
+            )
+            .discount_ratio
         };
         assert_eq!(discount(100, None, 0, false, 1), 0.9);
         assert_eq!(discount(1, Some(2), 0, false, 1), 0.97);

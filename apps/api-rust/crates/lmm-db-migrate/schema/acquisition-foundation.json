@@ -1,0 +1,1027 @@
+[
+  {
+    "table": "acquisition_links",
+    "columns": [
+      {
+        "name": "id",
+        "type": "character varying",
+        "length": 32,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "name",
+        "type": "character varying",
+        "length": 80,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "source",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "medium",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "campaign",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "content",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "target",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "archived",
+        "type": "boolean",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "deleted_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": false,
+        "default": "0"
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "indexes": {
+      "idx_acquisition_links_source": {
+        "unique": false,
+        "columns": [
+          "source"
+        ]
+      },
+      "idx_acquisition_links_campaign": {
+        "unique": false,
+        "columns": [
+          "campaign"
+        ]
+      },
+      "idx_acquisition_links_created_at": {
+        "unique": false,
+        "columns": [
+          "created_at"
+        ]
+      },
+      "idx_acquisition_links_deleted_at": {
+        "unique": false,
+        "columns": [
+          "deleted_at"
+        ]
+      }
+    }
+  },
+  {
+    "table": "acquisition_visitors",
+    "columns": [
+      {
+        "name": "id",
+        "type": "character varying",
+        "length": 64,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "indexes": {
+      "idx_acquisition_visitors_user_id": {
+        "unique": false,
+        "columns": [
+          "user_id"
+        ]
+      },
+      "idx_acquisition_visitors_created_at": {
+        "unique": false,
+        "columns": [
+          "created_at"
+        ]
+      }
+    }
+  },
+  {
+    "table": "acquisition_visits",
+    "columns": [
+      {
+        "name": "consent_version",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": true,
+        "default": null
+      },
+      {
+        "name": "visitor_id",
+        "type": "character varying",
+        "length": 64,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "nonce",
+        "type": "character varying",
+        "length": 64,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "link_id",
+        "type": "character varying",
+        "length": 32,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "source",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "medium",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "campaign",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "content",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "referrer_host",
+        "type": "character varying",
+        "length": 253,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "landing",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "evidence",
+        "type": "character varying",
+        "length": 32,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "indexes": {
+      "acquisition_visit_nonce": {
+        "unique": true,
+        "columns": [
+          "visitor_id",
+          "nonce"
+        ]
+      },
+      "idx_acquisition_visits_visitor_id": {
+        "unique": false,
+        "columns": [
+          "visitor_id"
+        ]
+      },
+      "idx_acquisition_visits_link_id": {
+        "unique": false,
+        "columns": [
+          "link_id"
+        ]
+      },
+      "idx_acquisition_visits_source": {
+        "unique": false,
+        "columns": [
+          "source"
+        ]
+      },
+      "idx_acquisition_visits_campaign": {
+        "unique": false,
+        "columns": [
+          "campaign"
+        ]
+      },
+      "idx_acquisition_visits_created_at": {
+        "unique": false,
+        "columns": [
+          "created_at"
+        ]
+      }
+    }
+  },
+  {
+    "table": "acquisition_accounts",
+    "columns": [
+      {
+        "name": "consent_version",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "first_source",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "first_evidence",
+        "type": "character varying",
+        "length": 32,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "first_observed_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "registration_inferred",
+        "type": "boolean",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": true,
+        "default": null
+      },
+      {
+        "name": "first_visit_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "registration_visit_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "registration_source",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "registration_link_id",
+        "type": "character varying",
+        "length": 32,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "registration_content",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "registration_campaign",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "registration_evidence",
+        "type": "character varying",
+        "length": 32,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "registration_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "attribution_rule",
+        "type": "character varying",
+        "length": 40,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "lookback_days",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "self_reported",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "self_reported_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "user_id"
+    ],
+    "indexes": {
+      "idx_acquisition_accounts_registration_source": {
+        "unique": false,
+        "columns": [
+          "registration_source"
+        ]
+      },
+      "idx_acquisition_accounts_registration_link_id": {
+        "unique": false,
+        "columns": [
+          "registration_link_id"
+        ]
+      },
+      "idx_acquisition_accounts_registration_at": {
+        "unique": false,
+        "columns": [
+          "registration_at"
+        ]
+      },
+      "idx_acquisition_accounts_created_at": {
+        "unique": false,
+        "columns": [
+          "created_at"
+        ]
+      }
+    }
+  },
+  {
+    "table": "acquisition_consents",
+    "columns": [
+      {
+        "name": "user_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "allowed",
+        "type": "boolean",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "version",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "updated_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "user_id"
+    ],
+    "indexes": {}
+  },
+  {
+    "table": "acquisition_self_reports",
+    "columns": [
+      {
+        "name": "user_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": true,
+        "default": null
+      },
+      {
+        "name": "source",
+        "type": "character varying",
+        "length": 32,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "detail",
+        "type": "character varying",
+        "length": 160,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "updated_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "user_id"
+    ],
+    "indexes": {
+      "idx_acquisition_self_reports_updated_at": {
+        "unique": false,
+        "columns": [
+          "updated_at"
+        ]
+      }
+    }
+  },
+  {
+    "table": "acquisition_configs",
+    "columns": [
+      {
+        "name": "id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": true,
+        "default": null
+      },
+      {
+        "name": "started_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "lookback_days",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "last_cleanup_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "payment_snapshot_updated_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "payment_snapshot_status",
+        "type": "character varying",
+        "length": 32,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "indexes": {}
+  },
+  {
+    "table": "acquisition_attribution_policies",
+    "columns": [
+      {
+        "name": "id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": true,
+        "default": null
+      },
+      {
+        "name": "effective_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "lookback_days",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "indexes": {
+      "idx_acquisition_attribution_policies_effective_at": {
+        "unique": false,
+        "columns": [
+          "effective_at"
+        ]
+      }
+    }
+  },
+  {
+    "table": "acquisition_first_payments",
+    "columns": [
+      {
+        "name": "user_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "first_paid_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "source",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "evidence",
+        "type": "character varying",
+        "length": 40,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "link_id",
+        "type": "character varying",
+        "length": 32,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "campaign",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "medium",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "content",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "referrer_host",
+        "type": "character varying",
+        "length": 253,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "visit_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "observed_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "inferred",
+        "type": "boolean",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "lookback_days",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "policy_effective_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "rule",
+        "type": "character varying",
+        "length": 48,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "history_conflict_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "conflicting_paid_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "snapshotted_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "user_id"
+    ],
+    "indexes": {
+      "idx_acquisition_first_payments_first_paid_at": {
+        "unique": false,
+        "columns": [
+          "first_paid_at"
+        ]
+      },
+      "idx_acquisition_first_payments_snapshotted_at": {
+        "unique": false,
+        "columns": [
+          "snapshotted_at"
+        ]
+      }
+    }
+  },
+  {
+    "table": "acquisition_activities",
+    "columns": [
+      {
+        "name": "user_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "day",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "first_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "last_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "user_id",
+      "day"
+    ],
+    "indexes": {}
+  },
+  {
+    "table": "acquisition_correction_heads",
+    "columns": [
+      {
+        "name": "user_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": true,
+        "default": null
+      },
+      {
+        "name": "revision",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "source",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "updated_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "user_id"
+    ],
+    "indexes": {
+      "idx_acquisition_correction_heads_updated_at": {
+        "unique": false,
+        "columns": [
+          "updated_at"
+        ]
+      }
+    }
+  },
+  {
+    "table": "acquisition_corrections",
+    "columns": [
+      {
+        "name": "id",
+        "type": "bigint",
+        "length": null,
+        "nullable": false,
+        "serial": true,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "previous_revision",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "previous_source",
+        "type": "character varying",
+        "length": 253,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "source",
+        "type": "character varying",
+        "length": 80,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "reason",
+        "type": "character varying",
+        "length": 300,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "actor_id",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "bigint",
+        "length": null,
+        "nullable": true,
+        "serial": false,
+        "default": null
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "indexes": {
+      "idx_acquisition_corrections_user_id": {
+        "unique": false,
+        "columns": [
+          "user_id"
+        ]
+      },
+      "idx_acquisition_corrections_created_at": {
+        "unique": false,
+        "columns": [
+          "created_at"
+        ]
+      }
+    }
+  }
+]

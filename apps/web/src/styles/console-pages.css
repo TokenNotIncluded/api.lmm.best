@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /* Shared page rhythm; no color literals or marketing-page overrides. */
 .console-editorial .console-page {
   --page-gutter: clamp(1rem, 2.5cqi, 2.5rem);
-  --page-radius: 1rem;
+  --page-radius: var(--radius);
 }
 .console-editorial .console-page .console-section-header {
   padding: clamp(1.25rem, 2.4cqi, 2rem) var(--page-gutter) 1.1rem;
@@ -39,8 +39,20 @@ For commercial licensing, please contact support@quantumnous.com
 .console-editorial .console-page-title {
   font-size: clamp(1.35rem, 1.8cqi, 1.8rem);
   line-height: 1.25;
-  letter-spacing: -0.035em;
-  font-weight: 600;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+}
+/* Cut mark: a small solid block with the logo's 45° base cut anchors every
+ * page title to the brand without adding another color. */
+.console-editorial .console-page-title::before {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-right: 0.45em;
+  vertical-align: 0.06em;
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 45% 100%, 0 100%);
 }
 .console-editorial .console-page-actions {
   gap: 0.5rem;
@@ -61,14 +73,19 @@ For commercial licensing, please contact support@quantumnous.com
   min-width: 0;
   gap: 1.25rem;
 }
-.console-editorial .console-page-tabs > [data-slot='tabs-list'] {
+.console-editorial
+  .console-page-tabs
+  > [data-slot='tabs-list']:not([data-variant='navigation']) {
   height: auto;
   min-height: 2.75rem;
   justify-content: flex-start;
   overflow-x: auto;
   padding: 0.25rem;
 }
-.console-editorial .console-page-tabs > [data-slot='tabs-list'] > button {
+.console-editorial
+  .console-page-tabs
+  > [data-slot='tabs-list']:not([data-variant='navigation'])
+  > button {
   min-height: 2.25rem;
   padding-inline: 1rem;
 }
@@ -150,7 +167,10 @@ For commercial licensing, please contact support@quantumnous.com
   .console-editorial .console-page-heading {
     align-items: flex-start;
   }
-  .console-editorial .console-page-tabs > [data-slot='tabs-list'] > button {
+  .console-editorial
+    .console-page-tabs
+    > [data-slot='tabs-list']:not([data-variant='navigation'])
+    > button {
     min-height: 2.75rem;
     padding-inline: 0.85rem;
   }
@@ -187,7 +207,10 @@ For commercial licensing, please contact support@quantumnous.com
   justify-content: start;
   overflow-x: auto;
 }
-.console-editorial .console-page [data-slot='tabs-trigger'] {
+.console-editorial
+  .console-page
+  [data-slot='tabs-list']:not([data-variant='navigation'])
+  > [data-slot='tabs-trigger'] {
   padding-inline: 0.75rem;
 }
 
@@ -269,4 +292,173 @@ For commercial licensing, please contact support@quantumnous.com
   .console-log-filter-drawer [data-slot='drawer-footer'] {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
+}
+
+/* Mobile navigation stays in the flex layout, above the device's home indicator. */
+.console-mobile-dock {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.4rem max(0.75rem, env(safe-area-inset-right))
+    max(0.4rem, env(safe-area-inset-bottom))
+    max(0.75rem, env(safe-area-inset-left));
+  background: var(--background);
+  box-shadow: none;
+}
+.console-mobile-dock :is(a, button) {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.25rem;
+  border-radius: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
+  text-align: center;
+  line-height: 1.3;
+}
+.console-mobile-dock [aria-current='page'] {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.console-mobile-dock :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.console-editorial .console-disclosure {
+  border: 0;
+  background: color-mix(in oklch, var(--muted) 35%, var(--background));
+}
+.console-editorial .console-disclosure-body {
+  border: 0;
+}
+@media (max-width: 767px) {
+  .console-editorial .console-page .console-section-header {
+    padding: 1.25rem var(--page-gutter) 1rem;
+  }
+  .console-editorial .console-page-heading {
+    gap: 1rem;
+  }
+  .console-editorial .console-page-title::before {
+    display: none;
+  }
+  .console-editorial .console-page .console-section-content {
+    padding-bottom: 1.5rem;
+  }
+  .console-editorial .console-page :is(input, textarea, select) {
+    font-size: 1rem;
+  }
+  .console-editorial .console-page [data-slot='card'] {
+    border-color: transparent;
+    background: color-mix(in oklch, var(--muted) 25%, var(--background));
+  }
+  .console-editorial .console-page .console-page-actions [data-slot='button'] {
+    min-height: 2.75rem;
+  }
+}
+
+.console-shell-footer {
+  position: relative;
+  flex-shrink: 0;
+  background: var(--background);
+}
+.console-service-icon {
+  display: none;
+}
+.console-service-notice {
+  position: static;
+  background: var(--background);
+  color: var(--muted-foreground);
+  text-align: center;
+  font-size: 0.7rem;
+}
+.console-service-notice > summary {
+  min-height: 2.75rem;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+.console-service-notice > summary::-webkit-details-marker {
+  display: none;
+}
+.console-service-notice[open] > summary {
+  color: var(--foreground);
+}
+.console-service-notice-content {
+  position: absolute;
+  bottom: 100%;
+  left: 1rem;
+  right: 1rem;
+  z-index: 40;
+  max-height: min(50dvh, 24rem);
+  overflow-y: auto;
+  border-radius: 1rem;
+  padding: 0.75rem;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 -8px 35px
+    color-mix(in oklch, var(--foreground) 12%, transparent);
+}
+.console-service-notice :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* A single footer row gives small screens their content height back. Keep the
+ * same service/consent component mounted when the viewport or dock changes. */
+@media (max-width: 767px) {
+  /* Native disclosure content sits above the footer, outside the animated row. */
+  [data-mobile-scroll-chrome][data-hidden='false']
+    > .mobile-scroll-chrome-inner:has(.console-service-notice[open]) {
+    overflow: visible;
+  }
+  .console-shell-footer:has(.console-mobile-dock) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 3rem;
+    align-items: center;
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  }
+  .console-shell-footer .console-mobile-dock {
+    padding-right: 0;
+    padding-bottom: 0.4rem;
+  }
+  .console-shell-footer:has(.console-mobile-dock)
+    .console-service-notice
+    > summary {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.75rem;
+  }
+  .console-shell-footer:has(.console-mobile-dock)
+    .console-service-notice
+    > summary
+    > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .console-shell-footer:has(.console-mobile-dock) .console-service-icon {
+    display: block;
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+}
+
+.console-bounties .bounty-funding-details {
+  border-bottom: 1px solid var(--border);
+}
+.console-bounties .bounty-funding-details > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
 }

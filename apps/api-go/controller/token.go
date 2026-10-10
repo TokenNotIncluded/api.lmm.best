@@ -44,9 +44,16 @@ type tokenResponse struct {
 	*model.Token
 	AutoGroups         []string `json:"auto_groups"`
 	AccountBalanceRead bool     `json:"account_balance_read"`
+	usageProjectionFields
 }
 
 func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
+	snapshot := loadUsageSnapshot(nil, []*model.Token{token})
+	current, projector := snapshot.token(token)
+	return buildMaskedTokenResponseWithProjector(current, projector)
+}
+
+func buildMaskedTokenResponseWithProjector(token *model.Token, projector usageProjector) *tokenResponse {
 	if token == nil {
 		return nil
 	}
@@ -60,13 +67,15 @@ func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
 	if len(autoGroups) == 0 {
 		autoGroups = nil
 	}
-	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups, AccountBalanceRead: token.AccountBalanceRead}
+	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups, AccountBalanceRead: token.AccountBalanceRead, usageProjectionFields: projectTokenUsage(projector, token)}
 }
 
 func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {
 	maskedTokens := make([]*tokenResponse, 0, len(tokens))
+	snapshot := loadUsageSnapshot(nil, tokens)
 	for _, token := range tokens {
-		maskedTokens = append(maskedTokens, buildMaskedTokenResponse(token))
+		current, projector := snapshot.token(token)
+		maskedTokens = append(maskedTokens, buildMaskedTokenResponseWithProjector(current, projector))
 	}
 	return maskedTokens
 }
@@ -216,6 +225,10 @@ func GetTokenKey(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if token.CreationSource == model.TokenCreationSourceAssistantRuntime {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "code": "TOKEN_INTERNAL_ONLY", "message": "This assistant runtime key cannot be revealed or used for API calls."})
+		return
+	}
 	if token.OneTimeReveal {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "code": "TOKEN_KEY_SHOWN_ONCE", "message": "This key was shown only at creation. Use your saved copy or revoke it and create a replacement."})
 		return
@@ -237,13 +250,38 @@ func GetTokenStatus(c *gin.Context) {
 	if expiredAt == -1 {
 		expiredAt = 0
 	}
-	c.JSON(http.StatusOK, gin.H{
+	basis, err := captureCreditBoundaryBasis()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "credit_units_unavailable"})
+		return
+	}
+	available, err := basis.publicAmount(int64(token.RemainQuota))
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "credit_units_unavailable"})
+		return
+	}
+	used, err := basis.publicAmount(int64(token.UsedQuota))
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "credit_units_unavailable"})
+		return
+	}
+	data := gin.H{
 		"object":          "credit_summary",
+		"unit":            common.LedgerQuotaUnit,
 		"total_granted":   token.RemainQuota,
 		"total_used":      0, // not supported currently
 		"total_available": token.RemainQuota,
 		"expires_at":      expiredAt * 1000,
-	})
+		"credit_summary": gin.H{
+			"unit":            common.PublicCreditUnit,
+			"total_granted":   available.Add(used).String(),
+			"total_used":      used.String(),
+			"total_available": available.String(),
+			"unlimited":       token.UnlimitedQuota,
+		},
+	}
+	basis.addMetadata(data)
+	c.JSON(http.StatusOK, data)
 }
 
 func GetTokenUsage(c *gin.Context) {
@@ -320,6 +358,10 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if strings.TrimSpace(token.Group) == "" {
+		common.ApiErrorI18n(c, i18n.MsgTokenGroupRequired)
+		return
+	}
 	// 非无限额度时，检查额度值是否超出有效范围
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
@@ -350,7 +392,7 @@ func AddToken(c *gin.Context) {
 		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
 			return
 		}
-	} else if strings.TrimSpace(token.Group) != "" {
+	} else {
 		userGroup, groupErr := getTokenRequestUserGroup(c)
 		if groupErr != nil {
 			common.ApiError(c, groupErr)
@@ -363,11 +405,6 @@ func AddToken(c *gin.Context) {
 		if !requireGroupWarningConfirmation(c, token.Group, request.GroupWarningConfirmations) {
 			return
 		}
-		token.CrossGroupRetry = false
-		_ = token.SetAutoGroups(nil)
-	} else {
-		// An empty group keeps the existing API-key behavior: inherit the
-		// account's group at request time. It is not an explicit group choice.
 		token.CrossGroupRetry = false
 		_ = token.SetAutoGroups(nil)
 	}

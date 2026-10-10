@@ -12,9 +12,15 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as authRouteRouteImport } from './routes/(auth)/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as ApiKeysRouteImport } from './routes/api-keys'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
+import { Route as RefundPolicyRouteImport } from './routes/refund-policy'
+import { Route as StoreRouteImport } from './routes/store'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
+import { Route as TestKeyRouteImport } from './routes/test-key'
+import { Route as TransferRouteImport } from './routes/transfer'
 import { Route as UserAgreementRouteImport } from './routes/user-agreement'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
 import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
@@ -44,8 +50,17 @@ import { Route as ScriptsIndexRouteImport } from './routes/scripts/index'
 import { Route as SecurityIndexRouteImport } from './routes/security/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as StatusIndexRouteImport } from './routes/status/index'
+import { Route as StoreIndexRouteImport } from './routes/store/index'
+import { Route as StoreCartRouteImport } from './routes/store/cart'
+import { Route as StoreFavoritesRouteImport } from './routes/store/favorites'
+import { Route as StoreManageRouteImport } from './routes/store/manage'
+import { Route as StoreOrdersRouteImport } from './routes/store/orders'
+import { Route as StoreReviewRouteImport } from './routes/store/review'
+import { Route as StoreSettingsRouteImport } from './routes/store/settings'
+import { Route as StoreSupportRouteImport } from './routes/store/support'
 import { Route as WebmcpIndexRouteImport } from './routes/webmcp/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
+import { Route as AuthenticatedAiDirectoryIndexRouteImport } from './routes/_authenticated/ai-directory/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatManagementIndexRouteImport } from './routes/_authenticated/chat-management/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -64,10 +79,12 @@ import { Route as AuthenticatedOpenSourceBountiesIndexRouteImport } from './rout
 import { Route as AuthenticatedOperationsSourcesRouteImport } from './routes/_authenticated/operations/sources'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
+import { Route as AuthenticatedProfileShareRouteImport } from './routes/_authenticated/profile/share'
 import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_authenticated/public-relay/index'
 import { Route as AuthenticatedRedPacketsIndexRouteImport } from './routes/_authenticated/red-packets/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedRemoteControlIndexRouteImport } from './routes/_authenticated/remote-control/index'
+import { Route as AuthenticatedRssIndexRouteImport } from './routes/_authenticated/rss/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
 import { Route as AuthenticatedSubscriptionsResetRouteImport } from './routes/_authenticated/subscriptions/reset'
 import { Route as AuthenticatedSupportIndexRouteImport } from './routes/_authenticated/support/index'
@@ -83,6 +100,9 @@ import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenti
 import { Route as AuthenticatedWorkspaceIndexRouteImport } from './routes/_authenticated/workspace/index'
 import { Route as GamesSignalIndexRouteImport } from './routes/games/signal/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
+import { Route as StoreClaimTokenRouteImport } from './routes/store/claim/$token'
+import { Route as StorePreviewProductIdRouteImport } from './routes/store/preview/$productId'
+import { Route as StoreProductsProductIdRouteImport } from './routes/store/products/$productId'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
 import { Route as AuthenticatedSystemSettingsBillingIndexRouteImport } from './routes/_authenticated/system-settings/billing/index'
@@ -111,9 +131,29 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiKeysRoute = ApiKeysRouteImport.update({
+  id: '/api-keys',
+  path: '/api-keys',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
   id: '/privacy-policy',
   path: '/privacy-policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RefundPolicyRoute = RefundPolicyRouteImport.update({
+  id: '/refund-policy',
+  path: '/refund-policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StoreRoute = StoreRouteImport.update({
+  id: '/store',
+  path: '/store',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TermsRoute = TermsRouteImport.update({
@@ -124,6 +164,16 @@ const TermsRoute = TermsRouteImport.update({
 const TermsOfServiceRoute = TermsOfServiceRouteImport.update({
   id: '/terms-of-service',
   path: '/terms-of-service',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TestKeyRoute = TestKeyRouteImport.update({
+  id: '/test-key',
+  path: '/test-key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TransferRoute = TransferRouteImport.update({
+  id: '/transfer',
+  path: '/transfer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UserAgreementRoute = UserAgreementRouteImport.update({
@@ -272,6 +322,46 @@ const StatusIndexRoute = StatusIndexRouteImport.update({
   path: '/status/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StoreIndexRoute = StoreIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreCartRoute = StoreCartRouteImport.update({
+  id: '/cart',
+  path: '/cart',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreFavoritesRoute = StoreFavoritesRouteImport.update({
+  id: '/favorites',
+  path: '/favorites',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreManageRoute = StoreManageRouteImport.update({
+  id: '/manage',
+  path: '/manage',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreOrdersRoute = StoreOrdersRouteImport.update({
+  id: '/orders',
+  path: '/orders',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreReviewRoute = StoreReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreSettingsRoute = StoreSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreSupportRoute = StoreSupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => StoreRoute,
+} as any)
 const WebmcpIndexRoute = WebmcpIndexRouteImport.update({
   id: '/webmcp/',
   path: '/webmcp/',
@@ -282,6 +372,12 @@ const authUserResetRoute = authUserResetRouteImport.update({
   path: '/user/reset',
   getParentRoute: () => authRouteRoute,
 } as any)
+const AuthenticatedAiDirectoryIndexRoute =
+  AuthenticatedAiDirectoryIndexRouteImport.update({
+    id: '/ai-directory/',
+    path: '/ai-directory/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedChannelsIndexRoute =
   AuthenticatedChannelsIndexRouteImport.update({
     id: '/channels/',
@@ -388,6 +484,12 @@ const AuthenticatedProfileIndexRoute =
     path: '/profile/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedProfileShareRoute =
+  AuthenticatedProfileShareRouteImport.update({
+    id: '/profile/share',
+    path: '/profile/share',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPublicRelayIndexRoute =
   AuthenticatedPublicRelayIndexRouteImport.update({
     id: '/public-relay/',
@@ -412,6 +514,11 @@ const AuthenticatedRemoteControlIndexRoute =
     path: '/remote-control/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRssIndexRoute = AuthenticatedRssIndexRouteImport.update({
+  id: '/rss/',
+  path: '/rss/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
     id: '/subscriptions/',
@@ -497,6 +604,21 @@ const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   id: '/pricing/$modelId/',
   path: '/pricing/$modelId/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const StoreClaimTokenRoute = StoreClaimTokenRouteImport.update({
+  id: '/claim/$token',
+  path: '/claim/$token',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StorePreviewProductIdRoute = StorePreviewProductIdRouteImport.update({
+  id: '/preview/$productId',
+  path: '/preview/$productId',
+  getParentRoute: () => StoreRoute,
+} as any)
+const StoreProductsProductIdRoute = StoreProductsProductIdRouteImport.update({
+  id: '/products/$productId',
+  path: '/products/$productId',
+  getParentRoute: () => StoreRoute,
 } as any)
 const AuthenticatedSystemSettingsAuthIndexRoute =
   AuthenticatedSystemSettingsAuthIndexRouteImport.update({
@@ -585,9 +707,15 @@ const AuthenticatedSystemSettingsSiteSectionRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api-keys': typeof ApiKeysRoute
+  '/settings': typeof SettingsRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/refund-policy': typeof RefundPolicyRoute
+  '/store': typeof StoreRouteWithChildren
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/test-key': typeof TestKeyRoute
+  '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
@@ -607,6 +735,13 @@ export interface FileRoutesByFullPath {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
+  '/store/manage': typeof StoreManageRoute
+  '/store/orders': typeof StoreOrdersRoute
+  '/store/review': typeof StoreReviewRoute
+  '/store/settings': typeof StoreSettingsRoute
+  '/store/support': typeof StoreSupportRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
   '/developers/': typeof DevelopersIndexRoute
@@ -617,6 +752,7 @@ export interface FileRoutesByFullPath {
   '/security/': typeof SecurityIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/status/': typeof StatusIndexRoute
+  '/store/': typeof StoreIndexRoute
   '/webmcp/': typeof WebmcpIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
@@ -624,8 +760,13 @@ export interface FileRoutesByFullPath {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
+  '/store/products/$productId': typeof StoreProductsProductIdRoute
+  '/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/company/': typeof AuthenticatedCompanyIndexRoute
@@ -643,6 +784,7 @@ export interface FileRoutesByFullPath {
   '/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
+  '/rss/': typeof AuthenticatedRssIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/support/': typeof AuthenticatedSupportIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
@@ -673,9 +815,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api-keys': typeof ApiKeysRoute
+  '/settings': typeof SettingsRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/refund-policy': typeof RefundPolicyRoute
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/test-key': typeof TestKeyRoute
+  '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
@@ -694,6 +841,13 @@ export interface FileRoutesByTo {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
+  '/store/manage': typeof StoreManageRoute
+  '/store/orders': typeof StoreOrdersRoute
+  '/store/review': typeof StoreReviewRoute
+  '/store/settings': typeof StoreSettingsRoute
+  '/store/support': typeof StoreSupportRoute
   '/about': typeof AboutIndexRoute
   '/challenges': typeof ChallengesIndexRoute
   '/developers': typeof DevelopersIndexRoute
@@ -704,6 +858,7 @@ export interface FileRoutesByTo {
   '/security': typeof SecurityIndexRoute
   '/setup': typeof SetupIndexRoute
   '/status': typeof StatusIndexRoute
+  '/store': typeof StoreIndexRoute
   '/webmcp': typeof WebmcpIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
@@ -711,8 +866,13 @@ export interface FileRoutesByTo {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
+  '/store/products/$productId': typeof StoreProductsProductIdRoute
+  '/ai-directory': typeof AuthenticatedAiDirectoryIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/chat-management': typeof AuthenticatedChatManagementIndexRoute
   '/company': typeof AuthenticatedCompanyIndexRoute
@@ -730,6 +890,7 @@ export interface FileRoutesByTo {
   '/red-packets': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
   '/remote-control': typeof AuthenticatedRemoteControlIndexRoute
+  '/rss': typeof AuthenticatedRssIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/support': typeof AuthenticatedSupportIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
@@ -763,9 +924,15 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/(auth)': typeof authRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/api-keys': typeof ApiKeysRoute
+  '/settings': typeof SettingsRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/refund-policy': typeof RefundPolicyRoute
+  '/store': typeof StoreRouteWithChildren
   '/terms': typeof TermsRoute
   '/terms-of-service': typeof TermsOfServiceRoute
+  '/test-key': typeof TestKeyRoute
+  '/transfer': typeof TransferRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
@@ -785,6 +952,13 @@ export interface FileRoutesById {
   '/challenges/$challengeId': typeof ChallengesChallengeIdRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/red-packet/$slug': typeof RedPacketSlugRoute
+  '/store/cart': typeof StoreCartRoute
+  '/store/favorites': typeof StoreFavoritesRoute
+  '/store/manage': typeof StoreManageRoute
+  '/store/orders': typeof StoreOrdersRoute
+  '/store/review': typeof StoreReviewRoute
+  '/store/settings': typeof StoreSettingsRoute
+  '/store/support': typeof StoreSupportRoute
   '/about/': typeof AboutIndexRoute
   '/challenges/': typeof ChallengesIndexRoute
   '/developers/': typeof DevelopersIndexRoute
@@ -795,6 +969,7 @@ export interface FileRoutesById {
   '/security/': typeof SecurityIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/status/': typeof StatusIndexRoute
+  '/store/': typeof StoreIndexRoute
   '/webmcp/': typeof WebmcpIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
@@ -802,8 +977,13 @@ export interface FileRoutesById {
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
+  '/_authenticated/profile/share': typeof AuthenticatedProfileShareRoute
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/store/claim/$token': typeof StoreClaimTokenRoute
+  '/store/preview/$productId': typeof StorePreviewProductIdRoute
+  '/store/products/$productId': typeof StoreProductsProductIdRoute
+  '/_authenticated/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexRoute
@@ -821,6 +1001,7 @@ export interface FileRoutesById {
   '/_authenticated/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/_authenticated/remote-control/': typeof AuthenticatedRemoteControlIndexRoute
+  '/_authenticated/rss/': typeof AuthenticatedRssIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/support/': typeof AuthenticatedSupportIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
@@ -853,9 +1034,15 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/api-keys'
+    | '/settings'
     | '/privacy-policy'
+    | '/refund-policy'
+    | '/store'
     | '/terms'
     | '/terms-of-service'
+    | '/test-key'
+    | '/transfer'
     | '/user-agreement'
     | '/system-settings'
     | '/forgot-password'
@@ -875,6 +1062,13 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
+    | '/store/manage'
+    | '/store/orders'
+    | '/store/review'
+    | '/store/settings'
+    | '/store/support'
     | '/about/'
     | '/challenges/'
     | '/developers/'
@@ -885,6 +1079,7 @@ export interface FileRouteTypes {
     | '/security/'
     | '/setup/'
     | '/status/'
+    | '/store/'
     | '/webmcp/'
     | '/user/reset'
     | '/chat/$chatId'
@@ -892,8 +1087,13 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/models/$section'
     | '/operations/sources'
+    | '/profile/share'
     | '/subscriptions/reset'
     | '/usage-logs/$section'
+    | '/store/claim/$token'
+    | '/store/preview/$productId'
+    | '/store/products/$productId'
+    | '/ai-directory/'
     | '/channels/'
     | '/chat-management/'
     | '/company/'
@@ -911,6 +1111,7 @@ export interface FileRouteTypes {
     | '/red-packets/'
     | '/redemption-codes/'
     | '/remote-control/'
+    | '/rss/'
     | '/subscriptions/'
     | '/support/'
     | '/system-info/'
@@ -941,9 +1142,14 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/api-keys'
+    | '/settings'
     | '/privacy-policy'
+    | '/refund-policy'
     | '/terms'
     | '/terms-of-service'
+    | '/test-key'
+    | '/transfer'
     | '/user-agreement'
     | '/forgot-password'
     | '/oauth'
@@ -962,6 +1168,13 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
+    | '/store/manage'
+    | '/store/orders'
+    | '/store/review'
+    | '/store/settings'
+    | '/store/support'
     | '/about'
     | '/challenges'
     | '/developers'
@@ -972,6 +1185,7 @@ export interface FileRouteTypes {
     | '/security'
     | '/setup'
     | '/status'
+    | '/store'
     | '/webmcp'
     | '/user/reset'
     | '/chat/$chatId'
@@ -979,8 +1193,13 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/models/$section'
     | '/operations/sources'
+    | '/profile/share'
     | '/subscriptions/reset'
     | '/usage-logs/$section'
+    | '/store/claim/$token'
+    | '/store/preview/$productId'
+    | '/store/products/$productId'
+    | '/ai-directory'
     | '/channels'
     | '/chat-management'
     | '/company'
@@ -998,6 +1217,7 @@ export interface FileRouteTypes {
     | '/red-packets'
     | '/redemption-codes'
     | '/remote-control'
+    | '/rss'
     | '/subscriptions'
     | '/support'
     | '/system-info'
@@ -1030,9 +1250,15 @@ export interface FileRouteTypes {
     | '/'
     | '/(auth)'
     | '/_authenticated'
+    | '/api-keys'
+    | '/settings'
     | '/privacy-policy'
+    | '/refund-policy'
+    | '/store'
     | '/terms'
     | '/terms-of-service'
+    | '/test-key'
+    | '/transfer'
     | '/user-agreement'
     | '/_authenticated/system-settings'
     | '/(auth)/forgot-password'
@@ -1052,6 +1278,13 @@ export interface FileRouteTypes {
     | '/challenges/$challengeId'
     | '/oauth/$provider'
     | '/red-packet/$slug'
+    | '/store/cart'
+    | '/store/favorites'
+    | '/store/manage'
+    | '/store/orders'
+    | '/store/review'
+    | '/store/settings'
+    | '/store/support'
     | '/about/'
     | '/challenges/'
     | '/developers/'
@@ -1062,6 +1295,7 @@ export interface FileRouteTypes {
     | '/security/'
     | '/setup/'
     | '/status/'
+    | '/store/'
     | '/webmcp/'
     | '/(auth)/user/reset'
     | '/_authenticated/chat/$chatId'
@@ -1069,8 +1303,13 @@ export interface FileRouteTypes {
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
     | '/_authenticated/operations/sources'
+    | '/_authenticated/profile/share'
     | '/_authenticated/subscriptions/reset'
     | '/_authenticated/usage-logs/$section'
+    | '/store/claim/$token'
+    | '/store/preview/$productId'
+    | '/store/products/$productId'
+    | '/_authenticated/ai-directory/'
     | '/_authenticated/channels/'
     | '/_authenticated/chat-management/'
     | '/_authenticated/company/'
@@ -1088,6 +1327,7 @@ export interface FileRouteTypes {
     | '/_authenticated/red-packets/'
     | '/_authenticated/redemption-codes/'
     | '/_authenticated/remote-control/'
+    | '/_authenticated/rss/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/support/'
     | '/_authenticated/system-info/'
@@ -1121,9 +1361,15 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   authRouteRoute: typeof authRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  ApiKeysRoute: typeof ApiKeysRoute
+  SettingsRoute: typeof SettingsRoute
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
+  RefundPolicyRoute: typeof RefundPolicyRoute
+  StoreRoute: typeof StoreRouteWithChildren
   TermsRoute: typeof TermsRoute
   TermsOfServiceRoute: typeof TermsOfServiceRoute
+  TestKeyRoute: typeof TestKeyRoute
+  TransferRoute: typeof TransferRoute
   UserAgreementRoute: typeof UserAgreementRoute
   errors401Route: typeof errors401Route
   errors403Route: typeof errors403Route
@@ -1171,11 +1417,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api-keys': {
+      id: '/api-keys'
+      path: '/api-keys'
+      fullPath: '/api-keys'
+      preLoaderRoute: typeof ApiKeysRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/privacy-policy': {
       id: '/privacy-policy'
       path: '/privacy-policy'
       fullPath: '/privacy-policy'
       preLoaderRoute: typeof PrivacyPolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/refund-policy': {
+      id: '/refund-policy'
+      path: '/refund-policy'
+      fullPath: '/refund-policy'
+      preLoaderRoute: typeof RefundPolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/store': {
+      id: '/store'
+      path: '/store'
+      fullPath: '/store'
+      preLoaderRoute: typeof StoreRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terms': {
@@ -1190,6 +1464,20 @@ declare module '@tanstack/react-router' {
       path: '/terms-of-service'
       fullPath: '/terms-of-service'
       preLoaderRoute: typeof TermsOfServiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/test-key': {
+      id: '/test-key'
+      path: '/test-key'
+      fullPath: '/test-key'
+      preLoaderRoute: typeof TestKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/transfer': {
+      id: '/transfer'
+      path: '/transfer'
+      fullPath: '/transfer'
+      preLoaderRoute: typeof TransferRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/user-agreement': {
@@ -1395,6 +1683,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StatusIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/store/': {
+      id: '/store/'
+      path: '/'
+      fullPath: '/store/'
+      preLoaderRoute: typeof StoreIndexRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/cart': {
+      id: '/store/cart'
+      path: '/cart'
+      fullPath: '/store/cart'
+      preLoaderRoute: typeof StoreCartRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/favorites': {
+      id: '/store/favorites'
+      path: '/favorites'
+      fullPath: '/store/favorites'
+      preLoaderRoute: typeof StoreFavoritesRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/manage': {
+      id: '/store/manage'
+      path: '/manage'
+      fullPath: '/store/manage'
+      preLoaderRoute: typeof StoreManageRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/orders': {
+      id: '/store/orders'
+      path: '/orders'
+      fullPath: '/store/orders'
+      preLoaderRoute: typeof StoreOrdersRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/review': {
+      id: '/store/review'
+      path: '/review'
+      fullPath: '/store/review'
+      preLoaderRoute: typeof StoreReviewRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/settings': {
+      id: '/store/settings'
+      path: '/settings'
+      fullPath: '/store/settings'
+      preLoaderRoute: typeof StoreSettingsRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/support': {
+      id: '/store/support'
+      path: '/support'
+      fullPath: '/store/support'
+      preLoaderRoute: typeof StoreSupportRouteImport
+      parentRoute: typeof StoreRoute
+    }
     '/webmcp/': {
       id: '/webmcp/'
       path: '/webmcp'
@@ -1408,6 +1752,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/user/reset'
       preLoaderRoute: typeof authUserResetRouteImport
       parentRoute: typeof authRouteRoute
+    }
+    '/_authenticated/ai-directory/': {
+      id: '/_authenticated/ai-directory/'
+      path: '/ai-directory'
+      fullPath: '/ai-directory/'
+      preLoaderRoute: typeof AuthenticatedAiDirectoryIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/channels/': {
       id: '/_authenticated/channels/'
@@ -1535,6 +1886,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProfileIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/profile/share': {
+      id: '/_authenticated/profile/share'
+      path: '/profile/share'
+      fullPath: '/profile/share'
+      preLoaderRoute: typeof AuthenticatedProfileShareRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/public-relay/': {
       id: '/_authenticated/public-relay/'
       path: '/public-relay'
@@ -1561,6 +1919,13 @@ declare module '@tanstack/react-router' {
       path: '/remote-control'
       fullPath: '/remote-control/'
       preLoaderRoute: typeof AuthenticatedRemoteControlIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/rss/': {
+      id: '/_authenticated/rss/'
+      path: '/rss'
+      fullPath: '/rss/'
+      preLoaderRoute: typeof AuthenticatedRssIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/subscriptions/': {
@@ -1667,6 +2032,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/pricing/$modelId/'
       preLoaderRoute: typeof PricingModelIdIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/store/claim/$token': {
+      id: '/store/claim/$token'
+      path: '/claim/$token'
+      fullPath: '/store/claim/$token'
+      preLoaderRoute: typeof StoreClaimTokenRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/preview/$productId': {
+      id: '/store/preview/$productId'
+      path: '/preview/$productId'
+      fullPath: '/store/preview/$productId'
+      preLoaderRoute: typeof StorePreviewProductIdRouteImport
+      parentRoute: typeof StoreRoute
+    }
+    '/store/products/$productId': {
+      id: '/store/products/$productId'
+      path: '/products/$productId'
+      fullPath: '/store/products/$productId'
+      preLoaderRoute: typeof StoreProductsProductIdRouteImport
+      parentRoute: typeof StoreRoute
     }
     '/_authenticated/system-settings/auth/': {
       id: '/_authenticated/system-settings/auth/'
@@ -1862,8 +2248,10 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
+  AuthenticatedProfileShareRoute: typeof AuthenticatedProfileShareRoute
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
+  AuthenticatedAiDirectoryIndexRoute: typeof AuthenticatedAiDirectoryIndexRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedChatManagementIndexRoute: typeof AuthenticatedChatManagementIndexRoute
   AuthenticatedCompanyIndexRoute: typeof AuthenticatedCompanyIndexRoute
@@ -1881,6 +2269,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedRedPacketsIndexRoute: typeof AuthenticatedRedPacketsIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
   AuthenticatedRemoteControlIndexRoute: typeof AuthenticatedRemoteControlIndexRoute
+  AuthenticatedRssIndexRoute: typeof AuthenticatedRssIndexRoute
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSupportIndexRoute: typeof AuthenticatedSupportIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
@@ -1902,8 +2291,10 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,
+  AuthenticatedProfileShareRoute: AuthenticatedProfileShareRoute,
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
+  AuthenticatedAiDirectoryIndexRoute: AuthenticatedAiDirectoryIndexRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedChatManagementIndexRoute: AuthenticatedChatManagementIndexRoute,
   AuthenticatedCompanyIndexRoute: AuthenticatedCompanyIndexRoute,
@@ -1924,6 +2315,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,
   AuthenticatedRemoteControlIndexRoute: AuthenticatedRemoteControlIndexRoute,
+  AuthenticatedRssIndexRoute: AuthenticatedRssIndexRoute,
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSupportIndexRoute: AuthenticatedSupportIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
@@ -1940,13 +2332,49 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface StoreRouteChildren {
+  StoreCartRoute: typeof StoreCartRoute
+  StoreFavoritesRoute: typeof StoreFavoritesRoute
+  StoreManageRoute: typeof StoreManageRoute
+  StoreOrdersRoute: typeof StoreOrdersRoute
+  StoreReviewRoute: typeof StoreReviewRoute
+  StoreSettingsRoute: typeof StoreSettingsRoute
+  StoreSupportRoute: typeof StoreSupportRoute
+  StoreIndexRoute: typeof StoreIndexRoute
+  StoreClaimTokenRoute: typeof StoreClaimTokenRoute
+  StorePreviewProductIdRoute: typeof StorePreviewProductIdRoute
+  StoreProductsProductIdRoute: typeof StoreProductsProductIdRoute
+}
+
+const StoreRouteChildren: StoreRouteChildren = {
+  StoreCartRoute: StoreCartRoute,
+  StoreFavoritesRoute: StoreFavoritesRoute,
+  StoreManageRoute: StoreManageRoute,
+  StoreOrdersRoute: StoreOrdersRoute,
+  StoreReviewRoute: StoreReviewRoute,
+  StoreSettingsRoute: StoreSettingsRoute,
+  StoreSupportRoute: StoreSupportRoute,
+  StoreIndexRoute: StoreIndexRoute,
+  StoreClaimTokenRoute: StoreClaimTokenRoute,
+  StorePreviewProductIdRoute: StorePreviewProductIdRoute,
+  StoreProductsProductIdRoute: StoreProductsProductIdRoute,
+}
+
+const StoreRouteWithChildren = StoreRoute._addFileChildren(StoreRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  ApiKeysRoute: ApiKeysRoute,
+  SettingsRoute: SettingsRoute,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
+  RefundPolicyRoute: RefundPolicyRoute,
+  StoreRoute: StoreRouteWithChildren,
   TermsRoute: TermsRoute,
   TermsOfServiceRoute: TermsOfServiceRoute,
+  TestKeyRoute: TestKeyRoute,
+  TransferRoute: TransferRoute,
   UserAgreementRoute: UserAgreementRoute,
   errors401Route: errors401Route,
   errors403Route: errors403Route,

@@ -93,6 +93,8 @@ prepare_go_fixture() {
   add_go_runtime "$bundle"
   if [[ $version != 0.1.69 ]]; then
     cp "$SHARED/lmm-api-deploy" "$bundle/lmm-api-deploy"
+    printf '#!/bin/sh\nexit 0\n' >"$bundle/lmm-api-deploy-engine"
+    chmod 0755 "$bundle/lmm-api-deploy-engine"
     printf 'v1\n' >"$bundle/OAUTH_MANAGED_TOKEN_CAPABILITY"
     printf 'v1\n' >"$bundle/MANAGED_BILLING_SETTLEMENT_CAPABILITY"
   fi
@@ -131,7 +133,8 @@ next_archive=$(build_package go-next "$next_work" \
   usr/lib/sysusers.d/lmm-api-operator.conf usr/lib/tmpfiles.d/lmm-api-operator.conf \
   etc/sudoers.d/lmm-api-operator usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
   usr/share/doc/lmm-api-go-bin/OAUTH_MANAGED_TOKEN_CAPABILITY \
-  usr/share/doc/lmm-api-go-bin/MANAGED_BILLING_SETTLEMENT_CAPABILITY usr/bin/lmm-api-deploy)
+  usr/share/doc/lmm-api-go-bin/MANAGED_BILLING_SETTLEMENT_CAPABILITY usr/bin/lmm-api-deploy \
+  usr/lib/lmm-api-deploy/engine)
 if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api$|CLI_TRANSITION_PHASE|frontend-dist'; then
   die 'new Go provider package contains a generic/reverse/phase/frontend payload'
 fi

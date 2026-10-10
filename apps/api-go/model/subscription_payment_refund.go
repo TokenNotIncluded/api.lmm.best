@@ -131,8 +131,8 @@ func ApplySubscriptionPaymentRefund(request SubscriptionPaymentRefundRequest) (P
 			return err
 		}
 		if inlinePeriod && order.UserSubscriptionId > 0 && order.CurrentPeriodStart == payment.PeriodStart && order.CurrentPeriodEnd == payment.PeriodEnd {
-			if order.RefundedAmountMicros != totals.AmountMicros || order.RefundedQuota != totals.QuotaRevoked {
-				return ErrSubscriptionRefundReconciliationRequired
+			if err := subscriptionRefundCountersMatchTx(tx, &order, totals.AmountMicros, totals.QuotaRevoked); err != nil {
+				return err
 			}
 			result.QuotaDebited, groupChanged, err = revokeSubscriptionPaymentQuotaTx(tx, &order, &payment, totals.AmountMicros+request.AmountMicros)
 			if err != nil {
@@ -251,19 +251,12 @@ func revokeSubscriptionPaymentQuotaTx(tx *gorm.DB, order *SubscriptionOrder, pay
 	if err != nil {
 		return 0, false, err
 	}
-	newTotal := subscription.AmountTotal
-	if plan.TotalAmount > 0 {
-		target := plan.TotalAmount - proportionalRefundTarget(plan.TotalAmount, payment.SettlementAmountMicros, refundedMicros)
-		if target < subscription.AmountUsed {
-			target = subscription.AmountUsed
-		}
-		if target < newTotal {
-			newTotal = target
-		}
+	quotaRevoked, historicalQuotaDelta, err := applySubscriptionRefundQuotaTx(tx, order, subscription,
+		payment.SettlementAmountMicros, refundedMicros-order.RefundedAmountMicros, plan.TotalAmount, true)
+	if err != nil {
+		return 0, false, err
 	}
-	quotaRevoked := subscription.AmountTotal - newTotal
-	subscription.AmountTotal = newTotal
-	if refundedMicros == payment.SettlementAmountMicros || (plan.TotalAmount > 0 && newTotal <= subscription.AmountUsed) {
+	if refundedMicros == payment.SettlementAmountMicros || (subscription.hasFiniteQuota() && subscription.AmountTotal <= subscription.AmountUsed) {
 		subscription.Status = "cancelled"
 		subscription.NextResetTime = 0
 	}
@@ -273,7 +266,7 @@ func revokeSubscriptionPaymentQuotaTx(tx *gorm.DB, order *SubscriptionOrder, pay
 	}
 	if err := tx.Model(order).Updates(map[string]interface{}{
 		"refunded_amount_micros": refundedMicros,
-		"refunded_quota":         order.RefundedQuota + quotaRevoked,
+		"refunded_quota":         order.RefundedQuota + historicalQuotaDelta,
 	}).Error; err != nil {
 		return 0, false, err
 	}

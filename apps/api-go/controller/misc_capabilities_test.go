@@ -11,6 +11,7 @@ import (
 )
 
 func TestGetStatusAdvertisesFrontendBackendCapabilities(t *testing.T) {
+	installStatusCurrencyFixture(t)
 	previousMap := common.OptionMap
 	common.OptionMap = map[string]string{}
 	t.Cleanup(func() { common.OptionMap = previousMap })

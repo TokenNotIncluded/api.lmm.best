@@ -94,7 +94,8 @@ function isGithubRepositoryUrl(rawUrl: string): boolean {
 }
 
 export function validateBountyDraft(
-  draft: BountyDraftValidationInput
+  draft: BountyDraftValidationInput,
+  options: { rawCredits?: boolean } = {}
 ): BountyDraftErrors {
   const errors: BountyDraftErrors = {}
   const rewardAmount = parseBountyNumericInput(draft.rewardAmount)
@@ -118,7 +119,13 @@ export function validateBountyDraft(
     errors.rules =
       'Acceptance and verification rules must contain 20 to 5000 characters.'
   }
-  if (!Number.isFinite(rewardAmount) || rewardAmount <= 0) {
+  if (
+    !Number.isFinite(rewardAmount) ||
+    rewardAmount <= 0 ||
+    (options.rawCredits &&
+      (!Number.isSafeInteger(rewardAmount) ||
+        !Number.isSafeInteger(rewardAmount * rewardSlots)))
+  ) {
     errors.rewardAmount = 'Reward per fix must be greater than zero.'
   }
   if (!Number.isInteger(rewardSlots) || rewardSlots < 1 || rewardSlots > 100) {

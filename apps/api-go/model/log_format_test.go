@@ -4,9 +4,23 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestFormatUserLogsKeepsBillingExemptionAndStripsRefusalDebugReason(t *testing.T) {
+	logs := []*Log{{Other: common.MapToJsonStr(map[string]interface{}{
+		"billing_exempt_reason": constant.BillingExemptReasonClaudeRefusalNoOutput,
+		"admin_info":            map[string]interface{}{"reject_reason": "claude_stop_reason=refusal"},
+	})}}
+	formatUserLogs(logs, 0)
+	parsed, err := common.StrToMap(logs[0].Other)
+	require.NoError(t, err)
+	require.Equal(t, constant.BillingExemptReasonClaudeRefusalNoOutput, parsed["billing_exempt_reason"])
+	require.NotContains(t, parsed, "admin_info")
+	require.NotContains(t, parsed, "reject_reason")
+}
 
 // TestFormatUserLogsStripsQuotaSaturation verifies the admin-only quota
 // saturation marker (nested under other.admin_info) is removed for non-admin

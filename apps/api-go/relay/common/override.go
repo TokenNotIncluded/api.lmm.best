@@ -1,6 +1,8 @@
 package common
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +19,13 @@ import (
 )
 
 var negativeIndexRegexp = regexp.MustCompile(`\.(-\d+)`)
+
+// Preserve request numbers when an override parses JSON that it will write back.
+func decodeParamOverrideJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode(target)
+}
 
 const (
 	paramOverrideContextRequestHeaders = "request_headers"
@@ -1464,7 +1473,14 @@ func readSyncTargetValue(data []byte, context map[string]interface{}, target syn
 		if value.Type == gjson.String && strings.TrimSpace(value.String()) == "" {
 			return nil, false, nil
 		}
-		return value.Value(), true, nil
+		if value.Raw == "" {
+			return value.Value(), true, nil
+		}
+		var decoded any
+		if err := decodeParamOverrideJSON([]byte(value.Raw), &decoded); err != nil {
+			return nil, false, err
+		}
+		return decoded, true, nil
 	case "header":
 		value, ok := getHeaderValueFromContext(context, target.key)
 		if !ok || strings.TrimSpace(value) == "" {
@@ -1596,13 +1612,9 @@ func syncRuntimeHeaderOverrideFromContext(info *RelayInfo, context map[string]in
 }
 
 func moveValue(data []byte, fromPath, toPath string) ([]byte, error) {
-	sourceValue := gjson.GetBytes(data, fromPath)
-	if !sourceValue.Exists() {
-		return data, fmt.Errorf("source path does not exist: %s", fromPath)
-	}
-	result, err := sjson.SetBytes(data, toPath, sourceValue.Value())
+	result, err := copyValue(data, fromPath, toPath)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 	return sjson.DeleteBytes(result, fromPath)
 }
@@ -1611,6 +1623,9 @@ func copyValue(data []byte, fromPath, toPath string) ([]byte, error) {
 	sourceValue := gjson.GetBytes(data, fromPath)
 	if !sourceValue.Exists() {
 		return data, fmt.Errorf("source path does not exist: %s", fromPath)
+	}
+	if sourceValue.Raw != "" {
+		return sjson.SetRawBytes(data, toPath, []byte(sourceValue.Raw))
 	}
 	return sjson.SetBytes(data, toPath, sourceValue.Value())
 }
@@ -1728,7 +1743,7 @@ func modifyArray(data []byte, path string, value interface{}, isPrepend bool) ([
 	// 添加原值
 	addOriginal := func() {
 		current.ForEach(func(_, val gjson.Result) bool {
-			newArray = append(newArray, val.Value())
+			newArray = append(newArray, json.RawMessage(val.Raw))
 			return true
 		})
 	}
@@ -1850,7 +1865,7 @@ func pruneObjects(data []byte, path, contextJSON string, value interface{}) ([]b
 
 	if path == "" {
 		var root interface{}
-		if err := common.Unmarshal(data, &root); err != nil {
+		if err := decodeParamOverrideJSON(data, &root); err != nil {
 			return nil, err
 		}
 		cleaned, _, err := pruneObjectsNode(root, options, contextJSON, true)
@@ -1867,7 +1882,7 @@ func pruneObjects(data []byte, path, contextJSON string, value interface{}) ([]b
 
 	var targetNode interface{}
 	if target.Type == gjson.JSON {
-		if err := common.UnmarshalJsonStr(target.Raw, &targetNode); err != nil {
+		if err := decodeParamOverrideJSON([]byte(target.Raw), &targetNode); err != nil {
 			return nil, err
 		}
 	} else {
@@ -2066,7 +2081,7 @@ func mergeObjects(data []byte, path string, value interface{}, keepOrigin bool) 
 	var currentMap, newMap map[string]interface{}
 
 	// 解析当前值（current.Raw 是 data 的子串，避免再分配一份）
-	if err := common.UnmarshalJsonStr(current.Raw, &currentMap); err != nil {
+	if err := decodeParamOverrideJSON([]byte(current.Raw), &currentMap); err != nil {
 		return nil, err
 	}
 	// 解析新值
@@ -2075,7 +2090,7 @@ func mergeObjects(data []byte, path string, value interface{}, keepOrigin bool) 
 		newMap = v
 	default:
 		jsonBytes, _ := common.Marshal(v)
-		if err := common.Unmarshal(jsonBytes, &newMap); err != nil {
+		if err := decodeParamOverrideJSON(jsonBytes, &newMap); err != nil {
 			return nil, err
 		}
 	}

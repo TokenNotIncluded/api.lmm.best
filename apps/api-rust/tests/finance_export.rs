@@ -245,7 +245,7 @@ async fn invalid_format_should_keep_legacy_error_and_disable_cache() {
     );
     assert_eq!(
         response.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     assert_eq!(
         json_body(response).await,

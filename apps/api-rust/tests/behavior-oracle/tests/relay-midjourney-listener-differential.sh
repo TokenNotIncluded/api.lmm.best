@@ -70,6 +70,10 @@ psql -h 127.0.0.1 -p "$pg_port" -U lmm_test_mj_diff -d lmm_test_mj_diff \
 sed 's/public\./lmm_test_mj_diff./g' \
     "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" \
     >"$runtime/baseline.sql"
+# Expand only the disposable Rust schema after the frozen baseline.
+sed "s/__LMM_APP_SCHEMA__/lmm_test_mj_diff/g" \
+  "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+  >>"$runtime/baseline.sql"
 PGOPTIONS='-c search_path=lmm_test_mj_diff' \
     psql -h 127.0.0.1 -p "$pg_port" -U lmm_test_mj_diff -d lmm_test_mj_diff \
     -v ON_ERROR_STOP=1 -f "$runtime/baseline.sql" >/dev/null

@@ -22,6 +22,7 @@ import { after, describe, test } from 'node:test'
 import { Window } from 'happy-dom'
 
 import type { AssistantSettingsFormValues } from './assistant-settings-schema'
+import { DEFAULT_ASSISTANT_TOOL_POLICY } from './assistant-tool-policy'
 
 const domWindow = new Window({
   url: 'https://console.example.test/admin/system-settings/content/assistant',
@@ -94,10 +95,14 @@ const baseValues = {
   AssistantEnabled: true,
   AssistantGroup: 'default',
   AssistantModel: 'deepseek-v4-flash',
+  AssistantModerationEnabled: false,
+  AssistantModerationGroup: 'default',
+  AssistantModerationModel: 'omni-moderation-latest',
   AssistantReasoningEffort: 'auto',
   AssistantStreamEnabled: true,
   AssistantTemperature: 0.2,
   AssistantMaxTokens: 900,
+  AssistantNewUserGiftMaxCredits: 5000000,
   AssistantAgentLoopEnabled: true,
   AssistantMaxSteps: 6,
   AssistantTimeoutSeconds: 45,
@@ -110,24 +115,12 @@ const baseValues = {
   AssistantSearchURL: '',
   AssistantSearchAPIKey: '',
   AssistantSearchMCPTool: '',
+  AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY,
   AssistantSkills: '',
   AssistantSkillFiles: '[]',
   AssistantRegistrationAutoSuspendEnabled: true,
   AssistantRegistrationDailySuspendCap: 5,
-  AssistantL1AutoReviewEnabled: false,
-  AssistantL1AutoReviewGroup: '',
-  AssistantL1AutoReviewModel: '',
-  AssistantL1AutoReviewPrompt: '',
-  AssistantL1AutoReviewMinConfidence: 0.98,
   AssistantL1AutoApprovalUserIDs: '',
-  AssistantReviewEnabled: true,
-  AssistantReviewWindowDays: 30,
-  AssistantReviewIntervalHours: 24,
-  AssistantReviewProbability: 0,
-  AssistantReviewGroup: 'default',
-  AssistantReviewModel: 'deepseek-v4-flash',
-  AssistantReviewReasoningEffort: 'auto',
-  AssistantReviewGroupPolicies: '{}',
   AssistantRetentionEnabled: true,
   AssistantActiveRetentionDays: 90,
   AssistantArchivedRetentionDays: 30,
@@ -308,13 +301,55 @@ describe('assistant search provider settings', () => {
       }).success,
       true
     )
+    const legacy = assistantSettingsSchema.parse({
+      ...baseValues,
+      AssistantL1AutoReviewEnabled: true,
+      AssistantL1AutoReviewModel: 'retired-model',
+    })
+    assert.equal('AssistantL1AutoReviewEnabled' in legacy, false)
+    assert.equal('AssistantL1AutoReviewModel' in legacy, false)
+  })
+
+  test('accepts the default tool policy and the legacy empty value supplied by the settings defaults', () => {
+    const current = assistantSettingsSchema.parse(baseValues)
+    assert.equal(current.AssistantToolPolicy, DEFAULT_ASSISTANT_TOOL_POLICY)
+
+    const legacy = assistantSettingsSchema.parse({
+      ...baseValues,
+      AssistantToolPolicy: '',
+    })
+    assert.equal(legacy.AssistantToolPolicy, '')
     assert.equal(
-      assistantSettingsSchema.safeParse({
-        ...baseValues,
-        AssistantL1AutoReviewEnabled: true,
-      }).success,
-      true
+      legacy.AssistantSearchProvider,
+      baseValues.AssistantSearchProvider
     )
+  })
+
+  test('rejects malformed tool policy at its own field before saving any settings', () => {
+    for (const policy of [
+      '{',
+      '[]',
+      '{"version":2,"groups":{},"tools":{}}',
+      '{"version":1,"groups":[],"tools":{}}',
+      '{"version":1,"groups":{"account":"false"},"tools":{}}',
+      '{"version":1,"groups":{},"tools":{"web_search":0}}',
+      '{"version":1,"groups":{},"tools":{},"unknown":true}',
+      '{"version":1,"version":1,"groups":{},"tools":{}}',
+      ' '.repeat(262_145),
+    ]) {
+      const result = assistantSettingsSchema.safeParse({
+        ...baseValues,
+        AssistantToolPolicy: policy,
+      })
+      assert.equal(result.success, false, policy.slice(0, 128))
+      if (!result.success) {
+        assert.ok(
+          result.error.issues.some(
+            (issue) => issue.path[0] === 'AssistantToolPolicy'
+          )
+        )
+      }
+    }
   })
 
   for (const outcome of ['loaded', 'empty', 'error'] as const) {
@@ -370,13 +405,7 @@ describe('assistant search provider settings', () => {
           ),
           null
         )
-        assert.equal(
-          rendered.container.querySelector(
-            '[data-testid="assistant-review-route-fields"]'
-          ),
-          null
-        )
-        // The connection tab loads its selector once, not a separate risk-review model.
+        // The connection tab loads its selector once, without unrelated model requests.
         assert.equal(
           requests.filter((url) => url === '/api/assistant/models').length,
           1
@@ -447,8 +476,6 @@ describe('assistant search provider settings', () => {
   test('validates bounded conversation retention settings', () => {
     assert.equal(assistantSettingsSchema.safeParse(baseValues).success, true)
     for (const invalid of [
-      { AssistantReviewWindowDays: 0 },
-      { AssistantReviewIntervalHours: 169 },
       { AssistantTemperature: -0.1 },
       { AssistantTemperature: 2.1 },
       { AssistantMaxTokens: 63 },
@@ -478,7 +505,7 @@ describe('assistant search provider settings', () => {
     }
   })
 
-  test('accepts every supported reasoning effort for primary and review routes', () => {
+  test('accepts every supported reasoning effort for assistant responses', () => {
     assert.deepEqual(ASSISTANT_REASONING_EFFORTS, [
       'auto',
       'none',
@@ -494,7 +521,6 @@ describe('assistant search provider settings', () => {
         assistantSettingsSchema.safeParse({
           ...baseValues,
           AssistantReasoningEffort: effort,
-          AssistantReviewReasoningEffort: effort,
         }).success,
         true,
         effort
@@ -503,7 +529,7 @@ describe('assistant search provider settings', () => {
     assert.equal(
       assistantSettingsSchema.safeParse({
         ...baseValues,
-        AssistantReviewReasoningEffort: 'ultra',
+        AssistantReasoningEffort: 'ultra',
       }).success,
       false
     )
@@ -541,7 +567,9 @@ describe('assistant search provider settings', () => {
   })
 
   test('shows only the custom URL for generic HTTP search', async () => {
-    const { container, cleanup } = await renderSettings('generic_http')
+    const rendered = await renderSettings('generic_http')
+    const container = await openToolConfiguration(rendered, 'search_web')
+    const cleanup = rendered.cleanup
     assert.ok(
       container.querySelector('input[name="AssistantSearchURL"]'),
       'custom HTTP URL should be visible'
@@ -555,7 +583,9 @@ describe('assistant search provider settings', () => {
   })
 
   test('shows the MCP endpoint and optional tool name for MCP search', async () => {
-    const { container, cleanup } = await renderSettings('mcp_streamable_http')
+    const rendered = await renderSettings('mcp_streamable_http')
+    const container = await openToolConfiguration(rendered, 'search_web')
+    const cleanup = rendered.cleanup
     assert.ok(container.querySelector('input[name="AssistantSearchURL"]'))
     assert.ok(container.querySelector('input[name="AssistantSearchMCPTool"]'))
     assert.match(container.textContent ?? '', /Streamable HTTP/)
@@ -563,38 +593,15 @@ describe('assistant search provider settings', () => {
   })
 
   test('shows the official provider description without a custom URL', async () => {
-    const { container, cleanup } = await renderSettings('exa')
+    const rendered = await renderSettings('exa')
+    const container = await openToolConfiguration(rendered, 'search_web')
+    const cleanup = rendered.cleanup
     assert.equal(
       container.querySelector('input[name="AssistantSearchURL"]'),
       null
     )
     assert.match(container.textContent ?? '', /official Exa Search API/)
     await cleanup()
-  })
-
-  test('retains aggregate reporting but not a separate sampled review model', async () => {
-    const rendered = await renderSettings('none')
-    try {
-      assert.equal(
-        rendered.container.querySelector(
-          '[data-testid="assistant-review-route-fields"]'
-        ),
-        null
-      )
-      assert.equal(
-        rendered.container.querySelector(
-          'input[name="AssistantReviewProbability"]'
-        ),
-        null
-      )
-      assert.ok(
-        rendered.container.querySelector(
-          'input[name="AssistantReviewWindowDays"]'
-        )
-      )
-    } finally {
-      await rendered.cleanup()
-    }
   })
 
   test('saves changed assistant options through one bulk mutation', async () => {
@@ -769,7 +776,9 @@ describe('assistant settings workspace', () => {
             ? ['default']
             : url === '/api/assistant/models'
               ? [baseValues.AssistantModel]
-              : [],
+              : url === '/api/assistant/admin/tool-catalog'
+                ? { groups: [] }
+                : [],
       },
     })) as typeof api.get
     return () => {
@@ -794,6 +803,399 @@ describe('assistant settings workspace', () => {
     })
   }
 
+  test('saves local tool choices with remote group disables and a fresh policy baseline', async () => {
+    const originalGet = api.get
+    const originalPost = api.post
+    const requests: string[] = []
+    const initialPolicy =
+      '{"version":1,"groups":{},"tools":{"request_create_key":false}}'
+    const remotePolicy =
+      '{"version":1,"groups":{"drawing":false},"tools":{"request_create_key":false}}'
+    const freshPolicy =
+      '{"version":1,"groups":{"drawing":false},"tools":{"request_create_key":false,"request_image_generation":false}}'
+    const updates: Array<{
+      url: string
+      values: Record<string, string>
+      expected_values?: Record<string, string>
+    }> = []
+    api.get = (async (url: string) => {
+      requests.push(url)
+      if (url === '/api/group/') return { data: { data: ['default'] } }
+      if (url === '/api/assistant/models') {
+        return { data: { data: [baseValues.AssistantModel] } }
+      }
+      if (url === '/api/option/') {
+        return {
+          data: {
+            success: true,
+            data: [{ key: 'AssistantToolPolicy', value: freshPolicy }],
+          },
+        }
+      }
+      assert.equal(url, '/api/assistant/admin/tool-catalog')
+      return {
+        data: {
+          success: true,
+          data: {
+            groups: [
+              {
+                id: 'account',
+                label: 'Account',
+                tools: [
+                  {
+                    name: 'get_account_access',
+                    label: 'Account access',
+                    description: 'Read the current account permissions.',
+                    effect: 'read_only',
+                    access: 'user',
+                  },
+                  {
+                    name: 'request_create_key',
+                    label: 'Create an API key',
+                    description: 'Prepare an API key after user confirmation.',
+                    effect: 'confirmation',
+                    access: 'l1',
+                  },
+                ],
+              },
+              {
+                id: 'drawing',
+                label: 'Drawing',
+                tools: [
+                  {
+                    name: 'request_image_generation',
+                    label: 'Generate an image',
+                    description:
+                      'Prepare image generation after user confirmation.',
+                    effect: 'confirmation',
+                    access: 'l1',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }
+    }) as typeof api.get
+    api.post = (async (
+      url: string,
+      body: {
+        values: Record<string, string>
+        expected_values?: Record<string, string>
+      }
+    ) => {
+      updates.push({ url, ...body })
+      return { data: { success: true } }
+    }) as typeof api.post
+
+    const page = await renderSettings('none', {
+      AssistantToolPolicy: initialPolicy,
+    })
+    try {
+      assert.equal(
+        requests.includes('/api/assistant/admin/tool-catalog'),
+        false
+      )
+      const toolsTab = page.container.querySelector<HTMLButtonElement>(
+        '[data-settings-tab="tools"]'
+      )
+      assert.ok(toolsTab)
+      await act(async () => {
+        toolsTab.click()
+        await flushEffects()
+      })
+      const deadline = Date.now() + 5000
+      while (
+        !page.container.querySelector(
+          '[data-tool-group="account"] [role="switch"]'
+        ) &&
+        Date.now() < deadline
+      ) {
+        await act(flushEffects)
+      }
+      const group = page.container.querySelector<HTMLElement>(
+        '[data-tool-group="account"] [role="switch"]'
+      )
+      const read = page.container.querySelector<HTMLElement>(
+        '[data-tool-name="get_account_access"] [role="switch"]'
+      )
+      const create = page.container.querySelector<HTMLElement>(
+        '[data-tool-name="request_create_key"] [role="switch"]'
+      )
+      assert.ok(group)
+      assert.ok(read)
+      assert.ok(create)
+      assert.equal(create.getAttribute('aria-checked'), 'false')
+      assert.equal(read.getAttribute('aria-checked'), 'true')
+
+      await act(async () => group.click())
+      assert.equal(group.getAttribute('aria-checked'), 'false')
+      assert.equal(read.getAttribute('aria-checked'), 'false')
+      assert.equal(read.getAttribute('aria-disabled'), 'true')
+      assert.equal(create.getAttribute('aria-disabled'), 'true')
+      await act(async () => group.click())
+      assert.equal(group.getAttribute('aria-checked'), 'true')
+      assert.equal(read.getAttribute('aria-checked'), 'true')
+      assert.equal(create.getAttribute('aria-checked'), 'false')
+      assert.notEqual(create.getAttribute('aria-disabled'), 'true')
+      await act(async () => read.click())
+
+      await page.rerender({
+        AssistantToolPolicy: remotePolicy,
+        AssistantTimeoutSeconds: 60,
+      })
+      assert.equal(read.getAttribute('aria-checked'), 'false')
+      assert.equal(create.getAttribute('aria-checked'), 'false')
+      const drawing = page.container.querySelector<HTMLElement>(
+        '[data-tool-group="drawing"] [role="switch"]'
+      )
+      assert.ok(drawing)
+      assert.equal(drawing.getAttribute('aria-checked'), 'false')
+      assert.equal(
+        page.container.querySelector<HTMLInputElement>(
+          'input[name="AssistantTimeoutSeconds"]'
+        )?.value,
+        '60'
+      )
+      const statusKey = ['assistant-status', 'tool-policy-test']
+      page.queryClient.setQueryData(statusKey, { enabled: true })
+      const form = page.container.querySelector('form')
+      assert.ok(form)
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+
+      assert.equal(updates.length, 1)
+      assert.equal(updates[0].url, '/api/option/bulk')
+      assert.deepEqual(Object.keys(updates[0].values), ['AssistantToolPolicy'])
+      assert.deepEqual(JSON.parse(updates[0].values.AssistantToolPolicy), {
+        version: 1,
+        groups: { drawing: false },
+        tools: {
+          request_create_key: false,
+          get_account_access: false,
+          request_image_generation: false,
+        },
+      })
+      assert.deepEqual(updates[0].expected_values, {
+        AssistantToolPolicy: freshPolicy,
+      })
+      assert.equal(
+        page.queryClient.getQueryState(statusKey)?.isInvalidated,
+        true
+      )
+      assert.equal(
+        requests.filter((url) => url === '/api/assistant/admin/tool-catalog')
+          .length,
+        2
+      )
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await page.cleanup()
+    }
+  })
+
+  test('a pending policy save conflict refreshes remote disables without retrying or discarding the draft', async () => {
+    const originalGet = api.get
+    const originalPost = api.post
+    const remotePolicy = '{"version":1,"groups":{"drawing":false},"tools":{}}'
+    let serverPolicy = DEFAULT_ASSISTANT_TOOL_POLICY
+    let optionReads = 0
+    let rejectPending: ((error: Error) => void) | undefined
+    const writes: Array<{
+      values: Record<string, string>
+      expected_values?: Record<string, string>
+    }> = []
+    api.get = (async (
+      url: string,
+      config?: {
+        skipBusinessError?: boolean
+        skipErrorHandler?: boolean
+        disableDuplicate?: boolean
+        authScope?: unknown
+      }
+    ) => {
+      if (url === '/api/group/') return { data: { data: ['default'] } }
+      if (url === '/api/assistant/models') {
+        return { data: { data: [baseValues.AssistantModel] } }
+      }
+      if (url === '/api/option/') {
+        optionReads += 1
+        assert.equal(config?.skipBusinessError, true)
+        assert.equal(config?.skipErrorHandler, true)
+        assert.equal(config?.disableDuplicate, true)
+        assert.ok(config?.authScope)
+        return {
+          data: {
+            success: true,
+            data: [{ key: 'AssistantToolPolicy', value: serverPolicy }],
+          },
+        }
+      }
+      assert.equal(url, '/api/assistant/admin/tool-catalog')
+      return {
+        data: {
+          success: true,
+          data: {
+            groups: [
+              {
+                id: 'search',
+                label: 'Search',
+                tools: [
+                  {
+                    name: 'search_web',
+                    label: 'Search the web',
+                    description: 'Find public information.',
+                    effect: 'read_only',
+                    access: 'user',
+                  },
+                ],
+              },
+              {
+                id: 'drawing',
+                label: 'Drawing',
+                tools: [
+                  {
+                    name: 'request_image_generation',
+                    label: 'Generate an image',
+                    description:
+                      'Prepare image generation after user confirmation.',
+                    effect: 'confirmation',
+                    access: 'l1',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }
+    }) as typeof api.get
+    api.post = (async (
+      url: string,
+      body: {
+        values: Record<string, string>
+        expected_values?: Record<string, string>
+      }
+    ) => {
+      assert.equal(url, '/api/option/bulk')
+      writes.push(body)
+      if (writes.length === 1) {
+        return new Promise((_resolve, reject) => {
+          rejectPending = reject
+        })
+      }
+      return { data: { success: true } }
+    }) as typeof api.post
+
+    const page = await renderSettings('none')
+    try {
+      const toolsTab = page.container.querySelector<HTMLButtonElement>(
+        '[data-settings-tab="tools"]'
+      )
+      assert.ok(toolsTab)
+      await act(async () => {
+        toolsTab.click()
+        await flushEffects()
+      })
+      const catalogDeadline = Date.now() + 5000
+      while (
+        !page.container.querySelector(
+          '[data-tool-name="search_web"] [role="switch"]'
+        ) &&
+        Date.now() < catalogDeadline
+      ) {
+        await act(flushEffects)
+      }
+      const search = page.container.querySelector<HTMLElement>(
+        '[data-tool-name="search_web"] [role="switch"]'
+      )
+      const drawing = page.container.querySelector<HTMLElement>(
+        '[data-tool-group="drawing"] [role="switch"]'
+      )
+      const form = page.container.querySelector('form')
+      assert.ok(search)
+      assert.ok(drawing)
+      assert.ok(form)
+      await act(async () => search.click())
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.equal(writes.length, 1)
+      assert.equal(optionReads, 1)
+      assert.deepEqual(writes[0].expected_values, {
+        AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY,
+      })
+      assert.ok(rejectPending)
+      const rejectSave = rejectPending
+
+      serverPolicy = remotePolicy
+      await act(async () => {
+        rejectSave(
+          Object.assign(new Error('Assistant tool policy changed'), {
+            response: {
+              status: 409,
+              data: {
+                success: false,
+                code: 'ASSISTANT_TOOL_POLICY_CONFLICT',
+                message: 'Assistant tool policy changed',
+              },
+            },
+          })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.equal(
+        writes.length,
+        1,
+        'a conflict must never trigger a second write'
+      )
+      assert.equal(optionReads, 2)
+      assert.equal(search.getAttribute('aria-checked'), 'false')
+      assert.equal(drawing.getAttribute('aria-checked'), 'false')
+      const alert = page.container.querySelector('[role="alert"]')
+      assert.ok(alert)
+      assert.match(alert.textContent ?? '', /review/i)
+      assert.ok(page.container.textContent?.includes('Unsaved changes'))
+
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.equal(
+        writes.length,
+        2,
+        'the administrator may save again after reviewing'
+      )
+      assert.equal(optionReads, 3)
+      assert.deepEqual(writes[1].expected_values, {
+        AssistantToolPolicy: remotePolicy,
+      })
+      assert.deepEqual(Object.keys(writes[1].values), ['AssistantToolPolicy'])
+      assert.deepEqual(JSON.parse(writes[1].values.AssistantToolPolicy), {
+        version: 1,
+        groups: { drawing: false },
+        tools: { search_web: false },
+      })
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await page.cleanup()
+    }
+  })
+
   test('only one group is exposed and keyboard navigation preserves an unsaved draft', async () => {
     const restore = mockReads()
     const page = await renderSettings('none')
@@ -803,7 +1205,7 @@ describe('assistant settings workspace', () => {
           '[data-settings-tab]'
         ),
       ]
-      assert.equal(tabs.length, 6)
+      assert.equal(tabs.length, 7)
       assert.equal(
         page.container.querySelectorAll('[role="tabpanel"]:not([hidden])')
           .length,
@@ -862,11 +1264,7 @@ describe('assistant settings workspace', () => {
       return { data: { success: true } }
     }) as typeof api.post
     const page = await renderSettings('none')
-    const presetsKey = [
-      'assistant-pre-conversation-presets',
-      'natural-v2',
-      'en',
-    ]
+    const presetsKey = ['assistant-pre-conversation-presets', 'access-v3', 'en']
     const statusKey = ['assistant-status', 7, 'session']
     page.queryClient.setQueryData(presetsKey, { presets: [] })
     page.queryClient.setQueryData(statusKey, { enabled: true })
@@ -923,3 +1321,266 @@ describe('assistant settings workspace', () => {
     }
   })
 })
+
+describe('assistant asynchronous Moderation settings', () => {
+  test('starts off and saves opt-in through a single bulk transaction using only the moderation catalog', async () => {
+    const originalGet = api.get
+    const originalPost = api.post
+    const catalogs: unknown[] = []
+    const saves: Array<{ url: string; payload: unknown }> = []
+    api.get = (async (url: string, config?: { params?: unknown }) => {
+      if (url === '/api/group/') {
+        return { data: { success: true, data: ['default', 'premium'] } }
+      }
+      if (url === '/api/assistant/models') {
+        return { data: { success: true, data: ['deepseek-v4-flash'] } }
+      }
+      if (url === '/api/security/admin/moderation/models') {
+        catalogs.push(config?.params)
+        return {
+          data: {
+            success: true,
+            data: { group: 'default', models: ['omni-moderation-latest'] },
+          },
+        }
+      }
+      if (url === '/api/assistant/admin/registration-events') {
+        return { data: { success: true, data: [] } }
+      }
+      throw new Error(`Unexpected read: ${url}`)
+    }) as typeof api.get
+    api.post = (async (url: string, payload: unknown) => {
+      saves.push({ url, payload })
+      return { data: { success: true } }
+    }) as typeof api.post
+    const rendered = await renderSettings('none')
+    try {
+      await act(flushEffects)
+      assert.equal(catalogs.length, 0)
+      const panel = rendered.container.querySelector(
+        '[data-testid="assistant-moderation-settings"]'
+      )
+      assert.ok(panel)
+      const toggle = panel.querySelector<HTMLButtonElement>('[role="switch"]')
+      assert.ok(toggle)
+      assert.equal(toggle.getAttribute('aria-checked'), 'false')
+      await act(async () => {
+        toggle.click()
+        await flushEffects()
+      })
+      assert.deepEqual(catalogs, [{ group: 'default' }])
+      const form = rendered.container.querySelector('form')
+      assert.ok(form)
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.deepEqual(saves, [
+        {
+          url: '/api/option/bulk',
+          payload: { values: { AssistantModerationEnabled: 'true' } },
+        },
+      ])
+      assert.match(panel.textContent ?? '', /omni-moderation-latest/)
+      assert.match(panel.textContent ?? '', /Groups without a policy stay off/)
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await rendered.cleanup()
+    }
+  })
+})
+
+describe('administrator welcome-gift cap', () => {
+  test('rejects non-integer, negative and unsafe credit maxima', () => {
+    for (const value of [
+      -1,
+      0.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...baseValues,
+          AssistantNewUserGiftMaxCredits: value,
+        }).success,
+        false
+      )
+    }
+    for (const value of [0, 1, 9000000, Number.MAX_SAFE_INTEGER]) {
+      assert.equal(
+        assistantSettingsSchema.safeParse({
+          ...baseValues,
+          AssistantNewUserGiftMaxCredits: value,
+        }).success,
+        true
+      )
+    }
+  })
+  test('edits in USD and keeps exactly the same integer credits when switching display units', async () => {
+    const { useSystemConfigStore, DEFAULT_CURRENCY_CONFIG } =
+      await import('@/stores/system-config-store')
+    const { useWalletCurrencyPreferenceStore } =
+      await import('@/stores/wallet-currency-preference-store')
+    const oldConfig = useSystemConfigStore.getState().config
+    const oldPreference = useWalletCurrencyPreferenceStore.getState().preference
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        cnyPerUsd: 7,
+        legacyPricingUnitsPerUsd: 1,
+      },
+    })
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+    const originalGet = api.get,
+      originalPost = api.post
+    let captured: Record<string, string> | undefined
+    api.get = (async () => ({ data: { data: ['default'] } })) as typeof api.get
+    api.post = (async (
+      _url: string,
+      body: { values?: Record<string, string> }
+    ) => {
+      captured = body.values
+      return { data: { success: true } }
+    }) as typeof api.post
+    const rendered = await renderSettings('none')
+    try {
+      const configuration = await openToolConfiguration(
+        rendered,
+        'prepare_new_user_gift'
+      )
+      const input = configuration.querySelector<HTMLInputElement>(
+        'input[name="AssistantNewUserGiftMaxCredits"]'
+      )
+      const form = rendered.container.querySelector('form')
+      assert.ok(input)
+      assert.ok(form)
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value'
+        )?.set
+        assert.ok(setter)
+        setter.call(input, '2.5')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+        await flushEffects()
+      })
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
+        await flushEffects()
+      })
+      assert.equal(input.value, '17.5')
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+        await flushEffects()
+      })
+      assert.equal(input.value, '1250000')
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flushEffects()
+        await flushEffects()
+      })
+      assert.deepEqual(captured, { AssistantNewUserGiftMaxCredits: '1250000' })
+    } finally {
+      api.get = originalGet
+      api.post = originalPost
+      await rendered.cleanup()
+      useSystemConfigStore.getState().setConfig(oldConfig)
+      useWalletCurrencyPreferenceStore.getState().setPreference(oldPreference)
+    }
+  })
+})
+
+async function openToolConfiguration(
+  rendered: Awaited<ReturnType<typeof renderSettings>>,
+  name: string
+) {
+  const originalGet = api.get
+  api.get = (async (url: string, ...args: unknown[]) => {
+    if (url === '/api/assistant/admin/tool-catalog') {
+      return {
+        data: {
+          success: true,
+          data: {
+            capabilities: { policy_rules: true },
+            groups: [
+              {
+                id: 'review_tools',
+                label: 'Review tools',
+                tools: [
+                  {
+                    name: 'search_web',
+                    label: 'Search the web',
+                    description: 'Search with the chosen provider.',
+                    effect: 'read_only',
+                    access: 'user',
+                  },
+                  {
+                    name: 'prepare_new_user_gift',
+                    label: 'Welcome gift',
+                    description: 'Evaluate a welcome gift.',
+                    effect: 'server_guarded',
+                    access: 'user',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }
+    }
+    return Reflect.apply(originalGet, api, [url, ...args])
+  }) as typeof api.get
+  try {
+    const tab = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    ).find((button) => button.textContent === 'Assistant tools')
+    assert.ok(tab)
+    await act(async () => {
+      tab.click()
+      await flushEffects()
+    })
+    await act(flushEffects)
+    const row =
+      rendered.container.querySelector(`[data-tool="${name}"]`) ??
+      Array.from(rendered.container.querySelectorAll('[data-testid]')).find(
+        (item) => item.getAttribute('data-testid') === `assistant-tool-${name}`
+      )
+    const label =
+      name === 'search_web'
+        ? 'Configure Search the web'
+        : 'Configure Welcome gift'
+    const button = rendered.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`
+    )
+    assert.ok(
+      button,
+      `Missing Configure button for ${name}; row=${Boolean(row)}`
+    )
+    await act(async () => {
+      button.click()
+      await flushEffects()
+    })
+    const dialog = document.querySelector(
+      '[data-testid="assistant-tool-configuration"]'
+    )
+    assert.ok(dialog)
+    assert.equal(
+      rendered.container.querySelector('input[name="AssistantSearchURL"]'),
+      null,
+      'Search settings must not remain in their former location'
+    )
+    return dialog
+  } finally {
+    api.get = originalGet
+  }
+}

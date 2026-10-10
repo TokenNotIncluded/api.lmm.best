@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/lmm-best-mark.svg" />
+    <script src="/extore-callback.js"></script>
+    <link rel="icon" type="image/svg+xml" href="/lmm-cut-mark.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
@@ -10,13 +12,13 @@
     <meta name="google" content="notranslate" />
 
     <!-- Primary Meta Tags -->
-    <title>LMM Best | Open-Source Collaboration</title>
-    <meta name="title" content="LMM Best | Open-Source Collaboration" />
+    <title>LMM Forge | Open-Source Collaboration</title>
+    <meta name="title" content="LMM Forge | Open-Source Collaboration" />
     <meta
       name="description"
-      content="Open-source bounty collaboration and delivery tracking."
+      content="AI API access, Remote MCP tools, and open-source bounty collaboration."
     />
-    <meta name="generator" content="LMM Best" />
+    <meta name="generator" content="LMM Forge" />
 
     <meta name="theme-color" content="#141413" />
     <script>
@@ -37,10 +39,19 @@
           ?.setAttribute('content', theme === 'dark' ? '#020817' : '#fff')
       })()
     </script>
-    <script
-      src="https://cdn.agentlane.com/v1/snippet.js"
-      data-domain="dom-plf25ce17li9"
-    ></script>
+    <script>
+      // Also fail closed if the local callback bootstrap could not load.
+      if (
+        !window.__lmmExtoreCallbackPage &&
+        !(location.pathname === '/store/manage' && location.search)
+      ) {
+        const tracker = document.createElement('script')
+        tracker.async = true
+        tracker.src = 'https://cdn.agentlane.com/v1/snippet.js'
+        tracker.dataset.domain = 'dom-plf25ce17li9'
+        document.head.appendChild(tracker)
+      }
+    </script>
     <!--umami-->
     <!--Google Analytics-->
   </head>

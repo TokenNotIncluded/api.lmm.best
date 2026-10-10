@@ -43,6 +43,11 @@ type gitHubEmail struct {
 	Verified bool   `json:"verified"`
 }
 
+const (
+	gitHubEmailPageSize = 100
+	gitHubEmailMaxPages = 10
+)
+
 func (p *GitHubProvider) GetName() string {
 	return "GitHub"
 }
@@ -56,7 +61,7 @@ func (p *GitHubProvider) ExchangeToken(ctx context.Context, code string, c *gin.
 		return nil, NewOAuthError(i18n.MsgOAuthInvalidCode, nil)
 	}
 
-	logger.LogDebug(ctx, "[OAuth-GitHub] ExchangeToken: code=%s...", code[:min(len(code), 10)])
+	logger.LogDebug(ctx, "[OAuth-GitHub] ExchangeToken: exchanging authorization code")
 
 	values := map[string]string{
 		"client_id":     common.GitHubClientId,
@@ -131,12 +136,7 @@ func (p *GitHubProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*O
 
 	// Check for non-200 status codes before attempting to decode
 	if res.StatusCode != http.StatusOK {
-		body, _ := common.ReadResponseBody(res)
-		bodyStr := string(body)
-		if len(bodyStr) > 500 {
-			bodyStr = bodyStr[:500] + "..."
-		}
-		logger.LogError(ctx, fmt.Sprintf("[OAuth-GitHub] GetUserInfo failed: status=%d, body=%s", res.StatusCode, bodyStr))
+		logger.LogError(ctx, fmt.Sprintf("[OAuth-GitHub] GetUserInfo failed: status=%d", res.StatusCode))
 		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthGetUserErr, map[string]any{"Provider": "GitHub"}, fmt.Sprintf("status %d", res.StatusCode))
 	}
 
@@ -147,21 +147,20 @@ func (p *GitHubProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*O
 		return nil, err
 	}
 
-	if githubUser.Id == 0 || githubUser.Login == "" {
+	if githubUser.Id <= 0 || githubUser.Login == "" {
 		logger.LogError(ctx, "[OAuth-GitHub] GetUserInfo failed: empty id or login field")
 		return nil, NewOAuthError(i18n.MsgOAuthUserInfoEmpty, map[string]any{"Provider": "GitHub"})
 	}
 
-	logger.LogDebug(ctx, "[OAuth-GitHub] GetUserInfo success: id=%d, login=%s, name=%s, email=%s",
-		githubUser.Id, githubUser.Login, githubUser.Name, githubUser.Email)
+	logger.LogDebug(ctx, "[OAuth-GitHub] GetUserInfo success: id=%d, login=%s",
+		githubUser.Id, githubUser.Login)
 
 	email := githubUser.Email
-	emailVerified := false
-	if common.EmailVerificationEnabled {
-		if verifiedEmail, ok := p.fetchVerifiedEmail(ctx, token); ok {
-			email = verifiedEmail
-			emailVerified = true
-		}
+	// Ownership evidence is needed for legacy account migration regardless of
+	// whether this installation requires email verification for registration.
+	verifiedEmails := p.fetchVerifiedEmails(ctx, token)
+	if len(verifiedEmails) > 0 {
+		email = verifiedEmails[0]
 	}
 
 	return &OAuthUser{
@@ -169,46 +168,77 @@ func (p *GitHubProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*O
 		Username:       githubUser.Login,
 		DisplayName:    githubUser.Name,
 		Email:          email,
-		EmailVerified:  emailVerified,
+		EmailVerified:  len(verifiedEmails) > 0,
+		VerifiedEmails: verifiedEmails,
 		Extra: map[string]any{
 			"legacy_id": githubUser.Login, // Store login for migration from old accounts
 		},
 	}, nil
 }
 
-func (p *GitHubProvider) fetchVerifiedEmail(ctx context.Context, token *OAuthToken) (string, bool) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user/emails", nil)
-	if err != nil {
-		return "", false
+func (p *GitHubProvider) fetchVerifiedEmails(ctx context.Context, token *OAuthToken) []string {
+	// Bound the entire lookup, including pagination, instead of allowing each
+	// page to add another full request timeout.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
-	req.Header.Set("Accept", "application/vnd.github+json")
-	res, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
-	if err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("[OAuth-GitHub] verified email lookup failed: %s", err.Error()))
-		return "", false
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		logger.LogWarn(ctx, fmt.Sprintf("[OAuth-GitHub] verified email lookup returned status=%d", res.StatusCode))
-		return "", false
-	}
-	var emails []gitHubEmail
-	if err := decodeOAuthJSON(res.Body, &emails); err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("[OAuth-GitHub] verified email lookup decode failed: %s", err.Error()))
-		return "", false
-	}
-	for _, email := range emails {
-		if email.Primary && email.Verified && strings.TrimSpace(email.Email) != "" {
-			return email.Email, true
+	var primaryEmails, otherEmails []string
+	// Keep the verified primary address first for existing registration callers,
+	// while retaining every verified address for ownership checks.
+	for page := 1; page <= gitHubEmailMaxPages; page++ {
+		// Advance only the page number on the fixed GitHub endpoint. A provider
+		// Link header must never redirect this authenticated request elsewhere.
+		url := fmt.Sprintf("https://api.github.com/user/emails?per_page=%d&page=%d", gitHubEmailPageSize, page)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
+		req.Header.Set("Accept", "application/vnd.github+json")
+		res, err := client.Do(req)
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("[OAuth-GitHub] verified email lookup failed: %s", err.Error()))
+			return nil
+		}
+		if res.StatusCode != http.StatusOK {
+			res.Body.Close()
+			logger.LogWarn(ctx, fmt.Sprintf("[OAuth-GitHub] verified email lookup returned status=%d", res.StatusCode))
+			return nil
+		}
+		var emails []gitHubEmail
+		err = decodeOAuthJSON(res.Body, &emails)
+		res.Body.Close()
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("[OAuth-GitHub] verified email lookup decode failed: %s", err.Error()))
+			return nil
+		}
+		if len(emails) > gitHubEmailPageSize {
+			logger.LogWarn(ctx, "[OAuth-GitHub] verified email lookup exceeded page size")
+			return nil
+		}
+		for _, email := range emails {
+			address := strings.TrimSpace(email.Email)
+			if !email.Verified || address == "" {
+				continue
+			}
+			if email.Primary {
+				primaryEmails = append(primaryEmails, address)
+			} else {
+				otherEmails = append(otherEmails, address)
+			}
+		}
+		if !strings.Contains(res.Header.Get("Link"), `rel="next"`) {
+			return append(primaryEmails, otherEmails...)
 		}
 	}
-	for _, email := range emails {
-		if email.Verified && strings.TrimSpace(email.Email) != "" {
-			return email.Email, true
-		}
-	}
-	return "", false
+	// An incomplete listing cannot be used as a complete ownership attestation.
+	logger.LogWarn(ctx, "[OAuth-GitHub] verified email lookup exceeded page limit")
+	return nil
 }
 
 func (p *GitHubProvider) IsUserIDTaken(providerUserID string) bool {

@@ -102,6 +102,17 @@ export async function prepareDrawingApiKey(): Promise<
   return res.data
 }
 
+export async function ensureAssistantRuntimeApiKey(): Promise<
+  ApiResponse<PreparedDrawingApiKey>
+> {
+  const res = await api.post(
+    '/api/assistant/runtime-key',
+    {},
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  return res.data
+}
+
 // Update an existing API key
 export async function updateApiKey(
   data: ApiKeyFormData & { id: number }

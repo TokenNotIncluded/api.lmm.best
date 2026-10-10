@@ -1,0 +1,95 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import type { UIPreferences } from './assistant-ui-preferences-contract'
+
+const en = {
+  title: 'Display preferences',
+  applying: 'Applying your display preferences…',
+  applied: 'Display preferences updated.',
+  previewing: 'An eight-second preview. Your saved preferences have not changed.',
+  restored: 'Restored. Newer manual choices were kept.',
+  unchanged: 'Nothing to restore or change. Your current choices were kept.',
+  failed: 'The result could not be confirmed. Check your preferences before trying again.',
+  unavailable: 'This action is no longer available. Ask the assistant for a new change.',
+  undo: 'Undo this change',
+  scope: 'Display only. Your balance, billing and settlement do not change.',
+}
+type Copy = { [K in keyof typeof en]: string }
+const translations: Record<UIPreferences['language'], Copy> = {
+  en,
+  zhCN: {
+    title: '界面偏好',
+    applying: '正在切换界面偏好…',
+    applied: '已更新界面偏好。',
+    previewing: '临时体验 8 秒，未改动已保存的偏好。',
+    restored: '已恢复，并保留了你后来手动修改的设置。',
+    unchanged: '没有需要恢复或修改的内容，已保留当前设置。',
+    failed: '无法确认操作结果。请先检查当前偏好，不要重复提交。',
+    unavailable: '这次操作已不可用，请让助手重新切换。',
+    undo: '恢复刚才的设置',
+    scope: '仅改变显示，不改变余额、计费或结算。',
+  },
+  zhTW: {
+    title: '介面偏好',
+    applying: '正在切換介面偏好…',
+    applied: '已更新介面偏好。',
+    previewing: '暫時體驗 8 秒，未更改已儲存的偏好。',
+    restored: '已還原，並保留你後來手動修改的設定。',
+    unchanged: '沒有需要還原或修改的內容，已保留目前設定。',
+    failed: '無法確認操作結果。請先檢查目前偏好，不要重複提交。',
+    unavailable: '這次操作已無法使用，請讓助手重新切換。',
+    undo: '還原剛才的設定',
+    scope: '只改變顯示，不改變餘額、計費或結算。',
+  },
+  fr: {
+    title: 'Préférences d’affichage',
+    applying: 'Modification de l’affichage…',
+    applied: 'Préférences d’affichage mises à jour.',
+    previewing: 'Aperçu de huit secondes. Vos préférences enregistrées restent inchangées.',
+    restored: 'Affichage rétabli. Vos choix manuels plus récents sont conservés.',
+    unchanged: 'Rien à rétablir ou à modifier. Vos choix sont conservés.',
+    failed: 'Le résultat n’a pas pu être confirmé. Vérifiez vos préférences avant de réessayer.',
+    unavailable: 'Cette action n’est plus disponible. Demandez une nouvelle modification.',
+    undo: 'Annuler cette modification',
+    scope: 'Affichage uniquement. Le solde, la facturation et le règlement restent inchangés.',
+  },
+  ru: {
+    title: 'Настройки отображения',
+    applying: 'Применение настроек…',
+    applied: 'Настройки отображения обновлены.',
+    previewing: 'Просмотр на восемь секунд. Сохранённые настройки не изменены.',
+    restored: 'Восстановлено. Более поздние ручные изменения сохранены.',
+    unchanged: 'Изменять или восстанавливать нечего. Текущие настройки сохранены.',
+    failed: 'Результат не подтверждён. Проверьте настройки перед повторной попыткой.',
+    unavailable: 'Действие больше недоступно. Попросите помощника изменить настройки снова.',
+    undo: 'Отменить это изменение',
+    scope: 'Меняется только отображение, не баланс, начисления или расчёты.',
+  },
+  ja: {
+    title: '表示設定',
+    applying: '表示設定を変更しています…',
+    applied: '表示設定を更新しました。',
+    previewing: '8秒間のプレビューです。保存済みの設定は変更しません。',
+    restored: '元に戻しました。その後の手動変更は維持しました。',
+    unchanged: '変更や復元は不要です。現在の設定を維持しました。',
+    failed: '結果を確認できませんでした。再試行の前に設定を確認してください。',
+    unavailable: 'この操作は無効です。助手にもう一度変更を依頼してください。',
+    undo: 'この変更を元に戻す',
+    scope: '表示のみを変更します。残高、料金、決済は変わりません。',
+  },
+  vi: {
+    title: 'Tùy chọn hiển thị',
+    applying: 'Đang đổi tùy chọn hiển thị…',
+    applied: 'Đã cập nhật tùy chọn hiển thị.',
+    previewing: 'Xem trước trong tám giây. Các tùy chọn đã lưu không thay đổi.',
+    restored: 'Đã khôi phục. Giữ nguyên các thay đổi thủ công mới hơn.',
+    unchanged: 'Không cần khôi phục hoặc thay đổi. Giữ nguyên tùy chọn hiện tại.',
+    failed: 'Chưa xác nhận được kết quả. Hãy kiểm tra tùy chọn trước khi thử lại.',
+    unavailable: 'Thao tác này không còn hiệu lực. Hãy yêu cầu trợ lý thay đổi lại.',
+    undo: 'Hoàn tác thay đổi này',
+    scope: 'Chỉ đổi cách hiển thị, không đổi số dư, phí hoặc thanh toán.',
+  },
+}
+
+export function getUIPreferenceCopy(language: UIPreferences['language']): Copy {
+  return translations[language]
+}

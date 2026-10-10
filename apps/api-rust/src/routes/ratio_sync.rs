@@ -26,7 +26,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sqlx::{PgPool, Row};
 
-use crate::auth::DashboardAuth;
+use crate::{
+    auth::DashboardAuth,
+    public_credit_units::{
+        CreditDenominationMetadata, PUBLIC_CREDIT_OPTION_KEYS, PublicCreditDenomination,
+    },
+};
 
 const ROOT_ROLE: i64 = 100;
 const DEFAULT_TIMEOUT_SECONDS: u64 = 10;
@@ -113,11 +118,12 @@ pub struct UpstreamTarget {
 
 /// Local pricing plus the quota conversion base read from one repository
 /// snapshot.  OpenRouter and models.dev quote USD prices, while the dashboard
-/// stores its currently configured quota-per-USD value in `QuotaPerUnit`.
+/// stores raw ledger quota per real USD in the immutable `CreditsPerUSD`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RatioSyncPricingSnapshot {
     pub local_pricing: BTreeMap<String, Value>,
     pub usd_ratio: f64,
+    pub credit_units: Option<CreditDenominationMetadata>,
 }
 
 #[async_trait]
@@ -220,7 +226,7 @@ impl RatioSyncRepository for PgRatioSyncRepository {
         let keys = OPTIONS
             .iter()
             .map(|(key, _)| *key)
-            .chain(std::iter::once("QuotaPerUnit"))
+            .chain(PUBLIC_CREDIT_OPTION_KEYS)
             .collect::<Vec<_>>();
         let rows = sqlx::query("SELECT key, value FROM options WHERE key = ANY($1)")
             .bind(&keys)
@@ -250,16 +256,16 @@ impl RatioSyncRepository for PgRatioSyncRepository {
                     .map(|value| (field.to_owned(), value))
             })
             .collect();
-        // A quota unit is expressed per thousand legacy USD-ratio points.
-        // Treat an absent or malformed dynamic setting as an unavailable local
-        // pricing snapshot; do not silently resurrect the former fixed 500.
-        let usd_ratio = values
-            .get("QuotaPerUnit")
-            .ok_or_else(|| "QuotaPerUnit 配置无效".to_owned())
-            .and_then(|value| usd_ratio_from_quota_per_unit(value))?;
+        let denomination = PublicCreditDenomination::from_options(&values)
+            .map_err(|_| "定价货币单位不可用".to_owned())?;
+        // ModelRatio is ledger quota per token. A public display denomination
+        // or legacy Q cannot replace the immutable dollar cost denominator.
+        let usd_ratio =
+            usd_ratio_from_ledger_per_usd(&denomination.metadata().ledger_quota_per_usd_exact)?;
         Ok(RatioSyncPricingSnapshot {
             local_pricing,
             usd_ratio,
+            credit_units: Some(denomination.metadata().clone()),
         })
     }
 }
@@ -292,6 +298,12 @@ impl RatioSyncUpstream for HttpRatioSyncUpstream {
         usd_ratio: f64,
     ) -> Result<BTreeMap<String, Value>, String> {
         let (url, openrouter) = upstream_url(target)?;
+        // Generic new-api payloads may contain another site's ledger ratios.
+        // Keep that path unavailable until its source basis is explicitly
+        // normalized; returning those values as local prices loses money.
+        if !openrouter && !is_models_dev(url.as_str()) {
+            return Err("该上游尚未提供可验证的美元定价协议".to_owned());
+        }
         let mut request = pinned_client(&url, timeout).await?.get(url.clone());
         if openrouter {
             let key = target
@@ -318,7 +330,7 @@ impl RatioSyncUpstream for HttpRatioSyncUpstream {
         if is_models_dev(url.as_str()) {
             return models_dev_ratios(&bytes, usd_ratio);
         }
-        pricing_ratios(&bytes)
+        Err("该上游尚未提供可验证的美元定价协议".to_owned())
     }
 }
 
@@ -728,9 +740,17 @@ async fn fetch_upstream_ratios(
             }),
         }
     }
-    legacy_ok(
-        json!({"differences": build_differences(&snapshot.local_pricing, &successful), "test_results": results}),
-    )
+    let mut data = json!({"differences": build_differences(&snapshot.local_pricing, &successful), "test_results": results});
+    if let Some(units) = snapshot.credit_units {
+        match serde_json::to_value(units) {
+            Ok(Value::Object(metadata)) => data
+                .as_object_mut()
+                .expect("sync result object")
+                .extend(metadata),
+            _ => return legacy_error("定价货币单位不可用"),
+        }
+    }
+    legacy_ok(data)
 }
 
 fn target_name(target: &UpstreamTarget) -> String {
@@ -766,7 +786,7 @@ fn map(value: Option<&Value>) -> BTreeMap<String, Value> {
 }
 fn equal(left: &Value, right: &Value) -> bool {
     match (left.as_f64(), right.as_f64()) {
-        (Some(left), Some(right)) => (left - right).abs() < 1e-9,
+        (Some(left), Some(right)) => left == right,
         _ => left == right,
     }
 }
@@ -897,6 +917,7 @@ fn upstream_confidence(upstream: &BTreeMap<String, Value>, model: &str) -> bool 
     }
 }
 
+#[cfg(test)]
 fn pricing_ratios(bytes: &[u8]) -> Result<BTreeMap<String, Value>, String> {
     let document: Value = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
     if !document
@@ -990,6 +1011,7 @@ fn pricing_ratios(bytes: &[u8]) -> Result<BTreeMap<String, Value>, String> {
         .collect())
 }
 
+#[cfg(test)]
 fn validated_ratio_config(data: &Map<String, Value>) -> Result<BTreeMap<String, Value>, String> {
     let mut result = BTreeMap::new();
     for field in FIELDS {
@@ -1024,10 +1046,12 @@ fn validated_ratio_config(data: &Map<String, Value>) -> Result<BTreeMap<String, 
     Ok(result)
 }
 
+#[cfg(test)]
 fn numeric_sync_field(field: &str) -> bool {
     !matches!(field, "billing_mode" | "billing_expr")
 }
 
+#[cfg(test)]
 fn optional_i64(item: &Value, field: &str) -> Result<Option<i64>, String> {
     match item.get(field) {
         None | Some(Value::Null) => Ok(None),
@@ -1038,6 +1062,7 @@ fn optional_i64(item: &Value, field: &str) -> Result<Option<i64>, String> {
     }
 }
 
+#[cfg(test)]
 fn optional_number(item: &Value, field: &str) -> Result<Option<f64>, String> {
     match item.get(field) {
         None | Some(Value::Null) => Ok(None),
@@ -1049,10 +1074,12 @@ fn optional_number(item: &Value, field: &str) -> Result<Option<f64>, String> {
     }
 }
 
+#[cfg(test)]
 fn number_or_default(item: &Value, field: &str) -> Result<f64, String> {
     Ok(optional_number(item, field)?.unwrap_or_default())
 }
 
+#[cfg(test)]
 fn optional_string(item: &Value, field: &str) -> Result<Option<String>, String> {
     match item.get(field) {
         None | Some(Value::Null) => Ok(None),
@@ -1070,17 +1097,32 @@ fn is_models_dev(url: &str) -> bool {
             && url.path().trim_end_matches('/') == "/api.json"
     })
 }
-fn round(value: f64) -> f64 {
-    (value * 1_000_000.0).round() / 1_000_000.0
+fn safe_price_ratio(numerator: f64, denominator: f64) -> Result<f64, String> {
+    let ratio = numerator / denominator;
+    if !numerator.is_finite()
+        || !denominator.is_finite()
+        || numerator < 0.0
+        || denominator <= 0.0
+        || !ratio.is_finite()
+        || (numerator > 0.0 && ratio <= 0.0)
+    {
+        return Err("上游美元价格无法安全换算".to_owned());
+    }
+    Ok(ratio)
 }
 
-fn usd_ratio_from_quota_per_unit(value: &str) -> Result<f64, String> {
+fn usd_ratio_from_ledger_per_usd(value: &str) -> Result<f64, String> {
     value
         .parse::<f64>()
         .ok()
-        .map(|quota_per_unit| quota_per_unit / 1_000.0)
+        .filter(|quota| {
+            quota.is_finite()
+                && *quota > 0.0
+                && *quota <= crate::public_credit_units::MAX_WALLET_QUOTA as f64
+        })
+        .map(|quota| quota / 1_000.0)
         .filter(|ratio| ratio.is_finite() && *ratio > 0.0)
-        .ok_or_else(|| "QuotaPerUnit 配置无效".to_owned())
+        .ok_or_else(|| "CreditsPerUSD 配置无效".to_owned())
 }
 
 fn openrouter_ratios(bytes: &[u8], usd_ratio: f64) -> Result<BTreeMap<String, Value>, String> {
@@ -1114,7 +1156,7 @@ fn openrouter_ratios(bytes: &[u8], usd_ratio: f64) -> Result<BTreeMap<String, Va
         let (Some(prompt), Some(output)) = (parse("prompt"), parse("completion")) else {
             continue;
         };
-        if prompt < 0.0 || output < 0.0 {
+        if !prompt.is_finite() || !output.is_finite() || prompt < 0.0 || output < 0.0 {
             continue;
         }
         if prompt == 0.0 && output == 0.0 {
@@ -1124,10 +1166,14 @@ fn openrouter_ratios(bytes: &[u8], usd_ratio: f64) -> Result<BTreeMap<String, Va
         if prompt <= 0.0 {
             continue;
         }
-        input.insert(id.to_owned(), json!(round(prompt * 1000.0 * usd_ratio)));
-        completion.insert(id.to_owned(), json!(round(output / prompt)));
+        let model_ratio = prompt * 1000.0 * usd_ratio;
+        if !model_ratio.is_finite() || model_ratio <= 0.0 {
+            return Err("上游美元价格无法安全换算".to_owned());
+        }
+        input.insert(id.to_owned(), json!(model_ratio));
+        completion.insert(id.to_owned(), json!(safe_price_ratio(output, prompt)?));
         if let Some(read) = parse("input_cache_read").filter(|read| *read >= 0.0) {
-            cache.insert(id.to_owned(), json!(round(read / prompt)));
+            cache.insert(id.to_owned(), json!(safe_price_ratio(read, prompt)?));
         }
     }
     let mut result = BTreeMap::new();
@@ -1215,18 +1261,25 @@ fn models_dev_ratios(bytes: &[u8], usd_ratio: f64) -> Result<BTreeMap<String, Va
     let mut cache = Map::new();
     for (name, candidate) in selected {
         if candidate.input == 0.0 {
+            if candidate.output.is_some_and(|output| output > 0.0) {
+                return Err("零输入价格与付费输出价格无法安全换算".to_owned());
+            }
             input.insert(name, json!(0.0));
             continue;
         }
-        input.insert(
-            name.clone(),
-            json!(round(candidate.input * usd_ratio / 1000.0)),
-        );
+        let model_ratio = candidate.input * usd_ratio / 1000.0;
+        if !model_ratio.is_finite() || model_ratio <= 0.0 {
+            return Err("上游美元价格无法安全换算".to_owned());
+        }
+        input.insert(name.clone(), json!(model_ratio));
         if let Some(output) = candidate.output {
-            completion.insert(name.clone(), json!(round(output / candidate.input)));
+            completion.insert(
+                name.clone(),
+                json!(safe_price_ratio(output, candidate.input)?),
+            );
         }
         if let Some(read) = candidate.cache {
-            cache.insert(name, json!(round(read / candidate.input)));
+            cache.insert(name, json!(safe_price_ratio(read, candidate.input)?));
         }
     }
     let mut result = BTreeMap::new();
@@ -1278,6 +1331,7 @@ mod tests {
             Ok(RatioSyncPricingSnapshot {
                 local_pricing: BTreeMap::new(),
                 usd_ratio: 750.0,
+                credit_units: None,
             })
         }
     }
@@ -1410,11 +1464,11 @@ mod tests {
     #[test]
     fn upstream_conversions_use_the_snapshot_ratio_instead_of_a_fixed_constant() -> TestResult {
         assert_eq!(
-            usd_ratio_from_quota_per_unit("750000"),
+            usd_ratio_from_ledger_per_usd("750000"),
             Ok(750.0),
-            "the configured non-default quota base must flow into both conversions"
+            "the immutable dollar ledger basis must flow into both conversions"
         );
-        assert!(usd_ratio_from_quota_per_unit("0").is_err());
+        assert!(usd_ratio_from_ledger_per_usd("0").is_err());
 
         let openrouter = openrouter_ratios(
             br#"{"data":[{"id":"or-model","pricing":{"prompt":"0.000002","completion":"0.000004"}}]}"#,
@@ -1432,5 +1486,42 @@ mod tests {
         assert_eq!(models_dev["model_ratio"]["dev-model"], json!(1.5));
         assert_eq!(models_dev["completion_ratio"]["dev-model"], json!(2.0));
         Ok(())
+    }
+
+    #[test]
+    fn positive_output_and_cache_prices_survive_conversion_and_difference_detection() -> TestResult
+    {
+        let usd_ratio = usd_ratio_from_ledger_per_usd("3359744").map_err(std::io::Error::other)?;
+        let openrouter = openrouter_ratios(br#"{"data":[{"id":"tiny","pricing":{"prompt":"0.001","completion":"0.0000000001","input_cache_read":"0.0000000001"}}]}"#, usd_ratio).map_err(std::io::Error::other)?;
+        assert_eq!(openrouter["completion_ratio"]["tiny"], json!(1e-7));
+        assert_eq!(openrouter["cache_ratio"]["tiny"], json!(1e-7));
+        let models_dev = models_dev_ratios(br#"{"provider":{"models":{"tiny":{"cost":{"input":1.0,"output":1e-7,"cache_read":1e-7}},"tiny-base":{"cost":{"input":1e-10,"output":2e-10}}}}}"#, usd_ratio).map_err(std::io::Error::other)?;
+        assert_eq!(models_dev["completion_ratio"]["tiny"], json!(1e-7));
+        assert_eq!(models_dev["cache_ratio"]["tiny"], json!(1e-7));
+        assert!(models_dev["model_ratio"]["tiny-base"].as_f64().unwrap() > 0.0);
+        let local = BTreeMap::from([("model_ratio".to_owned(), json!({"tiny-base":0.0}))]);
+        let differences = build_differences(&local, &[("upstream".to_owned(), models_dev)]);
+        assert!(
+            differences["tiny-base"]["model_ratio"]["upstreams"]["upstream"]
+                .as_f64()
+                .unwrap()
+                > 0.0
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unverified_generic_protocol_is_rejected_before_any_network_request() {
+        let target = UpstreamTarget {
+            id: 0,
+            name: "fixture".into(),
+            base_url: "https://unresolved.fixture.invalid".into(),
+            endpoint: "/api/pricing".into(),
+            api_key: None,
+        };
+        let result = HttpRatioSyncUpstream
+            .fetch(&target, Duration::from_secs(1), 3359.744)
+            .await;
+        assert_eq!(result.unwrap_err(), "该上游尚未提供可验证的美元定价协议");
     }
 }

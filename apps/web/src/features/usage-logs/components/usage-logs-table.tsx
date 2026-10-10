@@ -17,16 +17,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { getRouteApi } from '@tanstack/react-router'
+import { getRouteApi, Link } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
+import { useState } from 'react'
 
 import {
   DataTablePage,
   DataTableRow,
   useDataTable,
 } from '@/components/data-table'
+import { ErrorState } from '@/components/error-state'
+import { Button } from '@/components/ui/button'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { cn } from '@/lib/utils'
@@ -36,12 +37,18 @@ import {
   LOG_TYPE_ALL_VALUE,
   LOG_TYPE_ENUM,
 } from '../constants'
+import {
+  canKeepPreviousLogData,
+  getAsyncLogRefreshInterval,
+} from '../lib/async-task-logs'
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
 import { fetchLogsByCategory } from '../lib/utils'
+import { useTaskLogsTranslation } from '../task-logs-i18n'
 import type { LogCategory } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
+import { TaskLogsStatus } from './task-logs-status'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
 import { useLogsViewScope } from './usage-logs-provider'
 
@@ -73,10 +80,11 @@ interface UsageLogsTableProps {
 }
 
 export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
-  const { t } = useTranslation()
+  const { t } = useTaskLogsTranslation()
   const { isAdminView: isAdmin } = useLogsViewScope()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
+  const [autoRefresh, setAutoRefresh] = useState(true)
 
   const {
     columnFilters,
@@ -116,41 +124,51 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     ],
   })
 
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: [
-      'logs',
-      logCategory,
-      isAdmin,
-      pagination.pageIndex + 1,
-      pagination.pageSize,
-      columnFilters,
-      searchParams,
-      t,
-    ],
-    queryFn: async () => {
-      const result = await fetchLogsByCategory({
+  const { data, dataUpdatedAt, isLoading, isFetching, isError, refetch } =
+    useQuery({
+      queryKey: [
+        'logs',
         logCategory,
         isAdmin,
-        page: pagination.pageIndex + 1,
-        pageSize: pagination.pageSize,
-        searchParams,
+        pagination.pageIndex + 1,
+        pagination.pageSize,
         columnFilters,
-      })
+        searchParams,
+        t,
+      ],
+      queryFn: async () => {
+        const result = await fetchLogsByCategory({
+          logCategory,
+          isAdmin,
+          page: pagination.pageIndex + 1,
+          pageSize: pagination.pageSize,
+          searchParams,
+          columnFilters,
+        })
 
-      if (!result?.success) {
-        toast.error(result?.message || t('Failed to load logs'))
-        return DEFAULT_LOGS_DATA
-      }
+        if (!result?.success) {
+          throw new Error(result?.message || t('Failed to load logs'))
+        }
 
-      return result.data || DEFAULT_LOGS_DATA
-    },
-    placeholderData: (previousData, previousQuery) => {
-      if (previousQuery?.queryKey[1] === logCategory) {
-        return previousData
-      }
-      return undefined
-    },
-  })
+        return result.data || DEFAULT_LOGS_DATA
+      },
+      refetchInterval: (query) =>
+        getAsyncLogRefreshInterval(
+          logCategory,
+          query.state.data?.items || [],
+          autoRefresh,
+          query.state.status === 'error'
+        ),
+      refetchIntervalInBackground: false,
+      placeholderData: (previousData, previousQuery) => {
+        if (
+          canKeepPreviousLogData(previousQuery?.queryKey, logCategory, isAdmin)
+        ) {
+          return previousData
+        }
+        return undefined
+      },
+    })
 
   const logs = data?.items || []
   const columns = useColumnsByCategory(logCategory, isAdmin)
@@ -175,6 +193,39 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   })
 
   const isCommon = logCategory === 'common'
+  const emptyDescription = isCommon
+    ? t(
+        'No usage logs available. Logs will appear here once API calls are made.'
+      )
+    : t(
+        logCategory === 'drawing'
+          ? 'Drawing history covers Midjourney / MjProxy image and video tasks. Other image calls appear in Common Logs.'
+          : 'Task history covers asynchronous audio and video jobs. Other API calls appear in Common Logs.'
+      )
+  const emptyAction = isCommon ? (
+    <Button variant='outline' render={<Link to='/playground' />}>
+      {t('Open the playground')}
+    </Button>
+  ) : (
+    <Button
+      variant='outline'
+      render={<Link to='/usage-logs/$section' params={{ section: 'common' }} />}
+    >
+      {t('Common Logs')}
+    </Button>
+  )
+
+  if (isError) {
+    return (
+      <ErrorState
+        title={t('Failed to load logs')}
+        description={t(
+          'Check your connection and retry without losing filters.'
+        )}
+        onRetry={() => void refetch()}
+      />
+    )
+  }
 
   return (
     <DataTablePage
@@ -183,9 +234,8 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       isLoading={isLoadingData}
       isFetching={isFetching}
       emptyTitle={t('No Logs Found')}
-      emptyDescription={t(
-        'No usage logs available. Logs will appear here once API calls are made.'
-      )}
+      emptyDescription={emptyDescription}
+      emptyAction={emptyAction}
       skeletonKeyPrefix='usage-log-skeleton'
       applyHeaderSize
       tableClassName={cn(
@@ -196,13 +246,30 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
           table={table}
           isLoading={isLoadingData}
           logCategory={logCategory}
+          emptyDescription={emptyDescription}
+          emptyAction={emptyAction}
         />
       }
       toolbar={
         isCommon ? (
           <CommonLogsFilterBar table={table} />
         ) : (
-          <TaskLogsFilterBar table={table} logCategory={logCategory} />
+          <TaskLogsFilterBar
+            table={table}
+            logCategory={logCategory}
+            stats={
+              <TaskLogsStatus
+                rows={logs}
+                page={pagination.pageIndex + 1}
+                total={data?.total || 0}
+                autoRefresh={autoRefresh}
+                onAutoRefreshChange={setAutoRefresh}
+                onRefresh={() => void refetch()}
+                isFetching={isFetching}
+                updatedAt={dataUpdatedAt}
+              />
+            }
+          />
         )
       }
       renderRow={(row) => {

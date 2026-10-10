@@ -24,7 +24,15 @@ export type ApiKeyCreationSource =
   | 'system'
   | 'drawing_mcp'
   | 'assistant'
+  | 'assistant_runtime'
+  | 'red_packet_cover'
   | string
+
+export function isAssistantRuntimeKey(
+  apiKey: Pick<ApiKey, 'creation_source' | 'source'>
+): boolean {
+  return getApiKeyCreationSource(apiKey) === 'assistant_runtime'
+}
 
 export function getApiKeyCreationSource(
   apiKey: Pick<ApiKey, 'creation_source' | 'source'>

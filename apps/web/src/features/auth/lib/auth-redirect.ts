@@ -47,10 +47,16 @@ export function sanitizeAuthRedirect(
   value: unknown,
   origin: string
 ): string | null {
-  if (typeof value !== 'string') return null
+  if (typeof value !== 'string' || value.includes('\\')) return null
+
+  // Check before trim/URL parsing, which can silently remove control characters.
+  for (const character of value) {
+    const code = character.charCodeAt(0)
+    if (code <= 0x1f || code === 0x7f) return null
+  }
 
   const target = value.trim()
-  if (!target || target.includes('\\') || target.startsWith('//')) return null
+  if (!target || target.startsWith('//')) return null
 
   let trustedOrigin: URL
   try {
@@ -76,5 +82,33 @@ export function sanitizeAuthRedirect(
     return null
   }
 
-  return `${redirectURL.pathname}${redirectURL.search}${redirectURL.hash}`
+  const path = `${redirectURL.pathname}${redirectURL.search}${redirectURL.hash}`
+  // Callers navigate with this serialized href, not with redirectURL. Validate
+  // that final value after normalization, without decoding query/fragment data.
+  if (!path.startsWith('/') || path.startsWith('//')) return null
+
+  try {
+    return new URL(path, trustedOrigin.origin).origin === trustedOrigin.origin
+      ? path
+      : null
+  } catch {
+    return null
+  }
+}
+
+// Keep the complete local destination. Explicit reauthentication displays the
+// sign-in form even when an expired or different account is still in memory.
+// It does not clear a session, refresh a cookie or submit a login by itself.
+export function signInHref(
+  location: Pick<Location, 'origin' | 'pathname' | 'search' | 'hash'>,
+  reauthenticate = false
+): string {
+  const target = sanitizeAuthRedirect(
+    `${location.pathname}${location.search}${location.hash}`,
+    location.origin
+  )
+  const params = new URLSearchParams()
+  if (target && location.pathname !== '/sign-in') params.set('redirect', target)
+  if (reauthenticate) params.set('reauth', '1')
+  return `/sign-in${params.size ? `?${params}` : ''}`
 }

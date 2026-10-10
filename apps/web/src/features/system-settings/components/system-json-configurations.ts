@@ -173,24 +173,40 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
       },
     ]
   ),
-  AssistantReviewGroupPolicies: configuration(
-    { default: { probability: 1, intensity: 'standard' } },
-    'Record<string, AssistantReviewGroupPolicy>',
+  ModerationGroupPolicies: configuration(
+    {
+      default: { mode: 'off', amount_currency: 'USD', category_fines_usd: {} },
+    },
+    'Record<string, ModerationGroupPolicy>',
     [
-      { path: '<group>', type: 'object', example: '"default"' },
       {
-        path: '<group>.probability',
-        type: 'number',
-        required: true,
-        rules: 'minimum: 0; maximum: 100; finite: true',
-        example: '1',
+        path: '<userGroup>',
+        type: 'object',
+        rules:
+          'explicit account group; no wildcard; unlisted groups remain off',
+        example: '"default"',
       },
       {
-        path: '<group>.intensity',
+        path: '<userGroup>.mode',
+        type: 'string',
+        required: true,
+        rules: 'off | tolerant | strict',
+        example: '"off"',
+      },
+      {
+        path: '<userGroup>.amount_currency',
         type: 'string',
         required: false,
-        rules: 'enum: [off, low, standard, high]',
-        example: '"standard"',
+        rules:
+          'enum: [USD, legacy_pricing_unit]; omitted means legacy_pricing_unit; new prices must explicitly use USD; convert legacy amounts before changing this marker',
+        example: '"USD"',
+      },
+      {
+        path: '<userGroup>.category_fines_usd.<category>',
+        type: 'number',
+        rules:
+          'minimum: 0; maximum: 1000; finite: true; precision: 6; amount_currency determines the monetary basis; strict mode charges the highest matched category once, limited to the positive wallet balance',
+        example: '0.01',
       },
     ]
   ),
@@ -619,119 +635,6 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
     '<model>',
     'format: billing-expression; result.minimum: 0'
   ),
-  AdvancedSecurityRules: configuration(
-    {
-      version: 1,
-      rules: [
-        {
-          id: 'custom-blocked-term',
-          name: 'Blocked term',
-          category: 'custom',
-          layer: 'custom',
-          severity: 'medium',
-          source: 'local_custom',
-          version: '1',
-          description: 'Example operator rule',
-          enabled: true,
-          groups: ['default'],
-          patterns: ['example blocked phrase'],
-        },
-      ],
-    },
-    'AdvancedSecurityRuleSet',
-    [
-      {
-        path: 'version',
-        type: 'integer',
-        required: true,
-        rules: 'const: 1',
-        example: '1',
-      },
-      {
-        path: 'rules',
-        type: 'AdvancedSecurityRule[]',
-        required: true,
-        rules: 'maxItems: 512; uniqueBy: id',
-        example: '[{...}]',
-      },
-      {
-        path: 'rules[].id',
-        type: 'string',
-        required: true,
-        rules: 'minLength: 1; maxLength: 64',
-        example: '"custom-blocked-term"',
-      },
-      {
-        path: 'rules[].name',
-        type: 'string',
-        required: true,
-        rules: 'minLength: 1; maxLength: 128',
-        example: '"Blocked term"',
-      },
-      {
-        path: 'rules[].category',
-        type: 'string',
-        required: true,
-        rules: 'maxLength: 64',
-        example: '"custom"',
-      },
-      {
-        path: 'rules[].layer',
-        type: 'string',
-        required: false,
-        rules: 'maxLength: 32',
-        example: '"custom"',
-      },
-      {
-        path: 'rules[].severity',
-        type: 'string',
-        required: false,
-        rules: 'maxLength: 16',
-        example: '"medium"',
-      },
-      {
-        path: 'rules[].source',
-        type: 'string',
-        required: false,
-        rules: 'maxLength: 64',
-        example: '"local_custom"',
-      },
-      {
-        path: 'rules[].version',
-        type: 'string',
-        required: false,
-        rules: 'maxLength: 32',
-        example: '"1"',
-      },
-      {
-        path: 'rules[].description',
-        type: 'string',
-        required: false,
-        rules: 'maxLength: 512',
-        example: '"Example operator rule"',
-      },
-      {
-        path: 'rules[].enabled',
-        type: 'boolean',
-        required: true,
-        example: 'true',
-      },
-      {
-        path: 'rules[].groups',
-        type: 'string[]',
-        required: true,
-        rules: 'maxItems: 64; item.maxLength: 64',
-        example: '["default"]',
-      },
-      {
-        path: 'rules[].patterns',
-        type: 'string[]',
-        required: true,
-        rules: 'minItems: 1; maxItems: 64; item.maxLength: 256',
-        example: '["example blocked phrase"]',
-      },
-    ]
-  ),
   'console_setting.api_info': configuration(
     [
       {
@@ -890,23 +793,25 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
       },
     ]
   ),
-  'payment_setting.amount_options': configuration([10, 20, 50], 'number[]', [
+  'payment_setting.amount_options': configuration([3.5, 10, 20], 'number[]', [
     {
       path: '[]',
       type: 'number',
       required: true,
-      rules: 'minimum: 0; finite: true',
-      example: '20',
+      rules:
+        'unit: USD unless general_setting.quota_display_type is TOKENS (integer CREDIT); USD × 500000 must be a positive integer CREDIT ≤ 9007199254740991; maximum 100 amounts; exact numeric tokens ≤ 64 bytes; exponent -18..18; canonical amounts must be unique',
+      example: '3.5',
     },
   ]),
   'payment_setting.amount_discount': configuration(
-    { '10': 1, '100': 0.95 },
+    { '3.5': 0.98, '10': 1, '100': 0.95 },
     'Record<string, number>',
     [
       {
         path: '<amount>',
         type: 'number',
-        rules: 'minimum: 0; finite: true',
+        rules:
+          'key: exact positive USD amount, or integer CREDIT when general_setting.quota_display_type is TOKENS; USD × 500000 must be whole CREDIT ≤ 9007199254740991; canonical keys with different rates conflict; value: finite rate > 0 and ≤ 1; exact amount matching',
         example: '0.95',
       },
     ]
@@ -982,8 +887,9 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
         path: '[].price',
         type: 'number',
         required: true,
-        rules: 'minimum: 0; finite: true',
-        example: '10',
+        rules:
+          'positive exact amount in the same USD/CREDIT basis as amount_options; exact matching, not a threshold; equivalent decimal keys cannot have different discount rates',
+        example: '3.5',
       },
       {
         path: '[].currency',
@@ -1136,7 +1042,20 @@ export const SYSTEM_JSON_CONFIGURATIONS = {
 export type SystemJsonConfigurationKey = keyof typeof SYSTEM_JSON_CONFIGURATIONS
 
 export function getSystemJsonConfiguration(
-  key: SystemJsonConfigurationKey
+  key: SystemJsonConfigurationKey,
+  paymentAmountUnit?: 'USD' | 'CREDIT'
 ): SystemJsonConfiguration {
-  return SYSTEM_JSON_CONFIGURATIONS[key]
+  const config = SYSTEM_JSON_CONFIGURATIONS[key]
+  if (paymentAmountUnit === 'CREDIT') {
+    if (key === 'payment_setting.amount_options') {
+      return { ...config, example: JSON.stringify([1, 10, 20], null, 2) }
+    }
+    if (key === 'payment_setting.amount_discount') {
+      return {
+        ...config,
+        example: JSON.stringify({ '10': 0.99, '100': 0.9 }, null, 2),
+      }
+    }
+  }
+  return config
 }

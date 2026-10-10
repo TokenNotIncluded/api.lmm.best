@@ -89,6 +89,7 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"AssistantStreamEnabled":                        "Stream assistant responses to the console",
 	"AssistantTemperature":                          "Assistant response temperature",
 	"AssistantMaxTokens":                            "Maximum assistant response tokens",
+	"AssistantNewUserGiftMaxCredits":                "Maximum one-time new-user gift in integer wallet credits (0 disables issuance)",
 	"AssistantAgentLoopEnabled":                     "Enable safe assistant tool calls",
 	"AssistantMaxSteps":                             "Maximum assistant tool-loop steps",
 	"AssistantTimeoutSeconds":                       "Assistant tool-loop timeout",
@@ -101,14 +102,6 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"AssistantSearchMCPTool":                        "Assistant MCP search tool name",
 	"AssistantSkills":                               "Assistant skills and playbooks",
 	"AssistantSkillFiles":                           "Administrator-managed platform skill files",
-	"AssistantReviewEnabled":                        "Enable automatic assistant review",
-	"AssistantReviewWindowDays":                     "Assistant review window in days",
-	"AssistantReviewIntervalHours":                  "Assistant review interval in hours",
-	"AssistantReviewProbability":                    "Per-request assistant review sampling probability",
-	"AssistantReviewGroup":                          "Background assistant review routing group",
-	"AssistantReviewModel":                          "Background assistant review model ID",
-	"AssistantReviewReasoningEffort":                "Background assistant review reasoning effort",
-	"AssistantReviewGroupPolicies":                  "Per-routing-group assistant review policies",
 	"ServerAddress":                                 "Public service address",
 	"WorkerUrl":                                     "Worker service URL",
 	"CustomCallbackAddress":                         "Payment callback address",
@@ -170,10 +163,6 @@ var assistantAdminConfigAllowlist = map[string]string{
 	"QuotaForInviter":                               "Invitation reward for inviter",
 	"QuotaForInvitee":                               "Invitation reward for invitee",
 	"OpenSourceBountyFeeRate":                       "Open-source bounty platform fee",
-	"AdvancedSecurityEnabled":                       "Enable advanced security rules",
-	"AdvancedSecurityOnPromptEnabled":               "Apply advanced security rules to prompts",
-	"AdvancedSecurityAction":                        "Advanced security action",
-	"AdvancedSecurityRules":                         "Advanced security rule set",
 	"LinuxDOMinimumTrustLevel":                      "Minimum LinuxDO trust level",
 	"QuotaRemindThreshold":                          "Quota reminder threshold",
 	"PreConsumedQuota":                              "Pre-consumed request quota",
@@ -1086,31 +1075,8 @@ func validateAssistantAdminConfigValue(key, value string) error {
 				return fmt.Errorf("top-up ratio %s must be non-negative and finite", group)
 			}
 		}
-	case "payment_setting.amount_options":
-		var amounts []int
-		if err := json.Unmarshal([]byte(value), &amounts); err != nil || len(amounts) > 100 {
-			return errors.New("amount_options must be a JSON array with at most 100 entries")
-		}
-		seen := make(map[int]struct{}, len(amounts))
-		for _, amount := range amounts {
-			if amount <= 0 || amount > 1_000_000_000 {
-				return errors.New("top-up amounts must be positive integers no greater than 1000000000")
-			}
-			if _, exists := seen[amount]; exists {
-				return errors.New("top-up amounts cannot contain duplicates")
-			}
-			seen[amount] = struct{}{}
-		}
-	case "payment_setting.amount_discount":
-		var discounts map[int]float64
-		if err := json.Unmarshal([]byte(value), &discounts); err != nil || len(discounts) > 100 {
-			return errors.New("amount_discount must be a JSON object with at most 100 entries")
-		}
-		for amount, discount := range discounts {
-			if amount <= 0 || discount <= 0 || discount > 1 || math.IsNaN(discount) || math.IsInf(discount, 0) {
-				return errors.New("top-up discounts must map positive amounts to finite values between 0 and 1")
-			}
-		}
+	case "payment_setting.amount_options", "payment_setting.amount_discount":
+		return operation_setting.ValidatePaymentCatalogJSON(key, value, operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens)
 	case "PayMethods":
 		var methods []map[string]string
 		if err := json.Unmarshal([]byte(value), &methods); err != nil || len(methods) > 32 {
@@ -1252,53 +1218,12 @@ func createAssistantAdminFlow(c *gin.Context, userID int, payload assistantAdmin
 	return token, nil
 }
 
-func executeAssistantAdminConfigTool(c *gin.Context, userID int) map[string]any {
+func executeAssistantAdminConfigTool(c *gin.Context, userID int, input map[string]any) map[string]any {
 	user, err := assistantRootUser(userID)
 	if err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}
+		return map[string]any{"ok": false, "status": "forbidden", "error": err.Error()}
 	}
-	keys := sortedAssistantAdminConfigKeys()
-	current := assistantAdminCurrentOptions(keys)
-	labels := assistantAdminAvailableConfigLabels()
-	settings := make([]map[string]string, 0, len(keys))
-	for _, key := range keys {
-		settings = append(settings, map[string]string{
-			"key":           key,
-			"label":         labels[key],
-			"current_value": current[key],
-		})
-	}
-	return map[string]any{
-		"ok":                         true,
-		"administrator_role":         user.Role,
-		"configurable_settings":      settings,
-		"sensitive_settings_omitted": true,
-		"write_rule":                 "Use prepare_admin_config_change, then wait for explicit UI confirmation.",
-	}
-}
-
-func executeAssistantReviewTool(userID int) map[string]any {
-	if _, err := assistantAdminUser(userID); err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}
-	}
-	task, err := model.GetLatestSystemTask(model.SystemTaskTypeAssistantReview)
-	if err != nil {
-		return map[string]any{"ok": false, "error": "automatic assistant review is unavailable"}
-	}
-	if task == nil {
-		return map[string]any{"ok": true, "status": "not_run", "review": nil}
-	}
-	if task.Status != model.SystemTaskStatusSucceeded {
-		return map[string]any{"ok": true, "status": task.Status, "review": nil, "updated_at": task.UpdatedAt}
-	}
-	review := model.AssistantReview{}
-	if err := json.Unmarshal([]byte(task.Result), &review); err != nil {
-		return map[string]any{"ok": false, "error": "automatic assistant review result is invalid"}
-	}
-	return map[string]any{
-		"ok": true, "status": task.Status, "updated_at": task.UpdatedAt,
-		"privacy_scope": "aggregate_only", "review": review,
-	}
+	return assistantAdminConfigPage(user.Role, input)
 }
 
 func executeAssistantAdminConfigChangeTool(c *gin.Context, userID int, input map[string]any) map[string]any {
@@ -2230,8 +2155,28 @@ func assistantAdminOptionResult(kind string, update model.OptionUpdateResult, ap
 }
 
 func applyAssistantAdminChange(c *gin.Context, payload assistantAdminChangePayload) (map[string]any, error) {
+	if name := assistantAdminChangeTool(payload.Kind); name != "" {
+		_, policy, err := refreshAssistantToolPolicy(c)
+		if err != nil {
+			return nil, err
+		}
+		if !policy.Enabled(name) {
+			return nil, setting.AssistantToolDisabledError(name)
+		}
+	}
 	result := map[string]any{"ok": true, "kind": payload.Kind, "applied": true, "status": "applied"}
 	switch payload.Kind {
+	case assistantAdminSitePolicyChangeKind:
+		if err := validateAssistantAdminConfigChanges(payload.ConfigChanges); err != nil {
+			return nil, err
+		}
+		update, err := model.UpdateSitePolicyWithExpectation(payload.ConfigChanges, payload.ConfigExpected)
+		if err != nil {
+			return nil, err
+		}
+		result = assistantAdminOptionResult(payload.Kind, update, true)
+		result["updated_keys"] = sortedAssistantAdminChangeKeys(payload.ConfigChanges)
+		return result, nil
 	case assistantAdminConfigChangeKind:
 		if len(payload.ConfigChanges) == 0 {
 			return nil, errors.New("administrator configuration change is empty")
@@ -2340,6 +2285,21 @@ func ApplyAssistantAdminChange(c *gin.Context) {
 		writeAssistantError(c, http.StatusForbidden, "ASSISTANT_ADMIN_REQUIRED", err)
 		return
 	}
+	preview, err := model.GetAuthFlow(input.ConfirmationToken, model.AuthFlowMatch{
+		Purpose: model.AuthFlowPurposeAssistantAdmin, UserId: user.Id, SessionId: sessionID,
+	})
+	if err != nil {
+		writeAssistantError(c, http.StatusUnprocessableEntity, "ASSISTANT_ADMIN_CONFIRMATION_INVALID", errors.New("administrator preview is invalid or expired; ask the assistant to prepare it again"))
+		return
+	}
+	var previewPayload assistantAdminChangePayload
+	if json.Unmarshal([]byte(preview.Payload), &previewPayload) != nil {
+		writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_ADMIN_CHANGE_INVALID", errors.New("administrator preview could not be decoded"))
+		return
+	}
+	if !requireAssistantToolEnabled(c, assistantAdminChangeTool(previewPayload.Kind)) {
+		return
+	}
 	flow, err := model.ConsumeAuthFlow(input.ConfirmationToken, model.AuthFlowMatch{
 		Purpose:   model.AuthFlowPurposeAssistantAdmin,
 		UserId:    user.Id,
@@ -2354,7 +2314,7 @@ func ApplyAssistantAdminChange(c *gin.Context) {
 		writeAssistantError(c, http.StatusInternalServerError, "ASSISTANT_ADMIN_CHANGE_INVALID", errors.New("administrator preview could not be decoded"))
 		return
 	}
-	if payload.Kind == assistantAdminConfigChangeKind || payload.Kind == assistantAdminPricingChangeKind || payload.Kind == assistantAdminModelSyncChangeKind {
+	if payload.Kind == assistantAdminSitePolicyChangeKind || payload.Kind == assistantAdminConfigChangeKind || payload.Kind == assistantAdminPricingChangeKind || payload.Kind == assistantAdminModelSyncChangeKind {
 		if _, err := assistantRootUser(user.Id); err != nil {
 			writeAssistantError(c, http.StatusForbidden, "ASSISTANT_ROOT_REQUIRED", err)
 			return

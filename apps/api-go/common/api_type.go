@@ -5,7 +5,9 @@ import "github.com/LIghtJUNction/api.lmm.best/constant"
 func ChannelType2APIType(channelType int) (int, bool) {
 	apiType := -1
 	switch channelType {
-	case constant.ChannelTypeOpenAI, constant.ChannelTypeOpenHuman:
+	case constant.ChannelTypeOpenHuman:
+		return -1, false // A tombstone must never fall back to the OpenAI adaptor.
+	case constant.ChannelTypeOpenAI:
 		apiType = constant.APITypeOpenAI
 	case constant.ChannelTypeAnthropic:
 		apiType = constant.APITypeAnthropic
@@ -81,6 +83,8 @@ func ChannelType2APIType(channelType int) (int, bool) {
 		apiType = constant.APITypeSub2API
 	case constant.ChannelTypeNewAPI:
 		apiType = constant.APITypeNewAPI
+	case constant.ChannelTypeTypeSafe:
+		apiType = constant.APITypeTypeSafe
 	}
 	if apiType == -1 {
 		return constant.APITypeOpenAI, false
@@ -89,6 +93,9 @@ func ChannelType2APIType(channelType int) (int, bool) {
 }
 
 func SupportsResponsesCompact(channelType, apiType int) bool {
+	if channelType == constant.ChannelTypeOpenHuman {
+		return false
+	}
 	switch apiType {
 	case constant.APITypeOpenAI,
 		constant.APITypeCodex,

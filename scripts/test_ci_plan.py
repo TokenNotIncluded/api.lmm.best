@@ -33,6 +33,10 @@ class SelectionTests(unittest.TestCase):
             "changes", "repository-contracts", "go", "release-artifact-contract", "route-coverage-contract",
         })
 
+    def test_shared_auth_marker_checks_both_backend_consumers(self):
+        selected = set(select_jobs("pull_request", ["apps/api-go/common/auth_version.txt"]))
+        self.assertTrue({"go", "rust-preview", "rust-real-integration"} <= selected)
+
     def test_rust_change_covers_independent_lockfile_real_services_and_web_contract(self):
         selected = set(select_jobs("pull_request", ["apps/api-rust/Cargo.lock"]))
         self.assertTrue({"root-route-acceptance-lockfile", "rust-real-integration", "rustsec", "web"} <= selected)
@@ -168,7 +172,7 @@ class PlannedGateTests(unittest.TestCase):
     def test_workflow_has_one_complete_dag_and_stable_gate(self):
         source = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = re.findall(r"^  ([a-z][a-z0-9-]*):$", source.split("\njobs:\n", 1)[1], re.M)
-        self.assertCountEqual(jobs, [*REQUIRED_JOBS, "quality-gate"])
+        self.assertCountEqual(jobs, [*REQUIRED_JOBS, "quality-gate", "go-web-release-gate"])
         for job in REQUIRED_JOBS:
             if job != "changes":
                 block = source.split(f"  {job}:\n", 1)[1].split("\n  ", 1)[0]

@@ -16,14 +16,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowUpRight, Lightbulb, RotateCcw, Shuffle } from 'lucide-react'
-import { useEffect, useId, useMemo, useState } from 'react'
+import {
+  ArrowUpRight,
+  Lightbulb,
+  RotateCcw,
+  Shuffle,
+  Volume2,
+  VolumeX,
+} from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { HUMAN } from '@/features/signal-game/api'
 import { SignalBoard } from '@/features/signal-game/board'
+import { SignalGameFeedback } from '@/features/signal-game/feedback'
 import { formatGameTime } from '@/features/signal-game/format'
+import {
+  playCue,
+  setSoundEnabled,
+  soundEnabled,
+} from '@/features/signal-game/sound'
 import {
   rotateSignalTile,
   startSignalGame,
@@ -74,7 +87,9 @@ export function AuthArtPanel() {
     state = useSignalGame(),
     [size, setSize] = useState(state.circuit.size),
     [advanced, setAdvanced] = useState(state.circuit.size > 12),
-    [error, setError] = useState(false)
+    [error, setError] = useState(false),
+    [sound, setSound] = useState(soundEnabled),
+    [usedHint, setUsedHint] = useState(false)
   useEffect(() => {
     setSize(state.circuit.size)
     setAdvanced(state.circuit.size > 12)
@@ -83,11 +98,28 @@ export function AuthArtPanel() {
       () => traceCircuit(state.tiles, state.circuit.size),
       [state.tiles, state.circuit.size]
     ),
-    powered = useMemo(() => new Set(trace.path), [trace.path])
+    powered = useMemo(() => new Set(trace.path), [trace.path]),
+    poweredCount = trace.path.length,
+    previousPower = useRef(poweredCount),
+    previousWon = useRef(false)
+  useEffect(() => {
+    if (poweredCount > previousPower.current && !trace.won) playCue('power')
+    previousPower.current = poweredCount
+  }, [poweredCount, trace.won])
+  useEffect(() => {
+    if (trace.won && !previousWon.current) playCue('win')
+    previousWon.current = trace.won
+  }, [trace.won])
+  useEffect(() => {
+    setUsedHint(false)
+    previousPower.current = 0
+  }, [state.roundId])
   const turn = (index: number) => {
+    if (index === -1) setUsedHint(true)
     try {
       rotateSignalTile(index)
       setError(false)
+      playCue('turn')
     } catch {
       setError(true)
     }
@@ -106,6 +138,7 @@ export function AuthArtPanel() {
     <aside
       className='signal-game bg-card text-card-foreground'
       aria-labelledby={titleId}
+      data-mode={state.mode}
     >
       <div className='signal-game-heading'>
         <h2 id={titleId}>{t('Signal path')}</h2>
@@ -113,37 +146,53 @@ export function AuthArtPanel() {
           {t('Rotate the tiles to connect input to output.')}
         </p>
       </div>
-      <div className='mt-4 flex flex-wrap items-center gap-3 text-sm'>
-        <label>
-          {t('Board size')}{' '}
-          <select
-            className='bg-background rounded border px-2 py-1'
-            value={size}
-            onChange={(e) => setSize(Number(e.target.value))}
-          >
-            {BOARD_SIZES.filter((n) => advanced || n <= 12).map((n) => (
-              <option key={n} value={n}>
-                {n} × {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className='inline-flex items-center gap-2'>
-          <input
-            type='checkbox'
-            checked={advanced}
-            onChange={(e) => {
-              setAdvanced(e.target.checked)
-              if (!e.target.checked && size > 12) setSize(5)
-            }}
-          />
-          {t('Advanced mode')}
-        </label>
-      </div>
-      <div className='mt-3 flex flex-wrap gap-2'>
+      <details className='signal-game-settings'>
+        <summary>
+          {t('Board size')}
+          <span className='signal-game-settings-value'>
+            {size} × {size}
+          </span>
+        </summary>
+        <div className='signal-game-settings-body'>
+          <div className='signal-game-options'>
+            <label>
+              {t('Board size')}
+              <select
+                value={size}
+                onChange={(e) => setSize(Number(e.target.value))}
+              >
+                {BOARD_SIZES.filter((n) => advanced || n <= 12).map((n) => (
+                  <option key={n} value={n}>
+                    {n} × {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <input
+                type='checkbox'
+                checked={advanced}
+                onChange={(e) => {
+                  setAdvanced(e.target.checked)
+                  if (!e.target.checked && size > 12) setSize(5)
+                }}
+              />
+              {t('Advanced mode')}
+            </label>
+          </div>
+          <p>
+            {t(
+              'Challenges: 3-second countdown, no hints, ranked by moves then time.'
+            )}
+          </p>
+          <p>{t('Use arrow keys to move and Enter to rotate.')}</p>
+        </div>
+      </details>
+      <div className='signal-game-modes'>
         <Button
           type='button'
-          variant='outline'
+          variant='ghost'
+          aria-pressed={state.mode === 'practice'}
           disabled={state.phase === 'loading'}
           onClick={() => start('practice')}
         >
@@ -151,29 +200,27 @@ export function AuthArtPanel() {
         </Button>
         <Button
           type='button'
+          variant='ghost'
+          aria-pressed={state.mode === 'challenge'}
           disabled={state.phase === 'loading'}
           onClick={() => start('challenge')}
         >
           {t('Start challenge')}
+          <ArrowUpRight className='size-4' aria-hidden='true' />
         </Button>
       </div>
-      <p className='text-muted-foreground mt-2 text-xs'>
-        {t(
-          'Challenges: 3-second countdown, no hints, ranked by moves then time.'
-        )}
-      </p>
       <div className='signal-game-score text-muted-foreground'>
         <span>
           {state.mode === 'challenge' ? t('Challenge') : t('Practice')} ·{' '}
           {state.circuit.size} × {state.circuit.size}
         </span>
         <span>
-          {t('Moves')}:{' '}
+          {t('Moves')}{' '}
           <strong className='text-foreground'>{state.actions.length}</strong>
         </span>
         {state.mode === 'challenge' && (
           <span>
-            {t('Time')}:{' '}
+            {t('Time')}{' '}
             <GameClock
               key={state.roundId}
               {...state}
@@ -188,7 +235,7 @@ export function AuthArtPanel() {
           {state.participant.model_id}
         </p>
       )}
-      <div className='relative'>
+      <div className='signal-game-stage' data-won={trace.won}>
         <SignalBoard
           size={state.circuit.size}
           tiles={state.tiles}
@@ -247,13 +294,39 @@ export function AuthArtPanel() {
           type='button'
           variant='ghost'
           onClick={() => start(state.mode, true)}
-          disabled={state.actions.length === 0}
+          disabled={state.phase === 'loading' || state.actions.length === 0}
           aria-label={t('Restart circuit')}
           title={t('Restart circuit')}
         >
           <RotateCcw className='size-4' aria-hidden='true' />
         </Button>
+        <Button
+          type='button'
+          variant='ghost'
+          aria-pressed={sound}
+          aria-label={sound ? t('Sound on') : t('Sound off')}
+          title={sound ? t('Sound on') : t('Sound off')}
+          onClick={() => {
+            const next = !sound
+            setSoundEnabled(next)
+            setSound(next)
+            if (next) playCue('combo')
+          }}
+        >
+          {sound ? (
+            <Volume2 className='size-4' aria-hidden='true' />
+          ) : (
+            <VolumeX className='size-4' aria-hidden='true' />
+          )}
+        </Button>
       </div>
+      <SignalGameFeedback
+        powered={poweredCount}
+        moves={state.actions.length}
+        won={trace.won}
+        rounds={state.rounds}
+        usedHint={usedHint}
+      />
       {(error || state.serviceError) && (
         <p role='alert' className='text-destructive mt-3 text-sm'>
           {t('Game service unavailable. Practice is still available.')}
@@ -266,15 +339,9 @@ export function AuthArtPanel() {
           )}
         </p>
       )}
-      <p className='signal-game-help text-muted-foreground'>
-        {t('Use arrow keys to move and Enter to rotate.')}
-      </p>
-      <a
-        href='/games/signal'
-        className='mt-4 inline-flex items-center justify-center gap-2 text-sm underline underline-offset-4'
-      >
+      <a href='/games/signal' className='signal-game-link'>
         {t('Leaderboard, records and AI guide')}
-        <ArrowUpRight className='size-4' />
+        <ArrowUpRight className='size-4' aria-hidden='true' />
       </a>
       <p className='signal-game-note text-muted-foreground'>
         {t('Just for fun. You can sign in or register at any time.')}

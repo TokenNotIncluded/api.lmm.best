@@ -29,6 +29,7 @@ type SystemJsonCodeEditorProps = Omit<
   'example' | 'specification'
 > & {
   configurationKey: SystemJsonConfigurationKey
+  paymentAmountUnit?: 'USD' | 'CREDIT'
 }
 
 /**
@@ -38,9 +39,13 @@ type SystemJsonCodeEditorProps = Omit<
  */
 export function SystemJsonCodeEditor({
   configurationKey,
+  paymentAmountUnit,
   ...props
 }: SystemJsonCodeEditorProps) {
-  const configuration = getSystemJsonConfiguration(configurationKey)
+  const configuration = getSystemJsonConfiguration(
+    configurationKey,
+    paymentAmountUnit
+  )
 
   return (
     <JsonCodeEditor

@@ -36,6 +36,7 @@ auth.insufficient_privilege: "無權進行此操作，權限不足"
 
 # Token messages
 token.name_too_long: "令牌名稱過長"
+token.group_required: "建立 API Key 前請選擇一個群組"
 token.quota_negative: "額度值不能為負數"
 token.quota_exceed_max: "額度值超出有效範圍，最大值為 {{.Max}}"
 token.generate_failed: "生成令牌失敗"
@@ -286,3 +287,5 @@ custom_oauth.name_empty: "供應者名稱不能為空"
 custom_oauth.has_bindings: "無法刪除已有使用者綁定的供應者"
 custom_oauth.binding_not_found: "OAuth 綁定不存在"
 custom_oauth.provider_id_field_invalid: "無法從供應者響應中提取使用者 ID"
+
+oauth.github_migration_declined: "無法確認 GitHub 帳號歸屬。請用其他方式登入，再到账戶設定重新綁定 GitHub。"

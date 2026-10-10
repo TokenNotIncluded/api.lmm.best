@@ -20,13 +20,13 @@ import type { SVGProps } from 'react'
 
 import { cn } from '@/lib/utils'
 
-export const LMM_BRAND_NAME = 'LMM Best'
+export const LMM_BRAND_NAME = 'LMM Forge'
 
 type LmmBrandMarkProps = SVGProps<SVGSVGElement> & {
   title?: string
 }
 
-/** A quiet angular monogram for the LMM Best identity. */
+/** Shared cut symbol; keep its full viewBox and the open 16-unit gaps. */
 export function LmmBrandMark({
   className,
   title,
@@ -34,7 +34,7 @@ export function LmmBrandMark({
 }: LmmBrandMarkProps) {
   return (
     <svg
-      viewBox='0 0 56 56'
+      viewBox='0 0 128 128'
       xmlns='http://www.w3.org/2000/svg'
       role={title ? 'img' : undefined}
       aria-label={title}
@@ -44,19 +44,9 @@ export function LmmBrandMark({
       {...props}
     >
       <path
-        d='M10 39V16l18 18 18-18v23'
-        fill='none'
-        stroke='var(--forge-brand-mark-ink, currentColor)'
-        strokeWidth='3.5'
-        strokeLinecap='square'
-        strokeLinejoin='round'
-      />
-      <path
-        d='M12 45h32'
-        fill='none'
-        stroke='var(--forge-brand-mark-accent, currentColor)'
-        strokeWidth='2.5'
-        strokeLinecap='square'
+        d='M8 16H24V96H120V104L112 112H8Z M40 80V16H50L56 30L62 16H72V80H62V42L56 56L50 42V80Z M88 80V16H98L104 30L110 16H120V80H110V42L104 56L98 42V80Z'
+        fill='currentColor'
+        fillRule='evenodd'
       />
     </svg>
   )

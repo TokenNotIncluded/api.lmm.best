@@ -21,6 +21,7 @@ import type {
   PiRemoteSessionEnvelope,
   RemoteControlMessage,
 } from './types'
+import type { RemoteCommand } from './commands'
 
 export const PI_REMOTE_KDF_ITERATIONS = 210_000
 
@@ -71,7 +72,7 @@ export async function derivePiRemoteKey(
     material,
     { name: 'AES-GCM', length: 256 },
     false,
-    ['decrypt']
+    ['encrypt', 'decrypt']
   )
 }
 
@@ -123,4 +124,14 @@ export async function decryptPiRemoteMessage(
     id: message.id ?? `${sessionId}-${envelope.sequence}`,
     created_at: message.created_at ?? envelope.createdAt,
   }
+}
+
+export async function encryptPiRemoteCommand(sessionId: string, command: RemoteCommand, key: CryptoKey): Promise<PiRemoteCiphertext> {
+  const plaintext = encoder.encode(JSON.stringify(command))
+  if (plaintext.length > 48 * 1024) throw new Error('Command exceeds the encrypted message limit')
+  const nonce = crypto.getRandomValues(new Uint8Array(12))
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce,
+    additionalData: messageAdditionalData(sessionId, 'controller'), tagLength: 128 }, key, plaintext)
+  const encode = (bytes: Uint8Array) => btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+  return { nonce: encode(nonce), ciphertext: encode(new Uint8Array(encrypted)) }
 }

@@ -39,8 +39,11 @@ export type { ApiRequestConfig } from '@/lib/http-client'
 // User APIs
 // ============================================================================
 
-export async function getSelf() {
+export async function getSelf(
+  config: Pick<ApiRequestConfig, 'disableDuplicate' | 'authScope'> = {}
+) {
   const res = await api.get('/api/user/self', {
+    ...config,
     skipErrorHandler: true,
   })
   return res.data

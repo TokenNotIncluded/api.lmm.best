@@ -283,7 +283,7 @@ async function submitHomepageMessage(page, evidence) {
   const submit = form.locator('button[type="submit"]')
   await submit.waitFor({ state: 'visible' })
   await Promise.all([
-    page.waitForURL(/\/(?:getting-started|dashboard)(?:\/|$)/),
+    page.waitForURL(/\/(?:wallet|dashboard)(?:\/|$)/),
     submit.click(),
   ])
 }
@@ -449,7 +449,7 @@ async function runL0(browser) {
       isolationProbe.external
     )
     await submitHomepageMessage(page, evidence)
-    await page.waitForURL(/\/getting-started(?:\/|$)/)
+    await page.waitForURL(/\/wallet(?:\/|$)/)
     await assertAutoAssistantSend(page, evidence)
     await assertNoHorizontalOverflow(page, evidence)
     await assertNoDebugErrors(page, evidence)
@@ -458,7 +458,7 @@ async function runL0(browser) {
     await page.goto(new URL('/keys', baseUrl).toString(), {
       waitUntil: 'domcontentloaded',
     })
-    await page.waitForURL(/\/getting-started(?:\/|$)/)
+    await page.waitForURL(/\/wallet(?:\/|$)/)
     record(evidence, 'L0 key route denied', true)
   } finally {
     await context.close()

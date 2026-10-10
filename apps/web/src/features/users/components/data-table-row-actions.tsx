@@ -30,7 +30,7 @@ import {
   CreditCard,
   RotateCcw,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -49,7 +49,12 @@ import {
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
 
-import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
+import {
+  manageUser,
+  resetUserPasskey,
+  resetUserTwoFA,
+  setUserTrustLevel,
+} from '../api'
 import {
   USER_STATUS,
   USER_ROLE,
@@ -60,7 +65,6 @@ import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { ReferralModerationDialog } from './referral-moderation-dialog'
-import { UserRecommendationArchiveDialog } from './user-recommendation-archive-dialog'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -79,6 +83,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
   const [resetOnboardingOpen, setResetOnboardingOpen] = useState(false)
+  const [restoreTrustLevelOpen, setRestoreTrustLevelOpen] = useState(false)
+  const [restoringTrustLevel, setRestoringTrustLevel] = useState(false)
+  const restoringTrustLevelRef = useRef(false)
+  // `manageUser` applies access-control changes immediately, so every such
+  // menu item routes through a confirmation that states who is affected and
+  // what changes. Previously these fired on a single click.
+  const [statusConfirmOpen, setStatusConfirmOpen] = useState(false)
+  const [promoteConfirmOpen, setPromoteConfirmOpen] = useState(false)
+  const [demoteConfirmOpen, setDemoteConfirmOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -141,6 +154,39 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const isDisabled = user.status === USER_STATUS.DISABLED
   const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
+  const hasTrustLevelOverride =
+    user.trust_level_info?.overridden === true ||
+    (typeof user.trust_level_override === 'number' &&
+      Number.isInteger(user.trust_level_override) &&
+      user.trust_level_override >= 0 &&
+      user.trust_level_override <= 4)
+  const canRestoreTrustLevel =
+    !isAdmin && !isUserDeleted(user) && hasTrustLevelOverride
+
+  const handleRestoreTrustLevel = async () => {
+    if (!canRestoreTrustLevel || restoringTrustLevelRef.current) return
+    restoringTrustLevelRef.current = true
+    setRestoringTrustLevel(true)
+    try {
+      const result = await setUserTrustLevel({
+        id: user.id,
+        action: 'set_trust_level',
+        value: -1,
+      })
+      if (result.success) {
+        toast.success(t('Trust level updated successfully'))
+        triggerRefresh()
+      } else {
+        toast.error(result.message || t('Failed to update trust level'))
+      }
+    } catch {
+      toast.error(t('Failed to update trust level'))
+    } finally {
+      restoringTrustLevelRef.current = false
+      setRestoringTrustLevel(false)
+      setRestoreTrustLevelOpen(false)
+    }
+  }
 
   if (isUserDeleted(user)) {
     return null
@@ -165,14 +211,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         <TooltipContent>{t('Edit')}</TooltipContent>
       </Tooltip>
 
-      <UserRecommendationArchiveDialog user={user} />
-
       <DataTableRowActionMenu
         ariaLabel={t('Open menu')}
         contentClassName='w-48'
       >
         {isDisabled ? (
-          <DropdownMenuItem onClick={() => handleManage('enable')}>
+          <DropdownMenuItem onClick={() => setStatusConfirmOpen(true)}>
             {t('Enable')}
             <DropdownMenuShortcut>
               <Power size={16} />
@@ -180,7 +224,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem
-            onClick={() => handleManage('disable')}
+            onClick={() => setStatusConfirmOpen(true)}
             disabled={isRoot}
           >
             {t('Disable')}
@@ -202,7 +246,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         )}
 
         {isAdmin && !isRoot && (
-          <DropdownMenuItem onClick={() => handleManage('demote')}>
+          <DropdownMenuItem onClick={() => setDemoteConfirmOpen(true)}>
             {t('Demote')}
             <DropdownMenuShortcut>
               <ArrowDown size={16} />
@@ -211,7 +255,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         )}
 
         {!isAdmin && (
-          <DropdownMenuItem onClick={() => handleManage('promote')}>
+          <DropdownMenuItem onClick={() => setPromoteConfirmOpen(true)}>
             {t('Promote')}
             <DropdownMenuShortcut>
               <ArrowUp size={16} />
@@ -242,6 +286,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             <CreditCard size={16} />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
+
+        {canRestoreTrustLevel && (
+          <DropdownMenuItem onClick={() => setRestoreTrustLevelOpen(true)}>
+            {t('Restore automatic trust level')}
+            <DropdownMenuShortcut>
+              <RotateCcw size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator />
 
@@ -332,6 +385,63 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       />
 
       <ConfirmDialog
+        open={statusConfirmOpen}
+        onOpenChange={setStatusConfirmOpen}
+        destructive={!isDisabled}
+        title={
+          isDisabled ? t('Enable this account?') : t('Disable this account?')
+        }
+        desc={
+          isDisabled
+            ? t(
+                'Enable {{username}}? They will regain access to the console and their remaining quota immediately.',
+                { username: user.username }
+              )
+            : t(
+                'Disable {{username}}? Their API keys stop authenticating and new requests fail immediately. Existing quota and history are kept.',
+                { username: user.username }
+              )
+        }
+        confirmText={isDisabled ? t('Enable') : t('Disable')}
+        handleConfirm={() => {
+          void handleManage(isDisabled ? 'enable' : 'disable').finally(() =>
+            setStatusConfirmOpen(false)
+          )
+        }}
+      />
+
+      <ConfirmDialog
+        open={promoteConfirmOpen}
+        onOpenChange={setPromoteConfirmOpen}
+        title={t('Promote to administrator?')}
+        desc={t(
+          'Promote {{username}} to administrator? Administrators can view every user, change quotas, and manage site-wide settings.',
+          { username: user.username }
+        )}
+        confirmText={t('Promote')}
+        handleConfirm={() => {
+          void handleManage('promote').finally(() =>
+            setPromoteConfirmOpen(false)
+          )
+        }}
+      />
+
+      <ConfirmDialog
+        open={demoteConfirmOpen}
+        onOpenChange={setDemoteConfirmOpen}
+        destructive
+        title={t('Remove administrator access?')}
+        desc={t(
+          'Demote {{username}} to a regular user? They lose access to the admin console and all administrator-only settings immediately.',
+          { username: user.username }
+        )}
+        confirmText={t('Demote')}
+        handleConfirm={() => {
+          void handleManage('demote').finally(() => setDemoteConfirmOpen(false))
+        }}
+      />
+
+      <ConfirmDialog
         open={resetOnboardingOpen}
         onOpenChange={setResetOnboardingOpen}
         title={t('Reset onboarding to L0')}
@@ -346,6 +456,23 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           )
         }}
       />
+
+      {canRestoreTrustLevel && (
+        <ConfirmDialog
+          open={restoreTrustLevelOpen}
+          onOpenChange={(open) => {
+            if (!restoringTrustLevelRef.current) setRestoreTrustLevelOpen(open)
+          }}
+          title={t('Restore automatic trust level')}
+          desc={t(
+            'Restore automatic trust level for {{username}}? This removes the administrator override and recalculates the level from account activation and eligible paid recharge history. Existing balance and account history are preserved.',
+            { username: user.username }
+          )}
+          confirmText={t('Restore automatic trust level')}
+          isLoading={restoringTrustLevel}
+          handleConfirm={() => void handleRestoreTrustLevel()}
+        />
+      )}
 
       <UserBindingDialog
         open={bindingDialogOpen}

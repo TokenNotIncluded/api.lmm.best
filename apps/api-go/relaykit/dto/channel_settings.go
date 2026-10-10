@@ -17,6 +17,9 @@ type ChannelSettings struct {
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	// Nil preserves the original OpenAI/Codex behavior. Newly supported
+	// channel types require an explicit opt-in; false always disables WebSocket.
+	ResponsesWebSocketEnabled *bool `json:"responses_websocket_enabled,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`
@@ -85,6 +88,9 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
+	// OllamaOpenAIChat opts OpenAI chat requests into /v1/chat/completions.
+	// Unset channels retain native /api/chat; other Ollama endpoints are unchanged.
+	OllamaOpenAIChat bool `json:"ollama_openai_chat,omitempty"`
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {
@@ -116,11 +122,12 @@ type AdvancedCustomConfig struct {
 }
 
 type AdvancedCustomRoute struct {
-	IncomingPath string                   `json:"incoming_path,omitempty"`
-	UpstreamPath string                   `json:"upstream_path,omitempty"`
-	Converter    string                   `json:"converter,omitempty"`
-	Models       []string                 `json:"models,omitempty"`
-	Auth         *AdvancedCustomRouteAuth `json:"auth,omitempty"`
+	IncomingPath string                       `json:"incoming_path,omitempty"`
+	UpstreamPath string                       `json:"upstream_path,omitempty"`
+	Converter    string                       `json:"converter,omitempty"`
+	Models       []string                     `json:"models,omitempty"`
+	Auth         *AdvancedCustomRouteAuth     `json:"auth,omitempty"`
+	Balance      *AdvancedCustomBalanceConfig `json:"balance,omitempty"`
 }
 
 type AdvancedCustomRouteAuth struct {
@@ -280,16 +287,20 @@ func isAdvancedCustomGeminiIncomingPath(incomingPath string) bool {
 }
 
 func matchAdvancedCustomRouteModel(models []string, model string) bool {
-	normalizedModels := normalizeAdvancedCustomRouteModels(models)
-	if len(normalizedModels) == 0 {
-		return true
-	}
-	for _, allowedModel := range normalizedModels {
+	// Match in place: building a normalized slice for every channel check
+	// allocates even when the first rule matches. Keep all-blank catch-alls.
+	hasModels := false
+	for _, allowedModel := range models {
+		allowedModel = strings.TrimSpace(allowedModel)
+		if allowedModel == "" {
+			continue
+		}
+		hasModels = true
 		if matchAdvancedCustomRouteModelRule(allowedModel, model) {
 			return true
 		}
 	}
-	return false
+	return !hasModels
 }
 
 // advancedCustomModelRegexCache caches compiled route model patterns. Route model
@@ -400,6 +411,14 @@ func (c *AdvancedCustomConfig) Validate() error {
 
 		if route.IncomingPath == "" {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].incoming_path is required", i)
+		}
+		if route.Balance != nil {
+			if route.IncomingPath != AdvancedCustomBalancePath {
+				return fmt.Errorf("advanced_custom.advanced_routes[%d].balance is only supported for the balance route", i)
+			}
+			if err := route.Balance.Validate(); err != nil {
+				return fmt.Errorf("advanced_custom.advanced_routes[%d].balance: %w", i, err)
+			}
 		}
 		if !strings.HasPrefix(route.IncomingPath, "/") {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].incoming_path must start with /", i)

@@ -272,7 +272,7 @@ export function MobileDrawer({
 
           {/* Drawer Content */}
           <motion.div
-            className={MOBILE_DRAWER_CONFIG.drawerClassName}
+            className={`${MOBILE_DRAWER_CONFIG.drawerClassName} max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain`}
             initial='hidden'
             animate='visible'
             exit='exit'
@@ -298,7 +298,7 @@ export function MobileDrawer({
                   variant='ghost'
                   size='icon-sm'
                   onClick={onClose}
-                  className='hover:text-primary focus-visible:ring-ring cursor-pointer touch-manipulation focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
+                  className='hover:text-primary focus-visible:ring-ring size-11 cursor-pointer touch-manipulation focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
                   aria-label={t('Close menu')}
                 >
                   <X className='size-5' aria-hidden='true' />

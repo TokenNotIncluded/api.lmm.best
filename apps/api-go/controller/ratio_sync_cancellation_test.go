@@ -16,6 +16,7 @@ import (
 )
 
 func TestFetchUpstreamRatiosCancellationInterruptsRetryBackoff(t *testing.T) {
+	ratioSyncCurrencyFixture(t, 500000)
 	gin.SetMode(gin.TestMode)
 	var requests atomic.Int32
 	requested := make(chan struct{})
@@ -70,6 +71,7 @@ func TestFetchUpstreamRatiosCancellationInterruptsRetryBackoff(t *testing.T) {
 }
 
 func TestFetchUpstreamRatiosPreCancelledRequestDoesNotStartUpstreams(t *testing.T) {
+	ratioSyncCurrencyFixture(t, 500000)
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -95,5 +97,6 @@ func TestFetchUpstreamRatiosPreCancelledRequestDoesNotStartUpstreams(t *testing.
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	FetchUpstreamRatios(c)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Zero(t, requests.Load())
 }

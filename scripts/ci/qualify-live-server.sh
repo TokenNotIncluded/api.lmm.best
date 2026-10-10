@@ -18,7 +18,7 @@ request() {
   local -a args=(--silent --show-error --max-time "$timeout" --output "$body_file" --write-out '%{http_code}' -X "$method" -H 'accept: application/json')
   [[ -z $bearer ]] || args+=(-H "Authorization: Bearer $bearer")
   if [[ $method != GET ]]; then
-    args+=(-H 'content-type: application/json' -H "Origin: $base")
+    args+=(-H 'content-type: application/json' -H "Origin: $base" -H 'X-LMM-Credit-Unit: 500000')
   fi
   [[ -z $data ]] || args+=(--data-binary "$data")
   status=$(curl "${args[@]}" "$base$path" || true)

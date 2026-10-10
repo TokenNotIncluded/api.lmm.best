@@ -39,6 +39,8 @@ import {
 } from '@/components/ui/card'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CodewhaleOAuthGuide } from '@/features/guide/codewhale-oauth-guide'
+import { DshOAuthGuide } from '@/features/guide/dsh-oauth-guide'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
 import {
   readSetupPreferences,
@@ -94,6 +96,8 @@ const PLATFORM_LABELS: Record<AssistantSetupPlatform, string> = {
 }
 export type ClientTab =
   | 'pi'
+  | 'dsh'
+  | 'codewhale'
   | 'astrbot'
   | 'openai-sdk'
   | 'anthropic-sdk'
@@ -220,8 +224,12 @@ export function AssistantSetupTool(props: {
     ? selectGuideModel(eligibleModels, selectedModel)
     : ''
   const modelValue = model || '<MODEL_ID>'
+  const oauthClient =
+    clientTab === 'pi' || clientTab === 'dsh' || clientTab === 'codewhale'
   const clientNames: Record<ClientTab, string> = {
     pi: 'Pi (OAuth)',
+    dsh: t('DSH Desktop (OAuth)'),
+    codewhale: 'Codewhale (OAuth)',
     astrbot: 'AstrBot',
     'openai-sdk': 'OpenAI SDK',
     'anthropic-sdk': 'Anthropic SDK',
@@ -234,22 +242,27 @@ export function AssistantSetupTool(props: {
     codex: 'Codex',
     'openai-compatible': t('OpenAI-compatible clients'),
   }
-  const clients: ClientTab[] = mobile
-    ? ['chatbox', 'chatgpt']
-    : [
-        'pi',
-        'claude-code',
-        'codex',
-        'cc-switch',
-        'astrbot',
-        'openai-sdk',
-        'anthropic-sdk',
-        'cherry-studio',
-        'chatbox',
-        'claude-desktop',
-        'chatgpt',
-        'openai-compatible',
-      ]
+  const clients: ClientTab[] =
+    platform === 'android'
+      ? ['codewhale', 'chatbox', 'chatgpt']
+      : mobile
+        ? ['chatbox', 'chatgpt']
+        : [
+            'pi',
+            'dsh',
+            'codewhale',
+            'claude-code',
+            'codex',
+            'cc-switch',
+            'astrbot',
+            'openai-sdk',
+            'anthropic-sdk',
+            'cherry-studio',
+            'chatbox',
+            'claude-desktop',
+            'chatgpt',
+            'openai-compatible',
+          ]
   const ccSwitchInstall = getCCSwitchInstallGuide(desktopPlatform)
 
   const connectionValues = (root = false) =>
@@ -359,7 +372,7 @@ export function AssistantSetupTool(props: {
           ) : null}
         </div>
 
-        {clientTab === 'pi' ? null : !canConnect ? (
+        {oauthClient ? null : !canConnect ? (
           <Alert>
             <AlertTitle>
               {t(
@@ -532,10 +545,20 @@ export function AssistantSetupTool(props: {
               </TabsContent>
             ))}
 
+          <TabsContent value='codewhale' className='mt-5'>
+            <CodewhaleOAuthGuide
+              android={platform === 'android'}
+              windows={platform === 'windows'}
+            />
+          </TabsContent>
+
           {!mobile ? (
             <>
               <TabsContent value='pi' className='mt-5'>
                 <PiOAuthGuide />
+              </TabsContent>
+              <TabsContent value='dsh' className='mt-5'>
+                <DshOAuthGuide windows={platform === 'windows'} />
               </TabsContent>
               <TabsContent value='astrbot' className='mt-5 grid gap-5'>
                 <p className='text-sm leading-7'>
@@ -1008,7 +1031,7 @@ export function AssistantSetupTool(props: {
           </TabsContent>
         </Tabs>
 
-        {!canConnect && clientTab !== 'pi' ? (
+        {!canConnect && !oauthClient ? (
           <Button
             type='button'
             className='min-h-11'
@@ -1037,7 +1060,11 @@ export function AssistantSetupTool(props: {
               onClick={() =>
                 props.onAskQuestion?.(
                   t(
-                    'I am setting up {{client}} on {{platform}}. Please walk me through downloading it, entering the connection settings, and sending a first test. Ask which step I am on, and never ask for my API key.',
+                    clientTab === 'codewhale'
+                      ? 'I am setting up Codewhale on {{platform}}. Please help me install Codewhale and the codewhale-lmm companion adapter, sign in with OAuth, list the account-scoped model IDs, and start the first model with codewhale-lmm run. Never ask for my API key.'
+                      : oauthClient
+                        ? 'I am setting up {{client}} on {{platform}}. Please check the supported version, help me install the LMM plugin, sign in with OAuth, choose a model, and send a first test. Never ask for my API key.'
+                        : 'I am setting up {{client}} on {{platform}}. Please walk me through downloading it, entering the connection settings, and sending a first test. Ask which step I am on, and never ask for my API key.',
                     {
                       client: clientNames[clientTab],
                       platform: PLATFORM_LABELS[platform],

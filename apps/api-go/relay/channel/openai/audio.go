@@ -3,6 +3,7 @@ package openai
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 
@@ -58,6 +59,7 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 		// 读取响应体到缓冲区
 		bodyBytes, err := common.ReadResponseBody(resp)
 		if err != nil {
+			info.ResponseFailed = true
 			logger.LogError(c, fmt.Sprintf("failed to read TTS response body: %v", err))
 			c.Writer.WriteHeaderNow()
 			return usage
@@ -65,8 +67,12 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 
 		// 写入响应到客户端
 		c.Writer.WriteHeaderNow()
-		_, err = c.Writer.Write(bodyBytes)
-		if err != nil {
+		written, err := c.Writer.Write(bodyBytes)
+		if err != nil || written < len(bodyBytes) {
+			info.ResponseFailed = true
+			if err == nil {
+				err = io.ErrShortWrite
+			}
 			logger.LogError(c, fmt.Sprintf("failed to write TTS response: %v", err))
 		}
 

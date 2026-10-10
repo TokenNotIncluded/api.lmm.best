@@ -12,7 +12,10 @@
 
 pub mod access_ip;
 pub mod account_action;
+/// Acquisition route candidate; listener ownership remains with the Go API.
+pub mod acquisition;
 pub mod admin_catalog;
+pub mod ai_directory;
 pub mod api_token;
 pub mod assistant;
 pub mod assistant_extended;
@@ -42,6 +45,7 @@ pub mod identity_profile;
 pub mod identity_security;
 pub mod kling_task_reads;
 pub(crate) mod legacy_http;
+pub mod mandatory_announcements;
 pub mod mcp;
 pub mod media_midjourney;
 pub mod media_tasks;
@@ -63,6 +67,7 @@ pub mod relay_openai;
 pub mod relay_video;
 pub mod release_notes;
 pub mod responses_websocket;
+pub mod scripts;
 pub mod security_admin;
 pub mod security_overview;
 pub mod sse;
@@ -70,6 +75,7 @@ pub mod stripe_creem;
 pub mod system_config;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod token_queries;
 pub mod topup;
 pub mod unified_todo;
 pub mod user_assistant_admin;

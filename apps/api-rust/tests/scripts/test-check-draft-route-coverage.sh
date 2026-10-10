@@ -554,6 +554,37 @@ write_gate "$duplicate/gate.tsv" \
   'GET\t/api/items/:id\tpresent\tunverified\tunmounted\tunverified\tnot-applicable\tgo\tlegacy-go\tfixture'
 assert_rejected duplicate 'duplicate normalized route GET /api/items/:id'
 
+test_mock="$runtime/test-mock"
+mkdir -p "$test_mock/src"
+cat >"$test_mock/src/routes.rs" <<'RS'
+#[cfg(test)]
+mod tests {
+    fn first_mock() -> Router {
+        Router::new().route("/api/items/{id}", get(mock_item))
+    }
+    fn second_mock() -> Router {
+        Router::new()
+            .route("/api/items/{id}", get(another_mock_item))
+            .route("/_test/provider", post(mock_provider))
+    }
+}
+
+fn router() -> Router {
+    Router::new().route("/api/items/{id}", get(show))
+}
+RS
+printf 'GET\t/api/items/:id\thandler\n' >"$test_mock/baseline.tsv"
+write_plan "$test_mock/plan.tsv" \
+  'GET\t/api/items/:id\tlmm_api_rs::routes::items'
+write_gate "$test_mock/gate.tsv" \
+  'GET\t/api/items/:id\tpresent\tunverified\tmounted\tunverified\tnot-applicable\tgo\tmounted-unverified\tfixture'
+test_mock_output=$(run_fixture "$test_mock/src" "$test_mock/baseline.tsv" "$test_mock/gate.tsv" 1)
+[[ $test_mock_output == *'candidate-method-paths=1 frozen-matches=1 frozen-total=1 missing=0'* \
+  && $test_mock_output == *'outside-baseline=0'* ]] || {
+  echo "cfg(test) mock routes were counted, or the production route after the test module was skipped" >&2
+  exit 1
+}
+
 ambiguous="$runtime/ambiguous"
 mkdir -p "$ambiguous/src"
 cat >"$ambiguous/src/routes.rs" <<'RS'

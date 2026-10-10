@@ -341,13 +341,17 @@ func resolveOpenSourceBountyDispute(adminUserId int, disputeId int, action strin
 			if challenge.IssueUrl == "" || challenge.PullRequestUrl == "" {
 				return bountyError("OPEN_SOURCE_BOUNTY_INVALID_CHALLENGE_STATE", "a dispute payout requires submitted Issue and pull request evidence")
 			}
-			if dispute.RewardQuotaSnapshot <= 0 || challenge.RewardQuota != dispute.RewardQuotaSnapshot || project.EscrowQuota < dispute.RewardQuotaSnapshot {
+			rewardCredit, err := bountyDisputeRewardCreditTx(tx, challenge.ParticipantUserId, &dispute)
+			if err != nil {
+				return err
+			}
+			if dispute.RewardQuotaSnapshot <= 0 || challenge.RewardQuota != rewardCredit || project.EscrowQuota < rewardCredit {
 				return bountyError("OPEN_SOURCE_BOUNTY_ESCROW_INSUFFICIENT", "bounty escrow is insufficient")
 			}
 			participantUserId = challenge.ParticipantUserId
 			credit := UpdateWalletQuotaByDelta(
 				tx.Model(&User{}).Where("id = ? AND deleted_at IS NULL", participantUserId),
-				dispute.RewardQuotaSnapshot,
+				rewardCredit,
 			)
 			if credit.Error != nil {
 				return credit.Error
@@ -355,7 +359,7 @@ func resolveOpenSourceBountyDispute(adminUserId int, disputeId int, action strin
 			if credit.RowsAffected != 1 {
 				return bountyError("OPEN_SOURCE_BOUNTY_PARTICIPANT_NOT_FOUND", "challenge participant was not found")
 			}
-			transferredQuota = dispute.RewardQuotaSnapshot
+			transferredQuota = rewardCredit
 			remainingEscrow := project.EscrowQuota - transferredQuota
 			projectUpdates := map[string]any{"escrow_quota": remainingEscrow, "updated_at": now}
 			if remainingEscrow == 0 {

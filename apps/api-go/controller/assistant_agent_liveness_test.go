@@ -72,6 +72,8 @@ func TestAssistantLivenessRetainsNestedArgumentDeltas(t *testing.T) {
 		_, err = writer.Write([]byte("data: " + string(payload) + "\n\n"))
 		require.NoError(t, err)
 	}
+	_, writeErr := writer.Write([]byte("data: [DONE]\n\n"))
+	require.NoError(t, writeErr)
 	body, err := writer.responseBody()
 	require.NoError(t, err)
 	response, err := parseAssistantResponse(body)

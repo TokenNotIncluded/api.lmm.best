@@ -19,16 +19,26 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')
-const origin = 'http://127.0.0.1:4174'
+const reviewUrl = new URL(
+  process.env.CONSOLE_REVIEW_ORIGIN ?? 'http://127.0.0.1:4174'
+)
+assert.equal(reviewUrl.protocol, 'http:')
+assert.equal(reviewUrl.hostname, '127.0.0.1')
+assert.equal(reviewUrl.username, '')
+assert.equal(reviewUrl.password, '')
+assert.equal(reviewUrl.pathname, '/')
+assert.equal(reviewUrl.search, '')
+assert.equal(reviewUrl.hash, '')
+const origin = reviewUrl.origin
 const output = process.env.CONSOLE_REVIEW_OUTPUT
 if (!output) throw new Error('CONSOLE_REVIEW_OUTPUT is required')
 await mkdir(output, { recursive: true })
 const userRoutes = [
   '/temporary-activations',
+  '/',
   '/dashboard/overview',
   '/dashboard/models',
   '/dashboard/flow',
-  '/getting-started',
   '/keys',
   '/wallet',
   '/company',
@@ -54,6 +64,7 @@ const userRoutes = [
   '/playground',
 ]
 const adminRoutes = [
+  '/dashboard/overview',
   '/channels',
   '/models/metadata',
   '/models/deployments',
@@ -87,20 +98,13 @@ for (const category of [
     adminRoutes.push(`/system-settings/${category}/${match[1]}`)
   }
 }
-const mobileRoutes = [
-  '/temporary-activations',
-  '/profile',
-  '/wallet',
-  '/keys',
-  '/company',
-  '/usage-logs/common',
-  '/tool-market',
-  '/support',
-  '/todos',
-  '/drawing',
-]
 const report = []
-const browser = await chromium.launch({ headless: true })
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.env.PLAYWRIGHT_CHROME_EXECUTABLE
+    ? { executablePath: process.env.PLAYWRIGHT_CHROME_EXECUTABLE }
+    : {}),
+})
 
 async function settle(page) {
   await page.waitForTimeout(800)
@@ -121,6 +125,21 @@ async function snapshot(page, persona, destination, errors, suffix = '') {
   const dimensions = await page.evaluate(() => ({
     width: innerWidth,
     scroll: document.documentElement.scrollWidth,
+    navigationTabs: [
+      ...document.querySelectorAll(
+        '[role="tablist"][data-variant="navigation"]'
+      ),
+    ]
+      .filter((node) => node.getBoundingClientRect().width > 0)
+      .map((node) => ({
+        height: node.getBoundingClientRect().height,
+        rows: new Set(
+          [...node.querySelectorAll('[role="tab"]')].map((tab) =>
+            Math.round(tab.getBoundingClientRect().top)
+          )
+        ).size,
+        overflowing: node.scrollWidth > node.clientWidth,
+      })),
   }))
   const title = await page.locator('h1:visible,h2:visible').allTextContents()
   const crash =
@@ -171,10 +190,13 @@ try {
   for (const [persona, routes, width] of [
     ['l1', userRoutes, 1440],
     ['admin', adminRoutes, 1440],
-    ['l1', mobileRoutes, 390],
+    ['l1', userRoutes, 390],
+    ['admin', adminRoutes, 390],
   ]) {
     const context = await browser.newContext({
       viewport: { width, height: width === 390 ? 844 : 1000 },
+      hasTouch: width === 390,
+      reducedMotion: 'reduce',
       locale: 'zh-CN',
       serviceWorkers: 'block',
     })
@@ -215,9 +237,11 @@ try {
     })
     await page.goto(
       `${origin}${routes[0]}?debug_persona=${persona}&console_review=1`,
-      { waitUntil: 'domcontentloaded' }
+      { waitUntil: 'domcontentloaded', timeout: 30_000 }
     )
-    await page.getByTestId('persona-debug-trigger').waitFor()
+    // Cold development bundles can need more time to load the debug entry.
+    // Route/error/unknown-request assertions below remain unchanged.
+    await page.getByTestId('persona-debug-trigger').waitFor({ timeout: 30_000 })
     await settle(page)
     await dismissConsent(page)
     for (const destination of routes) {
@@ -226,14 +250,26 @@ try {
         await page.evaluate((to) => {
           history.pushState({}, '', to)
           window.dispatchEvent(new PopStateEvent('popstate'))
-        }, `${destination}?console_review=1`)
+        }, `${destination}?debug_persona=${persona}&console_review=1`)
         await settle(page)
         await snapshot(page, persona, destination, errors)
+        await page.evaluate(() =>
+          document.documentElement.classList.add('dark')
+        )
+        await snapshot(page, persona, destination, errors, '-dark')
+        await page.evaluate(() =>
+          document.documentElement.classList.remove('dark')
+        )
         if (destination === '/profile') {
           const tabs = page.locator('.console-page-tabs > [role=tablist]')
           const all = tabs.getByRole('tab')
           for (let index = 1; index < (await all.count()); index += 1) {
             await all.nth(index).click()
+            if (index === 4) {
+              await page
+                .locator('[role=tabpanel]:visible a[href="/wallet"]')
+                .waitFor()
+            }
             await snapshot(page, persona, destination, errors, `-tab-${index}`)
           }
         }
@@ -275,24 +311,6 @@ try {
             await button.click()
           }
         }
-        if (
-          width === 1440 &&
-          [
-            '/temporary-activations',
-            '/keys',
-            '/wallet',
-            '/profile',
-            '/channels',
-          ].includes(destination)
-        ) {
-          await page.evaluate(() =>
-            document.documentElement.classList.add('dark')
-          )
-          await snapshot(page, persona, destination, errors, '-dark')
-          await page.evaluate(() =>
-            document.documentElement.classList.remove('dark')
-          )
-        }
       } catch (error) {
         report.push({
           persona,
@@ -321,7 +339,10 @@ const failures = report.filter(
     entry.error ||
     entry.crash ||
     entry.errors.length ||
-    entry.dimensions.scroll > entry.dimensions.width + 1
+    entry.dimensions.scroll > entry.dimensions.width + 1 ||
+    entry.dimensions.navigationTabs.some(
+      (tabs) => tabs.rows > 1 || tabs.height > 56
+    )
 )
 console.log(
   `Captured ${report.length} route/view states; failures: ${failures.length}`

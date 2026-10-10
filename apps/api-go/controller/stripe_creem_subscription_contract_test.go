@@ -10,6 +10,7 @@ import (
 )
 
 func TestStripeCreemSubscriptionSettlementUsesDynamicFiatFX(t *testing.T) {
+	preservePaymentCreditAnchor(t, "3400000")
 	originalRate := operation_setting.USDExchangeRate
 	originalPlatformRate := operation_setting.TopUpPlatformUnitsPerCNY
 	t.Cleanup(func() {

@@ -1,0 +1,35 @@
+{
+  "verified_date": "2026-10-09",
+  "price_unit": "currency per million tokens",
+  "sources": {
+    "hy3": "https://cloud.tencent.com/document/product/1823/130055",
+    "claude-sonnet-5-5": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "gpt-image-2": "https://developers.openai.com/api/docs/pricing",
+    "deepseek": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "china_holidays_2026": "https://www.beijing.gov.cn/cs/gncs/zcwj/202603/t20260327_4568275.html"
+  },
+  "hy3_cny_expression": "tier(\"standard\", p * 1 + cr * 0.25 + c * 4)",
+  "claude_sonnet_55_usd_expression": "tier(\"standard\", p * 2 + cr * 0.1 + cc * 2.5 + cc1h * 4 + c * 10)",
+  "gpt_image_2_usd_expression": "tier(\"standard\", p * 5 + cr_text * 1.25 + img * 8 + cr_img * 2 + img_o * 30)",
+  "china_holiday_ranges_2026": [
+    [20260101, 20260103],
+    [20260215, 20260223],
+    [20260404, 20260406],
+    [20260501, 20260505],
+    [20260619, 20260621],
+    [20260925, 20260927],
+    [20261001, 20261007]
+  ],
+  "deepseek_usd_rates": {
+    "flash_off_peak": {"p": 0.15, "cr": 0.003, "c": 0.6},
+    "flash_peak": {"p": 0.3, "cr": 0.006, "c": 1.2},
+    "pro_off_peak": {"p": 0.66, "cr": 0.022, "c": 1.98},
+    "pro_peak": {"p": 1.32, "cr": 0.044, "c": 3.96}
+  },
+  "notes": [
+    "Convert the Hy3 CNY expression to USD using the explicitly captured site CNY-per-USD rate before applying it.",
+    "GPT Image 2 requires measured image output and cache modality counts; missing cache classifications must not be guessed. Direct Images API requests do not receive cache pricing.",
+    "DeepSeek peak hours are Monday-Friday 01:00-04:00 and 06:00-10:00 UTC, excluding the published Chinese holidays. Weekend makeup workdays remain off-peak under the vendor rule.",
+    "The holiday ranges bind 2026 only. Import the next official annual calendar when it is published."
+  ]
+}

@@ -162,6 +162,8 @@ type heroSMSSMSServicePopularity struct {
 var heroSMSSMSIdempotencyMissHook func()
 
 type HeroSMSSMSPriceTierView struct {
+	HeroSMSPricingMetadata
+	PriceTierKey     string `json:"price_tier_key"`
 	ID               string `json:"id"`
 	Inventory        int    `json:"inventory"`
 	CustomerPriceUSD string `json:"customer_price_usd"`
@@ -169,6 +171,8 @@ type HeroSMSSMSPriceTierView struct {
 }
 
 type HeroSMSSMSOfferView struct {
+	HeroSMSPricingMetadata
+	PriceTierKey     string                    `json:"price_tier_key"`
 	ID               string                    `json:"id"`
 	CountryID        int                       `json:"country_id"`
 	Service          string                    `json:"service"`
@@ -185,6 +189,7 @@ type HeroSMSSMSPurchaseRequest struct {
 }
 
 type HeroSMSSMSOrderView struct {
+	HeroSMSPricingMetadata
 	ID                   string  `json:"id"`
 	CountryID            int     `json:"country_id"`
 	Service              string  `json:"service"`
@@ -485,11 +490,14 @@ func getHeroSMSSMSOffer(ctx context.Context, userID int, countryID int, service 
 		if quoteErr != nil {
 			return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
 		}
+		priceUSD, pricing := heroSMSPriceProjection(chargeQuota, 1)
 		tiers = append(tiers, HeroSMSSMSPriceTierView{
-			ID:               quoteID,
-			Inventory:        tier.Count,
-			CustomerPriceUSD: customerPrice.String(),
-			ChargeQuota:      chargeQuota,
+			ID:                     quoteID,
+			Inventory:              tier.Count,
+			HeroSMSPricingMetadata: pricing,
+			PriceTierKey:           hashString(customerPrice.String()),
+			CustomerPriceUSD:       priceUSD,
+			ChargeQuota:            chargeQuota,
 		})
 	}
 	if len(tiers) == 0 {
@@ -532,24 +540,29 @@ func getHeroSMSSMSOffer(ctx context.Context, userID int, countryID int, service 
 		if quoteErr != nil {
 			return nil, newHeroSMSError(http.StatusServiceUnavailable, "NOT_CONFIGURED", "HeroSMS encryption is unavailable")
 		}
+		priceUSD, pricing := heroSMSPriceProjection(chargeQuota, 1)
 		selected = HeroSMSSMSPriceTierView{
-			ID:               quoteID,
-			Inventory:        inventory,
-			CustomerPriceUSD: maxCustomerPrice.String(),
-			ChargeQuota:      chargeQuota,
+			ID:                     quoteID,
+			Inventory:              inventory,
+			HeroSMSPricingMetadata: pricing,
+			PriceTierKey:           hashString(maxCustomerPrice.String()),
+			CustomerPriceUSD:       priceUSD,
+			ChargeQuota:            chargeQuota,
 		}
 	}
 
 	return &HeroSMSSMSOfferView{
-		ID:               selected.ID,
-		CountryID:        countryID,
-		Service:          service,
-		Operator:         operator,
-		Inventory:        selected.Inventory,
-		CustomerPriceUSD: selected.CustomerPriceUSD,
-		ChargeQuota:      selected.ChargeQuota,
-		Bid:              bid,
-		Tiers:            tiers,
+		HeroSMSPricingMetadata: selected.HeroSMSPricingMetadata,
+		PriceTierKey:           selected.PriceTierKey,
+		ID:                     selected.ID,
+		CountryID:              countryID,
+		Service:                service,
+		Operator:               operator,
+		Inventory:              selected.Inventory,
+		CustomerPriceUSD:       selected.CustomerPriceUSD,
+		ChargeQuota:            selected.ChargeQuota,
+		Bid:                    bid,
+		Tiers:                  tiers,
 	}, nil
 }
 
@@ -604,13 +617,17 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 		heroSMSSMSIdempotencyMissHook()
 	}
 
+	quote, err := decodeHeroSMSSMSQuote(request.OfferID)
+	if err != nil || quote.Version != heroSMSSMSQuoteVersion || quote.UserID != userID || quote.CurrencyCode != setting.HeroSMSCurrencyCode {
+		return nil, 0, 0, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
+	}
+	quoteExpiresAt := time.Unix(quote.IssuedAt, 0).Add(heroSMSSMSQuoteTTL)
+	if time.Now().After(quoteExpiresAt) {
+		return resolveExpiredHeroSMSSMSPurchase(ctx, userID, idempotencyHash, payloadHash, quoteExpiresAt)
+	}
 	client, err := heroSMSSMSClient()
 	if err != nil {
 		return nil, 0, 0, err
-	}
-	quote, err := decodeHeroSMSSMSQuote(request.OfferID)
-	if err != nil || quote.Version != heroSMSSMSQuoteVersion || quote.UserID != userID || quote.CurrencyCode != setting.HeroSMSCurrencyCode || time.Since(time.Unix(quote.IssuedAt, 0)) > heroSMSSMSQuoteTTL {
-		return nil, 0, 0, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
 	}
 	currentMultiplier, err := heroSMSMultiplierDecimal()
 	if err != nil {
@@ -657,7 +674,7 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 	if view, quota, status, found, replayErr := replayHeroSMSSMSIdempotentOrder(userID, idempotencyHash, payloadHash); found || replayErr != nil {
 		return view, quota, status, replayErr
 	}
-	if time.Since(time.Unix(quote.IssuedAt, 0)) > heroSMSSMSQuoteTTL {
+	if time.Now().After(quoteExpiresAt) {
 		return nil, 0, 0, newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
 	}
 	lockedMultiplier, err := heroSMSMultiplierDecimal()
@@ -716,7 +733,7 @@ func CreateHeroSMSSMSOrder(ctx context.Context, userID int, request HeroSMSSMSPu
 		LastErrorMessage:           "provider purchase intent is reserved but not started",
 		ProviderRequestStartedAt:   time.Now().Unix(),
 	}
-	newQuota, err := reserveHeroSMSSMSQuota(&order)
+	newQuota, err := reserveHeroSMSSMSQuota(&order, quoteExpiresAt)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -783,17 +800,70 @@ func CheckHeroSMSSMSPurchaseBalance(ctx context.Context, userID int) error {
 
 func heroSMSSMSMinimumBalanceError(quota, minimumQuota int) error {
 	if quota < minimumQuota {
-		return newHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", "Temporary SMS purchases require a balance of at least USD 10")
+		return newHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", fmt.Sprintf("Temporary SMS purchases require a balance of at least %d Credits", minimumQuota))
 	}
 	return nil
 }
 
-func reserveHeroSMSSMSQuota(order *HeroSMSSMSOrder) (int, error) {
+// lockHeroSMSSMSPurchaseUser makes reservation and expired-attempt resolution
+// share one database serialization point. The no-op write also takes SQLite's
+// writer lock before any reads; SELECT FOR UPDATE alone cannot do that there.
+func lockHeroSMSSMSPurchaseUser(tx *gorm.DB, userID int) (*User, error) {
+	if err := tx.Model(&User{}).Where("id = ?", userID).UpdateColumn("quota", gorm.Expr("quota")).Error; err != nil {
+		return nil, err
+	}
+	var user User
+	if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// resolveExpiredHeroSMSSMSPurchase confirms absence only while holding the same
+// user lock used immediately before creating an order. A previous reservation
+// must commit before this lookup; a later reservation rejects the expired quote
+// after taking that lock, even if its provider lease previously expired.
+func resolveExpiredHeroSMSSMSPurchase(ctx context.Context, userID int, idempotencyHash, payloadHash string, quoteExpiresAt time.Time) (*HeroSMSSMSOrderView, int, int, error) {
+	var view *HeroSMSSMSOrderView
+	var quota, status int
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		user, err := lockHeroSMSSMSPurchaseUser(tx, userID)
+		if err != nil {
+			return err
+		}
+		var existing HeroSMSSMSOrder
+		// This is the transaction's first consistent read, after the user lock,
+		// so MySQL also sees reservations committed before that lock was acquired.
+		// Do not lock the order: refunds already lock order before user.
+		err = tx.Where("user_id = ? AND idempotency_key_hash = ?", userID, idempotencyHash).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if !time.Now().After(quoteExpiresAt) {
+				return newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
+			}
+			return newHeroSMSError(http.StatusConflict, "PURCHASE_NOT_CREATED", "HeroSMS SMS purchase was not created; refresh the quote")
+		}
+		if err != nil {
+			return err
+		}
+		if existing.RequestPayloadHash != payloadHash {
+			return newHeroSMSError(http.StatusConflict, "IDEMPOTENCY_MISMATCH", "idempotent request payload mismatch")
+		}
+		view, err = heroSMSSMSOrderView(&existing)
+		quota, status = user.Quota, statusForHeroSMSSMSOrder(existing.Status)
+		return err
+	})
+	return view, quota, status, err
+}
+
+func reserveHeroSMSSMSQuota(order *HeroSMSSMSOrder, quoteExpiresAt time.Time) (int, error) {
 	newQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		var user User
-		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", order.UserID).First(&user).Error; err != nil {
+		user, err := lockHeroSMSSMSPurchaseUser(tx, order.UserID)
+		if err != nil {
 			return err
+		}
+		if time.Now().After(quoteExpiresAt) {
+			return newHeroSMSError(http.StatusConflict, "PRICE_CHANGED", "refresh the HeroSMS SMS quote")
 		}
 		// This is a starting-balance floor for new purchases, not a surcharge
 		// or a minimum remaining balance. Existing orders replay before this transaction.
@@ -1623,17 +1693,19 @@ func ListHeroSMSSMSOrders(userID int, page int, size int) (*HeroSMSSMSOrderPage,
 }
 
 func heroSMSSMSOrderSummaryView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
+	priceUSD, pricing := heroSMSPriceProjection(order.ChargeQuota, 1)
 	view := &HeroSMSSMSOrderView{
-		ID:               order.ID,
-		CountryID:        order.CountryID,
-		Service:          order.Service,
-		Operator:         order.Operator,
-		Status:           order.Status,
-		CustomerPriceUSD: order.CustomerPriceUSD,
-		ChargeQuota:      order.ChargeQuota,
-		RefundedQuota:    order.RefundedQuota,
-		CreatedAt:        order.CreatedAt,
-		UpdatedAt:        order.UpdatedAt,
+		HeroSMSPricingMetadata: pricing,
+		ID:                     order.ID,
+		CountryID:              order.CountryID,
+		Service:                order.Service,
+		Operator:               order.Operator,
+		Status:                 order.Status,
+		CustomerPriceUSD:       priceUSD,
+		ChargeQuota:            order.ChargeQuota,
+		RefundedQuota:          order.RefundedQuota,
+		CreatedAt:              order.CreatedAt,
+		UpdatedAt:              order.UpdatedAt,
 	}
 	if order.PhoneCiphertext == "" {
 		return view, nil
@@ -1703,9 +1775,6 @@ func HideHeroSMSSMSOrderFromHistory(userID int, orderID string) error {
 		return nil
 	}
 	order, err := getHeroSMSSMSOrder(userID, trimmedOrderID)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return newHeroSMSError(http.StatusNotFound, "ORDER_NOT_FOUND", "HeroSMS SMS order not found")
-	}
 	if err != nil {
 		return err
 	}
@@ -1725,27 +1794,29 @@ func ClearHeroSMSSMSOrderHistory(userID int) (int64, error) {
 }
 
 func heroSMSSMSOrderView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
+	priceUSD, pricing := heroSMSPriceProjection(order.ChargeQuota, 1)
 	complaintRetryable := order.ComplaintStatus == "" || order.ComplaintStatus == HeroSMSSMSComplaintStatusFailed
 	view := &HeroSMSSMSOrderView{
-		ID:                   order.ID,
-		CountryID:            order.CountryID,
-		Service:              order.Service,
-		Operator:             order.Operator,
-		Status:               order.Status,
-		CustomerPriceUSD:     order.CustomerPriceUSD,
-		ChargeQuota:          order.ChargeQuota,
-		RefundedQuota:        order.RefundedQuota,
-		ProviderID:           order.ProviderID,
-		CanCancel:            order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil,
-		CanComplain:          order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil && order.CodeCiphertext == "" && complaintRetryable && !time.Now().Before(time.Unix(order.CreatedAt, 0).Add(heroSMSSMSComplaintWait)),
-		ComplaintType:        order.ComplaintType,
-		ComplaintStatus:      order.ComplaintStatus,
-		ComplaintSubmittedAt: order.ComplaintSubmittedAt,
-		LastErrorCode:        order.LastErrorCode,
-		LastErrorMessage:     order.LastErrorMessage,
-		CreatedAt:            order.CreatedAt,
-		UpdatedAt:            order.UpdatedAt,
-		ExpiresAt:            order.ProviderExpiresAt,
+		HeroSMSPricingMetadata: pricing,
+		ID:                     order.ID,
+		CountryID:              order.CountryID,
+		Service:                order.Service,
+		Operator:               order.Operator,
+		Status:                 order.Status,
+		CustomerPriceUSD:       priceUSD,
+		ChargeQuota:            order.ChargeQuota,
+		RefundedQuota:          order.RefundedQuota,
+		ProviderID:             order.ProviderID,
+		CanCancel:              order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil,
+		CanComplain:            order.Status == HeroSMSSMSOrderStatusActive && order.ProviderID != nil && order.CodeCiphertext == "" && complaintRetryable && !time.Now().Before(time.Unix(order.CreatedAt, 0).Add(heroSMSSMSComplaintWait)),
+		ComplaintType:          order.ComplaintType,
+		ComplaintStatus:        order.ComplaintStatus,
+		ComplaintSubmittedAt:   order.ComplaintSubmittedAt,
+		LastErrorCode:          order.LastErrorCode,
+		LastErrorMessage:       order.LastErrorMessage,
+		CreatedAt:              order.CreatedAt,
+		UpdatedAt:              order.UpdatedAt,
+		ExpiresAt:              order.ProviderExpiresAt,
 	}
 	var err error
 	if order.PhoneCiphertext != "" {
@@ -1772,6 +1843,9 @@ func heroSMSSMSOrderView(order *HeroSMSSMSOrder) (*HeroSMSSMSOrderView, error) {
 func getHeroSMSSMSOrder(userID int, orderID string) (*HeroSMSSMSOrder, error) {
 	var order HeroSMSSMSOrder
 	if err := DB.Where("id = ? AND user_id = ?", strings.TrimSpace(orderID), userID).First(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, newHeroSMSError(http.StatusNotFound, "ORDER_NOT_FOUND", "HeroSMS SMS order not found")
+		}
 		return nil, err
 	}
 	return &order, nil
@@ -2042,5 +2116,5 @@ func sha256Hex(value string) string {
 }
 
 func HeroSMSSMSPricingExplanation() string {
-	return fmt.Sprintf("HeroSMS 1 CNY × %s = platform USD balance charge; quota conversion uses the platform 1:1 simplified balance model", heroSMSOptionValue(setting.HeroSMSOptionMultiplier, setting.HeroSMSPriceMultiplier))
+	return "HeroSMS charges retain their integer Credits; customer USD prices are projected from the immutable charge using Credits per USD."
 }

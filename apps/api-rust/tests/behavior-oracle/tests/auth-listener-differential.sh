@@ -588,6 +588,12 @@ psql -h 127.0.0.1 -p "$pg_port" -d auth_rust -v ON_ERROR_STOP=1 <<'SQL' >/dev/nu
 CREATE ROLE lmm_auth_runtime LOGIN;
 CREATE TABLE lmm_schema_contract (singleton BOOLEAN PRIMARY KEY, min_reader_version BIGINT NOT NULL, max_reader_version BIGINT NOT NULL);
 INSERT INTO lmm_schema_contract VALUES (TRUE, 1, 1);
+-- Empty subscription surface for the normal listener readiness probes only.
+CREATE TABLE user_subscriptions (
+  amount_total BIGINT, amount_used BIGINT,
+  reset_amount BIGINT, renewal_amount BIGINT
+);
+GRANT SELECT, UPDATE ON user_subscriptions TO lmm_auth_runtime;
 CREATE TABLE options (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE custom_oauth_providers (
   id BIGINT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL, icon TEXT,

@@ -30,6 +30,44 @@ import {
 } from './api'
 
 describe('user management API filters', () => {
+  test('sends activity filters and risk sorting to both list endpoints including a zero lower bound', async () => {
+    const originalGet = api.get
+    const calls: {
+      url: string
+      config?: { params?: Record<string, unknown> }
+    }[] = []
+    api.get = (async (
+      url: string,
+      config?: { params?: Record<string, unknown> }
+    ) => {
+      calls.push({ url, config })
+      return { data: { success: true, data: { items: [], total: 0 } } }
+    }) as typeof api.get
+    const filters = {
+      risk_min: 0,
+      risk_max: 0.799,
+      transfers: 'sent',
+      usage: 'zero',
+      funding: 'unpaid',
+      checkin: 'yes',
+      sort_by: 'risk_score',
+      sort_order: 'desc',
+    } as const
+    try {
+      await getUsers(filters)
+      await searchUsers({ ...filters, keyword: 'alice' })
+      for (const [key, value] of Object.entries(filters)) {
+        assert.equal(calls[0].config?.params?.[key], value)
+        assert.equal(
+          new URLSearchParams(calls[1].url.split('?')[1]).get(key),
+          String(value)
+        )
+      }
+    } finally {
+      api.get = originalGet
+    }
+  })
+
   test('passes the L0 filter to the paginated user endpoint', async () => {
     const originalGet = api.get
     let requestConfig: unknown
@@ -46,8 +84,6 @@ describe('user management API filters', () => {
           p: 2,
           page_size: 20,
           trust_level: 0,
-          sort_by: undefined,
-          sort_order: undefined,
         },
       })
     } finally {

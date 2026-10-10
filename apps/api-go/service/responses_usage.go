@@ -8,6 +8,13 @@ func ApplyResponsesUsage(dst *dto.Usage, src *dto.Usage) {
 	if dst == nil || src == nil {
 		return
 	}
+	if src.AudioSeconds != nil {
+		seconds := *src.AudioSeconds
+		dst.AudioSeconds = &seconds
+	}
+	if src.ImageOutputUsageSource != "" {
+		dst.ImageOutputUsageSource = src.ImageOutputUsageSource
+	}
 	if src.InputTokens != 0 {
 		dst.PromptTokens = src.InputTokens
 		dst.InputTokens = src.InputTokens
@@ -20,9 +27,9 @@ func ApplyResponsesUsage(dst *dto.Usage, src *dto.Usage) {
 		dst.TotalTokens = src.TotalTokens
 	}
 	if src.InputTokensDetails != nil {
-		inputDetails := *src.InputTokensDetails
+		inputDetails := dto.CloneInputTokenDetails(*src.InputTokensDetails)
 		dst.InputTokensDetails = &inputDetails
-		dst.PromptTokensDetails = inputDetails
+		dst.PromptTokensDetails = dto.CloneInputTokenDetails(inputDetails)
 	}
 	outputDetails := src.CompletionTokenDetails
 	if src.OutputTokensDetails != nil {

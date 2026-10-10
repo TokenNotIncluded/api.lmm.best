@@ -34,6 +34,7 @@ type TitledCardProps = {
   description?: ReactNode
   icon?: ReactNode
   action?: ReactNode
+  actionPlacement?: 'beside' | 'below'
   children?: ReactNode
   disableHoverEffect?: boolean
   appearance?: 'paper' | 'outlined'
@@ -51,6 +52,7 @@ export function TitledCard({
   description,
   icon,
   action,
+  actionPlacement = 'beside',
   children,
   disableHoverEffect,
   appearance = 'paper',
@@ -72,22 +74,30 @@ export function TitledCard({
     >
       <CardHeader
         className={cn(
-          'p-4 !pb-3 sm:p-6 sm:!pb-4',
-          appearance === 'outlined' && 'border-b',
+          'p-4 !pb-0 sm:p-6 sm:!pb-0',
+          appearance === 'outlined' && 'border-b !pb-4 sm:!pb-5',
           headerClassName
         )}
       >
-        <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+        <div
+          className={cn(
+            'flex min-w-0 flex-col gap-3',
+            actionPlacement === 'beside' &&
+              'sm:flex-row sm:items-start sm:justify-between'
+          )}
+        >
           <div className='flex min-w-0 items-center gap-3'>
             {icon != null && (
               <IconBadge size='title' tone={iconTone} className={iconClassName}>
                 {icon}
               </IconBadge>
             )}
-            <div className='min-w-0'>
+            <div
+              className={cn('min-w-0', actionPlacement === 'below' && 'flex-1')}
+            >
               <CardTitle
                 className={cn(
-                  'text-lg tracking-tight sm:text-xl',
+                  'text-base font-semibold tracking-tight sm:text-lg',
                   titleClassName
                 )}
               >
@@ -95,7 +105,10 @@ export function TitledCard({
               </CardTitle>
               {description != null && (
                 <CardDescription
-                  className={cn('text-xs sm:text-sm', descriptionClassName)}
+                  className={cn(
+                    'mt-1 text-xs leading-relaxed sm:text-sm',
+                    descriptionClassName
+                  )}
                 >
                   {description}
                 </CardDescription>
@@ -103,11 +116,18 @@ export function TitledCard({
             </div>
           </div>
           {action != null && (
-            <div className='w-full shrink-0 sm:w-auto'>{action}</div>
+            <div
+              className={cn(
+                'w-full shrink-0',
+                actionPlacement === 'beside' && 'sm:w-auto'
+              )}
+            >
+              {action}
+            </div>
           )}
         </div>
       </CardHeader>
-      <CardContent className={cn('p-4 sm:p-6', contentClassName)}>
+      <CardContent className={cn('p-4 pt-3 sm:p-6 sm:pt-4', contentClassName)}>
         {children}
       </CardContent>
     </Card>

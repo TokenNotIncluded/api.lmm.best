@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"math"
 	"net/http"
 	"time"
 
@@ -20,17 +19,26 @@ func GetQuotaQuery(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"valid": false, "error": "invalid_api_key"})
 		return
 	}
-	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
+	divisor, err := common.CreditsPerUSD()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"valid": false, "error": "quota_query_unavailable"})
 		return
 	}
 	now := time.Now().UTC()
-	divisor := decimal.NewFromFloat(common.QuotaPerUnit)
 	amount := func(quota decimal.Decimal) float64 { value, _ := quota.Div(divisor).Float64(); return value }
-	var remaining, total, today any
+	snapshot := loadUsageSnapshot(nil, []*model.Token{token})
+	current, projector := snapshot.token(token)
+	token = current
+	usage := projectTokenUsage(projector, token)
+	var remaining, total, today, usedTotal any
+	if usage.NormalizedUsedQuota != nil {
+		usedTotal = amount(decimal.NewFromInt(int64(*usage.NormalizedUsedQuota)))
+	}
 	if !token.UnlimitedQuota {
 		remaining = amount(decimal.NewFromInt(int64(token.RemainQuota)))
-		total = amount(decimal.NewFromInt(int64(token.RemainQuota)).Add(decimal.NewFromInt(int64(token.UsedQuota))))
+		if usage.NormalizedUsedQuota != nil {
+			total = amount(decimal.NewFromInt(int64(token.RemainQuota)).Add(decimal.NewFromInt(int64(*usage.NormalizedUsedQuota))))
+		}
 	}
 	if common.LogConsumeEnabled {
 		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Unix()
@@ -46,8 +54,10 @@ func GetQuotaQuery(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"valid": true, "currency": "USD", "remaining": remaining,
-		"used_today": today, "used_total": amount(decimal.NewFromInt(int64(token.UsedQuota))),
-		"total_quota": total, "unlimited": token.UnlimitedQuota, "updated_at": now.Unix(),
+		"used_today": today, "used_total": usedTotal,
+		"used_quota": token.UsedQuota, "normalized_used_quota": usage.NormalizedUsedQuota,
+		"usage_projection_available": usage.UsageProjectionAvailable,
+		"total_quota":                total, "unlimited": token.UnlimitedQuota, "updated_at": now.Unix(),
 		"scope": "token", "day_timezone": "UTC", "used_today_source": "retained_consumption_logs",
 		"consistency": "persisted_snapshot",
 	})

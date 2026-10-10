@@ -33,6 +33,7 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
+import { ErrorState } from '@/components/error-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -84,6 +85,10 @@ import {
   type PricingMode,
 } from './model-pricing-core'
 import { PriceInput, PriceLane } from './model-pricing-inputs'
+import {
+  usdPerMillionToRatio,
+  useModelPricingCreditsPerUsd,
+} from './model-pricing-units'
 import { formatPricingNumber } from './pricing-format'
 import { TieredPricingEditor } from './tiered-pricing-editor'
 
@@ -164,6 +169,7 @@ export const ModelPricingEditorPanel = forwardRef<
   ref
 ) {
   const { t } = useTranslation()
+  const creditsPerUsd = useModelPricingCreditsPerUsd()
   const [pricingMode, setPricingMode] = useState<PricingMode>('per-token')
   const [promptPrice, setPromptPrice] = useState('')
   const [lanePrices, setLanePrices] = useState<Record<LaneKey, string>>({
@@ -193,7 +199,7 @@ export const ModelPricingEditorPanel = forwardRef<
   })
 
   useEffect(() => {
-    const nextLaneState = createInitialLaneState(editData)
+    const nextLaneState = createInitialLaneState(editData, creditsPerUsd)
 
     if (editData) {
       form.reset({
@@ -237,7 +243,7 @@ export const ModelPricingEditorPanel = forwardRef<
     setLanePrices(nextLaneState.prices)
     setLaneEnabled(nextLaneState.enabled)
     setEditorReloadToken((token) => token + 1)
-  }, [editData, form])
+  }, [editData, form, creditsPerUsd])
 
   const setFormValue = (field: keyof ModelPricingFormValues, value: string) => {
     form.setValue(field, value, {
@@ -274,7 +280,9 @@ export const ModelPricingEditorPanel = forwardRef<
     const inputPrice = toNumberOrNull(nextPromptPrice)
     setFormValue(
       'ratio',
-      inputPrice !== null ? formatPricingNumber(inputPrice / 2) : ''
+      inputPrice !== null
+        ? formatPricingNumber(usdPerMillionToRatio(inputPrice, creditsPerUsd))
+        : ''
     )
 
     laneConfigs.forEach(({ key }) => {
@@ -486,6 +494,7 @@ export const ModelPricingEditorPanel = forwardRef<
     ref,
     () => ({
       commitDraft: async () => {
+        if (!Number.isFinite(creditsPerUsd) || creditsPerUsd <= 0) return null
         if (lockPending) return null
         if (locked && editData) return editData
         const isValid = await form.trigger()
@@ -500,10 +509,14 @@ export const ModelPricingEditorPanel = forwardRef<
       locked,
       lockPending,
       editData,
+      creditsPerUsd,
     ]
   )
 
   const showActions = Boolean(onSave)
+  if (!Number.isFinite(creditsPerUsd) || creditsPerUsd <= 0) {
+    return <ErrorState title={t('Failed to load USD model prices')} />
+  }
 
   return (
     <div
@@ -653,7 +666,7 @@ export const ModelPricingEditorPanel = forwardRef<
                                 <FieldLabel>{t('Fixed price')}</FieldLabel>
                                 <FormControl>
                                   <InputGroup>
-                                    <InputGroupAddon>$</InputGroupAddon>
+                                    <InputGroupAddon>USD</InputGroupAddon>
                                     <InputGroupInput
                                       inputMode='decimal'
                                       placeholder='0.01'

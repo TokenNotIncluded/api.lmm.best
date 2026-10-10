@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"maps"
+	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -77,8 +80,12 @@ func getPublicCatalogModelIDs() []string {
 }
 
 func getPublicCatalogModelIDsWithBillingPolicy(acceptUnsetRatioModel bool) []string {
+	return getPublicCatalogModelIDsFromPricing(getPricingCache(), acceptUnsetRatioModel)
+}
+
+func getPublicCatalogModelIDsFromPricing(pricings []model.Pricing, acceptUnsetRatioModel bool) []string {
 	modelIDs := make(map[string]struct{})
-	for _, pricing := range getPricingCache() {
+	for _, pricing := range pricings {
 		if !common.StringsContains(pricing.EnableGroup, "default") &&
 			!common.StringsContains(pricing.EnableGroup, "all") {
 			continue
@@ -96,6 +103,7 @@ func getPublicCatalogModelIDsWithBillingPolicy(acceptUnsetRatioModel bool) []str
 }
 
 func GetStatus(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if err := cacheReadinessError(); err != nil {
 		ensureCachesWarmAsync()
 		c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -106,41 +114,139 @@ func GetStatus(c *gin.Context) {
 		return
 	}
 
-	cs := console_setting.GetConsoleSetting()
-	registrationDisabledMethods := common.GetRegistrationDisabledMethods()
-	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
+	// Fetch the immutable pricing cache before locking its billing configuration.
+	data, assistantSettings, currencyReady := getStatusConfigurationSnapshot(getPricingCache())
+	if !currencyReady {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "ready": false, "message": "currency units are not ready"})
+		return
+	}
 
-	passkeySetting := system_setting.GetPasskeySettings()
-	assistantSettings := setting.GetAssistantSettings()
+	unitMetadata, unitErr := creditUnitMetadataFields()
+	if unitErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "ready": false, "message": "currency units are not ready"})
+		return
+	}
 	assistantGroup, assistantModel, routeErr := assistantConfiguredRouteResolver(assistantSettings)
 	if routeErr != nil {
 		assistantModel = ""
 	}
+	data["assistant"] = gin.H{
+		"enabled":      assistantSettings.Enabled,
+		"group":        assistantGroup,
+		"model":        assistantModel,
+		"funding_mode": "super_administrator",
+	}
+
+	docsAccess := false
+	if dashboardUser, ok := middleware.AuthenticatedDashboardUser(c); ok {
+		trustLevel, err := model.GetTrustLevelInfoForUserBase(dashboardUser)
+		if err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("failed to calculate trust level for user %d: %s", dashboardUser.Id, err.Error()))
+		} else {
+			docsAccess = trustLevel.Level >= 1
+		}
+	}
+	data["docs_access"] = docsAccess
+	if !docsAccess {
+		data["docs_link"] = ""
+	}
+	// Keep the public status response useful for branding, authentication, and
+	// billing while withholding legacy relay details until the account has
+	// permanently activated the developer console.
+	if !middleware.ConsoleActivationGranted(c) {
+		data["api_info_enabled"] = false
+		delete(data, "api_info")
+	}
+
+	for key, value := range unitMetadata {
+		data[key] = value
+	}
+	// Add enabled custom OAuth providers
+	customProviders := oauth.GetEnabledCustomProviders()
+	if len(customProviders) > 0 {
+		type CustomOAuthInfo struct {
+			Id                    int    `json:"id"`
+			Name                  string `json:"name"`
+			Slug                  string `json:"slug"`
+			Icon                  string `json:"icon"`
+			ClientId              string `json:"client_id"`
+			AuthorizationEndpoint string `json:"authorization_endpoint"`
+			Scopes                string `json:"scopes"`
+		}
+		providersInfo := make([]CustomOAuthInfo, 0, len(customProviders))
+		for _, p := range customProviders {
+			config := p.GetConfig()
+			providersInfo = append(providersInfo, CustomOAuthInfo{
+				Id:                    config.Id,
+				Name:                  config.Name,
+				Slug:                  config.Slug,
+				Icon:                  config.Icon,
+				ClientId:              config.ClientId,
+				AuthorizationEndpoint: config.AuthorizationEndpoint,
+				Scopes:                config.Scopes,
+			})
+		}
+		data["custom_oauth_providers"] = providersInfo
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"ready":   true,
+		"message": "",
+		"data":    data,
+	})
+	return
+}
+
+// Capture option-backed fields under one short read lock. Database lookups,
+// external hooks and helpers that acquire this mutex must run after it returns.
+func getStatusConfigurationSnapshot(pricings []model.Pricing) (gin.H, setting.AssistantSettings, bool) {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	cs := console_setting.GetConsoleSetting()
+	registrationDisabledMethods, _ := common.ParseRegistrationDisabledMethods(common.OptionMap[common.RegistrationDisabledMethodsOptionKey])
+	anchor, anchorErr := common.CreditsPerUSD()
+	legacyScale, scaleErr := common.LegacyPricingUnitsPerUSD()
+	fx := operation_setting.USDExchangeRate
+	if anchorErr != nil || scaleErr != nil || fx <= 0 || math.IsNaN(fx) || math.IsInf(fx, 0) {
+		return nil, setting.AssistantSettings{}, false
+	}
+
+	passkeySetting := system_setting.GetPasskeySettings()
+	assistantSettings := setting.GetAssistantSettings()
+	chats := slices.Clone(setting.Chats)
+	for i, chat := range chats {
+		chats[i] = maps.Clone(chat)
+	}
 	data := gin.H{
-		"version":                     common.Version,
-		"start_time":                  common.StartTime,
-		"email_verification":          common.EmailVerificationEnabled,
-		"github_oauth":                common.GitHubOAuthEnabled,
-		"github_client_id":            common.GitHubClientId,
-		"discord_oauth":               system_setting.GetDiscordSettings().Enabled,
-		"discord_client_id":           system_setting.GetDiscordSettings().ClientId,
-		"linuxdo_oauth":               common.LinuxDOOAuthEnabled,
-		"linuxdo_client_id":           common.LinuxDOClientId,
-		"linuxdo_minimum_trust_level": common.LinuxDOMinimumTrustLevel,
-		"telegram_oauth":              common.TelegramOAuthEnabled,
-		"telegram_bot_name":           common.TelegramBotName,
-		"theme":                       "default",
-		"system_name":                 common.SystemName,
-		"logo":                        common.Logo,
-		"footer_html":                 common.Footer,
-		"wechat_qrcode":               common.WeChatAccountQRCodeImageURL,
-		"wechat_login":                common.WeChatAuthEnabled,
-		"server_address":              system_setting.ServerAddress,
-		"turnstile_check":             common.TurnstileCheckEnabled,
-		"turnstile_site_key":          common.TurnstileSiteKey,
-		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
-		"quota_per_unit":              common.QuotaPerUnit,
+		"version":                      common.Version,
+		"start_time":                   common.StartTime,
+		"email_verification":           common.EmailVerificationEnabled,
+		"github_oauth":                 common.GitHubOAuthEnabled,
+		"github_client_id":             common.GitHubClientId,
+		"discord_oauth":                system_setting.GetDiscordSettings().Enabled,
+		"discord_client_id":            system_setting.GetDiscordSettings().ClientId,
+		"linuxdo_oauth":                common.LinuxDOOAuthEnabled,
+		"linuxdo_client_id":            common.LinuxDOClientId,
+		"linuxdo_minimum_trust_level":  common.LinuxDOMinimumTrustLevel,
+		"telegram_oauth":               common.TelegramOAuthEnabled,
+		"telegram_bot_name":            common.TelegramBotName,
+		"theme":                        "default",
+		"system_name":                  common.SystemName,
+		"logo":                         common.Logo,
+		"footer_html":                  common.Footer,
+		"wechat_qrcode":                common.WeChatAccountQRCodeImageURL,
+		"wechat_login":                 common.WeChatAuthEnabled,
+		"server_address":               system_setting.ServerAddress,
+		"turnstile_check":              common.TurnstileCheckEnabled,
+		"turnstile_site_key":           common.TurnstileSiteKey,
+		"docs_link":                    operation_setting.GetGeneralSetting().DocsLink,
+		"quota_per_unit":               common.QuotaPerUnit,
+		"currency_unit":                "credit",
+		"credits_per_usd":              anchor.InexactFloat64(),
+		"quota_per_usd":                anchor.InexactFloat64(),
+		"cny_per_usd":                  fx,
+		"legacy_pricing_units_per_usd": legacyScale.InexactFloat64(),
 		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
 		"display_in_currency":                 operation_setting.IsCurrencyDisplay(),
 		"quota_display_type":                  operation_setting.GetQuotaDisplayType(),
@@ -154,7 +260,7 @@ func GetStatus(c *gin.Context) {
 		"data_export_default_time":            common.DataExportDefaultTime,
 		"default_collapse_sidebar":            common.DefaultCollapseSidebar,
 		"mj_notify_enabled":                   setting.MjNotifyEnabled,
-		"chats":                               setting.Chats,
+		"chats":                               chats,
 		"demo_site_enabled":                   operation_setting.DemoSiteEnabled,
 		"self_use_mode_enabled":               operation_setting.SelfUseModeEnabled.Load(),
 		"register_enabled":                    common.RegisterEnabled,
@@ -163,7 +269,7 @@ func GetStatus(c *gin.Context) {
 		"oauth_register_enabled":              common.OAuthRegisterEnabled,
 		"oauth_registration_disabled_methods": registrationDisabledMethods,
 		"default_use_auto_group":              setting.DefaultUseAutoGroup,
-		"preview_model_ids":                   getPublicPreviewModelIDs(),
+		"preview_model_ids":                   getPublicCatalogModelIDsFromPricing(pricings, false),
 		"backend_capabilities": gin.H{
 			"bounty_notifications":    true,
 			"bounty_challenge_cancel": true,
@@ -171,18 +277,12 @@ func GetStatus(c *gin.Context) {
 			"self_oauth_unbind":       true,
 			"responses_websocket":     true,
 		},
-		"assistant": gin.H{
-			"enabled":      assistantSettings.Enabled,
-			"group":        assistantGroup,
-			"model":        assistantModel,
-			"funding_mode": "super_administrator",
-		},
 
 		"usd_exchange_rate": operation_setting.USDExchangeRate,
 		// Legacy clients read price as platform units per real USD and
 		// stripe_unit_price as real USD per platform unit.
-		"price":             operation_setting.USDExchangeRate * operation_setting.TopUpPlatformUnitsPerCNY,
-		"stripe_unit_price": standardUSDPerPlatformUnit(),
+		"price":             legacyScale.InexactFloat64(),
+		"stripe_unit_price": 1 / legacyScale.InexactFloat64(),
 
 		// 面板启用开关
 		"api_info_enabled":      cs.ApiInfoEnabled,
@@ -221,62 +321,7 @@ func GetStatus(c *gin.Context) {
 	if cs.FAQEnabled {
 		data["faq"] = console_setting.GetFAQ()
 	}
-	docsAccess := false
-	if dashboardUser, ok := middleware.AuthenticatedDashboardUser(c); ok {
-		trustLevel, err := model.GetTrustLevelInfoForUserBase(dashboardUser)
-		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("failed to calculate trust level for user %d: %s", dashboardUser.Id, err.Error()))
-		} else {
-			docsAccess = trustLevel.Level >= 1
-		}
-	}
-	data["docs_access"] = docsAccess
-	if !docsAccess {
-		data["docs_link"] = ""
-	}
-	// Keep the public status response useful for branding, authentication, and
-	// billing while withholding legacy relay details until the account has
-	// permanently activated the developer console.
-	if !middleware.ConsoleActivationGranted(c) {
-		data["api_info_enabled"] = false
-		delete(data, "api_info")
-	}
-
-	// Add enabled custom OAuth providers
-	customProviders := oauth.GetEnabledCustomProviders()
-	if len(customProviders) > 0 {
-		type CustomOAuthInfo struct {
-			Id                    int    `json:"id"`
-			Name                  string `json:"name"`
-			Slug                  string `json:"slug"`
-			Icon                  string `json:"icon"`
-			ClientId              string `json:"client_id"`
-			AuthorizationEndpoint string `json:"authorization_endpoint"`
-			Scopes                string `json:"scopes"`
-		}
-		providersInfo := make([]CustomOAuthInfo, 0, len(customProviders))
-		for _, p := range customProviders {
-			config := p.GetConfig()
-			providersInfo = append(providersInfo, CustomOAuthInfo{
-				Id:                    config.Id,
-				Name:                  config.Name,
-				Slug:                  config.Slug,
-				Icon:                  config.Icon,
-				ClientId:              config.ClientId,
-				AuthorizationEndpoint: config.AuthorizationEndpoint,
-				Scopes:                config.Scopes,
-			})
-		}
-		data["custom_oauth_providers"] = providersInfo
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"ready":   true,
-		"message": "",
-		"data":    data,
-	})
-	return
+	return data, assistantSettings, true
 }
 
 func GetNotice(c *gin.Context) {
@@ -301,23 +346,9 @@ func GetAbout(c *gin.Context) {
 	return
 }
 
-func GetUserAgreement(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    system_setting.UserAgreementForLanguage(strings.EqualFold(c.Query("lang"), "en")),
-	})
-	return
-}
+func GetUserAgreement(c *gin.Context) { getSitePolicyDocument(c, "user_agreement") }
 
-func GetPrivacyPolicy(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    system_setting.PrivacyPolicyForLanguage(strings.EqualFold(c.Query("lang"), "en")),
-	})
-	return
-}
+func GetPrivacyPolicy(c *gin.Context) { getSitePolicyDocument(c, "privacy_policy") }
 
 func GetMidjourney(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()

@@ -1,22 +1,12 @@
 name: CI
 
 on:
-  pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
-  push:
-    # Feature branches run through pull_request; keep main and tag evidence for releases.
-    branches: [main]
-    tags: ["*"]
   workflow_dispatch:
     inputs:
       base-ref:
         description: Git ref for the translation regression comparison
         default: HEAD^
         type: string
-  schedule:
-    - cron: "23 3 * * *"
-  merge_group:
-    types: [checks_requested]
 
 permissions:
   contents: read
@@ -97,6 +87,9 @@ jobs:
       - name: Test relay timeout differential comparator
         run: python3 -B -m unittest discover -s apps/api-rust/tests/behavior-oracle/fixtures -p test_relay_timeout_compare.py
 
+      - name: Test Jev marketplace 10x price preparation
+        run: python3 -B scripts/test-jev-market-pricing.py
+
       - name: Test CI apt source preparation
         run: python3 scripts/test-prepare-ci-apt.py
 
@@ -157,18 +150,24 @@ jobs:
           go-version-file: apps/api-go/go.mod
           cache-dependency-path: apps/api-go/go.sum
 
+      - name: Install verified native-contract cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Bind cosign to the native fixed system path
+        run: bash scripts/install-ci-native-cosign.sh
+
       - name: Install archive inspection tool
         run: |
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libarchive-tools
+          sudo apt-get install --no-install-recommends --yes libarchive-tools nginx curl util-linux systemd
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
 
       - name: Verify native inspection, workspace, release, and package contracts
         working-directory: apps/api-go
         env:
           TMPDIR: ${{ runner.temp }}
-        run: go test -p 2 ./internal/appcli -count=1
+        run: go test -p 2 ./internal/appcli ./internal/deploycli -count=1
 
   pi-lmm-provider:
     needs: changes
@@ -291,11 +290,17 @@ jobs:
           bash ../../scripts/check-go-format.sh .
           go vet ./...
 
+      - name: Install verified native-contract cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Bind cosign to the native fixed system path
+        run: bash scripts/install-ci-native-cosign.sh
+
       - name: Install production contract tools
         run: |
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libarchive-tools
+          sudo apt-get install --no-install-recommends --yes libarchive-tools nginx curl util-linux systemd
           test "$(command -v bsdtar)" = /usr/bin/bsdtar
           bsdtar --version | sed -n '1p'
 
@@ -319,12 +324,15 @@ jobs:
         run: |
           mkdir -p out
           go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api-go .
+          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api-deploy-engine ./cmd/lmm-api-deploy
+          bash ../../scripts/check-static-go-binary.sh out/lmm-api-deploy-engine
           rm -f out/.lmm-api.next
           ln -s lmm-api-go out/.lmm-api.next
           mv -Tf out/.lmm-api.next out/lmm-api
           [[ -L out/lmm-api && $(readlink out/lmm-api) == lmm-api-go ]]
           file out/lmm-api-go
           bash ../../scripts/check-static-go-binary.sh out/lmm-api-go
+          bash ../../scripts/check-deploy-isolation.sh out/lmm-api-go out/lmm-api-deploy-engine
 
   rust-preview:
     needs: changes
@@ -450,6 +458,8 @@ jobs:
             bash apps/api-rust/tests/scripts/check-complete-route-coverage.sh
           run_check go-route-manifest \
             bash apps/api-rust/tests/scripts/check-go-route-manifest.sh
+          run_check current-go-only-ownership-tests \
+            python3 -B apps/api-rust/tests/scripts/test-current-go-only-ownership.py
           run_check complete-route-coverage-tests \
             bash apps/api-rust/tests/scripts/test-check-complete-route-coverage.sh
           run_check fixture-contract \
@@ -568,6 +578,10 @@ jobs:
       - name: Run real integration suites
         run: bash apps/api-rust/tests/scripts/run-real-integration-gates.sh all
 
+      - name: Preserve token-log legacy and pagination HTTP contracts against PostgreSQL
+        working-directory: apps/api-rust
+        run: cargo test --locked -p lmm-api-rs --test observability_token_log_pagination -- --ignored --test-threads=1
+
   aur-package-matrix:
     needs: changes
     if: ${{ contains(fromJSON(needs.changes.outputs.required), 'aur-package-matrix') }}
@@ -603,6 +617,8 @@ jobs:
         run: |
           chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-matrix.sh
+          shellcheck packaging/aur/test-merchant-writer-marker.sh
+          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-merchant-writer-marker.sh
 
       - name: Verify pinned Go release integrity
         env:
@@ -616,6 +632,48 @@ jobs:
       - name: Validate binary package with makepkg and paru
         run: |
           runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
+
+  go-web-release-gate:
+    name: Go/Web release qualification gate
+    # Manual diagnostic summary; publication requires local test evidence.
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    needs:
+      - changes
+      - repository-contracts
+      - release-artifact-contract
+      - pi-lmm-provider
+      - web
+      - go
+      - route-coverage-contract
+      - aur-package-matrix
+      - translations
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every Go/Web qualification job to succeed
+        env:
+          CI_GO_WEB_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 -B - <<'PYTHON'
+          import json
+          import os
+
+          required = (
+              "changes", "repository-contracts", "release-artifact-contract",
+              "pi-lmm-provider", "web", "go", "route-coverage-contract",
+              "aur-package-matrix", "translations",
+          )
+          needs = json.loads(os.environ["CI_GO_WEB_NEEDS"])
+          if not isinstance(needs, dict) or set(needs) != set(required):
+              raise SystemExit("Go/Web qualification dependency inventory is invalid.")
+          failed = [
+              name for name in required
+              if not isinstance(needs[name], dict) or needs[name].get("result") != "success"
+          ]
+          if failed:
+              raise SystemExit("Go/Web qualification requires success: " + ", ".join(failed))
+          print("All Go/Web release qualification jobs succeeded.")
+          PYTHON
 
   quality-gate:
     name: CI Quality Gate

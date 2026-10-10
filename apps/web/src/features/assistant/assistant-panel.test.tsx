@@ -24,6 +24,8 @@ import { Window } from 'happy-dom'
 
 import type { AuthUser } from '@/stores/auth-store'
 
+import { preparedKeyAction } from './assistant-key-management-test-fixtures'
+
 const domWindow = new Window({ url: 'https://console.example.test/' })
 for (const key of [
   'window',
@@ -360,6 +362,72 @@ function requireValue<T>(value: T | null | undefined): T {
 }
 
 describe('AssistantPanel', () => {
+  test('lets an L0 user review their own key action and never executes from chat confirmation', async () => {
+    let keyActions = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return {
+          data: {
+            success: true,
+            data: { ...assistantStatus, developer_access_granted: false },
+          },
+        }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return { data: { success: true, data: { presets: [] } } }
+      }
+      return { data: { success: false, message: 'Not enabled for this test' } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      if (url === '/api/assistant/tools/key-action') {
+        keyActions += 1
+        throw new Error('Chat must never execute a key action')
+      }
+      assert.equal(url, '/api/assistant/chat')
+      return {
+        data: {
+          choices: [
+            {
+              message: {
+                content: 'Review the exact API key before deleting it.',
+              },
+            },
+          ],
+          lmm_assistant_action: preparedKeyAction(),
+        },
+        headers: {},
+      }
+    }) as typeof api.post
+    const rendered = await renderPanel(undefined, 'page', registrationUser)
+    try {
+      for (const message of ['Delete my Production SDK API key', '确认删除']) {
+        const textarea = requireValue(
+          document.querySelector<HTMLTextAreaElement>('textarea')
+        )
+        await setTextareaValue(textarea, message)
+        await act(async () => {
+          findButton('Send').click()
+          await flushEffects()
+          await waitForCondition(
+            () => findCard('Delete API key') !== null,
+            'L0 key confirmation did not render'
+          )
+        })
+        assert.match(
+          document.body.textContent ?? '',
+          /Production SDK · ID 7 · Group: default/
+        )
+        assert.equal(keyActions, 0)
+      }
+      await act(async () => findButton('Cancel').click())
+      assert.equal(findCard('Delete API key'), null)
+      assert.equal(keyActions, 0)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
   test('opens installation guidance from the welcome screen without a model request or key access', async () => {
     let chatRequests = 0
     api.get = (async (url: string) => {
@@ -947,7 +1015,7 @@ describe('AssistantPanel', () => {
     { timeout: 30_000 },
     async () => {
       const keys = {
-        ai_recommendation: 'Help me write an L1 recommendation.',
+        ai_recommendation: 'How do I apply for L1 access?',
         getting_started: 'Where should I start?',
         new_user_gift: 'How do I get the new-user gift?',
         weekly_discount: 'Any top-up discounts this week?',
@@ -1659,6 +1727,91 @@ describe('AssistantPanel', () => {
     }
   })
 
+  test('preserves the desktop input across fullscreen changes and clears hidden overlay', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/status') {
+        return {
+          data: { success: true, data: { assistant: { enabled: true } } },
+        }
+      }
+      assert.equal(url, '/api/assistant/status')
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+
+    const rendered = await renderLauncher()
+    try {
+      const launcherButton = requireValue(
+        document.querySelector<HTMLButtonElement>(
+          '[data-testid="assistant-launcher"]'
+        )
+      )
+      await act(async () => {
+        launcherButton.click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.querySelector('[data-testid="assistant-fullscreen"]') !==
+            null,
+          'Desktop fullscreen control did not render'
+        )
+      )
+
+      const panel = requireValue(
+        document.querySelector<HTMLElement>('#ai-assistant-panel')
+      )
+      const textarea = requireValue(
+        panel.querySelector<HTMLTextAreaElement>('textarea')
+      )
+      await setTextareaValue(textarea, 'Draft must survive fullscreen')
+      const fullscreenButton = requireValue(
+        panel.querySelector<HTMLButtonElement>(
+          '[data-testid="assistant-fullscreen"]'
+        )
+      )
+
+      await act(async () => {
+        fullscreenButton.click()
+        await flushEffects()
+      })
+      assert.equal(document.querySelector('#ai-assistant-panel'), panel)
+      assert.equal(panel.querySelector('textarea'), textarea)
+      assert.equal(textarea.value, 'Draft must survive fullscreen')
+      assert.equal(panel.getAttribute('role'), 'dialog')
+      assert.ok(panel.classList.contains('fixed'))
+
+      await act(async () => {
+        fullscreenButton.click()
+        await flushEffects()
+      })
+      assert.equal(panel.getAttribute('role'), null)
+      assert.ok(!panel.classList.contains('fixed'))
+      assert.equal(panel.querySelector('textarea'), textarea)
+
+      await act(async () => {
+        fullscreenButton.click()
+        await flushEffects()
+        requireValue(
+          panel.querySelector<HTMLButtonElement>(
+            '[data-testid="assistant-collapse"]'
+          )
+        ).click()
+        await flushEffects()
+      })
+      const rail = requireValue(
+        document.querySelector<HTMLElement>('[data-testid="assistant-rail"]')
+      )
+      assert.equal(rail.getAttribute('data-open'), 'false')
+      assert.ok(rail.classList.contains('pointer-events-none'))
+      assert.ok(rail.hasAttribute('inert'))
+      assert.ok(!panel.classList.contains('fixed'))
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
   test('syncs queued questions into an already-open assistant input', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/status') {
@@ -2083,6 +2236,174 @@ describe('AssistantPanel', () => {
     }
   })
 
+  test('confirms an edited nickname, refreshes the authenticated user, and removes the card', async () => {
+    const user: AuthUser = {
+      id: 94,
+      username: 'nickname-user',
+      display_name: 'Current nickname',
+      role: 1,
+      developer_access_granted: true,
+    }
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'test-access-token',
+      token_type: 'Bearer',
+      access_expires_at: 1_900_000_000,
+      user,
+      session: {
+        sid: 'nickname-session',
+        current: true,
+        login_method: 'password',
+        ip: '127.0.0.1',
+        user_agent: 'test',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 1_900_000_000,
+      },
+    })
+    const originalPut = api.put
+    const mutations: Array<{ url: string; body: unknown }> = []
+    const accountRequests: string[] = []
+    let savedDisplayName = user.display_name
+    api.get = (async (url: string) => {
+      if (url === '/api/assistant/status') {
+        return { data: { success: true, data: assistantStatus } }
+      }
+      if (url === '/api/assistant/pre-conversation-presets') {
+        return {
+          data: { success: true, data: assistantPreConversationPresets },
+        }
+      }
+      if (url === '/api/user/self') {
+        accountRequests.push('GET /api/user/self')
+        return {
+          data: {
+            success: true,
+            data: { ...user, display_name: savedDisplayName },
+          },
+        }
+      }
+      return { data: { success: true, data: null } }
+    }) as typeof api.get
+    api.post = (async (url: string) => {
+      assert.equal(url, '/api/assistant/chat')
+      return {
+        data: {
+          choices: [
+            { message: { content: 'Review your new nickname and confirm.' } },
+          ],
+          lmm_assistant_action: {
+            type: 'user_display_name_change',
+            requires_confirmation: true,
+            target_user_id: user.id,
+            target_username: user.username,
+            target_display_name: user.display_name,
+            target_role: user.role,
+            target_group: 'default',
+            target_is_self: true,
+            proposed_display_name: 'Proposed nickname',
+            confirmation_token: 'nickname-confirmation-token',
+          },
+        },
+      }
+    }) as typeof api.post
+    api.put = (async (url: string, body: unknown) => {
+      mutations.push({ url, body })
+      assert.equal(url, '/api/assistant/profile/display-name')
+      accountRequests.push('PUT /api/assistant/profile/display-name')
+      savedDisplayName = (body as { display_name: string }).display_name
+      return {
+        data: { success: true, data: { display_name: savedDisplayName } },
+      }
+    }) as typeof api.put
+
+    const rendered = await renderPanel(undefined, 'page', user)
+    try {
+      await setTextareaValue(
+        requireValue(
+          document.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="Ask AI assistant"]'
+          )
+        ),
+        'Please change my nickname to Proposed nickname.'
+      )
+      await act(async () => {
+        requireValue(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
+        ).click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () => findCard('Change display name') !== null,
+          'Nickname confirmation card did not render'
+        )
+      )
+      const card = requireValue(findCard('Change display name'))
+      assert.match(card.textContent ?? '', /Current nickname \(nickname-user\)/)
+      const input = requireValue(
+        card.querySelector<HTMLInputElement>('#assistant-display-name')
+      )
+      assert.equal(input.value, 'Proposed nickname')
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value'
+      )?.set
+      assert.ok(setValue)
+      await act(async () => {
+        setValue.call(input, 'Edited nickname')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await flushEffects()
+      })
+      assert.deepEqual(mutations, [])
+      assert.deepEqual(accountRequests, [])
+      assert.equal(
+        useAuthStore.getState().auth.user?.display_name,
+        user.display_name
+      )
+
+      const confirm = requireValue(
+        [...card.querySelectorAll<HTMLButtonElement>('button')].find(
+          (button) => button.textContent?.trim() === 'Confirm'
+        )
+      )
+      await act(async () => {
+        confirm.click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () =>
+            useAuthStore.getState().auth.user?.display_name ===
+              'Edited nickname' && findCard('Change display name') === null,
+          'Nickname update did not refresh the user and remove its confirmation card'
+        )
+      )
+      assert.deepEqual(mutations, [
+        {
+          url: '/api/assistant/profile/display-name',
+          body: {
+            display_name: 'Edited nickname',
+            confirmation_token: 'nickname-confirmation-token',
+            confirmed: true,
+          },
+        },
+      ])
+      assert.deepEqual(accountRequests, [
+        'PUT /api/assistant/profile/display-name',
+        'GET /api/user/self',
+      ])
+      assert.equal(
+        useAuthStore.getState().auth.session?.sid,
+        'nickname-session'
+      )
+      assert.equal(document.querySelector('#assistant-display-name'), null)
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+      api.put = originalPut
+    }
+  })
+
   test('gives administrators a confirmation-gated server change card', async () => {
     let appliedRequest: unknown
     api.get = (async (url: string) => {
@@ -2435,13 +2756,25 @@ describe('AssistantPanel', () => {
         findHistoryToggle().click()
         await flushEffects()
       })
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.querySelector(
+              '[data-testid="assistant-history-list"] button[aria-label="View Hermes model setup"]'
+            ) !== null,
+          'Owned conversation history did not render'
+        )
+      )
       await act(async () => {
         findButton('View').click()
         await flushEffects()
       })
       await act(async () =>
         waitForCondition(
-          () => findButton('Continue') !== undefined,
+          () =>
+            [...document.querySelectorAll<HTMLButtonElement>('button')].some(
+              (button) => button.textContent?.trim() === 'Continue'
+            ),
           'Continue action did not render'
         )
       )
@@ -2657,7 +2990,7 @@ describe('AssistantPanel', () => {
       assert.ok(textarea)
       await setTextareaValue(
         textarea,
-        'I want Claude Code access for my private project.'
+        'I want developer access for my private project.'
       )
       await act(async () => {
         findButton('Send').click()
@@ -2667,7 +3000,7 @@ describe('AssistantPanel', () => {
         waitForCondition(
           () =>
             document.body.textContent?.includes(
-              'No recommendation letter is required.'
+              'The assistant can enable L1 during this conversation.'
             ) === true,
           'Cached recommendation did not fall back to read-only verification'
         )

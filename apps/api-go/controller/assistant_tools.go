@@ -11,7 +11,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/i18n"
 	"github.com/LIghtJUNction/api.lmm.best/model"
-	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -99,6 +98,9 @@ func getAssistantDeveloperAccess(userID int) (*model.UserBase, bool, error) {
 }
 
 func SubmitAssistantHandoff(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "request_human_support") {
+		return
+	}
 	if !requireAssistantBrowserSession(c) {
 		return
 	}
@@ -226,28 +228,6 @@ func AdminGetAssistantProfileSummary(c *gin.Context) {
 	common.ApiSuccess(c, summary)
 }
 
-func AdminGetAssistantReview(c *gin.Context) {
-	task, err := model.GetLatestSystemTask(model.SystemTaskTypeAssistantReview)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if task == nil {
-		common.ApiSuccess(c, nil)
-		return
-	}
-	common.ApiSuccess(c, task.ToResponse())
-}
-
-func AdminRunAssistantReview(c *gin.Context) {
-	task, err := service.StartAssistantReview()
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, task.ToResponse())
-}
-
 func AdminListAssistantRequestReviews(c *gin.Context) {
 	userID, err := strconv.Atoi(strings.TrimSpace(c.Query("user_id")))
 	if err != nil || userID <= 0 {
@@ -301,7 +281,6 @@ func AdminListAssistantRequestReviews(c *gin.Context) {
 		// Queue saturation is process-wide and intentionally read-only. Expose
 		// the bounded review coverage counters to administrators so dropped
 		// samples are visible without delaying user requests.
-		"queue_stats": assistantReviewQueueStatsSnapshot(),
 	})
 }
 
@@ -349,11 +328,12 @@ func AdminGetAssistantFundingSummary(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	remainingUSD := float64(remainingQuota)
-	if common.QuotaPerUnit > 0 {
-		remainingUSD /= common.QuotaPerUnit
+	remainingUSD, anchor, err := assistantFiatProjection(int64(remainingQuota))
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
-	common.ApiSuccess(c, gin.H{
+	payload := gin.H{
 		"start_timestamp":   summary.StartTimestamp,
 		"end_timestamp":     summary.EndTimestamp,
 		"requests":          summary.Requests,
@@ -364,7 +344,24 @@ func AdminGetAssistantFundingSummary(c *gin.Context) {
 		"cost_usd":          summary.CostUSD,
 		"remaining_quota":   remainingQuota,
 		"remaining_usd":     remainingUSD,
-	})
+		"currency_unit":     "credit",
+		"credits_per_usd":   anchor,
+	}
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		payload[key] = value
+	}
+	public, err := units.ProjectLedgerQuota(int64(remainingQuota))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	payload["remaining_public_credits"] = public.String()
+	common.ApiSuccess(c, payload)
 }
 
 func AdminResolveAssistantHandoff(c *gin.Context) {

@@ -129,7 +129,7 @@ impl DeepSeekBalanceClient {
     }
 
     #[cfg(test)]
-    fn with_test_endpoint(
+    pub(crate) fn with_test_endpoint(
         endpoint: reqwest::Url,
         max_response_bytes: usize,
     ) -> Result<Self, DeepSeekBalanceFetchError> {

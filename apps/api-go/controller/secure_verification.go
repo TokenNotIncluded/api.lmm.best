@@ -97,7 +97,7 @@ func UniversalVerify(c *gin.Context) {
 		common.ApiError(c, errors.New("不支持的安全验证范围"))
 		return
 	}
-	preferredMethods, err := middleware.PreferredSecurityProofMethods(identity.UserID)
+	preferredMethods, err := middleware.PreferredSecurityProofMethods(identity.UserID, request.Scope)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -171,11 +171,9 @@ func UniversalVerify(c *gin.Context) {
 	})
 }
 
-const securityProofScopeReviewRunsDelete = "security.review_runs.delete"
-
 func isAllowedSecurityProofScope(scope string) bool {
 	switch scope {
-	case securityProofScopeChannelKeyRead, securityProofScopePasskeyRegister, securityProofScopePasskeyDelete, securityProofScopeReviewRunsDelete:
+	case securityProofScopeChannelKeyRead, securityProofScopePasskeyRegister, securityProofScopePasskeyDelete:
 		return true
 	default:
 		return false

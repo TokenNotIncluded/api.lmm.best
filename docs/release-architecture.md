@@ -25,6 +25,21 @@ that still reproduces byte for byte. The tracked AUR version must be older
 than the proposed tag. Assets are checksum-bound, signed with the component
 workflow's Sigstore identity, and verified before publication.
 
+Go and Web publishers explicitly select their 12-check inventory with
+`verify-release-commit-checks.sh COMMIT_SHA --component go|web`. It retains Go,
+Web, package, mixed route-safety, non-Rust CodeQL, the Go/Web CI aggregate, and
+the existing server qualification gate, including real database safety. Only
+the three pure Rust checks are outside this component inventory. A completed CI
+or dynamic CodeQL workflow may have failed in its Rust portion only when every
+selected check and aggregate succeeds for the same main commit and selected
+workflow run. CI and CodeQL may still be running when every selected check has
+completed successfully; the newest check in that run must succeed, so an older
+success cannot cover a queued or running retry. Cancellation, missing checks,
+and failed or unfinished selected checks still reject publication; the Go-only
+server workflow must complete successfully. The
+default invocation and `--component rust` retain the original 14-check inventory
+and require successful parent workflows.
+
 Creating a tag is deliberately an operator-controlled action. There is no
 workflow that infers a release from a root version-file change. A future
 component promoter may automate tag creation only after it proves the same
@@ -43,7 +58,12 @@ cd /path/to/api.lmm.best
 Both candidate packages must carry the expected
 `API_ROUTE_CONTRACT_REVISION`, and the production deployment controller rejects
 mixed candidates or rollback pairs whose contract revisions differ. The
-contract revision is a compatibility assertion, not a shared product version.
+contract revision checks route shape, not business behavior. A signed Web
+release does not deploy automatically: independent Web updates require an
+operator to check both active Go backends before manually dispatching the
+frontend-only workflow. Changes requiring a new Go backend use the native
+combined transaction until an explicit paired/independent compatibility gate
+exists.
 
 ## Rust boundary
 

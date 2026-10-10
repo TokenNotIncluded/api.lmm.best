@@ -38,6 +38,7 @@ import { installBuildMetadata } from '@/lib/build-metadata'
 import { resolveSystemName } from '@/lib/constants'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
+import { createQueryRetry } from '@/lib/query-retry'
 
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
@@ -58,18 +59,7 @@ installBuildMetadata()
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: (failureCount, error) => {
-        // eslint-disable-next-line no-console
-        if (import.meta.env.DEV) console.log({ failureCount, error })
-
-        if (failureCount >= 0 && import.meta.env.DEV) return false
-        if (failureCount > 3 && import.meta.env.PROD) return false
-
-        return !(
-          error instanceof AxiosError &&
-          [401, 402, 403].includes(error.response?.status ?? 0)
-        )
-      },
+      retry: createQueryRetry(import.meta.env.PROD),
       // Keep focused tabs from silently re-running heavy pages like logs.
       refetchOnWindowFocus: false,
       staleTime: 10 * 1000, // 10s

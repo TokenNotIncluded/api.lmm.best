@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -14,7 +15,11 @@ func (toolMarketRecoveryHandler) Enabled() bool           { return true }
 func (toolMarketRecoveryHandler) Interval() time.Duration { return 15 * time.Second }
 func (toolMarketRecoveryHandler) NewPayload() any         { return nil }
 func (toolMarketRecoveryHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	pollCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	_, pollErr := marketRemote.recoverProviderCalls(pollCtx)
+	cancel()
 	count, err := model.RecoverToolMarketCalls(ctx)
+	err = errors.Join(pollErr, err)
 	status, message := model.SystemTaskStatusSucceeded, ""
 	if err != nil {
 		status, message = model.SystemTaskStatusFailed, "Tool market recovery could not complete; retry required"

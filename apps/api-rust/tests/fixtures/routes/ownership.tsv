@@ -1,3 +1,4 @@
+# Frozen legacy baseline ownership; current-only routes use current-go-only-ownership.tsv.
 # priority	match	pattern	owner	class	access	streaming	contract
 100	exact	/v1/realtime	go	relay	authenticated	websocket	no retry; drain required
 90	prefix	/v1/dashboard/	go	billing	read-only	no	compatibility surface; never classify as relay stream

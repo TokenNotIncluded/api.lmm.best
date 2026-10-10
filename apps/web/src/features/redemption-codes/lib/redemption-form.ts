@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
-import { parseQuotaFromDollars, quotaUnitsToEditableAmount } from '@/lib/format'
+import { assertCreditAmount, creditAmountSchema } from '@/lib/quota-input'
 
 import {
   REDEMPTION_VALIDATION,
@@ -43,7 +43,7 @@ export function getRedemptionFormSchema(t: TFunction) {
         .string()
         .min(REDEMPTION_VALIDATION.NAME_MIN_LENGTH, msg.NAME_LENGTH_INVALID)
         .max(REDEMPTION_VALIDATION.NAME_MAX_LENGTH, msg.NAME_LENGTH_INVALID),
-      quota_dollars: z.number().min(0, t('Quota must be a positive number')),
+      quota_credits: creditAmountSchema,
       reward_type: z.enum(['quota', 'reset_voucher']),
       reset_plan_id: z.number().min(0),
       reset_voucher_expires_at: z.date().optional(),
@@ -78,7 +78,7 @@ export function getRedemptionFormSchema(t: TFunction) {
 
 export type RedemptionFormValues = {
   name: string
-  quota_dollars: number
+  quota_credits: number
   reward_type: RedemptionRewardType
   reset_plan_id: number
   reset_voucher_expires_at?: Date
@@ -92,7 +92,7 @@ export type RedemptionFormValues = {
 
 export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
   name: '',
-  quota_dollars: 10,
+  quota_credits: 5_000_000,
   reward_type: 'quota',
   reset_plan_id: 0,
   reset_voucher_expires_at: undefined,
@@ -110,7 +110,7 @@ export function transformFormDataToPayload(
   const isResetVoucher = data.reward_type === 'reset_voucher'
   return {
     name: data.name,
-    quota: isResetVoucher ? 0 : parseQuotaFromDollars(data.quota_dollars),
+    quota: isResetVoucher ? 0 : assertCreditAmount(data.quota_credits),
     reward_type: data.reward_type,
     reset_plan_id: isResetVoucher ? data.reset_plan_id : 0,
     reset_voucher_expires_at:
@@ -129,7 +129,7 @@ export function transformRedemptionToFormDefaults(
 ): RedemptionFormValues {
   return {
     name: redemption.name,
-    quota_dollars: quotaUnitsToEditableAmount(redemption.quota),
+    quota_credits: assertCreditAmount(redemption.quota),
     reward_type: redemption.reward_type ?? 'quota',
     reset_plan_id: redemption.reset_plan_id ?? 0,
     reset_voucher_expires_at:

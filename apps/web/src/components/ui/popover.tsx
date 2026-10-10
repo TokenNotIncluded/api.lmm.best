@@ -36,7 +36,7 @@ function PopoverContent({
   alignOffset = 0,
   side = 'bottom',
   sideOffset = 4,
-  collisionPadding,
+  collisionPadding = 12,
   collisionBoundary,
   collisionAvoidance,
   ...props
@@ -66,7 +66,7 @@ function PopoverContent({
         <PopoverPrimitive.Popup
           data-slot='popover-content'
           className={cn(
-            'data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 z-50 w-72 origin-(--transform-origin) outline-hidden bg-popover text-popover-foreground ring-foreground/5 dark:ring-foreground/10 flex flex-col gap-4 rounded-3xl p-4 text-sm shadow-lg ring-1 duration-100 motion-reduce:animate-none',
+            'data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 z-50 w-72 max-w-[calc(100vw-1.5rem)] max-h-[var(--available-height,calc(100dvh-1.5rem))] overflow-y-auto overscroll-contain origin-(--transform-origin) outline-hidden bg-popover text-popover-foreground ring-foreground/5 dark:ring-foreground/10 flex flex-col gap-4 rounded-3xl p-4 text-sm shadow-lg ring-1 duration-100 motion-reduce:animate-none',
             className
           )}
           {...props}

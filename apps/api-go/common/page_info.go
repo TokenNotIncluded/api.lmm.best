@@ -38,7 +38,13 @@ func (p *PageInfo) SetItems(items any) {
 	p.Items = items
 }
 
-func GetPageQuery(c *gin.Context) *PageInfo {
+// GetPageQuery keeps the usual 100-row cap unless an endpoint opts into a
+// different bound. A caller cannot remove the bound with a non-positive cap.
+func GetPageQuery(c *gin.Context, maxPageSize ...int) *PageInfo {
+	limit := 100
+	if len(maxPageSize) > 0 {
+		limit = max(1, maxPageSize[0])
+	}
 	pageInfo := &PageInfo{}
 	// 手动获取并处理每个参数
 	if page, err := strconv.Atoi(c.Query("p")); err == nil {
@@ -49,8 +55,8 @@ func GetPageQuery(c *gin.Context) *PageInfo {
 	}
 	if pageInfo.Page < 1 {
 		// 兼容
-		page, _ := strconv.Atoi(c.Query("p"))
-		if page != 0 {
+		page, err := strconv.Atoi(c.Query("p"))
+		if err == nil && page != 0 {
 			pageInfo.Page = page
 		} else {
 			pageInfo.Page = 1
@@ -59,13 +65,13 @@ func GetPageQuery(c *gin.Context) *PageInfo {
 
 	if pageInfo.PageSize <= 0 {
 		// 兼容
-		pageSize, _ := strconv.Atoi(c.Query("ps"))
-		if pageSize > 0 {
+		pageSize, err := strconv.Atoi(c.Query("ps"))
+		if err == nil && pageSize > 0 {
 			pageInfo.PageSize = pageSize
 		}
 		if pageInfo.PageSize <= 0 {
-			pageSize, _ = strconv.Atoi(c.Query("size")) // token page
-			if pageSize > 0 {
+			pageSize, err = strconv.Atoi(c.Query("size")) // token page
+			if err == nil && pageSize > 0 {
 				pageInfo.PageSize = pageSize
 			}
 		}
@@ -80,8 +86,8 @@ func GetPageQuery(c *gin.Context) *PageInfo {
 		pageInfo.PageSize = 1
 	}
 
-	if pageInfo.PageSize > 100 {
-		pageInfo.PageSize = 100
+	if pageInfo.PageSize > limit {
+		pageInfo.PageSize = limit
 	}
 
 	return pageInfo

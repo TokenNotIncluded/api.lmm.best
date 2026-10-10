@@ -1,16 +1,7 @@
 name: UI foundation review
 
 on:
-  pull_request:
-    paths:
-      - 'apps/web/src/components/ui/**'
-      - 'apps/web/src/features/auth/otp/**'
-      - 'apps/web/src/features/debug/ui-foundation-*.tsx'
-      - 'apps/web/src/debug-main.tsx'
-      - 'apps/web/scripts/ui-foundation-review.mjs'
-      - 'apps/web/package.json'
-      - 'bun.lock'
-      - '.github/workflows/ui-foundation-review.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

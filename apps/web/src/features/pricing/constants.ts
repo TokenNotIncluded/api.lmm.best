@@ -75,6 +75,11 @@ export const ENDPOINT_TYPES = {
   IMAGE_GENERATION: 'image-generation',
   EMBEDDINGS: 'embeddings',
   OPENAI_VIDEO: 'openai-video',
+  SYSTEMONE: 'systemone',
+  MODERATION: 'moderation',
+  LIVE: 'live',
+  REALTIME_TRANSCRIPTION: 'realtime_transcription',
+  REALTIME_TRANSLATION: 'realtime_translation',
 } as const
 
 export type EndpointTypeOption =
@@ -94,7 +99,36 @@ export function getEndpointTypeLabels(
     [ENDPOINT_TYPES.IMAGE_GENERATION]: t('Image'),
     [ENDPOINT_TYPES.EMBEDDINGS]: t('Embeddings'),
     [ENDPOINT_TYPES.OPENAI_VIDEO]: t('Video'),
+    [ENDPOINT_TYPES.SYSTEMONE]: t('Judgment'),
+    [ENDPOINT_TYPES.MODERATION]: t('Moderation'),
+    [ENDPOINT_TYPES.LIVE]: t('Live session'),
+    [ENDPOINT_TYPES.REALTIME_TRANSCRIPTION]: t('Realtime transcription'),
+    [ENDPOINT_TYPES.REALTIME_TRANSLATION]: t('Realtime translation'),
   }
+}
+
+export function getEndpointTypeLabel(
+  endpointType: string,
+  t: TFunction
+): string {
+  if (endpointType === ENDPOINT_TYPES.SYSTEMONE) return t('TypeSafe (Jev)')
+  if (endpointType === ENDPOINT_TYPES.MODERATION) return t('Moderation')
+  if (endpointType === ENDPOINT_TYPES.LIVE) return t('Live session')
+  if (endpointType === ENDPOINT_TYPES.REALTIME_TRANSCRIPTION) {
+    return t('Realtime transcription')
+  }
+  if (endpointType === ENDPOINT_TYPES.REALTIME_TRANSLATION) {
+    return t('Realtime translation')
+  }
+  return endpointType
+}
+
+export function isNativeSessionEndpointType(endpointType: string): boolean {
+  return [
+    ENDPOINT_TYPES.LIVE,
+    ENDPOINT_TYPES.REALTIME_TRANSCRIPTION,
+    ENDPOINT_TYPES.REALTIME_TRANSLATION,
+  ].some((type) => type === endpointType)
 }
 
 /** Filter section keys */

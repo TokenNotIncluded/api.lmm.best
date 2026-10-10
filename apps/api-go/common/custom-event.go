@@ -11,41 +11,23 @@ import (
 	"strings"
 )
 
-type stringWriter interface {
-	io.Writer
-	writeString(string) (int, error)
-}
-
 type stringWrapper struct {
 	io.Writer
 }
 
-func (w stringWrapper) writeString(str string) (int, error) {
-	return w.Writer.Write([]byte(str))
-}
-
-func checkWriter(writer io.Writer) stringWriter {
-	if w, ok := writer.(stringWriter); ok {
-		return w
-	} else {
-		return stringWrapper{writer}
+func (w stringWrapper) Write(data []byte) (int, error) {
+	n, err := w.Writer.Write(data)
+	if err == nil && n < len(data) {
+		err = io.ErrShortWrite
 	}
+	return n, err
 }
 
 // Server-Sent Events
 // W3C Working Draft 29 October 2009
 // http://www.w3.org/TR/2009/WD-eventsource-20091029/
 
-var writeContentType = []string{"text/event-stream"}
-var noCache = []string{"no-cache"}
-
-var fieldReplacer = strings.NewReplacer(
-	"\n", "\\n",
-	"\r", "\\r")
-
-var dataReplacer = strings.NewReplacer(
-	"\n", "\n",
-	"\r", "\\r")
+var dataReplacer = strings.NewReplacer("\r", "\\r")
 
 // CustomEvent does not synchronize writes to the response writer. Streaming
 // callers must serialize event writes at the stream level.
@@ -56,29 +38,29 @@ type CustomEvent struct {
 	Data  interface{}
 }
 
-func encode(writer io.Writer, event CustomEvent) error {
-	w := checkWriter(writer)
-	return writeData(w, event.Data)
-}
-
-func writeData(w stringWriter, data interface{}) error {
-	dataReplacer.WriteString(w, fmt.Sprint(data))
-	if strings.HasPrefix(data.(string), "data") {
-		w.writeString("\n\n")
+func (r CustomEvent) Render(w http.ResponseWriter) error {
+	data, ok := r.Data.(string)
+	if !ok {
+		return fmt.Errorf("custom event data must be a string, got %T", r.Data)
+	}
+	r.WriteContentType(w)
+	// Keep all writes on the checked path, including the event delimiter.
+	writer := stringWrapper{w}
+	if _, err := dataReplacer.WriteString(writer, data); err != nil {
+		return err
+	}
+	if strings.HasPrefix(data, "data") {
+		_, err := writer.Write([]byte("\n\n"))
+		return err
 	}
 	return nil
 }
 
-func (r CustomEvent) Render(w http.ResponseWriter) error {
-	r.WriteContentType(w)
-	return encode(w, r)
-}
-
 func (r CustomEvent) WriteContentType(w http.ResponseWriter) {
 	header := w.Header()
-	header["Content-Type"] = writeContentType
+	header.Set("Content-Type", "text/event-stream")
 
 	if _, exist := header["Cache-Control"]; !exist {
-		header["Cache-Control"] = noCache
+		header.Set("Cache-Control", "no-cache")
 	}
 }

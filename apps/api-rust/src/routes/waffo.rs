@@ -32,7 +32,7 @@ use crate::auth::{
 };
 use crate::{ClientIpKey, RequestContext};
 
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const DEFAULT_QUOTA_PER_UNIT: i64 = 500_000;
 const WAFFO: &str = "waffo";
 const WAFFO_PANCAKE: &str = "waffo_pancake";

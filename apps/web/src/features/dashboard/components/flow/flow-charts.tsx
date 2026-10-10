@@ -84,7 +84,7 @@ import type {
   FlowOverflowMode,
   FlowRole,
 } from '@/features/dashboard/types'
-import { formatQuota } from '@/lib/format'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { ROLE } from '@/lib/roles'
 import { computeTimeRange } from '@/lib/time'
 import { useChartTheme } from '@/lib/use-chart-theme'
@@ -254,6 +254,7 @@ function formatFlowMetricNumber(value: number): string {
 
 export function FlowCharts(props: FlowChartsProps) {
   const { t } = useTranslation()
+  const { formatQuota } = useWalletCurrency()
   const { resolvedTheme, themeReady } = useChartTheme()
   const chartInstanceRef = useRef<IVChart | null>(null)
   const user = useAuthStore((state) => state.auth.user)
@@ -395,7 +396,7 @@ export function FlowCharts(props: FlowChartsProps) {
   const formatNodeMetricValue = useCallback(
     (value: number) =>
       metric === 'quota' ? formatQuota(value) : formatFlowMetricNumber(value),
-    [metric]
+    [metric, formatQuota]
   )
   // Explicit filters (the chips/dropdown control) narrow the rows that feed the
   // chart. They are intentionally independent from the click-to-highlight state
@@ -460,7 +461,7 @@ export function FlowCharts(props: FlowChartsProps) {
         requests: t('Requests'),
         share: t('Share'),
       }),
-    [chartTitle, flowData.flow, t]
+    [chartTitle, flowData.flow, t, formatQuota]
   )
   const chartTheme = resolvedTheme === 'dark' ? 'dark' : 'light'
   const chartKey = [

@@ -92,6 +92,12 @@ func smokeTestExpr(exprStr string) error {
 	}
 
 	for _, v := range vectors {
+		// Validation vectors are synthetic, not missing provider measurements.
+		// Include every supported dimension so new prices can be saved.
+		zero := float64(0)
+		v.CRText, v.CRImg, v.CRAudio = &zero, &zero, &zero
+		seconds := v.P / 1000
+		v.AudioSeconds = &seconds
 		for _, request := range requests {
 			result, _, err := billingexpr.RunExprWithRequest(exprStr, v, request)
 			if err != nil {

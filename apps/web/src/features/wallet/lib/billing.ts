@@ -42,6 +42,10 @@ export const STATUS_CONFIG: Record<TopupStatus, StatusConfig> = {
     variant: 'warning',
     label: 'Pending',
   },
+  failed: {
+    variant: 'danger',
+    label: 'Failed',
+  },
   expired: {
     variant: 'danger',
     label: 'Expired',
@@ -52,7 +56,7 @@ export const STATUS_CONFIG: Record<TopupStatus, StatusConfig> = {
  * Get status badge configuration
  */
 export function getStatusConfig(status: TopupStatus): StatusConfig {
-  return STATUS_CONFIG[status] || STATUS_CONFIG.pending
+  return STATUS_CONFIG[status] || { variant: 'neutral', label: 'Unknown' }
 }
 
 /**

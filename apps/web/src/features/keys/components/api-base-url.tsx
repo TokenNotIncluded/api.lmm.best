@@ -30,14 +30,14 @@ export function ApiBaseUrl() {
       <p className='text-muted-foreground text-xs font-medium'>
         {t('Base URL')}
       </p>
-      <div className='flex min-w-0 flex-wrap items-center gap-2'>
-        <code className='min-w-0 flex-1 text-sm font-medium break-all'>
+      <div className='flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center'>
+        <code className='min-w-0 text-sm font-medium break-all sm:flex-1'>
           {baseUrl ?? t(loading ? 'Loading...' : 'API address unavailable')}
         </code>
         <Button
           type='button'
           variant='outline'
-          className='min-h-11 sm:min-h-8'
+          className='min-h-11 w-full sm:min-h-8 sm:w-auto'
           disabled={!baseUrl}
           onClick={async () => {
             if (!baseUrl) return

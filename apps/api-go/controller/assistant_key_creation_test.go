@@ -274,8 +274,9 @@ func TestAssistantKeyConfirmationRejectsStaleAuthoritativeStateAndRollsBack(t *t
 					require.NoError(t, db.Exec("ALTER TABLE options_unavailable RENAME TO options").Error)
 				})
 			},
-			code:       "ASSISTANT_SECURE_CARD_CREATE_FAILED",
-			wantStatus: http.StatusInternalServerError,
+			// Tool availability is rechecked before the confirmation flow is consumed.
+			code:       "ASSISTANT_TOOL_POLICY_UNAVAILABLE",
+			wantStatus: http.StatusServiceUnavailable,
 		},
 		{
 			name: "warning revision changed",

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -25,6 +26,7 @@ import (
 const authIdentityContextKey = "auth_identity"
 const dashboardCredentialContextKey = "dashboard_credential"
 const consoleActivationContextKey = "console_activation_granted"
+const dashboardCreditUnitHeader = "X-LMM-Credit-Unit"
 
 type dashboardCredentialKind int
 
@@ -50,6 +52,30 @@ func validUserInfo(username string, role int) bool {
 		return false
 	}
 	return true
+}
+
+// This is a browser compatibility declaration, not authorization. Authentication
+// and role checks must succeed before an old dashboard can be told to refresh.
+func validateDashboardBrowserCreditUnit(c *gin.Context) bool {
+	if !strings.HasPrefix(c.Request.URL.Path, "/api/") {
+		return true
+	}
+	switch c.Request.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	if c.GetHeader("Origin") == "" && c.GetHeader("Sec-Fetch-Site") == "" {
+		return true
+	}
+	if c.GetHeader(dashboardCreditUnitHeader) == strconv.FormatInt(common.FixedCreditsPerUSD, 10) {
+		return true
+	}
+	c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+		"success": false,
+		"code":    "CREDIT_UNIT_REFRESH_REQUIRED",
+		"message": "点数单位已更新，请刷新页面后重试。",
+	})
+	return false
 }
 
 func authHelper(c *gin.Context, minRole int) {
@@ -86,6 +112,9 @@ func authHelper(c *gin.Context, minRole int) {
 		return
 	}
 	setDashboardAuthContext(c, user, identity, useAccessToken)
+	if !validateDashboardBrowserCreditUnit(c) {
+		return
+	}
 
 	// 管理/root 写操作审计兜底：内聚在鉴权链路里，保证任何经过 AdminAuth/RootAuth
 	// 的写接口都会自动留痕（无需在路由上单独挂审计中间件，避免漏挂）。
@@ -334,6 +363,9 @@ func AuthenticatedDashboardUser(c *gin.Context) (*model.UserBase, bool) {
 
 func preActivationRouteAllowed(method string, path string) bool {
 	path = strings.TrimSuffix(path, "/")
+	if method == http.MethodGet && strings.HasPrefix(path, "/api/share/profile/") {
+		return true
+	}
 	if publicSubscriptionCallbackRoute(method, path) {
 		return true
 	}
@@ -363,6 +395,19 @@ func preActivationRouteAllowed(method string, path string) bool {
 		// Checkout must precede paid activation. UserAuth, body limits and the
 		// provider-specific payment policy still run on every request.
 		return method == http.MethodPost
+	case "/api/user/topup/currency/amount", "/api/user/topup/currency/pay",
+		"/api/user/topup/currency/stripe/amount", "/api/user/topup/currency/stripe/pay",
+		"/api/user/topup/currency/waffo/amount", "/api/user/topup/currency/waffo/pay",
+		"/api/user/topup/currency/waffo-pancake/amount", "/api/user/topup/currency/waffo-pancake/pay",
+		"/api/user/topup/currency/discount-code/validate",
+		"/api/user/topup/currency/v2/amount", "/api/user/topup/currency/v2/pay",
+		"/api/user/topup/currency/v2/stripe/amount", "/api/user/topup/currency/v2/stripe/pay",
+		"/api/user/topup/currency/v2/waffo/amount", "/api/user/topup/currency/v2/waffo/pay",
+		"/api/user/topup/currency/v2/waffo-pancake/amount", "/api/user/topup/currency/v2/waffo-pancake/pay",
+		"/api/user/topup/currency/v2/discount-code/validate":
+		// Versioned checkout keeps the same identity and payment gates as legacy
+		// checkout. List exact registered paths so other wallet operations stay closed.
+		return method == http.MethodPost
 	case "/api/livez", "/api/uptime/status", "/api/scripts", "/api/games/signal/daily", "/api/games/signal/leaderboard":
 		return method == http.MethodGet
 	case "/api/games/signal/attempts", "/api/games/signal/finish":
@@ -376,6 +421,14 @@ func preActivationRouteAllowed(method string, path string) bool {
 		// data routes remain behind ConsoleAccessGate.
 		return method == http.MethodGet
 	case "/api/user/self":
+		return method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
+	case "/api/pricing", "/api/perf-metrics", "/api/perf-metrics/summary", "/api/todos":
+		// L0 can browse models and read its own notifications. Per-route auth
+		// and owner/administrator filters still apply. This grants no API use.
+		return method == http.MethodGet
+	case "/api/pricing/runtime", "/api/todos/read":
+		return method == http.MethodPost
+	case "/api/acquisition/self-report":
 		return method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
 	case "/api/user/self/onboarding/todo":
 		return method == http.MethodGet
@@ -407,6 +460,10 @@ func preActivationRouteAllowed(method string, path string) bool {
 	if strings.HasPrefix(path, "/api/user/sessions/") || strings.HasPrefix(path, "/api/user/oauth/bindings/") || strings.HasPrefix(path, "/api/user/bindings/") {
 		return method == http.MethodDelete
 	}
+	if method == http.MethodDelete && strings.HasPrefix(path, "/api/user/passkey/") {
+		id, err := strconv.Atoi(strings.TrimPrefix(path, "/api/user/passkey/"))
+		return err == nil && id > 0
+	}
 	if strings.HasPrefix(path, "/api/release-notes/") && strings.HasSuffix(path, "/read") {
 		return method == http.MethodPost
 	}
@@ -437,7 +494,7 @@ func authorizationToken(header string) (string, bool) {
 }
 
 func setDashboardAuthContext(c *gin.Context, user *model.UserBase, identity service.AuthIdentity, useAccessToken bool) {
-	c.Header("Auth-Version", "864b7076dbcd0a3c01b5520316720ebf") // gitleaks:allow
+	c.Header("Auth-Version", common.DashboardAuthVersion())
 	c.Set("username", user.Username)
 	c.Set("role", user.Role)
 	c.Set("id", user.Id)

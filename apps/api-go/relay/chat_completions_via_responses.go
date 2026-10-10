@@ -72,7 +72,11 @@ func applySystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, requ
 	}
 }
 
-func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, request *dto.GeneralOpenAIRequest) (*dto.Usage, *types.NewAPIError) {
+func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, request *dto.GeneralOpenAIRequest) (usage *dto.Usage, apiErr *types.NewAPIError) {
+	// This conversion invokes response handlers directly rather than DoResponse.
+	// It must complete the same outcome lifecycle when a retry switches protocols.
+	info.ResetResponseOutcome()
+	defer func() { info.CompleteResponseOutcome(apiErr) }()
 	chatJSON, err := common.Marshal(request)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())

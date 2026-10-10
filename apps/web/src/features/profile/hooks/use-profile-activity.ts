@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
+import { createQueryRetry } from '@/lib/query-retry'
+
 import { getProfileUsageWindow } from '../api'
 import {
   buildProfileUsageQueryRanges,
@@ -49,7 +51,7 @@ export function useProfileActivity(
     },
     enabled,
     staleTime: 5 * 60 * 1000,
-    retry: 1,
+    retry: createQueryRetry(true, 1),
   })
 
   return { ...query, range }

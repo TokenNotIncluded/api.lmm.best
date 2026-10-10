@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -15,7 +16,33 @@ import (
 	hosttypes "github.com/LIghtJUNction/api.lmm.best/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
+
+// AppendMeasuredBillingDimensions preserves the distinction between missing
+// modality evidence and a provider-reported zero. Reservation estimates never
+// enter this helper.
+func AppendMeasuredBillingDimensions(other map[string]interface{}, usage *dto.Usage) {
+	if other == nil || usage == nil {
+		return
+	}
+	if usage.ImageOutputUsageSource != "" {
+		other["image_output_usage_source"] = usage.ImageOutputUsageSource
+	}
+	details, status := usage.PromptTokensDetails.ValidatedCachedTokenDetails(usage.PromptTokens)
+	other["cache_read_details_status"] = status
+	if status == dto.CacheReadDetailsReported {
+		other["cache_text_tokens"] = details.TextTokens
+		other["cache_image_tokens"] = details.ImageTokens
+		other["cache_audio_tokens"] = details.AudioTokens
+	}
+	if usage.AudioSeconds != nil {
+		seconds := *usage.AudioSeconds
+		if seconds >= 0 && !math.IsNaN(seconds) && !math.IsInf(seconds, 0) {
+			other["audio_seconds"] = seconds
+		}
+	}
+}
 
 // attachQuotaSaturationToOther nests a quota saturation marker under
 // other.admin_info.quota_saturation. Nesting under admin_info makes it
@@ -57,7 +84,28 @@ func AttachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 	attachQuotaSaturation(ctx, relayInfo, other)
 }
 
+// AppendLegacyPricingBasis labels raw stored/logged money; settlement and
+// expression snapshots retain their calibrated legacy units.
+func AppendLegacyPricingBasis(other map[string]interface{}, creditsPerUnit float64) {
+	if other == nil {
+		return
+	}
+	other["pricing_schema_version"] = 2
+	other["pricing_currency"] = "legacy_pricing_unit"
+	other["pricing_currency_basis"] = "legacy_pricing_unit"
+	if math.IsNaN(creditsPerUnit) || math.IsInf(creditsPerUnit, 0) || creditsPerUnit <= 0 {
+		return
+	}
+	other["pricing_unit_credits_per_unit"] = creditsPerUnit
+	if anchor, err := common.CreditsPerUSD(); err == nil {
+		other["pricing_credits_per_usd"] = anchor.InexactFloat64()
+		other["billing_expr_usd_multiplier"] = decimal.NewFromFloat(creditsPerUnit).DivRound(anchor, 64).InexactFloat64()
+		other["model_ratio_usd_per_million_multiplier"] = decimal.NewFromInt(1_000_000).DivRound(anchor, 64).InexactFloat64()
+	}
+}
+
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	AppendLegacyPricingBasis(other, common.QuotaPerUnit)
 	if other == nil {
 		return
 	}
@@ -86,6 +134,15 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["cache_ratio"] = cacheRatio
 	other["model_price"] = modelPrice
 	other["user_group_ratio"] = userGroupRatio
+	if relayInfo.SystemOneUsageStatus != "" {
+		other["systemone_usage_status"] = relayInfo.SystemOneUsageStatus
+		other["output_tokens_free"] = true
+		if relayInfo.SystemOneUsageStatus == "invalid" {
+			other["usage_estimated"] = true
+			other["usage_estimate_basis"] = "typesafe_context_reservation"
+			other["usage_estimate_token_budget"] = dto.SystemOneMaxInputTokens
+		}
+	}
 	other["frt"] = float64(relayInfo.FirstResponseTime.UnixMilli() - relayInfo.StartTime.UnixMilli())
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
@@ -116,6 +173,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 
 	other["admin_info"] = adminInfo
+	AppendResponseModelLogInfo(relayInfo, other)
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
@@ -123,6 +181,14 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
 	return other
+}
+
+// AppendResponseModelLogInfo is diagnostic only and writes names, never a stored
+// mismatch decision. Old rows are evaluated by the current UI comparison rule.
+func AppendResponseModelLogInfo(info *relaycommon.RelayInfo, other map[string]interface{}) {
+	if info != nil && other != nil && info.ResponseModel.Useful() {
+		other["response_model"] = *info.ResponseModel
+	}
 }
 
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
@@ -322,7 +388,11 @@ func InjectTieredBillingInfo(other map[string]interface{}, relayInfo *relaycommo
 	if snap == nil {
 		return
 	}
+	AppendLegacyPricingBasis(other, snap.QuotaPerUnit)
+	other["billing_expr_currency_basis"] = "legacy_pricing_unit"
+	other["expr_hash"] = snap.ExprHash
 	other["billing_mode"] = "tiered_expr"
+	other["billing_price_key"] = snap.ModelName
 	other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
 	if result != nil {
 		other["matched_tier"] = result.MatchedTier

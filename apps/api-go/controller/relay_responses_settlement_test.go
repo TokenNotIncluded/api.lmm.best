@@ -49,6 +49,15 @@ func TestResponsesRelayPartialSettlement(t *testing.T) {
 		{"cancelled_unknown", "data: {\"type\":\"response.cancelled\",\"response\":{\"status\":\"cancelled\"}}\n\n", false, 0, "response.cancelled"},
 		{"failed_input_usage", "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":0,\"total_tokens\":100}}}\n\n", true, 100, "response.failed"},
 		{"failed_text", "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello world\"}\n\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\"}}\n\n", true, -1, "response.failed"},
+		{"fallback_refusal_eof", "data: {\"type\":\"response.refusal.delta\",\"delta\":\"hello world\"}\n\n", true, -1, "response.failed"},
+		{"fallback_terminal_text", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello world\"}]}]}}\n\n", true, -1, "response.completed"},
+		{"fallback_terminal_refusal", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"hello world\"}]}]}}\n\n", true, -1, "response.completed"},
+		{"fallback_terminal_function", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"arguments\":\"hello world\"}]}}\n\n", true, -1, "response.completed"},
+		{"fallback_terminal_reasoning", "data: {\"type\":\"response.done\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"hello world\"}]}]}}\n\n", true, -1, "response.done"},
+		{"fallback_delta_snapshot_not_duplicated", "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello world\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello world plus terminal snapshot\"}]}]}}\n\n", true, -1, "response.completed"},
+		{"terminal_zero_usage_overrides_output", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"total_tokens\":0},\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello world\"}]}]}}\n\n", false, 0, "response.completed"},
+		{"terminal_error_output_is_not_estimated", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"error\":{\"code\":\"upstream_failed\"},\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello world\"}]}]}}\n\n", false, 0, "response.completed"},
+		{"flat_error_stops_before_later_usage", "data: {\"type\":\"error\",\"code\":\"upstream_failed\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":2,\"total_tokens\":102}}}\n\n", false, 0, "error"},
 		{"completed_failed_status", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"failed\"}}\n\n", false, 0, "response.completed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -141,6 +150,9 @@ func TestResponsesRelayPartialSettlement(t *testing.T) {
 			}
 			if tc.name == "incomplete_usage" {
 				require.Equal(t, 64, logs[0].CompletionTokens)
+			}
+			if strings.HasPrefix(tc.name, "fallback_") {
+				require.Equal(t, service.CountTextToken("hello world", drawingParityModel), logs[0].CompletionTokens)
 			}
 		})
 	}

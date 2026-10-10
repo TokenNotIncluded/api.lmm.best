@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
@@ -82,6 +83,12 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
+	if info.RelayFormat == types.RelayFormatOpenAIDecisions {
+		return ModelPriceDecisions(c, info, promptTokens)
+	}
+	if price, handled, err := modelPriceHelperServiceTier(c, info, promptTokens, meta); handled {
+		return price, err
+	}
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
@@ -174,6 +181,9 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			priceData.QuotaToPreConsume = quota
 		} else {
 			preConsumedTokens := common.Max(promptTokens, common.PreConsumedQuota)
+			if info.RelayFormat == types.RelayFormatSystemOne {
+				preConsumedTokens = promptTokens
+			}
 			if meta.MaxTokens != 0 {
 				preConsumedTokens += meta.MaxTokens
 			}
@@ -280,13 +290,19 @@ func HasModelBillingConfig(modelName string) bool {
 }
 
 func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo) (hosttypes.PriceData, error) {
-	exprStr, ok := billing_setting.GetBillingExpr(info.OriginModelName)
+	return modelPriceHelperTieredForKey(c, info, promptTokens, meta, groupRatioInfo, info.OriginModelName)
+}
+
+func modelPriceHelperTieredForKey(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo, priceKey string) (hosttypes.PriceData, error) {
+	exprStr, ok := billing_setting.GetBillingExpr(priceKey)
 	if !ok {
-		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
+		return hosttypes.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", priceKey)
 	}
 
 	estimatedCompletionTokens := meta.MaxTokens
-	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 {
+	if info.RelayFormat == types.RelayFormatOpenAIDecisions {
+		estimatedCompletionTokens = 0
+	} else if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 && info.RelayFormat != types.RelayFormatSystemOne && info.NativeVoiceReserveSeconds == 0 {
 		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
 	}
 
@@ -294,12 +310,26 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}
+	if info.RelayFormat == types.RelayFormatOpenAIDecisions {
+		if err := setDecisionsBillingHost(&requestInput, common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl)); err != nil {
+			return hosttypes.PriceData{}, err
+		}
+	}
 
-	rawCost, trace, err := billingexpr.RunExprWithRequest(exprStr, billingexpr.TokenParams{
-		P:   float64(promptTokens),
-		C:   float64(estimatedCompletionTokens),
-		Len: float64(promptTokens),
-	}, requestInput)
+	zeroCache := float64(0)
+	params := billingexpr.TokenParams{
+		P:       float64(promptTokens),
+		C:       float64(estimatedCompletionTokens),
+		Len:     float64(promptTokens),
+		CRText:  &zeroCache,
+		CRImg:   &zeroCache,
+		CRAudio: &zeroCache,
+	}
+	if info.NativeVoiceReserveSeconds > 0 {
+		seconds := info.NativeVoiceReserveSeconds
+		params.AudioSeconds = &seconds
+	}
+	rawCost, trace, err := billingexpr.RunExprWithRequest(exprStr, params, requestInput)
 	if err != nil {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", info.OriginModelName, err)
 	}
@@ -322,7 +352,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	exprHash := billingexpr.ExprHashString(exprStr)
 	snapshot := &billingexpr.BillingSnapshot{
 		BillingMode:               billing_setting.BillingModeTieredExpr,
-		ModelName:                 info.OriginModelName,
+		ModelName:                 priceKey,
 		ExprString:                exprStr,
 		ExprHash:                  exprHash,
 		GroupRatio:                groupRatioInfo.GroupRatio,

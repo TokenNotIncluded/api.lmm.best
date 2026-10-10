@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { ChangeEvent } from 'react'
-import { useWatch, type Resolver } from 'react-hook-form'
+import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { formatQuota } from '@/lib/format'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -54,6 +55,32 @@ const quotaSchema = z.object({
   QuotaForNewUser: z.coerce.number().min(0),
   PreConsumedQuota: z.coerce.number().min(0),
   QuotaForInviter: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  ReferralRegistrationRewardQuota: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER),
+  ReferralMinTopUpAmounts: z.string().refine((value) => {
+    try {
+      const amounts: unknown = JSON.parse(value)
+      if (!amounts || typeof amounts !== 'object' || Array.isArray(amounts)) {
+        return false
+      }
+      const entries = Object.entries(amounts)
+      return (
+        entries.length > 0 &&
+        entries.length <= 32 &&
+        entries.every(
+          ([currency, amount]) =>
+            /^[A-Z]{3}$/.test(currency) &&
+            /^(?:[0-9]{1,10})(?:\.[0-9]{1,6})?$/.test(String(amount)) &&
+            Number(amount) > 0
+        )
+      )
+    } catch {
+      return false
+    }
+  }, 'Use currency codes and positive amounts, for example {"USD":"10","CNY":"70"}.'),
   ReferralMinTopUpQuota: z.coerce
     .number()
     .int()
@@ -79,8 +106,7 @@ const quotaSchema = z.object({
     enable_free_model_pre_consume: z.boolean(),
   }),
   developer_access_setting: z.object({
-    paid_activation_enabled: z.boolean(),
-    paid_activation_min_amount: z.coerce.number().min(0),
+    invite_registration_enabled: z.boolean(),
   }),
 })
 
@@ -126,13 +152,6 @@ export function QuotaSettingsSection({
         }
       },
     })
-
-  // The threshold only means anything while a recharge is allowed to grant
-  // access on its own, so the input follows the switch.
-  const paidActivationEnabled = useWatch({
-    control: form.control,
-    name: 'developer_access_setting.paid_activation_enabled',
-  })
 
   return (
     <SettingsSection title={t('Quota Settings')}>
@@ -227,7 +246,7 @@ export function QuotaSettingsSection({
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Reward after the invited user’s first real paid top-up ({{formattedQuota}})',
+                      'Tail reward after the invited user’s first cash payment meets the minimum ({{formattedQuota}})',
                       {
                         formattedQuota: formatQuotaInputValue(field.value),
                       }
@@ -238,9 +257,42 @@ export function QuotaSettingsSection({
               )}
             />
 
+            <FormField
+              control={form.control}
+              name='ReferralMinTopUpAmounts'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Minimum first cash payment by currency')}
+                  </FormLabel>
+                  <FormControl>
+                    <Textarea
+                      {...field}
+                      rows={3}
+                      spellCheck={false}
+                      className='font-mono'
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             {(
               [
-                ['ReferralMinTopUpQuota', 'Minimum first top-up quota'],
+                [
+                  'ReferralRegistrationRewardQuota',
+                  'Registration advance reward (0 = disabled)',
+                ],
+                [
+                  'ReferralMinTopUpQuota',
+                  'Additional first top-up credit floor',
+                ],
                 [
                   'ReferralMaxRewardQuota',
                   'Maximum referral reward quota (0 = no additional cap)',
@@ -323,16 +375,16 @@ export function QuotaSettingsSection({
             <SettingsFormGridItem span='full'>
               <FormField
                 control={form.control}
-                name='developer_access_setting.paid_activation_enabled'
+                name='developer_access_setting.invite_registration_enabled'
                 render={({ field }) => (
                   <SettingsSwitchItem>
                     <SettingsSwitchContent>
                       <FormLabel>
-                        {t('Let a recharge unlock the console')}
+                        {t('Grant L1 when registering through an invitation')}
                       </FormLabel>
                       <FormDescription>
                         {t(
-                          'When enabled, an account that has paid at least the amount below reaches L1 without waiting for a manual review. Turning this off sends every account through review.'
+                          'When enabled, new accounts registered through a valid invitation link receive L1 automatically. Existing accounts are not upgraded.'
                         )}
                       </FormDescription>
                     </SettingsSwitchContent>
@@ -347,37 +399,6 @@ export function QuotaSettingsSection({
                 )}
               />
             </SettingsFormGridItem>
-
-            <FormField
-              control={form.control}
-              name='developer_access_setting.paid_activation_min_amount'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    {t('Recharge required to reach L1 (USD)')}
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      step={0.01}
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                      disabled={!paidActivationEnabled}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Cumulative credited amount from successful real-money recharges. Set it to 0 to let any successful recharge qualify.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
             <SettingsFormGridItem span='full'>
               <FormField

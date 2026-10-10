@@ -228,6 +228,13 @@ type Usage struct {
 	UsageSemantic        string        `json:"usage_semantic,omitempty"`
 	UsageSource          string        `json:"usage_source,omitempty"`
 	BillingUsage         *BillingUsage `json:"billing_usage,omitempty"`
+	// AudioSeconds is measured billable audio duration. Nil is unknown, while
+	// a non-nil zero explicitly reports no duration. Protocol collectors set
+	// this from upstream usage events, never from connection wall-clock time.
+	AudioSeconds *float64 `json:"audio_seconds,omitempty"`
+	// ImageOutputUsageSource records protocol-level normalization internally.
+	// It is not an upstream JSON field and must never manufacture provider details.
+	ImageOutputUsageSource string `json:"-"`
 
 	PromptTokensDetails    InputTokenDetails   `json:"prompt_tokens_details"`
 	CompletionTokenDetails OutputTokenDetails  `json:"completion_tokens_details"`
@@ -257,6 +264,10 @@ type OpenAIVideoResponse struct {
 type InputTokenDetails struct {
 	CachedTokens         int `json:"cached_tokens"`
 	CachedCreationTokens int `json:"cached_creation_tokens,omitempty"`
+	// Nil means the upstream did not classify cache reads. An explicit empty
+	// object reports zero in every modality; never infer these counts from a
+	// request or from the aggregate cached_tokens value.
+	CachedTokensDetails *CachedTokenDetails `json:"cached_tokens_details,omitempty"`
 	// CacheWriteTokens is OpenAI's native cache-write count, reported as
 	// prompt_tokens_details.cache_write_tokens (Chat Completions) or
 	// input_tokens_details.cache_write_tokens (Responses). It is billed at the
@@ -265,6 +276,85 @@ type InputTokenDetails struct {
 	TextTokens       int `json:"text_tokens"`
 	AudioTokens      int `json:"audio_tokens"`
 	ImageTokens      int `json:"image_tokens"`
+}
+
+// CachedTokenDetails is an optional upstream cache-read breakdown. The Images
+// API does not currently document this field, but other OpenAI-compatible
+// protocols can report it. Preserve the raw counts even when inconsistent;
+// billing must use ValidatedCachedTokenDetails before pricing the modalities.
+type CachedTokenDetails struct {
+	TextTokens  int `json:"text_tokens"`
+	ImageTokens int `json:"image_tokens"`
+	AudioTokens int `json:"audio_tokens"`
+}
+
+const (
+	CacheReadDetailsUnknown            = "unknown"
+	CacheReadDetailsReported           = "reported"
+	CacheReadDetailsInvalid            = "invalid"
+	ImageOutputUsageSourceImagesTokens = "openai_images_output_tokens"
+)
+
+// ValidatedCachedTokenDetails returns only a complete, bounded upstream
+// breakdown. promptTokens is the inclusive input token total (not Claude's
+// text-only input count). Unknown and invalid are distinct from measured zero.
+// The raw DTO is left untouched so client responses retain upstream evidence.
+func (d InputTokenDetails) ValidatedCachedTokenDetails(promptTokens int) (CachedTokenDetails, string) {
+	if d.CachedTokensDetails == nil {
+		return CachedTokenDetails{}, CacheReadDetailsUnknown
+	}
+	cached := *d.CachedTokensDetails
+	invalid := func() (CachedTokenDetails, string) {
+		return CachedTokenDetails{}, CacheReadDetailsInvalid
+	}
+	if promptTokens < 0 || d.CachedTokens < 0 || d.CachedTokens > promptTokens ||
+		d.TextTokens < 0 || d.ImageTokens < 0 || d.AudioTokens < 0 {
+		return invalid()
+	}
+	inputRemaining := promptTokens
+	for _, tokens := range []int{d.TextTokens, d.ImageTokens, d.AudioTokens} {
+		if tokens > inputRemaining {
+			return invalid()
+		}
+		inputRemaining -= tokens
+	}
+	// Subtract rather than sum to avoid integer overflow in hostile counters.
+	remaining := d.CachedTokens
+	for _, tokens := range []int{cached.TextTokens, cached.ImageTokens, cached.AudioTokens} {
+		if tokens < 0 || tokens > remaining {
+			return invalid()
+		}
+		remaining -= tokens
+	}
+	if remaining != 0 || cached.ImageTokens > d.ImageTokens || cached.AudioTokens > d.AudioTokens {
+		return invalid()
+	}
+	textLimit := d.TextTokens
+	if textLimit == 0 {
+		// Some protocols omit text_tokens, but report inclusive prompt_tokens
+		// and media counts. This bounds observed text cache without inventing it.
+		textLimit = promptTokens
+		for _, tokens := range []int{d.ImageTokens, d.AudioTokens} {
+			if tokens >= textLimit {
+				textLimit = 0
+			} else {
+				textLimit -= tokens
+			}
+		}
+	}
+	if cached.TextTokens > textLimit {
+		return invalid()
+	}
+	return cached, CacheReadDetailsReported
+}
+
+// CloneInputTokenDetails detaches optional nested upstream measurements.
+func CloneInputTokenDetails(details InputTokenDetails) InputTokenDetails {
+	if details.CachedTokensDetails != nil {
+		cached := *details.CachedTokensDetails
+		details.CachedTokensDetails = &cached
+	}
+	return details
 }
 
 // CacheCreationTokensTotal returns the cache-write token count regardless of

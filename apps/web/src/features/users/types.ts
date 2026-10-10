@@ -45,6 +45,8 @@ export const userSchema = z.object({
   email: z.string().optional(),
   quota: z.number(),
   used_quota: z.number(),
+  normalized_used_quota: z.number().nullable().optional(),
+  usage_projection_available: z.boolean().optional(),
   request_count: z.number(),
   group: z.string(),
   aff_code: z.string().optional(),
@@ -79,10 +81,35 @@ export const userSchema = z.object({
       updated_at: z.number(),
     })
     .optional(),
+  wallet_risk: z
+    .object({
+      score: z.number(),
+      high_risk: z.boolean(),
+      version: z.number(),
+      reasons: z.array(z.string()),
+      checkin_quota: z.number(),
+      checkin_count: z.number(),
+      transferred_quota: z.number(),
+      pending_quota: z.number(),
+      received_quota: z.number(),
+      high_risk_senders: z.number(),
+      moderation_reviewed_count: z.number().int().nonnegative().optional(),
+      moderation_flagged_count: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
   topup_summary: z
     .object({
       quota: z.number(),
+      normalized_quota: z.number().int().nonnegative().optional(),
+      quota_projection_available: z.boolean().optional(),
       money_micros: z.number(),
+      settled_money_micros: z.number().int().nonnegative().optional(),
+      historical_money_micros: z.number().int().nonnegative().optional(),
+      settled_orders: z.number().int().nonnegative().optional(),
+      historical_orders: z.number().int().nonnegative().optional(),
+      payment_basis: z
+        .enum(['settled', 'historical', 'mixed', 'none'])
+        .optional(),
       currency: z.string().optional(),
       orders: z.number(),
       methods: z.array(
@@ -91,7 +118,16 @@ export const userSchema = z.object({
           provider: z.string().optional(),
           settlement_currency: z.string().optional(),
           quota: z.number(),
+          normalized_quota: z.number().int().nonnegative().optional(),
+          quota_projection_available: z.boolean().optional(),
           money_micros: z.number(),
+          settled_money_micros: z.number().int().nonnegative().optional(),
+          historical_money_micros: z.number().int().nonnegative().optional(),
+          settled_orders: z.number().int().nonnegative().optional(),
+          historical_orders: z.number().int().nonnegative().optional(),
+          payment_basis: z
+            .enum(['settled', 'historical', 'mixed', 'none'])
+            .optional(),
           orders: z.number(),
         })
       ),
@@ -123,10 +159,25 @@ export type UserSortBy =
   | 'topup_quota'
   | 'topup_money'
   | 'assistant_violations'
+  | 'risk_score'
+  | 'transferred_quota'
+  | 'received_quota'
+  | 'checkin_quota'
+  | 'used_quota'
+  | 'request_count'
 
 export type UserSortOrder = 'asc' | 'desc'
 
-export interface GetUsersParams {
+export interface UserActivityFilters {
+  risk_min?: number
+  risk_max?: number
+  transfers?: 'sent' | 'received' | 'none'
+  usage?: 'zero' | 'consumed'
+  funding?: 'paid' | 'unpaid'
+  checkin?: 'yes' | 'no'
+}
+
+export interface GetUsersParams extends UserActivityFilters {
   p?: number
   page_size?: number
   trust_level?: number
@@ -145,7 +196,7 @@ export interface GetUsersResponse {
   }
 }
 
-export interface SearchUsersParams {
+export interface SearchUsersParams extends UserActivityFilters {
   keyword?: string
   group?: string
   role?: string

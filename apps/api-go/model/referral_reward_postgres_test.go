@@ -147,3 +147,37 @@ func TestReferralPostgresLedgerFailureRollsBackPayment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1_000_000, referralUser(t, db, inviter.Id).AffQuota)
 }
+
+func TestReferralStagesPostgresConcurrentCallbacks(t *testing.T) {
+	db, _, inviter, _, order, payment := setupReferralPostgresTest(t)
+	common.OptionMap["ReferralRegistrationRewardQuota"] = "100"
+	invitee := registerReferralStageInvitee(t, db, inviter, "pg-staged")
+	order.UserId = invitee.Id
+	require.NoError(t, db.Save(&order).Error)
+	second := nextReferralPayment(t, db, order, payment, "pg-staged-second")
+	results := make(chan error, 4)
+	var workers sync.WaitGroup
+	for _, p := range []ExternalTopUpSettlement{payment, second, payment, second} {
+		workers.Add(1)
+		go func(p ExternalTopUpSettlement) {
+			defer workers.Done()
+			_, err := completeExternalTopUpOnDB(db.Session(&gorm.Session{NewDB: true}), p)
+			results <- err
+		}(p)
+	}
+	workers.Wait()
+	close(results)
+	for err := range results {
+		require.NoError(t, err)
+	}
+	require.Equal(t, 1_000_100, referralUser(t, db, inviter.Id).AffQuota)
+	var count int64
+	require.NoError(t, db.Model(&ReferralLedgerEntry{}).Count(&count).Error)
+	require.EqualValues(t, 2, count)
+}
+
+func TestReferralStagesPostgresUpgrade(t *testing.T) {
+	usePostgresDatabaseType(t)
+	db := openIsolatedPostgresCacheTestDB(t, &referralRequiredOrderFixture{})
+	checkReferralStagesUpgrade(t, db)
+}

@@ -16,12 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Info } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
 
 type AccessRestrictionNoticeProps = {
   className?: string
+  compact?: boolean
+  children?: React.ReactNode
 }
 
 const PROJECT_LINKS = {
@@ -33,7 +36,7 @@ const PROJECT_LINKS = {
 export function AccessRestrictionNotice(props: AccessRestrictionNoticeProps) {
   const { t } = useTranslation()
 
-  return (
+  const content = (
     <aside
       role='note'
       className={cn(
@@ -80,5 +83,18 @@ export function AccessRestrictionNotice(props: AccessRestrictionNoticeProps) {
         {t('Changelog')}
       </a>
     </aside>
+  )
+  if (!props.compact) return content
+  return (
+    <details className='console-service-notice shrink-0'>
+      <summary>
+        <Info aria-hidden='true' className='console-service-icon' />
+        <span>{t('Service information')}</span>
+      </summary>
+      <div className='console-service-notice-content'>
+        {content}
+        {props.children}
+      </div>
+    </details>
   )
 }

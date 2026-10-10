@@ -132,7 +132,7 @@ async fn observability_read_router_mounts_the_storage_only_surface() {
             .headers()
             .get("auth-version")
             .and_then(|value| value.to_str().ok()),
-        Some("864b7076dbcd0a3c01b5520316720ebf")
+        Some(lmm_api_rs::auth_version::AUTH_VERSION)
     );
 }
 

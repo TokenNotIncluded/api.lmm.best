@@ -1,10 +1,13 @@
 //! PostgreSQL-authoritative implementation of the legacy `GET /api/status` contract.
 
-use crate::auth::DashboardAuth;
+use crate::{
+    auth::DashboardAuth,
+    public_credit_units::{CreditDenominationMetadata, PublicCreditDenomination},
+};
 use async_trait::async_trait;
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::{Serialize, Serializer};
@@ -213,7 +216,7 @@ impl StatusHttpState {
     }
 
     pub async fn response_with_authorization(&self, _authorization: Option<&str>) -> Response {
-        match self.repository.snapshot().await {
+        let mut response = match self.repository.snapshot().await {
             Ok(snapshot) => {
                 let mut data = StatusData::from_snapshot(snapshot, &self.version, self.start_time);
                 if self.turnstile_enabled {
@@ -237,7 +240,11 @@ impl StatusHttpState {
                 }),
             )
                 .into_response(),
-        }
+        };
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        response
     }
 }
 
@@ -280,6 +287,11 @@ struct StatusData {
     docs_link: String,
     #[serde(serialize_with = "serialize_legacy_number")]
     quota_per_unit: f64,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    credit_units: Option<CreditDenominationMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    credits_per_usd: Option<f64>,
+    public_credit_status: &'static str,
     display_in_currency: bool,
     quota_display_type: String,
     custom_currency_symbol: String,
@@ -355,6 +367,17 @@ where
 
 impl StatusData {
     fn from_snapshot(snapshot: StatusSnapshot, version: &str, start_time: i64) -> Self {
+        let credit_units = PublicCreditDenomination::from_options(&snapshot.options)
+            .ok()
+            .map(|units| units.metadata().clone());
+        let credits_per_usd = credit_units
+            .as_ref()
+            .map(|units| units.ledger_quota_per_usd);
+        let public_credit_status = if credit_units.is_some() {
+            "available"
+        } else {
+            "unavailable"
+        };
         let options = Options(snapshot.options);
         let server_address = options.string("ServerAddress", DEFAULT_SERVER_ADDRESS);
         let quota_display_type = options.quota_display_type();
@@ -406,6 +429,9 @@ impl StatusData {
             0.0
         };
         Self {
+            credit_units,
+            credits_per_usd,
+            public_credit_status,
             version: version.to_owned(),
             start_time,
             email_verification: options.boolean("EmailVerificationEnabled", false),
@@ -602,6 +628,7 @@ mod tests {
         // historical provider-specific value in the frozen fixture.
         expected["data"]["price"] = json!(7.3_f64);
         expected["data"]["stripe_unit_price"] = json!(1.0_f64 / 7.3_f64);
+        expected["data"]["public_credit_status"] = json!("unavailable");
         assert_eq!(actual, expected);
         Ok(())
     }
@@ -625,10 +652,161 @@ mod tests {
         .response()
         .await;
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body: Value = serde_json::from_slice(&body)?;
         assert_eq!(body["success"], false);
         assert_eq!(body["message"], "系统状态暂时不可用");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn status_http_refreshes_fixed_units_without_cacheable_responses() -> TestResult {
+        use axum::{Router, body::Body, extract::State, http::Request, routing::get};
+        use std::sync::RwLock;
+        use tower::ServiceExt;
+
+        struct ChangingStatusRepository(RwLock<Option<StatusSnapshot>>);
+        #[async_trait]
+        impl StatusRepository for ChangingStatusRepository {
+            async fn snapshot(&self) -> Result<StatusSnapshot, StatusRepositoryError> {
+                self.0
+                    .read()
+                    .map_err(|_| StatusRepositoryError)?
+                    .clone()
+                    .ok_or(StatusRepositoryError)
+            }
+        }
+        let mut snapshot = default_snapshot();
+        snapshot.options.extend(BTreeMap::from([
+            ("CreditsPerUSD".to_owned(), "500000".to_owned()),
+            ("LegacyPricingQuotaPerUnit".to_owned(), "500000".to_owned()),
+            ("QuotaPerUnit".to_owned(), "500000".to_owned()),
+        ]));
+        let repository = Arc::new(ChangingStatusRepository(RwLock::new(Some(
+            snapshot.clone(),
+        ))));
+        let app = Router::new()
+            .route(
+                "/api/status",
+                get(|State(state): State<StatusHttpState>| async move { state.response().await }),
+            )
+            .with_state(StatusHttpState::new(repository.clone(), DEFAULT_VERSION, 0));
+        for (public, available) in [
+            ("500000", true),
+            ("100000", false),
+            ("200000", false),
+            ("500000", true),
+        ] {
+            snapshot
+                .options
+                .insert("PublicCreditsPerUSD".to_owned(), public.to_owned());
+            *repository
+                .0
+                .write()
+                .map_err(|_| "status fixture lock failed")? = Some(snapshot.clone());
+            let response = app
+                .clone()
+                .oneshot(Request::get("/api/status").body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            let body: Value = serde_json::from_slice(
+                &axum::body::to_bytes(response.into_body(), usize::MAX).await?,
+            )?;
+            assert_eq!(body["success"], true);
+            if available {
+                assert_eq!(body["data"]["public_credit_status"], "available");
+                assert_eq!(body["data"]["public_credits_per_usd_exact"], "500000");
+                assert_eq!(body["data"]["ledger_quota_per_usd_exact"], "500000");
+                assert_eq!(body["data"]["credits_per_usd"], 500000.0);
+            } else {
+                assert_eq!(body["data"]["public_credit_status"], "unavailable");
+                for field in [
+                    "credit_unit_schema_version",
+                    "public_credits_per_usd",
+                    "public_credits_per_usd_exact",
+                    "ledger_quota_per_usd",
+                    "ledger_quota_per_usd_exact",
+                    "credits_per_usd",
+                ] {
+                    assert!(body["data"].get(field).is_none(), "{field}");
+                }
+            }
+        }
+        *repository
+            .0
+            .write()
+            .map_err(|_| "status fixture lock failed")? = None;
+        let response = app
+            .oneshot(Request::get("/api/status").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body: Value =
+            serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+        assert_eq!(body["success"], false);
+        assert!(body.get("data").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn public_credit_metadata_preserves_legacy_ledger_alias_and_frozen_snapshot() -> TestResult {
+        let mut snapshot = default_snapshot();
+        snapshot.options.extend(BTreeMap::from([
+            ("CreditsPerUSD".to_owned(), "500000".to_owned()),
+            ("LegacyPricingQuotaPerUnit".to_owned(), "500000".to_owned()),
+            ("QuotaPerUnit".to_owned(), "500000".to_owned()),
+            ("PublicCreditsPerUSD".to_owned(), "500000".to_owned()),
+        ]));
+        let first = StatusData::from_snapshot(snapshot.clone(), DEFAULT_VERSION, 0);
+        let mut changed_snapshot = snapshot.clone();
+        changed_snapshot
+            .options
+            .insert("PublicCreditsPerUSD".to_owned(), "200000".to_owned());
+        let second = serde_json::to_value(StatusData::from_snapshot(
+            changed_snapshot,
+            DEFAULT_VERSION,
+            0,
+        ))?;
+        let first = serde_json::to_value(first)?;
+        assert_eq!(first["public_credit_status"], "available");
+        assert_eq!(first["credits_per_usd"], 500000.0);
+        assert_eq!(first["ledger_quota_per_usd_exact"], "500000");
+        assert_eq!(first["public_credits_per_usd_exact"], "500000");
+        assert_eq!(first["public_credits_per_usd"], 500000);
+        assert_eq!(first["ledger_quota_per_usd"], 500000);
+        assert_eq!(second["public_credit_status"], "unavailable");
+        assert!(second.get("public_credits_per_usd_exact").is_none());
+        assert!(second.get("credits_per_usd").is_none());
+        for (key, value) in [
+            ("CreditsPerUSD", "3359744"),
+            ("LegacyPricingQuotaPerUnit", "100000"),
+            ("QuotaPerUnit", "100000"),
+            ("PublicCreditsPerUSD", "100000"),
+            ("PublicCreditsPerUSD", "1.5"),
+        ] {
+            let mut invalid_snapshot = snapshot.clone();
+            invalid_snapshot
+                .options
+                .insert(key.to_owned(), value.to_owned());
+            let invalid = serde_json::to_value(StatusData::from_snapshot(
+                invalid_snapshot,
+                DEFAULT_VERSION,
+                0,
+            ))?;
+            assert_eq!(invalid["public_credit_status"], "unavailable", "{key}");
+            for field in [
+                "credit_unit_schema_version",
+                "public_credits_per_usd",
+                "public_credits_per_usd_exact",
+                "ledger_quota_per_usd",
+                "ledger_quota_per_usd_exact",
+                "credits_per_usd",
+            ] {
+                assert!(invalid.get(field).is_none(), "{key}: {field}");
+            }
+        }
         Ok(())
     }
 

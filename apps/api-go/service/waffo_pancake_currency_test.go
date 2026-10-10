@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/paymentpricing"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
@@ -87,33 +88,69 @@ func TestWaffoPancakeIsUnsupportedProductCurrency(t *testing.T) {
 	require.False(t, WaffoPancakeIsUnsupportedProductCurrency(errors.New("connection reset")))
 }
 
-func TestWaffoPancakeOneTimePricesUseLiveFiatRates(t *testing.T) {
+func installWaffoPancakeCreditCurrencyFixture(t *testing.T) {
+	t.Helper()
+	originalQuotaPerUnit := common.QuotaPerUnit
+	originalAnchor, originalAnchorErr := common.CreditsPerUSD()
+	originalLegacy, originalLegacyErr := common.LegacyPricingQuotaPerUnit()
 	originalFX := operation_setting.USDExchangeRate
 	originalUnits := operation_setting.TopUpPlatformUnitsPerCNY
 	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
 		operation_setting.USDExchangeRate = originalFX
 		operation_setting.TopUpPlatformUnitsPerCNY = originalUnits
+		if originalAnchorErr != nil {
+			common.ClearCreditsPerUSD()
+			return
+		}
+		require.NoError(t, originalLegacyErr)
+		require.NoError(t, common.SetCreditCurrencyBasis(originalAnchor, originalLegacy))
 	})
-	operation_setting.USDExchangeRate = 7.2
-	operation_setting.TopUpPlatformUnitsPerCNY = 1.25
-	amount := decimal.RequireFromString("2")
-	prices, err := waffoPancakeOneTimePrices(amount)
-	require.NoError(t, err)
-	require.Equal(t, "2.00", prices["USD"].Amount)
-	require.Equal(t, "14.40", prices["CNY"].Amount)
+	common.QuotaPerUnit = 500000
+	require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(500000), decimal.NewFromInt(500000)))
+}
+
+func TestWaffoPancakeOneTimePricesUseLiveFiatRates(t *testing.T) {
+	installWaffoPancakeCreditCurrencyFixture(t)
+	for _, tc := range []struct {
+		name    string
+		fx      float64
+		bonus   float64
+		wantCNY string
+	}{
+		{name: "original cash quote", fx: 7.2, bonus: 1.25, wantCNY: "14.40"},
+		{name: "new FX without repricing USD or applying bonus", fx: 8, bonus: 99, wantCNY: "16.00"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation_setting.USDExchangeRate = tc.fx
+			operation_setting.TopUpPlatformUnitsPerCNY = tc.bonus
+			// A real USD 2 source price remains USD 2 when FX or bonuses change.
+			prices, err := waffoPancakeOneTimePrices(decimal.NewFromInt(2))
+			require.NoError(t, err)
+			require.Equal(t, "2.00", prices["USD"].Amount)
+			require.Equal(t, tc.wantCNY, prices["CNY"].Amount)
+		})
+	}
 }
 
 func TestWaffoPancakeOneTimePricesPreserveSourceCurrencyPrecision(t *testing.T) {
-	originalFX := operation_setting.USDExchangeRate
-	originalUnits := operation_setting.TopUpPlatformUnitsPerCNY
-	t.Cleanup(func() {
-		operation_setting.USDExchangeRate = originalFX
-		operation_setting.TopUpPlatformUnitsPerCNY = originalUnits
-	})
-	operation_setting.USDExchangeRate = 6.730863
-	operation_setting.TopUpPlatformUnitsPerCNY = 1
-	prices, err := waffoPancakeOneTimePricesForCurrency(decimal.RequireFromString("159"), paymentpricing.CurrencyCNY)
-	require.NoError(t, err)
-	require.Equal(t, "159.00", prices["CNY"].Amount)
-	require.Equal(t, "23.62", prices["USD"].Amount)
+	installWaffoPancakeCreditCurrencyFixture(t)
+	for _, tc := range []struct {
+		name    string
+		fx      float64
+		bonus   float64
+		wantUSD string
+	}{
+		{name: "original precise CNY charge", fx: 6.730863, bonus: 1, wantUSD: "23.62"},
+		{name: "new FX retains the original CNY charge", fx: 8, bonus: 99, wantUSD: "19.88"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operation_setting.USDExchangeRate = tc.fx
+			operation_setting.TopUpPlatformUnitsPerCNY = tc.bonus
+			prices, err := waffoPancakeOneTimePricesForCurrency(decimal.NewFromInt(159), paymentpricing.CurrencyCNY)
+			require.NoError(t, err)
+			require.Equal(t, "159.00", prices["CNY"].Amount)
+			require.Equal(t, tc.wantUSD, prices["USD"].Amount)
+		})
+	}
 }

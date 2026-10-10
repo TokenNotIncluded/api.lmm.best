@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/internal/marketprovider"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -46,6 +47,7 @@ type ToolMarketVersion struct {
 	AllowedUsers     string `json:"-" gorm:"type:text"`
 	Digest           string `json:"digest" gorm:"size:64;not null"`
 	ValidationDigest string `json:"-" gorm:"size:64"`
+	AIReviewToken    string `json:"-" gorm:"type:varchar(36);not null;default:''"`
 	ReviewedBy       int    `json:"reviewed_by"`
 	ReviewNote       string `json:"review_note" gorm:"size:1000"`
 	CreatedAt        int64  `json:"created_at"`
@@ -60,14 +62,21 @@ type ToolMarketTool struct {
 }
 
 type ToolMarketToolVersion struct {
-	VersionID    string `json:"version_id" gorm:"primaryKey;size:36"`
-	ToolID       string `json:"tool_id" gorm:"primaryKey;size:36"`
-	Name         string `json:"name" gorm:"size:128;not null"`
-	Description  string `json:"description" gorm:"type:text"`
-	InputSchema  string `json:"input_schema" gorm:"type:text"`
-	OutputSchema string `json:"output_schema" gorm:"type:text"`
-	Permissions  string `json:"permissions" gorm:"type:text"`
-	PriceQuota   int    `json:"price_quota" gorm:"not null"`
+	ProviderPricing          *marketprovider.Pricing `json:"provider_pricing,omitempty" gorm:"serializer:json;type:text"`
+	VersionID                string                  `json:"version_id" gorm:"primaryKey;size:36"`
+	ToolID                   string                  `json:"tool_id" gorm:"primaryKey;size:36"`
+	Name                     string                  `json:"name" gorm:"size:128;not null"`
+	Description              string                  `json:"description" gorm:"type:text"`
+	InputSchema              string                  `json:"input_schema" gorm:"type:text"`
+	OutputSchema             string                  `json:"output_schema" gorm:"type:text"`
+	Permissions              string                  `json:"permissions" gorm:"type:text"`
+	PriceQuota               int                     `json:"price_quota" gorm:"not null"`
+	BillingMode              string                  `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
+	InputTokenPriceQuota     int                     `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
+	MaxInputTokens           int                     `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
+	BillingRules             []ToolMarketBillingRule `json:"billing_rules,omitempty" gorm:"serializer:json;type:text"`
+	AvailableMeteringMetrics []string                `json:"available_metering_metrics,omitempty" gorm:"-"`
+
 	RemoteDigest string `json:"-" gorm:"size:64"`
 }
 
@@ -141,16 +150,21 @@ type ToolMarketEvent struct {
 func toolMarketModels() []interface{} {
 	return []interface{}{&ToolMarketService{}, &ToolMarketVersion{}, &ToolMarketTool{}, &ToolMarketToolVersion{}, &ToolMarketAccess{},
 		&ToolMarketFavorite{}, &ToolMarketInstallation{}, &ToolMarketGrant{}, &ToolMarketBudget{}, &ToolMarketConfig{},
-		&ToolMarketEvent{}, &ToolMarketCall{}, &ToolMarketTransfer{}, &ToolMarketResult{}, &ToolMarketToken{}}
+		&ToolMarketReport{}, &ToolMarketEvent{}, &ToolMarketCall{}, &ToolMarketTransfer{}, &ToolMarketResult{}, &ToolMarketToken{}, &ToolMarketBuiltinContinuation{}, &ToolMarketCredential{}}
 }
 
 type ToolMarketToolInput struct {
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	InputSchema  json.RawMessage `json:"input_schema"`
-	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
-	Permissions  []string        `json:"permissions"`
-	PriceQuota   int             `json:"price_quota"`
+	ProviderPricing      *marketprovider.Pricing `json:"provider_pricing,omitempty"`
+	Name                 string                  `json:"name"`
+	Description          string                  `json:"description"`
+	InputSchema          json.RawMessage         `json:"input_schema"`
+	OutputSchema         json.RawMessage         `json:"output_schema,omitempty"`
+	Permissions          []string                `json:"permissions"`
+	PriceQuota           int                     `json:"price_quota"`
+	BillingMode          string                  `json:"billing_mode,omitempty" gorm:"size:24;not null;default:''"`
+	InputTokenPriceQuota int                     `json:"input_token_price_quota,omitempty" gorm:"not null;default:0"`
+	MaxInputTokens       int                     `json:"max_input_tokens,omitempty" gorm:"not null;default:0"`
+	BillingRules         []ToolMarketBillingRule `json:"billing_rules,omitempty"`
 }
 
 type ToolMarketDraftInput struct {
@@ -258,15 +272,27 @@ func validateMarketDraft(in ToolMarketDraftInput) error {
 func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (*ToolMarketService, error) {
 	in.Tools = append([]ToolMarketToolInput(nil), in.Tools...)
 	for i := range in.Tools {
+		if err := normalizeToolMarketPricing(&in.Tools[i]); err != nil {
+			return nil, err
+		}
+
 		if strings.TrimSpace(string(in.Tools[i].OutputSchema)) == "null" {
 			in.Tools[i].OutputSchema = nil
+		}
+	}
+	for _, tool := range in.Tools {
+		if (tool.ProviderPricing != nil && in.ExecutionType != "remote") || marketprovider.ValidateTool(in.Endpoint, tool.Name, tool.ProviderPricing) != nil {
+			return nil, ErrToolMarketInput
+		}
+		if tool.BillingMode != "" && !marketDraftMeteringAllowed(serviceID, in.Endpoint, tool) {
+			return nil, ErrToolMarketMetering
 		}
 	}
 	if err := validateMarketDraft(in); err != nil {
 		return nil, err
 	}
 	var service ToolMarketService
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}
@@ -277,7 +303,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				return err
 			}
 		} else {
-			if err := lockForUpdate(tx).Where("id = ? AND owner_id = ?", serviceID, actor).First(&service).Error; err != nil {
+			if err := lockForUpdate(tx).Where("id = ? AND owner_id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, actor, ToolMarketServiceDeleted, toolMarketRetirementVersionID).First(&service).Error; err != nil {
 				return err
 			}
 			if service.DraftVersionID != "" {
@@ -287,6 +313,11 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				}
 				if prior.Status == "pending" {
 					return ErrToolMarketConflict
+				}
+				if prior.AIReviewToken != "" {
+					if err := invalidateMarketAIReview(tx, ModerationSourceMarketTool, service.ID, prior.AIReviewToken, "market_review_stale"); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -321,7 +352,7 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 				return err
 			}
 			permissions, _ := json.Marshal(input.Permissions)
-			tv := ToolMarketToolVersion{VersionID: version.ID, ToolID: tool.ID, Name: tool.Name, Description: input.Description, InputSchema: string(input.InputSchema), OutputSchema: string(input.OutputSchema), Permissions: string(permissions), PriceQuota: input.PriceQuota}
+			tv := ToolMarketToolVersion{ProviderPricing: input.ProviderPricing, VersionID: version.ID, ToolID: tool.ID, Name: tool.Name, Description: input.Description, InputSchema: string(input.InputSchema), OutputSchema: string(input.OutputSchema), Permissions: string(permissions), PriceQuota: input.PriceQuota, BillingMode: input.BillingMode, InputTokenPriceQuota: input.InputTokenPriceQuota, MaxInputTokens: input.MaxInputTokens, BillingRules: input.BillingRules}
 			if err := tx.Create(&tv).Error; err != nil {
 				return err
 			}
@@ -336,23 +367,34 @@ func SaveToolMarketDraft(actor int, serviceID string, in ToolMarketDraftInput) (
 }
 
 func SubmitToolMarketDraft(actor int, serviceID, versionID string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleCommonUser); err != nil {
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).Where("id = ? AND owner_id = ?", serviceID, actor).First(&service).Error; err != nil {
+		if err := lockForUpdate(tx).Where("id = ? AND owner_id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, actor, ToolMarketServiceDeleted, toolMarketRetirementVersionID).First(&service).Error; err != nil {
 			return err
 		}
 		if versionID == "" || service.DraftVersionID != versionID {
 			return ErrToolMarketConflict
 		}
-		q := tx.Model(&ToolMarketVersion{}).Where("id = ? AND status IN ?", versionID, []string{"draft", "rejected"}).Update("status", "pending")
+		var submitted ToolMarketVersion
+		if err := tx.Where("id = ? AND service_id = ?", versionID, serviceID).First(&submitted).Error; err != nil {
+			return err
+		}
+		if err := invalidateMarketAIReview(tx, ModerationSourceMarketTool, serviceID, submitted.AIReviewToken, "market_review_resubmitted"); err != nil {
+			return err
+		}
+		token := uuid.NewString()
+		q := tx.Model(&ToolMarketVersion{}).Where("id = ? AND status IN ?", versionID, []string{"draft", "rejected"}).Updates(map[string]any{"status": "pending", "ai_review_token": token})
 		if q.Error != nil {
 			return q.Error
 		}
 		if q.RowsAffected != 1 {
 			return ErrToolMarketConflict
+		}
+		if err := queueMarketAIReview(tx, ModerationSourceMarketTool, serviceID, versionID, token, actor, submitted.Visibility != "public"); err != nil {
+			return err
 		}
 		return marketEvent(tx, actor, serviceID, "draft.submit", map[string]string{"version_id": versionID})
 	})
@@ -365,25 +407,44 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 	if strings.TrimSpace(note) == "" || len(note) > 1000 {
 		return ErrToolMarketInput
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
+	return marketTransaction(DB, func(tx *gorm.DB) error {
 		if err := marketUser(tx, actor, common.RoleAdminUser); err != nil {
 			return err
 		}
 		var service ToolMarketService
-		if err := lockForUpdate(tx).First(&service, "id = ?", serviceID).Error; err != nil {
+		if err := lockForUpdate(tx).First(&service, "id = ? AND status <> ? AND COALESCE(draft_version_id, '') <> ?", serviceID, ToolMarketServiceDeleted, toolMarketRetirementVersionID).Error; err != nil {
 			return err
 		}
-		if service.DraftVersionID != versionID {
+		if service.OwnerID == 0 {
+			return ErrToolMarketDenied
+		}
+		// Enabled administrators, including root users, may review their own
+		// services. The role check and exact-version validation still apply.
+		var version ToolMarketVersion
+		if err := lockForUpdate(tx).First(&version, "id = ? AND service_id = ?", versionID, serviceID).Error; err != nil {
+			return err
+		}
+		aiOverride := version.ReviewedBy == 0 && marketAIReviewApplied(tx, ModerationSourceMarketTool, serviceID, version.AIReviewToken)
+		if (service.DraftVersionID != versionID || version.Status != "pending") && !(aiOverride && ((service.DraftVersionID == versionID && version.Status == "rejected") || (service.LiveVersionID == versionID && version.Status == "published"))) {
 			return ErrToolMarketConflict
 		}
-		var version ToolMarketVersion
-		if err := tx.First(&version, "id = ? AND service_id = ? AND status = ?", versionID, serviceID, "pending").Error; err != nil {
+		if err := invalidateMarketAIReview(tx, ModerationSourceMarketTool, serviceID, version.AIReviewToken, "market_review_manual_override"); err != nil {
 			return err
 		}
+		version.AIReviewToken = ""
 		version.Status, version.ReviewedBy, version.ReviewNote = "rejected", actor, note
 		if approve {
 			if version.ValidationDigest == "" || version.ValidationDigest != version.Digest {
 				return ErrToolMarketDenied
+			}
+			var tools []ToolMarketToolVersion
+			if err := tx.Where("version_id = ?", version.ID).Find(&tools).Error; err != nil {
+				return err
+			}
+			for _, tool := range tools {
+				if err := ValidateToolMarketMetering(service.ID, version, tool); err != nil {
+					return err
+				}
 			}
 			version.Status, version.PublishedAt = "published", common.GetTimestamp()
 			service.LiveVersionID, service.DraftVersionID = version.ID, ""
@@ -391,6 +452,15 @@ func ReviewToolMarketVersion(actor int, serviceID, versionID string, approve boo
 				service.Status = "published"
 			}
 			service.UpdatedAt = version.PublishedAt
+			if err := tx.Save(&service).Error; err != nil {
+				return err
+			}
+		} else if aiOverride && service.LiveVersionID == versionID {
+			service.LiveVersionID, service.DraftVersionID = "", versionID
+			if service.Status != "paused" && service.Status != "suspended" {
+				service.Status = "draft"
+			}
+			service.UpdatedAt = common.GetTimestamp()
 			if err := tx.Save(&service).Error; err != nil {
 				return err
 			}
@@ -442,6 +512,9 @@ func marketLiveTool(tx *gorm.DB, userID int, toolID, versionID string) (*ToolMar
 	}
 	var tool ToolMarketToolVersion
 	if err := tx.First(&tool, "version_id = ? AND tool_id = ?", versionID, toolID).Error; err != nil {
+		return nil, nil, err
+	}
+	if err := ValidateToolMarketMetering(service.ID, version, tool); err != nil {
 		return nil, nil, err
 	}
 	return &service, &tool, nil

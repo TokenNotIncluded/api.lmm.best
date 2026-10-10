@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { AuthArtPanel } from '@/features/auth/components/auth-art-panel'
 import { BOARD_SIZES, maxMoves } from '@/features/auth/components/signal-game'
+import { createQueryRetry } from '@/lib/query-retry'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getLeaderboard, getMyRecords } from './api'
@@ -60,7 +61,7 @@ export function SignalGamePage() {
     queryKey: ['signal-leaderboard', rankSize],
     queryFn: ({ signal }) => getLeaderboard(rankSize, undefined, signal),
     staleTime: 30000,
-    retry: 1,
+    retry: createQueryRetry(true, 1),
   })
   const mine = useQuery({
     queryKey: ['signal-records', user?.id],

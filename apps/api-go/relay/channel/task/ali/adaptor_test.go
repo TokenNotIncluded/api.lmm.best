@@ -11,7 +11,8 @@ import (
 
 func testRelayInfo() *relaycommon.RelayInfo {
 	return &relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{},
+		ChannelMeta:   &relaycommon.ChannelMeta{},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
 	}
 }
 

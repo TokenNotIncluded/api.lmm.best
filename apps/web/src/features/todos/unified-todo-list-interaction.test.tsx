@@ -129,6 +129,83 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('UnifiedTodoList interaction', () => {
+  test('lets an ordinary owner read a Moderation warning without administrator navigation', async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 20, username: 'customer', role: 1 })
+    const posts: Array<{ url: string; body: unknown }> = []
+    api.get = (async () => ({
+      data: {
+        success: true,
+        data: {
+          items: [
+            {
+              id: 'moderation:13',
+              source_id: 13,
+              category: 'moderation',
+              type: 'moderation_warning',
+              title: 'moderation.warning',
+              summary: 'A safety review found flagged user input.',
+              read: false,
+              created_at: 1_786_400_000,
+              updated_at: 1_786_400_000,
+              details: {
+                request_id: 'owner-request',
+                mode: 'tolerant',
+                categories: ['hate'],
+                charged_quota: 0,
+              },
+            },
+          ],
+          page: 1,
+          page_size: 50,
+          total: 1,
+          category: 'all',
+          unread_count: 1,
+          total_unread_count: 1,
+          unread_by_category: { moderation: 1 },
+          categories: [{ key: 'moderation', total: 1, unread: 1 }],
+        },
+      },
+    })) as typeof api.get
+    api.post = (async (url: string, body: unknown) => {
+      posts.push({ url, body })
+      return { data: { success: true, data: { marked: 1 } } }
+    }) as typeof api.post
+    const rendered = await renderList()
+    try {
+      const row = [...rendered.container.querySelectorAll('button')].find(
+        (candidate) => candidate.textContent?.includes('Safety review warning')
+      )
+      assert.ok(row)
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Moderation notifications/
+      )
+      assert.match(row.textContent ?? '', /owner-request/)
+      assert.match(row.textContent ?? '', /Tolerant mode/)
+      assert.equal(
+        [...rendered.container.querySelectorAll('button')].some(
+          (candidate) => candidate.textContent === 'Open'
+        ),
+        false
+      )
+      await act(async () => {
+        row.click()
+        await flushEffects()
+      })
+      await act(flushEffects)
+      assert.deepEqual(posts, [
+        {
+          url: '/api/todos/read',
+          body: { category: 'moderation', ids: [13], all: false },
+        },
+      ])
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
   test('marks a notification as read even when it has no destination', async () => {
     const posts: Array<{ url: string; body: unknown }> = []
     api.get = (async () => ({

@@ -61,8 +61,8 @@ export function SecureVerificationDialog({
 }: SecureVerificationDialogProps) {
   const { t } = useTranslation()
   const preferredMethods = useMemo(
-    () => getPreferredVerificationMethods(methods),
-    [methods]
+    () => getPreferredVerificationMethods(methods, state.scope),
+    [methods, state.scope]
   )
   const availableTabs: VerificationMethod[] = useMemo(() => {
     const tabs: VerificationMethod[] = []

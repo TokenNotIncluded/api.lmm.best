@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ListChecks, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -103,38 +104,127 @@ type SystemTasksTableProps = {
   tasks: SystemTask[]
 }
 
+/** Progress bar + percentage, shared by the desktop table and the mobile cards. */
+function TaskProgress(props: { task: SystemTask }) {
+  const progress = getProgress(props.task)
+
+  return (
+    <div className='flex items-center gap-2'>
+      <Progress
+        value={progress ?? 0}
+        className={cn('w-24', PROGRESS_BAR_CLASS_NAME[props.task.status])}
+      />
+      <span className='text-muted-foreground w-10 text-right text-xs tabular-nums'>
+        {progress === null ? '-' : `${progress}%`}
+      </span>
+    </div>
+  )
+}
+
+/** Icon + text status chip. Colour alone never carries the state. */
+function TaskStatusBadge(props: { status: SystemTaskStatus }) {
+  const { t } = useTranslation()
+
+  return (
+    <Badge
+      variant={STATUS_VARIANT[props.status]}
+      className={cn('gap-1.5', STATUS_CLASS_NAME[props.status])}
+    >
+      <span
+        className={cn(
+          'size-1.5 rounded-full',
+          STATUS_DOT_CLASS_NAME[props.status]
+        )}
+        aria-hidden='true'
+      />
+      {t(props.status)}
+    </Badge>
+  )
+}
+
 function SystemTasksTable(props: SystemTasksTableProps) {
   const { t, i18n } = useTranslation()
 
   return (
-    <div className='overflow-x-auto rounded-md border'>
-      <Table className='min-w-[900px]'>
-        <TableHeader>
-          <TableRow className='bg-muted/40 hover:bg-muted/40'>
-            <TableHead className='h-9 w-[260px] px-4 text-xs'>
-              {t('Type')}
-            </TableHead>
-            <TableHead className='h-9 w-[130px] text-xs'>
-              {t('Status')}
-            </TableHead>
-            <TableHead className='h-9 w-[180px] text-xs'>
-              {t('Progress')}
-            </TableHead>
-            <TableHead className='h-9 min-w-[260px] text-xs'>
-              {t('Executor')}
-            </TableHead>
-            <TableHead className='h-9 w-[190px] text-xs'>
-              {t('Updated')}
-            </TableHead>
-            <TableHead className='h-9 w-[220px] pr-4 text-xs'>
-              {t('Detail')}
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {props.tasks.map((task) => {
-            const progress = getProgress(task)
-            return (
+    <>
+      {/* Phones: one card per task, no horizontal scrolling. */}
+      <ul className='space-y-3 sm:hidden'>
+        {props.tasks.map((task) => (
+          <li key={task.task_id} className='bg-card rounded-lg border p-3'>
+            <div className='flex items-start justify-between gap-2'>
+              <div className='min-w-0 space-y-0.5'>
+                <div className='truncate text-sm font-medium'>
+                  {t(TYPE_LABEL[task.type] ?? task.type)}
+                </div>
+                <div className='text-muted-foreground font-mono text-[11px]'>
+                  {TYPE_DISPLAY_ID[task.type] ?? task.type}
+                </div>
+              </div>
+              <TaskStatusBadge status={task.status} />
+            </div>
+
+            <dl className='mt-3 space-y-2.5 text-xs'>
+              <div className='flex flex-col gap-1'>
+                <dt className='text-muted-foreground'>{t('Progress')}</dt>
+                <dd>
+                  <TaskProgress task={task} />
+                </dd>
+              </div>
+              <div className='flex flex-col gap-1'>
+                <dt className='text-muted-foreground'>{t('Executor')}</dt>
+                <dd className='truncate font-mono'>{task.locked_by || '-'}</dd>
+              </div>
+              <div className='flex flex-col gap-1'>
+                <dt className='text-muted-foreground'>{t('Updated')}</dt>
+                <dd
+                  className='whitespace-nowrap'
+                  title={formatTimestampToDate(task.updated_at)}
+                >
+                  {formatTimestampRelative(
+                    task.updated_at,
+                    'seconds',
+                    toIntlLocale(i18n.language)
+                  )}
+                </dd>
+              </div>
+              {task.error ? (
+                <div className='flex flex-col gap-1'>
+                  <dt className='text-muted-foreground'>{t('Detail')}</dt>
+                  <dd className='text-destructive break-words'>{task.error}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </li>
+        ))}
+      </ul>
+
+      {/* Tablet and up: the comparison table. */}
+      <div className='hidden overflow-x-auto rounded-md border sm:block'>
+        <Table className='min-w-[900px]'>
+          <TableHeader>
+            <TableRow className='bg-muted/40 hover:bg-muted/40'>
+              <TableHead className='h-9 w-[260px] px-4 text-xs'>
+                {t('Type')}
+              </TableHead>
+              <TableHead className='h-9 w-[130px] text-xs'>
+                {t('Status')}
+              </TableHead>
+              <TableHead className='h-9 w-[180px] text-xs'>
+                {t('Progress')}
+              </TableHead>
+              <TableHead className='h-9 min-w-[260px] text-xs'>
+                {t('Executor')}
+              </TableHead>
+              <TableHead className='h-9 w-[190px] text-xs'>
+                {t('Updated')}
+              </TableHead>
+              <TableHead className='h-9 w-[220px] pr-4 text-xs'>
+                {t('Detail')}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {props.tasks.map((task) => (
               <TableRow key={task.task_id} className='hover:bg-muted/30'>
                 <TableCell className='px-4 py-3 align-middle'>
                   <div className='space-y-0.5'>
@@ -147,33 +237,10 @@ function SystemTasksTable(props: SystemTasksTableProps) {
                   </div>
                 </TableCell>
                 <TableCell className='py-3 align-middle'>
-                  <Badge
-                    variant={STATUS_VARIANT[task.status]}
-                    className={cn('gap-1.5', STATUS_CLASS_NAME[task.status])}
-                  >
-                    <span
-                      className={cn(
-                        'size-1.5 rounded-full',
-                        STATUS_DOT_CLASS_NAME[task.status]
-                      )}
-                      aria-hidden='true'
-                    />
-                    {t(task.status)}
-                  </Badge>
+                  <TaskStatusBadge status={task.status} />
                 </TableCell>
                 <TableCell className='py-3 align-middle'>
-                  <div className='flex items-center gap-2'>
-                    <Progress
-                      value={progress ?? 0}
-                      className={cn(
-                        'w-24',
-                        PROGRESS_BAR_CLASS_NAME[task.status]
-                      )}
-                    />
-                    <span className='text-muted-foreground w-10 text-right text-xs tabular-nums'>
-                      {progress === null ? '-' : `${progress}%`}
-                    </span>
-                  </div>
+                  <TaskProgress task={task} />
                 </TableCell>
                 <TableCell className='text-muted-foreground max-w-[280px] truncate py-3 align-middle font-mono text-xs'>
                   {task.locked_by || '-'}
@@ -195,11 +262,11 @@ function SystemTasksTable(props: SystemTasksTableProps) {
                   {task.error || '-'}
                 </TableCell>
               </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   )
 }
 
@@ -306,17 +373,29 @@ export function SystemTasksPanel() {
             className='min-h-[260px]'
           />
         ) : tasks.length === 0 ? (
-          <div className='px-4 py-10 text-center sm:px-5'>
-            <div className='bg-muted mx-auto mb-3 flex size-10 items-center justify-center rounded-lg'>
-              <ListChecks
-                className='text-muted-foreground size-5'
-                aria-hidden='true'
-              />
-            </div>
-            <p className='text-muted-foreground text-sm'>
-              {t('No system tasks yet.')}
-            </p>
-          </div>
+          <EmptyState
+            icon={ListChecks}
+            title={t('No system tasks yet.')}
+            description={t(
+              'Maintenance runs appear here once a cleanup, test or polling job executes.'
+            )}
+            action={
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                onClick={() => void tasksQuery.refetch()}
+                disabled={tasksQuery.isFetching}
+              >
+                <RefreshCw
+                  data-icon='inline-start'
+                  className={cn('size-3.5', refreshing && 'animate-spin')}
+                  aria-hidden='true'
+                />
+                {t('Check again')}
+              </Button>
+            }
+          />
         ) : (
           <div className='space-y-4 p-4 sm:p-5'>
             <div>

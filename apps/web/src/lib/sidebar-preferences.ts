@@ -132,9 +132,9 @@ export function serializeSidebarUserSettings(
 
 /** Routes that may be selected as a post-login landing page. */
 export const SIDEBAR_DEFAULT_ROUTE_ALLOWLIST = new Set([
-  '/getting-started',
   '/open-source-bounties',
   '/public-relay',
+  '/rss',
   '/tool-market',
   '/challenges',
   '/rankings',
@@ -164,10 +164,11 @@ export const SIDEBAR_DEFAULT_ROUTE_ALLOWLIST = new Set([
 ]) as ReadonlySet<string>
 
 export const SIDEBAR_ROUTE_SECTION: Readonly<Record<string, string>> = {
-  '/getting-started': 'onboarding',
   '/open-source-bounties': 'forge',
   '/public-relay': 'forge',
+  '/rss': 'forge',
   '/tool-market': 'forge',
+  '/store': 'forge',
   '/challenges': 'forge',
   '/rankings': 'forge',
   '/chat-management': 'general',

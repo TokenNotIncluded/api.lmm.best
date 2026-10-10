@@ -38,6 +38,15 @@ type Pricing struct {
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	PricingSchemaVersion   int                     `json:"pricing_schema_version,omitempty"`
+	PricingCurrency        string                  `json:"pricing_currency,omitempty"`
+	InputPrice             *float64                `json:"input_price,omitempty"`
+	OutputPrice            *float64                `json:"output_price,omitempty"`
+	CacheReadPrice         *float64                `json:"cache_read_price,omitempty"`
+	CacheWritePrice        *float64                `json:"cache_write_price,omitempty"`
+	ImagePrice             *float64                `json:"image_price,omitempty"`
+	AudioInputPrice        *float64                `json:"audio_input_price,omitempty"`
+	AudioOutputPrice       *float64                `json:"audio_output_price,omitempty"`
 }
 
 type PricingVendor struct {
@@ -85,6 +94,13 @@ func clonePricing(pricing []Pricing) []Pricing {
 	for i := range pricing {
 		cloned[i] = pricing[i]
 		cloned[i].CacheRatio = cloneFloat64(pricing[i].CacheRatio)
+		cloned[i].InputPrice = cloneFloat64(pricing[i].InputPrice)
+		cloned[i].OutputPrice = cloneFloat64(pricing[i].OutputPrice)
+		cloned[i].CacheReadPrice = cloneFloat64(pricing[i].CacheReadPrice)
+		cloned[i].CacheWritePrice = cloneFloat64(pricing[i].CacheWritePrice)
+		cloned[i].ImagePrice = cloneFloat64(pricing[i].ImagePrice)
+		cloned[i].AudioInputPrice = cloneFloat64(pricing[i].AudioInputPrice)
+		cloned[i].AudioOutputPrice = cloneFloat64(pricing[i].AudioOutputPrice)
 		cloned[i].CreateCacheRatio = cloneFloat64(pricing[i].CreateCacheRatio)
 		cloned[i].ImageRatio = cloneFloat64(pricing[i].ImageRatio)
 		cloned[i].AudioRatio = cloneFloat64(pricing[i].AudioRatio)
@@ -222,6 +238,11 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 }
 
 func getPricingEndpointTypesForAbility(ability AbilityWithChannel, advancedCustomConfigs map[int]*dto.AdvancedCustomConfig) []constant.EndpointType {
+	if ability.ChannelType == constant.ChannelTypeNewAPI || ability.ChannelType == constant.ChannelTypeOpenAI {
+		if upstreamModel, err := ResolveChannelModelName(ability.Model, ability.ChannelModelMapping); err == nil {
+			return common.GetEndpointTypesByChannelType(ability.ChannelType, upstreamModel)
+		}
+	}
 	if ability.ChannelType != constant.ChannelTypeAdvancedCustom {
 		return common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
 	}
@@ -292,10 +313,32 @@ func appendPricingEndpoint(endpoints []string, endpoint string) []string {
 	return append(endpoints, endpoint)
 }
 
+func isFixedNativePricingEndpoint(endpoint string) bool {
+	switch constant.EndpointType(endpoint) {
+	case constant.EndpointTypeSystemOne, constant.EndpointTypeModeration, constant.EndpointTypeLive,
+		constant.EndpointTypeRealtimeTranscription, constant.EndpointTypeRealtimeTranslation:
+		return true
+	default:
+		return false
+	}
+}
+
+func hasOnlyFixedNativePricingEndpoints(endpoints []string) bool {
+	if len(endpoints) == 0 {
+		return false
+	}
+	for _, endpoint := range endpoints {
+		if !isFixedNativePricingEndpoint(endpoint) {
+			return false
+		}
+	}
+	return true
+}
+
 func loadEnabledPricingAbilities(ctx context.Context, db *gorm.DB) ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
 	err := db.WithContext(ctx).Table("abilities").
-		Select("abilities.*, channels.type as channel_type").
+		Select("abilities.*, channels.type as channel_type, channels.model_mapping as channel_model_mapping").
 		Joins("left join channels on abilities.channel_id = channels.id").
 		Where("abilities.enabled = ?", true).
 		Scan(&abilities).Error
@@ -426,7 +469,14 @@ func buildPricingSnapshot(ctx context.Context, db *gorm.DB, generation uint64) (
 		var raw map[string]interface{}
 		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			endpoints := modelSupportEndpointsStr[modelName]
+			_, knownNativeVoice := common.NativeVoiceEndpointType(modelName)
+			fixedNativeCapabilities := knownNativeVoice || hasOnlyFixedNativePricingEndpoints(endpoints)
 			for k, v := range raw {
+				// Model annotations cannot invent a chat surface for a native-only
+				// capability. Ordinary and custom-route metadata still merge.
+				if fixedNativeCapabilities && !common.StringsContains(endpoints, k) {
+					continue
+				}
 				switch v.(type) {
 				case string, map[string]interface{}:
 					endpoints = appendPricingEndpoint(endpoints, k)
@@ -468,6 +518,11 @@ func buildPricingSnapshot(ctx context.Context, db *gorm.DB, generation uint64) (
 		var raw map[string]interface{}
 		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			for k, v := range raw {
+				// These gateway entry points have fixed protocol paths and methods.
+				// A stale model annotation must not replace WS GET with chat POST.
+				if isFixedNativePricingEndpoint(k) {
+					continue
+				}
 				switch val := v.(type) {
 				case string:
 					supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}

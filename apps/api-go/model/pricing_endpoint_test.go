@@ -85,6 +85,107 @@ func pricingEndpointTypesFromPricing(pricings []Pricing) map[string][]constant.E
 	return byModel
 }
 
+func TestPricingSystemOneUsesNativeEndpointForMappedAliases(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	insertPricingEndpointChannel(t, 801, constant.ChannelTypeTypeSafe, dto.ChannelOtherSettings{})
+	insertPricingEndpointChannel(t, 802, constant.ChannelTypeNewAPI, dto.ChannelOtherSettings{})
+	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", 802).Update("model_mapping", `{"decision-alias":"intermediate","intermediate":"jev-latest"}`).Error)
+	insertPricingEndpointAbility(t, 801, "vendor-alias")
+	insertPricingEndpointAbility(t, 802, "decision-alias")
+	insertPricingEndpointAbility(t, 802, "jev-preview")
+	insertPricingEndpointAbility(t, 802, "gpt-4o")
+
+	for _, memoryCache := range []bool{true, false} {
+		common.MemoryCacheEnabled = memoryCache
+		byModel := pricingEndpointTypesByModel(t)
+		for _, name := range []string{"vendor-alias", "decision-alias", "jev-preview"} {
+			assert.Equal(t, []constant.EndpointType{constant.EndpointTypeSystemOne}, byModel[name])
+		}
+		assert.NotContains(t, byModel["gpt-4o"], constant.EndpointTypeSystemOne)
+		assert.Equal(t, common.EndpointInfo{Path: "/typesafe/v1/systemone", Method: "POST"}, GetSupportedEndpointMap()[string(constant.EndpointTypeSystemOne)])
+	}
+}
+
+func TestPricingFixedNativeCapabilitiesIgnoreLegacyChatMetadata(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	insertPricingEndpointChannel(t, 1001, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointChannel(t, 1002, constant.ChannelTypeNewAPI, dto.ChannelOtherSettings{})
+	insertPricingEndpointChannel(t, 1003, constant.ChannelTypeTypeSafe, dto.ChannelOtherSettings{})
+	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", 1001).Update("model_mapping", `{"openai-voice-alias":"gpt-live-transcribe"}`).Error)
+	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", 1002).Update("model_mapping", `{"voice-alias":"gpt-live-1","decision-alias":"jev-latest","moderation-alias":"omni-moderation-latest"}`).Error)
+	models := []struct {
+		name      string
+		channelID int
+		endpoint  constant.EndpointType
+	}{
+		{"gpt-live-1", 1001, constant.EndpointTypeLive},
+		{"gpt-live-transcribe", 1001, constant.EndpointTypeRealtimeTranscription},
+		{"gpt-realtime-whisper", 1001, constant.EndpointTypeRealtimeTranscription},
+		{"gpt-realtime-translate", 1001, constant.EndpointTypeRealtimeTranslation},
+		{"openai-voice-alias", 1001, constant.EndpointTypeRealtimeTranscription},
+		{"voice-alias", 1002, constant.EndpointTypeLive},
+		{"decision-alias", 1002, constant.EndpointTypeSystemOne},
+		{"vendor-decision-alias", 1003, constant.EndpointTypeSystemOne},
+		{"moderation-alias", 1002, constant.EndpointTypeModeration},
+	}
+	for _, item := range models {
+		insertPricingEndpointAbility(t, item.channelID, item.name)
+		endpoints, err := common.Marshal(map[string]any{
+			"openai":              "/v1/chat/completions",
+			"legacy-custom-route": "/legacy/chat",
+			string(item.endpoint): map[string]any{"path": "/legacy/chat", "method": "POST"},
+		})
+		require.NoError(t, err)
+		require.NoError(t, DB.Create(&Model{ModelName: item.name, Endpoints: string(endpoints), Status: 1, NameRule: NameRuleExact}).Error)
+	}
+	for _, memoryCache := range []bool{false, true} {
+		common.MemoryCacheEnabled = memoryCache
+		byModel := pricingEndpointTypesByModel(t)
+		endpointMap := GetSupportedEndpointMap()
+		for _, item := range models {
+			assert.Equal(t, []constant.EndpointType{item.endpoint}, byModel[item.name])
+			defaultInfo, found := common.GetDefaultEndpointInfo(item.endpoint)
+			require.True(t, found)
+			assert.Equal(t, defaultInfo, endpointMap[string(item.endpoint)])
+		}
+	}
+}
+
+func TestPricingUnsupportedNativeVoiceCannotBeProvidedByMetadata(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	insertPricingEndpointChannel(t, 1004, constant.ChannelTypeCodex, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 1004, "gpt-live-1")
+	require.NoError(t, DB.Create(&Model{
+		ModelName: "gpt-live-1", Endpoints: `{"openai":"/v1/chat/completions","live":"/legacy/chat"}`, Status: 1, NameRule: NameRuleExact,
+	}).Error)
+	byModel := pricingEndpointTypesByModel(t)
+	assert.Empty(t, byModel["gpt-live-1"])
+}
+
+func TestResolveChannelModelName(t *testing.T) {
+	for _, tt := range []struct {
+		name, mapping, want string
+		wantError           string
+	}{
+		{name: "unchanged", want: "alias"},
+		{name: "chain", mapping: `{"alias":"intermediate","intermediate":"jev-latest"}`, want: "jev-latest"},
+		{name: "self", mapping: `{"alias":"alias"}`, want: "alias"},
+		{name: "tail self", mapping: `{"alias":"jev-latest","jev-latest":"jev-latest"}`, want: "jev-latest"},
+		{name: "invalid", mapping: `{`, wantError: "unmarshal_model_mapping_failed"},
+		{name: "cycle", mapping: `{"alias":"intermediate","intermediate":"alias"}`, wantError: "model_mapping_contains_cycle"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			name, err := ResolveChannelModelName("alias", tt.mapping)
+			if tt.wantError != "" {
+				require.ErrorContains(t, err, tt.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, name)
+		})
+	}
+}
+
 func TestPricingAdvancedCustomUsesConfiguredEndpointTypes(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 

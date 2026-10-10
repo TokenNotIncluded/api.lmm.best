@@ -83,7 +83,11 @@ const THIRD_PARTY_COPYRIGHT_PATTERN =
 const checkMode = process.argv.includes('--check')
 
 function isGeneratedFile(filePath) {
-  return path.basename(filePath).includes('.gen.')
+  // Preserve the official CLI bytes: its lock verifies this source hash.
+  const officialShaderSource =
+    path.relative(process.cwd(), filePath).replaceAll(path.sep, '/') ===
+    'src/components/shaders/generated/ForgeAmbient.tsx'
+  return path.basename(filePath).includes('.gen.') || officialShaderSource
 }
 
 function hasGeneratedMarker(text) {

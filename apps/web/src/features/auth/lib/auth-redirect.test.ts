@@ -21,7 +21,11 @@ import { describe, test } from 'node:test'
 
 import type { AuthUser } from '@/stores/auth-store'
 
-import { getSavedLanguage, sanitizeAuthRedirect } from './auth-redirect'
+import {
+  getSavedLanguage,
+  sanitizeAuthRedirect,
+  signInHref,
+} from './auth-redirect'
 
 const origin = 'https://dashboard.example.com'
 
@@ -37,6 +41,16 @@ describe('authentication redirect validation', () => {
         origin
       ),
       '/dashboard?tab=quota#daily'
+    )
+  })
+
+  test('preserves a product SKU, quantity, encoded promotion and fragment', () => {
+    const productPath =
+      '/store/products/product-fixture?variant_id=variant-fixture&quantity=3&promotion=SUMMER%2B10#purchase'
+    assert.equal(sanitizeAuthRedirect(productPath, origin), productPath)
+    assert.equal(
+      sanitizeAuthRedirect(`${origin}${productPath}`, origin),
+      productPath
     )
   })
 
@@ -94,5 +108,102 @@ describe('saved authentication language', () => {
       getSavedLanguage({ ...user, setting: { language: 123 } }),
       undefined
     )
+  })
+})
+
+describe('store pickup login returns', () => {
+  test('preserves the complete internal pickup URL and explicitly permits account correction', () => {
+    const location = {
+      origin,
+      pathname: '/store/claim/' + 'x'.repeat(43),
+      search: '?source=mail%2Breceipt',
+      hash: '#refunds',
+    }
+    const href = new URL(signInHref(location, true), origin)
+    assert.equal(href.pathname, '/sign-in')
+    assert.equal(
+      href.searchParams.get('redirect'),
+      location.pathname + location.search + location.hash
+    )
+    assert.equal(href.searchParams.get('reauth'), '1')
+    assert.equal(
+      new URL(signInHref(location), origin).searchParams.has('reauth'),
+      false
+    )
+  })
+  test('does not accept an external return or a login loop', () => {
+    assert.equal(
+      signInHref({
+        origin,
+        pathname: '//attacker.example',
+        search: '',
+        hash: '',
+      }),
+      '/sign-in'
+    )
+    assert.equal(
+      signInHref({
+        origin,
+        pathname: '/sign-in',
+        search: '?redirect=/dashboard',
+        hash: '',
+      }),
+      '/sign-in'
+    )
+  })
+})
+
+describe('final authentication destination compatibility', () => {
+  const pickupPath = '/store/claim/' + 'x'.repeat(43)
+  const query =
+    '?source=mail%2Breceipt&variant_id=variant-fixture&quantity=3&item=1&item=2'
+
+  test('normalizes local dot paths without losing pickup parameters', () => {
+    const expected = `${pickupPath}${query}#refunds`
+    const actual = sanitizeAuthRedirect(
+      `/store/products/../claim/${'x'.repeat(43)}${query}#refunds`,
+      origin
+    )
+    assert.equal(actual, expected)
+    assert.equal(new URL(actual!, origin).origin, origin)
+    assert.equal(sanitizeAuthRedirect(actual, origin), actual)
+  })
+
+  test('accepts equivalent same-origin absolute URLs', () => {
+    const expected = `${pickupPath}${query}#refunds`
+    assert.equal(
+      sanitizeAuthRedirect(
+        `HTTPS://DASHBOARD.EXAMPLE.COM:443${expected}`,
+        origin
+      ),
+      expected
+    )
+  })
+
+  test('keeps encoded values and repeated parameters unchanged', () => {
+    const expected =
+      `${pickupPath}?item=1&item=2&promotion=A%2BB&label=a+b` +
+      '&source=mail%2Freceipt&literal=%252F#refunds'
+    assert.equal(sanitizeAuthRedirect(expected, origin), expected)
+    assert.equal(sanitizeAuthRedirect(origin + expected, origin), expected)
+  })
+
+  test('keeps a safe destination through repeated authentication handoffs', () => {
+    const location = {
+      origin,
+      pathname: pickupPath,
+      search: query,
+      hash: '#refunds',
+    }
+    const login = new URL(signInHref(location, true), origin)
+    assert.equal(login.searchParams.get('reauth'), '1')
+    let target = login.searchParams.get('redirect')
+    for (const route of ['/otp', '/oauth/fixture', '/sign-in']) {
+      const next = new URL(route, origin)
+      next.searchParams.set('redirect', target!)
+      target = sanitizeAuthRedirect(next.searchParams.get('redirect'), origin)
+      assert.equal(target, `${pickupPath}${query}#refunds`)
+      assert.equal(new URL(target!, origin).origin, origin)
+    }
   })
 })

@@ -23,6 +23,10 @@ import {
   type InternalAxiosRequestConfig,
 } from 'axios'
 
+import type {
+  LinkedUsageProfile,
+  ProfileAggregateSource,
+} from '@/features/profile/types'
 import {
   applyAuthBundle,
   setDevelopmentAuthRefreshAdapter,
@@ -30,6 +34,8 @@ import {
 import { api } from '@/lib/http-client'
 import { ROLE } from '@/lib/roles'
 import type { AuthBundle, AuthUser, TrustLevelInfo } from '@/stores/auth-store'
+
+import { DEBUG_CURRENCY_STATUS } from './wallet-review-fixtures'
 
 export const DEBUG_PERSONA_IDS = ['l0', 'b', 'e', 'f', 'l1', 'admin'] as const
 export type DebugPersonaId = (typeof DEBUG_PERSONA_IDS)[number]
@@ -52,7 +58,10 @@ type DebugState = {
   activePersona: DebugPersonaId
   conversations: MockConversation[]
   preferences?: Partial<
-    Record<DebugPersonaId, Pick<AuthUser, 'language' | 'sidebar_modules'>>
+    Record<
+      DebugPersonaId,
+      Pick<AuthUser, 'language' | 'sidebar_modules' | 'setting'>
+    >
   >
 }
 
@@ -64,6 +73,131 @@ const DEBUG_EVENT = 'lmm:persona-debug-change'
 const BLOCKED_DEBUG_REQUEST = 'PERSONA_DEBUG_UNMOCKED_REQUEST'
 const now = Math.floor(Date.now() / 1000)
 const debugAnnouncementReads = new Set<string>()
+const debugAssistantRuntimeKeys = new Set<DebugPersonaId>()
+type DebugProfileShare = {
+  enabled: boolean
+  modelUsageEnabled: boolean
+  aggregateUsageEnabled: boolean
+  linkedProfiles: LinkedUsageProfile[]
+}
+const debugProfileShares = new Map<DebugPersonaId, DebugProfileShare>()
+const debugProfileShareToken = 'a'.repeat(48)
+// Fixed synthetic review data matches TestProfileShareAggregateVisualFixtures.
+// These accounts and values do not represent a production sharing permission.
+const debugProfileFetchedAt = '2026-10-04T00:00:00Z'
+
+function activeDebugProfileShare(): DebugProfileShare {
+  const existing = debugProfileShares.get(state.activePersona)
+  if (existing) return existing
+  const created: DebugProfileShare = {
+    enabled: true,
+    modelUsageEnabled: false,
+    aggregateUsageEnabled: false,
+    linkedProfiles: [
+      {
+        provider: 'cursor',
+        url: 'https://cursor.com/@profile-fixture',
+        label: 'Cursor',
+      },
+      {
+        provider: 'chatgpt',
+        url: 'https://chatgpt.com/u/profile-fixture',
+        label: 'ChatGPT / Codex',
+        snapshot: {
+          tokens: 117_000_000_000,
+          period: 'all',
+          observed_at: '2026-10-03T18:46:00Z',
+          approximate: true,
+          source:
+            'Codex lifetime tokens; displayed 117B; owner-observed snapshot',
+        },
+      },
+      {
+        provider: 'custom',
+        url: 'https://github.com/profile-fixture-unavailable',
+        label: 'Unavailable source',
+      },
+    ],
+  }
+  debugProfileShares.set(state.activePersona, created)
+  return created
+}
+
+// Local review fixtures only; the debug runtime never fetches provider profiles.
+function debugAggregateSources(
+  share: DebugProfileShare
+): ProfileAggregateSource[] {
+  const active = share.enabled && share.aggregateUsageEnabled
+  return [
+    {
+      provider: 'lmm',
+      url: 'https://api.lmm.best',
+      label: 'LMM Best',
+      status: active ? 'live' : 'disabled',
+      source: 'native',
+      period: '30d',
+      approximate: false,
+      ...(active
+        ? {
+            tokens: 899_140_697,
+            requests: 13_815,
+            period_start: '2026-09-04T00:00:00Z',
+            period_end: debugProfileFetchedAt,
+            period_timezone: 'UTC',
+            fetched_at: debugProfileFetchedAt,
+          }
+        : {}),
+    },
+    ...share.linkedProfiles.map((profile): ProfileAggregateSource => {
+      const base = {
+        provider: profile.provider,
+        url: profile.url,
+        label: profile.label || profile.provider,
+        period:
+          profile.snapshot?.period ??
+          (profile.provider === 'cursor' ? 'reported' : 'unknown'),
+        approximate: profile.snapshot?.approximate ?? false,
+      }
+      if (!active) {
+        return {
+          ...base,
+          status: 'disabled',
+          source:
+            profile.provider === 'cursor' && !profile.snapshot
+              ? 'public_ssr'
+              : 'owner_snapshot',
+        }
+      }
+      if (profile.snapshot) {
+        return {
+          ...base,
+          ...profile.snapshot,
+          status: 'snapshot',
+          source: 'owner_snapshot',
+          snapshot_source: profile.snapshot.source,
+        }
+      }
+      if (profile.provider === 'cursor') {
+        return {
+          ...base,
+          status: 'live',
+          source: 'public_ssr',
+          tokens: 502_839_373,
+          period_start: '2026-09-04',
+          period_end: '2026-10-03',
+          period_timezone: 'unspecified',
+          fetched_at: debugProfileFetchedAt,
+        }
+      }
+      return {
+        ...base,
+        status:
+          profile.provider === 'chatgpt' ? 'login_required' : 'unsupported',
+        source: 'owner_snapshot',
+      }
+    }),
+  ]
+}
 
 function trustLevel(level: number): TrustLevelInfo {
   return {
@@ -342,6 +476,7 @@ function installBlockedDebugFetch(): void {
       return new Response(
         JSON.stringify(
           envelope({
+            ...DEBUG_CURRENCY_STATUS,
             system_name: 'LMM Persona Lab',
             logo: '/logo.png',
             assistant: { enabled: true },
@@ -484,11 +619,12 @@ function preConversationPresets() {
 function personaTodoPage(category = 'all') {
   const categories = [
     'security_incident',
-    'security_review',
     'open_source_bounty_review',
     'open_source_bounty',
     'developer_access',
     'account_action',
+    'moderation',
+    'human_support',
   ].map((key) => ({ key, total: 0, unread: 0 }))
 
   return {
@@ -563,20 +699,49 @@ const debugAdapter: AxiosAdapter = async (config) => {
       Array.isArray(data) ||
       Object.keys(data).length === 0 ||
       Object.keys(data).some(
-        (key) => !['language', 'sidebar_modules'].includes(key)
+        (key) =>
+          !['language', 'sidebar_modules', 'wallet_display_currency'].includes(
+            key
+          )
       )
     ) {
       rejectRequest(
         config,
         400,
-        'This preview only saves language and sidebar preferences locally'
+        'This preview only saves language, balance display and sidebar preferences locally'
       )
     }
-    const preferences: Pick<AuthUser, 'language' | 'sidebar_modules'> = {}
+    const preferences: Pick<
+      AuthUser,
+      'language' | 'sidebar_modules' | 'setting'
+    > = {}
+    if (data.wallet_display_currency !== undefined) {
+      if (
+        !['', 'CREDIT', 'CNY', 'USD'].includes(
+          String(data.wallet_display_currency)
+        ) ||
+        typeof data.wallet_display_currency !== 'string'
+      ) {
+        rejectRequest(
+          config,
+          400,
+          'Invalid local preview balance display currency'
+        )
+      }
+      const settings = activeUser().setting
+      preferences.setting = JSON.stringify({
+        ...(typeof settings === 'string'
+          ? JSON.parse(settings || '{}')
+          : settings || {}),
+        wallet_display_currency: data.wallet_display_currency,
+      })
+    }
     if (data.language !== undefined) {
       if (
         typeof data.language !== 'string' ||
-        !['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi'].includes(data.language)
+        !['en', 'zh', 'zh-TW', 'zhCN', 'zhTW', 'fr', 'ja', 'ru', 'vi'].includes(
+          data.language
+        )
       ) {
         rejectRequest(config, 400, 'Invalid local preview language')
       }
@@ -866,6 +1031,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
     return response(
       config,
       envelope({
+        ...DEBUG_CURRENCY_STATUS,
         system_name: 'LMM Persona Lab',
         logo: '/logo.png',
         assistant: { enabled: true },
@@ -926,6 +1092,52 @@ const debugAdapter: AxiosAdapter = async (config) => {
   if (method === 'GET' && path === '/api/user/self') {
     return response(config, envelope(activeUser()))
   }
+  if (
+    path === '/api/user/self/profile-share' &&
+    ['GET', 'POST', 'DELETE'].includes(method)
+  ) {
+    const share = activeDebugProfileShare()
+    if (method === 'POST') {
+      const data =
+        typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+      share.enabled = true
+      if (typeof data?.model_usage_enabled === 'boolean') {
+        share.modelUsageEnabled = data.model_usage_enabled
+      }
+      if (typeof data?.aggregate_usage_enabled === 'boolean') {
+        share.aggregateUsageEnabled = data.aggregate_usage_enabled
+      }
+      if (Array.isArray(data?.linked_profiles)) {
+        share.linkedProfiles = structuredClone(data.linked_profiles)
+      }
+    } else if (method === 'DELETE') {
+      share.enabled = false
+      share.modelUsageEnabled = false
+      share.aggregateUsageEnabled = false
+    }
+    return response(
+      config,
+      envelope(
+        share.enabled
+          ? {
+              enabled: true,
+              model_usage_enabled: share.modelUsageEnabled,
+              aggregate_usage_enabled: share.aggregateUsageEnabled,
+              linked_profiles: share.linkedProfiles,
+              aggregate_sources: debugAggregateSources(share),
+              token: debugProfileShareToken,
+              url: `${window.location.origin}/api/share/profile/${debugProfileShareToken}.svg`,
+            }
+          : {
+              enabled: false,
+              model_usage_enabled: false,
+              aggregate_usage_enabled: false,
+              linked_profiles: share.linkedProfiles,
+              aggregate_sources: debugAggregateSources(share),
+            }
+      )
+    )
+  }
   if (method === 'GET' && path === '/api/notice') {
     return response(config, envelope(''))
   }
@@ -959,16 +1171,65 @@ const debugAdapter: AxiosAdapter = async (config) => {
       envelope({ groups: [activeUser().group || 'default'], max_count: 5 })
     )
   }
+  if (method === 'POST' && path === '/api/assistant/runtime-key') {
+    if (activeUser().role < ROLE.SUPER_ADMIN) {
+      return response(
+        config,
+        { success: false, message: 'Root account required' },
+        403
+      )
+    }
+    const created = !debugAssistantRuntimeKeys.has(state.activePersona)
+    debugAssistantRuntimeKeys.add(state.activePersona)
+    return response(
+      config,
+      envelope({
+        id: 8002,
+        name: 'AI assistant runtime',
+        group: 'default',
+        created,
+      })
+    )
+  }
   if (method === 'GET' && path === '/api/token/') {
     const developerAccessGranted =
       activeUser().developer_access_granted === true
+    const runtimeKeys =
+      url.searchParams.get('creation_mode') === 'automatic' &&
+      debugAssistantRuntimeKeys.has(state.activePersona)
+        ? [
+            {
+              id: 8002,
+              name: 'AI assistant runtime',
+              key: 'a1b2**********c3d4',
+              one_time_reveal: true,
+              status: 1,
+              remain_quota: 0,
+              used_quota: 0,
+              unlimited_quota: true,
+              expired_time: -1,
+              created_time: now,
+              accessed_time: now,
+              group: 'default',
+              model_limits_enabled: false,
+              model_limits: '',
+              allow_ips: '',
+              creation_source: 'assistant_runtime',
+            },
+          ]
+        : []
     return response(
       config,
       !developerAccessGranted
         ? { success: false, message: 'Developer access required' }
         : {
             success: true,
-            data: { items: [], total: 0, page: 1, page_size: 10 },
+            data: {
+              items: runtimeKeys,
+              total: runtimeKeys.length,
+              page: 1,
+              page_size: 10,
+            },
           },
       !developerAccessGranted ? 403 : 200
     )
@@ -978,6 +1239,16 @@ const debugAdapter: AxiosAdapter = async (config) => {
   }
   if (method === 'GET' && path === '/api/perf-metrics/summary') {
     return response(config, envelope({ models: [] }))
+  }
+  if (method === 'GET' && path === '/api/assistant/registration-check') {
+    return response(
+      config,
+      envelope({
+        state: activeUser().developer_access_granted
+          ? 'active'
+          : 'context_needed',
+      })
+    )
   }
   if (method === 'GET' && path === '/api/assistant/status') {
     const user = activeUser()
@@ -1136,9 +1407,6 @@ const debugAdapter: AxiosAdapter = async (config) => {
         steps: [],
       })
     )
-  }
-  if (method === 'GET' && path === '/api/user/developer-access/request') {
-    return response(config, envelope(null))
   }
   if (method === 'GET' && path === '/api/todos') {
     return response(

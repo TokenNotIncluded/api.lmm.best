@@ -1,10 +1,43 @@
 # Built-in assistant registration guard
 
 L0 admission is performed through the built-in assistant, not a second reviewer
-model or a user-submitted recommendation letter. The public legacy submission
-route returns 410; historical requests and administrator audit/override helpers
-remain readable. The existing three completed server-recorded turns minimum for
-an L1 grant remains. It is an anti-replay prerequisite, not proof of personhood.
+model or a user-submitted recommendation letter. The legacy application,
+review and archive HTTP endpoints return 410 without reading or changing records.
+Their onboarding, todo, user-management and administrator-assistant entries are
+removed. Historical database records are retained, but do not appear in live
+todo items, categories or unread counts. Old clients receive an explicit retired
+endpoint response instead of creating new applications.
+
+## L0 to L1
+
+An enabled L0 account can describe an ordinary use such as coding, learning or
+chatting. The assistant can call `grant_l1_access` in that same first turn;
+there is no completed-turn minimum, recommendation letter, client-name, repository
+or work-proof requirement. `minimum_completed_turns` remains zero in the response
+for older clients. Conversation ownership, browser-session identity, current
+account status and fresh registration-risk evidence are still required. A
+current explicit trust override remains authoritative. A retired application
+rejection is not a current restriction and does not veto a new grant.
+
+The action is limited to the signed-in user's L1 access. It cannot select another
+user, credit a wallet, grant higher levels or restore a suspended account. The
+transaction rechecks the user and risk state, records a new audit receipt and
+returns the same grant for repeat calls. It does not rewrite historical letters.
+Welcome rewards retain their own identity and gift checks.
+
+A held account is directed to human support. A failed check is a service error,
+not a request to keep chatting. The assistant must not demand more turns, invented
+waiting periods, projects or proof, or blame urgent/frustrated users. Paid
+activation continues to use the existing real-payment policy; a legacy letter
+must not become a second payment approval gate.
+
+L0 can open `/support` and `/todos`. Human handoff and messages use the existing
+owner-scoped support API, independently of model availability and L1. The pricing
+read/runtime/aggregate performance endpoints, own notifications and acquisition
+self-report routes match their L0-visible pages; unrelated API, admin and payment
+write boundaries remain unchanged. Deploy the Go and Web changes together (Go
+first during a rolling release). Refresh the real account after a grant; cached
+letter status is never an access decision.
 
 ## Boundaries
 
@@ -65,7 +98,9 @@ uses the existing restricted configuration capability.
 Regression suites cover weak signals, cross-user ownership, protected roles,
 missing/stale/changed identity, OAuth without email, repeated sanctions, auth
 version changes, restoration and the global cap. Frontend tests cover unknown and
-failed states, recommendation-form removal and the human-support explanation.
+failed states, retired forms and archive entries, stale todo filters and counts,
+and independent human support. Endpoint tests verify that retired requests cannot
+activate an account, expose a stored letter, or change historical records.
 Run Go model/controller tests and web typechecking in a dependency-equipped
 runner. Production traffic, PostgreSQL/MySQL concurrency, Redis outage behavior,
 and browser visual review must be verified before deployment; SQLite unit tests

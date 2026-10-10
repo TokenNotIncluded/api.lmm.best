@@ -17,19 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
-import { I18nextProvider } from 'react-i18next'
 
 import { Home } from '@/features/home'
-import landingI18n from '@/i18n/landing-i18n'
-
-function LandingRoute() {
-  return (
-    <I18nextProvider i18n={landingI18n}>
-      <Home />
-    </I18nextProvider>
-  )
-}
 
 export const Route = createFileRoute('/')({
-  component: LandingRoute,
+  component: Home,
 })

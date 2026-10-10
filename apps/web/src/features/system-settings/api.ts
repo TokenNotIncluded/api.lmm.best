@@ -18,14 +18,19 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
+import {
+  assistantPolicyMatchesBackendCatalog,
+  parseAssistantToolPolicy,
+} from './content/assistant-tool-policy'
 import type {
+  AssistantSettingsAuthScope,
   ConfirmPaymentComplianceResponse,
   FetchUpstreamRatiosRequest,
   LogCleanupTask,
   SystemOptionsResponse,
   SystemTaskListResponse,
   SystemTaskResponse,
-  UpdateAdvancedSecuritySettingsRequest,
+  UpdateAssistantOptionsRequest,
   UpdateOptionRequest,
   UpdateOptionResponse,
   UsdExchangeRateResponse,
@@ -33,8 +38,53 @@ import type {
   UpstreamRatiosResponse,
 } from './types'
 
-export async function getSystemOptions() {
-  const res = await api.get<SystemOptionsResponse>('/api/option/')
+type SettingsRequestOptions = { silent?: boolean }
+
+function settingsRequestConfig(options?: SettingsRequestOptions) {
+  return options?.silent
+    ? { skipBusinessError: true, skipErrorHandler: true }
+    : undefined
+}
+
+export function getSystemOptions(
+  options: SettingsRequestOptions
+): Promise<SystemOptionsResponse>
+export function getSystemOptions(): Promise<SystemOptionsResponse>
+export async function getSystemOptions(
+  options?: SettingsRequestOptions
+): Promise<SystemOptionsResponse> {
+  const res = await api.get<SystemOptionsResponse>(
+    '/api/option/',
+    settingsRequestConfig(options)
+  )
+  if (res.data.success !== true || !Array.isArray(res.data.data)) {
+    throw Object.assign(
+      new Error(res.data.message || 'Failed to load settings'),
+      {
+        response: { data: res.data },
+      }
+    )
+  }
+  return res.data
+}
+
+/** A save preflight must not share an older in-flight settings read. */
+export async function getAssistantSystemOptions(
+  authScope: AssistantSettingsAuthScope
+): Promise<SystemOptionsResponse> {
+  const res = await api.get<SystemOptionsResponse>('/api/option/', {
+    ...settingsRequestConfig({ silent: true }),
+    disableDuplicate: true,
+    authScope,
+  })
+  if (res.data.success !== true || !Array.isArray(res.data.data)) {
+    throw Object.assign(
+      new Error(res.data.message || 'Failed to load settings'),
+      {
+        response: { data: res.data },
+      }
+    )
+  }
   return res.data
 }
 
@@ -47,8 +97,15 @@ export async function getSystemGroups() {
   return res.data
 }
 
-export async function updateSystemOption(request: UpdateOptionRequest) {
-  const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+export async function updateSystemOption(
+  request: UpdateOptionRequest,
+  options?: SettingsRequestOptions
+) {
+  const res = await api.put<UpdateOptionResponse>(
+    '/api/option/',
+    request,
+    settingsRequestConfig(options)
+  )
   return res.data
 }
 
@@ -72,22 +129,53 @@ export async function validateSystemOptions(values: Record<string, string>) {
   return res.data
 }
 
-export async function updateSystemOptions(values: Record<string, string>) {
-  const res = await api.post<UpdateOptionResponse>('/api/option/bulk', {
-    values,
-  })
-  return res.data
-}
-
-export async function updateAdvancedSecuritySettings(
-  request: UpdateAdvancedSecuritySettingsRequest
+export async function updateSystemOptions(
+  values: Record<string, string>,
+  options?: SettingsRequestOptions
 ) {
-  const res = await api.put<UpdateOptionResponse>(
-    '/api/security/admin/settings',
-    request
+  const res = await api.post<UpdateOptionResponse>(
+    '/api/option/bulk',
+    {
+      values,
+    },
+    settingsRequestConfig(options)
   )
   return res.data
 }
+
+/** Tool-policy saves compare the latest baseline atomically with the write. */
+export async function updateAssistantSystemOptions(
+  request: UpdateAssistantOptionsRequest,
+  options?: SettingsRequestOptions
+) {
+  if (Object.hasOwn(request.values, 'AssistantToolPolicy')) {
+    // Recheck immediately before every write: a loaded catalog can outlive a
+    // backend rollback. Never drop unsupported restrictions from the draft.
+    const catalog = await api.get<unknown>('/api/assistant/admin/tool-catalog', {
+      ...settingsRequestConfig({ silent: true }),
+      disableDuplicate: true,
+      authScope: request.authScope,
+    })
+    const policy = parseAssistantToolPolicy(request.values.AssistantToolPolicy)
+    if (!policy || !assistantPolicyMatchesBackendCatalog(policy, catalog.data)) {
+      throw new Error(
+        'Unable to refresh tool settings. Your draft was kept. Try saving again.'
+      )
+    }
+  }
+  const res = await api.post<UpdateOptionResponse>(
+    '/api/option/bulk',
+    {
+      values: request.values,
+      ...(request.expectedValues
+        ? { expected_values: request.expectedValues }
+        : {}),
+    },
+    { ...settingsRequestConfig(options), authScope: request.authScope }
+  )
+  return res.data
+}
+
 export async function confirmPaymentCompliance() {
   const res = await api.post<ConfirmPaymentComplianceResponse>(
     '/api/option/payment_compliance',
@@ -131,23 +219,6 @@ export async function listSystemTasks(limit = 20) {
   return res.data
 }
 
-export async function listAssistantReviewRuns(limit = 20) {
-  const res = await api.get<SystemTaskListResponse>(
-    '/api/security/admin/review-runs',
-    { params: { limit } }
-  )
-  return res.data
-}
-
-export async function getAssistantReviewRun<TTask = LogCleanupTask>(
-  taskId: string
-) {
-  const res = await api.get<SystemTaskResponse<TTask>>(
-    `/api/security/admin/review-runs/${taskId}`
-  )
-  return res.data
-}
-
 export async function resetModelRatios() {
   const res = await api.post<UpdateOptionResponse>(
     '/api/option/rest_model_ratio'
@@ -162,10 +233,16 @@ export async function getUpstreamChannels() {
   return res.data
 }
 
-export async function fetchUpstreamRatios(request: FetchUpstreamRatiosRequest) {
+export async function fetchUpstreamRatios(
+  request: FetchUpstreamRatiosRequest,
+  options: { silent?: boolean } = {}
+) {
   const res = await api.post<UpstreamRatiosResponse>(
     '/api/ratio_sync/fetch',
-    request
+    request,
+    options.silent
+      ? { skipBusinessError: true, skipErrorHandler: true }
+      : undefined
   )
   return res.data
 }

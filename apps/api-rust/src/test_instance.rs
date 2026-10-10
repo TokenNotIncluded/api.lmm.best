@@ -1506,37 +1506,36 @@ impl PublicCatalogStore for PgPublicCatalogStore {
         &self,
         user_id: i64,
     ) -> Result<Option<AccountBalanceSnapshot>, PublicCatalogStoreError> {
-        let Some(quota) = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(quota, 0) FROM users WHERE id = $1 AND status = 1 AND deleted_at IS NULL",
+        // Wallet amounts are credits anchored to immutable real USD. Read the
+        // ledger and durable basis together; missing or drifted calibration
+        // must never fall back to the former platform-unit divisor.
+        let remaining = sqlx::query_scalar::<_, Option<f64>>(
+            "WITH basis AS (SELECT \
+             MAX(value) FILTER (WHERE key='CreditsPerUSD') AS usd, \
+             MAX(value) FILTER (WHERE key='LegacyPricingQuotaPerUnit') AS legacy, \
+             MAX(value) FILTER (WHERE key='QuotaPerUnit') AS current FROM options) \
+             SELECT CASE WHEN usd::NUMERIC > 0 AND usd::NUMERIC <= 9007199254740991 \
+             AND legacy::NUMERIC > 0 AND legacy::NUMERIC <= 9007199254740991 \
+             AND legacy::NUMERIC = COALESCE(current,'500000')::NUMERIC \
+             THEN ROUND(COALESCE(quota,0)::NUMERIC(1000,500) / usd::NUMERIC,16)::DOUBLE PRECISION \
+             ELSE NULL END FROM users CROSS JOIN basis \
+             WHERE id=$1 AND status=1 AND deleted_at IS NULL",
         )
         .bind(user_id)
         .fetch_optional(&self.pg)
         .await
         .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
-        else {
+        .flatten();
+        let Some(remaining) = remaining else {
             return Ok(None);
         };
-        let raw_quota_per_unit =
-            sqlx::query_scalar::<_, String>("SELECT value FROM options WHERE key = 'QuotaPerUnit'")
-                .fetch_optional(&self.pg)
-                .await
-                .map_err(|error| PublicCatalogStoreError::new(error.to_string()))?
-                // Go initializes common.QuotaPerUnit before overlaying saved options.
-                // Absence uses the default; an explicitly invalid value still fails closed.
-                .unwrap_or_else(|| "500000".to_owned());
-        let Ok(quota_per_unit) = raw_quota_per_unit.trim().parse::<f64>() else {
-            return Ok(None);
-        };
-        if !quota_per_unit.is_finite() || quota_per_unit <= 0.0 {
-            return Ok(None);
-        }
         let updated_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .ok()
             .and_then(|duration| i64::try_from(duration.as_secs()).ok())
             .unwrap_or(i64::MAX);
         Ok(Some(AccountBalanceSnapshot {
-            remaining: quota as f64 / quota_per_unit,
+            remaining,
             updated_at,
         }))
     }

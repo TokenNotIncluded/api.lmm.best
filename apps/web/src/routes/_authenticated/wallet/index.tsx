@@ -20,9 +20,15 @@ import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { Wallet } from '@/features/wallet'
+import { parseWalletTopupAmount } from '@/features/wallet/lib/topup-link'
 
 const walletSearchSchema = z.object({
   show_history: z.boolean().optional(),
+  pay: z.enum(['return', 'cancel']).optional().catch(undefined),
+  topup_amount: z.preprocess(
+    parseWalletTopupAmount,
+    z.number().int().min(1).max(1_000_000).optional()
+  ),
 })
 
 export const Route = createFileRoute('/_authenticated/wallet/')({
@@ -31,6 +37,12 @@ export const Route = createFileRoute('/_authenticated/wallet/')({
 })
 
 function RouteComponent() {
-  const { show_history } = Route.useSearch()
-  return <Wallet initialShowHistory={show_history} />
+  const { show_history, topup_amount, pay } = Route.useSearch()
+  return (
+    <Wallet
+      paymentReturn={pay}
+      initialShowHistory={show_history}
+      initialTopupAmount={topup_amount}
+    />
+  )
 }

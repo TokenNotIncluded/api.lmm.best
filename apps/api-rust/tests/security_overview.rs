@@ -328,7 +328,7 @@ async fn administrator_policy_exposes_patterns_only_after_admin_auth() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     assert!(response.headers().get(header::CACHE_CONTROL).is_none());
     let body = json_body(response).await;
@@ -368,7 +368,7 @@ async fn administrator_stats_normalizes_filters_and_reports_rule_buckets() {
 
     assert_eq!(
         response.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     let body = json_body(response).await;
     assert_eq!(
@@ -458,7 +458,7 @@ async fn authenticated_filter_errors_keep_http_200_and_auth_version() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response.headers()["auth-version"],
-        "864b7076dbcd0a3c01b5520316720ebf"
+        lmm_api_rs::auth_version::AUTH_VERSION
     );
     assert_eq!(
         json_body(response).await,

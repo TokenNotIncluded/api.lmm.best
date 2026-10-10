@@ -34,7 +34,7 @@ import { usePurchaseEntry } from '@/features/forge/use-purchase-entry'
 const QUESTIONS = [
   [
     'Can I pay before approval?',
-    'Developer access requires approval. Payment does not unlock access.',
+    'Yes. Your first successful top-up upgrades your account to L1 and unlocks developer access automatically.',
   ],
   [
     'How much will I pay?',
@@ -100,7 +100,7 @@ export function PublicAccessPricing() {
               </div>
               <p className='text-muted-foreground mt-4 max-w-xl text-sm leading-6'>
                 {t(
-                  'Developer access requires approval. Payment does not unlock access.'
+                  'Your first successful top-up unlocks developer access (L1) automatically. You can also request approval.'
                 )}
               </p>
             </div>

@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // Setup2FARequest 设置2FA请求结构
@@ -25,7 +26,8 @@ type Verify2FARequest struct {
 }
 
 type twoFALoginFlowPayload struct {
-	AuthVersion int64 `json:"auth_version"`
+	AuthVersion     int64            `json:"auth_version"`
+	GitHubMigration *githubMigration `json:"github_migration,omitempty"`
 }
 
 // Setup2FAResponse 设置2FA响应结构
@@ -478,6 +480,22 @@ func Verify2FALogin(c *gin.Context) {
 			"success": false,
 			"message": "用户未启用2FA",
 		})
+		return
+	}
+
+	if flowPayload.GitHubMigration != nil {
+		valid, err := model.CheckLoginTwoFactorCode(user.Id, req.Code)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if !valid {
+			common.ApiErrorMsg(c, "验证码或备用码错误，请重试")
+			return
+		}
+		completeGitHubMigrationLogin(user, *flowPayload.GitHubMigration, "", req.FlowToken, model.AuthFlowPurposeTwoFALogin, "2fa", func(tx *gorm.DB) error {
+			return model.ConsumeLoginTwoFactorCodeWithTx(tx, user.Id, req.Code)
+		}, c)
 		return
 	}
 

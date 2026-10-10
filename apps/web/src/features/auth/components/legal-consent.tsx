@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Checkbox } from '@/components/ui/checkbox'
@@ -38,6 +39,7 @@ export function LegalConsent({
   className,
 }: LegalConsentProps) {
   const { t } = useTranslation()
+  const descriptionId = useId()
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
 
@@ -52,12 +54,13 @@ export function LegalConsent({
   return (
     <div
       className={cn(
-        'border-border/60 bg-muted/40 flex items-start gap-3 rounded-md border p-3',
+        'border-border/60 bg-muted/40 grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-md border p-3',
         className
       )}
     >
       <Checkbox
         id='legal-consent'
+        aria-describedby={!checked ? descriptionId : undefined}
         checked={checked}
         onCheckedChange={handleChange}
         className='mt-0.5'
@@ -92,6 +95,14 @@ export function LegalConsent({
           .
         </span>
       </Label>
+      {!checked && (
+        <p
+          id={descriptionId}
+          className='text-muted-foreground col-start-2 text-xs leading-5'
+        >
+          {t('Please agree to the legal terms first')}
+        </p>
+      )}
     </div>
   )
 }

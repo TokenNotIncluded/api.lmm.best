@@ -22,6 +22,10 @@ import { t } from 'i18next'
 
 import { publishAuthSessionEvent } from '@/lib/auth-session-sync'
 import {
+  isRateLimitedError,
+  rateLimitWaitSeconds,
+} from '@/lib/request-rate-limit'
+import {
   useAuthStore,
   type AuthBootstrapState,
   type AuthBundle,
@@ -82,6 +86,12 @@ export function setDevelopmentAuthRefreshAdapter(adapter: AxiosAdapter): void {
 const refreshRaceDelays = [80, 200, 500] as const
 const authRefreshTimeoutMs = 10_000
 let refreshPromise: Promise<RefreshOutcome> | null = null
+let refreshCooldown: {
+  epoch: number
+  sid: string | undefined
+  until: number
+  outcome: RefreshOutcome
+} | null = null
 let authEpoch = 0
 let authCache: QueryClient | null = null
 
@@ -160,6 +170,7 @@ export function applyAuthBundle(
   if (previousSID && previousSID !== bundle.session.sid) {
     authCache?.clear()
   }
+  refreshCooldown = null
   authEpoch += 1
   useAuthStore.getState().auth.setBundle(bundle)
   if (synchronizeTabs && previousSID !== bundle.session.sid) {
@@ -198,6 +209,7 @@ export function clearAuthentication(
 ): void {
   const sid = useAuthStore.getState().auth.session?.sid
   authCache?.clear()
+  refreshCooldown = null
   authEpoch += 1
   useAuthStore.getState().auth.reset(bootstrapState)
   if (synchronizeTabs && sid) {
@@ -359,9 +371,35 @@ async function performRefreshWithBrowserLock(
 export function refreshAuthentication(): Promise<RefreshOutcome> {
   if (!refreshPromise) {
     const refreshEpoch = authEpoch
-    refreshPromise = performRefreshWithBrowserLock(refreshEpoch).finally(() => {
-      refreshPromise = null
-    })
+    const sid = useAuthStore.getState().auth.session?.sid
+    if (
+      refreshCooldown?.epoch === refreshEpoch &&
+      refreshCooldown.sid === sid &&
+      refreshCooldown.until > Date.now()
+    ) {
+      return Promise.resolve(refreshCooldown.outcome)
+    }
+    refreshPromise = performRefreshWithBrowserLock(refreshEpoch)
+      .then((outcome) => {
+        if (
+          authEpoch === refreshEpoch &&
+          outcome.kind === 'transient_error' &&
+          isRateLimitedError(outcome.error)
+        ) {
+          // Missing Retry-After still needs backpressure rather than another POST.
+          const seconds = Math.max(1, rateLimitWaitSeconds(outcome.error) ?? 30)
+          refreshCooldown = {
+            epoch: refreshEpoch,
+            sid,
+            until: Date.now() + seconds * 1000,
+            outcome,
+          }
+        }
+        return outcome
+      })
+      .finally(() => {
+        refreshPromise = null
+      })
   }
   return refreshPromise
 }

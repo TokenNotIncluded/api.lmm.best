@@ -153,6 +153,15 @@ for target in "$go_database:$go_schema" "$rust_database:$rust_schema"; do
   database=${target%%:*}
   schema=${target##*:}
   sed "s/public\./$schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$runtime/$schema.sql"
+  if [[ $schema == "$rust_schema" ]]; then
+    # Expand only the disposable Rust schema after the frozen baseline.
+    sed "s/__LMM_APP_SCHEMA__/$schema/g" \
+      "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+      >>"$runtime/$schema.sql"
+    # Runtime readiness checks both SELECT and UPDATE privileges.
+    printf 'GRANT SELECT, UPDATE ON %s.user_subscriptions TO %s;\n' \
+      "$schema" "$rust_role" >>"$runtime/$schema.sql"
+  fi
   psql -h 127.0.0.1 -p "$pg_port" -d "$database" -v ON_ERROR_STOP=1 -f "$runtime/$schema.sql" >/dev/null
 done
 

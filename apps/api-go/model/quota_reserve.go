@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"gorm.io/gorm"
@@ -170,14 +171,35 @@ func reserveUserQuotaDB(id int, quota int) (bool, error) {
 }
 
 func reserveUserQuotaDBWithMinimum(id, amount, minimum int) (bool, error) {
-	result := UpdateWalletQuotaByDelta(
-		DB.Model(&User{}).Where("id = ? AND quota >= ? AND quota >= ?", id, amount, minimum),
-		-amount,
-	)
-	if result.Error != nil {
-		return false, result.Error
+	var reserved bool
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// Serialize with managed subscription admission before reading its
+		// pending wallet budgets. A conditional UPDATE alone can miss a hold
+		// committed while it waits on the user's row lock.
+		if err := lockSubscriptionBillingUser(tx, id); err != nil {
+			return err
+		}
+		pending, err := pendingSubscriptionWalletQuota(tx, id, "")
+		if err != nil {
+			return err
+		}
+		if pending > math.MaxInt64-int64(amount) {
+			return ErrWalletQuotaOutOfRange
+		}
+		result := UpdateWalletQuotaByDelta(
+			tx.Model(&User{}).Where("id = ? AND quota >= ? AND quota >= ?", id, pending+int64(amount), minimum),
+			-amount,
+		)
+		if result.Error != nil {
+			return result.Error
+		}
+		reserved = result.RowsAffected == 1
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
-	if result.RowsAffected == 1 {
+	if reserved {
 		return true, nil
 	}
 	current, err := currentWalletQuota(DB, id)

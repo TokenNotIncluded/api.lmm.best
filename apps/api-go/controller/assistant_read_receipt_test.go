@@ -52,7 +52,7 @@ func TestAssistantAgentExplainsFailedRequiredReadWithoutInventedResults(t *testi
 	original := relayAssistantAgentTurn
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turns++
-		receipt := requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", false)
+		receipt := requireAssistantPairedReadReceipt(t, request, "get_account_access", false)
 		require.Contains(t, receipt["error"], "signed-in account is unavailable")
 		require.Equal(t, "none", request.ToolChoice)
 		return http.StatusOK, assistantLoopCallBody(t, nil, "The account is unavailable; no recommendation was read or changed."), nil

@@ -769,6 +769,9 @@ func (channel *Channel) GetStatusCodeMapping() string {
 }
 
 func (channel *Channel) Insert() error {
+	if channel.Type == constant.ChannelTypeOpenHuman {
+		return ErrRetiredChannelType
+	}
 	var err error
 	err = DB.Create(channel).Error
 	if err != nil {

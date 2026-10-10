@@ -240,6 +240,31 @@ func TestTryTieredSettle_ZeroTokens(t *testing.T) {
 	}
 }
 
+func TestTryTieredSettle_PositiveShortRequestKeepsOneQuotaMinimum(t *testing.T) {
+	info := makeRelayInfo(`tier("default", p * 0.1)`, 1.0, 1, 0)
+
+	ok, quota, result := TryTieredSettle(info, billingexpr.TokenParams{P: 1})
+	if !ok || result == nil {
+		t.Fatalf("expected successful tiered settlement, ok=%v result=%v", ok, result)
+	}
+	if result.ActualQuotaBeforeGroup <= 0 {
+		t.Fatalf("expected positive pre-group quota, got %v", result.ActualQuotaBeforeGroup)
+	}
+	if quota != 1 {
+		t.Fatalf("positive billable request rounded down to quota %d, want one", quota)
+	}
+}
+
+func TestTryTieredSettle_ExplicitZeroPriceStaysFree(t *testing.T) {
+	info := makeRelayInfo(`tier("default", p * 0)`, 1.0, 1000, 0)
+
+	ok, quota, result := TryTieredSettle(info, billingexpr.TokenParams{P: 1})
+	require.True(t, ok)
+	require.NotNil(t, result)
+	require.Zero(t, result.ActualQuotaBeforeGroup)
+	require.Zero(t, quota)
+}
+
 func TestTryTieredSettle_HugeTokens(t *testing.T) {
 	info := makeRelayInfo(flatExpr, 1.0, 10000000, 5000000)
 
@@ -697,7 +722,7 @@ func TestTryTieredSettle_RatioMode_EmptyBillingMode(t *testing.T) {
 
 func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 	info := &relaycommon.RelayInfo{
-		FinalPreConsumedQuota: 0,
+		FinalPreConsumedQuota: 100,
 		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
 			BillingMode:              "tiered_expr",
 			ExprString:               `invalid expr!!!`,
@@ -711,7 +736,7 @@ func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 	if !ok {
 		t.Fatal("expected tiered settle to apply")
 	}
-	// FinalPreConsumedQuota is 0, should fall back to EstimatedQuotaAfterGroup
+	// A partial funding reservation must not replace the original estimate.
 	if quota != 999 {
 		t.Fatalf("quota = %d, want 999", quota)
 	}

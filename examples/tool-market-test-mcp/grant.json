@@ -1,0 +1,9 @@
+{
+  "client_id": "paid-test-client",
+  "tool_id": "replace-with-reviewed-tool-id",
+  "version_id": "replace-with-reviewed-version-id",
+  "max_price_quota": 150,
+  "max_total_quota": 600,
+  "max_calls": 4,
+  "expires_at": 0
+}

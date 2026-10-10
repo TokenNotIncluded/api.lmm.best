@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="lmm-logo-title lmm-logo-desc">
+  <title id="lmm-logo-title">LMM Forge</title>
+  <desc id="lmm-logo-desc">A white LMM monogram on a black tile with diagonal corners.</desc>
+  <path d="M16 0H112L128 16V112L112 128H16L0 112V16Z" fill="#000"/>
+  <path d="M8 16H24V96H120V104L112 112H8Z M40 80V16H50L56 30L62 16H72V80H62V42L56 56L50 42V80Z M88 80V16H98L104 30L110 16H120V80H110V42L104 56L98 42V80Z" transform="translate(16 16) scale(.75)" fill="#fff" fill-rule="evenodd"/>
+</svg>

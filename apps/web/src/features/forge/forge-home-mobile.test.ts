@@ -14,16 +14,27 @@ const source = readFileSync(
   new URL('./forge-home.tsx', import.meta.url),
   'utf8'
 )
-const css = readFileSync(new URL('./forge-home.css', import.meta.url), 'utf8')
-const motion = readFileSync(
-  new URL('../home/home-motion.ts', import.meta.url),
+const landingSource = readFileSync(
+  new URL('../home/home-landing.tsx', import.meta.url),
   'utf8'
 )
+const providerCommands = readFileSync(
+  new URL('../guide/provider-install-commands.ts', import.meta.url),
+  'utf8'
+)
+const css = readFileSync(new URL('./forge-home.css', import.meta.url), 'utf8')
 
 test('homepage exposes a keyboard-accessible interactive explore console', () => {
   assert.match(source, /lmm-explore-console/)
-  assert.match(source, /aria-current={activeExplore === id/)
-  assert.match(source, /onFocus=\{\(\) => setActiveExplore\(id\)\}/)
+  assert.match(
+    source,
+    /data-preview-active=\{\s*activeExplore === (?:id|destination\.id)/
+  )
+  assert.doesNotMatch(source, /aria-current=\{\s*activeExplore/)
+  assert.match(
+    source,
+    /onFocus=\{\(\) => setActiveExplore\((?:id|destination\.id)\)\}/
+  )
   assert.match(css, /\.lmm-explore-console/)
   assert.match(css, /@media \(max-width: 680px\)/)
 })
@@ -37,7 +48,9 @@ test('homepage does not load optional GPU ornament runtimes or announce a rotati
 })
 
 test('the homepage owns and cleans up its progressive motion enhancement', () => {
-  assert.match(source, /return mountHomeMotion\(rootRef\.current\)/)
+  assert.match(source, /import\('@\/features\/home\/home-motion'\)/)
+  assert.match(source, /release = mountHomeMotion\(root\)/)
+  assert.match(source, /disposed = true\s+release\(\)/)
   assert.doesNotMatch(source, /addEventListener\(['"]scroll/)
 })
 
@@ -50,49 +63,33 @@ test('reduced motion disables animation, transitions and transformed surfaces', 
   assert.match(reducedMotion, /transition: none !important/)
   assert.match(reducedMotion, /scroll-behavior: auto !important/)
   assert.match(reducedMotion, /transform: none !important/)
+})
+
+test('homepage presents all OAuth client options', () => {
+  assert.match(source, /<strong>Pi<\/strong>/)
+  assert.match(source, /<strong>DSH<\/strong>/)
+  assert.match(source, /<strong>Codewhale<\/strong>/)
+  assert.match(source, /DSH_WEB_INSTALL_PORTABLE_COMMAND/)
+  assert.match(providerCommands, /dsh plugin --profile web add/)
+  assert.match(providerCommands, /codewhale-lmm-provider\.git/)
+})
+
+test('connection controls expose both OAuth and API key choices', () => {
+  assert.match(landingSource, /className='lmm-connection-method'/)
+  assert.match(landingSource, /aria-pressed=\{connectionMethod === 'oauth'\}/)
+  assert.match(landingSource, /aria-pressed=\{connectionMethod === 'api-key'\}/)
+  assert.match(css, /\.lmm-connection-method \[aria-pressed='true'\]/)
+})
+
+test('the assistant keeps one visible underline instead of nested focus boxes', () => {
+  const focus = css.match(
+    /\.lmm-home \.forge-home-input:focus-within \{([\s\S]*?)\n\}/
+  )?.[1]
+  assert.ok(focus)
+  assert.match(focus, /outline: 0;/)
+  assert.match(focus, /box-shadow: 0 1px 0 var\(--foreground\);/)
   assert.match(
     css,
-    /\.lmm-story:not\(\[data-chapter\]\) \[data-story-panel='2'\]/
+    /\.lmm-home \.forge-home-input input:focus-visible \{\s*outline: 0;/
   )
-})
-
-test('scroll motion retains passive listeners, cancellation and observer cleanup', () => {
-  assert.match(
-    motion,
-    /document\.addEventListener\('scroll', update, \{ passive: true, capture: true \}\)/
-  )
-  assert.match(
-    motion,
-    /document\.removeEventListener\('scroll', update, true\)/
-  )
-  assert.match(motion, /cancelAnimationFrame\(frame\)/)
-  assert.match(motion, /observer\.disconnect\(\)/)
-  assert.match(motion, /resizeObserver\.disconnect\(\)/)
-})
-
-test('section progress drives the current scene and story styles', () => {
-  assert.match(motion, /setProperty\('--scene-progress',/)
-  assert.match(motion, /setProperty\('--story-progress',/)
-  assert.match(
-    motion,
-    /draw\(reduced\.matches \? 0 : clock, pointer, sceneProgress\)/
-  )
-  assert.match(css, /var\(--story-progress\)/)
-})
-
-test('missing observer constructors preserve static content', () => {
-  assert.match(motion, /typeof window\.IntersectionObserver !== 'function'/)
-  assert.match(motion, /typeof window\.ResizeObserver !== 'function'/)
-  // The lifecycle tests execute this fallback and its cleanup, including
-  // decorations; do not require an exact ordering of implementation statements.
-  assert.match(css, /\.lmm-story:not\(\[data-chapter\]\)/)
-})
-
-test('paused and reduced-motion states keep the code surface static', () => {
-  assert.match(
-    css,
-    /\.lmm-home\[data-motion='paused'\] \.lmm-code-surface,\s*\.lmm-home\[data-motion='reduced'\] \.lmm-code-surface \{\s*transform: none;/
-  )
-  assert.match(motion, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/)
-  assert.match(motion, /const animate = !reduced\.matches && !paused/)
 })

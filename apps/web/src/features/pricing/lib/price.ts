@@ -20,7 +20,12 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { QUOTA_TYPE_VALUES, TOKEN_UNIT_DIVISORS } from '../constants'
-import type { PricingModel, TokenUnit, PriceType } from '../types'
+import type {
+  PricingModel,
+  TokenUnit,
+  PriceType,
+  PriceDisplayCurrency,
+} from '../types'
 import { getConfiguredGroupRatio, getDisplayGroupRatio } from './model-helpers'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -74,52 +79,26 @@ export function stripTrailingZeros(formatted: string): string {
   return `${symbol}${result}${suffix}`
 }
 
-/**
- * Calculate token price in platform units per 1M tokens.
- *
- * Returns NaN when the required ratio field is missing/null so callers can
- * skip rendering that price type.
- */
-function calculateTokenPrice(
-  model: PricingModel,
-  type: PriceType,
-  ratio: number
-): number {
-  const base = model.model_ratio * 2 * ratio
-
-  switch (type) {
-    case 'input':
-      return base
-    case 'output':
-      return base * model.completion_ratio
-    case 'cache':
-      return hasRatio(model.cache_ratio)
-        ? base * Number(model.cache_ratio)
-        : Number.NaN
-    case 'create_cache':
-      return hasRatio(model.create_cache_ratio)
-        ? base * Number(model.create_cache_ratio)
-        : Number.NaN
-    case 'image':
-      return hasRatio(model.image_ratio)
-        ? base * Number(model.image_ratio)
-        : Number.NaN
-    case 'audio_input':
-      return hasRatio(model.audio_ratio)
-        ? base * Number(model.audio_ratio)
-        : Number.NaN
-    case 'audio_output':
-      return hasRatio(model.audio_ratio) &&
-        hasRatio(model.audio_completion_ratio)
-        ? base *
-            Number(model.audio_ratio) *
-            Number(model.audio_completion_ratio)
-        : Number.NaN
-  }
+/** Only the versioned API's real-USD fields are valid price inputs. */
+export function hasCanonicalPricing(model: PricingModel): boolean {
+  return model.pricing_schema_version === 2 && model.pricing_currency === 'USD'
 }
 
-function hasRatio(value: number | null | undefined): boolean {
-  return value !== undefined && value !== null && Number.isFinite(Number(value))
+export function getTokenPriceUSD(model: PricingModel, type: PriceType): number {
+  if (!hasCanonicalPricing(model)) return Number.NaN
+  const fields: Record<PriceType, keyof PricingModel> = {
+    input: 'input_price',
+    output: 'output_price',
+    cache: 'cache_read_price',
+    create_cache: 'cache_write_price',
+    image: 'image_price',
+    audio_input: 'audio_input_price',
+    audio_output: 'audio_output_price',
+  }
+  const value = model[fields[type]]
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : Number.NaN
 }
 
 /**
@@ -129,9 +108,7 @@ export function formatPrice(
   model: PricingModel,
   type: PriceType,
   tokenUnit: TokenUnit,
-  showWithRecharge = false,
-  priceRate = 1,
-  _usdExchangeRate = 1,
+  displayCurrency: PriceDisplayCurrency = 'USD',
   selectedGroup?: string
 ): string {
   if (model.quota_type === QUOTA_TYPE_VALUES.REQUEST) {
@@ -140,10 +117,10 @@ export function formatPrice(
 
   const displayGroupRatio = getDisplayGroupRatio(model, selectedGroup)
 
-  const platformPrice = calculateTokenPrice(model, type, displayGroupRatio)
+  const amountUSD = getTokenPriceUSD(model, type) * displayGroupRatio
 
-  const price = platformPrice / TOKEN_UNIT_DIVISORS[tokenUnit]
-  return formatModelPrice(price, showWithRecharge, priceRate, {
+  const price = amountUSD / TOKEN_UNIT_DIVISORS[tokenUnit]
+  return formatModelPrice(price, displayCurrency, {
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
@@ -158,9 +135,7 @@ export function formatGroupPrice(
   group: string,
   type: PriceType,
   tokenUnit: TokenUnit,
-  showWithRecharge = false,
-  priceRate = 1,
-  _usdExchangeRate = 1,
+  displayCurrency: PriceDisplayCurrency = 'USD',
   groupRatio: Record<string, number>
 ): string {
   if (model.quota_type === QUOTA_TYPE_VALUES.REQUEST) {
@@ -168,10 +143,10 @@ export function formatGroupPrice(
   }
 
   const ratio = getConfiguredGroupRatio(groupRatio, group)
-  const platformPrice = calculateTokenPrice(model, type, ratio)
+  const amountUSD = getTokenPriceUSD(model, type) * ratio
 
-  const price = platformPrice / TOKEN_UNIT_DIVISORS[tokenUnit]
-  return formatModelPrice(price, showWithRecharge, priceRate, {
+  const price = amountUSD / TOKEN_UNIT_DIVISORS[tokenUnit]
+  return formatModelPrice(price, displayCurrency, {
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
@@ -184,9 +159,7 @@ export function formatGroupPrice(
 export function formatFixedPrice(
   model: PricingModel,
   group: string,
-  showWithRecharge = false,
-  priceRate = 1,
-  _usdExchangeRate = 1,
+  displayCurrency: PriceDisplayCurrency = 'USD',
   groupRatio: Record<string, number>
 ): string {
   if (model.quota_type !== QUOTA_TYPE_VALUES.REQUEST) {
@@ -194,9 +167,12 @@ export function formatFixedPrice(
   }
 
   const ratio = getConfiguredGroupRatio(groupRatio, group)
-  const platformPrice = (model.model_price || 0) * ratio
+  const amountUSD =
+    hasCanonicalPricing(model) && typeof model.model_price === 'number'
+      ? model.model_price * ratio
+      : Number.NaN
 
-  return formatModelPrice(platformPrice, showWithRecharge, priceRate, {
+  return formatModelPrice(amountUSD, displayCurrency, {
     digitsLarge: 4,
     digitsSmall: 4,
     abbreviate: false,
@@ -204,13 +180,11 @@ export function formatFixedPrice(
 }
 
 /**
- * Format fixed price for pay-per-request models (minimum price from all groups)
+ * Format the canonical base price for pay-per-request models.
  */
 export function formatRequestPrice(
   model: PricingModel,
-  showWithRecharge = false,
-  priceRate = 1,
-  _usdExchangeRate = 1,
+  displayCurrency: PriceDisplayCurrency = 'USD',
   selectedGroup?: string
 ): string {
   if (model.quota_type !== QUOTA_TYPE_VALUES.REQUEST) {
@@ -219,9 +193,12 @@ export function formatRequestPrice(
 
   const displayGroupRatio = getDisplayGroupRatio(model, selectedGroup)
 
-  const platformPrice = (model.model_price || 0) * displayGroupRatio
+  const amountUSD =
+    hasCanonicalPricing(model) && typeof model.model_price === 'number'
+      ? model.model_price * displayGroupRatio
+      : Number.NaN
 
-  return formatModelPrice(platformPrice, showWithRecharge, priceRate, {
+  return formatModelPrice(amountUSD, displayCurrency, {
     digitsLarge: 4,
     digitsSmall: 4,
     abbreviate: false,

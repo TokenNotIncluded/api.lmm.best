@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -58,20 +59,20 @@ import {
   getAffiliateCode,
   saveAffiliateCode,
 } from '@/features/auth/lib/storage'
+import type { AuthFormProps } from '@/features/auth/types'
 import { useStatus } from '@/hooks/use-status'
 import { isAuthBundle } from '@/lib/api'
 import { isLocalPreview } from '@/lib/local-preview'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
-export function SignUpForm({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLFormElement>) {
+export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
   const { t } = useTranslation()
   const localPreview = isLocalPreview()
   const [isLoading, setIsLoading] = useState(false)
   const [verificationCode, setVerificationCode] = useState('')
+  const [verificationEmail, setVerificationEmail] = useState('')
+  const verificationCodeId = useId()
   const [agreedToLegal, setAgreedToLegal] = useState(false)
   const [wechatCode, setWeChatCode] = useState('')
   const [wechatFlowToken, setWeChatFlowToken] = useState('')
@@ -190,7 +191,7 @@ export function SignUpForm({
 
       if (res?.success) {
         toast.success(t('Account created! Please sign in'))
-        redirectToLogin()
+        redirectToLogin(redirectTo)
       } else {
         toast.error(res?.message || t('Failed to create account'))
       }
@@ -211,7 +212,9 @@ export function SignUpForm({
       return
     }
 
-    if (await sendCode(emailValue || '')) {
+    const requestedEmail = emailValue || ''
+    if (await sendCode(requestedEmail)) {
+      setVerificationEmail(requestedEmail)
       setTurnstileToken('')
       setTurnstileWidgetKey((current) => current + 1)
     }
@@ -272,7 +275,7 @@ export function SignUpForm({
     try {
       const res = await wechatLoginByCode(wechatCode, wechatFlowToken)
       if (res?.success && isAuthBundle(res.data)) {
-        await handleLoginSuccess(res.data)
+        await handleLoginSuccess(res.data, redirectTo)
         toast.success(t('Signed in via WeChat'))
         handleWeChatDialogChange(false)
       } else {
@@ -313,7 +316,11 @@ export function SignUpForm({
                 <FormItem>
                   <FormLabel>{t('Username')}</FormLabel>
                   <FormControl>
-                    <Input placeholder={t('Enter your username')} {...field} />
+                    <Input
+                      placeholder={t('Enter your username')}
+                      autoComplete='username'
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -330,9 +337,13 @@ export function SignUpForm({
                   <FormControl>
                     <PasswordInput
                       placeholder={t('Enter password (8-20 characters)')}
+                      autoComplete='new-password'
                       {...field}
                     />
                   </FormControl>
+                  <FormDescription>
+                    {t('Enter password (8-20 characters)')}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -348,6 +359,7 @@ export function SignUpForm({
                   <FormControl>
                     <PasswordInput
                       placeholder={t('Confirm password')}
+                      autoComplete='new-password'
                       {...field}
                     />
                   </FormControl>
@@ -372,6 +384,7 @@ export function SignUpForm({
                         <Input
                           placeholder={t('name@example.com')}
                           type='email'
+                          autoComplete='email'
                           {...field}
                         />
                       </FormControl>
@@ -381,9 +394,14 @@ export function SignUpForm({
                 />
 
                 {/* Verification Code Field */}
-                <div className='flex items-end gap-2'>
-                  <div className='flex-1'>
+                <div className='flex flex-wrap items-end gap-2'>
+                  <div className='grid min-w-0 flex-1 basis-40 gap-2'>
+                    <Label htmlFor={verificationCodeId}>
+                      {t('Verification code')}
+                    </Label>
                     <Input
+                      id={verificationCodeId}
+                      autoComplete='one-time-code'
                       placeholder={t('Verification code')}
                       value={verificationCode}
                       onChange={(e) => setVerificationCode(e.target.value)}
@@ -404,6 +422,14 @@ export function SignUpForm({
                     {verificationCodeAction}
                   </Button>
                 </div>
+                {verificationEmail && verificationEmail === emailValue && (
+                  <p
+                    role='status'
+                    className='text-muted-foreground text-sm break-words'
+                  >
+                    {t('Verification email sent')}: {verificationEmail}
+                  </p>
+                )}
               </>
             )}
 
@@ -452,6 +478,7 @@ export function SignUpForm({
             isWeChatLoading={isWeChatSubmitting}
             className='pt-2'
             registrationOnly
+            redirectTo={redirectTo}
           />
         )}
       </form>

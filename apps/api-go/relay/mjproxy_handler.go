@@ -588,13 +588,8 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		consumeQuota = false
 	}
 
-	if setting.ShouldCheckAdvancedSecurityPrompt() && strings.TrimSpace(midjRequest.Prompt) != "" {
-		evaluation := service.EvaluateAdvancedSecurityText(c, relayInfo, midjRequest.Prompt)
-		if evaluation.Blocked() {
-			response := service.MidjourneyErrorWrapper(constant.MjRequestError, "advanced_security_guardrail")
-			response.Result = common.MessageWithRequestId(service.AdvancedSecurityBlockedMessage, c.GetString(common.RequestIdKey))
-			return response
-		}
+	if strings.TrimSpace(midjRequest.Prompt) != "" {
+		service.EvaluateAdvancedSecurityText(c, relayInfo, midjRequest.Prompt)
 	}
 
 	//baseURL := common.ChannelBaseURLs[channelType]

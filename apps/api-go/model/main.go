@@ -254,8 +254,14 @@ func initDBWithMigrationSession(chooser databaseChooser) (*StartupMigrationSessi
 			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
 		}
 		err = session.runPrimaryPhase(DB, dbType, func() error {
+			if err := checkMerchantStoreWriterMigration(DB); err != nil {
+				return err
+			}
 			common.SysLog("database migration started")
-			return migrateDB()
+			if err := migrateDB(); err != nil {
+				return err
+			}
+			return nil
 		}, func() error {
 			common.SysLog("database migration verification started")
 			return verifyPostgresRuntimeAndSchema(DB)
@@ -333,12 +339,12 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 }
 
 func mainMigrationModels() []interface{} {
-	return append([]interface{}{
+	models := append([]interface{}{
 		&RatioNotification{}, &RatioDelivery{},
-		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
+		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &ProfileShare{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
 		&DiscountCode{}, &DiscountCodeReservation{},
-		&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}, &SignalGameRecord{}, &SignalGameAttempt{},
+		&WalletTransfer{}, &RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}, &SignalGameRecord{}, &SignalGameAttempt{},
 		&TopUp{}, &QuotaData{}, &Task{}, &Model{}, &Vendor{}, &PrefillGroup{}, &Setup{}, &TwoFA{},
 		&TwoFABackupCode{}, &Checkin{}, &Gift{}, &GiftClaim{}, &OpenSourceBountyProject{}, &OpenSourceBountyChallenge{},
 		&DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{},
@@ -351,18 +357,31 @@ func mainMigrationModels() []interface{} {
 		&UserOAuthBinding{}, &PerfMetric{}, &SystemInstance{}, &SystemTask{}, &SystemTaskLock{},
 		&CasbinRule{}, &AuthzRole{},
 		&WaffoPancakeWebhookReceipt{}, &CompanyBillingProfile{},
-		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantTurnReceipt{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AssistantRegistrationProfile{}, &AssistantRegistrationFingerprint{}, &AssistantRegistrationCase{}, &AssistantRegistrationEvent{}, &AdvancedSecurityEvent{},
-		&ViolationFeeState{}, &ViolationFeeRecord{}, &ViolationFeeAppeal{},
+		&AssistantLead{}, &AssistantProfileBucket{}, &AssistantUserProfile{}, &AssistantUserProfileAudit{}, &AssistantMemory{}, &AssistantFirstQuestionStat{}, &PromptPresetRow{}, &PromptPresetStat{}, &PromptConversionRef{}, &PromptConversationRef{}, &AssistantConversation{}, &AssistantTurnReceipt{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{}, &AssistantSecurityIncident{}, &AssistantRequestReview{}, &AssistantReviewReset{}, &AssistantNewUserGift{}, &AssistantWeeklyDiscount{}, &AssistantOverviewPreference{}, &AssistantSiteIssue{}, &AssistantSiteIssueEvent{}, &AssistantGiftRiskKey{}, &AssistantGiftRiskMemory{}, &AssistantRegistrationProfile{}, &AssistantRegistrationFingerprint{}, &AssistantRegistrationCase{}, &AssistantRegistrationEvent{},
+		&ViolationFeeRecord{}, &ViolationFeeAppeal{},
+		&ModerationJob{}, &ModerationNotice{},
 		&ReferralReward{}, &ReferralLedgerEntry{}, &ReferralModerationEvent{},
 		&FinanceLedgerEntry{}, &FinancePaymentMethod{},
 		&HeroSMSEmailOrder{}, &HeroSMSEmailActivation{}, &HeroSMSEmailQuotaLedger{}, &HeroSMSSMSOrder{}, &HeroSMSSMSQuotaLedger{}, &HeroSMSProviderPurchaseLease{},
 		&ReleaseNote{}, &ReleaseNoteRead{}, &AnnouncementRead{}, &AcquisitionLink{}, &AcquisitionVisitor{}, &AcquisitionVisit{}, &AcquisitionAccount{}, &AcquisitionConfig{}, &AcquisitionAttributionPolicy{}, &AcquisitionFirstPayment{}, &AcquisitionActivity{}, &AcquisitionActivityState{}, &AcquisitionConsent{}, &AcquisitionSelfReport{}, &AcquisitionCost{}, &AcquisitionCorrection{}, &AcquisitionCorrectionHead{}, &AcquisitionActivityGap{}, &UnifiedTodoRead{}, &L1OnboardingTodo{},
-		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{},
+		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{}, &AIDirectoryAd{},
 	}, toolMarketModels()...)
+	models = append(models, MerchantStoreModels()...)
+	return append(models, MerchantStoreSupportModels()...)
 }
 
 func migrateDB() error {
+	if err := migrateReferralOrderNullability(DB); err != nil {
+		return err
+	}
+	models, err := startupMigrationModels(DB)
+	if err != nil {
+		return err
+	}
 	backfillConsoleActivation := ConsoleActivationNeedsLegacyBackfill()
+	if err := migratePasskeyCredentialUserIndex(); err != nil {
+		return err
+	}
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
@@ -370,7 +389,7 @@ func migrateDB() error {
 		return err
 	}
 
-	err := DB.AutoMigrate(mainMigrationModels()...)
+	err = DB.AutoMigrate(models...)
 	if err != nil {
 		return err
 	}
@@ -418,7 +437,7 @@ func migrateDB() error {
 	if err := migrateLegacySubscriptionPlanCurrencies(); err != nil {
 		return err
 	}
-	return nil
+	return verifyEnabledIdentityStorageSchema(DB)
 }
 
 func backfillTokenCreationSources(db *gorm.DB) error {
@@ -456,6 +475,12 @@ func migrateLegacySubscriptionPlanCurrencies() error {
 }
 
 func migrateDBFast() error {
+	if err := migrateReferralOrderNullability(DB); err != nil {
+		return err
+	}
+	if err := migratePasskeyCredentialUserIndex(); err != nil {
+		return err
+	}
 	backfillConsoleActivation := ConsoleActivationNeedsLegacyBackfill()
 
 	var wg sync.WaitGroup
@@ -468,6 +493,7 @@ func migrateDBFast() error {
 		{&Token{}, "Token"},
 		{&UserRankingRevision{}, "UserRankingRevision"},
 		{&User{}, "User"},
+		{&ProfileShare{}, "ProfileShare"},
 		{&UserSession{}, "UserSession"},
 		{&AuthFlow{}, "AuthFlow"},
 		{&ExternalIdentityClaim{}, "ExternalIdentityClaim"},
@@ -476,6 +502,7 @@ func migrateDBFast() error {
 		{&Redemption{}, "Redemption"},
 		{&DiscountCode{}, "DiscountCode"},
 		{&DiscountCodeReservation{}, "DiscountCodeReservation"},
+		{&WalletTransfer{}, "WalletTransfer"},
 		{&RedPacket{}, "RedPacket"},
 		{&RedPacketItem{}, "RedPacketItem"},
 		{&RedPacketClaim{}, "RedPacketClaim"},
@@ -555,12 +582,16 @@ func migrateDBFast() error {
 		{&AssistantSecurityIncident{}, "AssistantSecurityIncident"},
 		{&AssistantRequestReview{}, "AssistantRequestReview"},
 		{&AssistantReviewReset{}, "AssistantReviewReset"},
+		{&ModerationJob{}, "ModerationJob"},
+		{&ModerationNotice{}, "ModerationNotice"},
 		{&AssistantWeeklyDiscount{}, "AssistantWeeklyDiscount"},
+		{&AssistantOverviewPreference{}, "AssistantOverviewPreference"},
+		{&AssistantSiteIssue{}, "AssistantSiteIssue"},
+		{&AssistantSiteIssueEvent{}, "AssistantSiteIssueEvent"},
 		{&AssistantRegistrationProfile{}, "AssistantRegistrationProfile"},
 		{&AssistantRegistrationFingerprint{}, "AssistantRegistrationFingerprint"},
 		{&AssistantRegistrationCase{}, "AssistantRegistrationCase"},
 		{&AssistantRegistrationEvent{}, "AssistantRegistrationEvent"},
-		{&AdvancedSecurityEvent{}, "AdvancedSecurityEvent"},
 		{&ReleaseNote{}, "ReleaseNote"},
 		{&RatioNotification{}, "RatioNotification"},
 		{&RatioDelivery{}, "RatioDelivery"},
@@ -588,9 +619,11 @@ func migrateDBFast() error {
 		{&PublicRelayTip{}, "PublicRelayTip"},
 		{&PublicRelayReview{}, "PublicRelayReview"},
 		{&PublicRelayPreference{}, "PublicRelayPreference"},
+		{&AIDirectoryAd{}, "AIDirectoryAd"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
-	for _, marketModel := range toolMarketModels() {
+	storeModels := append(MerchantStoreModels(), MerchantStoreSupportModels()...)
+	for _, marketModel := range append(toolMarketModels(), storeModels...) {
 		migrations = append(migrations, struct {
 			model interface{}
 			name  string

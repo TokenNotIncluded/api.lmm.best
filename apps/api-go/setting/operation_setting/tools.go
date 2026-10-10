@@ -13,7 +13,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Tool call prices ($/1K calls, admin-configurable)
+// Tool call prices (legacy pricing units/1K calls, admin-configurable)
 // DB key: tool_price_setting.prices
 //
 // Key format:
@@ -49,6 +49,14 @@ func seedHardcodedToolPrices(prices map[string]float64) {
 	prices["web_search_preview:gpt-4.1*"] = defaultSearchPreviewModelPrice
 	prices["web_search_preview:gpt-4o-mini*"] = defaultSearchPreviewModelPrice
 	prices["web_search_preview:gpt-4.1-mini*"] = defaultSearchPreviewModelPrice
+}
+
+// GetToolPriceDefaultsCopy exposes the retained legacy fallbacks separately
+// from operator overrides; reading canonical prices must not persist defaults.
+func GetToolPriceDefaultsCopy() map[string]float64 {
+	prices := make(map[string]float64)
+	seedHardcodedToolPrices(prices)
+	return prices
 }
 
 // ToolPriceSetting is managed by config.GlobalConfig.Register.
@@ -187,7 +195,7 @@ func RebuildToolPriceIndex() {
 	currentIndex.Store(idx)
 }
 
-// GetToolPriceForModel returns the price ($/1K calls) for a tool given a model name.
+// GetToolPriceForModel returns the legacy price (pricing units/1K calls) for a tool given a model name.
 // Lookup: longest prefix match → tool default → 0.
 func GetToolPriceForModel(toolName, modelName string) float64 {
 	idx := currentIndex.Load()

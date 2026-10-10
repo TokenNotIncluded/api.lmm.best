@@ -83,6 +83,7 @@ func withTopUpPricing(t *testing.T, cnyPerUSD, platformUnitsPerCNY float64) {
 
 func TestRequirePaymentMethodTopUpWithinLimitEnforcesMinimum(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	preservePaymentCreditAnchor(t, "500000")
 	withTopUpPricing(t, 1, 1)
 	withPaymentMethods(t, []map[string]string{{
 		"name": "LinuxDO", "type": "epay", "min_topup": "5",
@@ -92,10 +93,13 @@ func TestRequirePaymentMethodTopUpWithinLimitEnforcesMinimum(t *testing.T) {
 	context, _ := gin.CreateTestContext(response)
 	assert.False(t, requirePaymentMethodTopUpWithinLimit(context, "epay", 4))
 	assert.Contains(t, response.Body.String(), "5")
+	allowedContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	assert.True(t, requirePaymentMethodTopUpWithinLimit(allowedContext, "epay", 5))
 }
 
 func TestRequirePaymentMethodTopUpWithinLimitUsesCreditedUSD(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	preservePaymentCreditAnchor(t, "3400000")
 	withTopUpPricing(t, 6.8, 1)
 	withPaymentMethods(t, []map[string]string{{
 		"name": "LinuxDO", "type": "epay", "max_topup": "2.5",
@@ -130,6 +134,7 @@ func TestGetTopUpInfoMaxTopUpAmountMatchesEnforcedLimit(t *testing.T) {
 	previousQuotaPerUnit := common.QuotaPerUnit
 	common.QuotaPerUnit = 500_000
 	t.Cleanup(func() { common.QuotaPerUnit = previousQuotaPerUnit })
+	preservePaymentCreditAnchor(t, "3400000")
 	operation_setting.USDExchangeRate = 6.8
 	operation_setting.PayMethods = []map[string]string{
 		{
@@ -146,7 +151,7 @@ func TestGetTopUpInfoMaxTopUpAmountMatchesEnforcedLimit(t *testing.T) {
 		expected      string
 	}{
 		{operation_setting.QuotaDisplayTypeUSD, 1, "17"},
-		{operation_setting.QuotaDisplayTypeCNY, 1.1, "18.7"},
+		{operation_setting.QuotaDisplayTypeCNY, 1.1, "17"},
 		{operation_setting.QuotaDisplayTypeTokens, 1, "8500000"},
 	} {
 		t.Run(test.displayType, func(t *testing.T) {
@@ -183,8 +188,58 @@ func TestGetTopUpInfoMaxTopUpAmountMatchesEnforcedLimit(t *testing.T) {
 	}
 }
 
+func TestPaymentMethodMaxTopUpAmountKeepsFixedCreditAnchorWhenRatesChange(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	preserveChannelPricing(t)
+	preservePaymentCreditAnchor(t, "3400000")
+	previousQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500_000
+	t.Cleanup(func() { common.QuotaPerUnit = previousQuotaPerUnit })
+	operation_setting.PayMethods = []map[string]string{{
+		"name": "Gateway", "type": "custom", "max_topup": "2.5",
+	}}
+
+	for _, displayType := range []string{
+		operation_setting.QuotaDisplayTypeUSD,
+		operation_setting.QuotaDisplayTypeCNY,
+		operation_setting.QuotaDisplayTypeTokens,
+	} {
+		t.Run(displayType, func(t *testing.T) {
+			operation_setting.GetGeneralSetting().QuotaDisplayType = displayType
+			maximum := decimal.RequireFromString("17")
+			if displayType == operation_setting.QuotaDisplayTypeTokens {
+				maximum = decimal.RequireFromString("8500000")
+			}
+			for _, rates := range []struct {
+				name  string
+				fx    float64
+				bonus float64
+			}{
+				{"initial site rates", 6.8, 1},
+				{"new FX and bonus", 7.2, 1.1},
+				{"negative legacy bonus", 7.2, -1},
+				{"zero legacy bonus", 7.2, 0},
+				{"nonfinite legacy bonus", 7.2, math.NaN()},
+			} {
+				t.Run(rates.name, func(t *testing.T) {
+					operation_setting.USDExchangeRate = rates.fx
+					operation_setting.TopUpPlatformUnitsPerCNY = rates.bonus
+					public := sanitizedPaymentMethods(operation_setting.PayMethods)
+					require.Len(t, public, 1)
+					assert.Equal(t, maximum.String(), public[0]["max_topup_amount"])
+					allowed, _ := gin.CreateTestContext(httptest.NewRecorder())
+					assert.True(t, requirePaymentMethodTopUpDecimalWithinLimit(allowed, "custom", maximum))
+					blocked, _ := gin.CreateTestContext(httptest.NewRecorder())
+					assert.False(t, requirePaymentMethodTopUpDecimalWithinLimit(blocked, "custom", maximum.Add(decimal.NewFromInt(1))))
+				})
+			}
+		})
+	}
+}
+
 func TestSanitizedPaymentMethodsOmitsUnreliableMaxTopUpAmounts(t *testing.T) {
 	preserveChannelPricing(t)
+	preservePaymentCreditAnchor(t, "3400000")
 	previousQuotaPerUnit := common.QuotaPerUnit
 	t.Cleanup(func() { common.QuotaPerUnit = previousQuotaPerUnit })
 	for _, test := range []struct {
@@ -199,7 +254,8 @@ func TestSanitizedPaymentMethodsOmitsUnreliableMaxTopUpAmounts(t *testing.T) {
 		{"negative limit", "-1", 6.8, 1, 500_000},
 		{"malformed limit", "2.5 USD", 6.8, 1, 500_000},
 		{"zero FX", "2.5", 0, 1, 500_000},
-		{"negative purchase ratio", "2.5", 6.8, -1, 500_000},
+		{"negative FX", "2.5", -1, 1, 500_000},
+		{"nonfinite FX", "2.5", math.NaN(), 1, 500_000},
 		{"zero quota unit", "2.5", 6.8, 1, 0},
 		{"nonfinite quota unit", "2.5", 6.8, 1, math.NaN()},
 	} {
@@ -232,6 +288,7 @@ func TestSanitizedPaymentMethodsOmitsUnreliableMaxTopUpAmounts(t *testing.T) {
 
 func TestRequirePaymentMethodCreditedQuotaWithinLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	preservePaymentCreditAnchor(t, "3400000")
 	withTopUpPricing(t, 6.8, 1)
 	withPaymentMethods(t, []map[string]string{{
 		"name": "Creem", "type": "creem", "max_topup": "5",

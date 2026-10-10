@@ -16,7 +16,7 @@ func TestTokenOneTimeCreationRevealBoundary(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	user := model.User{Username: "one-time-owner", Status: common.UserStatusEnabled, Group: "default"}
 	require.NoError(t, db.Create(&user).Error)
-	create, response := newAuthenticatedContext(t, http.MethodPost, "/api/token/", map[string]any{"name": "first device", "unlimited_quota": true, "expired_time": -1, "one_time_reveal": true}, user.Id)
+	create, response := newAuthenticatedContext(t, http.MethodPost, "/api/token/", map[string]any{"name": "first device", "unlimited_quota": true, "expired_time": -1, "group": "default", "one_time_reveal": true}, user.Id)
 	AddToken(create)
 	require.True(t, decodeAPIResponse(t, response).Success)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))

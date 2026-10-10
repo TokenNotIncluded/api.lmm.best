@@ -55,6 +55,19 @@ func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
 }
 
+// PreserveRetryState lets local capability filtering discard a selection
+// without spending or deferring the next upstream retry. Exclusions remain
+// request-scoped and are intentionally not restored.
+func (p *RetryParam) PreserveRetryState() func() {
+	retry, value, reset := p.Retry, p.GetRetry(), p.resetNextTry
+	return func() {
+		p.Retry, p.resetNextTry = retry, reset
+		if retry != nil {
+			*retry = value
+		}
+	}
+}
+
 func (p *RetryParam) ExcludeChannel(channelID int) {
 	if p == nil || channelID <= 0 {
 		return

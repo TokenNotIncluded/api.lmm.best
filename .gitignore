@@ -37,7 +37,6 @@ plans
 electron/node_modules
 electron/dist
 /data/
-.gomodcache/
 .gocache-temp
 .gopath
 .test
@@ -71,3 +70,9 @@ __pycache__/
 /.playwright-cli/
 /output/
 /apps/web/.impeccable/
+
+# Retired visual drafts and local patch/backup outputs are not source files.
+/design-demos/
+*.orig
+*.rej
+*.bak

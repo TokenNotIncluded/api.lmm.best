@@ -6,8 +6,7 @@ LMM 生态的 Rust CLI 子项目。crates.io 包名为 `lmm-cli`，子项目和�
 `setup`、安装、同步、更新、恢复、解除接入、卸载和启动目前会明确返回阻塞原因，
 不会以空操作返回成功。没有修改第三方软件或生产服务。
 
-完整产品要求见 [原始需求](docs/requirements.zh-CN.md)，逐阶段交付见
-[实施与验收计划](docs/implementation.md)。完整需求保留为目标，不因当前实现范围而缩减。
+完整产品要求见 [原始需求](docs/requirements.zh-CN.md)。完整需求保留为目标，不因当前实现范围而缩减。
 
 ## 从 crates.io 安装
 
@@ -41,8 +40,7 @@ lmm logout
 lmm login --issuer https://lmm.example.com --no-browser
 ```
 
-服务端需要包含本次 `lmm` 客户端注册改动并启用已有 OAuth 服务。
-**代码提交不等于生产服务已部署；本次没有部署服务器，也没有完成真实账号浏览器验收。**
+服务端需要注册 `lmm` 客户端并启用已有 OAuth 服务。使用前应确认目标服务支持这些接口，并验证实际账号的浏览器登录流程。
 CLI 只申请 `catalog:read balance:read` 和同意页显示的分组快照；没有 `models:invoke`、
 MCP 或账号管理权限。CLI 登录成功不代表 AstrBot 或 CC Switch 已授权。
 

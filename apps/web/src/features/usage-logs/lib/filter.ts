@@ -64,14 +64,29 @@ export function buildSearchParams(
       const drawingFilters = filters as DrawingLogFilters
       return {
         ...baseParams,
-        ...(drawingFilters.mjId && { filter: drawingFilters.mjId }),
+        ...(drawingFilters.mjId?.trim() && {
+          filter: drawingFilters.mjId.trim(),
+        }),
+        ...(drawingFilters.status && { status: drawingFilters.status }),
+        ...(drawingFilters.action?.trim() && {
+          action: drawingFilters.action.trim(),
+        }),
       }
     }
     case 'task': {
       const taskFilters = filters as TaskLogFilters
       return {
         ...baseParams,
-        ...(taskFilters.taskId && { filter: taskFilters.taskId }),
+        ...(taskFilters.taskId?.trim() && {
+          filter: taskFilters.taskId.trim(),
+        }),
+        ...(taskFilters.status && { status: taskFilters.status }),
+        ...(taskFilters.action?.trim() && {
+          action: taskFilters.action.trim(),
+        }),
+        ...(taskFilters.platform?.trim() && {
+          platform: taskFilters.platform.trim(),
+        }),
       }
     }
     default:

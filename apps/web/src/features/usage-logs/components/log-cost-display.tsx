@@ -28,7 +28,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatLogQuota } from '@/lib/format'
+import { useBillingUSD } from '@/hooks/use-billing-usd'
 
 import { hasToolSurcharge } from '../lib/format'
 import type { LogOtherData } from '../types'
@@ -80,7 +80,14 @@ function ToolSurchargeMarker() {
 }
 
 function QuotaBadge(props: { quota: number }) {
-  const quotaDisplay = splitQuotaDisplay(formatLogQuota(props.quota))
+  const { formatQuota } = useBillingUSD()
+  const quotaDisplay = splitQuotaDisplay(
+    formatQuota(props.quota, {
+      digitsLarge: 4,
+      digitsSmall: 8,
+      abbreviate: false,
+    })
+  )
 
   return (
     <span className='border-border/80 bg-muted/60 inline-flex h-6 w-fit items-center rounded-md border px-2 [font-family:var(--font-body)] text-sm leading-none font-semibold tabular-nums'>
@@ -94,7 +101,12 @@ function QuotaBadge(props: { quota: number }) {
 
 function SubscriptionBadge(props: { consumedQuota: number }) {
   const { t } = useTranslation()
-  const consumedQuotaDisplay = formatLogQuota(props.consumedQuota)
+  const { formatQuota } = useBillingUSD()
+  const consumedQuotaDisplay = formatQuota(props.consumedQuota, {
+    digitsLarge: 4,
+    digitsSmall: 8,
+    abbreviate: false,
+  })
 
   return (
     <Tooltip>

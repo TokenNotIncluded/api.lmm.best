@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"math"
 	"sort"
 	"strings"
 
@@ -53,11 +54,24 @@ type assistantUsageAggregate struct {
 	Quota            int64 `gorm:"column:quota"`
 }
 
-func usageCostUSD(quota int64) float64 {
-	if common.QuotaPerUnit <= 0 {
-		return 0
+func usageCostUSD(quota int64) (float64, error) {
+	anchor, err := common.CreditsPerUSD()
+	if err != nil {
+		return 0, err
 	}
-	return float64(quota) / common.QuotaPerUnit
+	anchorFloat := anchor.InexactFloat64()
+	if anchorFloat <= 0 || math.IsNaN(anchorFloat) || math.IsInf(anchorFloat, 0) {
+		return 0, common.ErrCreditUnitsUnavailable
+	}
+	usd, err := common.CreditsToUSD(quota)
+	if err != nil {
+		return 0, err
+	}
+	value := usd.InexactFloat64()
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, common.ErrCreditUnitsUnavailable
+	}
+	return value, nil
 }
 
 func usageBreakdownRows(userID int, startTimestamp int64, endTimestamp int64, limit int, column string) ([]AssistantUsageBreakdown, error) {
@@ -91,6 +105,10 @@ func usageBreakdownRows(userID int, startTimestamp int64, endTimestamp int64, li
 
 	result := make([]AssistantUsageBreakdown, 0, len(rows))
 	for _, row := range rows {
+		costUSD, err := usageCostUSD(row.Quota)
+		if err != nil {
+			return nil, err
+		}
 		name := strings.TrimSpace(row.Name)
 		if name == "" {
 			name = "(unknown)"
@@ -103,7 +121,7 @@ func usageBreakdownRows(userID int, startTimestamp int64, endTimestamp int64, li
 			CompletionTokens: row.CompletionTokens,
 			TotalTokens:      totalTokens,
 			Quota:            row.Quota,
-			CostUSD:          usageCostUSD(row.Quota),
+			CostUSD:          costUSD,
 		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
@@ -122,6 +140,9 @@ func GetAssistantUsageSummary(userID int, startTimestamp int64, endTimestamp int
 	if LOG_DB == nil {
 		return AssistantUsageSummary{}, errors.New("usage log database is unavailable")
 	}
+	if _, err := common.CreditsPerUSD(); err != nil {
+		return AssistantUsageSummary{}, err
+	}
 	var aggregate assistantUsageAggregate
 	if err := LOG_DB.Model(&Log{}).
 		Select("COUNT(*) AS requests, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, COALESCE(SUM(completion_tokens), 0) AS completion_tokens, COALESCE(SUM(quota), 0) AS quota").
@@ -139,6 +160,10 @@ func GetAssistantUsageSummary(userID int, startTimestamp int64, endTimestamp int
 		return AssistantUsageSummary{}, err
 	}
 	totalTokens := aggregate.PromptTokens + aggregate.CompletionTokens
+	costUSD, err := usageCostUSD(aggregate.Quota)
+	if err != nil {
+		return AssistantUsageSummary{}, err
+	}
 	return AssistantUsageSummary{
 		StartTimestamp:   startTimestamp,
 		EndTimestamp:     endTimestamp,
@@ -147,7 +172,7 @@ func GetAssistantUsageSummary(userID int, startTimestamp int64, endTimestamp int
 		CompletionTokens: aggregate.CompletionTokens,
 		TotalTokens:      totalTokens,
 		Quota:            aggregate.Quota,
-		CostUSD:          usageCostUSD(aggregate.Quota),
+		CostUSD:          costUSD,
 		Models:           models,
 		Groups:           groups,
 	}, nil
@@ -169,6 +194,9 @@ func GetAssistantFundingSummary(userID int, startTimestamp int64, endTimestamp i
 	if LOG_DB == nil {
 		return AssistantFundingSummary{}, errors.New("usage log database is unavailable")
 	}
+	if _, err := common.CreditsPerUSD(); err != nil {
+		return AssistantFundingSummary{}, err
+	}
 
 	var aggregate assistantUsageAggregate
 	if err := LOG_DB.Model(&Log{}).
@@ -180,6 +208,10 @@ func GetAssistantFundingSummary(userID int, startTimestamp int64, endTimestamp i
 	}
 
 	totalTokens := aggregate.PromptTokens + aggregate.CompletionTokens
+	costUSD, err := usageCostUSD(aggregate.Quota)
+	if err != nil {
+		return AssistantFundingSummary{}, err
+	}
 	return AssistantFundingSummary{
 		StartTimestamp:   startTimestamp,
 		EndTimestamp:     endTimestamp,
@@ -188,6 +220,6 @@ func GetAssistantFundingSummary(userID int, startTimestamp int64, endTimestamp i
 		CompletionTokens: aggregate.CompletionTokens,
 		TotalTokens:      totalTokens,
 		Quota:            aggregate.Quota,
-		CostUSD:          usageCostUSD(aggregate.Quota),
+		CostUSD:          costUSD,
 	}, nil
 }

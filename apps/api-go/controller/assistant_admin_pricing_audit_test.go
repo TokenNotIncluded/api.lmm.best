@@ -13,6 +13,7 @@ import (
 )
 
 func TestAssistantAdminPricingAuditFlagsMissingConfigurationInsteadOfTrustingFallback(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	row := assistantAdminPricingAuditRow(model.Pricing{ModelName: "unpriced-model", ModelRatio: 37.5, CompletionRatio: 1, EnableGroup: []string{"missing-group"}}, nil, nil, nil)
 	assert.Contains(t, row["issues"], "missing_configured_token_ratio")
 	assert.Equal(t, float64(75), row["base_input_usd_per_million"])
@@ -23,6 +24,7 @@ func TestAssistantAdminPricingAuditFlagsMissingConfigurationInsteadOfTrustingFal
 }
 
 func TestAssistantAdminPricingAuditDistinguishesFreeInvalidAndConflictingPrices(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	row := assistantAdminPricingAuditRow(model.Pricing{ModelName: "free-model", QuotaType: 1, ModelPrice: 0, EnableGroup: []string{"default"}}, map[string]float64{"free-model": 1}, map[string]float64{"free-model": 0}, map[string]float64{"default": 1})
 	assert.Contains(t, row["issues"], "zero_price_review_intent")
 	assert.Contains(t, row["issues"], "both_fixed_and_token_rates_configured")
@@ -40,6 +42,7 @@ func TestAssistantAdminPricingAuditDistinguishesFreeInvalidAndConflictingPrices(
 }
 
 func TestAssistantAdminPricingAuditPaginatesAndReportsUnknownIDs(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}))
 	user := model.User{Username: "pricing-audit-admin", Password: "password", Role: common.RoleAdminUser, Status: common.UserStatusEnabled}

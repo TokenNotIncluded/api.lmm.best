@@ -21,9 +21,11 @@ import {
   GiftIcon,
   Invoice01Icon,
   Loading03Icon,
+  Tick02Icon,
   WalletCardsIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { Minus, Plus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -63,6 +65,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { WaitCompanion } from '@/components/wait-companion'
+import {
+  formatFiatCurrencyAmount,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import {
   getDefaultWaffoPancakeCheckoutRegion,
@@ -70,27 +76,33 @@ import {
 } from '@/lib/waffo-pancake-checkout'
 
 import { PAYMENT_TYPES } from '../constants'
+import { usePaymentCurrency } from '../hooks/use-payment-currency'
 import {
   getPaymentIcon,
-  getPaymentMaxTopupAmount,
+  getPaymentMaxTopupQuota,
+  getPaymentMinTopupQuota,
+  getDedicatedPaymentLimits,
   getPaymentTopupRatio,
   getDefaultPaymentType,
   getTopupAvailability,
   getMinTopupAmount,
-  calculatePresetPricing,
-  formatPlatformCreditBalance as formatPlatformCreditBalanceBase,
   formatPaymentAmount,
   formatPaymentSettlementRate,
   formatSettlementAmount,
-  getCreditCurrencyLabel,
   getPaymentSettlementUnit,
+  isFiatPaymentCurrency,
   isWaffoPancakeCurrencySupported,
   isWaffoPancakePayment,
   isPositivePaymentAmount,
   isSafeHttpCheckoutUrl,
 } from '../lib'
-import { discountCodeSavings } from '../lib/discount-state'
 import type { TopupAvailability } from '../lib/payment'
+import { formatFiatAmountInput } from '../lib/payment-amount-input'
+import {
+  currentPaymentDiscount,
+  formatDiscountPercent,
+  type PaymentDiscount,
+} from '../lib/payment-discount'
 import {
   formatSettlementQuote,
   parseSettlementQuote,
@@ -104,6 +116,7 @@ import type {
   WaffoPayMethod,
 } from '../types'
 import { CreemProductsSection } from './creem-products-section'
+import { PlatformCreditHelp } from './platform-credit-help'
 
 interface RechargeFormCardProps {
   topupInfo: TopupInfo | null
@@ -111,13 +124,16 @@ interface RechargeFormCardProps {
   presetAmounts: PresetAmount[]
   selectedPreset: number | null
   onSelectPreset: (preset: PresetAmount) => void
+  /** Selected raw integer Credit amount, independent of display currency. */
   topupAmount: number
   onTopupAmountChange: (
     amount: number,
     options?: { deferQuote?: boolean }
   ) => void
+  paymentCurrency?: string
   paymentAmount: number
   settlementQuote?: SettlementQuote | null
+  paymentDiscount?: PaymentDiscount | null
   selectedPaymentMethod?: PaymentMethod
   calculating: boolean
   quoteError?: string | null
@@ -129,6 +145,8 @@ interface RechargeFormCardProps {
   onRedeem: () => void
   redeeming: boolean
   discountCode?: string
+  discountApplied?: boolean
+  appliedDiscountCode?: string
   discountCodeFromUrl?: boolean
   onDiscountCodeChange?: (code: string) => void
   onApplyDiscount?: () => void
@@ -160,7 +178,9 @@ export function RechargeFormCard({
   topupAmount,
   onTopupAmountChange,
   paymentAmount: legacyPaymentAmount,
+  paymentCurrency,
   settlementQuote,
+  paymentDiscount,
   selectedPaymentMethod,
   calculating,
   quoteError,
@@ -172,6 +192,8 @@ export function RechargeFormCard({
   onRedeem,
   redeeming,
   discountCode = '',
+  discountApplied = false,
+  appliedDiscountCode = '',
   discountCodeFromUrl = false,
   onDiscountCodeChange,
   onApplyDiscount,
@@ -181,7 +203,6 @@ export function RechargeFormCard({
   loading,
   error,
   onRetry,
-  priceRatio = 1,
   onOpenBilling,
   onCreemProductSelect,
   onWaffoMethodSelect,
@@ -192,16 +213,24 @@ export function RechargeFormCard({
   onRemoveDiscount,
 }: RechargeFormCardProps) {
   const { t, i18n } = useTranslation()
-  const formatPlatformCreditBalance = (amount: number) =>
-    formatPlatformCreditBalanceBase(amount, t('Platform'))
+  const currency = usePaymentCurrency()
+  const formatCreditQuota = currency.formatQuota
+  const currencyKey = JSON.stringify([currency.currency, currency.config])
+  const displayAmount = useCallback(
+    (amount: number) => currency.quotaToInput(amount),
+    [currency]
+  )
+  const [amountEditing, setAmountEditing] = useState(false)
   const [amountInput, setAmountInput] = useState(() => ({
     sourceAmount: topupAmount,
-    value: topupAmount.toString(),
+    currencyKey,
+    value: displayAmount(topupAmount),
   }))
   const localAmount =
-    amountInput.sourceAmount === topupAmount
+    amountInput.sourceAmount === topupAmount &&
+    amountInput.currencyKey === currencyKey
       ? amountInput.value
-      : topupAmount.toString()
+      : displayAmount(topupAmount)
   const [localWaffoPancakeRegionOverride, setLocalWaffoPancakeRegion] =
     useState<WaffoPancakeCheckoutRegion | null>(null)
   const holdRef = useRef<{
@@ -212,22 +241,21 @@ export function RechargeFormCard({
 
   const handleAmountChange = useCallback(
     (value: string) => {
-      const parsedValue = Number.parseFloat(value)
-      if (Number.isFinite(parsedValue) && parsedValue >= 0) {
-        setAmountInput({ sourceAmount: parsedValue, value })
-        onTopupAmountChange(parsedValue)
-      } else if (value === '') {
-        setAmountInput({ sourceAmount: 0, value })
-        onTopupAmountChange(0)
-      }
+      setAmountEditing(true)
+      const quota = currency.amountToQuota(value)
+      const rawQuota = Number.isSafeInteger(quota) && quota >= 0 ? quota : 0
+      setAmountInput({ sourceAmount: rawQuota, currencyKey, value })
+      onTopupAmountChange(rawQuota)
     },
-    [onTopupAmountChange]
+    [currency, currencyKey, onTopupAmountChange]
   )
 
   const handlePresetSelect = (preset: PresetAmount) => {
+    setAmountEditing(false)
     setAmountInput({
       sourceAmount: preset.value,
-      value: preset.value.toString(),
+      currencyKey,
+      value: displayAmount(preset.value),
     })
     onSelectPreset(preset)
   }
@@ -244,10 +272,9 @@ export function RechargeFormCard({
   const hasConfigurableTopup = defaultQuotedType !== null
   const hasStandardPaymentMethods = standardMethods.length > 0
   const hasWaffoPaymentMethods = waffoMethods.length > 0
-  const minTopup = getMinTopupAmount(topupInfo)
-  const topupGroupRatio = topupInfo?.topup_group_ratio ?? 1
+  const configuredMinimum = getMinTopupAmount(topupInfo)
   const redemptionEnabled = topupInfo?.enable_redemption !== false
-  const customDiscount = topupInfo?.discount?.[topupAmount] || 1
+  const waffoLimits = getDedicatedPaymentLimits(topupInfo, PAYMENT_TYPES.WAFFO)
   const effectivePaymentMethod =
     selectedPaymentMethod ??
     standardMethods.find(
@@ -258,27 +285,53 @@ export function RechargeFormCard({
       ? {
           name: waffoMethods[0].name,
           type: PAYMENT_TYPES.WAFFO,
+          min_topup_credit: waffoLimits?.minimum,
+          max_topup_credit: waffoLimits?.maximum ?? undefined,
           icon: waffoMethods[0].icon,
           settlement_unit: topupInfo?.waffo_currency || 'USD',
           unit_price: topupInfo?.waffo_unit_price,
         }
       : undefined)
-  const maxTopup = getPaymentMaxTopupAmount(effectivePaymentMethod)
-  const clampTopupAmount = useCallback(
-    (value: number) =>
-      Math.max(minTopup, maxTopup === null ? value : Math.min(value, maxTopup)),
-    [maxTopup, minTopup]
-  )
+  const minTopup = effectivePaymentMethod
+    ? Math.max(1, getPaymentMinTopupQuota(effectivePaymentMethod))
+    : configuredMinimum
+  const maxTopup = getPaymentMaxTopupQuota(effectivePaymentMethod)
   const changeAmountBy = useCallback(
     (delta: number) => {
-      const next = clampTopupAmount(topupAmount + delta)
+      const deltaQuota = currency.amountToQuota(String(delta))
+      if (
+        !Number.isSafeInteger(deltaQuota) ||
+        !Number.isSafeInteger(topupAmount) ||
+        !Number.isSafeInteger(minTopup)
+      ) {
+        return
+      }
+      const lower = BigInt(minTopup)
+      const upper = BigInt(maxTopup ?? Number.MAX_SAFE_INTEGER)
+      if (lower > upper) return
+      const candidate = BigInt(topupAmount) + BigInt(deltaQuota)
+      const next = Number(
+        candidate < lower ? lower : candidate > upper ? upper : candidate
+      )
       if (next !== topupAmount) {
         const parsedValue = next
         onTopupAmountChange(parsedValue, { deferQuote: true })
-        setAmountInput({ sourceAmount: parsedValue, value: String(next) })
+        setAmountInput({
+          sourceAmount: parsedValue,
+          currencyKey,
+          value: displayAmount(next),
+        })
       }
     },
-    [clampTopupAmount, onTopupAmountChange, topupAmount]
+    [
+      minTopup,
+      maxTopup,
+      currency,
+      currencyKey,
+      displayAmount,
+      onTopupAmountChange,
+      topupAmount,
+    ]
   )
   const stopAmountHold = useCallback(() => {
     const hold = holdRef.current
@@ -320,69 +373,62 @@ export function RechargeFormCard({
     effectivePaymentMethod?.type ?? ''
   )
   const quote = parseSettlementQuote(settlementQuote)
+  const settlementUnit = usesSettlementQuote
+    ? null
+    : getPaymentSettlementUnit(effectivePaymentMethod, true)
+  const actualPaymentCurrency = usesSettlementQuote
+    ? quote?.currency
+    : (paymentCurrency ?? settlementUnit?.label ?? 'USD')
+  const fiatPayment = isFiatPaymentCurrency(actualPaymentCurrency)
   const paymentAmount = usesSettlementQuote
     ? quote
       ? Number(quote.amount)
       : 0
     : legacyPaymentAmount
   const hasCurrentPaymentAmount =
-    !calculating && isPositivePaymentAmount(paymentAmount)
-  const customHasDiscount =
-    !usesSettlementQuote &&
-    hasCurrentPaymentAmount &&
-    customDiscount > 0 &&
-    customDiscount < 1
-  const customOriginalPayment = customHasDiscount
-    ? paymentAmount / customDiscount
-    : paymentAmount
-  const customDiscountAmount = customOriginalPayment - paymentAmount
+    fiatPayment && !calculating && isPositivePaymentAmount(paymentAmount)
   const effectivePaymentAmount =
     usesSettlementQuote && quote ? Number(quote.amount) : paymentAmount
-  const discountCodeSavingAmount = hasCurrentPaymentAmount
-    ? usesSettlementQuote
-      ? 0
-      : discountCodeSavings(effectivePaymentAmount, discountPercent)
-    : 0
-  const quoteSavingsAmount =
-    usesSettlementQuote && quote?.savingsAmount
-      ? Number(quote.savingsAmount)
-      : 0
-  const actualSavingAmount = discountCodeSavingAmount || quoteSavingsAmount
-  const quoteOriginalAmount =
-    usesSettlementQuote && quote?.originalAmount
-      ? Number(quote.originalAmount)
-      : 0
-  const settlementUnit = usesSettlementQuote
-    ? null
-    : getPaymentSettlementUnit(effectivePaymentMethod, true)
-  const paymentTopupRatio = getPaymentTopupRatio(effectivePaymentMethod)
+  const discount = currentPaymentDiscount(
+    paymentDiscount,
+    effectivePaymentAmount,
+    actualPaymentCurrency,
+    calculating || discountApplying
+  )
+  const couponDiscount =
+    discountApplied === true &&
+    appliedDiscountCode.trim() !== '' &&
+    appliedDiscountCode.trim() === discountCode.trim()
+      ? discount
+      : null
   const selectedPaymentMethodName =
     neutralMode || !effectivePaymentMethod?.name
       ? t('Payment Method')
       : effectivePaymentMethod.name
   const shouldShowSettlementRule = (paymentMethod: PaymentMethod) =>
     !isWaffoPancakePayment(paymentMethod.type) &&
-    getPaymentSettlementUnit(paymentMethod, true) !== null
+    isFiatPaymentCurrency(getPaymentSettlementUnit(paymentMethod, true)?.label)
   const getSettlementRule = (paymentMethod: PaymentMethod) =>
     formatPaymentSettlementRate(
       paymentMethod,
-      getCreditCurrencyLabel(t('Platform')),
-      true
+      currency.label,
+      true,
+      currency.formatLegacyAmount
     )
   const formatSelectedPaymentAmount = (amount: number) =>
-    usesSettlementQuote
-      ? quote
-        ? amount === Number(quote.amount)
-          ? formatSettlementQuote(quote)
-          : formatPaymentAmount(amount, quote.currency)
-        : t('Payment unavailable')
-      : settlementUnit
-        ? formatSettlementAmount(amount, settlementUnit.label)
-        : formatPaymentAmount(amount, 'USD')
-  const formatPresetPaymentAmount = (amount: number) =>
-    usesSettlementQuote
-      ? t('Select for a quote')
-      : formatSelectedPaymentAmount(amount)
+    !fiatPayment
+      ? t('Payment unavailable')
+      : usesSettlementQuote
+        ? quote
+          ? amount === Number(quote.amount)
+            ? formatSettlementQuote(quote)
+            : formatPaymentAmount(amount, quote.currency)
+          : t('Payment unavailable')
+        : paymentCurrency
+          ? formatPaymentAmount(amount, paymentCurrency)
+          : settlementUnit
+            ? formatSettlementAmount(amount, settlementUnit.label)
+            : formatPaymentAmount(amount, 'USD')
   const isUpdatingQuote = calculating || discountApplying
   const paymentAmountLabel = isUpdatingQuote
     ? discountApplying
@@ -393,6 +439,13 @@ export function RechargeFormCard({
       : t('Payment unavailable')
   const pancakeCurrencySupported = isWaffoPancakeCurrencySupported()
   const interfaceLanguage = i18n.resolvedLanguage || i18n.language
+  const paymentFormattingLocale = getCurrencyFormattingLocale(interfaceLanguage)
+  const displayedPresetAmounts = presetAmounts
+    .filter(
+      (preset, index, all) =>
+        all.findIndex((candidate) => candidate.value === preset.value) === index
+    )
+    .sort((a, b) => a.value - b.value)
   const effectiveWaffoPancakeCheckoutRegion =
     waffoPancakeCheckoutRegion ??
     localWaffoPancakeRegionOverride ??
@@ -420,44 +473,13 @@ export function RechargeFormCard({
       ? null
       : (presetAmounts.find((item) => item.value === activeSelectedPreset) ??
         null)
-  const configuredSelectedPresetDiscount = selectedPresetDetails
-    ? (selectedPresetDetails.discount ??
-      topupInfo?.discount?.[selectedPresetDetails.value] ??
-      1)
-    : null
-  const selectedPresetDiscount =
-    configuredSelectedPresetDiscount !== null &&
-    Number.isFinite(configuredSelectedPresetDiscount) &&
-    configuredSelectedPresetDiscount > 0 &&
-    configuredSelectedPresetDiscount <= 1
-      ? configuredSelectedPresetDiscount
-      : null
-  const selectedPresetQuoteBreakdown = (() => {
-    if (usesSettlementQuote && quote?.originalAmount) {
-      const originalPrice = Number(quote.originalAmount)
-      const savedAmount = quote.savingsAmount
-        ? Number(quote.savingsAmount)
-        : originalPrice - paymentAmount
-      return {
-        originalPrice,
-        savedAmount,
-        hasDiscount: savedAmount > 0,
+  const selectedPresetQuoteBreakdown = discount
+    ? {
+        originalPrice: discount.original,
+        savedAmount: discount.savings,
+        hasDiscount: true,
       }
-    }
-    if (
-      usesSettlementQuote ||
-      selectedPresetDiscount === null ||
-      !hasCurrentPaymentAmount
-    ) {
-      return null
-    }
-    const originalPrice = paymentAmount / selectedPresetDiscount
-    return {
-      originalPrice,
-      savedAmount: originalPrice - paymentAmount,
-      hasDiscount: selectedPresetDiscount < 1,
-    }
-  })()
+    : null
 
   if (loading) {
     return (
@@ -475,10 +497,10 @@ export function RechargeFormCard({
             {/* Preset Amounts Skeleton */}
             <div className='space-y-3'>
               <Skeleton className='h-3 w-16' />
-              <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+              <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
                 {Array.from({ length: 8 }, (_, index) => `preset-${index}`).map(
                   (key) => (
-                    <Skeleton key={key} className='h-[72px] rounded-lg' />
+                    <Skeleton key={key} className='h-14 rounded-lg' />
                   )
                 )}
               </div>
@@ -568,98 +590,75 @@ export function RechargeFormCard({
           </Button>
         ) : null
       }
-      contentClassName='space-y-4 sm:space-y-6'
+      appearance='outlined'
+      className='bg-card'
+      headerClassName='bg-muted/20'
+      contentClassName='space-y-5 sm:space-y-6'
     >
       {/* Online Topup Section */}
       {hasAnyTopup ? (
         <div className='space-y-4 sm:space-y-6'>
           {hasConfigurableTopup && (
-            <>
-              {presetAmounts.length > 0 && (
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel>
-                      {neutralMode
-                        ? t('Current account balance')
-                        : t('Platform credit')}
-                    </FieldLabel>
-                    <FieldDescription>
-                      {neutralMode
-                        ? t(
-                            'Funds are added to your current account after payment.'
-                          )
-                        : t(
-                            'Credits are added to your current signed-in account for API usage.'
-                          )}
-                    </FieldDescription>
-                    <div className='grid grid-cols-2 gap-2'>
-                      {presetAmounts.map((preset) => {
-                        const discount =
-                          preset.discount ||
-                          topupInfo?.discount?.[preset.value] ||
-                          1.0
-                        const defaultPricing = usesSettlementQuote
-                          ? {
-                              originalPrice: 0,
-                              actualPrice: 0,
-                              savedAmount: 0,
-                              hasDiscount: false,
-                            }
-                          : calculatePresetPricing(
-                              preset.value,
-                              priceRatio * topupGroupRatio * paymentTopupRatio,
-                              discount
-                            )
-                        const configuredSettlementPrice = settlementUnit
-                          ? calculatePresetPricing(
-                              preset.value,
-                              settlementUnit.unitPrice *
-                                topupGroupRatio *
-                                paymentTopupRatio,
-                              discount
-                            )
-                          : null
-                        const {
-                          originalPrice,
-                          actualPrice,
-                          savedAmount,
-                          hasDiscount,
-                        } = configuredSettlementPrice
-                          ? {
-                              ...configuredSettlementPrice,
-                              hasDiscount: discount < 1,
-                            }
-                          : defaultPricing
-                        const credits = formatPlatformCreditBalance(
-                          preset.value
-                        )
-                        const payment = formatPresetPaymentAmount(actualPrice)
-                        const originalPayment =
-                          formatPresetPaymentAmount(originalPrice)
-                        const discountPercent = Math.round((1 - discount) * 100)
-                        const discountSummary = hasDiscount
-                          ? `${t('Platform discount {{percent}}%', {
-                              percent: discountPercent,
-                            })}. ${t('Discount applied {{amount}}', {
-                              amount: formatPresetPaymentAmount(savedAmount),
-                            })}`
-                          : t('Platform discount {{percent}}%', { percent: 0 })
-                        return (
-                          <Button
-                            key={preset.value}
-                            variant='outline'
-                            className={cn(
-                              'flex min-h-32 min-w-0 flex-col items-start rounded-lg px-3 py-2.5 text-left whitespace-normal sm:min-h-24 sm:p-4',
-                              activeSelectedPreset === preset.value
-                                ? 'border-primary bg-primary/5'
-                                : 'border-muted'
-                            )}
-                            onClick={() => handlePresetSelect(preset)}
-                            aria-pressed={activeSelectedPreset === preset.value}
-                            aria-label={
-                              usesSettlementQuote
-                                ? activeSelectedPreset === preset.value &&
-                                  hasCurrentPaymentAmount
+            <div className='grid gap-7 lg:grid-cols-[minmax(0,1.18fr)_minmax(0,1fr)] lg:gap-0'>
+              <div className='min-w-0 space-y-6 lg:pr-7'>
+                {displayedPresetAmounts.length > 0 && (
+                  <FieldGroup>
+                    <Field>
+                      <div className='flex items-center gap-1'>
+                        <FieldLabel>{t('Credited balance')}</FieldLabel>
+                        <PlatformCreditHelp />
+                      </div>
+                      <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+                        {displayedPresetAmounts.map((preset) => {
+                          const credits = formatCreditQuota(preset.value)
+                          const isSelected =
+                            activeSelectedPreset === preset.value
+                          const selectedQuote =
+                            isSelected &&
+                            hasCurrentPaymentAmount &&
+                            !isUpdatingQuote
+                          const showSelectedPayment =
+                            selectedQuote &&
+                            (Boolean(discount) ||
+                              actualPaymentCurrency !== currency.currency ||
+                              formatFiatCurrencyAmount(
+                                paymentAmount,
+                                actualPaymentCurrency,
+                                { locale: paymentFormattingLocale }
+                              ) !== credits)
+                          const presetDiscountPercent =
+                            typeof preset.discount === 'number' &&
+                            Number.isFinite(preset.discount) &&
+                            preset.discount > 0 &&
+                            preset.discount < 1
+                              ? (1 - preset.discount) * 100
+                              : null
+                          const visibleDiscountPercent =
+                            selectedQuote && discount
+                              ? discount.percent
+                              : presetDiscountPercent
+                          const discountLabel =
+                            visibleDiscountPercent !== null
+                              ? t('{{percent}}% off', {
+                                  percent: formatDiscountPercent(
+                                    visibleDiscountPercent
+                                  ),
+                                })
+                              : null
+                          return (
+                            <Button
+                              key={preset.value}
+                              variant='outline'
+                              className={cn(
+                                'relative isolate flex h-auto min-h-14 min-w-0 flex-col items-start justify-center gap-1 overflow-hidden rounded-lg px-3 py-2.5 text-left whitespace-normal transition-colors',
+                                isSelected
+                                  ? 'border-primary bg-primary/5 text-foreground hover:bg-primary/10 dark:border-primary dark:bg-primary/5 dark:hover:bg-primary/10'
+                                  : 'border-border/70 bg-background hover:border-primary/40 hover:bg-muted/40 dark:hover:bg-muted/30'
+                              )}
+                              onClick={() => handlePresetSelect(preset)}
+                              aria-pressed={isSelected}
+                              aria-label={[
+                                selectedQuote
                                   ? t(
                                       'Preset amount: {{credit}}. Actual payment: {{payment}}.',
                                       {
@@ -673,397 +672,624 @@ export function RechargeFormCard({
                                   : t(
                                       'Preset amount: {{credit}}. Select to get the current payment quote.',
                                       { credit: credits }
-                                    )
-                                : t(
-                                    'Preset amount: {{credit}}. Actual payment: {{payment}}. Original payment: {{original}}. {{discount}}',
-                                    {
-                                      credit: credits,
-                                      payment,
-                                      original: originalPayment,
-                                      discount: discountSummary,
-                                    }
-                                  )
-                            }
-                          >
-                            <div className='flex w-full min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between'>
-                              <div className='min-w-0 text-base font-semibold sm:text-lg'>
-                                {credits}
-                              </div>
-                              {hasDiscount && (
-                                <Badge variant='secondary'>
-                                  {t('Platform discount {{percent}}%', {
-                                    percent: discountPercent,
-                                  })}
-                                </Badge>
-                              )}
-                            </div>
-                          </Button>
-                        )
-                      })}
-                    </div>
-                    {!neutralMode ? (
-                      <Card className='bg-muted/30 border-dashed shadow-none'>
-                        <CardContent className='space-y-1.5 p-3 text-xs sm:p-4'>
-                          <div className='font-medium'>
-                            {t('Payment notes')}
-                          </div>
-                          <p className='text-muted-foreground'>
-                            {t(
-                              'The amount shown on each card is the platform credit. The actual payment and any discount are calculated for the selected payment method.'
-                            )}
-                          </p>
-                          {selectedPresetDetails && (
-                            <>
-                              <p className='text-muted-foreground'>
-                                {selectedPresetQuoteBreakdown
-                                  ? t(
-                                      'Selected method: {{method}} · Estimated payment: {{amount}} (original {{original}})',
-                                      {
-                                        method: selectedPaymentMethodName,
+                                    ),
+                                discountLabel,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            >
+                              <div className='pointer-events-none relative z-10 flex w-full min-w-0 flex-col items-start gap-1'>
+                                <div className='flex w-full min-w-0 items-center gap-2'>
+                                  <span
+                                    data-slot='wallet-credit-value'
+                                    className='min-w-0 flex-1 text-sm leading-5 font-semibold wrap-anywhere tabular-nums'
+                                  >
+                                    {credits}
+                                  </span>
+                                  {isSelected && (
+                                    <span className='bg-primary text-primary-foreground flex size-4 shrink-0 items-center justify-center rounded-full'>
+                                      <HugeiconsIcon
+                                        icon={Tick02Icon}
+                                        className='size-3'
+                                        strokeWidth={2.5}
+                                        aria-hidden='true'
+                                      />
+                                    </span>
+                                  )}
+                                </div>
+                                {visibleDiscountPercent !== null && (
+                                  <Badge
+                                    variant='outline'
+                                    className='border-success/25 bg-success/10 dark:text-success h-auto max-w-full justify-start px-1.5 py-0.5 text-left leading-4 whitespace-normal text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'
+                                  >
+                                    {discountLabel}
+                                  </Badge>
+                                )}
+                                {showSelectedPayment && (
+                                  <div className='w-full min-w-0 text-xs leading-4 wrap-anywhere tabular-nums'>
+                                    <span
+                                      className={cn(
+                                        discount
+                                          ? 'font-medium text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)] dark:text-success'
+                                          : 'text-muted-foreground'
+                                      )}
+                                    >
+                                      {t('Pay {{amount}}', {
                                         amount:
                                           formatSelectedPaymentAmount(
                                             paymentAmount
                                           ),
-                                        original: formatSelectedPaymentAmount(
-                                          selectedPresetQuoteBreakdown.originalPrice
-                                        ),
-                                      }
-                                    )
-                                  : t(
-                                      'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
-                                      {
-                                        method: selectedPaymentMethodName,
-                                        amount: paymentAmountLabel,
-                                      }
-                                    )}
-                              </p>
-                              {selectedPresetQuoteBreakdown?.hasDiscount && (
-                                <p className='text-muted-foreground'>
-                                  {t('Discount applied {{amount}}', {
-                                    amount: formatSelectedPaymentAmount(
-                                      selectedPresetQuoteBreakdown.savedAmount
-                                    ),
-                                  })}
-                                </p>
-                              )}
-                            </>
-                          )}
-                        </CardContent>
-                      </Card>
-                    ) : null}
-                  </Field>
-                </FieldGroup>
-              )}
-
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor='topup-amount'>
-                    {neutralMode
-                      ? t('Current account balance')
-                      : t('Custom platform credit')}
-                  </FieldLabel>
-                  <FieldDescription id='topup-amount-description'>
-                    {neutralMode
-                      ? t(
-                          'Funds are added to your current account after payment.'
-                        )
-                      : t(
-                          'Destination: current signed-in account · API usage balance'
-                        )}
-                  </FieldDescription>
-                  <div className='grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center'>
-                    <InputGroup className='h-9 sm:h-10'>
-                      <InputGroupInput
-                        id='topup-amount'
-                        type='text'
-                        inputMode='decimal'
-                        value={localAmount}
-                        onChange={(e) => handleAmountChange(e.target.value)}
-                        min={minTopup}
-                        placeholder={t('Minimum {{amount}}', {
-                          amount: formatPlatformCreditBalance(minTopup),
+                                      })}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </Button>
+                          )
                         })}
-                        aria-describedby='topup-amount-description'
-                        aria-label={t('Custom platform credit')}
-                        className='text-base sm:text-lg'
-                      />
-                      <InputGroupAddon align='inline-end' aria-hidden='true'>
-                        ({t('Platform')})
-                      </InputGroupAddon>
-                    </InputGroup>
-                    <div className='flex shrink-0 flex-col gap-1 sm:flex-row'>
-                      <Button
-                        type='button'
-                        variant='outline'
-                        size='icon'
-                        className='size-11 touch-manipulation'
-                        aria-label={t('Increase platform credit')}
-                        disabled={maxTopup !== null && topupAmount >= maxTopup}
-                        onPointerDown={(event) => startAmountHold(1, event)}
-                        onPointerUp={stopAmountHold}
-                        onPointerCancel={stopAmountHold}
-                        onLostPointerCapture={stopAmountHold}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault()
-                            changeAmountBy(1)
-                          }
-                        }}
-                      >
-                        +
-                      </Button>
-                      <Button
-                        type='button'
-                        variant='outline'
-                        size='icon'
-                        className='size-11 touch-manipulation'
-                        aria-label={t('Decrease platform credit')}
-                        disabled={topupAmount <= minTopup}
-                        onPointerDown={(event) => startAmountHold(-1, event)}
-                        onPointerUp={stopAmountHold}
-                        onPointerCancel={stopAmountHold}
-                        onLostPointerCapture={stopAmountHold}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault()
-                            changeAmountBy(-1)
-                          }
-                        }}
-                      >
-                        −
-                      </Button>
-                    </div>
-                    <div className='bg-muted flex min-h-9 min-w-0 items-center justify-between gap-2 rounded-md border px-3 lg:min-w-52'>
-                      <div className='flex min-w-0 flex-col gap-1 py-1'>
-                        <span className='text-muted-foreground text-xs'>
-                          {t(
-                            'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
-                            {
-                              method: selectedPaymentMethodName,
-                              amount: paymentAmountLabel,
-                            }
-                          )}
-                        </span>
-                        <div className='flex flex-wrap gap-1'>
-                          <Badge variant='secondary'>
-                            {t('Platform discount {{percent}}%', {
-                              percent: Math.round((1 - customDiscount) * 100),
-                            })}
-                          </Badge>
-                          {customHasDiscount && customDiscountAmount > 0 && (
-                            <Badge variant='outline'>
-                              {t('Discount applied {{amount}}', {
-                                amount:
-                                  formatSelectedPaymentAmount(
-                                    customDiscountAmount
+                      </div>
+                      {!neutralMode && selectedPresetDetails ? (
+                        <div className='space-y-1.5 border-t pt-3 text-xs leading-5'>
+                          <>
+                            <p className='text-muted-foreground'>
+                              {t(
+                                'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
+                                {
+                                  method: selectedPaymentMethodName,
+                                  amount: paymentAmountLabel,
+                                }
+                              )}
+                            </p>
+                            {selectedPresetQuoteBreakdown?.hasDiscount && (
+                              <p className='dark:text-success text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'>
+                                {t('Discount applied {{amount}}', {
+                                  amount: formatSelectedPaymentAmount(
+                                    selectedPresetQuoteBreakdown.savedAmount
                                   ),
-                              })}
-                            </Badge>
+                                })}
+                              </p>
+                            )}
+                          </>
+                        </div>
+                      ) : null}
+                    </Field>
+                  </FieldGroup>
+                )}
+
+                <FieldGroup>
+                  <Field>
+                    <div className='flex min-w-0 items-center justify-between gap-2'>
+                      <FieldLabel htmlFor='topup-amount'>
+                        {t('Top-up amount')} ({currency.label})
+                      </FieldLabel>
+                      <Select
+                        items={[
+                          { value: 'CNY', label: 'CNY' },
+                          { value: 'USD', label: 'USD' },
+                        ]}
+                        value={currency.currency}
+                        onValueChange={(value) => {
+                          if (value === 'CNY' || value === 'USD') {
+                            currency.setPreference(value)
+                          }
+                        }}
+                      >
+                        <SelectTrigger
+                          size='sm'
+                          aria-label={t('Recharge display currency')}
+                          className='min-w-22'
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            <SelectItem value='CNY'>CNY</SelectItem>
+                            <SelectItem value='USD'>USD</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <FieldDescription id='topup-amount-description'>
+                      {neutralMode
+                        ? t('Payment adds credit to this account.')
+                        : t(
+                            'Destination: current signed-in account · API usage balance'
                           )}
+                    </FieldDescription>
+                    <div className='space-y-2'>
+                      <div className='flex min-w-0 items-center gap-2'>
+                        <InputGroup className='h-11 min-w-0 flex-1'>
+                          <InputGroupInput
+                            id='topup-amount'
+                            type='text'
+                            inputMode='decimal'
+                            value={
+                              amountEditing
+                                ? localAmount
+                                : formatFiatAmountInput(
+                                    localAmount,
+                                    i18n.language
+                                  )
+                            }
+                            onFocus={() => setAmountEditing(true)}
+                            onBlur={() => setAmountEditing(false)}
+                            onChange={(e) => handleAmountChange(e.target.value)}
+                            min={displayAmount(minTopup) || undefined}
+                            disabled={displayAmount(minTopup) === ''}
+                            placeholder={t('Minimum {{amount}}', {
+                              amount: formatCreditQuota(minTopup),
+                            })}
+                            aria-describedby='topup-amount-description'
+                            aria-label={`${t('Top-up amount')} (${currency.label})`}
+                            className='text-base sm:text-lg'
+                          />
+                          <InputGroupAddon align='inline-end'>
+                            <span>{currency.label}</span>
+                            <PlatformCreditHelp />
+                          </InputGroupAddon>
+                        </InputGroup>
+                        <div className='flex shrink-0 gap-1'>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='icon'
+                            className='size-11 touch-manipulation'
+                            aria-label={t('Increase amount')}
+                            disabled={
+                              maxTopup !== null && topupAmount >= maxTopup
+                            }
+                            onPointerDown={(event) => startAmountHold(1, event)}
+                            onPointerUp={stopAmountHold}
+                            onPointerCancel={stopAmountHold}
+                            onLostPointerCapture={stopAmountHold}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                changeAmountBy(1)
+                              }
+                            }}
+                          >
+                            <Plus className='size-4' aria-hidden='true' />
+                          </Button>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='icon'
+                            className='size-11 touch-manipulation'
+                            aria-label={t('Decrease amount')}
+                            disabled={topupAmount <= minTopup}
+                            onPointerDown={(event) =>
+                              startAmountHold(-1, event)
+                            }
+                            onPointerUp={stopAmountHold}
+                            onPointerCancel={stopAmountHold}
+                            onLostPointerCapture={stopAmountHold}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                changeAmountBy(-1)
+                              }
+                            }}
+                          >
+                            <Minus className='size-4' aria-hidden='true' />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className='text-muted-foreground flex min-w-0 items-start gap-2 text-xs leading-5'>
+                        <div className='flex min-w-0 flex-col gap-1 py-1'>
+                          <span>
+                            {t(
+                              'Selected method: {{method}} · Amount due: {{amount}} (actual payment)',
+                              {
+                                method: selectedPaymentMethodName,
+                                amount: paymentAmountLabel,
+                              }
+                            )}
+                          </span>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </Field>
-              </FieldGroup>
-
-              {hasConfigurableTopup ? (
-                <FieldGroup>
-                  <Field>
-                    <div className='flex items-center justify-between gap-2'>
-                      <div className='flex items-center gap-2'>
-                        <IconBadge tone='success' size='xs'>
-                          <HugeiconsIcon icon={GiftIcon} strokeWidth={2} />
-                        </IconBadge>
-                        <Label
-                          htmlFor='discount-code'
-                          className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
-                        >
-                          {discountCodeFromUrl
-                            ? t('Discount code from URL')
-                            : t('Discount code')}
-                        </Label>
-                      </div>
-                      {discountPercent !== null &&
-                        discountPercent !== undefined && (
+                  </Field>
+                </FieldGroup>
+              </div>
+              <div className='min-w-0 space-y-6 lg:border-l lg:pl-7'>
+                {hasConfigurableTopup ? (
+                  <FieldGroup>
+                    <Field>
+                      <div className='flex items-center justify-between gap-2'>
+                        <div className='flex items-center gap-2'>
+                          <IconBadge tone='success' size='xs'>
+                            <HugeiconsIcon icon={GiftIcon} strokeWidth={2} />
+                          </IconBadge>
+                          <Label
+                            htmlFor='discount-code'
+                            className='text-foreground text-sm font-semibold'
+                          >
+                            {discountCodeFromUrl
+                              ? t('Discount code from URL')
+                              : t('Discount code')}
+                          </Label>
+                        </div>
+                        {couponDiscount && (
                           <Badge
-                            variant='secondary'
-                            className='text-xs font-medium'
+                            variant='outline'
+                            className='border-success/25 bg-success/10 dark:text-success text-xs font-medium text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'
                           >
                             {t('Discount applied: {{percent}}% off', {
-                              percent: discountPercent,
+                              percent: formatDiscountPercent(
+                                couponDiscount.percent
+                              ),
                             })}
                           </Badge>
                         )}
-                    </div>
-                    <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
-                      <Input
-                        id='discount-code'
-                        value={discountCode}
-                        onChange={(e) => onDiscountCodeChange?.(e.target.value)}
-                        placeholder={t('Enter your discount code')}
-                        readOnly={discountCodeFromUrl}
-                        aria-readonly={discountCodeFromUrl}
-                        className={cn(
-                          'h-9 min-w-0 uppercase',
-                          discountCodeFromUrl && 'bg-muted font-mono'
-                        )}
-                        autoComplete='off'
-                        maxLength={64}
-                      />
-                      <div className='flex items-center gap-1.5'>
-                        {onRemoveDiscount &&
-                          (discountPercent !== null ||
-                            (!discountCodeFromUrl && discountCode.trim())) && (
-                            <Button
-                              type='button'
-                              onClick={onRemoveDiscount}
-                              disabled={discountApplying}
-                              variant='ghost'
-                              className='text-muted-foreground hover:text-foreground h-9 px-2.5'
-                            >
-                              {t('Remove')}
-                            </Button>
-                          )}
-                        <Button
-                          onClick={onApplyDiscount}
-                          disabled={
-                            discountCodeFromUrl ||
-                            discountApplying ||
-                            !discountCode.trim()
-                          }
-                          variant='outline'
-                          className='h-9 px-4'
-                        >
-                          {discountApplying && (
-                            <HugeiconsIcon
-                              icon={Loading03Icon}
-                              className='animate-spin'
-                              data-icon='inline-start'
-                            />
-                          )}
-                          {discountCodeFromUrl && discountPercent !== null
-                            ? t('Applied')
-                            : t('Apply')}
-                        </Button>
                       </div>
-                    </div>
-                    {discountCodeFromUrl ? (
-                      <p className='text-muted-foreground text-xs'>
-                        {t(
-                          'This code came from the checkout link and cannot be edited.'
-                        )}
-                      </p>
-                    ) : null}
-                    {discountPercent !== null &&
-                    discountPercent !== undefined ? (
-                      <div className='text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
-                        <span>
-                          {t('Discount applied: {{percent}}% off', {
-                            percent: discountPercent,
-                          })}
-                        </span>
-                        {actualSavingAmount > 0 ? (
-                          <span className='font-medium'>
-                            {t('Discount code saves {{amount}}', {
-                              amount:
-                                formatSelectedPaymentAmount(actualSavingAmount),
+                      <div className='grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
+                        <Input
+                          id='discount-code'
+                          value={discountCode}
+                          onChange={(e) =>
+                            onDiscountCodeChange?.(e.target.value)
+                          }
+                          placeholder={t('Enter your discount code')}
+                          readOnly={discountCodeFromUrl}
+                          aria-readonly={discountCodeFromUrl}
+                          className={cn(
+                            'h-11 min-w-0 text-base uppercase sm:h-9 sm:text-sm',
+                            discountCodeFromUrl && 'bg-muted font-mono'
+                          )}
+                          autoComplete='off'
+                          maxLength={64}
+                        />
+                        <div className='flex flex-wrap items-center justify-end gap-1.5'>
+                          {onRemoveDiscount &&
+                            (discountPercent !== null ||
+                              (!discountCodeFromUrl &&
+                                discountCode.trim())) && (
+                              <Button
+                                type='button'
+                                onClick={onRemoveDiscount}
+                                disabled={discountApplying}
+                                variant='ghost'
+                                className='text-muted-foreground hover:text-foreground min-h-11 px-2.5 sm:min-h-9'
+                              >
+                                {t('Remove')}
+                              </Button>
+                            )}
+                          <Button
+                            onClick={onApplyDiscount}
+                            disabled={
+                              discountCodeFromUrl ||
+                              discountApplying ||
+                              !discountCode.trim()
+                            }
+                            variant='outline'
+                            className='min-h-11 px-4 sm:min-h-9'
+                          >
+                            {discountApplying && (
+                              <HugeiconsIcon
+                                icon={Loading03Icon}
+                                className='animate-spin'
+                                data-icon='inline-start'
+                              />
+                            )}
+                            {discountCodeFromUrl && discountPercent !== null
+                              ? t('Applied')
+                              : t('Apply')}
+                          </Button>
+                        </div>
+                      </div>
+                      {discountCodeFromUrl ? (
+                        <p className='text-muted-foreground text-xs'>
+                          {t(
+                            'This code came from the checkout link and cannot be edited.'
+                          )}
+                        </p>
+                      ) : null}
+                      {couponDiscount ? (
+                        <div className='dark:text-success flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'>
+                          <span>
+                            {t('Discount applied: {{percent}}% off', {
+                              percent: formatDiscountPercent(
+                                couponDiscount.percent
+                              ),
                             })}
                           </span>
-                        ) : null}
+                          <span className='font-medium'>
+                            {t('You save')}:{' '}
+                            {formatSelectedPaymentAmount(
+                              couponDiscount.savings
+                            )}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className='text-muted-foreground text-xs'>
+                          {t(
+                            'A valid discount code is applied at checkout and cannot be combined with another code.'
+                          )}
+                        </p>
+                      )}
+                    </Field>
+                  </FieldGroup>
+                ) : null}
+
+                <FieldGroup>
+                  <Field>
+                    <Label className='text-foreground text-sm font-semibold'>
+                      {t('Payment Method')}
+                    </Label>
+                    {hasStandardPaymentMethods ? (
+                      <div className='grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2'>
+                        {standardMethods.map((method, index) => {
+                          const minTopup = Math.max(
+                            1,
+                            getPaymentMinTopupQuota(method)
+                          )
+                          const maxTopup = getPaymentMaxTopupQuota(method)
+                          const belowMinimum = minTopup > topupAmount
+                          const aboveMaximum =
+                            maxTopup !== null && topupAmount > maxTopup
+                          const fiatMethod = isFiatPaymentCurrency(
+                            getPaymentSettlementUnit(method, true)?.label ??
+                              'USD'
+                          )
+                          const disabled =
+                            !fiatMethod || belowMinimum || aboveMaximum
+                          let disabledReason: string | undefined
+                          let disabledLabel: string | undefined
+                          if (!fiatMethod) {
+                            disabledReason = t('Payment unavailable')
+                            disabledLabel = disabledReason
+                          } else if (belowMinimum) {
+                            disabledReason = t(
+                              'Minimum topup amount: {{amount}}',
+                              {
+                                amount: formatCreditQuota(minTopup),
+                              }
+                            )
+                            disabledLabel = `${t('Minimum:')} ${formatCreditQuota(minTopup)}`
+                          } else if (aboveMaximum) {
+                            disabledReason = t(
+                              'Maximum credited balance per payment: {{amount}}',
+                              {
+                                amount: formatCreditQuota(maxTopup),
+                              }
+                            )
+                            disabledLabel = t('Maximum: {{amount}}', {
+                              amount: formatCreditQuota(maxTopup),
+                            })
+                          }
+                          const settlementRule = shouldShowSettlementRule(
+                            method
+                          )
+                            ? getSettlementRule(method)
+                            : null
+                          const methodTopupRatio = getPaymentTopupRatio(method)
+                          const paymentMethodLabel = neutralMode
+                            ? t('Payment option {{number}}', {
+                                number: index + 1,
+                              })
+                            : method.name
+                          const isSelected =
+                            effectivePaymentMethod?.type === method.type
+
+                          const button = (
+                            <Button
+                              key={method.type}
+                              variant='outline'
+                              onClick={() => onPaymentMethodSelect(method)}
+                              disabled={disabled || !!paymentLoading}
+                              title={disabledReason}
+                              aria-label={
+                                disabledReason
+                                  ? `${paymentMethodLabel}. ${disabledReason}`
+                                  : paymentMethodLabel
+                              }
+                              className={cn(
+                                'min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left transition-colors',
+                                isSelected &&
+                                  'border-primary bg-primary/10 ring-1 ring-primary/30'
+                              )}
+                            >
+                              {paymentLoading === method.type ? (
+                                <HugeiconsIcon
+                                  icon={Loading03Icon}
+                                  className='animate-spin'
+                                  data-icon='inline-start'
+                                />
+                              ) : (
+                                getPaymentIcon(
+                                  method.type,
+                                  'h-4 w-4',
+                                  method.icon,
+                                  paymentMethodLabel,
+                                  method.color
+                                )
+                              )}
+                              <span className='flex min-w-0 flex-col items-start gap-0.5'>
+                                <span className='max-w-full truncate'>
+                                  {paymentMethodLabel}
+                                </span>
+                                {disabledLabel && (
+                                  <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
+                                    {disabledLabel}
+                                  </span>
+                                )}
+                                {settlementRule && (
+                                  <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
+                                    {settlementRule}
+                                  </span>
+                                )}
+                                {method.description && (
+                                  <span className='text-muted-foreground line-clamp-2 max-w-full text-[11px] leading-4 font-normal'>
+                                    {method.description}
+                                  </span>
+                                )}
+                                {!neutralMode && methodTopupRatio !== 1 && (
+                                  <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
+                                    {t('Channel multiplier ×{{ratio}}', {
+                                      ratio: method.topup_ratio,
+                                    })}
+                                  </span>
+                                )}
+                              </span>
+                            </Button>
+                          )
+
+                          return disabled ? (
+                            <TooltipProvider key={method.type}>
+                              <Tooltip>
+                                <TooltipTrigger render={button} />
+                                <TooltipContent>
+                                  {disabledReason}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            button
+                          )
+                        })}
                       </div>
-                    ) : (
-                      <p className='text-muted-foreground text-xs'>
-                        {t(
-                          'A valid discount code is applied at checkout and cannot be combined with another code.'
-                        )}
-                      </p>
+                    ) : null}
+                    {!hasStandardPaymentMethods && !hasWaffoPaymentMethods && (
+                      <Alert>
+                        <AlertDescription>
+                          {t(
+                            'No payment methods available. Please contact administrator.'
+                          )}
+                        </AlertDescription>
+                      </Alert>
                     )}
+                    {canChooseWaffoPancakeRegion && (
+                      <div className='mt-4 min-w-0 space-y-1.5 border-t pt-4'>
+                        <Label
+                          htmlFor='waffo-pancake-checkout-region'
+                          className='text-foreground text-sm font-semibold'
+                        >
+                          {t('Waffo Pancake checkout region')}
+                        </Label>
+                        <p className='text-muted-foreground text-xs leading-5'>
+                          {t(
+                            'China locks the checkout to the China billing market. Global lets you choose your billing region in checkout.'
+                          )}
+                        </p>
+                        <Select
+                          items={[
+                            { value: 'china', label: t('China') },
+                            { value: 'global', label: t('Global') },
+                          ]}
+                          value={effectiveWaffoPancakeCheckoutRegion}
+                          onValueChange={handleWaffoPancakeCheckoutRegionChange}
+                        >
+                          <SelectTrigger
+                            id='waffo-pancake-checkout-region'
+                            className='w-full min-w-0'
+                          >
+                            <SelectValue>
+                              {effectiveWaffoPancakeCheckoutRegion === 'china'
+                                ? t('China')
+                                : t('Global')}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='china'>
+                                {t('China')}
+                              </SelectItem>
+                              <SelectItem value='global'>
+                                {t('Global')}
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {topupInfo?.enable_waffo_pancake_topup &&
+                      hasConfiguredPancakeMethod &&
+                      !pancakeCurrencySupported && (
+                        <Alert>
+                          <AlertDescription>
+                            {t(
+                              'Waffo Pancake currently supports USD only. Please set this gateway currency to USD.'
+                            )}
+                          </AlertDescription>
+                        </Alert>
+                      )}
                   </Field>
                 </FieldGroup>
-              ) : null}
 
-              <FieldGroup>
-                <Field>
-                  <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
-                    {t('Payment Method')}
-                  </Label>
-                  {hasStandardPaymentMethods ? (
-                    <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
-                      {standardMethods.map((method, index) => {
-                        const minTopup = Math.max(
-                          method.min_topup || 0,
-                          getMinTopupAmount(topupInfo)
-                        )
-                        const maxTopup = getPaymentMaxTopupAmount(method)
-                        const belowMinimum = minTopup > topupAmount
-                        const aboveMaximum =
-                          maxTopup !== null && topupAmount > maxTopup
-                        const disabled = belowMinimum || aboveMaximum
-                        let disabledReason: string | undefined
-                        let disabledLabel: string | undefined
-                        if (belowMinimum) {
-                          disabledReason = t(
-                            'Minimum topup amount: {{amount}}',
-                            {
-                              amount: formatPlatformCreditBalance(minTopup),
-                            }
-                          )
-                          disabledLabel = `${t('Minimum:')} ${formatPlatformCreditBalance(minTopup)}`
-                        } else if (aboveMaximum) {
-                          disabledReason = t(
-                            'Maximum platform credit per payment: {{amount}}',
-                            { amount: formatPlatformCreditBalance(maxTopup) }
-                          )
-                          disabledLabel = t('Maximum: {{amount}}', {
-                            amount: formatPlatformCreditBalance(maxTopup),
-                          })
-                        }
-                        const settlementRule = shouldShowSettlementRule(method)
-                          ? getSettlementRule(method)
-                          : null
-                        const methodTopupRatio = getPaymentTopupRatio(method)
+                {hasWaffoPaymentMethods && onWaffoMethodSelect && (
+                  <div className='space-y-2.5 sm:space-y-3'>
+                    <Label className='text-foreground text-sm font-semibold'>
+                      {neutralMode ? t('Payment Method') : t('Waffo Payment')}
+                    </Label>
+                    <div className='grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2'>
+                      {waffoMethods.map((method, index) => {
+                        const loadingKey = `waffo-${index}`
+                        const methodKey = `${method.payMethodType ?? 'unknown'}-${method.payMethodName ?? method.name}`
+                        const waffoMin =
+                          waffoLimits?.minimum ?? Number.POSITIVE_INFINITY
+                        const waffoMax = waffoLimits?.maximum ?? null
+                        const belowMin = waffoMin > topupAmount
+                        const aboveMax =
+                          waffoMax !== null && topupAmount > waffoMax
+                        const disabledReason = belowMin
+                          ? t('Minimum topup amount: {{amount}}', {
+                              amount: formatCreditQuota(waffoMin),
+                            })
+                          : aboveMax && waffoMax !== null
+                            ? t(
+                                'Maximum credited balance per payment: {{amount}}',
+                                { amount: formatCreditQuota(waffoMax) }
+                              )
+                            : undefined
+                        const disabledLabel = belowMin
+                          ? `${t('Minimum:')} ${formatCreditQuota(waffoMin)}`
+                          : aboveMax && waffoMax !== null
+                            ? t(
+                                'Maximum credited balance per payment: {{amount}}',
+                                { amount: formatCreditQuota(waffoMax) }
+                              )
+                            : undefined
                         const paymentMethodLabel = neutralMode
                           ? t('Payment option {{number}}', {
                               number: index + 1,
                             })
                           : method.name
-                        const isSelected =
-                          effectivePaymentMethod?.type === method.type
+
+                        let methodIcon = getPaymentIcon('waffo')
+                        if (paymentLoading === loadingKey) {
+                          methodIcon = (
+                            <HugeiconsIcon
+                              icon={Loading03Icon}
+                              className='animate-spin'
+                              data-icon='inline-start'
+                            />
+                          )
+                        } else if (method.icon) {
+                          methodIcon = (
+                            <img
+                              src={method.icon}
+                              alt={paymentMethodLabel}
+                              className='h-4 w-4 object-contain'
+                            />
+                          )
+                        }
 
                         const button = (
                           <Button
-                            key={method.type}
+                            key={methodKey}
                             variant='outline'
-                            onClick={() => onPaymentMethodSelect(method)}
-                            disabled={disabled || !!paymentLoading}
+                            onClick={() => onWaffoMethodSelect(method, index)}
+                            disabled={belowMin || aboveMax || !!paymentLoading}
                             title={disabledReason}
                             aria-label={
                               disabledReason
                                 ? `${paymentMethodLabel}. ${disabledReason}`
                                 : paymentMethodLabel
                             }
-                            className={cn(
-                              'min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left transition-all',
-                              isSelected &&
-                                'border-primary bg-primary/5 ring-1 ring-primary'
-                            )}
+                            className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
                           >
-                            {paymentLoading === method.type ? (
-                              <HugeiconsIcon
-                                icon={Loading03Icon}
-                                className='animate-spin'
-                                data-icon='inline-start'
-                              />
-                            ) : (
-                              getPaymentIcon(
-                                method.type,
-                                'h-4 w-4',
-                                method.icon,
-                                paymentMethodLabel,
-                                method.color
-                              )
-                            )}
+                            {methodIcon}
                             <span className='flex min-w-0 flex-col items-start gap-0.5'>
                               <span className='max-w-full truncate'>
                                 {paymentMethodLabel}
@@ -1073,29 +1299,12 @@ export function RechargeFormCard({
                                   {disabledLabel}
                                 </span>
                               )}
-                              {settlementRule && (
-                                <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
-                                  {settlementRule}
-                                </span>
-                              )}
-                              {method.description && (
-                                <span className='text-muted-foreground line-clamp-2 max-w-full text-[11px] leading-4 font-normal'>
-                                  {method.description}
-                                </span>
-                              )}
-                              {!neutralMode && methodTopupRatio !== 1 && (
-                                <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
-                                  {t('Channel multiplier ×{{ratio}}', {
-                                    ratio: method.topup_ratio,
-                                  })}
-                                </span>
-                              )}
                             </span>
                           </Button>
                         )
 
-                        return disabled ? (
-                          <TooltipProvider key={method.type}>
+                        return belowMin || aboveMax ? (
+                          <TooltipProvider key={methodKey}>
                             <Tooltip>
                               <TooltipTrigger render={button} />
                               <TooltipContent>{disabledReason}</TooltipContent>
@@ -1106,236 +1315,102 @@ export function RechargeFormCard({
                         )
                       })}
                     </div>
-                  ) : null}
-                  {!hasStandardPaymentMethods && !hasWaffoPaymentMethods && (
-                    <Alert>
-                      <AlertDescription>
-                        {t(
-                          'No payment methods available. Please contact administrator.'
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                  {canChooseWaffoPancakeRegion && (
-                    <div className='mt-3 max-w-[320px] min-w-0 space-y-1.5 sm:mt-4'>
-                      <Label
-                        htmlFor='waffo-pancake-checkout-region'
-                        className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
-                      >
-                        {t('Waffo Pancake checkout region')}
-                      </Label>
-                      <p className='text-muted-foreground text-xs leading-5'>
-                        {t(
-                          'China locks the checkout to the China billing market. Global lets you choose your billing region in checkout.'
-                        )}
-                      </p>
-                      <Select
-                        items={[
-                          { value: 'china', label: t('China') },
-                          { value: 'global', label: t('Global') },
-                        ]}
-                        value={effectiveWaffoPancakeCheckoutRegion}
-                        onValueChange={handleWaffoPancakeCheckoutRegionChange}
-                      >
-                        <SelectTrigger
-                          id='waffo-pancake-checkout-region'
-                          className='w-full max-w-[320px] min-w-0'
-                        >
-                          <SelectValue>
-                            {effectiveWaffoPancakeCheckoutRegion === 'china'
-                              ? t('China')
-                              : t('Global')}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent alignItemWithTrigger={false}>
-                          <SelectGroup>
-                            <SelectItem value='china'>{t('China')}</SelectItem>
-                            <SelectItem value='global'>
-                              {t('Global')}
-                            </SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {topupInfo?.enable_waffo_pancake_topup &&
-                    hasConfiguredPancakeMethod &&
-                    !pancakeCurrencySupported && (
-                      <Alert>
-                        <AlertDescription>
-                          {t(
-                            'Waffo Pancake currently supports USD only. Please set this gateway currency to USD.'
-                          )}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                </Field>
-              </FieldGroup>
-
-              {hasWaffoPaymentMethods && onWaffoMethodSelect && (
-                <div className='space-y-2.5 sm:space-y-3'>
-                  <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
-                    {neutralMode ? t('Payment Method') : t('Waffo Payment')}
-                  </Label>
-                  <div className='grid grid-cols-2 gap-1.5 sm:gap-3 lg:grid-cols-3'>
-                    {waffoMethods.map((method, index) => {
-                      const loadingKey = `waffo-${index}`
-                      const methodKey = `${method.payMethodType ?? 'unknown'}-${method.payMethodName ?? method.name}`
-                      const waffoMin = topupInfo?.waffo_min_topup || 0
-                      const belowMin = waffoMin > topupAmount
-                      const disabledReason = belowMin
-                        ? t('Minimum topup amount: {{amount}}', {
-                            amount: formatPlatformCreditBalance(waffoMin),
-                          })
-                        : undefined
-                      const disabledLabel = belowMin
-                        ? `${t('Minimum:')} ${formatPlatformCreditBalance(waffoMin)}`
-                        : undefined
-                      const paymentMethodLabel = neutralMode
-                        ? t('Payment option {{number}}', {
-                            number: index + 1,
-                          })
-                        : method.name
-
-                      let methodIcon = getPaymentIcon('waffo')
-                      if (paymentLoading === loadingKey) {
-                        methodIcon = (
-                          <HugeiconsIcon
-                            icon={Loading03Icon}
-                            className='animate-spin'
-                            data-icon='inline-start'
-                          />
-                        )
-                      } else if (method.icon) {
-                        methodIcon = (
-                          <img
-                            src={method.icon}
-                            alt={paymentMethodLabel}
-                            className='h-4 w-4 object-contain'
-                          />
-                        )
-                      }
-
-                      const button = (
-                        <Button
-                          key={methodKey}
-                          variant='outline'
-                          onClick={() => onWaffoMethodSelect(method, index)}
-                          disabled={belowMin || !!paymentLoading}
-                          title={disabledReason}
-                          aria-label={
-                            disabledReason
-                              ? `${paymentMethodLabel}. ${disabledReason}`
-                              : paymentMethodLabel
-                          }
-                          className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
-                        >
-                          {methodIcon}
-                          <span className='flex min-w-0 flex-col items-start gap-0.5'>
-                            <span className='max-w-full truncate'>
-                              {paymentMethodLabel}
-                            </span>
-                            {disabledLabel && (
-                              <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>
-                                {disabledLabel}
-                              </span>
-                            )}
-                          </span>
-                        </Button>
-                      )
-
-                      return belowMin ? (
-                        <TooltipProvider key={methodKey}>
-                          <Tooltip>
-                            <TooltipTrigger render={button} />
-                            <TooltipContent>{disabledReason}</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      ) : (
-                        button
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-              <WaitCompanion pending={calculating} />
-              {quoteError && !calculating && (
-                <Alert variant='destructive'>
-                  <AlertDescription>
-                    <p>{quoteError}</p>
-                    {onRetryQuote && (
-                      <Button
-                        type='button'
-                        variant='outline'
-                        onClick={onRetryQuote}
-                        disabled={!!paymentLoading}
-                      >
-                        {t('Retry')}
-                      </Button>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-              {(hasStandardPaymentMethods || hasWaffoPaymentMethods) &&
-                effectivePaymentMethod && (
-                  <div className='bg-muted/40 mt-3 flex flex-col gap-3 rounded-lg border p-3.5 sm:p-4'>
-                    <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                      <div className='flex min-w-0 flex-col'>
-                        <span className='text-muted-foreground text-xs font-medium'>
-                          {t('Total')}
-                        </span>
-                        <div className='flex items-baseline gap-2'>
-                          <span className='text-xl font-bold sm:text-2xl'>
-                            {paymentAmountLabel}
-                          </span>
-                          {actualSavingAmount > 0 &&
-                            hasCurrentPaymentAmount &&
-                            !isUpdatingQuote && (
-                              <span className='text-muted-foreground text-xs line-through'>
-                                {formatSelectedPaymentAmount(
-                                  quoteOriginalAmount > effectivePaymentAmount
-                                    ? quoteOriginalAmount
-                                    : effectivePaymentAmount +
-                                        discountCodeSavingAmount
-                                )}
-                              </span>
-                            )}
-                        </div>
-                      </div>
-                      <Button
-                        type='button'
-                        size='default'
-                        className='h-10 font-semibold sm:min-w-44'
-                        disabled={
-                          isUpdatingQuote ||
-                          !hasCurrentPaymentAmount ||
-                          Boolean(paymentLoading)
-                        }
-                        onClick={() =>
-                          onProceedToPayment
-                            ? onProceedToPayment()
-                            : onPaymentMethodSelect(effectivePaymentMethod)
-                        }
-                      >
-                        {isUpdatingQuote ? (
-                          <>
-                            <HugeiconsIcon
-                              icon={Loading03Icon}
-                              className='animate-spin'
-                              data-icon='inline-start'
-                            />
-                            {discountApplying
-                              ? t('Validating discount...')
-                              : t('Calculating...')}
-                          </>
-                        ) : (
-                          t('Pay {{amount}}', { amount: paymentAmountLabel })
-                        )}
-                      </Button>
-                    </div>
                   </div>
                 )}
-            </>
+                <WaitCompanion pending={calculating} />
+                {quoteError && !calculating && (
+                  <Alert variant='destructive'>
+                    <AlertDescription>
+                      <p>{quoteError}</p>
+                      {onRetryQuote && (
+                        <Button
+                          type='button'
+                          variant='outline'
+                          onClick={onRetryQuote}
+                          disabled={!!paymentLoading}
+                        >
+                          {t('Retry')}
+                        </Button>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {(hasStandardPaymentMethods || hasWaffoPaymentMethods) &&
+                  effectivePaymentMethod && (
+                    <div className='bg-primary/5 border-primary/20 mt-2 rounded-xl border p-4'>
+                      <div className='flex flex-col gap-4'>
+                        <div className='flex min-w-0 flex-col'>
+                          <span className='text-muted-foreground text-xs font-medium'>
+                            {t('Total')}
+                          </span>
+                          <div className='flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1'>
+                            <span className='text-primary text-2xl font-semibold tracking-tight break-words tabular-nums'>
+                              {paymentAmountLabel}
+                            </span>
+                            {discount &&
+                              hasCurrentPaymentAmount &&
+                              !isUpdatingQuote && (
+                                <span className='text-muted-foreground text-xs line-through'>
+                                  {formatSelectedPaymentAmount(
+                                    discount.original
+                                  )}
+                                </span>
+                              )}
+                          </div>
+                        </div>
+                        {discount && (
+                          <div className='flex flex-wrap items-center gap-2 text-sm'>
+                            <Badge
+                              variant='outline'
+                              className='border-success/25 bg-success/10 dark:text-success h-auto max-w-full py-1 leading-4 whitespace-normal text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'
+                            >
+                              {t('Discount applied: {{percent}}% off', {
+                                percent: formatDiscountPercent(
+                                  discount.percent
+                                ),
+                              })}
+                            </Badge>
+                            <span className='dark:text-success font-medium text-[color-mix(in_oklch,var(--success),var(--foreground)_25%)]'>
+                              {t('You save')}:{' '}
+                              {formatSelectedPaymentAmount(discount.savings)}
+                            </span>
+                          </div>
+                        )}
+                        <Button
+                          type='button'
+                          size='default'
+                          className='h-11 w-full font-semibold'
+                          disabled={
+                            isUpdatingQuote ||
+                            !hasCurrentPaymentAmount ||
+                            Boolean(paymentLoading)
+                          }
+                          onClick={() =>
+                            onProceedToPayment
+                              ? onProceedToPayment()
+                              : onPaymentMethodSelect(effectivePaymentMethod)
+                          }
+                        >
+                          {isUpdatingQuote ? (
+                            <>
+                              <HugeiconsIcon
+                                icon={Loading03Icon}
+                                className='animate-spin'
+                                data-icon='inline-start'
+                              />
+                              {discountApplying
+                                ? t('Validating discount...')
+                                : t('Calculating...')}
+                            </>
+                          ) : (
+                            t('Pay {{amount}}', { amount: paymentAmountLabel })
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+              </div>
+            </div>
           )}
         </div>
       ) : (

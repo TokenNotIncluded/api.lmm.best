@@ -20,8 +20,10 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { createHeroSmsIdempotencyKey } from './api.js'
+import type { HeroSmsPricingMetadata } from './types'
 
 interface HeroSmsEnvelope<T> {
   success: boolean
@@ -44,19 +46,23 @@ export interface HeroSmsSmsService {
   popularity: number
 }
 
-export interface HeroSmsSmsPriceTier {
+export interface HeroSmsSmsPriceTier extends HeroSmsPricingMetadata {
+  price_tier_key?: string
   id: string
   inventory: number
+  /** Schema 2 is real USD; earlier cached quotes retain legacy units. */
   customer_price_usd: string
   charge_quota: number
 }
 
-export interface HeroSmsSmsOffer {
+export interface HeroSmsSmsOffer extends HeroSmsPricingMetadata {
+  price_tier_key?: string
   id: string
   country_id: number
   service: string
   operator: string
   inventory: number
+  /** Schema 2 is real USD; earlier cached quotes retain legacy units. */
   customer_price_usd: string
   charge_quota: number
   bid?: boolean
@@ -73,12 +79,13 @@ export type HeroSmsSmsComplaintReason =
   | 'INCOMING_CALL_NUMBER'
   | 'INCOMING_CALL_VOICE'
 
-export interface HeroSmsSmsOrder {
+export interface HeroSmsSmsOrder extends HeroSmsPricingMetadata {
   id: string
   country_id: number
   service: string
   operator: string
   status: string
+  /** Schema 2 is real USD; earlier cached quotes retain legacy units. */
   customer_price_usd: string
   charge_quota: number
   refunded_quota: number
@@ -167,15 +174,16 @@ export function createHeroSmsSmsOrder(
   offerId: string,
   idempotencyKey = createHeroSmsIdempotencyKey()
 ) {
+  const auth = useAuthStore.getState().auth
+  const options = {
+    ...requestOptions,
+    authScope: auth.user
+      ? { userId: auth.user.id, sessionId: auth.session?.sid }
+      : undefined,
+    headers: { 'Idempotency-Key': idempotencyKey },
+  }
   return unwrap<{ order: HeroSmsSmsOrder; quota: number }>(
-    api.post(
-      '/api/hero-sms/sms/orders',
-      { offer_id: offerId },
-      {
-        ...requestOptions,
-        headers: { 'Idempotency-Key': idempotencyKey },
-      }
-    )
+    api.post('/api/hero-sms/sms/orders', { offer_id: offerId }, options)
   )
 }
 

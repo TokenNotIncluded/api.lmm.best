@@ -14,10 +14,15 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
 import assert from 'node:assert/strict'
 import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
+
+import type { PricingModel } from '../types'
 
 const domWindow = new Window({ url: 'https://console.example.test/pricing' })
 domWindow.document.write(
@@ -98,7 +103,11 @@ async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
-async function renderModelDetails(modelName = 'free-model') {
+async function renderModelDetails(
+  modelName = 'free-model',
+  modelOverrides: Partial<PricingModel> = {},
+  groupRatio = 0
+) {
   api.get = (async (url: string) => {
     assert.equal(url, '/api/perf-metrics')
     return { data: { data: { groups: [] } } }
@@ -119,16 +128,20 @@ async function renderModelDetails(modelName = 'free-model') {
               id: 1,
               model_name: modelName,
               quota_type: 0,
+              pricing_schema_version: 2,
+              pricing_currency: 'USD',
+              input_price: 2,
+              output_price: 2,
               model_ratio: 1,
               completion_ratio: 1,
               enable_groups: ['free'],
+              ...modelOverrides,
             }}
-            groupRatio={{ free: 0 }}
-            usableGroup={{ free: { desc: 'Free group', ratio: 0 } }}
+            groupRatio={{ free: groupRatio }}
+            usableGroup={{ free: { desc: 'Free group', ratio: groupRatio } }}
             endpointMap={{}}
             autoGroups={[]}
-            priceRate={1}
-            usdExchangeRate={1}
+            displayCurrency='USD'
             tokenUnit='M'
           />
         </I18nextProvider>
@@ -190,13 +203,14 @@ describe('ModelDetails group pricing', () => {
     await unmount(rendered)
   })
 
-  test('renders a configured zero group ratio as zero', async () => {
+  test('a free group cannot change the displayed base price', async () => {
     const rendered = await renderModelDetails()
 
-    assert.match(rendered.container.textContent ?? '', /0x/)
+    assert.match(rendered.container.textContent ?? '', /Base price \(1×\)/)
+    assert.match(rendered.container.textContent ?? '', /2 USD/)
     assert.doesNotMatch(
       rendered.container.textContent ?? '',
-      /free-model[\s\S]*1x/i
+      /0x|Pricing by Group/
     )
 
     await unmount(rendered)
@@ -223,12 +237,108 @@ describe('ModelDetails group pricing', () => {
         )
       )
     }
-    assert.equal(section.querySelector('select')?.value, 'free')
+    assert.equal(section.querySelector('select'), null)
     assert.doesNotMatch(
       section.querySelector('[aria-live]')?.textContent ?? '',
       /unavailable/
     )
+    const presets = [...section.querySelectorAll('button')]
+    assert.deepEqual(
+      presets.map((preset) => preset.textContent),
+      ['Short chat', 'Long document', 'Code review']
+    )
+    await act(async () => presets[0].click())
+    assert.deepEqual(
+      inputs.map((input) => input.value),
+      ['2000', '500', '0']
+    )
     await unmount(rendered)
+  })
+
+  test('uses input-only estimation for a mapped SystemOne model alias', async () => {
+    const rendered = await renderModelDetails(
+      'account-judge',
+      {
+        supported_endpoint_types: ['systemone'],
+        input_price: 0.042,
+        model_ratio: 0.021,
+        completion_ratio: 1000,
+      },
+      2
+    )
+    const title = [...rendered.container.querySelectorAll('h3')].find(
+      (element) => element.textContent === 'Request cost estimate'
+    )
+    assert.ok(title)
+    const section = title.closest('section')
+    assert.ok(section)
+    const inputs = [...section.querySelectorAll('input')]
+    assert.equal(inputs.length, 1)
+    assert.equal(inputs[0].value, '10000')
+    assert.equal(inputs[0].type, 'number')
+    const inputLabel = [...section.querySelectorAll('label')].find(
+      (label) => label.htmlFor === inputs[0].id
+    )
+    assert.equal(inputLabel?.textContent, 'Input Tokens')
+    assert.doesNotMatch(
+      section.textContent ?? '',
+      /Short chat|Code review|Output Tokens|Cached input tokens|Cached tokens/
+    )
+    assert.match(
+      section.querySelector('[aria-live]')?.textContent ?? '',
+      /^0\.00042 USD$/
+    )
+    const presets = [...section.querySelectorAll('button')]
+    assert.equal(presets.length, 1)
+    assert.equal(presets[0].textContent, 'Long document')
+    await act(async () => presets[0].click())
+    assert.equal(inputs[0].value, '50000')
+    assert.equal(presets[0].getAttribute('aria-pressed'), 'true')
+    assert.match(
+      section.querySelector('[aria-live]')?.textContent ?? '',
+      /^0\.0021 USD$/
+    )
+
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setValue)
+    await act(async () => {
+      setValue.call(inputs[0], '25000')
+      inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    assert.equal(presets[0].getAttribute('aria-pressed'), 'false')
+    assert.match(
+      section.querySelector('[aria-live]')?.textContent ?? '',
+      /^0\.00105 USD$/
+    )
+    await unmount(rendered)
+  })
+
+  test('does not offer chat token presets for native sessions or their aliases', async () => {
+    for (const [modelName, endpoint] of [
+      ['gpt-live-1', 'live'],
+      ['gpt-live-transcribe', 'realtime_transcription'],
+      ['gpt-realtime-whisper', 'realtime_transcription'],
+      ['gpt-realtime-translate', 'realtime_translation'],
+      ['account-session', 'live'],
+    ]) {
+      const rendered = await renderModelDetails(modelName, {
+        supported_endpoint_types: [endpoint],
+      })
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /Request cost estimate|Short chat|Code review/
+      )
+      await unmount(rendered)
+    }
+    const withoutMetadata = await renderModelDetails('gpt-live-1')
+    assert.doesNotMatch(
+      withoutMetadata.container.textContent ?? '',
+      /Request cost estimate|Short chat/
+    )
+    await unmount(withoutMetadata)
   })
 
   test('wraps long model IDs inside the narrow detail header', async () => {

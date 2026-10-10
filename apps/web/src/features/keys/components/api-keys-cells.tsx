@@ -35,9 +35,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
-import { formatQuota } from '@/lib/format'
 
+import { isAssistantRuntimeKey } from '../lib'
 import type { ApiKey } from '../types'
 import { useApiKeys } from './api-keys-provider'
 
@@ -170,6 +171,19 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     copyTooltip = t('Copied!')
   }
 
+  if (isAssistantRuntimeKey(apiKey)) {
+    return (
+      <div className='space-y-1'>
+        <code className='text-xs'>{`sk-${apiKey.key}`}</code>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Internal assistant key; it cannot be copied or used for API calls.'
+          )}
+        </p>
+      </div>
+    )
+  }
+
   if (apiKey.one_time_reveal) {
     return (
       <div className='space-y-1'>
@@ -266,12 +280,16 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
 }
 
 type UnlimitedQuotaBadgeProps = {
-  used: number
+  apiKey: Pick<
+    ApiKey,
+    'used_quota' | 'normalized_used_quota' | 'usage_projection_available'
+  >
 }
 
 export function UnlimitedQuotaBadge(props: UnlimitedQuotaBadgeProps) {
   const { t } = useTranslation()
-  const formattedUsed = formatQuota(props.used)
+  const { formatUserUsage } = useWalletCurrency()
+  const formattedUsed = formatUserUsage(props.apiKey)
 
   return (
     <Popover>
@@ -299,10 +317,11 @@ export function UnlimitedQuotaBadge(props: UnlimitedQuotaBadgeProps) {
   )
 }
 
-export function ApiKeyUsedQuota({ used }: { used: number }) {
+export function ApiKeyUsedQuota({ apiKey }: UnlimitedQuotaBadgeProps) {
+  const { formatUserUsage } = useWalletCurrency()
   return (
     <span data-api-key-used-quota className='font-medium tabular-nums'>
-      {formatQuota(used)}
+      {formatUserUsage(apiKey)}
     </span>
   )
 }

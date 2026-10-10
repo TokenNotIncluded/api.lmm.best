@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ChevronRight, Copy } from 'lucide-react'
+import { Check, ChevronRight, Copy, Plus } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -24,16 +24,17 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
-import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { DEFAULT_TOKEN_UNIT, getEndpointTypeLabel } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
+import { MAX_COMPARE_MODELS } from '../lib/model-compare'
 import { getDisplayPriceGroup, isTokenBasedModel } from '../lib/model-helpers'
 import type { ModelPerfBadgeData } from '../lib/model-perf'
 import { formatPrice, formatRequestPrice } from '../lib/price'
-import type { PricingModel, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit, PriceDisplayCurrency } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge } from './model-perf-badge'
 import { ModelRuntimeBadge } from './model-runtime-badge'
@@ -41,21 +42,21 @@ import { ModelRuntimeBadge } from './model-runtime-badge'
 export interface ModelCardProps {
   model: PricingModel
   onClick: () => void
-  priceRate?: number
-  usdExchangeRate?: number
   tokenUnit?: TokenUnit
-  showRechargePrice?: boolean
+  displayCurrency?: PriceDisplayCurrency
   selectedGroup?: string
   perf?: ModelPerfBadgeData
+  compareSelected?: boolean
+  /** True when the compare tray is full and this card is not in it. */
+  compareFull?: boolean
+  onToggleCompare?: (modelName: string) => void
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const { t } = useTranslation()
   const { copyToClipboard } = useCopyToClipboard()
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
-  const priceRate = props.priceRate ?? 1
-  const usdExchangeRate = props.usdExchangeRate ?? 1
-  const showRechargePrice = props.showRechargePrice ?? false
+  const displayCurrency = props.displayCurrency ?? 'USD'
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const tags = parseTags(props.model.tags)
@@ -67,22 +68,28 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const isDynamicPricing =
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
-  const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
+  const hasCachedPrice = isTokenBased && props.model.cache_read_price != null
   const dynamicSummary = isDynamicPricing
     ? getDynamicPricingSummary(props.model, {
         tokenUnit,
-        showRechargePrice,
-        priceRate,
-        usdExchangeRate,
+        displayCurrency,
         groupRatioMultiplier: getDynamicDisplayGroupRatio(
           props.model,
           props.selectedGroup
         ),
       })
     : null
+  const hasDurationPrice = dynamicSummary?.entries.some(
+    (entry) => entry.unit === 'minute'
+  )
 
   const primaryGroup = getDisplayPriceGroup(props.model, props.selectedGroup)
-  const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
+  const bottomTags = [
+    ...endpoints
+      .slice(0, 2)
+      .map((endpoint) => getEndpointTypeLabel(endpoint, t)),
+    ...tags.slice(0, 2),
+  ]
   const hiddenCount =
     Math.max(groups.length - 1, 0) +
     Math.max(endpoints.length - 2, 0) +
@@ -101,7 +108,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           <span className='forge-price-warning-text'>
             {t('Special billing expression')}
           </span>
-          <code className='text-muted-foreground/70 mt-0.5 line-clamp-1 block font-mono text-[11px] break-all'>
+          <code className='text-muted-foreground mt-0.5 line-clamp-1 block font-mono text-xs break-all'>
             {dynamicSummary.rawExpression}
           </code>
         </span>
@@ -117,6 +124,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {t(entry.shortLabel)}{' '}
               <span className='text-foreground font-mono font-semibold'>
                 {entry.formatted}
+                {hasDurationPrice && (
+                  <span className='text-muted-foreground ml-1 text-xs font-normal'>
+                    / {entry.unit === 'minute' ? t('minute') : tokenUnitLabel}
+                  </span>
+                )}
               </span>
             </span>
           ))}
@@ -139,9 +151,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               props.model,
               'input',
               tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
+              displayCurrency,
               props.selectedGroup
             )}
           </span>
@@ -153,9 +163,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               props.model,
               'output',
               tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
+              displayCurrency,
               props.selectedGroup
             )}
           </span>
@@ -168,9 +176,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 props.model,
                 'cache',
                 tokenUnit,
-                showRechargePrice,
-                priceRate,
-                usdExchangeRate,
+                displayCurrency,
                 props.selectedGroup
               )}
             </span>
@@ -184,9 +190,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <span className='text-foreground font-mono font-semibold'>
           {formatRequestPrice(
             props.model,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
+            displayCurrency,
             props.selectedGroup
           )}
         </span>{' '}
@@ -198,85 +202,122 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   return (
     <div
       className={cn(
-        'group relative flex flex-col rounded-xl border p-3 transition-colors sm:p-5',
-        'hover:bg-muted/20'
+        'group relative flex min-w-0 flex-col rounded-xl border p-4 transition-colors sm:p-5 motion-reduce:transition-none',
+        'hover:bg-muted/20',
+        props.compareSelected && 'border-primary/50 ring-primary/20 ring-2'
       )}
     >
-      {/* Header: icon + name + price + actions */}
-      <div className='flex items-start justify-between gap-2.5 sm:gap-3'>
-        <div className='flex min-w-0 items-start gap-2.5 sm:gap-3'>
-          <div className='bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl'>
+      {/* Keep the full model identifier clear of the action buttons. */}
+      <div className='flex flex-col gap-2.5 sm:gap-3'>
+        <div className='flex w-full min-w-0 items-start gap-2.5 sm:gap-3'>
+          <div
+            className='bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl'
+            aria-hidden='true'
+          >
             {modelIcon || (
               <span className='text-muted-foreground text-sm font-bold'>
                 {initial}
               </span>
             )}
           </div>
-          <div className='min-w-0'>
-            <h3 className='text-foreground truncate font-mono text-[15px] leading-tight font-bold'>
+          <div className='min-w-0 flex-1'>
+            <h3 className='text-foreground font-mono text-[15px] leading-6 font-semibold wrap-anywhere whitespace-normal'>
               {props.model.model_name}
             </h3>
-            <div className='mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm sm:mt-1 sm:gap-x-3'>
-              {priceSummary}
-            </div>
           </div>
-        </div>
-
-        <div className='flex shrink-0 items-center gap-1.5'>
-          <button
-            type='button'
-            onClick={props.onClick}
-            className='text-muted-foreground hover:text-foreground hover:bg-muted inline-flex min-h-11 items-center gap-1 rounded-md border px-3 py-2.5 text-xs transition-colors sm:min-h-0 sm:px-2.5 sm:py-1.5'
-          >
-            {t('Details')}
-            <ChevronRight className='size-3.5' />
-          </button>
-          <button
-            type='button'
-            onClick={handleCopy}
-            className='text-muted-foreground hover:text-foreground hover:bg-muted inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border p-0 transition-colors sm:min-h-0 sm:min-w-0 sm:p-1.5'
-            title={t('Copy')}
-          >
-            <Copy className='size-3.5' />
-          </button>
         </div>
       </div>
 
-      {/* Description */}
-      <p className='text-muted-foreground mt-2 line-clamp-1 flex-1 text-[13px] leading-relaxed sm:mt-4 sm:line-clamp-2 sm:min-h-[2.5rem]'>
+      <div className='mt-3 flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 border-y py-3 text-sm tabular-nums'>
+        <span className='text-muted-foreground w-full text-xs'>
+          {t('Base price (1×)')}
+        </span>
+        {priceSummary}
+      </div>
+
+      <p className='text-muted-foreground mt-3 line-clamp-2 min-h-10 flex-1 text-[13px] leading-5'>
         {props.model.description || t('No description available.')}
       </p>
 
-      {/* Footer: left metadata and right performance summary share row alignment */}
-      <div className='mt-2 grid grid-cols-1 items-start gap-x-2 gap-y-1 min-[460px]:grid-cols-[minmax(0,1fr)_auto] sm:mt-4'>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 min-[460px]:col-start-1 min-[460px]:row-start-1'>
+      <div className='mt-4 space-y-2'>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
           {primaryGroup && (
-            <span className='text-muted-foreground text-sm font-medium'>
+            <span className='text-muted-foreground text-sm font-medium wrap-anywhere'>
               {primaryGroup}
             </span>
           )}
           <ModelBillingModeBadge model={props.model} />
           <ModelRuntimeBadge state={props.model.runtime_state} />
         </div>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 min-[460px]:col-start-1 min-[460px]:row-start-2 sm:gap-x-3 sm:gap-y-1'>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1'>
           {bottomTags.map((item) => (
-            <span key={item} className='text-muted-foreground/70 text-xs'>
+            <span
+              key={item}
+              className='text-muted-foreground text-xs wrap-anywhere'
+            >
               {item}
             </span>
           ))}
-          <span className='text-muted-foreground/50 text-xs'>
-            {tokenUnitLabel}
-          </span>
+          {!hasDurationPrice && (
+            <span className='text-muted-foreground text-xs'>
+              {tokenUnitLabel}
+            </span>
+          )}
           {hiddenCount > 0 && (
-            <span className='text-muted-foreground/40 text-xs'>
+            <span className='text-muted-foreground text-xs'>
               +{hiddenCount}
             </span>
           )}
         </div>
-        <ModelPerfBadge
-          perf={props.perf}
-          className='mt-2 border-t pt-2 min-[460px]:col-start-2 min-[460px]:row-span-2 min-[460px]:row-start-1 min-[460px]:mt-0 min-[460px]:border-t-0 min-[460px]:pt-0'
-        />
+        <ModelPerfBadge perf={props.perf} className='border-t pt-3' />
+      </div>
+
+      <div className='mt-4 flex items-center justify-end gap-2'>
+        {props.onToggleCompare && (
+          <button
+            type='button'
+            onClick={() => props.onToggleCompare?.(props.model.model_name)}
+            disabled={props.compareFull && !props.compareSelected}
+            aria-pressed={Boolean(props.compareSelected)}
+            title={
+              props.compareFull && !props.compareSelected
+                ? t('Compare up to {{count}} models', {
+                    count: MAX_COMPARE_MODELS,
+                  })
+                : undefined
+            }
+            className={cn(
+              'me-auto inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none sm:min-h-8 sm:py-1.5',
+              props.compareSelected
+                ? 'border-primary/60 bg-primary/10 text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+          >
+            {props.compareSelected ? (
+              <Check className='size-3.5' aria-hidden='true' />
+            ) : (
+              <Plus className='size-3.5' aria-hidden='true' />
+            )}
+            {t('Compare')}
+          </button>
+        )}
+        <button
+          type='button'
+          onClick={handleCopy}
+          className='text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border p-0 transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none sm:min-h-8 sm:min-w-8'
+          title={t('Copy')}
+          aria-label={`${t('Copy')} ${props.model.model_name}`}
+        >
+          <Copy className='size-3.5' aria-hidden='true' />
+        </button>
+        <button
+          type='button'
+          onClick={props.onClick}
+          className='text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex min-h-11 items-center gap-1 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none sm:min-h-8 sm:py-1.5'
+        >
+          {t('Details')}
+          <ChevronRight className='size-3.5' aria-hidden='true' />
+        </button>
       </div>
     </div>
   )

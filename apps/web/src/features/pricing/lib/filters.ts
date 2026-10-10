@@ -44,7 +44,10 @@ export function filterBySearch(
       m.model_name?.toLowerCase().includes(lowerQuery) ||
       m.description?.toLowerCase().includes(lowerQuery) ||
       m.tags?.toLowerCase().includes(lowerQuery) ||
-      m.vendor_name?.toLowerCase().includes(lowerQuery)
+      m.vendor_name?.toLowerCase().includes(lowerQuery) ||
+      m.supported_endpoint_types?.some((endpoint) =>
+        endpoint.toLowerCase().includes(lowerQuery)
+      )
   )
 }
 

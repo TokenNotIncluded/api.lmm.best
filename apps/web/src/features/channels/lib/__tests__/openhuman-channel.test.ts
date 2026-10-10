@@ -21,73 +21,97 @@ import { describe, test } from 'node:test'
 import {
   CHANNEL_TYPE_OPENAI,
   CHANNEL_TYPE_OPENHUMAN,
+  CHANNEL_TYPE_TYPESAFE,
   CHANNEL_TYPE_OPTIONS,
   MODEL_FETCHABLE_TYPES,
+  getDefaultResponsesWebSocketEnabled,
   isOpenAIChannelType,
+  supportsResponsesWebSocket,
 } from '../../constants'
+import { channelSchema } from '../../types'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
+  channelFormSchema,
+  transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
 } from '../channel-form'
-import { CHANNEL_TYPE_CONFIGS } from '../channel-type-config'
+import { CHANNEL_TYPE_CONFIGS, getDefaultBaseUrl } from '../channel-type-config'
 import { getChannelTypeIcon, getChannelTypeLabel } from '../channel-utils'
 
-describe('OpenHuman channel type', () => {
-  test('is registered as an OpenAI-equivalent channel with a distinct name', () => {
+describe('retired OpenHuman channel type', () => {
+  test('reserves its historical ID without offering transport capabilities', () => {
     assert.equal(CHANNEL_TYPE_OPENHUMAN, 61)
-    assert.equal(getChannelTypeLabel(CHANNEL_TYPE_OPENHUMAN), 'OpenHuman')
-    assert.equal(getChannelTypeIcon(CHANNEL_TYPE_OPENHUMAN), 'OpenAI')
-    assert.equal(isOpenAIChannelType(CHANNEL_TYPE_OPENHUMAN), true)
-    assert.equal(MODEL_FETCHABLE_TYPES.has(CHANNEL_TYPE_OPENHUMAN), true)
+    assert.equal(CHANNEL_TYPE_TYPESAFE, 62)
+    assert.equal(
+      getChannelTypeLabel(CHANNEL_TYPE_OPENHUMAN),
+      'OpenHuman (removed)'
+    )
+    assert.equal(getChannelTypeIcon(CHANNEL_TYPE_OPENHUMAN), 'Unknown')
+    assert.equal(isOpenAIChannelType(CHANNEL_TYPE_OPENHUMAN), false)
+    assert.equal(MODEL_FETCHABLE_TYPES.has(CHANNEL_TYPE_OPENHUMAN), false)
+    assert.equal(supportsResponsesWebSocket(CHANNEL_TYPE_OPENHUMAN), false)
+    assert.equal(
+      getDefaultResponsesWebSocketEnabled(CHANNEL_TYPE_OPENHUMAN),
+      false
+    )
     assert.equal(
       CHANNEL_TYPE_OPTIONS.some(
-        (option) =>
-          option.value === CHANNEL_TYPE_OPENHUMAN &&
-          option.label === 'OpenHuman'
+        (option) => option.value === CHANNEL_TYPE_OPENHUMAN
       ),
-      true
+      false
     )
-
-    const {
-      id: _openAIId,
-      name: _openAIName,
-      ...openAIConfig
-    } = CHANNEL_TYPE_CONFIGS[CHANNEL_TYPE_OPENAI]
-    const {
-      id: _openHumanId,
-      name: _openHumanName,
-      ...openHumanConfig
-    } = CHANNEL_TYPE_CONFIGS[CHANNEL_TYPE_OPENHUMAN]
-    assert.deepEqual(openHumanConfig, openAIConfig)
+    assert.equal(CHANNEL_TYPE_CONFIGS[CHANNEL_TYPE_OPENHUMAN], undefined)
+    assert.equal(getDefaultBaseUrl(CHANNEL_TYPE_OPENHUMAN), '')
   })
 
-  test('serializes OpenAI-only settings without changing their content', () => {
+  test('rejects a retired form while keeping OpenAI-only options working', () => {
     const sharedForm = {
       ...CHANNEL_FORM_DEFAULT_VALUES,
-      name: 'OpenHuman',
-      base_url: 'https://api.openai.com',
-      key: 'sk-openhuman-example-key',
-      openai_organization: 'org-openhuman',
-      models: 'gpt-4,gpt-4o',
+      name: 'Fixture provider',
+      group: ['default'],
+      key: 'sk-fixture-key',
+      models: 'gpt-4o',
+      openai_organization: 'org-fixture',
       force_format: true,
-      allow_service_tier: true,
       disable_store: true,
       allow_safety_identifier: true,
-      allow_include_obfuscation: true,
-      allow_inference_geo: true,
     }
-
-    const openAI = transformFormDataToCreatePayload({
+    assert.equal(
+      channelFormSchema.safeParse({ ...sharedForm, type: 61 }).success,
+      false
+    )
+    const openAI = channelFormSchema.parse({
       ...sharedForm,
       type: CHANNEL_TYPE_OPENAI,
-    }).channel
-    const openHuman = transformFormDataToCreatePayload({
-      ...sharedForm,
-      type: CHANNEL_TYPE_OPENHUMAN,
-    }).channel
+    })
+    const payload = transformFormDataToCreatePayload(openAI).channel
+    assert.equal(payload.openai_organization, 'org-fixture')
+    assert.equal(JSON.parse(payload.settings || '{}').disable_store, true)
+    assert.equal(
+      JSON.parse(payload.settings || '{}').allow_safety_identifier,
+      true
+    )
+  })
 
-    assert.equal(openHuman.openai_organization, 'org-openhuman')
-    assert.equal(openHuman.setting, openAI.setting)
-    assert.equal(openHuman.settings, openAI.settings)
+  test('reads a historical record without converting its type or group', () => {
+    const historical = channelSchema.parse({
+      id: 42,
+      type: CHANNEL_TYPE_OPENHUMAN,
+      name: 'Historical provider',
+      status: 2,
+      key: '',
+      models: 'gpt-4o',
+      group: 'human',
+      created_time: 0,
+      test_time: 0,
+      response_time: 0,
+      balance_updated_time: 0,
+      other: '',
+      remark: '',
+      channel_info: {},
+    })
+    const defaults = transformChannelToFormDefaults(historical)
+    assert.equal(defaults.type, 61)
+    assert.deepEqual(defaults.group, ['human'])
   })
 })

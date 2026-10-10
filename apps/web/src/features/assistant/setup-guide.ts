@@ -158,12 +158,34 @@ const NON_TEXT_MODEL_MARKERS = [
 ]
 
 export function getGuideEligibleModels(
-  availableModels: readonly string[]
+  availableModels: readonly string[],
+  metadata: readonly {
+    model_name: string
+    supported_endpoint_types?: readonly string[]
+  }[] = []
 ): string[] {
+  const endpointTypes = new Map(
+    metadata.map((model) => [model.model_name, model.supported_endpoint_types])
+  )
   const isTextModel = (model: string) => {
     const normalized = model.trim().toLowerCase()
+    const endpoints = endpointTypes.get(model.trim())
+    const nativeOnly = endpoints?.length
+      ? endpoints.some((endpoint) =>
+          [
+            'systemone',
+            'moderation',
+            'live',
+            'realtime_transcription',
+            'realtime_translation',
+          ].includes(endpoint)
+        )
+      : /(^|\/)jev(?:-|$)/.test(normalized) ||
+        /(^|\/)gpt-(?:live|realtime)(?:-|$)/.test(normalized) ||
+        normalized.includes('moderation')
     return (
       normalized.length > 0 &&
+      !nativeOnly &&
       !NON_TEXT_MODEL_MARKERS.some((marker) => normalized.includes(marker))
     )
   }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/types"
@@ -18,7 +19,10 @@ import (
 func FlushWriter(c *gin.Context) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("flush panic recovered: %v", r)
+			err = errors.New("stream flush failed")
+		}
+		if err != nil {
+			markHTTPStreamDownstreamFailure(c)
 		}
 	}()
 
@@ -30,13 +34,61 @@ func FlushWriter(c *gin.Context) (err error) {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		return errors.New("streaming error: flusher not found")
+	markHTTPStreamCommitted(c)
+	c.Writer.WriteHeaderNow()
+	writer := http.ResponseWriter(c.Writer)
+	// Gin exposes Unwrap but its Flush discards an underlying FlushError.
+	// Commit through Gin first, then let ResponseController observe the error.
+	if unwrapped, ok := writer.(interface{ Unwrap() http.ResponseWriter }); ok {
+		writer = unwrapped.Unwrap()
 	}
+	return http.NewResponseController(writer).Flush()
+}
 
-	flusher.Flush()
-	return nil
+func hasHTTPStreamWriter(c *gin.Context) bool {
+	if c == nil || c.Writer == nil {
+		return false
+	}
+	if _, resettable := c.Writer.(interface{ ResetForRelayRetry() error }); resettable {
+		return false
+	}
+	return c.GetBool("event_stream_headers_set")
+}
+
+func markHTTPStreamCommitted(c *gin.Context) {
+	if hasHTTPStreamWriter(c) {
+		common.SetContextKey(c, constant.ContextKeyHTTPStreamCommitted, true)
+	}
+}
+
+func markHTTPStreamDownstreamFailure(c *gin.Context) {
+	if hasHTTPStreamWriter(c) {
+		common.SetContextKey(c, constant.ContextKeyHTTPStreamDownstreamFailure, true)
+	}
+}
+
+// MarkHTTPStreamDownstreamFailure is also used by legacy handlers that write
+// directly through Gin. It stops retries/provider penalties without changing
+// those handlers' usage-collection or settlement rules.
+func MarkHTTPStreamDownstreamFailure(c *gin.Context) { markHTTPStreamDownstreamFailure(c) }
+
+func HTTPStreamDownstreamFailed(c *gin.Context) bool {
+	return c != nil && common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamDownstreamFailure)
+}
+
+// CommitEventStreamHeaders ends the HTTP attempt's pre-output retry window.
+// Call it only after validating the upstream stream, and after retiring an
+// enabled first-visible-output boundary. Internal resettable writers retain
+// their existing retry behavior.
+func CommitEventStreamHeaders(c *gin.Context) error {
+	SetEventStreamHeaders(c)
+	if _, resettable := c.Writer.(interface{ ResetForRelayRetry() error }); resettable {
+		// Internal assistant writers must also retain their pre-body status
+		// behavior; excluding retry flags alone would still lock them to 200.
+		return nil
+	}
+	ExtendWriteDeadline(c)
+	return FlushWriter(c)
 }
 
 func requestContextDone(c *gin.Context) bool {
@@ -45,7 +97,7 @@ func requestContextDone(c *gin.Context) bool {
 
 func SetEventStreamHeaders(c *gin.Context) {
 	// 检查是否已经设置过头部
-	if _, exists := c.Get("event_stream_headers_set"); exists {
+	if c.GetBool("event_stream_headers_set") {
 		return
 	}
 
@@ -68,11 +120,14 @@ func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 	if err != nil {
 		common.SysError("error marshalling stream response: " + err.Error())
 	} else {
-		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-		renderSSEDataLines(c, string(jsonData))
+		if err := renderSSEEvent(c, fmt.Sprintf("event: %s\n", resp.Type)); err != nil {
+			return err
+		}
+		if err := renderSSEDataLines(c, string(jsonData)); err != nil {
+			return err
+		}
 	}
-	_ = FlushWriter(c)
-	return nil
+	return FlushWriter(c)
 }
 
 func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
@@ -80,8 +135,12 @@ func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
 		return
 	}
 
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	renderSSEDataLines(c, data)
+	if err := renderSSEEvent(c, fmt.Sprintf("event: %s\n", resp.Type)); err != nil {
+		return
+	}
+	if err := renderSSEDataLines(c, data); err != nil {
+		return
+	}
 	_ = FlushWriter(c)
 }
 
@@ -90,15 +149,34 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	renderSSEDataLines(c, data)
+	if err := renderSSEEvent(c, fmt.Sprintf("event: %s\n", resp.Type)); err != nil {
+		return err
+	}
+	if err := renderSSEDataLines(c, data); err != nil {
+		return err
+	}
 	return FlushWriter(c)
 }
 
 // renderSSEDataLines encodes embedded newlines as multiple data fields in the
 // same SSE event. CustomEvent appends the event delimiter once, so the joined
 // fields are rendered as one event rather than one event per source line.
-func renderSSEDataLines(c *gin.Context, data string) {
+func renderSSEEvent(c *gin.Context, data string) error {
+	if HTTPStreamDownstreamFailed(c) {
+		return errors.New("downstream stream write failed")
+	}
+	markHTTPStreamCommitted(c)
+	err := (common.CustomEvent{Data: data}).Render(c.Writer)
+	if err != nil {
+		markHTTPStreamDownstreamFailure(c)
+		// Preserve Gin Render's error evidence for legacy delivery accounting.
+		_ = c.Error(err)
+		c.Abort()
+	}
+	return err
+}
+
+func renderSSEDataLines(c *gin.Context, data string) error {
 	normalized := strings.ReplaceAll(data, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 	lines := strings.Split(normalized, "\n")
@@ -110,7 +188,7 @@ func renderSSEDataLines(c *gin.Context, data string) {
 		encoded.WriteString("data: ")
 		encoded.WriteString(line)
 	}
-	c.Render(-1, common.CustomEvent{Data: encoded.String()})
+	return renderSSEEvent(c, encoded.String())
 }
 
 func StringData(c *gin.Context, str string) error {
@@ -122,7 +200,9 @@ func StringData(c *gin.Context, str string) error {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	renderSSEDataLines(c, str)
+	if err := renderSSEDataLines(c, str); err != nil {
+		return err
+	}
 	return FlushWriter(c)
 }
 
@@ -130,12 +210,17 @@ func PingData(c *gin.Context) error {
 	if c == nil || c.Writer == nil {
 		return errors.New("context or writer is nil")
 	}
+	if HTTPStreamDownstreamFailed(c) {
+		return errors.New("downstream stream write failed")
+	}
 
 	if requestContextDone(c) {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
+	markHTTPStreamCommitted(c)
 	if _, err := c.Writer.Write([]byte(": PING\n\n")); err != nil {
+		markHTTPStreamDownstreamFailure(c)
 		return fmt.Errorf("write ping data failed: %w", err)
 	}
 	return FlushWriter(c)

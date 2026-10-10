@@ -139,6 +139,10 @@ CREATE SCHEMA :"rust_schema" AUTHORIZATION :"rust_role";
 SET search_path TO :"rust_schema";
 CREATE TABLE lmm_schema_contract (singleton BOOLEAN PRIMARY KEY, min_reader_version BIGINT NOT NULL, max_reader_version BIGINT NOT NULL);
 INSERT INTO lmm_schema_contract VALUES (TRUE, 1, 1);
+-- Minimal subscription shape for listener readiness only; snapshots remain nullable.
+CREATE TABLE user_subscriptions (
+  amount_total BIGINT, amount_used BIGINT, reset_amount BIGINT, renewal_amount BIGINT
+);
 CREATE TABLE users (
   id BIGINT PRIMARY KEY, username TEXT NOT NULL, password TEXT NOT NULL,
   display_name TEXT, role BIGINT NOT NULL, status BIGINT NOT NULL, email TEXT,

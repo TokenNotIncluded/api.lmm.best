@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 	"sync"
@@ -54,6 +55,44 @@ func NewStreamScanner(reader io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, InitialScannerBufferSize), getScannerBufferSize())
 	return scanner
+}
+
+// IsEventStreamResponse requires explicit protocol evidence before an early
+// header-only commit. Missing/mislabelled headers retain the legacy policy of
+// waiting for a successfully decoded business frame.
+func IsEventStreamResponse(resp *http.Response) bool {
+	if resp == nil || resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return false
+	}
+	return isEventStreamMediaType(resp.Header.Get("Content-Type"))
+}
+
+func isEventStreamMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	return err == nil && strings.EqualFold(mediaType, "text/event-stream")
+}
+
+// ValidateEventStreamResponse rejects explicit protocol mismatches without
+// reading or committing. Headerless legacy streams stay compatible, but do
+// not qualify for the early header-only commit.
+func ValidateEventStreamResponse(resp *http.Response) error {
+	if resp == nil || resp.Body == nil {
+		return errors.New("invalid upstream stream response")
+	}
+	if resp.Header.Get("Content-Type") != "" && !isEventStreamMediaType(resp.Header.Get("Content-Type")) {
+		return errors.New("upstream returned a non-SSE response for a stream request")
+	}
+	return nil
+}
+
+// CommitEventStreamResponseHeaders only commits a validated SSE response.
+// Legacy headerless input sets the headers and waits for a business write.
+func CommitEventStreamResponseHeaders(c *gin.Context, resp *http.Response) error {
+	SetEventStreamHeaders(c)
+	if IsEventStreamResponse(resp) {
+		return CommitEventStreamHeaders(c)
+	}
+	return nil
 }
 
 func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
@@ -188,6 +227,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	scanner.Split(splitSSELines())
 	copyCodexSSEHeaders(c, resp)
 	SetEventStreamHeaders(c)
+	if info.FirstResponseTimeout <= 0 && IsEventStreamResponse(resp) {
+		if err := CommitEventStreamHeaders(c); err != nil {
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonWriterError, err)
+			return
+		}
+	}
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
@@ -279,6 +324,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				ExtendWriteDeadline(c)
 				dataHandler(data.data, sr)
 				businessWritten = c.Writer.Written()
+				if HTTPStreamDownstreamFailed(c) {
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonWriterError, errors.New("downstream stream write failed"))
+					sr.stopped = true
+				}
 			}()
 			if sr.IsStopped() {
 				return
@@ -369,6 +418,14 @@ streamWait:
 			firstResponseCh = nil
 			firstResponseWaitCh = nil
 		case <-firstResponseCh:
+			// Committing a real HTTP response has already retired failover. A
+			// slow client flushing the buffered prefix must use the write/idle
+			// deadlines, rather than become an upstream first-output timeout.
+			if common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamCommitted) {
+				firstResponseCh = nil
+				firstResponseWaitCh = nil
+				continue
+			}
 			// Prefer a concurrently completed first response over the timer.
 			select {
 			case <-firstResponseWaitCh:
@@ -394,6 +451,12 @@ streamWait:
 	}
 
 	cleanup()
+	if HTTPStreamDownstreamFailed(c) {
+		// Producers may have already observed EOF. All workers are joined, so
+		// the final transport outcome can safely take precedence over that EOF.
+		info.StreamStatus.EndReason = relaycommon.StreamEndReasonWriterError
+		info.StreamStatus.EndError = errors.New("downstream stream write failed")
+	}
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
 		logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
 	} else {

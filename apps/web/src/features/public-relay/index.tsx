@@ -11,10 +11,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowDown,
   ArrowUp,
+  Check,
+  Copy,
   ExternalLink,
   Flag,
   MessageSquare,
   Plus,
+  ServerOff,
   ShieldCheck,
   Star,
 } from 'lucide-react'
@@ -40,6 +43,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
@@ -52,6 +63,8 @@ import {
   getSystemOptions,
   updateSystemOption,
 } from '@/features/system-settings/api'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { getUserGroups } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -110,6 +123,18 @@ const sortLabels = {
   models: 'Most models',
 } as const
 
+const relayStatusTone: Record<PublicRelay['status'], string> = {
+  approved: 'border-success/40 bg-success/10 text-success',
+  pending: 'border-warning/40 bg-warning/10 text-warning',
+  rejected: 'border-destructive/40 bg-destructive/10 text-destructive',
+}
+
+const statusLabels: Record<PublicRelay['status'], string> = {
+  approved: 'Approved',
+  pending: 'Pending review',
+  rejected: 'Rejected',
+}
+
 function PublicRelayLoadError(props: {
   onRetry: () => void | Promise<unknown>
 }) {
@@ -133,11 +158,48 @@ function PublicRelayLoadError(props: {
   )
 }
 
+function PublicRelayLoading() {
+  const { t } = useTranslation()
+  return (
+    <p role='status' className='text-muted-foreground py-6 text-sm'>
+      {t('Loading...')}
+    </p>
+  )
+}
+
+function PublicRelayEmpty(props: {
+  title: string
+  description: string
+  action?: { label: string; onClick: () => void }
+}) {
+  return (
+    <Empty className='border-border/70 my-2 border'>
+      <EmptyHeader>
+        <EmptyMedia variant='icon'>
+          <ServerOff aria-hidden='true' />
+        </EmptyMedia>
+        <EmptyTitle className='text-base'>{props.title}</EmptyTitle>
+        <EmptyDescription>{props.description}</EmptyDescription>
+      </EmptyHeader>
+      {props.action ? (
+        <EmptyContent>
+          <Button type='button' size='sm' onClick={props.action.onClick}>
+            <Plus className='size-4' />
+            {props.action.label}
+          </Button>
+        </EmptyContent>
+      ) : null}
+    </Empty>
+  )
+}
+
 export function PublicRelay() {
   const { t } = useTranslation()
+  const money = useWalletCurrency()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
   const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
+  const isRoot = (user?.role ?? 0) >= ROLE.SUPER_ADMIN
   const [submitOpen, setSubmitOpen] = useState(false)
   const [reportTarget, setReportTarget] = useState<PublicRelay | null>(null)
   const [reviewTarget, setReviewTarget] = useState<PublicRelay | null>(null)
@@ -159,6 +221,11 @@ export function PublicRelay() {
   const [activeTab, setActiveTab] = useState('all')
   const [routingDisabled, setRoutingDisabled] = useState<number[]>([])
   const [routingOrder, setRoutingOrder] = useState<number[]>([])
+  const [routingDirty, setRoutingDirty] = useState(false)
+  const { copiedText, copyToClipboard } = useCopyToClipboard({
+    notify: false,
+    resetAfterMs: 1600,
+  })
 
   const configQuery = useQuery({
     queryKey: ['public-relays', 'config'],
@@ -196,7 +263,7 @@ export function PublicRelay() {
   })
   const adminQuery = useQuery({
     queryKey: ['public-relays', 'admin'],
-    queryFn: () => listAdminPublicRelays('pending'),
+    queryFn: () => listAdminPublicRelays('reviewable'),
     enabled: isAdmin && activeTab === 'review',
   })
   const reportsQuery = useQuery({
@@ -207,7 +274,7 @@ export function PublicRelay() {
   const systemOptionsQuery = useQuery({
     queryKey: ['public-relays', 'system-options'],
     queryFn: getSystemOptions,
-    enabled: isAdmin,
+    enabled: isRoot,
   })
   useEffect(() => {
     const value = systemOptionsQuery.data?.data?.find(
@@ -216,7 +283,7 @@ export function PublicRelay() {
     if (value) setPublicGroup(value)
   }, [systemOptionsQuery.data])
   useEffect(() => {
-    if (!routingQuery.data) return
+    if (!routingQuery.data || routingDirty) return
     setRoutingDisabled(
       routingQuery.data.items
         .filter((item) => item.disabled)
@@ -227,7 +294,7 @@ export function PublicRelay() {
         .sort((a, b) => a.position - b.position)
         .map((item) => item.channel_id)
     )
-  }, [routingQuery.data])
+  }, [routingQuery.data, routingDirty])
   const saveGroupMutation = useMutation({
     mutationFn: (group: string) =>
       updateSystemOption({ key: 'public_relay_setting.group', value: group }),
@@ -325,10 +392,11 @@ export function PublicRelay() {
   })
   const routingMutation = useMutation({
     mutationFn: () => updatePublicRelayRouting(routingDisabled, routingOrder),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
         queryKey: ['public-relays', 'routing'],
       })
+      setRoutingDirty(false)
       toast.success(t('Routing preferences saved'))
     },
     onError: (error) =>
@@ -345,36 +413,72 @@ export function PublicRelay() {
     mutationFn: ({ id, close }: { id: number; close: boolean }) =>
       reviewPublicRelayReport(id, close, ''),
     onSuccess: invalidate,
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : t('Request failed')),
   })
 
   const renderRelay = (item: PublicRelay, mine = false) => (
     <article
       key={item.id}
-      className='grid gap-3 py-5 sm:grid-cols-[1fr_auto] sm:gap-8'
+      className='border-border/70 hover:border-border grid gap-3 border-t py-5 transition-colors duration-200 motion-reduce:transition-none sm:grid-cols-[1fr_auto] sm:gap-8'
     >
       <div className='min-w-0 space-y-2'>
         <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
-          <h3 className='font-medium'>{item.name}</h3>
-          <span className='text-muted-foreground text-xs'>{item.group}</span>
+          <h3 className='text-base font-medium'>{item.name}</h3>
+          {mine ? (
+            <span
+              className={`rounded-md border px-1.5 py-0.5 text-xs font-medium ${relayStatusTone[item.status]}`}
+            >
+              {t(
+                item.status === 'approved' && !item.channel_id
+                  ? 'Not published'
+                  : statusLabels[item.status]
+              )}
+            </span>
+          ) : null}
+          <span className='bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs'>
+            {item.group}
+          </span>
           <span className='text-muted-foreground text-xs'>
             {formatDate(item.created_at)}
           </span>
         </div>
-        <a
-          className='text-primary inline-flex max-w-full items-center gap-1 truncate text-sm hover:underline'
-          href={item.base_url}
-          target='_blank'
-          rel='noreferrer'
-        >
-          <span className='truncate'>{item.base_url}</span>
-          <ExternalLink className='size-3.5 shrink-0' />
-        </a>
+        <div className='flex min-w-0 items-center gap-1'>
+          <a
+            className='text-primary inline-flex min-w-0 items-center gap-1 truncate text-sm hover:underline'
+            href={item.base_url}
+            target='_blank'
+            rel='noreferrer'
+          >
+            <span className='truncate'>{item.base_url}</span>
+            <ExternalLink className='size-3.5 shrink-0' />
+          </a>
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon-xs'
+            aria-label={t('Copy endpoint URL')}
+            title={t('Copy endpoint URL')}
+            onClick={() => void copyToClipboard(item.base_url)}
+          >
+            {copiedText === item.base_url ? (
+              <Check className='text-success size-3.5' />
+            ) : (
+              <Copy className='size-3.5' />
+            )}
+          </Button>
+        </div>
         <p className='text-muted-foreground text-sm'>
           {item.description || t('No description')}
         </p>
+        {mine && item.review_note ? (
+          <p className='text-muted-foreground text-sm'>
+            {t('Review note')}: {item.review_note}
+          </p>
+        ) : null}
         <div className='text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-2 text-xs'>
           <span className='inline-flex items-center gap-1'>
-            <Star className='size-3.5' />
+            <Star className='text-warning size-3.5' />
             {ratingLabel(item.rating_average)} ({item.rating_count ?? 0})
           </span>
           <span>
@@ -383,14 +487,21 @@ export function PublicRelay() {
           {mine ? (
             <>
               <span>
-                {t('Status')}: {item.status}
-              </span>
-              <span>
-                {t('Tips')}: ${item.tip_quota_usd?.toFixed(2) ?? '0.00'}
+                {t('Tips')}: {money.formatQuota(item.tip_quota ?? Number.NaN)}
               </span>
               {item.status === 'approved' &&
-              (item.tip_quota_usd ?? 0) >=
-                (configQuery.data?.minimum_withdrawal_usd ?? 10) ? (
+              Number.isSafeInteger(
+                item.available_tip_quota ??
+                  (item.tip_quota ?? Number.NaN) -
+                    (item.withdrawn_quota ?? Number.NaN)
+              ) &&
+              Number.isSafeInteger(
+                configQuery.data?.minimum_withdrawal_quota
+              ) &&
+              (configQuery.data?.minimum_withdrawal_quota ?? 0) > 0 &&
+              (item.available_tip_quota ??
+                (item.tip_quota ?? 0) - (item.withdrawn_quota ?? 0)) >=
+                (configQuery.data?.minimum_withdrawal_quota ?? Infinity) ? (
                 <Button
                   variant='ghost'
                   size='sm'
@@ -433,7 +544,7 @@ export function PublicRelay() {
             onClick={() => setReviewTarget(item)}
           >
             <MessageSquare className='size-4' />
-            {t('Review')}
+            {t('Rate & comment')}
           </Button>
           <Button
             variant='ghost'
@@ -486,6 +597,7 @@ export function PublicRelay() {
     if (index < 0 || target < 0 || target >= next.length) return
     ;[next[index], next[target]] = [next[target], next[index]]
     setRoutingOrder(next)
+    setRoutingDirty(true)
   }
 
   const shareReady = Boolean(
@@ -527,14 +639,15 @@ export function PublicRelay() {
                   {configQuery.data?.group ?? 'FREE'}
                 </strong>
               </span>
-              <span>
-                {t('Every submission is reviewed before it is listed.')}
-              </span>
-              <span>
-                {t('The contributor account email is shown publicly.')}
+              <span className='inline-flex items-center gap-1.5'>
+                <ShieldCheck className='size-3.5 shrink-0' aria-hidden='true' />
+                {t('Reviewed before listing. Contributor email is public.')}
               </span>
             </div>
-            {isAdmin ? (
+            {configQuery.isError ? (
+              <PublicRelayLoadError onRetry={() => configQuery.refetch()} />
+            ) : null}
+            {isRoot ? (
               <div className='border-border/70 mb-8 grid gap-3 border-y py-4 sm:grid-cols-[1fr_auto] sm:items-end'>
                 <div className='grid gap-1.5'>
                   <Label>{t('Public channel group')}</Label>
@@ -558,7 +671,7 @@ export function PublicRelay() {
               </div>
             ) : null}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList>
+              <TabsList variant='navigation'>
                 <TabsTrigger value='routing'>
                   {t('Channel routing')}
                 </TabsTrigger>
@@ -577,7 +690,12 @@ export function PublicRelay() {
                   </span>
                   <Button
                     size='sm'
-                    disabled={routingMutation.isPending}
+                    disabled={
+                      routingMutation.isPending ||
+                      !routingDirty ||
+                      routingQuery.isError ||
+                      routingQuery.isPending
+                    }
                     onClick={() => routingMutation.mutate()}
                   >
                     {t('Save routing')}
@@ -587,6 +705,8 @@ export function PublicRelay() {
                   <PublicRelayLoadError
                     onRetry={() => routingQuery.refetch()}
                   />
+                ) : routingQuery.isPending ? (
+                  <PublicRelayLoading />
                 ) : orderedRoutingItems.length ? (
                   orderedRoutingItems.map((item, index) => (
                     <div
@@ -596,15 +716,22 @@ export function PublicRelay() {
                       <button
                         type='button'
                         className='text-muted-foreground hover:text-foreground'
-                        onClick={() =>
+                        disabled={routingMutation.isPending}
+                        aria-pressed={
+                          !routingDisabled.includes(item.channel_id)
+                        }
+                        onClick={() => {
                           setRoutingDisabled((current) =>
                             current.includes(item.channel_id)
                               ? current.filter((id) => id !== item.channel_id)
                               : [...current, item.channel_id]
                           )
-                        }
+                          setRoutingDirty(true)
+                        }}
                       >
-                        {item.disabled ? t('Disabled') : t('Enabled')}
+                        {routingDisabled.includes(item.channel_id)
+                          ? t('Disabled')
+                          : t('Enabled')}
                       </button>
                       <div className='min-w-0 flex-1'>
                         <div className='truncate font-medium'>{item.name}</div>
@@ -616,7 +743,7 @@ export function PublicRelay() {
                         <Button
                           variant='ghost'
                           size='icon-sm'
-                          disabled={index === 0}
+                          disabled={index === 0 || routingMutation.isPending}
                           onClick={() => moveRoutingItem(item.channel_id, -1)}
                           aria-label={t('Move up')}
                         >
@@ -625,7 +752,10 @@ export function PublicRelay() {
                         <Button
                           variant='ghost'
                           size='icon-sm'
-                          disabled={index === orderedRoutingItems.length - 1}
+                          disabled={
+                            index === orderedRoutingItems.length - 1 ||
+                            routingMutation.isPending
+                          }
                           onClick={() => moveRoutingItem(item.channel_id, 1)}
                           aria-label={t('Move down')}
                         >
@@ -635,9 +765,16 @@ export function PublicRelay() {
                     </div>
                   ))
                 ) : (
-                  <p className='text-muted-foreground py-12 text-center'>
-                    {t('No linked public channels yet.')}
-                  </p>
+                  <PublicRelayEmpty
+                    title={t('No channels to route yet')}
+                    description={t(
+                      'Approved shared channels appear here. Add one to control which pool serves your requests.'
+                    )}
+                    action={{
+                      label: t('Share a channel'),
+                      onClick: () => setSubmitOpen(true),
+                    }}
+                  />
                 )}
               </TabsContent>
               <TabsContent value='all' className='mt-3'>
@@ -646,6 +783,7 @@ export function PublicRelay() {
                     <Button
                       key={mode}
                       size='sm'
+                      aria-pressed={sortMode === mode}
                       variant={sortMode === mode ? 'secondary' : 'ghost'}
                       onClick={() => setSortMode(mode)}
                     >
@@ -655,23 +793,41 @@ export function PublicRelay() {
                 </div>
                 {allQuery.isError ? (
                   <PublicRelayLoadError onRetry={() => allQuery.refetch()} />
+                ) : allQuery.isPending ? (
+                  <PublicRelayLoading />
                 ) : sortedAllItems.length ? (
                   sortedAllItems.map((item) => renderRelay(item))
                 ) : (
-                  <p className='text-muted-foreground py-12 text-center'>
-                    {t('No approved channels yet.')}
-                  </p>
+                  <PublicRelayEmpty
+                    title={t('No approved channels yet')}
+                    description={t(
+                      'Once an administrator approves a shared channel it shows up here with its rating and models.'
+                    )}
+                    action={{
+                      label: t('Share a channel'),
+                      onClick: () => setSubmitOpen(true),
+                    }}
+                  />
                 )}
               </TabsContent>
               <TabsContent value='mine' className='mt-3'>
                 {mineQuery.isError ? (
                   <PublicRelayLoadError onRetry={() => mineQuery.refetch()} />
+                ) : mineQuery.isPending ? (
+                  <PublicRelayLoading />
                 ) : mineItems.length ? (
                   mineItems.map((item) => renderRelay(item, true))
                 ) : (
-                  <p className='text-muted-foreground py-12 text-center'>
-                    {t('You have not uploaded a channel yet.')}
-                  </p>
+                  <PublicRelayEmpty
+                    title={t('You have not uploaded a channel yet')}
+                    description={t(
+                      'Share an endpoint you are allowed to redistribute. Submissions are reviewed before they go live.'
+                    )}
+                    action={{
+                      label: t('Share a channel'),
+                      onClick: () => setSubmitOpen(true),
+                    }}
+                  />
                 )}
               </TabsContent>
               {isAdmin ? (
@@ -682,6 +838,17 @@ export function PublicRelay() {
                       count: pendingItems.length,
                     })}
                   </div>
+                  {adminQuery.isError ? (
+                    <PublicRelayLoadError
+                      onRetry={() => adminQuery.refetch()}
+                    />
+                  ) : adminQuery.isPending ? (
+                    <PublicRelayLoading />
+                  ) : pendingItems.length === 0 ? (
+                    <p className='text-muted-foreground text-sm'>
+                      {t('No pending reviews')}
+                    </p>
+                  ) : null}
                   {pendingItems.map((item) => (
                     <div
                       key={item.id}
@@ -697,12 +864,18 @@ export function PublicRelay() {
                               [item.id]: event.target.value,
                             }))
                           }
+                          maxLength={2000}
+                          disabled={reviewMutation.isPending}
                           placeholder={t(
                             'Review note (required when rejecting)'
                           )}
                         />
                         <Button
                           variant='outline'
+                          disabled={
+                            reviewMutation.isPending ||
+                            (reviewNote[item.id] ?? '').trim().length < 2
+                          }
                           onClick={() =>
                             reviewMutation.mutate({
                               id: item.id,
@@ -713,6 +886,7 @@ export function PublicRelay() {
                           {t('Reject')}
                         </Button>
                         <Button
+                          disabled={reviewMutation.isPending}
                           onClick={() =>
                             reviewMutation.mutate({
                               id: item.id,
@@ -725,6 +899,13 @@ export function PublicRelay() {
                       </div>
                     </div>
                   ))}
+                  {reportsQuery.isError ? (
+                    <PublicRelayLoadError
+                      onRetry={() => reportsQuery.refetch()}
+                    />
+                  ) : reportsQuery.isPending ? (
+                    <PublicRelayLoading />
+                  ) : null}
                   {openReports.length ? (
                     <>
                       <Separator className='my-6' />
@@ -738,6 +919,7 @@ export function PublicRelay() {
                           <Button
                             size='sm'
                             variant='outline'
+                            disabled={reportReviewMutation.isPending}
                             onClick={() =>
                               reportReviewMutation.mutate({
                                 id: report.id,
@@ -916,7 +1098,7 @@ export function PublicRelay() {
                   type='button'
                   className={
                     value <= reviewRating
-                      ? 'text-yellow-500'
+                      ? 'text-warning'
                       : 'text-muted-foreground'
                   }
                   onClick={() => setReviewRating(value)}
@@ -930,17 +1112,22 @@ export function PublicRelay() {
               value={reviewComment}
               onChange={(event) => setReviewComment(event.target.value)}
               placeholder={t('Write a comment (optional)')}
+              maxLength={2000}
             />
             <div className='space-y-3'>
               <h4 className='text-sm font-medium'>{t('Recent comments')}</h4>
-              {reviewsQuery.data?.items?.length ? (
+              {reviewsQuery.isError ? (
+                <PublicRelayLoadError onRetry={() => reviewsQuery.refetch()} />
+              ) : reviewsQuery.isPending ? (
+                <PublicRelayLoading />
+              ) : reviewsQuery.data?.items?.length ? (
                 reviewsQuery.data.items.map((review) => (
                   <div
                     key={review.id}
                     className='border-border/70 border-t py-2 text-sm'
                   >
                     <div className='flex items-center gap-2'>
-                      <span className='text-yellow-500'>
+                      <span className='text-warning'>
                         {'★'.repeat(review.rating)}
                       </span>
                       <span className='text-muted-foreground text-xs'>
@@ -995,7 +1182,7 @@ export function PublicRelay() {
           </DialogHeader>
           <div className='grid gap-4'>
             <div className='grid gap-2'>
-              <Label>{t('Tip amount')}</Label>
+              <Label>{t('Tip amount')} (USD)</Label>
               <div className='flex flex-wrap gap-2'>
                 {['0.5', '1', '3', '5'].map((amount) => (
                   <Button
@@ -1005,7 +1192,7 @@ export function PublicRelay() {
                     variant={tipAmount === amount ? 'secondary' : 'outline'}
                     onClick={() => setTipAmount(amount)}
                   >
-                    ${amount}
+                    {money.formatUSD(Number(amount))}
                   </Button>
                 ))}
                 <Input
@@ -1037,7 +1224,9 @@ export function PublicRelay() {
                 tipMutation.isPending ||
                 !tipTarget ||
                 !Number.isFinite(Number(tipAmount)) ||
-                Number(tipAmount) <= 0
+                Number(tipAmount) <= 0 ||
+                (configQuery.data?.maximum_tip_usd != null &&
+                  Number(tipAmount) > configQuery.data.maximum_tip_usd)
               }
               onClick={() => {
                 if (!tipTarget) return
@@ -1067,6 +1256,9 @@ export function PublicRelay() {
               )}
             </DialogDescription>
           </DialogHeader>
+          {groupsQuery.isError ? (
+            <PublicRelayLoadError onRetry={() => groupsQuery.refetch()} />
+          ) : null}
           <div className='grid gap-2'>
             <Label>{t('Target group')}</Label>
             <select

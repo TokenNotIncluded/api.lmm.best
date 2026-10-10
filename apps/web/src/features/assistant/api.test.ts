@@ -23,9 +23,13 @@ import { api } from '@/lib/api'
 
 import {
   ASSISTANT_MAX_REQUEST_ATTEMPTS,
+  AssistantRequestError,
   archiveAssistantConversation,
   buildAssistantConversation,
+  executeAssistantUserAction,
   getAssistantConversationHistory,
+  getAssistantAvailableModels,
+  getAssistantSetupModels,
   isAssistantRequestAborted,
   parseAssistantAction,
   parseAssistantIntent,
@@ -33,6 +37,7 @@ import {
   parseAssistantToolTraces,
   sendAssistantMessage,
   type AssistantChatMessage,
+  type AssistantUserDisplayNameChangeAction,
   unarchiveAssistantConversation,
 } from './api'
 
@@ -42,6 +47,213 @@ function retryableAxiosError(status: number) {
     response: { status },
   })
 }
+
+describe('assistant chat setup model discovery', () => {
+  test('excludes native aliases using endpoint metadata while retaining key model access', async () => {
+    const originalGet = api.get
+    const models = ['gpt-5', 'jev-latest', 'account-judge']
+    api.get = (async (url: string) => ({
+      data:
+        url === '/api/user/models'
+          ? { success: true, data: models }
+          : {
+              success: true,
+              data: [
+                { model_name: 'gpt-5', supported_endpoint_types: ['openai'] },
+                {
+                  model_name: 'jev-latest',
+                  supported_endpoint_types: ['systemone'],
+                },
+                {
+                  model_name: 'account-judge',
+                  supported_endpoint_types: ['systemone'],
+                },
+              ],
+            },
+    })) as typeof api.get
+    try {
+      assert.deepEqual(await getAssistantAvailableModels(), models)
+      assert.deepEqual(await getAssistantSetupModels(), ['gpt-5'])
+    } finally {
+      api.get = originalGet
+    }
+  })
+
+  test('falls back to Jev model names when pricing metadata is unavailable', async () => {
+    const originalGet = api.get
+    api.get = (async (url: string) => {
+      if (url !== '/api/user/models') {
+        throw new Error('metadata unavailable')
+      }
+      return { data: { success: true, data: ['jev-preview', 'gpt-5'] } }
+    }) as typeof api.get
+    try {
+      assert.deepEqual(await getAssistantSetupModels(), ['gpt-5'])
+    } finally {
+      api.get = originalGet
+    }
+  })
+
+  test('preserves unavailable-model errors instead of inferring access from pricing', async () => {
+    const originalGet = api.get
+    api.get = (async (url: string) => {
+      if (url === '/api/user/models') {
+        throw new Error('model access unavailable')
+      }
+      return { data: { success: true, data: [] } }
+    }) as typeof api.get
+    try {
+      await assert.rejects(
+        getAssistantSetupModels(),
+        /model access unavailable/
+      )
+    } finally {
+      api.get = originalGet
+    }
+  })
+})
+
+const displayNameAction: AssistantUserDisplayNameChangeAction = {
+  type: 'user_display_name_change',
+  requires_confirmation: true,
+  target_user_id: 7,
+  target_username: 'alice',
+  target_display_name: 'Alice',
+  target_role: 1,
+  target_group: 'default',
+  target_is_self: true,
+  proposed_display_name: '爱丽丝',
+  confirmation_token: 'display-name-token',
+}
+
+describe('assistant display-name changes', () => {
+  test('submits the edited name through the confirmed profile endpoint', async () => {
+    const originalPut = api.put
+    const calls: Array<{ url: string; body: unknown; options: unknown }> = []
+    api.put = (async (url: string, body: unknown, options: unknown) => {
+      calls.push({ url, body, options })
+      return {
+        data: { success: true, data: { display_name: '😀'.repeat(20) } },
+      }
+    }) as typeof api.put
+    try {
+      assert.deepEqual(
+        await executeAssistantUserAction(displayNameAction, {
+          displayName: ` ${'😀'.repeat(20)} `,
+          currentPassword: 'never-send',
+          newPassword: 'never-send',
+        }),
+        { selfDeleted: false }
+      )
+      assert.deepEqual(calls, [
+        {
+          url: '/api/assistant/profile/display-name',
+          body: {
+            display_name: '😀'.repeat(20),
+            confirmation_token: displayNameAction.confirmation_token,
+            confirmed: true,
+          },
+          options: { skipBusinessError: true, skipErrorHandler: true },
+        },
+      ])
+    } finally {
+      api.put = originalPut
+    }
+  })
+
+  test('rejects empty, overlong and non-self changes before requesting', async () => {
+    const originalPut = api.put
+    let calls = 0
+    api.put = (async () => {
+      calls += 1
+      throw new Error('must not request')
+    }) as typeof api.put
+    try {
+      for (const name of ['', '  ', '😀'.repeat(21)]) {
+        await assert.rejects(
+          executeAssistantUserAction(displayNameAction, { displayName: name }),
+          /Display name must be 1 to 20 characters/
+        )
+      }
+      await assert.rejects(
+        executeAssistantUserAction(
+          {
+            ...displayNameAction,
+            target_is_self: false,
+          } as unknown as AssistantUserDisplayNameChangeAction,
+          { displayName: 'Alice' }
+        ),
+        /Unable to change display name/
+      )
+      await assert.rejects(
+        executeAssistantUserAction(
+          { ...displayNameAction, confirmation_token: ' ' },
+          { displayName: 'Alice' }
+        ),
+        /Unable to change display name/
+      )
+      for (const name of [
+        'Ali\u0000ce',
+        'Ali\nce',
+        'Ali\u0085ce',
+        'Ali\u2028ce',
+        'Ali\u2029ce',
+      ]) {
+        await assert.rejects(
+          executeAssistantUserAction(displayNameAction, { displayName: name }),
+          /Display name cannot contain control characters/
+        )
+      }
+      assert.equal(calls, 0)
+    } finally {
+      api.put = originalPut
+    }
+  })
+
+  test('preserves a non-2xx backend message and error code', async () => {
+    const originalPut = api.put
+    api.put = (async () => {
+      throw Object.assign(new Error('Request failed with status code 422'), {
+        isAxiosError: true,
+        response: {
+          status: 422,
+          data: {
+            success: false,
+            code: 'display_name_confirmation_expired',
+            message: 'This confirmation has expired. Prepare the change again.',
+          },
+        },
+      })
+    }) as typeof api.put
+    try {
+      await assert.rejects(
+        executeAssistantUserAction(displayNameAction, { displayName: 'Alice' }),
+        (error: unknown) =>
+          error instanceof AssistantRequestError &&
+          error.code === 'display_name_confirmation_expired' &&
+          error.message ===
+            'This confirmation has expired. Prepare the change again.'
+      )
+    } finally {
+      api.put = originalPut
+    }
+  })
+
+  test('preserves a backend failure reason', async () => {
+    const originalPut = api.put
+    api.put = (async () => ({
+      data: { success: false, message: 'This confirmation has expired' },
+    })) as typeof api.put
+    try {
+      await assert.rejects(
+        executeAssistantUserAction(displayNameAction, { displayName: 'Alice' }),
+        /This confirmation has expired/
+      )
+    } finally {
+      api.put = originalPut
+    }
+  })
+})
 
 describe('assistant response parsing', () => {
   test('extracts the first assistant message', () => {
@@ -71,26 +283,13 @@ describe('assistant response parsing', () => {
     assert.equal(parseAssistantIntent(undefined), undefined)
   })
 
-  test('accepts only complete L1 recommendation actions', () => {
-    assert.deepEqual(
-      parseAssistantAction({
-        type: 'l1_recommendation',
-        user_statement: '  I am building an internal coding tool. ',
-        recommendation: ' Recommend L1 because the use case is concrete. ',
-        confirmation_token: ' confirmation-token ',
-      }),
-      {
-        type: 'l1_recommendation',
-        user_statement: 'I am building an internal coding tool.',
-        recommendation: 'Recommend L1 because the use case is concrete.',
-        confirmation_token: 'confirmation-token',
-      }
-    )
+  test('ignores retired recommendation actions even with a confirmation token', () => {
     assert.equal(
       parseAssistantAction({
         type: 'l1_recommendation',
-        user_statement: '',
-        recommendation: 'missing statement',
+        user_statement: 'I am building an internal coding tool.',
+        recommendation: 'A cached recommendation.',
+        confirmation_token: 'confirmation-token',
       }),
       undefined
     )
@@ -117,6 +316,36 @@ describe('assistant response parsing', () => {
         group: 'GPT-Auto',
       }
     )
+  })
+
+  test('retains the gift Credit snapshot and actual USD while legacy cents stay labelled', () => {
+    const action = {
+      type: 'new_user_gift',
+      amount_cents: 525,
+      amount_unit: 'LEGACY_CENTS',
+      credit_amount: 2_625_000,
+      amount_usd: 0.75,
+      currency: 'USD',
+      credits_per_usd: 3_500_000,
+      status: 'offered',
+      reason: 'A persisted gift award.',
+    }
+    assert.deepEqual(parseAssistantAction(action), action)
+  })
+
+  test('keeps the persisted gift Credits when its USD projection is unavailable', () => {
+    const action = {
+      type: 'new_user_gift',
+      amount_cents: 525,
+      amount_unit: 'LEGACY_CENTS',
+      credit_amount: 1,
+      amount_usd: null,
+      currency: 'USD',
+      credits_per_usd: null,
+      status: 'offered',
+      reason: 'A persisted gift award.',
+    }
+    assert.deepEqual(parseAssistantAction(action), action)
   })
 
   test('accepts the server-issued new-user gift action without private quota data', () => {
@@ -173,7 +402,7 @@ describe('assistant response parsing', () => {
     assert.equal(
       parseAssistantAction({
         type: 'weekly_discount',
-        discount_percent: 11,
+        discount_percent: 100,
         status: 'offered',
         reason: 'Too large.',
       }),
@@ -478,6 +707,98 @@ describe('assistant response parsing', () => {
     )
   })
 
+  test('accepts exact catalogue deep links and rejects external or malformed targets', () => {
+    const id = '768e7947-0652-4c6b-a998-712958765432'
+    for (const action of [
+      { type: 'navigate', path: '/store', query: {} },
+      { type: 'navigate', path: `/store/products/${id}`, query: {} },
+      {
+        type: 'navigate',
+        path: `/store/products/${id}`,
+        query: { owner_preview: true },
+      },
+      { type: 'navigate', path: '/tool-market', query: { service_id: id } },
+    ]) {
+      assert.deepEqual(parseAssistantAction(action), action)
+    }
+    for (const path of [
+      '//attacker.test/store',
+      'https://console.example.test/store',
+      `/store/products/${id}/../orders`,
+      `/store/products/${id}%2f..`,
+      '/store/products/not-a-product',
+      '/store/claim/private-token',
+    ]) {
+      assert.equal(
+        parseAssistantAction({ type: 'navigate', path, query: {} }),
+        undefined
+      )
+    }
+    for (const query of [
+      { service_id: 'https://attacker.test' },
+      { service_id: `${id}/invoke` },
+      { service_id: id, redirect: '//attacker.test' },
+      { service_id: 7 },
+      [],
+    ]) {
+      assert.equal(
+        parseAssistantAction({ type: 'navigate', path: '/tool-market', query }),
+        undefined
+      )
+    }
+    assert.equal(
+      parseAssistantAction({
+        type: 'navigate',
+        path: `/store/products/${id}`,
+        query: { grant: true },
+      }),
+      undefined
+    )
+    for (const value of [false, 'true', 1, null]) {
+      assert.equal(
+        parseAssistantAction({
+          type: 'navigate',
+          path: `/store/products/${id}`,
+          query: { owner_preview: value },
+        }),
+        undefined
+      )
+    }
+  })
+
+  test('accepts only self display-name previews with a confirmation token', () => {
+    assert.deepEqual(parseAssistantAction(displayNameAction), displayNameAction)
+    assert.deepEqual(
+      parseAssistantAction({
+        ...displayNameAction,
+        proposed_display_name: '',
+      }),
+      { ...displayNameAction, proposed_display_name: '' }
+    )
+    assert.deepEqual(
+      parseAssistantAction({
+        ...displayNameAction,
+        proposed_display_name: '😀'.repeat(20),
+      }),
+      { ...displayNameAction, proposed_display_name: '😀'.repeat(20) }
+    )
+    for (const invalid of [
+      { target_is_self: false },
+      { requires_confirmation: false },
+      { confirmation_token: '' },
+      { confirmation_token: undefined },
+      { proposed_display_name: undefined },
+      { proposed_display_name: '😀'.repeat(21) },
+      { proposed_display_name: 'Ali\u0000ce' },
+      { password: 'should-never-be-accepted' },
+    ]) {
+      assert.equal(
+        parseAssistantAction({ ...displayNameAction, ...invalid }),
+        undefined
+      )
+    }
+  })
+
   test('keeps tool traces bounded and accepts only scalar safe input', () => {
     assert.deepEqual(
       parseAssistantToolTraces([
@@ -662,9 +983,10 @@ describe('assistant chat retry policy', () => {
     globalThis.fetch = (async () => {
       calls += 1
       abortTimer = setTimeout(() => controller.abort(), 10)
-      return new Response('{"message":"temporarily unavailable"}', {
-        status: 503,
-      })
+      return Response.json(
+        { message: 'temporarily unavailable', retryable: true },
+        { status: 503 }
+      )
     }) as typeof globalThis.fetch
     try {
       await assert.rejects(
@@ -722,6 +1044,39 @@ describe('assistant chat retry policy', () => {
     }
   })
 
+  test('does not retry streaming HTTP errors without an explicit boolean retry grant', async () => {
+    const originalFetch = globalThis.fetch
+    try {
+      for (const grant of [undefined, 'true', 1]) {
+        let calls = 0
+        let resets = 0
+        globalThis.fetch = (async () => {
+          calls += 1
+          return Response.json(
+            {
+              message: 'rate limited',
+              ...(grant === undefined ? {} : { retryable: grant }),
+            },
+            { status: 429 }
+          )
+        }) as typeof globalThis.fetch
+        await assert.rejects(
+          sendAssistantMessage('hello', [], undefined, undefined, {
+            onDelta: () => undefined,
+            onReset: () => {
+              resets += 1
+            },
+          }),
+          /rate limited/
+        )
+        assert.equal(calls, 1)
+        assert.equal(resets, 0)
+      }
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('retries HTTP rate limits with the same conversation and question', async () => {
     const originalFetch = globalThis.fetch
     const requests: Array<{ body: unknown; attempt: string | null }> = []
@@ -731,7 +1086,10 @@ describe('assistant chat retry policy', () => {
         attempt: new Headers(init?.headers).get('X-LMM-Assistant-Attempt'),
       })
       return requests.length === 1
-        ? new Response('{"message":"rate limited"}', { status: 429 })
+        ? Response.json(
+            { message: 'rate limited', retryable: true },
+            { status: 429 }
+          )
         : Response.json({
             choices: [{ message: { content: 'Windows setup instructions' } }],
           })
@@ -773,8 +1131,11 @@ describe('assistant chat retry policy', () => {
     ]
     const deltas: string[] = []
     let requestedAccept = ''
+    let requestedCreditUnit = ''
     globalThis.fetch = (async (_input, init) => {
       requestedAccept = new Headers(init?.headers).get('Accept') || ''
+      requestedCreditUnit =
+        new Headers(init?.headers).get('X-LMM-Credit-Unit') || ''
       const encoder = new TextEncoder()
       let index = 0
       const body = new ReadableStream<Uint8Array>({
@@ -804,6 +1165,7 @@ describe('assistant chat retry policy', () => {
         { onDelta: (content) => deltas.push(content) }
       )
       assert.equal(requestedAccept, 'text/event-stream')
+      assert.equal(requestedCreditUnit, '500000')
       assert.deepEqual(deltas, ['实时', '输出'])
       assert.deepEqual(reply, {
         content: '实时输出',
@@ -1150,4 +1512,62 @@ describe('assistant conversation history API', () => {
       ]
     )
   })
+})
+
+test('accepts canonical credit gifts beyond the old cap and one-credit gifts without inventing legacy cents', () => {
+  for (const credits of [1, 9000000]) {
+    const action = parseAssistantAction({
+      type: 'new_user_gift',
+      status: 'offered',
+      amount_cents: 0,
+      amount_unit: 'LEGACY_CENTS',
+      credit_amount: credits,
+      amount_usd: credits / 500000,
+      currency: 'USD',
+      credits_per_usd: 500000,
+      max_credit_amount: 9000000,
+      claim_available: true,
+      reason: 'A concrete legitimate workflow.',
+    })
+    assert.ok(action)
+    assert.equal(action.type, 'new_user_gift')
+    if (action.type === 'new_user_gift') {
+      assert.equal(action.credit_amount, credits)
+    }
+  }
+  assert.equal(
+    parseAssistantAction({
+      type: 'new_user_gift',
+      status: 'offered',
+      amount_cents: 0,
+      credit_amount: 1,
+      reason: 'A concrete legitimate workflow.',
+    }),
+    undefined
+  )
+})
+
+// The server owns the per-level ceiling. The client validates representation,
+// not the old global 10% cap; a fresh claim still checks the live policy.
+test('renders higher administrator-approved discounts without raising its own authority', () => {
+  assert.equal(
+    parseAssistantAction({
+      type: 'weekly_discount',
+      discount_percent: 25,
+      status: 'offered',
+      reason: 'Configured limit.',
+    })?.type,
+    'weekly_discount'
+  )
+  for (const value of [-1, 100, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(
+      parseAssistantAction({
+        type: 'weekly_discount',
+        discount_percent: value,
+        status: 'offered',
+        reason: 'Invalid.',
+      }),
+      undefined
+    )
+  }
 })

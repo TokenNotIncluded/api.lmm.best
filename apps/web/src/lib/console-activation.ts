@@ -136,10 +136,10 @@ export function getAuthenticatedLandingRoute(
   user: AuthUser | null | undefined,
   sidebarModulesAdmin: unknown = getCachedSidebarModulesAdmin()
 ): string {
-  // Administrator approval is the access boundary.  The remaining setup
-  // checklist is guidance for an already-enabled account and must not trap a
-  // newly approved L1 user on the L0 welcome page.
-  if (!getOnboardingState(user).activationComplete) return '/getting-started'
+  // The server access decision is the access boundary.  The remaining setup
+  // checklist is guidance for an already-enabled account, not a route gate.
+  // L0 accounts can access the wallet and ask the assistant for help.
+  if (!getOnboardingState(user).activationComplete) return '/wallet'
 
   // Keep the login redirect aligned with the rendered sidebar. Accounts that
   // cannot edit sidebar settings do not have an effective user overlay.
@@ -179,11 +179,18 @@ export function getAuthenticatedLandingRoute(
 
 export function isContributorRoute(pathname: string): boolean {
   // L0 can explore and reach checkout before paid activation. Payment methods
-  // remain subject to the server's payment access gate; developer and bounty
-  // management routes still require L1.
+  // remain subject to the server's payment access gate. Account settings and
+  // the API key access explanation are also available; the key management
+  // components still require the explicit server developer-access decision.
   return (
-    pathname === '/getting-started' ||
-    pathname.startsWith('/getting-started/') ||
+    pathname === '/keys' ||
+    pathname === '/keys/' ||
+    pathname === '/profile' ||
+    pathname === '/profile/' ||
+    pathname === '/support' ||
+    pathname === '/support/' ||
+    pathname === '/todos' ||
+    pathname === '/todos/' ||
     pathname === '/wallet' ||
     pathname === '/wallet/' ||
     pathname === '/tool-market' ||

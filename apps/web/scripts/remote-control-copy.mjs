@@ -132,3 +132,49 @@ export const remoteControlCopy = {
     Unlock: 'Mở khoá',
   },
 }
+
+// Interactive controls are independent from the selected model.
+const interactiveCopy = {
+  "Command failed": "操作失败",
+  "Pi needs your answer": "Pi 正在等待你的回答",
+  "Decline": "拒绝",
+  "Pi terminal view": "Pi 终端画面",
+  "Terminal controls": "终端操作",
+  "Enter": "确认",
+  "Space": "空格",
+  "Submit": "提交",
+  "Text for Pi": "输入到 Pi 的文字",
+  "Insert text": "输入文字",
+  "Your answer": "你的回答",
+  "Send answer": "发送回答",
+  "Cancel question": "取消问题",
+  "Waiting for Pi confirmation": "等待 Pi 确认",
+  "Pi accepted the task": "Pi 已收到任务",
+  "Pi accepted the stop request": "Pi 已收到停止请求",
+  "Send a task to Pi": "向 Pi 发送任务",
+  "Answer the question above first": "请先回答上方的问题",
+  "Steer the current task": "补充指示到当前任务",
+  "Stop Pi": "停止 Pi",
+  "Send task": "发送任务",
+  "Session locked": "会话已锁定",
+  "Pi rejected the command": "Pi 拒绝了这次操作",
+  "Too many pending commands": "等待确认的操作过多",
+  "Not confirmed by Pi. Check the session before retrying.": "尚未收到 Pi 确认。重试前请检查会话。",
+  "The relay rejected the command": "服务器拒绝了这次操作",
+  "Command delivery was not confirmed. Check Pi before retrying.": "无法确认操作是否送达。重试前请检查 Pi。",
+  "Ready": "可操作",
+  "Working": "正在执行",
+  "Reconnecting": "正在重新连接",
+  "Connect a Pi session": "连接 Pi 会话",
+  "Control Pi with any model. LMM login is only used to connect your account.": "使用任何模型都能远程控制 Pi。LMM 登录仅用于确认你的账号。",
+  "Install or update the LMM Pi plugin. In Pi, sign in and approve remote control, then enable it locally.": "安装或更新 LMM Pi 插件。在 Pi 中登录并授权远程控制，再从本机启用。",
+  "Pi is ready": "Pi 可以接收操作",
+  "Pi is working": "Pi 正在执行任务",
+  "Some messages could not be decrypted. Other messages are still available.": "部分消息无法解密，其他消息仍可查看。",
+  "Update the Pi plugin to send tasks and answer questions.": "更新 Pi 插件后，即可发送任务和回答问题。",
+  "Use the same LMM account here and enter the session PIN. Stop sharing with /lmm-remote off. Locking this page does not stop Pi.": "在这里登录同一 LMM 账号，并输入会话 PIN。使用 /lmm-remote off 关闭远程控制。锁定本页不会停止 Pi。",
+  "Waiting for Pi connection": "正在等待 Pi 连接"
+}
+for (const locale of Object.keys(remoteControlCopy)) {
+  Object.assign(remoteControlCopy[locale], Object.fromEntries(Object.keys(interactiveCopy).map(key => [key, locale === "zh" || locale === "zh-TW" ? interactiveCopy[key] : key])))
+}

@@ -98,18 +98,22 @@ func ListAcquisitionLinks(c *gin.Context) {
 		common.ApiError(c, model.ErrAcquisitionInvalid)
 		return
 	}
-	var items []model.AcquisitionLink
-	var total int64
-	db := model.DB.WithContext(c.Request.Context())
-	if err := db.Model(&model.AcquisitionLink{}).Count(&total).Error; err != nil {
+	pageSize := 100
+	if c.Query("page_size") != "" {
+		pageSize, _ = strconv.Atoi(c.Query("page_size"))
+		if pageSize < 1 || pageSize > 100 {
+			common.ApiError(c, model.ErrAcquisitionInvalid)
+			return
+		}
+	}
+	items, total, err := model.ListAcquisitionLinks(c.Request.Context(), model.AcquisitionLinkFilter{
+		Page: page, PageSize: pageSize, Status: c.DefaultQuery("status", "all"), Search: c.Query("q"),
+	})
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := db.Order("created_at DESC, id DESC").Offset((page - 1) * 100).Limit(100).Find(&items).Error; err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, gin.H{"items": items, "total": total, "page": page})
+	common.ApiSuccess(c, gin.H{"items": items, "total": total, "page": page, "page_size": pageSize})
 }
 func SaveAcquisitionLink(c *gin.Context) {
 	var input model.AcquisitionLink
@@ -123,6 +127,15 @@ func SaveAcquisitionLink(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, result)
+}
+func DeleteAcquisitionLink(c *gin.Context) {
+	link, err := model.DeleteAcquisitionLink(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAuditFor(c, 0, "acquisition.link.delete", map[string]interface{}{"link_id": link.ID})
+	common.ApiSuccess(c, gin.H{"id": link.ID, "deleted": true})
 }
 func AcquisitionReport(c *gin.Context) {
 	from, _ := strconv.ParseInt(c.Query("from"), 10, 64)

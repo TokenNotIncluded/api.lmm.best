@@ -111,6 +111,10 @@ createdb -h 127.0.0.1 -p "$pg_port" -O "$role" "$database"
 # This makes every SQL reference resolve through the exact test namespace that
 # Config validates when LMM_RS_TEST_INSTANCE=1.
 sed "s/public\./$schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" > "$runtime/baseline.sql"
+# Expand only the disposable Rust schema after the frozen baseline.
+sed "s/__LMM_APP_SCHEMA__/$schema/g" \
+  "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+  >>"$runtime/baseline.sql"
 sed "s/__LMM_APP_SCHEMA__/$schema/g" "$repo_root/apps/api-rust/migrations/0002_open_source_bounty_schema.sql" > "$runtime/bounty-forward.sql"
 psql -h 127.0.0.1 -p "$pg_port" -U "$role" -d "$database" -v ON_ERROR_STOP=1 <<SQL >/dev/null
 CREATE SCHEMA $schema AUTHORIZATION $role;

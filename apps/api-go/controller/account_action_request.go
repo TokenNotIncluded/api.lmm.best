@@ -77,6 +77,9 @@ func notifyAccountActionRequest(request *model.AccountActionRequest) {
 }
 
 func submitAssistantAccountDisableRequest(c *gin.Context, input accountActionRequestInput) {
+	if !requireAssistantToolEnabled(c, "request_human_support") {
+		return
+	}
 	if c.GetBool("use_access_token") {
 		accountActionError(c, http.StatusForbidden, "ACCOUNT_ACTION_SESSION_REQUIRED", errors.New("账号操作申请必须使用浏览器登录会话"))
 		return

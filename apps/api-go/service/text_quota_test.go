@@ -1162,14 +1162,15 @@ func TestCalculateTextQuotaSummaryImageGenerationUsesStructuredSurcharge(t *test
 
 func TestAppendToolSurchargeLogInfoWritesOnlyStructuredFields(t *testing.T) {
 	items := []ToolSurchargeItem{
-		{Name: dto.BuildInToolWebSearch, Count: 2, Price: 10},
-		{Name: dto.BuildInToolImageGeneration, Count: 1, Price: 150},
+		{Name: dto.BuildInToolWebSearch, Count: 2, Price: 10, PriceCurrencyBasis: "legacy_pricing_unit", PricingUnitCreditsPerUnit: 500000},
+		{Name: dto.BuildInToolImageGeneration, Count: 1, Price: 150, PriceCurrencyBasis: "legacy_pricing_unit", PricingUnitCreditsPerUnit: 500000},
 	}
 	other := map[string]interface{}{}
 
 	appendToolSurchargeLogInfo(other, items)
 
 	assert.Equal(t, items, other["tool_surcharges"])
+	assert.Equal(t, 500000.0, other["tool_pricing_unit_credits_per_unit"])
 	assert.NotContains(t, other, "web_search")
 	assert.NotContains(t, other, "web_search_call_count")
 	assert.NotContains(t, other, "web_search_price")

@@ -639,12 +639,30 @@ func TestRedactAssistantHistoryContentDoesNotTreatInvalidIPOrCardAsSensitive(t *
 	assert.Contains(t, redacted, "1234 5678 9012 3456")
 }
 
+func TestRedactAssistantHistoryContentCoversKeysEmbeddedInTOMLProviderNames(t *testing.T) {
+	key := "sk-" + strings.Repeat("synthetic", 4) // gitleaks:allow -- synthetic redaction fixture
+	for _, section := range []string{"model_providers", "providers"} {
+		value := "[" + section + ".lmm" + key + "]\nbase_url = \"https://api.example.com/v1\""
+		redacted := RedactAssistantHistoryContent(value)
+		assert.NotContains(t, redacted, key)
+		assert.Contains(t, redacted, "["+section+".REDACTED_API_KEY]")
+		assert.Contains(t, redacted, "https://api.example.com/v1")
+	}
+	for _, value := range []string{
+		"[model_providers.lmm]",
+		"[model_providers.task-analysis]",
+		"A task-description can mention sk as ordinary text.",
+	} {
+		assert.Equal(t, value, RedactAssistantHistoryContent(value))
+	}
+}
+
 func TestAssistantHistoryPostgreSQLMigration(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("TEST_POSTGRES_DSN")) == "" || os.Getenv("TEST_POSTGRES_ISOLATED_SCHEMA") != "1" {
 		t.Skip("set TEST_POSTGRES_DSN and TEST_POSTGRES_ISOLATED_SCHEMA=1 to run PostgreSQL assistant history migration test")
 	}
 	previousDB, previousLogDB := DB, LOG_DB
-	db := openIsolatedPostgresCacheTestDB(t, &AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{})
+	db := openIsolatedPostgresCacheTestDB(t, &User{}, &AssistantConversation{}, &AssistantSupportRequest{}, &AssistantHistoryMessage{}, &AssistantSecureCard{})
 	DB, LOG_DB = db, db
 	usePostgresDatabaseType(t)
 	t.Cleanup(func() { DB, LOG_DB = previousDB, previousLogDB })
@@ -652,6 +670,8 @@ func TestAssistantHistoryPostgreSQLMigration(t *testing.T) {
 		require.True(t, DB.Migrator().HasTable(record))
 	}
 
+	// History writes lock their owner to serialize account deletion.
+	require.NoError(t, DB.Create(&User{Id: 7, Username: "history-migration-owner", AffCode: "history-migration-aff", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}).Error)
 	conversation := AssistantConversation{UserId: 7, Title: "safe", LastMessagePreview: "safe", CreatedAt: 1, UpdatedAt: 1}
 	require.NoError(t, DB.Create(&conversation).Error)
 	require.NoError(t, RecordAssistantConversationTurn(7, conversation.Id, "hello", "world"))

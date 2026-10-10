@@ -63,7 +63,7 @@ func TestReferralOrdinaryDisablePreservesRewardsAndAbuseRequiresLivePrivilege(t 
 	require.NoError(t, db.Create(&inviter).Error)
 	invitee.InviterId = inviter.Id
 	require.NoError(t, db.Create(&invitee).Error)
-	require.NoError(t, db.Create(&model.ReferralReward{InviteeId: invitee.Id, InviterId: inviter.Id, TopUpId: 1, Quota: 1000, Status: "earned", PenaltyPercent: 20}).Error)
+	require.NoError(t, db.Create(&model.ReferralReward{InviteeId: invitee.Id, InviterId: inviter.Id, TopUpId: referralTestTopUpID(1), Quota: 1000, Status: "earned", PenaltyPercent: 20}).Error)
 	response := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"disable"}`, invitee.Id))
 	require.Contains(t, response.Body.String(), `"success":true`)
 	require.NoError(t, db.First(&inviter, inviter.Id).Error)
@@ -83,3 +83,5 @@ func TestReferralOrdinaryDisablePreservesRewardsAndAbuseRequiresLivePrivilege(t 
 	require.NoError(t, db.First(&inviter, inviter.Id).Error)
 	require.Equal(t, -200, inviter.AffQuota)
 }
+
+func referralTestTopUpID(id int) *int { return &id }

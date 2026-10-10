@@ -80,3 +80,12 @@ func TestRedPacketRouteSchemaCheckDoesNotRepairMissingColumn(t *testing.T) {
 		})
 	}
 }
+
+func TestRedPacketSchemaRequiresSoftDeleteColumn(t *testing.T) {
+	db := redPacketSchemaTestDB(t)
+	require.NoError(t, db.AutoMigrate(&RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}))
+	require.NoError(t, db.Migrator().DropColumn(&RedPacket{}, "deleted_at"))
+	require.EqualError(t, EnsureRedPacketSchemaAtStartup(), "red packet schema verification failed: missing red_packets.deleted_at")
+	require.NoError(t, db.AutoMigrate(&RedPacket{}))
+	require.NoError(t, EnsureRedPacketSchemaAtStartup())
+}

@@ -1,0 +1,13 @@
+method	path	owner	auth_scope	go_handler	source_path	contract
+POST	/api/user/topup/currency/amount	go	user	github.com/LIghtJUNction/api.lmm.best/controller.RequestAmount	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+POST	/api/user/topup/currency/pay	go	user	github.com/LIghtJUNction/api.lmm.best/controller.RequestEpay	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+POST	/api/user/topup/currency/stripe/amount	go	user	github.com/LIghtJUNction/api.lmm.best/controller.RequestStripeAmount	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+POST	/api/user/topup/currency/stripe/pay	go	user	github.com/LIghtJUNction/api.lmm.best/controller.RequestStripePay	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+POST	/api/user/topup/currency/waffo/amount	go	user	github.com/LIghtJUNction/api.lmm.best/controller.RequestWaffoAmount	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+POST	/api/user/topup/currency/waffo/pay	go	user	github.com/LIghtJUNction/api.lmm.best/controller.RequestWaffoPay	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+POST	/api/user/topup/currency/waffo-pancake/amount	go	user	github.com/LIghtJUNction/api.lmm.best/controller.RequestWaffoPancakeAmount	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+POST	/api/user/topup/currency/waffo-pancake/pay	go	user	github.com/LIghtJUNction/api.lmm.best/controller.RequestWaffoPancakePay	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+POST	/api/user/topup/currency/discount-code/validate	go	user	github.com/LIghtJUNction/api.lmm.best/controller.ValidateDiscountCode	apps/api-go/router/api-router.go	integer CREDIT request; canonical guard; no legacy-route fallback
+GET	/api/option/pricing	go	root	github.com/LIghtJUNction/api.lmm.best/controller.GetUSDPriceOptions	apps/api-go/router/api-router.go	schema2 USD pricing; CAS and existing price locks; legacy storage retained
+POST	/api/option/pricing/validate	go	root	github.com/LIghtJUNction/api.lmm.best/controller.USDPriceOptionsValidate	apps/api-go/router/api-router.go	schema2 USD pricing; CAS and existing price locks; legacy storage retained
+POST	/api/option/pricing/bulk	go	root	github.com/LIghtJUNction/api.lmm.best/controller.USDPriceOptionsBulk	apps/api-go/router/api-router.go	schema2 USD pricing; CAS and existing price locks; legacy storage retained

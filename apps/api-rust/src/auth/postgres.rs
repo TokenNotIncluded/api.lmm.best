@@ -3,10 +3,10 @@ use super::{
     AuthBundle, AuthError, AuthErrorKind, AuthResponseData, CriticalRateLimitOutcome,
     DashboardAuth, DashboardDeveloperAccessPolicy, DashboardDeveloperAccessUserFacts,
     DashboardSelfUserFacts, DashboardSessionContext, DashboardUser, DashboardUserView,
-    LOGIN_SESSION_TTL_SECONDS, LoginOutcome, LoginRequest, LoginSessionView, LogoutRequest,
-    LogoutResult, REFRESH_REPLAY_WINDOW_SECONDS, RequestMetadata, SecurityProof,
-    SecuritySessionRotationRequest, TWO_FACTOR_FLOW_TTL_SECONDS, TwoFactorChallenge,
-    TwoFactorLoginRequest,
+    LOGIN_SESSION_TTL_SECONDS, LoginOutcome, LoginRequest, LoginSessionInventory, LoginSessionView,
+    LogoutRequest, LogoutResult, PaymentSnapshot, REFRESH_REPLAY_WINDOW_SECONDS, RequestMetadata,
+    SecurityProof, SecuritySessionRotationRequest, TWO_FACTOR_FLOW_TTL_SECONDS, TwoFactorChallenge,
+    TwoFactorLoginRequest, payment_options, payment_snapshot,
 };
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -472,6 +472,34 @@ impl PgValkeyDashboardAuth {
         Err(AuthError::new(AuthErrorKind::SessionRevoked))
     }
 
+    async fn revoke_week_old_sessions(&self, user_id: i64, now: i64) -> Result<(), AuthError> {
+        let mut after = String::new();
+        loop {
+            let sids: Vec<String> = sqlx::query_scalar(
+                "SELECT sid FROM user_sessions WHERE user_id=$1 AND status='active' \
+                 AND revoked_at=0 AND expires_at>$2 AND created_at<$3 AND sid>$4 ORDER BY sid LIMIT 500",
+            )
+            .bind(user_id).bind(now).bind(now.saturating_sub(WEEKLY_SESSION_AGE_SECONDS)).bind(&after)
+            .fetch_all(&self.pool).await.map_err(internal)?;
+            if sids.is_empty() {
+                return Ok(());
+            }
+            for sid in &sids {
+                let session = match self.session_by_sid(sid).await {
+                    Ok(session) => session,
+                    Err(error) if error.kind == AuthErrorKind::SessionRevoked => continue,
+                    Err(error) => return Err(error),
+                };
+                match self.enforce_weekly_session_age(&session, now).await {
+                    Ok(()) => {}
+                    Err(error) if error.kind == AuthErrorKind::SessionRevoked => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            after = sids.last().cloned().unwrap_or_default();
+        }
+    }
+
     async fn validate_valkey_floor(
         &self,
         session: &SessionRecord,
@@ -723,16 +751,11 @@ impl PgValkeyDashboardAuth {
         &self,
         user_id: i64,
     ) -> Result<PaymentSnapshot, AuthError> {
-        let row = sqlx::query(CURRENT_USER_PAYMENT_SNAPSHOT)
-            .bind(user_id)
-            .fetch_one(&self.pool)
+        let mut connection = self.pool.acquire().await.map_err(internal)?;
+        let options = payment_options(&mut connection).await.map_err(internal)?;
+        payment_snapshot(&mut connection, user_id, &options)
             .await
-            .map_err(internal)?;
-        Ok(PaymentSnapshot {
-            paid_amount: row.try_get("paid_amount").map_err(internal)?,
-            last_paid_complete_at: row.try_get("last_paid_complete_at").map_err(internal)?,
-            paid_activation_complete: row.try_get("paid_activation_complete").map_err(internal)?,
-        })
+            .map_err(internal)
     }
 
     async fn write_session_cache(
@@ -844,6 +867,23 @@ return 1
         session.revoked_at = now;
         session.revoked_reason = reason.to_owned();
         self.write_session_cache(&session, REVOKING, None).await?;
+        let mut transaction = self.pool.begin().await.map_err(internal)?;
+        let current = sqlx::query(SESSION_SELECT_FOR_UPDATE)
+            .bind(sid)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(internal)?;
+        let Some(current) = current else {
+            return Ok(false);
+        };
+        let current = session_from_row(&current)?;
+        if current.user_id != user_id
+            || current.status != ACTIVE
+            || current.revoked_at != 0
+            || current.expires_at <= now
+        {
+            return Ok(false);
+        }
         let result = sqlx::query(
             "UPDATE user_sessions SET status = 'revoked', revoked_at = $3, revoked_reason = $4 WHERE sid = $1 AND user_id = $2 AND status = 'active' AND revoked_at = 0 AND expires_at > $3",
         )
@@ -851,12 +891,21 @@ return 1
         .bind(user_id)
         .bind(now)
         .bind(reason)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await
         .map_err(internal)?;
+        transaction.commit().await.map_err(internal)?;
         if result.rows_affected() == 1 {
             session.status = REVOKED.to_owned();
-            self.write_session_cache(&session, REVOKED, None).await?;
+            if self
+                .write_session_cache(&session, REVOKED, None)
+                .await
+                .is_err()
+            {
+                tracing::warn!(
+                    "session revocation committed; final cache tombstone refresh failed"
+                );
+            }
             Ok(true)
         } else {
             Ok(false)
@@ -1290,6 +1339,166 @@ return {0, ttl}
         })
     }
 
+    async fn list_login_sessions(
+        &self,
+        user_id: i64,
+        current_sid: &str,
+    ) -> Result<LoginSessionInventory, AuthError> {
+        if user_id <= 0 {
+            return Err(AuthError::new(AuthErrorKind::InvalidRequest));
+        }
+        self.revoke_week_old_sessions(user_id, unix_now()).await?;
+        let user = sqlx::query("SELECT auth_version,COALESCE(setting,'') AS setting FROM users WHERE id=$1 AND deleted_at IS NULL")
+            .bind(user_id).fetch_optional(&self.pool).await.map_err(internal)?
+            .ok_or_else(|| AuthError::new(AuthErrorKind::Unauthorized))?;
+        let version: i64 = user.try_get("auth_version").map_err(internal)?;
+        if version <= 0 {
+            return Err(AuthError::new(AuthErrorKind::InvalidRequest));
+        }
+        let setting: String = user.try_get("setting").map_err(internal)?;
+        let rows = sqlx::query(
+            "SELECT sid,login_method,COALESCE(ip,'') AS ip,COALESCE(user_agent,'') AS user_agent,created_at,last_active_at,expires_at \
+             FROM user_sessions WHERE user_id=$1 AND user_auth_version=$2 AND status='active' AND expires_at>$3 \
+             ORDER BY (sid=$4) DESC,last_active_at DESC,created_at DESC LIMIT 100",
+        ).bind(user_id).bind(version).bind(unix_now()).bind(current_sid)
+            .fetch_all(&self.pool).await.map_err(internal)?;
+        let sessions = rows
+            .into_iter()
+            .map(|row| {
+                let sid: String = row.try_get("sid").map_err(internal)?;
+                Ok(LoginSessionView {
+                    current: sid == current_sid,
+                    sid,
+                    login_method: row.try_get("login_method").map_err(internal)?,
+                    ip: row.try_get("ip").map_err(internal)?,
+                    user_agent: row.try_get("user_agent").map_err(internal)?,
+                    created_at: row.try_get("created_at").map_err(internal)?,
+                    last_active_at: row.try_get("last_active_at").map_err(internal)?,
+                    expires_at: row.try_get("expires_at").map_err(internal)?,
+                })
+            })
+            .collect::<Result<Vec<_>, AuthError>>()?;
+        Ok(LoginSessionInventory {
+            sessions,
+            session_auto_logout: session_auto_logout_enabled(&setting),
+        })
+    }
+
+    async fn set_session_auto_logout(&self, user_id: i64, enabled: bool) -> Result<(), AuthError> {
+        if user_id <= 0 {
+            return Err(AuthError::new(AuthErrorKind::InvalidRequest));
+        }
+        let mut transaction = self.pool.begin().await.map_err(internal)?;
+        let raw: String = sqlx::query_scalar(
+            "SELECT COALESCE(setting,'') FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| AuthError::new(AuthErrorKind::Unauthorized))?;
+        let mut setting = if raw.is_empty() {
+            std::collections::BTreeMap::<String, Box<serde_json::value::RawValue>>::new()
+        } else {
+            serde_json::from_str::<
+                Option<std::collections::BTreeMap<String, Box<serde_json::value::RawValue>>>,
+            >(&raw)
+            .map_err(internal)?
+            .unwrap_or_default()
+        };
+        setting.insert(
+            "session_auto_logout".to_owned(),
+            serde_json::value::RawValue::from_string(enabled.to_string()).map_err(internal)?,
+        );
+        sqlx::query("UPDATE users SET setting=$2 WHERE id=$1")
+            .bind(user_id)
+            .bind(serde_json::to_string(&setting).map_err(internal)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(internal)?;
+        transaction.commit().await.map_err(internal)?;
+        let mut connection = self.connection().await?;
+        redis::cmd("DEL")
+            .arg(format!("user:{user_id}"))
+            .query_async::<()>(&mut connection)
+            .await
+            .map_err(internal)?;
+        if enabled {
+            self.revoke_week_old_sessions(user_id, unix_now()).await?;
+        }
+        Ok(())
+    }
+
+    async fn revoke_login_session(&self, user_id: i64, sid: &str) -> Result<bool, AuthError> {
+        if user_id <= 0 || sid.is_empty() {
+            return Err(AuthError::new(AuthErrorKind::InvalidRequest));
+        }
+        self.revoke_session(user_id, sid, "user_revoked").await
+    }
+
+    async fn revoke_other_login_sessions(
+        &self,
+        user_id: i64,
+        current_sid: &str,
+    ) -> Result<i64, AuthError> {
+        if user_id <= 0 || current_sid.is_empty() {
+            return Err(AuthError::new(AuthErrorKind::InvalidRequest));
+        }
+        let now = unix_now();
+        let mut total = 0_i64;
+        loop {
+            let rows = sqlx::query(&format!(
+                "{SESSION_PROJECTION} WHERE user_id=$1 AND status='active' AND expires_at>$2 AND sid<>$3 ORDER BY sid LIMIT 500",
+            )).bind(user_id).bind(now).bind(current_sid).fetch_all(&self.pool).await.map_err(internal)?;
+            if rows.is_empty() {
+                return Ok(total);
+            }
+            let candidates = rows
+                .iter()
+                .map(session_from_row)
+                .collect::<Result<Vec<_>, _>>()?;
+            for candidate in &candidates {
+                let mut denied = candidate.clone();
+                denied.revoked_at = now;
+                denied.revoked_reason = "user_revoked_others".to_owned();
+                self.write_session_cache(&denied, REVOKING, None).await?;
+            }
+            let sids = candidates
+                .iter()
+                .map(|session| session.sid.as_str())
+                .collect::<Vec<_>>();
+            let mut transaction = self.pool.begin().await.map_err(internal)?;
+            let locked = sqlx::query(&format!("{SESSION_PROJECTION} WHERE sid=ANY($1) AND user_id=$2 AND status='active' FOR UPDATE"))
+                .bind(&sids).bind(user_id).fetch_all(&mut *transaction).await.map_err(internal)?;
+            let mut revoked = locked
+                .iter()
+                .map(session_from_row)
+                .collect::<Result<Vec<_>, _>>()?;
+            let locked_sids = revoked
+                .iter()
+                .map(|session| session.sid.as_str())
+                .collect::<Vec<_>>();
+            let affected = sqlx::query("UPDATE user_sessions SET status='revoked',revoked_at=$2,revoked_reason='user_revoked_others' WHERE sid=ANY($1) AND status='active'")
+                .bind(&locked_sids).bind(now).execute(&mut *transaction).await.map_err(internal)?.rows_affected();
+            transaction.commit().await.map_err(internal)?;
+            total = total.saturating_add(i64::try_from(affected).unwrap_or(i64::MAX));
+            for session in &mut revoked {
+                session.status = REVOKED.to_owned();
+                session.revoked_at = now;
+                session.revoked_reason = "user_revoked_others".to_owned();
+                if self
+                    .write_session_cache(session, REVOKED, None)
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!(
+                        "bulk session revocation committed; final cache tombstone refresh failed"
+                    );
+                }
+            }
+        }
+    }
+
     async fn issue_security_proof(
         &self,
         user_id: i64,
@@ -1606,57 +1815,13 @@ CASE WHEN COALESCE(to_jsonb(users)->>'trust_level_override', '') ~ '^-?[0-9]+$'
 FROM users WHERE access_token = $1 AND deleted_at IS NULL LIMIT 1"#
 );
 
-const CURRENT_USER_PAYMENT_SNAPSHOT: &str = r#"
-WITH parsed AS (
-    SELECT
-        COALESCE(row_data->>'status', '') AS status,
-        COALESCE(row_data->>'payment_method', '') AS payment_method,
-        COALESCE(row_data->>'payment_provider', '') AS payment_provider,
-        CASE WHEN COALESCE(row_data->>'money', '') ~ '^-?[0-9]+([.][0-9]+)?$'
-            THEN (row_data->>'money')::DOUBLE PRECISION ELSE 0 END AS money,
-        CASE WHEN COALESCE(row_data->>'amount', '') ~ '^-?[0-9]+$'
-            THEN (row_data->>'amount')::BIGINT ELSE 0 END AS amount,
-        CASE WHEN COALESCE(row_data->>'credited_quota', '') ~ '^-?[0-9]+$'
-            THEN (row_data->>'credited_quota')::BIGINT ELSE 0 END AS credited_quota,
-        CASE WHEN COALESCE(row_data->>'settled_amount_micros', '') ~ '^-?[0-9]+$'
-            THEN (row_data->>'settled_amount_micros')::BIGINT ELSE 0 END AS settled_amount_micros,
-        CASE WHEN COALESCE(row_data->>'create_time', '') ~ '^-?[0-9]+$'
-            THEN (row_data->>'create_time')::BIGINT ELSE 0 END AS create_time,
-        CASE WHEN COALESCE(row_data->>'complete_time', '') ~ '^-?[0-9]+$'
-            THEN (row_data->>'complete_time')::BIGINT ELSE 0 END AS complete_time
-    FROM (
-        SELECT to_jsonb(top_ups) AS row_data
-        FROM top_ups
-        WHERE user_id = $1
-    ) rows
-), qualified AS (
-    SELECT *,
-        status = 'success'
-        AND payment_method <> 'balance'
-        AND payment_provider <> 'balance'
-        AND (settled_amount_micros > 0 OR (settled_amount_micros = 0 AND money > 0))
-        AND (credited_quota > 0 OR amount > 0)
-        AND (
-            payment_provider IN ('epay', 'stripe', 'creem', 'waffo', 'waffo_pancake')
-            OR (
-                payment_provider = ''
-                AND payment_method IN ('stripe', 'creem', 'waffo', 'waffo_pancake', 'alipay', 'wxpay')
-            )
-        ) AS qualifies
-    FROM parsed
-)
-SELECT
-    (
-        COALESCE(SUM(CASE WHEN qualifies AND settled_amount_micros > 0
-            THEN settled_amount_micros ELSE 0 END), 0)::DOUBLE PRECISION
-        + ROUND(COALESCE(SUM(CASE WHEN qualifies AND settled_amount_micros = 0
-            THEN money ELSE 0 END), 0) * 1000000.0)
-    ) / 1000000.0 AS paid_amount,
-    COALESCE(MAX(CASE WHEN qualifies THEN
-        CASE WHEN complete_time > 0 THEN complete_time ELSE create_time END
-        ELSE 0 END), 0)::BIGINT AS last_paid_complete_at,
-    COALESCE(BOOL_OR(qualifies), FALSE) AS paid_activation_complete
-FROM qualified
+const SESSION_PROJECTION: &str = r#"
+SELECT sid, user_id, version, user_auth_version, status,
+TRIM(TRAILING FROM refresh_hash) AS refresh_hash,
+COALESCE(TRIM(TRAILING FROM previous_refresh_hash), '') AS previous_refresh_hash,
+previous_valid_until, login_method, COALESCE(ip, '') AS ip,
+COALESCE(user_agent, '') AS user_agent, created_at, last_active_at, expires_at,
+revoked_at, COALESCE(revoked_reason, '') AS revoked_reason FROM user_sessions
 "#;
 
 const SESSION_SELECT: &str = r#"
@@ -1710,13 +1875,6 @@ struct UserRecord {
     trust_level_override: Option<i64>,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct PaymentSnapshot {
-    paid_amount: f64,
-    last_paid_complete_at: i64,
-    paid_activation_complete: bool,
-}
-
 fn dashboard_self_user_facts_from_payment(
     user: DashboardDeveloperAccessUserFacts,
     payment: PaymentSnapshot,
@@ -1728,6 +1886,7 @@ fn dashboard_self_user_facts_from_payment(
         trust_level_override: user.trust_level_override,
         paid_amount: payment.paid_amount,
         paid_activation_complete: payment.paid_activation_complete,
+        console_activated: payment.console_activated,
         local_acceptance: policy.local_acceptance(),
         activity_anchor: user
             .created_at
@@ -1751,15 +1910,8 @@ pub(crate) async fn dashboard_self_user_facts_in_transaction(
         sqlx::query("LOCK TABLE top_ups IN SHARE MODE")
             .execute(&mut **transaction)
             .await?;
-        let row = sqlx::query(CURRENT_USER_PAYMENT_SNAPSHOT)
-            .bind(user.user_id)
-            .fetch_one(&mut **transaction)
-            .await?;
-        PaymentSnapshot {
-            paid_amount: row.try_get("paid_amount")?,
-            last_paid_complete_at: row.try_get("last_paid_complete_at")?,
-            paid_activation_complete: row.try_get("paid_activation_complete")?,
-        }
+        let options = payment_options(&mut *transaction).await?;
+        payment_snapshot(&mut *transaction, user.user_id, &options).await?
     } else {
         PaymentSnapshot::default()
     };
@@ -2020,6 +2172,10 @@ mod legacy_personal_access_token_error_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "trust_pg_tests.rs"]
+mod trust_pg_tests;
 
 #[cfg(test)]
 mod tests {

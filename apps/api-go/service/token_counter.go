@@ -181,6 +181,9 @@ func getImageToken(c *gin.Context, fileMeta *types.FileMeta, model string, strea
 }
 
 func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relaycommon.RelayInfo) (int, error) {
+	if info != nil && info.RelayFormat == types.RelayFormatSystemOne {
+		return dto.SystemOneMaxInputTokens, nil
+	}
 	// 是否统计token
 	if !constant.CountToken {
 		return 0, nil
@@ -264,8 +267,8 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 			continue
 		}
 
-		// 如果文件类型未知且需要获取，通过 MIME 类型检测
-		if file.FileType == "" || (file.Source.IsURL() && shouldFetchFiles) {
+		// 文件类型已知时无需重复下载；需要尺寸的图片会在 getImageToken 中按需读取。
+		if file.FileType == "" {
 			// 注意：这里我们直接调用 LoadFileSource 而不是 GetMimeType
 			// 因为 GetMimeType 内部可能会调用 GetFileTypeFromUrl (HEAD 请求)
 			// 而我们这里既然要计算 token，通常需要完整数据

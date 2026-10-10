@@ -119,14 +119,15 @@ func (h *OAuthHTTP) Metadata(c *gin.Context) {
 	metadata.AuthorizationEndpoint = h.Integration.Issuer + "/api/oauth2/authorize"
 	metadata.TokenEndpoint = h.Integration.Issuer + "/api/oauth2/token"
 	metadata.RevocationEndpoint = h.Integration.Issuer + "/api/oauth2/revoke"
+	metadata.RegistrationEndpoint = h.Integration.Issuer + "/api/oauth2/register"
 	// Group scopes are consent-generated and can disclose deployment structure.
 	// Public discovery advertises the fixed application and built-in MCP scopes.
-	metadata.ScopesSupported = append(append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope)
+	metadata.ScopesSupported = append(append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope, service.OAuthRemoteControlScope)
 	c.JSON(200, metadata)
 }
 
 func (h *OAuthHTTP) ResourceMetadata(c *gin.Context) {
-	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": append(append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope), "bearer_methods_supported": []string{"header"}})
+	c.JSON(200, gin.H{"resource": h.Integration.Resource, "authorization_servers": []string{h.Integration.Issuer}, "scopes_supported": append(append([]string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope}, service.OAuthBuiltinMCPScopes()...), service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope, service.OAuthRemoteControlScope), "bearer_methods_supported": []string{"header"}})
 }
 
 func oauthProtocolFailure(c *gin.Context, err error) {
@@ -180,17 +181,28 @@ func (h *OAuthHTTP) render(c *gin.Context, status int, data oauthPageData) {
 		data.Copy = oauthPageCopies["en"]
 	}
 	if data.ClientName == "" {
-		data.ClientName = service.OAuthPiClientName
+		data.ClientName = "LMM"
 	}
-	hostName := "Pi"
-	if data.ClientName == service.OAuthDshClientName {
+	hostName := "LMM"
+	switch data.ClientName {
+	case service.OAuthPiClientName:
+		hostName = "Pi"
+	case service.OAuthDshClientName:
 		hostName = "DSH"
-	} else if data.ClientName == service.OAuthCLIClientName {
+	case service.OAuthCLIClientName:
 		hostName = "LMM CLI"
+	case service.OAuthCodewhaleClientName:
+		hostName = "Codewhale"
+	case service.OAuthOpenCodeClientName:
+		hostName = "OpenCode"
+	case service.OAuthVSCodeClientName:
+		hostName = "VS Code"
+	case service.OAuthZedClientName:
+		hostName = "Zed"
 	}
-	data.Copy.Title = strings.ReplaceAll(data.Copy.Title, "Pi", hostName)
-	data.Copy.Failed = strings.ReplaceAll(data.Copy.Failed, "Pi", hostName)
-	data.Copy.Return = strings.ReplaceAll(data.Copy.Return, "Pi", hostName)
+	data.Copy.Title = strings.ReplaceAll(data.Copy.Title, "{application}", hostName)
+	data.Copy.Failed = strings.ReplaceAll(data.Copy.Failed, "{application}", hostName)
+	data.Copy.Return = strings.ReplaceAll(data.Copy.Return, "{application}", hostName)
 	nonce, err := oauthRandom()
 	if err != nil {
 		c.Status(503)
@@ -269,36 +281,74 @@ func (h *OAuthHTTP) takeFlow(c *gin.Context) (*oauthBrowserFlow, url.Values, boo
 	return flow, values, true
 }
 
-func (h *OAuthHTTP) failed(c *gin.Context, language string) {
-	h.render(c, 400, oauthPageData{Language: language, Mode: "failed"})
+// Names used on an invalid request come only from the fixed public-client
+// registry, never a URL-supplied application name. Duplicate IDs stay generic.
+func oauthRequestClientName(raw string) string {
+	query, err := url.ParseQuery(raw)
+	if err != nil || len(query["client_id"]) != 1 {
+		return ""
+	}
+	switch query.Get("client_id") {
+	case service.OAuthPiClientID:
+		return service.OAuthPiClientName
+	case service.OAuthDshClientID:
+		return service.OAuthDshClientName
+	case service.OAuthCLIClientID:
+		return service.OAuthCLIClientName
+	case service.OAuthCodewhaleClientID:
+		return service.OAuthCodewhaleClientName
+	case service.OAuthOpenCodeClientID:
+		return service.OAuthOpenCodeClientName
+	case service.OAuthVSCodeClientID:
+		return service.OAuthVSCodeClientName
+	case service.OAuthZedClientID:
+		return service.OAuthZedClientName
+	default:
+		return ""
+	}
+}
+
+func (h *OAuthHTTP) failed(c *gin.Context, language, clientName string) {
+	h.render(c, 400, oauthPageData{Language: language, Mode: "failed", ClientName: clientName})
 }
 
 func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
+	normalized, normalizeErr := h.Integration.MCPAuthorizationQuery(c.Request.Context(), raw)
+	if normalizeErr != nil {
+		h.render(c, 400, oauthPageData{Language: language, Mode: "failed"})
+		return
+	}
+	raw = normalized
 	binding, err := oauthRandom()
 	if err != nil {
-		h.failed(c, language)
+		h.failed(c, language, oauthRequestClientName(raw))
 		return
 	}
 	csrf, err := oauthRandom()
 	if err != nil {
-		h.failed(c, language)
+		h.failed(c, language, oauthRequestClientName(raw))
 		return
 	}
 	pending, err := h.Integration.Core.BeginAuthorization(c.Request.Context(), raw, binding)
 	if err != nil {
-		h.failed(c, language)
+		data := oauthPageData{Language: language, Mode: "failed", ClientName: oauthRequestClientName(raw)}
+		var protocol *oauthserver.ProtocolError
+		if errors.As(err, &protocol) && protocol.Code == "invalid_client" {
+			data.Failure = protocol.Code
+		}
+		h.render(c, 400, data)
 		return
 	}
 	if err := h.Integration.Core.SetBrowserCSRF(c.Request.Context(), pending.Transaction, binding, csrf); err != nil {
-		h.failed(c, language)
+		h.failed(c, language, oauthRequestClientName(raw))
 		return
 	}
 	flow := &oauthBrowserFlow{RawQuery: raw, ClientName: pending.ClientName, Binding: binding, CSRF: csrf, Language: language, Expires: pending.ExpiresAt}
 	if !h.putFlow(c, flow) {
-		h.failed(c, language)
+		h.failed(c, language, oauthRequestClientName(raw))
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: language, Mode: "preflight", CSRF: csrf, Action: oauthBrowserContinue, Resource: h.Integration.Resource, ClientName: pending.ClientName})
+	h.render(c, 200, oauthPageData{Language: language, Mode: "preflight", CSRF: csrf, Action: oauthBrowserContinue, Resource: pending.Resource, ClientName: pending.ClientName})
 }
 
 func (h *OAuthHTTP) Authorize(c *gin.Context) {
@@ -309,11 +359,11 @@ func (h *OAuthHTTP) Authorize(c *gin.Context) {
 func (h *OAuthHTTP) Continue(c *gin.Context) {
 	flow, values, ok := h.takeFlow(c)
 	if !ok {
-		h.failed(c, oauthPageLanguage(c.GetHeader("Accept-Language")))
+		h.failed(c, oauthPageLanguage(c.GetHeader("Accept-Language")), "")
 		return
 	}
 	if flow.Consent != nil || values.Has("decision") {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	identity, user, err := h.Integration.BrowserIdentity(c.Request.Context(), c.Request)
@@ -323,61 +373,61 @@ func (h *OAuthHTTP) Continue(c *gin.Context) {
 	}
 	query, groups, err := h.Integration.ConsentQuery(flow.RawQuery, user)
 	if err != nil {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	// Explicitly rotate the pre-login binding once a verified identity exists.
 	binding, err := oauthRandom()
 	if err != nil {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	pending, err := h.Integration.Core.BeginAuthorization(c.Request.Context(), query, binding)
 	if err != nil {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	consent, err := h.Integration.Core.TrustedPrepareConsent(c.Request.Context(), pending.Transaction, binding, identity.UserID)
 	if err != nil {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	csrf, err := oauthRandom()
 	if err != nil {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	bound := &oauthBrowserFlow{RawQuery: flow.RawQuery, ClientName: consent.ClientName, CSRF: csrf, Binding: binding, Identity: identity, Consent: consent, Groups: groups, Account: user.Username, Language: flow.Language, Expires: consent.ExpiresAt}
 	if err := h.Integration.Core.BindBrowserSession(c.Request.Context(), binding, csrf, identity.UserID, identity.SessionID, identity.SessionVersion, identity.AuthVersion); err != nil {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	if !h.putFlow(c, bound) {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
-	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: h.Integration.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups, CanInvoke: slices.Contains(consent.Scopes, service.OAuthInvokeScope), MarketPermissions: marketOAuthPermissionLabels(flow.Language, consent.Scopes)})
+	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "consent", CSRF: csrf, Action: oauthBrowserConsent, Resource: consent.Resource, ClientName: consent.ClientName, Account: user.Username, Groups: groups, CanInvoke: slices.Contains(consent.Scopes, service.OAuthInvokeScope), MarketPermissions: append(marketOAuthPermissionLabels(flow.Language, consent.Scopes), piRemotePermissionLabels(flow.Language, consent.Scopes)...)})
 }
 
 func (h *OAuthHTTP) Consent(c *gin.Context) {
 	flow, values, ok := h.takeFlow(c)
 	if !ok {
-		h.failed(c, oauthPageLanguage(c.GetHeader("Accept-Language")))
+		h.failed(c, oauthPageLanguage(c.GetHeader("Accept-Language")), "")
 		return
 	}
 	if flow.Consent == nil || values.Get("decision") != "allow" && values.Get("decision") != "deny" {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	identity, user, err := h.Integration.BrowserIdentity(c.Request.Context(), c.Request)
 	if err != nil || identity != flow.Identity {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	current := h.Integration.AllowedGroups(user)
 	for _, group := range flow.Groups {
 		if !slices.Contains(current, group) {
-			h.failed(c, flow.Language)
+			h.failed(c, flow.Language, flow.ClientName)
 			return
 		}
 	}
@@ -388,7 +438,7 @@ func (h *OAuthHTTP) Consent(c *gin.Context) {
 		response, err = h.Integration.Core.TrustedDenyByBrowserBinding(c.Request.Context(), flow.Binding)
 	}
 	if err != nil {
-		h.failed(c, flow.Language)
+		h.failed(c, flow.Language, flow.ClientName)
 		return
 	}
 	h.render(c, 200, oauthPageData{Language: flow.Language, Mode: "complete", ClientName: flow.ClientName, Redirect: response.RedirectURI})

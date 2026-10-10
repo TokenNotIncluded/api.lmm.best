@@ -42,6 +42,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { formatTimestampToDate } from '@/lib/format'
 
 import { MJ_TASK_TYPES } from '../../constants'
+import { getDrawingVideoUrls, safeMediaUrl } from '../../lib/async-task-logs'
 import {
   mjTaskTypeMapper,
   mjStatusMapper,
@@ -192,35 +193,52 @@ export function useDrawingLogsColumns(
     createProgressColumn<MidjourneyLog>({ headerLabel: t('Progress') }),
     {
       accessorKey: 'image_url',
-      header: t('Image'),
+      header: t('Result'),
       cell: function ImageCell({ row }) {
         const log = row.original
-        const imageUrl = row.getValue('image_url') as string
+        const imageUrl = safeMediaUrl(log.image_url)
+        const videoUrls = getDrawingVideoUrls(log)
         const [dialogOpen, setDialogOpen] = useState(false)
 
-        if (!imageUrl) {
+        if (!imageUrl && videoUrls.length === 0) {
           return <span className='text-muted-foreground/60 text-xs'>-</span>
         }
 
         return (
-          <>
-            <button
-              type='button'
-              className='group text-left text-xs'
-              onClick={() => setDialogOpen(true)}
-              title={t('Click to view image')}
-            >
-              <span className='text-foreground truncate leading-snug group-hover:underline'>
-                {t('View')}
-              </span>
-            </button>
-            <ImageDialog
-              imageUrl={imageUrl}
-              taskId={log.mj_id}
-              open={dialogOpen}
-              onOpenChange={setDialogOpen}
-            />
-          </>
+          <div className='flex flex-wrap items-center gap-2 text-xs'>
+            {imageUrl && (
+              <>
+                <button
+                  type='button'
+                  className='text-foreground hover:underline'
+                  onClick={() => setDialogOpen(true)}
+                  title={t('Click to view image')}
+                >
+                  {t('Image')}
+                </button>
+                <ImageDialog
+                  imageUrl={imageUrl}
+                  taskId={log.mj_id}
+                  open={dialogOpen}
+                  onOpenChange={setDialogOpen}
+                />
+              </>
+            )}
+            {videoUrls.map((url, index) => (
+              <a
+                key={url}
+                href={url}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-foreground inline-flex items-center gap-1 hover:underline'
+                title={t('Click to preview video')}
+              >
+                <Video className='size-3' aria-hidden />
+                {t('Video')}
+                {videoUrls.length > 1 ? ` ${index + 1}` : ''}
+              </a>
+            ))}
+          </div>
         )
       },
     },

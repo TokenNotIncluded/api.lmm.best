@@ -25,6 +25,7 @@ func TestBackendJourneyL0PostgresPolicyAndRounding(t *testing.T) {
 		SetLocalAcceptanceDeveloperAccess(oldLocal)
 	})
 	common.QuotaPerUnit = 3000000
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	user := User{Username: "journey-pg", Password: "unused", AffCode: "journey-pg", Role: common.RoleCommonUser}
 	require.NoError(t, db.Create(&user).Error)
 	for i := 0; i < 2; i++ {
@@ -36,7 +37,7 @@ func TestBackendJourneyL0PostgresPolicyAndRounding(t *testing.T) {
 			granted bool
 		}{
 			{"any recharge", true, 0, true},
-			{"cumulative rounding", true, 0.000001, i == 1},
+			{"cumulative integer credits", true, 0.000004, i == 1},
 			{"below threshold", true, 1, false},
 			{"manual review only", false, 0, false},
 		} {
@@ -45,6 +46,9 @@ func TestBackendJourneyL0PostgresPolicyAndRounding(t *testing.T) {
 				access, err := GetDeveloperAccessStateForUser(&user)
 				require.NoError(t, err)
 				require.Equal(t, tc.granted, access.Granted)
+				snapshot, err := GetFreshUserAccessSnapshot(&user)
+				require.NoError(t, err)
+				require.InDelta(t, float64(i+1)/21000000, *snapshot.TrustLevel.PaidAmountUSD, 1e-16)
 				var count int64
 				require.NoError(t, applyL0UserFilter(db, db.Model(&User{})).Count(&count).Error)
 				assert.Equal(t, !access.Granted, count == 1)

@@ -1,12 +1,13 @@
 package controller
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"net/http"
 	"regexp"
 	"sort"
-	"strings"
+	"strconv"
 	"sync"
 	"time"
 
@@ -31,13 +32,14 @@ type piRemoteCiphertext struct {
 }
 
 type piRemoteSession struct {
-	SessionID string             `json:"session_id"`
-	DeviceID  string             `json:"device_id"`
-	Metadata  piRemoteCiphertext `json:"metadata"`
-	ExpiresAt int64              `json:"expires_at"`
-	UpdatedAt int64              `json:"updated_at"`
-	Messages  []piRemoteMessage  `json:"-"`
-	nextSeq   uint64
+	SessionID  string             `json:"session_id"`
+	Generation string             `json:"generation"`
+	DeviceID   string             `json:"device_id"`
+	Metadata   piRemoteCiphertext `json:"metadata"`
+	ExpiresAt  int64              `json:"expires_at"`
+	UpdatedAt  int64              `json:"updated_at"`
+	Messages   []piRemoteMessage  `json:"-"`
+	nextSeq    uint64
 }
 
 type piRemoteMessage struct {
@@ -76,11 +78,11 @@ func validatePiRemoteCiphertext(value piRemoteCiphertext, maxBytes int) error {
 		return errors.New("invalid encrypted payload size")
 	}
 	nonce, err := base64.RawURLEncoding.DecodeString(value.Nonce)
-	if err != nil || len(nonce) != 12 {
+	if err != nil || len(nonce) != 12 || base64.RawURLEncoding.EncodeToString(nonce) != value.Nonce {
 		return errors.New("nonce must be a 12-byte unpadded base64url value")
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(value.Ciphertext)
-	if err != nil || len(decoded) < 16 || len(decoded) > maxBytes {
+	if err != nil || len(decoded) < 16 || len(decoded) > maxBytes || base64.RawURLEncoding.EncodeToString(decoded) != value.Ciphertext {
 		return errors.New("ciphertext must be bounded unpadded base64url")
 	}
 	return nil
@@ -137,8 +139,15 @@ func (store *piRemoteStore) upsert(userID int, sessionID string, request piRemot
 		if total := store.sessionCountLocked(); total >= piRemoteMaxSessionsGlobal {
 			return nil, errors.New("too many active Pi sessions")
 		}
-		session = &piRemoteSession{SessionID: sessionID, nextSeq: 1}
+		var generation [16]byte
+		if _, err := rand.Read(generation[:]); err != nil {
+			return nil, errors.New("could not create session")
+		}
+		session = &piRemoteSession{SessionID: sessionID, Generation: base64.RawURLEncoding.EncodeToString(generation[:]), nextSeq: 1}
 		owned[sessionID] = session
+	}
+	if session.DeviceID != "" && session.DeviceID != request.DeviceID {
+		return nil, errors.New("session belongs to another device")
 	}
 	session.DeviceID = request.DeviceID
 	session.Metadata = request.Metadata
@@ -246,13 +255,16 @@ func PiRemoteAppendMessage(c *gin.Context) {
 
 func PiRemoteGetMessages(c *gin.Context) {
 	after := uint64(0)
-	if raw := strings.TrimSpace(c.Query("after")); raw != "" {
-		for _, char := range raw {
-			if char < '0' || char > '9' {
-				c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "after must be an integer"})
-				return
-			}
-			after = after*10 + uint64(char-'0')
+	values, err := c.Request.URL.Query()["after"], error(nil)
+	if len(values) > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "after must occur once"})
+		return
+	}
+	if len(values) == 1 {
+		after, err = strconv.ParseUint(values[0], 10, 53)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "after must be a safe unsigned integer"})
+			return
 		}
 	}
 	messages, err := activePiRemoteStore.messages(c.GetInt("id"), c.Param("session_id"), after)
@@ -261,4 +273,26 @@ func PiRemoteGetMessages(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"messages": messages})
+}
+
+// Deletion is idempotent and scoped to the authenticated owner, like listing.
+func (store *piRemoteStore) remove(userID int, sessionID string) error {
+	if userID <= 0 || !piRemoteIDPattern.MatchString(sessionID) {
+		return errors.New("invalid session id")
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	delete(store.sessions[userID], sessionID)
+	if len(store.sessions[userID]) == 0 {
+		delete(store.sessions, userID)
+	}
+	return nil
+}
+
+func PiRemoteDeleteSession(c *gin.Context) {
+	if err := activePiRemoteStore.remove(c.GetInt("id"), c.Param("session_id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	common.ApiSuccess(c, nil)
 }

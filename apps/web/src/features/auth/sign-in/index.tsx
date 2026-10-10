@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
+import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
@@ -29,6 +30,7 @@ import { UserAuthForm } from './components/user-auth-form'
 export function SignIn() {
   const { t } = useTranslation()
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
+  const requestedPath = sanitizeAuthRedirect(redirect, window.location.origin)
   const { status, capabilitiesReady } = useStatus()
   const canRegister = canOfferRegistration(status, capabilitiesReady)
 
@@ -44,6 +46,7 @@ export function SignIn() {
               {t("Don't have an account?")}{' '}
               <Link
                 to='/sign-up'
+                search={requestedPath ? { redirect: requestedPath } : {}}
                 className='hover:text-primary font-medium underline underline-offset-4'
               >
                 {t('Sign up')}

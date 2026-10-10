@@ -20,7 +20,7 @@ use sqlx::{PgPool, Row};
 use std::{collections::BTreeMap, sync::Arc};
 
 const CHANNEL_CACHE_GENERATION: &str = "lmm:channels:generation";
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 
 /// Authorization is deliberately injected: the HTTP auth slice owns the
 /// bearer/session verifier and this route slice only owns channel policy.
@@ -1454,6 +1454,20 @@ mod tests {
             channel["channel_info"]["multi_key_disabled_reason"]["0"],
             "ordinary metadata"
         );
+    }
+
+    #[test]
+    fn ollama_transport_settings_remain_unchanged_after_validation() -> TestResult {
+        let settings = "{ \"ollama_openai_chat\": true, \"future_setting\": {\"key\": 1} }";
+        let channel: ChannelInput = json_from_value(
+            json!({"type":4,"key":"key","settings":settings}),
+            "Ollama channel input",
+        )?;
+        channel
+            .validate(true)
+            .map_err(|error| test_error(format!("Ollama settings validation failed: {error:?}")))?;
+        assert_eq!(channel.settings, settings);
+        Ok(())
     }
 
     #[test]

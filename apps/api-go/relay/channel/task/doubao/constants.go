@@ -1,6 +1,9 @@
 package doubao
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 var ModelList = []string{
 	"doubao-seedance-1-0-pro-250528",
@@ -13,44 +16,120 @@ var ModelList = []string{
 
 var ChannelName = "doubao-video"
 
-// videoPriceKey 价格表的键：输出分辨率档（is1080p/is4k 均为 false 即 480p/720p 基准档）、输入是否含视频。
-type videoPriceKey struct {
-	is1080p  bool
-	is4k     bool
-	hasVideo bool
+type videoTier struct {
+	price      float64
+	videoPrice float64
 }
 
-// videoPriceTable 各模型在不同 (输出分辨率档, 是否含视频输入) 下的单价（元/百万 token）。
-// 其中零值键 {480p/720p, 不含视频} 为基准价，等于管理员应配置的 ModelRatio；
-// 计费时取 实际单价/基准价 作为 OtherRatio。
-var videoPriceTable = map[string]map[videoPriceKey]float64{
+// Profiles describe only the models this native adaptor advertises. Prices are
+// relative to the configured model rate, never replacements for that rate.
+// Capabilities: https://github.com/QuantumNous/new-api/commit/65d3a2171fd11c65ad2e2e1f1d65723926659c81
+// Audio ratio: https://docs.volcengine.com/docs/Coze/Modelcost?lang=zh
+// Seedance 2.0 rates retain the existing native adaptor's relative prices.
+type videoModelProfile struct {
+	resolutions           []string
+	tiers                 map[string]videoTier
+	basePrice             float64
+	reservationResolution string
+	referenceVideo        bool
+	silentRatio           float64 // zero means audio is not a billing dimension
+}
+
+func uniformVideoProfile(silentRatio float64) videoModelProfile {
+	return videoModelProfile{
+		resolutions: []string{"480p", "720p", "1080p"},
+		tiers: map[string]videoTier{
+			"480p": {price: 1}, "720p": {price: 1}, "1080p": {price: 1},
+		},
+		basePrice: 1, reservationResolution: "1080p", silentRatio: silentRatio,
+	}
+}
+
+var videoModelProfiles = map[string]videoModelProfile{
+	"doubao-seedance-1-0-pro-250528": uniformVideoProfile(0),
+	"doubao-seedance-1-0-lite-t2v":   uniformVideoProfile(0),
+	"doubao-seedance-1-0-lite-i2v":   uniformVideoProfile(0),
+	"doubao-seedance-1-5-pro-251215": uniformVideoProfile(8.0 / 16.0),
 	"doubao-seedance-2-0-260128": {
-		{hasVideo: false}:                46.0,
-		{hasVideo: true}:                 28.0,
-		{is1080p: true, hasVideo: false}: 51.0,
-		{is1080p: true, hasVideo: true}:  31.0,
-		{is4k: true, hasVideo: false}:    26.0,
-		{is4k: true, hasVideo: true}:     16.0,
+		resolutions: []string{"480p", "720p", "1080p", "4k"},
+		tiers: map[string]videoTier{
+			"480p": {price: 46, videoPrice: 28}, "720p": {price: 46, videoPrice: 28},
+			"1080p": {price: 51, videoPrice: 31}, "4k": {price: 26, videoPrice: 16},
+		},
+		basePrice: 46, reservationResolution: "1080p", referenceVideo: true,
 	},
 	"doubao-seedance-2-0-fast-260128": {
-		{hasVideo: false}: 37.0,
-		{hasVideo: true}:  22.0,
+		resolutions: []string{"480p", "720p"},
+		tiers: map[string]videoTier{
+			"480p": {price: 37, videoPrice: 22}, "720p": {price: 37, videoPrice: 22},
+		},
+		basePrice: 37, reservationResolution: "720p", referenceVideo: true,
 	},
 }
 
-// GetVideoInputRatio 返回指定模型在给定输出分辨率/是否含视频输入下，相对基准价的计费倍率。
-// 第二个返回值表示该模型是否配置了价格表；倍率为 1.0 时调用方可忽略该 OtherRatio。
+// Endpoint IDs do not identify a model family. In that case a known public
+// model still supplies its profile; a mapping to another known model uses that
+// executing model's profile instead.
+func videoProfileForModels(names ...string) (videoModelProfile, string, bool) {
+	for _, name := range names {
+		if profile, ok := videoModelProfiles[name]; ok {
+			return profile, name, true
+		}
+	}
+	return videoModelProfile{}, "", false
+}
+
+func (p videoModelProfile) validateResolution(modelName, resolution string) error {
+	if resolution == "" {
+		return nil // Ark chooses it; billing reserves a supported tier.
+	}
+	if _, ok := p.tiers[resolution]; !ok {
+		return fmt.Errorf("%s resolution must be one of %s", modelName, strings.Join(p.resolutions, ", "))
+	}
+	return nil
+}
+
+func (p videoModelProfile) billingRatios(resolution string, hasVideo, generateAudio bool) map[string]float64 {
+	if resolution == "" {
+		resolution = p.reservationResolution
+	}
+	tier, ok := p.tiers[resolution]
+	if !ok || p.basePrice <= 0 {
+		return nil
+	}
+	// Store each supported dimension even when its multiplier is one. This
+	// preserves reference/audio state for completion without conflating a 4k
+	// resolution discount with reference-video input.
+	ratios := map[string]float64{"resolution": tier.price / p.basePrice}
+	if p.referenceVideo {
+		ratios["video_input"] = 1
+		if hasVideo {
+			ratios["video_input"] = tier.videoPrice / tier.price
+		}
+	}
+	if p.silentRatio > 0 {
+		ratios["generate_audio"] = 1
+		if !generateAudio {
+			ratios["generate_audio"] = p.silentRatio
+		}
+	}
+	return ratios
+}
+
+// GetVideoInputRatio returns the combined capability multiplier. Unsupported
+// tiers are never treated as the base tier; callers must validate them locally.
 func GetVideoInputRatio(modelName, resolution string, hasVideo bool) (float64, bool) {
-	prices, ok := videoPriceTable[modelName]
-	base := prices[videoPriceKey{}] // 零值键 = {480p/720p, 不含视频} 基准价
-	if !ok || base <= 0 {
+	profile, _, ok := videoProfileForModels(modelName)
+	if !ok {
 		return 0, false
 	}
-	res := strings.ToLower(strings.TrimSpace(resolution))
-	price, ok := prices[videoPriceKey{is1080p: res == "1080p", is4k: res == "4k", hasVideo: hasVideo}]
-	if !ok {
-		// 未配置的组合（如 fast 无 1080p/4k，上游会自行报错）按基准价计费即可。
-		return 1.0, true
+	ratios := profile.billingRatios(strings.ToLower(strings.TrimSpace(resolution)), hasVideo, true)
+	if ratios == nil {
+		return 0, false
 	}
-	return price / base, true
+	ratio := 1.0
+	for _, multiplier := range ratios {
+		ratio *= multiplier
+	}
+	return ratio, true
 }

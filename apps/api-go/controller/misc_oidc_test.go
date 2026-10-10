@@ -13,6 +13,7 @@ import (
 )
 
 func TestGetStatusReturnsEffectiveOIDCDisplayName(t *testing.T) {
+	installStatusCurrencyFixture(t)
 	settings := system_setting.GetOIDCSettings()
 	originalDisplayName := settings.DisplayName
 	originalOptionMap := common.OptionMap

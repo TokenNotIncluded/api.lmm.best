@@ -47,6 +47,8 @@ func TestAssistantAdminAutomationRechecksActorSessionAndRole(t *testing.T) {
 	for _, scenario := range []string{"demoted", "disabled", "revoked", "version_changed", "security_reset", "expired", "old_session", "foreign_session", "billing_identity", "personal_access_token"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := setupTokenControllerTestDB(t)
+			var initialOptions []model.Option
+			require.NoError(t, db.Order("key").Find(&initialOptions).Error)
 			c, user, session := assistantAutomationTestContext(t, db, common.RoleRootUser)
 			require.NotNil(t, user.ToBaseUser())
 			_, err := model.GetUserCache(user.Id)
@@ -77,7 +79,10 @@ func TestAssistantAdminAutomationRechecksActorSessionAndRole(t *testing.T) {
 			require.Error(t, err)
 			var count int64
 			require.NoError(t, db.Model(&model.Option{}).Count(&count).Error)
-			assert.Zero(t, count)
+			assert.EqualValues(t, len(initialOptions), count)
+			var afterOptions []model.Option
+			require.NoError(t, db.Order("key").Find(&afterOptions).Error)
+			assert.Equal(t, initialOptions, afterOptions, "a rejected actor cannot change existing settings")
 		})
 	}
 }

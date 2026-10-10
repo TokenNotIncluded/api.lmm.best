@@ -15,18 +15,30 @@ import {
   GitBranch,
   KeyRound,
   RefreshCw,
+  AlertCircle,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyContent,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { REPOSITORIES, repositoryUrl } from '@/features/repositories/api'
 import { RepositoryLink } from '@/features/repositories/repository-link'
 import { SettingsSection } from '@/features/system-settings/components/settings-section'
+import { BookmarkletInstall } from '@/features/test-key/bookmarklet-install'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 type Platform = 'linux' | 'macos' | 'windows'
 type ScriptMeta = {
@@ -70,6 +82,16 @@ function commandFor(name: string, platform: Platform) {
   const shell = name.toLowerCase().endsWith('.zsh') ? 'zsh' : 'bash'
   return `curl -fsSL "${url}" | ${shell}`
 }
+/** Best-effort guess at the visitor's platform, so the right tab is
+ * pre-selected instead of making them find it. */
+function detectPlatform(): Platform {
+  if (typeof navigator === 'undefined') return 'linux'
+  const ua = navigator.userAgent
+  if (/Windows/i.test(ua)) return 'windows'
+  if (/Mac OS X|Macintosh/i.test(ua)) return 'macos'
+  return 'linux'
+}
+
 function useScriptList() {
   return useQuery({
     queryKey: ['public-scripts'],
@@ -114,25 +136,42 @@ function PublicScriptSource({ script }: { script: ScriptMeta }) {
       className='border-border/70 border-t'
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary className='hover:bg-muted/50 cursor-pointer px-4 py-3 text-sm font-medium'>
-        {script.name}
+      <summary className='hover:bg-muted/50 focus-visible:ring-ring cursor-pointer px-4 py-4 text-sm font-medium break-all outline-none focus-visible:ring-2 focus-visible:ring-inset sm:px-5'>
+        <span className='ms-1 inline-flex items-center gap-2'>
+          <FileCode2
+            aria-hidden='true'
+            className='text-muted-foreground size-4 shrink-0'
+          />
+          {script.name}
+        </span>
       </summary>
       {open && (
-        <div className='space-y-3 px-4 pb-4'>
+        <div className='min-w-0 space-y-3 px-4 pb-4 sm:px-5 sm:pb-5'>
           <a
             href={scriptUrl(script.name)}
             download={script.name}
-            className='text-primary text-sm underline underline-offset-4'
+            className='text-primary focus-visible:ring-ring inline-flex min-h-11 items-center rounded-sm text-sm underline underline-offset-4 outline-none focus-visible:ring-2'
           >
             {t('Download')}
           </a>
           {source.isError ? (
-            <p role='alert' className='text-destructive text-sm'>
-              {t('Unable to load script')}
-            </p>
+            <div
+              role='alert'
+              className='flex flex-wrap items-center justify-between gap-3 text-sm'
+            >
+              <p className='text-destructive'>{t('Unable to load script')}</p>
+              <Button
+                type='button'
+                variant='outline'
+                className='min-h-11'
+                onClick={() => void source.refetch()}
+              >
+                {t('Retry')}
+              </Button>
+            </div>
           ) : (
             <pre
-              className='bg-muted max-h-96 overflow-auto rounded-lg p-3 text-xs'
+              className='bg-muted focus-visible:ring-ring max-h-96 overflow-auto rounded-lg p-4 text-xs leading-5 outline-none focus-visible:ring-2'
               tabIndex={0}
               aria-label={script.name}
             >
@@ -153,8 +192,17 @@ export function PublicScriptsPanel({
   const { t } = useTranslation()
   const scripts = useScriptList()
   const [copied, setCopied] = useState<string | null>(null)
-  const menus = ['menu.sh', 'menu.ps1'].flatMap(
-    (name) => scripts.data?.filter((script) => script.name === name) ?? []
+  const [picked, setPicked] = useState<Platform | null>(null)
+  const detected = useMemo(detectPlatform, [])
+  const platform: Platform = picked ?? detected
+  const menus = [
+    platform === 'windows' ? 'menu.ps1' : 'menu.sh',
+    ...(scripts.data ?? [])
+      .map((script) => script.name)
+      .filter((name) => name !== 'menu.sh' && name !== 'menu.ps1'),
+  ].flatMap(
+    (name) =>
+      scripts.data?.filter((script) => script.name === name).slice(0, 1) ?? []
   )
   const copyCommand = async (name: string, platform: Platform) => {
     try {
@@ -170,65 +218,127 @@ export function PublicScriptsPanel({
       toast.error(t('Unable to copy command'))
     }
   }
-  if (!scripts.data?.length) {
+  if (scripts.isError) {
     if (!fullPage) return null
     return (
-      <div className='border-border/70 text-muted-foreground border border-dashed p-8 text-sm'>
-        {scripts.isLoading ? t('Loading...') : t('No scripts published yet')}
+      <Empty role='alert' className='border-border/70 border py-12'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <AlertCircle aria-hidden='true' />
+          </EmptyMedia>
+          <EmptyTitle>{t('Unable to load scripts')}</EmptyTitle>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            type='button'
+            className='min-h-11'
+            variant='outline'
+            onClick={() => void scripts.refetch()}
+          >
+            {t('Retry')}
+          </Button>
+        </EmptyContent>
+      </Empty>
+    )
+  }
+  if (!scripts.data?.length) {
+    if (!fullPage) return null
+    return scripts.isLoading ? (
+      <div role='status' className='space-y-5 rounded-xl border p-4 sm:p-5'>
+        <span className='sr-only'>{t('Loading...')}</span>
+        <Skeleton className='h-6 w-40 rounded-sm' aria-hidden='true' />
+        <Skeleton className='h-16 w-full rounded-lg' aria-hidden='true' />
+        <Skeleton className='h-4 w-24 rounded-sm' aria-hidden='true' />
       </div>
+    ) : (
+      <Empty className='border-border/70 border py-12'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <FileCode2 aria-hidden='true' />
+          </EmptyMedia>
+          <EmptyTitle>{t('No scripts published yet')}</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     )
   }
   return (
-    <div className={fullPage ? 'space-y-3' : 'space-y-2'}>
+    <div className={fullPage ? 'space-y-4' : 'space-y-3'}>
       {fullPage && (
-        <div className='mb-5 flex items-end justify-between gap-3'>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Browse maintained setup scripts and copy the command for your system.'
-            )}
-          </p>
-          <a
-            href='/scripts'
-            className='text-primary inline-flex items-center gap-1 text-sm hover:underline'
-          >
-            {t('Open public script page')}{' '}
-            <ExternalLink className='size-3.5' aria-hidden='true' />
-          </a>
-        </div>
+        <p className='text-muted-foreground text-sm leading-6'>
+          {t('Pick your system, then copy one command.')}
+        </p>
       )}
-      {menus.map((script) => {
-        const platform = script.name.endsWith('.ps1') ? 'windows' : 'linux'
+      <div
+        className='flex flex-wrap items-center gap-1.5'
+        role='group'
+        aria-label={t('Your system')}
+      >
+        {(
+          [
+            ['linux', t('Linux')],
+            ['macos', t('macOS')],
+            ['windows', t('Windows')],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type='button'
+            aria-pressed={platform === value}
+            onClick={() => setPicked(value)}
+            className={cn(
+              'focus-visible:ring-ring min-h-11 rounded-lg border px-3.5 text-sm font-medium transition-colors outline-none focus-visible:ring-2 motion-reduce:transition-none',
+              platform === value
+                ? 'border-primary/50 bg-primary/10 text-foreground'
+                : 'border-border/70 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+            )}
+          >
+            {label}
+            {value === detected && picked === null && (
+              <span className='text-muted-foreground ms-1.5 text-xs font-normal'>
+                {t('detected')}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {menus.map((script, index) => {
         const id = `${script.name}:${platform}`
         return (
           <section
             key={script.name}
-            className='border-border/70 space-y-3 rounded-xl border p-4 sm:p-5'
+            className={cn(
+              'border-border/70 min-w-0 space-y-4 rounded-xl border p-4 sm:p-5',
+              index === 0 && 'bg-muted/40'
+            )}
           >
-            <div className='flex items-center justify-between gap-3'>
-              <h2 className='font-medium'>
-                {platform === 'windows'
-                  ? 'Windows · PowerShell'
-                  : 'Linux / macOS · Bash'}
+            <div className='flex flex-wrap items-center justify-between gap-3'>
+              <h2 className='min-w-0 flex-1 basis-40 text-base font-semibold break-all'>
+                {index === 0 ? t('Start here') : script.name}
               </h2>
               <Button
                 type='button'
-                size='sm'
-                variant='outline'
+                className='min-h-11'
+                variant={index === 0 ? 'default' : 'outline'}
                 onClick={() => void copyCommand(script.name, platform)}
               >
                 {copied === id ? (
-                  <Check className='me-2 size-4' />
+                  <Check aria-hidden='true' className='me-2 size-4' />
                 ) : (
-                  <Copy className='me-2 size-4' />
+                  <Copy aria-hidden='true' className='me-2 size-4' />
                 )}
-                {t('Copy')}
+                {copied === id ? t('Copied') : t('Copy command')}
               </Button>
             </div>
-            <pre className='bg-muted overflow-x-auto rounded-lg p-3 text-sm break-all whitespace-pre-wrap'>
+            <pre
+              className='bg-muted focus-visible:ring-ring overflow-x-auto rounded-lg p-4 text-sm leading-6 break-all whitespace-pre-wrap outline-none focus-visible:ring-2'
+              tabIndex={0}
+              aria-label={script.name}
+            >
               <code>{commandFor(script.name, platform)}</code>
             </pre>
             <a
-              className='text-muted-foreground text-xs underline underline-offset-4'
+              className='text-muted-foreground focus-visible:ring-ring inline-flex min-h-9 items-center rounded-sm text-xs break-all underline underline-offset-4 outline-none focus-visible:ring-2'
               href={scriptUrl(script.name)}
             >
               {script.name}
@@ -236,8 +346,8 @@ export function PublicScriptsPanel({
           </section>
         )
       })}
-      <details className='border-border/70 rounded-xl border'>
-        <summary className='hover:bg-muted/50 cursor-pointer p-4 text-sm font-medium'>
+      <details className='border-border/70 min-w-0 rounded-xl border'>
+        <summary className='hover:bg-muted/50 focus-visible:ring-ring cursor-pointer p-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset sm:p-5'>
           {t('Scripts')} ({scripts.data?.length ?? 0})
         </summary>
         {scripts.data?.map((script) => (
@@ -251,29 +361,24 @@ export function PublicScriptsPanel({
 export function PublicScriptsPage() {
   const { t } = useTranslation()
   return (
-    <main className='min-h-screen px-4 py-10 sm:px-8 sm:py-16'>
+    <main className='min-h-screen px-4 pt-10 pb-20 sm:px-6 md:px-10 md:pt-16'>
       <div className='mx-auto w-full max-w-4xl'>
-        <div className='mb-8 flex items-start justify-between gap-4'>
-          <div>
-            <p className='text-muted-foreground text-xs font-medium tracking-[0.16em] uppercase'>
-              LMM Forge
-            </p>
-            <h1 className='mt-2 text-3xl font-semibold tracking-tight'>
-              {t('Public scripts')}
-            </h1>
-          </div>
-          <a
-            href='/'
-            className='text-muted-foreground hover:text-foreground text-sm'
-          >
-            {t('Back to home')}
-          </a>
+        <div className='mb-8'>
+          <h1 className='text-3xl font-semibold tracking-tight'>
+            {t('Public scripts')}
+          </h1>
+          <p className='text-muted-foreground mt-3 max-w-[70ch] text-sm leading-6'>
+            {t(
+              'Browse maintained setup scripts and copy the command for your system.'
+            )}
+          </p>
         </div>
-        <div className='mb-8 flex flex-wrap items-center justify-between gap-4 border-y py-5'>
-          <div>
+        <PublicScriptsPanel fullPage />
+        <div className='mt-10 flex flex-wrap items-center justify-between gap-4 border-y py-5'>
+          <div className='min-w-0 flex-1 basis-64'>
             <p className='text-sm font-medium'>{t('Script repository')}</p>
             <a
-              className='text-muted-foreground text-sm break-all underline underline-offset-4'
+              className='text-muted-foreground focus-visible:ring-ring mt-1 inline-block rounded-sm text-sm break-all underline underline-offset-4 outline-none focus-visible:ring-2'
               href={repositoryUrl('scripts')}
               target='_blank'
               rel='noopener noreferrer'
@@ -283,9 +388,46 @@ export function PublicScriptsPage() {
           </div>
           <RepositoryLink kind='scripts' />
         </div>
-        <PublicScriptsPanel fullPage />
+        <div className='mt-8'>
+          <BookmarkletInstall />
+        </div>
       </div>
     </main>
+  )
+}
+
+export function ConsoleScriptsPage() {
+  const { t } = useTranslation()
+
+  return (
+    <SectionPageLayout>
+      <SectionPageLayout.Title>{t('Scripts')}</SectionPageLayout.Title>
+      <SectionPageLayout.Actions>
+        <RepositoryLink kind='scripts' />
+      </SectionPageLayout.Actions>
+      <SectionPageLayout.Content>
+        <div className='mx-auto w-full max-w-4xl space-y-6'>
+          <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
+            {t(
+              'Browse maintained setup scripts and copy the command for your system.'
+            )}
+          </p>
+          <PublicScriptsPanel fullPage />
+          <div className='border-border/70 border-y py-5'>
+            <p className='text-sm font-medium'>{t('Script repository')}</p>
+            <a
+              className='text-muted-foreground focus-visible:ring-ring mt-1 block w-fit rounded-sm text-sm break-all underline underline-offset-4 outline-none focus-visible:ring-2'
+              href={repositoryUrl('scripts')}
+              target='_blank'
+              rel='noopener noreferrer'
+            >
+              {REPOSITORIES.scripts}
+            </a>
+          </div>
+          <BookmarkletInstall />
+        </div>
+      </SectionPageLayout.Content>
+    </SectionPageLayout>
   )
 }
 

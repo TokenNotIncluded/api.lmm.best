@@ -282,3 +282,29 @@ func TestSecretsStoredOnlyAsSHA256Digests(t *testing.T) {
 		}
 	})
 }
+
+// Code-only clients must not receive or retain an unusable refresh credential.
+func TestOAuthCodeOnlyClientPersistsOnlyAccessTokens(t *testing.T) {
+	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
+		s, _, _ := testServer(t, db)
+		client := s.clients["pi-native"]
+		client.RefreshDisabled = true
+		s.clients[client.ID] = client
+		tokens, _ := issueTokens(t, s)
+		require.Empty(t, tokens.RefreshToken)
+		raw, err := json.Marshal(tokens)
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "refresh_token")
+		grant := verify(t, s, tokens.AccessToken)
+		var rows []model.OAuthServerToken
+		require.NoError(t, db.Where("family_id = ?", grant.FamilyID).Find(&rows).Error)
+		require.Len(t, rows, 1)
+		require.Equal(t, "access", rows[0].Kind)
+		_, err = s.Exchange(context.Background(), refreshValues(tokens.AccessToken).Encode(), SenderBinding{})
+		expectProtocol(t, err, "unauthorized_client")
+		verify(t, s, tokens.AccessToken)
+		require.NoError(t, s.Revoke(context.Background(), url.Values{"client_id": {client.ID}, "token": {tokens.AccessToken}}.Encode()))
+		_, err = s.ValidateAccess(context.Background(), AccessRequest{Token: tokens.AccessToken, Resource: testResource})
+		expectProtocol(t, err, "invalid_token")
+	})
+}

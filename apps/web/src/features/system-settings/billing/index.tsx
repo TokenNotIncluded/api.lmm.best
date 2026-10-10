@@ -25,9 +25,12 @@ import {
 } from './section-registry.tsx'
 
 const defaultBillingSettings: BillingSettings = {
+  TrustLevelBenefits: '',
   QuotaForNewUser: 0,
   PreConsumedQuota: 0,
   QuotaForInviter: 0,
+  ReferralRegistrationRewardQuota: 0,
+  ReferralMinTopUpAmounts: '{"USD":"10","CNY":"70"}',
   ReferralMinTopUpQuota: 0,
   ReferralMaxRewardQuota: 0,
   ReferralPenaltyPercent: 20,
@@ -38,9 +41,11 @@ const defaultBillingSettings: BillingSettings = {
   TopUpLink: '',
   'general_setting.docs_link': '',
   'quota_setting.enable_free_model_pre_consume': true,
+  'developer_access_setting.invite_registration_enabled': false,
   'developer_access_setting.paid_activation_enabled': true,
   'developer_access_setting.paid_activation_min_amount': 1,
   QuotaPerUnit: 500000,
+  PublicCreditsPerUSD: '',
   USDExchangeRate: 7,
   TopUpPlatformUnitsPerCNY: 1,
   'general_setting.quota_display_type': 'USD',

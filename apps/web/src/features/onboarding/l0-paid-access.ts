@@ -11,6 +11,7 @@ export type L0AccessAccount = {
   developer_access_granted?: boolean
   onboarding?: {
     paid_activation_enabled?: boolean
+    paid_activation_min_credits?: string
     paid_activation_min_amount?: number
     paid_activation_complete?: boolean
     details_available?: boolean
@@ -18,21 +19,30 @@ export type L0AccessAccount = {
   trust_level_info?: {
     overridden?: boolean
     paid_amount?: number
+    paid_credits?: string | null
+    paid_credit_projection_available?: boolean
   }
+  trust_level_tiers?: Array<{ level: number; min_paid_credits?: string }>
 }
 
 export type L0PaidAccess = {
   mode: 'unknown' | 'review' | 'topup' | 'sync' | 'active'
-  remaining: number
-  threshold: number
-  paid: number
+  remainingCredits: number
+  thresholdCredits: number
+  paidCredits: number
+}
+
+function exactCredits(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null
+  const credits = BigInt(value)
+  return credits <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(credits) : null
 }
 
 /** Presentation only: balance, a URL and a payment redirect never grant access. */
 export function getL0PaidAccess(
   user: L0AccessAccount | null | undefined
 ): L0PaidAccess {
-  const empty = { remaining: 0, threshold: 0, paid: 0 }
+  const empty = { remainingCredits: 0, thresholdCredits: 0, paidCredits: 0 }
   if (user?.developer_access_granted === true) {
     return { ...empty, mode: 'active' }
   }
@@ -42,37 +52,31 @@ export function getL0PaidAccess(
   ) {
     return { ...empty, mode: 'review' }
   }
-  const rawThreshold = user?.onboarding?.paid_activation_min_amount
   if (
     user?.onboarding?.paid_activation_enabled !== true ||
     user.onboarding.details_available === false ||
-    typeof rawThreshold !== 'number' ||
-    !Number.isFinite(rawThreshold) ||
-    rawThreshold < 0
+    user.trust_level_info?.paid_credit_projection_available === false
   ) {
     return { ...empty, mode: 'unknown' }
   }
-  const rawPaid = user.trust_level_info?.paid_amount ?? 0
-  if (!Number.isFinite(rawPaid) || rawPaid < 0) {
-    return { ...empty, mode: 'unknown' }
-  }
-  // Match the backend's credited-USD micros, not settlement currency or wallet balance.
-  const thresholdMicros = Math.round(rawThreshold * 1_000_000)
-  const paidMicros = Math.round(rawPaid * 1_000_000)
-  if (
-    !Number.isSafeInteger(thresholdMicros) ||
-    !Number.isSafeInteger(paidMicros)
-  ) {
+  // Older current servers already expose the configured L1 credit threshold
+  // in tier views. Never interpret historical policy amounts as USD or credits.
+  const thresholdCredits = exactCredits(
+    user.onboarding.paid_activation_min_credits ??
+      user.trust_level_tiers?.find((tier) => tier.level === 1)?.min_paid_credits
+  )
+  const paidCredits = exactCredits(user.trust_level_info?.paid_credits)
+  if (thresholdCredits === null || paidCredits === null) {
     return { ...empty, mode: 'unknown' }
   }
   const sync =
     user.onboarding.paid_activation_complete === true ||
-    (paidMicros > 0 && paidMicros >= thresholdMicros)
+    (paidCredits > 0 && paidCredits >= thresholdCredits)
   return {
     mode: sync ? 'sync' : 'topup',
-    threshold: thresholdMicros / 1_000_000,
-    paid: paidMicros / 1_000_000,
-    remaining: Math.max(0, thresholdMicros - paidMicros) / 1_000_000,
+    thresholdCredits,
+    paidCredits,
+    remainingCredits: Math.max(0, thresholdCredits - paidCredits),
   }
 }
 

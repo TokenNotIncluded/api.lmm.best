@@ -4,21 +4,22 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"errors"
-	"math"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 const (
 	AssistantGiftOffered  = "offered"
 	AssistantGiftClaimed  = "claimed"
 	AssistantGiftDeclined = "declined"
-	assistantGiftMaxCents = 1000
 	assistantGiftRiskAge  = 30 * 24 * time.Hour
 	assistantGiftIPLimit  = 3
 )
@@ -28,6 +29,8 @@ var (
 	ErrAssistantGiftInvalid     = errors.New("new-user assistant gift decision is invalid")
 	ErrAssistantGiftUnavailable = errors.New("new-user assistant gift cannot be claimed")
 	ErrAssistantGiftAbuse       = errors.New("new-user assistant gift risk limit reached")
+	ErrAssistantGiftLimit       = errors.New("new-user gift exceeds the current maximum")
+	ErrAssistantGiftDisabled    = errors.New("new-user gifts are currently disabled")
 )
 
 // AssistantGiftError preserves the coarse sentinel used by callers while
@@ -100,8 +103,9 @@ func (AssistantGiftRiskMemory) TableName() string { return "assistant_gift_risk_
 
 // AssistantNewUserGift is a one-time, user-scoped decision. AmountCents and
 // Quota are both persisted so a later exchange-rate change cannot alter an
-// already presented gift. A zero-dollar decision is retained as declined and
-// consumes the same single opportunity.
+// already presented gift. AmountCents are LEGACY_CENTS, not US cents; Quota is
+// the immutable Credit grant. Historical declined rows remain unchanged. New
+// zero-credit choices are not persisted and do not consume an opportunity.
 type AssistantNewUserGift struct {
 	Id             int64  `json:"id" gorm:"primaryKey"`
 	UserId         int    `json:"-" gorm:"not null;uniqueIndex"`
@@ -133,21 +137,65 @@ func GetAssistantNewUserGift(userID int) (*AssistantNewUserGift, error) {
 // not accepted from a browser. The database uniqueness constraint is the
 // final race boundary across retries and instances.
 func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents int, reason string, substantiveTurns int, substantiveRunes int, clientIP string) (*AssistantNewUserGift, bool, error) {
-	if userID <= 0 || conversationID < 0 || amountCents < 0 || amountCents > assistantGiftMaxCents {
+	if amountCents < 0 || amountCents > common.MaxWalletQuota {
 		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
 	}
-	// Two short labels such as "code assistant" and a client name are not
-	// enough evidence for a cash-equivalent reward. Require a concrete amount
-	// of user-authored context in addition to multiple substantive turns.
-	if substantiveTurns < 2 || substantiveRunes < 24 {
-		return nil, false, assistantGiftError("insufficient_conversation", ErrAssistantGiftInvalid)
+	if _, err := common.LegacyPricingUnitsPerUSD(); err != nil {
+		return nil, false, err
 	}
+	legacy, err := common.LegacyPricingQuotaPerUnit()
+	if err != nil {
+		return nil, false, err
+	}
+	quota, err := common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(int64(amountCents)).Mul(legacy).Div(decimal.NewFromInt(100)).Round(0))
+	if err != nil {
+		return nil, false, err
+	}
+	if amountCents > 0 && quota <= 0 {
+		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	return decideAssistantNewUserGiftCredits(userID, conversationID, quota, amountCents, reason, substantiveTurns, substantiveRunes, clientIP)
+}
+
+// New assistant decisions use exact wallet credits. The retained legacy input
+// remains a compatibility bridge and cannot bypass this same Credit cap.
+func DecideAssistantNewUserGiftCredits(userID int, conversationID int64, credits int, reason string, substantiveTurns int, substantiveRunes int, clientIP string) (*AssistantNewUserGift, bool, error) {
+	if err := common.ValidateWalletQuota(credits); err != nil || credits < 0 {
+		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	if _, err := common.CreditsPerUSD(); err != nil {
+		return nil, false, err
+	}
+	return decideAssistantNewUserGiftCredits(userID, conversationID, credits, 0, reason, substantiveTurns, substantiveRunes, clientIP)
+}
+
+func decideAssistantNewUserGiftCredits(userID int, conversationID int64, quota, amountCents int, reason string, substantiveTurns int, substantiveRunes int, clientIP string) (*AssistantNewUserGift, bool, error) {
+	if userID <= 0 || conversationID < 0 || quota < 0 {
+		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	// Retain evidence arguments for source compatibility, not eligibility gates.
+	// The assistant judges the conversation; storage checks account eligibility.
 	reason = strings.TrimSpace(redactAssistantHandoffMessage(reason))
-	// A model must provide a concrete purpose, not a one-word acknowledgement
-	// or an amount-only request. This check is intentionally in the model layer
-	// so direct tool/API callers cannot bypass the product eligibility policy.
-	if len([]rune(reason)) < 8 || len([]rune(reason)) > 240 {
-		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	if reason == "" {
+		reason = "Welcome gift"
+	}
+	if text := []rune(reason); len(text) > 240 {
+		reason = string(text[:240])
+	}
+	if quota == 0 {
+		// A no-op request must not erase the status of an earlier decision.
+		if existing, err := GetAssistantNewUserGift(userID); err != nil || existing != nil {
+			return existing, false, err
+		}
+		cap, err := AssistantGiftMaxCreditsDB(DB)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := CheckAssistantGiftCreditLimit(quota, cap); err != nil {
+			return nil, false, err
+		}
+		// Do not store an empty decision or reserve a risk identity.
+		return &AssistantNewUserGift{UserId: userID, ConversationId: conversationID, Status: AssistantGiftDeclined, Reason: reason}, false, nil
 	}
 
 	if existing, err := GetAssistantNewUserGift(userID); err != nil || existing != nil {
@@ -161,12 +209,8 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 	if user.Role != common.RoleCommonUser || user.Status != common.UserStatusEnabled || strings.TrimSpace(user.Email) == "" || IsDisposableEmail(user.Email) {
 		return nil, false, assistantGiftError("account_not_eligible", ErrAssistantGiftIneligible)
 	}
-	quota := int(math.Round(float64(amountCents) * common.QuotaPerUnit / 100))
-	if quota < 0 || (amountCents > 0 && quota <= 0) {
-		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
-	}
 	status := AssistantGiftOffered
-	if amountCents == 0 {
+	if quota == 0 {
 		status = AssistantGiftDeclined
 	}
 	gift := AssistantNewUserGift{
@@ -191,6 +235,9 @@ func DecideAssistantNewUserGift(userID int, conversationID int64, amountCents in
 		}
 		if !errors.Is(existingErr, gorm.ErrRecordNotFound) {
 			return existingErr
+		}
+		if err := checkAssistantGiftLimitTx(tx, quota); err != nil {
+			return err
 		}
 		summary, checkErr := registrationSummaryTx(tx, userID)
 		if checkErr != nil {
@@ -244,6 +291,9 @@ func getAssistantGiftRiskSecret(tx *gorm.DB) (string, error) {
 	if tx == nil {
 		return "", gorm.ErrInvalidData
 	}
+	// This query/INSERT contains installation key material. Even callers using
+	// DB.Debug() must never render it through SQL/error tracing.
+	tx = tx.Session(&gorm.Session{Logger: gormlogger.Discard})
 	var stored AssistantGiftRiskKey
 	if err := tx.Where("id = ?", assistantGiftRiskKeyID).First(&stored).Error; err == nil {
 		stored.Secret = strings.TrimSpace(stored.Secret)
@@ -366,6 +416,7 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 	}
 	var gift AssistantNewUserGift
 	alreadyClaimed := false
+	creditedQuota := 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAssistantOwner(tx, userID); err != nil {
 			return err
@@ -383,12 +434,20 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		if err := checkAssistantRegistrationTx(tx, userID); err != nil {
 			return assistantGiftError("registration_verification_required", ErrAssistantGiftIneligible)
 		}
-		if gift.Status != AssistantGiftOffered || gift.AmountCents <= 0 || gift.Quota <= 0 {
+		if gift.Status != AssistantGiftOffered || gift.Quota <= 0 {
 			return ErrAssistantGiftUnavailable
+		}
+		var err error
+		creditedQuota, err = WalletFutureCreditQuota(tx, gift.UserId, "assistant_gift", strconv.FormatInt(gift.Id, 10), gift.Quota, gift.CreatedAt)
+		if err != nil {
+			return err
+		}
+		if err := checkAssistantExistingGiftLimitTx(tx, creditedQuota); err != nil {
+			return err
 		}
 		result := UpdateWalletQuotaByDelta(
 			tx.Model(&User{}).Where("id = ? AND status = ?", userID, common.UserStatusEnabled),
-			gift.Quota,
+			creditedQuota,
 		)
 		if result.Error != nil {
 			return result.Error
@@ -411,7 +470,7 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		return nil, false, err
 	}
 	if !alreadyClaimed {
-		if err := cacheIncrUserQuota(userID, int64(gift.Quota)); err != nil {
+		if err := cacheIncrUserQuota(userID, int64(creditedQuota)); err != nil {
 			common.SysLog("failed to update new-user assistant gift quota cache: " + err.Error())
 		}
 	}

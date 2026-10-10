@@ -16,14 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
 import axios, { type AxiosError } from 'axios'
 
 import type { QuotaDataItem } from '@/features/dashboard/types'
 import type { PricingData } from '@/features/pricing/types'
 import type { PlanRecord } from '@/features/subscriptions/types'
+import { CATALOGUE_ID_PATTERN } from '@/features/tool-market/service-link'
 import { api, getCommonHeaders, getFreshAuthHeaders } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -35,9 +33,36 @@ import {
   consumeAssistantAISDKStream,
   isRetryableAssistantStatus,
 } from './assistant-ai-stream'
+import {
+  parseAssistantKeyManagementAction,
+  parseAssistantKeyManagementReceipt,
+  type AssistantKeyManagementAction,
+  type AssistantKeyManagementReceipt,
+} from './assistant-key-management-contract'
 import { redactAssistantMessageForRequest } from './assistant-message-safety'
 import { ASSISTANT_PROMPT_PRESET_COPY_VERSION } from './assistant-prompt-presets'
 import type { AssistantSupportRequest } from './assistant-support-api'
+import {
+  parseAssistantToolErrorCode,
+  type AssistantToolErrorCode,
+} from './assistant-tool-errors'
+import {
+  parseAssistantVisualization,
+  type AssistantVisualization,
+} from './assistant-visualization-data'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import {
+  parseAssistantWorkspaceAction,
+  type AssistantWorkspaceAction,
+} from './assistant-workspace-contract'
+import { getGuideEligibleModels } from './setup-guide'
+
+export type {
+  AssistantKeyManagementAction,
+  AssistantKeyManagementReceipt,
+} from './assistant-key-management-contract'
 
 type AssistantChatPayload = {
   choices?: Array<{
@@ -157,8 +182,10 @@ export type AssistantPreConversationPresets = {
 }
 
 export type DrawingWebAccess = {
-  minimum_balance_usd: number
+  minimum_balance_usd: number | null
+  minimum_balance_credit?: number | null
   balance_usd: number | null
+  balance_credit?: number | null
   allowed: boolean
 }
 
@@ -233,6 +260,14 @@ export type AssistantJourney = {
 
 export type AssistantNewUserGift = {
   amount_cents: number
+  amount_unit?: 'LEGACY_CENTS'
+  max_credit_amount?: number
+  claim_available?: boolean
+  claim_blocked_code?: string
+  credit_amount?: number
+  amount_usd?: number | null
+  currency?: 'USD'
+  credits_per_usd?: number | null
   quota: number
   status: 'offered' | 'claimed' | 'declined'
   reason: string
@@ -242,13 +277,20 @@ export type AssistantNewUserGift = {
 
 /**
  * The server emits this lightweight action when the assistant has prepared a
- * gift for the user to claim. It intentionally does not include quota or any
- * private account fields; those remain available only through the signed-in
- * gift endpoint.
+ * gift for the user to claim. credit_amount is the gift's stored grant, never
+ * the account balance. Legacy amount_cents are not US cents.
  */
 export type AssistantNewUserGiftAction = {
   type: 'new_user_gift'
   amount_cents: number
+  amount_unit?: 'LEGACY_CENTS'
+  max_credit_amount?: number
+  claim_available?: boolean
+  claim_blocked_code?: string
+  credit_amount?: number
+  amount_usd?: number | null
+  currency?: 'USD'
+  credits_per_usd?: number | null
   status: 'offered'
   reason: string
 }
@@ -268,13 +310,6 @@ export type AssistantWeeklyDiscountAction = {
   discount_percent: number
   status: 'offered'
   reason: string
-}
-
-export type AssistantL1RecommendationAction = {
-  type: 'l1_recommendation'
-  user_statement: string
-  recommendation: string
-  confirmation_token: string
 }
 
 export type AssistantAccountDisableAction = {
@@ -380,7 +415,6 @@ export type AssistantAdminChangeAction =
 
 export type AssistantNavigationPath =
   | '/'
-  | '/getting-started'
   | '/pricing'
   | '/wallet'
   | '/usage-logs/common'
@@ -393,6 +427,9 @@ export type AssistantNavigationPath =
   | '/support'
   | '/open-source-bounties'
   | '/users'
+  | '/store'
+  | `/store/products/${string}`
+  | '/tool-market'
 
 export type AssistantNavigationAction = {
   type: 'navigate'
@@ -414,6 +451,13 @@ export type AssistantUserPasswordChangeAction = AssistantUserTargetAction & {
   type: 'user_password_change'
 }
 
+export type AssistantUserDisplayNameChangeAction = AssistantUserTargetAction & {
+  type: 'user_display_name_change'
+  target_is_self: true
+  proposed_display_name: string
+  confirmation_token: string
+}
+
 export type AssistantUserOAuthUnbindAction = AssistantUserTargetAction & {
   type: 'user_oauth_unbind'
   provider: string
@@ -428,23 +472,26 @@ export type AssistantUserAccountAction = AssistantUserTargetAction & {
 
 export type AssistantUserAction =
   | AssistantUserPasswordChangeAction
+  | AssistantUserDisplayNameChangeAction
   | AssistantUserOAuthUnbindAction
   | AssistantUserAccountAction
 
 export type AssistantToolTrace = {
+  visualization?: AssistantVisualization
   callId?: string
   name: string
   status: 'output-available' | 'output-error' | 'approval-requested'
   input?: Record<string, string | number | boolean>
   result?: number
-  errorCode?: 'missing_math_expression' | 'invalid_math_expression'
+  errorCode?: AssistantToolErrorCode
 }
 
 export type AssistantAction =
-  | AssistantL1RecommendationAction
+  | AssistantWorkspaceAction
   | AssistantAccountDisableAction
   | AssistantHumanSupportAction
   | AssistantCreateKeyAction
+  | AssistantKeyManagementAction
   | AssistantNewUserGiftAction
   | AssistantWeeklyDiscountAction
   | AssistantImageGenerationAction
@@ -770,7 +817,6 @@ export function parseAssistantIntent(
 
 const ASSISTANT_NAVIGATION_PATHS = new Set<AssistantNavigationPath>([
   '/',
-  '/getting-started',
   '/pricing',
   '/wallet',
   '/usage-logs/common',
@@ -783,14 +829,14 @@ const ASSISTANT_NAVIGATION_PATHS = new Set<AssistantNavigationPath>([
   '/support',
   '/open-source-bounties',
   '/users',
+  '/store',
+  '/tool-market',
 ])
 
-const ASSISTANT_NAVIGATION_QUERY_KEYS: Record<
-  AssistantNavigationPath,
-  readonly string[]
+const ASSISTANT_NAVIGATION_QUERY_KEYS: Partial<
+  Record<AssistantNavigationPath, readonly string[]>
 > = {
   '/': [],
-  '/getting-started': [],
   '/pricing': [],
   '/wallet': [],
   '/usage-logs/common': ['username'],
@@ -803,6 +849,8 @@ const ASSISTANT_NAVIGATION_QUERY_KEYS: Record<
   '/support': [],
   '/open-source-bounties': [],
   '/users': ['filter', 'l0Only'],
+  '/store': [],
+  '/tool-market': ['service_id'],
 }
 
 function parseAssistantNavigationAction(
@@ -812,16 +860,34 @@ function parseAssistantNavigationAction(
     return undefined
   }
   const path = action.path.trim() as AssistantNavigationPath
-  if (!ASSISTANT_NAVIGATION_PATHS.has(path)) return undefined
+  const productID = path.startsWith('/store/products/')
+    ? path.slice('/store/products/'.length)
+    : undefined
+  const productPath =
+    productID !== undefined && CATALOGUE_ID_PATTERN.test(productID)
+  if (!ASSISTANT_NAVIGATION_PATHS.has(path) && !productPath) return undefined
   const queryValue = action.query
   const query: Record<string, string | number | boolean> = {}
   if (queryValue !== undefined) {
     if (!queryValue || typeof queryValue !== 'object') return undefined
-    const allowedKeys = ASSISTANT_NAVIGATION_QUERY_KEYS[path]
+    if (Array.isArray(queryValue)) return undefined
+    const allowedKeys = productPath
+      ? ['owner_preview']
+      : (ASSISTANT_NAVIGATION_QUERY_KEYS[path] ?? [])
     for (const [key, value] of Object.entries(
       queryValue as Record<string, unknown>
     )) {
       if (!allowedKeys.includes(key)) return undefined
+      if (productPath && (key !== 'owner_preview' || value !== true)) {
+        return undefined
+      }
+      if (
+        path === '/tool-market' &&
+        key === 'service_id' &&
+        (typeof value !== 'string' || !CATALOGUE_ID_PATTERN.test(value))
+      ) {
+        return undefined
+      }
       if (
         typeof value !== 'string' &&
         typeof value !== 'number' &&
@@ -849,8 +915,15 @@ function parseAssistantNewUserGiftAction(
     action.status !== 'offered' ||
     typeof action.amount_cents !== 'number' ||
     !Number.isInteger(action.amount_cents) ||
-    action.amount_cents < 1 ||
-    action.amount_cents > 1000 ||
+    action.amount_cents < 0 ||
+    !Number.isSafeInteger(action.amount_cents) ||
+    (action.amount_cents === 0 &&
+      !(
+        typeof action.credit_amount === 'number' &&
+        Number.isSafeInteger(action.credit_amount) &&
+        action.credit_amount > 0
+      )) ||
+    action.claim_available === false ||
     typeof action.reason !== 'string'
   ) {
     return undefined
@@ -858,9 +931,48 @@ function parseAssistantNewUserGiftAction(
   const reason = action.reason.trim()
   const reasonRunes = [...reason].length
   if (reasonRunes < 2 || reasonRunes > 240) return undefined
+  const money =
+    action.amount_unit === 'LEGACY_CENTS' &&
+    typeof action.credit_amount === 'number' &&
+    Number.isSafeInteger(action.credit_amount) &&
+    action.credit_amount > 0 &&
+    (action.amount_usd === null ||
+      (typeof action.amount_usd === 'number' &&
+        Number.isFinite(action.amount_usd) &&
+        action.amount_usd > 0)) &&
+    action.currency === 'USD' &&
+    (action.credits_per_usd === null ||
+      (typeof action.credits_per_usd === 'number' &&
+        Number.isFinite(action.credits_per_usd) &&
+        action.credits_per_usd > 0))
+      ? {
+          amount_unit: 'LEGACY_CENTS' as const,
+          credit_amount: action.credit_amount,
+          amount_usd: action.amount_usd,
+          currency: 'USD' as const,
+          credits_per_usd: action.credits_per_usd,
+        }
+      : {}
+  if (action.amount_cents === 0 && !('credit_amount' in money)) return undefined
+  if (
+    typeof action.max_credit_amount === 'number' &&
+    'credit_amount' in money &&
+    (money.credit_amount as number) > action.max_credit_amount
+  ) {
+    return undefined
+  }
   return {
     type: 'new_user_gift',
+    ...money,
     amount_cents: action.amount_cents,
+    ...(typeof action.max_credit_amount === 'number' &&
+    Number.isSafeInteger(action.max_credit_amount) &&
+    action.max_credit_amount >= 0
+      ? { max_credit_amount: action.max_credit_amount }
+      : {}),
+    ...(typeof action.claim_available === 'boolean'
+      ? { claim_available: action.claim_available }
+      : {}),
     status: 'offered',
     reason,
   }
@@ -875,7 +987,7 @@ function parseAssistantWeeklyDiscountAction(
     typeof action.discount_percent !== 'number' ||
     !Number.isInteger(action.discount_percent) ||
     action.discount_percent < 1 ||
-    action.discount_percent > 10 ||
+    action.discount_percent > 99 ||
     typeof action.reason !== 'string'
   ) {
     return undefined
@@ -889,6 +1001,23 @@ function parseAssistantWeeklyDiscountAction(
     status: 'offered',
     reason,
   }
+}
+
+export function getAssistantDisplayNameValidationError(
+  value: string
+):
+  | 'Display name must be 1 to 20 characters'
+  | 'Display name cannot contain control characters'
+  | undefined {
+  const displayName = value.trim()
+  const length = [...displayName].length
+  if (length < 1 || length > 20) {
+    return 'Display name must be 1 to 20 characters'
+  }
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(displayName)) {
+    return 'Display name cannot contain control characters'
+  }
+  return undefined
 }
 
 function parseAssistantUserAction(
@@ -932,6 +1061,28 @@ function parseAssistantUserAction(
   }
   if (action.type === 'user_password_change') {
     return { type: action.type, ...target }
+  }
+  if (
+    action.type === 'user_display_name_change' &&
+    action.target_is_self === true &&
+    typeof action.proposed_display_name === 'string' &&
+    typeof action.confirmation_token === 'string'
+  ) {
+    const displayName = action.proposed_display_name.trim()
+    const confirmationToken = action.confirmation_token.trim()
+    if (
+      (displayName && getAssistantDisplayNameValidationError(displayName)) ||
+      !confirmationToken
+    ) {
+      return undefined
+    }
+    return {
+      type: action.type,
+      ...target,
+      target_is_self: true,
+      proposed_display_name: displayName,
+      confirmation_token: confirmationToken,
+    }
   }
   if (
     action.type === 'user_oauth_unbind' &&
@@ -1007,10 +1158,8 @@ export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
           ? trace.result
           : undefined
       const errorCode =
-        name === 'calculate_math' &&
-        (trace.error_code === 'missing_math_expression' ||
-          trace.error_code === 'invalid_math_expression')
-          ? trace.error_code
+        trace.status === 'output-error'
+          ? parseAssistantToolErrorCode(trace.error_code)
           : undefined
       return {
         name,
@@ -1021,6 +1170,15 @@ export function parseAssistantToolTraces(value: unknown): AssistantToolTrace[] {
         ...(input && Object.keys(input).length > 0 ? { input } : {}),
         ...(result !== undefined ? { result } : {}),
         ...(errorCode ? { errorCode } : {}),
+        ...(trace.status === 'output-available' &&
+        parseAssistantVisualization(name, trace.visualization)
+          ? {
+              visualization: parseAssistantVisualization(
+                name,
+                trace.visualization
+              ),
+            }
+          : {}),
       }
     })
     .filter((trace): trace is AssistantToolTrace => trace !== null)
@@ -1031,6 +1189,12 @@ export function parseAssistantAction(
 ): AssistantAction | undefined {
   if (!value || typeof value !== 'object') return undefined
   const action = value as Record<string, unknown>
+  if (action.type === 'workspace_action') {
+    return parseAssistantWorkspaceAction(value)
+  }
+  if (action.type === 'api_key_action') {
+    return parseAssistantKeyManagementAction(value)
+  }
   const navigation = parseAssistantNavigationAction(action)
   if (navigation) return navigation
   const newUserGift = parseAssistantNewUserGiftAction(action)
@@ -1333,22 +1497,6 @@ export function parseAssistantAction(
   }
 
   if (
-    action.type === 'l1_recommendation' &&
-    typeof action.user_statement === 'string' &&
-    typeof action.recommendation === 'string'
-  ) {
-    const userStatement = action.user_statement.trim()
-    const recommendation = action.recommendation.trim()
-    if (!userStatement || !recommendation) return undefined
-    return {
-      type: 'l1_recommendation',
-      user_statement: userStatement,
-      recommendation,
-      confirmation_token: confirmationToken,
-    }
-  }
-
-  if (
     action.type === 'account_disable_request' &&
     typeof action.target_user_id === 'number' &&
     Number.isInteger(action.target_user_id) &&
@@ -1467,6 +1615,7 @@ async function sendAssistantMessageStream(
     headers: {
       ...authHeaders,
       Accept: 'text/event-stream',
+      'X-LMM-Credit-Unit': '500000',
       'X-LMM-Assistant-Attempt': String(attempt),
     },
     signal,
@@ -1615,12 +1764,45 @@ export async function recordAssistantPreConversationPresetClick(
 
 export async function executeAssistantUserAction(
   action: AssistantUserAction,
-  input: { currentPassword?: string; newPassword?: string }
+  input: {
+    currentPassword?: string
+    newPassword?: string
+    displayName?: string
+  }
 ): Promise<{ selfDeleted: boolean }> {
   const skipOptions = {
     skipBusinessError: true,
     skipErrorHandler: true,
   } as const
+  if (action.type === 'user_display_name_change') {
+    const displayName = (input.displayName ?? '').trim()
+    if (!action.target_is_self || !action.confirmation_token.trim()) {
+      throw new Error('Unable to change display name')
+    }
+    const validationError = getAssistantDisplayNameValidationError(displayName)
+    if (validationError) throw new Error(validationError)
+    try {
+      const response = await api.put<AssistantAPIResponse<unknown>>(
+        '/api/assistant/profile/display-name',
+        {
+          display_name: displayName,
+          confirmation_token: action.confirmation_token,
+          confirmed: true,
+        },
+        skipOptions
+      )
+      requireAssistantData(response.data, 'Unable to change display name')
+      return { selfDeleted: false }
+    } catch (error) {
+      if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+        throw normalizeAssistantRequestError(
+          error,
+          'Unable to change display name'
+        )
+      }
+      throw error
+    }
+  }
   if (action.type === 'user_password_change') {
     const password = input.newPassword ?? ''
     if (action.target_is_self) {
@@ -1789,6 +1971,14 @@ export async function getAssistantAvailableModels(): Promise<string[]> {
   return requireAssistantData(response.data, 'Unable to load available models')
 }
 
+export async function getAssistantSetupModels(): Promise<string[]> {
+  const [models, pricing] = await Promise.all([
+    getAssistantAvailableModels(),
+    getAssistantPricing().catch(() => null),
+  ])
+  return getGuideEligibleModels(models, pricing?.data)
+}
+
 export async function getAssistantPricing(): Promise<PricingData> {
   const response = await api.get<PricingData>('/api/assistant/pricing', {
     skipBusinessError: true,
@@ -1885,6 +2075,46 @@ export async function confirmAssistantDefaultKey(
   }
 }
 
+export async function confirmAssistantKeyAction(
+  action: AssistantKeyManagementAction,
+  twoFactorCode = ''
+): Promise<AssistantKeyManagementReceipt> {
+  const prepared = parseAssistantKeyManagementAction(action)
+  const fallback = 'Unable to confirm the key action'
+  if (!prepared) throw new AssistantRequestError(fallback)
+  try {
+    const response = await api.post<AssistantAPIResponse<unknown>>(
+      '/api/assistant/tools/key-action',
+      {
+        confirmation_token: prepared.confirmation_token,
+        two_factor_code: twoFactorCode.trim(),
+      },
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    const payload = response.data
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload) ||
+      payload.success !== true ||
+      payload.data === undefined
+    ) {
+      throw new AssistantRequestError(
+        fallback,
+        typeof payload?.code === 'string' ? payload.code : undefined
+      )
+    }
+    const receipt = parseAssistantKeyManagementReceipt(payload.data, prepared)
+    if (!receipt) throw new AssistantRequestError(fallback)
+    return receipt
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw new AssistantRequestError(fallback, error.response?.data?.code)
+    }
+    throw error
+  }
+}
+
 export async function getL1OnboardingTodo(): Promise<L1OnboardingTodo> {
   const response = await api.get<AssistantAPIResponse<L1OnboardingTodo>>(
     '/api/user/self/onboarding/todo',
@@ -1924,16 +2154,26 @@ export async function claimAssistantNewUserGift(): Promise<{
   gift: AssistantNewUserGift
   already_claimed: boolean
 }> {
-  const response = await api.post<
-    AssistantAPIResponse<{
-      gift: AssistantNewUserGift
-      already_claimed: boolean
-    }>
-  >('/api/assistant/new-user-gift/claim', undefined, {
-    skipBusinessError: true,
-    skipErrorHandler: true,
-  })
-  return requireAssistantData(response.data, 'Unable to claim welcome gift')
+  try {
+    const response = await api.post<
+      AssistantAPIResponse<{
+        gift: AssistantNewUserGift
+        already_claimed: boolean
+      }>
+    >('/api/assistant/new-user-gift/claim', undefined, {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+    return requireAssistantData(response.data, 'Unable to claim welcome gift')
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw normalizeAssistantRequestError(
+        error,
+        'Unable to claim welcome gift'
+      )
+    }
+    throw error
+  }
 }
 
 export async function getAssistantWeeklyDiscount(): Promise<AssistantWeeklyDiscount | null> {

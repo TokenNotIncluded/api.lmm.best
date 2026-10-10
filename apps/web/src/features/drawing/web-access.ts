@@ -3,40 +3,65 @@ Copyright (C) 2026 LIghtJUNction
 */
 import type { DrawingWebAccess } from '../assistant/api'
 
-export const WEB_DRAWING_MINIMUM_USD = 10
+const isQuota = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value)
 
 export function resolveDrawingWebAccess(
   access: DrawingWebAccess | undefined,
   quota: number | undefined,
-  quotaPerUSD: number
+  creditsPerUSD: number
 ): DrawingWebAccess {
   if (access) {
-    const balance =
+    const minimumCredit =
+      isQuota(access.minimum_balance_credit) &&
+      access.minimum_balance_credit >= 0
+        ? access.minimum_balance_credit
+        : null
+    const hasCreditGate = minimumCredit !== null
+    const balanceCredit = isQuota(access.balance_credit)
+      ? access.balance_credit
+      : null
+    const minimumUSD =
+      hasCreditGate &&
+      typeof access.minimum_balance_usd === 'number' &&
+      Number.isFinite(access.minimum_balance_usd) &&
+      access.minimum_balance_usd >= 0
+        ? access.minimum_balance_usd
+        : null
+    const balanceUSD =
+      hasCreditGate &&
       typeof access.balance_usd === 'number' &&
       Number.isFinite(access.balance_usd)
         ? access.balance_usd
         : null
     return {
-      minimum_balance_usd: WEB_DRAWING_MINIMUM_USD,
-      balance_usd: balance,
+      minimum_balance_usd: minimumUSD,
+      minimum_balance_credit: minimumCredit,
+      balance_usd: balanceUSD,
+      balance_credit: balanceCredit,
       allowed:
         access.allowed === true &&
-        balance !== null &&
-        balance >= WEB_DRAWING_MINIMUM_USD,
+        minimumUSD !== null &&
+        balanceUSD !== null &&
+        balanceCredit !== null &&
+        minimumCredit !== null &&
+        balanceCredit >= minimumCredit,
     }
   }
-  // Wallet quota can inform the balance display during rollout, but cannot
-  // authorize generation without the server's drawing-specific access check.
+  // A calibrated wallet balance can inform display, but only the server's
+  // drawing-specific raw Credit gate can authorize browser generation.
   const balance =
     typeof quota === 'number' &&
-    Number.isFinite(quota) &&
-    Number.isFinite(quotaPerUSD) &&
-    quotaPerUSD > 0
-      ? quota / quotaPerUSD
+    Number.isSafeInteger(quota) &&
+    Number.isFinite(creditsPerUSD) &&
+    creditsPerUSD > 0
+      ? quota / creditsPerUSD
       : null
   return {
-    minimum_balance_usd: WEB_DRAWING_MINIMUM_USD,
+    minimum_balance_usd: null,
+    minimum_balance_credit: null,
     balance_usd: balance,
+    balance_credit: isQuota(quota) ? quota : null,
     allowed: false,
   }
 }

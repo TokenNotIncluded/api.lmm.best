@@ -31,6 +31,21 @@ JSON parsing and encoding can still allocate complete values. Spilling a body
 is not a claim of constant-memory JSON processing, and passthrough improvements
 do not apply to routes that must convert or override the JSON payload.
 
+## Upstream response-header wait
+
+`RELAY_RESPONSE_HEADER_TIMEOUT` defaults to 1800 seconds. It bounds the Go
+transport's wait for upstream response headers after the request is written,
+including non-streaming generation that finishes before sending headers.
+It does not limit streaming after headers arrive. Set `0` to disable the
+deadline; negative values also disable it. Restart the service after changing
+the setting.
+
+This releases one source of indefinitely retained request buffers, not all
+stalled operations or total process memory. Choose a timeout that permits the
+expected upstream generation time. Streaming idle protection and total request
+deadlines remain separate settings. The configuration example is in
+[`../.env.example`](../.env.example).
+
 ## Optional large-request admission
 
 These settings are read once when the Go router is created; restart to change
@@ -129,26 +144,6 @@ The admission benchmark includes disabled and small-request fast paths. Use
 representative concurrency/load tests and supported Linux CI in addition to
 local allocation benchmarks before releasing.
 
-### Local allocation sample
-
-Measured with Go 1.27.1 on Android/arm64, `GOMAXPROCS=2`, `GOMEMLIMIT=768MiB`,
-`-benchtime=3x -count=3`, using synthetic payloads (not production request data):
-
-| Copy of a 28 MiB Responses input | Bytes allocated/op | Allocations/op |
-| --- | ---: | ---: |
-| Legacy reflection copy | about 58,722,320 | 29,360,145 |
-| Optimized deep copy | 29,362,720 | 16 |
-| Passthrough metadata copy | 768 | 1 |
-
-The optimized deep copy still owns an independent 28 MiB payload. The savings
-are the discarded per-byte reflection allocations, not a removal of retry
-isolation. Passthrough shares only data that the handler will not mutate.
-Converter lookup has a small fixed cost: in the empty-payload DTO benchmark it
-added 640 bytes and one allocation/op compared with the legacy copier. These
-are operation-level allocation results, **not** total process RSS or end-to-end
-throughput guarantees. Native Linux CI/load testing remains a release gate.
-
-
 ## In-process byte-cache allocations
 
 `pkg/cachex.ByteCache` grows its map as keys are inserted, instead of reserving
@@ -165,23 +160,10 @@ Expiry remains lazy. Purging drops the map and entries without forcing GC.
 The configured byte budget counts caller-supplied weights, not map/list overhead
 or total process RSS; a filled map can retain capacity until a purge.
 
-Synthetic Linux/amd64 allocation measurements, Go 1.25.1, three runs per case:
-
-| Operation | Before (bytes/op) | After (bytes/op) |
-| --- | ---: | ---: |
-| Create empty cache, 256-entry limit | 13,784 | 176 |
-| Create empty cache, 16,384-entry limit | about 873,912 | 176 |
-| Create empty cache, 65,536-entry limit | about 3,495,223 | 176 |
-| Replace existing integer, `SetWithTTL` | 112 (2 allocations) | 0 (0 allocations) |
-| Increment existing integer, `Compute` | 112 (2 allocations) | 0 (0 allocations) |
-| Insert one integer then purge, 65,536-entry limit | about 3,495,206 | 368 |
-| Insert/evict distinct string keys, 256-entry limit | 119 | 119 |
-
-These measure allocation volume for the named operations, not retained heap or
-whole-server savings. New keys still allocate nodes, and growing the index on
-demand shifts map growth work to insertion. User callbacks and values may also
-allocate; zero-allocation updates here use integer values and a simple callback.
-No production throughput or latency claim is made from these microbenchmarks.
+New keys still allocate nodes, and growing the index on demand shifts map
+growth work to insertion. User callbacks and values may also allocate. The
+benchmarks below measure allocation volume for individual operations, not
+retained heap, whole-server savings, or production throughput and latency.
 
 Reproduce from `apps/api-go`:
 

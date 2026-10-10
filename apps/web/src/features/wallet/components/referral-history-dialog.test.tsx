@@ -98,7 +98,7 @@ async function setup() {
   const original = api.get
   const pending: Pending[] = []
   api.get = ((url: string, config?: RequestConfig) => {
-    assert.equal(url, '/api/user/self/aff/rewards')
+    assert.equal(url, '/api/user/aff/rewards')
     assert.equal(config?.disableDuplicate, true)
     assert.equal(config?.skipBusinessError, true)
     assert.equal(config?.skipErrorHandler, true)
@@ -255,6 +255,36 @@ test('application-level failure retries the first page rather than a stale curso
     assert.equal(ctx.pending[1].before, 0)
     await act(async () => ctx.pending[1].resolve(page(7)))
     assert.match(document.body.textContent ?? '', /#7/)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('shows both stages and real cash floors without calling earned rewards pending', async () => {
+  const ctx = await setup()
+  try {
+    await ctx.open()
+    const response = page(40)
+    await act(async () =>
+      ctx.pending[0].resolve({
+        ...response,
+        data: {
+          ...response.data,
+          policy: {
+            reward_quota: 450000,
+            registration_reward_quota: 50000,
+            min_top_up_amounts: { USD: '10', CNY: '70' },
+          },
+        },
+      } as Result)
+    )
+    const text = document.body.textContent ?? ''
+    assert.match(text, /Registration advance reward/)
+    assert.match(text, /First top-up tail reward/)
+    assert.match(text, /USD ≥ 10/)
+    assert.match(text, /CNY ≥ 70/)
+    assert.match(text, /A smaller first payment cannot be topped up later/)
+    assert.doesNotMatch(text, /Pending/)
   } finally {
     await ctx.cleanup()
   }

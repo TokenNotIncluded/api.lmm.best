@@ -1,0 +1,11 @@
+{
+  "fixture_echo": 100,
+  "fixture_add": 10,
+  "fixture_image": 150,
+  "fixture_fail": 100,
+  "fixture_invalid_output": 100,
+  "fixture_empty": 100,
+  "fixture_pending": 100,
+  "fixture_unknown": 100,
+  "fixture_slow_echo": 100
+}

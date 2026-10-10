@@ -1,14 +1,7 @@
 name: Codewhale LMM provider
 on:
-  pull_request:
-    paths:
-      - 'packages/codewhale-lmm-provider/**'
-      - 'packages/codewhale-lmm-provider'
-      - '.gitmodules'
-      - 'apps/api-go/service/oauth_server.go'
-      - 'apps/api-go/oauthserver/codewhale_integration_test.go'
-      - '.github/workflows/codewhale-lmm-provider.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

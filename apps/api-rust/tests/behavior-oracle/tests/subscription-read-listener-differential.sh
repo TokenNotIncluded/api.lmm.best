@@ -155,6 +155,10 @@ for _ in {1..300}; do [[ $(sql "$go_database" "SELECT to_regclass('public.users'
 
 psql -h 127.0.0.1 -p "$pg_port" -U "$pg_role" -d "$rust_database" -v ON_ERROR_STOP=1 -c "CREATE SCHEMA $rust_schema" >/dev/null
 sed "s/public\\./$rust_schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$runtime/rust-baseline.sql"
+# Expand only the disposable Rust schema after the frozen baseline.
+sed "s/__LMM_APP_SCHEMA__/$rust_schema/g" \
+  "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+  >>"$runtime/rust-baseline.sql"
 psql -h 127.0.0.1 -p "$pg_port" -U "$pg_role" -d "$rust_database" -v ON_ERROR_STOP=1 -f "$runtime/rust-baseline.sql" >/dev/null
 psql -h 127.0.0.1 -p "$pg_port" -U "$pg_role" -d "$rust_database" -v ON_ERROR_STOP=1 -c "CREATE TABLE $rust_schema.lmm_schema_contract(singleton BOOLEAN PRIMARY KEY,min_reader_version BIGINT NOT NULL,max_reader_version BIGINT NOT NULL); INSERT INTO $rust_schema.lmm_schema_contract VALUES(true,1,1);" >/dev/null
 sed "s/__LMM_APP_SCHEMA__/$rust_schema/g" "$repo_root/apps/api-rust/migrations/0002_open_source_bounty_schema.sql" >"$runtime/bounty.sql"

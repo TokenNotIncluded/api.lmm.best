@@ -11,6 +11,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/servicetier"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/relayconvert/convmeta"
@@ -82,6 +83,9 @@ type TokenCountMeta struct {
 }
 
 type RelayInfo struct {
+	ServiceTierQuote         *servicetier.Quote
+	ServiceTierCreditsPerUSD string
+
 	TokenId               int
 	TokenKey              string
 	TokenGroup            string
@@ -121,6 +125,23 @@ type RelayInfo struct {
 	SendResponseCount      int
 	ReceivedResponseCount  int
 	FinalPreConsumedQuota  int // 最终预消耗的配额
+
+	// Assistant identity/policy belongs to the authenticated actor, while
+	// UserId/UserGroup remain the relay payer for accounting and settlement.
+	AssistantActorUserID int    `json:"-"`
+	AssistantActorGroup  string `json:"-"`
+
+	ResponseModel               *ResponseModel
+	responseModelRequestedModel string
+	responseModelSelectedModel  string
+	responseModelSelectionSeen  bool
+
+	// A provider report (including terminal zero) is distinct from absent
+	// Responses usage. Neither local tokens nor prepayment may replace it.
+	ResponsesUsageReported bool
+	// SystemOneUsageStatus is reported for validated upstream input_tokens, or
+	// invalid when the context reservation must be retained instead of guessed.
+	SystemOneUsageStatus string
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
@@ -164,7 +185,10 @@ type RelayInfo struct {
 	// Auto-group retries refresh its group-dependent fields before each attempt
 	// and again before settlement. Non-nil only when billing mode is "tiered_expr".
 	TieredBillingSnapshot *billingexpr.BillingSnapshot
-	BillingRequestInput   *billingexpr.RequestInput
+	// NativeVoiceReserveSeconds is a request-side budget estimate. It is never
+	// recorded or settled as measured provider duration.
+	NativeVoiceReserveSeconds float64
+	BillingRequestInput       *billingexpr.RequestInput
 
 	Request dto.Request
 
@@ -176,6 +200,15 @@ type RelayInfo struct {
 	FinalRequestRelayFormat types.RelayFormat
 
 	StreamStatus *StreamStatus
+	// RateLimitStreamStatus tracks legacy stream outcomes for admission only.
+	// Keep it separate from StreamStatus, which also drives usage estimation and
+	// billing metadata, so this classification cannot change legacy charging.
+	RateLimitStreamStatus *StreamStatus
+	// DoResponse completion is a fallback for legacy streaming adaptors without
+	// StreamStatus. ResponseFailed also preserves failures handled by an adaptor
+	// without returning an API error, so retry and billing behavior stay unchanged.
+	ResponseCompleted bool
+	ResponseFailed    bool
 
 	// convOptions caches the converter settings snapshot (see ConvOptions).
 	convOptions *convmeta.Options
@@ -189,7 +222,33 @@ type RelayInfo struct {
 	*TaskRelayInfo
 }
 
+// ResetResponseOutcome starts an upstream response attempt. Retried requests
+// reuse RelayInfo, including when the selected channel uses a different protocol.
+func (info *RelayInfo) ResetResponseOutcome() {
+	if info == nil {
+		return
+	}
+	info.StreamStatus = nil
+	info.RateLimitStreamStatus = nil
+	info.ResponseCompleted = false
+	info.ResponseFailed = false
+}
+
+func (info *RelayInfo) CompleteResponseOutcome(apiErr *types.NewAPIError) {
+	if info == nil {
+		return
+	}
+	info.ResponseFailed = info.ResponseFailed || apiErr != nil
+	info.ResponseCompleted = true
+}
+
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	info.resetResponseModel()
+	info.ResponsesUsageReported = false
+	if info.ServiceTierQuote != nil {
+		info.ServiceTierQuote.ActualTier = ""
+	}
+	info.SystemOneUsageStatus = ""
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
@@ -330,7 +389,6 @@ func (info *RelayInfo) ToString() string {
 // 定义支持流式选项的通道类型
 var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeOpenAI:         true,
-	constant.ChannelTypeOpenHuman:      true,
 	constant.ChannelTypeAnthropic:      true,
 	constant.ChannelTypeAws:            true,
 	constant.ChannelTypeGemini:         true,
@@ -518,7 +576,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
-		OriginModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		OriginModelName:             common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		responseModelRequestedModel: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),
@@ -557,6 +616,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	}
 	if c.GetBool("assistant_request") {
 		info.IsAssistant = true
+		info.AssistantActorUserID = common.GetContextKeyInt(c, constant.ContextKeyAssistantActorUserID)
+		info.AssistantActorGroup = common.GetContextKeyString(c, constant.ContextKeyAssistantActorGroup)
 	}
 
 	userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
@@ -564,6 +625,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		info.UserSetting = userSetting
 	}
 
+	c.Set(string(constant.ContextKeyRelayInfo), info)
 	return info
 }
 
@@ -628,6 +690,23 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 			return GenRelayInfoAlphaSearch(c, request), nil
 		}
 		return nil, errors.New("request is not a AlphaSearchRequest")
+	case types.RelayFormatOpenAIDecisions:
+		if _, ok := request.(*dto.DecisionsRequest); !ok {
+			return nil, errors.New("request is not a DecisionsRequest")
+		}
+		info = genBaseRelayInfo(c, request)
+		info.RelayFormat = types.RelayFormatOpenAIDecisions
+		info.RelayMode = relayconstant.RelayModeDecisions
+		info.ForcePreConsume = true
+	case types.RelayFormatSystemOne:
+		if request, ok := request.(*dto.SystemOneRequest); ok {
+			info = genBaseRelayInfo(c, request)
+			info.RelayFormat = types.RelayFormatSystemOne
+			info.RelayMode = relayconstant.RelayModeSystemOne
+			info.ForcePreConsume = true
+			break
+		}
+		return nil, errors.New("request is not a SystemOneRequest")
 	case types.RelayFormatTask:
 		info = genBaseRelayInfo(c, nil)
 		info.TaskRelayInfo = &TaskRelayInfo{}
@@ -1007,7 +1086,7 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 		return jsonData, nil
 	}
 
-	var data map[string]interface{}
+	var data map[string]json.RawMessage
 	if err := common.Unmarshal(jsonData, &data); err != nil {
 		common.SysError("RemoveDisabledFields Unmarshal error :" + err.Error())
 		return jsonData, nil
@@ -1051,14 +1130,19 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 	// 默认移除 stream_options.include_obfuscation，除非明确允许（避免关闭响应流混淆保护）
 	if !channelOtherSettings.AllowIncludeObfuscation {
 		if streamOptionsAny, exists := data["stream_options"]; exists {
-			if streamOptions, ok := streamOptionsAny.(map[string]interface{}); ok {
+			var streamOptions map[string]json.RawMessage
+			if err := common.Unmarshal(streamOptionsAny, &streamOptions); err == nil && streamOptions != nil {
 				if _, includeExists := streamOptions["include_obfuscation"]; includeExists {
 					delete(streamOptions, "include_obfuscation")
 				}
 				if len(streamOptions) == 0 {
 					delete(data, "stream_options")
 				} else {
-					data["stream_options"] = streamOptions
+					encoded, err := common.Marshal(streamOptions)
+					if err != nil {
+						return jsonData, nil
+					}
+					data["stream_options"] = encoded
 				}
 			}
 		}

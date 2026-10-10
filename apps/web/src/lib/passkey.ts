@@ -364,3 +364,14 @@ export async function getCredential(
 ) {
   return navigator.credentials.get({ publicKey: options })
 }
+
+/** Request and serialize an assertion for an existing login challenge. */
+export async function requestPasskeyAuthentication(
+  payload: unknown
+): Promise<Record<string, unknown> | null> {
+  const publicKey = prepareCredentialRequestOptions(payload)
+  const credential = (await getCredential(
+    publicKey
+  )) as PublicKeyCredential | null
+  return buildAssertionResult(credential)
+}

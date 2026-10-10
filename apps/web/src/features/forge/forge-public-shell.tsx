@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useRouterState } from '@tanstack/react-router'
 import { useEffect } from 'react'
 
 import { BrandLogo } from '@/components/brand-logo'
@@ -23,9 +24,12 @@ import { PublicLayout } from '@/components/layout'
 import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
-import { DEFAULT_SYSTEM_NAME } from '@/lib/constants'
+import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
+
+import { HomeDirectoryLink } from './home-directory-link'
 
 import './forge-public-shell.css'
+import './forge-navigation.css'
 
 type ForgePublicShellProps = {
   children: React.ReactNode
@@ -33,8 +37,12 @@ type ForgePublicShellProps = {
 
 export function ForgePublicShell(props: ForgePublicShellProps) {
   const { systemName, logo } = useSystemConfig()
-  const siteName =
-    systemName === DEFAULT_SYSTEM_NAME ? LMM_BRAND_NAME : systemName
+  const usesDefaultBrand =
+    logo === DEFAULT_LOGO && systemName === DEFAULT_SYSTEM_NAME
+  const siteName = usesDefaultBrand ? LMM_BRAND_NAME : systemName
+  const isHome = useRouterState({
+    select: (state) => state.location.pathname === '/',
+  })
   const securityLink = useTopNavLinks().find(
     (link) => link.href === '/security'
   )
@@ -50,10 +58,15 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
   return (
     <PublicLayout
       showMainContainer={false}
-      siteName={siteName}
-      logo={<BrandLogo src={logo} className='size-7 object-contain' />}
+      siteName={usesDefaultBrand ? undefined : siteName}
+      logo={
+        usesDefaultBrand ? undefined : (
+          <BrandLogo src={logo} className='size-7 object-contain' />
+        )
+      }
       navLinks={[
         { title: 'Home', href: '/' },
+        { title: 'AI directory', href: '/ai-directory' },
         { title: 'Models and pricing', href: '/pricing' },
         { title: 'Developers', href: '/developers' },
         { title: 'Guide', href: '/guide' },
@@ -69,7 +82,11 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
         className: 'forge-public-header',
       }}
     >
-      <div className='forge-surface min-h-svh'>{props.children}</div>
+      {/* Keep page controls below the full-screen header navigation. */}
+      <div className='forge-surface relative z-0 min-h-svh'>
+        {isHome && <HomeDirectoryLink />}
+        {props.children}
+      </div>
     </PublicLayout>
   )
 }

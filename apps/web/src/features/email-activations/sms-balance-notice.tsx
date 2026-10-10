@@ -5,14 +5,13 @@ import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { toIntlLocale } from '@/i18n/languages'
 
-import { SMS_MINIMUM_BALANCE_USD } from './sms-balance'
+import { useHeroSmsCurrency } from './use-hero-sms-currency'
 
 interface SmsBalanceNoticeProps {
   id?: string
   status: 'unknown' | 'below-minimum' | 'allowed'
-  balanceUSD?: number
+  balanceQuota?: number
   serverDenied?: boolean
   isLoading: boolean
   isRefreshing: boolean
@@ -22,36 +21,30 @@ interface SmsBalanceNoticeProps {
 export function SmsBalanceNotice({
   id = 'sms-purchase-balance-notice',
   status,
-  balanceUSD,
+  balanceQuota,
   serverDenied,
   isLoading,
   isRefreshing,
   onRefresh,
 }: SmsBalanceNoticeProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
+  const { formatQuota, minimumBalance } = useHeroSmsCurrency()
   if (status === 'allowed' && !serverDenied) return null
 
   return (
     <Alert id={id} role='status' className='console-sms-balance'>
       <AlertTitle>
-        {t('Temporary SMS purchases require a balance of at least USD 10')}
+        {t('Temporary SMS purchases require a balance of at least {{amount}}', {
+          amount: minimumBalance,
+        })}
       </AlertTitle>
       <AlertDescription className='flex flex-col gap-2'>
         <p>
-          {balanceUSD !== undefined
-            ? t(
-                'Minimum balance: USD {{minimum}}. Current balance: USD {{balance}}.',
-                {
-                  minimum: SMS_MINIMUM_BALANCE_USD,
-                  balance: new Intl.NumberFormat(
-                    toIntlLocale(i18n.language || 'en'),
-                    {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 6,
-                    }
-                  ).format(balanceUSD),
-                }
-              )
+          {balanceQuota !== undefined
+            ? t('Minimum balance: {{minimum}}. Current balance: {{balance}}.', {
+                minimum: minimumBalance,
+                balance: formatQuota(balanceQuota),
+              })
             : isLoading
               ? t('Checking your wallet balance before buying a new number.')
               : t(

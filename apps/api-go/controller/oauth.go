@@ -297,6 +297,11 @@ func HandleOAuth(c *gin.Context) {
 	}
 	user, err := findOrCreateOAuthUser(c, provider, oauthUser, payload.AffiliateCode, payload.AcceptedLegal)
 	if err != nil {
+		var migration *githubMigrationRequiredError
+		if errors.As(err, &migration) {
+			beginGitHubMigration(migration, c)
+			return
+		}
 		var gateErr *registrationGateError
 		if errors.As(err, &gateErr) {
 			writeRegistrationGateError(c, gateErr)
@@ -353,17 +358,30 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 		return
 	}
 
-	// Check if this OAuth account is already bound (check both new ID and legacy ID)
+	// Only the immutable provider identity is binding evidence.
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
 		common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
 		return
 	}
-	// Also check legacy ID to prevent duplicate bindings during migration period
-	if legacyID, ok := oauthUser.Extra["legacy_id"].(string); ok && legacyID != "" {
-		if provider.IsUserIDTaken(legacyID) {
+
+	if _, ok := provider.(*oauth.GitHubProvider); ok {
+		err := model.DB.Transaction(func(tx *gorm.DB) error {
+			// Match hard-delete/security mutations' user-first lock order. Any
+			// stale/replayed flow rolls the binding and ownership claim back.
+			if err := model.BindGitHubIdentityForSessionWithTx(tx, pendingFlow.UserId, pendingFlow.SessionId, oauthUser.ProviderUserID); err != nil {
+				return err
+			}
+			_, err := model.ConsumeAuthFlowWithTx(tx, flowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth,
+				Provider: pendingFlow.Provider, Intent: model.AuthFlowIntentBind, UserId: pendingFlow.UserId, SessionId: pendingFlow.SessionId})
+			return err
+		})
+		if err != nil {
 			common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, providerParams(provider.GetName()))
 			return
 		}
+		clearOAuthStateCookie(c, pendingFlow.Provider)
+		common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{"action": "bind"})
+		return
 	}
 
 	if _, err := model.ConsumeAuthFlow(flowToken, model.AuthFlowMatch{
@@ -415,37 +433,22 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider, pendingFlow *model
 func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, affiliateCode string, acceptedLegal bool) (*model.User, error) {
 	user := &model.User{}
 
-	// Check if user already exists with new ID
-	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
-		err := provider.FillUserByProviderID(user, oauthUser.ProviderUserID)
-		if err != nil {
+	if _, ok := provider.(*oauth.GitHubProvider); ok {
+		existing, err := findGitHubOAuthUser(oauthUser)
+		if err == nil {
+			return existing, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
-		// Check if user has been deleted
+	} else if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
+		if err := provider.FillUserByProviderID(user, oauthUser.ProviderUserID); err != nil {
+			return nil, err
+		}
 		if user.Id == 0 {
 			return nil, &OAuthUserDeletedError{}
 		}
 		return user, nil
-	}
-
-	// Try to find user with legacy ID (for GitHub migration from login to numeric ID)
-	if legacyID, ok := oauthUser.Extra["legacy_id"].(string); ok && legacyID != "" {
-		if provider.IsUserIDTaken(legacyID) {
-			err := provider.FillUserByProviderID(user, legacyID)
-			if err != nil {
-				return nil, err
-			}
-			if user.Id != 0 {
-				// Found user with legacy ID, migrate to new ID
-				common.SysLog(fmt.Sprintf("[OAuth] Migrating user %d from legacy_id=%s to new_id=%s",
-					user.Id, legacyID, oauthUser.ProviderUserID))
-				if err := user.UpdateGitHubId(oauthUser.ProviderUserID); err != nil {
-					common.SysError(fmt.Sprintf("[OAuth] Failed to migrate user %d: %s", user.Id, err.Error()))
-					// Continue with login even if migration fails
-				}
-				return user, nil
-			}
-		}
 	}
 
 	// User doesn't exist, create new user if registration is enabled
@@ -539,6 +542,12 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 
 			// Set the provider user ID on the user model and update
 			provider.SetProviderUserID(user, oauthUser.ProviderUserID)
+			if _, ok := provider.(*oauth.GitHubProvider); ok {
+				if err := model.BindGitHubIdentityWithTx(tx, user.Id, oauthUser.ProviderUserID); err != nil {
+					return err
+				}
+			}
+
 			if err := tx.Model(user).Updates(map[string]interface{}{
 				"github_id":   user.GitHubId,
 				"discord_id":  user.DiscordId,

@@ -24,7 +24,6 @@ import {
   Bug01Icon,
   CancelCircleIcon,
   CheckmarkCircle02Icon,
-  Copy01Icon,
   CustomerSupportIcon,
   Delete02Icon,
   ExternalLinkIcon,
@@ -35,7 +34,6 @@ import {
   MoneyLockIcon,
   PauseIcon,
   PlayIcon,
-  PlusSignIcon,
   SourceCodeIcon,
   Upload01Icon,
   UserAdd01Icon,
@@ -48,6 +46,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CreditAmountInput } from '@/components/credit-amount-input'
 import { Dialog } from '@/components/dialog'
 import { Main } from '@/components/layout'
 /*
@@ -113,15 +112,12 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
 import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
+import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
 import { useStatus } from '@/hooks/use-status'
 import { getSelf } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
-import { copyToClipboard } from '@/lib/copy-to-clipboard'
-import {
-  formatQuota,
-  parseQuotaFromDollars,
-  quotaUnitsToDollars,
-} from '@/lib/format'
+import { formatQuota } from '@/lib/format'
+import { isCreditAmount } from '@/lib/quota-input'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -135,7 +131,6 @@ import {
   deleteBounty,
   getBountyConfig,
   getBountyDetail,
-  getMcpTokenStatus,
   getPendingBountyReviewCount,
   listAcceptedBounties,
   listAdminBountyDisputes,
@@ -146,16 +141,15 @@ import {
   publishBounty,
   rateBountyOwner,
   resolveBountyDispute,
-  revokeMcpToken,
   resumeBounty,
   reviewChallenge,
-  rotateMcpToken,
   submitChallenge,
   tipChallenge,
   unarchiveBounty,
   updateBounty,
   withdrawChallenge,
 } from './api'
+import { BountyPageHeader } from './bounty-page-header'
 import {
   getBountyLifecycleSummary,
   type BountyLifecycleSummary,
@@ -189,9 +183,6 @@ const BOUNTY_QUERY_KEYS = [
   ['open-source-bounties', 'accepted'],
   ['open-source-bounties', 'disputes'],
 ] as const
-
-const BOUNTY_VIEW_TAB_CLASS =
-  'h-auto min-h-11 w-full min-w-0 flex-none px-2 py-2 text-center leading-tight whitespace-normal lg:min-h-9 lg:flex-1 lg:px-3'
 
 const BOUNTY_DESCRIPTION_PREVIEW_LINES = 4
 const BOUNTY_DESCRIPTION_COLLAPSE_THRESHOLD = 240
@@ -281,7 +272,7 @@ function projectToDraft(project: BountyProject): DraftForm {
     title: project.title,
     description: project.description,
     rules: project.rules,
-    rewardAmount: String(quotaUnitsToDollars(project.reward_quota)),
+    rewardAmount: String(project.reward_quota),
     rewardSlots: String(project.reward_slots),
   }
 }
@@ -352,6 +343,7 @@ export function OpenSourceBounties({
   onDetailTargetConsumed?: () => void
 } = {}) {
   const { t } = useTranslation()
+  const { label: currencyLabel } = useCreditInputDisplay()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
   const setUser = useAuthStore((state) => state.auth.setUser)
@@ -394,6 +386,7 @@ export function OpenSourceBounties({
   const [ownerRatingScore, setOwnerRatingScore] = useState(5)
   const [ownerRatingComment, setOwnerRatingComment] = useState('')
   const [showArchivedOwned, setShowArchivedOwned] = useState(false)
+  const [view, setView] = useState('browse')
 
   const bountyQuery = useQuery({
     queryKey: BOUNTY_QUERY_KEYS[0],
@@ -443,9 +436,7 @@ export function OpenSourceBounties({
   })
 
   const draftCharge = useMemo(() => {
-    const reward = parseQuotaFromDollars(
-      parseBountyNumericInput(draft.rewardAmount)
-    )
+    const reward = parseBountyNumericInput(draft.rewardAmount)
     const feeRateBps = configQuery.data?.rate_basis_points ?? 0
     return calculateBountyCharge(
       reward,
@@ -457,7 +448,9 @@ export function OpenSourceBounties({
     draft.rewardAmount,
     draft.rewardSlots,
   ])
-  const draftErrors = draftValidationAttempted ? validateBountyDraft(draft) : {}
+  const draftErrors = draftValidationAttempted
+    ? validateBountyDraft(draft, { rawCredits: true })
+    : {}
 
   const refresh = async (balanceChanged = false) => {
     await Promise.all(
@@ -525,7 +518,7 @@ export function OpenSourceBounties({
   }
 
   const saveDraft = async () => {
-    const validationErrors = validateBountyDraft(draft)
+    const validationErrors = validateBountyDraft(draft, { rawCredits: true })
     setDraftValidationAttempted(true)
     const firstValidationError = Object.values(validationErrors)[0]
     if (firstValidationError) {
@@ -541,7 +534,7 @@ export function OpenSourceBounties({
         editingProject?.status === 'published' ||
         editingProject?.status === 'paused'
           ? 0
-          : parseQuotaFromDollars(parseBountyNumericInput(draft.rewardAmount)),
+          : parseBountyNumericInput(draft.rewardAmount),
       reward_slots:
         editingProject?.status === 'published' ||
         editingProject?.status === 'paused'
@@ -737,8 +730,8 @@ export function OpenSourceBounties({
 
   const handleTip = async () => {
     if (!tipTarget) return
-    const quota = parseQuotaFromDollars(tipAmount)
-    if (quota <= 0) {
+    const quota = tipAmount
+    if (!isCreditAmount(quota) || quota <= 0) {
       toast.error(t('Enter a positive tip amount.'))
       return
     }
@@ -804,7 +797,7 @@ export function OpenSourceBounties({
     bountyBoardContent = null
   } else if ((bountyQuery.data?.items.length ?? 0) === 0) {
     bountyBoardContent = (
-      <Empty className='min-h-72 border'>
+      <Empty className='bg-muted/20 min-h-56'>
         <EmptyHeader>
           <EmptyMedia variant='icon'>
             <HugeiconsIcon icon={Megaphone01Icon} strokeWidth={2} />
@@ -846,117 +839,46 @@ export function OpenSourceBounties({
 
   return (
     <Main>
-      <div className='min-h-0 flex-1 [scrollbar-gutter:stable] overflow-x-hidden overflow-y-auto px-3 py-3 sm:px-4 sm:py-6'>
+      <div
+        data-mobile-scroll-root=''
+        className='console-bounties min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 sm:px-6 sm:py-7'
+      >
         <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 [overflow-wrap:anywhere] sm:gap-6'>
           <CardStaggerItem>
-            <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
-              <div className='flex items-start gap-3 sm:gap-4'>
-                <div className='bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-none sm:size-12'>
-                  <HugeiconsIcon
-                    icon={Award01Icon}
-                    strokeWidth={1.8}
-                    className='size-5 sm:size-6'
-                  />
-                </div>
-                <div className='min-w-0'>
-                  <h1 className='text-xl font-bold tracking-tight sm:text-2xl'>
-                    {t('Open-source bounties')}
-                  </h1>
-                  <p className='text-muted-foreground mt-1 max-w-3xl text-sm leading-relaxed'>
-                    {t(
-                      'Publish real bug-fix challenges, accept work, verify the fix, and transfer rewards from escrow.'
-                    )}
-                  </p>
-                </div>
-              </div>
-              <Button onClick={openCreateDialog}>
-                <HugeiconsIcon
-                  icon={PlusSignIcon}
-                  strokeWidth={2}
-                  data-icon='inline-start'
-                />
-                {t('Create bounty')}
-              </Button>
-            </div>
+            <BountyPageHeader
+              onCreate={openCreateDialog}
+              feeRate={configQuery.data?.rate_basis_points}
+              feeError={configQuery.isError}
+              isSuperAdmin={isSuperAdmin}
+            />
           </CardStaggerItem>
 
           <CardStaggerItem>
-            <Alert>
-              <HugeiconsIcon icon={MoneyLockIcon} strokeWidth={2} />
-              <AlertTitle>
-                {t('Every publisher pays from their own balance')}
-              </AlertTitle>
-              <AlertDescription>
-                <div className='flex flex-col gap-3'>
-                  <p>
-                    {t(
-                      'Publishing deducts the gross listing total from your balance. The public administrator-configured platform fee is credited to the super administrator account and helps fund AI customer-service token costs; the remainder becomes contributor escrow. Publishers and contributors settle directly; administrators intervene only in disputes.'
-                    )}
-                  </p>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <Badge variant='secondary'>
-                      {t('Public platform fee: {{rate}}%', {
-                        rate: (
-                          (configQuery.data?.rate_basis_points ?? 0) / 100
-                        ).toFixed(2),
-                      })}
-                    </Badge>
-                    {isSuperAdmin ? (
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        render={<a href='/system-settings/billing/quota' />}
-                      >
-                        <HugeiconsIcon
-                          icon={FileEditIcon}
-                          strokeWidth={2}
-                          data-icon='inline-start'
-                        />
-                        {t('Fee settings')}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </AlertDescription>
-            </Alert>
-          </CardStaggerItem>
-
-          <CardStaggerItem>
-            <Tabs defaultValue='browse' className='min-w-0'>
+            <Tabs
+              value={view}
+              onValueChange={setView}
+              className='console-page-tabs min-w-0'
+            >
               <TabsList
                 aria-label={t('Open-source bounties')}
-                className='grid w-full grid-cols-2 gap-1 p-1 group-data-horizontal/tabs:!h-auto sm:grid-cols-3 lg:flex lg:w-full lg:max-w-full lg:flex-nowrap lg:justify-center'
+                variant='navigation'
               >
-                <TabsTrigger value='browse' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('Bounty board')}
-                </TabsTrigger>
-                <TabsTrigger value='owned' className={BOUNTY_VIEW_TAB_CLASS}>
+                <TabsTrigger value='browse'>{t('Bounty board')}</TabsTrigger>
+                <TabsTrigger value='owned'>
                   {t('My bounty projects')}
                   <PendingReviewSuperscript
                     count={pendingReviewCountQuery.data ?? 0}
                     label={t('Pending review')}
                   />
                 </TabsTrigger>
-                <TabsTrigger value='accepted' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('My challenges')}
-                </TabsTrigger>
-                <TabsTrigger value='disputes' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('My disputes')}
-                </TabsTrigger>
+                <TabsTrigger value='accepted'>{t('My challenges')}</TabsTrigger>
+                <TabsTrigger value='disputes'>{t('My disputes')}</TabsTrigger>
                 {isAdmin ? (
-                  <TabsTrigger
-                    value='admin-disputes'
-                    className={BOUNTY_VIEW_TAB_CLASS}
-                  >
+                  <TabsTrigger value='admin-disputes'>
                     {t('Dispute cases')}
                   </TabsTrigger>
                 ) : null}
-                <TabsTrigger value='mcp' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('MCP automation')}
-                </TabsTrigger>
-                <TabsTrigger value='rules' className={BOUNTY_VIEW_TAB_CLASS}>
-                  {t('Rules')}
-                </TabsTrigger>
+                <TabsTrigger value='rules'>{t('Rules')}</TabsTrigger>
               </TabsList>
 
               <TabsContent value='browse' className='mt-3 sm:mt-4'>
@@ -1010,7 +932,7 @@ export function OpenSourceBounties({
                 {((showArchivedOwned
                   ? archivedOwnedQuery.data?.length
                   : ownedQuery.data?.length) ?? 0) === 0 ? (
-                  <Empty className='min-h-72 border'>
+                  <Empty className='bg-muted/20 min-h-56'>
                     <EmptyHeader>
                       <EmptyMedia variant='icon'>
                         <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} />
@@ -1105,7 +1027,7 @@ export function OpenSourceBounties({
 
               <TabsContent value='accepted' className='mt-3 sm:mt-4'>
                 {(acceptedQuery.data?.length ?? 0) === 0 ? (
-                  <Empty className='min-h-72 border'>
+                  <Empty className='bg-muted/20 min-h-56'>
                     <EmptyHeader>
                       <EmptyMedia variant='icon'>
                         <HugeiconsIcon icon={Bug01Icon} strokeWidth={2} />
@@ -1119,6 +1041,14 @@ export function OpenSourceBounties({
                         )}
                       </EmptyDescription>
                     </EmptyHeader>
+                    <EmptyContent>
+                      <Button
+                        variant='outline'
+                        onClick={() => setView('browse')}
+                      >
+                        {t('Browse the board')}
+                      </Button>
+                    </EmptyContent>
                   </Empty>
                 ) : (
                   <div className='grid gap-4 lg:grid-cols-2'>
@@ -1165,10 +1095,6 @@ export function OpenSourceBounties({
                   />
                 </TabsContent>
               ) : null}
-
-              <TabsContent value='mcp' className='mt-3 sm:mt-4'>
-                <McpSettingsPanel />
-              </TabsContent>
 
               <TabsContent value='rules' className='mt-3 sm:mt-4'>
                 <RulesPanel />
@@ -1369,7 +1295,11 @@ export function OpenSourceBounties({
             </Button>
             <Button
               onClick={handleTip}
-              disabled={tipAmount <= 0 || pending.startsWith('tip-')}
+              disabled={
+                !isCreditAmount(tipAmount) ||
+                tipAmount <= 0 ||
+                pending.startsWith('tip-')
+              }
             >
               <HugeiconsIcon
                 icon={GiftIcon}
@@ -1382,13 +1312,14 @@ export function OpenSourceBounties({
         }
       >
         <div className='flex flex-col gap-4 py-2'>
-          <Field label={t('Tip amount')} htmlFor='bounty-tip-amount'>
-            <Input
+          <Field
+            label={`${t('Tip amount')} (${currencyLabel})`}
+            htmlFor='bounty-tip-amount'
+          >
+            <CreditAmountInput
               id='bounty-tip-amount'
-              type='number'
-              min={0}
               value={tipAmount}
-              onChange={(event) => setTipAmount(Number(event.target.value))}
+              onValueChange={setTipAmount}
             />
           </Field>
           <Field label={t('Tip note (optional)')} htmlFor='bounty-tip-note'>
@@ -1536,6 +1467,7 @@ export function BountyCard({
   return (
     <TitledCard
       title={project.title}
+      actionPlacement='below'
       description={project.owner_username}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='[overflow-wrap:anywhere]'
@@ -1580,7 +1512,7 @@ export function BountyCard({
           </Button>
         ) : null}
       </div>
-      <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
+      <div className='grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3'>
         <Metric
           label={t('Reward per fix')}
           value={formatQuota(project.reward_quota)}
@@ -1730,7 +1662,7 @@ function BountyStatusBar({
     <div
       data-bounty-status-bar
       aria-label={t('Bounty status summary')}
-      className='flex max-w-full flex-wrap items-center gap-1.5 sm:max-w-xl sm:justify-end'
+      className='flex min-w-0 flex-wrap items-center gap-1.5'
     >
       <Badge variant='outline'>{statusLabel(t, project.status)}</Badge>
       {items
@@ -1779,6 +1711,7 @@ export function OwnerProjectCard(props: {
   return (
     <TitledCard
       title={project.title}
+      actionPlacement='below'
       description={project.repository_url}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='break-all'
@@ -2022,6 +1955,7 @@ function ChallengeCard({
   return (
     <TitledCard
       title={challenge.project_title || t('Bounty challenge')}
+      actionPlacement='below'
       description={`${challenge.owner_username ?? ''} · ${statusLabel(t, challenge.status)}`}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='[overflow-wrap:anywhere]'
@@ -2137,7 +2071,7 @@ function ChallengeCard({
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className='bg-muted/50 min-w-0 rounded-lg border p-3'>
+    <div className='min-w-0 py-1'>
       <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
         {label}
       </p>
@@ -2201,6 +2135,7 @@ function DraftDialog(props: {
   onSave: () => void
 }) {
   const { t } = useTranslation()
+  const { label: currencyLabel } = useCreditInputDisplay()
   const errorFor = (field: keyof DraftForm) => {
     const error = props.errors[field]
     return error ? t(error) : undefined
@@ -2314,17 +2249,14 @@ function DraftDialog(props: {
       </Field>
       <div className='grid gap-4 sm:grid-cols-2'>
         <Field
-          label={t('Reward per fix')}
+          label={`${t('Reward per fix')} (${currencyLabel})`}
           htmlFor='bounty-reward'
           error={errorFor('rewardAmount')}
         >
-          <Input
+          <CreditAmountInput
             id='bounty-reward'
-            type='number'
-            min={0}
-            step='any'
-            value={props.draft.rewardAmount}
-            onChange={(e) => update('rewardAmount', e.target.value)}
+            value={parseBountyNumericInput(props.draft.rewardAmount)}
+            onValueChange={(credits) => update('rewardAmount', String(credits))}
             disabled={props.publishedEditing}
             aria-invalid={Boolean(props.errors.rewardAmount)}
             aria-describedby={
@@ -3398,175 +3330,6 @@ function DisputesPanel({
         </Field>
       </Dialog>
     </>
-  )
-}
-
-function McpSettingsPanel() {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [revealedToken, setRevealedToken] = useState('')
-  const [pending, setPending] = useState(false)
-  const connectionQuery = useQuery({
-    queryKey: ['open-source-bounties', 'mcp-token'],
-    queryFn: getMcpTokenStatus,
-  })
-  const endpoint =
-    typeof window === 'undefined'
-      ? '/mcp'
-      : `${window.location.origin}${connectionQuery.data?.endpoint ?? '/mcp'}`
-  const protocolVersion = connectionQuery.data?.protocol_version ?? '2026-07-28'
-  const prompt = useMemo(
-    () => `Connect to the api.lmm.best Open-source bounties MCP server.
-
-Endpoint: ${endpoint}
-Protocol: MCP ${protocolVersion}, stateless Streamable HTTP
-Authorization: Bearer ${revealedToken || '<YOUR_PERSONAL_MCP_TOKEN>'}
-
-Use the open_source_bounty_operator prompt and the open_source_bounties.* tools to manage my bounties end to end. Treat every bounty as a peer-to-peer transaction between its publisher and contributor; an administrator intervenes only when either party opens a dispute. Never fabricate defects, Issues, pull requests, tests, review results, dispute evidence, tips, or ratings. Read current state before changing anything. Publishing debits the gross listed price from my balance, credits the public platform fee to the enabled super administrator account, and locks the remaining net contributor rewards in escrow. If I am that super administrator, report both the gross debit and fee credit and the resulting net balance decrease. Daily check-in rewards are credited to the same balance and can fund listings. The public board ranks listings by gross price per fix from highest to lowest. When any tool returns input_required for publishing, approval/payment, rejection, closing/refunding, tipping, rating, dispute opening/resolution, draft deletion, or withdrawal, show me the exact action, recipient, public score, gross price, net reward, fee, evidence, and balance impact, then continue only after I explicitly confirm. Tips are non-refundable and separate from escrow. A contributor may submit a matching GitHub Issue URL, pull request URL, or both, plus an optional completion note. The bounty publisher reviews the completed work directly. Reviewers must record a truthful 1-5 contributor score and public evaluation; contributors may rate the publisher/verifier after review, and both sides can see mutual ratings and historical averages. If the parties disagree, open a dispute with the real challenge ID and evidence. Treat an open dispute as frozen until a third-party administrator records a conclusion and, when justified, transfers the locked reward from escrow.`,
-    [endpoint, protocolVersion, revealedToken]
-  )
-
-  const rotate = async () => {
-    if (
-      connectionQuery.data?.status.configured &&
-      !window.confirm(
-        t(
-          'Rotate the personal MCP token? The previous token will stop working immediately.'
-        )
-      )
-    ) {
-      return
-    }
-    setPending(true)
-    try {
-      const connection = await rotateMcpToken()
-      setRevealedToken(connection.token)
-      await queryClient.invalidateQueries({
-        queryKey: ['open-source-bounties', 'mcp-token'],
-      })
-      toast.success(
-        t('Personal MCP token generated. Copy it now; it is shown only once.')
-      )
-    } catch {
-      toast.error(t('Unable to update the personal MCP token.'))
-    } finally {
-      setPending(false)
-    }
-  }
-
-  const revoke = async () => {
-    if (
-      !window.confirm(
-        t(
-          'Revoke the personal MCP token? Connected AI clients will lose access immediately.'
-        )
-      )
-    ) {
-      return
-    }
-    setPending(true)
-    try {
-      await revokeMcpToken()
-      setRevealedToken('')
-      await queryClient.invalidateQueries({
-        queryKey: ['open-source-bounties', 'mcp-token'],
-      })
-      toast.success(t('Personal MCP token revoked.'))
-    } catch {
-      toast.error(t('Unable to revoke the personal MCP token.'))
-    } finally {
-      setPending(false)
-    }
-  }
-
-  const copyPrompt = async () => {
-    const copied = await copyToClipboard(prompt)
-    if (copied) {
-      toast.success(t('AI prompt copied.'))
-    } else {
-      toast.error(
-        t(
-          'Copy failed. The complete prompt remains visible for manual copying.'
-        )
-      )
-    }
-  }
-
-  return (
-    <TitledCard
-      title={t('Open-source bounty MCP')}
-      description={t(
-        'Use one personal token to let an AI publish, accept, verify, dispute, tip, rate, and settle bounties through /mcp.'
-      )}
-      icon={<HugeiconsIcon icon={SourceCodeIcon} strokeWidth={1.8} />}
-      iconTone='info'
-      disableHoverEffect
-      action={<Badge variant='outline'>MCP {protocolVersion}</Badge>}
-    >
-      <div className='flex flex-col gap-4'>
-        <div className='grid gap-4 sm:grid-cols-2'>
-          <Field label={t('MCP endpoint')} htmlFor='bounty-mcp-endpoint'>
-            <Input id='bounty-mcp-endpoint' value={endpoint} readOnly />
-          </Field>
-          <Field label={t('Token status')} htmlFor='bounty-mcp-token-status'>
-            <Input
-              id='bounty-mcp-token-status'
-              value={
-                connectionQuery.data?.status.configured
-                  ? connectionQuery.data.status.token_hint
-                  : t('Not configured')
-              }
-              readOnly
-            />
-          </Field>
-        </div>
-        {revealedToken ? (
-          <Alert>
-            <AlertTitle>{t('Copy this token now')}</AlertTitle>
-            <AlertDescription>
-              {t(
-                'For security, the plaintext token will not be shown again after you leave this page.'
-              )}
-            </AlertDescription>
-            <Textarea
-              className='mt-3 font-mono text-xs'
-              value={revealedToken}
-              readOnly
-              rows={3}
-            />
-          </Alert>
-        ) : null}
-        <div className='flex flex-wrap gap-2'>
-          <Button onClick={rotate} disabled={pending}>
-            {connectionQuery.data?.status.configured
-              ? t('Rotate token')
-              : t('Generate token')}
-          </Button>
-          {connectionQuery.data?.status.configured ? (
-            <Button variant='destructive' onClick={revoke} disabled={pending}>
-              {t('Revoke token')}
-            </Button>
-          ) : null}
-          <Button variant='outline' onClick={copyPrompt} disabled={pending}>
-            <HugeiconsIcon
-              icon={Copy01Icon}
-              strokeWidth={2}
-              data-icon='inline-start'
-            />
-            {t('Copy AI prompt')}
-          </Button>
-        </div>
-        <Field label={t('AI prompt')} htmlFor='bounty-mcp-prompt'>
-          <Textarea
-            id='bounty-mcp-prompt'
-            value={prompt}
-            readOnly
-            rows={14}
-            className='font-mono text-xs'
-          />
-        </Field>
-      </div>
-    </TitledCard>
   )
 }
 

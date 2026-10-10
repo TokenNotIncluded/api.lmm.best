@@ -20,8 +20,11 @@ import { z } from 'zod'
 
 import {
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_OPENHUMAN,
   CHANNEL_STATUS,
   isOpenAIChannelType,
+  supportsResponsesWebSocket,
+  getDefaultResponsesWebSocketEnabled,
   ERROR_MESSAGES,
   MODEL_FETCHABLE_TYPES,
 } from '../constants'
@@ -197,7 +200,13 @@ function addRequiredIssue(
 export const channelFormSchema = z
   .object({
     name: z.string().min(1, ERROR_MESSAGES.REQUIRED_NAME),
-    type: z.number().min(0, ERROR_MESSAGES.REQUIRED_TYPE),
+    type: z
+      .number()
+      .min(0, ERROR_MESSAGES.REQUIRED_TYPE)
+      .refine(
+        (type) => type !== CHANNEL_TYPE_OPENHUMAN,
+        ERROR_MESSAGES.REQUIRED_TYPE
+      ),
     base_url: z.string().optional(),
     key: z.string(),
     openai_organization: z.string().optional(),
@@ -252,6 +261,7 @@ export const channelFormSchema = z
     key_mode: z.enum(['append', 'replace']).optional(), // For editing multi-key channels
     // Channel extra settings (stored in setting JSON, not sent directly)
     force_format: z.boolean().optional(),
+    responses_websocket_enabled: z.boolean().optional(),
     thinking_to_content: z.boolean().optional(),
     proxy: z
       .string()
@@ -263,6 +273,7 @@ export const channelFormSchema = z
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
     // Type-specific settings (stored in settings JSON)
+    ollama_openai_chat: z.boolean().optional(), // Ollama chat transport
     is_enterprise_account: z.boolean().optional(), // OpenRouter specific
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
     aws_key_type: z.enum(['ak_sk', 'api_key']).optional(), // AWS specific
@@ -427,6 +438,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   key_mode: 'append',
   // Channel extra settings
   force_format: false,
+  // Keep unset until the selected type supplies its compatibility default.
+  responses_websocket_enabled: undefined,
   thinking_to_content: false,
   proxy: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
@@ -435,6 +448,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   system_prompt: '',
   system_prompt_override: false,
   // Type-specific settings
+  ollama_openai_chat: false,
   is_enterprise_account: false,
   vertex_key_type: 'json',
   aws_key_type: 'ak_sk',
@@ -467,6 +481,9 @@ export function transformChannelToFormDefaults(
   // Parse channel extra settings from setting field
   let extraSettings = {
     force_format: false,
+    responses_websocket_enabled: getDefaultResponsesWebSocketEnabled(
+      channel.type
+    ),
     thinking_to_content: false,
     proxy: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
@@ -485,6 +502,11 @@ export function transformChannelToFormDefaults(
       )
       extraSettings = {
         force_format: parsed.force_format || false,
+        responses_websocket_enabled:
+          supportsResponsesWebSocket(channel.type) &&
+          (typeof parsed.responses_websocket_enabled === 'boolean'
+            ? parsed.responses_websocket_enabled
+            : getDefaultResponsesWebSocketEnabled(channel.type)),
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
         http_protocol: protocol,
@@ -503,6 +525,7 @@ export function transformChannelToFormDefaults(
   let vertexKeyType: 'json' | 'api_key' = 'json'
   let azureResponsesVersion = ''
   let isEnterpriseAccount = false
+  let ollamaOpenAIChat = false
   let awsKeyType: 'ak_sk' | 'api_key' = 'ak_sk'
   let allowServiceTier = false
   let disableStore = false
@@ -523,6 +546,7 @@ export function transformChannelToFormDefaults(
       vertexKeyType = parsed.vertex_key_type || 'json'
       azureResponsesVersion = parsed.azure_responses_version || ''
       isEnterpriseAccount = parsed.openrouter_enterprise === true
+      ollamaOpenAIChat = parsed.ollama_openai_chat === true
       awsKeyType = parsed.aws_key_type || 'ak_sk'
       allowServiceTier = parsed.allow_service_tier === true
       disableStore = parsed.disable_store === true
@@ -579,6 +603,7 @@ export function transformChannelToFormDefaults(
     // Channel extra settings
     ...extraSettings,
     // Type-specific settings
+    ollama_openai_chat: ollamaOpenAIChat,
     is_enterprise_account: isEnterpriseAccount,
     vertex_key_type: vertexKeyType,
     azure_responses_version: azureResponsesVersion,
@@ -609,6 +634,12 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+  }
+
+  if (supportsResponsesWebSocket(formData.type)) {
+    settingObj.responses_websocket_enabled =
+      formData.responses_websocket_enabled ??
+      getDefaultResponsesWebSocketEnabled(formData.type)
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)
@@ -664,6 +695,13 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     delete settingsObj.openrouter_enterprise
   }
 
+  // Ollama (type 4): opt in to the OpenAI-compatible chat endpoint.
+  if (formData.type === 4) {
+    settingsObj.ollama_openai_chat = formData.ollama_openai_chat === true
+  } else if ('ollama_openai_chat' in settingsObj) {
+    delete settingsObj.ollama_openai_chat
+  }
+
   // Add aws_key_type for AWS channels (type 33)
   if (formData.type === 33) {
     settingsObj.aws_key_type = formData.aws_key_type || 'ak_sk'
@@ -672,8 +710,8 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   }
 
   // Field passthrough controls:
-  // - OpenAI/OpenHuman and Anthropic (type 14): allow_service_tier
-  // - OpenAI/OpenHuman only: disable_store, allow_safety_identifier
+  // - OpenAI and Anthropic (type 14): allow_service_tier
+  // - OpenAI only: disable_store, allow_safety_identifier
   if (
     isOpenAIChannelType(formData.type) ||
     formData.type === 14 ||

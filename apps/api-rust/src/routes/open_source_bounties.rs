@@ -32,7 +32,7 @@ const MAX_PAGE_SIZE: i64 = 50;
 const DEFAULT_PAGE_SIZE: i64 = 20;
 const ENABLED_USER_STATUS: i64 = 1;
 const ROLE_ADMIN: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const MCP_PROTOCOL_VERSION: &str = "2026-07-28";
 const MCP_TOKEN_PREFIX: &str = "lmm_mcp_";
 

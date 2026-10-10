@@ -27,6 +27,8 @@ func withAssistantSettings(t *testing.T, enabled bool, modelID string) {
 	t.Helper()
 	original := setting.GetAssistantSettings()
 	originalBillingLoader := loadAssistantBillingUser
+	originalRuntimeTokenLoader := ensureAssistantRuntimeToken
+	originalRuntimeTokenTouch := touchAssistantRuntimeToken
 	originalRouteResolver := assistantConfiguredRouteResolver
 	setting.SetAssistantEnabled(enabled)
 	require.NoError(t, setting.UpdateAssistantModel(modelID))
@@ -42,11 +44,20 @@ func withAssistantSettings(t *testing.T, enabled bool, modelID string) {
 			Group:    "default",
 		}, nil
 	}
+	ensureAssistantRuntimeToken = func(userID int, group string) (*model.Token, bool, error) {
+		return &model.Token{
+			Id: 888, UserId: userID, Key: "assistant-runtime-test",
+			Name: "AI assistant runtime", Group: group, UnlimitedQuota: true,
+		}, false, nil
+	}
+	touchAssistantRuntimeToken = func(int, int) error { return nil }
 	t.Cleanup(func() {
 		setting.SetAssistantEnabled(original.Enabled)
 		_ = setting.UpdateAssistantModel(original.Model)
 		_ = setting.UpdateAssistantReasoningEffort(original.ReasoningEffort)
 		loadAssistantBillingUser = originalBillingLoader
+		ensureAssistantRuntimeToken = originalRuntimeTokenLoader
+		touchAssistantRuntimeToken = originalRuntimeTokenTouch
 		assistantConfiguredRouteResolver = originalRouteResolver
 	})
 }
@@ -133,6 +144,25 @@ func TestAssistantRuntimeMetadataQuestionIsDeterministic(t *testing.T) {
 	modelID := strings.TrimSpace(setting.GetAssistantSettings().Model)
 	assert.False(t, assistantRuntimeMetadataQuestion("请查一下 "+modelID+" 的实时价格"))
 	assert.False(t, assistantRuntimeMetadataQuestion("what is the model name and price?"))
+	for _, message := range []string{
+		"我计划把模型 API 接入 Codex 做知识图谱科研，已经清楚 API 密钥、接口地址及模型名称的配置流程。请评估新用户礼包。",
+		"API 密钥、接口地址和模型名称等底层调用逻辑已配置就绪，请帮我完成机器人开发接入。",
+		"模型名称怎么填？",
+		"模型型号应该选哪一个用于代码开发？",
+		"Which model should I use for coding?",
+		"My training data contains a model name field. Help validate the dataset schema.",
+		"What model are you running? Also help me configure Codex.",
+		"你是什么模型？另外请评估一下我的新用户礼包。",
+		"你是什么 AI？顺便打开我的钱包。",
+		"你是什么 AI？请计算 2+2。",
+		"Who are you? Open my wallet.",
+		"What's your model, and delete my old key.",
+		"我清楚模型名称，请打开个人资料。",
+	} {
+		assert.False(t, assistantRuntimeMetadataQuestion(message), message)
+	}
+	assert.True(t, assistantRuntimeMetadataQuestion("你是什么 AI？"))
+	assert.True(t, assistantRuntimeMetadataQuestion("Which model are you running?"))
 
 	settings := setting.GetAssistantSettings()
 	body := assistantRuntimeMetadataBody(settings)
@@ -199,7 +229,7 @@ func TestPrepareAssistantRequestOwnsModelAndPrompt(t *testing.T) {
 	assert.Contains(t, captured.Messages[0].Content, "https://api.example.com\n")
 	assert.Contains(t, captured.Messages[0].Content, "https://api.example.com/v1")
 	assert.Contains(t, captured.Messages[0].Content, "server-owned-model")
-	assert.Contains(t, captured.Messages[0].Content, "Existing API keys are private")
+	assert.Contains(t, captured.Messages[0].Content, "Existing API key values are private")
 	assert.Equal(t, "user", captured.Messages[1].Role)
 	assert.Equal(t, "How do I create a key?", captured.Messages[1].Content)
 }
@@ -519,7 +549,9 @@ func mustAssistantJSON(t *testing.T, value any) []byte {
 func TestPrepareAssistantRequestCacheHitSkipsDuplicateIntentWrite(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
+	require.NoError(t, db.AutoMigrate(&model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}, &model.UserOAuthBinding{}, &model.AssistantUserProfile{}, &model.TopUp{}, &model.DeveloperAccessRequest{}))
+	user := model.User{Id: 42, Username: "cache-active-user", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", ConsoleActivatedAt: common.GetTimestamp()}
+	require.NoError(t, db.Create(&user).Error)
 	original := setting.GetAssistantSettings()
 	setting.SetAssistantEnabled(true)
 	setting.SetAssistantCacheEnabled(true)
@@ -536,6 +568,7 @@ func TestPrepareAssistantRequestCacheHitSkipsDuplicateIntentWrite(t *testing.T) 
 	message := "cache-hit-intent-" + t.Name()
 	settings := setting.GetAssistantSettings()
 	context := assistantUserContextForRequest(42, message)
+	require.True(t, context.DeveloperAccessGranted)
 	key := assistantCacheKey(settings, []assistantOpenAIMessage{{Role: "user", Content: message}}, context)
 	require.NotEmpty(t, key)
 	storeAssistantCachedResponse(settings, key, http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"cached"}}]}`))
@@ -1037,7 +1070,7 @@ func TestAssistantPlanOffersExposePublicOffersToL0WithoutInventingCheckout(t *te
 	originalDiscounts := paymentSetting.AmountDiscount
 	originalCompliance := paymentSetting.ComplianceConfirmed
 	originalTermsVersion := paymentSetting.ComplianceTermsVersion
-	paymentSetting.AmountDiscount = map[int]float64{50: 0.9}
+	paymentSetting.AmountDiscount = operation_setting.PaymentAmountDiscount{"50": 0.9}
 	paymentSetting.ComplianceConfirmed = false
 	paymentSetting.ComplianceTermsVersion = ""
 	t.Cleanup(func() {
@@ -1057,9 +1090,9 @@ func TestAssistantPlanOffersExposePublicOffersToL0WithoutInventingCheckout(t *te
 	require.True(t, ok)
 	require.Len(t, plans, 1)
 	assert.Equal(t, "L0 visible", plans[0].Plan.Title)
-	discounts, ok := result["topup_discounts"].(map[int]float64)
+	discounts, ok := result["topup_discounts"].(map[string]float64)
 	require.True(t, ok)
-	assert.Equal(t, map[int]float64{50: 0.9}, discounts)
+	assert.Equal(t, map[string]float64{"50": 0.9}, discounts)
 	assert.Contains(t, result["message"], "view-only")
 
 	response := httptest.NewRecorder()
@@ -1116,7 +1149,7 @@ func TestAssistantPlanOffersKeepLinuxDOPaymentHiddenForL1(t *testing.T) {
 	originalDiscounts := paymentSetting.AmountDiscount
 	originalCompliance := paymentSetting.ComplianceConfirmed
 	originalTermsVersion := paymentSetting.ComplianceTermsVersion
-	paymentSetting.AmountDiscount = map[int]float64{100: 0.8}
+	paymentSetting.AmountDiscount = operation_setting.PaymentAmountDiscount{"100": 0.8}
 	paymentSetting.ComplianceConfirmed = true
 	paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
 	t.Cleanup(func() {
@@ -1134,12 +1167,13 @@ func TestAssistantPlanOffersKeepLinuxDOPaymentHiddenForL1(t *testing.T) {
 	plans, ok := result["plans"].([]SubscriptionPlanDTO)
 	require.True(t, ok)
 	require.Len(t, plans, 1)
-	discounts, ok := result["topup_discounts"].(map[int]float64)
+	discounts, ok := result["topup_discounts"].(map[string]float64)
 	require.True(t, ok)
 	assert.Empty(t, discounts)
 }
 
 func TestAssistantModelPricingUsesAccountGroupsAndLiveRates(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}))
 	previousModelRatios := ratio_setting.ModelRatio2JSONString()
@@ -1251,6 +1285,7 @@ func TestAssistantPricingEndpointRejectsL0(t *testing.T) {
 }
 
 func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T) {
+	pricingUSDTestAnchor(t)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}))
 	levelTwo := model.TrustLevelMinUser + 2
@@ -1305,17 +1340,54 @@ func TestAssistantPricingEndpointAppliesTrustDiscountToGroupRatios(t *testing.T)
 func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) {
 	c, _ := createAssistantKeyTestContext(t, "assistant-tool-user")
 	definitions := assistantToolDefinitions()
-	require.Len(t, definitions, 48)
+	require.Len(t, definitions, 75)
 	names := make(map[string]bool, len(definitions))
+	byName := make(map[string]assistantOpenAIToolDefinition, len(definitions))
 	for _, definition := range definitions {
+		require.False(t, names[definition.Function.Name], "tool names must be unique")
 		names[definition.Function.Name] = true
+		byName[definition.Function.Name] = definition
+	}
+	for _, catalogue := range []struct{ name, idKey string }{
+		{"get_store_products", ""},
+		{"get_store_product", "product_id"},
+		{"get_tool_market_services", ""},
+		{"get_tool_market_service", "service_id"},
+	} {
+		t.Run(catalogue.name, func(t *testing.T) {
+			definition, exists := byName[catalogue.name]
+			require.True(t, exists)
+			assert.Equal(t, "function", definition.Type)
+			assert.True(t, assistantToolAllowedForContext(catalogue.name, assistantUserContext{AccessLevel: "L0"}))
+			assert.True(t, assistantToolCallReadOnly(c, assistantOpenAIToolCall{
+				Function: assistantOpenAIToolCallFunction{Name: catalogue.name},
+			}))
+			schema := definition.Function.Parameters
+			assert.Equal(t, "object", schema["type"])
+			assert.Equal(t, false, schema["additionalProperties"])
+			// Exact read parameters exclude checkout, payment and authorization inputs.
+			if catalogue.idKey == "" {
+				assert.Len(t, schema, 3)
+				assert.NotContains(t, schema, "required")
+				assert.Equal(t, map[string]any{
+					"query":  map[string]any{"type": "string", "maxLength": 120},
+					"offset": map[string]any{"type": "integer", "minimum": 0, "maximum": 10000},
+					"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+				}, schema["properties"])
+			} else {
+				assert.Len(t, schema, 4)
+				assert.Equal(t, []string{catalogue.idKey}, schema["required"])
+				assert.Equal(t, map[string]any{
+					catalogue.idKey: map[string]any{"type": "string", "minLength": 36, "maxLength": 36},
+				}, schema["properties"])
+			}
+		})
 	}
 	assert.True(t, names["get_service_facts"])
 	assert.True(t, names["set_conversation_title"])
 	assert.True(t, names["calculate_math"])
 	assert.True(t, names["calculate_cost"])
 	assert.True(t, names["get_account_access"])
-	assert.True(t, names["get_l1_recommendation"])
 	assert.True(t, names["get_available_models"])
 	assert.True(t, names["get_model_pricing"])
 	assert.True(t, names["get_plan_offers"])
@@ -1323,6 +1395,8 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["get_bounty_guide"])
 	assert.True(t, names["get_bounty_data"])
 	assert.True(t, names["prepare_new_user_gift"])
+	assert.True(t, names["get_new_user_gift_status"])
+	assert.True(t, names["get_weekly_discount_status"])
 	assert.True(t, names["prepare_weekly_discount"])
 	assert.True(t, names["get_usage_summary"])
 	assert.True(t, names["navigate_to_page"])
@@ -1330,10 +1404,13 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["get_user_overview"])
 	assert.True(t, names["get_user_usage_summary"])
 	assert.True(t, names["prepare_user_action"])
+	assert.True(t, names["list_my_api_keys"])
+	assert.True(t, names["prepare_api_key_action"])
 	assert.True(t, names["search_web"])
 	assert.True(t, names["get_setup_guide"])
 	assert.True(t, names["grant_l1_access"])
 	assert.False(t, names["prepare_l1_recommendation"])
+	assert.False(t, names["get_l1_recommendation"])
 	for _, name := range []string{"get_registration_risk", "notify_registration_risk", "end_registration_conversation", "ban_l0_user"} {
 		assert.True(t, names[name])
 	}
@@ -1345,7 +1422,7 @@ func TestAssistantAgentToolsExposeSafeAndConfirmationGatedActions(t *testing.T) 
 	assert.True(t, names["execute_admin_operation"])
 	assert.True(t, names["audit_admin_model_pricing"])
 	assert.True(t, names["get_admin_server_config"])
-	assert.True(t, names["get_admin_assistant_review"])
+	assert.False(t, names["get_admin_assistant_review"])
 	assert.True(t, names["prepare_admin_config_change"])
 	assert.True(t, names["get_admin_channels"])
 	assert.True(t, names["prepare_admin_channel_change"])
@@ -1574,6 +1651,8 @@ func TestAssistantModelsToolUsesModelListBillingPredicate(t *testing.T) {
 	assistantResult := executeAssistantModelsTool(user.Id)
 	assert.Equal(t, true, assistantResult["ok"])
 	assert.Equal(t, []string{"assistant-priced-model"}, assistantResult["model_ids"])
+	assert.Equal(t, "/pricing", assistantResult["model_list_path"])
+	assert.Equal(t, "catalog_and_pricing_not_a_chat_workbench", assistantResult["model_list_purpose"])
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -1818,7 +1897,7 @@ func TestAssistantAgentToolCatalogueMatchesAccessLevel(t *testing.T) {
 	// get_bounty_data is topic-gated and the weekly discount is a user reward;
 	// neither is included for an administrator catalogue.
 	assert.False(t, adminNames["prepare_weekly_discount"])
-	assert.True(t, adminNames["get_admin_assistant_review"])
+	assert.False(t, adminNames["get_admin_assistant_review"])
 	assert.False(t, adminNames["get_admin_server_config"])
 	assert.False(t, adminNames["prepare_admin_config_change"])
 	assert.False(t, adminNames["prepare_admin_pricing_change"])
@@ -1941,95 +2020,12 @@ func TestAssistantPaymentOffersUseProgressiveGateAndKeepRestrictions(t *testing.
 	blockedPlans, ok := blocked["plans"].([]SubscriptionPlanDTO)
 	require.True(t, ok)
 	assert.Len(t, blockedPlans, 1)
-	blockedDiscounts, ok := blocked["topup_discounts"].(map[int]float64)
+	blockedDiscounts, ok := blocked["topup_discounts"].(map[string]float64)
 	require.True(t, ok)
 	assert.Empty(t, blockedDiscounts)
 }
 
-func TestAssistantL1RecommendationActionUsesActorAndIsAttachedToResponse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.AuthFlow{}))
-	user := model.User{
-		Username: "assistant-l0-user",
-		Password: "password",
-		Role:     common.RoleCommonUser,
-		Status:   common.UserStatusEnabled,
-		Group:    "default",
-	}
-	require.NoError(t, db.Create(&user).Error)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Set("id", 987)
-	c.Set(assistantActorUserIDKey, user.Id)
-	c.Set("session_id", "assistant-l0-session")
-
-	result := executeAssistantTool(c, assistantOpenAIToolCall{
-		Function: assistantOpenAIToolCallFunction{
-			Name: "prepare_l1_recommendation",
-			Arguments: `{
-				"user_statement":"I want to connect Claude Code for an open-source Go project.",
-				"recommendation":"The user described a concrete development workflow and the intended compatible client."
-			}`,
-		},
-	})
-	assert.Equal(t, true, result["ok"])
-	assert.Equal(t, "confirmation_required", result["status"])
-	assert.Equal(t, "l1_recommendation", result["action"])
-	stored, err := model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	assert.Nil(t, stored)
-
-	writeAssistantRawResponse(c, http.StatusOK, []byte(`{"choices":[{"message":{"content":"Please confirm."}}]}`), "ASSISTANT_UPSTREAM_FAILED")
-	assert.Equal(t, http.StatusOK, recorder.Code)
-	var response map[string]any
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	action, ok := response["lmm_assistant_action"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "l1_recommendation", action["type"])
-	assert.Contains(t, action["recommendation"], "concrete development workflow")
-	assert.NotEmpty(t, action["confirmation_token"])
-}
-
-func TestAssistantL1RecommendationPreparationDoesNotEditExistingLetter(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db := setupTokenControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.AuthFlow{}))
-	user := model.User{
-		Username: "assistant-existing-l1-letter",
-		Password: "password",
-		Role:     common.RoleCommonUser,
-		Status:   common.UserStatusEnabled,
-		Group:    "default",
-	}
-	require.NoError(t, db.Create(&user).Error)
-	existing, err := model.SubmitAssistantDeveloperAccessRecommendation(
-		user.Id,
-		"My current concrete integration request.",
-		"Keep this existing recommendation unchanged until I confirm an edit.",
-	)
-	require.NoError(t, err)
-
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Set("id", user.Id)
-	c.Set(assistantActorUserIDKey, user.Id)
-	c.Set("session_id", "assistant-existing-l1-letter-session")
-	result := executeAssistantL1RecommendationTool(c, user.Id, map[string]any{
-		"user_statement": "My replacement concrete integration request.",
-		"recommendation": "Replace the existing recommendation only after explicit confirmation.",
-	})
-
-	assert.Equal(t, true, result["ok"])
-	assert.Equal(t, "confirmation_required", result["status"])
-	stored, err := model.GetDeveloperAccessRequest(user.Id)
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	assert.Equal(t, existing.Id, stored.Id)
-	assert.Equal(t, existing.Reason, stored.Reason)
-	assert.Equal(t, existing.AIRecommendation, stored.AIRecommendation)
-}
-
-func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testing.T) {
+func TestAssistantAgentUsesCurrentAccessWithoutReadingRetiredLetter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.DeveloperAccessRequest{}, &model.AuthFlow{}))
@@ -2058,7 +2054,7 @@ func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testin
 		UserID:               user.Id,
 		Intent:               model.AssistantIntentRecommendation,
 		AccessLevel:          "L0",
-		RecommendationAction: assistantRecommendationActionRevise,
+		RecommendationAction: assistantRecommendationActionNone,
 	})
 
 	turn := 0
@@ -2067,12 +2063,13 @@ func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testin
 		turn++
 		switch turn {
 		case 1:
-			requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", true)
+			toolResult := requireAssistantPairedReadReceipt(t, request, "get_account_access", true)
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			encoded := string(mustAssistantJSON(t, request.Messages))
-			assert.Contains(t, encoded, existing.AIRecommendation)
-			assert.Contains(t, encoded, "read-only historical data")
+			assert.NotContains(t, encoded, existing.AIRecommendation)
+			assert.NotContains(t, toolResult, "l1_request")
+			assert.Contains(t, toolResult, "registration_workflow")
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"Recommendation submission is retired. Continue registration verification in this conversation."}}]}`), nil
 		default:
 			return http.StatusInternalServerError, nil, nil
@@ -2085,7 +2082,7 @@ func TestAssistantAgentReadsHistoricalRecommendationWithoutRetiredEdit(t *testin
 		AgentLoopEnabled: false,
 		MaxSteps:         1,
 		TimeoutSeconds:   45,
-	}, []assistantOpenAIMessage{{Role: "user", Content: "请帮我重写这封推荐信"}})
+	}, []assistantOpenAIMessage{{Role: "user", Content: "请显示我的推荐信"}})
 
 	assert.Equal(t, 1, turn)
 	assert.Equal(t, http.StatusOK, recorder.Code)
@@ -2143,13 +2140,13 @@ func TestAssistantAgentKeepsRetiredRecommendationRemovalReadOnly(t *testing.T) {
 		turn++
 		switch turn {
 		case 1:
-			requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", true)
+			requireAssistantPairedReadReceipt(t, request, "get_account_access", true)
 			assert.Nil(t, request.ToolChoice)
 			assert.Empty(t, request.Tools)
 			require.NotEmpty(t, request.Messages)
 			toolResult := request.Messages[len(request.Messages)-1].Content
-			assert.Contains(t, toolResult, `"historical_read_only":true`)
-			assert.Contains(t, toolResult, "Do not call prepare_l1_recommendation")
+			assert.NotContains(t, toolResult, `"l1_request"`)
+			assert.Contains(t, toolResult, `"registration_workflow"`)
 			return http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"The recommendation form is retired. Human support can handle a historical-record removal request."}}]}`), nil
 		default:
 			return http.StatusInternalServerError, nil, nil
@@ -2206,7 +2203,7 @@ func TestAssistantAgentFailedRecommendationReadCannotAuthorizeMutation(t *testin
 	originalRelay := relayAssistantAgentTurn
 	relayAssistantAgentTurn = func(_ *gin.Context, request assistantOpenAIRequest, _ string, _ int) (int, []byte, error) {
 		turns++
-		receipt := requireAssistantPairedReadReceipt(t, request, "get_l1_recommendation", false)
+		receipt := requireAssistantPairedReadReceipt(t, request, "get_account_access", false)
 		assert.Contains(t, receipt["error"], "signed-in account is unavailable")
 		assert.Equal(t, "none", request.ToolChoice)
 		return http.StatusOK, assistantLoopCallBody(t, []assistantOpenAIToolCall{{ID: "unauthorized-write", Type: "function", Function: assistantOpenAIToolCallFunction{Name: "prepare_l1_recommendation", Arguments: "{}"}}}, ""), nil
@@ -2410,7 +2407,7 @@ func TestAssistantGiftRequestUsesOneTimeDecisionToolForL1(t *testing.T) {
 	// “新人福利” is the wording users actually see in the console. It must
 	// enter the same confirmation-gated gift workflow as “新用户礼包” rather
 	// than falling through to a generic onboarding answer.
-	for _, message := range []string{"申请新人福利", "我想领取新手福利", "我想申请新用户福利", "How do I claim the new user gift?"} {
+	for _, message := range []string{"申请新人福利", "我想领取新手福利", "我想申请新用户福利", "I want to claim the new user gift"} {
 		context.LatestUserRequest = message
 		assert.Equal(t, []string{"prepare_new_user_gift"}, assistantReadChain(context), message)
 		assert.True(t, assistantNewUserGiftWorkflowRequired(context), message)
@@ -2715,4 +2712,47 @@ func TestAssistantPlatformSkillFilesStaySeparateFromUserContext(t *testing.T) {
 	encoded, err := json.Marshal(assistantUserContext{UserID: 42, ManualProfileStrategy: "user-only response style"})
 	require.NoError(t, err)
 	assert.NotContains(t, string(encoded), "Use the live catalog first.")
+}
+
+func TestPrepareAssistantRequestL0FirstTurnBypassesCachedAnswer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.AssistantLead{}, &model.AssistantProfileBucket{}, &model.AssistantFirstQuestionStat{}))
+	withAssistantSettings(t, true, "assistant-recommendation-cache-bypass-model")
+	original := setting.GetAssistantSettings()
+	setting.SetAssistantCacheEnabled(true)
+	require.NoError(t, setting.UpdateAssistantCacheTTLMinutes("10"))
+	t.Cleanup(func() {
+		setting.SetAssistantCacheEnabled(original.CacheEnabled)
+		_ = setting.UpdateAssistantCacheTTLMinutes(strconv.Itoa(original.CacheTTLMinutes))
+	})
+
+	message := "制作开源软件 " + t.Name()
+	settings := setting.GetAssistantSettings()
+	context := assistantUserContextForRequest(42, message)
+	require.Equal(t, assistantRecommendationActionNone, context.RecommendationAction)
+	require.True(t, assistantDirectL1GrantAllowed(context))
+	require.Zero(t, context.CompletedAssistantTurns)
+	key := assistantCacheKey(settings, []assistantOpenAIMessage{{Role: "user", Content: message}}, context)
+	require.NotEmpty(t, key)
+	storeAssistantCachedResponse(settings, key, http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"stale cached answer"}}]}`))
+
+	downstreamCalls := 0
+	engine := gin.New()
+	engine.POST("/api/assistant/chat", func(c *gin.Context) {
+		c.Set("id", 42)
+		PrepareAssistantRequest(c)
+	}, func(c *gin.Context) {
+		downstreamCalls++
+		c.Status(http.StatusNoContent)
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/assistant/chat", strings.NewReader(`{"message":"`+message+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusNoContent, response.Code)
+	assert.Empty(t, response.Header().Get("X-LMM-Assistant-Cache"))
+	assert.Equal(t, 1, downstreamCalls)
+	assert.NotContains(t, response.Body.String(), "stale cached answer")
 }

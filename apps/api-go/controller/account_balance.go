@@ -9,7 +9,6 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
 )
 
 // SetAccountBalanceAccess is an owner-authenticated grant, never a relay-key operation.
@@ -50,7 +49,7 @@ func GetAccountBalance(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"valid": false, "error": "account_balance_access_required"})
 		return
 	}
-	if common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
+	if _, err := common.LegacyPricingUnitsPerUSD(); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"valid": false, "error": "account_balance_unavailable"})
 		return
 	}
@@ -60,7 +59,16 @@ func GetAccountBalance(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"valid": false, "error": "account_balance_unavailable"})
 		return
 	}
-	remaining, _ := decimal.NewFromInt(int64(user.Quota)).Div(decimal.NewFromFloat(common.QuotaPerUnit)).Float64()
+	remainingUSD, err := common.CreditsToUSD(int64(user.Quota))
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"valid": false, "error": "account_balance_unavailable"})
+		return
+	}
+	remaining, _ := remainingUSD.Float64()
+	if math.IsNaN(remaining) || math.IsInf(remaining, 0) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"valid": false, "error": "account_balance_unavailable"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"valid": true, "scope": "account", "currency": "USD",
 		"remaining": remaining, "updated_at": time.Now().Unix(), "consistency": "persisted_snapshot"})
 }

@@ -17,6 +17,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Missing provider usage is estimated from locally countable input. Keep the
+// fallback within the largest currently supported Responses context window;
+// opaque replay payload bytes must not turn it into an unbounded final debit.
+const maxUnverifiedResponsesInputTokens = 1_050_000
+
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -34,6 +39,9 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
+	info.ObserveResponseModel(responsesResponse.Model)
+	info.ObserveServiceTier(responseBody)
+
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
@@ -41,6 +49,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	usage := dto.Usage{}
 	if responsesResponse.Usage != nil {
 		service.ApplyResponsesUsage(&usage, responsesResponse.Usage)
+		info.ResponsesUsageReported = true
 	}
 	// Count actual tool invocations from Output (not tool declarations).
 	for _, output := range responsesResponse.Output {
@@ -73,6 +82,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	if apiErr := validateOpenAIStreamResponse(resp); apiErr != nil {
+		return nil, apiErr
+	}
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
@@ -81,6 +93,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	terminal := false
 	hasUsage := false
 	downstreamWriteFailed := false
+	eventWritten := false
 	var lastResponse *dto.OpenAIResponsesResponse
 	sequence := -1
 
@@ -97,6 +110,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			return
 		}
 		streamResponse := event.ResponsesStreamResponse
+		info.ObserveServiceTier([]byte(data))
 		if strings.ContainsAny(streamResponse.Type, "\r\n") {
 			// JSON escapes are decoded above; validate the value at the SSE
 			// boundary before it can introduce another event or data field.
@@ -107,6 +121,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sequence = *event.SequenceNumber
 		}
 		if streamResponse.Response != nil {
+			info.ObserveResponseModel(streamResponse.Response.Model)
 			lastResponse = streamResponse.Response
 			if lastResponse.Usage != nil {
 				candidate := &dto.Usage{}
@@ -115,23 +130,32 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				// terminal usage report, including zero, remains authoritative.
 				finalUsage := false
 				switch streamResponse.Type {
-				case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+				case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
 					finalUsage = true
 				}
 				if service.ValidUsage(candidate) || finalUsage {
 					*usage = *candidate
 					hasUsage = true
+					info.ResponsesUsageReported = true
 				}
 			}
 		}
 		writeErr := writeResponsesEvent(c, streamResponse.Type, data)
+		if writeErr == nil {
+			eventWritten = true
+		}
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			terminal = true
 			if streamResponse.Response != nil {
-				failed := relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status)
+				failed := relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) || streamResponse.Response.Error != nil
 				if failed {
 					info.StreamStatus.RecordError("upstream Responses terminal failure")
+				}
+				if !failed && !hasUsage && responseTextBuilder.Len() == 0 {
+					// Final output often repeats deltas. Only recover it when
+					// the successful terminal was the sole generated output.
+					responseTextBuilder.WriteString(ResponsesTerminalOutputText(data))
 				}
 				if !imageCommitted {
 					if failed {
@@ -151,7 +175,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "error":
 			terminal = true
 			// A terminal event stops scanning; it does not by itself prove
 			// successful consumption. Keep measured usage, but prohibit the
@@ -162,7 +186,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-		case "response.output_text.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
+		case "response.output_text.delta", "response.refusal.delta", "response.function_call_arguments.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
 			// A tool-only partial response still consumed output. This is only a
 			// local lower-bound estimate when the provider supplied no usage.
 			responseTextBuilder.WriteString(streamResponse.Delta)
@@ -204,10 +228,16 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	if !hasUsage && usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
-		// response.created alone proves acceptance, not consumed input. Only
-		// estimate prompt usage after observed output; otherwise leave unknown
-		// usage at zero rather than inventing consumption from request size.
-		usage.PromptTokens = info.GetEstimatePromptTokens()
+		// Observed output means the provider accepted and processed input even
+		// when the client disconnects before usage arrives. Charge a bounded
+		// local estimate so cancellation cannot bypass input billing.
+		estimated := info.GetEstimatePromptTokens()
+		if estimated < 0 {
+			estimated = 0
+		} else if estimated > maxUnverifiedResponsesInputTokens {
+			estimated = maxUnverifiedResponsesInputTokens
+		}
+		usage.PromptTokens = estimated
 	}
 
 	if !hasUsage {
@@ -218,7 +248,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		// path. Returning an API error here would retry/refund the whole request.
 		const message = "Upstream response ended before a terminal event"
 		info.StreamStatus.RecordError(message)
-		if !c.Writer.Written() && !downstreamWriteFailed && c.Request.Context().Err() == nil {
+		if !eventWritten && !downstreamWriteFailed && c.Request.Context().Err() == nil {
 			return usage, types.NewOpenAIError(fmt.Errorf("%s", message), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 		}
 		if !downstreamWriteFailed && c.Request.Context().Err() == nil && info.StreamStatus.EndReason != relaycommon.StreamEndReasonHandlerStop && info.StreamStatus.EndReason != relaycommon.StreamEndReasonPingFail {

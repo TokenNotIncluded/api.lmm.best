@@ -19,9 +19,52 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { getServerErrorMessageKey } from './server-error-message'
+import {
+  getServerErrorMessageKey,
+  getServerErrorToastId,
+} from './server-error-message'
 
 describe('server error message mapping', () => {
+  test('maps nested edge outage responses without claiming a save failed', () => {
+    const error = {
+      response: {
+        status: 503,
+        data: {
+          error: {
+            code: 'service_temporarily_unavailable',
+            message: 'raw edge diagnostic',
+          },
+        },
+      },
+    }
+    assert.equal(
+      getServerErrorMessageKey(error),
+      'The service is temporarily unavailable. Please try again later.'
+    )
+    assert.equal(
+      getServerErrorToastId(error),
+      'service-temporarily-unavailable'
+    )
+    assert.equal(
+      getServerErrorToastId({
+        response: { status: 503, data: { code: 'OTHER' } },
+      }),
+      undefined
+    )
+    assert.equal(getServerErrorMessageKey({ error: { code: 'OTHER' } }), null)
+    assert.equal(getServerErrorMessageKey({ error: 'invalid' }), null)
+  })
+
+  test('maps a declined GitHub migration to a safe recovery path', () => {
+    assert.equal(
+      getServerErrorMessageKey({
+        code: 'oauth.github_migration_declined',
+        message: 'raw server detail',
+      }),
+      'GitHub account ownership could not be verified. Sign in another way and relink GitHub in account settings.'
+    )
+  })
+
   test('maps the active-session limit to recovery instructions', () => {
     const message = getServerErrorMessageKey({ code: 'AUTH_SESSION_LIMIT' })
 
@@ -77,14 +120,16 @@ describe('server error message mapping', () => {
     )
   })
 
-  test('maps an expired AI recommendation to a recoverable edit path', () => {
-    assert.match(
-      getServerErrorMessageKey({
-        response: {
-          data: { code: 'DEVELOPER_ACCESS_AI_CONFIRMATION_INVALID' },
-        },
-      }) ?? '',
-      /continue editing it yourself/
-    )
+  test('retired L1 errors point to current activation, never letter editing', () => {
+    for (const code of [
+      'DEVELOPER_ACCESS_LETTER_RETIRED',
+      'DEVELOPER_ACCESS_AI_CONFIRMATION_INVALID',
+      'DEVELOPER_ACCESS_AI_CONFIRMATION_MISMATCH',
+    ]) {
+      assert.equal(
+        getServerErrorMessageKey({ response: { data: { code } } }),
+        'Describe what you need. The assistant can enable L1 directly.'
+      )
+    }
   })
 })

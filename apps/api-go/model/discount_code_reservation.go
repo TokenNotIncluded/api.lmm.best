@@ -51,6 +51,31 @@ func validateDiscountCodeReservationTerms(code *DiscountCode, topUp *TopUp, now 
 	if topUp.PlatformAmountMicros > 0 {
 		requestedAmount = decimal.NewFromInt(topUp.PlatformAmountMicros).Shift(-6)
 	}
+
+	if topUp.DiscountQualifyingAmount != "" {
+		if len(topUp.DiscountQualifyingAmount) > 64 {
+			return gorm.ErrInvalidData
+		}
+		captured, err := decimal.NewFromString(topUp.DiscountQualifyingAmount)
+		if err != nil || captured.IsNegative() {
+			return gorm.ErrInvalidData
+		}
+		expected := requestedAmount
+		switch topUp.DiscountQualifyingUnit {
+		case "CREDIT":
+			if !captured.IsPositive() {
+				return gorm.ErrInvalidData
+			}
+			expected = decimal.NewFromInt(topUp.CreditedQuota)
+		case "LEGACY":
+		default:
+			return gorm.ErrInvalidData
+		}
+		if !captured.Equal(expected) {
+			return gorm.ErrInvalidData
+		}
+		requestedAmount = captured
+	}
 	if requestedAmount.LessThan(decimal.NewFromInt(code.MinAmount)) {
 		return ErrDiscountCodeMinimum
 	}

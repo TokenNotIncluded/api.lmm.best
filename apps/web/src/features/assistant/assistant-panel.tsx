@@ -32,16 +32,25 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
   ArrowUpRight,
+  ChevronDown,
   Download,
   History,
   KeyRound,
   MessageCircle,
+  Pause,
+  Play,
   Plus,
   Square,
   Wrench,
 } from 'lucide-react'
 import { nanoid } from 'nanoid'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -50,7 +59,6 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation'
-import { Loader } from '@/components/ai-elements/loader'
 import { Message, MessageContent } from '@/components/ai-elements/message'
 import {
   PromptInput,
@@ -80,15 +88,30 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WaitCompanion } from '@/components/wait-companion'
+import { L0_ARRIVAL_DURATION } from '@/features/onboarding/l0-flight-path'
+import {
+  mountL0TextFlow,
+  visualTokens,
+  visualTokenTail,
+  type L0TextFlow,
+} from '@/features/onboarding/l0-text-flow'
+import {
+  createL0Tokens,
+  mountL0TokenCloud,
+  projectL0Token,
+} from '@/features/onboarding/l0-token-cloud'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { cn } from '@/lib/utils'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
+import './assistant-surface.css'
+
 import {
   assistantRunFailureDetails,
   getAssistantAvailableModels,
+  getAssistantSetupModels,
   getAssistantErrorInfo,
   getAssistantPreConversationPresets,
   getAssistantStatus,
@@ -102,10 +125,10 @@ import {
   type AssistantChatMessage,
   type AssistantAccountDisableAction,
   type AssistantCreateKeyAction,
+  type AssistantKeyManagementAction,
   type AssistantAdminChangeAction,
   type AssistantImageGenerationAction,
   type AssistantHumanSupportAction,
-  type AssistantL1RecommendationAction,
   type AssistantNavigationAction,
   type AssistantToolTrace,
   type AssistantUserAction,
@@ -139,6 +162,7 @@ import {
   isExplicitAssistantL1Request,
 } from './assistant-intent'
 import { AssistantJourneyProgress } from './assistant-journey'
+import { AssistantKeyManagementTool } from './assistant-key-management-tool'
 import { AssistantKeyTool } from './assistant-key-tool'
 import {
   hasAssistantMessageSubstantialMeaning,
@@ -166,11 +190,12 @@ import { AssistantToolCalls } from './assistant-tool-calls'
 import { AssistantUsageTool } from './assistant-usage-tool'
 import { AssistantUserActionTool } from './assistant-user-action-tool'
 import { AssistantWeeklyDiscount } from './assistant-weekly-discount'
+import { AssistantWorkspaceActionCard } from './assistant-workspace-action'
+import type { AssistantWorkspaceAction } from './assistant-workspace-contract'
 import { useAssistantSupport } from './use-assistant-support'
 
 type AssistantActionPath =
   | '/'
-  | '/getting-started'
   | '/pricing'
   | '/wallet'
   | '/usage-logs'
@@ -206,11 +231,13 @@ type ConversationEntry = {
   content: string
   tools?: AssistantToolTrace[]
   action?: AssistantAction
+  workspaceAction?: AssistantWorkspaceAction
   adminChange?: AssistantAdminChangeAction
   imageAction?: AssistantImageGenerationAction
   error?: boolean
   notice?: boolean
   streaming?: boolean
+  animateToCloud?: boolean
   interrupted?: boolean
   retry?: {
     message: string
@@ -246,6 +273,12 @@ function assistantNavigationLabel(
     return translate('Open usage logs')
   }
   if (action.path === '/profile') return translate('Open account bindings')
+  if (action.path.startsWith('/store/products/')) {
+    return translate('Open product')
+  }
+  if (action.path === '/tool-market' && action.query.service_id) {
+    return translate('Open tool service')
+  }
   return translate('Open page')
 }
 
@@ -256,6 +289,186 @@ function getBaseUrl(): string {
   return `${window.location.origin}/v1`
 }
 
+const assistantCloudFallback = createL0Tokens(390).filter(
+  (_, index) => index % 3 === 0
+)
+
+function AssistantTokenCloud(props: {
+  cloudRef?: { current: HTMLDivElement | null }
+  compact?: boolean
+  active?: boolean
+}) {
+  const { t } = useTranslation()
+  const localCloudRef = useRef<HTMLDivElement>(null)
+
+  const setCloudRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      localCloudRef.current = node
+      if (props.cloudRef) props.cloudRef.current = node
+    },
+    [props.cloudRef]
+  )
+
+  useEffect(() => {
+    const root = localCloudRef.current
+    if (root) return mountL0TokenCloud(root)
+  }, [])
+
+  return (
+    <div
+      className='assistant-token-cloud'
+      data-testid='assistant-token-cloud'
+      data-cloud-scene='chat'
+      data-cloud-contrast='strong'
+      data-compact={props.compact ? 'true' : undefined}
+      data-active={props.active ? 'true' : undefined}
+      ref={setCloudRef}
+    >
+      <svg
+        className='assistant-token-cloud-fallback'
+        viewBox='0 0 400 220'
+        aria-hidden='true'
+      >
+        {assistantCloudFallback.map((token, index) => {
+          const point = projectL0Token(token, 0)
+          return (
+            <circle
+              key={index}
+              cx={200 + point.x * 114}
+              cy={110 + point.y * 114}
+              r={0.6 + point.depth * 0.8}
+              opacity={Math.min(1, (0.14 + point.depth * 0.72) * 1.8)}
+            />
+          )
+        })}
+      </svg>
+      <canvas aria-hidden='true' />
+      <button
+        type='button'
+        className='assistant-token-cloud-toggle'
+        data-cloud-pause
+        aria-label={`${t('Pause')} / ${t('Continue')}`}
+        aria-pressed='false'
+      >
+        <Pause className='assistant-token-cloud-pause' aria-hidden='true' />
+        <Play className='assistant-token-cloud-play' aria-hidden='true' />
+      </button>
+    </div>
+  )
+}
+
+function AssistantUserFlowMessage(props: {
+  entry: ConversationEntry
+  flow: { current: L0TextFlow | null }
+  animatedIds: Set<string>
+}) {
+  const sourceRef = useRef<HTMLParagraphElement>(null)
+  const hasFlowSource = props.entry.animateToCloud === true
+  const tokens = hasFlowSource ? visualTokens(props.entry.content) : []
+
+  useLayoutEffect(() => {
+    const source = sourceRef.current
+    if (!source || !hasFlowSource || props.animatedIds.has(props.entry.id)) {
+      return
+    }
+    props.animatedIds.add(props.entry.id)
+    props.flow.current?.sentence(source)
+  }, [hasFlowSource, props.animatedIds, props.entry.id, props.flow])
+
+  if (!hasFlowSource) {
+    return (
+      <p className='break-words whitespace-pre-wrap'>{props.entry.content}</p>
+    )
+  }
+
+  return (
+    <p
+      ref={sourceRef}
+      className='assistant-user-flow break-words whitespace-pre-wrap'
+    >
+      {tokens.map((token) => (
+        <span key={token.index} data-l0-source>
+          {token.text}
+        </span>
+      ))}
+    </p>
+  )
+}
+
+function AssistantFlowResponse(props: {
+  entry: ConversationEntry
+  flow: { current: L0TextFlow | null }
+}) {
+  const answerRef = useRef<HTMLDivElement>(null)
+  const [formatted, setFormatted] = useState(!props.entry.streaming)
+  const tail = visualTokenTail(props.entry.content)
+  const prefix = props.entry.content.slice(0, tail[0]?.index ?? 0)
+
+  useLayoutEffect(() => {
+    if (formatted || !answerRef.current) return
+    props.flow.current?.receive(answerRef.current, true)
+  }, [formatted, props.entry.content, props.entry.streaming, props.flow])
+
+  useEffect(() => {
+    if (props.entry.streaming) {
+      setFormatted(false)
+      return
+    }
+    if (formatted) return
+    const timer = window.setTimeout(() => {
+      props.flow.current?.clearResponses()
+      setFormatted(true)
+    }, L0_ARRIVAL_DURATION + 40)
+    return () => window.clearTimeout(timer)
+  }, [formatted, props.entry.streaming, props.flow])
+
+  if (formatted || props.entry.content.includes('```openui')) {
+    return (
+      <Response
+        className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
+        final={!props.entry.streaming}
+      >
+        {props.entry.content}
+      </Response>
+    )
+  }
+
+  return (
+    <div
+      ref={answerRef}
+      className='assistant-flow-response max-w-full leading-7 break-words whitespace-pre-wrap'
+    >
+      {prefix}
+      {tail.map((token) => (
+        <span key={token.index} data-l0-arrival>
+          {token.text}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function AssistantThinkingIndicator(props: { step: number }) {
+  const { t } = useTranslation()
+  return (
+    <div
+      className='assistant-thinking-flow'
+      data-testid='assistant-thinking-flow'
+      aria-live='polite'
+    >
+      <span className='assistant-thinking-tokens' aria-hidden='true'>
+        <i />
+        <i />
+        <i />
+      </span>
+      <span>
+        {t('Assistant is thinking...')}
+        {props.step > 0 ? ` · ${props.step}` : ''}
+      </span>
+    </div>
+  )
+}
+
 function AssistantModernWelcome(props: {
   description: string
   restricted: boolean
@@ -264,17 +477,15 @@ function AssistantModernWelcome(props: {
 
   return (
     <div
-      className='mx-auto flex w-full max-w-2xl flex-col items-center justify-center gap-4 px-2 pt-10 pb-7 text-center sm:px-5 sm:pt-16 sm:pb-9'
+      className='assistant-start-intro'
       data-testid='assistant-modern-welcome'
     >
-      <h2 className='text-2xl leading-snug font-semibold tracking-tight text-balance sm:text-3xl'>
+      <h2>
         {props.restricted
           ? t('What would you like to do?')
           : t('How can I help?')}
       </h2>
-      <p className='text-muted-foreground max-w-xl text-sm leading-7'>
-        {props.description}
-      </p>
+      <p>{props.description}</p>
     </div>
   )
 }
@@ -296,7 +507,7 @@ function AssistantGettingStartedActions(props: {
       icon: KeyRound,
       title: props.restricted ? t('Get API access') : t('Create API key'),
       description: props.restricted
-        ? t('Tell us your use case and follow the access review.')
+        ? t('The assistant can enable L1 during this conversation.')
         : t('Create a key, then import it into a supported client.'),
       open: () => props.onOpen(props.restricted ? 'onboarding' : 'api-key'),
     },
@@ -316,7 +527,7 @@ function AssistantGettingStartedActions(props: {
 
   return (
     <div
-      className='mx-auto mb-8 grid w-full max-w-xl gap-3 px-1 sm:px-4'
+      className='assistant-start-actions'
       aria-label={t('Getting started')}
       data-testid='assistant-getting-started-actions'
     >
@@ -326,20 +537,17 @@ function AssistantGettingStartedActions(props: {
           type='button'
           disabled={props.disabled}
           onClick={open}
-          className='border-border/70 bg-background text-foreground hover:bg-muted focus-visible:ring-ring flex min-h-20 items-center gap-3 rounded-xl border px-4 py-4 text-start transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:gap-4 sm:px-5'
+          className='assistant-start-action'
         >
-          <Icon
-            className='text-muted-foreground size-5 shrink-0'
-            aria-hidden='true'
-          />
-          <span className='min-w-0 flex-1'>
-            <span className='block text-sm font-medium'>{title}</span>
-            <span className='text-muted-foreground mt-1 block text-xs leading-5'>
+          <Icon className='assistant-start-action-icon' aria-hidden='true' />
+          <span className='assistant-start-action-copy'>
+            <span className='assistant-start-action-title'>{title}</span>
+            <span className='assistant-start-action-description'>
               {description}
             </span>
           </span>
           <ArrowUpRight
-            className='text-muted-foreground size-4 shrink-0'
+            className='assistant-start-action-arrow'
             aria-hidden='true'
           />
         </button>
@@ -678,7 +886,7 @@ function AssistantPresetPrompts(props: {
           type='button'
           variant='ghost'
           size='sm'
-          className='bg-muted/40 h-auto min-h-8 max-w-full shrink-0 rounded-full px-3 text-left whitespace-normal'
+          className='assistant-preset-token h-auto min-h-8 max-w-full shrink-0 rounded-full px-3 text-left whitespace-normal'
           onClick={() => {
             setInput(preset.prompt)
             props.onSelect(preset)
@@ -873,11 +1081,15 @@ function AssistantPanelHeader(props: {
   // history + fullscreen on the left, close on the right. No dividers.
   if (props.mode === 'mobile') {
     return (
-      <SheetHeader className='flex-row items-center gap-0.5 px-2 py-2 sm:px-3'>
+      <SheetHeader className='assistant-surface-header flex-row items-center gap-0.5 px-3 py-2 sm:px-4'>
         <SheetTitle className='sr-only'>{t('AI assistant')}</SheetTitle>
         <SheetDescription className='sr-only'>
           {props.description}
         </SheetDescription>
+        <span className='assistant-surface-wordmark' aria-hidden='true'>
+          LMM<span>/</span>AI
+        </span>
+        <div className='ms-auto' />
         <Button
           type='button'
           variant='ghost'
@@ -892,7 +1104,6 @@ function AssistantPanelHeader(props: {
           <History aria-hidden='true' />
         </Button>
         {supportActions}
-        <div className='ms-auto' />
         <Button
           type='button'
           variant='ghost'
@@ -914,7 +1125,10 @@ function AssistantPanelHeader(props: {
 
   if (props.mode === 'page') {
     return (
-      <header className='assistant-modern-header flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-2 sm:px-4'>
+      <header className='assistant-modern-header assistant-surface-header flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-2 sm:px-4'>
+        <span className='assistant-surface-wordmark' aria-hidden='true'>
+          LMM<span>/</span>AI
+        </span>
         <Button
           type='button'
           variant='ghost'
@@ -938,7 +1152,10 @@ function AssistantPanelHeader(props: {
 
   // Desktop rail header
   return (
-    <header className='flex min-w-0 shrink-0 items-center gap-0.5 px-2 py-2 sm:px-3'>
+    <header className='assistant-surface-header flex min-w-0 shrink-0 items-center gap-0.5 px-3 py-2 sm:px-4'>
+      <span className='assistant-surface-wordmark' aria-hidden='true'>
+        LMM<span>/</span>AI
+      </span>
       <Button
         type='button'
         variant='ghost'
@@ -1015,6 +1232,10 @@ export function AssistantPanel(props: AssistantPanelProps) {
 }
 
 function AssistantPanelSession(props: AssistantPanelProps) {
+  const [choiceDraft, setChoiceDraft] = useState<{
+    text: string
+    revision: number
+  } | null>(null)
   const { t, i18n } = useTranslation()
   const { systemName } = useSystemConfig()
   const navigate = useNavigate()
@@ -1062,14 +1283,14 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const [agentStep, setAgentStep] = useState(0)
   const assistantAbortControllerRef = useRef<AbortController | null>(null)
   const submittedAutoSendIdRef = useRef<string | undefined>(undefined)
-  const [recommendationDraft, setRecommendationDraft] =
-    useState<AssistantL1RecommendationAction | null>(null)
   const [accountDisableDraft, setAccountDisableDraft] =
     useState<AssistantAccountDisableAction | null>(null)
   const [humanSupportAction, setHumanSupportAction] =
     useState<AssistantHumanSupportAction | null>(null)
   const [keyCreationAction, setKeyCreationAction] =
     useState<AssistantCreateKeyAction | null>(null)
+  const [keyManagementAction, setKeyManagementAction] =
+    useState<AssistantKeyManagementAction | null>(null)
   const [autoConfirmKeyToken, setAutoConfirmKeyToken] = useState<string | null>(
     null
   )
@@ -1092,6 +1313,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
   const latestAssistantMessageRef = useRef<HTMLDivElement | null>(null)
+  const assistantCloudRef = useRef<HTMLDivElement | null>(null)
+  const assistantTextFlowRef = useRef<L0TextFlow | null>(null)
+  const animatedQuestionIdsRef = useRef<Set<string>>(new Set())
   const statusQuery = useQuery({
     queryKey: ['assistant-status', authUser?.id, authSessionId],
     queryFn: getAssistantStatus,
@@ -1141,8 +1365,16 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   const superAdministratorFunded =
     statusQuery.data?.funding?.mode === 'super_administrator'
   const connectionModelsQuery = useQuery({
-    queryKey: ['assistant-available-models', authUser?.id, authSessionId],
-    queryFn: getAssistantAvailableModels,
+    queryKey: [
+      'assistant-available-models',
+      authUser?.id,
+      authSessionId,
+      activeTool,
+    ],
+    queryFn:
+      activeTool === 'setup'
+        ? getAssistantSetupModels
+        : getAssistantAvailableModels,
     enabled:
       props.open &&
       developerAccessGranted &&
@@ -1152,6 +1384,23 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   })
   const accountToolActive = activeTool !== null
   const historyVisible = historyView !== null
+
+  useLayoutEffect(() => {
+    const root = assistantCloudRef.current
+    if (!panelVisible || historyVisible || !root) return
+    const mounted = mountL0TextFlow(root)
+    assistantTextFlowRef.current = mounted
+    return () => {
+      if (assistantTextFlowRef.current === mounted) {
+        assistantTextFlowRef.current = null
+      }
+      mounted.dispose()
+    }
+  }, [conversationResetRevision, historyVisible, panelVisible])
+
+  useEffect(() => {
+    animatedQuestionIdsRef.current.clear()
+  }, [conversationResetRevision])
 
   const openAssistantTool = useCallback((tool: AssistantTool) => {
     setActiveTool(tool)
@@ -1204,10 +1453,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
 
   const clearToolState = useCallback(() => {
     setActiveTool(null)
-    setRecommendationDraft(null)
     setAccountDisableDraft(null)
     setHumanSupportAction(null)
     setKeyCreationAction(null)
+    setKeyManagementAction(null)
     setAutoConfirmKeyToken(null)
     setUserActionDraft(null)
   }, [])
@@ -1216,9 +1465,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     clearToolState()
     setEntries((current) =>
       current.map((entry) =>
-        entry.action || entry.adminChange || entry.imageAction
+        entry.action ||
+        entry.adminChange ||
+        entry.imageAction ||
+        entry.workspaceAction
           ? {
               ...entry,
+              workspaceAction: undefined,
               action: undefined,
               adminChange: undefined,
               imageAction: undefined,
@@ -1511,6 +1764,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               window.cancelAnimationFrame(streamFrame)
               streamFrame = null
             }
+            assistantTextFlowRef.current?.clearResponses()
             streamedContent = ''
             renderStreamedContent()
           },
@@ -1547,8 +1801,12 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         reply.action?.type === 'image_generation' ? reply.action : undefined
       const humanSupportAction =
         reply.action?.type === 'human_support' ? reply.action : undefined
+      const keyManagementAction =
+        reply.action?.type === 'api_key_action' ? reply.action : undefined
+      setKeyManagementAction(null)
       const userAction =
         reply.action?.type === 'user_password_change' ||
+        reply.action?.type === 'user_display_name_change' ||
         reply.action?.type === 'user_oauth_unbind' ||
         reply.action?.type === 'user_account_action'
           ? reply.action
@@ -1578,7 +1836,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         suggestedAction = getAssistantActionForTarget(suggestedTarget, t)
       }
       if (directL1GrantSucceeded) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -1586,7 +1843,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool('setup')
         suggestedAction = getAssistantActionForTarget('client-setup', t)
       } else if (imageAction) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -1594,7 +1850,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool(null)
         suggestedAction = undefined
       } else if (adminChange) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -1602,7 +1857,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool(null)
         suggestedAction = undefined
       } else if (reply.action?.type === 'navigate') {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setUserActionDraft(null)
@@ -1612,37 +1866,29 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           label: assistantNavigationLabel(reply.action, t),
           href: assistantNavigationHref(reply.action),
         }
-      } else if (reply.action?.type === 'l1_recommendation') {
-        // Old cached replies may contain a letter/token. Access is now decided
-        // from server-recorded evidence; do not restore that retired form.
-        setRecommendationDraft(null)
-        setAccountDisableDraft(null)
-        setHumanSupportAction(null)
-        setUserActionDraft(null)
-        setActiveTool('activation')
-        suggestedAction = {
-          kind: 'tool',
-          label: t('Registration verification'),
-          tool: 'activation',
-        }
       } else if (reply.action?.type === 'account_disable_request') {
         setAccountDisableDraft(reply.action)
         setHumanSupportAction(null)
-        setRecommendationDraft(null)
         setKeyCreationAction(null)
+        setUserActionDraft(null)
+        setActiveTool(null)
+        suggestedAction = undefined
+      } else if (keyManagementAction) {
+        setKeyManagementAction(keyManagementAction)
+        setKeyCreationAction(null)
+        setHumanSupportAction(null)
+        setAccountDisableDraft(null)
         setUserActionDraft(null)
         setActiveTool(null)
         suggestedAction = undefined
       } else if (reply.action?.type === 'create_key') {
         setKeyCreationAction(reply.action)
         setHumanSupportAction(null)
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setUserActionDraft(null)
         setActiveTool('key')
         suggestedAction = undefined
       } else if (userAction) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -1650,7 +1896,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool(null)
         suggestedAction = undefined
       } else if (humanSupportAction) {
-        setRecommendationDraft(null)
         setAccountDisableDraft(null)
         setHumanSupportAction(humanSupportAction)
         setKeyCreationAction(null)
@@ -1665,6 +1910,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         !adminChange &&
         !imageAction &&
         !humanSupportAction &&
+        !keyManagementAction &&
         !userAction &&
         reply.action?.type !== 'account_disable_request' &&
         reply.action?.type !== 'navigate' &&
@@ -1685,6 +1931,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         tools: reply.tools,
         action: suggestedAction,
         adminChange,
+        workspaceAction:
+          reply.action?.type === 'workspace_action' ? reply.action : undefined,
         imageAction,
       }
       setEntries((current) => {
@@ -1738,7 +1986,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         accountAccessState === 'restricted' &&
         isExplicitAssistantL1Request(message)
       if (showVerificationOnFailure) {
-        setRecommendationDraft(null)
         setActiveTool('activation')
       }
       let errorAction: AssistantAction | undefined
@@ -1755,6 +2002,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           tool: 'handoff',
         }
       }
+      assistantTextFlowRef.current?.clearResponses()
       const errorEntry: ConversationEntry = {
         id: nanoid(),
         role: 'assistant',
@@ -1857,11 +2105,17 @@ function AssistantPanelSession(props: AssistantPanelProps) {
             ? `[Human technical support] ${entry.content}`
             : entry.content,
       }))
+    assistantTextFlowRef.current?.clear()
     setEntries((current) => [
       ...current.map((entry) =>
         entry.retry ? { ...entry, retry: undefined } : entry
       ),
-      { id: nanoid(), role: 'user', content: safeMessage.content },
+      {
+        id: nanoid(),
+        role: 'user',
+        content: safeMessage.content,
+        animateToCloud: true,
+      },
       ...(safeMessage.redacted
         ? [
             {
@@ -1965,6 +2219,29 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     notifyCopyResult(copied)
   }
 
+  const visibleStarterPresets =
+    accountAccessConfirmed &&
+    !entries.some((entry) => entry.role === 'user') &&
+    !preConversationPresetsQuery.isPending
+      ? filterAssistantPreConversationPresets(
+          preConversationPresetsQuery.data?.presets,
+          authUser
+        )
+      : []
+  const starterPrompts =
+    visibleStarterPresets.length > 0 ? (
+      <AssistantPresetPrompts
+        user={authUser}
+        presets={visibleStarterPresets}
+        onSelect={(preset) => {
+          setSelectedPreConversationPresetId(preset.id)
+          void recordAssistantPreConversationPresetClick(preset.id).catch(
+            () => undefined
+          )
+        }}
+      />
+    ) : null
+
   const panelContent = (
     <>
       <AssistantPanelHeader
@@ -2040,13 +2317,21 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               }}
             />
           ) : null}
-          <Conversation className={cn('min-h-0 min-w-0 flex-1', 'bg-muted/20')}>
+          <Conversation
+            className={cn('min-h-0 min-w-0 flex-1', 'bg-muted/20')}
+            initial={entries.length === 0 ? false : 'smooth'}
+          >
             <ConversationContent
               className={cn(
                 'flex min-h-full min-w-0 flex-col gap-5 overflow-x-hidden px-4 py-5 sm:px-6',
                 mode === 'page' ? 'mx-auto w-full max-w-3xl' : 'max-w-full'
               )}
             >
+              <AssistantTokenCloud
+                cloudRef={assistantCloudRef}
+                compact={entries.length > 0}
+                active={sending}
+              />
               {entries.length === 0 ? (
                 <div
                   className={cn(
@@ -2064,7 +2349,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                     />
                   ) : null}
                   <div
-                    className='flex min-h-0 flex-1 flex-col'
+                    className='assistant-start-shell flex min-h-0 flex-1 flex-col'
                     data-testid='assistant-l0-welcome'
                   >
                     <AssistantModernWelcome
@@ -2107,12 +2392,16 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           </p>
                         ) : null}
                         {entry.role === 'assistant' ? (
-                          <Response
-                            className='max-w-full leading-7 break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto'
-                            final={!entry.streaming}
-                          >
-                            {entry.content}
-                          </Response>
+                          <AssistantFlowResponse
+                            entry={entry}
+                            flow={assistantTextFlowRef}
+                          />
+                        ) : entry.role === 'user' ? (
+                          <AssistantUserFlowMessage
+                            entry={entry}
+                            flow={assistantTextFlowRef}
+                            animatedIds={animatedQuestionIdsRef.current}
+                          />
                         ) : (
                           <p className='break-words whitespace-pre-wrap'>
                             {entry.content}
@@ -2127,8 +2416,30 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           </p>
                         ) : null}
                         {entry.tools?.length ? (
-                          <AssistantToolCalls traces={entry.tools} />
+                          <AssistantToolCalls
+                            traces={entry.tools}
+                            onChoose={
+                              !sending &&
+                              !support.aiPaused &&
+                              !conversationRestricted
+                                ? (text) =>
+                                    setChoiceDraft((previous) => ({
+                                      text,
+                                      revision: (previous?.revision ?? 0) + 1,
+                                    }))
+                                : undefined
+                            }
+                          />
                         ) : null}
+                        {!support.aiPaused &&
+                          entry.workspaceAction &&
+                          !entry.interrupted && (
+                            <AssistantWorkspaceActionCard
+                              key={entry.workspaceAction.confirmation_token}
+                              action={entry.workspaceAction}
+                              disabled={sending || conversationRestricted}
+                            />
+                          )}
                         {!support.aiPaused && entry.imageAction ? (
                           <AssistantImageTool action={entry.imageAction} />
                         ) : null}
@@ -2173,19 +2484,18 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                     <Message from='assistant'>
                       <MessageContent
                         variant='flat'
-                        className='text-muted-foreground flex-row items-center gap-2'
-                        aria-live='polite'
+                        className='text-muted-foreground'
                       >
-                        <Loader size={14} />
-                        <span>
-                          {t('Assistant is thinking...')}
-                          {agentStep > 0 ? ` · ${agentStep}` : ''}
-                        </span>
+                        <AssistantThinkingIndicator step={agentStep} />
                       </MessageContent>
                     </Message>
                   ) : null}
-                  <AssistantNewUserGift enabled={accountAccessConfirmed} />
-                  <AssistantWeeklyDiscount enabled={accountAccessConfirmed} />
+                  <AssistantNewUserGift
+                    enabled={accountAccessConfirmed && !isAdministrator}
+                  />
+                  <AssistantWeeklyDiscount
+                    enabled={accountAccessConfirmed && !isAdministrator}
+                  />
                   {!support.aiPaused ? (
                     <div
                       ref={activeToolRegionRef}
@@ -2219,6 +2529,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           onKeyCreated={() => {
                             setAutoConfirmKeyToken(null)
                             setKeyCreationAction(null)
+                            void queryClient.invalidateQueries({
+                              queryKey: ['keys'],
+                            })
                             if (authUser) {
                               void queryClient.invalidateQueries({
                                 queryKey: [
@@ -2233,8 +2546,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       ) : null}
                       {activeTool === 'activation' && accountAccessConfirmed ? (
                         <AssistantActivationTool
-                          recommendationDraft={recommendationDraft}
-                          onDraftConsumed={() => setRecommendationDraft(null)}
                           onContinueSetup={() => setActiveTool('setup')}
                           onApproved={refreshAuthenticatedUser}
                         />
@@ -2247,8 +2558,34 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       ) : null}
                       {userActionDraft ? (
                         <AssistantUserActionTool
+                          key={
+                            userActionDraft.type === 'user_display_name_change'
+                              ? userActionDraft.confirmation_token
+                              : userActionDraft.type
+                          }
                           action={userActionDraft}
-                          onCompleted={() => setUserActionDraft(null)}
+                          onUpdated={async () => {
+                            if (
+                              userActionDraft.type ===
+                              'user_display_name_change'
+                            ) {
+                              await refreshAuthenticatedUser()
+                              await queryClient.invalidateQueries({
+                                queryKey: ['assistant-status'],
+                              })
+                            }
+                          }}
+                          onCompleted={() =>
+                            setUserActionDraft((current) =>
+                              current === userActionDraft ? null : current
+                            )
+                          }
+                        />
+                      ) : null}
+                      {keyManagementAction && accountAccessConfirmed ? (
+                        <AssistantKeyManagementTool
+                          action={keyManagementAction}
+                          onCancelled={() => setKeyManagementAction(null)}
                         />
                       ) : null}
                       {activeTool === 'cost' && accountAccessConfirmed ? (
@@ -2360,7 +2697,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 </>
               )}
             </ConversationContent>
-            <ConversationScrollButton />
+            {entries.length > 0 ? <ConversationScrollButton /> : null}
           </Conversation>
 
           <WaitCompanion
@@ -2407,6 +2744,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 key={conversationResetRevision}
                 initialInput={props.initialMessage}
               >
+                <AssistantPromptInputSync
+                  initialMessage={choiceDraft?.text}
+                  initialMessageRevision={choiceDraft?.revision}
+                />
                 {accountAccessConfirmed && entries.length > 0 ? (
                   <div className='mb-2 flex flex-wrap items-center gap-1'>
                     <Button
@@ -2439,23 +2780,17 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   initialMessage={props.initialMessage}
                   initialMessageRevision={props.initialMessageRevision}
                 />
-                {accountAccessConfirmed &&
-                !entries.some((entry) => entry.role === 'user') ? (
-                  <AssistantPresetPrompts
-                    user={authUser}
-                    presets={
-                      preConversationPresetsQuery.isPending
-                        ? []
-                        : preConversationPresetsQuery.data?.presets
-                    }
-                    onSelect={(preset) => {
-                      setSelectedPreConversationPresetId(preset.id)
-                      void recordAssistantPreConversationPresetClick(
-                        preset.id
-                      ).catch(() => undefined)
-                    }}
-                  />
-                ) : null}
+                {mode === 'rail' && starterPrompts ? (
+                  <details className='assistant-preset-disclosure'>
+                    <summary>
+                      {t('Choose a topic or write a message.')}
+                      <ChevronDown aria-hidden='true' />
+                    </summary>
+                    {starterPrompts}
+                  </details>
+                ) : (
+                  starterPrompts
+                )}
                 {authUser ? (
                   <AssistantSupportControls
                     request={support.request}
@@ -2535,7 +2870,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     return (
       <section
         id='ai-assistant-panel'
-        className='bg-background flex min-h-0 min-w-0 flex-1'
+        className='assistant-surface bg-background flex min-h-0 min-w-0 flex-1'
         data-layout='modern'
         aria-label={t('AI assistant')}
       >
@@ -2547,27 +2882,21 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   }
 
   if (mode === 'rail') {
-    if (props.fullscreen) {
-      return (
-        <div
-          id='ai-assistant-panel'
-          role='dialog'
-          aria-modal='true'
-          aria-label={t('AI assistant')}
-          className='bg-background fixed inset-0 z-50 flex min-h-0 flex-col'
-          data-layout='modern'
-        >
-          {panelContent}
-        </div>
-      )
-    }
+    const fullscreen = props.open && props.fullscreen === true
 
-    // In-flow desktop rail: a rounded card that belongs to the same visual
-    // family as the main content surface (radius from the theme token).
+    // Keep the same root so drafts and the token-cloud bindings survive
+    // fullscreen changes. A closed rail must never leave a fixed overlay.
     return (
       <aside
         id='ai-assistant-panel'
-        className='bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border shadow-sm'
+        role={fullscreen ? 'dialog' : undefined}
+        aria-modal={fullscreen || undefined}
+        className={cn(
+          'assistant-surface flex min-h-0 min-w-0 flex-col',
+          fullscreen
+            ? 'bg-background fixed inset-0 z-50'
+            : 'bg-card h-full overflow-hidden rounded-xl border shadow-sm'
+        )}
         data-layout='modern'
         aria-label={t('AI assistant')}
       >
@@ -2585,11 +2914,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         className={sideDrawerContentClassName(
           cn(
             // Mobile: edge-to-edge fullscreen.
-            'inset-0 h-dvh max-h-dvh min-h-0 w-screen max-w-none min-w-0 rounded-none overscroll-contain',
+            'inset-0 h-dvh max-h-dvh min-h-0 w-screen max-w-none min-w-0 rounded-none overscroll-contain data-[side=right]:w-screen',
             // sm+: floating right-side dialog aligned with the shell's
             // rounded-card language (radius follows the theme token).
-            'sm:inset-y-2 sm:right-2 sm:left-auto sm:h-auto sm:w-[min(32rem,calc(100vw-1rem))] sm:max-w-none sm:rounded-xl sm:border sm:shadow-lg',
-            'bg-background'
+            'sm:inset-y-2 sm:right-2 sm:left-auto sm:h-auto sm:w-[min(32rem,calc(100vw-1rem))] sm:max-w-none sm:rounded-xl sm:border sm:shadow-lg sm:data-[side=right]:w-[min(32rem,calc(100vw-1rem))]',
+            'assistant-surface bg-background'
           )
         )}
         data-layout='modern'

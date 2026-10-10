@@ -54,6 +54,14 @@ for (const key of [
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
+const {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} = await import('@tanstack/react-router')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createInstance } = await import('i18next')
@@ -95,11 +103,26 @@ async function renderState(
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  const rootRoute = createRootRoute({ component: Outlet })
+  const statusRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/',
+    component: () => <AssistantActivationTool onApproved={onApproved} />,
+  })
+  const supportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/support',
+    component: () => <p>Human support</p>,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([statusRoute, supportRoute]),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
   await act(async () => {
     root.render(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
-          <AssistantActivationTool onApproved={onApproved} />
+          <RouterProvider router={router} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -166,7 +189,7 @@ describe('tool-based admission status', () => {
     try {
       assert.match(
         view.container.textContent ?? '',
-        /No recommendation letter is required/
+        /The assistant can enable L1 during this conversation/
       )
       assert.equal(view.container.querySelector('textarea'), null)
     } finally {
@@ -178,6 +201,10 @@ describe('tool-based admission status', () => {
     try {
       assert.match(view.container.textContent ?? '', /human support/)
       assert.match(view.container.textContent ?? '', /on hold/)
+      assert.equal(
+        view.container.querySelector('a')?.getAttribute('href'),
+        '/support'
+      )
     } finally {
       await view.cleanup()
     }

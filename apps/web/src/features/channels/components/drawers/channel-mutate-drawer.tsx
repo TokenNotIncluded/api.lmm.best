@@ -113,6 +113,7 @@ import {
 } from '@/features/auth/secure-verification'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+import { useStatus } from '@/hooks/use-status'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -140,12 +141,17 @@ import {
   ADD_MODE_OPTIONS,
   CHANNEL_STATUS_LABELS,
   CHANNEL_TYPE_OPTIONS,
+  CHANNEL_TYPES,
   CHANNEL_TYPE_WARNINGS,
+  CHANNEL_TYPE_TYPESAFE,
   ERROR_MESSAGES,
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
+  TYPESAFE_MODELS,
   isOpenAIChannelType,
+  getDefaultResponsesWebSocketEnabled,
+  supportsResponsesWebSocket,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
@@ -158,6 +164,7 @@ import {
   type ChannelFormValues,
   deduplicateKeys,
   getChannelTypeIcon,
+  getDefaultBaseUrl,
   getKeyPromptForType,
   parseModelsString,
   formatModelsArray,
@@ -183,6 +190,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
+import { ResponsesWebSocketSetting } from '../responses-websocket-setting'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -291,11 +299,13 @@ const SENSITIVE_FORM_FIELDS = [
   'settings',
   'setting',
   'advanced_custom',
+  'ollama_openai_chat',
   'is_enterprise_account',
   'vertex_key_type',
   'aws_key_type',
   'azure_responses_version',
   'force_format',
+  'responses_websocket_enabled',
   'thinking_to_content',
   'proxy',
   'http_protocol',
@@ -352,6 +362,10 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
     values.force_format ||
+    (supportsResponsesWebSocket(values.type) &&
+      values.responses_websocket_enabled !== undefined &&
+      values.responses_websocket_enabled !==
+        getDefaultResponsesWebSocketEnabled(values.type)) ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
@@ -502,7 +516,7 @@ function ChannelEditorNav(props: {
   onNavigate: (targetId: string) => void
 }) {
   return (
-    <aside className='hidden self-start lg:sticky lg:top-4 lg:z-20 lg:block'>
+    <aside className='hidden self-start @3xl/channel-editor:sticky @3xl/channel-editor:top-4 @3xl/channel-editor:z-20 @3xl/channel-editor:block'>
       <div className='flex max-h-[calc(100dvh-12rem)] flex-col gap-3 overflow-y-auto overscroll-contain pr-1'>
         <div className='border-border/60 bg-muted/20 rounded-none border p-3'>
           <div className='flex min-w-0 items-center gap-2'>
@@ -683,21 +697,25 @@ export function ChannelMutateDrawer({
   const { data: groupsData, isLoading: isLoadingGroups } = useQuery({
     queryKey: ['groups'],
     queryFn: getGroups,
+    enabled: open && !submission,
   })
 
   // Fetch all available models
   const { data: allModelsData } = useQuery({
     queryKey: ['channel_models'],
     queryFn: getAllModels,
+    enabled: open && !submission,
   })
 
   // Fetch prefill model groups
   const { data: prefillGroupsData } = useQuery({
     queryKey: ['prefill_groups', 'model'],
     queryFn: () => getPrefillGroups('model'),
+    enabled: open && !submission,
   })
 
   const { copyToClipboard } = useCopyToClipboard()
+  const { status: backendStatus } = useStatus()
 
   const {
     open: verificationOpen,
@@ -771,6 +789,9 @@ export function ChannelMutateDrawer({
   const currentParamOverride = form.watch('param_override')
   const currentHeaderOverride = form.watch('header_override')
   const currentForceFormat = form.watch('force_format')
+  const currentResponsesWebSocketEnabled = form.watch(
+    'responses_websocket_enabled'
+  )
   const currentThinkingToContent = form.watch('thinking_to_content')
   const currentPassThroughBodyEnabled = form.watch('pass_through_body_enabled')
   const currentDisableTaskPollingSleep = form.watch(
@@ -915,6 +936,7 @@ export function ChannelMutateDrawer({
 
   // Get basic models for the current channel type
   const basicModels = useMemo(() => {
+    if (currentType === CHANNEL_TYPE_TYPESAFE) return TYPESAFE_MODELS
     if (!allModelsList.length) return []
     // Filter models based on common patterns for specific types
     if (isOpenAIChannelType(currentType)) {
@@ -950,7 +972,9 @@ export function ChannelMutateDrawer({
   const currentTypeLabel = useMemo(
     () =>
       CHANNEL_TYPE_OPTIONS.find((option) => option.value === currentType)
-        ?.label || `#${currentType}`,
+        ?.label ||
+      CHANNEL_TYPES[currentType as keyof typeof CHANNEL_TYPES] ||
+      `#${currentType}`,
     [currentType]
   )
 
@@ -963,7 +987,10 @@ export function ChannelMutateDrawer({
     if (!options.some((option) => Number(option.value) === currentType)) {
       options.push({
         value: String(currentType),
-        label: `#${currentType}`,
+        label: t(
+          CHANNEL_TYPES[currentType as keyof typeof CHANNEL_TYPES] ||
+            `#${currentType}`
+        ),
         icon: <ChannelTypeLogo type={currentType} size={16} />,
       })
     }
@@ -1043,6 +1070,10 @@ export function ChannelMutateDrawer({
   )
   const extraSettingsConfigured = Boolean(
     currentForceFormat ||
+    (supportsResponsesWebSocket(currentType) &&
+      currentResponsesWebSocketEnabled !== undefined &&
+      currentResponsesWebSocketEnabled !==
+        getDefaultResponsesWebSocketEnabled(currentType)) ||
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
     currentDisableTaskPollingSleep ||
@@ -1301,6 +1332,15 @@ export function ChannelMutateDrawer({
   useEffect(() => {
     if (isEditing) return // Don't auto-set defaults when editing
 
+    if (currentType === CHANNEL_TYPE_TYPESAFE) {
+      if (!form.getValues('base_url')?.trim()) {
+        form.setValue('base_url', getDefaultBaseUrl(currentType))
+      }
+      if (!form.getValues('models')?.trim()) {
+        form.setValue('models', TYPESAFE_MODELS.join(','))
+      }
+    }
+
     // Type 45 (VolcEngine) - set default base_url
     if (currentType === 45) {
       const currentBaseUrlValue = form.getValues('base_url')
@@ -1415,7 +1455,7 @@ export function ChannelMutateDrawer({
         preferredMethod: 'passkey',
         title: t('Verify to view channel key'),
         description: t(
-          'Use email verification, or Passkey if no email is bound, before revealing this channel key.'
+          'Confirm your identity before accessing this sensitive action.'
         ),
       })
     } catch (error) {
@@ -1895,9 +1935,13 @@ export function ChannelMutateDrawer({
   return (
     <>
       <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetContent className={sideDrawerContentClassName('sm:max-w-5xl')}>
+        <SheetContent
+          className={sideDrawerContentClassName(
+            '@container/channel-drawer sm:max-w-5xl'
+          )}
+        >
           <SheetHeader className={sideDrawerHeaderClassName()}>
-            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+            <div className='flex flex-col gap-3 @lg/channel-drawer:flex-row @lg/channel-drawer:items-start @lg/channel-drawer:justify-between'>
               <div className='min-w-0'>
                 <SheetTitle className='flex items-center gap-3'>
                   <IconBadge tone='info' size='title'>
@@ -1980,12 +2024,14 @@ export function ChannelMutateDrawer({
               id='channel-form'
               ref={channelFormRef}
               onSubmit={form.handleSubmit(onSubmit, onInvalid)}
-              className={sideDrawerFormClassName('gap-5')}
+              className={sideDrawerFormClassName(
+                '@container/channel-editor min-w-0 gap-5'
+              )}
             >
               {isChannelDetailLoading ? (
                 <ChannelEditorLoadingState />
               ) : (
-                <div className='grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start'>
+                <div className='grid min-w-0 gap-5 @3xl/channel-editor:grid-cols-[13rem_minmax(0,1fr)] @3xl/channel-editor:items-start'>
                   <ChannelEditorNav
                     providerLogo={
                       <ChannelTypeLogo type={currentType} size={18} />
@@ -1999,7 +2045,7 @@ export function ChannelMutateDrawer({
                     expandedItemId={expandedEditorNavItemId}
                     onNavigate={handleEditorNavNavigate}
                   />
-                  <div className='flex min-w-0 flex-col gap-5'>
+                  <div className='@container/channel-fields flex min-w-0 flex-col gap-5'>
                     {submission?.supplement}
                     {/* ── Basic Information ── */}
                     <div
@@ -2007,7 +2053,7 @@ export function ChannelMutateDrawer({
                       className='scroll-mt-4'
                     >
                       <ChannelBasicSection>
-                        <div className='grid gap-4 sm:grid-cols-2'>
+                        <div className='grid gap-4 @lg/channel-fields:grid-cols-2'>
                           <fieldset
                             disabled={sensitiveLocked}
                             className='min-w-0 disabled:opacity-60'
@@ -2035,6 +2081,17 @@ export function ChannelMutateDrawer({
                                             Number.isInteger(nextType) &&
                                             nextType > 0
                                           ) {
+                                            if (nextType !== field.value) {
+                                              form.setValue(
+                                                'responses_websocket_enabled',
+                                                getDefaultResponsesWebSocketEnabled(
+                                                  nextType
+                                                ),
+                                                {
+                                                  shouldDirty: true,
+                                                }
+                                              )
+                                            }
                                             field.onChange(nextType)
                                           }
                                         }}
@@ -2300,6 +2357,36 @@ export function ChannelMutateDrawer({
                                       )}
                                     </FormDescription>
                                     <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            )}
+
+                            {/* Ollama (type 4) */}
+                            {currentType === 4 && (
+                              <FormField
+                                control={form.control}
+                                name='ollama_openai_chat'
+                                render={({ field }) => (
+                                  <FormItem
+                                    className={sideDrawerSwitchItemClassName()}
+                                  >
+                                    <div className='flex flex-col gap-0.5'>
+                                      <FormLabel>
+                                        {t('Use OpenAI-compatible chat API')}
+                                      </FormLabel>
+                                      <FormDescription>
+                                        {t(
+                                          "Send OpenAI chat requests to /v1/chat/completions. Off uses /api/chat; embeddings and model management keep using Ollama's native API."
+                                        )}
+                                      </FormDescription>
+                                    </div>
+                                    <FormControl>
+                                      <Switch
+                                        checked={field.value ?? false}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
                                   </FormItem>
                                 )}
                               />
@@ -2838,7 +2925,7 @@ export function ChannelMutateDrawer({
                                 name='advanced_custom'
                                 render={({ field }) => (
                                   <FormItem className='space-y-3 border-y py-4'>
-                                    <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                                    <div className='flex flex-col gap-3 @lg/channel-fields:flex-row @lg/channel-fields:items-start @lg/channel-fields:justify-between'>
                                       <div className='space-y-2'>
                                         <FormLabel>
                                           {t('Advanced Custom Routes')}
@@ -2910,7 +2997,7 @@ export function ChannelMutateDrawer({
                                   control={form.control}
                                   name='multi_key_mode'
                                   render={({ field }) => (
-                                    <FormItem className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                                    <FormItem className='flex flex-col gap-2 @lg/channel-fields:flex-row @lg/channel-fields:items-center @lg/channel-fields:justify-between'>
                                       <FormLabel className='text-muted-foreground text-xs font-medium'>
                                         {t('Add Mode')}
                                       </FormLabel>
@@ -2925,7 +3012,7 @@ export function ChannelMutateDrawer({
                                         <FormControl>
                                           <SelectTrigger
                                             size='sm'
-                                            className='w-full sm:w-56'
+                                            className='w-full @lg/channel-fields:w-56'
                                           >
                                             <SelectValue />
                                           </SelectTrigger>
@@ -3034,7 +3121,7 @@ export function ChannelMutateDrawer({
                                         />
                                       </FormControl>
                                       <FormDescription>
-                                        <div className='flex flex-col gap-2'>
+                                        <span className='flex flex-col gap-2'>
                                           <span>{keyDescription}</span>
                                           {isBatchMode && (
                                             <Button
@@ -3048,11 +3135,11 @@ export function ChannelMutateDrawer({
                                               {t('Remove Duplicates')}
                                             </Button>
                                           )}
-                                        </div>
+                                        </span>
                                       </FormDescription>
                                       {isEditing && canRevealChannelKey && (
                                         <div className='border-border/60 mt-4 flex flex-col gap-3 border-y border-dashed py-4'>
-                                          <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                                          <div className='flex flex-col gap-2 @lg/channel-fields:flex-row @lg/channel-fields:items-center @lg/channel-fields:justify-between'>
                                             <div>
                                               <p className='text-sm font-medium'>
                                                 {t('Current key')}
@@ -3118,7 +3205,7 @@ export function ChannelMutateDrawer({
 
                               {currentType === 57 && (
                                 <div className='border-border/60 flex flex-col gap-3 border-y py-4'>
-                                  <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                                  <div className='flex flex-col gap-2 @lg/channel-fields:flex-row @lg/channel-fields:items-center @lg/channel-fields:justify-between'>
                                     <div className='text-muted-foreground text-xs'>
                                       {t(
                                         'Codex channels use an OAuth JSON credential as the key.'
@@ -3295,7 +3382,7 @@ export function ChannelMutateDrawer({
                               name='models'
                               render={() => (
                                 <FormItem className='space-y-3'>
-                                  <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                                  <div className='flex flex-col gap-2 @lg/channel-fields:flex-row @lg/channel-fields:items-center @lg/channel-fields:justify-between'>
                                     <div className='space-y-1'>
                                       <FormLabel>{t('Models *')}</FormLabel>
                                       <FormDescription>
@@ -3325,7 +3412,7 @@ export function ChannelMutateDrawer({
                                   {modelMappingGuardrail.exposedTargetModels
                                     .length > 0 && (
                                     <Alert className='console-status-warning'>
-                                      <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                                      <AlertDescription className='flex flex-col gap-3 @lg/channel-fields:flex-row @lg/channel-fields:items-center @lg/channel-fields:justify-between'>
                                         <span>
                                           {t('The mapped upstream model(s)')}{' '}
                                           {formatModelNames(
@@ -3481,7 +3568,7 @@ export function ChannelMutateDrawer({
                               name='model_mapping'
                               render={({ field }) => (
                                 <FormItem className='space-y-3'>
-                                  <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+                                  <div className='flex flex-col gap-2 @lg/channel-fields:flex-row @lg/channel-fields:items-start @lg/channel-fields:justify-between'>
                                     <div className='space-y-1'>
                                       <div className='flex items-center gap-2'>
                                         <FormLabel className='mb-0'>
@@ -3582,7 +3669,7 @@ export function ChannelMutateDrawer({
                                   {modelMappingGuardrail.missingSourceModels
                                     .length > 0 && (
                                     <Alert className='console-status-warning'>
-                                      <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                                      <AlertDescription className='flex flex-col gap-3 @lg/channel-fields:flex-row @lg/channel-fields:items-center @lg/channel-fields:justify-between'>
                                         <span>
                                           {t('Add')}{' '}
                                           {formatModelNames(
@@ -3688,7 +3775,7 @@ export function ChannelMutateDrawer({
                               icon={<Route className='h-3.5 w-3.5' />}
                               iconTone='info'
                             />
-                            <div className='grid gap-4 sm:grid-cols-2'>
+                            <div className='grid gap-4 @lg/channel-fields:grid-cols-2'>
                               <FormField
                                 control={form.control}
                                 name='priority'
@@ -3796,7 +3883,7 @@ export function ChannelMutateDrawer({
                               icon={<FileText className='h-3.5 w-3.5' />}
                               iconTone='chart-3'
                             />
-                            <div className='grid gap-4 sm:grid-cols-2'>
+                            <div className='grid gap-4 @lg/channel-fields:grid-cols-2'>
                               <FormField
                                 control={form.control}
                                 name='tag'
@@ -3905,7 +3992,7 @@ export function ChannelMutateDrawer({
                                 name='param_override'
                                 render={({ field }) => (
                                   <FormItem className='space-y-3 border-t pt-4'>
-                                    <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+                                    <div className='flex flex-col gap-2 @lg/channel-fields:flex-row @lg/channel-fields:items-start @lg/channel-fields:justify-between'>
                                       <div className='space-y-1'>
                                         <FormLabel>
                                           {t('Parameter Override')}
@@ -4000,7 +4087,7 @@ export function ChannelMutateDrawer({
                                 name='header_override'
                                 render={({ field }) => (
                                   <FormItem className='space-y-3 border-t pt-4'>
-                                    <div className='flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between'>
+                                    <div className='flex flex-col gap-2 @lg/channel-fields:flex-row @lg/channel-fields:items-start @lg/channel-fields:justify-between'>
                                       <div className='space-y-1'>
                                         <FormLabel>
                                           {t('Request Header Override')}
@@ -4124,6 +4211,11 @@ export function ChannelMutateDrawer({
                             className='space-y-4 disabled:opacity-60'
                           >
                             <div className='divide-border space-y-0 divide-y border-y'>
+                              <ResponsesWebSocketSetting
+                                control={form.control}
+                                channelType={currentType}
+                                status={backendStatus}
+                              />
                               {isOpenAIChannelType(currentType) && (
                                 <FormField
                                   control={form.control}
@@ -4874,6 +4966,7 @@ export function ChannelMutateDrawer({
       <FetchModelsDialog
         open={fetchModelsDialogOpen}
         onOpenChange={setFetchModelsDialogOpen}
+        channelType={currentType}
         onModelsSelected={(models) => {
           form.setValue('models', formatModelsArray(models))
         }}

@@ -101,6 +101,8 @@ impl PgDeepSeekBalanceService {
             .try_get("type")
             .map_err(|_| DeepSeekBalanceStoreError::Database)?;
         if channel_type != CHANNEL_TYPE_DEEPSEEK {
+            // Advanced Custom's declarative balance route is currently Go-only.
+            // Reject before credential use, provider egress, or balance writes.
             return Err(DeepSeekBalanceStoreError::UnsupportedChannel);
         }
         let multi_key: bool = row
@@ -329,6 +331,111 @@ mod tests {
             updated_at
         );
 
+        pg.close().await;
+        sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+            .execute(&admin)
+            .await
+            .expect("drop isolated balance schema");
+        admin.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable PostgreSQL; exercised by the real integration gate"]
+    async fn advanced_custom_balance_is_unsupported_without_fetch_or_update() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        use axum::{Router, routing::any};
+
+        let (admin, pg, schema) = isolated_balance_pool()
+            .await
+            .expect("create isolated balance schema");
+        sqlx::query("ALTER TABLE channels ADD COLUMN settings TEXT, ADD COLUMN base_url TEXT")
+            .execute(&pg)
+            .await
+            .expect("add configured Advanced Custom route columns");
+        sqlx::query(
+            "INSERT INTO channels (id, type, key, channel_info, balance, balance_updated_time) \
+             VALUES (7, 58, 'advanced-custom-secret', '{}'::jsonb, 42.5, 123)",
+        )
+        .execute(&pg)
+        .await
+        .expect("insert Advanced Custom channel");
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("balance fetch stub listener");
+        let endpoint = reqwest::Url::parse(&format!(
+            "http://{}/user/balance",
+            listener.local_addr().expect("stub address")
+        ))
+        .expect("stub endpoint");
+        let configured = serde_json::json!({"advanced_custom": {"advanced_routes": [{
+            "incoming_path": "/v1/dashboard/billing/credit_grants",
+            "upstream_path": endpoint.as_str(),
+            "converter": "none",
+            "balance": {"method": "POST", "body_template": "{\"key\":\"{api_key}\"}", "json_pointer": "/balance"}
+        }]}}).to_string();
+        sqlx::query("UPDATE channels SET settings = $1, base_url = $2 WHERE id = 7")
+            .bind(configured)
+            .bind(endpoint.as_str())
+            .execute(&pg)
+            .await
+            .expect("persist valid Go declarative balance configuration");
+        let app = Router::new().route(
+            "/user/balance",
+            any(move || {
+                let observed = observed.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(serde_json::json!({
+                        "is_available": true,
+                        "balance_infos": [{"currency": "USD", "total_balance": "99"}]
+                    }))
+                }
+            }),
+        );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("balance fetch stub");
+        });
+        let service = PgDeepSeekBalanceService {
+            pg: pg.clone(),
+            client: crate::channel_balance::DeepSeekBalanceClient::with_test_endpoint(
+                endpoint, 4096,
+            )
+            .expect("test balance client"),
+        };
+        assert_eq!(
+            service.refresh_channel(7).await,
+            Err(DeepSeekBalanceStoreError::UnsupportedChannel)
+        );
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            0,
+            "unsupported query must never fetch"
+        );
+        let unchanged =
+            sqlx::query("SELECT balance, balance_updated_time FROM channels WHERE id = 7")
+                .fetch_one(&pg)
+                .await
+                .expect("read unchanged Advanced Custom balance");
+        assert_eq!(
+            unchanged.try_get::<f64, _>("balance").expect("balance"),
+            42.5
+        );
+        assert_eq!(
+            unchanged
+                .try_get::<i64, _>("balance_updated_time")
+                .expect("updated time"),
+            123
+        );
+        server.abort();
+        let _ = server.await;
         pg.close().await;
         sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
             .execute(&admin)

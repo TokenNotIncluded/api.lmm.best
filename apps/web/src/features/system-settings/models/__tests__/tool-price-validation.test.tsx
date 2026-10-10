@@ -53,6 +53,7 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { ToolPriceSettings } = await import('../tool-price-settings')
+const { buildToolPriceOverrides } = await import('../tool-price-overrides')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -60,7 +61,7 @@ await i18n.use(initReactI18next).init({
   resources: {
     en: {
       translation: {
-        'Price ($/1K calls)': 'Price ($/1K calls)',
+        'Price (USD/1K calls)': 'Price (USD/1K calls)',
         'Please enter a valid number': 'Please enter a valid number',
         'Tool identifier': 'Tool identifier',
       },
@@ -90,6 +91,23 @@ describe('tool price validation', () => {
     domWindow.close()
   })
 
+  test('fallback USD defaults are not saved as operator overrides', () => {
+    const defaults = { web_search: 10 / 7.2, file_search: 2.5 / 7.2 }
+    assert.deepEqual(buildToolPriceOverrides(defaults, '{}', defaults), {})
+    assert.deepEqual(
+      buildToolPriceOverrides({ ...defaults, web_search: 0 }, '{}', defaults),
+      { web_search: 0 }
+    )
+    assert.deepEqual(
+      buildToolPriceOverrides(
+        { ...defaults, web_search: 0 },
+        '{"web_search":0}',
+        defaults
+      ),
+      { web_search: 0 }
+    )
+  })
+
   test('blocks an empty price without converting it to an explicit zero', async () => {
     const container = document.createElement('div')
     document.body.append(container)
@@ -102,14 +120,27 @@ describe('tool price validation', () => {
       root.render(
         <QueryClientProvider client={queryClient}>
           <I18nextProvider i18n={i18n}>
-            <ToolPriceSettings defaultValue='{"web_search":10}' />
+            <ToolPriceSettings
+              defaultValue='{"web_search":10}'
+              pricingConfig={{
+                schema_version: 2,
+                currency: 'USD',
+                storage_basis: 'legacy_pricing_unit',
+                revision: 'a'.repeat(64),
+                credits_per_usd: 3_600_000,
+                legacy_pricing_units_per_usd: 7.2,
+                model_ratio_usd_per_million: 1_000_000 / 3_600_000,
+                values:
+                  {} as import('../model-pricing-api').ModelPricingConfig['values'],
+              }}
+            />
           </I18nextProvider>
         </QueryClientProvider>
       )
     })
 
     const priceInput = container.querySelector<HTMLInputElement>(
-      'input[aria-label="Price ($/1K calls): web_search"]'
+      'input[aria-label="Price (USD/1K calls): web_search"]'
     )
     assert.ok(priceInput)
 

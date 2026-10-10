@@ -95,7 +95,7 @@ const INTENT_LABELS: Record<string, string> = {
   client_setup: 'Client setup',
   cost: 'Cost calculation',
   math: 'Math calculation',
-  recommendation: 'Recommendation letter',
+  recommendation: 'Onboarding and L1',
   bounty: 'Open-source bounties',
   usage: 'Usage',
   models: 'Models',

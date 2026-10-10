@@ -40,7 +40,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_bounty_guide",
@@ -55,7 +54,10 @@
           "get_registration_risk",
           "notify_registration_risk",
           "end_registration_conversation",
-          "ban_l0_user"
+          "ban_l0_user",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status",
+          "grant_l1_access"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -108,7 +110,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_bounty_guide",
@@ -123,7 +124,10 @@
           "get_registration_risk",
           "notify_registration_risk",
           "end_registration_conversation",
-          "ban_l0_user"
+          "ban_l0_user",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status",
+          "grant_l1_access"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -178,7 +182,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_bounty_guide",
@@ -192,7 +195,10 @@
           "get_registration_risk",
           "notify_registration_risk",
           "end_registration_conversation",
-          "ban_l0_user"
+          "ban_l0_user",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status",
+          "grant_l1_access"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -244,7 +250,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_bounty_guide",
@@ -258,7 +263,10 @@
           "get_registration_risk",
           "notify_registration_risk",
           "end_registration_conversation",
-          "ban_l0_user"
+          "ban_l0_user",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status",
+          "grant_l1_access"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -307,7 +315,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_plan_offers",
@@ -323,7 +330,9 @@
           "remember_profile_skill",
           "forget_profile_skill",
           "prepare_image_generation",
-          "prepare_new_user_gift"
+          "prepare_new_user_gift",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -383,7 +392,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_plan_offers",
@@ -399,7 +407,9 @@
           "remember_profile_skill",
           "forget_profile_skill",
           "prepare_image_generation",
-          "prepare_new_user_gift"
+          "prepare_new_user_gift",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -457,7 +467,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_bounty_guide",
@@ -468,7 +477,9 @@
           "remember_memory",
           "remember_profile_skill",
           "forget_profile_skill",
-          "prepare_new_user_gift"
+          "prepare_new_user_gift",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -525,7 +536,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_bounty_guide",
@@ -536,7 +546,9 @@
           "remember_memory",
           "remember_profile_skill",
           "forget_profile_skill",
-          "prepare_new_user_gift"
+          "prepare_new_user_gift",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -594,7 +606,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_plan_offers",
@@ -610,7 +621,9 @@
           "remember_profile_skill",
           "forget_profile_skill",
           "prepare_image_generation",
-          "prepare_new_user_gift"
+          "prepare_new_user_gift",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status"
         ],
         "denied": [
           "assess_l0_interlocutor",
@@ -668,7 +681,6 @@
           "calculate_math",
           "calculate_cost",
           "get_account_access",
-          "get_l1_recommendation",
           "get_available_models",
           "get_model_pricing",
           "get_plan_offers",
@@ -683,7 +695,9 @@
           "remember_memory",
           "remember_profile_skill",
           "forget_profile_skill",
-          "prepare_image_generation"
+          "prepare_image_generation",
+          "get_new_user_gift_status",
+          "get_weekly_discount_status"
         ],
         "denied": [
           "assess_l0_interlocutor",

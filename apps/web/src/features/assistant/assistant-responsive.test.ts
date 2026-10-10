@@ -37,6 +37,10 @@ const consoleEditorialStyles = readFileSync(
   new URL('../../styles/console-editorial.css', import.meta.url),
   'utf8'
 )
+const assistantSurfaceStyles = readFileSync(
+  new URL('./assistant-surface.css', import.meta.url),
+  'utf8'
+)
 
 describe('assistant responsive presentation', () => {
   test('keeps the assistant in an overlay below the xl rail breakpoint', () => {
@@ -84,5 +88,19 @@ describe('assistant responsive presentation', () => {
         ".assistant-prompt-input [data-slot='input-group-control']:focus-visible {\n  outline: none;"
       )
     )
+  })
+
+  test('keeps the L0 token flow mounted through active assistant turns', () => {
+    assert.ok(panelSource.includes('mountL0TextFlow'))
+    assert.ok(panelSource.includes('data-l0-source'))
+    assert.ok(panelSource.includes('data-l0-arrival'))
+    assert.ok(panelSource.includes('compact={entries.length > 0}'))
+    assert.ok(panelSource.includes('<WaitCompanion'))
+    assert.ok(
+      assistantSurfaceStyles.includes(
+        ".assistant-token-cloud[data-compact='true']"
+      )
+    )
+    assert.ok(assistantSurfaceStyles.includes('.assistant-thinking-flow'))
   })
 })

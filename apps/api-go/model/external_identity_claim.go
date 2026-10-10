@@ -11,6 +11,7 @@ import (
 )
 
 const ExternalIdentityProviderTelegram = "telegram"
+const ExternalIdentityProviderGitHub = "github"
 
 const externalIdentityBackfillBatchSize = 1000
 
@@ -49,7 +50,7 @@ func ClaimExternalIdentityWithTx(tx *gorm.DB, provider, subject string, userId i
 		return result.Error
 	}
 	var subjectOwner ExternalIdentityClaim
-	if err := tx.Where("provider = ? AND subject = ?", provider, subject).First(&subjectOwner).Error; err != nil {
+	if err := lockForUpdate(tx).Where("provider = ? AND subject = ?", provider, subject).First(&subjectOwner).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrExternalIdentityAlreadyClaimed
 		}
@@ -60,7 +61,7 @@ func ClaimExternalIdentityWithTx(tx *gorm.DB, provider, subject string, userId i
 	}
 
 	var userClaim ExternalIdentityClaim
-	if err := tx.Where("provider = ? AND user_id = ?", provider, userId).First(&userClaim).Error; err != nil {
+	if err := lockForUpdate(tx).Where("provider = ? AND user_id = ?", provider, userId).First(&userClaim).Error; err != nil {
 		return err
 	}
 	if userClaim.Subject != subject {
@@ -85,17 +86,32 @@ func releaseAllExternalIdentitiesWithTx(tx *gorm.DB, userId int) error {
 	return tx.Where("user_id = ?", userId).Delete(&ExternalIdentityClaim{}).Error
 }
 
-// InitializeExternalIdentityClaims imports legacy Telegram bindings after the
+// InitializeExternalIdentityClaims imports Telegram and numeric GitHub bindings after the
 // claim table is migrated. Existing duplicate ownership fails migration rather
 // than preserving an ambiguous login identity.
 func InitializeExternalIdentityClaims() error {
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var users []User
-		return tx.Unscoped().Select("id", "telegram_id").
+		if err := tx.Unscoped().Select("id", "telegram_id").
 			Where("telegram_id <> ?", "").FindInBatches(&users, externalIdentityBackfillBatchSize, func(batchTx *gorm.DB, _ int) error {
 			for _, user := range users {
 				if err := ClaimExternalIdentityWithTx(batchTx, ExternalIdentityProviderTelegram, user.TelegramId, user.Id); err != nil {
 					return fmt.Errorf("backfill Telegram identity for user %d: %w", user.Id, err)
+				}
+			}
+			return nil
+		}).Error; err != nil {
+			return err
+		}
+		users = nil
+		return tx.Unscoped().Select("id", "github_id").
+			Where("github_id <> ?", "").FindInBatches(&users, externalIdentityBackfillBatchSize, func(batchTx *gorm.DB, _ int) error {
+			for _, user := range users {
+				// Username bindings are candidates, never durable account evidence.
+				if IsNumericGitHubID(user.GitHubId) {
+					if err := ClaimExternalIdentityWithTx(batchTx, ExternalIdentityProviderGitHub, user.GitHubId, user.Id); err != nil {
+						return fmt.Errorf("backfill GitHub identity for user %d: %w", user.Id, err)
+					}
 				}
 			}
 			return nil

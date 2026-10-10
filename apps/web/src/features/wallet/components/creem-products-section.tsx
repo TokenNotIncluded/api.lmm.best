@@ -20,9 +20,9 @@ import { useTranslation } from 'react-i18next'
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatNumber } from '@/lib/format'
 
-import { formatCreemPrice } from '../lib/format'
+import { usePaymentCurrency } from '../hooks/use-payment-currency'
+import { formatCreemPrice, isFiatPaymentCurrency } from '../lib/format'
 import type { CreemProduct } from '../types'
 
 interface CreemProductsSectionProps {
@@ -39,6 +39,7 @@ export function CreemProductsSection({
   neutralMode = false,
 }: CreemProductsSectionProps) {
   const { t } = useTranslation()
+  const { formatQuota } = usePaymentCurrency()
 
   if (loading) {
     return (
@@ -61,7 +62,12 @@ export function CreemProductsSection({
           key={product.productId}
           data-card-hover='false'
           className='cursor-pointer'
-          onClick={() => onProductSelect(product)}
+          aria-disabled={!isFiatPaymentCurrency(product.currency)}
+          onClick={() => {
+            if (isFiatPaymentCurrency(product.currency)) {
+              onProductSelect(product)
+            }
+          }}
         >
           <CardContent className='p-3 text-center sm:p-4'>
             <div className='mb-2 text-lg font-medium'>
@@ -71,11 +77,13 @@ export function CreemProductsSection({
             </div>
             {!neutralMode ? (
               <div className='text-muted-foreground mb-2 text-sm'>
-                {t('Quota')}: {formatNumber(product.quota)}
+                {t('Quota')}: {formatQuota(product.quota)}
               </div>
             ) : null}
             <div className='text-primary text-lg font-semibold'>
-              {formatCreemPrice(product.price, product.currency)}
+              {isFiatPaymentCurrency(product.currency)
+                ? formatCreemPrice(product.price, product.currency)
+                : t('Payment unavailable')}
             </div>
           </CardContent>
         </Card>

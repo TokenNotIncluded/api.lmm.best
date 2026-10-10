@@ -35,12 +35,30 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 
-const createAmountDiscountDialogSchema = (t: (key: string) => string) =>
+import {
+  normalizePaymentAmount,
+  type PaymentAmountUnit,
+} from './payment-amount-options'
+
+const createAmountDiscountDialogSchema = (
+  t: (key: string) => string,
+  unit: PaymentAmountUnit
+) =>
   z.object({
-    amount: z
-      .number()
-      .positive(t('Amount must be greater than 0'))
-      .int(t('Amount must be a whole number')),
+    amount: z.string().transform((value, ctx) => {
+      const amount = normalizePaymentAmount(value, unit)
+      if (amount === null) {
+        ctx.addIssue({
+          code: 'custom',
+          message:
+            unit === 'CREDIT'
+              ? t('Enter a positive integer')
+              : t('Enter a positive USD amount that equals whole credits.'),
+        })
+        return z.NEVER
+      }
+      return amount
+    }),
     discountRate: z
       .number()
       .positive(t('Discount rate must be greater than 0'))
@@ -54,7 +72,7 @@ type AmountDiscountDialogFormValues = z.infer<
 const AMOUNT_DISCOUNT_FORM_ID = 'amount-discount-form'
 
 export type AmountDiscountData = {
-  amount: number
+  amount: string
   discountRate: number
 }
 
@@ -63,6 +81,7 @@ type AmountDiscountDialogProps = {
   onOpenChange: (open: boolean) => void
   onSave: (data: AmountDiscountData) => void
   editData?: AmountDiscountData | null
+  unit?: PaymentAmountUnit
 }
 
 export function AmountDiscountDialog({
@@ -70,15 +89,16 @@ export function AmountDiscountDialog({
   onOpenChange,
   onSave,
   editData,
+  unit = 'USD',
 }: AmountDiscountDialogProps) {
   const { t } = useTranslation()
   const isEditMode = !!editData
-  const amountDiscountDialogSchema = createAmountDiscountDialogSchema(t)
+  const amountDiscountDialogSchema = createAmountDiscountDialogSchema(t, unit)
 
   const form = useForm<AmountDiscountDialogFormValues>({
     resolver: zodResolver(amountDiscountDialogSchema),
     defaultValues: {
-      amount: 0,
+      amount: '',
       discountRate: 1,
     },
   })
@@ -95,7 +115,7 @@ export function AmountDiscountDialog({
       form.reset(editData)
     } else {
       form.reset({
-        amount: 0,
+        amount: '',
         discountRate: 1,
       })
     }
@@ -116,7 +136,7 @@ export function AmountDiscountDialog({
       onOpenChange={onOpenChange}
       title={isEditMode ? t('Edit discount tier') : t('Add discount tier')}
       description={t(
-        'Set a discount rate for a specific recharge amount threshold.'
+        'This discount applies only to the exact configured recharge amount.'
       )}
       contentClassName='sm:max-w-[500px]'
       contentHeight='auto'
@@ -147,17 +167,16 @@ export function AmountDiscountDialog({
             name='amount'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Recharge Amount (USD)')}</FormLabel>
+                <FormLabel>
+                  {t('Recharge Amount')} ({unit})
+                </FormLabel>
                 <FormControl>
                   <Input
-                    type='number'
-                    step='1'
-                    min='1'
+                    type='text'
+                    inputMode='decimal'
                     placeholder={t('e.g., 100')}
                     {...field}
-                    onChange={(e) =>
-                      field.onChange(Number.parseInt(e.target.value) || 0)
-                    }
+                    onChange={(e) => field.onChange(e.target.value)}
                     disabled={isEditMode}
                   />
                 </FormControl>
@@ -165,7 +184,7 @@ export function AmountDiscountDialog({
                   {isEditMode
                     ? t('Amount cannot be changed when editing.')
                     : t(
-                        'Minimum recharge amount to qualify for this discount.'
+                        'This discount applies only to the exact configured recharge amount.'
                       )}
                 </FormDescription>
                 <FormMessage />

@@ -22,6 +22,7 @@ import { describe, test } from 'node:test'
 import {
   getApiKeyCreationMode,
   getApiKeyCreationSource,
+  isAssistantRuntimeKey,
   matchesApiKeyCreationMode,
 } from '../api-key-source'
 
@@ -54,5 +55,12 @@ describe('API key creation source', () => {
       'future_tool'
     )
     assert.equal(getApiKeyCreationMode({ source: 'future_tool' }), 'automatic')
+  })
+
+  test('identifies the root-owned assistant runtime key as automatic', () => {
+    const key = { creation_source: 'assistant_runtime' }
+    assert.equal(isAssistantRuntimeKey(key), true)
+    assert.equal(matchesApiKeyCreationMode(key, 'automatic'), true)
+    assert.equal(isAssistantRuntimeKey({ creation_source: 'assistant' }), false)
   })
 })

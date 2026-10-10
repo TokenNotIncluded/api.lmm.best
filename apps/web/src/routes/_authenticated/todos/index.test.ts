@@ -6,9 +6,9 @@ import { test } from 'node:test'
 
 import { todosSearchSchema } from './index'
 
-test('keeps a developer-access request target in to-do navigation state', () => {
+test('discards a retired developer-access navigation target', () => {
   assert.deepEqual(
     todosSearchSchema.parse({ todo: 'developer_access', request: 42 }),
-    { todo: 'developer_access', request: 42 }
+    { todo: undefined, request: 42 }
   )
 })

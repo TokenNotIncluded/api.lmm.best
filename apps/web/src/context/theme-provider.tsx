@@ -32,6 +32,7 @@ import {
   type ResolvedTheme,
   type Theme,
 } from '@/context/theme'
+import { usePreferencePreview } from '@/hooks/use-preference-preview'
 import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
 
 const THEME_COOKIE_NAME = 'vite-ui-theme'
@@ -49,6 +50,7 @@ type ThemeProviderState = {
   resolvedTheme: ResolvedTheme
   theme: Theme
   setTheme: (theme: Theme) => void
+  previewTheme: (theme: Theme) => () => void
   resetTheme: () => void
 }
 
@@ -57,6 +59,7 @@ const initialState: ThemeProviderState = {
   resolvedTheme: 'light',
   theme: DEFAULT_THEME,
   setTheme: () => null,
+  previewTheme: () => () => {},
   resetTheme: () => null,
 }
 
@@ -96,6 +99,11 @@ export function ThemeProvider({
   const [theme, _setTheme] = useState<Theme>(() =>
     getStoredTheme(storageKey, defaultTheme)
   )
+  const {
+    value: displayedTheme,
+    preview: previewTheme,
+    clear: clearPreview,
+  } = usePreferencePreview(theme)
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
     resolveCurrentTheme(getStoredTheme(storageKey, defaultTheme))
   )
@@ -104,7 +112,7 @@ export function ThemeProvider({
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
     const applyTheme = () => {
-      const nextResolvedTheme = resolveCurrentTheme(theme)
+      const nextResolvedTheme = resolveCurrentTheme(displayedTheme)
       applyThemeToDocument(nextResolvedTheme)
       setResolvedTheme(nextResolvedTheme)
     }
@@ -114,20 +122,22 @@ export function ThemeProvider({
     mediaQuery.addEventListener('change', applyTheme)
 
     return () => mediaQuery.removeEventListener('change', applyTheme)
-  }, [theme])
+  }, [displayedTheme])
 
   const setTheme = useCallback(
     (theme: Theme) => {
+      clearPreview()
       setCookie(storageKey, theme, THEME_COOKIE_MAX_AGE)
       _setTheme(theme)
     },
-    [storageKey]
+    [storageKey, clearPreview]
   )
 
   const resetTheme = useCallback(() => {
+    clearPreview()
     removeCookie(storageKey)
     _setTheme(defaultTheme)
-  }, [defaultTheme, storageKey])
+  }, [defaultTheme, storageKey, clearPreview])
 
   const contextValue = useMemo(
     () => ({
@@ -136,8 +146,9 @@ export function ThemeProvider({
       resetTheme,
       theme,
       setTheme,
+      previewTheme,
     }),
-    [defaultTheme, resolvedTheme, resetTheme, theme, setTheme]
+    [defaultTheme, resolvedTheme, resetTheme, theme, setTheme, previewTheme]
   )
 
   return (

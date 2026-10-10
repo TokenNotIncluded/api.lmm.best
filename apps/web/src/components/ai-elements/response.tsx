@@ -23,6 +23,7 @@ import { getMarkdown, parseMarkdownToStructure } from 'stream-markdown-parser'
 
 import { cn } from '@/lib/utils'
 
+import { ResponseStreamingContext } from './openui/streaming-context'
 import { getMarkdownContent, parseResponseContent } from './response-content'
 import { renderChildren, renderFootnotes } from './response-renderer'
 import type { ResponseProps } from './response-types'
@@ -57,8 +58,10 @@ export const Response = memo((props: ResponseProps) => {
         props.className
       )}
     >
-      {renderedContent}
-      {footnotes}
+      <ResponseStreamingContext.Provider value={props.final === false}>
+        {renderedContent}
+        {footnotes}
+      </ResponseStreamingContext.Provider>
     </div>
   )
 })

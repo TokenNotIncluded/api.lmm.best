@@ -7,7 +7,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type { ReactNode } from 'react'
@@ -45,6 +45,8 @@ const { api } = await import('@/lib/api')
 const { AssistantJourneyProgress } = await import('./assistant-journey')
 const { AssistantNewUserGift } = await import('./assistant-new-user-gift')
 const { AssistantWeeklyDiscount } = await import('./assistant-weekly-discount')
+const { resetAssistantCurrencyTest, useWalletCurrencyPreferenceStore } =
+  await import('./assistant-currency-test-support')
 
 const originalGet = api.get
 const originalPost = api.post
@@ -88,10 +90,12 @@ async function unmount(rendered: Awaited<ReturnType<typeof render>>) {
   rendered.container.remove()
 }
 
-afterEach(() => {
+beforeEach(resetAssistantCurrencyTest)
+afterEach(async () => {
   api.get = originalGet
   api.post = originalPost
   document.body.replaceChildren()
+  await i18n.changeLanguage('en')
 })
 
 after(() => domWindow.close())
@@ -104,7 +108,10 @@ describe('assistant game-style progress', () => {
         data: {
           success: true,
           data: {
-            main: [{ id: 'ask_ai', status: 'completed' }],
+            main: [
+              { id: 'ask_ai', status: 'completed' },
+              { id: 'get_recommendation', status: 'completed' },
+            ],
             side: [
               { id: 'earn_ai_gift', status: 'failed' },
               { id: 'accept_bounty', status: 'pending' },
@@ -117,12 +124,11 @@ describe('assistant game-style progress', () => {
     const rendered = await render(<AssistantJourneyProgress />)
     try {
       const text = rendered.container.textContent ?? ''
-      assert.match(text, /Main quest 1\/1/)
+      assert.match(text, /Main quest 2\/2/)
+      assert.match(text, /Get L1 access/)
+      assert.doesNotMatch(text, /Get a recommendation/)
       assert.match(text, /Side quest 0\/2/)
-      assert.match(
-        text,
-        /Chat with AI to earn a \$0–\$10 \(Platform\) new-user gift/
-      )
+      assert.match(text, /Chat with AI to earn a 0 USD–10 USD new-user gift/)
       assert.match(text, /Accept an open-source bounty/)
     } finally {
       await unmount(rendered)
@@ -229,6 +235,47 @@ describe('assistant game-style progress', () => {
     }
   })
 
+  test('shows the persisted gift credits in all units without reinterpreting legacy cents', async () => {
+    let calls = 0
+    api.get = (async () => {
+      calls += 1
+      return {
+        data: {
+          success: true,
+          data: {
+            amount_cents: 999,
+            quota: 123,
+            credit_amount: 500_000,
+            amount_unit: 'LEGACY_CENTS',
+            amount_usd: 1,
+            status: 'offered',
+            reason: 'A historical credit award.',
+            created_at: 1,
+            claimed_at: 0,
+          },
+        },
+      }
+    }) as typeof api.get
+    await i18n.changeLanguage('zhCN')
+    const rendered = await render(<AssistantNewUserGift enabled />)
+    try {
+      assert.match(rendered.container.textContent ?? '', /7 CNY/)
+      await act(async () => i18n.changeLanguage('en'))
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
+      await act(async () => {
+        useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
+      })
+      assert.match(rendered.container.textContent ?? '', /500,000 Credits/)
+      assert.equal(calls, 1)
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /9\.99|\(Platform\)/
+      )
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
   test('keeps a retry path visible when the welcome gift status cannot load', async () => {
     let attempts = 0
     api.get = (async (url: string) => {
@@ -287,4 +334,53 @@ describe('assistant game-style progress', () => {
       await unmount(rendered)
     }
   })
+})
+
+describe('welcome gift current cap', () => {
+  for (const code of ['gift_disabled', 'gift_limit_exceeded']) {
+    test(`keeps the stored offer visible but blocks claiming when ${code}`, async () => {
+      let claims = 0
+      api.get = (async () => ({
+        data: {
+          success: true,
+          data: {
+            amount_cents: 0,
+            quota: 7000000,
+            credit_amount: 7000000,
+            status: 'offered',
+            reason: 'Stored gift offer',
+            created_at: 1,
+            claimed_at: 0,
+            claim_available: false,
+            claim_blocked_code: code,
+            max_credit_amount: code === 'gift_disabled' ? 0 : 100000,
+          },
+        },
+      })) as typeof api.get
+      api.post = (async () => {
+        claims++
+        return { data: { success: true } }
+      }) as typeof api.post
+      const rendered = await render(<AssistantNewUserGift enabled />)
+      try {
+        const claim =
+          rendered.container.querySelector<HTMLButtonElement>('button')
+        assert.ok(claim)
+        assert.equal(claim.disabled, true)
+        await act(async () => {
+          claim.click()
+          await flushQueries()
+        })
+        assert.equal(claims, 0)
+        assert.match(
+          rendered.container.textContent ?? '',
+          code === 'gift_disabled'
+            ? /currently disabled/
+            : /exceeds the current maximum/
+        )
+      } finally {
+        await unmount(rendered)
+      }
+    })
+  }
 })

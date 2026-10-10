@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -27,6 +27,8 @@ import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { confirmVisibleAnnouncements } from './announcement-confirmation'
+
 export type MandatoryAnnouncement = {
   id: number
   content: string
@@ -36,9 +38,18 @@ export type MandatoryAnnouncement = {
   read_at: number
 }
 
-async function loadAnnouncements() {
+async function loadAnnouncements(
+  userID: number | undefined,
+  signal: AbortSignal
+) {
+  if (!userID) throw new Error('Unable to load announcements')
   try {
     const response = await api.get('/api/user/self/announcements', {
+      signal,
+      authScope: {
+        userId: userID,
+        sessionId: useAuthStore.getState().auth.session?.sid,
+      },
       skipErrorHandler: true,
       skipBusinessError: true,
     })
@@ -63,9 +74,12 @@ async function loadAnnouncements() {
 export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   const userID = useAuthStore((state) => state.auth.user?.id)
+  const sessionID = useAuthStore((state) => state.auth.session?.sid)
+  const queryClient = useQueryClient()
+  const queryKey = ['mandatory-announcements', userID] as const
   const query = useQuery({
-    queryKey: ['mandatory-announcements', userID],
-    queryFn: loadAnnouncements,
+    queryKey,
+    queryFn: ({ signal }) => loadAnnouncements(userID, signal),
     enabled: !!userID,
     retry: false,
     staleTime: (query) =>
@@ -106,26 +120,56 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
   if (!next) return children
   return (
     <AnnouncementReader
-      key={`${userID}:${next.revision}`}
+      key={`${userID}:${sessionID ?? ''}`}
       item={next}
+      items={items.filter((item) => !item.read_at)}
       // The position is the announcement's own place in the published order.
       // Counting acknowledgements would mislabel a notice inserted earlier.
       completed={nextIndex}
       total={items.length}
       onContinue={async () => {
+        const isCurrentSession = () => {
+          const auth = useAuthStore.getState().auth
+          return auth.user?.id === userID && auth.session?.sid === sessionID
+        }
         try {
-          const response = await api.post(
-            '/api/user/self/announcements/read',
-            { id: next.id, revision: next.revision },
-            { skipErrorHandler: true, skipBusinessError: true }
-          )
-          if (!response.data.success) {
-            throw new Error('Unable to confirm reading')
-          }
-          await query.refetch({ throwOnError: true })
+          await confirmVisibleAnnouncements(items, async (item) => {
+            if (!isCurrentSession()) {
+              throw new Error('Unable to confirm reading')
+            }
+            const response = await api.post(
+              '/api/user/self/announcements/read',
+              { id: item.id, revision: item.revision },
+              {
+                authScope: { userId: userID, sessionId: sessionID },
+                skipErrorHandler: true,
+                skipBusinessError: true,
+              }
+            )
+            if (!response.data.success || !Array.isArray(response.data.data)) {
+              throw new Error('Unable to confirm reading')
+            }
+            // Preserve each committed result so a partial failure can resume.
+            await queryClient.cancelQueries({ queryKey, exact: true })
+            if (!isCurrentSession()) {
+              throw new Error('Unable to confirm reading')
+            }
+            const snapshot = response.data.data as MandatoryAnnouncement[]
+            queryClient.setQueryData(queryKey, {
+              supported: true,
+              items: snapshot,
+            })
+            return snapshot
+          })
         } catch (error) {
-          // A conflict can mean the publication changed while it was being read.
-          await query.refetch()
+          // A publication change needs a new visible snapshot and confirmation.
+          if (
+            isCurrentSession() &&
+            isAxiosError(error) &&
+            error.response?.status === 409
+          ) {
+            await query.refetch()
+          }
           throw error
         }
       }}
@@ -135,20 +179,27 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
 
 export function AnnouncementReader({
   item,
+  items,
   completed,
   total,
   onContinue,
 }: {
   item: MandatoryAnnouncement
+  items?: MandatoryAnnouncement[]
   completed: number
   total: number
   onContinue: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const visible = items ?? [item]
+  const contentKey = visible
+    .map((notice) => `${notice.id}:${notice.revision}`)
+    .join('|')
   const viewport = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const [progress, setProgress] = useState(0)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [failed, setFailed] = useState(false)
   const measure = () => {
     const node = viewport.current
@@ -161,14 +212,16 @@ export function AnnouncementReader({
     )
   }
   useLayoutEffect(() => {
+    if (viewport.current) viewport.current.scrollTop = 0
     measure()
     const observer = new ResizeObserver(measure)
     if (viewport.current) observer.observe(viewport.current)
     if (content.current) observer.observe(content.current)
     return () => observer.disconnect()
-  }, [])
+  }, [contentKey])
   const confirm = async () => {
-    if (progress < 100 || saving) return
+    if (savingRef.current) return
+    savingRef.current = true
     setSaving(true)
     setFailed(false)
     try {
@@ -176,22 +229,27 @@ export function AnnouncementReader({
     } catch {
       setFailed(true)
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
   return (
     <main className='mx-auto flex h-dvh max-w-3xl flex-col gap-4 p-4 sm:p-8'>
       <header className='shrink-0 space-y-2'>
-        <h1 className='text-xl font-semibold'>{t('Required announcement')}</h1>
+        <h1 className='text-xl font-semibold'>
+          {t(visible.length > 1 ? 'Announcements' : 'Required announcement')}
+        </h1>
         <p>
           {t('Announcement {{current}} of {{total}}', {
             current: completed + 1,
             total,
           })}
         </p>
-        <p className='text-muted-foreground text-sm'>
-          {t('Read to the bottom, then confirm to continue.')}
-        </p>
+        {visible.length === 1 && (
+          <p className='text-muted-foreground text-sm'>
+            {t('Confirm this announcement to continue.')}
+          </p>
+        )}
       </header>
       <div
         ref={viewport}
@@ -202,8 +260,23 @@ export function AnnouncementReader({
         className='focus-visible:outline-ring min-h-0 flex-1 overflow-y-auto overscroll-contain border p-4 focus-visible:outline-2'
       >
         <div ref={content} className='space-y-4 break-words'>
-          <RichContent breaks content={item.content} />
-          {item.extra && <RichContent breaks content={item.extra} />}
+          {visible.map((notice, index) => (
+            <article
+              key={`${notice.id}:${notice.revision}`}
+              className='space-y-4'
+            >
+              {visible.length > 1 && (
+                <h2 className='text-base font-semibold'>
+                  {t('Announcement {{current}} of {{total}}', {
+                    current: index + 1,
+                    total: visible.length,
+                  })}
+                </h2>
+              )}
+              <RichContent breaks content={notice.content} />
+              {notice.extra && <RichContent breaks content={notice.extra} />}
+            </article>
+          ))}
         </div>
       </div>
       <footer className='shrink-0 space-y-3 pb-[env(safe-area-inset-bottom)]'>
@@ -216,10 +289,11 @@ export function AnnouncementReader({
         )}
         <Button
           className='min-h-11 w-full'
-          disabled={progress < 100 || saving}
+          disabled={saving}
+          aria-busy={saving}
           onClick={() => void confirm()}
         >
-          {t(saving ? 'Saving' : 'I have read and continue')}
+          {t(saving ? 'Saving' : 'Confirm and continue')}
         </Button>
       </footer>
     </main>

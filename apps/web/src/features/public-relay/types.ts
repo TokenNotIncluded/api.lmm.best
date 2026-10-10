@@ -18,10 +18,12 @@ export type PublicRelay = {
   status: 'pending' | 'approved' | 'rejected'
   created_at: number
   updated_at: number
+  review_note?: string
   used_quota?: number
   tip_quota?: number
   tip_count?: number
   withdrawn_quota?: number
+  available_tip_quota?: number
   used_quota_usd?: number
   tip_quota_usd?: number
   withdrawn_quota_usd?: number
@@ -42,6 +44,10 @@ export type PublicRelayReport = {
 export type PublicRelayConfig = {
   group: string
   minimum_withdrawal_usd: number
+  /** The server's immutable Credit policy; absent metadata disables withdrawal. */
+  minimum_withdrawal_quota?: number
+  maximum_tip_quota?: number
+  maximum_tip_usd?: number
 }
 
 export type PublicRelayReview = {

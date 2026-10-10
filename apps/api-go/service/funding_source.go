@@ -68,6 +68,24 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	return nil
 }
 
+// ReserveBudget pairs wallet and token authorization in one transaction for
+// explicitly budgeted sessions. Ordinary relay pre-consumption stays unchanged.
+func (w *WalletFunding) ReserveBudget(amount, tokenID int) error {
+	if err := model.ReserveWalletBillingBudget(w.userId, tokenID, amount, w.minimumQuota); err != nil {
+		return err
+	}
+	w.consumed += amount
+	return nil
+}
+
+func (w *WalletFunding) RefundBudget(tokenID int) error {
+	if err := model.RefundWalletBillingBudget(w.userId, tokenID, w.consumed); err != nil {
+		return err
+	}
+	w.consumed = 0
+	return nil
+}
+
 func (w *WalletFunding) Settle(delta int) error {
 	if delta == 0 {
 		return nil
@@ -98,6 +116,7 @@ type SubscriptionFunding struct {
 	amount         int64 // 预扣的订阅额度（subConsume）
 	subscriptionId int
 	preConsumed    int64
+	tokenConsumed  int64
 	managed        bool // subscription and token share a durable transaction
 	tokenId        int
 	walletOverflow bool
@@ -124,6 +143,7 @@ func (s *SubscriptionFunding) PreConsume(_ int) error {
 	}
 	s.subscriptionId = res.UserSubscriptionId
 	s.preConsumed = res.PreConsumed
+	s.tokenConsumed = res.TokenConsumed
 	s.AmountTotal = res.AmountTotal
 	s.AmountUsedAfter = res.AmountUsedAfter
 	// 获取订阅计划信息

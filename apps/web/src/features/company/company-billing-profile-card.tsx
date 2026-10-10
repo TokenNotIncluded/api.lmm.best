@@ -238,6 +238,9 @@ export function CompanyBillingProfileCard() {
   const [form, setForm] = useState<CompanyBillingProfileInput>(() =>
     profileToForm(profile)
   )
+  const [baseline, setBaseline] = useState<CompanyBillingProfileInput>(() =>
+    profileToForm(profile)
+  )
   const [clientErrorKeys, setClientErrorKeys] = useState<FieldErrors>({})
   const initializedOwner = useRef<number | null>(null)
 
@@ -245,6 +248,7 @@ export function CompanyBillingProfileCard() {
     if (initializedOwner.current !== ownerUserId) {
       initializedOwner.current = null
       setForm({ ...EMPTY_PROFILE })
+      setBaseline({ ...EMPTY_PROFILE })
       setClientErrorKeys({})
       resetSave()
     }
@@ -257,7 +261,9 @@ export function CompanyBillingProfileCard() {
       return
     }
     initializedOwner.current = ownerUserId
-    setForm(profileToForm(profile))
+    const next = profileToForm(profile)
+    setForm(next)
+    setBaseline(next)
   }, [loadError, loading, ownerUserId, profile, resetSave])
 
   if (loading) {
@@ -321,6 +327,10 @@ export function CompanyBillingProfileCard() {
   const fieldErrorKeys = { ...serverErrorKeys, ...clientErrorKeys }
   const hasFieldErrors = Object.keys(fieldErrorKeys).length > 0
   const genericSaveError = Boolean(saveError) && !hasFieldErrors
+  const normalizedForm = normalizeForm(form)
+  const isDirty = (
+    Object.keys(normalizedForm) as (keyof CompanyBillingProfileInput)[]
+  ).some((key) => normalizedForm[key] !== baseline[key])
 
   function clearFieldFeedback(field: CompanyBillingProfileField) {
     setClientErrorKeys((current) => {
@@ -358,7 +368,9 @@ export function CompanyBillingProfileCard() {
 
     save(normalized, {
       onSuccess: (serverProfile) => {
-        setForm(profileToForm(serverProfile))
+        const next = profileToForm(serverProfile)
+        setForm(next)
+        setBaseline(next)
         setClientErrorKeys({})
       },
       onError: (error) => {
@@ -571,8 +583,23 @@ export function CompanyBillingProfileCard() {
           </AlertDescription>
         </Alert>
 
-        <div className='mt-5 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end'>
-          <Button type='submit' disabled={saving} className='w-full sm:w-auto'>
+        <div className='mt-5 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between'>
+          <p
+            className='text-muted-foreground text-xs'
+            aria-live='polite'
+            data-testid='company-billing-profile-save-state'
+          >
+            {saving
+              ? t('Saving...')
+              : isDirty
+                ? t('You have unsaved changes.')
+                : t('All changes saved.')}
+          </p>
+          <Button
+            type='submit'
+            disabled={saving || !isDirty}
+            className='w-full sm:w-auto'
+          >
             {saving ? <Spinner aria-hidden='true' /> : null}
             {saving ? t('Saving...') : t('Save company profile')}
           </Button>

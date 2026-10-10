@@ -118,7 +118,7 @@ export function reviewPublicRelay(id: number, approve: boolean, note: string) {
 
 export function listAdminPublicRelayReports() {
   return unwrap<{ items: PublicRelayReport[] }>(
-    api.get('/api/public-relays/admin/reports')
+    api.get('/api/public-relays/admin/reports', { params: { status: 'open' } })
   )
 }
 

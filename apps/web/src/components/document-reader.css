@@ -1,0 +1,90 @@
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+.document-reader {
+  min-width: 0;
+}
+.document-reader-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 1.25rem 0;
+}
+.document-reader-tools > span {
+  margin-right: auto;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.document-reader-tools button {
+  min-height: 2.75rem;
+}
+.document-reader details {
+  scroll-margin-top: 6rem;
+  margin-block: 0.75rem;
+}
+.document-reader summary {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 4rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  cursor: pointer;
+  list-style: none;
+  background: color-mix(in oklch, var(--muted) 38%, transparent);
+}
+.document-reader summary::-webkit-details-marker {
+  display: none;
+}
+.document-reader summary h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 550;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.document-reader summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.document-reader details[open] > summary {
+  background: transparent;
+}
+.document-reader details[open] > summary > svg {
+  rotate: 180deg;
+}
+.document-section-number {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.document-section-body {
+  padding: 0.5rem 1rem 2rem;
+  max-width: 72ch;
+}
+.document-section-body :is(p, li) {
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.document-section-body pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+@media (max-width: 640px) {
+  .document-reader summary {
+    gap: 0.75rem;
+    padding: 0.8rem;
+  }
+  .document-section-body {
+    padding-inline: 0.25rem;
+  }
+}
+@media print {
+  .document-reader-tools {
+    display: none;
+  }
+  .document-reader summary {
+    break-after: avoid;
+  }
+}

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 import type { CustomOAuthBinding } from '@/lib/oauth'
 import type { LoginSession } from '@/stores/auth-store'
+import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
 
 import type { ProfileUsageQueryRange, ProfileUsageRow } from './lib/activity'
 import type {
@@ -64,6 +65,69 @@ export async function getProfileUsageWindow(
   return res.data.data ?? []
 }
 
+export interface ProfileShareState {
+  enabled: boolean
+  model_usage_enabled?: boolean
+  token?: string
+  url?: string
+  aggregate_usage_enabled?: boolean
+  linked_profiles?: import('./types').LinkedUsageProfile[]
+  aggregate_sources?: import('./types').ProfileAggregateSource[]
+}
+
+/** Save linked accounts without changing the separate model-sharing permission. */
+export async function updateProfileAggregate(
+  settings: Partial<import('./types').ProfileAggregateSettings>
+): Promise<ProfileShareState> {
+  const res = await api.post<ApiResponse<ProfileShareState>>(
+    '/api/user/self/profile-share',
+    settings,
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  if (!res.data.success || !res.data.data) {
+    throw new Error('Unable to save linked profiles')
+  }
+  return res.data.data
+}
+
+export async function getProfileShareState(
+  signal?: AbortSignal
+): Promise<ProfileShareState> {
+  const res = await api.get<ApiResponse<ProfileShareState>>(
+    '/api/user/self/profile-share',
+    { signal, skipBusinessError: true, skipErrorHandler: true }
+  )
+  if (!res.data.success || !res.data.data) {
+    throw new Error(res.data.message || 'Unable to load profile sharing')
+  }
+  return res.data.data
+}
+
+export async function enableProfileShare(
+  modelUsageEnabled?: boolean
+): Promise<ProfileShareState> {
+  const res = await api.post<ApiResponse<ProfileShareState>>(
+    '/api/user/self/profile-share',
+    modelUsageEnabled === undefined
+      ? undefined
+      : { model_usage_enabled: modelUsageEnabled }
+  )
+  if (!res.data.success || !res.data.data) {
+    throw new Error(res.data.message || 'Unable to enable profile sharing')
+  }
+  return res.data.data
+}
+
+export async function disableProfileShare(): Promise<ProfileShareState> {
+  const res = await api.delete<ApiResponse<ProfileShareState>>(
+    '/api/user/self/profile-share'
+  )
+  if (!res.data.success || !res.data.data) {
+    throw new Error(res.data.message || 'Unable to disable profile sharing')
+  }
+  return res.data.data
+}
+
 /**
  * Update user profile
  */
@@ -104,6 +168,19 @@ export async function updateSettlementCurrency(
   const res = await api.put(
     '/api/user/self',
     { settlement_currency: settlementCurrency },
+    { signal, skipBusinessError: true, skipErrorHandler: true }
+  )
+  return res.data
+}
+
+/** Save only the display preference; settlement and stored quota are unchanged. */
+export async function updateWalletDisplayCurrency(
+  walletDisplayCurrency: WalletDisplayCurrencyPreference,
+  signal?: AbortSignal
+): Promise<ApiResponse> {
+  const res = await api.put(
+    '/api/user/self',
+    { wallet_display_currency: walletDisplayCurrency },
     { signal, skipBusinessError: true, skipErrorHandler: true }
   )
   return res.data

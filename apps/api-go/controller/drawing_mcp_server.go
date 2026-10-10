@@ -3,9 +3,15 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,10 +25,12 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/service"
 	"github.com/gin-gonic/gin"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	_ "golang.org/x/image/webp"
 )
 
 const (
@@ -50,6 +58,16 @@ type drawingMCPOutput struct {
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
 }
+
+const drawingMCPCompletedMessage = "Image generation completed."
+
+func drawingMCPCompletedResult() *mcp.CallToolResult {
+	// Keep the image in structuredContent once. The SDK's default JSON text
+	// fallback would otherwise duplicate every base64 image in the envelope.
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: drawingMCPCompletedMessage}}}
+}
+
+type drawingMCPMarketCallIDKey struct{}
 
 func drawingMCPTool(name, title, description string, readOnly, destructive, idempotent bool) *mcp.Tool {
 	return &mcp.Tool{
@@ -189,7 +207,7 @@ func drawingMCPConsumeConfirmation(userID int, operation *model.OpenSourceBounty
 }
 
 func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
-	mcp.AddTool(server, drawingMCPTool(
+	addToolMarketBuiltinMCPTool(server, drawingMCPTool(
 		"drawing.list_capabilities", "List drawing capabilities",
 		"List the authenticated developer's currently usable image groups and image-capable models. This is read-only and never spends quota.",
 		true, false, true,
@@ -214,7 +232,7 @@ func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
 		}, nil
 	})
 
-	mcp.AddTool(server, drawingMCPTool(
+	addToolMarketBuiltinMCPTool(server, drawingMCPTool(
 		"drawing.generate", "Generate an image",
 		"Generate images through the same group-aware, quota-billed drawing relay used by the web workbench. The first call always asks for explicit confirmation of the prompt, model, group, image count, and billing impact.",
 		false, true, false,
@@ -259,11 +277,16 @@ func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
 		if err := drawingMCPConsumeConfirmation(userID, operation); err != nil {
 			return nil, drawingMCPOutput{}, err
 		}
+		if info := request.Extra.TokenInfo; info != nil && info.Extra["market_builtin"] == true && info.Extra["market_tool_grant"] == true {
+			if callID, ok := info.Extra["market_request_id"].(string); ok && callID != "" {
+				ctx = context.WithValue(ctx, drawingMCPMarketCallIDKey{}, callID)
+			}
+		}
 		result, err := executeDrawingMCPRelay(ctx, relay, user, resolved, apiKeyID)
 		if err != nil {
 			return nil, drawingMCPOutput{}, err
 		}
-		return nil, drawingMCPOutput{Message: "Image generation completed.", Data: result}, nil
+		return drawingMCPCompletedResult(), drawingMCPOutput{Message: drawingMCPCompletedMessage, Data: result}, nil
 	})
 }
 
@@ -273,6 +296,11 @@ func drawingMCPAPIKeyID(request *mcp.CallToolRequest) (int, error) {
 	}
 	if oauth, ok := request.Extra.TokenInfo.Extra["oauth"].(bool); ok && oauth {
 		return 0, nil
+	}
+	if builtin, ok := request.Extra.TokenInfo.Extra["market_builtin"].(bool); ok && builtin {
+		if _, bound := request.Extra.TokenInfo.Extra["api_key_id"]; !bound {
+			return 0, nil
+		}
 	}
 	raw, ok := request.Extra.TokenInfo.Extra["api_key_id"]
 	if !ok {
@@ -326,6 +354,12 @@ func newDrawingMCPRelayEngine(admission gin.HandlerFunc) *gin.Engine {
 		c.Set("use_access_token", false)
 		c.Set(common.RequestIdKey, common.NewRequestId())
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+		if callID, _ := c.Request.Context().Value(drawingMCPMarketCallIDKey{}).(string); callID != "" {
+			// A marketplace image must fit its retained envelope. Respect a
+			// stricter configured relay limit and cap larger deployments here.
+			limit := min(common.ResponseBodyLimit(), int64(model.ToolMarketDrawingResponseMaxBytes))
+			common.SetContextKey(c, constant.ContextKeyResponseByteLimit, int(limit))
+		}
 		c.Next()
 	})
 	engine.Use(middleware.SystemPerformanceCheck(), admission)
@@ -348,6 +382,42 @@ func executeDrawingMCPRelay(ctx context.Context, relay http.Handler, user *model
 	if err != nil {
 		return nil, errors.New("image request could not be encoded")
 	}
+	recorder := httptest.NewRecorder()
+	var retentionErr error
+	if callID, _ := ctx.Value(drawingMCPMarketCallIDKey{}).(string); callID != "" {
+		ctx = relaycommon.WithImageDeliveryHooks(ctx, relaycommon.ImageDeliveryHooks{
+			BeforeBilling: func() (err error) {
+				defer func() { retentionErr = err }()
+				result, err := decodeDrawingMCPRelayResult(recorder)
+				if err != nil {
+					return err
+				}
+				if err := validateToolMarketDrawingImages(result); err != nil {
+					return err
+				}
+				retained := drawingMCPCompletedResult()
+				// Match SDK output normalization's object ordering. This is the
+				// same immutable envelope checked again after the SDK round trip.
+				retained.StructuredContent = map[string]any{"message": drawingMCPCompletedMessage, "data": result}
+				data, err := json.Marshal(retained)
+				if err != nil {
+					return err
+				}
+				if len(data) > model.ToolMarketDrawingResultMaxBytes {
+					return errors.New("image result exceeds the supported delivery limit")
+				}
+				if err := model.PrepareToolMarketBuiltinDrawingResult(callID, data); err != nil {
+					// Database errors can include SQL parameters. Keep image data
+					// and database details out of the relay error/result path.
+					return errors.New("image result could not be retained")
+				}
+				return nil
+			},
+			AfterBilling: func(billingErr error) error {
+				return model.CompleteToolMarketBuiltinDrawingBilling(callID, billingErr == nil)
+			},
+		})
+	}
 	request := httptest.NewRequest(http.MethodPost, "/pg/images/generations?group="+url.QueryEscape(input.Group), bytes.NewReader(body))
 	requestCtx := context.WithValue(ctx, drawingMCPRelayIdentityKey{}, drawingMCPRelayIdentity{UserID: user.Id})
 	apiKeyID := 0
@@ -362,8 +432,14 @@ func executeDrawingMCPRelay(ctx context.Context, relay http.Handler, user *model
 	if clientIP, ok := ctx.Value(drawingMCPClientIPKey{}).(string); ok && net.ParseIP(clientIP) != nil {
 		request.RemoteAddr = net.JoinHostPort(clientIP, "0")
 	}
-	recorder := httptest.NewRecorder()
 	relay.ServeHTTP(recorder, request)
+	if retentionErr != nil {
+		return nil, retentionErr
+	}
+	return decodeDrawingMCPRelayResult(recorder)
+}
+
+func decodeDrawingMCPRelayResult(recorder *httptest.ResponseRecorder) (map[string]any, error) {
 	if recorder.Code < http.StatusOK || recorder.Code >= http.StatusMultipleChoices {
 		var failure struct {
 			Error struct {
@@ -377,7 +453,13 @@ func executeDrawingMCPRelay(ctx context.Context, relay http.Handler, user *model
 		return nil, fmt.Errorf("image relay failed with HTTP %d", recorder.Code)
 	}
 	var result map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(recorder.Body.Bytes()))
+	decoder.UseNumber()
+	if err := decoder.Decode(&result); err != nil {
+		return nil, errors.New("image relay returned an invalid response")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
 		return nil, errors.New("image relay returned an invalid response")
 	}
 	if failure, ok := result["error"].(map[string]any); ok {
@@ -387,6 +469,39 @@ func executeDrawingMCPRelay(ctx context.Context, relay http.Handler, user *model
 		return nil, errors.New("image relay returned an error")
 	}
 	return result, nil
+}
+
+func validateToolMarketDrawingImages(result map[string]any) error {
+	var entries []any
+	switch data := result["data"].(type) {
+	case []any:
+		entries = data
+	case map[string]any:
+		entries = []any{data}
+	}
+	for _, raw := range entries {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if encoded, ok := entry["b64_json"].(string); ok && encoded != "" && len(encoded) <= model.ToolMarketDrawingResponseMaxBytes {
+			data, err := base64.StdEncoding.DecodeString(encoded)
+			if err == nil {
+				config, format, err := image.DecodeConfig(bytes.NewReader(data))
+				if err == nil && slices.Contains([]string{"png", "jpeg", "gif", "webp"}, format) && config.Width > 0 && config.Height > 0 && config.Width <= 16384 && config.Height <= 16384 && int64(config.Width)*int64(config.Height) <= 64<<20 {
+					return nil
+				}
+			}
+		}
+		if rawURL, ok := entry["url"].(string); ok {
+			parsed, err := url.Parse(rawURL)
+			if err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") && parsed.Hostname() != "" && parsed.User == nil {
+				// Retain the provider's own URL; never fetch it from the server.
+				return nil
+			}
+		}
+	}
+	return errors.New("image relay returned no usable image")
 }
 
 func newDrawingMCPServer(relay http.Handler) *mcp.Server {
@@ -421,7 +536,9 @@ func NewDrawingMCPHandler(sharedAdmission ...gin.HandlerFunc) http.Handler {
 	} else {
 		admission = middleware.RelayRequestAdmission()
 	}
-	server := newDrawingMCPServer(newDrawingMCPRelayEngine(admission))
+	relay := newDrawingMCPRelayEngine(admission)
+	SetToolMarketBuiltinDrawingRelay(relay)
+	server := newDrawingMCPServer(relay)
 	streamable := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{

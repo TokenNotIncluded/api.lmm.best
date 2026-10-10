@@ -23,7 +23,7 @@ import {
   type AdminPermissionMatrix,
   normalizeAdminPermissions,
 } from '@/lib/admin-permissions'
-import { quotaUnitsToDollars } from '@/lib/format'
+import { assertCreditAmount, signedCreditAmountSchema } from '@/lib/quota-input'
 import { ROLE } from '@/lib/roles'
 
 import { DEFAULT_GROUP } from '../constants'
@@ -38,7 +38,7 @@ export const userFormSchema = z.object({
   display_name: z.string().optional(),
   password: z.string().optional(),
   role: z.number().optional(),
-  quota_dollars: z.number().min(0).optional(),
+  quota_credits: signedCreditAmountSchema.optional(),
   group: z.string().optional(),
   remark: z.string().optional(),
   admin_permissions: z
@@ -57,7 +57,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   display_name: '',
   password: '',
   role: 1, // Default to common user
-  quota_dollars: 0,
+  quota_credits: 0,
   group: DEFAULT_GROUP,
   remark: '',
   // Filled against the backend catalog at render time; see UsersMutateDrawer.
@@ -118,7 +118,7 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     display_name: user.display_name,
     password: '',
     role: user.role,
-    quota_dollars: quotaUnitsToDollars(user.quota),
+    quota_credits: assertCreditAmount(user.quota, true),
     group: user.group || DEFAULT_GROUP,
     remark: user.remark || '',
     admin_permissions: user.admin_permissions ?? {},

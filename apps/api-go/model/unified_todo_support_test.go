@@ -11,7 +11,7 @@ import (
 func TestHumanSupportTodosUseCurrentStaffAccessAndSharedAssignment(t *testing.T) {
 	db := setupOpenSourceBountyTestDB(t)
 	require.NoError(t, db.AutoMigrate(&UnifiedTodoRead{}, &DeveloperAccessRequest{}, &AccountActionRequest{},
-		&AssistantSecurityIncident{}, &AssistantSecurityReviewNotice{}, &AssistantSupportRequest{}))
+		&AssistantSecurityIncident{}, &AssistantSupportRequest{}))
 	owner := createOpenSourceBountyUser(t, db, "support-owner", 0, common.RoleCommonUser)
 	admin := createOpenSourceBountyUser(t, db, "support-admin", 0, common.RoleAdminUser)
 	root := createOpenSourceBountyUser(t, db, "support-root", 0, common.RoleRootUser)

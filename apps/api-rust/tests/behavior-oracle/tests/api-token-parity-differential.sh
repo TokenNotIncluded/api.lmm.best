@@ -1440,6 +1440,12 @@ ALTER DATABASE :"rust_database" SET search_path TO :"rust_schema";
 SET search_path TO :"rust_schema";
 CREATE TABLE lmm_schema_contract (singleton BOOLEAN PRIMARY KEY, min_reader_version BIGINT NOT NULL, max_reader_version BIGINT NOT NULL);
 INSERT INTO lmm_schema_contract VALUES (TRUE,1,1);
+-- Empty subscription surface for the normal listener readiness probes only.
+CREATE TABLE user_subscriptions (
+  amount_total BIGINT, amount_used BIGINT,
+  reset_amount BIGINT, renewal_amount BIGINT
+);
+GRANT SELECT, UPDATE ON user_subscriptions TO :"rust_role";
 CREATE TABLE options (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE custom_oauth_providers (id BIGINT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL, icon TEXT, enabled BOOLEAN, client_id TEXT, authorization_endpoint TEXT, scopes TEXT);
 CREATE TABLE setups (id BIGINT PRIMARY KEY);

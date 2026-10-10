@@ -141,6 +141,25 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('UserTrustLevelCell', () => {
+  test('account roles remain L5 or L6 even when an automatic-level projection is also present', async () => {
+    for (const [role, level] of [
+      [10, 5],
+      [100, 6],
+    ]) {
+      const user = { ...createUser(2), role }
+      const { container, root } = await renderCell(user)
+      assert.match(container.textContent ?? '', new RegExp(`L${level}`))
+      assert.equal(
+        levelButton(container, 'Decrease trust level').disabled,
+        true
+      )
+      assert.equal(
+        levelButton(container, 'Increase trust level').disabled,
+        true
+      )
+      await act(async () => root.unmount())
+    }
+  })
   test('places decrease on the left and increase on the right', async () => {
     const { container, root } = await renderCell(createUser(2))
     const buttons = [...container.querySelectorAll('button')]

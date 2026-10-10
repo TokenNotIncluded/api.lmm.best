@@ -149,7 +149,6 @@ sed -i '$d' "$runtime/manifest.tsv"
 representatives=(
   $'POST\t/api/subscription/stripe/pay'
   $'POST\t/api/user/creem/pay'
-  $'POST\t/api/user/pay'
   $'POST\t/api/user/waffo/pay'
   $'POST\t/pg/chat/completions'
   $'POST\t/v1/video/generations'
@@ -163,6 +162,9 @@ for route in "${representatives[@]}"; do
   ! awk -F '\t' -v route="$route" '$1 "\t" $2 == route { found=1 } END { exit !found }' \
     "$repo_root/apps/api-rust/tests/fixtures/routes/rust-normal-mounted-routes.tsv" || fail "representative shell re-entered normal-mounted status: $route"
 done
+
+python3 "$repo_root/apps/api-rust/tests/scripts/check-epay-runtime-wiring.py" || fail 'concrete ePay runtime wiring is missing'
+python3 "$repo_root/apps/api-rust/tests/scripts/test-epay-runtime-wiring.py" || fail 'ePay runtime wiring regression guard failed'
 
 # Current repository ledgers are consumable with a safe manifest override; no
 # backend build or listener starts during this self-test. Every route marked as

@@ -2,13 +2,21 @@
 Copyright (C) 2026 LIghtJUNction
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Pencil, Trash2 } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Copy,
+  Layers,
+  Pencil,
+  Trash2,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -25,6 +33,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -36,8 +52,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { useMediaQuery } from '@/hooks'
+import { cn } from '@/lib/utils'
 
 import {
   createDiscountCodes,
@@ -48,13 +67,21 @@ import {
 } from './api.js'
 import {
   DISCOUNT_CODE_ENABLED_STATUS,
-  getDiscountCodeAvailability,
   parseDiscountCodeMaxUses,
 } from './availability.js'
+import { DiscountCodeDeleteDialog } from './components/discount-code-delete-dialog.js'
+import { DiscountCodeStatusBadge } from './components/discount-code-status-badge.js'
+import { DiscountCodesMobileList } from './components/discount-codes-mobile-list.js'
 import {
   CleanupExhaustedCodesDialog,
   DiscountCodesActions,
 } from './discount-codes-actions.js'
+import {
+  type DiscountCodeFormErrors,
+  type DiscountCodeFormValues,
+  isDiscountCodeFormValid,
+  validateDiscountCodeForm,
+} from './form-validation.js'
 import { buildDiscountCodeLink } from './share-link.js'
 import type {
   DiscountCode,
@@ -65,17 +92,9 @@ import { useDiscountCodeTranslations } from './use-discount-code-translations.js
 import { useExhaustedDiscountCodeCleanup } from './use-exhausted-discount-code-cleanup.js'
 
 const DISABLED = 2
+const PAGE_SIZE = 20
 
-type FormState = {
-  code: string
-  name: string
-  count: string
-  discount_percent: string
-  min_amount: string
-  max_uses: string
-  starts_time: string
-  expired_time: string
-}
+type FormState = DiscountCodeFormValues
 
 async function copyDiscountLinks(
   codes: string[],
@@ -138,20 +157,32 @@ function formatDate(timestamp: number) {
   }).format(new Date(timestamp * 1000))
 }
 
-function availabilityLabel(
-  availability: ReturnType<typeof getDiscountCodeAvailability>,
-  t: ReturnType<typeof useTranslation>['t']
-) {
-  switch (availability) {
-    case 'active':
-      return t('Active')
-    case 'not_started':
-      return t('Not Started')
-    case 'expired':
-      return t('Expired')
-    default:
-      return t('Disabled')
-  }
+/** Inline, field-level message shown directly under its own input. */
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null
+  return (
+    <p id={id} role='alert' className='text-destructive text-xs'>
+      {message}
+    </p>
+  )
+}
+
+function TableSkeleton() {
+  return (
+    <div className='divide-border overflow-hidden rounded-lg border'>
+      {[1, 2, 3, 4, 5].map((item) => (
+        <div
+          key={item}
+          className='flex items-center gap-4 border-b px-3 py-4 last:border-b-0'
+        >
+          <Skeleton className='size-5 shrink-0 rounded-[4px]' />
+          <Skeleton className='h-4 w-40' />
+          <Skeleton className='hidden h-4 w-32 sm:block' />
+          <Skeleton className='ml-auto h-5 w-20 rounded-md' />
+        </div>
+      ))}
+    </div>
+  )
 }
 
 // pi-lens-ignore: high-fan-out, high-complexity
@@ -159,25 +190,30 @@ export function DiscountCodes() {
   const { t } = useTranslation()
   useDiscountCodeTranslations()
   const queryClient = useQueryClient()
+  const isMobile = useMediaQuery('(max-width: 640px)')
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState<DiscountCode>()
   const [form, setForm] = useState<FormState>(emptyForm)
+  const [formErrors, setFormErrors] = useState<DiscountCodeFormErrors>({})
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [generatedCodes, setGeneratedCodes] = useState<string[]>([])
   const [generatedCodesOpen, setGeneratedCodesOpen] = useState(false)
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
 
   const query = useQuery({
     queryKey: ['discount-codes', page, keyword],
-    queryFn: () => listDiscountCodes({ page, pageSize: 20, keyword }),
+    queryFn: () => listDiscountCodes({ page, pageSize: PAGE_SIZE, keyword }),
     placeholderData: (previous) => previous,
   })
   const rows = query.data?.data?.items ?? []
   const total = query.data?.data?.total ?? 0
-  const pageCount = Math.max(1, Math.ceil(total / 20))
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const allRowsSelected =
     rows.length > 0 && rows.every((row) => selectedIds.has(row.id))
+  const pendingDeleteRow =
+    rows.find((row) => row.id === pendingDeleteId) ?? null
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['discount-codes'] })
@@ -236,6 +272,7 @@ export function DiscountCodes() {
   const deleteMutation = useMutation({
     mutationFn: deleteDiscountCode,
     onSuccess: (result) => {
+      setPendingDeleteId(null)
       if (!result.success) {
         toast.error(result.message || t('Unable to delete discount code'))
         return
@@ -243,25 +280,34 @@ export function DiscountCodes() {
       toast.success(t('Discount code deleted'))
       refresh()
     },
+    onError: () => {
+      setPendingDeleteId(null)
+      toast.error(t('Unable to delete discount code'))
+    },
   })
 
   const isSaving = saveMutation.isPending
   const maxUses = parseDiscountCodeMaxUses(form.max_uses)
   const batchCount = Number(form.count)
-  const canSave = useMemo(
-    () =>
-      (editing
-        ? form.code.trim().length >= 3
-        : Number.isInteger(batchCount) &&
-          batchCount >= 1 &&
-          batchCount <= 100) &&
-      form.name.trim().length > 0 &&
-      Number(form.discount_percent) >= 1 &&
-      Number(form.discount_percent) <= 99 &&
-      Number(form.min_amount) >= 0 &&
-      maxUses !== undefined,
-    [batchCount, editing, form, maxUses]
+
+  const validationErrors = useMemo(
+    () => validateDiscountCodeForm(form, { editing: Boolean(editing) }),
+    [editing, form]
   )
+  // Show a field's error only once the operator has touched it, or after a
+  // submit attempt, so a pristine form never opens covered in red.
+  const [showAllErrors, setShowAllErrors] = useState(false)
+  const visibleErrors: DiscountCodeFormErrors = showAllErrors
+    ? validationErrors
+    : formErrors
+  const canSave = isDiscountCodeFormValid(validationErrors)
+
+  const markTouched = (field: keyof FormState) => {
+    setFormErrors((current) => ({
+      ...current,
+      [field]: validationErrors[field],
+    }))
+  }
 
   const openCreate = () => {
     setEditing(undefined)
@@ -270,12 +316,16 @@ export function DiscountCodes() {
       starts_time: toDateInput(Math.floor(Date.now() / 1000)),
       expired_time: '',
     })
+    setFormErrors({})
+    setShowAllErrors(false)
     setSheetOpen(true)
   }
 
   const openEdit = (row: DiscountCode) => {
     setEditing(row)
     setForm(formFromRow(row))
+    setFormErrors({})
+    setShowAllErrors(false)
     setSheetOpen(true)
   }
 
@@ -299,8 +349,18 @@ export function DiscountCodes() {
     })
   }
 
+  const handleToggleStatus = (row: DiscountCode, enabled: boolean) => {
+    statusMutation.mutate({
+      id: row.id,
+      status: enabled ? DISCOUNT_CODE_ENABLED_STATUS : DISABLED,
+    })
+  }
+
   const submit = () => {
-    if (!canSave || maxUses === undefined) return
+    if (!canSave || maxUses === undefined) {
+      setShowAllErrors(true)
+      return
+    }
     if (editing) {
       saveMutation.mutate({
         code: form.code.trim().toUpperCase(),
@@ -335,13 +395,96 @@ export function DiscountCodes() {
     )
   }
 
+  const copyOneCode = (code: string) => {
+    void copyDiscountLinks([code], t)
+  }
+
+  const clearFilters = () => {
+    setKeyword('')
+    setPage(1)
+  }
+
+  const selectedCount = selectedIds.size
+
+  const emptyState = (
+    <div className='rounded-lg border p-6'>
+      <Empty className='border-none p-0'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            {keyword ? (
+              <Layers className='size-6' />
+            ) : (
+              <Copy className='size-6' />
+            )}
+          </EmptyMedia>
+          <EmptyTitle>
+            {keyword ? t('No matching discount codes') : t('No discount codes')}
+          </EmptyTitle>
+          <EmptyDescription>
+            {keyword
+              ? t(
+                  'No codes match "{{keyword}}". Try a different code or name.',
+                  { keyword }
+                )
+              : t(
+                  'Create a code and share the link to offer a percentage discount at checkout.'
+                )}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <div className='flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:justify-center'>
+            <Button className='h-11 gap-2 sm:h-9' onClick={openCreate}>
+              Create discount code
+            </Button>
+            {keyword ? (
+              <Button
+                variant='outline'
+                className='h-11 gap-2 sm:h-9'
+                onClick={clearFilters}
+              >
+                Clear search
+              </Button>
+            ) : null}
+          </div>
+        </EmptyContent>
+      </Empty>
+    </div>
+  )
+
+  const errorState = (
+    <div className='rounded-lg border p-6'>
+      <Empty className='border-none p-0'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <AlertCircle className='size-6' />
+          </EmptyMedia>
+          <EmptyTitle>{t('Unable to load discount codes')}</EmptyTitle>
+          <EmptyDescription>
+            {query.error instanceof Error && query.error.message
+              ? query.error.message
+              : t('The discount code service did not respond. Try again.')}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            className='h-11 w-full gap-2 sm:h-9 sm:w-auto'
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
+            {query.isFetching ? t('Retrying...') : t('Try again')}
+          </Button>
+        </EmptyContent>
+      </Empty>
+    </div>
+  )
+
   return (
     <>
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Discount Codes')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <DiscountCodesActions
-            selectedCount={selectedIds.size}
+            selectedCount={selectedCount}
             cleanupPending={cleanup.pending}
             onRefresh={() => void query.refetch()}
             onCopySelected={copySelectedCodes}
@@ -356,149 +499,231 @@ export function DiscountCodes() {
                 'Manage percentage discounts for checkout. Codes are validated and applied by the server.'
               )}
             </p>
-            <Input
-              value={keyword}
-              onChange={(event) => {
-                setKeyword(event.target.value)
-                setPage(1)
-              }}
-              placeholder={t('Filter by code or name...')}
-              className='max-w-sm'
-            />
-            <div className='overflow-x-auto'>
-              <div className='min-w-[900px]'>
-                <div className='text-muted-foreground grid grid-cols-[auto_1.3fr_1fr_.7fr_.8fr_1fr_1.4fr_auto] gap-4 border-b px-2 pb-3 text-xs tracking-wider uppercase'>
-                  <Checkbox
-                    checked={allRowsSelected}
-                    indeterminate={selectedIds.size > 0 && !allRowsSelected}
-                    onCheckedChange={(checked) =>
-                      toggleAllRows(checked === true)
-                    }
-                    aria-label={t('Select all codes')}
-                  />
-                  <span>{t('Code')}</span>
-                  <span>{t('Name')}</span>
-                  <span>{t('Discount')}</span>
-                  <span>{t('Used')}</span>
-                  <span>{t('Status')}</span>
-                  <span>{t('Validity')}</span>
-                  <span />
-                </div>
-                {query.isLoading && (
-                  <p className='text-muted-foreground px-2 py-10 text-sm'>
-                    {t('Loading...')}
-                  </p>
-                )}
-                {!query.isLoading && rows.length === 0 && (
-                  <p className='text-muted-foreground px-2 py-10 text-sm'>
-                    {t('No discount codes')}
-                  </p>
-                )}
-                {!query.isLoading &&
-                  rows.map((row) => (
-                    <div
-                      className='grid grid-cols-[auto_1.3fr_1fr_.7fr_.8fr_1fr_1.4fr_auto] items-center gap-4 border-b px-2 py-4 text-sm last:border-b-0'
-                      key={row.id}
-                    >
-                      <Checkbox
-                        checked={selectedIds.has(row.id)}
-                        onCheckedChange={(checked) =>
-                          toggleRowSelection(row.id, checked === true)
-                        }
-                        aria-label={`${t('Select code')} ${row.code}`}
-                      />
-                      <div className='font-mono font-medium'>{row.code}</div>
-                      <div className='truncate'>{row.name}</div>
-                      <div>{row.discount_percent}%</div>
-                      <div className='tabular-nums'>
-                        {row.used_count} /{' '}
-                        {row.max_uses > 0 ? row.max_uses : t('No maximum')}
-                      </div>
-                      <div className='flex items-center gap-2'>
-                        <Switch
-                          size='sm'
-                          checked={row.status === DISCOUNT_CODE_ENABLED_STATUS}
-                          aria-label={`${row.code} ${t('Enabled')}`}
-                          onCheckedChange={(checked) =>
-                            statusMutation.mutate({
-                              id: row.id,
-                              status: checked
-                                ? DISCOUNT_CODE_ENABLED_STATUS
-                                : DISABLED,
-                            })
-                          }
-                        />
-                        <span className='text-muted-foreground text-xs'>
-                          {availabilityLabel(
-                            getDiscountCodeAvailability(row),
-                            t
-                          )}
-                        </span>
-                      </div>
-                      <div className='text-muted-foreground space-y-0.5 text-xs'>
-                        <p>
-                          {t('Starts')}: {formatDate(row.starts_time)}
-                        </p>
-                        <p>
-                          {t('Expires')}:{' '}
-                          {row.expired_time
-                            ? formatDate(row.expired_time)
-                            : t('Never expires')}
-                        </p>
-                      </div>
-                      <div className='flex justify-end gap-1'>
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          onClick={() => openEdit(row)}
-                          aria-label={t('Edit')}
-                        >
-                          <Pencil className='size-4' />
-                        </Button>
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          className='text-destructive'
-                          onClick={() => {
-                            if (
-                              window.confirm(t('Delete this discount code?'))
-                            ) {
-                              deleteMutation.mutate(row.id)
-                            }
-                          }}
-                          aria-label={t('Delete')}
-                        >
-                          <Trash2 className='size-4' />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-              </div>
+
+            <div className='flex flex-wrap items-center gap-2'>
+              <Input
+                value={keyword}
+                onChange={(event) => {
+                  setKeyword(event.target.value)
+                  setPage(1)
+                }}
+                placeholder={t('Filter by code or name...')}
+                aria-label={t('Filter by code or name...')}
+                className='w-full sm:max-w-sm'
+              />
+              {total > 0 && (
+                <span className='text-muted-foreground text-xs tabular-nums'>
+                  {t('{{count}} codes', { count: total })}
+                </span>
+              )}
             </div>
+
+            {query.isLoading ? (
+              <TableSkeleton />
+            ) : query.isError ? (
+              errorState
+            ) : rows.length === 0 ? (
+              emptyState
+            ) : isMobile ? (
+              <DiscountCodesMobileList
+                rows={rows}
+                selectedIds={selectedIds}
+                disabled={statusMutation.isPending}
+                onToggleRow={toggleRowSelection}
+                onToggleStatus={handleToggleStatus}
+                onEdit={openEdit}
+                onDelete={(row) => setPendingDeleteId(row.id)}
+                onCopy={copyOneCode}
+              />
+            ) : (
+              <div className='overflow-hidden rounded-lg border'>
+                <table className='w-full table-fixed border-collapse text-sm'>
+                  <caption className='sr-only'>
+                    {t('Discount codes, {{count}} total', { count: total })}
+                  </caption>
+                  <thead>
+                    <tr className='text-muted-foreground border-b text-xs tracking-wider uppercase'>
+                      <th scope='col' className='w-10 px-3 py-3'>
+                        <Checkbox
+                          checked={allRowsSelected}
+                          indeterminate={
+                            selectedIds.size > 0 && !allRowsSelected
+                          }
+                          onCheckedChange={(checked) =>
+                            toggleAllRows(checked === true)
+                          }
+                          aria-label={t('Select all codes')}
+                        />
+                      </th>
+                      <th scope='col' className='px-3 py-3 text-left'>
+                        {t('Code')}
+                      </th>
+                      <th
+                        scope='col'
+                        className='hidden px-3 py-3 text-left lg:table-cell'
+                      >
+                        {t('Name')}
+                      </th>
+                      <th scope='col' className='px-3 py-3 text-right'>
+                        {t('Discount')}
+                      </th>
+                      <th
+                        scope='col'
+                        className='hidden px-3 py-3 text-right md:table-cell'
+                      >
+                        {t('Used')}
+                      </th>
+                      <th scope='col' className='px-3 py-3 text-left'>
+                        {t('Status')}
+                      </th>
+                      <th
+                        scope='col'
+                        className='hidden px-3 py-3 text-left xl:table-cell'
+                      >
+                        {t('Validity')}
+                      </th>
+                      <th scope='col' className='w-24 px-3 py-3 text-right'>
+                        <span className='sr-only'>{t('Actions')}</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={cn(
+                          'border-b transition-colors last:border-b-0',
+                          'hover:bg-muted/50',
+                          selectedIds.has(row.id) && 'bg-muted/40'
+                        )}
+                      >
+                        <td className='px-3 py-3 align-middle'>
+                          <Checkbox
+                            checked={selectedIds.has(row.id)}
+                            onCheckedChange={(checked) =>
+                              toggleRowSelection(row.id, checked === true)
+                            }
+                            aria-label={`${t('Select code')} ${row.code}`}
+                          />
+                        </td>
+                        <td className='px-3 py-3 align-middle'>
+                          <div className='truncate font-mono font-medium'>
+                            {row.code}
+                          </div>
+                          <div className='text-muted-foreground truncate text-xs lg:hidden'>
+                            {row.name}
+                          </div>
+                        </td>
+                        <td className='hidden truncate px-3 py-3 align-middle lg:table-cell'>
+                          {row.name}
+                        </td>
+                        <td className='px-3 py-3 text-right align-middle font-medium tabular-nums'>
+                          {row.discount_percent}%
+                        </td>
+                        <td className='hidden px-3 py-3 text-right align-middle tabular-nums md:table-cell'>
+                          {row.used_count}{' '}
+                          <span className='text-muted-foreground'>
+                            /{' '}
+                            {row.max_uses > 0 ? row.max_uses : t('No maximum')}
+                          </span>
+                        </td>
+                        <td className='px-3 py-3 align-middle'>
+                          <div className='flex flex-wrap items-center gap-2'>
+                            <Switch
+                              size='sm'
+                              checked={
+                                row.status === DISCOUNT_CODE_ENABLED_STATUS
+                              }
+                              disabled={statusMutation.isPending}
+                              aria-label={`${row.code} ${t('Enabled')}`}
+                              onCheckedChange={(checked) =>
+                                handleToggleStatus(row, checked)
+                              }
+                            />
+                            <DiscountCodeStatusBadge code={row} />
+                          </div>
+                        </td>
+                        <td className='text-muted-foreground hidden px-3 py-3 align-middle text-xs xl:table-cell'>
+                          <p>
+                            {t('Starts')}: {formatDate(row.starts_time)}
+                          </p>
+                          <p>
+                            {t('Expires')}:{' '}
+                            {row.expired_time
+                              ? formatDate(row.expired_time)
+                              : t('Never expires')}
+                          </p>
+                        </td>
+                        <td className='px-3 py-3 align-middle'>
+                          <div className='flex justify-end gap-1'>
+                            <Button
+                              variant='ghost'
+                              size='icon-sm'
+                              className='size-9 sm:size-7'
+                              onClick={() => copyOneCode(row.code)}
+                              aria-label={t('Copy')}
+                              title={t('Copy share link')}
+                            >
+                              <Copy className='size-4' />
+                            </Button>
+                            <Button
+                              variant='ghost'
+                              size='icon-sm'
+                              className='size-9 sm:size-7'
+                              onClick={() => openEdit(row)}
+                              aria-label={t('Edit')}
+                            >
+                              <Pencil className='size-4' />
+                            </Button>
+                            <Button
+                              variant='ghost'
+                              size='icon-sm'
+                              className='text-destructive size-9 sm:size-7'
+                              onClick={() => setPendingDeleteId(row.id)}
+                              aria-label={t('Delete')}
+                            >
+                              <Trash2 className='size-4' />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {pageCount > 1 ? (
-              <div className='flex items-center justify-between border-t pt-4 text-sm'>
-                <span className='text-muted-foreground'>
+              <nav
+                aria-label={t('Pagination')}
+                className='flex items-center justify-between border-t pt-4 text-sm'
+              >
+                <span className='text-muted-foreground tabular-nums'>
                   {t('Page {{page}} of {{total}}', { page, total: pageCount })}
                 </span>
                 <div className='flex gap-2'>
                   <Button
                     variant='outline'
                     size='sm'
-                    disabled={page <= 1}
+                    className='h-11 gap-1 px-3 sm:h-8'
+                    disabled={page <= 1 || query.isFetching}
                     onClick={() => setPage((value) => value - 1)}
                   >
+                    <ArrowLeft className='size-4' />
                     {t('Previous')}
                   </Button>
                   <Button
                     variant='outline'
                     size='sm'
-                    disabled={page >= pageCount}
+                    className='h-11 gap-1 px-3 sm:h-8'
+                    disabled={page >= pageCount || query.isFetching}
                     onClick={() => setPage((value) => value + 1)}
                   >
                     {t('Next')}
+                    <ArrowRight className='size-4' />
                   </Button>
                 </div>
-              </div>
+              </nav>
             ) : null}
           </div>
         </SectionPageLayout.Content>
@@ -509,6 +734,17 @@ export function DiscountCodes() {
         pending={cleanup.pending}
         onOpenChange={cleanup.setOpen}
         onConfirm={cleanup.confirm}
+      />
+
+      <DiscountCodeDeleteDialog
+        row={pendingDeleteRow}
+        pending={deleteMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteId(null)
+        }}
+        onConfirm={() => {
+          if (pendingDeleteId !== null) deleteMutation.mutate(pendingDeleteId)
+        }}
       />
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -535,6 +771,12 @@ export function DiscountCodes() {
                     className='font-mono tracking-wider'
                     maxLength={64}
                     autoComplete='off'
+                    aria-invalid={Boolean(visibleErrors.code)}
+                    aria-describedby={
+                      visibleErrors.code
+                        ? 'discount-form-code-error'
+                        : undefined
+                    }
                   />
                   <Button
                     type='button'
@@ -548,6 +790,12 @@ export function DiscountCodes() {
                     <Copy className='size-4' />
                   </Button>
                 </div>
+                <FieldError
+                  id='discount-form-code-error'
+                  message={
+                    visibleErrors.code ? t(visibleErrors.code) : undefined
+                  }
+                />
                 <p className='text-muted-foreground text-xs'>
                   {t('Existing codes cannot be changed.')}
                 </p>
@@ -561,7 +809,16 @@ export function DiscountCodes() {
                 onChange={(event) =>
                   setForm((state) => ({ ...state, name: event.target.value }))
                 }
+                onBlur={() => markTouched('name')}
                 maxLength={120}
+                aria-invalid={Boolean(visibleErrors.name)}
+                aria-describedby={
+                  visibleErrors.name ? 'discount-form-name-error' : undefined
+                }
+              />
+              <FieldError
+                id='discount-form-name-error'
+                message={visibleErrors.name ? t(visibleErrors.name) : undefined}
               />
             </div>
             {!editing ? (
@@ -580,8 +837,24 @@ export function DiscountCodes() {
                       count: event.target.value,
                     }))
                   }
+                  onBlur={() => markTouched('count')}
+                  aria-invalid={Boolean(visibleErrors.count)}
+                  aria-describedby={
+                    visibleErrors.count
+                      ? 'discount-form-count-error'
+                      : 'discount-form-count-hint'
+                  }
                 />
-                <p className='text-muted-foreground text-xs'>
+                <FieldError
+                  id='discount-form-count-error'
+                  message={
+                    visibleErrors.count ? t(visibleErrors.count) : undefined
+                  }
+                />
+                <p
+                  id='discount-form-count-hint'
+                  className='text-muted-foreground text-xs'
+                >
                   {t('Number of discount codes to generate.')}
                 </p>
               </div>
@@ -603,6 +876,21 @@ export function DiscountCodes() {
                       discount_percent: event.target.value,
                     }))
                   }
+                  onBlur={() => markTouched('discount_percent')}
+                  aria-invalid={Boolean(visibleErrors.discount_percent)}
+                  aria-describedby={
+                    visibleErrors.discount_percent
+                      ? 'discount-form-percent-error'
+                      : undefined
+                  }
+                />
+                <FieldError
+                  id='discount-form-percent-error'
+                  message={
+                    visibleErrors.discount_percent
+                      ? t(visibleErrors.discount_percent)
+                      : undefined
+                  }
                 />
               </div>
               <div className='grid gap-2'>
@@ -618,6 +906,21 @@ export function DiscountCodes() {
                       ...state,
                       min_amount: event.target.value,
                     }))
+                  }
+                  onBlur={() => markTouched('min_amount')}
+                  aria-invalid={Boolean(visibleErrors.min_amount)}
+                  aria-describedby={
+                    visibleErrors.min_amount
+                      ? 'discount-form-min-error'
+                      : undefined
+                  }
+                />
+                <FieldError
+                  id='discount-form-min-error'
+                  message={
+                    visibleErrors.min_amount
+                      ? t(visibleErrors.min_amount)
+                      : undefined
                   }
                 />
               </div>
@@ -638,9 +941,26 @@ export function DiscountCodes() {
                     max_uses: event.target.value,
                   }))
                 }
-                aria-invalid={maxUses === undefined}
+                onBlur={() => markTouched('max_uses')}
+                aria-invalid={
+                  visibleErrors.max_uses ? true : maxUses === undefined
+                }
+                aria-describedby={
+                  visibleErrors.max_uses
+                    ? 'discount-form-max-uses-error'
+                    : 'discount-form-max-uses-hint'
+                }
               />
-              <p className='text-muted-foreground text-xs'>
+              <FieldError
+                id='discount-form-max-uses-error'
+                message={
+                  visibleErrors.max_uses ? t(visibleErrors.max_uses) : undefined
+                }
+              />
+              <p
+                id='discount-form-max-uses-hint'
+                className='text-muted-foreground text-xs'
+              >
                 {t('Usage limit applies to each generated code.')}{' '}
                 {t('0 means unlimited')}
               </p>
@@ -658,6 +978,21 @@ export function DiscountCodes() {
                       starts_time: event.target.value,
                     }))
                   }
+                  onBlur={() => markTouched('starts_time')}
+                  aria-invalid={Boolean(visibleErrors.starts_time)}
+                  aria-describedby={
+                    visibleErrors.starts_time
+                      ? 'discount-form-start-error'
+                      : undefined
+                  }
+                />
+                <FieldError
+                  id='discount-form-start-error'
+                  message={
+                    visibleErrors.starts_time
+                      ? t(visibleErrors.starts_time)
+                      : undefined
+                  }
                 />
               </div>
               <div className='grid gap-2'>
@@ -672,6 +1007,21 @@ export function DiscountCodes() {
                       expired_time: event.target.value,
                     }))
                   }
+                  onBlur={() => markTouched('expired_time')}
+                  aria-invalid={Boolean(visibleErrors.expired_time)}
+                  aria-describedby={
+                    visibleErrors.expired_time
+                      ? 'discount-form-expire-error'
+                      : undefined
+                  }
+                />
+                <FieldError
+                  id='discount-form-expire-error'
+                  message={
+                    visibleErrors.expired_time
+                      ? t(visibleErrors.expired_time)
+                      : undefined
+                  }
                 />
                 <p className='text-muted-foreground text-xs'>
                   {t('Leave empty for no expiration.')}
@@ -683,7 +1033,7 @@ export function DiscountCodes() {
             <SheetClose
               render={<Button variant='outline'>{t('Cancel')}</Button>}
             />
-            <Button disabled={!canSave || isSaving} onClick={submit}>
+            <Button disabled={isSaving} onClick={submit}>
               {isSaving ? t('Saving...') : t('Save changes')}
             </Button>
           </SheetFooter>

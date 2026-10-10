@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import type { ModelPricingConfig } from './models/model-pricing-api'
+
 export type SystemOption = {
   key: string
   value: string
@@ -30,20 +32,37 @@ export type SystemOptionsResponse = {
   success: boolean
   message: string
   data: SystemOption[]
-  capabilities?: { model_price_locks?: boolean }
+  capabilities?: { model_price_locks?: boolean; trust_level_benefits?: boolean }
 }
 
 export type UpdateOptionRequest = {
   key: string
   value: string | boolean | number
   model?: string
+  /** Public display option uses the v2 guarded endpoint, never the generic setter. */
+  publicCreditUnitBaseline?: {
+    publicCreditsPerUsd: number
+    ledgerQuotaPerUsd: number
+  }
 }
 
 export type UpdateOptionResponse = {
   success: boolean
   message: string
+  code?: string
   warnings?: string[]
   locked_models?: string[]
+}
+
+export type AssistantSettingsAuthScope = {
+  userId: number | undefined
+  sessionId: string | undefined
+}
+
+export type UpdateAssistantOptionsRequest = {
+  values: Record<string, string>
+  expectedValues?: { AssistantToolPolicy: string }
+  authScope: AssistantSettingsAuthScope
 }
 
 export type UsdExchangeRateQuote = {
@@ -65,13 +84,6 @@ export type UsdExchangeRateResponse =
       message: string
       data?: never
     }
-
-export type UpdateAdvancedSecuritySettingsRequest = {
-  enabled: boolean
-  on_prompt: boolean
-  action: 'block' | 'audit'
-  rules: unknown
-}
 
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
@@ -141,6 +153,8 @@ export type SystemTaskListResponse = {
 }
 
 export type SiteSettings = {
+  AIDirectoryLinks: string
+  RSSFeeds: string
   Notice: string
   SystemName: string
   Logo: string
@@ -152,6 +166,8 @@ export type SiteSettings = {
   'legal.privacy_policy': string
   'legal.user_agreement_en': string
   'legal.privacy_policy_en': string
+  'legal.refund_policy': string
+  'legal.refund_policy_en': string
   HeaderNavModules: string
   SidebarModulesAdmin: string
 }
@@ -260,10 +276,16 @@ export type ContentSettings = {
   AssistantEnabled: boolean
   AssistantGroup: string
   AssistantModel: string
+  AssistantModerationEnabled: boolean
+  AssistantModerationGroup: string
+  AssistantModerationModel:
+    | 'omni-moderation-latest'
+    | 'omni-moderation-2024-09-26'
   AssistantReasoningEffort: AssistantReasoningEffort
   AssistantStreamEnabled: boolean
   AssistantTemperature: number
   AssistantMaxTokens: number
+  AssistantNewUserGiftMaxCredits: number
   AssistantAgentLoopEnabled: boolean
   AssistantMaxSteps: number
   AssistantTimeoutSeconds: number
@@ -276,24 +298,12 @@ export type ContentSettings = {
   AssistantSearchURL: string
   AssistantSearchAPIKey: string
   AssistantSearchMCPTool: string
+  AssistantToolPolicy: string
   AssistantSkills: string
   AssistantSkillFiles: string
   AssistantRegistrationAutoSuspendEnabled: boolean
   AssistantRegistrationDailySuspendCap: number
-  AssistantL1AutoReviewEnabled: boolean
-  AssistantL1AutoReviewGroup: string
-  AssistantL1AutoReviewModel: string
-  AssistantL1AutoReviewPrompt: string
-  AssistantL1AutoReviewMinConfidence: number
   AssistantL1AutoApprovalUserIDs: string
-  AssistantReviewEnabled: boolean
-  AssistantReviewWindowDays: number
-  AssistantReviewIntervalHours: number
-  AssistantReviewProbability: number
-  AssistantReviewGroup: string
-  AssistantReviewModel: string
-  AssistantReviewReasoningEffort: AssistantReasoningEffort
-  AssistantReviewGroupPolicies: string
   AssistantRetentionEnabled: boolean
   AssistantActiveRetentionDays: number
   AssistantArchivedRetentionDays: number
@@ -323,6 +333,7 @@ export type ModelSettings = {
   'claude.model_headers_settings': string
   'claude.default_max_tokens': string
   'claude.thinking_adapter_enabled': boolean
+  'claude.refusal_no_output_no_charge_enabled': boolean
   'claude.thinking_adapter_budget_tokens_percentage': number
   'grok.violation_deduction_enabled': boolean
   'grok.violation_deduction_amount': number
@@ -369,6 +380,9 @@ export type ModelSettings = {
 }
 
 export type BillingSettings = {
+  TrustLevelBenefits: string
+  ReferralRegistrationRewardQuota?: number
+  ReferralMinTopUpAmounts?: string
   ReferralMinTopUpQuota: number
   ReferralMaxRewardQuota: number
   ReferralPenaltyPercent: number
@@ -382,9 +396,11 @@ export type BillingSettings = {
   TopUpLink: string
   'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean
+  'developer_access_setting.invite_registration_enabled': boolean
   'developer_access_setting.paid_activation_enabled': boolean
   'developer_access_setting.paid_activation_min_amount': number
   QuotaPerUnit: number
+  PublicCreditsPerUSD: string
   USDExchangeRate: number
   TopUpPlatformUnitsPerCNY: number
   'general_setting.quota_display_type': string
@@ -499,6 +515,12 @@ export type OperationsSettings = {
 }
 
 export type SecuritySettings = {
+  ModerationEnabled: boolean
+  ModerationPolicyScope: 'account_group' | 'request_group'
+  ModerationSafetyIdentifierEnabled: boolean
+  ModerationGroup: string
+  ModerationModel: 'omni-moderation-latest' | 'omni-moderation-2024-09-26'
+  ModerationGroupPolicies: string
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
   ModelRequestRateLimitSuccessCount: number
@@ -507,10 +529,6 @@ export type SecuritySettings = {
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean
   SensitiveWords: string
-  AdvancedSecurityEnabled: boolean
-  AdvancedSecurityOnPromptEnabled: boolean
-  AdvancedSecurityAction: 'block' | 'audit'
-  AdvancedSecurityRules: string
   AntiRelayEnabled: boolean
   AntiRelayRejectProxyHeadersEnabled: boolean
   AntiRelayHTTPSOnlyEnabled: boolean
@@ -581,12 +599,15 @@ export type TestResult = {
   name: string
   status: 'success' | 'error'
   error?: string
+  source_providers?: Record<string, string>
+  skipped_models?: Record<string, string>
 }
 
 export type UpstreamRatiosResponse = {
   success: boolean
   message: string
   data: {
+    pricing_config: ModelPricingConfig
     differences: DifferencesMap
     test_results: TestResult[]
   }

@@ -144,6 +144,10 @@ ALTER ROLE $rust_role IN DATABASE $database SET search_path TO $rust_schema;
 SQL
 schema=$rust_schema
 sed "s/public\./$schema./g" "$repo_root/apps/api-rust/crates/lmm-db-migrate/schema/postgresql-baseline.sql" >"$runtime/$schema.sql"
+# Expand only the disposable Rust schema after the frozen baseline.
+sed "s/__LMM_APP_SCHEMA__/$schema/g" \
+  "$repo_root/apps/api-rust/migrations/0018_subscription_amount_snapshots.sql" \
+  >>"$runtime/$schema.sql"
 PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -q -v ON_ERROR_STOP=1 -f "$runtime/$schema.sql" >/dev/null
 PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -v ON_ERROR_STOP=1 -c "CREATE TABLE $schema.lmm_schema_contract (singleton BOOLEAN PRIMARY KEY, min_reader_version BIGINT NOT NULL, max_reader_version BIGINT NOT NULL); INSERT INTO $schema.lmm_schema_contract VALUES (TRUE,1,1);" >/dev/null
 PGOPTIONS="-c search_path=$schema" psql -h 127.0.0.1 -p "$pg_port" -U "$rust_role" -d "$database" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null

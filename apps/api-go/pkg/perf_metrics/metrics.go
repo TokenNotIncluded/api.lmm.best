@@ -69,6 +69,58 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 	})
 }
 
+// RecordTaskResult records an async terminal result after its durable status
+// CAS is won. Callers must exclude previously terminal tasks and CAS losers;
+// the helper does not claim tasks or change any billing/refund state.
+func RecordTaskResult(task *model.Task, result *relaycommon.TaskInfo) {
+	if task == nil || (task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure) {
+		return
+	}
+	defer func() {
+		if recover() != nil {
+			common.SysError("async task performance sampling failed")
+		}
+	}()
+	modelName := task.Properties.OriginModelName
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.OriginModelName != "" {
+		modelName = bc.OriginModelName
+	}
+	end := task.FinishTime
+	if end <= 0 {
+		// Some providers (including Suno) omit finish_time. Observe the
+		// terminal result without modifying the persisted task timestamps.
+		end = time.Now().Unix()
+	}
+	sample := Sample{
+		Model:     modelName,
+		Group:     task.Group,
+		Success:   task.Status == model.TaskStatusSuccess,
+		LatencyMs: taskDurationMs(task.SubmitTime, end),
+	}
+	if sample.Success && result != nil {
+		tokens := result.TotalTokens
+		if tokens <= 0 {
+			tokens = result.CompletionTokens
+		}
+		start := task.StartTime
+		if start <= 0 {
+			start = task.SubmitTime
+		}
+		if duration := taskDurationMs(start, end); tokens > 0 && duration > 0 {
+			sample.OutputTokens = int64(tokens)
+			sample.GenerationMs = duration
+		}
+	}
+	Record(sample)
+}
+
+func taskDurationMs(start, end int64) int64 {
+	if start <= 0 || end <= start || end-start > math.MaxInt64/1000 {
+		return 0
+	}
+	return (end - start) * 1000
+}
+
 func Record(sample Sample) {
 	setting := perf_metrics_setting.GetSetting()
 	if !setting.Enabled || sample.Model == "" {

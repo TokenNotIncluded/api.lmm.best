@@ -31,11 +31,7 @@ const usersSource = readFileSync(
 
 describe('admin to-do page layout', () => {
   test('owns the pending-work panels instead of the users page', () => {
-    for (const panel of [
-      'AssistantLeadsPanel',
-      'AccountActionRequestsPanel',
-      'DeveloperAccessRequestsPanel',
-    ]) {
+    for (const panel of ['AssistantLeadsPanel', 'AccountActionRequestsPanel']) {
       assert.match(todosSource, new RegExp(`<${panel}[^>]*\\/>`))
       assert.doesNotMatch(usersSource, new RegExp(`<${panel} \\/>`))
     }
@@ -51,11 +47,6 @@ describe('admin to-do page layout', () => {
       todosSource,
       /initiallyExpanded=\{focusAccountActionId !== undefined\}/
     )
-    assert.match(todosSource, /title=\{t\('L1 access requests'\)\}/)
-    assert.match(
-      todosSource,
-      /initiallyExpanded=\{focusDeveloperAccessId !== undefined\}/
-    )
     assert.match(
       todosSource,
       /const \[mounted, setMounted\] = useState\(props\.initiallyExpanded \?\? false\)/
@@ -64,6 +55,15 @@ describe('admin to-do page layout', () => {
       todosSource,
       /\{mounted \? <div className='pt-5'>\{props.children\}<\/div> : null\}/
     )
+  })
+
+  test('never mounts or imports the retired L1 application review', () => {
+    for (const source of [todosSource, usersSource]) {
+      assert.doesNotMatch(
+        source,
+        /DeveloperAccessRequestsPanel|L1 access requests|focusDeveloperAccessId/
+      )
+    }
   })
 
   test('uses the scrolling section layout', () => {

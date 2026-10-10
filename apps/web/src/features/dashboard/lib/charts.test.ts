@@ -20,12 +20,22 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 
+import {
+  formatFiatCurrencyAmount,
+  formatAmountInCurrency,
+  formatQuotaInCurrency,
+  quotaToDisplayAmount,
+} from '@/lib/currency'
+import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
+
 import type { QuotaDataItem } from '../types'
 import {
   DASHBOARD_CHART_DARK_PALETTE,
   DASHBOARD_CHART_LIGHT_PALETTE,
   getDashboardChartColors,
   processChartData,
+  processUserChartData,
+  type ChartCurrencyFormatter,
 } from './charts'
 
 function channelLuminance(hex: string): number {
@@ -180,7 +190,11 @@ describe('dashboard chart time buckets', () => {
       },
     ]
 
-    const result = processChartData(rows, 'week')
+    const result = processChartData(rows, 'week', undefined, undefined, {
+      formatQuota: (quota) => String(quota),
+      quotaToAmount: (quota) => quota,
+      formatAmount: (amount) => String(amount),
+    })
     const values = result.spec_line.data[0].values as Array<{
       Time: string
       rawQuota: number
@@ -209,5 +223,158 @@ describe('dashboard chart time buckets', () => {
 
     assert.equal(result.spec_area.point.visible, true)
     assert.equal(result.spec_model_line.point.visible, true)
+  })
+})
+
+describe('dashboard chart monetary units', () => {
+  const config = {
+    ...DEFAULT_CURRENCY_CONFIG,
+    currencyUnit: 'credit' as const,
+    creditsPerUsd: 500_000,
+    creditsPerUsdExact: '500000',
+    cnyPerUsd: 7,
+    cnyPerUsdExact: '7',
+  }
+  const currencyFormatter = (
+    currency: 'USD' | 'CNY' | 'CREDIT'
+  ): ChartCurrencyFormatter => ({
+    formatQuota: (quota, options) =>
+      formatQuotaInCurrency(
+        quota,
+        currency,
+        { ...options, locale: 'en' },
+        config
+      ),
+    quotaToAmount: (quota) => quotaToDisplayAmount(quota, currency, config),
+    formatAmount: (amount, options) =>
+      currency === 'CREDIT'
+        ? formatAmountInCurrency(amount, 'CREDIT', { ...options, locale: 'en' })
+        : formatFiatCurrencyAmount(amount, currency, {
+            ...options,
+            locale: 'en',
+          }),
+  })
+  const rows = [
+    {
+      created_at: 1_720_000_000,
+      model_name: 'model-a',
+      username: 'alice',
+      quota: 3_500_000,
+      count: 1,
+    },
+    {
+      created_at: 1_720_000_000,
+      model_name: 'model-b',
+      username: 'bob',
+      quota: 1,
+      count: 1,
+    },
+  ]
+
+  test('model and user charts share true USD, CNY and exact Credit values', () => {
+    for (const unit of ['USD', 'CNY', 'CREDIT'] as const) {
+      const currency = currencyFormatter(unit)
+      const model = processChartData(
+        rows,
+        'day',
+        undefined,
+        undefined,
+        currency
+      )
+      const user = processUserChartData(rows, 'day', undefined, 10, currency)
+      const values = model.spec_line.data[0].values
+      const expectedLarge = unit === 'USD' ? 7 : unit === 'CNY' ? 49 : 3_500_000
+      const expectedSmall =
+        unit === 'USD' ? 1 / 500_000 : unit === 'CNY' ? 7 / 500_000 : 1
+      assert.equal(values[0].Usage, expectedLarge)
+      assert.equal(values[1].Usage, expectedSmall)
+      assert.equal(
+        model.spec_line.axes[1].label.formatMethod(expectedSmall),
+        currency.formatQuota(1, {
+          digitsLarge: 4,
+          digitsSmall: 8,
+          abbreviate: false,
+        })
+      )
+      assert.equal(
+        user.spec_user_rank.label.formatMethod(expectedSmall),
+        currency.formatQuota(1, {
+          digitsLarge: 2,
+          digitsSmall: 8,
+          abbreviate: false,
+        })
+      )
+      assert.ok(
+        values[1].Usage > 0,
+        'one Credit must survive chart aggregation'
+      )
+      assert.equal(model.spec_area.data[0].values[1].Usage, expectedSmall)
+      assert.equal(user.spec_user_rank.data[0].values[1].Usage, expectedSmall)
+      assert.equal(user.spec_user_trend.data[0].values[1].Usage, expectedSmall)
+      assert.equal(
+        model.spec_line.axes[1].label.formatMethod(expectedLarge),
+        currency.formatQuota(3_500_000, {
+          digitsLarge: 4,
+          digitsSmall: 8,
+          abbreviate: false,
+        })
+      )
+      assert.equal(
+        user.spec_user_trend.axes[1].label.formatMethod(expectedLarge),
+        currency.formatQuota(3_500_000, {
+          digitsLarge: 2,
+          digitsSmall: 8,
+          abbreviate: false,
+        })
+      )
+      const tooltip = model.spec_line.tooltip.dimension.updateContent(
+        values.map((row: { Model: string; rawQuota: number }) => ({
+          key: row.Model,
+          value: row.rawQuota,
+          datum: row,
+        }))
+      )
+      assert.equal(
+        tooltip[0].value,
+        currency.formatQuota(3_500_001, {
+          digitsLarge: 4,
+          digitsSmall: 8,
+          abbreviate: false,
+        })
+      )
+    }
+  })
+
+  test('collapses excess models from raw Credits before converting the Other total', () => {
+    const data = Array.from({ length: 17 }, (_, index) => ({
+      created_at: 1_720_000_000,
+      model_name: `model-${index}`,
+      quota: index < 15 ? 10 : 1,
+      count: 1,
+    }))
+    const result = processChartData(
+      data,
+      'day',
+      undefined,
+      undefined,
+      currencyFormatter('USD')
+    )
+    const other = result.spec_area.data[0].values.find(
+      (row: { Model: string }) => row.Model === 'Other'
+    )
+    assert.equal(other.rawQuota, 2)
+    assert.equal(other.Usage, 2 / 500_000)
+    assert.equal(result.totalQuotaDisplay, '0.000304 USD')
+  })
+
+  test('unknown denomination suppresses monetary series instead of plotting NaN', () => {
+    const currency = {
+      ...currencyFormatter('USD'),
+      quotaToAmount: () => Number.NaN,
+    }
+    const result = processChartData(rows, 'day', undefined, undefined, currency)
+    assert.equal(result.spec_line.data[0].values.length, 0)
+    assert.equal(result.spec_area.data[0].values.length, 0)
+    assert.equal(result.totalCountDisplay, '2')
   })
 })

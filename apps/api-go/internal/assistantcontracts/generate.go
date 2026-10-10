@@ -342,7 +342,7 @@ func (g *generator) inspect(fn function, c *contract, constants map[string]strin
 				}
 			}
 		} else if name := ident(call.Fun); name != "" && hasContextArg(call, contextNames) {
-			if name == "decodeStrictJSONRequest" && len(call.Args) > 1 {
+			if (name == "decodeStrictJSONRequest" || name == "merchantStoreAccessBody") && len(call.Args) > 1 {
 				body = call.Args[1]
 			} else if child, found := g.functions[fn.source.pkg+"."+name]; found {
 				g.inspect(child, c, callConstants(child, call, constants))

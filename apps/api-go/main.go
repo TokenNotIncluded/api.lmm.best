@@ -20,6 +20,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/controller"
 	"github.com/LIghtJUNction/api.lmm.best/i18n"
 	"github.com/LIghtJUNction/api.lmm.best/internal/appcli"
+	"github.com/LIghtJUNction/api.lmm.best/internal/credittransition"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/middleware"
 	"github.com/LIghtJUNction/api.lmm.best/model"
@@ -43,6 +44,13 @@ func main() {
 	dispatch := appcli.Dispatch(os.Args[1:], common.Version, os.Stdout, os.Stderr)
 	switch dispatch.Mode {
 	case appcli.ModeServe:
+		if credittransition.Requested() {
+			if err := runCreditPreparation("serve", dispatch.ServeArgs); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "%s credit preparation: %v\n", appcli.ProgramName, err)
+				os.Exit(appcli.ExitError)
+			}
+			return
+		}
 		// common.InitEnv owns the server flag set. Remove the optional serve word so
 		// `lmm-api serve --port ...` and `lmm-api --port ...` share one parser.
 		os.Args = append([]string{os.Args[0]}, dispatch.ServeArgs...)
@@ -51,6 +59,10 @@ func main() {
 		runMigrationCommand(model.DBMigrationModeApply)
 	case appcli.ModeMigrateVerify:
 		runMigrationCommand(model.DBMigrationModeVerify)
+	case appcli.ModeMerchantStoreWriterGate:
+		if code := runMerchantStoreWriterGateCommand(dispatch.GateArgs, os.Stdout, os.Stderr); code != appcli.ExitOK {
+			os.Exit(code)
+		}
 	default:
 		if dispatch.ExitCode != appcli.ExitOK {
 			os.Exit(dispatch.ExitCode)
@@ -59,6 +71,13 @@ func main() {
 }
 
 func runMigrationCommand(mode model.DBMigrationMode) {
+	if credittransition.Requested() {
+		if err := runCreditPreparation(string(mode), nil); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "%s credit preparation --%s: %v\n", appcli.ProgramName, mode, err)
+			os.Exit(appcli.ExitError)
+		}
+		return
+	}
 	if err := os.Setenv("LMM_DB_MIGRATION_MODE", string(mode)); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%s migrate: set migration mode: %v\n", appcli.ProgramName, err)
 		os.Exit(appcli.ExitError)
@@ -225,6 +244,12 @@ func runServer() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	loops.Go(service.RunSystemTaskRunner)
+	// Moderation uses durable, per-request leases across all API nodes. Its
+	// provider calls run only in these cancellation-aware background workers.
+	loops.Go(service.RunModerationWorker)
+	// Store fulfillment mail and unissued-order cleanup use durable per-order
+	// leases and stop with the application lifecycle on every API node.
+	loops.Go(service.RunMerchantStoreWorker)
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
@@ -483,6 +508,22 @@ func InitResources() (returnErr error) {
 		}
 	}
 	model.InitOptionMap()
+	if migrationSession.Applies() {
+		if err := model.InitializeCreditUnits(context.Background()); err != nil {
+			return err
+		}
+	} else {
+		if err := model.VerifyCreditUnits(context.Background()); err != nil {
+			return err
+		}
+	}
+	if common.IsMasterNode && migrationSession.Applies() {
+		if err := controller.EnsureToolMarketBuiltinCatalog(context.Background()); err != nil {
+			return fmt.Errorf("failed to register built-in tool market catalog: %w", err)
+		}
+	} else if err := controller.VerifyToolMarketBuiltinCatalog(context.Background()); err != nil {
+		return fmt.Errorf("verify built-in tool market catalog: %w", err)
+	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()

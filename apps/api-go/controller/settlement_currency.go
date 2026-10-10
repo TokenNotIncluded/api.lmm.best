@@ -30,10 +30,11 @@ func userSettlementCurrency(user *model.User, languageHint string) string {
 func updateSelfLocalePreferences(c *gin.Context, request map[string]interface{}) bool {
 	currencyValue, hasCurrency := request["settlement_currency"]
 	languageValue, hasLanguage := request["language"]
-	if !hasCurrency && !hasLanguage {
+	displayValue, hasDisplay := request["wallet_display_currency"]
+	if !hasCurrency && !hasLanguage && !hasDisplay {
 		return false
 	}
-	var language, currency *string
+	var language, currency, display *string
 	if hasLanguage {
 		value, ok := languageValue.(string)
 		if !ok || len(value) > 64 {
@@ -55,7 +56,20 @@ func updateSelfLocalePreferences(c *gin.Context, request map[string]interface{})
 		}
 		currency = &normalized
 	}
-	if err := model.UpdateUserLocalePreferences(c.GetInt("id"), language, currency); err != nil {
+	if hasDisplay {
+		value, ok := displayValue.(string)
+		if !ok {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return true
+		}
+		normalized, err := dto.NormalizeWalletDisplayCurrencyPreference(value)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return true
+		}
+		display = &normalized
+	}
+	if err := model.UpdateUserCurrencyPreferences(c.GetInt("id"), language, currency, display); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
 		return true
 	}

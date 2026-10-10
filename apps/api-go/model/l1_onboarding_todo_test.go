@@ -15,6 +15,7 @@ import (
 
 func setupL1OnboardingTodoTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousDB := DB
 	previousRedis := common.RedisEnabled
 	common.RedisEnabled = false

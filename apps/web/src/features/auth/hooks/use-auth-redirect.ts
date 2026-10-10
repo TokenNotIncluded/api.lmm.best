@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
 import i18n from 'i18next'
+import { useCallback } from 'react'
 
 import {
   getSavedLanguage,
@@ -53,22 +54,47 @@ export function useAuthRedirect() {
       window.location.origin
     )
     const targetPath =
-      requestedPath ?? getAuthenticatedLandingRoute(bundle.user)
-    navigate({ href: targetPath, replace: true })
+      requestedPath ??
+      sanitizeAuthRedirect(
+        getAuthenticatedLandingRoute(bundle.user),
+        window.location.origin
+      ) ??
+      '/'
+    // Preserve the complete checked href and wait for navigation to finish.
+    await navigate({ href: targetPath, replace: true })
   }
 
   /**
    * Redirect to 2FA page
    */
-  const redirectTo2FA = () => {
-    navigate({ to: '/otp', replace: true })
-  }
+  const redirectTo2FA = useCallback(
+    (redirectTo?: string) => {
+      const requestedPath = sanitizeAuthRedirect(
+        redirectTo,
+        window.location.origin
+      )
+      navigate({
+        to: '/otp',
+        search: requestedPath ? { redirect: requestedPath } : {},
+        replace: true,
+      })
+    },
+    [navigate]
+  )
 
   /**
    * Redirect to login page
    */
-  const redirectToLogin = () => {
-    navigate({ to: '/sign-in', replace: true })
+  const redirectToLogin = (redirectTo?: string) => {
+    const requestedPath = sanitizeAuthRedirect(
+      redirectTo,
+      window.location.origin
+    )
+    navigate({
+      to: '/sign-in',
+      search: requestedPath ? { redirect: requestedPath } : {},
+      replace: true,
+    })
   }
 
   /**

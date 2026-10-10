@@ -40,6 +40,8 @@ All nodes must also share the same `CRYPTO_SECRET` when using the same Redis, ot
 
 This scoped guarantee applies to login authentication only. Rate limiting and other caches can still be affected by topology.
 
+Legacy GitHub username bindings require account evidence before migration. See [Legacy GitHub OAuth bindings](github-oauth-migration.md) for factor, email, existing-data and runtime boundaries.
+
 ## Browser Interfaces
 
 After login, password, 2FA, passkey, OAuth, WeChat, and Telegram flows return a unified payload:
@@ -106,7 +108,7 @@ Login issuance enforces two-tier account-level checks for all login methods:
 - `USER_SESSION_ACTIVE_LIMIT` (default `50`): max number of unexpired active sessions. Exceeded returns `409 AUTH_SESSION_LIMIT`.
 - `USER_SESSION_ISSUANCE_LIMIT` (default `100`) and `USER_SESSION_ISSUANCE_WINDOW_SECONDS` (default `86400`): total sessions created in window, including revoked sessions and old auth versions. Exceeded returns `429 AUTH_SESSION_ISSUANCE_LIMIT`.
 
-These counters and inserts are not wrapped with cross-node DB locks, so rare over-allocation can occur under extreme concurrent logins, but issuance is denied when counters fail.
+The Go backend checks these counters and inserts the session in one transaction while holding the authoritative user-row lock. Nodes sharing that database serialize issuance for the same account; a failed count or insert denies login.
 
 Accounts already above active limits are not forcibly logged out during upgrade; limits apply only to subsequent token issuance.
 

@@ -34,6 +34,7 @@ func runRatioQueueRequest(ctx context.Context, base string, count, timeout int) 
 }
 
 func TestRatioSyncCancelsAnOccupiedQueue(t *testing.T) {
+	ratioSyncCurrencyFixture(t, 500000)
 	var calls atomic.Int32
 	occupied := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +63,7 @@ func TestRatioSyncCancelsAnOccupiedQueue(t *testing.T) {
 }
 
 func TestRatioSyncQueueDoesNotConsumeRequestBudget(t *testing.T) {
+	ratioSyncCurrencyFixture(t, 500000)
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -91,6 +93,7 @@ func TestRatioSyncQueueDoesNotConsumeRequestBudget(t *testing.T) {
 }
 
 func TestRatioSyncLastFailureHasNoBackoff(t *testing.T) {
+	ratioSyncCurrencyFixture(t, 500000)
 	var calls atomic.Int32
 	lastFailure := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -44,6 +44,8 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { toast } = await import('sonner')
+const { USD_PRICING_KEYS } = await import('./model-pricing-api')
+const { ModelPricingUnitsContext } = await import('./model-pricing-units')
 const { ModelPriceLockButton } = await import('./model-price-lock')
 const { parseModelPriceLocks, useModelPriceLocks } =
   await import('./use-model-price-locks')
@@ -101,7 +103,31 @@ async function setup(initial = options()) {
     puts: UpdateOptionRequest[] = []
   let server = initial
   let beforePut: (() => Promise<void>) | undefined
-  api.get = (async () => ({ data: server })) as typeof api.get
+  api.get = (async (url: string) => ({
+    data:
+      url === '/api/option/pricing'
+        ? {
+            success: true,
+            data: {
+              schema_version: 2,
+              currency: 'USD',
+              storage_basis: 'legacy_pricing_unit',
+              revision: 'a'.repeat(64),
+              credits_per_usd: 500_000,
+              legacy_pricing_units_per_usd: 7.2,
+              model_ratio_usd_per_million: 2,
+              values: {
+                ...Object.fromEntries(
+                  USD_PRICING_KEYS.map((key) => [key, '{}'])
+                ),
+                ...Object.fromEntries(
+                  server.data.map(({ key, value }) => [key, value])
+                ),
+              },
+            },
+          }
+        : server,
+  })) as typeof api.get
   api.put = (async (_url: string, request: UpdateOptionRequest) => {
     puts.push(request)
     if (beforePut) await beforePut()
@@ -131,6 +157,8 @@ async function setup(initial = options()) {
     defaultOptions: { queries: { retry: false } },
   })
   client.setQueryData(['system-options'], initial)
+  const canonical = await api.get('/api/option/pricing')
+  client.setQueryData(['model-pricing-usd'], canonical.data.data)
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -138,7 +166,11 @@ async function setup(initial = options()) {
     await act(async () => {
       root.render(
         <QueryClientProvider client={client}>
-          <I18nextProvider i18n={i18n}>{children}</I18nextProvider>
+          <I18nextProvider i18n={i18n}>
+            <ModelPricingUnitsContext value={500_000}>
+              {children}
+            </ModelPricingUnitsContext>
+          </I18nextProvider>
         </QueryClientProvider>
       )
     })

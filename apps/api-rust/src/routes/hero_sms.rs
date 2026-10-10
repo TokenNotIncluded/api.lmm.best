@@ -42,7 +42,7 @@ use crate::{
     legacy_empty_response, outbound_http,
 };
 
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const BODY_LIMIT_BYTES: usize = 16 * 1024;
 const ROOT_ROLE: i64 = 100;
 const DEFAULT_QUOTA_PER_UNIT: i64 = 500_000;

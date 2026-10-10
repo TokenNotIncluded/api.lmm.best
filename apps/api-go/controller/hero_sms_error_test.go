@@ -15,7 +15,7 @@ func TestHeroSMSWrappedBalanceErrorRetainsBusinessStatus(t *testing.T) {
 	for _, wrap := range []func(error) error{func(e error) error { return e }, func(e error) error { return fmt.Errorf("reserve: %w", e) }, func(e error) error { return errors.Join(errors.New("context"), e) }} {
 		response := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(response)
-		heroSMSError(c, wrap(model.NewHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", "Temporary SMS purchases require a balance of at least USD 10")))
+		heroSMSError(c, wrap(model.NewHeroSMSError(http.StatusPaymentRequired, "TEMPORARY_SMS_MINIMUM_BALANCE", "Temporary SMS purchases require a balance of at least 5000000 Credits")))
 		require.Equal(t, 402, response.Code)
 		require.Contains(t, response.Body.String(), "TEMPORARY_SMS_MINIMUM_BALANCE")
 		require.NotContains(t, response.Body.String(), "INTERNAL_ERROR")

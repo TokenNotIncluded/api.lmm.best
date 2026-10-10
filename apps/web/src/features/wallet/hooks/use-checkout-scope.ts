@@ -6,6 +6,16 @@ import { useTranslation } from 'react-i18next'
 
 import { useAuthStore } from '@/stores/auth-store'
 
+/** Keep only the raw amount draft across locale changes for the same login. */
+export function useCheckoutOwnerKey() {
+  return useAuthStore((state) =>
+    JSON.stringify([
+      state.auth.user?.id ?? null,
+      state.auth.session?.sid ?? null,
+    ])
+  )
+}
+
 function accountScope() {
   const { user, session } = useAuthStore.getState().auth
   let setting = user?.setting

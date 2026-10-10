@@ -59,7 +59,7 @@ use super::relay_openai::{
     OpenAiUpstreamTarget,
 };
 
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const ADMIN_ROLE: i64 = 10;
 const ASSISTANT_HANDOFF_SOURCE: &str = "handoff";
 const ASSISTANT_HANDOFF_PENDING: &str = "pending";
@@ -2572,7 +2572,6 @@ async fn assistant_navigation_tool(
     let page = input_string(input, "page");
     let path = match page.as_str() {
         "home" => "/".to_owned(),
-        "getting-started" => "/getting-started".to_owned(),
         "pricing" => "/pricing".to_owned(),
         "wallet" => "/wallet".to_owned(),
         "usage-logs" => format!(

@@ -22,7 +22,7 @@ use crate::auth::{
 };
 
 const ADMIN_ROLE: i64 = 10;
-const AUTH_VERSION: &str = "864b7076dbcd0a3c01b5520316720ebf";
+use crate::auth_version::AUTH_VERSION;
 const MAX_BODY_BYTES: usize = 64 * 1024;
 const MAX_MEMORIES: i64 = 64;
 

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" fill="none">
+  <title>Blue whale</title>
+  <defs>
+    <linearGradient id="body" x1="390" y1="146" x2="350" y2="309" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#389bdf"/>
+      <stop offset=".65" stop-color="#216d9d"/>
+      <stop offset="1" stop-color="#a0cbe1"/>
+    </linearGradient>
+  </defs>
+  <path d="M175 256c-48-44-78-51-112-37l58 43-54 47c45 13 78-5 108-29z" fill="#287eaf"/>
+  <path d="M157 258c63-10 78-67 167-89 90-22 184 2 207 64 24 65-27 90-125 77-125-17-156-48-249-37z" fill="url(#body)"/>
+  <path d="M432 282c-21 32-69 64-110 60 18-22 30-42 30-62z" fill="#2577a5"/>
+  <path d="M265 210c0-23-9-35-18-43-2 24-12 39-25 51z" fill="#2d88bc"/>
+  <path d="M371 289c57 16 113 20 151-3M388 296c45 12 89 14 121 1M403 303c33 8 63 8 89 1" stroke="#83b6d0" stroke-width="2.5"/>
+  <path d="M456 269c29 5 53 3 73-7" stroke="#174865" stroke-width="3" stroke-linecap="round"/>
+  <ellipse cx="474" cy="251" rx="6" ry="5" fill="#102a3a"/>
+  <circle cx="476" cy="249" r="1.5" fill="#cee8f3"/>
+  <g stroke="#458bb4" stroke-width="2">
+    <circle cx="114" cy="182" r="7"/>
+    <circle cx="91" cy="156" r="4"/>
+    <circle cx="138" cy="134" r="5"/>
+  </g>
+</svg>

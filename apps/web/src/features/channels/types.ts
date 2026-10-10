@@ -81,6 +81,7 @@ export type Channel = z.infer<typeof channelSchema>
 
 export interface ChannelSettings {
   force_format?: boolean
+  responses_websocket_enabled?: boolean
   thinking_to_content?: boolean
   proxy?: string
   pass_through_body_enabled?: boolean
@@ -91,6 +92,7 @@ export interface ChannelSettings {
 }
 
 export interface ChannelOtherSettings {
+  ollama_openai_chat?: boolean
   azure_responses_version?: string
   vertex_key_type?: 'json' | 'api_key'
   openrouter_enterprise?: boolean
@@ -121,6 +123,14 @@ export interface AdvancedCustomRoute {
   converter?: AdvancedCustomConverter
   models?: string[]
   auth?: AdvancedCustomRouteAuth
+  balance?: AdvancedCustomBalanceConfig
+}
+
+export interface AdvancedCustomBalanceConfig {
+  method?: 'GET' | 'POST'
+  body_template?: string
+  json_pointer?: string
+  scale?: number
 }
 
 export interface AdvancedCustomRouteAuth {
@@ -183,6 +193,7 @@ export interface ChannelOpsResponse {
 
 export interface ChannelTestResponse {
   success: boolean
+  skipped?: boolean
   message?: string
   error_code?: string
   time?: number

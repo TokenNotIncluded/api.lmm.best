@@ -35,6 +35,5 @@ export {
   SUBSCRIPTION_CHECKOUT_POLL_TIMEOUT_MS,
   beginSubscriptionCheckoutConfirmation,
   shouldContinueSubscriptionCheckoutConfirmation,
-  subscriptionCheckoutFingerprint,
   type PendingSubscriptionCheckout,
 } from './pending-checkout'

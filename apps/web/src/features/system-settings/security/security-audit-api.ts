@@ -22,115 +22,59 @@ Copyright (C) 2026 LIghtJUNction
 import { api } from '@/lib/api'
 
 import type {
-  AdminSecurityPolicy,
   SecurityAuditEnvelope,
-  SecurityAuditAIReviewPage,
-  SecurityAuditFilters,
-  SecurityAuditPage,
-  SecurityAuditStats,
+  ModerationAppeal,
 } from './security-audit-types'
 
-export const ADMIN_SECURITY_POLICY_ENDPOINT = '/api/security/admin/policy'
-export const ADMIN_SECURITY_STATS_ENDPOINT = '/api/security/admin/stats'
-export const ADMIN_SECURITY_EVENTS_ENDPOINT = '/api/security/admin/events'
-export const ADMIN_SECURITY_AI_REVIEWS_ENDPOINT =
-  '/api/security/admin/ai-reviews'
-export const ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT =
-  '/api/security/admin/review-runs'
-export const ADMIN_ASSISTANT_REVIEW_CLEANUP_PREVIEW_ENDPOINT = `${ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT}/cleanup-preview`
-
-export type AssistantReviewRunCleanupData = {
-  task_type: 'assistant_review'
-  keep: number
-  eligible_count: number
-  deleted_count: number
+export type ModerationModelCatalog = {
+  group: string
+  models: string[]
 }
 
-export type AssistantReviewRunCleanupResponse =
-  SecurityAuditEnvelope<AssistantReviewRunCleanupData>
-
-export async function getAdminSecurityPolicy() {
-  const response = await api.get<SecurityAuditEnvelope<AdminSecurityPolicy>>(
-    ADMIN_SECURITY_POLICY_ENDPOINT,
-    { skipBusinessError: true, skipErrorHandler: true }
+export async function getModerationModels(group: string) {
+  const response = await api.get<SecurityAuditEnvelope<ModerationModelCatalog>>(
+    '/api/security/admin/moderation/models',
+    { params: { group }, skipBusinessError: true, skipErrorHandler: true }
   )
-  return response.data
+  if (!response.data.success) {
+    throw new Error(response.data.message || 'Unable to load moderation models')
+  }
+  return response.data.data?.models ?? []
 }
 
-export async function getAdminSecurityStats(
-  filters: Omit<SecurityAuditFilters, 'page' | 'page_size'> = {}
-) {
-  const response = await api.get<SecurityAuditEnvelope<SecurityAuditStats>>(
-    ADMIN_SECURITY_STATS_ENDPOINT,
-    {
-      params: compactFilters(filters),
-      skipBusinessError: true,
-      skipErrorHandler: true,
-    }
-  )
-  return response.data
-}
-
-export async function listAdminSecurityEvents(filters: SecurityAuditFilters) {
-  const response = await api.get<SecurityAuditEnvelope<SecurityAuditPage>>(
-    ADMIN_SECURITY_EVENTS_ENDPOINT,
-    {
-      params: compactFilters(filters),
-      skipBusinessError: true,
-      skipErrorHandler: true,
-    }
-  )
-  return response.data
-}
-
-export async function listAdminSecurityAIReviews(
-  filters: SecurityAuditFilters
+export async function listModerationReviews(
+  filters: import('./security-audit-types').ModerationReviewFilters
 ) {
   const response = await api.get<
-    SecurityAuditEnvelope<SecurityAuditAIReviewPage>
-  >(ADMIN_SECURITY_AI_REVIEWS_ENDPOINT, {
-    params: compactFilters(filters),
+    SecurityAuditEnvelope<import('./security-audit-types').ModerationReviewPage>
+  >('/api/security/admin/moderation-reviews', {
+    params: {
+      p: filters.page,
+      page_size: filters.page_size,
+      ...(filters.group ? { group: filters.group } : {}),
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.source ? { source: filters.source } : {}),
+    },
     skipBusinessError: true,
     skipErrorHandler: true,
   })
   return response.data
 }
 
-export async function previewAssistantReviewRunCleanup(
-  keep: number
-): Promise<AssistantReviewRunCleanupResponse> {
-  const response = await api.get<AssistantReviewRunCleanupResponse>(
-    ADMIN_ASSISTANT_REVIEW_CLEANUP_PREVIEW_ENDPOINT,
-    { params: { keep }, skipErrorHandler: true }
-  )
+export async function getModerationStats() {
+  const response = await api.get<
+    SecurityAuditEnvelope<import('./security-audit-types').ModerationQueueStats>
+  >('/api/security/admin/moderation-stats', {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
   return response.data
 }
 
-export async function deleteAssistantReviewRuns(
-  keep: number,
-  expectedCount: number,
-  proofToken?: string
-): Promise<AssistantReviewRunCleanupResponse> {
-  const response = await api.delete<AssistantReviewRunCleanupResponse>(
-    ADMIN_ASSISTANT_REVIEW_RUNS_ENDPOINT,
-    {
-      params: { keep, expected_count: expectedCount },
-      headers: proofToken ? { 'X-Security-Proof': proofToken } : undefined,
-      skipErrorHandler: true,
-    }
+export async function listModerationAppeals() {
+  const response = await api.get<SecurityAuditEnvelope<ModerationAppeal[]>>(
+    '/api/security/admin/violation-fee-appeals',
+    { skipBusinessError: true, skipErrorHandler: true }
   )
   return response.data
-}
-
-function compactFilters(
-  filters: Partial<SecurityAuditFilters>
-): Record<string, string | number> {
-  const params: Record<string, string | number> = {}
-  if (filters.page) params.p = filters.page
-  if (filters.page_size) params.page_size = filters.page_size
-  if (filters.category) params.category = filters.category
-  if (filters.group) params.group = filters.group
-  if (filters.decision) params.decision = filters.decision
-  if (filters.source) params.source = filters.source
-  return params
 }

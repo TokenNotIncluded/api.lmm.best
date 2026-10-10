@@ -11,8 +11,104 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/setting"
 	"github.com/gin-gonic/gin"
 )
+
+// amount_cents is a retained legacy input, never a true USD amount. The stored
+// Credit grant is authoritative, including for gifts offered before migration.
+type assistantNewUserGiftResponse struct {
+	*model.AssistantNewUserGift
+	AmountUnit    string   `json:"amount_unit"`
+	CreditAmount  int      `json:"credit_amount"`
+	AmountUSD     *float64 `json:"amount_usd"`
+	Currency      string   `json:"currency"`
+	CreditsPerUSD *float64 `json:"credits_per_usd"`
+	common.CreditDenomination
+	CreditAmountUnit   string `json:"credit_amount_unit"`
+	PublicCreditAmount string `json:"public_credit_amount"`
+	MaxCreditAmount    int    `json:"max_credit_amount"`
+	ClaimAvailable     bool   `json:"claim_available"`
+	ClaimBlockedCode   string `json:"claim_blocked_code,omitempty"`
+}
+
+func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any, error) {
+	amountCents, credits := 0, 0
+	if gift != nil {
+		amountCents, credits = gift.AmountCents, gift.Quota
+		var err error
+		credits, err = model.AssistantGiftCreditQuota(gift)
+		if err != nil {
+			return nil, err
+		}
+	}
+	cap, capErr := assistantCurrentGiftMaxCredits()
+	if capErr != nil {
+		return nil, capErr
+	}
+	claimAvailable := gift != nil && gift.Status == model.AssistantGiftOffered && credits > 0
+	blocked := ""
+	if claimAvailable {
+		if limitErr := model.CheckAssistantExistingGiftCreditLimit(credits, cap); limitErr != nil {
+			claimAvailable = false
+			blocked = model.AssistantGiftErrorCode(limitErr)
+		}
+	}
+	fields := map[string]any{
+		"amount_cents": amountCents, "amount_unit": "LEGACY_CENTS",
+		"credit_amount": credits, "credit_amount_unit": common.LedgerQuotaUnit, "amount_usd": nil,
+		"currency": "USD", "credits_per_usd": nil,
+		"max_credit_amount": cap, "gift_enabled": cap > 0, "claim_available": claimAvailable, "claim_blocked_code": blocked,
+	}
+	usd, anchor, err := assistantFiatProjection(int64(credits))
+	if errors.Is(err, errAssistantCurrencyProjectionUnavailable) {
+		return fields, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	fields["amount_usd"], fields["credits_per_usd"] = usd, anchor
+	units, err := model.CreditDenominationSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range creditUnitMetadataFieldsFor(units) {
+		fields[key] = value
+	}
+	public, err := units.ProjectLedgerQuota(int64(credits))
+	if err != nil {
+		return nil, err
+	}
+	fields["public_credit_amount"] = public.String()
+	return fields, nil
+}
+
+func assistantGiftResponse(gift *model.AssistantNewUserGift) (*assistantNewUserGiftResponse, error) {
+	fields, err := assistantGiftMoneyFields(gift)
+	if err != nil || gift == nil {
+		return nil, err
+	}
+	response := &assistantNewUserGiftResponse{
+		AssistantNewUserGift: gift, AmountUnit: "LEGACY_CENTS", CreditAmount: fields["credit_amount"].(int),
+		Currency: "USD", MaxCreditAmount: fields["max_credit_amount"].(int), ClaimAvailable: fields["claim_available"].(bool), ClaimBlockedCode: fields["claim_blocked_code"].(string),
+	}
+	response.CreditAmountUnit = common.LedgerQuotaUnit
+	// Reuse the same captured basis that produced public_credit_amount.
+	if version, ok := fields["credit_unit_schema_version"].(int); ok {
+		response.CreditDenomination = common.CreditDenomination{CreditUnitSchemaVersion: version,
+			QuotaUnit: fields["quota_unit"].(string), PublicCreditUnit: fields["public_credit_unit"].(string), LegacyCreditUnit: fields["legacy_credit_unit"].(string),
+			LedgerQuotaPerUSD: fields["ledger_quota_per_usd"].(float64), LedgerQuotaPerUSDExact: fields["ledger_quota_per_usd_exact"].(string),
+			PublicCreditsPerUSD: fields["public_credits_per_usd"].(float64), PublicCreditsPerUSDExact: fields["public_credits_per_usd_exact"].(string)}
+	}
+	response.PublicCreditAmount, _ = fields["public_credit_amount"].(string)
+	if value, ok := fields["amount_usd"].(float64); ok {
+		response.AmountUSD = &value
+	}
+	if value, ok := fields["credits_per_usd"].(float64); ok {
+		response.CreditsPerUSD = &value
+	}
+	return response, nil
+}
 
 func GetAssistantNewUserGift(c *gin.Context) {
 	gift, err := model.GetAssistantNewUserGift(c.GetInt("id"))
@@ -20,10 +116,23 @@ func GetAssistantNewUserGift(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gift)
+	response, err := assistantGiftResponse(gift)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, response)
 }
 
 func ClaimAssistantNewUserGift(c *gin.Context) {
+	if !requireAssistantToolEnabled(c, "prepare_new_user_gift") {
+		return
+	}
+	// Reject an unavailable denomination before registration or claim writes.
+	if _, err := common.CreditsPerUSD(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.ObserveAssistantRegistration(c.GetInt("id"), c.ClientIP(), ""); err != nil {
 		common.ApiError(c, model.ErrAssistantRegistrationCheck)
 		return
@@ -32,6 +141,10 @@ func ClaimAssistantNewUserGift(c *gin.Context) {
 	if err != nil {
 		status := http.StatusConflict
 		code := "ASSISTANT_NEW_USER_GIFT_UNAVAILABLE"
+		if errors.Is(err, model.ErrAssistantGiftLimit) || errors.Is(err, model.ErrAssistantGiftDisabled) {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"success": false, "code": model.AssistantGiftErrorCode(err), "message": err.Error()})
+			return
+		}
 		if !errors.Is(err, model.ErrAssistantGiftUnavailable) {
 			common.ApiError(c, err)
 			return
@@ -40,9 +153,19 @@ func ClaimAssistantNewUserGift(c *gin.Context) {
 		return
 	}
 	if !alreadyClaimed {
-		model.RecordLog(c.GetInt("id"), model.LogTypeTopup, fmt.Sprintf("领取 AI 新用户礼包，获得额度 %s", logger.LogQuota(gift.Quota)))
+		quota, err := model.AssistantGiftCreditQuota(gift)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		model.RecordLog(c.GetInt("id"), model.LogTypeTopup, fmt.Sprintf("领取 AI 新用户礼包，获得额度 %s", logger.LogQuota(quota)))
 	}
-	common.ApiSuccess(c, gin.H{"gift": gift, "already_claimed": alreadyClaimed})
+	response, err := assistantGiftResponse(gift)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"gift": response, "already_claimed": alreadyClaimed})
 }
 
 func GetAssistantJourney(c *gin.Context) {
@@ -88,23 +211,42 @@ func assistantConversationEvidence(c *gin.Context) (turns int, runes int) {
 }
 
 func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[string]any) map[string]any {
-	amount, ok := inputNumber(input, "amount_cents")
-	if !ok || math.IsNaN(amount) || math.IsInf(amount, 0) || math.Trunc(amount) != amount {
-		return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_cents must be an integer from 0 to 1000"}
+	if assistantRewardReadOnlyRequest(c) {
+		return assistantGiftReadOnlyRequestResult()
 	}
 	turns, runes := assistantConversationEvidence(c)
-	gift, created, err := model.DecideAssistantNewUserGift(
-		userID,
-		assistantHistoryConversationID(c),
-		int(amount),
-		inputString(input, "reason"),
-		turns,
-		runes,
-		c.ClientIP(),
-	)
+	var gift *model.AssistantNewUserGift
+	var created bool
+	var err error
+	unit := inputString(input, "amount_unit")
+	if _, canonical := input["amount_credits"]; canonical {
+		if unit != "" && unit != common.LedgerQuotaUnit {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_credits uses integer wallet credits"}
+		}
+		if _, mixed := input["amount_cents"]; mixed {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "supply amount_credits only; do not mix amount units"}
+		}
+		amount, ok := inputNumber(input, "amount_credits")
+		if !ok || math.IsNaN(amount) || math.IsInf(amount, 0) || math.Trunc(amount) != amount || amount < 0 || amount > common.MaxWalletQuota {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_credits must be a non-negative safe integer"}
+		}
+		gift, created, err = model.DecideAssistantNewUserGiftCredits(userID, assistantHistoryConversationID(c), int(amount), inputString(input, "reason"), turns, runes, c.ClientIP())
+	} else {
+		if unit != "" && unit != "LEGACY_CENTS" {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_cents uses LEGACY_CENTS, not fiat cents"}
+		}
+		amount, ok := inputNumber(input, "amount_cents")
+		if !ok || math.IsNaN(amount) || math.IsInf(amount, 0) || math.Trunc(amount) != amount || amount < 0 || amount > common.MaxWalletQuota {
+			return map[string]any{"ok": false, "status": "invalid_decision", "error": "amount_cents must be a non-negative safe integer"}
+		}
+		gift, created, err = model.DecideAssistantNewUserGift(userID, assistantHistoryConversationID(c), int(amount), inputString(input, "reason"), turns, runes, c.ClientIP())
+	}
 	if err != nil {
 		reasonCode := model.AssistantGiftErrorCode(err)
 		switch {
+		case errors.Is(err, model.ErrAssistantGiftLimit), errors.Is(err, model.ErrAssistantGiftDisabled):
+			cap, _ := assistantCurrentGiftMaxCredits()
+			return map[string]any{"ok": false, "status": reasonCode, "reason_code": reasonCode, "error": err.Error(), "max_credit_amount": cap, "gift_enabled": cap > 0}
 		case errors.Is(err, model.ErrAssistantGiftIneligible), errors.Is(err, model.ErrAssistantGiftAbuse):
 			if reasonCode == "" {
 				reasonCode = "ineligible"
@@ -114,28 +256,66 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 			if reasonCode == "" {
 				reasonCode = "invalid_decision"
 			}
-			if reasonCode == "insufficient_conversation" {
-				return map[string]any{"ok": false, "status": "more_conversation_needed", "reason_code": reasonCode, "error": "continue the conversation with at least two substantive user turns before evaluating the one-time gift"}
-			}
 			return map[string]any{"ok": false, "status": "invalid_decision", "reason_code": reasonCode, "error": "the one-time gift decision was invalid"}
 		default:
 			return map[string]any{"ok": false, "status": "unavailable", "error": "the gift decision could not be saved"}
 		}
 	}
-	if gift.Status == model.AssistantGiftOffered && c != nil {
-		c.Set(assistantClientActionKey, map[string]any{
-			"type":         "new_user_gift",
-			"amount_cents": gift.AmountCents,
-			"reason":       gift.Reason,
-			"status":       gift.Status,
-		})
+	if gift == nil {
+		return map[string]any{"ok": false, "status": "unavailable", "error": "gift decision is unavailable"}
 	}
-	return map[string]any{
-		"ok":           true,
-		"created":      created,
-		"status":       gift.Status,
-		"amount_cents": gift.AmountCents,
-		"reason":       gift.Reason,
-		"next_step":    "The user claims an offered gift from the gift shown in the chat. Never claim it for them.",
+	if gift.Id == 0 && gift.Quota == 0 {
+		return map[string]any{
+			"ok": true, "status": "not_awarded", "credit_amount": 0,
+			"created": false, "new_decision_stored": false, "changed": false,
+			"next_step": "No credit was granted and no new decision was stored. Existing records are unchanged. Do not claim the user has lost an opportunity.",
+		}
 	}
+	alreadyClaimed := gift.Status == model.AssistantGiftClaimed
+	if gift.Status == model.AssistantGiftOffered {
+		gift, alreadyClaimed, err = model.ClaimAssistantNewUserGift(userID)
+		if err != nil {
+			// An offered row remains retryable; never report unconfirmed credit.
+			return map[string]any{
+				"ok": false, "status": "claim_pending", "reason_code": model.AssistantGiftErrorCode(err),
+				"error": "The gift has not been confirmed as credited. Read its current status or retry; no new application is required.",
+			}
+		}
+		if !alreadyClaimed {
+			if quota, quotaErr := model.AssistantGiftCreditQuota(gift); quotaErr == nil {
+				model.RecordLog(userID, model.LogTypeTopup, fmt.Sprintf("领取 AI 新用户礼包，获得额度 %s", logger.LogQuota(quota)))
+			}
+		}
+	}
+	money, err := assistantGiftMoneyFields(gift)
+	if err != nil {
+		return map[string]any{
+			"ok": gift.Status == model.AssistantGiftClaimed, "status": gift.Status,
+			"already_claimed": alreadyClaimed, "display_amount_available": false,
+			"next_step": "Use the stored status as the receipt. Display amount unavailable; do not invent a currency value.",
+		}
+	}
+	if gift.Status == model.AssistantGiftOffered && money["claim_available"] == true && c != nil {
+		action := make(map[string]any, len(money)+3)
+		for key, value := range money {
+			action[key] = value
+		}
+		action["type"], action["reason"], action["status"] = "new_user_gift", gift.Reason, gift.Status
+		c.Set(assistantClientActionKey, action)
+	}
+	money["ok"], money["created"], money["status"], money["reason"] = true, created, gift.Status, gift.Reason
+	money["already_claimed"] = alreadyClaimed
+	if gift.Status == model.AssistantGiftClaimed {
+		money["next_step"] = "Gift credited. No claim click or further application is needed. If already_claimed is true, this is an existing receipt, not another credit. Explain the value using public_credit_amount or amount_usd."
+	} else {
+		money["next_step"] = "Report the stored status. No new credit is confirmed. Historical declined decisions have not been reset."
+	}
+	return money
+}
+
+func assistantCurrentGiftMaxCredits() (int, error) {
+	if model.DB != nil {
+		return model.AssistantGiftMaxCreditsDB(model.DB)
+	}
+	return setting.AssistantNewUserGiftMaxCredits(setting.GetAssistantSettings().NewUserGiftMaxCredits)
 }

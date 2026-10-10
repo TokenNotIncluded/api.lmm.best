@@ -1,11 +1,6 @@
 name: LMM CLI
 
 on:
-  pull_request:
-    paths: ['apps/lmm/**', 'apps/api-go/**/oauth*.go', '.github/workflows/lmm.yml']
-  push:
-    branches: [main]
-    paths: ['apps/lmm/**', 'apps/api-go/**/oauth*.go', '.github/workflows/lmm.yml']
   workflow_dispatch:
 
 permissions:

@@ -214,11 +214,106 @@ class TransactionTests(unittest.TestCase):
             self.assertEqual(list(Path(tmp).iterdir()), [path])
 
 
+class MerchantPostgresWorkflowTests(unittest.TestCase):
+    cases = (
+        "same-request-settles-once",
+        "distinct-checkouts-never-oversell",
+        "cross-product-buyer-pending-limit",
+        "verified-callback-cancel-and-expiry",
+        "receipt-belongs-to-one-order",
+        "wallet-boundary-full-rollback",
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        runner = SCRIPT.parent / 'ci/qualify-merchant-store-postgres.py'
+        spec = importlib.util.spec_from_file_location('merchant_postgres_qualification', runner)
+        assert spec and spec.loader
+        cls.runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.runner)
+
+    def run_result_guard(self, events):
+        workflow = (SCRIPT.parent.parent / '.github/workflows/server-release-qualification.yml').read_text()
+        step_name = '- name: Protect merchant settlement, upgrades, and fulfillment under PostgreSQL concurrency\n'
+        self.assertIn(step_name, workflow)
+        step = workflow.split(step_name, 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('MERCHANT_STORE_POSTGRES_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable', step)
+        self.assertIn("GOMAXPROCS: '2'", step)
+        self.assertIn('set -euo pipefail', step)
+        self.assertIn('python3 -B scripts/ci/qualify-merchant-store-postgres.py', step)
+        self.assertIn('--artifact-directory "$GITHUB_WORKSPACE/qualification-artifacts/go/merchant-store"', step)
+        self.assertIn('--runner-temp "$RUNNER_TEMP"', step)
+        return self.runner.validate_pg(events)
+
+    def passing_events(self):
+        return [{"Action": "pass", "Package": self.runner.PACKAGE, "Test": name}
+                for name in (*self.runner.PARENTS, *self.runner.LEAVES)] + [
+                    {"Action": "pass", "Package": self.runner.PACKAGE}]
+
+    def test_all_six_real_cases_are_required(self):
+        self.assertEqual(len(self.runner.PARENTS), 13)
+        self.assertEqual(len(self.runner.LEAVES), 20)
+        for case in self.cases:
+            with self.subTest(case=case):
+                self.assertIn("TestMerchantStorePostgresConcurrency/" + case, self.runner.LEAVES)
+        result = self.run_result_guard(self.passing_events())
+        self.assertEqual(result, {'parents_passed': 13, 'pg_leaves_passed': 20, 'failed': 0, 'skipped': 0})
+
+    def test_a_skip_cannot_hide_behind_a_passing_parent(self):
+        events = self.passing_events() + [{"Action": "skip", "Package": self.runner.PACKAGE,
+                                          "Test": "TestMerchantStorePostgresConcurrency/fixture"}]
+        with self.assertRaisesRegex(ValueError, 'rejects every skipped or failed'):
+            self.run_result_guard(events)
+
+    def test_a_missing_concurrency_case_refuses_qualification(self):
+        for case in self.cases:
+            name = "TestMerchantStorePostgresConcurrency/" + case
+            events = [event for event in self.passing_events() if event.get('Test') != name]
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, name):
+                self.run_result_guard(events)
+
+
 class WorkflowWiringTests(unittest.TestCase):
     def test_regression_suite_is_mandatory_in_existing_qualification(self):
         text = (SCRIPT.parent.parent / '.github/workflows/server-release-qualification.yml').read_text()
         self.assertIn('run: python3 -B scripts/test-production-release-transaction.py', text)
         self.assertNotIn('test -f scripts/test-production-release-transaction.py', text)
+
+    def test_live_browser_fixture_declares_fixed_credit_unit_and_preserves_auth(self):
+        helper = SCRIPT.parent / 'ci/qualify-live-server.sh'
+        definitions, _ = helper.read_text().split('\nwait_ready\n', 1)
+        with tempfile.TemporaryDirectory(prefix='lmm-browser-contract-') as directory:
+            stub = '''
+curl() {
+  printf '%s\\0' "$@" > "$work/$method.argv"
+  printf '200'
+}
+'''
+            writes = '\n'.join(
+                f"request {method} /api/channel/ fixture-bearer '{{\"name\":\"fixture\"}}'\ntest \"$status\" = 200"
+                for method in ('POST', 'PUT', 'PATCH', 'DELETE')
+            )
+            result = subprocess.run(
+                ['bash'], input=definitions + stub + writes + '\nrequest GET /api/status fixture-bearer\n',
+                text=True, capture_output=True,
+                env={'PATH': '/usr/bin:/bin', 'LMM_QUALIFICATION_BACKEND': 'go',
+                     'LMM_QUALIFICATION_BASE_URL': 'http://qualification.test',
+                     'LMM_QUALIFICATION_WORK_DIR': directory},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for method in ('POST', 'PUT', 'PATCH', 'DELETE', 'GET'):
+                with self.subTest(method=method):
+                    arguments = (Path(directory) / f'{method}.argv').read_bytes().decode().split('\0')[:-1]
+                    headers = [arguments[index + 1] for index, argument in enumerate(arguments) if argument == '-H']
+                    self.assertIn('Authorization: Bearer fixture-bearer', headers)
+                    if method == 'GET':
+                        self.assertNotIn('Origin: http://qualification.test', headers)
+                        self.assertNotIn('X-LMM-Credit-Unit: 500000', headers)
+                    else:
+                        self.assertIn('Origin: http://qualification.test', headers)
+                        self.assertEqual(headers.count('X-LMM-Credit-Unit: 500000'), 1)
+                        self.assertIn('content-type: application/json', headers)
+                        self.assertEqual(arguments[arguments.index('--data-binary') + 1], '{"name":"fixture"}')
 
 
 class ProcessIntegrationTests(unittest.TestCase):

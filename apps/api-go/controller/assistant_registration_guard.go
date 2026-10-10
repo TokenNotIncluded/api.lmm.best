@@ -54,7 +54,7 @@ func executeAssistantRegistrationTool(c *gin.Context, name string, input map[str
 	if name == "get_registration_risk" {
 		summary, err := model.GetAssistantRegistrationSummary(userID)
 		if err != nil {
-			return map[string]any{"ok": false, "status": "verification_unavailable", "message": "Continue normal support, but do not grant access or offer a reward without a successful server check."}
+			return map[string]any{"ok": false, "status": "verification_unavailable", "message": "Registration checking is unavailable. Do not ask for more conversation turns; offer human support or one retry. Do not grant access or rewards without a successful check."}
 		}
 		var prior []struct {
 			Content string `json:"quoted_user_text"`
@@ -116,6 +116,15 @@ func GetAssistantRegistrationState(c *gin.Context) {
 	state := "active"
 	if !access.Granted {
 		state = model.RegistrationPublicState(user.Id)
+		if user.Status != common.UserStatusEnabled {
+			state = "suspended"
+		} else if user.TrustLevelOverride != nil && *user.TrustLevelOverride < 1 {
+			state = "held"
+		}
+	}
+	if state == "unavailable" {
+		common.ApiError(c, model.ErrAssistantRegistrationCheck)
+		return
 	}
 	common.ApiSuccess(c, gin.H{"state": state, "review_mode": "built_in_tools", "recommendation_required": false})
 }

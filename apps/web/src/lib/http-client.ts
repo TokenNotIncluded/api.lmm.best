@@ -20,12 +20,17 @@ import axios, { type AxiosRequestConfig } from 'axios'
 import { t } from 'i18next'
 import { toast } from 'sonner'
 
+import { signInHref } from '@/features/auth/lib/auth-redirect'
 import {
   applyAuthRotation,
   clearAuthentication,
   refreshAuthentication,
 } from '@/lib/auth-session'
-import { getServerErrorMessageKey } from '@/lib/server-error-message'
+import { rateLimitMessage } from '@/lib/request-rate-limit'
+import {
+  getServerErrorMessageKey,
+  getServerErrorToastId,
+} from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 declare module 'axios' {
@@ -36,6 +41,7 @@ declare module 'axios' {
     skipAuthRefresh?: boolean
     authRetry?: boolean
     acceptAuthRotation?: boolean
+    authScope?: { userId: number | undefined; sessionId: string | undefined }
   }
 }
 
@@ -56,7 +62,9 @@ const refreshBeforeSeconds = 60
 api.get = ((url: string, config: ApiRequestConfig = {}) => {
   // AbortSignal belongs to one observer's lifecycle. Sharing its promise can
   // cancel a newly mounted page when the previous observer is disposed.
-  if (config.disableDuplicate || config.signal) return originalGet(url, config)
+  if (config.disableDuplicate || config.signal || config.authScope) {
+    return originalGet(url, config)
+  }
 
   const params = config.params ? JSON.stringify(config.params) : '{}'
   const sessionSID = useAuthStore.getState().auth.session?.sid || 'anonymous'
@@ -71,12 +79,31 @@ api.get = ((url: string, config: ApiRequestConfig = {}) => {
   return request
 }) as typeof api.get
 
+// Read identity and token from one snapshot. A refresh or late 401 must never
+// turn an operation initiated in one session into an operation in another.
+function requestAuthentication(config: ApiRequestConfig) {
+  const auth = useAuthStore.getState().auth
+  const scope = config.authScope
+  if (
+    scope &&
+    (auth.user?.id !== scope.userId || auth.session?.sid !== scope.sessionId)
+  ) {
+    throw Object.assign(
+      new axios.CanceledError(
+        'Authentication changed before request could be sent'
+      ),
+      { config }
+    )
+  }
+  return auth
+}
+
 function redirectToSignIn(): void {
   if (
     typeof window !== 'undefined' &&
     window.location.pathname !== '/sign-in'
   ) {
-    window.location.replace('/sign-in')
+    window.location.replace(signInHref(window.location))
   }
 }
 
@@ -124,11 +151,13 @@ api.interceptors.response.use(
     const status = error?.response?.status
 
     if (status === 401) {
+      if (config) requestAuthentication(config)
       if (config && !config.skipAuthRefresh && !config.authRetry) {
         config.authRetry = true
         const outcome = await refreshAuthentication()
+        const auth = requestAuthentication(config)
         if (outcome.kind === 'authenticated') {
-          const token = useAuthStore.getState().auth.accessToken
+          const token = auth.accessToken
           if (token) {
             config.headers = {
               ...config.headers,
@@ -151,19 +180,21 @@ api.interceptors.response.use(
       }
     } else if (!skipErrorHandler) {
       const messageKey = getServerErrorMessageKey(error)
-      const message = messageKey
-        ? t(messageKey)
-        : error?.response?.data?.message ||
-          error?.message ||
-          t('Request failed')
-      toast.error(message)
+      const message =
+        rateLimitMessage(error) ??
+        (messageKey
+          ? t(messageKey)
+          : error?.response?.data?.message ||
+            error?.message ||
+            t('Request failed'))
+      toast.error(message, { id: getServerErrorToastId(error) })
     }
     throw error
   }
 )
 
 api.interceptors.request.use(async (config) => {
-  let auth = useAuthStore.getState().auth
+  let auth = requestAuthentication(config)
   const now = Math.floor(Date.now() / 1000)
   const needsRefresh =
     !config.skipAuthRefresh &&
@@ -174,7 +205,7 @@ api.interceptors.request.use(async (config) => {
 
   if (needsRefresh) {
     const outcome = await refreshAuthentication()
-    auth = useAuthStore.getState().auth
+    auth = requestAuthentication(config)
     if (outcome.kind === 'anonymous' || outcome.kind === 'out_of_sync') {
       redirectToSignIn()
       throw createConfiguredRequestError(t('Session expired!'), config)
@@ -198,5 +229,8 @@ api.interceptors.request.use(async (config) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`
   }
+  // This client rejects cached denominations other than 500,000/USD. Old
+  // tabs omit this acknowledgement and must refresh before dashboard writes.
+  config.headers.set('X-LMM-Credit-Unit', '500000', true)
   return config
 })

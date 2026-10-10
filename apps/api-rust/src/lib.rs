@@ -1,5 +1,7 @@
 //! Reusable HTTP slices for the Rust control-plane binary.
 
+/// Shared dashboard authentication protocol marker.
+pub mod auth_version;
 /// Native public command dispatch, run before service configuration.
 pub mod cli;
 /// Manual-only production deployment schemas and target recovery.
@@ -108,5 +110,6 @@ pub mod routes;
 #[cfg(test)]
 pub(crate) mod model_delete_candidate;
 
+pub mod public_credit_units;
 /// Legacy-compatible public system status route.
 pub mod status;

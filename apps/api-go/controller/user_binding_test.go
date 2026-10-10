@@ -71,6 +71,7 @@ func performClearSelfOAuthBindingRequest(t *testing.T, userId int, bindingType s
 
 func TestClearSelfOAuthBindingOnlyClearsAllowedOAuthFields(t *testing.T) {
 	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.ExternalIdentityClaim{}))
 	user := model.User{
 		Username: "self-oauth-unbind",
 		Password: "password",

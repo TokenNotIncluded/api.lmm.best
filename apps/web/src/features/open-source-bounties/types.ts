@@ -286,17 +286,3 @@ export interface BountyFeeConfig {
   rate_percent: number
   rate_basis_points: number
 }
-
-export interface BountyMcpTokenStatus {
-  configured: boolean
-  token_hint: string
-  created_at: number
-  last_used_at: number
-}
-
-export interface BountyMcpConnection {
-  status: BountyMcpTokenStatus
-  endpoint: string
-  protocol_version: string
-  token?: string
-}

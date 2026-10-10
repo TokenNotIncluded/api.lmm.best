@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSubscriptionBalanceQuotaUsesDynamicFiatAndRechargeRates(t *testing.T) {
+func TestSubscriptionBalanceQuotaUsesFixedUSDAndDynamicFiatWithoutRechargeBonus(t *testing.T) {
 	originalQuotaPerUnit := common.QuotaPerUnit
 	originalCNYPerUSD := operation_setting.USDExchangeRate
 	originalPlatformUnitsPerCNY := operation_setting.TopUpPlatformUnitsPerCNY
@@ -19,6 +19,7 @@ func TestSubscriptionBalanceQuotaUsesDynamicFiatAndRechargeRates(t *testing.T) {
 	})
 
 	common.QuotaPerUnit = 1000
+	installFixedPaymentAnchor(t, "6800")
 	tests := []struct {
 		name                string
 		price               float64
@@ -28,8 +29,8 @@ func TestSubscriptionBalanceQuotaUsesDynamicFiatAndRechargeRates(t *testing.T) {
 		wantQuota           int
 	}{
 		{name: "first dynamic USD rate", price: 1, currency: "USD", cnyPerUSD: 6.8, platformUnitsPerCNY: 1, wantQuota: 6800},
-		{name: "second dynamic USD rate and purchase ratio", price: 2, currency: "USD", cnyPerUSD: 7.2, platformUnitsPerCNY: 1.25, wantQuota: 18000},
-		{name: "CNY plan does not apply fiat FX", price: 8, currency: "CNY", cnyPerUSD: 7.2, platformUnitsPerCNY: 1.25, wantQuota: 10000},
+		{name: "USD stable after FX and legacy purchase ratio change", price: 2, currency: "USD", cnyPerUSD: 7.2, platformUnitsPerCNY: 1.25, wantQuota: 13600},
+		{name: "CNY plan applies only real FX", price: 8, currency: "CNY", cnyPerUSD: 7.2, platformUnitsPerCNY: 1.25, wantQuota: 7556},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

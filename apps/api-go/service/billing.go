@@ -46,6 +46,8 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 	var apiErr *types.NewAPIError
 	if relayInfo != nil && relayInfo.IsAssistant {
 		session, apiErr = NewAssistantBillingSession(c, relayInfo, preConsumedQuota)
+	} else if relayInfo != nil && relayInfo.ServiceTierQuote != nil {
+		session, apiErr = NewBudgetBillingSession(c, relayInfo, preConsumedQuota)
 	} else {
 		session, apiErr = NewBillingSession(c, relayInfo, preConsumedQuota)
 	}

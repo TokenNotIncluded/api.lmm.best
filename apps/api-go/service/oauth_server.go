@@ -21,6 +21,12 @@ import (
 )
 
 const (
+	OAuthOpenCodeClientID    = "lmm-opencode"
+	OAuthOpenCodeClientName  = "LMM for OpenCode"
+	OAuthVSCodeClientID      = "lmm-vscode"
+	OAuthVSCodeClientName    = "LMM for VS Code"
+	OAuthZedClientID         = "lmm-zed"
+	OAuthZedClientName       = "LMM for Zed"
 	OAuthPiClientID          = "lmm-pi"
 	OAuthPiClientName        = "LMM for Pi"
 	OAuthDshClientID         = "lmm-dsh"
@@ -35,6 +41,7 @@ const (
 	OAuthBalanceScope        = "balance:read"
 	OAuthUsageScope          = "usage:read"
 	OAuthInvokeScope         = "models:invoke"
+	OAuthRemoteControlScope  = "remote:control"
 	OAuthMCPBountiesScope    = "mcp:bounties"
 	OAuthMCPDrawingScope     = "mcp:drawing"
 	OAuthMarketDiscoverScope = "market:discover"
@@ -70,12 +77,12 @@ var oauthIntegration atomic.Pointer[OAuthIntegration]
 func CurrentOAuthIntegration() *OAuthIntegration { return oauthIntegration.Load() }
 
 func OAuthServerConfigFromEnv() (OAuthServerConfig, error) {
-	value := os.Getenv("OAUTH_SERVER_ENABLED")
-	if value == "" || value == "false" {
-		return OAuthServerConfig{}, nil
+	enabled, err := model.OAuthServerEnabledFromEnv()
+	if err != nil {
+		return OAuthServerConfig{}, err
 	}
-	if value != "true" {
-		return OAuthServerConfig{}, errors.New("OAUTH_SERVER_ENABLED must be true or false")
+	if !enabled {
+		return OAuthServerConfig{}, nil
 	}
 	cfg := OAuthServerConfig{Enabled: true, Issuer: os.Getenv("OAUTH_SERVER_ISSUER")}
 	if err := json.Unmarshal([]byte(os.Getenv("OAUTH_SERVER_GROUPS")), &cfg.Groups); err != nil {
@@ -89,8 +96,9 @@ func OAuthServerConfigFromEnv() (OAuthServerConfig, error) {
 	return cfg, nil
 }
 
-// ConfigureOAuthIntegration is startup-only, before serving requests. The flag
-// remains false unless both trusted configuration and storage initialization pass.
+// ConfigureOAuthIntegration is startup-only, before serving requests. Schema
+// changes belong to the startup apply phase; this check is safe in verify mode.
+// The flag remains false unless trusted configuration and storage checks pass.
 func ConfigureOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration, error) {
 	oauthIntegration.Store(nil)
 	if !cfg.Enabled {
@@ -100,7 +108,7 @@ func ConfigureOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegr
 	if err != nil {
 		return nil, err
 	}
-	if err = model.MigrateOAuthBilling(db); err != nil {
+	if err = model.VerifyOAuthBillingSchema(db); err != nil {
 		return nil, err
 	}
 	oauthIntegration.Store(integration)
@@ -124,22 +132,25 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 	}
 	integration := &OAuthIntegration{DB: db, Issuer: cfg.Issuer, Resource: cfg.Issuer + "/api/oauth2", TrustLoopbackProxy: cfg.TrustLoopbackProxy, groups: groups}
 	clients := []oauthserver.NativeClient{
-		{ID: OAuthPiClientID, Name: OAuthPiClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: scopes},
+		{ID: OAuthPiClientID, Name: OAuthPiClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: append(slices.Clone(scopes), OAuthRemoteControlScope)},
 		{ID: OAuthDshClientID, Name: OAuthDshClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: scopes},
 	}
-	// Codewhale's companion adapter has no MCP or marketplace integration.
-	codewhaleScopes := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
+	// Editor and coding adapters have no MCP or marketplace integration.
+	codingScopes := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
 	for _, group := range groups {
-		codewhaleScopes = append(codewhaleScopes, OAuthGroupScope(group))
+		codingScopes = append(codingScopes, OAuthGroupScope(group))
 	}
-	clients = append(clients, oauthserver.NativeClient{ID: OAuthCodewhaleClientID, Name: OAuthCodewhaleClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: codewhaleScopes})
+	clients = append(clients, oauthserver.NativeClient{ID: OAuthOpenCodeClientID, Name: OAuthOpenCodeClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: slices.Clone(codingScopes)})
+	clients = append(clients, oauthserver.NativeClient{ID: OAuthCodewhaleClientID, Name: OAuthCodewhaleClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: slices.Clone(codingScopes)})
+	clients = append(clients, oauthserver.NativeClient{ID: OAuthVSCodeClientID, Name: OAuthVSCodeClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: slices.Clone(codingScopes)})
+	clients = append(clients, oauthserver.NativeClient{ID: OAuthZedClientID, Name: OAuthZedClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: codingScopes})
 	// CLI discovery does not authorize relay, MCP or account administration.
 	cliScopes := []string{OAuthCatalogScope, OAuthBalanceScope}
 	for _, group := range groups {
 		cliScopes = append(cliScopes, OAuthGroupScope(group))
 	}
 	clients = append(clients, oauthserver.NativeClient{ID: OAuthCLIClientID, Name: OAuthCLIClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: cliScopes})
-	core, err := oauthserver.New(db, oauthserver.Config{Issuer: cfg.Issuer, Clients: clients}, integration)
+	core, err := oauthserver.New(db, oauthserver.Config{Issuer: cfg.Issuer, Clients: clients, ClientLookup: integration.lookupMCPClient}, integration)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +235,14 @@ func (s *OAuthIntegration) GrantedGroups(user *model.User, grant oauthserver.Gra
 // validation. Database/cache failures never imply access. It does not mutate
 // OAuth tables or acquire a second pool connection while core owns a transaction.
 func (s *OAuthIntegration) Authorize(ctx context.Context, tx *gorm.DB, grant oauthserver.Grant) error {
-	if (grant.ClientID != OAuthPiClientID && grant.ClientID != OAuthDshClientID && grant.ClientID != OAuthCLIClientID && grant.ClientID != OAuthCodewhaleClientID) || grant.Resource != s.Resource {
+	if strings.HasPrefix(grant.ClientID, oauthMCPClientPrefix) {
+		if tx == nil || grant.Resource != s.MarketResource() || !validMCPScopes(grant.Scopes) {
+			return ErrOAuthDenied
+		}
+		_, err := oauthMCPUser(tx.WithContext(ctx), grant.UserID)
+		return err
+	}
+	if (grant.ClientID != OAuthPiClientID && grant.ClientID != OAuthDshClientID && grant.ClientID != OAuthCLIClientID && grant.ClientID != OAuthCodewhaleClientID && grant.ClientID != OAuthOpenCodeClientID && grant.ClientID != OAuthVSCodeClientID && grant.ClientID != OAuthZedClientID) || grant.Resource != s.Resource {
 		return ErrOAuthDenied
 	}
 	if tx == nil {
@@ -268,6 +286,12 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 		return "", nil, err
 	}
 	requested := strings.Split(query.Get("scope"), " ")
+	if strings.HasPrefix(query.Get("client_id"), oauthMCPClientPrefix) {
+		if query.Get("resource") != s.MarketResource() || !validMCPScopes(requested) {
+			return "", nil, ErrOAuthDenied
+		}
+		return query.Encode(), nil, nil
+	}
 	legacyBase := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthInvokeScope}
 	currentBase := []string{OAuthCatalogScope, OAuthBalanceScope, OAuthUsageScope, OAuthInvokeScope}
 	profiles := [][]string{
@@ -283,9 +307,16 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 			profiles = append(profiles, append(slices.Clone(base), extra...))
 		}
 	}
+	// Remote control is a separate Pi-only consent. Existing grants and other
+	// native clients keep their exact previous permissions.
+	if query.Get("client_id") == OAuthPiClientID {
+		for _, base := range slices.Clone(profiles) {
+			profiles = append(profiles, append(slices.Clone(base), OAuthRemoteControlScope))
+		}
+	}
 	if query.Get("client_id") == OAuthCLIClientID {
 		profiles = [][]string{{OAuthCatalogScope, OAuthBalanceScope}}
-	} else if query.Get("client_id") == OAuthCodewhaleClientID {
+	} else if query.Get("client_id") == OAuthCodewhaleClientID || query.Get("client_id") == OAuthOpenCodeClientID || query.Get("client_id") == OAuthVSCodeClientID || query.Get("client_id") == OAuthZedClientID {
 		profiles = [][]string{currentBase}
 	}
 	slices.Sort(requested)

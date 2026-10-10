@@ -131,6 +131,21 @@ async fn terminal_stops_upstream_before_late_error_or_duplicate_terminal() {
     assert_eq!(actual, text);
     assert_eq!(metric(&observer, MetricKind::ConversionFailuresTotal), 0);
 }
+
+#[tokio::test]
+async fn flat_error_is_terminal_without_a_synthetic_second_failure() {
+    let error = "event: error\ndata: {\"type\":\"error\",\"code\":\"upstream_error\",\"message\":\"failed\"}\n\n";
+    let text = format!("{CREATED}{error}");
+    let chunks = format!("{text}{COMPLETED}")
+        .as_bytes()
+        .chunks(3)
+        .map(|chunk| Ok(Bytes::copy_from_slice(chunk)))
+        .collect();
+    let (actual, observer) = collect(chunks, DEFAULT_MAX_FRAME_BYTES).await;
+    assert_eq!(actual, text);
+    assert_eq!(metric(&observer, MetricKind::ConversionFailuresTotal), 1);
+    assert_eq!(metric(&observer, MetricKind::StreamQueueDepth), 0);
+}
 #[tokio::test]
 async fn done_marker_and_empty_body_do_not_fake_a_responses_completion() {
     for text in ["", "data: [DONE]\n\n", ": keepalive\n\n"] {

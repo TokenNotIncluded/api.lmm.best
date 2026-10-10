@@ -62,6 +62,8 @@ export interface CommonLogFilters extends CommonFilters {
  */
 export interface DrawingLogFilters extends CommonFilters {
   mjId?: string
+  status?: string
+  action?: string
 }
 
 /**
@@ -69,6 +71,9 @@ export interface DrawingLogFilters extends CommonFilters {
  */
 export interface TaskLogFilters extends CommonFilters {
   taskId?: string
+  status?: string
+  action?: string
+  platform?: string
 }
 
 /**
@@ -112,9 +117,22 @@ export interface ToolSurchargeItem {
   name: string
   count: number
   price: number
+  price_currency_basis?: 'legacy_pricing_unit' | 'USD'
+  pricing_unit_credits_per_unit?: number
 }
 
 export interface LogOtherData {
+  // Pricing snapshots record their engine unit separately from true USD.
+  pricing_schema_version?: number
+  pricing_currency?: string
+  pricing_currency_basis?: 'legacy_pricing_unit' | 'USD'
+  pricing_unit_credits_per_unit?: number
+  tool_pricing_unit_credits_per_unit?: number
+  audio_input_pricing_unit_credits_per_unit?: number
+  model_ratio_usd_per_million_multiplier?: number
+  pricing_credits_per_usd?: number
+  billing_expr_currency_basis?: 'legacy_pricing_unit' | 'USD'
+  billing_expr_usd_multiplier?: number
   status_code?: number
   error_code?: string
   error_type?: string
@@ -171,9 +189,15 @@ export interface LogOtherData {
   audio?: boolean
   audio_input?: number
   audio_output?: number
+  audio_seconds?: number | null
+  audio_usage_status?: 'reported' | 'estimated'
   text_input?: number
   text_output?: number
   cache_tokens?: number
+  cache_read_details_status?: 'unknown' | 'reported' | 'invalid'
+  cache_text_tokens?: number | null
+  cache_image_tokens?: number | null
+  cache_audio_tokens?: number | null
   cache_creation_tokens?: number
   cache_creation_tokens_5m?: number
   cache_creation_tokens_1h?: number
@@ -192,6 +216,12 @@ export interface LogOtherData {
   cache_creation_ratio_1h?: number
   is_model_mapped?: boolean
   upstream_model_name?: string
+  // Diagnostic names only; the UI derives compatibility using current rules.
+  response_model?: {
+    requested_model: string
+    upstream_model: string
+    returned_model: string
+  }
   audio_ratio?: number
   audio_completion_ratio?: number
   frt?: number
@@ -285,6 +315,8 @@ export interface MidjourneyLog {
   buttons?: string
   properties?: string
   image_url?: string
+  video_url?: string
+  video_urls?: string
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, MODAL
   other?: string
   created_at?: number
@@ -307,7 +339,8 @@ export interface TaskLog {
   finish_time?: number // seconds
   progress?: string
   progress_message_en?: string
-  data?: string // JSON string
+  data?: unknown // JSON value; legacy servers can return a JSON string
+  result_url?: string
   fail_reason?: string
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   other?: string
@@ -373,6 +406,8 @@ export interface GetMidjourneyLogsParams {
   page_size?: number
   channel_id?: string
   mj_id?: string
+  status?: string
+  action?: string
   start_timestamp?: number
   end_timestamp?: number
 }
@@ -386,6 +421,9 @@ export interface GetTaskLogsParams {
   page_size?: number
   channel_id?: string
   task_id?: string
+  status?: string
+  action?: string
+  platform?: string
   start_timestamp?: number
   end_timestamp?: number
 }
@@ -416,6 +454,8 @@ export interface UserInfo {
   display_name?: string
   quota: number
   used_quota: number
+  normalized_used_quota?: number | null
+  usage_projection_available?: boolean
   request_count: number
   group?: string
   aff_code?: string

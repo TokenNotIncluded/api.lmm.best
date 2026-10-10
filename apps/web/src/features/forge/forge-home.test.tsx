@@ -141,7 +141,6 @@ function makeRouter(component = ForgeHome) {
     '/about',
     '/challenges',
     '/dashboard',
-    '/getting-started',
     '/guide',
     '/open-source-bounties',
     '/pricing',
@@ -345,6 +344,15 @@ describe('ForgeHome configured destinations', () => {
       hidden.container.querySelector('.lmm-destinations a[href="/security"]'),
       null
     )
+    const marketLink = hidden.container.querySelector(
+      '.lmm-destinations a[href="/tool-market"]'
+    )
+    assert.ok(marketLink)
+    assert.match(
+      marketLink.textContent ?? '',
+      /Use community tools, or publish your own\./
+    )
+    assert.equal(marketLink.hasAttribute('aria-current'), false)
     await unmountHome(hidden)
     const gated = await renderHome(null, true, false, {
       headerNavModules: JSON.stringify({
@@ -579,7 +587,7 @@ describe('ForgeHome assistant entry', () => {
     await unmountHome(rendered)
   })
 
-  test('queues onboarding with the message and redirects an L0 user to getting started', async () => {
+  test('queues onboarding with the message and redirects an L0 user to wallet', async () => {
     const opened: Array<{
       autoSend: boolean
       message: string | undefined
@@ -604,7 +612,7 @@ describe('ForgeHome assistant entry', () => {
     assert.deepEqual(opened, [
       { preset: 'onboarding', message: 'I need L1 access', autoSend: true },
     ])
-    assert.equal(rendered.router.state.location.pathname, '/getting-started')
+    assert.equal(rendered.router.state.location.pathname, '/wallet')
 
     unsubscribe()
     await unmountHome(rendered)
@@ -745,7 +753,7 @@ describe('Primary next step follows account access', () => {
       pending.container
         .querySelector('.lmm-intro-actions a')
         ?.getAttribute('href'),
-      '/sign-in?redirect=%2Fgetting-started'
+      '/sign-in?redirect=%2Fdashboard'
     )
     await unmountHome(pending)
 
@@ -754,10 +762,12 @@ describe('Primary next step follows account access', () => {
       ready.container
         .querySelector('.lmm-intro-actions a')
         ?.getAttribute('href'),
-      '/sign-in?redirect=%2Fgetting-started'
+      '/sign-in?redirect=%2Fdashboard'
     )
     assert.ok(
-      ready.container.textContent?.includes('Payment does not unlock access.')
+      ready.container.textContent?.includes(
+        'unlocks developer access (L1) automatically.'
+      )
     )
     await unmountHome(ready)
   })
@@ -770,7 +780,7 @@ describe('Primary next step follows account access', () => {
       rendered.container
         .querySelector('.lmm-intro-actions a')
         ?.textContent?.trim(),
-      'Sign in to get started'
+      'Sign in'
     )
     await unmountHome(rendered)
   })
@@ -794,7 +804,7 @@ describe('Primary next step follows account access', () => {
     await unmountHome(rendered)
   })
 
-  test('keeps a pending customer on the access-request path', async () => {
+  test('takes an inactive customer directly to L1 activation', async () => {
     const rendered = await renderHome({
       id: 12,
       username: 'pending',
@@ -805,12 +815,12 @@ describe('Primary next step follows account access', () => {
       '.lmm-intro-actions a'
     )
     assert.ok(purchase)
-    assert.equal(purchase.textContent?.trim(), 'Request API access')
+    assert.equal(purchase.textContent?.trim(), 'Enable L1 access')
     await act(async () => {
       purchase.click()
       await flushEffects()
     })
-    assert.equal(rendered.router.state.location.pathname, '/getting-started')
+    assert.equal(rendered.router.state.location.pathname, '/wallet')
     await unmountHome(rendered)
   })
 
@@ -825,7 +835,7 @@ describe('Primary next step follows account access', () => {
     assert.ok(main)
     assert.equal(
       main.querySelector('a')?.getAttribute('href'),
-      '/getting-started'
+      '/wallet'
     )
     assert.equal(main.querySelectorAll('ol li').length, 3)
     const question = Array.from(

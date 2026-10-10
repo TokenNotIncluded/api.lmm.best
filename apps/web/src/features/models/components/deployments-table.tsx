@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
+import { Rocket } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -223,9 +224,12 @@ export function DeploymentsTable() {
         isLoading={isLoading}
         isFetching={isFetching}
         emptyTitle={t('No Deployments Found')}
-        emptyDescription={t(
-          'No deployments available. Create one to get started.'
-        )}
+        emptyDescription={
+          keyword.trim() || activeStatus
+            ? t('No deployments match the current filters.')
+            : t('No deployments available. Create one to get started.')
+        }
+        emptyIcon={<Rocket />}
         skeletonKeyPrefix='deployment-skeleton'
         applyHeaderSize
         toolbarProps={{

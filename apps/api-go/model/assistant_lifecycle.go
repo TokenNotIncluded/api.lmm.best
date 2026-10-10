@@ -47,6 +47,16 @@ func deleteUserAssistantData(tx *gorm.DB, userID int) error {
 			return err
 		}
 	}
+	// These per-user moderation rows contain pending private text or owner
+	// notifications. Erase them under the account-deletion owner lock; financial
+	// penalty/appeal receipts remain in their existing accounting lifecycle.
+	for _, record := range []any{&ModerationJob{}, &ModerationNotice{}} {
+		if tx.Migrator().HasTable(record) {
+			if err := tx.Where("user_id = ?", userID).Delete(record).Error; err != nil {
+				return err
+			}
+		}
+	}
 	deletes := []struct {
 		model any
 		where string
@@ -66,7 +76,6 @@ func deleteUserAssistantData(tx *gorm.DB, userID int) error {
 		{&AssistantUserProfile{}, "user_id = ?", []any{userID}},
 		{&AssistantUserProfileAudit{}, "user_id = ?", []any{userID}},
 		{&AssistantNewUserGift{}, "user_id = ?", []any{userID}},
-		{&AdvancedSecurityEvent{}, "user_id = ?", []any{userID}},
 		{&DeveloperAccessRequest{}, "user_id = ?", []any{userID}},
 		{&AccountActionRequest{}, "target_user_id = ? OR requested_by_user_id = ?", []any{userID, userID}},
 		{&L1OnboardingTodo{}, "user_id = ?", []any{userID}},

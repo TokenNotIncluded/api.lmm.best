@@ -6,13 +6,14 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
-import { parseHeroSmsError } from './api.js'
+import { formatHeroSmsPlatformAmount, parseHeroSmsError } from './api.js'
 
-type Translate = (key: string) => string
+type Translate = (key: string, options?: { amount: string }) => string
 
 export function describeSmsAccessError(
   error: unknown,
-  t: Translate
+  t: Translate,
+  minimumBalance = formatHeroSmsPlatformAmount(10)
 ): { title: string; description: string } {
   const parsed = parseHeroSmsError(error)
   const code = parsed.code?.toUpperCase() ?? ''
@@ -39,7 +40,8 @@ export function describeSmsAccessError(
     return {
       title: t('Insufficient quota'),
       description: t(
-        'Temporary SMS purchases require a balance of at least USD 10'
+        'Temporary SMS purchases require a balance of at least {{amount}}',
+        { amount: minimumBalance }
       ),
     }
   }

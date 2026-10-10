@@ -204,9 +204,10 @@ export async function createOAuthFlow(
 
 // Start a browser-bound WeChat login flow before submitting the provider code.
 export async function startWechatLogin(acceptedLegal = false): Promise<string> {
+  const aff = getAffiliateCode()
   const res = await api.post(
     '/api/oauth/wechat/start',
-    { accepted_legal: acceptedLegal },
+    { accepted_legal: acceptedLegal, aff: aff || undefined },
     { skipAuthRefresh: true }
   )
   if (res.data?.success && typeof res.data.data?.flow_token === 'string') {

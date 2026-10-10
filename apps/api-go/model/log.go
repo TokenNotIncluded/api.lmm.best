@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	"github.com/LIghtJUNction/api.lmm.best/types"
 
@@ -166,14 +167,37 @@ func formatUserLogs(logs []*Log, startIdx int) {
 	assignDisplayLogIds(logs, startIdx)
 }
 
-func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
+const MaxTokenLogPageSize = 1000
+
+func tokenLogQuery(tokenId int) *gorm.DB {
 	order := "id desc"
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		order = clickHouseLogOrder("")
 	}
-	err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order).Limit(common.MaxRecentItems).Find(&logs).Error
+	return LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order)
+}
+
+func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
+	err = tokenLogQuery(tokenId).Limit(common.MaxRecentItems).Find(&logs).Error
 	formatUserLogs(logs, 0)
 	return logs, err
+}
+
+// GetLogByTokenIdPage counts and reads only the authenticated token's history.
+// The legacy reader deliberately does not incur an exact count.
+func GetLogByTokenIdPage(tokenId, startIdx, pageSize int) (logs []*Log, total int64, err error) {
+	if startIdx < 0 || pageSize < 1 || pageSize > MaxTokenLogPageSize || startIdx > int(^uint(0)>>1)-pageSize {
+		return nil, 0, errors.New("分页参数超出范围")
+	}
+	if err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	err = tokenLogQuery(tokenId).Offset(startIdx).Limit(pageSize).Find(&logs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	formatUserLogs(logs, startIdx)
+	return logs, total, nil
 }
 
 func RecordLog(userId int, logType int, content string) {
@@ -429,13 +453,17 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		logger.LogError(c, "failed to record log: "+err.Error())
 	}
 	if common.DataExportEnabled {
+		tokenUsed := params.PromptTokens + params.CompletionTokens
+		if params.Other["billing_exempt_reason"] == constant.BillingExemptReasonClaudeRefusalNoOutput {
+			tokenUsed = 0
+		}
 		LogQuotaData(QuotaDataLogParams{
 			UserID:    userId,
 			Username:  username,
 			ModelName: params.ModelName,
 			Quota:     params.Quota,
 			CreatedAt: createdAt,
-			TokenUsed: params.PromptTokens + params.CompletionTokens,
+			TokenUsed: tokenUsed,
 			UseGroup:  params.Group,
 			TokenID:   params.TokenId,
 			ChannelID: params.ChannelId,
@@ -656,7 +684,24 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
+// SumUsedQuota returns quota and current rate statistics. Optional request IDs
+// constrain both aggregates and preserve the legacy call shape for callers
+// that do not need request filtering.
+func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
+	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, 0, tokenName, channel, group, requestIDs...)
+}
+
+// SumUsedQuotaByUserID keeps self-service statistics tied to the authenticated
+// account. Usernames are mutable, while log.user_id is the stable ownership
+// boundary used by the self log listing endpoint.
+func SumUsedQuotaByUserID(logType int, startTimestamp int64, endTimestamp int64, modelName string, userID int, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
+	if userID <= 0 {
+		return Stat{}, errors.New("invalid user id")
+	}
+	return sumUsedQuota(logType, startTimestamp, endTimestamp, modelName, "", userID, tokenName, channel, group, requestIDs...)
+}
+
+func sumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, userID int, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
 
 	// 为rpm和tpm创建单独的查询
@@ -667,6 +712,10 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 	if rpmTpmQuery, err = applyExplicitLogTextFilter(rpmTpmQuery, "username", username); err != nil {
 		return stat, err
+	}
+	if userID != 0 {
+		tx = tx.Where("user_id = ?", userID)
+		rpmTpmQuery = rpmTpmQuery.Where("user_id = ?", userID)
 	}
 	if tokenName != "" {
 		tx = tx.Where("token_name = ?", tokenName)
@@ -692,6 +741,14 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		tx = tx.Where(logGroupCol+" = ?", group)
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
 	}
+	if len(requestIDs) > 0 && requestIDs[0] != "" {
+		tx = tx.Where("request_id = ?", requestIDs[0])
+		rpmTpmQuery = rpmTpmQuery.Where("request_id = ?", requestIDs[0])
+	}
+	if len(requestIDs) > 1 && requestIDs[1] != "" {
+		tx = tx.Where("upstream_request_id = ?", requestIDs[1])
+		rpmTpmQuery = rpmTpmQuery.Where("upstream_request_id = ?", requestIDs[1])
+	}
 
 	tx = tx.Where("type = ?", LogTypeConsume)
 	rpmTpmQuery = rpmTpmQuery.Where("type = ?", LogTypeConsume)
@@ -704,10 +761,18 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		common.SysError("failed to query log stat: " + err.Error())
 		return stat, errors.New("查询统计数据失败")
 	}
-	if err := rpmTpmQuery.Scan(&stat).Error; err != nil {
+	// Scan the rate window into its own struct. Reusing stat lets the rpm/tpm
+	// columns overwrite the quota sum from the first query.
+	var rateStat struct {
+		Rpm int
+		Tpm int
+	}
+	if err := rpmTpmQuery.Scan(&rateStat).Error; err != nil {
 		common.SysError("failed to query rpm/tpm stat: " + err.Error())
 		return stat, errors.New("查询统计数据失败")
 	}
+	stat.Rpm = rateStat.Rpm
+	stat.Tpm = rateStat.Tpm
 
 	return stat, nil
 }

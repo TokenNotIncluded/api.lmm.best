@@ -15,9 +15,11 @@ type UpstreamRequest struct {
 
 // TestResult 上游测试连通性结果
 type TestResult struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Name            string            `json:"name"`
+	Status          string            `json:"status"`
+	Error           string            `json:"error,omitempty"`
+	SourceProviders map[string]string `json:"source_providers,omitempty"`
+	SkippedModels   map[string]string `json:"skipped_models,omitempty"`
 }
 
 // DifferenceItem 差异项

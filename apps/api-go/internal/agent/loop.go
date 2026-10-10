@@ -107,7 +107,7 @@ func (g *LoopGuard) Allow(call Call, readOnly bool) bool {
 	if readOnly && state.epoch != g.epoch {
 		state = callState{epoch: g.epoch}
 	}
-	if (!readOnly && state.success) || state.attempts >= 2 {
+	if state.success || state.attempts >= 2 {
 		return false
 	}
 	state.attempts++
@@ -116,12 +116,14 @@ func (g *LoopGuard) Allow(call Call, readOnly bool) bool {
 }
 
 func (g *LoopGuard) Complete(call Call, readOnly, success bool) {
-	if !success || readOnly {
+	if !success {
 		return
 	}
 	key := callFingerprint(call)
 	state := g.calls[key]
 	state.success = true
 	g.calls[key] = state
-	g.epoch++
+	if !readOnly {
+		g.epoch++
+	}
 }

@@ -18,23 +18,44 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { PricingModel } from '@/features/pricing/types'
 
+type AssistantPricingModel = PricingModel & {
+  input_price?: number | null
+  output_price?: number | null
+  pricing_schema_version?: number
+  pricing_currency?: string
+}
+
 export type AssistantCostEstimate = {
   inputRatePerMillionUSD: number
   outputRatePerMillionUSD: number
   totalUSD: number
 }
 
+export function hasAssistantUSDTextRates(
+  model: AssistantPricingModel
+): boolean {
+  return (
+    model.quota_type === 0 &&
+    model.billing_mode !== 'tiered_expr' &&
+    model.pricing_schema_version === 2 &&
+    model.pricing_currency === 'USD' &&
+    typeof model.input_price === 'number' &&
+    Number.isFinite(model.input_price) &&
+    model.input_price >= 0 &&
+    typeof model.output_price === 'number' &&
+    Number.isFinite(model.output_price) &&
+    model.output_price >= 0
+  )
+}
+
 export function calculateAssistantTextCost(
-  model: PricingModel,
+  model: AssistantPricingModel,
   groupRatio: number,
   inputTokens: number,
   outputTokens: number
 ): AssistantCostEstimate | null {
   if (
-    model.quota_type !== 0 ||
-    model.billing_mode === 'tiered_expr' ||
-    !Number.isFinite(model.model_ratio) ||
-    !Number.isFinite(model.completion_ratio) ||
+    !hasAssistantUSDTextRates(model) ||
     !Number.isFinite(groupRatio) ||
     !Number.isFinite(inputTokens) ||
     !Number.isFinite(outputTokens) ||
@@ -45,14 +66,36 @@ export function calculateAssistantTextCost(
     return null
   }
 
-  const inputRatePerMillionUSD = model.model_ratio * 2 * groupRatio
-  const outputRatePerMillionUSD =
-    inputRatePerMillionUSD * model.completion_ratio
+  // Schema 2 publishes real USD rates; model_ratio stays in calibrated
+  // credits per token for settlement and must never be treated as USD.
+  const inputRateUSD = model.input_price
+  const outputRateUSD = model.output_price
+  if (
+    typeof inputRateUSD !== 'number' ||
+    typeof outputRateUSD !== 'number' ||
+    !Number.isFinite(inputRateUSD) ||
+    !Number.isFinite(outputRateUSD) ||
+    inputRateUSD < 0 ||
+    outputRateUSD < 0
+  ) {
+    return null
+  }
+
+  const inputRatePerMillionUSD = inputRateUSD * groupRatio
+  const outputRatePerMillionUSD = outputRateUSD * groupRatio
+  const totalUSD =
+    (inputTokens / 1_000_000) * inputRatePerMillionUSD +
+    (outputTokens / 1_000_000) * outputRatePerMillionUSD
+  if (
+    !Number.isFinite(inputRatePerMillionUSD) ||
+    !Number.isFinite(outputRatePerMillionUSD) ||
+    !Number.isFinite(totalUSD)
+  ) {
+    return null
+  }
   return {
     inputRatePerMillionUSD,
     outputRatePerMillionUSD,
-    totalUSD:
-      (inputTokens / 1_000_000) * inputRatePerMillionUSD +
-      (outputTokens / 1_000_000) * outputRatePerMillionUSD,
+    totalUSD,
   }
 }

@@ -1,10 +1,12 @@
 package relay
 
 import (
-	"encoding/json"
+	"bytes"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
@@ -15,43 +17,89 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestCheckAdvancedSecurityTaskPromptBlocksBeforeUpstream(t *testing.T) {
-	originalSettings := setting.GetAdvancedSecuritySettings()
+func setupTaskModerationTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
 	originalDB := model.DB
 	t.Cleanup(func() {
 		model.DB = originalDB
-		setting.SetAdvancedSecurityEnabled(originalSettings.Enabled)
-		setting.SetAdvancedSecurityOnPrompt(originalSettings.OnPrompt)
-		require.NoError(t, setting.UpdateAdvancedSecurityAction(originalSettings.Action))
-		require.NoError(t, setting.UpdateAdvancedSecurityRules(advancedSecurityRulesJSONForTest(originalSettings)))
 	})
 
-	db, err := gorm.Open(sqlite.Open("file:relay-task-security?mode=memory&cache=shared"), &gorm.Config{})
+	dsn := "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.AdvancedSecurityEvent{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.ModerationJob{}))
+	require.NoError(t, db.Create(&model.User{Id: 42, Username: "task-moderation", Password: "offline-test-password", Group: "default", Status: common.UserStatusEnabled}).Error)
 	model.DB = db
+	t.Cleanup(func() {
+		sqlDB, err := db.DB()
+		if err == nil {
+			require.NoError(t, sqlDB.Close())
+		}
+	})
+	return db
+}
 
-	setting.SetAdvancedSecurityEnabled(true)
-	setting.SetAdvancedSecurityOnPrompt(true)
-	require.NoError(t, setting.UpdateAdvancedSecurityAction(setting.AdvancedSecurityActionBlock))
-	require.NoError(t, setting.UpdateAdvancedSecurityRules(`[{"id":"task-rule","category":"computer_network_compromise","enabled":true,"groups":["default"],"patterns":["blocked task prompt"]}]`))
-
+func newTaskModerationTestContext() (*gin.Context, *relaycommon.RelayInfo) {
+	const prompt = "please use a blocked task prompt now"
+	body := []byte(`{"prompt":"please use a blocked task prompt now","system":"private system context","history":["earlier user input"],"tool_result":"private tool result"}`)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest("POST", "/v1/videos", nil)
+	c.Request = httptest.NewRequest("POST", "/v1/videos", bytes.NewReader(body))
 	c.Set("id", 42)
-	c.Set("task_request", relaycommon.TaskSubmitReq{Prompt: "please use a blocked task prompt now"})
+	c.Set("task_request", relaycommon.TaskSubmitReq{Prompt: prompt})
+	return c, &relaycommon.RelayInfo{
+		RequestId: "task-current-user-turn", UserId: 42,
+		UserGroup: "default", UsingGroup: "task-routing-group",
+	}
+}
 
-	taskErr := checkAdvancedSecurityTaskPrompt(c, &relaycommon.RelayInfo{UserId: 42, UserGroup: "default", UsingGroup: "default"})
-	require.NotNil(t, taskErr)
-	assert.Equal(t, "advanced_security_guardrail", taskErr.Code)
-	assert.Equal(t, 400, taskErr.StatusCode)
+func TestCheckAdvancedSecurityTaskPromptQueuesCurrentInputWithoutBlocking(t *testing.T) {
+	t.Run("current moderation", func(t *testing.T) {
+		db := setupTaskModerationTestDB(t)
+		settings := setting.DefaultModerationSettings()
+		settings.Enabled = true
+		settings.Group = "moderation-review-group"
+		settings.GroupPolicies = map[string]setting.ModerationGroupPolicy{
+			"default":            {Mode: setting.ModerationModeStrict, CategoryFinesUSD: map[string]float64{"violence": 0.5}},
+			"task-routing-group": {Mode: setting.ModerationModeOff},
+		}
+		for key, value := range settings.OptionValues() {
+			require.NoError(t, db.Create(&model.Option{Key: key, Value: value}).Error)
+		}
+		c, info := newTaskModerationTestContext()
+		require.Nil(t, checkAdvancedSecurityTaskPrompt(c, info))
+		require.False(t, c.IsAborted())
 
-	var events []model.AdvancedSecurityEvent
-	require.NoError(t, db.Find(&events).Error)
-	require.Len(t, events, 1)
-	assert.Equal(t, model.AdvancedSecurityDecisionBlocked, events[0].Decision)
-	assert.NotEmpty(t, events[0].InputDigest)
-	assert.NotContains(t, events[0].InputDigest, "blocked task prompt")
+		var jobs []model.ModerationJob
+		require.NoError(t, db.Find(&jobs).Error)
+		require.Len(t, jobs, 1)
+		job := jobs[0]
+		assert.Equal(t, info.RequestId, job.RequestID)
+		assert.Equal(t, info.UserId, job.UserID)
+		assert.Equal(t, model.ModerationSourceRelayInput, job.Source)
+		assert.Equal(t, "default", job.Group)
+		assert.Equal(t, settings.Group, job.ReviewGroup)
+		assert.Equal(t, setting.DefaultModerationModel, job.ReviewModel)
+		assert.Equal(t, setting.ModerationModeStrict, job.CapturedMode)
+		assert.JSONEq(t, `{"violence":0.5}`, job.CapturedCategoryFinesJSON)
+		assert.Equal(t, model.ModerationJobPending, job.Status)
+		assert.Equal(t, "please use a blocked task prompt now", job.Payload)
+		assert.NotEmpty(t, job.InputDigest)
+		assert.NotContains(t, job.InputDigest, "blocked task prompt")
+		assert.NotContains(t, job.Payload, "private system context")
+		assert.NotContains(t, job.Payload, "earlier user input")
+		assert.NotContains(t, job.Payload, "private tool result")
+	})
+}
+
+func TestCheckAdvancedSecurityTaskPromptDefaultDisabledDoesNotEnqueueOrBlock(t *testing.T) {
+	db := setupTaskModerationTestDB(t)
+	// Retired literal configuration must not override the new opt-in default.
+	c, info := newTaskModerationTestContext()
+	require.Nil(t, checkAdvancedSecurityTaskPrompt(c, info))
+	require.False(t, c.IsAborted())
+	var jobCount int64
+	require.NoError(t, db.Model(&model.ModerationJob{}).Count(&jobCount).Error)
+	assert.Zero(t, jobCount)
 }
 
 func TestTaskPromptFromContextSupportsSunoAndStandardRequests(t *testing.T) {
@@ -64,12 +112,4 @@ func TestTaskPromptFromContextSupportsSunoAndStandardRequests(t *testing.T) {
 	c.Set("task_request", &struct{ Prompt string }{Prompt: "unsupported request"})
 	_, ok = taskPromptFromContext(c)
 	assert.False(t, ok)
-}
-
-func advancedSecurityRulesJSONForTest(settings setting.AdvancedSecuritySettings) string {
-	encoded, err := json.Marshal(settings.RuleSet)
-	if err != nil {
-		panic(err)
-	}
-	return string(encoded)
 }

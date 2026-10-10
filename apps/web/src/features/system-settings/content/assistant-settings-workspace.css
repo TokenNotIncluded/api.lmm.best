@@ -74,8 +74,6 @@ License, or (at your option) any later version.
   line-height: 1.7;
 }
 .assistant-settings-footer {
-  position: sticky;
-  bottom: 0;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -83,7 +81,11 @@ License, or (at your option) any later version.
   margin-top: 28px;
   border-top: 1px solid var(--border);
   background: var(--background);
-  z-index: 2;
+}
+/* The inline footer is a standalone fallback, never a second save dock. */
+.settings-workspace:has(.settings-save-target .settings-form-actions)
+  .assistant-settings-footer {
+  display: none;
 }
 @media (max-width: 640px) {
   .assistant-settings-toolbar {
@@ -99,5 +101,30 @@ License, or (at your option) any later version.
   .assistant-settings-footer > button {
     min-height: 44px;
     flex: 1;
+  }
+}
+
+/* Tool configuration remains reachable when a group is switched off. */
+.assistant-tool-center .assistant-tool-group {
+  margin-top: 1.75rem;
+}
+.assistant-tool-center .assistant-tool-row {
+  border-color: color-mix(in oklch, var(--border) 55%, transparent);
+}
+.assistant-tool-center .assistant-tool-row:hover {
+  background: color-mix(in oklch, var(--muted) 35%, transparent);
+}
+@media (max-width: 600px) {
+  .assistant-tool-center .assistant-tool-row {
+    flex-direction: column;
+    gap: 0.8rem;
+    padding: 1rem;
+  }
+  .assistant-tool-center .assistant-tool-row-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .assistant-tool-center .assistant-tool-row-actions button {
+    min-height: 2.75rem;
   }
 }

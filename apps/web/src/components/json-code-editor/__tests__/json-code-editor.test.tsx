@@ -79,6 +79,8 @@ await i18next.use(initReactI18next).init({
   },
 })
 const { JsonCodeEditor } = await import('../../json-code-editor')
+const { formatPaymentAmountOptionsJson, formatPaymentAmountDiscountJson } =
+  await import('../../../features/system-settings/integrations/payment-amount-options')
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
@@ -197,6 +199,48 @@ describe('JsonCodeEditor component', () => {
     assert.deepEqual(changes, ['{\n  "model": {\n    "ratio": 2\n  }\n}'])
 
     await unmountEditor(rendered)
+  })
+
+  test('financial formatting preserves precise amounts and leaves invalid monetary drafts unchanged', async () => {
+    const cases = [
+      {
+        value: '[18014398509.481982]',
+        formatValue: (value: string) =>
+          formatPaymentAmountOptionsJson(value, 'USD'),
+        expected: ['[\n  18014398509.481982\n]'],
+      },
+      {
+        value: '[3.5000000000000001]',
+        formatValue: (value: string) =>
+          formatPaymentAmountOptionsJson(value, 'USD'),
+        expected: [],
+      },
+      {
+        value: '{"3.5":0.98,"3.5":0.97}',
+        formatValue: (value: string) =>
+          formatPaymentAmountDiscountJson(value, 'USD'),
+        expected: [],
+      },
+    ]
+    for (const item of cases) {
+      const changes: string[] = []
+      const rendered = await renderEditor({
+        value: item.value,
+        formatValue: item.formatValue,
+        onChange: (value) => changes.push(value),
+      })
+      try {
+        const formatButton =
+          rendered.container.querySelector<HTMLButtonElement>(
+            '[aria-label="Format JSON"]'
+          )
+        assert.ok(formatButton)
+        await act(async () => formatButton.click())
+        assert.deepEqual(changes, item.expected)
+      } finally {
+        await unmountEditor(rendered)
+      }
+    }
   })
 
   test('shows a safe example and fills it without changing the editor contract', async () => {

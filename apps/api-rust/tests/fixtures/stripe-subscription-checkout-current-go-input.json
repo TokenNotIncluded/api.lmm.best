@@ -1,0 +1,23 @@
+[
+  {"name":"usd_plan"},
+  {"name":"cny_fiat_conversion","plan_currency":"CNY"},
+  {"name":"existing_customer","customer":"cus_existing"},
+  {"name":"case_folded_plan_id","body":"{\"PLAN_ID\":3}"},
+  {"name":"duplicate_null_plan_id","body":"{\"plan_id\":3,\"plan_id\":null}"},
+  {"name":"invalid_json","body":"{"},
+  {"name":"missing_plan_id","body":"{}"},
+  {"name":"disabled_plan","disabled":true},
+  {"name":"purchase_limit","purchased":true},
+  {"name":"unsupported_currency","plan_currency":"EUR"},
+  {"name":"inactive_price","price_mode":"inactive"},
+  {"name":"non_recurring_price","price_mode":"one_time"},
+  {"name":"wrong_price_id","price_mode":"wrong_id"},
+  {"name":"wrong_price_currency","price_mode":"wrong_currency"},
+  {"name":"wrong_price_amount","price_mode":"wrong_amount"},
+  {"name":"price_provider_failure","price_mode":"read_failure"},
+  {"name":"order_storage_failure","fail_order":true},
+  {"name":"checkout_provider_failure","fail_checkout":true},
+  {"name":"webhook_not_configured","no_webhook":true},
+  {"name":"restricted_account","restricted":true},
+  {"name":"explicit_audience_all","restricted":true,"explicit_audience":true}
+]

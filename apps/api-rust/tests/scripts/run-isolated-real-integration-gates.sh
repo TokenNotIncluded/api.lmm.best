@@ -190,6 +190,9 @@ pg_url="postgresql://$pg_app:$pg_app_password@127.0.0.1:$pg_port/$pg_database?op
 PGPASSWORD="$pg_app_password" psql "postgresql://$pg_app:$pg_app_password@127.0.0.1:$pg_port/$pg_database" \
   -v ON_ERROR_STOP=1 -v schema_name="$pg_schema" -c 'CREATE SCHEMA :"schema_name" AUTHORIZATION CURRENT_USER' >/dev/null
 PGPASSWORD="$pg_app_password" psql "$pg_url" -v ON_ERROR_STOP=1 -f <(sed "s/public\./\"$pg_schema\"./g" "$script_dir/../../crates/lmm-db-migrate/schema/postgresql-baseline.sql") >/dev/null
+# Keep the frozen contract-1 rehearsal while supplying the nullable snapshots
+# that current listener readiness checks.
+PGPASSWORD="$pg_app_password" psql "$pg_url" -v ON_ERROR_STOP=1 -f <(sed "s/__LMM_APP_SCHEMA__/\"$pg_schema\"/g" "$script_dir/../../migrations/0018_subscription_amount_snapshots.sql") >/dev/null
 PGPASSWORD="$pg_app_password" psql "$pg_url" -v ON_ERROR_STOP=1 -f <(sed "s/__LMM_APP_SCHEMA__/\"$pg_schema\"/g" "$script_dir/../../migrations/0001_schema_contract.sql") >/dev/null
 PGPASSWORD="$pg_app_password" psql "$pg_url" -v ON_ERROR_STOP=1 -c \
   "INSERT INTO \"$pg_schema\".options(key,value) VALUES ('SystemName','N/N-1 compatibility fixture'),('RegisterEnabled','false'),('PasswordLoginEnabled','true') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;" >/dev/null

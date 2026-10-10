@@ -16,6 +16,7 @@ var l1AutoReviewTestModels = []any{&User{}, &Token{}, &Option{}, &Channel{}, &Ab
 
 func seedL1AutoReviewTest(t *testing.T) (User, User, DeveloperAccessRequest, setting.AssistantL1AutoReviewSettings) {
 	t.Helper()
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	previousSettings := setting.GetAssistantL1AutoReviewSettings()
 	previousGroups := ratio_setting.GroupRatio2JSONString()
 	previousRedis := common.RedisEnabled

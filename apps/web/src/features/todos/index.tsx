@@ -45,12 +45,6 @@ const AssistantLeadsPanel = lazy(() =>
     (module) => ({ default: module.AssistantLeadsPanel })
   )
 )
-const DeveloperAccessRequestsPanel = lazy(() =>
-  import('@/features/users/components/developer-access-requests-panel').then(
-    (module) => ({ default: module.DeveloperAccessRequestsPanel })
-  )
-)
-
 export function Todos() {
   const { t } = useTranslation()
   const search = useSearch({ from: '/_authenticated/todos/' })
@@ -59,8 +53,6 @@ export function Todos() {
   const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
   const focusAccountActionId =
     search.todo === 'account_action' ? search.request : undefined
-  const focusDeveloperAccessId =
-    search.todo === 'developer_access' ? search.request : undefined
 
   return (
     <SectionPageLayout>
@@ -83,15 +75,6 @@ export function Todos() {
               >
                 <AccountActionRequestsPanel
                   focusRequestId={focusAccountActionId}
-                />
-              </AdminTodoSection>
-              <AdminTodoSection
-                title={t('L1 access requests')}
-                initiallyExpanded={focusDeveloperAccessId !== undefined}
-                focusRequestId={focusDeveloperAccessId}
-              >
-                <DeveloperAccessRequestsPanel
-                  focusRequestId={focusDeveloperAccessId}
                 />
               </AdminTodoSection>
             </div>

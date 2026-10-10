@@ -98,7 +98,7 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
   return (
     <div
       className={cn(
-        'grid w-full grid-cols-3 gap-x-3 text-left tabular-nums min-[460px]:w-[170px] min-[460px]:grid-cols-[44px_56px_54px] min-[460px]:gap-x-2 min-[460px]:text-right',
+        'grid w-full grid-cols-3 gap-x-3 text-left tabular-nums',
         props.className
       )}
     >
@@ -126,10 +126,7 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
         <div className='text-muted-foreground truncate text-[11px] leading-4 font-medium'>
           {t('Status short')}
         </div>
-        <ModelPerfStatus
-          perf={props.perf}
-          className='min-[460px]:justify-end'
-        />
+        <ModelPerfStatus perf={props.perf} />
       </div>
     </div>
   )

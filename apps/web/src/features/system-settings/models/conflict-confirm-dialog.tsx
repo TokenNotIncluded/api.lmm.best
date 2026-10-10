@@ -60,7 +60,7 @@ export function ConflictConfirmDialog({
           <AlertDialogTitle>{t('Confirm Billing Conflicts')}</AlertDialogTitle>
           <AlertDialogDescription>
             {t(
-              'The following models have billing type conflicts (fixed price vs ratio billing). Confirm to proceed with the changes.'
+              'The following models will change billing mode. Confirm to apply the selected prices and replace the previous billing mode.'
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>

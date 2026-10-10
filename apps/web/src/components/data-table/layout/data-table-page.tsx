@@ -485,7 +485,17 @@ function renderMobile<TData>(
     }
   }
 
-  return <div className='min-h-0 flex-1 overflow-y-auto'>{mobileContent}</div>
+  return (
+    <div
+      className={
+        props.fixedHeight !== false
+          ? 'min-h-0 flex-1 overflow-y-auto'
+          : undefined
+      }
+    >
+      {mobileContent}
+    </div>
+  )
 }
 
 function renderDesktop<TData>(

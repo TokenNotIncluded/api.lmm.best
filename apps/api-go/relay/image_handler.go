@@ -10,6 +10,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
+	"github.com/LIghtJUNction/api.lmm.best/relay/channel"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	relayconstant "github.com/LIghtJUNction/api.lmm.best/relay/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
@@ -116,11 +117,19 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		}
 	}
 
-	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
+	usage, newAPIError := channel.DoResponse(adaptor, c, httpResp, info)
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
 		return newAPIError
+	}
+	delivery := relaycommon.ImageDeliveryHooksFromContext(c.Request.Context())
+	if delivery.BeforeBilling != nil {
+		if err := delivery.BeforeBilling(); err != nil {
+			// No normal model settlement has run. The existing failed-relay
+			// path refunds prepayment and must not retry an already generated image.
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+		}
 	}
 
 	imageN := uint(1)
@@ -152,6 +161,13 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		logContent = append(logContent, fmt.Sprintf("生成数量 %d", imageN))
 	}
 
-	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)
+	billingErr := service.PostTextConsumeQuotaWithResult(c, info, usage.(*dto.Usage), logContent)
+	if delivery.AfterBilling != nil {
+		if err := delivery.AfterBilling(billingErr); err != nil {
+			// Billing may already be committed. Keep the retained image pending;
+			// returning a relay failure here could incorrectly refund that charge.
+			logger.LogError(c, "image delivery completion could not be recorded")
+		}
+	}
 	return nil
 }

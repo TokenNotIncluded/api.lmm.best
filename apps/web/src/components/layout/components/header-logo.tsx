@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { BrandLogo } from '@/components/brand-logo'
-import { DEFAULT_LOGO } from '@/lib/constants'
+import { isDefaultLogo } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 interface HeaderLogoProps {
@@ -47,7 +47,7 @@ export function HeaderLogo({
   decoding,
   fetchPriority,
 }: HeaderLogoProps) {
-  const isCustomLogo = src !== DEFAULT_LOGO
+  const isCustomLogo = !isDefaultLogo(src)
   let visibilityClassName: string | undefined
   if (isCustomLogo) {
     visibilityClassName = loading || !logoLoaded ? 'opacity-0' : 'opacity-100'

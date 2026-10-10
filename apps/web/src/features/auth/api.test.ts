@@ -22,7 +22,7 @@ import { describe, test } from 'node:test'
 import { api, type RefreshOutcome } from '@/lib/api'
 import type { AuthBundle } from '@/stores/auth-store'
 
-import { createOAuthFlow, executeLogout } from './api'
+import { createOAuthFlow, executeLogout, startWechatLogin } from './api'
 
 const bundle: AuthBundle = {
   access_token: 'access-token',
@@ -137,6 +137,54 @@ describe('logout coordination', () => {
 })
 
 describe('OAuth flow initialization', () => {
+  test('carries the stored invitation into the browser-bound WeChat flow', async () => {
+    const originalPost = api.post
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    const requests: Array<{ body: unknown; config: unknown }> = []
+    let affiliateCode: string | null = 'inviter-code'
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        localStorage: {
+          getItem: (key: string) => {
+            assert.equal(key, 'aff')
+            return affiliateCode
+          },
+        },
+      },
+    })
+    api.post = (async (url: string, body: unknown, config: unknown) => {
+      assert.equal(url, '/api/oauth/wechat/start')
+      requests.push({ body, config })
+      return {
+        data: { success: true, data: { flow_token: 'wechat-flow-token' } },
+      }
+    }) as typeof api.post
+
+    try {
+      assert.equal(await startWechatLogin(true), 'wechat-flow-token')
+      affiliateCode = null
+      await startWechatLogin()
+      assert.deepEqual(requests, [
+        {
+          body: { accepted_legal: true, aff: 'inviter-code' },
+          config: { skipAuthRefresh: true },
+        },
+        {
+          body: { accepted_legal: false, aff: undefined },
+          config: { skipAuthRefresh: true },
+        },
+      ])
+    } finally {
+      api.post = originalPost
+      if (originalWindow) {
+        Object.defineProperty(globalThis, 'window', originalWindow)
+      } else {
+        Reflect.deleteProperty(globalThis, 'window')
+      }
+    }
+  })
+
   test('sends legal consent for login flows', async () => {
     const originalPost = api.post
     let requestBody: unknown

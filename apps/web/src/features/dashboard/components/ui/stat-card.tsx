@@ -23,6 +23,8 @@ import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
+import { useCountUp } from '../../hooks/use-count-up'
+
 type StatCardTone = 'accent-1' | 'accent-2' | 'accent-3'
 type StatCardSparklineVariant = 'bars' | 'line'
 type StatCardDetailTone =
@@ -53,6 +55,13 @@ interface StatCardProps {
   iconTone?: IconBadgeTone
   plain?: boolean
   compactMobile?: boolean
+  /**
+   * Counts the metric up once on first paint. Only numeric values can roll
+   * without lying about the figure, so formatted strings stay untouched.
+   */
+  animateValue?: boolean
+  /** Renders the rolled number; returns the final display text. */
+  formatValue?: (value: number) => string
 }
 
 const TONE_CLASSES: Record<StatCardTone, string> = {
@@ -228,11 +237,37 @@ function StatCardDetails(props: { details: StatCardDetail[] }) {
   )
 }
 
+function CountUpValue(props: {
+  value: number
+  format: (value: number) => string
+}) {
+  const animated = useCountUp(props.value)
+  const settled = animated ?? props.value
+
+  return (
+    <>
+      <span aria-hidden='true'>{props.format(settled)}</span>
+      {/*
+        Screen readers must hear one stable figure, never a stream of
+        intermediate ones, so the rolling text is hidden from the a11y tree.
+      */}
+      <span className='sr-only'>{props.format(props.value)}</span>
+    </>
+  )
+}
+
 export function StatCard(props: StatCardProps) {
   const Icon = props.icon
   const tone = props.tone ?? 'accent-3'
   const iconTone = props.iconTone ?? ICON_TONE_BY_STAT_TONE[tone]
   const sparklineVariant = props.sparklineVariant ?? 'bars'
+  const numericValue =
+    typeof props.value === 'number' && Number.isFinite(props.value)
+      ? props.value
+      : null
+  // A roll needs an honest number and a formatter; anything else renders as-is.
+  const rollable =
+    Boolean(props.animateValue) && numericValue !== null && !props.loading
   let valueContent: ReactNode
   if (props.loading) {
     valueContent = (
@@ -276,7 +311,16 @@ export function StatCard(props: StatCardProps) {
             props.plain ? 'sm:text-xl' : 'font-mono sm:text-2xl'
           )}
         >
-          {props.value}
+          {rollable && numericValue !== null ? (
+            <CountUpValue
+              value={numericValue}
+              format={
+                props.formatValue ?? ((value) => String(Math.round(value)))
+              }
+            />
+          ) : (
+            props.value
+          )}
         </div>
         <p
           className={cn(

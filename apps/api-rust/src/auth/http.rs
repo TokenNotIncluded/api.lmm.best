@@ -614,7 +614,7 @@ async fn self_user(State(state): State<AuthHttpState>, request: Request) -> Resp
             .into_response();
             response.headers_mut().insert(
                 "auth-version",
-                HeaderValue::from_static("864b7076dbcd0a3c01b5520316720ebf"),
+                HeaderValue::from_static(crate::auth_version::AUTH_VERSION),
             );
             response
         }
@@ -878,13 +878,18 @@ fn bundle_response(bundle: AuthBundle, cookie_secure: bool) -> Response {
     response
 }
 
-fn with_clear_cookie(mut response: Response, secure: bool) -> Response {
+pub(crate) fn with_clear_cookie(mut response: Response, secure: bool) -> Response {
     disable_cache(&mut response, false);
     let cookie = clear_cookie(secure);
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);
     }
     response
+}
+
+pub(crate) fn refresh_cookie_session_id(headers: &HeaderMap) -> Option<String> {
+    let raw = cookie(headers, REFRESH_COOKIE_NAME)?;
+    super::token::split_refresh_token(&SecretString::from(raw)).map(|(sid, _)| sid)
 }
 
 fn refresh_cookie(token: &str, expires_at: i64, secure: bool) -> String {
@@ -1780,7 +1785,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers()["auth-version"],
-            "864b7076dbcd0a3c01b5520316720ebf"
+            crate::auth_version::AUTH_VERSION
         );
         Ok(())
     }

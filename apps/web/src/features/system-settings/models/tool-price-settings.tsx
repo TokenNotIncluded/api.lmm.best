@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Code2, Copy, Eye, Plus, Trash2 } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,7 +29,13 @@ import { Field, FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
-import { useUpdateOption } from '../hooks/use-update-option'
+import { showOptionUpdateToast } from '../utils/option-update-toast'
+import {
+  MODEL_PRICING_QUERY_KEY,
+  updateModelPricingConfig,
+  type ModelPricingConfig,
+} from './model-pricing-api'
+import { buildToolPriceOverrides } from './tool-price-overrides'
 
 const OPTION_KEY = 'tool_price_setting.prices'
 
@@ -78,9 +85,10 @@ function objectToRows(prices: Record<string, number>): ToolPriceRow[] {
 }
 
 function parseInitialPrices(
-  rawValue: string | undefined
+  rawValue: string | undefined,
+  defaults = DEFAULT_PRICES
 ): Record<string, number> {
-  if (!rawValue) return { ...DEFAULT_PRICES }
+  if (!rawValue) return { ...defaults }
   try {
     const parsed = JSON.parse(rawValue) as unknown
     if (
@@ -98,39 +106,73 @@ function parseInitialPrices(
       // Merge defaults first so newly introduced tools appear for old stored
       // configs, while explicit stored values (including 0) still win.
       return {
-        ...DEFAULT_PRICES,
+        ...defaults,
         ...validPrices,
       }
     }
   } catch {
     // fall through to defaults
   }
-  return { ...DEFAULT_PRICES }
+  return { ...defaults }
 }
 
 type ToolPriceSettingsProps = {
   defaultValue: string
+  pricingConfig?: ModelPricingConfig
 }
 
 export const ToolPriceSettings = memo(function ToolPriceSettings({
   defaultValue,
+  pricingConfig,
 }: ToolPriceSettingsProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const queryClient = useQueryClient()
+  const defaultUsdPrices = useMemo(
+    () =>
+      pricingConfig?.tool_price_defaults ||
+      Object.fromEntries(
+        Object.entries(DEFAULT_PRICES).map(([key, value]) => [
+          key,
+          value / (pricingConfig?.legacy_pricing_units_per_usd || 1),
+        ])
+      ),
+    [
+      pricingConfig?.tool_price_defaults,
+      pricingConfig?.legacy_pricing_units_per_usd,
+    ]
+  )
+  const updateOption = useMutation({
+    mutationFn: async (value: string) => {
+      if (!pricingConfig) throw new Error(t('Failed to load USD model prices'))
+      return updateModelPricingConfig(pricingConfig, { [OPTION_KEY]: value })
+    },
+    onSuccess: (response) => {
+      queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, response.data)
+      showOptionUpdateToast(response, t('Setting updated successfully'))
+    },
+    onError: (error: Error) => {
+      void queryClient.invalidateQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
+      toast.error(error.message)
+    },
+  })
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
   const [rows, setRows] = useState<ToolPriceRow[]>([])
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState('')
   const [nextRowId, setNextRowId] = useState(1)
+  const [defaultsRestored, setDefaultsRestored] = useState(false)
+  const [jsonEdited, setJsonEdited] = useState(false)
 
   useEffect(() => {
-    const prices = parseInitialPrices(defaultValue)
+    const prices = parseInitialPrices(defaultValue, defaultUsdPrices)
     const initialRows = objectToRows(prices)
     setRows(initialRows)
-    setJsonText(JSON.stringify(prices, null, 2))
+    setJsonText(defaultValue || '{}')
     setJsonError('')
     setNextRowId(initialRows.length + 1)
-  }, [defaultValue])
+    setDefaultsRestored(false)
+    setJsonEdited(false)
+  }, [defaultValue, defaultUsdPrices])
 
   const currentPrices = useMemo(() => rowsToObject(rows), [rows])
   const invalidRowIds = useMemo(
@@ -143,15 +185,30 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
     [rows]
   )
 
-  const syncFromRows = useCallback((nextRows: ToolPriceRow[]) => {
-    setRows(nextRows)
-    setJsonText(JSON.stringify(rowsToObject(nextRows), null, 2))
-    setJsonError('')
-  }, [])
+  const syncFromRows = useCallback(
+    (nextRows: ToolPriceRow[]) => {
+      setRows(nextRows)
+      setJsonText(
+        JSON.stringify(
+          buildToolPriceOverrides(
+            rowsToObject(nextRows),
+            defaultsRestored ? '{}' : defaultValue,
+            defaultUsdPrices
+          ),
+          null,
+          2
+        )
+      )
+      setJsonError('')
+      setJsonEdited(false)
+    },
+    [defaultsRestored, defaultValue, defaultUsdPrices]
+  )
 
   const handleJsonChange = useCallback(
     (text: string) => {
       setJsonText(text)
+      setJsonEdited(true)
       try {
         const parsed = JSON.parse(text) as unknown
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -168,7 +225,7 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
           return
         }
         const prices = Object.fromEntries(entries) as Record<string, number>
-        const nextRows = objectToRows(prices)
+        const nextRows = objectToRows({ ...defaultUsdPrices, ...prices })
         setRows(nextRows)
         setNextRowId(nextRows.length + 1)
         setJsonError('')
@@ -176,7 +233,7 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
         setJsonError(error instanceof Error ? error.message : t('Invalid JSON'))
       }
     },
-    [t]
+    [t, defaultUsdPrices]
   )
 
   const updateRow = useCallback(
@@ -202,12 +259,14 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
   )
 
   const resetToDefault = useCallback(() => {
-    const initialRows = objectToRows(DEFAULT_PRICES)
+    const initialRows = objectToRows(defaultUsdPrices)
     setRows(initialRows)
-    setJsonText(JSON.stringify(DEFAULT_PRICES, null, 2))
+    setJsonText('{}')
     setJsonError('')
     setNextRowId(initialRows.length + 1)
-  }, [])
+    setDefaultsRestored(true)
+    setJsonEdited(false)
+  }, [defaultUsdPrices])
 
   const handleCopyJson = useCallback(async () => {
     try {
@@ -227,11 +286,28 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
       toast.error(t('Please fix JSON errors before saving'))
       return
     }
-    await updateOption.mutateAsync({
-      key: OPTION_KEY,
-      value: JSON.stringify(currentPrices),
-    })
-  }, [currentPrices, editMode, invalidRowIds.size, jsonError, t, updateOption])
+    const overrides =
+      editMode === 'json' && jsonEdited
+        ? (JSON.parse(jsonText) as Record<string, number>)
+        : buildToolPriceOverrides(
+            currentPrices,
+            defaultsRestored ? '{}' : defaultValue,
+            defaultUsdPrices
+          )
+    await updateOption.mutateAsync(JSON.stringify(overrides))
+  }, [
+    currentPrices,
+    editMode,
+    invalidRowIds.size,
+    jsonError,
+    jsonEdited,
+    jsonText,
+    defaultsRestored,
+    defaultValue,
+    defaultUsdPrices,
+    t,
+    updateOption,
+  ])
 
   const toggleEditMode = useCallback(() => {
     setEditMode((prev) => (prev === 'visual' ? 'json' : 'visual'))
@@ -243,7 +319,7 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
         <AlertDescription className='space-y-1 text-sm'>
           <div>
             {t(
-              'Configure per-tool unit prices ($/1K calls). Per-request models do not incur additional tool fees.'
+              'Configure per-tool unit prices (USD/1K calls). Per-request models do not incur additional tool fees.'
             )}
           </div>
           <div>
@@ -319,7 +395,7 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
             },
             {
               id: 'price',
-              header: t('Price ($/1K calls)'),
+              header: t('Price (USD/1K calls)'),
               className: 'w-[200px]',
               cell: (row) => {
                 const isInvalid = invalidRowIds.has(row.id)
@@ -331,7 +407,7 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
                       step={0.5}
                       value={row.price}
                       aria-invalid={isInvalid}
-                      aria-label={`${t('Price ($/1K calls)')}: ${row.key || t('Tool identifier')}`}
+                      aria-label={`${t('Price (USD/1K calls)')}: ${row.key || t('Tool identifier')}`}
                       onChange={(e) =>
                         updateRow(row.id, 'price', e.target.value)
                       }
@@ -380,6 +456,7 @@ export const ToolPriceSettings = memo(function ToolPriceSettings({
         <Button
           onClick={handleSave}
           disabled={
+            !pricingConfig ||
             updateOption.isPending ||
             invalidRowIds.size > 0 ||
             (editMode === 'json' && !!jsonError)

@@ -96,7 +96,9 @@ func assertAssistantProfileVisibility(t *testing.T, rows []map[string]interface{
 }
 
 func TestUserListAssistantProfileJSONRespectsRoleVisibility(t *testing.T) {
+	installIdentityCurrencyFixture(t)
 	db := setupManageUserTestDB(t)
+	persistCreditDenominationFixture(t, db)
 	root := &model.User{Username: "profile-json-root", Password: "password", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "profile-json-root"}
 	rootPeer := &model.User{Username: "profile-json-root-peer", Password: "password", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "profile-json-root-peer"}
 	admin := &model.User{Username: "profile-json-admin", Password: "password", Role: common.RoleAdminUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "profile-json-admin"}

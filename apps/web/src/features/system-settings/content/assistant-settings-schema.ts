@@ -18,19 +18,29 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import * as z from 'zod'
 
+import { creditAmountSchema } from '@/lib/quota-input'
+
 import {
   ASSISTANT_REASONING_EFFORTS,
   ASSISTANT_SEARCH_PROVIDERS,
 } from '../types'
+import { assistantToolPolicySchema } from './assistant-tool-policy'
 
 export const assistantSettingsSchema = z.object({
   AssistantEnabled: z.boolean(),
   AssistantGroup: z.string().trim().min(1).max(64),
   AssistantModel: z.string().trim().min(1).max(128),
+  AssistantModerationEnabled: z.boolean(),
+  AssistantModerationGroup: z.string().trim().min(1).max(64),
+  AssistantModerationModel: z.enum([
+    'omni-moderation-latest',
+    'omni-moderation-2024-09-26',
+  ]),
   AssistantReasoningEffort: z.enum(ASSISTANT_REASONING_EFFORTS),
   AssistantStreamEnabled: z.boolean(),
   AssistantTemperature: z.number().min(0).max(2),
   AssistantMaxTokens: z.number().int().min(64).max(8192),
+  AssistantNewUserGiftMaxCredits: creditAmountSchema,
   AssistantAgentLoopEnabled: z.boolean(),
   AssistantMaxSteps: z.number().int().min(1).max(32),
   AssistantTimeoutSeconds: z.number().int().min(5).max(300),
@@ -43,28 +53,16 @@ export const assistantSettingsSchema = z.object({
   AssistantSearchURL: z.string().max(512),
   AssistantSearchAPIKey: z.string().max(512),
   AssistantSearchMCPTool: z.string().max(128),
+  AssistantToolPolicy: assistantToolPolicySchema,
   AssistantSkills: z.string().max(12000),
   AssistantSkillFiles: z.string().max(400000),
   AssistantRegistrationAutoSuspendEnabled: z.boolean(),
   AssistantRegistrationDailySuspendCap: z.number().int().min(0).max(5),
-  AssistantL1AutoReviewEnabled: z.boolean(),
-  AssistantL1AutoReviewGroup: z.string().trim().max(64),
-  AssistantL1AutoReviewModel: z.string().trim().max(128),
-  AssistantL1AutoReviewPrompt: z.string().trim().max(8000),
-  AssistantL1AutoReviewMinConfidence: z.number().finite().min(0).max(1),
   AssistantL1AutoApprovalUserIDs: z
     .string()
     .trim()
     .max(4000)
     .regex(/^(?:[1-9]\d*(?:[\s,，]+[1-9]\d*)*)?$/),
-  AssistantReviewEnabled: z.boolean(),
-  AssistantReviewWindowDays: z.number().int().min(1).max(90),
-  AssistantReviewIntervalHours: z.number().int().min(1).max(168),
-  AssistantReviewProbability: z.number().min(0).max(100),
-  AssistantReviewGroup: z.string().trim().min(1).max(64),
-  AssistantReviewModel: z.string().trim().min(1).max(128),
-  AssistantReviewReasoningEffort: z.enum(ASSISTANT_REASONING_EFFORTS),
-  AssistantReviewGroupPolicies: z.string().max(20000),
   AssistantRetentionEnabled: z.boolean(),
   AssistantActiveRetentionDays: z.number().int().min(7).max(3650),
   AssistantArchivedRetentionDays: z.number().int().min(1).max(3650),

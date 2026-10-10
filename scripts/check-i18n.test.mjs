@@ -65,6 +65,37 @@ test('dotted and prototype-like keys are treated as literal own keys', () => {
   ])
 })
 
+test('placeholder corruption and machine-translation artifacts fail', () => {
+  const before = translations({})
+  const after = translations({
+    'Hello {{name}}': 'Translated {{name}}',
+    plain: 'Translated',
+  })
+
+  after.ja['Hello {{name}}'] = 'こんにちは __ PH_0 __'
+  after.vi.plain = '__ PH_7 __'
+
+  assert.deepEqual(findRegressions(before, after), [
+    'ja.json: placeholder mismatch: "Hello {{name}}" expected ["name"] got []',
+    'ja.json: leaked machine-translation placeholder: "Hello {{name}}"',
+    'vi.json: leaked machine-translation placeholder: "plain"',
+  ])
+})
+
+test('legacy placeholder defects are tolerated until the translation changes', () => {
+  const before = translations({ 'Hello {{name}}': 'Translated {{name}}' })
+  before.ja['Hello {{name}}'] = 'こんにちは __ PH_0 __'
+
+  assert.deepEqual(findRegressions(before, structuredClone(before)), [])
+
+  const after = structuredClone(before)
+  after.ja['Hello {{name}}'] = 'こんにちは __ PH_1 __'
+  assert.deepEqual(findRegressions(before, after), [
+    'ja.json: placeholder mismatch: "Hello {{name}}" expected ["name"] got []',
+    'ja.json: leaked machine-translation placeholder: "Hello {{name}}"',
+  ])
+})
+
 test('malformed locale files fail with a useful error', () => {
   assert.throws(() => parseLocale('{', 'fr.json'), SyntaxError)
   for (const document of [null, [], {}, { translation: [] }]) {

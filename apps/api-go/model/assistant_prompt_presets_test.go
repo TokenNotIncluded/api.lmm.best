@@ -95,7 +95,7 @@ func TestPromptPresetFallbackAndAggregateAttribution(t *testing.T) {
 	assert.Equal(t, fallbackPresetVersion, set.Version)
 	require.Len(t, set.Presets, maxPromptPresets)
 	assert.Equal(t, "ai_recommendation", set.Presets[0].Id)
-	assert.Contains(t, set.Presets[0].Prompt, "推荐信")
+	assert.Contains(t, set.Presets[0].Prompt, "L1 访问权限")
 	assert.Contains(t, promptPresetIDs(set.Presets), "new_user_gift")
 	assert.Contains(t, promptPresetIDs(set.Presets), "weekly_discount")
 	var weekly *PromptPreset
@@ -175,7 +175,7 @@ func TestPromptPresetValidationAndBoundedRefresh(t *testing.T) {
 	require.NotEmpty(t, generated.Presets)
 	assert.LessOrEqual(t, len(generated.Presets), maxPromptPresets)
 	assert.Equal(t, "ai_recommendation", generated.Presets[0].Id)
-	assert.Contains(t, generated.Presets[0].Prompt, "推荐信")
+	assert.Contains(t, generated.Presets[0].Prompt, "L1 访问权限")
 	require.GreaterOrEqual(t, len(generated.Presets), 2)
 	assert.Contains(t, promptPresetIDs(generated.Presets), "getting_started", "dynamic starters must retain an onboarding entry")
 	// The four required starters intentionally fill the bounded generated set.

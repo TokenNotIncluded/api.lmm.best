@@ -19,6 +19,8 @@ import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { reviewMobileHeader } from './mobile-header-review.mjs'
+
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')
 // Never accept a production target: identities and responses are synthetic.
 const baseUrl = 'http://127.0.0.1:4174'
@@ -100,7 +102,7 @@ async function session(persona, viewport) {
     }
     await page.getByTestId(`persona-debug-option-${persona}`).click()
     await page.waitForURL(
-      persona === 'l0' ? /\/getting-started/ : /\/dashboard/
+      persona === 'l0' ? /\/wallet/ : /\/dashboard/
     )
     assert.equal(
       await page.locator('html').getAttribute('data-persona-debug'),
@@ -219,8 +221,8 @@ try {
         await page.evaluate(() =>
           document.documentElement.classList.remove('dark')
         )
-        await nav.locator('a[href="/getting-started"]').click()
-        await page.waitForURL(/\/getting-started/)
+        await nav.locator('a[href="/wallet"]').click()
+        await page.waitForURL(/\/wallet/)
         await nav.waitFor({ state: 'visible' })
         await snapshot(page, 'assistant-navigation-1440', errors)
       }
@@ -232,12 +234,13 @@ try {
     }
   }
 
-  for (const width of [390, 320]) {
+  for (const width of [320, 360, 390, 430, 640, 767]) {
     const { context, page, errors } = await session('l1', {
       width,
-      height: 844,
+      height: width >= 640 ? 390 : 844,
     })
     try {
+      await reviewMobileHeader(page, snapshot, errors)
       await page
         .getByRole('button', { name: 'Toggle Sidebar', exact: true })
         .click()

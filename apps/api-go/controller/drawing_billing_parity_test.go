@@ -35,8 +35,9 @@ type drawingParityFixture struct {
 
 // This uses only the existing isolated SQL unit-test fixture and a loopback
 // mock provider. It is not a production/strict-PostgreSQL acceptance rehearsal.
-func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int) *drawingParityFixture {
+func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int, upstreamResponse ...json.RawMessage) *drawingParityFixture {
 	t.Helper()
+	setupAssistantCurrencyTest(t)
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousRedis, previousMemory := common.RedisEnabled, common.MemoryCacheEnabled
@@ -56,6 +57,12 @@ func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int) *drawi
 	common.DrawingEnabled, common.LogConsumeEnabled = true, true
 	require.NoError(t, i18n.Init())
 	db, user := createAssistantKeyFixture(t, "drawing-billing-owner")
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	// This shared-memory unit fixture checks billing outcomes, not SQLite
+	// concurrency. Serialize the real async refund and market transactions
+	// so a shared-cache lock cannot turn its expected failure into pending.
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
 	setAssistantKeyOption(t, db, "UserUsableGroups", `{"default":"Default","image-2":"Drawing"}`)
 	setAssistantKeyOption(t, db, "GroupRatio", `{"default":1,"image-2":1}`)
@@ -84,7 +91,11 @@ func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int) *drawi
 			_, _ = w.Write([]byte(`{"error":{"message":"mock provider rejected request","type":"invalid_request_error","code":"invalid_request"}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"created":1,"data":[{"b64_json":"cGFyaXR5LTE="},{"b64_json":"cGFyaXR5LTI="}]}`))
+		if len(upstreamResponse) != 0 {
+			_, _ = w.Write(upstreamResponse[0])
+			return
+		}
+		_, _ = w.Write([]byte(`{"created":1,"data":[{"url":"https://example.test/parity-1.png"},{"url":"https://example.test/parity-2.png"}]}`))
 	}))
 	t.Cleanup(upstream.Close)
 	fixture.channel = model.Channel{

@@ -16,17 +16,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isRateLimitedError } from './request-rate-limit'
+
 const serverErrorMessageKeys = {
+  service_temporarily_unavailable:
+    'The service is temporarily unavailable. Please try again later.',
+  'oauth.github_migration_declined':
+    'GitHub account ownership could not be verified. Sign in another way and relink GitHub in account settings.',
   AUTH_SESSION_LIMIT:
     'Too many active login sessions. On a device where you are already signed in, open Login sessions and use “Sign out other sessions” to revoke them. If you cannot access a signed-in device, reset your password to sign out all sessions.',
   AUTH_SESSION_ISSUANCE_LIMIT:
     'Too many login sessions were created recently. Please wait for the rolling window to pass, then try again.',
   AUTH_USER_DISABLED:
     'This account is disabled. Use the appeal form below to ask an administrator to restore access.',
+  DEVELOPER_ACCESS_LETTER_RETIRED:
+    'Describe what you need. The assistant can enable L1 directly.',
   DEVELOPER_ACCESS_AI_CONFIRMATION_INVALID:
-    'The AI recommendation expired. Ask the assistant to prepare it again, or continue editing it yourself.',
+    'Describe what you need. The assistant can enable L1 directly.',
   DEVELOPER_ACCESS_AI_CONFIRMATION_MISMATCH:
-    'The AI recommendation expired. Ask the assistant to prepare it again, or continue editing it yourself.',
+    'Describe what you need. The assistant can enable L1 directly.',
   SUBSCRIPTION_PLAN_PAYMENT_METHOD_REQUIRED:
     'Configure at least one available payment method before enabling this plan.',
   TELEGRAM_BIND_DISABLED: 'Telegram binding is disabled.',
@@ -58,11 +66,32 @@ function serverErrorPayload(value: unknown): Record<string, unknown> | null {
 
 export function getServerErrorMessageKey(value: unknown): string | null {
   const payload = serverErrorPayload(value)
-  if (!payload || typeof payload.code !== 'string') return null
+  if (!payload) return null
+  const code =
+    typeof payload.code === 'string'
+      ? payload.code
+      : isRecord(payload.error) && typeof payload.error.code === 'string'
+        ? payload.error.code
+        : null
+  if (!code) return null
 
   return (
-    serverErrorMessageKeys[
-      payload.code as keyof typeof serverErrorMessageKeys
-    ] ?? null
+    serverErrorMessageKeys[code as keyof typeof serverErrorMessageKeys] ?? null
   )
+}
+
+/** Concurrent requests during the same outage share one notification. */
+export function getServerErrorToastId(value: unknown): string | undefined {
+  if (
+    isRateLimitedError(value) ||
+    (isRecord(value) &&
+      isRecord(value.response) &&
+      value.response.status === 429)
+  ) {
+    return 'request-rate-limited'
+  }
+  return getServerErrorMessageKey(value) ===
+    serverErrorMessageKeys.service_temporarily_unavailable
+    ? 'service-temporarily-unavailable'
+    : undefined
 }

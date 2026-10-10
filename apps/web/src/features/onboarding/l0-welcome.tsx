@@ -6,7 +6,6 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
   type KeyboardEvent,
@@ -18,15 +17,16 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { SourceQuestionnaire } from '@/features/acquisition/source-questionnaire'
-import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import { registrationStateCopy } from '@/features/assistant/assistant-registration-state'
+import { useAssistantRegistrationState } from '@/features/assistant/use-assistant-registration-state'
 import { PiOAuthGuide } from '@/features/guide/pi-oauth-guide'
-import { toIntlLocale } from '@/i18n/languages'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import {
+  formatMinimumQuotaInCurrency,
+  getCurrencyFormattingLocale,
+} from '@/lib/currency'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
-import {
-  developerAccessRequestQueryKey,
-  getDeveloperAccessRequest,
-} from './api'
 import { getL0AccessCopy } from './l0-access-copy'
 import { L0CloudConversation } from './l0-cloud-conversation'
 import { getL0PaidAccess } from './l0-paid-access'
@@ -97,38 +97,27 @@ function L0WelcomeStage({
   children: ReactNode
 }) {
   const { t, i18n } = useTranslation()
+  const currency = useWalletCurrency()
   const navigate = useNavigate()
   const [scene, setScene] = useState<Scene>('chat')
   const [discovery, setDiscovery] = useState(0)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const cloudRef = useRef<HTMLDivElement>(null)
+  const welcomeRef = useRef<HTMLDivElement>(null)
+  const accessRef = useRef<HTMLDetailsElement>(null)
   const { state: checkState, check } = useL0AccessCheck(user?.id)
-  const request = useQuery({
-    queryKey: developerAccessRequestQueryKey(user?.id ?? 0),
-    queryFn: getDeveloperAccessRequest,
-    enabled: false,
-  })
+  const registration = useAssistantRegistrationState()
   const language = i18n.resolvedLanguage || i18n.language
   const copy = getL0AccessCopy(language)
   const access = getL0PaidAccess(user)
   const canTopUp = access.mode === 'topup'
+  const progressReady = access.thresholdCredits > 0 && access.mode !== 'active'
   const busy = checkState === 'checking'
-  const statusLabel = request.isError
+  const reloadAccess = access.mode === 'sync' || registration.data === 'active'
+  const statusLabel = registration.isError
     ? t('Unable to load access status')
-    : request.data?.status === 'pending'
-      ? t('Pending review')
-      : request.data?.status === 'rejected'
-        ? t('Access request rejected')
-        : request.data?.status === 'approved'
-          ? t('Access request approved')
-          : t('Account and access')
-  const status = request.isError ? 'error' : request.data?.status || 'default'
-  const money = (value: number) =>
-    new Intl.NumberFormat(toIntlLocale(language), {
-      style: 'currency',
-      currency: 'USD',
-      maximumFractionDigits: 6,
-    }).format(value)
+    : t(registrationStateCopy(registration.data ?? 'context_needed').title)
+  const status = registration.isError ? 'error' : registration.data || 'default'
   const destinations = [
     {
       to: '/pricing',
@@ -156,7 +145,7 @@ function L0WelcomeStage({
   const labels = {
     chat: copy.conversation,
     explore: copy.explore,
-    access: copy.access,
+    access: copy.conditions,
   }
 
   useEffect(() => {
@@ -166,6 +155,20 @@ function L0WelcomeStage({
   const selectScene = (next: Scene, focus = false) => {
     setScene(next)
     if (focus) tabs.current[SCENES.indexOf(next)]?.focus()
+    if (next === 'access' && accessRef.current) {
+      accessRef.current.open = true
+    }
+  }
+  const openAccessDetails = () => {
+    selectScene('access', true)
+    requestAnimationFrame(() => {
+      const details = accessRef.current
+      if (!details) return
+      details.open = true
+      const target = details.querySelector<HTMLElement>('summary') ?? details
+      target.scrollIntoView({ block: 'center', behavior: 'auto' })
+      target.focus({ preventScroll: true })
+    })
   }
   const navigateTabs = (
     event: KeyboardEvent<HTMLButtonElement>,
@@ -186,9 +189,12 @@ function L0WelcomeStage({
     selectScene(SCENES[next], true)
   }
 
+  const topUp = () => void navigate({ to: '/wallet' })
+
   return (
     <div
       className='l0-welcome'
+      ref={welcomeRef}
       data-testid='l0-conversation'
       data-scene={scene}
       onKeyDown={(event) => {
@@ -202,83 +208,115 @@ function L0WelcomeStage({
         }
       }}
     >
-      <header className='l0-topbar'>
-        <span className='l0-wordmark' aria-hidden='true'>
-          LMM<span>/</span>
-        </span>
-        <div className='l0-topbar-actions'>
-          <button
-            type='button'
-            className='l0-account-status'
-            data-status={status}
-            aria-controls='l0-panel-access'
-            onClick={() => selectScene('access', true)}
-          >
-            <span className='l0-status-dot' aria-hidden='true' />
-            <span aria-live='polite'>{statusLabel}</span>
-            <Arrow diagonal />
-          </button>
-          <details className='l0-help-menu' onKeyDown={closeDisclosure}>
-            <summary aria-label={copy.help}>?</summary>
-            <div className='l0-help-content'>
-              <button
-                type='button'
-                onClick={() => requestAssistantOpen('human')}
-              >
-                {copy.support}
-                <Arrow diagonal />
-              </button>
-              <button
-                type='button'
-                onClick={() => requestAssistantOpen('plan')}
-              >
-                {copy.plans}
-                <Arrow diagonal />
-              </button>
-              <p>{copy.privacyNote}</p>
-            </div>
-          </details>
-        </div>
-      </header>
-
       <div className='l0-stage'>
-        <div
-          className='l0-cloud'
-          ref={cloudRef}
-          data-testid='l0-token-cloud'
-          data-cloud-scene={scene}
-        >
-          <svg
-            className='l0-cloud-fallback'
-            viewBox='0 0 720 320'
-            aria-hidden='true'
+        <section className='l0-rail' aria-labelledby='l0-upgrade-title'>
+          <div className='l0-rail-body'>
+            <h2 id='l0-upgrade-title' className='l0-rail-headline'>
+              {copy.upgradeTitle}
+            </h2>
+            <p className='l0-rail-meta' data-testid='l0-upgrade-description'>
+              {reloadAccess
+                ? access.mode === 'sync'
+                  ? copy.syncNote
+                  : statusLabel
+                : canTopUp
+                  ? copy.upgradeNote
+                  : copy.freeUpgradeNote}
+            </p>
+          </div>
+          <div className='l0-rail-actions'>
+            <button
+              type='button'
+              className='l0-rail-action'
+              data-testid={reloadAccess ? 'l0-check-payment' : 'l0-chat-free'}
+              disabled={busy}
+              onClick={() => {
+                if (reloadAccess) {
+                  check()
+                } else {
+                  selectScene('chat', true)
+                  requestAnimationFrame(() => {
+                    const input =
+                      welcomeRef.current?.querySelector<HTMLInputElement>(
+                        '.l0-input-row input'
+                      )
+                    input?.focus({ preventScroll: true })
+                    input?.scrollIntoView({
+                      block: 'nearest',
+                      behavior: 'auto',
+                    })
+                  })
+                }
+              }}
+            >
+              {reloadAccess ? t('Reload account status') : copy.chatFree}
+              <Arrow />
+            </button>
+            {!reloadAccess && access.mode !== 'active' && (
+              <button
+                type='button'
+                className='l0-rail-action l0-rail-action--ghost'
+                data-testid={
+                  canTopUp ? 'l0-topup-direct' : 'l0-wallet-fallback'
+                }
+                onClick={topUp}
+              >
+                {canTopUp ? copy.topUpUpgrade : copy.wallet}
+                <Arrow />
+              </button>
+            )}
+          </div>
+          {!reloadAccess && !canTopUp && access.mode !== 'active' && (
+            <p className='l0-rail-notice'>
+              {access.mode === 'review' ? copy.reviewNote : copy.unknown}
+            </p>
+          )}
+          {checkState && (
+            <p className='l0-feedback' role='status' aria-live='polite'>
+              {copy[checkState]}
+            </p>
+          )}
+        </section>
+
+        <div className='l0-cloud-wrap'>
+          <div
+            className='l0-cloud'
+            ref={cloudRef}
+            data-testid='l0-token-cloud'
+            data-cloud-scene={scene}
           >
-            {FALLBACK_TOKENS.map((token, index) => {
-              const p = projectL0Token(token, 0)
-              return (
-                <circle
-                  key={index}
-                  cx={360 + p.x * 200}
-                  cy={160 + p.y * 200}
-                  r={0.8 + p.depth}
-                  opacity={0.15 + p.depth * 0.6}
-                />
-              )
-            })}
-          </svg>
-          <canvas aria-hidden='true' />
-          <button
-            type='button'
-            className='l0-cloud-toggle'
-            data-cloud-pause
-            aria-pressed='false'
-            aria-label={copy.toggleMotion}
-          >
-            <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
-              <path className='l0-pause-icon' d='M9 7v10M15 7v10' />
-              <path className='l0-play-icon' d='m9 6 9 6-9 6z' />
+            <svg
+              className='l0-cloud-fallback'
+              viewBox='0 0 720 320'
+              aria-hidden='true'
+            >
+              {FALLBACK_TOKENS.map((token, index) => {
+                const p = projectL0Token(token, 0)
+                return (
+                  <circle
+                    key={index}
+                    cx={360 + p.x * 200}
+                    cy={160 + p.y * 200}
+                    r={0.8 + p.depth}
+                    opacity={0.15 + p.depth * 0.6}
+                  />
+                )
+              })}
             </svg>
-          </button>
+            <canvas aria-hidden='true' />
+            <button
+              type='button'
+              className='l0-cloud-toggle'
+              data-cloud-pause
+              aria-pressed='false'
+              aria-label={copy.toggleMotion}
+            >
+              <svg viewBox='0 0 24 24' fill='none' aria-hidden='true'>
+                <path className='l0-pause-icon' d='M9 7v10M15 7v10' />
+                <path className='l0-play-icon' d='m9 6 9 6-9 6z' />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div
@@ -303,7 +341,9 @@ function L0WelcomeStage({
               aria-selected={scene === item}
               aria-controls={`l0-panel-${item}`}
               tabIndex={scene === item ? 0 : -1}
-              onClick={() => selectScene(item)}
+              onClick={() =>
+                item === 'access' ? openAccessDetails() : selectScene(item)
+              }
               onKeyDown={(event) => navigateTabs(event, index)}
             >
               <SceneIcon scene={item} />
@@ -323,6 +363,7 @@ function L0WelcomeStage({
             <L0CloudConversation
               cloudRef={cloudRef}
               active={scene === 'chat'}
+              onRequestAccess={openAccessDetails}
             />
           </div>
 
@@ -404,137 +445,117 @@ function L0WelcomeStage({
             className='l0-panel'
           >
             <section
-              className='l0-unlock'
               data-testid='l0-activation'
               data-access-mode={access.mode}
               aria-label={t('Account and access')}
             >
-              <div className='l0-levels' aria-label='L0 → L1'>
-                <span>L0</span>
-                <i aria-hidden='true' />
-                <span>L1</span>
-              </div>
-              <h2>
-                {canTopUp
-                  ? copy.unlockTitle
-                  : access.mode === 'sync'
-                    ? copy.sync
-                    : copy.review}
-              </h2>
-              {canTopUp ? (
-                <>
-                  <p className='l0-policy-note'>{copy.description}</p>
-                  <div className='l0-credit' data-testid='l0-paid-progress'>
-                    {access.threshold > 0 ? (
-                      <>
-                        <span>{copy.remaining}</span>
-                        <strong>{money(access.remaining)}</strong>
-                      </>
-                    ) : (
-                      <span>{copy.minimum}</span>
-                    )}
-                  </div>
-                  <button
-                    type='button'
-                    className='l0-primary'
-                    data-testid='l0-topup-direct'
-                    onClick={() => void navigate({ to: '/wallet' })}
-                  >
-                    {copy.topup}
-                    <Arrow />
-                  </button>
-                  <details
-                    className='l0-conditions'
-                    onKeyDown={closeDisclosure}
-                  >
-                    <summary>
-                      {copy.conditions}
-                      <span aria-hidden='true'>+</span>
-                    </summary>
-                    <p>{copy.eligibility}</p>
-                  </details>
-                </>
-              ) : (
-                <>
-                  <p className='l0-policy-note'>
-                    {access.mode === 'sync'
-                      ? copy.syncNote
-                      : access.mode === 'review'
-                        ? copy.reviewNote
-                        : copy.unknown}
-                  </p>
-                  {access.mode === 'review' ? (
-                    <button
-                      type='button'
-                      className='l0-primary'
-                      onClick={() => requestAssistantOpen('onboarding')}
-                    >
-                      {copy.apply}
-                      <Arrow />
-                    </button>
-                  ) : (
-                    <button
-                      type='button'
-                      className='l0-primary'
-                      disabled={!user || busy}
-                      onClick={check}
-                    >
-                      {t('Reload account status')}
-                      <Arrow />
-                    </button>
+              <details
+                className='l0-account'
+                ref={accessRef}
+                data-testid='l0-account-details'
+                onKeyDown={closeDisclosure}
+              >
+                <summary>
+                  <span>{statusLabel}</span>
+                  <span className='l0-disclosure-mark' aria-hidden='true'>
+                    +
+                  </span>
+                </summary>
+                <div className='l0-account-body'>
+                  {access.mode !== 'active' && (
+                    <div className='l0-payment-info'>
+                      <h3>{copy.paymentDetails}</h3>
+                      <p
+                        data-testid={
+                          canTopUp && progressReady
+                            ? 'l0-paid-progress'
+                            : undefined
+                        }
+                      >
+                        {canTopUp && progressReady
+                          ? t('Top up {{amount}} for instant approval.', {
+                              amount: formatMinimumQuotaInCurrency(
+                                access.remainingCredits,
+                                currency.currency,
+                                {
+                                  locale: getCurrencyFormattingLocale(language),
+                                  creditLabel: currency.label,
+                                },
+                                currency.config
+                              ),
+                            })
+                          : access.mode === 'sync'
+                            ? copy.syncNote
+                            : access.mode === 'review'
+                              ? copy.reviewNote
+                              : canTopUp
+                                ? copy.eligibility
+                                : copy.unknown}
+                      </p>
+                      {canTopUp && progressReady && <p>{copy.eligibility}</p>}
+                      {canTopUp && access.paidCredits > 0 && (
+                        <button
+                          type='button'
+                          className='l0-text-action'
+                          data-testid='l0-check-payment'
+                          disabled={!user || busy}
+                          onClick={check}
+                        >
+                          {copy.check}
+                          <Arrow />
+                        </button>
+                      )}
+                    </div>
                   )}
-                </>
-              )}
-              <div className='l0-secondary'>
-                {canTopUp && (
-                  <button
-                    type='button'
-                    onClick={() => requestAssistantOpen('onboarding')}
-                  >
-                    {copy.apply}
-                  </button>
-                )}
-                <button
-                  type='button'
-                  data-testid='l0-check-payment'
-                  disabled={!user || busy}
-                  onClick={check}
-                >
-                  {copy.check}
-                </button>
-              </div>
-              <p className='l0-feedback' role='status' aria-live='polite'>
-                {checkState ? copy[checkState] : null}
-              </p>
+                  {children}
+                  <details className='l0-oauth' onKeyDown={closeDisclosure}>
+                    <summary>
+                      {copy.connectPi}
+                      <span className='l0-disclosure-mark' aria-hidden='true'>
+                        +
+                      </span>
+                    </summary>
+                    <PiOAuthGuide />
+                  </details>
+                  <SourceQuestionnaire />
+                </div>
+              </details>
             </section>
-            <details
-              className='l0-account'
-              data-testid='l0-account-details'
-              onKeyDown={closeDisclosure}
-            >
-              <summary>
-                <span>{statusLabel}</span>
-                <span className='l0-disclosure-mark' aria-hidden='true'>
-                  +
-                </span>
-              </summary>
-              <div className='l0-account-body'>
-                {children}
-                <details className='l0-oauth' onKeyDown={closeDisclosure}>
-                  <summary>
-                    {copy.connectPi}
-                    <span className='l0-disclosure-mark' aria-hidden='true'>
-                      +
-                    </span>
-                  </summary>
-                  <PiOAuthGuide />
-                </details>
-                <SourceQuestionnaire />
-              </div>
-            </details>
           </div>
         </div>
       </div>
+
+      <footer className='l0-utility' aria-label={t('Account and access')}>
+        <button
+          type='button'
+          className='l0-account-status'
+          data-status={status}
+          aria-controls='l0-panel-access'
+          onClick={openAccessDetails}
+        >
+          <span className='l0-status-dot' aria-hidden='true' />
+          <span aria-live='polite'>{statusLabel}</span>
+          <Arrow diagonal />
+        </button>
+        <Link
+          to='/support'
+          className='l0-text-action'
+          data-testid='l0-contact-support'
+        >
+          {copy.support}
+          <Arrow diagonal />
+        </Link>
+        <details className='l0-help-menu' onKeyDown={closeDisclosure}>
+          <summary aria-label={copy.help}>?</summary>
+          <div className='l0-help-content'>
+            <button type='button' onClick={topUp}>
+              {copy.plans}
+              <Arrow diagonal />
+            </button>
+            <p>{copy.privacyNote}</p>
+          </div>
+        </details>
+      </footer>
     </div>
   )
 }

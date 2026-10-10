@@ -28,23 +28,34 @@ import { toast } from 'sonner'
 import * as z from 'zod'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { ErrorState } from '@/components/error-state'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { getServerErrorToastId } from '@/lib/server-error-message'
 
-import { getSystemOptions, resetModelRatios, updateSystemOptions } from '../api'
+import { getSystemOptions, resetModelRatios, updateSystemOption } from '../api'
 import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { getOptionValue } from '../hooks/use-system-options'
 import { positiveIntegerSchema } from '../utils/numeric-field'
 import { showOptionUpdateToast } from '../utils/option-update-toast'
+import { getSettingsErrorMessage } from '../utils/settings-error-message'
 import { GroupRatioForm } from './group-ratio-form'
-import {
-  changedGroupRatioOptions,
-  type GroupRatioOptionValues,
-} from './group-ratio-option-values'
 import { isValidGroupWarnings } from './group-warning-validation'
+import {
+  getModelPricingConfig,
+  MODEL_PRICING_QUERY_KEY,
+  updateModelPricingConfig,
+  useModelPricingConfig,
+} from './model-pricing-api'
+import {
+  acceptModelPricingSave,
+  modelPricingFormSnapshot,
+  type ModelPricingSaveReceipt,
+} from './model-pricing-save'
+import { ModelPricingUnitsContext } from './model-pricing-units'
 import { ModelRatioForm } from './model-ratio-form'
 import { ToolPriceSettings } from './tool-price-settings'
 import { UpstreamRatioSync } from './upstream-ratio-sync'
+import { useGroupRatioSettings } from './use-group-ratio-settings'
 import {
   formatJsonForTextarea,
   type JsonValidationError,
@@ -166,46 +177,71 @@ type RatioSettingsCardProps = {
 }
 
 export function RatioSettingsCard({
-  modelDefaults,
+  modelDefaults: legacyModelDefaults,
   groupDefaults,
-  toolPricesDefault,
+  toolPricesDefault: _toolPricesDefault,
   titleKey = 'Pricing Ratios',
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [exposeRatioEnabled, setExposeRatioEnabled] = useState(
+    legacyModelDefaults.ExposeRatioEnabled
+  )
+  useEffect(() => {
+    setExposeRatioEnabled(legacyModelDefaults.ExposeRatioEnabled)
+  }, [legacyModelDefaults.ExposeRatioEnabled])
+  const needsUsdPricing = visibleTabs.some((tab) => tab !== 'groups')
+  const pricingQuery = useModelPricingConfig(needsUsdPricing)
+  const modelPricingBaseline = useRef(pricingQuery.data)
+  const modelDefaults = useMemo<ModelFormValues>(() => {
+    const values = pricingQuery.data?.values
+    return {
+      ModelPrice: values?.ModelPrice || '{}',
+      ModelRatio: values?.ModelRatio || '{}',
+      CacheRatio: values?.CacheRatio || '{}',
+      CreateCacheRatio: values?.CreateCacheRatio || '{}',
+      CompletionRatio: values?.CompletionRatio || '{}',
+      ImageRatio: values?.ImageRatio || '{}',
+      AudioRatio: values?.AudioRatio || '{}',
+      AudioCompletionRatio: values?.AudioCompletionRatio || '{}',
+      BillingMode: values?.['billing_setting.billing_mode'] || '{}',
+      BillingExpr: values?.['billing_setting.billing_expr'] || '{}',
+      ExposeRatioEnabled: exposeRatioEnabled,
+    }
+  }, [pricingQuery.data, exposeRatioEnabled])
 
   const resetMutation = useMutation({
     mutationFn: resetModelRatios,
     onSuccess: async (data) => {
       if (data.success) {
-        await reloadModelValues()
-        showOptionUpdateToast(data, t('Model prices reset successfully'))
         setConfirmOpen(false)
+        try {
+          await reloadModelValues()
+          showOptionUpdateToast(data, t('Model prices reset successfully'))
+        } catch (error) {
+          toast.warning(
+            t('Settings saved, but refreshing failed: {{reason}}', {
+              reason: getSettingsErrorMessage(
+                error,
+                t('Failed to load settings')
+              ),
+            }),
+            { id: getServerErrorToastId(error) }
+          )
+        }
       } else {
         toast.error(data.message || t('Failed to reset model ratios'))
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || t('Failed to reset model ratios'))
-    },
-  })
-
-  const groupUpdateMutation = useMutation({
-    mutationFn: async (values: Record<string, string>) => {
-      const response = await updateSystemOptions(values)
-      if (!response.success) {
-        throw new Error(response.message || t('Failed to update setting'))
-      }
-      return response
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['system-options'] })
-      toast.success(t('Setting updated successfully'))
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || t('Failed to update setting'))
+      toast.error(
+        getSettingsErrorMessage(error, t('Failed to reset model ratios')),
+        {
+          id: getServerErrorToastId(error),
+        }
+      )
     },
   })
 
@@ -228,19 +264,6 @@ export function RatioSettingsCard({
     modelNormalizedDefaults.current
   )
 
-  const groupNormalizedDefaults = useRef({
-    GroupRatio: normalizeJsonString(groupDefaults.GroupRatio),
-    TopupGroupRatio: normalizeJsonString(groupDefaults.TopupGroupRatio),
-    UserUsableGroups: normalizeJsonString(groupDefaults.UserUsableGroups),
-    GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
-    AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
-    MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
-    DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
-    GroupSpecialUsableGroup: normalizeJsonString(
-      groupDefaults.GroupSpecialUsableGroup
-    ),
-    GroupWarnings: normalizeJsonString(groupDefaults.GroupWarnings),
-  })
   const modelSchema = useMemo(() => createModelSchema(t), [t])
   const groupSchema = useMemo(() => createGroupSchema(t), [t])
 
@@ -280,6 +303,7 @@ export function RatioSettingsCard({
       GroupWarnings: formatJsonForTextarea(groupDefaults.GroupWarnings),
     },
   })
+  const isModelFormDirty = modelForm.formState.isDirty
 
   const applyModelDefaults = useCallback(
     (defaults: ModelFormValues) => {
@@ -320,80 +344,147 @@ export function RatioSettingsCard({
   )
 
   useEffect(() => {
+    // A background refresh cannot replace a draft's values or CAS revision.
+    if (isModelFormDirty) return
+    modelPricingBaseline.current = pricingQuery.data
     const unchanged = Object.entries(modelDefaults).every(
       ([key, value]) =>
         (typeof value === 'boolean' ? value : normalizeJsonString(value)) ===
         modelNormalizedDefaults.current[key as keyof ModelFormValues]
     )
     if (!unchanged) applyModelDefaults(modelDefaults)
-  }, [applyModelDefaults, modelDefaults])
+  }, [applyModelDefaults, modelDefaults, pricingQuery.data, isModelFormDirty])
+
+  const acceptSavedModelValues = useCallback(
+    (
+      config: ModelPricingSaveReceipt['data'],
+      exposure = modelNormalizedDefaults.current.ExposeRatioEnabled
+    ) => {
+      modelPricingBaseline.current = config
+      queryClient.setQueryData(MODEL_PRICING_QUERY_KEY, config)
+      setExposeRatioEnabled(exposure)
+      applyModelDefaults(modelPricingFormSnapshot(config, exposure))
+    },
+    [applyModelDefaults, queryClient]
+  )
 
   const reloadModelValues = useCallback(async () => {
-    await queryClient.cancelQueries({ queryKey: ['system-options'] })
-    const response = await getSystemOptions()
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey: ['system-options'] }),
+      queryClient.cancelQueries({ queryKey: MODEL_PRICING_QUERY_KEY }),
+    ])
+    const [response, config] = await Promise.all([
+      getSystemOptions({ silent: true }),
+      getModelPricingConfig({ silent: true }),
+    ])
     if (!response.success) {
       throw new Error(response.message || t('Failed to load settings'))
     }
-    const formKeyMap: Record<string, string> = {
-      'billing_setting.billing_mode': 'BillingMode',
-      'billing_setting.billing_expr': 'BillingExpr',
-    }
-    const acceptedOptions = response.data.map((option) => ({
-      ...option,
-      key: formKeyMap[option.key] || option.key,
-    }))
-    // A locked-only update leaves the query data unchanged; reset explicitly so
-    // rejected edits never become the form's saved snapshot.
-    applyModelDefaults(getOptionValue(acceptedOptions, modelDefaults))
+    const exposure = response.data.find(
+      ({ key }) => key === 'ExposeRatioEnabled'
+    )?.value
+    acceptSavedModelValues(
+      config,
+      exposure === undefined
+        ? modelNormalizedDefaults.current.ExposeRatioEnabled
+        : exposure === 'true'
+    )
     queryClient.setQueryData(['system-options'], response)
-  }, [applyModelDefaults, modelDefaults, queryClient, t])
+  }, [acceptSavedModelValues, queryClient, t])
 
   const modelUpdateMutation = useMutation({
+    retry: false,
     mutationFn: async (values: Record<string, string>) => {
-      const response = await updateSystemOptions(values)
-      if (!response.success) {
-        throw new Error(response.message || t('Failed to update setting'))
+      const { ExposeRatioEnabled, ...prices } = values
+      const pricesChanged = Object.keys(prices).length > 0
+      const config = pricesChanged
+        ? modelPricingBaseline.current
+        : pricingQuery.data
+      if (!config) {
+        throw new Error(t('Failed to load USD model prices'))
       }
-      return response
+      await queryClient.cancelQueries({ queryKey: MODEL_PRICING_QUERY_KEY })
+      const response: ModelPricingSaveReceipt = pricesChanged
+        ? await updateModelPricingConfig(config, prices, false, {
+            silent: true,
+          })
+        : { success: true as const, message: '', data: config }
+      // Apply the server's locked-model filtering and actual stored values as
+      // soon as the price POST commits, before any independent follow-up.
+      if (pricesChanged) acceptSavedModelValues(response.data)
+      let acceptedExposure = modelNormalizedDefaults.current.ExposeRatioEnabled
+      let visibilityError: unknown
+      if (ExposeRatioEnabled !== undefined) {
+        try {
+          const exposeResponse = await updateSystemOption(
+            {
+              key: 'ExposeRatioEnabled',
+              value: ExposeRatioEnabled,
+            },
+            { silent: true }
+          )
+          if (!exposeResponse.success) {
+            throw new Error(
+              exposeResponse.message || t('Failed to update setting')
+            )
+          }
+          acceptedExposure = ExposeRatioEnabled === 'true'
+        } catch (error) {
+          if (!pricesChanged) throw error
+          visibilityError = error
+        }
+      }
+      return { ...response, acceptedExposure, visibilityError }
     },
     onSuccess: async (response) => {
-      await reloadModelValues()
-      showOptionUpdateToast(response, t('Setting updated successfully'))
+      const { refreshError } = await acceptModelPricingSave(
+        response,
+        (config) => acceptSavedModelValues(config, response.acceptedExposure),
+        reloadModelValues
+      )
+      const warnings = response.warnings ? [...response.warnings] : []
+      if (response.visibilityError) {
+        warnings.push(
+          t(
+            'Model prices saved, but updating price visibility failed: {{reason}}',
+            {
+              reason: getSettingsErrorMessage(
+                response.visibilityError,
+                t('Failed to update setting')
+              ),
+            }
+          )
+        )
+      }
+      if (refreshError) {
+        warnings.push(
+          t('Settings saved, but refreshing failed: {{reason}}', {
+            reason: getSettingsErrorMessage(
+              refreshError,
+              t('Failed to load settings')
+            ),
+          })
+        )
+      }
+      if (warnings.length) {
+        toast.warning(warnings.join('\n'), {
+          id:
+            getServerErrorToastId(refreshError) ??
+            getServerErrorToastId(response.visibilityError),
+        })
+      } else {
+        showOptionUpdateToast(response, t('Setting updated successfully'))
+      }
     },
     onError: (error: Error) => {
-      toast.error(error.message || t('Failed to update setting'))
+      toast.error(
+        getSettingsErrorMessage(error, t('Failed to update setting')),
+        {
+          id: getServerErrorToastId(error) ?? undefined,
+        }
+      )
     },
   })
-
-  useEffect(() => {
-    groupNormalizedDefaults.current = {
-      GroupRatio: normalizeJsonString(groupDefaults.GroupRatio),
-      TopupGroupRatio: normalizeJsonString(groupDefaults.TopupGroupRatio),
-      UserUsableGroups: normalizeJsonString(groupDefaults.UserUsableGroups),
-      GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
-      AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
-      MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
-      DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
-      GroupSpecialUsableGroup: normalizeJsonString(
-        groupDefaults.GroupSpecialUsableGroup
-      ),
-      GroupWarnings: normalizeJsonString(groupDefaults.GroupWarnings),
-    }
-
-    groupForm.reset({
-      ...groupDefaults,
-      GroupRatio: formatJsonForTextarea(groupDefaults.GroupRatio),
-      TopupGroupRatio: formatJsonForTextarea(groupDefaults.TopupGroupRatio),
-      UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
-      GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
-      AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
-      MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
-      GroupSpecialUsableGroup: formatJsonForTextarea(
-        groupDefaults.GroupSpecialUsableGroup
-      ),
-      GroupWarnings: formatJsonForTextarea(groupDefaults.GroupWarnings),
-    })
-  }, [groupDefaults, groupForm])
 
   const saveModelRatios = useCallback(
     async (values: ModelFormValues) => {
@@ -436,35 +527,9 @@ export function RatioSettingsCard({
     [modelUpdateMutation, t]
   )
 
-  const saveGroupRatios = useCallback(
-    async (values: GroupFormValues) => {
-      const normalized: GroupRatioOptionValues = {
-        GroupRatio: normalizeJsonString(values.GroupRatio),
-        TopupGroupRatio: normalizeJsonString(values.TopupGroupRatio),
-        UserUsableGroups: normalizeJsonString(values.UserUsableGroups),
-        GroupGroupRatio: normalizeJsonString(values.GroupGroupRatio),
-        AutoGroups: normalizeJsonString(values.AutoGroups),
-        MaxTokenAutoGroups: values.MaxTokenAutoGroups,
-        DefaultUseAutoGroup: values.DefaultUseAutoGroup,
-        GroupSpecialUsableGroup: normalizeJsonString(
-          values.GroupSpecialUsableGroup
-        ),
-        GroupWarnings: normalizeJsonString(values.GroupWarnings),
-      }
-
-      const updates = changedGroupRatioOptions(
-        normalized,
-        groupNormalizedDefaults.current
-      )
-      if (Object.keys(updates).length === 0) {
-        toast.info(t('No changes to save'))
-        return
-      }
-
-      await groupUpdateMutation.mutateAsync(updates)
-      groupNormalizedDefaults.current = normalized
-    },
-    [groupUpdateMutation, t]
+  const { saveGroupRatios, isSaving: isGroupSaving } = useGroupRatioSettings(
+    groupForm,
+    groupDefaults
   )
 
   const handleResetRatios = useCallback(() => {
@@ -483,17 +548,25 @@ export function RatioSettingsCard({
     'tool-prices': 'Tool prices',
     'upstream-sync': 'Upstream price sync',
   }
-  const tabsGridClass =
-    {
-      1: 'grid-cols-1',
-      2: 'grid-cols-2',
-      3: 'grid-cols-3',
-      4: 'grid-cols-4',
-      5: 'grid-cols-5',
-    }[visibleTabs.length] ?? 'grid-cols-4'
   const defaultTab = visibleTabs[0] ?? 'models'
 
   const renderTabContent = (tab: RatioTabId) => {
+    if (tab !== 'groups' && !pricingQuery.data) {
+      return pricingQuery.isError ? (
+        <ErrorState
+          title={t('Failed to load USD model prices')}
+          description={getSettingsErrorMessage(
+            pricingQuery.error,
+            t('Failed to load USD model prices')
+          )}
+          onRetry={() => {
+            void pricingQuery.refetch()
+          }}
+        />
+      ) : (
+        <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
+      )
+    }
     if (tab === 'models' || tab === 'unset-models') {
       return (
         <ModelRatioForm
@@ -512,33 +585,25 @@ export function RatioSettingsCard({
         <GroupRatioForm
           form={groupForm}
           onSave={saveGroupRatios}
-          isSaving={groupUpdateMutation.isPending}
+          isSaving={isGroupSaving}
         />
       )
     }
     if (tab === 'tool-prices') {
-      return <ToolPriceSettings defaultValue={toolPricesDefault} />
+      return (
+        <ToolPriceSettings
+          defaultValue={
+            pricingQuery.data?.values['tool_price_setting.prices'] || '{}'
+          }
+          pricingConfig={pricingQuery.data}
+        />
+      )
     }
-    return (
-      <UpstreamRatioSync
-        modelRatios={{
-          ModelPrice: modelDefaults.ModelPrice,
-          ModelRatio: modelDefaults.ModelRatio,
-          CompletionRatio: modelDefaults.CompletionRatio,
-          CacheRatio: modelDefaults.CacheRatio,
-          CreateCacheRatio: modelDefaults.CreateCacheRatio,
-          ImageRatio: modelDefaults.ImageRatio,
-          AudioRatio: modelDefaults.AudioRatio,
-          AudioCompletionRatio: modelDefaults.AudioCompletionRatio,
-          'billing_setting.billing_mode': modelDefaults.BillingMode,
-          'billing_setting.billing_expr': modelDefaults.BillingExpr,
-        }}
-      />
-    )
+    return <UpstreamRatioSync />
   }
 
   const renderTabSwitcher = () => (
-    <TabsList className={`grid w-fit max-w-full ${tabsGridClass}`}>
+    <TabsList variant='navigation' aria-label={t(titleKey)}>
       {visibleTabs.map((tab) => (
         <TabsTrigger key={tab} value={tab}>
           {t(tabLabels[tab])}
@@ -548,7 +613,9 @@ export function RatioSettingsCard({
   )
 
   return (
-    <>
+    <ModelPricingUnitsContext
+      value={pricingQuery.data?.credits_per_usd ?? Number.NaN}
+    >
       {visibleTabs.length === 1 ? (
         <SettingsSection title={t(titleKey)}>
           {renderTabContent(defaultTab)}
@@ -581,6 +648,6 @@ export function RatioSettingsCard({
         handleConfirm={handleConfirmReset}
         confirmText={t('Reset')}
       />
-    </>
+    </ModelPricingUnitsContext>
   )
 }

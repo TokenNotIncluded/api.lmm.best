@@ -22,14 +22,14 @@ export type AssistantUsageModelSummary = {
   model: string
   requests: number
   tokens: number
-  creditUSD: number
+  credits: number
   sharePercent: number
 }
 
 export type AssistantUsageSummary = {
   requests: number
   tokens: number
-  creditUSD: number
+  credits: number
   models: AssistantUsageModelSummary[]
 }
 
@@ -38,11 +38,8 @@ function nonNegativeNumber(value: number | undefined): number {
 }
 
 export function summarizeAssistantUsage(
-  rows: QuotaDataItem[],
-  quotaPerUnit: number
+  rows: QuotaDataItem[]
 ): AssistantUsageSummary {
-  const validQuotaPerUnit =
-    Number.isFinite(quotaPerUnit) && quotaPerUnit > 0 ? quotaPerUnit : 1
   const byModel = new Map<
     string,
     { requests: number; tokens: number; quota: number }
@@ -77,7 +74,7 @@ export function summarizeAssistantUsage(
         model,
         requests: value.requests,
         tokens: value.tokens,
-        creditUSD: value.quota / validQuotaPerUnit,
+        credits: value.quota,
         sharePercent:
           shareDenominator > 0
             ? Math.min(100, (shareNumerator / shareDenominator) * 100)
@@ -85,11 +82,11 @@ export function summarizeAssistantUsage(
       }
     })
     .filter(
-      (model) => model.requests > 0 || model.tokens > 0 || model.creditUSD > 0
+      (model) => model.requests > 0 || model.tokens > 0 || model.credits > 0
     )
     .sort(
       (left, right) =>
-        right.creditUSD - left.creditUSD ||
+        right.credits - left.credits ||
         right.tokens - left.tokens ||
         right.requests - left.requests ||
         left.model.localeCompare(right.model)
@@ -98,7 +95,7 @@ export function summarizeAssistantUsage(
   return {
     requests,
     tokens,
-    creditUSD: quota / validQuotaPerUnit,
+    credits: quota,
     models,
   }
 }

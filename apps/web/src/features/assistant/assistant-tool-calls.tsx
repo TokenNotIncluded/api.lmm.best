@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ToolUIPart } from 'ai'
+import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -29,17 +30,47 @@ import {
 
 import type { AssistantToolTrace } from './api.js'
 import { AssistantSupportReview } from './assistant-support-review'
+import { assistantToolErrorMessages } from './assistant-tool-errors'
 import {
   assistantToolTraceKey,
   assistantToolOutcome,
   collapseAssistantToolTraces,
 } from './assistant-tool-traces.js'
 
+const AssistantVisualizationCard = lazy(() =>
+  import('./assistant-visualization').then((module) => ({
+    default: module.AssistantVisualizationCard,
+  }))
+)
+
 const TOOL_TITLE_KEYS = {
+  get_admin_server_config: 'Read server settings',
+  get_site_policy: 'Read site policy',
+  search_site_policies: 'Search site policies',
+  prepare_admin_site_policy_change: 'Prepare site policy changes',
+  discover_tools: 'Load assistant tools',
+  end_conversation: 'End this turn',
+  get_overview_greeting: 'Read overview greeting',
+  set_overview_greeting: 'Edit overview greeting',
+  get_site_issues: 'Read issue status',
+  create_site_issue: 'Create an improvement issue',
+  update_site_issue: 'Update issue status',
+  send_invitation: 'Send an invitation',
+  get_connected_market_tools: 'Read connected market tools',
+  connect_market_tool: 'Authorize a market tool',
+  call_market_tool: 'Use a connected market tool',
+  show_chart: 'Statistical chart',
+  show_statistics: 'Statistic cards',
+  show_choices: 'Choice buttons',
+  show_flowchart: 'Flow diagram',
   list_admin_operations: 'Discover management operations',
   execute_admin_operation: 'Run management operation',
   audit_admin_model_pricing: 'Audit model pricing',
   navigate_to_page: 'Navigate within console',
+  get_store_products: 'Search store products',
+  get_store_product: 'Read product details',
+  get_tool_market_services: 'Search tool services',
+  get_tool_market_service: 'Read tool service details',
   get_user_overview: 'Inspect user account',
   get_user_usage_summary: 'Analyze user usage',
   prepare_user_action: 'Prepare user action',
@@ -48,20 +79,30 @@ const TOOL_TITLE_KEYS = {
   get_available_models: 'Read available models',
   get_model_pricing: 'Read model pricing',
   get_account_access: 'Read account access',
+  get_new_user_gift_status: 'New-user gift',
+  get_weekly_discount_status: 'Weekly recharge discount',
   get_setup_guide: 'Read setup guide',
   get_plan_offers: 'Read plan offers',
   calculate_math: 'Calculate math',
   calculate_cost: 'Calculate cost',
   set_conversation_title: 'Update conversation title',
   request_create_key: 'Prepare API key creation',
+  list_my_api_keys: 'Read your API keys',
+  prepare_api_key_action: 'Prepare API key deletion or disabling',
   request_human_support: 'Human technical support',
 } satisfies Record<string, string>
 
 const TOOL_SUMMARY_KEYS = {
+  discover_tools: 'Assistant tools loaded',
+  end_conversation: 'This turn has ended. You can send another message.',
   list_admin_operations: 'Management operations loaded',
   execute_admin_operation: 'Management operation completed',
   audit_admin_model_pricing: 'Pricing audit completed',
   navigate_to_page: 'Navigation prepared',
+  get_store_products: 'Store products loaded',
+  get_store_product: 'Product details loaded',
+  get_tool_market_services: 'Tool services loaded',
+  get_tool_market_service: 'Tool service details loaded',
   get_user_overview: 'Account overview loaded',
   get_user_usage_summary: 'Usage summary loaded',
   prepare_user_action: 'User action prepared',
@@ -70,22 +111,23 @@ const TOOL_SUMMARY_KEYS = {
   get_available_models: 'Available models loaded',
   get_model_pricing: 'Model pricing loaded',
   get_account_access: 'Account access loaded',
+  get_new_user_gift_status: 'Tool completed',
+  get_weekly_discount_status: 'Tool completed',
   get_setup_guide: 'Setup guide loaded',
   get_plan_offers: 'Plan offers loaded',
   calculate_math: 'Calculation completed',
   calculate_cost: 'Cost estimate calculated',
   set_conversation_title: 'Conversation title updated',
   request_create_key: 'API key creation prepared',
+  list_my_api_keys: 'Your API key list loaded',
+  prepare_api_key_action: 'API key action prepared',
 } satisfies Record<string, string>
 
 function toolErrorText(
   errorCode: AssistantToolTrace['errorCode'],
   t: ReturnType<typeof useTranslation>['t']
 ) {
-  if (errorCode === 'missing_math_expression') {
-    return t('A math expression is required.')
-  }
-  return t('The math expression could not be evaluated.')
+  return t(assistantToolErrorMessages[errorCode ?? 'tool_failed'])
 }
 
 function toolLabel(
@@ -139,7 +181,10 @@ function toolSummary({
   return completedSummary
 }
 
-export function AssistantToolCalls(props: { traces: AssistantToolTrace[] }) {
+export function AssistantToolCalls(props: {
+  traces: AssistantToolTrace[]
+  onChoose?: (text: string) => void
+}) {
   const { t } = useTranslation()
   const traces = collapseAssistantToolTraces(props.traces)
   if (traces.length === 0) return null
@@ -147,6 +192,19 @@ export function AssistantToolCalls(props: { traces: AssistantToolTrace[] }) {
   return (
     <div className='w-full space-y-1' data-testid='assistant-tool-calls'>
       {traces.map((trace, index) => {
+        if (trace.visualization && trace.status === 'output-available') {
+          return (
+            <Suspense
+              key={assistantToolTraceKey(trace)}
+              fallback={<p role='status'>{t('Loading visualization...')}</p>}
+            >
+              <AssistantVisualizationCard
+                visual={trace.visualization}
+                onChoose={props.onChoose}
+              />
+            </Suspense>
+          )
+        }
         const isError = trace.status === 'output-error'
         const isApproval = trace.status === 'approval-requested'
         const canReviewSupport =

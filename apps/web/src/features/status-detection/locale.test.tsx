@@ -35,8 +35,8 @@ mock.module('@tanstack/react-router', () => ({
     useNavigate: () => () => {},
   }),
 }))
-mock.module('@/components/layout', () => ({
-  PublicLayout: ({ children }: { children: ReactNode }) => <>{children}</>,
+mock.module('@/features/forge/forge-public-shell', () => ({
+  ForgePublicShell: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 mock.module('@/features/pricing/hooks/use-pricing-data', () => ({
   usePricingData: () => ({ models: [] }),

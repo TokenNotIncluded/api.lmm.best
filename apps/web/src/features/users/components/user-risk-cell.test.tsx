@@ -1,0 +1,242 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+import assert from 'node:assert/strict'
+import { after, afterEach, describe, test } from 'node:test'
+
+import { Window } from 'happy-dom'
+
+import type { User } from '../types'
+
+const domWindow = new Window({ url: 'https://console.example.test/users' })
+for (const key of [
+  'window',
+  'document',
+  'navigator',
+  'HTMLElement',
+  'HTMLButtonElement',
+  'SVGElement',
+  'Node',
+  'Element',
+  'Event',
+  'MouseEvent',
+  'PointerEvent',
+  'FocusEvent',
+  'CustomEvent',
+  'MutationObserver',
+  'ResizeObserver',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'getComputedStyle',
+] as const) {
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    value: domWindow[key],
+  })
+}
+
+const { act } = await import('react')
+const { createRoot } = await import('react-dom/client')
+const { createInstance } = await import('i18next')
+const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { userSchema } = await import('../types')
+const { UserRiskCell } = await import('./user-risk-cell')
+const { UserQuotaCell } = await import('./user-quota-cell')
+
+const reactTestGlobals = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean
+}
+reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
+const i18n = createInstance()
+await i18n
+  .use(initReactI18next)
+  .init({ lng: 'en', resources: { en: { translation: {} } } })
+
+function user(): User {
+  return {
+    id: 7,
+    username: 'customer',
+    display_name: 'Customer',
+    quota: 0,
+    used_quota: 0,
+    request_count: 0,
+    group: 'default',
+    status: 1,
+    role: 1,
+    wallet_risk: {
+      score: 0.5,
+      high_risk: false,
+      version: 2,
+      reasons: ['moderation_violations'],
+      checkin_quota: 0,
+      checkin_count: 0,
+      transferred_quota: 0,
+      pending_quota: 0,
+      received_quota: 0,
+      high_risk_senders: 0,
+      moderation_reviewed_count: 12,
+      moderation_flagged_count: 3,
+    },
+  }
+}
+
+async function renderRisk(value: User) {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <UserRiskCell user={value} />
+      </I18nextProvider>
+    )
+  })
+  const trigger = container.querySelector<HTMLButtonElement>('button')
+  assert.ok(trigger)
+  await act(async () => {
+    trigger.click()
+  })
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const popup = document.querySelector<HTMLElement>(
+      '[data-slot="popover-content"]'
+    )
+    if (popup) return { root, popup }
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    })
+  }
+  await act(async () => root.unmount())
+  throw new Error('Risk details did not open')
+}
+
+afterEach(() => document.body.replaceChildren())
+after(() => domWindow.close())
+
+describe('Moderation risk details', () => {
+  test('keeps the backend review and flagged counts when parsing users', () => {
+    const parsed = userSchema.parse(user())
+    assert.equal(parsed.wallet_risk?.moderation_reviewed_count, 12)
+    assert.equal(parsed.wallet_risk?.moderation_flagged_count, 3)
+    assert.deepEqual(parsed.wallet_risk?.reasons, ['moderation_violations'])
+  })
+
+  test('shows counts and the user-input reason in the actual risk popover', async () => {
+    const rendered = await renderRisk(user())
+    try {
+      const labels = [...rendered.popup.querySelectorAll('dt')]
+      const reviews = labels.find(
+        (label) => label.textContent === 'Moderation reviews'
+      )
+      const flagged = labels.find(
+        (label) => label.textContent === 'Flagged user inputs'
+      )
+      assert.equal(reviews?.nextElementSibling?.textContent, '12')
+      assert.equal(flagged?.nextElementSibling?.textContent, '3')
+      assert.match(
+        rendered.popup.textContent ?? '',
+        /Moderation violations in user input/
+      )
+      assert.match(rendered.popup.textContent ?? '', /Model output is excluded/)
+    } finally {
+      await act(async () => rendered.root.unmount())
+    }
+  })
+
+  test('does not fabricate review counts for an older server response', async () => {
+    const value = user()
+    assert.ok(value.wallet_risk)
+    delete value.wallet_risk.moderation_reviewed_count
+    delete value.wallet_risk.moderation_flagged_count
+    const rendered = await renderRisk(value)
+    try {
+      assert.doesNotMatch(
+        rendered.popup.textContent ?? '',
+        /Moderation reviews|Flagged user inputs/
+      )
+    } finally {
+      await act(async () => rendered.root.unmount())
+    }
+  })
+})
+
+test('historical transfer units cannot inflate canonical quota total or remaining percentage', async () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <UserQuotaCell
+            used={1000000}
+            normalizedUsed={1000000}
+            projectionAvailable
+            remaining={500000}
+            transferred={6710363}
+          />
+        </I18nextProvider>
+      )
+    )
+    assert.match(container.textContent ?? '', /Unavailable/)
+    assert.equal(container.querySelector('[role="progressbar"]'), null)
+    assert.doesNotMatch(container.textContent ?? '', /8,210,363|16\.42/)
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
+
+test('wallet risk source counters remain raw credits without inferred current fiat values', async () => {
+  const value = user()
+  assert.ok(value.wallet_risk)
+  Object.assign(value.wallet_risk, {
+    checkin_quota: 500000,
+    transferred_quota: 6710363,
+    pending_quota: 123456,
+    received_quota: 2000001,
+  })
+  const rendered = await renderRisk(value)
+  try {
+    const labels = [...rendered.popup.querySelectorAll('dt')]
+    for (const [label, expected] of [
+      ['Check-in rewards', '500,000 Credits'],
+      ['Transferred out', '6,710,363 Credits'],
+      ['Pending transfers', '123,456 Credits'],
+      ['Received transfers', '2,000,001 Credits'],
+    ]) {
+      const entry = labels.find((item) => item.textContent === label)
+      assert.equal(entry?.nextElementSibling?.textContent, expected, label)
+    }
+  } finally {
+    await act(async () => rendered.root.unmount())
+  }
+})
+
+test('raw transfer counters follow French app language even when browser language is English', async () => {
+  assert.equal(navigator.language, 'en-US')
+  await i18n.changeLanguage('fr')
+  const value = user()
+  assert.ok(value.wallet_risk)
+  value.wallet_risk.transferred_quota = 6710363
+  const rendered = await renderRisk(value)
+  try {
+    const entry = [...rendered.popup.querySelectorAll('dt')].find(
+      (item) => item.textContent === 'Transferred out'
+    )
+    assert.equal(
+      entry?.nextElementSibling?.textContent,
+      '6\u202f710\u202f363 Credits'
+    )
+    assert.doesNotMatch(
+      entry?.nextElementSibling?.textContent ?? '',
+      /6,710,363/
+    )
+  } finally {
+    await act(async () => rendered.root.unmount())
+    await i18n.changeLanguage('en')
+  }
+})

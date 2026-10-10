@@ -900,6 +900,46 @@ For commercial licensing, please contact support@quantumnous.com
  * The sidebar field mirrors the main card's corner radius (both use the
  * `--radius-xl` scale) so the two surfaces read as one continuous family,
  * and the open/close slide uses an ease-out curve instead of linear. */
+/* Mobile privacy controls share the console viewport instead of extending the
+ * body below its 100dvh shell. Desktop and public page layouts keep their flow. */
+@media (max-width: 767px) {
+  #root:has(> .console-editorial[data-slot='sidebar-wrapper']) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  #root:has(> .console-editorial[data-slot='sidebar-wrapper'])
+    > .console-editorial[data-slot='sidebar-wrapper'] {
+    height: auto;
+    min-height: 0;
+    flex: 1 1 0%;
+  }
+
+  #root:has(> .console-editorial[data-slot='sidebar-wrapper'])
+    > [data-slot='source-consent-toggle'] {
+    align-self: flex-start;
+    flex-shrink: 0;
+    min-height: 2.75rem;
+    margin: 0;
+    padding-inline: 1rem;
+  }
+
+  #root:has(> .console-editorial[data-slot='sidebar-wrapper'])
+    > [data-slot='source-consent-panel'] {
+    flex-shrink: 0;
+    max-height: 50dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  [data-slot='source-consent-toggle'],
+  [data-slot='source-consent-panel'] [data-slot='button'] {
+    min-height: 2.75rem;
+  }
+}
+
 .console-editorial [data-slot='sidebar-inner'] {
   border-radius: calc(var(--radius) * 1.4);
 }
@@ -909,27 +949,36 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial [data-slot='sidebar-menu-button'] {
+  border-radius: 0.375rem;
   color: color-mix(in oklch, var(--sidebar-foreground) 72%, transparent);
   transition:
     background-color 140ms ease,
     color 140ms ease;
 }
 
-[data-slot='sidebar'][data-sidebar-density='compact']
-  [data-slot='sidebar-menu-button'] {
-  min-height: 2rem;
-  padding-block: 0.35rem;
-  font-size: 0.8125rem;
+@media (min-width: 768px) {
+  [data-slot='sidebar'][data-sidebar-density='compact']
+    [data-slot='sidebar-menu-button'] {
+    min-height: 2rem;
+    padding-block: 0.35rem;
+    font-size: 0.8125rem;
+  }
+
+  [data-slot='sidebar'][data-sidebar-density='compact']
+    [data-slot='sidebar-group-label'] {
+    padding-block: 0.5rem 0.25rem;
+  }
+
+  [data-slot='sidebar'][data-sidebar-density='compact']
+    [data-slot='sidebar-menu'] {
+    gap: 0.125rem;
+  }
 }
 
-[data-slot='sidebar'][data-sidebar-density='compact']
-  [data-slot='sidebar-group-label'] {
-  padding-block: 0.5rem 0.25rem;
-}
-
-[data-slot='sidebar'][data-sidebar-density='compact']
-  [data-slot='sidebar-menu'] {
-  gap: 0.125rem;
+[data-slot='sidebar'][data-mobile='true'] [data-slot='sidebar-menu-button'],
+[data-slot='sidebar'][data-mobile='true']
+  [data-slot='sidebar-menu-sub-button'] {
+  min-height: 2.75rem;
 }
 
 .console-editorial [data-slot='sidebar-menu-button']:hover {
@@ -937,10 +986,33 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--sidebar-foreground);
 }
 
-.console-editorial [data-slot='sidebar-menu-button'][data-active='true'] {
-  background: var(--sidebar-accent);
-  color: var(--sidebar-accent-foreground);
-  font-weight: 500;
+/* Full-contrast active row: the current destination reads as a solid ink
+ * block (paper in dark mode), echoing the cut logo's black/white polarity.
+ * A 45° notch on the trailing corner repeats the logo's base cut. */
+.console-editorial
+  [data-slot='sidebar-menu-button'][data-active]:not([data-active='false']),
+.console-editorial
+  [data-slot='sidebar-menu-button'][data-active]:not(
+    [data-active='false']
+  ):hover {
+  background: var(--sidebar-primary);
+  color: var(--sidebar-primary-foreground);
+  font-weight: 600;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - var(--cut-size, 0.625rem)),
+    calc(100% - var(--cut-size, 0.625rem)) 100%,
+    0 100%
+  );
+}
+
+.console-editorial
+  [data-slot='sidebar-menu-button'][data-active]:not(
+    [data-active='false']
+  ):focus-visible {
+  /* clip-path would hide the focus outline; keyboard focus wins. */
+  clip-path: none;
 }
 
 .console-editorial [data-slot='sidebar-group-label'] {

@@ -41,12 +41,13 @@ func (b *LimitBuffer) reserve(size int) ([]byte, error) {
 	}
 	end := start + size
 	if cap(b.data) < end {
-		// Grow exactly to the checked end. Avoid multiplying a potentially
-		// attacker-influenced capacity, which can overflow before the limit
-		// clamp is applied.
-
-		// lgtm [go/allocation-size-overflow]
-		next := make([]byte, start, end)
+		// Grow geometrically without exceeding the budget. Check before
+		// doubling so the capacity calculation cannot overflow.
+		capacity := b.limit
+		if cap(b.data) <= b.limit/2 {
+			capacity = max(end, 2*cap(b.data))
+		}
+		next := make([]byte, start, capacity)
 		copy(next, b.data)
 		b.data = next
 	}

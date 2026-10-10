@@ -20,6 +20,8 @@ For commercial licensing, please contact support@quantumnous.com
 // Profile Type Definitions
 // ============================================================================
 
+import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
+
 /**
  * Generic API response
  */
@@ -27,6 +29,60 @@ export interface ApiResponse<T = unknown> {
   success: boolean
   message?: string
   data?: T
+}
+
+export type LinkedProfileProvider = 'cursor' | 'chatgpt' | 'custom'
+export type ProfileSnapshotPeriod = 'all' | '7d' | '30d' | '365d' | 'custom'
+
+export interface ProfileUsageSnapshot {
+  tokens?: number
+  requests?: number
+  messages?: number
+  period: ProfileSnapshotPeriod
+  period_start?: string
+  period_end?: string
+  observed_at: string
+  approximate: boolean
+  source?: string
+}
+
+export interface LinkedUsageProfile {
+  provider: LinkedProfileProvider
+  url: string
+  label?: string
+  snapshot?: ProfileUsageSnapshot
+}
+
+export interface ProfileAggregateSource {
+  provider: LinkedProfileProvider | 'lmm'
+  url: string
+  label: string
+  status:
+    | 'live'
+    | 'snapshot'
+    | 'login_required'
+    | 'unavailable'
+    | 'unsupported'
+    | 'disabled'
+  tokens?: number
+  requests?: number
+  messages?: number
+  agents?: number
+  period: string
+  period_start?: string
+  period_end?: string
+  period_timezone?: string
+  observed_at?: string
+  fetched_at?: string
+  approximate: boolean
+  source: 'native' | 'public_ssr' | 'owner_snapshot'
+  snapshot_source?: string
+  reason?: string
+}
+
+export interface ProfileAggregateSettings {
+  aggregate_usage_enabled: boolean
+  linked_profiles: LinkedUsageProfile[]
 }
 
 /**
@@ -49,6 +105,8 @@ export interface UserProfile {
   quota: number
   /** Total used quota */
   used_quota: number
+  normalized_used_quota?: number | null
+  usage_projection_available?: boolean
   /** Total request count */
   request_count: number
   /** Account status (1=启用, 2=禁用, 3=待审核, 4=已删除) */
@@ -129,6 +187,8 @@ export interface UserSettings {
   language?: string
   /** Customer fiat preference, independent of quota display and credits */
   settlement_currency?: SettlementCurrencyPreference
+  /** Balance/quota display unit; empty follows the current interface language. */
+  wallet_display_currency?: WalletDisplayCurrencyPreference
   /** How this user's usage appears on the public leaderboard */
   usage_leaderboard_visibility?: UsageLeaderboardVisibility
   /** L1+ only: bypass IP/region access policy when a valid API key is used */

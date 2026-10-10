@@ -22,6 +22,7 @@ use lmm_api_rs::{
             AdminCatalogState, DashboardAdminCatalogAuthorizer, PgCatalogProvider,
             router as admin_catalog_router,
         },
+        ai_directory::{AIDirectoryState, PgAIDirectoryStore, router as ai_directory_router},
         api_token::{ApiTokenHttpState, PgValkeyApiTokenService},
         assistant::{AssistantRateLimitConfig, AssistantReadState, assistant_read_router},
         billing_dashboard::{
@@ -32,8 +33,8 @@ use lmm_api_rs::{
             BillingConfig, BillingDependencies, BillingHttpState, DashboardBillingAuthorizer,
             DisabledCheckoutProvider, DisabledEpayVerifier, DisabledStripeWebhookVerifier,
             PgBillingPaymentAccess, PgBillingRepository, PgPaymentCompliance,
-            SubscriptionBalancePayState, ValkeyBillingCache, billing_provider_payments_router,
-            subscription_balance_pay_router,
+            SubscriptionBalancePayState, ValkeyBillingCache,
+            billing_provider_payments_without_stripe_router, subscription_balance_pay_router,
         },
         billing_subscriptions::{
             BillingSubscriptionsState, router as billing_subscriptions_router,
@@ -66,7 +67,7 @@ use lmm_api_rs::{
         developer_access::{DeveloperAccessState, router as developer_access_router},
         discount_code::{DiscountCodeState, router as discount_code_router},
         epay::{
-            DashboardTopupAuthorizer, DisabledEpayGateway, DisabledTopupRepository, UserTopupState,
+            DashboardTopupAuthorizer, PgEpayGateway, PgEpayRepository, UserTopupState,
             router as epay_router,
         },
         finance::{FinanceState, router as finance_router},
@@ -95,6 +96,9 @@ use lmm_api_rs::{
         kling_task_reads::{
             KlingTaskReadState, PgKlingTaskReadService, router as kling_task_read_router,
         },
+        mandatory_announcements::{
+            MandatoryAnnouncementState, router as mandatory_announcements_router,
+        },
         mcp::{McpHttpState, mcp_router},
         media_midjourney::{
             MidjourneyHttpState, PgMidjourneyDispatchBackend, media_midjourney_router,
@@ -110,6 +114,7 @@ use lmm_api_rs::{
             observability_performance_router, observability_read_router,
         },
         open_source_bounties::{OpenSourceBountyState, router as open_source_bounty_router},
+        public_catalog::ValkeyAccountBalanceRateLimiter,
         public_relay::{PublicRelayState, router as public_relay_router},
         ratio_sync::{
             DashboardRatioSyncAuthorizer, HttpRatioSyncUpstream, PgRatioSyncRepository,
@@ -128,7 +133,8 @@ use lmm_api_rs::{
         relay_misc_frozen::router as relay_misc_frozen_router,
         relay_misc_postgres::PgRelayMiscService,
         relay_openai::{
-            OpenAiRelayHttpState, OpenAiUpstreamClient, PgOpenAiRelayService, openai_relay_router,
+            OpenAiRelayHttpState, OpenAiUpstreamClient, PgOpenAiRelayService, RelayReconcilePolicy,
+            openai_relay_router,
         },
         relay_video::{FailClosedRelayVideoService, RelayVideoHttpState, relay_video_router},
         release_notes::{ReleaseNoteState, router as release_note_router},
@@ -136,17 +142,24 @@ use lmm_api_rs::{
             ResponsesWebSocketState, UnconfiguredResponsesWebSocketService,
             router as responses_websocket_router,
         },
+        scripts::{
+            RepositoryServices, ScriptsState, api_router as scripts_api_router,
+            download_router as scripts_download_router,
+        },
         security_admin::{SecurityAdminState, router as security_admin_router},
         security_overview::{SecurityOverviewState, router as security_overview_router},
         stripe_creem::{
             DashboardStripeCreemAuthorizer, DisabledStripeCreemGateway, PgStripeCreemStore,
             StripeCreemState, amount_router as stripe_amount_router,
             pay_router as stripe_pay_router,
+            stripe_provider::StripeApiClient,
+            stripe_wallet::{StripeWalletState, webhook_router as stripe_wallet_webhook_router},
         },
         system_config::{
             DashboardRootAuthorizer, HttpProjectUpdateClient, HttpWaffoPancakeGateway,
             ProcessRuntimeOptions, SystemConfigHttpState, system_config_router,
         },
+        token_queries::{TokenQueryState, router as token_query_router},
         topup::{TopupState, router as topup_router},
         unified_todo::{UnifiedTodoState, router as unified_todo_router},
         user_assistant_admin::{UserAssistantAdminState, router as user_assistant_admin_router},
@@ -300,6 +313,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_token_service = PgValkeyApiTokenService::new(pg.clone(), valkey.clone())
         .with_cache_ttl(config.models_cache_ttl)
         .with_crypto_secret(config.crypto_secret.expose_secret())
+        .with_frozen_cache_refresh(config.test_instance)
         .with_console_activation_on_create(!config.test_instance)
         .with_auto_groups_cache(!config.test_instance);
     let api_token = ApiTokenMount::new(
@@ -343,7 +357,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         runtime: runtime.clone(),
         trusted_proxies: config.trusted_proxies.clone(),
     };
+    let settlement_tracker;
+    let settlement_worker;
     let router = if config.test_instance {
+        settlement_tracker = None;
+        settlement_worker = None;
         // Only the explicitly isolated historical listener may use the frozen
         // Go 5418ce6 model/API-token contract.
         let models_http = models_http.with_listener_mode(ModelsListenerMode::FrozenGo5418ce6);
@@ -401,14 +419,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &app_state,
             topup_router(TopupState::new(pg.clone(), Arc::clone(&auth))),
         );
-        // Stripe amount quoting is a deterministic PostgreSQL/configuration
-        // calculation.  Checkout is mounted with the same authorizer and a
-        // fail-closed gateway so the path cannot 404 through to Go.
+        // Stripe checkout and its shared wallet/subscription callback are
+        // composed together. A persisted order always precedes provider I/O.
+        let native_stripe = StripeWalletState::new(
+            pg.clone(),
+            valkey.clone(),
+            Arc::new(DashboardTopupAuthorizer::new(Arc::clone(&auth))),
+            StripeApiClient::new()
+                .map_err(|_| io::Error::other("failed to initialize Stripe client"))?,
+        );
         let stripe_creem_state = StripeCreemState::new(
             Arc::new(PgStripeCreemStore::new(pg.clone())),
             Arc::new(DashboardStripeCreemAuthorizer::new(Arc::clone(&auth))),
             Arc::new(DisabledStripeCreemGateway),
-        );
+        )
+        .with_native_stripe(native_stripe.clone());
         let stripe_amount = http::api_global_rate_limited_surface(
             &app_state,
             stripe_amount_router(stripe_creem_state.clone()),
@@ -417,12 +442,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &app_state,
             stripe_pay_router(stripe_creem_state),
         );
+        let stripe_webhook = http::api_global_rate_limited_surface(
+            &app_state,
+            stripe_wallet_webhook_router(native_stripe),
+        );
         let epay = http::api_global_rate_limited_surface(
             &app_state,
             epay_router(UserTopupState::new(
                 Arc::new(DashboardTopupAuthorizer::new(Arc::clone(&auth))),
-                Arc::new(DisabledTopupRepository),
-                Arc::new(DisabledEpayGateway),
+                Arc::new(PgEpayRepository::new(pg.clone()).with_valkey(valkey.clone())),
+                Arc::new(PgEpayGateway::new(pg.clone())),
             )),
         );
         let waffo = http::api_global_rate_limited_surface(
@@ -455,6 +484,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Arc::new(DashboardSecurityAuthorizer::new(Arc::clone(&auth))),
             )
             .with_passkey_enabled(passkey_enabled)
+            .with_session_authority(Arc::clone(&auth), config.auth_cookie_secure)
             .with_registration_security(auth_http.anonymous_request_security()),
         );
         let identity_security =
@@ -659,6 +689,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &app_state,
             release_note_router(ReleaseNoteState::new(pg.clone(), Arc::clone(&auth))),
         );
+        let mandatory_announcements = http::api_global_rate_limited_surface(
+            &app_state,
+            mandatory_announcements_router(MandatoryAnnouncementState::new(
+                pg.clone(),
+                Arc::clone(&auth),
+            )),
+        );
+        let scripts_state = ScriptsState::from_environment(Arc::new(
+            DashboardRootAuthorizer::new(Arc::clone(&auth)),
+        ))?
+        .with_repository(RepositoryServices::new(
+            pg.clone(),
+            Arc::clone(&auth),
+            runtime_options.clone(),
+            valkey.clone(),
+        ));
+        let scripts_api = http::api_global_rate_limited_surface(
+            &app_state,
+            scripts_api_router(scripts_state.clone()),
+        );
+        let scripts_download = scripts_download_router(scripts_state);
         let security_overview = http::api_global_rate_limited_surface(
             &app_state,
             security_overview_router(SecurityOverviewState::new(pg.clone(), Arc::clone(&auth))),
@@ -718,12 +769,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_payment_access(Arc::new(PgBillingPaymentAccess::new(pg.clone()))),
             ),
         );
-        // Provider checkout and callback routes stay fail-closed until a live
-        // gateway is configured. Mounting them here keeps the frozen Go
-        // surface from 404ing through the Rust listener.
+        // Subscription checkout and the remaining provider callbacks retain
+        // their adapters. The native Stripe processor owns its shared callback
+        // exactly once, including subscription lifecycle events.
         let billing_provider_payments = http::api_global_rate_limited_surface(
             &app_state,
-            billing_provider_payments_router(BillingHttpState::new(
+            billing_provider_payments_without_stripe_router(BillingHttpState::new(
                 BillingDependencies {
                     repository: Arc::new(PgBillingRepository::new(pg.clone())),
                     authorizer: Arc::new(DashboardBillingAuthorizer::new(Arc::clone(&auth))),
@@ -840,21 +891,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &app_state,
             public_relay_router(PublicRelayState::new(pg.clone(), Arc::clone(&auth))),
         );
+        let ai_directory = http::api_global_rate_limited_surface(
+            &app_state,
+            ai_directory_router(AIDirectoryState::new(
+                Arc::new(
+                    PgAIDirectoryStore::new(pg.clone(), Some(valkey.clone()))
+                        .with_dependency_timeout(config.dependency_timeout)
+                        .with_runtime_options(runtime_options.clone()),
+                ),
+                Arc::clone(&auth),
+            )),
+        );
+        let token_queries = token_query_router(
+            TokenQueryState::new(
+                pg.clone(),
+                Arc::new(ValkeyAccountBalanceRateLimiter::new(
+                    valkey.clone(),
+                    30,
+                    std::time::Duration::from_secs(60),
+                    config.dependency_timeout,
+                )),
+            )
+            .with_runtime_options(runtime_options.clone()),
+        );
         // OpenAI-compatible and media relay routes use the same PostgreSQL
         // token/channel authority as the rest of the normal listener.  Keep
         // the upstream client bounded and let each executor own its billing
         // transaction; these routes must not fall through to a legacy Go
         // process once the Rust listener is selected.
-        let relay_openai = openai_relay_router(
-            OpenAiRelayHttpState::new(
-                Arc::new(PgOpenAiRelayService::new(
-                    pg.clone(),
-                    OpenAiUpstreamClient::new(relay_client.clone()),
-                    1,
-                )),
-                app_state.status.version().to_owned(),
+        let openai_service = Arc::new(
+            PgOpenAiRelayService::new(
+                pg.clone(),
+                OpenAiUpstreamClient::new(relay_client.clone()),
+                1,
             )
-            .with_protocol_runtime(protocol_rollout.clone(), protocol_registry.clone()),
+            .with_option_pricing()
+            .with_valkey(
+                valkey.clone(),
+                config.crypto_secret.expose_secret(),
+                config.dependency_timeout,
+            ),
+        );
+        settlement_tracker = Some(openai_service.settlement_tracker());
+        settlement_worker = Some(
+            openai_service
+                .spawn_settlement_reconciler(shutdown_rx.clone(), RelayReconcilePolicy::default()),
+        );
+        let relay_openai = openai_relay_router(
+            OpenAiRelayHttpState::new(openai_service, app_state.status.version().to_owned())
+                .with_protocol_runtime(protocol_rollout.clone(), protocol_registry.clone()),
         );
         // Midjourney submissions need an outer distributor because the
         // request-scoped backend intentionally holds one selected channel.
@@ -1013,6 +1098,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(finance_export)
             .merge(finance)
             .merge(release_notes)
+            .merge(mandatory_announcements)
+            .merge(scripts_api)
+            .merge(scripts_download)
             .merge(security_overview)
             .merge(security_admin)
             .merge(unified_todo)
@@ -1023,6 +1111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(discount_code)
             .merge(subscription_balance_pay)
             .merge(billing_provider_payments)
+            .merge(stripe_webhook)
             .merge(waffo_webhooks)
             .merge(kling_task_reads)
             .merge(billing_subscriptions)
@@ -1036,6 +1125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .merge(observability_force_gc)
             .merge(open_source_bounties)
             .merge(public_relays)
+            .merge(ai_directory)
+            .merge(token_queries)
             .merge(relay_openai)
             .merge(relay_midjourney)
             .merge(relay_media_tasks)
@@ -1067,21 +1158,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_graceful_shutdown(wait_for_shutdown(shutdown_rx))
     .into_future();
     tokio::pin!(server);
-    tokio::select! {
-        result = &mut server => result?,
-        () = shutdown_signal() => {
-            runtime.begin_drain();
-            tracing::info!(
-                slot = %config.slot,
-                inflight = runtime.inflight(),
-                drain_timeout_seconds = config.drain_timeout.as_secs(),
-                "shutdown requested; readiness closed, listener closing and in-flight requests draining"
-            );
-            let _ = shutdown_tx.send(true);
-            bounded_drain(config.drain_timeout, &mut server).await??;
-            tracing::info!(slot = %config.slot, remaining_inflight = runtime.inflight(), "slot drain completed");
+    let completed_server = tokio::select! {
+        result = &mut server => Some(result),
+        () = shutdown_signal() => None,
+    };
+    // Server errors also close readiness and signal background workers. Their
+    // already-owned financial work must use the same bounded drain as SIGTERM.
+    runtime.begin_drain();
+    tracing::info!(
+        slot = %config.slot,
+        inflight = runtime.inflight(),
+        drain_timeout_seconds = config.drain_timeout.as_secs(),
+        "shutdown requested; readiness closed, listener closing and in-flight requests draining"
+    );
+    let _ = shutdown_tx.send(true);
+    let deadline = tokio::time::Instant::now() + config.drain_timeout;
+    bounded_drain(config.drain_timeout, async {
+        // Join the producer before checking the task count, so it cannot
+        // register fresh work just after an apparently empty drain.
+        let worker_result = if let Some(worker) = settlement_worker {
+            worker
+                .await
+                .map_err(|_| io::Error::other("relay settlement recovery worker failed"))
+        } else {
+            Ok(())
+        };
+        let server_result = match completed_server {
+            Some(result) => result,
+            None => (&mut server).await,
+        };
+        if let Some(tracker) = settlement_tracker
+            && !tracker.drain_until(deadline).await
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "pending relay settlement drain timed out",
+            ));
         }
-    }
+        worker_result?;
+        server_result
+    })
+    .await??;
+    tracing::info!(slot = %config.slot, remaining_inflight = runtime.inflight(), "slot drain completed");
     Ok(())
 }
 async fn bounded_drain<F, T>(timeout: std::time::Duration, drain: F) -> io::Result<T>

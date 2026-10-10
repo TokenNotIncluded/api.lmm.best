@@ -37,19 +37,6 @@ const (
 	SubscriptionResetCustom  = "custom"
 )
 
-// Waffo Pancake product types bound to subscription plans.
-const (
-	WaffoPancakeProductTypeOneTime      = "one_time"
-	WaffoPancakeProductTypeSubscription = "subscription"
-)
-
-func NormalizeWaffoPancakeProductType(value string) string {
-	if strings.EqualFold(strings.TrimSpace(value), WaffoPancakeProductTypeOneTime) {
-		return WaffoPancakeProductTypeOneTime
-	}
-	return WaffoPancakeProductTypeSubscription
-}
-
 var (
 	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
 	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")
@@ -197,6 +184,9 @@ type SubscriptionPlan struct {
 	WaffoPancakeProductId   string `json:"waffo_pancake_product_id" gorm:"type:varchar(128);default:''"`
 	WaffoPancakeProductType string `json:"waffo_pancake_product_type" gorm:"type:varchar(16);not null;default:'subscription'"`
 
+	// nil preserves the historical single product; [] explicitly disables both.
+	WaffoPancakeProducts []WaffoPancakePlanProduct `json:"waffo_pancake_products" gorm:"serializer:json;type:text"`
+
 	// Max purchases per user (0 = unlimited)
 	MaxPurchasePerUser int `json:"max_purchase_per_user" gorm:"type:int;default:0"`
 
@@ -254,6 +244,7 @@ type SubscriptionOrder struct {
 	PlanId int `json:"plan_id" gorm:"index"`
 	// Money is the immutable plan list price expressed in the ISO currency
 	// captured by PlanSnapshot. It is real fiat, never platform wallet units.
+	ChargedQuota int64   `json:"charged_quota" gorm:"not null;default:0"`
 	Money        float64 `json:"money"`
 	PlanCurrency string  `json:"plan_currency" gorm:"type:varchar(8)"`
 
@@ -402,9 +393,15 @@ type UserSubscription struct {
 	UserId int `json:"user_id" gorm:"index;index:idx_user_sub_active,priority:1"`
 	PlanId int `json:"plan_id" gorm:"index"`
 
-	AmountTotal  int64 `json:"amount_total" gorm:"type:bigint;not null;default:0"`
-	AmountUsed   int64 `json:"amount_used" gorm:"type:bigint;not null;default:0"`
-	QuotaVersion int64 `json:"quota_version" gorm:"type:bigint;not null;default:0"`
+	AmountTotal int64 `json:"amount_total" gorm:"type:bigint;not null;default:0"`
+	AmountUsed  int64 `json:"amount_used" gorm:"type:bigint;not null;default:0"`
+	// ResetAmount is the corrected current-period reset grant.
+	// NULL keeps legacy grants; a non-NULL zero is an exhausted finite grant.
+	ResetAmount *int64 `json:"reset_amount,omitempty" gorm:"type:bigint"`
+	// RenewalAmount preserves the corrected full purchased grant independently
+	// of current-period partial refunds.
+	RenewalAmount *int64 `json:"renewal_amount,omitempty" gorm:"type:bigint"`
+	QuotaVersion  int64  `json:"quota_version" gorm:"type:bigint;not null;default:0"`
 
 	StartTime int64  `json:"start_time" gorm:"bigint"`
 	EndTime   int64  `json:"end_time" gorm:"bigint;index;index:idx_user_sub_active,priority:3"`
@@ -1143,9 +1140,7 @@ func applySubscriptionPaymentEventTx(tx *gorm.DB, tradeNo string, paymentEvent *
 		order.RefundedQuota = 0
 		subscription.AmountUsed = 0
 		subscription.QuotaVersion++
-		if renewalPlan.TotalAmount > 0 {
-			subscription.AmountTotal = renewalPlan.TotalAmount
-		}
+		subscription.applyRenewalGrant(renewalPlan.TotalAmount)
 		subscription.Status = "active"
 		subscription.LastResetTime = paymentEvent.PeriodStart
 		subscription.NextResetTime = calcNextResetTime(time.Unix(paymentEvent.PeriodStart, 0), &renewalPlan, subscription.EndTime)
@@ -1405,11 +1400,11 @@ func calcSubscriptionBalanceQuota(priceAmount float64, currency string) (int, er
 	if err != nil {
 		return 0, err
 	}
-	platformUnits, err := rates.PlatformUnitsForFiat(decimal.NewFromFloat(priceAmount), currency)
+	credits, err := common.FiatToCreditsDecimal(decimal.NewFromFloat(priceAmount), currency, rates.CNYPerUSD)
 	if err != nil {
 		return 0, err
 	}
-	quota := platformUnits.Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Ceil()
+	quota := credits.Ceil()
 	return common.WalletQuotaFromDecimalStrict(quota)
 }
 
@@ -1484,16 +1479,20 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 		now := common.GetTimestamp()
 		tradeNo := fmt.Sprintf("SUBBALUSR%dNO%s%d", userId, common.GetRandomString(6), time.Now().UnixNano())
 		order := &SubscriptionOrder{
-			UserId:          userId,
-			PlanId:          plan.Id,
-			Money:           plan.PriceAmount,
-			TradeNo:         tradeNo,
-			PaymentMethod:   PaymentMethodBalance,
-			PaymentProvider: PaymentProviderBalance,
-			Status:          common.TopUpStatusSuccess,
-			CreateTime:      now,
-			CompleteTime:    now,
-			ProviderPayload: fmt.Sprintf("charged_quota=%d", requiredQuota),
+			UserId:             userId,
+			PlanId:             plan.Id,
+			Money:              plan.PriceAmount,
+			PlanCurrency:       strings.ToUpper(strings.TrimSpace(plan.Currency)),
+			PlanSnapshot:       common.GetJsonString(plan),
+			UserSubscriptionId: subscription.Id,
+			ChargedQuota:       int64(requiredQuota),
+			TradeNo:            tradeNo,
+			PaymentMethod:      PaymentMethodBalance,
+			PaymentProvider:    PaymentProviderBalance,
+			Status:             common.TopUpStatusSuccess,
+			CreateTime:         now,
+			CompleteTime:       now,
+			ProviderPayload:    fmt.Sprintf("charged_quota=%d", requiredQuota),
 		}
 		if err := tx.Create(order).Error; err != nil {
 			return err
@@ -1693,7 +1692,13 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 	}
 	updates := map[string]any{"amount_used": 0, "quota_version": gorm.Expr("quota_version + 1")}
 	sub.AmountUsed = 0
+	if sub.ResetAmount != nil {
+		sub.AmountTotal = *sub.ResetAmount
+	}
 	sub.QuotaVersion++
+	if sub.ResetAmount != nil {
+		updates["amount_total"] = sub.AmountTotal
+	}
 	if advanceResetTime {
 		nextReset := calcNextResetTime(time.Unix(now, 0), plan, sub.EndTime)
 		sub.NextResetTime = nextReset
@@ -1749,7 +1754,7 @@ func adminResetUserSubscriptionsByPlanTx(tx *gorm.DB, userId int, plan *Subscrip
 			return nil, errors.New("subscription reset encountered a negative used quota")
 		}
 		var addErr error
-		restoredQuota, addErr = checkedSubscriptionResetAdd(restoredQuota, subs[i].AmountUsed)
+		restoredQuota, addErr = checkedSubscriptionResetAdd(restoredQuota, subs[i].resetRestoredQuota())
 		if addErr != nil {
 			return nil, addErr
 		}
@@ -1765,6 +1770,7 @@ func adminResetUserSubscriptionsByPlanTx(tx *gorm.DB, userId int, plan *Subscrip
 type SubscriptionPreConsumeResult struct {
 	UserSubscriptionId int
 	PreConsumed        int64
+	TokenConsumed      int64
 	AmountTotal        int64
 	AmountUsedBefore   int64
 	AmountUsedAfter    int64
@@ -1875,21 +1881,25 @@ func ExpireDueSubscriptionsContext(ctx context.Context, limit int) (int, error) 
 
 // SubscriptionPreConsumeRecord stores idempotent pre-consume operations per request.
 type SubscriptionPreConsumeRecord struct {
-	Id                 int    `json:"id"`
-	RequestId          string `json:"request_id" gorm:"type:varchar(64);uniqueIndex"`
-	UserId             int    `json:"user_id" gorm:"index"`
-	UserSubscriptionId int    `json:"user_subscription_id" gorm:"index"`
-	PreConsumed        int64  `json:"pre_consumed" gorm:"type:bigint;not null;default:0"`
-	BillingManaged     bool   `json:"billing_managed" gorm:"not null;default:false"`
-	TokenId            int    `json:"token_id" gorm:"not null;default:0"`
-	TokenConsumed      int64  `json:"token_consumed" gorm:"type:bigint;not null;default:0"`
-	WalletOverflow     bool   `json:"wallet_overflow" gorm:"not null;default:false"`
-	ActualQuota        int64  `json:"actual_quota" gorm:"type:bigint;not null;default:0"`
-	WalletConsumed     int64  `json:"wallet_consumed" gorm:"type:bigint;not null;default:0"`
-	ReservedVersion    int64  `json:"reserved_version" gorm:"type:bigint;not null;default:0"`
-	Status             string `json:"status" gorm:"type:varchar(32);index"` // consumed/settling/settled/refunded
-	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
-	UpdatedAt          int64  `json:"updated_at" gorm:"bigint;index"`
+	Id                    int    `json:"id"`
+	RequestId             string `json:"request_id" gorm:"type:varchar(64);uniqueIndex"`
+	UserId                int    `json:"user_id" gorm:"index"`
+	UserSubscriptionId    int    `json:"user_subscription_id" gorm:"index"`
+	PreConsumed           int64  `json:"pre_consumed" gorm:"type:bigint;not null;default:0"`
+	BillingManaged        bool   `json:"billing_managed" gorm:"not null;default:false"`
+	TokenId               int    `json:"token_id" gorm:"not null;default:0"`
+	TokenConsumed         int64  `json:"token_consumed" gorm:"type:bigint;not null;default:0"`
+	WalletOverflow        bool   `json:"wallet_overflow" gorm:"not null;default:false"`
+	ActualQuota           int64  `json:"actual_quota" gorm:"type:bigint;not null;default:0"`
+	WalletConsumed        int64  `json:"wallet_consumed" gorm:"type:bigint;not null;default:0"`
+	ReservedVersion       int64  `json:"reserved_version" gorm:"type:bigint;not null;default:0"`
+	Status                string `json:"status" gorm:"type:varchar(32);index"` // consumed/settling/settled/refunded
+	RecoveryAttempts      int    `json:"recovery_attempts" gorm:"not null;default:0"`
+	RecoveryLastAttemptAt int64  `json:"recovery_last_attempt_at" gorm:"bigint;index"`
+	RecoveryLastError     string `json:"-" gorm:"type:text"`
+	RecoveryState         string `json:"recovery_state" gorm:"type:varchar(32);index"` // pending/recovering/manual
+	CreatedAt             int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt             int64  `json:"updated_at" gorm:"bigint;index"`
 }
 
 func (r *SubscriptionPreConsumeRecord) BeforeCreate(tx *gorm.DB) error {
@@ -1935,6 +1945,9 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 		return nil
 	}
 	sub.AmountUsed = 0
+	if sub.ResetAmount != nil {
+		sub.AmountTotal = *sub.ResetAmount
+	}
 	sub.QuotaVersion++
 	sub.LastResetTime = base.Unix()
 	sub.NextResetTime = next
@@ -1947,6 +1960,13 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 }
 
 func preConsumeUserSubscription(db *gorm.DB, requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
+	return preConsumeUserSubscriptionWithPolicy(db, requestId, userId, modelName, quotaType, amount, false)
+}
+
+// Managed subscription-first billing can reserve the remaining grant when its
+// conservative estimate is larger. Settlement then charges the actual excess
+// to the wallet under the existing overflow policy.
+func preConsumeUserSubscriptionWithPolicy(db *gorm.DB, requestId string, userId int, modelName string, quotaType int, amount int64, allowPartial bool) (*SubscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
 	}
@@ -1992,6 +2012,14 @@ func preConsumeUserSubscription(db *gorm.DB, requestId string, userId int, model
 		if len(subs) == 0 {
 			return ErrNoActiveSubscription
 		}
+		partialAllowed := allowPartial
+		for _, sub := range subs {
+			partialAllowed = partialAllowed && sub.AllowWalletOverflow
+		}
+		var selected *UserSubscription
+		var partial *UserSubscription
+		var partialAmount int64
+		reserved := amount
 		for _, candidate := range subs {
 			sub := candidate
 			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
@@ -2005,46 +2033,60 @@ func preConsumeUserSubscription(db *gorm.DB, requestId string, userId int, model
 			if usedBefore > math.MaxInt64-amount {
 				return errors.New("subscription quota overflow")
 			}
-			if sub.AmountTotal > 0 {
+			if sub.hasFiniteQuota() {
 				remain := sub.AmountTotal - usedBefore
 				if remain < amount {
+					if partialAllowed && remain > partialAmount {
+						partial = &sub
+						partialAmount = remain
+					}
 					continue
 				}
 			}
-			record := &SubscriptionPreConsumeRecord{
-				RequestId:          requestId,
-				UserId:             userId,
-				UserSubscriptionId: sub.Id,
-				PreConsumed:        amount,
-				Status:             "consumed",
-			}
-			if err := tx.Create(record).Error; err != nil {
-				var dup SubscriptionPreConsumeRecord
-				if err2 := tx.Where("request_id = ?", requestId).First(&dup).Error; err2 == nil {
-					if dup.Status == "refunded" {
-						return errors.New("subscription pre-consume already refunded")
-					}
-					returnValue.UserSubscriptionId = sub.Id
-					returnValue.PreConsumed = dup.PreConsumed
-					returnValue.AmountTotal = sub.AmountTotal
-					returnValue.AmountUsedBefore = sub.AmountUsed
-					returnValue.AmountUsedAfter = sub.AmountUsed
-					return nil
-				}
-				return err
-			}
-			sub.AmountUsed += amount
-			if err := tx.Save(&sub).Error; err != nil {
-				return err
-			}
-			returnValue.UserSubscriptionId = sub.Id
-			returnValue.PreConsumed = amount
-			returnValue.AmountTotal = sub.AmountTotal
-			returnValue.AmountUsedBefore = usedBefore
-			returnValue.AmountUsedAfter = sub.AmountUsed
-			return nil
+			selected = &sub
+			break
 		}
-		return fmt.Errorf("%w, need=%d", ErrSubscriptionQuotaInsufficient, amount)
+		if selected == nil && partial != nil {
+			selected = partial
+			reserved = partialAmount
+		}
+		if selected == nil {
+			return fmt.Errorf("%w, need=%d", ErrSubscriptionQuotaInsufficient, amount)
+		}
+		sub := *selected
+		usedBefore := sub.AmountUsed
+		record := &SubscriptionPreConsumeRecord{
+			RequestId:          requestId,
+			UserId:             userId,
+			UserSubscriptionId: sub.Id,
+			PreConsumed:        reserved,
+			Status:             "consumed",
+		}
+		if err := tx.Create(record).Error; err != nil {
+			var dup SubscriptionPreConsumeRecord
+			if err2 := tx.Where("request_id = ?", requestId).First(&dup).Error; err2 == nil {
+				if dup.Status == "refunded" {
+					return errors.New("subscription pre-consume already refunded")
+				}
+				returnValue.UserSubscriptionId = sub.Id
+				returnValue.PreConsumed = dup.PreConsumed
+				returnValue.AmountTotal = sub.AmountTotal
+				returnValue.AmountUsedBefore = sub.AmountUsed
+				returnValue.AmountUsedAfter = sub.AmountUsed
+				return nil
+			}
+			return err
+		}
+		sub.AmountUsed += reserved
+		if err := tx.Save(&sub).Error; err != nil {
+			return err
+		}
+		returnValue.UserSubscriptionId = sub.Id
+		returnValue.PreConsumed = reserved
+		returnValue.AmountTotal = sub.AmountTotal
+		returnValue.AmountUsedBefore = usedBefore
+		returnValue.AmountUsedAfter = sub.AmountUsed
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -2212,7 +2254,7 @@ func postConsumeUserSubscriptionDeltaTx(tx *gorm.DB, userSubscriptionId int, del
 	if newUsed < 0 {
 		newUsed = 0
 	}
-	if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
+	if sub.hasFiniteQuota() && newUsed > sub.AmountTotal {
 		return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
 	}
 	sub.AmountUsed = newUsed

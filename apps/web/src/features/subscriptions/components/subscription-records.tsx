@@ -11,6 +11,7 @@ import { Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
@@ -171,7 +172,89 @@ export function SubscriptionRecords() {
         </div>
       )}
 
-      <div className='overflow-hidden rounded-md border'>
+      <div className='sm:hidden'>
+        {recordsQuery.isPending ? (
+          <div className='space-y-3'>
+            {Array.from({ length: 3 }, (_, index) => (
+              <Skeleton key={index} className='h-28 w-full' />
+            ))}
+          </div>
+        ) : records.length === 0 ? (
+          <EmptyState
+            title={t('No subscription records')}
+            description={t('Try changing or clearing the current filters.')}
+            action={
+              <Button
+                variant='outline'
+                onClick={() => {
+                  setQuery('')
+                  setPlanId('all')
+                  setStatus('all')
+                }}
+              >
+                {t('Reset filters')}
+              </Button>
+            }
+          />
+        ) : (
+          <ol className='divide-y border-y'>
+            {records.map((record) => (
+              <li key={record.id} className='space-y-3 py-3'>
+                <div className='flex items-start justify-between gap-3'>
+                  <div className='min-w-0'>
+                    <p className='text-sm font-medium break-words'>
+                      {record.plan_title || `#${record.plan_id}`}
+                    </p>
+                    <p className='text-muted-foreground mt-1 text-xs break-all'>
+                      {record.username || `#${record.user_id}`} · #{record.id}
+                    </p>
+                  </div>
+                  <StatusBadge
+                    label={t(
+                      record.status === 'cancelled'
+                        ? 'Invalidated'
+                        : record.status === 'active'
+                          ? 'Active'
+                          : 'Expired'
+                    )}
+                    variant={record.status === 'active' ? 'success' : 'neutral'}
+                    copyable={false}
+                  />
+                </div>
+                <dl className='grid grid-cols-2 gap-3 text-xs'>
+                  <div className='min-w-0'>
+                    <dt className='text-muted-foreground'>{t('Used quota')}</dt>
+                    <dd className='mt-1 break-words tabular-nums'>
+                      {formatQuota(record.amount_used)} /{' '}
+                      {formatQuota(record.amount_total)}
+                    </dd>
+                  </div>
+                  <div className='min-w-0'>
+                    <dt className='text-muted-foreground'>{t('Expires at')}</dt>
+                    <dd className='mt-1 break-words tabular-nums'>
+                      {formatTimestamp(record.end_time)}
+                    </dd>
+                  </div>
+                  <div className='min-w-0'>
+                    <dt className='text-muted-foreground'>{t('Source')}</dt>
+                    <dd className='mt-1 break-words'>{record.source || '-'}</dd>
+                  </div>
+                  {record.plan_archived_at > 0 && (
+                    <div>
+                      <StatusBadge
+                        label={t('Archived')}
+                        variant='neutral'
+                        copyable={false}
+                      />
+                    </div>
+                  )}
+                </dl>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+      <div className='hidden overflow-hidden rounded-md border sm:block'>
         <div className='overflow-x-auto'>
           <Table>
             <TableHeader>
@@ -274,25 +357,27 @@ export function SubscriptionRecords() {
         </div>
       </div>
 
-      <div className='flex items-center justify-between gap-3 text-sm'>
+      <div className='flex flex-wrap items-center justify-between gap-3 text-sm'>
         <span className='text-muted-foreground'>
           {t('{{count}} records', { count: total })}
         </span>
-        <div className='flex items-center gap-2'>
+        <div className='flex min-w-0 items-center gap-2'>
           <Button
             variant='outline'
             size='sm'
+            className='min-h-11 sm:min-h-8'
             disabled={page <= 1 || recordsQuery.isFetching}
             onClick={() => setPage((value) => Math.max(1, value - 1))}
           >
             {t('Previous')}
           </Button>
-          <span className='min-w-20 text-center tabular-nums'>
+          <span className='min-w-12 text-center tabular-nums'>
             {page} / {pages}
           </span>
           <Button
             variant='outline'
             size='sm'
+            className='min-h-11 sm:min-h-8'
             disabled={page >= pages || recordsQuery.isFetching}
             onClick={() => setPage((value) => Math.min(pages, value + 1))}
           >

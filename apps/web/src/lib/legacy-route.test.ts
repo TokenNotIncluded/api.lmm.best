@@ -104,3 +104,27 @@ describe('legacy frontend route migration', () => {
     assert.equal(resolveLegacyRoute('/api/status'), null)
   })
 })
+
+describe('new-user entry aliases', () => {
+  test('API key aliases retain filters, repeated parameters and anchors', () => {
+    assert.equal(resolveLegacyRoute('/api-keys'), '/keys')
+    assert.equal(
+      resolveLegacyRoute('/api-keys/?status=1&status=2#quick-test'),
+      '/keys?status=1&status=2#quick-test'
+    )
+  })
+
+  test('settings opens the existing account page rather than admin settings', () => {
+    assert.equal(resolveLegacyRoute('/settings'), '/profile')
+    assert.equal(
+      resolveLegacyRoute('/settings/?from=shortcut#account'),
+      '/profile?from=shortcut#account'
+    )
+  })
+
+  test('canonical destinations and unrelated paths are not rewritten', () => {
+    for (const path of ['/keys', '/profile', '/api-keys/unknown', '/settings-else']) {
+      assert.equal(resolveLegacyRoute(path), null)
+    }
+  })
+})

@@ -28,7 +28,7 @@ import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
-import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { DEFAULT_TOKEN_UNIT, getEndpointTypeLabel } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
@@ -41,7 +41,7 @@ import {
   formatRequestPrice,
   stripTrailingZeros,
 } from '../lib/price'
-import type { PricingModel, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit, PriceDisplayCurrency } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfStatus } from './model-perf-badge'
 import { ModelRuntimeBadge } from './model-runtime-badge'
@@ -52,9 +52,7 @@ import { ModelRuntimeBadge } from './model-runtime-badge'
 
 export interface PricingColumnsOptions {
   tokenUnit?: TokenUnit
-  priceRate?: number
-  usdExchangeRate?: number
-  showRechargePrice?: boolean
+  displayCurrency?: PriceDisplayCurrency
   selectedGroup?: string
   /** Per-model performance summary; absent entries render the empty state. */
   perfMap?: ReadonlyMap<string, ModelPerfBadgeData>
@@ -66,9 +64,7 @@ export function usePricingColumns(
   const { t } = useTranslation()
   const {
     tokenUnit = DEFAULT_TOKEN_UNIT,
-    priceRate = 1,
-    usdExchangeRate = 1,
-    showRechargePrice = false,
+    displayCurrency = 'USD',
     selectedGroup,
     perfMap,
   } = options
@@ -93,7 +89,7 @@ export function usePricingColumns(
         return (
           <div className='flex max-w-full min-w-0 items-center gap-2'>
             {modelIcon}
-            <span className='truncate font-mono text-sm font-medium'>
+            <span className='min-w-0 font-mono text-sm font-medium wrap-anywhere whitespace-normal'>
               {model.model_name}
             </span>
           </div>
@@ -124,9 +120,7 @@ export function usePricingColumns(
         const model = row.original
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
-          showRechargePrice,
-          priceRate,
-          usdExchangeRate,
+          displayCurrency,
           groupRatioMultiplier: getDynamicDisplayGroupRatio(
             model,
             selectedGroup
@@ -150,7 +144,10 @@ export function usePricingColumns(
             )
           }
 
-          const primaryEntries = dynamicSummary.primaryEntries.slice(0, 2)
+          const primaryEntries = dynamicSummary.primaryEntries.slice(0, 3)
+          const hasDurationPrice = primaryEntries.some(
+            (entry) => entry.unit === 'minute'
+          )
           if (primaryEntries.length === 0) {
             return (
               <span className='text-muted-foreground text-xs'>
@@ -168,11 +165,23 @@ export function usePricingColumns(
                       <span className='text-muted-foreground/40 mx-1'>/</span>
                     )}
                     {stripTrailingZeros(entry.formatted)}
+                    {hasDurationPrice && (
+                      <span className='text-muted-foreground/50 ml-1 text-[10px]'>
+                        /{' '}
+                        {entry.unit === 'minute'
+                          ? t('minute')
+                          : `${tokenUnitLabel} ${t('tokens')}`}
+                      </span>
+                    )}
                   </span>
                 ))}
               </span>
               <div className='text-muted-foreground/50 text-[10px]'>
-                / {tokenUnitLabel} {t('tokens')}
+                {!hasDurationPrice && (
+                  <>
+                    / {tokenUnitLabel} {t('tokens')}
+                  </>
+                )}
                 {dynamicSummary.tierCount > 1 &&
                   ` · ${t('{{count}} tiers', {
                     count: dynamicSummary.tierCount,
@@ -190,9 +199,7 @@ export function usePricingColumns(
               model,
               'input',
               tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
+              displayCurrency,
               selectedGroup
             )
           )
@@ -201,9 +208,7 @@ export function usePricingColumns(
               model,
               'output',
               tokenUnit,
-              showRechargePrice,
-              priceRate,
-              usdExchangeRate,
+              displayCurrency,
               selectedGroup
             )
           )
@@ -223,13 +228,7 @@ export function usePricingColumns(
         }
 
         const price = stripTrailingZeros(
-          formatRequestPrice(
-            model,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            selectedGroup
-          )
+          formatRequestPrice(model, displayCurrency, selectedGroup)
         )
 
         return (
@@ -253,9 +252,7 @@ export function usePricingColumns(
         const model = row.original
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
-          showRechargePrice,
-          priceRate,
-          usdExchangeRate,
+          displayCurrency,
           groupRatioMultiplier: getDynamicDisplayGroupRatio(
             model,
             selectedGroup
@@ -292,20 +289,12 @@ export function usePricingColumns(
 
         const isTokenBased = isTokenBasedModel(model)
 
-        if (!isTokenBased || model.cache_ratio == null) {
+        if (!isTokenBased || model.cache_read_price == null) {
           return <span className='text-muted-foreground/30 text-xs'>—</span>
         }
 
         const cachedPrice = stripTrailingZeros(
-          formatPrice(
-            model,
-            'cache',
-            tokenUnit,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            selectedGroup
-          )
+          formatPrice(model, 'cache', tokenUnit, displayCurrency, selectedGroup)
         )
 
         return (
@@ -386,7 +375,7 @@ export function usePricingColumns(
             items={endpoints.map((ep) => (
               <StatusBadge
                 key={ep}
-                label={ep}
+                label={getEndpointTypeLabel(ep, t)}
                 autoColor={ep}
                 size='sm'
                 copyable={false}

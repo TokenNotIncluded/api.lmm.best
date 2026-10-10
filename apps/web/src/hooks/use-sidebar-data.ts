@@ -28,6 +28,7 @@ import {
   Compass,
   CreditCard,
   FileText,
+  Globe2,
   Gift as GiftIcon,
   Image as ImageIcon,
   Key,
@@ -40,6 +41,7 @@ import {
   MonitorCog,
   PhoneCall,
   Radio,
+  Rss,
   RotateCcw,
   Server,
   ServerCog,
@@ -52,6 +54,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { StoreIcon } from '@/components/layout/components/store-icon'
 import type { SidebarData } from '@/components/layout/types'
 import { getTodos } from '@/features/todos/api'
 /*
@@ -104,14 +107,11 @@ export function useSidebarData(): SidebarData {
       navGroups: [
         {
           id: 'onboarding',
-          title: t('Getting started'),
+          title: t('Account'),
           items: [
-            {
-              title: t('Getting started'),
-              url: '/getting-started',
-              icon: Compass,
-            },
+            { title: t('Wallet'), url: '/wallet', icon: Wallet },
             { title: t('Tool market'), url: '/tool-market', icon: Box },
+            { title: t('Shop'), url: '/store', icon: StoreIcon },
             {
               title: t('Challenges'),
               url: '/challenges',
@@ -140,11 +140,6 @@ export function useSidebarData(): SidebarData {
         id: 'general',
         title: t('Use AI'),
         items: [
-          {
-            title: t('Getting started'),
-            url: '/getting-started',
-            icon: Compass,
-          },
           {
             title: t('Models and pricing'),
             url: '/pricing',
@@ -192,6 +187,9 @@ export function useSidebarData(): SidebarData {
         id: 'forge',
         title: t('Ecosystem'),
         items: [
+          { title: t('Shop'), url: '/store', icon: StoreIcon },
+          { title: t('AI directory'), url: '/ai-directory', icon: Globe2 },
+          { title: 'RSS', url: '/rss', icon: Rss },
           {
             title: t('Open-source bounties'),
             url: '/open-source-bounties',

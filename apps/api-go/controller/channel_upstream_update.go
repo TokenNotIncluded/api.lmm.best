@@ -31,6 +31,7 @@ import (
 const (
 	channelUpstreamModelUpdateTaskDefaultIntervalMinutes  = 30
 	channelUpstreamModelUpdateTaskBatchSize               = 100
+	channelUpstreamModelUpdateFetchTimeoutSeconds         = 120
 	channelUpstreamModelUpdateMinCheckIntervalSeconds     = 300
 	channelUpstreamModelUpdateNotifySuppressWindowSeconds = 86400
 	channelUpstreamModelUpdateNotifyMaxChannelDetails     = 8
@@ -247,6 +248,13 @@ func collectPendingUpstreamModelChanges(ctx context.Context, channel *model.Chan
 		settings.UpstreamModelUpdateIgnoredModels,
 		normalizeChannelModelMapping(channel),
 	)
+	if channel.Type == constant.ChannelTypeTypeSafe {
+		// TypeSafe currently lists aliases, while documented versioned IDs remain
+		// accepted even when omitted from GET /v1/models. Absence is not removal.
+		pendingRemoveModels = lo.Filter(pendingRemoveModels, func(modelName string, _ int) bool {
+			return modelName != "jev-1.13.0"
+		})
+	}
 	return pendingAddModels, pendingRemoveModels, nil
 }
 
@@ -259,6 +267,23 @@ func getUpstreamModelUpdateMinCheckIntervalSeconds() int64 {
 		return channelUpstreamModelUpdateMinCheckIntervalSeconds
 	}
 	return interval
+}
+
+// A task lease has no execution deadline. Give each scheduled check a deadline
+// so context-aware providers such as Ollama cannot hold the scan indefinitely.
+func newChannelUpstreamModelUpdateFetchContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	seconds := common.GetEnvOrDefault(
+		"CHANNEL_UPSTREAM_MODEL_UPDATE_FETCH_TIMEOUT_SECONDS",
+		channelUpstreamModelUpdateFetchTimeoutSeconds,
+	)
+	// Reject non-positive values and values that overflow time.Duration.
+	if seconds < 1 || int64(seconds) > int64((1<<63-1)/time.Second) {
+		seconds = channelUpstreamModelUpdateFetchTimeoutSeconds
+	}
+	return context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
 }
 
 func parseOpenAIModelIDs(body []byte) ([]string, error) {
@@ -276,6 +301,31 @@ func parseOpenAIModelIDs(body []byte) ([]string, error) {
 	}))
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("OpenAI Models response contains no valid model IDs")
+	}
+	return ids, nil
+}
+
+// TypeSafe's model list uses models[].name rather than OpenAI's data[].id.
+// Keep the result faithful to the upstream list; do not add the local catalog.
+func parseTypeSafeModelIDs(body []byte) ([]string, error) {
+	var result struct {
+		Models *[]struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := common.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("invalid TypeSafe Models response: %w", err)
+	}
+	if result.Models == nil {
+		return nil, fmt.Errorf("invalid TypeSafe Models response: models is required")
+	}
+	ids := make([]string, 0, len(*result.Models))
+	for _, item := range *result.Models {
+		ids = append(ids, item.Name)
+	}
+	ids = normalizeModelNames(ids)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("TypeSafe Models response contains no valid model names")
 	}
 	return ids, nil
 }
@@ -360,6 +410,9 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 }
 
 func fetchChannelUpstreamModelIDs(ctx context.Context, channel *model.Channel) ([]string, error) {
+	if channel.Type == constant.ChannelTypeOpenHuman {
+		return nil, model.ErrRetiredChannelType
+	}
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
@@ -399,6 +452,9 @@ func fetchChannelUpstreamModelIDs(ctx context.Context, channel *model.Channel) (
 
 	var url string
 	switch channel.Type {
+	case constant.ChannelTypeTypeSafe:
+		// Match the native relay's accepted base URL conventions, including /v1.
+		url = strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(baseURL), "/"), "/v1") + "/v1/models"
 	case constant.ChannelTypeAli:
 		url = fmt.Sprintf("%s/compatible-mode/v1/models", baseURL)
 	case constant.ChannelTypeZhipu_v4:
@@ -440,6 +496,10 @@ func fetchChannelUpstreamModelIDs(ctx context.Context, channel *model.Channel) (
 	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers)
 	if err != nil {
 		return nil, sanitizeAdvancedCustomRequestError(err, key, url)
+	}
+	if channel.Type == constant.ChannelTypeTypeSafe {
+		ids, err := parseTypeSafeModelIDs(body)
+		return ids, sanitizeFetchModelsError(err, key)
 	}
 
 	var result OpenAIModelsResponse
@@ -745,7 +805,9 @@ scanLoop:
 			}
 
 			checkedChannels++
-			modelsChanged, autoAdded, err := checkAndPersistChannelUpstreamModelUpdates(ctx, channel, &settings, force, allowAutoApply)
+			fetchCtx, cancel := newChannelUpstreamModelUpdateFetchContext(ctx)
+			modelsChanged, autoAdded, err := checkAndPersistChannelUpstreamModelUpdates(fetchCtx, channel, &settings, force, allowAutoApply)
+			cancel()
 			if err != nil {
 				failedChannels++
 				failedChannelIDs = append(failedChannelIDs, channel.Id)

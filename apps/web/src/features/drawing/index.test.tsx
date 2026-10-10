@@ -81,6 +81,8 @@ const { Drawing } = await import('./index')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { createDrawingHistoryStore } = await import('./history-storage')
 const { resetDrawingTaskState } = await import('./drawing-task-state')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const originalCurrency = useSystemConfigStore.getState().config.currency
 const originalFetch = globalThis.fetch
 const originalConfirm = window.confirm
 
@@ -189,6 +191,8 @@ async function renderDrawing() {
         ...response.data.data,
         drawing_web_access: {
           minimum_balance_usd: 10,
+          minimum_balance_credit: 35_000_000,
+          balance_credit: 35_000_000,
           balance_usd: 10,
           allowed: true,
         },
@@ -217,6 +221,18 @@ async function renderDrawing() {
 }
 
 beforeEach(() => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...originalCurrency,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500_000,
+      creditsPerUsdExact: '500000',
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+      legacyPricingUnitsPerUsd: 1,
+      quotaPerUnit: 500_000,
+    },
+  })
   resetDrawingTaskState()
   useAuthStore
     .getState()
@@ -233,6 +249,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  useSystemConfigStore.getState().setConfig({ currency: originalCurrency })
   resetDrawingTaskState()
   globalThis.fetch = originalFetch
   window.confirm = originalConfirm
@@ -316,8 +333,10 @@ describe('Drawing mobile controls', () => {
     }
   })
 
-  test('keeps MCP configuration out of the primary workflow until requested', async () => {
+  test('links agent setup to the tool market without loading legacy MCP settings', async () => {
+    const reads: string[] = []
     api.get = (async (url: string) => {
+      reads.push(url)
       if (url === '/api/assistant/status') {
         return {
           data: {
@@ -357,233 +376,15 @@ describe('Drawing mobile controls', () => {
         rendered.container.querySelector('#drawing-mcp-endpoint'),
         null
       )
-      const mcpButton = [...rendered.container.querySelectorAll('button')].find(
-        (button) => button.textContent?.includes('Drawing MCP')
+      assert.equal(rendered.container.querySelector('#drawing-mcp-panel'), null)
+      const toolMarket = rendered.container.querySelector(
+        'a[href="/tool-market"]'
       )
-      assert.ok(mcpButton)
-      assert.equal(mcpButton.getAttribute('aria-expanded'), 'false')
-
-      await act(async () => {
-        mcpButton.click()
-        await flushEffects()
-      })
-
-      assert.ok(rendered.container.querySelector('#drawing-mcp-endpoint'))
-      assert.equal(mcpButton.getAttribute('aria-expanded'), 'true')
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-    }
-  })
-
-  test('loads configured MCP management and clears the old secret when switching keys', async () => {
-    let tokenStatusKey = 1
-    let keyCreateCalls = 0
-    api.get = (async (url: string) => {
-      if (url === '/api/assistant/status') {
-        return {
-          data: {
-            success: true,
-            data: {
-              enabled: true,
-              developer_access_granted: true,
-              drawing_web_access: {
-                minimum_balance_usd: 0,
-                balance_usd: 10,
-                allowed: true,
-              },
-            },
-          },
-        }
-      }
-      if (url === '/api/pricing') return { data: pricing }
-      if (url === '/api/user/self/groups') {
-        return {
-          data: {
-            success: true,
-            data: {
-              ...pricing.usable_group,
-              'mobile-image-group': {
-                ...pricing.usable_group['mobile-image-group'],
-                warning: {
-                  enabled: true,
-                  message: 'Confirm this drawing group.',
-                  mode: 'modal',
-                  confirmations: 2,
-                },
-              },
-            },
-          },
-        }
-      }
-      if (url === '/api/drawing/mcp-keys') {
-        return {
-          data: {
-            success: true,
-            data: {
-              keys: [
-                {
-                  id: 1,
-                  name: 'A',
-                  group: 'mobile-image-group',
-                  status: 1,
-                  remain_quota: 9000000,
-                  used_quota: 1000000,
-                  unlimited_quota: true,
-                },
-                {
-                  id: 2,
-                  name: 'B',
-                  group: 'mobile-image-group',
-                  status: 1,
-                  remain_quota: 8000000,
-                  used_quota: 2000000,
-                  unlimited_quota: false,
-                },
-                ...(keyCreateCalls > 0
-                  ? [
-                      {
-                        id: 3,
-                        name: 'new-mcp-key',
-                        group: 'mobile-image-group',
-                        status: 1,
-                        remain_quota: 7000000,
-                        used_quota: 0,
-                        unlimited_quota: false,
-                      },
-                    ]
-                  : []),
-              ],
-            },
-          },
-        }
-      }
-      if (url === '/api/drawing/mcp-token') {
-        return {
-          data: {
-            success: true,
-            data: {
-              status: {
-                configured: true,
-                api_key_id: tokenStatusKey,
-                default_model: 'image-2',
-              },
-            },
-          },
-        }
-      }
-      throw new Error(`unexpected GET ${url}`)
-    }) as typeof api.get
-    api.post = (async (url: string, body?: unknown) => {
-      if (url === '/api/drawing/key') {
-        keyCreateCalls += 1
-        assert.deepEqual(body, {})
-        return {
-          data: {
-            success: true,
-            data: {
-              id: 3,
-              name: 'drawing-image-2',
-              group: 'image-2',
-              created: true,
-            },
-          },
-        }
-      }
-      assert.equal(url, '/api/drawing/mcp-token')
+      assert.ok(toolMarket)
+      assert.equal(toolMarket.textContent?.trim(), 'Tool market')
       assert.equal(
-        (body as { default_model?: string }).default_model,
-        'image-2'
-      )
-      return { data: { success: true, data: { token: 'secret-A' } } }
-    }) as typeof api.post
-
-    const rendered = await renderDrawing()
-    try {
-      await act(
-        async () =>
-          await waitForCondition(
-            () => rendered.container.querySelectorAll('select').length === 5,
-            'drawing controls did not render'
-          )
-      )
-      const mcpButton = [...rendered.container.querySelectorAll('button')].find(
-        (button) => button.textContent?.includes('Drawing MCP')
-      )
-      assert.ok(mcpButton)
-      await act(async () => {
-        mcpButton.click()
-        await flushEffects()
-      })
-      await act(
-        async () =>
-          await waitForCondition(
-            () =>
-              rendered.container.querySelector('#drawing-mcp-api-key') !== null,
-            'MCP panel did not render'
-          )
-      )
-      assert.ok(
-        [...rendered.container.querySelectorAll('button')].some((button) =>
-          button.textContent?.includes('Rotate MCP token')
-        )
-      )
-      assert.match(
-        rendered.container.querySelector('#drawing-mcp-api-key')?.textContent ??
-          '',
-        /Unlimited/
-      )
-      const createButton = [
-        ...rendered.container.querySelectorAll('button'),
-      ].find((button) =>
-        button.textContent?.includes('Prepare an API key for MCP')
-      )
-      assert.ok(createButton)
-      await act(async () => {
-        createButton.click()
-        await flushEffects()
-      })
-      assert.equal(keyCreateCalls, 1)
-      const keySelect = rendered.container.querySelector(
-        '#drawing-mcp-api-key'
-      ) as HTMLSelectElement | null
-      assert.ok(keySelect)
-      const defaultModelSelect = rendered.container.querySelector(
-        '#drawing-mcp-default-model'
-      ) as HTMLSelectElement | null
-      assert.ok(defaultModelSelect)
-      assert.equal(defaultModelSelect.value, 'image-2')
-      keySelect.value = '1'
-      await act(async () => {
-        keySelect.dispatchEvent(new Event('change', { bubbles: true }))
-        await flushEffects()
-      })
-      const generate = [...rendered.container.querySelectorAll('button')].find(
-        (button) =>
-          button.textContent?.includes('Generate token and copy config')
-      )
-      assert.ok(generate)
-      await act(async () => {
-        generate.click()
-        await flushEffects()
-      })
-      assert.match(
-        (
-          rendered.container.querySelector(
-            '#drawing-mcp-config'
-          ) as HTMLTextAreaElement | null
-        )?.value ?? '',
-        /secret-A/
-      )
-      tokenStatusKey = 1
-      keySelect.value = '2'
-      await act(async () => {
-        keySelect.dispatchEvent(new Event('change', { bubbles: true }))
-        await flushEffects()
-      })
-      assert.equal(
-        rendered.container.querySelector('#drawing-mcp-config'),
-        null
+        reads.some((url) => url.startsWith('/api/drawing/mcp-')),
+        false
       )
     } finally {
       await act(async () => rendered.root.unmount())
@@ -798,7 +599,11 @@ describe('Drawing generation failures', () => {
   }
 })
 
-function mockWorkbench(balance: () => number | null, modelName = 'image-2') {
+function mockWorkbench(
+  balance: () => number | null,
+  modelName = 'image-2',
+  minimumCredit = 35_000_000
+) {
   let statusReads = 0
   api.get = (async (url: string) => {
     if (url === '/api/assistant/status') {
@@ -810,9 +615,11 @@ function mockWorkbench(balance: () => number | null, modelName = 'image-2') {
           data: {
             developer_access_granted: true,
             drawing_web_access: {
-              minimum_balance_usd: 10,
-              balance_usd: current,
-              allowed: current !== null && current >= 10,
+              minimum_balance_usd: minimumCredit / 500_000,
+              minimum_balance_credit: minimumCredit,
+              balance_credit: current === null ? null : Math.round(current),
+              balance_usd: current === null ? null : current / 500_000,
+              allowed: current !== null && Math.round(current) >= minimumCredit,
             },
           },
         },
@@ -857,8 +664,58 @@ const png =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6aQAAAABJRU5ErkJggg=='
 
 describe('Drawing balance and browser history', () => {
-  for (const balance of [9.99, 10, null]) {
-    test(`balance ${balance} gates only web generation while key/MCP controls remain available`, async () => {
+  test('displays the preserved 5m Credit floor across live CNY, USD and Credit preferences', async () => {
+    mockWorkbench(() => 3_500_000, 'image-2', 5_000_000)
+    const rendered = await renderDrawing()
+    const alertText = () =>
+      rendered.container.querySelector('[data-slot="drawing-web-access"]')
+        ?.textContent ?? ''
+    try {
+      assert.match(alertText(), /minimum balance of 10 USD/)
+      assert.match(alertText(), /Current balance: 7 USD/)
+      await act(async () => {
+        await i18n.changeLanguage('zhCN')
+      })
+      assert.match(alertText(), /minimum balance of 70 CNY/)
+      assert.match(alertText(), /Current balance: 49 CNY/)
+      await act(async () => {
+        const currency = useSystemConfigStore.getState().config.currency
+        useSystemConfigStore.getState().setConfig({
+          currency: { ...currency, cnyPerUsd: 8, cnyPerUsdExact: '8' },
+        })
+      })
+      assert.match(alertText(), /minimum balance of 80 CNY/)
+      assert.match(alertText(), /Current balance: 56 CNY/)
+      await act(async () => {
+        const user = useAuthStore.getState().auth.user
+        assert.ok(user)
+        useAuthStore.getState().auth.setUser({
+          ...user,
+          setting: JSON.stringify({ wallet_display_currency: 'USD' }),
+        })
+      })
+      assert.match(alertText(), /minimum balance of 10 USD/)
+      await act(async () => {
+        const user = useAuthStore.getState().auth.user
+        assert.ok(user)
+        useAuthStore.getState().auth.setUser({
+          ...user,
+          setting: JSON.stringify({ wallet_display_currency: 'CREDIT' }),
+        })
+      })
+      assert.match(alertText(), /minimum balance of 5,000,000 Credits/)
+      assert.match(alertText(), /Current balance: 3,500,000 Credits/)
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en')
+      })
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  for (const balance of [34_965_000, 35_000_000, null]) {
+    test(`balance ${balance} gates only web generation while API key and tool market controls remain available`, async () => {
       mockWorkbench(() => balance)
       let keyCalls = 0
       api.post = (async (url: string, body: unknown) => {
@@ -877,15 +734,15 @@ describe('Drawing balance and browser history', () => {
         await promptDrawing(rendered.container)
         assert.equal(
           button(rendered.container, 'Generate image').disabled,
-          balance !== 10
+          balance !== 35_000_000
         )
         const alert = rendered.container.querySelector(
           '[data-slot="drawing-web-access"]'
         )
-        if (balance === 10) assert.equal(alert, null)
+        if (balance === 35_000_000) assert.equal(alert, null)
         else {
           assert.ok(alert)
-          assert.match(alert.textContent ?? '', /USD 10.00/)
+          if (balance !== null) assert.match(alert.textContent ?? '', /70 USD/)
           assert.match(
             alert.textContent ?? '',
             /API and MCP usage is billed normally, not free/
@@ -894,24 +751,23 @@ describe('Drawing balance and browser history', () => {
             assert.match(alert.textContent ?? '', /balance unavailable/)
             assert.doesNotMatch(
               alert.textContent ?? '',
-              /Current balance: USD 0/
+              /Current balance: 0 USD/
             )
           } else {
             assert.match(
               alert.textContent ?? '',
               /Insufficient balance for web image generation/
             )
-            assert.match(alert.textContent ?? '', /Current balance: USD 9.99/)
+            assert.match(alert.textContent ?? '', /Current balance: 69.93 USD/)
           }
         }
         assert.equal(
           button(rendered.container, 'Prepare image-2 API Key').disabled,
           false
         )
-        assert.equal(button(rendered.container, 'Drawing MCP').disabled, false)
+        assert.ok(rendered.container.querySelector('a[href="/tool-market"]'))
         await act(async () => {
           button(rendered.container, 'Prepare image-2 API Key').click()
-          button(rendered.container, 'Drawing MCP').click()
           await flushEffects()
         })
         assert.equal(keyCalls, 1)
@@ -920,7 +776,10 @@ describe('Drawing balance and browser history', () => {
           /image-2 API Key ready/
         )
         assert.ok(rendered.container.querySelector('a[href="/keys"]'))
-        assert.ok(rendered.container.querySelector('#drawing-mcp-endpoint'))
+        assert.equal(
+          rendered.container.querySelector('#drawing-mcp-endpoint'),
+          null
+        )
       } finally {
         await act(async () => rendered.root.unmount())
         rendered.queryClient.clear()
@@ -928,13 +787,13 @@ describe('Drawing balance and browser history', () => {
     })
   }
 
-  test('exact USD 10 generates once, refreshes balance and keeps downloaded history available below the floor', async () => {
-    let balance = 10
+  test('exact 35m Credit balance generates once, refreshes balance and keeps downloaded history available below the floor', async () => {
+    let balance = 35_000_000
     const statusReads = mockWorkbench(() => balance)
     let calls = 0
     api.post = (async () => {
       calls++
-      balance = 9.5
+      balance = 33_250_000
       return { data: { data: [{ b64_json: png }] } }
     }) as typeof api.post
     let rendered = await renderDrawing()
@@ -957,7 +816,7 @@ describe('Drawing balance and browser history', () => {
       assert.equal(button(rendered.container, 'Generate image').disabled, true)
       assert.match(
         rendered.container.textContent ?? '',
-        /Current balance: USD 9.50/
+        /Current balance: 66.5 USD/
       )
       const stored = await createDrawingHistoryStore().load(1)
       assert.equal(stored.images.length, 1)
@@ -994,12 +853,12 @@ describe('Drawing balance and browser history', () => {
   })
 
   test('server denial produces a persistent web-only alert rather than a generation retry', async () => {
-    let balance = 12
+    let balance = 42_000_000
     mockWorkbench(() => balance)
     let calls = 0
     api.post = (async () => {
       calls++
-      balance = 8
+      balance = 28_000_000
       throw {
         response: {
           status: 403,
@@ -1009,8 +868,10 @@ describe('Drawing balance and browser history', () => {
               message: 'server threshold',
             },
             drawing_web_access: {
-              minimum_balance_usd: 10,
-              balance_usd: 8,
+              minimum_balance_usd: 70,
+              minimum_balance_credit: 35_000_000,
+              balance_credit: 28_000_000,
+              balance_usd: 56,
               allowed: false,
             },
           },
@@ -1030,14 +891,14 @@ describe('Drawing balance and browser history', () => {
       )
       assert.match(
         rendered.container.textContent ?? '',
-        /Current balance: USD 8.00/
+        /Current balance: 56 USD/
       )
       assert.doesNotMatch(
         rendered.container.textContent ?? '',
         /Request failed/
       )
       assert.equal(button(rendered.container, 'Generate image').disabled, true)
-      assert.equal(button(rendered.container, 'Drawing MCP').disabled, false)
+      assert.ok(rendered.container.querySelector('a[href="/tool-market"]'))
       assert.equal(calls, 1)
     } finally {
       await act(async () => rendered.root.unmount())
@@ -1046,7 +907,7 @@ describe('Drawing balance and browser history', () => {
   })
 
   test('cache failure never turns generation success into Request failed or repeats the paid request', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     let calls = 0
     api.post = (async () => {
       calls++
@@ -1084,7 +945,7 @@ describe('Drawing balance and browser history', () => {
   })
 
   test('account switch and logout cannot display or save a late response for a previous user', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     let finish: (value: unknown) => void = () => {
       throw new Error('Generation did not start')
     }
@@ -1127,7 +988,7 @@ describe('Drawing balance and browser history', () => {
 describe('Drawing wait experience, cancel control, and prompt draft restoration', () => {
   for (const returnBeforeCompletion of [true, false]) {
     test(`persists a request across navigation (return before completion: ${returnBeforeCompletion})`, async () => {
-      mockWorkbench(() => 20)
+      mockWorkbench(() => 70_000_000)
       let resolvePost!: (value: unknown) => void
       let calls = 0
       let signal: AbortSignal | undefined
@@ -1210,7 +1071,7 @@ describe('Drawing wait experience, cancel control, and prompt draft restoration'
   }
 
   test('shows truthful wait status and allows stopping waiting while keeping prompt', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     let resolvePost: ((value: unknown) => void) | null = null
     api.post = (() =>
       new Promise<unknown>((resolve) => {
@@ -1291,7 +1152,7 @@ describe('Drawing wait experience, cancel control, and prompt draft restoration'
   })
 
   test('restores saved prompt draft upon mounting', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     const { saveDrawingDraft } = await import('./drawing-task-state')
     saveDrawingDraft(1, { prompt: 'Persisted draft of a red lighthouse' })
 
@@ -1316,7 +1177,7 @@ describe('Drawing wait experience, cancel control, and prompt draft restoration'
   })
 
   test('displays error details with HTTP status badge and copy button on 500 error, keeping prompt intact', async () => {
-    mockWorkbench(() => 20)
+    mockWorkbench(() => 70_000_000)
     api.post = (() =>
       Promise.reject({
         response: {

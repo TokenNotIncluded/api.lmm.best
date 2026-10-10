@@ -136,14 +136,52 @@ fn valid_contract(bytes: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::symlink;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> io::Result<Self> {
+            let path = std::env::temp_dir()
+                .join(format!("lmm-route-contract-test-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&path)?;
+            Ok(Self(path))
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn stable_semver_requires_one_final_newline() {
-        assert!(valid_contract(b"1.0.0\n"));
-        assert!(!valid_contract(b"01.0.0\n"));
-        assert!(!valid_contract(b"1.0.0"));
-        assert!(!valid_contract(b"1.0.0\n\n"));
-        assert!(!valid_contract(b"1.0.0-rc.1\n"));
+        for valid in [b"0.0.0\n".as_slice(), b"1.20.300\n".as_slice()] {
+            assert!(valid_contract(valid));
+        }
+        for invalid in [
+            b"".as_slice(),
+            b"1.0.0".as_slice(),
+            b"1.0.0\n\n".as_slice(),
+            b"1.0\n".as_slice(),
+            b"1.0.0.1\n".as_slice(),
+            b"1..0\n".as_slice(),
+            b"1.a.0\n".as_slice(),
+            b"01.0.0\n".as_slice(),
+            b"1.00.0\n".as_slice(),
+            b"1.0.00\n".as_slice(),
+            b"1.0.0-rc.1\n".as_slice(),
+            b"\xff.0.0\n".as_slice(),
+        ] {
+            assert!(!valid_contract(invalid));
+        }
     }
 
     #[test]
@@ -160,6 +198,91 @@ mod tests {
             revision(&root.join("contracts/api-route/VERSION"))?,
             expected
         );
+        Ok(())
+    }
+
+    #[test]
+    fn generated_revision_round_trips_and_detects_contract_changes() -> TestResult {
+        let directory = TestDirectory::new()?;
+        let contract = directory.path().join("VERSION");
+        let output = directory.path().join("nested/route-contract.sha256");
+        fs::write(&contract, b"2.3.4\n")?;
+
+        let digest = generate(&contract, &output)?;
+        assert_eq!(fs::read_to_string(&output)?, format!("{digest}\n"));
+        assert_eq!(verify(&contract, &output)?, digest);
+        assert_eq!(fs::metadata(&output)?.permissions().mode() & 0o777, 0o644);
+
+        fs::write(&contract, b"2.3.5\n")?;
+        assert!(matches!(
+            verify(&contract, &output),
+            Err(RouteContractError::RevisionMismatch)
+        ));
+        let regenerated = generate(&contract, &output)?;
+        assert_ne!(regenerated, digest);
+        assert_eq!(verify(&contract, &output)?, regenerated);
+
+        fs::write(&contract, b"2.3\n")?;
+        assert!(matches!(
+            revision(&contract),
+            Err(RouteContractError::InvalidVersion)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn contract_and_revision_symlinks_are_rejected() -> TestResult {
+        let directory = TestDirectory::new()?;
+        let contract = directory.path().join("VERSION");
+        let contract_link = directory.path().join("VERSION.link");
+        let revision_file = directory.path().join("route-contract.sha256");
+        let revision_link = directory.path().join("route-contract.link");
+        fs::write(&contract, b"1.0.0\n")?;
+        generate(&contract, &revision_file)?;
+        symlink(&contract, &contract_link)?;
+        symlink(&revision_file, &revision_link)?;
+
+        assert!(matches!(
+            revision(&contract_link),
+            Err(RouteContractError::UnsafeContract)
+        ));
+        assert!(matches!(
+            verify(&contract, &revision_link),
+            Err(RouteContractError::UnsafeRevision)
+        ));
+        assert!(matches!(
+            generate(&contract, &revision_link),
+            Err(RouteContractError::UnsafeOutput)
+        ));
+        assert!(matches!(
+            generate(&contract, directory.path()),
+            Err(RouteContractError::UnsafeOutput)
+        ));
+        assert!(matches!(
+            verify(&contract, &directory.path().join("missing.sha256")),
+            Err(RouteContractError::UnsafeRevision)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_revision_is_rejected_before_comparison() -> TestResult {
+        let directory = TestDirectory::new()?;
+        let contract = directory.path().join("VERSION");
+        let revision_file = directory.path().join("route-contract.sha256");
+        fs::write(&contract, b"1.0.0\n")?;
+
+        for malformed in [
+            "a".repeat(64),
+            format!("{}\n", "A".repeat(64)),
+            format!("{}\n\n", "a".repeat(64)),
+        ] {
+            fs::write(&revision_file, malformed)?;
+            assert!(matches!(
+                verify(&contract, &revision_file),
+                Err(RouteContractError::InvalidRevision)
+            ));
+        }
         Ok(())
     }
 }

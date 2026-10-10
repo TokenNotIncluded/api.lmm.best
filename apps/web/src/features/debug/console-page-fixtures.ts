@@ -18,30 +18,103 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AxiosAdapter, InternalAxiosRequestConfig } from 'axios'
 
+import type { AdminSiteStatistics } from '@/features/dashboard/site-statistics'
+import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
+
+import { DEBUG_WALLET_TOPUP_INFO } from './wallet-review-fixtures'
 
 const stamp = 1790035200
 const page = { items: [], total: 0, page: 1, page_size: 20, size: 20 }
 const modelNames = ['gpt-5-mini', 'claude-sonnet']
 
+// GetMerchantStoreConfig, GetMarketAIReviewSettings and
+// ListAdminViolationFeeAppeals expose these success shapes. Empty configured
+// payment methods leave only the built-in balance method; no provider is called.
+const storeAndSecurityReads: Record<string, unknown> = {
+  '/api/store/config': {
+    fee_bps: 100,
+    promotion_quota: 500000,
+    minimum_unit_price_quota: 500000,
+    product_test_mode_supported: true,
+    store_catalogue_supported: true,
+    store_collections_supported: true,
+    store_access_supported: true,
+    product_purchase_limits_supported: true,
+    product_link_presets: [],
+    linuxdo_units_per_usd: '',
+    // common.FixedCreditsPerUSD and MerchantStoreCreditsPerUSD are fixed at
+    // 500000; the external merchant threshold is ten times that ledger basis.
+    credits_per_usd: 500000,
+    external_minimum_quota: 5000000,
+    disclaimer_version: 'merchant-store-v1',
+    disclaimer_text: `Third-party products are sold and delivered by the listed merchant. Please read the description, delivery conditions, price and merchant contact details before ordering. The official badge identifies products sold by a current platform administrator; other products are independent merchant products.
+
+The platform provides listing review, payment records and delivery links. A listing review is not a guarantee of product quality, suitability, legality or continued availability. Contact the merchant first about product issues, and keep your order number and payment record when requesting platform assistance. The platform may pause products or investigate reports.
+
+Digital text and activation codes may be revealed immediately after confirmed payment. Do not share your private delivery link or pickup code. Check the merchant's stated terms before buying; any refund request must be handled according to the applicable order and payment terms.
+
+Payments credited to a merchant's platform balance cannot be withdrawn and may only be used for consumption on the platform. External merchant gateways receive the payment directly, while the platform charges the merchant a service fee in credits.
+
+By accepting, you confirm that you have read these terms and understand that you are purchasing from the named third-party merchant. You can reopen this notice at any time from the shop.`,
+    platform_payment_methods: [
+      {
+        provider: 'balance',
+        payment_type: 'balance',
+        name: 'Platform balance',
+        supported: true,
+        configured: true,
+      },
+    ],
+    platform_payment_catalog: [
+      {
+        provider: 'balance',
+        payment_type: 'balance',
+        name: 'Platform balance',
+        supported: true,
+        configured: true,
+      },
+    ],
+  },
+  '/api/security/market-ai-review/settings': {
+    tool_mode: 'off',
+    store_mode: 'off',
+    review_group: 'default',
+    review_model: 'omni-moderation-latest',
+    engine: 'openai_moderation',
+    supported_inputs: ['text'],
+    categories: [
+      'harassment',
+      'harassment/threatening',
+      'hate',
+      'hate/threatening',
+      'illicit',
+      'illicit/violent',
+      'self-harm',
+      'self-harm/intent',
+      'self-harm/instructions',
+      'sexual',
+      'sexual/minors',
+      'violence',
+      'violence/graphic',
+    ],
+  },
+  '/api/security/admin/violation-fee-appeals': [],
+}
+
 // Explicit read-only fixtures, not production fallbacks. Unknown requests still
 // reach the persona adapter and fail closed; no payment or administrative write
 // is added here. Activated only by console_review=1 in the development entry.
 const reads: Record<string, unknown> = {
-  '/api/user/company-billing-profile': null,
-  '/api/user/topup/info': {
-    enable_online_topup: false,
-    enable_stripe_topup: false,
-    enable_creem_topup: false,
-    enable_waffo_topup: false,
-    pay_methods: [],
-    amount_options: [10, 50, 100, 200],
-    min_topup: 1,
-    stripe_min_topup: 1,
-    discount: {},
-    developer_access_granted: true,
-    payment_available: false,
+  '/api/about':
+    '# Local review\nSynthetic content for layout review.\n\n## Account\nUse your own account.\n\n## Keys\nDo not share keys.\n\n## Usage\nReview recorded usage.\n\n## Support\nKeep your request ID.',
+  '/api/assistant/workspace/greeting': {
+    templates: {},
+    revision: 0,
+    updated_at: 0,
   },
+  '/api/user/company-billing-profile': null,
+  '/api/user/topup/info': DEBUG_WALLET_TOPUP_INFO,
   '/api/user/aff': 'local-preview-referral',
   '/api/user/2fa/status': {
     enabled: false,
@@ -70,7 +143,46 @@ const reads: Record<string, unknown> = {
     rate_percent: 1,
     rate_basis_points: 100,
   },
-  '/api/open-source-bounties': page,
+  '/api/open-source-bounties': {
+    ...page,
+    total: 6,
+    items: Array.from({ length: 6 }, (_, index) => ({
+      id: 1000 + index,
+      owner_user_id: 42,
+      owner_username: 'review-maintainer',
+      repository_url: 'https://github.com/example/review-fixture',
+      title: `Browser review fixture ${index + 1} — repair a reproducible issue`,
+      description:
+        'Synthetic review data. Reproduce the issue, add a focused test, and explain the change. No live account or payment is used.',
+      rules: 'Submit a focused fix with tests.',
+      reward_quota: 500000,
+      net_reward_quota: 475000,
+      reward_slots: 2,
+      escrow_quota: 950000,
+      platform_fee_rate_bps: 500,
+      platform_fee_quota: 50000,
+      status: 'published',
+      created_at: 1,
+      updated_at: 1,
+      published_at: 1,
+      closed_at: 0,
+      archived_at: 0,
+      participant_count: 3,
+      active_challenge_count: 2,
+      accepted_challenge_count: 1,
+      submitted_challenge_count: 1,
+      approved_challenge_count: 0,
+      rejected_challenge_count: 0,
+      withdrawn_challenge_count: 0,
+      cancelled_challenge_count: 0,
+      appealable_challenge_count: 0,
+      appeal_window_ends_at: 0,
+      open_dispute_count: 0,
+      owner_rating_average: 4.8,
+      owner_rating_count: 8,
+      owner_thank_heart_count: 4,
+    })),
+  },
   '/api/open-source-bounties/mine': [],
   '/api/open-source-bounties/accepted': [],
   '/api/open-source-bounties/disputes/mine': [],
@@ -98,7 +210,52 @@ const reads: Record<string, unknown> = {
     recipient_id: 0,
     quota_per_unit: 500000,
     web_client_id: 'console-preview',
-    mcp_path: '/mcp',
+    mcp_path: '/mcp/market',
+    credits_per_usd: '500000',
+    capabilities: { mcp_oauth: true, metamcp: true },
+    meta_tool: {
+      name: 'metamcp',
+      title: 'LMM tool management and invocation',
+      description: 'Management is free. Invocation uses target pricing.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            enum: [
+              'status',
+              'search',
+              'details',
+              'load',
+              'authorize',
+              'invoke',
+            ],
+          },
+        },
+        required: ['action'],
+      },
+    },
+    provider_presets: [
+      {
+        id: 'monid',
+        name: 'Monid',
+        endpoint: 'https://mcp.monid.ai/v1',
+        execute_tool: 'monid_run',
+        inspect_tool: 'monid_inspect',
+        read_tools: ['monid_discover', 'monid_inspect'],
+        documentation: 'https://docs.monid.ai',
+        oauth: true,
+      },
+      {
+        id: 'agentkey',
+        name: 'AgentKey',
+        endpoint: 'https://api.agentkey.app/v1/mcp',
+        execute_tool: 'execute_tool',
+        inspect_tool: 'describe_tool',
+        read_tools: ['find_tools', 'list_tools', 'describe_tool'],
+        documentation: 'https://docs.agentkey.app',
+        oauth: true,
+      },
+    ],
   },
   '/api/tool-market': [],
   '/api/tool-market/mine/grants': [],
@@ -107,6 +264,7 @@ const reads: Record<string, unknown> = {
   '/api/tool-market/mine/services': [],
   '/api/tool-market/mine/calls': [],
   '/api/tool-market/mine/tokens': [],
+  '/api/tool-market/mine/oauth-clients': [],
   '/api/tool-market/mine/income': [],
   '/api/tool-market/mine/budgets': [],
   '/api/rankings': {
@@ -139,47 +297,52 @@ const reads: Record<string, unknown> = {
   '/api/system-task/current': null,
   '/api/custom-oauth-provider/': [],
   '/api/option/channel_affinity_cache': { entries: [], total: 0, size: 0 },
+  '/api/security/admin/moderation/models': {
+    group: 'default',
+    models: ['omni-moderation-latest', 'omni-moderation-2024-09-26'],
+  },
   '/api/security/policy': {
     policy_version: 'preview',
     reference_effective_date: '',
     reference_url: '',
     alignment: '',
-    enforcement: { enabled: false, on_prompt: false, action: 'audit' },
-    risk_categories: [],
-    rules: [],
-    violation_fees: [],
-  },
-  '/api/security/stats': {
-    total_matches: 0,
-    blocked_matches: 0,
-    audited_matches: 0,
-    affected_requests: 0,
-    affected_users: 0,
-    by_category: [],
-  },
-  '/api/security/admin/stats': {
-    total_matches: 0,
-    blocked_matches: 0,
-    audited_matches: 0,
-    affected_requests: 0,
-    affected_users: 0,
-    by_category: [],
-    by_rule: [],
-    ai_review: {
-      total: 0,
-      completed: 0,
-      violations: 0,
-      abuses: 0,
-      failed: 0,
-      by_group: [],
+    moderation: {
+      enabled: false,
+      assistant_enabled: false,
+      engine: 'openai_moderation',
+      async: true,
+      group_policies: {},
+      supported_inputs: ['text'],
+      notice_only: true,
     },
   },
-  '/api/security/admin/ai-reviews': page,
-  '/api/security/admin/events': page,
-  '/api/security/admin/review-runs': [],
-  '/api/security/admin/policy': {
-    settings: { enabled: false, on_prompt: false, action: 'audit' },
-    rules: [],
+  '/api/security/stats': {
+    moderation: {
+      pending: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      flagged: 0,
+      fined: 0,
+      charged_quota: 0,
+    },
+  },
+  '/api/security/admin/moderation-reviews': {
+    rows: [],
+    total: 0,
+    page: 1,
+    page_size: 20,
+  },
+  '/api/security/admin/moderation-stats': {
+    pending: 0,
+    running: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+    flagged: 0,
+    fined: 0,
+    charged_quota: 0,
   },
   '/api/assistant/admin/registration-events': [],
   '/api/option/hero-sms': {
@@ -210,11 +373,76 @@ const reads: Record<string, unknown> = {
   '/api/hero-sms/email/activations': page,
   '/api/hero-sms/email/activations/current': null,
   '/api/drawing/self/settings': { enabled: false },
+  '/api/option/pricing': {
+    schema_version: 2,
+    currency: 'USD',
+    storage_basis: 'legacy_pricing_unit',
+    revision: 'a'.repeat(64),
+    credits_per_usd: 500000,
+    legacy_pricing_units_per_usd: 500000,
+    model_ratio_usd_per_million: 2,
+    tool_price_defaults: {},
+    values: {
+      ModelRatio: '{"gpt-5-mini":0.25}',
+      CompletionRatio: '{"gpt-5-mini":2}',
+      ModelPrice: '{}',
+      CacheRatio: '{}',
+      CreateCacheRatio: '{}',
+      ImageRatio: '{}',
+      AudioRatio: '{}',
+      AudioCompletionRatio: '{}',
+      'billing_setting.billing_mode': '{}',
+      'billing_setting.billing_expr': '{}',
+      ModelPriceLock: '{}',
+      'tool_price_setting.prices': '{}',
+    },
+  },
   '/api/option/': [
     { key: 'SystemName', value: 'LMM Best' },
     { key: 'QuotaPerUnit', value: '500000' },
   ],
+  '/api/ai-directory/ads': { items: [], has_more: false, next_offset: 0 },
+  '/api/ai-directory/ads/mine': { items: [] },
+  '/api/ai-directory': { links: null },
 }
+
+// Synthetic amounts for the local-only console gallery, never production data.
+const overviewStatistics = {
+  as_of: stamp,
+  credits_per_usd: 500000,
+  total_used_credits: '896123456',
+  total_balance_credits: '1024567890',
+  recharge: {
+    currencies: [
+      {
+        currency: 'CNY',
+        gross_amount_micros: '1480500000',
+        refunded_amount_micros: '36000000',
+        net_amount_micros: '1444500000',
+        orders: 36,
+      },
+      {
+        currency: 'USD',
+        gross_amount_micros: '283450000',
+        refunded_amount_micros: '8250000',
+        net_amount_micros: '275200000',
+        orders: 12,
+      },
+    ],
+    virtual_units: [
+      {
+        currency: 'LDC',
+        gross_amount_micros: '31250000',
+        refunded_amount_micros: '0',
+        net_amount_micros: '31250000',
+        orders: 3,
+      },
+    ],
+    confirmed_orders: 51,
+    unconfirmed_orders: 4,
+    invalid_orders: 1,
+  },
+} satisfies AdminSiteStatistics
 
 export function consolePageFixture(
   config: InternalAxiosRequestConfig
@@ -224,6 +452,117 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (path === '/api/ratio_sync/service_tiers') {
+    if (url.username || url.password || (user?.role ?? 0) < ROLE.SUPER_ADMIN) {
+      return undefined
+    }
+    // An unsynchronized, disabled installation. Never fetch provider prices or
+    // grant accelerated access while reviewing console pages.
+    return {
+      success: true,
+      data: {
+        policy: {
+          enabled: false,
+          fast_markup: 1.2,
+          ultrafast_markup: 1.2,
+          fast_groups: [],
+          ultrafast_groups: [],
+        },
+        catalog: {
+          source: '',
+          fetched_at: '0001-01-01T00:00:00Z',
+          sha256: '',
+          models: {},
+        },
+        fresh: false,
+        max_age_hours: 24,
+        groups: { default: 1 },
+      },
+    }
+  }
+  if (path === '/api/finance/site-statistics') {
+    if (
+      url.username ||
+      url.password ||
+      (user?.role !== ROLE.ADMIN && user?.role !== ROLE.SUPER_ADMIN)
+    ) {
+      return undefined
+    }
+    return { success: true, data: structuredClone(overviewStatistics) }
+  }
+  if (Object.hasOwn(storeAndSecurityReads, path)) {
+    if (url.username || url.password) return undefined
+    // Both security GET routes require AdminAuth on the real router. Falling
+    // through preserves the persona adapter's fail-closed behavior for users.
+    if (path !== '/api/store/config' && (user?.role ?? 0) < ROLE.ADMIN) {
+      return undefined
+    }
+    return {
+      success: true,
+      message: '',
+      data: structuredClone(storeAndSecurityReads[path]),
+    }
+  }
+  if (
+    path === '/api/ai-directory/ads' &&
+    new URLSearchParams(window.location.search).get('ads_preview') === '1'
+  ) {
+    const now = Math.floor(Date.now() / 1000)
+    return {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 1,
+            name: 'Example Studio',
+            url: 'https://example.com',
+            summary: 'A sample promoted creative workspace.',
+            description: 'Synthetic preview placement for layout review.',
+            bid_cents: 500,
+            charged_quota: 2500000,
+            status: 'active',
+            paid_at: now - 60,
+            expires_at: now + 30 * 86400,
+            hidden_at: 0,
+            refunded_at: 0,
+          },
+          {
+            id: 2,
+            name: 'Research Notes',
+            url: 'https://example.org',
+            summary: 'A sample promoted research resource.',
+            description: '',
+            bid_cents: 150,
+            charged_quota: 750000,
+            status: 'active',
+            paid_at: now - 30,
+            expires_at: now + 30 * 86400,
+            hidden_at: 0,
+            refunded_at: 0,
+          },
+        ],
+        has_more: false,
+        next_offset: 2,
+      },
+    }
+  }
+  if (path === '/api/ai-directory/ads/quote') {
+    const bidCents = Number(url.searchParams.get('bid_cents'))
+    if (!Number.isInteger(bidCents) || bidCents < 100 || bidCents > 1_000_000) {
+      return undefined
+    }
+    return {
+      success: true,
+      data: {
+        bid_cents: bidCents,
+        quota: bidCents * 5000,
+        currency: 'USD',
+        duration_days: 30,
+        min_bid_cents: 100,
+        max_bid_cents: 1_000_000,
+      },
+    }
+  }
   if (path === '/api/todos') {
     const category = url.searchParams.get('category') || 'all'
     return {
@@ -239,7 +578,7 @@ export function consolePageFixture(
       },
     }
   }
-  if (path === '/api/pricing') {
+  if (path === '/api/pricing' || path === '/api/assistant/pricing') {
     return {
       success: true,
       data: [
@@ -312,6 +651,18 @@ export function consolePageFixture(
     }
   }
   if (['/api/data/self', '/api/data', '/api/data/users'].includes(path)) {
+    const bound = (key: string, fallback: number) => {
+      const params: unknown = config.params
+      const value =
+        (params instanceof URLSearchParams
+          ? params.get(key)
+          : params && typeof params === 'object'
+            ? (params as Record<string, unknown>)[key]
+            : undefined) ?? url.searchParams.get(key)
+      return value === null || value === undefined ? fallback : Number(value)
+    }
+    const start = bound('start_timestamp', Number.NEGATIVE_INFINITY)
+    const end = bound('end_timestamp', Number.POSITIVE_INFINITY)
     return {
       success: true,
       data: Array.from({ length: 7 }, (_, index) => ({
@@ -323,7 +674,7 @@ export function consolePageFixture(
         token_used: 2400 + index * 380,
         count: 8 + index * 2,
         quota: 3000 + index * 80,
-      })),
+      })).filter((row) => row.created_at >= start && row.created_at <= end),
     }
   }
   if (['/api/data/flow/self', '/api/data/flow'].includes(path)) {

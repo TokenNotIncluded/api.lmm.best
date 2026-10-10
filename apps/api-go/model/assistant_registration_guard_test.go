@@ -12,6 +12,7 @@ import (
 
 func setupRegistrationGuard(t *testing.T) *gorm.DB {
 	t.Helper()
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
 	db := setupAssistantGiftTestDB(t)
 	require.NoError(t, db.AutoMigrate(&Option{}, &DeveloperAccessRequest{}, &DeveloperAccessRecommendationArchive{}, &AssistantConversation{}, &AssistantHistoryMessage{}, &AssistantSupportRequest{}))
 	return db
@@ -147,4 +148,14 @@ func TestRegistrationGuardGlobalCapBecomesNotification(t *testing.T) {
 		require.Error(t, ValidateRegistrationGuardOption(AssistantRegistrationDailyCapOption, v))
 	}
 	require.Error(t, ValidateRegistrationGuardOption(AssistantRegistrationAutoSuspendOption, "yes"))
+}
+
+func TestRegistrationPublicStateDoesNotTurnDatabaseFailuresIntoMoreConversation(t *testing.T) {
+	setupRegistrationGuard(t)
+	user := guardUser(t, "public-state-errors")
+	require.Equal(t, "ready", RegistrationPublicState(user.Id))
+	require.NoError(t, DB.Migrator().DropTable(&AssistantRegistrationProfile{}))
+	require.Equal(t, "unavailable", RegistrationPublicState(user.Id))
+	require.NoError(t, DB.Migrator().DropTable(&AssistantRegistrationCase{}))
+	require.Equal(t, "unavailable", RegistrationPublicState(user.Id))
 }

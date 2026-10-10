@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CHANNEL_TYPE_OPENHUMAN, CHANNEL_TYPES } from '../constants'
+import {
+  CHANNEL_TYPE_OPENHUMAN,
+  CHANNEL_TYPE_TYPESAFE,
+  CHANNEL_TYPES,
+  TYPESAFE_MODELS,
+} from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
@@ -62,20 +67,15 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       keyMinLength: 20,
     },
   },
-  [CHANNEL_TYPE_OPENHUMAN]: {
-    id: CHANNEL_TYPE_OPENHUMAN,
-    name: CHANNEL_TYPES[CHANNEL_TYPE_OPENHUMAN],
-    icon: 'openai',
-    defaultBaseUrl: 'https://api.openai.com',
-    requiresOrganization: true,
+  [CHANNEL_TYPE_TYPESAFE]: {
+    id: CHANNEL_TYPE_TYPESAFE,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_TYPESAFE],
+    icon: 'TypeSafe',
+    defaultBaseUrl: 'https://api.typesafe.ai',
+    supportedModels: TYPESAFE_MODELS,
     hints: {
-      baseUrl: 'Default: https://api.openai.com',
-      key: 'Format: sk-...',
-      models: 'gpt-4,gpt-4-turbo,gpt-3.5-turbo',
-    },
-    validation: {
-      keyFormat: /^sk-/,
-      keyMinLength: 20,
+      key: 'Enter API key for this channel',
+      models: TYPESAFE_MODELS.join(','),
     },
   },
   3: {
@@ -190,7 +190,7 @@ export function getChannelTypeConfig(type: number): ChannelTypeConfig {
     CHANNEL_TYPE_CONFIGS[type] || {
       id: type,
       name: CHANNEL_TYPES[type as keyof typeof CHANNEL_TYPES] || 'Unknown',
-      icon: 'openai',
+      icon: type === CHANNEL_TYPE_OPENHUMAN ? 'Unknown' : 'openai',
     }
   )
 }
